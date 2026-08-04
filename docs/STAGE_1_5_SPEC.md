@@ -443,18 +443,42 @@ pointer. Rejected, deliberately:
 
 `apps/web/src/app/products/product-powered-hub.ts` (+ the pure heuristic in
 `powered-hub-grouping.ts`), rendered from `product-detail.ts` as `id="powered-integrations"`,
-between `#integrations` and `#reviews`, with a matching "Powers integrations" section-nav entry.
+between `#integrations` and `#reviews`, with a matching "Integrations it powers" section-nav entry
+(label identical to the section heading minus the count).
 
-- **Grouping heuristic (orientation-agnostic).** Source/target orientation on a powered edge is
-  arbitrary — it records how the row was authored, not a hub/spoke truth. So: count each product's
-  frequency across the whole powered set, file every edge under its **more frequent** endpoint
-  (the hub), and make the other endpoint a chip. Ties break on slug (alphabetical), matching
-  `defaultIntegrationContext`. Groups sort by chip count desc then hub name; chips sort by name;
-  multiple edges for the same pair (differing mechanism kinds) collapse to **one** chip.
-- **Reads like the buying question.** "Connects **Procore** with: Acumatica · Sage Intacct ·
-  Viewpoint Spectrum · Viewpoint Vista" — instead of a flat table repeating the same platform on
-  every row. Chips link the **canonical pair page** (`defaultIntegrationContext` picks the context
-  slug), where the mechanism cards — including this connector's own "Powered by" byline — live.
+- **Edges collapse to distinct PAIRS first.** Two products can be joined by several rows —
+  different mechanism kinds, or (in live data today) plain duplicates. One pair renders one row.
+  Each pair is normalized to the canonical `orderedPairSlugs` orientation (`a` = alphabetically
+  -first slug, matching `defaultIntegrationContext`), so the arbitrary stored source/target
+  orientation never leaks into the UI. Per pair we keep the distinct `mechanism_kind` set (in enum
+  order) and a merged direction; two opposing one-ways merge to a round trip.
+- **The hub is decided per PRODUCT, not per edge.** Source/target orientation on a powered edge is
+  arbitrary — it records how the row was authored, not a hub/spoke truth — so the hub is derived.
+  Deriving it per *edge* (the original heuristic: file each edge under its more frequent endpoint)
+  is locally correct and globally incoherent: given `ACC↔QuickBooks` and `QuickBooks↔Roofr`, ACC
+  wins the first and QuickBooks wins the second, so **QuickBooks renders as a partner row AND as a
+  hub heading in the same section** — it reads as a data error. Deciding once per product makes
+  that impossible. Greedy, highest-degree-first, ties on slug (alphabetical): count each product's
+  unclaimed pairs while **skipping products already spent as a partner** (that exclusion is what
+  enforces the invariant); the winner becomes a hub if it clears **`MIN_PAIRS_FOR_HUB` = 2** and
+  claims every unclaimed pair it touches. Groups sort by partner count desc then hub name;
+  partners sort by name.
+- **Pairs that clear no hub are rendered flat**, in a trailing card, as whole `A → B` rows — rather
+  than forced under a one-partner heading (all chrome, no content). When there are no hub cards at
+  all, that card is titled "Connections"; below hub cards it is "Other connections".
+- **Presentation: cards with rows, not a fragment heading over chips.** The first cut rendered
+  "Connects {hub} with" + name-only chips. That heading was a sentence fragment — screen readers
+  announced a trailing preposition, and a string split around a list can't hold word order under
+  translation — and the chips carried none of the mechanism/direction detail the sibling endpoint
+  table shows for the same edges (they also sat at 1.03:1 on `--surface-base`, visually absent).
+  Now: one bordered card per hub, header = logo + hub name as a plain **noun-phrase** heading
+  (linked to the hub product) + the group size; body = full-width partner rows carrying logo,
+  partner name, **hub-relative direction** (`integrationDirectionForContext`, mirrored when the hub
+  is endpoint B — the same `→ Outbound / ← Inbound / ⇄ Both` vocabulary the endpoint table frames
+  relative to *its* page product), the mechanism badge, and a chevron. Below `md` the direction and
+  mechanism columns fold and the mechanism becomes a muted sublabel — the same breakpoint behaviour
+  as `ProductIntegrationRow`. One link per row (the pair page), so no stretched-link overlay: the
+  partner's own product page is one hop further, from the pair page.
 - **A full compatibility-matrix page archetype** (platforms × ERPs grid) was considered and is
   noted as a possible **Stage 2** evolution; the hub view is the Stage 1.5 answer.
 - **Render condition:** `product_role !== 'application' || integrations_as_connector.length > 0`.
@@ -463,8 +487,22 @@ between `#integrations` and `#reviews`, with a matching "Powers integrations" se
   it actually powers edges, a data-driven safety net for a mis-roled product.
 - **Empty state** mirrors the endpoint one, with connector wording and the same `aecRequestTrigger`
   suggest-a-correction link (`@@products.detail.body.powers.empty`).
-- **Heading** counts **edges**, not groups: "Powers these integrations (N)"
-  (`@@products.detail.body.powers.heading`).
+- **Heading: "Integrations it powers (N)"** (`@@products.detail.body.powers.heading`). A noun
+  phrase, parallel to the endpoint "Integrations (N)" heading directly above it, because on a
+  connector page **both sections can be populated at once** — NetSuite Connector by Appficiency
+  carries its own endpoint integration *and* powered edges — so the two headings must be tellable
+  apart. The former "Powers these integrations" failed at that: verb-first (breaking the
+  `About` / `How teams use it` / `Integrations` / `Reviews` heading grammar), "these" pointed
+  forward at nothing, and "powers" is vendor marketing voice rather than the neutral catalog voice
+  PRODUCT.md asks for. The pronoun in "it powers" does the disambiguating work "these" was not.
+  (Renaming the *sibling* endpoint heading to "Direct integrations (N)" on connector/hybrid pages
+  was considered as a matching pair and is **not** adopted — the pronoun carries it alone.)
+- **N counts distinct pairs** — i.e. the rows actually rendered — not raw edges and not groups.
+  Counting edges made the heading lie: live data carries duplicate rows for one pair (that same
+  NetSuite connector: 4 edges, 2 pairs) and several mechanisms between one pair collapse to a
+  single row, so a reader counting rows found fewer than the heading promised. `product-detail.ts`
+  owns the `groupPoweredIntegrations()` call and passes the result down as `[view]`, so the count
+  and the rendered rows are provably the same set.
 - **`RoleBadge` in the hero**, beside the "Product" eyebrow. It self-hides for `application`, so
   only connectors/hybrids are flagged. The endpoint "Integrations (0)" section is left as-is — for
   a pure connector that number is factually correct.

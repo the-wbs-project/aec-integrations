@@ -1,10 +1,13 @@
 /**
  * datatool Worker entrypoint — an internal, Cloudflare-Access-gated admin tool.
  *
- * Two jobs from a UI (and JSON API): (1) copy/clone D1 data env→env (full mirror,
- * replace), and (2) seed reviews into any env. Both run a clean Algolia reindex +
- * edge-cache purge of the destination afterward. All writes are dry-run-by-default
- * and require typed confirmation; production needs an extra explicit confirm.
+ * Three jobs from a UI (and JSON API): (1) copy/clone D1 data env→env (full
+ * mirror, replace), (2) seed reviews into any env, and (3) prune orphaned
+ * `integrations` rows that no Airtable record points at. Each runs a clean
+ * Algolia reindex + edge-cache purge of the target afterward. All writes are
+ * dry-run-by-default and require typed confirmation; production needs an extra
+ * explicit confirm. The prune adds three data-shape guards that refuse the
+ * delete outright — see `prune-integrations.ts`.
  *
  * The mutating `/api/*` routes are gated by `requireAccess` (Access JWT or
  * TOOL_TOKEN); the UI shell and `/api/version` are not (the edge Access already
@@ -22,6 +25,7 @@ import {
 import { purgeEnvCache } from './cache-purge';
 import { copyDryRun, copyExecute } from './copy';
 import type { Env } from './env';
+import { parseIds, pruneExecute, prunePlan } from './prune-integrations';
 import {
   applySeed,
   applyTeardown,
@@ -286,6 +290,96 @@ app.post('/api/reindex', requireAccess(), async (c) => {
   const purge = body.purge === false ? null : await purgeEnvCache(fetch, t.purge);
   logOperation(c.get('operator'), { op: 'reindex', target, entities });
   return c.json({ ok: true, target, reindex, purge });
+});
+
+// ── Prune orphaned integrations ──────────────────────────────────────────────────
+
+app.post('/api/prune-integrations', requireAccess(), async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+  const { target } = body;
+  if (!isEnvId(target)) {
+    return c.json(
+      { error: { code: 'BAD_REQUEST', message: `target must be ${ENV_IDS.join('|')}` } },
+      400,
+    );
+  }
+
+  let ids: string[];
+  try {
+    ids = parseIds(body.ids);
+  } catch (e) {
+    return c.json({ error: { code: 'BAD_IDS', message: (e as Error).message } }, 400);
+  }
+
+  const t = targetFor(c.env, target);
+  const plan = await prunePlan(t.db, ids);
+  const dryRun = body.dryRun !== false; // default true
+
+  if (dryRun) {
+    return c.json({
+      ok: plan.blocked.length === 0,
+      dryRun: true,
+      target,
+      ...plan,
+      note:
+        plan.blocked.length > 0
+          ? `BLOCKED by ${plan.blocked.join(', ')} — these rows are not redundant copies. Do not execute.`
+          : 'Save rollbackSql before executing: D1 has no undo and this Worker cannot write files.',
+    });
+  }
+
+  // A tripped guard means at least one row is NOT a redundant copy. Refuse on the
+  // execute path too, not just in the dry-run summary — the operator may not have
+  // re-read the plan, and this is the last gate before an irreversible delete.
+  if (plan.blocked.length > 0) {
+    return c.json(
+      {
+        error: {
+          code: 'GUARD_TRIPPED',
+          message: `Refusing to delete: ${plan.blocked.join(', ')} is non-zero. These rows are not redundant copies.`,
+          guards: plan.guards,
+        },
+      },
+      409,
+    );
+  }
+  if (plan.found === 0) {
+    return c.json(
+      { error: { code: 'NOTHING_TO_PRUNE', message: 'None of those ids matched a live row.' } },
+      400,
+    );
+  }
+
+  const err = confirmationError(t, body);
+  if (err) return c.json({ error: err }, 400);
+
+  // Captured pre-delete: afterwards the join that finds these products is gone.
+  const { rollbackSql, affectedProductIds, affectedSlugs } = plan;
+  const result = await pruneExecute(t.db, ids, affectedProductIds);
+
+  // Reindex rebuilds `integrations` from D1 (clear + repopulate), which is also
+  // what evicts the deleted objects from Algolia — so the search follow-up is
+  // part of this operation rather than a separate manual step.
+  const refresh =
+    body.refresh === false ? null : await refreshTarget(t, ['products', 'integrations']);
+
+  logOperation(c.get('operator'), {
+    op: 'prune-integrations',
+    target,
+    requested: plan.requested,
+    deleted: result.deleted,
+    recounted: result.recounted.length,
+  });
+
+  return c.json({
+    ok: true,
+    executed: true,
+    target,
+    ...result,
+    affectedSlugs,
+    refresh,
+    rollbackSql,
+  });
 });
 
 export default app;

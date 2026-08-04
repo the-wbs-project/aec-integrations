@@ -155,7 +155,7 @@ describe('ProductDetailPage hero rating', () => {
 });
 
 /**
- * Stage 1.5 Addendum B — the "Powers these integrations" hub section that makes
+ * Stage 1.5 Addendum B — the "Integrations it powers" hub section that makes
  * a connector product's page intelligible (its endpoint table is legitimately
  * empty because it is the mechanism, not an endpoint).
  */
@@ -170,12 +170,16 @@ describe('ProductDetailPage powered-integrations hub', () => {
   });
 
   let seq = 0;
-  const edge = (source: ProductLink, target: ProductLink): IntegrationListItem => ({
+  const edge = (
+    source: ProductLink,
+    target: ProductLink,
+    direction: IntegrationListItem['direction'] = null,
+  ): IntegrationListItem => ({
     id: `00000000-0000-4000-8000-${String(++seq).padStart(12, '0')}`,
     name: `${source.name} ↔ ${target.name}`,
     mechanism_kind: 'iPaaS',
     mechanism_name: 'via Agave ERP Sync',
-    direction: null,
+    direction,
     source,
     target,
     created_at: '2024-06-01T00:00:00.000Z',
@@ -185,6 +189,7 @@ describe('ProductDetailPage powered-integrations hub', () => {
   const procore = link('procore', 'Procore');
   const acumatica = link('acumatica', 'Acumatica');
   const sage = link('sage-intacct', 'Sage Intacct');
+  const vista = link('viewpoint-vista', 'Viewpoint Vista');
 
   const connector = (overrides: Partial<ProductDetail> = {}) =>
     buildProduct({
@@ -194,32 +199,96 @@ describe('ProductDetailPage powered-integrations hub', () => {
       ...overrides,
     });
 
-  it('renders hub groups with a linked hub heading and pair-page chips', () => {
+  it('renders a hub card whose heading is the hub name, with pair-page partner rows', () => {
     const { el } = setup(
       connector({
-        integrations_as_connector: [edge(procore, acumatica), edge(sage, procore)],
+        integrations_as_connector: [
+          edge(procore, acumatica, 'one-way'),
+          edge(sage, procore, 'bidirectional'),
+        ],
       }),
     );
 
     const section = el.querySelector('#powered-integrations');
     expect(section).toBeTruthy();
-    // Heading counts EDGES, not groups.
-    expect(section!.querySelector('h2')!.textContent).toContain('Powers these integrations (2)');
+    // Heading counts distinct PAIRS — what the section actually renders.
+    expect(section!.querySelector('h2')!.textContent).toContain('Integrations it powers (2)');
 
-    const groups = section!.querySelectorAll('aec-product-powered-hub section');
-    expect(groups).toHaveLength(1);
+    const cards = section!.querySelectorAll('aec-product-powered-hub section');
+    expect(cards).toHaveLength(1);
     // Procore is the more frequent endpoint on both edges → it is the hub, no
-    // matter which side of the row it was authored on.
-    const heading = groups[0]!.querySelector('h3')!;
-    expect(heading.textContent).toContain('Connects');
+    // matter which side of the row it was authored on. The heading is now a
+    // plain noun phrase, not a "Connects … with" sentence fragment.
+    const heading = cards[0]!.querySelector('h3')!;
+    // `LogoOrInitial`'s fallback letter sits inside the heading but is
+    // aria-hidden, so it shows up in textContent and not in the accessible
+    // name — assert on the link identity, which is unambiguous.
     expect(heading.textContent).toContain('Procore');
+    expect(heading.textContent).not.toContain('Connects');
     expect(heading.querySelector('a')!.getAttribute('href')).toBe('/products/procore');
+    // The card header carries the group size so the count can't drift right.
+    expect(cards[0]!.textContent).toContain('2 connections');
 
-    const chips = groups[0]!.querySelectorAll<HTMLAnchorElement>('ul a');
-    expect([...chips].map((a) => a.textContent!.trim())).toEqual(['Acumatica', 'Sage Intacct']);
-    // Chips link the CANONICAL pair page (context = alphabetically-first slug).
-    expect(chips[0]!.getAttribute('href')).toBe('/products/acumatica/integrations/procore');
-    expect(chips[1]!.getAttribute('href')).toBe('/products/procore/integrations/sage-intacct');
+    const rows = cards[0]!.querySelectorAll<HTMLAnchorElement>('ul a');
+    expect([...rows].map((a) => a.textContent!.trim())).toEqual([
+      expect.stringContaining('Acumatica'),
+      expect.stringContaining('Sage Intacct'),
+    ]);
+    // Rows link the CANONICAL pair page (context = alphabetically-first slug).
+    expect(rows[0]!.getAttribute('href')).toBe('/products/acumatica/integrations/procore');
+    expect(rows[1]!.getAttribute('href')).toBe('/products/procore/integrations/sage-intacct');
+    // Each row has a real accessible name naming BOTH endpoints.
+    expect(rows[0]!.getAttribute('aria-label')).toBe('View the Procore and Acumatica integration');
+    // Direction is framed relative to the hub, and the mechanism is shown —
+    // the same vocabulary the sibling endpoint table uses.
+    expect(rows[0]!.textContent).toContain('Outbound');
+    expect(rows[1]!.textContent).toContain('Both');
+    expect(rows[0]!.textContent).toContain('iPaaS');
+  });
+
+  it('renders a hubless pair as a standalone two-endpoint row instead of a one-partner hub', () => {
+    const { el } = setup(
+      connector({ integrations_as_connector: [edge(procore, acumatica, 'bidirectional')] }),
+    );
+
+    const section = el.querySelector('#powered-integrations')!;
+    expect(section.querySelector('h2')!.textContent).toContain('Integrations it powers (1)');
+
+    const cards = section.querySelectorAll('aec-product-powered-hub section');
+    expect(cards).toHaveLength(1);
+    // No hub cards above it, so it is simply "Connections", not "Other".
+    expect(cards[0]!.querySelector('h3')!.textContent!.trim()).toBe('Connections');
+
+    const row = cards[0]!.querySelector<HTMLAnchorElement>('ul a')!;
+    expect(row.textContent).toContain('Acumatica');
+    expect(row.textContent).toContain('Procore');
+    expect(row.getAttribute('href')).toBe('/products/acumatica/integrations/procore');
+  });
+
+  it('never renders one product as both a hub heading and a partner row', () => {
+    // The live Agave shape: deciding the hub per edge made Viewpoint Vista a
+    // partner under Procore AND a hub over Sage Intacct in the same section.
+    const { el } = setup(
+      connector({
+        integrations_as_connector: [
+          edge(procore, acumatica),
+          edge(procore, link('cmic', 'CMiC')),
+          edge(procore, vista),
+          edge(sage, vista),
+        ],
+      }),
+    );
+
+    const cards = el.querySelectorAll('aec-product-powered-hub section');
+    // Hub identity by link, not heading text (the aria-hidden fallback initial
+    // is part of textContent). The trailing card is the hubless bucket, whose
+    // heading is a label with no product link.
+    const hubHrefs = [...cards].map((c) => c.querySelector('h3 a')?.getAttribute('href') ?? null);
+    expect(hubHrefs).toEqual(['/products/procore', null]);
+    expect(cards[1]!.querySelector('h3')!.textContent!.trim()).toBe('Other connections');
+    // Viewpoint Vista appears once as a partner under Procore, and once inside
+    // the hubless pair row — never as a competing hub heading.
+    expect(hubHrefs).not.toContain('/products/viewpoint-vista');
   });
 
   it('shows the empty state (with a correction link) for a connector with no powered edges', () => {
@@ -227,7 +296,7 @@ describe('ProductDetailPage powered-integrations hub', () => {
 
     const section = el.querySelector('#powered-integrations');
     expect(section).toBeTruthy();
-    expect(section!.querySelector('h2')!.textContent).toContain('Powers these integrations (0)');
+    expect(section!.querySelector('h2')!.textContent).toContain('Integrations it powers (0)');
     expect(section!.querySelector('aec-product-powered-hub')).toBeNull();
     expect(section!.textContent).toContain('No integrations are recorded as running');
     expect(
@@ -241,14 +310,14 @@ describe('ProductDetailPage powered-integrations hub', () => {
     expect(el.querySelector('#powered-integrations')).toBeNull();
     const nav = el.querySelector('aec-section-nav');
     expect(nav).toBeTruthy();
-    expect(nav!.textContent).not.toContain('Powers integrations');
+    expect(nav!.textContent).not.toContain('Integrations it powers');
   });
 
   it('still renders the section for an application that powers edges (data-driven safety net)', () => {
     const { el } = setup(buildProduct({ integrations_as_connector: [edge(procore, acumatica)] }));
 
     expect(el.querySelector('#powered-integrations')).toBeTruthy();
-    expect(el.querySelector('aec-section-nav')!.textContent).toContain('Powers integrations');
+    expect(el.querySelector('aec-section-nav')!.textContent).toContain('Integrations it powers');
   });
 
   it('badges the hero with the product role for a connector, and not for an application', () => {

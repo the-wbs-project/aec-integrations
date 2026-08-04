@@ -1,6 +1,6 @@
 # `@aeci/datatool` — internal D1 copy / seed / reindex tool
 
-A small Cloudflare-Access-gated admin Worker + web UI that does two jobs across the
+A small Cloudflare-Access-gated admin Worker + web UI that does three jobs across the
 four D1 environments (`preview` / `staging` / `demo` / `production` — one per deploy
 tier, `docs/environments.md`):
 
@@ -8,6 +8,10 @@ tier, `docs/environments.md`):
    destination becomes an exact copy of the source, table for table.
 2. **Seed reviews** — generate ~150–200 deterministic anonymous reviews against
    any env's products (the in-Worker port of `apps/api db:seed-reviews`).
+3. **Prune orphaned integrations** — delete stranded `integrations` rows (+ their
+   claims/attestations) that no Airtable record points at, behind three blocking
+   guards (the in-Worker port of
+   `scripts/ops/2026-08-orphan-integration-cleanup/cleanup.sh`).
 
 After either write it runs a **clean Algolia reindex** + **edge-cache purge** of
 the destination, so search and the site reflect the new data immediately.
@@ -40,6 +44,30 @@ the destination, so search and the site reflect the new data immediately.
   overwrites, and `scripts/algolia-bulk-sync.ts` doesn't exist yet), so datatool
   rebuilds `{env}_products|vendors|integrations` from the fresh D1. `clear` keeps
   index settings/replicas; there's a brief empty-index window (acceptable here).
+- **Prune takes the id list as INPUT, and does not derive it.** "Orphan" means
+  *no Airtable record points at this row* — deciding that requires reading the
+  AEC Integrations base, which this Worker deliberately holds no credentials for.
+  So the operator supplies the ids (the ops runbook's `orphan-ids.txt` produces
+  them) and datatool owns the dangerous half: guards, rollback SQL, an ordered
+  delete, count repair, and the refresh. That split also keeps the tool reusable
+  for any future stranded-row set instead of hard-coding one batch.
+- **Three guards block the prune**, and a non-zero value on *any* of them refuses
+  the run — on the execute path too, not just in the dry-run summary. Each means
+  "this row is not actually a redundant copy": `claimsUniqueToOrphans` (the
+  cascade would destroy curation, not a duplicate), `orphansWithoutATwin` (no
+  surviving row shares its source/target/mechanism — it is the only copy), and
+  `orphansRicherThanTwin` (its `description`/`notes` are longer than its twin's,
+  so editorial content would be lost).
+- **Prune repairs `integration_count` itself.** The column is denormalized, so
+  the instant the rows are gone every affected product card overstates its count;
+  leaving that to a follow-up CLI run is how drift ships. Same rule as
+  `apps/api/src/lib/recompute-counts.ts` (source OR target). The reindex that
+  follows is also what evicts the deleted objects from Algolia, so there is no
+  separate `ops:purge-algolia-orphans` step.
+- **Rollback SQL, not a backup file.** A Worker has no filesystem, and D1 has no
+  undo — so *every* prune response (dry-run included) carries a complete
+  `rollbackSql`: parent→child `INSERT OR IGNORE` statements recreating everything
+  the delete removes. **Save it before executing.**
 - **LOCAL D1 is out of scope.** A deployed Worker can't reach a dev's
   `.wrangler/state`. For local seeding use `pnpm --filter @aeci/api db:seed-reviews`.
 
@@ -54,6 +82,7 @@ ungated (the edge Access gates the host).
 | `/api/copy` | `{ source, dest, dryRun?, confirmName?, prodConfirm?, refresh? }` | `dryRun` defaults **true** (per-table count diff). Execute needs `confirmName === "aeci-app-<dest>"`; `dest:"production"` needs `prodConfirm:true`. |
 | `/api/seed` | `{ target, action:"apply"\|"teardown", seed?, dryRun?, confirmName?, prodConfirm?, refresh? }` | `seed` default `24301` (`0x5eed`). Same confirm rules. |
 | `/api/reindex` | `{ target, entities?, purge? }` | Rebuild search from current D1 (no DB write). |
+| `/api/prune-integrations` | `{ target, ids, dryRun?, confirmName?, prodConfirm?, refresh? }` | `ids` = a JSON array **or** a pasted blob (newline/comma separated); non-UUIDs throw rather than being dropped, max 500. `dryRun` defaults **true**. Returns `footprint`, `guards`, `blocked`, `affectedSlugs`, and `rollbackSql`. A tripped guard ⇒ **409 `GUARD_TRIPPED`**; same confirm rules as above. |
 
 `refresh` defaults **true** (reindex + cache purge after a write); set `false` to
 skip. Each is a graceful no-op when its creds are absent.
@@ -112,6 +141,20 @@ pnpm --filter @aeci/api exec wrangler d1 execute aeci-app-staging --env staging 
 curl -s "${H[@]}" -d '{"target":"staging","action":"apply","dryRun":true}'  $U/api/seed   # plan summary
 curl -s "${H[@]}" -d '{"target":"staging","action":"apply","dryRun":false,"confirmName":"aeci-app-staging"}' $U/api/seed
 curl -s "${H[@]}" -d '{"target":"staging","action":"teardown","dryRun":false,"confirmName":"aeci-app-staging"}' $U/api/seed
+
+# Prune orphans: dry-run, SAVE the rollback, then execute
+IDS=$(paste -sd, - < scripts/ops/2026-08-orphan-integration-cleanup/orphan-ids.txt)
+curl -s "${H[@]}" -d "{\"target\":\"staging\",\"ids\":\"$IDS\"}" $U/api/prune-integrations \
+  | tee /tmp/prune-plan.json | jq '{found, footprint, guards, blocked, affectedSlugs}'
+jq -r .rollbackSql /tmp/prune-plan.json > /tmp/prune-rollback.sql   # ← keep this
+curl -s "${H[@]}" -d "{\"target\":\"staging\",\"ids\":\"$IDS\",\"dryRun\":false,\"confirmName\":\"aeci-app-staging\"}" $U/api/prune-integrations
+```
+
+**Rollback** (D1 has no undo; the saved SQL is the undo):
+
+```bash
+pnpm --filter @aeci/api exec wrangler d1 execute aeci-app-staging --env staging --remote \
+  --file=/tmp/prune-rollback.sql
 ```
 
 **Determinism cross-check:** the same `seed` yields byte-identical review ids in
@@ -122,7 +165,7 @@ writes `seed/reviews.sql`).
 ## Tests
 
 ```bash
-pnpm --filter @aeci/datatool test       # 28 specs: introspect/copy/seed/reindex/routes
+pnpm --filter @aeci/datatool test       # 49 specs: introspect/copy/seed/reindex/prune/routes
 pnpm --filter @aeci/datatool typecheck
 ```
 

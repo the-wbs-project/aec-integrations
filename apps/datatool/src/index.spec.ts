@@ -190,4 +190,126 @@ describe('datatool routes', () => {
     expect(json.ok).toBe(true);
     expect(json.reindex.skipped).toBe(true);
   });
+
+  // ── Prune orphaned integrations ────────────────────────────────────────────
+
+  /** Add an exact twin of the seeded `int-1` so the guards see a redundant copy. */
+  function seedOrphanTwin(h: ShimHandle): string {
+    const id = 'bbbbbbbb-0000-4000-8000-000000000002';
+    h.raw
+      .prepare(
+        `INSERT INTO integrations (id, name, source_product_id, target_product_id, mechanism_kind, direction, created_at, updated_at)
+         VALUES (?, 'Revit to AutoCAD', 'prod-1', 'prod-2', 'native', 'one-way', ?, ?)`,
+      )
+      .run(id, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z');
+    return id;
+  }
+
+  it('prune dry-run reports the footprint + rollback SQL without writing', async () => {
+    seedCatalog(staging.raw);
+    const orphan = seedOrphanTwin(staging);
+
+    const res = await call('/api/prune-integrations', { target: 'staging', ids: orphan }, TOKEN);
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as {
+      dryRun: boolean;
+      found: number;
+      blocked: string[];
+      affectedSlugs: string[];
+      rollbackSql: string;
+    };
+    expect(json.dryRun).toBe(true);
+    expect(json.found).toBe(1);
+    expect(json.blocked).toEqual([]);
+    expect(json.affectedSlugs.sort()).toEqual(['autocad', 'revit']);
+    expect(json.rollbackSql).toContain('INSERT OR IGNORE INTO "integrations"');
+    // Nothing written.
+    expect(staging.raw.prepare('SELECT COUNT(*) AS n FROM integrations').get()).toEqual({ n: 2 });
+  });
+
+  it('400s a malformed id list', async () => {
+    seedCatalog(staging.raw);
+    const res = await call(
+      '/api/prune-integrations',
+      { target: 'staging', ids: 'not-a-uuid' },
+      TOKEN,
+    );
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe('BAD_IDS');
+  });
+
+  it('409s the execute path when a guard trips, even with a valid confirmation', async () => {
+    seedCatalog(staging.raw);
+    const orphan = seedOrphanTwin(staging);
+    // Remove the twin, so the remaining row is the ONLY copy of that
+    // (source, target, mechanism) — `orphansWithoutATwin` must fire and block.
+    staging.raw.prepare('DELETE FROM integrations WHERE id = ?').run('int-1');
+
+    const res = await call(
+      '/api/prune-integrations',
+      { target: 'staging', ids: orphan, dryRun: false, confirmName: 'aeci-app-staging' },
+      TOKEN,
+    );
+
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe('GUARD_TRIPPED');
+    // The guard is the last gate before an irreversible delete: nothing was removed.
+    expect(staging.raw.prepare('SELECT COUNT(*) AS n FROM integrations').get()).toEqual({ n: 1 });
+  });
+
+  it('requires the typed DB name to execute', async () => {
+    seedCatalog(staging.raw);
+    const orphan = seedOrphanTwin(staging);
+    const res = await call(
+      '/api/prune-integrations',
+      { target: 'staging', ids: orphan, dryRun: false, confirmName: 'wrong' },
+      TOKEN,
+    );
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe('CONFIRM_MISMATCH');
+  });
+
+  it('requires prodConfirm on production', async () => {
+    seedCatalog(production.raw);
+    const orphan = seedOrphanTwin(production);
+    const res = await call(
+      '/api/prune-integrations',
+      { target: 'production', ids: orphan, dryRun: false, confirmName: 'aeci-app-production' },
+      TOKEN,
+    );
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+      'PROD_CONFIRM_REQUIRED',
+    );
+  });
+
+  it('executes, repairs integration_count, and returns rollback SQL', async () => {
+    seedCatalog(staging.raw);
+    const orphan = seedOrphanTwin(staging);
+    // Counts start at the fixture's (now stale) value of 1 each; the twin makes 2.
+    staging.raw.prepare('UPDATE products SET integration_count = 2').run();
+
+    const res = await call(
+      '/api/prune-integrations',
+      { target: 'staging', ids: orphan, dryRun: false, confirmName: 'aeci-app-staging' },
+      TOKEN,
+    );
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as {
+      executed: boolean;
+      deleted: { integrations: number };
+      recounted: { productId: string; from: number; to: number }[];
+      rollbackSql: string;
+    };
+    expect(json.executed).toBe(true);
+    expect(json.deleted.integrations).toBe(1);
+    expect(json.recounted).toHaveLength(2);
+    expect(json.recounted.every((r) => r.from === 2 && r.to === 1)).toBe(true);
+    expect(json.rollbackSql).toContain(orphan);
+
+    expect(staging.raw.prepare('SELECT id FROM integrations').all()).toEqual([{ id: 'int-1' }]);
+    expect(
+      staging.raw.prepare('SELECT integration_count AS c FROM products ORDER BY slug').all(),
+    ).toEqual([{ c: 1 }, { c: 1 }]);
+  });
 });
