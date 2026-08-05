@@ -212,6 +212,29 @@ Indexing is **fail-closed and environment-gated**, independent of the SEO header
 - **Cache-safe.** The header is stamped at egress, *after* `handleSsr` stores the cache entry, so the cached payload stays visitor- and env-neutral; each edge HIT (and each env) re-stamps from its own `ALLOW_INDEXING`. The response is rebuilt (not header-mutated) because cache-HIT responses carry immutable headers.
 - **Do not key off `ENV`.** `production` is the pre-launch demo. The gate is a dedicated var so the indexable env is an explicit, deliberate choice. At public launch, set `ALLOW_INDEXING=true` on that one env (`apps/web/wrangler.jsonc` `vars`); the helper is `indexingAllowed()` in `apps/web/src/server/robots-policy.ts`.
 
+### 7.2 Per-page indexability (`<meta name="robots">`)
+
+§7.1 is an **environment** switch: all-or-nothing, and it cannot say "this one page". Per-page indexability is a separate, **app-side** layer — Angular's `Meta` service via `MetaService.setEntityMeta({ noindex })` / `setStaticPageMeta({ noindex })` in `apps/web/src/app/core/meta.service.ts`. It is recorded here because the two are routinely confused: `apps/web/src/server/seo-headers.ts` sets **no** robots directive at all (only `Vary`, `Link`, and the CSP above), so a per-page `noindex` never comes from the SEO-header path.
+
+The layers compose rather than conflict. Pre-launch, §7.1's blanket header dominates and the per-page tags are inert; at launch `ALLOW_INDEXING=true` lifts the blanket and the per-page tags become the operative policy. Cache-safety is not a concern for this layer: the tag is a property of the page's data, identical for every visitor, so it lives inside the cached HTML by design.
+
+Pages that emit `noindex` today, and how:
+
+| Page | Condition | Set by |
+|---|---|---|
+| Any 404 | always | `MetaService.setNotFoundMeta` |
+| `/search` | always — filtered results aren't canonical content | `MetaService.setSearchMeta` |
+| `/unsubscribe` | always — tokenized, transactional (AECI-537) | `setStaticPageMeta({ noindex: true })` |
+| Product-pair page | no integrations between the two products | `setEntityMeta({ noindex })` — `products-pair.resolver.ts` |
+| `/trades/:slug` | `product_count < TRADE_PUBLISH_MIN_PRODUCTS` (AECI-546) | `setEntityMeta({ noindex })` — `taxonomy-browse.resolver.ts` → `applyBrowseMeta` |
+| `/auth/login`, `/account`, `/admin/*`, `/products/:slug/review`, the claim/correction request forms | always — authenticated or transactional | the component itself, calling Angular's `Meta.updateTag` directly rather than going through `MetaService` |
+
+Two things worth noting about that last row: those pages are all non-cacheable, so the direct `Meta.updateTag` call carries no cache risk — but it also means `grep 'noindex'` over `MetaService` alone under-reports the set. `/contact`, `/about`, `/updates`, and `/legal/*` are static **and indexable**; they use `setStaticPageMeta` without the flag.
+
+The trade case is the only **count-gated** one, and it is deliberately paired with sitemap exclusion — the two must agree, or the sitemap advertises a page that tells the crawler to go away. The `/trades` index page and the three sibling taxonomy facets are never gated. Full policy: `TRADES_VOCABULARY.md` §6.
+
+The directive emitted is a bare `noindex`, not `noindex, nofollow` (§7.1's env-wide value): a `noindex`ed page's outbound links should still be followed. This differs from §7.1 on purpose — a pre-launch site wants nothing crawled onward, whereas a thin-but-real page's links to products are worth following.
+
 ---
 
 ## 8. Cross-references

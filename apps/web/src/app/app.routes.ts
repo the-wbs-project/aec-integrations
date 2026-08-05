@@ -167,9 +167,11 @@ export const routes: Routes = [
     data: { kind: 'phase' },
     resolve: { term: phaseBrowseResolver },
   },
-  // Trades (AECI-544). The index applies the `TRADE_PUBLISH_MIN_PRODUCTS` floor
-  // for display; a sub-floor term page still resolves 200 so its URL is stable
-  // across the gate (`noindex` + sitemap exclusion land with AECI-546).
+  // Trades (AECI-544 / AECI-546). The index applies the
+  // `TRADE_PUBLISH_MIN_PRODUCTS` floor to the terms it lists — though the index
+  // page itself is always indexable. A sub-floor TERM page still resolves 200, so
+  // its URL is stable across the gate; what it loses is indexability (`noindex`
+  // via `applyBrowseMeta`) and its sitemap entry.
   {
     path: 'trades',
     pathMatch: 'full',

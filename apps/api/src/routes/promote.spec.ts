@@ -47,7 +47,8 @@ import {
   type PromoteHomeStatsRefresh,
   type PromoteIndexNowNotify,
 } from './promote';
-import { cacheTagsForPromote } from './promote-cache-tags';
+import { cacheTagsForPromote, touchedTradeSlugs } from './promote-cache-tags';
+import { affectedUrlsForPromote, type AffectedUrlOptions } from './promote-indexnow-urls';
 
 /** Deterministic UUID for seeded rows referenced via `supabaseId`. */
 const uuid = (n: number) => `${String(n).padStart(8, '0')}-0000-4000-8000-000000000000`;
@@ -752,6 +753,127 @@ describe('createPromoteHandler — trades ingest (AECI-542)', () => {
 
     expect(res.status).toBe(200);
     expect(await tradeSlugsFor(prodId)).toEqual([]);
+  });
+
+  // ── Publication gate → indexing pings (AECI-546) ───────────────────────────
+  // The handler resolves the floor POST-commit and hands the same result to both
+  // ping seams. This asserts the wiring end to end: the count must include the
+  // rows this very promote just wrote, or a term crossing the floor is missed.
+  describe('trade URLs handed to the indexing pings', () => {
+    const SITE = 'https://aecintegrations.com';
+    const pingEnv: Env = {
+      ...baseEnv,
+      INDEXNOW_KEY: 'k',
+      GOOGLE_INDEXING_SA_EMAIL: 'sa@example.com',
+      GOOGLE_INDEXING_SA_PRIVATE_KEY: 'pk',
+      PUBLIC_SITE_URL: SITE,
+    };
+
+    /** Promote with recording ping seams; returns whatever each seam received. */
+    async function promoteWithPingSeams(body: unknown, env: Env) {
+      const captured: Promise<AffectedUrlOptions>[] = [];
+      const record: PromoteIndexNowNotify = async (_c, _r, tradeUrls) => {
+        captured.push(tradeUrls);
+      };
+      const app = buildApp({ notifyIndexNow: record, notifyGoogleIndexing: record });
+      const res = await app.request('/api/promote', post(body), env, fakeExecutionContext());
+      expect(res.status).toBe(200);
+      return { res, captured };
+    }
+
+    /** Both pings configured → both seams fire, and must share ONE resolution. */
+    async function promoteAndCaptureTradeUrls(body: unknown) {
+      const { res, captured } = await promoteWithPingSeams(body, pingEnv);
+      // The SAME promise reaches both seams — one D1 read, and no chance of the
+      // two pings disagreeing about what's published (§20.2 "no second deriver").
+      expect(captured).toHaveLength(2);
+      expect(captured[0]).toBe(captured[1]);
+      return { res, tradeUrls: await captured[0]! };
+    }
+
+    it('submits a trade that this promote pushed OVER the floor, but not a sub-floor one', async () => {
+      await seedTrade(uuid(1), 'electrical', 'Electrical');
+      await seedTrade(uuid(2), 'plumbing', 'Plumbing');
+      // Two products already carry `electrical`; the promoted one makes three.
+      for (const n of [10, 11]) {
+        await seedProduct(uuid(n), `p${n}`, `P${n}`);
+        await t.db.insert(productTrades).values({ productId: uuid(n), tradeId: uuid(1) });
+      }
+
+      const { res, tradeUrls } = await promoteAndCaptureTradeUrls({
+        product: { ref: 'p1', name: 'Revit', trades: ['electrical', 'plumbing'] },
+      });
+
+      expect(tradeUrls.publishedTradeSlugs).toEqual(['electrical']);
+      const urls = affectedUrlsForPromote((await res.json()) as PromoteResponse, SITE, tradeUrls);
+      expect(urls).toContain(`${SITE}/trades/electrical`);
+      expect(urls).not.toContain(`${SITE}/trades/plumbing`);
+      expect(urls).toContain(`${SITE}/trades`);
+    });
+
+    // A removal is not echoed on the response, so it reaches the ping only via
+    // `removedTradeSlugs` — and it must be re-counted post-commit, since dropping
+    // the link may have pushed the term back under the floor.
+    it('carries removed trades through and re-counts them after the write', async () => {
+      const prodId = uuid(9);
+      await seedTrade(uuid(1), 'electrical', 'Electrical');
+      await seedProduct(prodId, 'revit', 'Revit');
+      await t.db.insert(productTrades).values({ productId: prodId, tradeId: uuid(1) });
+
+      const { tradeUrls } = await promoteAndCaptureTradeUrls({
+        product: { ref: 'p1', supabaseId: prodId, name: 'Revit' },
+      });
+
+      expect(tradeUrls.removedTradeSlugs).toEqual(['electrical']);
+      // Down to zero products → unpublished → no term URL submitted.
+      expect(tradeUrls.publishedTradeSlugs).toEqual([]);
+    });
+
+    // Trades are sparse by design: the overwhelming majority of promotes touch
+    // none, and must not pay for the floor read.
+    it('resolves to empty options when no trade was touched', async () => {
+      const { tradeUrls } = await promoteAndCaptureTradeUrls({
+        product: { ref: 'p1', name: 'Revit' },
+      });
+
+      expect(tradeUrls).toEqual({});
+    });
+
+    // Pre-launch, neither ping is provisioned (their secrets ARE the gate), so
+    // nothing is submitted and the floor read never runs.
+    it('fires no ping at all when neither is configured', async () => {
+      await seedTrade(uuid(1), 'electrical', 'Electrical');
+
+      const { captured } = await promoteWithPingSeams(
+        { product: { ref: 'p1', name: 'Revit', trades: ['electrical'] } },
+        baseEnv,
+      );
+
+      expect(captured).toEqual([]);
+    });
+
+    // Either ping alone arms the resolution — the two are provisioned by separate
+    // secrets and Google may well land without IndexNow (or vice versa).
+    it('resolves the floor when only the Google ping is configured', async () => {
+      await seedTrade(uuid(1), 'electrical', 'Electrical');
+      for (const n of [10, 11]) {
+        await seedProduct(uuid(n), `p${n}`, `P${n}`);
+        await t.db.insert(productTrades).values({ productId: uuid(n), tradeId: uuid(1) });
+      }
+
+      const { captured } = await promoteWithPingSeams(
+        { product: { ref: 'p1', name: 'Revit', trades: ['electrical'] } },
+        {
+          ...baseEnv,
+          GOOGLE_INDEXING_SA_EMAIL: 'sa@example.com',
+          GOOGLE_INDEXING_SA_PRIVATE_KEY: 'pk',
+          PUBLIC_SITE_URL: SITE,
+        },
+      );
+
+      expect(captured).toHaveLength(1);
+      expect((await captured[0]!).publishedTradeSlugs).toEqual(['electrical']);
+    });
   });
 });
 
@@ -1648,6 +1770,52 @@ describe('cacheTagsForPromote (AECI-105)', () => {
     expect(new Set(cacheTagsForPromote(response))).toEqual(
       new Set(['product:revit', 'index:products']),
     );
+  });
+});
+
+// AECI-546 — the touched-trade set, shared by `cacheTagsForPromote` and
+// `affectedUrlsForPromote`. Pinned directly because the two consumers MUST agree:
+// a trade URL pinged to IndexNow but never purged from the edge hands the crawler
+// a stale page.
+describe('touchedTradeSlugs', () => {
+  const withTrades = (trades: string[]): PromoteResponse => ({
+    vendors: [],
+    product: { ref: 'ref-revit', id: 'id-revit', slug: 'revit', operation: 'updated' },
+    integrations: [],
+    taxonomy: {
+      categories: [],
+      audiences: [],
+      phases: [],
+      // Always `reused`: the vocabulary is closed and find-only, so a trade can
+      // never be `created`.
+      trades: trades.map((slug) => ({ id: `id-${slug}`, slug, operation: 'reused' as const })),
+    },
+    skipped: [],
+  });
+
+  it('unions the SET trades with the REMOVED ones', () => {
+    expect(new Set(touchedTradeSlugs(withTrades(['electrical']), ['roofing']))).toEqual(
+      new Set(['electrical', 'roofing']),
+    );
+  });
+
+  // A re-promote that keeps a trade puts it in neither list twice; a caller that
+  // passes overlapping sets must not get a duplicate tag or a duplicate ping.
+  it('dedupes a slug present on both sides', () => {
+    expect(touchedTradeSlugs(withTrades(['electrical']), ['electrical'])).toEqual(['electrical']);
+  });
+
+  it('is empty when the promote touched no trade', () => {
+    expect(touchedTradeSlugs(withTrades([]))).toEqual([]);
+  });
+
+  it('agrees with the tag deriver about what was touched', () => {
+    const response = withTrades(['electrical']);
+    const removed = ['roofing'];
+    const tags = cacheTagsForPromote(response, { removedTradeSlugs: removed });
+    for (const slug of touchedTradeSlugs(response, removed)) {
+      expect(tags).toContain(`trade:${slug}`);
+    }
   });
 });
 

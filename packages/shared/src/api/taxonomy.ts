@@ -24,8 +24,9 @@ export type TaxonomyTermWithCount = z.infer<typeof TaxonomyTermWithCountSchema>;
  *
  * The API deliberately does not apply it (see `TaxonomyResponseSchema` below);
  * it lives here so every consumer that *can* apply it uses one value. Consumers
- * today: the `/trades` index grid and the primary-nav flyout (AECI-544), and
- * the sitemap + `noindex` decision (AECI-546).
+ * today: the `/trades` index grid and the primary-nav flyout (AECI-544); the XML
+ * sitemap, each term page's `noindex` decision, and the IndexNow / Google
+ * Indexing submit set (AECI-546).
  *
  * Not applied by the facet sidebar, which sees **scoped** disjunctive counts —
  * a published trade's count legitimately falls below the floor under an active

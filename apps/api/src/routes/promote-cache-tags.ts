@@ -70,14 +70,36 @@
  *     carries. Those pages fall back to their 5-minute browse TTL. Trades are
  *     deliberately exempt (`removedTradeSlugs`, above) because their publication
  *     gate makes a removal change the index and sitemap too, not just one page.
- *   - `index:trades` and the `/trades*` `Cache-Tag` emitters land with the browse
- *     pages in AECI-544, so the trade tags purged here are harmless no-ops until
- *     then — the same forward-looking posture the `pair:` tag had before AECI-294.
+ *   - `index:trades` and the `/trades*` `Cache-Tag` emitters shipped with the
+ *     browse pages in AECI-544, so every trade tag purged here now has a matching
+ *     emitter in `apps/web/src/server/cache-tags.ts`; `sitemap` gained its trade
+ *     URLs in AECI-546.
  */
 
 import type { PromoteResponse } from '@aeci/shared';
 
 import { pairCacheTag } from './promote-pair';
+
+/**
+ * Every trade slug this promote touched — the ones it SET (echoed on the
+ * response) union the ones it REMOVED (which the response cannot echo, so the
+ * handler reads the product's prior trades before the batch and passes them in).
+ * A removal counts because it can push a term back *under* the publication floor,
+ * which changes the `/trades` index and the sitemap just as a crossing upward does.
+ *
+ * Lives here, with the tag deriver, and is shared with `affectedUrlsForPromote`
+ * (`promote-indexnow-urls.ts`) — the URL counterpart to this module. The two must
+ * model the identical touched set: a trade URL we ping IndexNow about but never
+ * purge from the edge hands the crawler a stale page. Pure, and deliberately free
+ * of any DB import; the publication floor that narrows this set needs a
+ * `product_count` and lives in `promote-trade-publication.ts`.
+ */
+export function touchedTradeSlugs(
+  response: PromoteResponse,
+  removedTradeSlugs: readonly string[] = [],
+): string[] {
+  return [...new Set([...response.taxonomy.trades.map((t) => t.slug), ...removedTradeSlugs])];
+}
 
 /**
  * Returns the deduplicated set of cache tags to purge for a promote `response`,
@@ -133,12 +155,9 @@ export function cacheTagsForPromote(
   // the rule differs: trades can never be `created` (find-only), yet ANY touched
   // trade still changes the publication-gated `/trades` index, facet sidebar, and
   // sitemap. Removed trades count for the same reason (`CACHE_STRATEGY.md` §2).
-  const tradeSlugs = new Set([
-    ...response.taxonomy.trades.map((t) => t.slug),
-    ...(opts.removedTradeSlugs ?? []),
-  ]);
+  const tradeSlugs = touchedTradeSlugs(response, opts.removedTradeSlugs);
   for (const slug of tradeSlugs) tags.add(`trade:${slug}`);
-  if (tradeSlugs.size) {
+  if (tradeSlugs.length) {
     tags.add('index:trades');
     tags.add('taxonomy');
     tags.add('sitemap');

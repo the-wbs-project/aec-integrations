@@ -1,3 +1,4 @@
+import { TRADE_PUBLISH_MIN_PRODUCTS } from '@aeci/shared';
 import { describe, expect, it, vi } from 'vitest';
 
 import { createApp, type Bindings, type SsrRenderer } from '../server-runtime';
@@ -105,9 +106,16 @@ function mockClient(): { client: ServerApiClient; paths: string[] } {
     }
     if (p === '/api/taxonomy') {
       return {
-        categories: [{ slug: 'cost' }],
-        audiences: [{ slug: 'structural' }],
-        phases: [{ slug: 'design' }],
+        // `product_count` matters only for trades — the one publication-gated
+        // facet (AECI-546). Its siblings are listed regardless of count, which
+        // the zero-count `cost`/`structural`/`design` terms below assert.
+        categories: [{ slug: 'cost', product_count: 0 }],
+        audiences: [{ slug: 'structural', product_count: 0 }],
+        phases: [{ slug: 'design', product_count: 0 }],
+        trades: [
+          { slug: 'electrical', product_count: TRADE_PUBLISH_MIN_PRODUCTS },
+          { slug: 'plumbing', product_count: TRADE_PUBLISH_MIN_PRODUCTS - 1 },
+        ],
       };
     }
     throw new Error(`unexpected path ${path}`);
@@ -134,11 +142,12 @@ describe('resolveSitemapEntries', () => {
     return resolveSitemapEntries(mockClient().client, 'https://aecintegrations.com').then(
       (entries) => {
         const locs = entries.map((e) => e.loc);
-        // Index pages — the products index plus the three taxonomy indexes.
+        // Index pages — the products index plus the four taxonomy indexes.
         expect(locs).toContain('https://aecintegrations.com/products');
         expect(locs).toContain('https://aecintegrations.com/categories');
         expect(locs).toContain('https://aecintegrations.com/audiences');
         expect(locs).toContain('https://aecintegrations.com/phases');
+        expect(locs).toContain('https://aecintegrations.com/trades');
         // AECI-165 — the `/vendors` and `/integrations` INDEX pages were removed
         // (they 301-redirect to `/products`), so their bare index `<loc>`s are
         // gone from the sitemap. Their DETAIL URLs still appear (below).
@@ -155,6 +164,49 @@ describe('resolveSitemapEntries', () => {
         expect(locs).toContain('https://aecintegrations.com/phases/design');
       },
     );
+  });
+
+  // ── Trade publication gate (AECI-546 / TRADES_VOCABULARY.md §6) ────────────
+  describe('the trade publication gate', () => {
+    const locs = async () =>
+      (await resolveSitemapEntries(mockClient().client, 'https://aecintegrations.com')).map(
+        (e) => e.loc,
+      );
+
+    it('lists a trade at the floor and withholds one below it', async () => {
+      const all = await locs();
+      expect(all).toContain('https://aecintegrations.com/trades/electrical');
+      expect(all).not.toContain('https://aecintegrations.com/trades/plumbing');
+    });
+
+    // The floor gates TERMS, not the navigational index that lists them — the
+    // index is how a crawler discovers a term the moment it crosses.
+    it('lists the /trades index regardless of any term being published', async () => {
+      expect(await locs()).toContain('https://aecintegrations.com/trades');
+    });
+
+    // Trades are the ONLY count-gated facet. The sibling fixtures all carry
+    // `product_count: 0` and must still be listed — their vocabularies are
+    // curated against the catalog, not seeded closed.
+    it('does not gate categories, audiences, or phases on their count', async () => {
+      const all = await locs();
+      expect(all).toContain('https://aecintegrations.com/categories/cost');
+      expect(all).toContain('https://aecintegrations.com/audiences/structural');
+      expect(all).toContain('https://aecintegrations.com/phases/design');
+    });
+
+    it('gives a published trade the same shape as its sibling taxonomy entries', async () => {
+      const entries = await resolveSitemapEntries(
+        mockClient().client,
+        'https://aecintegrations.com',
+      );
+      const trade = entries.find((e) => e.loc.endsWith('/trades/electrical'));
+      expect(trade).toEqual({
+        loc: 'https://aecintegrations.com/trades/electrical',
+        changefreq: 'weekly',
+        priority: 0.5,
+      });
+    });
   });
 
   it('includes the four static legal pages (AECI-237), without a lastmod', async () => {
@@ -221,9 +273,18 @@ function sitemapApiBinding(): { API: Fetcher; ASSETS: Fetcher } {
         case '/api/integrations':
           return json({ data: [], page: 1, perPage: 100, total: 0 });
         case '/api/taxonomy':
-          // `trades` travels on the real response (AECI-541); the sitemap does not
-          // consume it yet — the /trades section lands with AECI-546.
-          return json({ categories: [{ slug: 'cost' }], audiences: [], phases: [], trades: [] });
+          // One trade each side of the publication floor (AECI-546) so the route
+          // test proves the gate survives the full request path, not just the
+          // resolver.
+          return json({
+            categories: [{ slug: 'cost' }],
+            audiences: [],
+            phases: [],
+            trades: [
+              { slug: 'electrical', product_count: TRADE_PUBLISH_MIN_PRODUCTS },
+              { slug: 'plumbing', product_count: TRADE_PUBLISH_MIN_PRODUCTS - 1 },
+            ],
+          });
         default:
           return new Response('not found', { status: 404 });
       }
@@ -267,6 +328,11 @@ describe('GET /sitemap.xml route', () => {
     expect(body).toContain('<loc>https://www.aecintegrations.com/products/procore</loc>');
     expect(body).toContain('<loc>https://www.aecintegrations.com/vendors/autodesk</loc>');
     expect(body).toContain('<loc>https://www.aecintegrations.com/categories/cost</loc>');
+    // The trade publication gate survives the whole request path (AECI-546):
+    // the index and the published term ship, the sub-floor term does not.
+    expect(body).toContain('<loc>https://www.aecintegrations.com/trades</loc>');
+    expect(body).toContain('<loc>https://www.aecintegrations.com/trades/electrical</loc>');
+    expect(body).not.toContain('/trades/plumbing');
     // lastmod present and ISO-8601.
     expect(body).toMatch(/<lastmod>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z<\/lastmod>/);
   });

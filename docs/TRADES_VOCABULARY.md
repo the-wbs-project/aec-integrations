@@ -20,7 +20,9 @@ Everything downstream seeds from it:
   `searchable(trades)`) and `trade_aliases` (the §4 aliases flattened; **searchable only**), plus the
   `/search` Trades refinement list. Records stay empty until AECI-542 + AECI-547 populate
   `product_trades`.
-- **AECI-546** — the publication gate in §6 governs which trade pages are indexable.
+- **AECI-546** _(shipped)_ — the publication gate in §6 reaches the SEO surfaces: the XML sitemap
+  lists published terms only (plus the always-listed `/trades` index), a sub-floor term page renders
+  `noindex`, and `POST /api/promote` submits only published trade URLs to IndexNow / Google.
 
 ---
 
@@ -299,13 +301,39 @@ Thin trade pages are SEO junk and dilute the whole `/trades` namespace. A trade 
 
 | Surface | Published trade | Unpublished trade (`product_count < 3`) |
 |---|---|---|
-| `/trades` index | Listed | **Hidden** |
-| `/trades/:slug` page | 200, indexable | 200, `noindex,follow` |
+| `/trades` index — the terms it *lists* | Listed | **Hidden** |
+| `/trades` index — *the page itself* | Always in the sitemap, always indexable — the floor gates terms, not the navigational page that lists them (AECI-546); see below |
+| `/trades/:slug` page | 200, indexable | 200, `noindex` |
 | XML sitemap | Included | **Excluded** |
+| IndexNow / Google Indexing ping on `POST /api/promote` | Submitted | **Not submitted** (AECI-546) |
 | Primary-nav flyout (`TaxonomyNavStore.tradesTop10`) | Offered | **Hidden** |
 | Facet sidebar (`aec-facet-sidebar`) | Offered as a filter | **Also offered** — the floor does NOT apply; see below |
 | Product-detail trade chips | Rendered + linked | Rendered + linked (the tag is true; the *page* is just not promoted) |
 | `GET /api/trades`, `GET /api/trades/:slug`, `GET /api/taxonomy`, `GET /api/products/facets` | Returned | Returned (with `product_count`; gating is a presentation decision, not a data one) |
+
+**`noindex`, not `noindex,follow` (AECI-546).** Earlier drafts of this section wrote the directive
+as `noindex,follow`. What actually ships is a bare `<meta name="robots" content="noindex">` — the
+existing `MetaService.setEntityMeta({ noindex })` flag, whose other callers are 404s, `/search`, and
+the empty product-pair page. The two are equivalent: `follow` is every major crawler's default, so
+an unqualified `noindex` still lets the products linked from a thin trade page pass authority, which
+is the behaviour the original wording was reaching for. Reusing the one flag keeps a single
+indexability mechanism in the app rather than a second directive string used by one caller.
+
+**Why the `/trades` index page is exempt (AECI-546).** The floor exists to keep *thin term pages*
+out of the index. `/trades` is not a term page — it is the navigational surface a crawler needs in
+order to discover a term the moment it crosses the floor, and it carries the facet's own copy on top
+of its published grid. Gating it would be self-defeating twice over: pre-backfill (before AECI-547)
+it would remove the entry point to the whole namespace, and it would make the facet's discoverability
+depend on the catalog rather than on the page. It is therefore listed unconditionally in the sitemap
+and never `noindex`, exactly like `/categories`, `/audiences`, and `/phases`.
+
+**Why the indexing pings follow the floor.** `POST /api/promote` submits affected URLs to IndexNow
+and the Google Indexing API (§20.2). Pinging an indexing service for a page that serves `noindex` is
+the same correctness bug the "provision `INDEXNOW_KEY` only at launch" rule exists to prevent, so
+only published terms are submitted. The `/trades` **index** is submitted whenever any trade is
+touched at all — published or not — because it renders live per-term counts and gains or loses a
+tile on a floor crossing. AECI-542 excluded trade URLs outright and deferred the decision to
+AECI-546; this is that decision.
 
 **Why the facet sidebar is exempt (AECI-544).** Its counts come from
 `GET /api/products/facets`, which is **disjunctive and scoped to the active filters** — a genuinely
@@ -327,9 +355,22 @@ Two further consequences worth stating explicitly:
   in one presentational place instead of splitting the vocabulary into two API shapes.
 
 `TRADE_PUBLISH_MIN_PRODUCTS` is exported from `packages/shared` (`src/api/taxonomy.ts`) alongside
-the `isPublishedTrade` helper, so every consumer reads one value. The `/trades` index and the nav
-flyout apply it as of **AECI-544**; the sitemap + `noindex` half lands with **AECI-546**. This
-section is the governing policy.
+the `isPublishedTrade` helper, so every consumer reads one value. **The gate is fully shipped.** Its
+consumers, and where each applies the floor:
+
+| Consumer | Where |
+|---|---|
+| `/trades` index grid | `apps/web/src/app/taxonomy/taxonomy-index.ts` (AECI-544) |
+| Primary-nav flyout | `apps/web/src/app/core/taxonomy/taxonomy-nav.store.ts` (AECI-544) |
+| XML sitemap | `apps/web/src/server/sitemap.ts` (AECI-546) |
+| `<meta name="robots">` on a term page | `apps/web/src/app/taxonomy/taxonomy-browse.resolver.ts` → `applyBrowseMeta` (AECI-546) |
+| IndexNow / Google Indexing submit set | `apps/api/src/routes/promote-trade-publication.ts` → `apps/api/src/routes/promote-indexnow-urls.ts` (AECI-546) |
+
+The API-side consumer is the only one that must *read* the floor rather than filter data it already
+holds: `affectedUrlsForPromote` is pure over the promote response, which carries no `product_count`,
+so `resolvePublishedTradeSlugs` runs one grouped count **after** the batch commits (a pre-commit
+count would miss a term this very promote pushed over the floor) and both pings share the single
+result. This section is the governing policy.
 
 ---
 
@@ -424,7 +465,7 @@ that carries the reasoning.
 | 2 | Approve/trim the draft list. Heavy-civil umbrellas (Bridges & Structures, Marine & Waterfront, Rail) in v1? | **34 terms; heavy-civil umbrellas excluded** — they are market sectors, which is a named out-of-scope follow-up. Fencing and Pools & Aquatics also dropped (no software population). Four draft terms split, nine added. **This is the one decision still wanting a human yes.** | §5, §5.2, §5.3 |
 | 3 | Promote semantics: find-or-create (like categories/audiences) or resolve-only? | **Resolve-only.** Unmatched value → dropped + reported in `skipped[]` with `kind: "trade"`; never auto-created, never a promote failure. Matches the issue's recommendation and the `usefulness` / `dataObject` precedent. | §3 |
 | 4 | `aliases` **column** on `taxonomy_trades` so Algolia can index aliases as searchable content? | **Yes.** JSON-mode `TEXT` in D1, mirroring `taxonomy_data_objects`. Dual-purpose here: promote resolution **and** a `trade_aliases` searchable attribute on the Algolia product record (searchable only — never faceted, never displayed, never a ranking signal). | §4, `DATABASE_SCHEMA.md` §5.3a, `SEARCH_RANKING.md` §3.1 |
-| 5 | Publication gate **N**? | **`TRADE_PUBLISH_MIN_PRODUCTS = 3`**, launch-tunable. Gates the `/trades` index, facet sidebar, sitemap, and indexability — **not** the API, and not the URL (an unpublished trade still resolves, so crossing the floor needs no redirect). | §6 |
+| 5 | Publication gate **N**? | **`TRADE_PUBLISH_MIN_PRODUCTS = 3`**, launch-tunable. Gates which terms the `/trades` index and nav flyout list, which term URLs reach the sitemap and the indexing pings, and each term page's indexability — **not** the API, not the facet sidebar (its counts are scoped), not the `/trades` index page itself, and not the URL (an unpublished trade still resolves, so crossing the floor needs no redirect). | §6 |
 | 6 | May connector-role products carry trade tags, or apps only? | **All roles, connectors included.** A connector built for a trade ERP is as trade-specific as an app. `product_role` is never a gate; the §1.1 trade-specific-value rule is the only one. | §5.4 |
 
 **The one item deferred to AECI-540 is now closed.** This issue deferred the UUIDv5 namespace +
