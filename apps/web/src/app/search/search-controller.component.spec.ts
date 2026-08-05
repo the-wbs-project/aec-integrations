@@ -151,6 +151,7 @@ describe('SearchController wiring', () => {
       'categories',
       'audiences',
       'phases',
+      'trades',
       'vendor_name',
       'has_api_docs',
       // vendors
