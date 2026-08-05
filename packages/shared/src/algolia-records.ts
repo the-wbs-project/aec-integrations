@@ -28,8 +28,22 @@ import { IntegrationDirectionSchema, IntegrationMechanismKindSchema } from './ap
  * `products` index record (§7.1). `objectID` is the Supabase product UUID.
  * `vendor_name` / `vendor_slug` denormalize the product's primary vendor and are
  * nullable because a product may carry no vendor link (AECI-115, mirrors
- * `ProductListItem.vendor`). `categories` / `audiences` / `phases` are arrays of
- * taxonomy term **names** (faceted in `./algolia`).
+ * `ProductListItem.vendor`). `categories` / `audiences` / `phases` / `trades` are
+ * arrays of taxonomy term **names** (faceted in `./algolia`).
+ *
+ * The two trade fields (AECI-545, `STAGE_1_SPEC.md` §5.5a) are deliberately
+ * asymmetric:
+ *   - `trades` — the product's trade term names. Searchable AND faceted; this is
+ *     what the `/search` Trades refinement list and the card chips read.
+ *   - `trade_aliases` — every alias of those trades, flattened
+ *     (`taxonomy_trades.aliases`), so colloquial queries ("blacktop", "glazier",
+ *     "dirt work") reach the right products. **Searchable only — never faceted,
+ *     never rendered.** It is matching metadata, not a label
+ *     (`SEARCH_RANKING.md` §3.1, `TRADES_VOCABULARY.md` §4).
+ * Both `.default([])` so records indexed before AECI-545 still parse, reading as
+ * the untagged baseline (the AECI-529 `verified` precedent). Trades are SPARSE by
+ * design — most products carry zero (`TRADES_VOCABULARY.md` §1.1), so an empty
+ * array is the normal case, not missing data.
  */
 export const AlgoliaProductRecordSchema = z.object({
   objectID: z.string().uuid(),
@@ -41,6 +55,8 @@ export const AlgoliaProductRecordSchema = z.object({
   categories: z.array(z.string()),
   audiences: z.array(z.string()),
   phases: z.array(z.string()),
+  trades: z.array(z.string()).default([]),
+  trade_aliases: z.array(z.string()).default([]),
   integration_count: z.number().int().min(0),
   review_count: z.number().int().min(0),
   rating_overall_avg: z.number().nullable(),
@@ -49,6 +65,38 @@ export const AlgoliaProductRecordSchema = z.object({
 });
 
 export type AlgoliaProductRecord = z.infer<typeof AlgoliaProductRecordSchema>;
+
+/**
+ * Builds the `trade_aliases` value for a product record (AECI-545).
+ *
+ * Lives here, next to the schema, because BOTH record builders must produce
+ * byte-identical output or the nightly incremental sync and the datatool full
+ * reindex would disagree on the same product: `toAlgoliaProduct`
+ * (`apps/api/src/lib/algolia-transforms.ts`, Drizzle rows) and
+ * `buildProductRecords` (`apps/datatool/src/algolia-reindex.ts`, raw SQL).
+ *
+ * `aliasGroups` is one entry per linked trade — `taxonomy_trades.aliases` is a
+ * nullable JSON column, so a group may be `null`/absent/garbage and is skipped.
+ * Values are deduped against each other AND against `tradeNames` (the canonical
+ * name already lives in `trades`; repeating it buys no extra matching), and
+ * insertion order is preserved so record output is deterministic.
+ */
+export function flattenTradeAliases(
+  tradeNames: readonly string[],
+  aliasGroups: readonly (readonly string[] | null | undefined)[],
+): string[] {
+  const seen = new Set(tradeNames);
+  const out: string[] = [];
+  for (const group of aliasGroups) {
+    if (!Array.isArray(group)) continue;
+    for (const alias of group) {
+      if (typeof alias !== 'string' || alias.length === 0 || seen.has(alias)) continue;
+      seen.add(alias);
+      out.push(alias);
+    }
+  }
+  return out;
+}
 
 /**
  * `vendors` index record (§7.1). `objectID` is the Supabase vendor UUID.

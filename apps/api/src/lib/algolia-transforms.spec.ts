@@ -28,9 +28,11 @@ import {
   taxonomyAudiences,
   taxonomyCategories,
   taxonomyPhases,
+  taxonomyTrades,
   productAudiences,
   productCategories,
   productPhases,
+  productTrades,
   vendors,
 } from '../db/schema';
 import { makeTestDb, type TestDb } from '../test/d1';
@@ -121,6 +123,30 @@ describe('toAlgoliaProduct', () => {
       { productId: u(1), phaseId: u(41) },
       { productId: u(1), phaseId: u(42) },
     ]);
+    // Trades (AECI-545). `description` is NOT NULL on this table (it diverges
+    // from its three siblings — `/trades/:slug` is an SEO landing page). The
+    // second trade has NULL aliases, and 'Paving' repeats a canonical trade name,
+    // so this one fixture covers the whole `trade_aliases` flattening contract.
+    await t.db.insert(taxonomyTrades).values([
+      {
+        id: u(51),
+        slug: 'paving-asphalt',
+        name: 'Paving & Asphalt',
+        description: 'Asphalt paving, milling, and pavement maintenance.',
+        aliases: ['Blacktop', 'Paving & Asphalt', 'Asphalt Paving'],
+      },
+      {
+        id: u(52),
+        slug: 'roofing',
+        name: 'Roofing',
+        description: 'Low-slope and steep-slope roofing systems.',
+        aliases: null,
+      },
+    ]);
+    await t.db.insert(productTrades).values([
+      { productId: u(1), tradeId: u(51) },
+      { productId: u(1), tradeId: u(52) },
+    ]);
 
     const row = (await productById(u(1)))!;
     const record = toAlgoliaProduct(row);
@@ -134,6 +160,10 @@ describe('toAlgoliaProduct', () => {
     expect([...record.categories].sort()).toEqual(['Document Control', 'Project Management']);
     expect(record.audiences).toEqual(['Construction Management']);
     expect([...record.phases].sort()).toEqual(['Closeout & Operations', 'Construction']);
+    expect([...record.trades].sort()).toEqual(['Paving & Asphalt', 'Roofing']);
+    // The alias that repeats the canonical trade name is dropped (it already
+    // lives in `trades`); the NULL-aliases trade contributes nothing.
+    expect([...record.trade_aliases].sort()).toEqual(['Asphalt Paving', 'Blacktop']);
     expect(record.integration_count).toBe(342);
     expect(record.review_count).toBe(0);
     expect(record.rating_overall_avg).toBe(4.5);
@@ -164,6 +194,39 @@ describe('toAlgoliaProduct', () => {
     expect(record.categories).toEqual([]);
     expect(record.audiences).toEqual([]);
     expect(record.phases).toEqual([]);
+    // Trades are SPARSE BY DESIGN (§5.5a) — a horizontal platform carries none,
+    // so this is the COMMON case, not an edge case.
+    expect(record.trades).toEqual([]);
+    expect(record.trade_aliases).toEqual([]);
+  });
+
+  it('dedupes an alias shared by two of a product’s trades (AECI-545)', async () => {
+    await t.db.insert(products).values({ id: u(1), slug: 'procore', name: 'Procore' });
+    await t.db.insert(taxonomyTrades).values([
+      {
+        id: u(51),
+        slug: 'glazing-curtain-wall',
+        name: 'Glazing & Curtain Wall',
+        description: 'Glazing, curtain wall, and storefront systems.',
+        aliases: ['Curtain Wall', 'Glazier'],
+      },
+      {
+        id: u(52),
+        slug: 'framing',
+        name: 'Framing',
+        description: 'Wood and light-gauge metal framing.',
+        aliases: ['Curtain Wall', 'Carpentry'],
+      },
+    ]);
+    await t.db.insert(productTrades).values([
+      { productId: u(1), tradeId: u(51) },
+      { productId: u(1), tradeId: u(52) },
+    ]);
+
+    const record = toAlgoliaProduct((await productById(u(1)))!);
+    expect(record.trade_aliases.filter((a) => a === 'Curtain Wall')).toHaveLength(1);
+    expect([...record.trade_aliases].sort()).toEqual(['Carpentry', 'Curtain Wall', 'Glazier']);
+    expect(() => AlgoliaProductRecordSchema.parse(record)).not.toThrow();
   });
 });
 

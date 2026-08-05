@@ -26,10 +26,13 @@ describe('NavMenu', () => {
     return (fixture.nativeElement as HTMLElement).querySelector('button')!;
   }
 
-  it('is hidden at md+ via its host class (hamburger is the small-screen affordance)', () => {
+  it('is hidden at lg+ via its host class (hamburger is the small-screen affordance)', () => {
+    // AECI-544 moved the handover from `md` to `lg`: with four taxonomy flyouts
+    // the inline desktop nav no longer fits a 768px header, so the hamburger
+    // carries navigation through the md range too.
     const fixture = TestBed.createComponent(NavMenu);
     fixture.detectChanges();
-    expect((fixture.nativeElement as HTMLElement).classList).toContain('md:hidden');
+    expect((fixture.nativeElement as HTMLElement).classList).toContain('lg:hidden');
   });
 
   it('renders a labelled, button-type toggle', () => {

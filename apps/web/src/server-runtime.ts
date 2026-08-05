@@ -32,7 +32,7 @@
  *   /products/:slug, /vendors/:slug,
  *     /integrations/:id                      → 15min edge / 0     browser  (§8.3)
  *   /categories/*, /audiences/*,
- *     /phases/*                             → 30min edge / 5min browser
+ *     /phases/*, /trades/*                  → 5min  edge / 0     browser
  *   /disciplines, /disciplines/:slug        → 301 → /audiences[/:slug] (AECI-121)
  *   /vendors, /integrations                 → 301 → /products (AECI-165)
  *   /about, /legal/*                        → 24hr edge / 1hr  browser
@@ -295,11 +295,12 @@ type RoutePattern = {
 };
 
 /**
- * AECI-143 — the listing/browse routes (`/products` + the three taxonomy
- * browse pages) all read the same content-affecting query params: pagination
- * (`page`/`perPage`), `sort`, and the faceted-filter ids (`category_id` /
- * `audience_id` / `phase_id`) the `aec-facet-sidebar` writes to the URL. One
- * shared allowlist keeps the four routes in sync and forward-safe. Per
+ * AECI-143 / AECI-544 — the listing/browse routes (`/products` + the four
+ * taxonomy browse pages) all read the same content-affecting query params:
+ * pagination (`page`/`perPage`), `sort`, and the faceted-filter ids
+ * (`category_id` / `audience_id` / `trade_id` / `phase_id`) the
+ * `aec-facet-sidebar` writes to the URL. One shared allowlist keeps the five
+ * routes in sync and forward-safe. Per
  * CACHE_STRATEGY.md §4a this MUST be a superset of every URL param each
  * component reads; over-including is explicitly harmless (e.g. a browse page
  * carries its own `{kind}_id` on the path, not the query, but listing it here
@@ -319,6 +320,10 @@ const LISTING_CACHE_KEY_PARAMS: readonly string[] = [
   'category_id',
   'audience_id',
   'phase_id',
+  // AECI-544 — the fourth facet. Under-including a content-affecting param is a
+  // correctness bug (§4a), so this must stay in step with `DIMENSIONS` in
+  // `facet-sidebar.ts` and the `passthroughParams` on both listing pages.
+  'trade_id',
 ];
 
 const ROUTE_CACHE_PATTERNS: readonly RoutePattern[] = [
@@ -397,6 +402,14 @@ const ROUTE_CACHE_PATTERNS: readonly RoutePattern[] = [
   },
   {
     match: (p) => p === '/phases' || p.startsWith('/phases/'),
+    ttl: { edge: 300, browser: 0 },
+    cacheKeyParams: LISTING_CACHE_KEY_PARAMS,
+  },
+  // AECI-544 — trades, the fourth facet. Cacheable on the same terms as its
+  // three siblings, published or not: the publication gate controls
+  // indexability, not cacheability (CACHE_STRATEGY.md §2).
+  {
+    match: (p) => p === '/trades' || p.startsWith('/trades/'),
     ttl: { edge: 300, browser: 0 },
     cacheKeyParams: LISTING_CACHE_KEY_PARAMS,
   },

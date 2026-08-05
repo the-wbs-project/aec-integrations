@@ -60,5 +60,6 @@ The data file lives under `apps/api/seed/`, not in `apps/api/migrations/`, delib
 
 **Follow-ups**
 - AECI-121 renamed the `Discipline` facet to `Audience` and expanded it with cross-cutting personas; the reference file's discipline block moved with it.
-- Descriptions are seeded `NULL` for now; SEO copy can be added to the file later.
+- Descriptions are seeded `NULL` for now; SEO copy can be added to the file later. **Exception (AECI-540):** `taxonomy_trades.description` is `not null` and ships populated, because `/trades/:slug` is an SEO landing page from day one.
+- The pattern now covers **three** reference-data seeds, each applied to every environment by `scripts/d1-apply-migrations.sh`: `apps/api/seed/taxonomy.sql` (the original three facets), `apps/api/seed/data-objects.sql` (Stage 1.5, AECI-293), and `apps/api/seed/trades.sql` (the fourth facet, AECI-540). The latter two state their UUIDv5-by-slug id derivation verbatim in the file header; the derivation behind `taxonomy.sql`'s ids predates that practice and is unrecovered, so new terms there need hand-minted ids (noted in its header).
 - DATABASE_SCHEMA §13 and `docs/migrations.md` are updated to carve taxonomy out of the Airtable-owned set and document the reference-data category.

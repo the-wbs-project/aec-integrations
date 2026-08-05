@@ -79,6 +79,7 @@
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { TRADE_PUBLISH_MIN_PRODUCTS } from '@aeci/shared';
 import { chromium, expect, test, type APIRequestContext, type Page } from '@playwright/test';
 
 import { isIgnorableConsole, waitForHydrationSettle } from './console-capture';
@@ -130,8 +131,10 @@ type PageType =
   | 'category-browse'
   | 'audience-index'
   | 'phase-index'
+  | 'trade-index'
   | 'discipline-browse' // = /audiences/:slug (audience browse)
   | 'phase-browse'
+  | 'trade-browse'
   | 'home'
   | 'other';
 
@@ -144,8 +147,10 @@ const PATTERN_OF: Record<PageType, string> = {
   'category-browse': '/categories/:slug',
   'audience-index': '/audiences',
   'phase-index': '/phases',
+  'trade-index': '/trades',
   'discipline-browse': '/audiences/:slug',
   'phase-browse': '/phases/:slug',
+  'trade-browse': '/trades/:slug',
   home: '/',
   other: '(other)',
 };
@@ -159,8 +164,10 @@ const TYPE_LABEL: Record<PageType, string> = {
   'category-browse': 'category browse',
   'audience-index': '/audiences (flat list)',
   'phase-index': '/phases (flat list)',
+  'trade-index': '/trades (flat list)',
   'discipline-browse': 'discipline browse (audience)',
   'phase-browse': 'phase browse',
+  'trade-browse': 'trade browse',
   home: 'home',
   other: 'other',
 };
@@ -175,6 +182,7 @@ const STRUCTURAL_TYPES: PageType[] = [
   'categories',
   'audience-index',
   'phase-index',
+  'trade-index',
 ];
 
 const ENTITY_BROWSE_TYPES: PageType[] = [
@@ -184,6 +192,11 @@ const ENTITY_BROWSE_TYPES: PageType[] = [
   'category-browse',
   'discipline-browse',
   'phase-browse',
+  // AECI-544. Reachable from the `/trades` index, the nav flyout, and the
+  // product-detail trade chips — but ONLY once at least one trade clears the
+  // publication floor, so it is asserted alongside the other browse types on a
+  // seeded catalog (see `apps/api/seed/catalog.sql`).
+  'trade-browse',
 ];
 
 // Where each required type SHOULD be linked from — surfaced in failure messages
@@ -193,6 +206,7 @@ const CANDIDATE_SOURCE: Partial<Record<PageType, string>> = {
   categories: 'site-header primary nav → /categories',
   'audience-index': 'site-header primary nav / footer → /audiences',
   'phase-index': 'site-header primary nav / footer → /phases',
+  'trade-index': 'site-header primary nav / footer → /trades',
   'product-detail': 'a /products index row → /products/:slug',
   'vendor-detail': 'a product-detail vendor link → /vendors/:slug',
   'product-pair':
@@ -202,6 +216,8 @@ const CANDIDATE_SOURCE: Partial<Record<PageType, string>> = {
   'discipline-browse':
     'an /audiences list entry or a product-detail audience badge → /audiences/:slug',
   'phase-browse': 'a /phases list entry or a product-detail phase badge → /phases/:slug',
+  'trade-browse':
+    'a /trades list entry (published terms only) or a product-detail trade badge → /trades/:slug',
 };
 
 // ---------------------------------------------------------------------------
@@ -263,6 +279,8 @@ function classifyPath(pathname: string): PageType {
   if (/^\/audiences\/?$/.test(p)) return 'audience-index';
   if (/^\/phases\/[^/]+\/?$/.test(p)) return 'phase-browse';
   if (/^\/phases\/?$/.test(p)) return 'phase-index';
+  if (/^\/trades\/[^/]+\/?$/.test(p)) return 'trade-browse';
+  if (/^\/trades\/?$/.test(p)) return 'trade-index';
   return 'other';
 }
 
@@ -309,6 +327,10 @@ interface SeedInfo {
   categoriesTotal: number;
   audiencesWithProducts: number; // audience terms a product actually links
   phasesWithProducts: number;
+  // Trades use the PUBLICATION floor, not `> 0` (AECI-546): a sub-floor term is
+  // absent from the `/trades` grid and the nav flyout, so it is unreachable by
+  // design. Only a published term is a linkable destination.
+  publishedTrades: number;
 }
 
 async function probeSeed(req: APIRequestContext): Promise<SeedInfo> {
@@ -330,15 +352,17 @@ async function probeSeed(req: APIRequestContext): Promise<SeedInfo> {
   let categoriesTotal = 0;
   let audiencesWithProducts = 0;
   let phasesWithProducts = 0;
+  let publishedTrades = 0;
   try {
     const r = await req.get('/api/taxonomy', { maxRedirects: 0 });
     if (r.ok()) {
       const tax = (await r.json()) as Record<string, { product_count?: number }[] | undefined>;
-      const withProducts = (arr: { product_count?: number }[] | undefined): number =>
-        Array.isArray(arr) ? arr.filter((t) => (t.product_count ?? 0) > 0).length : 0;
+      const countWhere = (arr: { product_count?: number }[] | undefined, min: number): number =>
+        Array.isArray(arr) ? arr.filter((t) => (t.product_count ?? 0) >= min).length : 0;
       categoriesTotal = Array.isArray(tax['categories']) ? tax['categories'].length : 0;
-      audiencesWithProducts = withProducts(tax['audiences']);
-      phasesWithProducts = withProducts(tax['phases']);
+      audiencesWithProducts = countWhere(tax['audiences'], 1);
+      phasesWithProducts = countWhere(tax['phases'], 1);
+      publishedTrades = countWhere(tax['trades'], TRADE_PUBLISH_MIN_PRODUCTS);
     }
   } catch {
     /* leave zeros — treated as "no data" */
@@ -351,6 +375,7 @@ async function probeSeed(req: APIRequestContext): Promise<SeedInfo> {
     categoriesTotal,
     audiencesWithProducts,
     phasesWithProducts,
+    publishedTrades,
   };
 }
 
@@ -378,6 +403,13 @@ function hasData(seed: SeedInfo, type: PageType): boolean {
       return seed.products > 0 && seed.audiencesWithProducts > 0;
     case 'phase-browse':
       return seed.products > 0 && seed.phasesWithProducts > 0;
+    // AECI-546 — the publication floor, not `> 0`. A sub-floor trade is hidden
+    // from the `/trades` grid and the nav flyout by design, so it is genuinely
+    // unreachable and asserting on it would be wrong. Before this case existed
+    // the type fell through to `default: false` and was skipped unconditionally,
+    // which silently defeated its own presence in `ENTITY_BROWSE_TYPES`.
+    case 'trade-browse':
+      return seed.publishedTrades > 0;
     default:
       return false;
   }
@@ -790,7 +822,7 @@ read a status code), so the no-404 / no-5xx gates still cover every discovered
 link while the browser work stays O(page types), not O(catalog).
 
 - **Environment crawled:** \`${result.baseUrl}\`
-- **Seed totals (API):** products ${s.products}, vendors ${s.vendors}, integrations ${s.integrations}; taxonomy — categories ${s.categoriesTotal}, audiences-with-products ${s.audiencesWithProducts}, phases-with-products ${s.phasesWithProducts}
+- **Seed totals (API):** products ${s.products}, vendors ${s.vendors}, integrations ${s.integrations}; taxonomy — categories ${s.categoriesTotal}, audiences-with-products ${s.audiencesWithProducts}, phases-with-products ${s.phasesWithProducts}, published-trades ${s.publishedTrades}
 
 ## Structural index page types
 

@@ -288,6 +288,31 @@ import { RoleBadge } from './role-badge';
             </section>
           }
 
+          <!--
+            Trades (AECI-544). Sparse by design: a product is tagged only when
+            it has trade-specific value, so horizontal platforms render nothing
+            here and the length guard is the common path. Never gated on the
+            publication floor, because the tag is true even when the trade page
+            isn't promoted yet (TRADES_VOCABULARY.md §6). Sits between Audiences
+            and Project phases to match the facet sidebar's dimension order.
+          -->
+          @if (p.trades.length > 0) {
+            <section aria-labelledby="trades-label" class="space-y-3">
+              <h2
+                id="trades-label"
+                class="aec-overline text-(--text-secondary)"
+                i18n="@@products.detail.metadata.trades"
+              >
+                Trades
+              </h2>
+              <div class="flex flex-wrap gap-2">
+                @for (tr of p.trades; track tr.slug) {
+                  <aec-taxonomy-badge kind="trade" [slug]="tr.slug" [name]="tr.name" />
+                }
+              </div>
+            </section>
+          }
+
           @if (p.phases.length > 0) {
             <section aria-labelledby="phases-label" class="space-y-3">
               <h2

@@ -5,16 +5,14 @@ import { describe, expect, it } from 'vitest';
 
 import type { TaxonomyTermWithCount } from '@aeci/shared';
 
-import type { TaxonomyKind } from '../shared/taxonomy-badge/taxonomy-badge';
-
-import { BrowseGrid } from './browse-grid';
+import { BrowseGrid, type HomeBrowseKind } from './browse-grid';
 
 @Component({
   imports: [BrowseGrid],
   template: `<app-browse-grid [kind]="kind" [terms]="terms" />`,
 })
 class BrowseGridHost {
-  kind: TaxonomyKind = 'category';
+  kind: HomeBrowseKind = 'category';
   terms: TaxonomyTermWithCount[] = [];
 }
 
@@ -22,7 +20,7 @@ function term(slug: string, name: string, product_count: number): TaxonomyTermWi
   return { id: slug, slug, name, description: null, display_order: 0, product_count };
 }
 
-function renderHost(kind: TaxonomyKind, terms: TaxonomyTermWithCount[]): HTMLElement {
+function renderHost(kind: HomeBrowseKind, terms: TaxonomyTermWithCount[]): HTMLElement {
   TestBed.configureTestingModule({ providers: [provideRouter([])] });
   const fixture = TestBed.createComponent(BrowseGridHost);
   fixture.componentInstance.kind = kind;

@@ -11,11 +11,13 @@ import {
   categoryBrowseResolver,
   audienceBrowseResolver,
   phaseBrowseResolver,
+  tradeBrowseResolver,
 } from './taxonomy/taxonomy-browse.resolver';
 import {
   categoriesIndexResolver,
   audiencesIndexResolver,
   phasesIndexResolver,
+  tradesIndexResolver,
 } from './taxonomy/taxonomy-index.resolver';
 import { vendorDetailResolver } from './vendors/vendor-detail.resolver';
 
@@ -120,10 +122,11 @@ export const routes: Routes = [
     loadComponent: () => import('./vendors/vendor-detail').then((m) => m.VendorDetailPage),
     resolve: { vendor: vendorDetailResolver },
   },
-  // AECI-61 / AECI-157 — Phase 2.15 taxonomy index + browse pages. Both the
-  // three flat indexes and the three `:slug` browse pages each share one
+  // AECI-61 / AECI-157 / AECI-544 — Phase 2.15 taxonomy index + browse pages.
+  // Both the four flat indexes and the four `:slug` browse pages each share one
   // component + one resolver factory, keyed by the static `data.kind`. AECI-157
-  // lit up the `/audiences` + `/phases` indexes (originally deferred to Phase 3).
+  // lit up the `/audiences` + `/phases` indexes (originally deferred to Phase 3);
+  // AECI-544 added `/trades`, the fourth facet (STAGE_1_SPEC.md §5.5a).
   // Resolvers run SSR-side; hydration reads from TransferState.
   {
     path: 'categories',
@@ -163,6 +166,24 @@ export const routes: Routes = [
     loadComponent: () => import('./taxonomy/taxonomy-browse').then((m) => m.TaxonomyBrowsePage),
     data: { kind: 'phase' },
     resolve: { term: phaseBrowseResolver },
+  },
+  // Trades (AECI-544 / AECI-546). The index applies the
+  // `TRADE_PUBLISH_MIN_PRODUCTS` floor to the terms it lists — though the index
+  // page itself is always indexable. A sub-floor TERM page still resolves 200, so
+  // its URL is stable across the gate; what it loses is indexability (`noindex`
+  // via `applyBrowseMeta`) and its sitemap entry.
+  {
+    path: 'trades',
+    pathMatch: 'full',
+    loadComponent: () => import('./taxonomy/taxonomy-index').then((m) => m.TaxonomyIndexPage),
+    data: { kind: 'trade' },
+    resolve: { terms: tradesIndexResolver },
+  },
+  {
+    path: 'trades/:slug',
+    loadComponent: () => import('./taxonomy/taxonomy-browse').then((m) => m.TaxonomyBrowsePage),
+    data: { kind: 'trade' },
+    resolve: { term: tradeBrowseResolver },
   },
   // AECI-294 (Stage 1.5) retired the standalone `/integrations/:id` detail route.
   // Integrations are now consolidated onto the product-PAIR page

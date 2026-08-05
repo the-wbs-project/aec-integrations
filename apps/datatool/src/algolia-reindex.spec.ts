@@ -1,3 +1,4 @@
+import { AlgoliaProductRecordSchema } from '@aeci/shared/algolia-records';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
@@ -41,6 +42,52 @@ describe('algolia reindex — record builders', () => {
     expect(revit.categories).toEqual(['BIM Authoring']);
     expect(revit.has_api_docs).toBe(false); // 0 → boolean
     expect(revit.integration_count).toBe(1);
+  });
+
+  /**
+   * Structural guard on the whole record (AECI-545). This raw-SQL builder has NO
+   * compile-time link to `AlgoliaProductRecord` — it returns
+   * `Record<string, unknown>[]` — so a field added to the shared schema and the
+   * API transform but forgotten here would ship silently, quietly reverting that
+   * field on any environment that runs a full reindex. Parsing through the Zod
+   * schema is the only thing that catches it.
+   */
+  it('produces records that satisfy the shared §7.1 product schema', async () => {
+    const records = await buildProductRecords(h.db);
+    expect(records.length).toBeGreaterThan(0);
+    for (const record of records) {
+      // The seed fixture uses readable synthetic ids ('prod-1'), so substitute a
+      // valid UUID — this guard is about the FIELD SET, not id formatting (real
+      // ids come straight out of D1). Every other field is checked as-is.
+      const withUuid = { ...record, objectID: '00000000-0000-4000-8000-000000000001' };
+      expect(() => AlgoliaProductRecordSchema.parse(withUuid)).not.toThrow();
+    }
+  });
+
+  it('builds trades + flattened, deduped trade_aliases (AECI-545)', async () => {
+    const records = await buildProductRecords(h.db);
+    const revit = records.find((r) => r.slug === 'revit')!;
+    expect([...(revit.trades as string[])].sort()).toEqual(['Framing', 'Glazing & Curtain Wall']);
+    // 'Curtain Wall' is an alias of BOTH seeded trades — it must appear once.
+    const aliases = revit.trade_aliases as string[];
+    expect(aliases.filter((a) => a === 'Curtain Wall')).toHaveLength(1);
+    expect([...aliases].sort()).toEqual(['Carpentry', 'Curtain Wall', 'Glazier']);
+  });
+
+  it('emits empty trades / trade_aliases for an untagged product (sparse by design)', async () => {
+    const records = await buildProductRecords(h.db);
+    const autocad = records.find((r) => r.slug === 'autocad')!;
+    expect(autocad.trades).toEqual([]);
+    expect(autocad.trade_aliases).toEqual([]);
+  });
+
+  it('skips a malformed aliases cell instead of failing the whole reindex', async () => {
+    h.raw.prepare("UPDATE taxonomy_trades SET aliases = 'not json' WHERE id = 'trade-1'").run();
+    const records = await buildProductRecords(h.db);
+    const revit = records.find((r) => r.slug === 'revit')!;
+    // trade-1's aliases are dropped; trade-2's still come through.
+    expect([...(revit.trade_aliases as string[])].sort()).toEqual(['Carpentry', 'Curtain Wall']);
+    expect([...(revit.trades as string[])].sort()).toEqual(['Framing', 'Glazing & Curtain Wall']);
   });
 
   it('builds vendor records with product/integration counts', async () => {

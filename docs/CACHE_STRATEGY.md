@@ -26,8 +26,9 @@ Cache-Tag purge is available on **all Cloudflare plans as of April 2025**. The P
 | `category:{slug}` | Category browse page |
 | `audience:{slug}` | Audience browse page |
 | `phase:{slug}` | Project phase browse page |
-| `taxonomy` | Any page whose cached HTML renders the full taxonomy term set — home (`/`) and the flat taxonomy index pages (`/categories`, `/audiences`, `/phases`). The primary-nav flyouts read the term set client-side from `/api/taxonomy`, so they do **not** bake it into page HTML and don't carry this tag. |
-| `index:products` / `index:categories` / `index:audiences` / `index:phases` | The respective index pages. (AECI-165 removed the `/vendors` and `/integrations` index pages — they 301-redirect to `/products` — so `index:vendors` / `index:integrations` are no longer emitted.) |
+| `trade:{slug}` | Trade browse page (`/trades/:slug`, AECI-538). Emitted for **every** trade, published or not — the publication gate (`STAGE_1_SPEC.md` §5.5a) controls indexability, not cacheability, and an unpublished page still renders and still needs purging when its product set changes. **Purge caveat:** because the `/trades` index and the primary-nav flyout list *published* terms only (the facet sidebar is exempt — its counts are scoped, see `TRADES_VOCABULARY.md` §6), a promote that pushes a term across (or back under) the `TRADE_PUBLISH_MIN_PRODUCTS` floor changes those surfaces too — so a promote touching any trade must purge `index:trades`, `taxonomy`, and `sitemap` alongside `trade:{slug}` (AECI-542/546). "Touching" includes a **removal**: re-promoting a product without a trade it previously carried can push that term back under the floor, and the promote response echoes only the trades that were *set* — so `promote.ts` reads the product's prior trades before the batch and passes them to `cacheTagsForPromote` as `removedTradeSlugs`. (The three sibling facets have no equivalent read: without a publication gate, a removal only staleness-affects that one browse page, which the 5-minute TTL covers.) |
+| `taxonomy` | Any page whose cached HTML renders the full taxonomy term set — home (`/`) and the flat taxonomy index pages (`/categories`, `/audiences`, `/phases`, `/trades`). The primary-nav flyouts read the term set client-side from `/api/taxonomy`, so they do **not** bake it into page HTML and don't carry this tag. |
+| `index:products` / `index:categories` / `index:audiences` / `index:phases` / `index:trades` | The respective index pages. (AECI-165 removed the `/vendors` and `/integrations` index pages — they 301-redirect to `/products` — so `index:vendors` / `index:integrations` are no longer emitted.) |
 | `index:home` | The home page (`/`). Its credibility strip + stats cards render the `home.*` `stats_cache` counts, which are refreshed on every successful promote (AECI-305) — so a promote purges `index:home` to repaint them. Distinct from `taxonomy` (which the home page also carries but only fires on a term-set change) and from `route:index` (incident-only, §3.3). |
 | `sitemap` | `sitemap.xml` |
 | `route:detail` / `route:index` / `route:browse` | Coarse-grained tags for bulk invalidation in incidents |
@@ -63,7 +64,7 @@ buildCacheTags(opts: {
 }): string;
 ```
 
-`entity.type` is the tag prefix (`product`, `vendor`, `pair`, `integration`, `category`, `audience`, `phase`, or `index` for index pages); `slug` or `id` is the suffix (slug for slug-keyed entities — the pair page passes the composite `{min}__{max}` as its `slug` — id for `integration:<id>`). `taxonomy: true` appends the global `taxonomy` tag — set on routes whose HTML renders the full taxonomy term set (home `/` and the flat `/categories`, `/audiences`, `/phases` index pages). Static pages with no §2 vocabulary entry (`/about`, `/updates`, `/legal/*`) pass `entity` as `undefined`, yielding just the route-class tag.
+`entity.type` is the tag prefix (`product`, `vendor`, `pair`, `integration`, `category`, `audience`, `phase`, `trade`, or `index` for index pages); `slug` or `id` is the suffix (slug for slug-keyed entities — the pair page passes the composite `{min}__{max}` as its `slug` — id for `integration:<id>`). `taxonomy: true` appends the global `taxonomy` tag — set on routes whose HTML renders the full taxonomy term set (home `/` and the flat `/categories`, `/audiences`, `/phases`, `/trades` index pages). Static pages with no §2 vocabulary entry (`/about`, `/updates`, `/legal/*`) pass `entity` as `undefined`, yielding just the route-class tag.
 
 The companion helper `cacheTagInputsForPath(localeStrippedPath)` (same module) returns the helper's input shape for every cacheable URL the SSR Worker handles, mirroring `ROUTE_CACHE_PATTERNS` in `server-runtime.ts`. Adding a new cacheable URL means extending both that table and `cacheTagInputsForPath` in the same change — and, if the URL takes content-affecting query params, its `cacheKeyParams` allowlist (see §4a). Callers never construct `Cache-Tag` strings by hand.
 
@@ -76,7 +77,7 @@ The companion helper `cacheTagInputsForPath(localeStrippedPath)` (same module) r
 | Route class | `max-age` (browser) | `s-maxage` (edge) |
 |---|---|---|
 | Detail pages | 0 | 900 (15 min) |
-| Browse pages (category / audience / phase) | 0 | 300 (5 min) |
+| Browse pages (category / audience / phase / trade) | 0 | 300 (5 min) |
 | Index pages | 0 | 300 (5 min) |
 | `/api/taxonomy` fetch (nav flyouts) | 0 | not edge-cached — `private, no-store` (see below); KV read-through, 5 min, in the API Worker |
 | `sitemap.xml` | 0 | 3600 |
@@ -111,14 +112,14 @@ The per-route allowlist lives on each `ROUTE_CACHE_PATTERNS` entry as `cacheKeyP
 
 | Route | `cacheKeyParams` (kept in the key) |
 |---|---|
-| `/products` (index) | `page`, `perPage`, `sort`, `category_id`, `audience_id`, `phase_id` |
-| Browse (`/categories\|audiences\|phases/:slug`) | `page`, `perPage`, `sort`, `category_id`, `audience_id`, `phase_id` |
+| `/products` (index) | `page`, `perPage`, `sort`, `category_id`, `audience_id`, `phase_id`, `trade_id` |
+| Browse (`/categories\|audiences\|phases\|trades/:slug`) | `page`, `perPage`, `sort`, `category_id`, `audience_id`, `phase_id`, `trade_id` |
 | Detail (`/products/:slug`, `/vendors/:slug`) | none — strip all |
 | Product-PAIR page (`/products/:context/integrations/:other`) | `view` — the Basic/Detailed disclosure toggle SSR-renders different content (Basic drops the claim lanes), so `?view=basic` and the `detailed` default MUST get distinct keys. Same rationale as `/products ?view=table` (AECI-190). The companion `aeci_pair_view` cookie (remembers the reader's choice) is **NOT** a cache-key input and is **NOT** in `VISITOR_STATE_COOKIES` — it is read only post-hydration in the browser, never by SSR (see §6.1). |
-| Taxonomy index (`/categories`, `/audiences`, `/phases`) | inherits the listing allowlist (combined `match`); these pages read none of it — harmless over-include |
+| Taxonomy index (`/categories`, `/audiences`, `/phases`, `/trades`) | inherits the listing allowlist (combined `match`); these pages read none of it — harmless over-include |
 | Home (`/`), `/about`, `/updates`, `/legal/*` | none — strip all |
 
-The listing/browse rows share one `LISTING_CACHE_KEY_PARAMS` const in `server-runtime.ts` (AECI-143): `/products` and the three `:slug` browse pages all read `page` / `sort` and the taxonomy facet ids the `aec-facet-sidebar` writes to the URL (`category_id` / `audience_id` / `phase_id`). On a browse page the page's own dimension rides the path (`/categories/:slug`), so only the *other* two facet ids ever appear in its query — but listing all three keeps the const uniform (over-including is harmless).
+The listing/browse rows share one `LISTING_CACHE_KEY_PARAMS` const in `server-runtime.ts` (AECI-143): `/products` and the four `:slug` browse pages all read `page` / `sort` and the taxonomy facet ids the `aec-facet-sidebar` writes to the URL (`category_id` / `audience_id` / `phase_id` / `trade_id`). On a browse page the page's own dimension rides the path (`/categories/:slug`), so only the *other* three facet ids ever appear in its query — but listing all four keeps the const uniform (over-including is harmless).
 
 **Maintenance rule (load-bearing).** The allowlist must be a **superset** of every query param the page component reads from the URL. Under-including is a correctness bug, not just a perf one: it collapses two distinct renders onto one key and serves the wrong HTML. So when a Phase 3+ change adds a content-affecting query param to an index/browse page (a new facet, `search`, a filter), add it to that route's `cacheKeyParams` in the same change — AECI-143 did exactly this when it added the facet sidebar. Over-including is merely wasteful (a harmless extra entry), so when in doubt, include. `perPage` is listed today for forward-safety even though the index components currently hardcode the default and don't read it from the URL.
 
@@ -210,6 +211,29 @@ Indexing is **fail-closed and environment-gated**, independent of the SEO header
 - **Why a header, not just `robots.txt` or `<meta robots>`.** `X-Robots-Tag` is the authoritative directive: it covers redirects, 404s, and non-HTML responses that can't carry a `<meta>` tag, and it governs URLs discovered via external links. For a compliant crawler to honor it the page must be crawlable, so `robots.txt` deliberately does **not** `Disallow: /` — blocking the crawl would stop the crawler from ever seeing the `noindex` and (per Google's docs) leave externally-linked URLs eligible to appear as URL-only results. robots.txt's only job in the blocked state is to withhold the sitemap.
 - **Cache-safe.** The header is stamped at egress, *after* `handleSsr` stores the cache entry, so the cached payload stays visitor- and env-neutral; each edge HIT (and each env) re-stamps from its own `ALLOW_INDEXING`. The response is rebuilt (not header-mutated) because cache-HIT responses carry immutable headers.
 - **Do not key off `ENV`.** `production` is the pre-launch demo. The gate is a dedicated var so the indexable env is an explicit, deliberate choice. At public launch, set `ALLOW_INDEXING=true` on that one env (`apps/web/wrangler.jsonc` `vars`); the helper is `indexingAllowed()` in `apps/web/src/server/robots-policy.ts`.
+
+### 7.2 Per-page indexability (`<meta name="robots">`)
+
+§7.1 is an **environment** switch: all-or-nothing, and it cannot say "this one page". Per-page indexability is a separate, **app-side** layer — Angular's `Meta` service via `MetaService.setEntityMeta({ noindex })` / `setStaticPageMeta({ noindex })` in `apps/web/src/app/core/meta.service.ts`. It is recorded here because the two are routinely confused: `apps/web/src/server/seo-headers.ts` sets **no** robots directive at all (only `Vary`, `Link`, and the CSP above), so a per-page `noindex` never comes from the SEO-header path.
+
+The layers compose rather than conflict. Pre-launch, §7.1's blanket header dominates and the per-page tags are inert; at launch `ALLOW_INDEXING=true` lifts the blanket and the per-page tags become the operative policy. Cache-safety is not a concern for this layer: the tag is a property of the page's data, identical for every visitor, so it lives inside the cached HTML by design.
+
+Pages that emit `noindex` today, and how:
+
+| Page | Condition | Set by |
+|---|---|---|
+| Any 404 | always | `MetaService.setNotFoundMeta` |
+| `/search` | always — filtered results aren't canonical content | `MetaService.setSearchMeta` |
+| `/unsubscribe` | always — tokenized, transactional (AECI-537) | `setStaticPageMeta({ noindex: true })` |
+| Product-pair page | no integrations between the two products | `setEntityMeta({ noindex })` — `products-pair.resolver.ts` |
+| `/trades/:slug` | `product_count < TRADE_PUBLISH_MIN_PRODUCTS` (AECI-546) | `setEntityMeta({ noindex })` — `taxonomy-browse.resolver.ts` → `applyBrowseMeta` |
+| `/auth/login`, `/account`, `/admin/*`, `/products/:slug/review`, the claim/correction request forms | always — authenticated or transactional | the component itself, calling Angular's `Meta.updateTag` directly rather than going through `MetaService` |
+
+Two things worth noting about that last row: those pages are all non-cacheable, so the direct `Meta.updateTag` call carries no cache risk — but it also means `grep 'noindex'` over `MetaService` alone under-reports the set. `/contact`, `/about`, `/updates`, and `/legal/*` are static **and indexable**; they use `setStaticPageMeta` without the flag.
+
+The trade case is the only **count-gated** one, and it is deliberately paired with sitemap exclusion — the two must agree, or the sitemap advertises a page that tells the crawler to go away. The `/trades` index page and the three sibling taxonomy facets are never gated. Full policy: `TRADES_VOCABULARY.md` §6.
+
+The directive emitted is a bare `noindex`, not `noindex, nofollow` (§7.1's env-wide value): a `noindex`ed page's outbound links should still be followed. This differs from §7.1 on purpose — a pre-launch site wants nothing crawled onward, whereas a thin-but-real page's links to products are worth following.
 
 ---
 

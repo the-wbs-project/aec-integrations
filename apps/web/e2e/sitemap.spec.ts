@@ -7,6 +7,7 @@
  * when the database has seeded products/vendors and are skipped gracefully
  * in a fresh CI environment that has no seed rows yet.
  */
+import { TRADE_PUBLISH_MIN_PRODUCTS } from '@aeci/shared';
 import { expect, test } from '@playwright/test';
 
 test.describe('GET /sitemap.xml', () => {
@@ -37,12 +38,14 @@ test.describe('GET /sitemap.xml', () => {
     expect(xml).toContain('<?xml version="1.0" encoding="UTF-8"?>');
     expect(xml).toContain('<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">');
 
-    // Index pages (AC) — always present regardless of seed data. All three
-    // taxonomy indexes are listed since AECI-157.
+    // Index pages (AC) — always present regardless of seed data. Three taxonomy
+    // indexes since AECI-157; `/trades` joined them in AECI-546 and, unlike the
+    // trade TERM pages, is listed unconditionally.
     expect(xml).toMatch(/<loc>https?:\/\/[^<]+\/products<\/loc>/);
     expect(xml).toMatch(/<loc>https?:\/\/[^<]+\/categories<\/loc>/);
     expect(xml).toMatch(/<loc>https?:\/\/[^<]+\/audiences<\/loc>/);
     expect(xml).toMatch(/<loc>https?:\/\/[^<]+\/phases<\/loc>/);
+    expect(xml).toMatch(/<loc>https?:\/\/[^<]+\/trades<\/loc>/);
 
     // Real seeded entity URLs — only asserted when the DB has seeds.
     if (productSlug) {
@@ -55,6 +58,35 @@ test.describe('GET /sitemap.xml', () => {
     // <lastmod> is only emitted for entities — only checked when seeds exist.
     if (productSlug || vendorSlug) {
       expect(xml).toMatch(/<lastmod>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
+    }
+  });
+
+  // AECI-546 — the trade publication gate, asserted against live data rather
+  // than fixtures: every trade the API reports is cross-checked against the
+  // floor, so this stays honest as the catalog grows and terms cross it.
+  test('lists exactly the published trades and no sub-floor ones', async ({ request }) => {
+    const trades = await (await request.get('/api/trades')).json();
+    const terms = (trades.data ?? []) as { slug: string; product_count: number }[];
+    test.skip(terms.length === 0, 'no trades seeded in this environment');
+
+    const xml = await (await request.get('/sitemap.xml')).text();
+
+    for (const term of terms) {
+      const listed = xml.includes(`/trades/${term.slug}</loc>`);
+      expect(
+        listed,
+        `/trades/${term.slug} (product_count=${term.product_count}) listed=${listed}`,
+      ).toBe(term.product_count >= TRADE_PUBLISH_MIN_PRODUCTS);
+    }
+
+    // The local seed straddles the floor on purpose (`apps/api/seed/catalog.sql`:
+    // electrical = 3, plumbing = 1), so a run against it exercises both branches.
+    // Guarded so a differently-seeded environment doesn't fail spuriously.
+    const published = terms.filter((t) => t.product_count >= TRADE_PUBLISH_MIN_PRODUCTS);
+    const unpublished = terms.filter((t) => t.product_count < TRADE_PUBLISH_MIN_PRODUCTS);
+    if (published.length && unpublished.length) {
+      expect(xml).toContain(`/trades/${published[0]!.slug}</loc>`);
+      expect(xml).not.toContain(`/trades/${unpublished[0]!.slug}</loc>`);
     }
   });
 });

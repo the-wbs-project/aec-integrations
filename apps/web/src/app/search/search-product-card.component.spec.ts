@@ -17,6 +17,8 @@ const baseRecord: AlgoliaProductRecord = {
   categories: ['Project Management', 'Document Control'],
   audiences: ['Construction Management'],
   phases: ['Construction'],
+  trades: [],
+  trade_aliases: [],
   integration_count: 12,
   review_count: 3,
   rating_overall_avg: 4.5,
@@ -70,5 +72,25 @@ describe('SearchProductCard', () => {
   it('omits the vendor line when vendor_name is null', () => {
     const el = setup({ ...baseRecord, vendor_name: null });
     expect(el.textContent).not.toContain('Procore Technologies');
+  });
+
+  it('leads the chip row with trades (AECI-545)', () => {
+    const el = setup({ ...baseRecord, trades: ['Roofing'] });
+    const chips = [...el.querySelectorAll('ul li')].map((li) => li.textContent?.trim());
+    // Sparse + specific, so it must survive the cap ahead of the categories.
+    expect(chips[0]).toBe('Roofing');
+    expect(chips.length).toBe(4);
+  });
+
+  it('renders a trade that duplicates a category name only once (NG0955 guard)', () => {
+    const el = setup({ ...baseRecord, trades: ['Project Management'] });
+    const chips = [...el.querySelectorAll('ul li')].map((li) => li.textContent?.trim());
+    expect(chips.filter((c) => c === 'Project Management')).toHaveLength(1);
+  });
+
+  it('tolerates a record indexed before AECI-545 (no trades key)', () => {
+    const { trades: _omit, ...stale } = baseRecord;
+    const el = setup(stale as AlgoliaProductRecord);
+    expect(el.textContent).toContain('Project Management');
   });
 });

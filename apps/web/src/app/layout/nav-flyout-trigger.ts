@@ -106,6 +106,8 @@ export class NavFlyoutTrigger {
         return $localize`:@@app.nav.flyout.audiences.aria:Audiences menu`;
       case 'phase':
         return $localize`:@@app.nav.flyout.phases.aria:Phases menu`;
+      case 'trade':
+        return $localize`:@@app.nav.flyout.trades.aria:Trades menu`;
     }
   });
 

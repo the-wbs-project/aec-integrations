@@ -3,7 +3,7 @@ import { TestBed } from '@angular/core/testing';
 import { describe, expect, it } from 'vitest';
 import { of } from 'rxjs';
 
-import type { CategoriesListResponse } from '@aeci/shared';
+import { type CategoriesListResponse, TRADE_PUBLISH_MIN_PRODUCTS } from '@aeci/shared';
 
 import type { TaxonomyKind } from '../shared/taxonomy-badge/taxonomy-badge';
 
@@ -45,6 +45,7 @@ describe('TaxonomyIndexPage', () => {
     ['category', 'Categories', '/categories'],
     ['audience', 'Audiences', '/audiences'],
     ['phase', 'Phases', '/phases'],
+    ['trade', 'Trades', '/trades'],
   ] as const)(
     'renders the %s index with cards linking to the browse pages',
     (kind, title, base) => {
@@ -63,6 +64,38 @@ describe('TaxonomyIndexPage', () => {
     const root = render('phase', listOf());
     expect(root.querySelector('ul')).toBeNull();
     expect(root.textContent).toContain('No phases yet');
+  });
+
+  describe('trades publication floor (AECI-544)', () => {
+    it('omits trades below TRADE_PUBLISH_MIN_PRODUCTS and keeps the rest', () => {
+      const root = render(
+        'trade',
+        listOf(
+          { slug: 'electrical', name: 'Electrical', count: TRADE_PUBLISH_MIN_PRODUCTS },
+          { slug: 'roofing', name: 'Roofing', count: TRADE_PUBLISH_MIN_PRODUCTS - 1 },
+          { slug: 'plumbing', name: 'Plumbing', count: 0 },
+        ),
+      );
+
+      expect(root.querySelector('a[href="/trades/electrical"]')).not.toBeNull();
+      expect(root.querySelector('a[href="/trades/roofing"]')).toBeNull();
+      expect(root.querySelector('a[href="/trades/plumbing"]')).toBeNull();
+    });
+
+    it('falls back to the trades empty state when every term is below the floor', () => {
+      const root = render(
+        'trade',
+        listOf({ slug: 'roofing', name: 'Roofing', count: TRADE_PUBLISH_MIN_PRODUCTS - 1 }),
+      );
+
+      expect(root.querySelector('ul')).toBeNull();
+      expect(root.textContent).toContain('No trades have enough tagged products to list yet');
+    });
+
+    it('does not apply the floor to the other three facets', () => {
+      const root = render('phase', listOf({ slug: 'design', name: 'Design', count: 1 }));
+      expect(root.querySelector('a[href="/phases/design"]')).not.toBeNull();
+    });
   });
 
   it('renders a card description when present', () => {

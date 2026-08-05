@@ -41,7 +41,7 @@ import { expect, test, type APIRequestContext, type Page, type Response } from '
 // number, the rail unmounts), so post-click DOM checks use only retrying
 // assertions; element snapshots (counts, text) are taken before clicks.
 
-const FACET_PARAM = /[?&](category_id|audience_id|phase_id)=/;
+const FACET_PARAM = /[?&](category_id|audience_id|trade_id|phase_id)=/;
 // Infinite-scroll listings (#328) set `[resetsPage]="false"` on the /products
 // and browse sidebars: a filter change no longer writes a `page` param (the list
 // appends client-side; `?page=N` is only the load-more deep-link). These tests
@@ -54,9 +54,9 @@ const PAGE_PARAM = /[?&]page=/;
 const LEDE_TOTAL = /indexed on AEC Integrations \(\d+ in total\)/;
 const FACET_CHECKBOX = 'aec-facet-sidebar aec-search-refinement-list input[type="checkbox"]';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const CROSS_PARAMS = ['audience_id', 'phase_id'] as const;
+const CROSS_PARAMS = ['audience_id', 'trade_id', 'phase_id'] as const;
 
-type FacetParam = 'category_id' | 'audience_id' | 'phase_id';
+type FacetParam = 'category_id' | 'audience_id' | 'trade_id' | 'phase_id';
 
 /**
  * `<legend>` text → URL/API param. The first fieldset is the first *non-empty*
@@ -66,18 +66,20 @@ type FacetParam = 'category_id' | 'audience_id' | 'phase_id';
 const LEGEND_PARAM: Record<string, FacetParam> = {
   Categories: 'category_id',
   Audiences: 'audience_id',
+  Trades: 'trade_id',
   Phases: 'phase_id',
 };
 
 /** Facet param → its own dimension's key in the `/api/products/facets` body. */
-const PARAM_RESPONSE_KEY: Record<FacetParam, 'categories' | 'audiences' | 'phases'> = {
+const PARAM_RESPONSE_KEY: Record<FacetParam, 'categories' | 'audiences' | 'trades' | 'phases'> = {
   category_id: 'categories',
   audience_id: 'audiences',
+  trade_id: 'trades',
   phase_id: 'phases',
 };
 
 type Term = { id: string; slug: string; name: string; product_count: number };
-type FacetsBody = Record<'categories' | 'audiences' | 'phases', Term[]>;
+type FacetsBody = Record<'categories' | 'audiences' | 'trades' | 'phases', Term[]>;
 
 /** First category term from `/api/taxonomy`, preferring one with products. */
 async function firstCategoryTerm(request: APIRequestContext): Promise<Term | null> {

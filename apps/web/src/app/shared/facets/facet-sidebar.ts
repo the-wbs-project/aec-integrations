@@ -32,7 +32,7 @@ import type { RefinementItem } from './refinement-item';
  * resets to 1; emptying the set drops the param.
  *
  * Browse pages pass `lockedKind` + `lockedId` to scope to (and hide) their own
- * taxonomy; `/products` passes neither and shows all three groups.
+ * taxonomy; `/products` passes neither and shows all four groups.
  *
  * Responsive (AECI — mobile facet disclosure): on `< md` the host `aside`
  * stacks *above* the results grid (`BrowseLayout`'s single-column collapse), so
@@ -224,6 +224,15 @@ export class FacetSidebar {
         // Hide terms with no matches under the current filters (mirrors
         // Algolia's count>0 default on `/search`), but always keep the active
         // term so it can be toggled off.
+        //
+        // Trades are NOT additionally gated on `TRADE_PUBLISH_MIN_PRODUCTS`
+        // here, unlike the `/trades` index and the nav: these counts are
+        // *scoped* (disjunctive — see `facetParams`), so a published trade's
+        // count legitimately drops below the floor under an active filter and
+        // gating would hide it. A sub-floor trade offered here still leads to a
+        // real, non-empty result set, and the sidebar is a control surface, not
+        // indexable content — the floor exists to keep thin *pages* out of the
+        // index. Recorded in TRADES_VOCABULARY.md §6.
         .filter((item) => item.count > 0 || item.isRefined);
       return { kind: d.kind, label: this.groupLabel(d.kind), items };
     });
@@ -302,6 +311,8 @@ export class FacetSidebar {
         return $localize`:@@listing.filters.audiences:Audiences`;
       case 'phase':
         return $localize`:@@listing.filters.phases:Phases`;
+      case 'trade':
+        return $localize`:@@listing.filters.trades:Trades`;
     }
   }
 }
@@ -323,7 +334,13 @@ function shallowEqualParams(
   return aKeys.every((key) => a[key] === b[key]);
 }
 
-/** The three taxonomy dimensions, mapping kind → response key → URL/API param. */
+/**
+ * The four taxonomy dimensions, mapping kind → response key → URL/API param.
+ * Array order is render order: Categories → Audiences → Trades → Phases, which
+ * runs widest-to-narrowest on *what the tool is* before ending on *when it is
+ * used*. Trades (AECI-544) sit next to Audiences because both answer "who is
+ * this for"; the `/search` refinement rail mirrors this order.
+ */
 const DIMENSIONS: readonly {
   kind: TaxonomyKind;
   responseKey: keyof ProductFacetsResponse;
@@ -331,5 +348,6 @@ const DIMENSIONS: readonly {
 }[] = [
   { kind: 'category', responseKey: 'categories', param: 'category_id' },
   { kind: 'audience', responseKey: 'audiences', param: 'audience_id' },
+  { kind: 'trade', responseKey: 'trades', param: 'trade_id' },
   { kind: 'phase', responseKey: 'phases', param: 'phase_id' },
 ];

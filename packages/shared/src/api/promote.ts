@@ -178,6 +178,16 @@ export const PromoteProductSchema = z.object({
   categories: z.array(z.string().min(1)).default([]),
   audiences: z.array(z.string().min(1)).default([]),
   phases: z.array(z.string().min(1)).default([]),
+  // The fourth taxonomy facet — "what work does the buyer's company sell?"
+  // (`STAGE_1_SPEC.md` §5.5a, `docs/TRADES_VOCABULARY.md`). Values are trade
+  // slugs, names, OR aliases, resolved server-side **find-only** against the
+  // seeded closed vocabulary by slug → name → alias, case-insensitively. Unlike
+  // the three facets above, an unmatched value is NEVER find-or-created: it is
+  // dropped and reported in `skipped[]` with `kind: 'trade'` (a typo minting
+  // `paving-contractors` alongside `paving-asphalt` would split a trade page's
+  // products across two permanent URLs). Sparse by design — send trades only for
+  // products with trade-SPECIFIC value; horizontal platforms send none.
+  trades: z.array(z.string().min(1)).default([]),
   extensionOf: z.array(EntityRefSchema).default([]),
 });
 
@@ -390,7 +400,7 @@ export interface PromoteTaxonomyResult {
 
 export interface PromoteSkipped {
   ref: string;
-  kind: 'integration' | 'extension' | 'usefulness' | 'claim';
+  kind: 'integration' | 'extension' | 'usefulness' | 'claim' | 'trade';
   reason: string;
 }
 
@@ -400,9 +410,10 @@ export interface PromoteSkipped {
  * promoted product. `skipped` lists integrations/extensions that couldn't be
  * linked because an endpoint wasn't resolvable (e.g. the other product isn't
  * promoted yet), usefulness groups that didn't resolve to an existing
- * audience/phase term, and claims whose `dataObject` failed find-only resolution
- * against the seeded vocabulary (`kind: 'claim'`) — surfaced rather than silently
- * dropped.
+ * audience/phase term, claims whose `dataObject` failed find-only resolution
+ * against the seeded vocabulary (`kind: 'claim'`), and trades that failed
+ * find-only resolution against the seeded `trade` vocabulary (`kind: 'trade'`) —
+ * surfaced rather than silently dropped.
  */
 export interface PromoteResponse {
   vendors: PromoteEntityResult[];
@@ -412,6 +423,13 @@ export interface PromoteResponse {
     categories: PromoteTaxonomyResult[];
     audiences: PromoteTaxonomyResult[];
     phases: PromoteTaxonomyResult[];
+    /**
+     * Trades the product resolved to. Always `operation: 'reused'` — the `trade`
+     * vocabulary is closed and resolves find-only (`STAGE_1_SPEC.md` §5.5a), so
+     * promote can only ever match an existing term, never mint one. Always
+     * present; empty for a push with no product or no resolvable trades.
+     */
+    trades: PromoteTaxonomyResult[];
   };
   skipped: PromoteSkipped[];
 }

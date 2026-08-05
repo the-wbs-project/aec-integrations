@@ -158,6 +158,7 @@ Omit it entirely for a vendor-only / integration-only push (§3.5). When present
 | `categories` | string[] | — | Category **names or slugs**. Find-or-created by slug. |
 | `audiences` | string[] | — | Audience names or slugs. |
 | `phases` | string[] | — | Project-phase names or slugs. |
+| `trades` | string[] | — | Trade names, slugs, **or aliases**. **Resolve-only — never find-or-created.** See **`trades` resolution** below. |
 | `usefulness` | `{ audiences: UsefulnessGroup[]; phases: UsefulnessGroup[] }` \| null | — | Per-audience / per-phase narrative value. `UsefulnessGroup = { slug \| name, points: string[] }` (≥ 1 point). See **`usefulness` resolution** below. |
 | `extensionOf` | `{ supabaseId }[]` | — | Host products this product extends. **Must use `supabaseId`** (hosts are promoted separately). |
 | `description`, `website`, `toolIntegrationsUrl`, `apiDocsUrl`, `toolIntegrationCheckNotes`, `logoUrl`, `researchNotes`, `adminNotes` | string \| null | — | |
@@ -172,6 +173,10 @@ Omit it entirely for a vendor-only / integration-only push (§3.5). When present
 > they are server-managed. On promote, AECi sets `promotion_status = 'promoted'`.
 
 **`usefulness` resolution.** The Airtable source field nests `disciplines` and `phases`; the review app renames `disciplines` → `audiences` before sending (per AECI-121), so the payload key is always `audiences` — there is no `disciplines` alias. Each group names its taxonomy term by `slug` or `name`. **Unlike the `categories`/`audiences`/`phases` facet arrays above, usefulness groups never find-or-create** — AECi resolves each group against an **existing** audience/phase term (by `slug`, then `name`, with the same normalization as the facet path) and stores the canonical `{ slug, name }` it resolved to, plus the group's `points`, as slug-based `jsonb` on the product (`DATABASE_SCHEMA.md` §4.2; public shape `ProductUsefulness`, `API_CONTRACTS.md` §5.1). Within a facet, groups that resolve to the same term are merged (points concatenated, source order preserved). A group that resolves to no existing term is dropped from the stored value and reported in `skipped[]` (§4) with `kind: "usefulness"` and `ref` set to the product's `ref`. Send `usefulness: null` (or omit it) when there is no value for either facet; otherwise either facet array may be empty.
+
+**`trades` resolution (AECI-542).** The `trade` facet is a **governed closed vocabulary** (`docs/TRADES_VOCABULARY.md`), so — unlike `categories` / `audiences` / `phases`, which are find-or-created by canonical slug — an incoming trade is **resolve-only**, matching the `usefulness` and `dataObject` behaviour. AECi matches each value case-insensitively against the seeded `taxonomy_trades` rows by **`slug`, then `name`, then `aliases`** (so "HVAC", "Mechanical", and `hvac-mechanical` all land on the same term). A value matching nothing is **dropped from the stored set and reported in `skipped[]`** with `kind: "trade"` and `ref` set to the product's `ref` — it is **not** an error and **not** auto-created. This is deliberate: a typo minting `paving-contractors` alongside `paving-asphalt` would silently split a trade page's products across two permanent URLs. To add a term, change the vocabulary doc and re-seed (`TRADES_VOCABULARY.md` §3) — you cannot mint one from Airtable.
+
+Send `trades` only where the product has **trade-specific value** — trade-specific features, cost databases, templates, takeoff logic, or integrations. **Horizontal platforms (Procore, Autodesk Build, Bluebeam) get an empty array.** Most products carry no trades; that is the intended outcome, not missing data (`TRADES_VOCABULARY.md` §1.1). Any `productRole` may carry trades, connectors included. Omit the key entirely (or send `[]`) when there are none — note that, like the other join sets, **sending the product replaces its full trade set** (§5).
 
 ### 3.4 `integrations[]`
 
@@ -277,7 +282,8 @@ see [§2.1](#21-x-d1-bookmark--read-your-writes-across-calls-optional-aeci-250).
   "taxonomy": {
     "categories":  [ { "slug": "bim", "id": "d01…", "operation": "reused" } ],
     "audiences": [ { "slug": "architecture", "id": "e02…", "operation": "created" } ],
-    "phases":      []
+    "phases":      [],
+    "trades":      [ { "slug": "electrical", "id": "f03…", "operation": "reused" } ]
   },
   "skipped": [
     { "ref": "i7", "kind": "integration", "reason": "source or target product is not promoted yet" }
@@ -290,7 +296,8 @@ see [§2.1](#21-x-d1-bookmark--read-your-writes-across-calls-optional-aeci-250).
 - Map each returned `id` back to your record by its `ref` (or, for taxonomy, by
   `slug`) and store it.
 - `operation`: `created` | `updated` for vendors/product/integrations;
-  `created` | `reused` for taxonomy.
+  `created` | `reused` for taxonomy. **`taxonomy.trades[]` is always `reused`** —
+  the vocabulary is closed, so promote can only ever match an existing term.
 - **`sourceSlug` / `targetSlug`** on an integration result are the two products'
   slugs for that integration — AECi returns them so it can refresh both pair-page
   orientations without a lookup. They are informational (you don't need to persist
@@ -298,11 +305,12 @@ see [§2.1](#21-x-d1-bookmark--read-your-writes-across-calls-optional-aeci-250).
 - **Always inspect `skipped[]`.** An entry there means AECi could **not** link
   that integration/extension (typically the other endpoint isn't promoted yet),
   could **not** resolve a usefulness group to an existing audience/phase term
-  (`kind: "usefulness"`), or could **not** resolve a claim's `dataObject` against
+  (`kind: "usefulness"`), could **not** resolve a claim's `dataObject` against
   the seeded `data_object` vocabulary (`kind: "claim"`, `ref` = the enclosing
-  integration's `ref`). It is not an error: re-push after promoting the other
-  product, after the referenced taxonomy term exists, or with a recognized
-  `dataObject` value.
+  integration's `ref`), or could **not** resolve a trade against the seeded
+  `trade` vocabulary (`kind: "trade"`, `ref` = the product's `ref`). It is not an
+  error: re-push after promoting the other product, after the referenced taxonomy
+  term exists, or with a recognized `dataObject` / trade value.
 
 ---
 
@@ -316,7 +324,7 @@ see [§2.1](#21-x-d1-bookmark--read-your-writes-across-calls-optional-aeci-250).
 - Updates are a **merge by provided field**: a field you send overwrites the
   stored value; a field you omit is left unchanged; send an explicit `null` to
   clear a field. The product's **join sets** (vendors, categories, audiences,
-  phases, extensions) are **replaced** to exactly match what you send — so to
+  phases, trades, extensions) are **replaced** to exactly match what you send — so to
   remove a category, just push the product without it.
 - **Re-pushing is safe** (same `supabaseId` → same row). The one hazard is a
   **lost ID mapping**: without `supabaseId`, AECi has no way to know the row
@@ -371,13 +379,14 @@ rejected; you don't need to plumb the response body anywhere else.
 
 A `200` with a non-empty `skipped[]` (§4) is a **partial** promote — some
 entities couldn't be linked (an integration/extension whose far endpoint isn't
-promoted yet, a usefulness group or claim `dataObject` that didn't resolve). Those
-never fail the request, so they're easy to miss. They are surfaced in Datadog as:
+promoted yet, a usefulness group, a claim `dataObject`, or a trade that didn't
+resolve). Those never fail the request, so they're easy to miss. They are surfaced
+in Datadog as:
 
 - a single `warn` log `aeci.api.promote.partial_skipped` (`source:review-app-promote`)
   detailing every `{ ref, kind, reason }` plus per-kind counts, and
 - an `aeci.api.promote.skipped` count metric tagged by `kind`
-  (`integration` / `extension` / `usefulness` / `claim`), for a monitor.
+  (`integration` / `extension` / `usefulness` / `claim` / `trade`), for a monitor.
 
 So a curator's silently-dropped push is visible in Datadog even though the API
 returned `200`. (You should still inspect `skipped[]` in the response and re-push
@@ -392,7 +401,7 @@ You don't need to do anything for this — it's documented so you know what to
 expect. After a successful promote commits, the AECi API invalidates the public
 pages your push affected by purging their edge-cache tags (the product / vendor
 detail pages, the `/products` and `/vendors` indexes, the relevant
-category/audience/phase browse pages, and — when a new taxonomy term or a new
+category/audience/phase/trade browse pages, and — when a new taxonomy term or a new
 product/vendor was created — the taxonomy nav and `sitemap.xml`). So a re-pushed
 **edit** (e.g. a corrected description) becomes visible publicly within one edge
 round-trip rather than waiting out the cache TTL.
@@ -424,6 +433,19 @@ no correctness regression. No retry or action is required from the review app.
   `sourceSlug` / `targetSlug` (§4) are populated by the ingest precisely so this
   needs no extra DB read. (The pair page itself renders once AECI-294 lands; until
   then the tag purge is a harmless no-op and the pings are best-effort.)
+- **Trades are purged in full, but submitted to indexing services only when published
+  (AECI-546, decided).** A promote touching any trade — one you *set* **or** one you
+  *removed* by re-pushing without it — purges that trade's browse page plus the
+  `/trades` index, the taxonomy nav, and `sitemap.xml`, because the trade facet is
+  publication-gated (a term crossing the ≥ 3-product floor changes those surfaces
+  without any term being created or deleted). **Purging and pinging deliberately
+  differ in scope:** purging is about staleness, so it covers every touched trade,
+  published or not; pinging is about *indexing*, so a sub-floor term — which serves
+  `noindex` and is absent from the sitemap — is never submitted. After the write
+  commits, the API re-counts each touched trade and submits only the ones at or above
+  the floor, plus the `/trades` index itself (its per-term counts changed either way).
+  This supersedes AECI-542's interim blanket exclusion, which deferred the call here.
+  Nothing changes on your side: you send `trades`, the API decides what to advertise.
 
 ---
 
@@ -544,11 +566,19 @@ Content-Type: application/json
     "audiences": [
       { "slug": "architecture", "id": "b4d…", "operation": "reused" }
     ],
-    "phases": []
+    "phases": [],
+    "trades": []
   },
   "skipped": []
 }
 ```
+
+`"trades": []` comes back because the request sent no `trades` — and that is the
+*right* answer for Revit: it's a horizontal BIM authoring tool, not a tool with
+trade-specific value, so per the tagging rule (§3.3) it carries no trade tags. Most
+of the catalog looks like this. A paving-takeoff product would send
+`"trades": ["paving-asphalt"]` and get `[{ "slug": "paving-asphalt", "id": …,
+"operation": "reused" }]` back.
 
 After this call, store on your Revit record:
 `supabase_product_id = 0f8fad5b-…`; on Autodesk: `supabase_vendor_id = 1b9d6bcd-…`;
@@ -596,5 +626,6 @@ Every `operation` comes back `updated`; the slugs are unchanged.
 - [ ] Never send slugs; persist the slugs AECi returns (they're the public URLs).
 - [ ] Persist every returned `id` against your record, durably.
 - [ ] Only include integrations whose far endpoint is already promoted (reference it by `supabaseId`); inspect `skipped[]`.
+- [ ] Send `trades[]` only for products with **trade-specific value** (§3.3) — most products send none, and horizontal platforms send an empty array. Values may be slugs, names, or aliases; they resolve find-only, an unrecognized value comes back in `skipped[]` as `kind: "trade"` (never a term you just invented), and omitting the key **clears** the product's trades.
 - [ ] Nest each integration's data-object `claims[]` under it (`dataObject` slug/name, `direction` `a_to_b`/`b_to_a`/`both` relative to source→target, `attestations[]` with `source: "aeci"`); a claim rides with its integration and an unrecognized `dataObject` comes back in `skipped[]` as `kind: "claim"`.
 - [ ] On 4xx, surface `error.message` / `error.field` to the curator; on 5xx, retry then escalate `trace_id`.

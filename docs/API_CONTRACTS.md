@@ -174,7 +174,7 @@ Per-detail hydration rules:
 | Detail response | Field | Embedded shape |
 |---|---|---|
 | `ProductDetail` | `vendor` | `VendorLink` |
-| `ProductDetail` | `categories` / `audiences` / `phases` | `LinkRef[]` |
+| `ProductDetail` | `categories` / `audiences` / `phases` / `trades` | `LinkRef[]` — `trades` (AECI-541) is **sparse by design**: most products carry zero trade tags, so `[]` is the common, correct value, not missing data (`STAGE_1_SPEC.md` §5.5a). |
 | `ProductDetail` | `integrations_as_source` / `integrations_as_target` | `ProductIntegrationItem[]` (= `IntegrationListItem` + `context_direction`) |
 | `ProductDetail` | `integrations_as_connector` | `IntegrationListItem[]` — edges this product **powers** as the mechanism (`powered_by_product_id`), not as an endpoint (Stage 1.5 Addendum B). Bare list item **by design**: the page product is neither endpoint, so `context_direction` has no frame to be relative to. |
 | `ProductDetail` | `related_products` | `ProductListItem[]` |
@@ -182,7 +182,7 @@ Per-detail hydration rules:
 | `IntegrationDetail` | `source` / `target` | `ProductLink` |
 | `IntegrationDetail` | `built_by_vendor` | `VendorLink \| null` |
 | `IntegrationDetail` | `powered_by_product` | `ProductLink \| null` |
-| `CategoryDetail` / `AudienceDetail` / `PhaseDetail` | `products` | `ProductListItem[]` |
+| `CategoryDetail` / `AudienceDetail` / `PhaseDetail` / `TradeDetail` | `products` | `ProductListItem[]` |
 
 Each list endpoint returns the lean `*ListItem` shape; the corresponding `*Detail` shape (returned only by the `:slug` / `:id` endpoint) extends it with the heavier hydration.
 
@@ -303,6 +303,10 @@ export const ProductDetailSchema = ProductListItemSchema.extend({
   categories: z.array(LinkRefSchema),
   audiences: z.array(LinkRefSchema),
   phases: z.array(LinkRefSchema),
+  // The fourth facet (§5.5a / AECI-541). SPARSE BY DESIGN — a product is tagged only
+  // when it has trade-SPECIFIC value, so `[]` is the common case (horizontal platforms
+  // get none). Required, not optional: an absent key is a bug, an empty array is data.
+  trades: z.array(LinkRefSchema),
   // Narrative value grouped by audience/phase, distinct from the `audiences`/`phases`
   // facet LinkRef[] above. `null` when the source has nothing for either facet;
   // otherwise either facet array may be empty.
@@ -430,15 +434,18 @@ export type ReviewerRef = {
 
 List products with filters. Default sort `created` (DESC) per §3.2 / Phase 2 Spec §7.4.
 
+The **four** taxonomy dimensions (`category_id` / `audience_id` / `phase_id` / `trade_id`) accept a **comma-separated UUID list** for multi-select faceting (AECI-223) — **OR within a dimension, AND across dimensions** — decoded to `string[]` by `uuidList`. The param names are unchanged, so a single id (a detail-page taxonomy chip link, or a browse page's locked `{kind}_id`) is just a one-element list. `vendor_id` stays a single UUID (a non-faceted scope).
+
 ```typescript
 export const ProductsListQuerySchema = PageQuerySchema.extend({
   sort: ProductSortSchema,                         // default 'created'
   search: z.string().optional(),
-  category_id: z.string().uuid().optional(),
-  audience_id: z.string().uuid().optional(),
-  phase_id: z.string().uuid().optional(),
+  category_id: uuidList.optional(),
+  audience_id: uuidList.optional(),
+  phase_id: uuidList.optional(),
+  trade_id: uuidList.optional(),                   // AECI-541 (trades facet, §5.5a)
   vendor_id: z.string().uuid().optional(),
-  product_role: z.enum(['application', 'connector', 'hybrid']).optional(),
+  product_role: ProductRoleSchema.optional(),
   has_api_docs: z.coerce.boolean().optional(),
 });
 
@@ -449,7 +456,7 @@ export type ProductsListResponse = z.infer<typeof ProductsListResponseSchema>;
 
 #### `GET /api/products/facets`
 
-Scoped facet counts for the API-backed filter sidebar (AECI-143) on `/products` and the taxonomy browse pages — driven by the existing `/api` filter params, not Algolia, so these pages stay edge-cacheable. Takes the **same filter params** as `GET /api/products` minus the pagination/sort triple (`page`, `perPage`, `sort`); deriving the query with `.omit(...)` keeps the two shapes from drifting. For each taxonomy dimension (category / audience / phase) it returns the product count per term under the *other* active filters (disjunctive faceting — a dimension's own filter is excluded from its own counts). Server-side Drizzle/D1 aggregation. `Cache-Control: private, no-store` like the list/detail siblings.
+Scoped facet counts for the API-backed filter sidebar (AECI-143) on `/products` and the taxonomy browse pages — driven by the existing `/api` filter params, not Algolia, so these pages stay edge-cacheable. Takes the **same filter params** as `GET /api/products` minus the pagination/sort triple (`page`, `perPage`, `sort`); deriving the query with `.omit(...)` keeps the two shapes from drifting. For each taxonomy dimension (category / audience / phase / trade) it returns the product count per term under the *other* active filters (disjunctive faceting — a dimension's own filter is excluded from its own counts). Server-side Drizzle/D1 aggregation. `Cache-Control: private, no-store` like the list/detail siblings.
 
 ```typescript
 export const ProductFacetsQuerySchema = ProductsListQuerySchema.omit({
@@ -466,6 +473,7 @@ export const ProductFacetsResponseSchema = z.object({
   categories: z.array(TaxonomyTermWithCountSchema),
   audiences: z.array(TaxonomyTermWithCountSchema),
   phases: z.array(TaxonomyTermWithCountSchema),
+  trades: z.array(TaxonomyTermWithCountSchema),    // AECI-541
 });
 export type ProductFacetsResponse = z.infer<typeof ProductFacetsResponseSchema>;
 ```
@@ -615,7 +623,7 @@ export type ProductPairResponse = z.infer<typeof ProductPairResponseSchema>;
 
 ### 6.4 Taxonomy
 
-#### `GET /api/categories`, `/api/audiences`, `/api/phases`
+#### `GET /api/categories`, `/api/audiences`, `/api/phases`, `/api/trades`
 
 ```typescript
 export const CategoriesListResponseSchema = z.object({
@@ -625,7 +633,9 @@ export const CategoriesListResponseSchema = z.object({
 
 Not paginated — the taxonomy is small by design (Phase 2 Spec §3.1).
 
-#### `GET /api/categories/:slug`, `/api/audiences/:slug`, `/api/phases/:slug`
+**`/api/trades` is not publication-gated.** Every term is returned with its `product_count`, including terms below the `TRADE_PUBLISH_MIN_PRODUCTS = 3` floor; the gate is applied per-surface by the consumer (`STAGE_1_SPEC.md` §5.5a, `TRADES_VOCABULARY.md` §6). Keeping the gate out of the API avoids splitting the vocabulary into two response shapes.
+
+#### `GET /api/categories/:slug`, `/api/audiences/:slug`, `/api/phases/:slug`, `/api/trades/:slug`
 
 ```typescript
 export const TaxonomyTermWithCountSchema = LinkRefSchema.extend({
@@ -639,7 +649,7 @@ export const TaxonomyTermWithCountSchema = LinkRefSchema.extend({
 export const CategoryDetailSchema = TaxonomyTermWithCountSchema.extend({
   products: z.array(ProductListItemSchema),
 });
-// `AudienceDetailSchema` / `PhaseDetailSchema` follow the same shape.
+// `AudienceDetailSchema` / `PhaseDetailSchema` / `TradeDetailSchema` follow the same shape.
 ```
 
 #### `GET /api/taxonomy`
@@ -649,6 +659,7 @@ export const TaxonomyResponseSchema = z.object({
   categories: z.array(TaxonomyTermWithCountSchema),
   audiences: z.array(TaxonomyTermWithCountSchema),
   phases: z.array(TaxonomyTermWithCountSchema),
+  trades: z.array(TaxonomyTermWithCountSchema),    // AECI-541
 });
 ```
 
@@ -1219,7 +1230,9 @@ least one of `vendors`, `product`, or `integrations`.
 // Request (abridged — see promote.ts for all optional fields)
 export const PromotePayloadSchema = z.object({
   vendors: z.array(PromoteVendorSchema).default([]),      // { ref, supabaseId?, companyName, isPrimary?, ... }
-  product: PromoteProductSchema.optional(),               // { ref, supabaseId?, name, productRole, categories[], audiences[], phases[], extensionOf[], ... }
+  product: PromoteProductSchema.optional(),               // { ref, supabaseId?, name, productRole, categories[], audiences[], phases[], trades[], extensionOf[], ... }
+  //  product.trades[]: trade slugs/names/aliases (AECI-542) — resolved FIND-ONLY
+  //    against the seeded closed vocabulary; a miss → skipped[] kind 'trade'.
   integrations: z.array(PromoteIntegrationSchema).default([]),
   //  integrations[i].sourceProduct / targetProduct: { ref: <product.ref> } | { supabaseId }
   //  (a { ref } endpoint requires `product`; without it, reference products by supabaseId)
@@ -1250,8 +1263,10 @@ export interface PromoteResponse {
     categories: { slug: string; id: string; operation: 'created' | 'reused' }[];
     audiences: { slug: string; id: string; operation: 'created' | 'reused' }[];
     phases: { slug: string; id: string; operation: 'created' | 'reused' }[];
+    // Always present; always `reused` — the trade vocabulary is closed (AECI-542).
+    trades: { slug: string; id: string; operation: 'reused' }[];
   };
-  skipped: { ref: string; kind: 'integration' | 'extension' | 'usefulness' | 'claim'; reason: string }[];
+  skipped: { ref: string; kind: 'integration' | 'extension' | 'usefulness' | 'claim' | 'trade'; reason: string }[];
 }
 ```
 
@@ -1272,6 +1287,20 @@ the payload exactly, attestations cascading), emits `claim.*` / `attestation.*`
 audit rows in the same `db.batch`, and populates each integration result's
 `sourceSlug`/`targetSlug` so the promote derivers can purge the `pair:{min}__{max}`
 tag and ping the canonical pair URL without a DB read.
+
+**Trades (AECI-542):** the product may carry an optional `trades[]` of trade slugs,
+names, **or aliases** (`STAGE_1_SPEC.md` §5.5a, `docs/TRADES_VOCABULARY.md`). Unlike
+`categories` / `audiences` / `phases`, which are find-**or-create**d by canonical slug,
+a trade resolves **find-only** against the seeded closed vocabulary by `slug` → `name`
+→ `alias`, case-insensitively. An unmatched value is dropped and reported in `skipped[]`
+with `kind: 'trade'` and `ref` = the product's `ref` — never auto-created (a typo minting
+`paving-contractors` alongside `paving-asphalt` would split a trade page's products
+across two permanent URLs), and never a 500. `product_trades` is a full-replace join set
+written in the same `db.batch` as the product mutation and its `audit_log` row; because
+no term is ever created, no `trade.*` audit row exists and every echoed result is
+`operation: 'reused'`. The key is **optional** — omitting it (or sending `[]`) clears the
+product's trades, like every other join set. Trades are sparse by design: only products
+with trade-*specific* value carry them.
 
 Errors: `MALFORMED_REQUEST` (bad JSON), `VALIDATION_FAILED` (schema / duplicate
 `ref` / bad enum), `UNAUTHENTICATED` (token). Full integration guide for the

@@ -7,9 +7,12 @@
  * removed — an incremental upsert can't), then repopulate via `callAlgoliaBatch`.
  *
  * Worker-safe building blocks from `@aeci/shared` (no `algoliasearch` SDK):
- * `indexNamesFor`, `mechanismRank`, `callAlgoliaBatch`. Records are built from raw
- * SQL that mirrors `apps/api/src/lib/algolia-transforms.ts` field-for-field, and
- * the membership rule matches the sync pipeline: products/vendors index iff
+ * `indexNamesFor`, `mechanismRank`, `callAlgoliaBatch`, `flattenTradeAliases`.
+ * Records are built from raw SQL that mirrors
+ * `apps/api/src/lib/algolia-transforms.ts` field-for-field — any non-trivial
+ * derivation is imported from `@aeci/shared` rather than reimplemented here
+ * (`flattenTradeAliases`, AECI-545), so the two builders cannot drift. The
+ * membership rule matches the sync pipeline: products/vendors index iff
  * `promotion_status = 'promoted'`; an integration iff BOTH endpoint products are.
  *
  * `clear` keeps the index's settings + replicas (it only removes records), so the
@@ -23,6 +26,7 @@ import {
   type AlgoliaBatchCredentials,
   callAlgoliaBatch,
 } from '@aeci/shared/algolia-batch';
+import { flattenTradeAliases } from '@aeci/shared/algolia-records';
 
 /** Separator for `group_concat`ed taxonomy names — a multi-char token that can't
  * occur in an AEC taxonomy name. */
@@ -33,6 +37,25 @@ export type ReindexEntity = (typeof REINDEX_ENTITIES)[number];
 
 function splitNames(value: unknown): string[] {
   return typeof value === 'string' && value.length ? value.split(SEP) : [];
+}
+
+/**
+ * `taxonomy_trades.aliases` is a JSON-array TEXT column, so `group_concat`ing it
+ * yields `["Blacktop","Paving"]|::|["Glazier"]` — one JSON document per linked
+ * trade (AECI-545). Split, then parse each chunk independently so one malformed
+ * row degrades to "no aliases for that trade" instead of failing the reindex.
+ * The flatten/dedupe itself is the SHARED `flattenTradeAliases`, which is what
+ * keeps this raw-SQL builder byte-identical to `toAlgoliaProduct`.
+ */
+function parseAliasGroups(value: unknown): (string[] | null)[] {
+  return splitNames(value).map((chunk) => {
+    try {
+      const parsed: unknown = JSON.parse(chunk);
+      return Array.isArray(parsed) ? (parsed as string[]) : null;
+    } catch {
+      return null;
+    }
+  });
 }
 
 // ── Record builders (raw SQL → the @aeci/shared/algolia-records shapes) ─────────
@@ -52,7 +75,11 @@ export async function buildProductRecords(db: D1Database): Promise<Record<string
          (SELECT group_concat(ta.name, '${SEP}') FROM product_audiences pa
             JOIN taxonomy_audiences ta ON ta.id = pa.audience_id WHERE pa.product_id = p.id) AS audiences,
          (SELECT group_concat(tp.name, '${SEP}') FROM product_phases pp
-            JOIN taxonomy_phases tp ON tp.id = pp.phase_id WHERE pp.product_id = p.id) AS phases
+            JOIN taxonomy_phases tp ON tp.id = pp.phase_id WHERE pp.product_id = p.id) AS phases,
+         (SELECT group_concat(tt.name, '${SEP}') FROM product_trades pt
+            JOIN taxonomy_trades tt ON tt.id = pt.trade_id WHERE pt.product_id = p.id) AS trades,
+         (SELECT group_concat(tt.aliases, '${SEP}') FROM product_trades pt
+            JOIN taxonomy_trades tt ON tt.id = pt.trade_id WHERE pt.product_id = p.id) AS trade_aliases
        FROM products p WHERE p.promotion_status = 'promoted'`,
     )
     .all<{
@@ -70,23 +97,30 @@ export async function buildProductRecords(db: D1Database): Promise<Record<string
       categories: string | null;
       audiences: string | null;
       phases: string | null;
+      trades: string | null;
+      trade_aliases: string | null;
     }>();
-  return results.map((r) => ({
-    objectID: r.objectID,
-    name: r.name,
-    slug: r.slug,
-    description: r.description,
-    vendor_name: r.vendor_name,
-    vendor_slug: r.vendor_slug,
-    categories: splitNames(r.categories),
-    audiences: splitNames(r.audiences),
-    phases: splitNames(r.phases),
-    integration_count: r.integration_count,
-    review_count: r.review_count,
-    rating_overall_avg: r.rating_overall_avg,
-    has_api_docs: Boolean(r.has_api_docs),
-    logo_url: r.logo_url,
-  }));
+  return results.map((r) => {
+    const trades = splitNames(r.trades);
+    return {
+      objectID: r.objectID,
+      name: r.name,
+      slug: r.slug,
+      description: r.description,
+      vendor_name: r.vendor_name,
+      vendor_slug: r.vendor_slug,
+      categories: splitNames(r.categories),
+      audiences: splitNames(r.audiences),
+      phases: splitNames(r.phases),
+      trades,
+      trade_aliases: flattenTradeAliases(trades, parseAliasGroups(r.trade_aliases)),
+      integration_count: r.integration_count,
+      review_count: r.review_count,
+      rating_overall_avg: r.rating_overall_avg,
+      has_api_docs: Boolean(r.has_api_docs),
+      logo_url: r.logo_url,
+    };
+  });
 }
 
 export async function buildVendorRecords(db: D1Database): Promise<Record<string, unknown>[]> {

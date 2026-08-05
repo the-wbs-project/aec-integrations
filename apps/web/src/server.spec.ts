@@ -164,13 +164,15 @@ describe('cacheControlForRoute', () => {
     // AECI-294 — the product-PAIR page is a detail-class route (900/0).
     ['/products/procore/integrations/revit', { edge: 900, browser: 0 }],
     // CACHE_STRATEGY.md §4 — index pages AND taxonomy browse pages (category /
-    // audience / phase) are 5 min edge / 0 browser. (AECI-61 corrected the
-    // taxonomy rows from a stale 30 min edge.)
+    // audience / phase / trade) are 5 min edge / 0 browser. (AECI-61 corrected
+    // the taxonomy rows from a stale 30 min edge.)
     ['/products', { edge: 300, browser: 0 }],
     ['/categories', { edge: 300, browser: 0 }],
     ['/categories/design', { edge: 300, browser: 0 }],
     ['/audiences/structural', { edge: 300, browser: 0 }],
     ['/phases/preconstruction', { edge: 300, browser: 0 }],
+    ['/trades', { edge: 300, browser: 0 }],
+    ['/trades/electrical', { edge: 300, browser: 0 }],
   ])('returns the §9.2 TTL for %s', (path, expected) => {
     expect(cacheControlForRoute(new URL(`https://x${path}`))).toEqual(expected);
   });
@@ -280,11 +282,22 @@ describe('cacheKeyUrl (AECI-100 — edge cache key normalization)', () => {
       expect(key('/phases/preconstruction?category_id=c')).toBe(
         'https://x/phases/preconstruction?category_id=c',
       );
+      // AECI-544 — `trade_id` is content-affecting on every listing route.
+      expect(key('/trades/electrical?category_id=c&fbclid=y')).toBe(
+        'https://x/trades/electrical?category_id=c',
+      );
+      expect(key('/categories/structural?trade_id=t')).toBe(
+        'https://x/categories/structural?trade_id=t',
+      );
     });
 
     it('keys distinct filter combinations as distinct entries (AECI-143)', () => {
       expect(key('/products?category_id=a')).not.toBe(key('/products?category_id=b'));
       expect(key('/products')).not.toBe(key('/products?category_id=a'));
+      // Under-including `trade_id` would collapse these onto one entry and
+      // serve the wrong HTML (CACHE_STRATEGY.md §4a).
+      expect(key('/products?trade_id=a')).not.toBe(key('/products?trade_id=b'));
+      expect(key('/products')).not.toBe(key('/products?trade_id=a'));
     });
   });
 
@@ -660,6 +673,8 @@ describe('createApp Cache-Tag header (AECI-56, CACHE_STRATEGY.md §2–3)', () =
     ['/categories/structural', 'route:browse,category:structural'],
     ['/audiences/architecture', 'route:browse,audience:architecture'],
     ['/phases/preconstruction', 'route:browse,phase:preconstruction'],
+    ['/trades', 'route:index,index:trades,taxonomy'],
+    ['/trades/electrical', 'route:browse,trade:electrical'],
   ])('cacheable path %s emits Cache-Tag=%s', async (path, expected) => {
     const { binding } = recordingApiBinding();
     const res = await appReturningOk().fetch(

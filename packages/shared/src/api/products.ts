@@ -104,6 +104,11 @@ export const ProductDetailSchema = ProductListItemSchema.extend({
   categories: z.array(LinkRefSchema),
   audiences: z.array(LinkRefSchema),
   phases: z.array(LinkRefSchema),
+  // The fourth facet (§5.5a / AECI-541) — "what work does the company sell?".
+  // SPARSE BY DESIGN: most products carry zero trades (a tag means the product
+  // has trade-SPECIFIC value; horizontal platforms get none — TRADES_VOCABULARY.md
+  // §1.1), so an empty array is the common, correct case, not missing data.
+  trades: z.array(LinkRefSchema),
   // Narrative value grouped by audience/phase, distinct from the `audiences`/`phases`
   // facet LinkRef[] above. `null` when the source has nothing for either facet;
   // otherwise either facet array may be empty.
@@ -130,13 +135,14 @@ export const ProductDetailSchema = ProductListItemSchema.extend({
 export type ProductDetail = z.infer<typeof ProductDetailSchema>;
 
 /**
- * Query for `GET /api/products`. The three taxonomy dimensions
- * (`category_id` / `audience_id` / `phase_id`) accept a **comma-separated UUID
- * list** for multi-select faceting (AECI-223) — **OR within a dimension, AND
- * across dimensions** — decoded to `string[]` by `uuidList`. The param names are
- * unchanged, so a single id (a detail-page taxonomy chip link, or a browse
- * page's locked `{kind}_id`) is just a one-element list. `vendor_id` stays a
- * single UUID (a non-faceted scope, out of scope for AECI-223).
+ * Query for `GET /api/products`. The four taxonomy dimensions
+ * (`category_id` / `audience_id` / `phase_id` / `trade_id`) accept a
+ * **comma-separated UUID list** for multi-select faceting (AECI-223) — **OR
+ * within a dimension, AND across dimensions** — decoded to `string[]` by
+ * `uuidList`. The param names are unchanged, so a single id (a detail-page
+ * taxonomy chip link, or a browse page's locked `{kind}_id`) is just a
+ * one-element list. `vendor_id` stays a single UUID (a non-faceted scope, out
+ * of scope for AECI-223).
  */
 export const ProductsListQuerySchema = PageQuerySchema.extend({
   sort: ProductSortSchema,
@@ -144,6 +150,7 @@ export const ProductsListQuerySchema = PageQuerySchema.extend({
   category_id: uuidList.optional(),
   audience_id: uuidList.optional(),
   phase_id: uuidList.optional(),
+  trade_id: uuidList.optional(), // AECI-541 (trades facet, §5.5a)
   vendor_id: z.string().uuid().optional(),
   product_role: ProductRoleSchema.optional(),
   has_api_docs: z.coerce.boolean().optional(),
