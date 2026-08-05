@@ -56,7 +56,7 @@
     "@supabase/ssr": "^0.7.0",
     "@supabase/supabase-js": "^2.49.0",
     "algoliasearch": "^5.40.0",
-    "hono": "^4.12.12",
+    "hono": "^4.13.0",
     "instantsearch.js": "^4.79.0",
     "marked": "^18.0.5",
     "posthog-js": "^1.393.0",
