@@ -22,12 +22,14 @@ import {
   integrations,
   productCategories,
   products,
+  productTrades,
   productVendors,
   statsCache,
   taxonomyAudiences,
   taxonomyCategories,
   taxonomyDataObjects,
   taxonomyPhases,
+  taxonomyTrades,
   vendors,
 } from '../db/schema';
 import { bookmarkMiddleware } from '../bookmark-middleware';
@@ -609,6 +611,147 @@ describe('usefulness resolution on promote (AECI-172)', () => {
     expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
       'VALIDATION_FAILED',
     );
+  });
+});
+
+describe('createPromoteHandler — trades ingest (AECI-542)', () => {
+  // `taxonomy_trades.description` is NOT NULL (`/trades/:slug` ships as an SEO
+  // landing page, so copy is part of the contract — TRADES_VOCABULARY.md §5).
+  const seedTrade = (id: string, slug: string, name: string, aliases: string[] = []) =>
+    t.db.insert(taxonomyTrades).values({ id, slug, name, description: `${name} work.`, aliases });
+
+  const tradeSlugsFor = async (productId: string) =>
+    (
+      await t.db
+        .select({ slug: taxonomyTrades.slug })
+        .from(productTrades)
+        .innerJoin(taxonomyTrades, eq(taxonomyTrades.id, productTrades.tradeId))
+        .where(eq(productTrades.productId, productId))
+    )
+      .map((r) => r.slug)
+      .sort();
+
+  type Body = {
+    product: { id: string };
+    taxonomy: { trades: { slug: string; id: string; operation: string }[] };
+    skipped: { ref: string; kind: string; reason: string }[];
+  };
+
+  it('leaves behaviour unchanged for a payload with no trades key', async () => {
+    await seedTrade(uuid(1), 'electrical', 'Electrical');
+
+    const res = await promote({ product: { ref: 'p1', name: 'Revit' } });
+
+    expect(res.status).toBe(200);
+    const b = (await res.json()) as Body;
+    expect(b.taxonomy.trades).toEqual([]);
+    expect(b.skipped).toHaveLength(0);
+    expect(await tradeSlugsFor(b.product.id)).toEqual([]);
+  });
+
+  it('resolves by slug, name, and alias case-insensitively, deduping to one join row', async () => {
+    await seedTrade(uuid(1), 'electrical', 'Electrical', ['Electrician']);
+    await seedTrade(uuid(2), 'hvac-mechanical', 'HVAC & Mechanical', ['HVAC', 'Mechanical']);
+
+    const res = await promote({
+      product: {
+        ref: 'p1',
+        name: 'Revit',
+        // slug, name (odd casing), alias, and a second alias for the SAME term.
+        trades: ['electrical', 'hvac & MECHANICAL', 'Electrician', 'HVAC'],
+      },
+    });
+
+    expect(res.status).toBe(200);
+    const b = (await res.json()) as Body;
+    expect(b.skipped).toHaveLength(0);
+    expect(b.taxonomy.trades).toEqual([
+      { slug: 'electrical', id: uuid(1), operation: 'reused' },
+      { slug: 'hvac-mechanical', id: uuid(2), operation: 'reused' },
+    ]);
+    expect(await tradeSlugsFor(b.product.id)).toEqual(['electrical', 'hvac-mechanical']);
+  });
+
+  it('writes the join rows and the product audit row in ONE atomic batch (§26.1)', async () => {
+    await seedTrade(uuid(1), 'electrical', 'Electrical');
+    const realBatch = t.db.batch.bind(t.db) as (s: unknown[]) => Promise<unknown[]>;
+    let batchCalls = 0;
+    (t.db as unknown as { batch: (s: unknown[]) => Promise<unknown[]> }).batch = (stmts) => {
+      batchCalls += 1;
+      return realBatch(stmts);
+    };
+
+    const res = await promote({
+      product: { ref: 'p1', name: 'Revit', trades: ['electrical'] },
+    });
+
+    expect(res.status).toBe(200);
+    const b = (await res.json()) as Body;
+    // One batch — so the join rows and the audit row commit or roll back together.
+    expect(batchCalls).toBe(1);
+    expect(await tradeSlugsFor(b.product.id)).toEqual(['electrical']);
+    // Resolve-only: the product audit row lands, but no term was minted, so there
+    // is no `trade.created` action to log.
+    const actions = await auditActions();
+    expect(actions).toContain('product.created');
+    expect(actions).not.toContain('trade.created');
+  });
+
+  it('reports an unresolvable trade in skipped[] (kind: trade) and creates no term', async () => {
+    await seedTrade(uuid(1), 'paving-asphalt', 'Paving & Asphalt', ['Blacktop']);
+
+    const res = await promote({
+      product: {
+        ref: 'p1',
+        name: 'Revit',
+        trades: ['paving-asphalt', 'paving-contractors'],
+      },
+    });
+
+    expect(res.status).toBe(200);
+    const b = (await res.json()) as Body;
+    // The known trade still lands; only the unmatched value is dropped.
+    expect(b.taxonomy.trades).toEqual([
+      { slug: 'paving-asphalt', id: uuid(1), operation: 'reused' },
+    ]);
+    expect(b.skipped).toEqual([expect.objectContaining({ ref: 'p1', kind: 'trade' })]);
+    expect(b.skipped[0]!.reason).toMatch(/paving-contractors/);
+    expect(await tradeSlugsFor(b.product.id)).toEqual(['paving-asphalt']);
+    // The governance guarantee: a typo must NEVER mint a term (§5.5a / ADR 0008).
+    expect(await t.db.select().from(taxonomyTrades)).toHaveLength(1);
+    expect(await auditActions()).not.toContain('trade.created');
+  });
+
+  it('replaces the whole trade set on re-promote, removing a previously-set tag', async () => {
+    const prodId = uuid(9);
+    await seedTrade(uuid(1), 'electrical', 'Electrical');
+    await seedTrade(uuid(2), 'roofing', 'Roofing');
+    await seedProduct(prodId, 'revit', 'Revit');
+    await t.db.insert(productTrades).values([
+      { productId: prodId, tradeId: uuid(1) },
+      { productId: prodId, tradeId: uuid(2) },
+    ]);
+
+    const res = await promote({
+      product: { ref: 'p1', supabaseId: prodId, name: 'Revit', trades: ['roofing'] },
+    });
+
+    expect(res.status).toBe(200);
+    expect(await tradeSlugsFor(prodId)).toEqual(['roofing']);
+  });
+
+  it('clears every trade when the product is re-promoted without the key', async () => {
+    const prodId = uuid(9);
+    await seedTrade(uuid(1), 'electrical', 'Electrical');
+    await seedProduct(prodId, 'revit', 'Revit');
+    await t.db.insert(productTrades).values({ productId: prodId, tradeId: uuid(1) });
+
+    const res = await promote({
+      product: { ref: 'p1', supabaseId: prodId, name: 'Revit' },
+    });
+
+    expect(res.status).toBe(200);
+    expect(await tradeSlugsFor(prodId)).toEqual([]);
   });
 });
 
@@ -1307,7 +1450,7 @@ describe('cacheTagsForPromote (AECI-105)', () => {
     slug,
     operation,
   });
-  const emptyTaxonomy = { categories: [], audiences: [], phases: [] };
+  const emptyTaxonomy = { categories: [], audiences: [], phases: [], trades: [] };
 
   it('created product + vendor + mixed taxonomy → entity, index, taxonomy, sitemap tags', () => {
     const response: PromoteResponse = {
@@ -1318,6 +1461,7 @@ describe('cacheTagsForPromote (AECI-105)', () => {
         categories: [tax('bim', 'reused')],
         audiences: [tax('architecture', 'created')],
         phases: [],
+        trades: [],
       },
       skipped: [],
     };
@@ -1339,7 +1483,7 @@ describe('cacheTagsForPromote (AECI-105)', () => {
       vendors: [entity('autodesk', 'updated')],
       product: entity('revit', 'updated'),
       integrations: [],
-      taxonomy: { categories: [tax('bim', 'reused')], audiences: [], phases: [] },
+      taxonomy: { categories: [tax('bim', 'reused')], audiences: [], phases: [], trades: [] },
       skipped: [],
     };
     expect(new Set(cacheTagsForPromote(response))).toEqual(
@@ -1374,7 +1518,7 @@ describe('cacheTagsForPromote (AECI-105)', () => {
       vendors: [],
       product: entity('revit', 'updated'),
       integrations: [],
-      taxonomy: { categories: [], audiences: [], phases: [tax('design', 'created')] },
+      taxonomy: { categories: [], audiences: [], phases: [tax('design', 'created')], trades: [] },
       skipped: [],
     };
     expect(new Set(cacheTagsForPromote(response))).toEqual(
@@ -1439,10 +1583,71 @@ describe('cacheTagsForPromote (AECI-105)', () => {
       vendors: [entity('autodesk', 'created')],
       product: entity('revit', 'created'),
       integrations: [],
-      taxonomy: { categories: [tax('bim', 'created')], audiences: [], phases: [] },
+      taxonomy: { categories: [tax('bim', 'created')], audiences: [], phases: [], trades: [] },
       skipped: [],
     };
     expect(cacheTagsForPromote(response).some((tag) => tag.startsWith('route:'))).toBe(false);
+  });
+
+  // AECI-542 — trades diverge from the three sibling facets: they can never be
+  // `created`, yet any touched trade still changes the publication-gated `/trades`
+  // index, facet sidebar, and sitemap (`CACHE_STRATEGY.md` §2).
+  it('a reused trade → trade tag + index:trades + taxonomy + sitemap', () => {
+    const response: PromoteResponse = {
+      vendors: [],
+      product: entity('revit', 'updated'),
+      integrations: [],
+      taxonomy: {
+        categories: [],
+        audiences: [],
+        phases: [],
+        trades: [tax('electrical', 'reused')],
+      },
+      skipped: [],
+    };
+    expect(new Set(cacheTagsForPromote(response))).toEqual(
+      new Set([
+        'product:revit',
+        'index:products',
+        'trade:electrical',
+        'index:trades',
+        'taxonomy',
+        'sitemap',
+      ]),
+    );
+  });
+
+  it('a REMOVED trade still purges its browse page and the gated surfaces', () => {
+    const response: PromoteResponse = {
+      vendors: [],
+      product: entity('revit', 'updated'),
+      integrations: [],
+      taxonomy: emptyTaxonomy,
+      skipped: [],
+    };
+    expect(new Set(cacheTagsForPromote(response, { removedTradeSlugs: ['roofing'] }))).toEqual(
+      new Set([
+        'product:revit',
+        'index:products',
+        'trade:roofing',
+        'index:trades',
+        'taxonomy',
+        'sitemap',
+      ]),
+    );
+  });
+
+  it('a promote with no trades emits no trade tags', () => {
+    const response: PromoteResponse = {
+      vendors: [],
+      product: entity('revit', 'updated'),
+      integrations: [],
+      taxonomy: emptyTaxonomy,
+      skipped: [],
+    };
+    expect(new Set(cacheTagsForPromote(response))).toEqual(
+      new Set(['product:revit', 'index:products']),
+    );
   });
 });
 
