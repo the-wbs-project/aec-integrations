@@ -15,7 +15,7 @@
   },
   "dependencies": {
     "@aeci/shared": "workspace:*",
-    "hono": "^4.12.12",
+    "hono": "^4.13.0",
     "jose": "^6.2.3"
   },
   "devDependencies": {
