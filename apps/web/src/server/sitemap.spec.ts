@@ -221,7 +221,9 @@ function sitemapApiBinding(): { API: Fetcher; ASSETS: Fetcher } {
         case '/api/integrations':
           return json({ data: [], page: 1, perPage: 100, total: 0 });
         case '/api/taxonomy':
-          return json({ categories: [{ slug: 'cost' }], audiences: [], phases: [] });
+          // `trades` travels on the real response (AECI-541); the sitemap does not
+          // consume it yet — the /trades section lands with AECI-546.
+          return json({ categories: [{ slug: 'cost' }], audiences: [], phases: [], trades: [] });
         default:
           return new Response('not found', { status: 404 });
       }

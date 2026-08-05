@@ -418,7 +418,7 @@ The schema is organized into seven domains, all defined in `DATABASE_SCHEMA.md`:
 | Domain | Tables |
 |---|---|
 | Core entities | `vendors`, `products`, `integrations` |
-| Taxonomy | `taxonomy_categories`, `taxonomy_audiences`, `taxonomy_phases`, `taxonomy_trades` _(§5.5a — AECI-538 epic; ships in AECI-540)_ |
+| Taxonomy | `taxonomy_categories`, `taxonomy_audiences`, `taxonomy_phases`, `taxonomy_trades` _(§5.5a — AECI-538 epic; shipped in AECI-540)_ |
 | Joins | `product_categories`, `product_audiences`, `product_phases`, `product_trades` _(AECI-540)_, `product_vendors`, `product_extensions` |
 | User and content | `profiles`, `reviews` |
 | Operations and workflow | `vendor_requests`, `workflow_instances`, `workflow_transitions`, `audit_log` |
@@ -522,8 +522,8 @@ Cloudflare Worker at `apps/api/`, exposed via service binding to the SSR worker.
 - `GET /api/products/:slug/reviews` — approved reviews for product
 - `GET /api/vendors`, `GET /api/vendors/:slug`
 - `GET /api/integrations`, `GET /api/integrations/:id` _(Stage 1.5 adds the pair-page + claims read paths — `STAGE_1_5_SPEC.md` §6, §8; shapes in `API_CONTRACTS.md`)_
-- `GET /api/taxonomy/categories`, `/audiences`, `/phases`
-- `GET /api/trades`, `GET /api/trades/:slug` _(§5.5a — AECI-538 epic; ships in AECI-541)_
+- `GET /api/categories`, `/api/audiences`, `/api/phases` (+ each `/:slug`), and the aggregate `GET /api/taxonomy`
+- `GET /api/trades`, `GET /api/trades/:slug` _(§5.5a — AECI-538 epic; shipped in AECI-541). Ungated: every term travels with its `product_count`, sub-`TRADE_PUBLISH_MIN_PRODUCTS` terms included, and each surface applies the floor._
 - `GET /api/stats/home`
 
 **Authenticated write:**

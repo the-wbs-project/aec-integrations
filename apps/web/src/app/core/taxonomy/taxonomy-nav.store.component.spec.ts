@@ -30,6 +30,9 @@ const RESPONSE: TaxonomyResponse = {
   categories: Array.from({ length: 12 }, (_, i) => term(`cat-${i}`, i)),
   audiences: [term('aud-a', 2), term('aud-b', 9), term('aud-c', 5)],
   phases: [term('closeout', 8, 50), term('design', 3, 20)],
+  // AECI-541 — the fourth facet travels on the aggregate response. Nav surfacing
+  // of trades lands with the browse pages (AECI-544); this store ignores it today.
+  trades: [term('electrical', 4, 10)],
 };
 
 /**

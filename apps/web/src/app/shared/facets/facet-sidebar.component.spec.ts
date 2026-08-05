@@ -33,7 +33,7 @@ function term(id: string, name: string, count: number): TaxonomyTermWithCount {
 }
 
 function facets(parts: Partial<ProductFacetsResponse>): ProductFacetsResponse {
-  return { categories: [], audiences: [], phases: [], ...parts };
+  return { categories: [], audiences: [], phases: [], trades: [], ...parts };
 }
 
 /** Flush any still-pending facets requests (a toggle re-fetches scoped counts). */

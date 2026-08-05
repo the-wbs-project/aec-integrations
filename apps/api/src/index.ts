@@ -3,6 +3,7 @@ import {
   CategoryDetailSchema,
   AudienceDetailSchema,
   PhaseDetailSchema,
+  TradeDetailSchema,
 } from '@aeci/shared';
 import { Hono } from 'hono';
 
@@ -137,6 +138,16 @@ phase28.get(
   createTaxonomyDetailHandler({
     resource: 'phase',
     schema: PhaseDetailSchema,
+  }),
+);
+// AECI-541 — the fourth facet (§5.5a). Ungated: sub-`TRADE_PUBLISH_MIN_PRODUCTS`
+// terms are listed and resolve, and each surface applies the floor itself.
+phase28.get('/api/trades', createTaxonomyListHandler('trades'));
+phase28.get(
+  '/api/trades/:slug',
+  createTaxonomyDetailHandler({
+    resource: 'trade',
+    schema: TradeDetailSchema,
   }),
 );
 

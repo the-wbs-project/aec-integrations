@@ -37,6 +37,10 @@ export const ProductFacetsResponseSchema = z.object({
   categories: z.array(TaxonomyTermWithCountSchema),
   audiences: z.array(TaxonomyTermWithCountSchema),
   phases: z.array(TaxonomyTermWithCountSchema),
+  // The fourth dimension (§5.5a / AECI-541). Ungated like the other three: every
+  // trade term is listed with its scoped count, sub-floor terms included — the
+  // sidebar decides what to render (`TRADES_VOCABULARY.md` §6).
+  trades: z.array(TaxonomyTermWithCountSchema),
 });
 
 export type ProductFacetsResponse = z.infer<typeof ProductFacetsResponseSchema>;
