@@ -34,32 +34,69 @@
  *   - **No sitemap URL.** `sitemap.xml` is not an IndexNow target; engines
  *     re-fetch it on their own and `updated_at`/`<lastmod>` covers it (§20.5
  *     step 5).
- *   - **No trade URLs (AECI-542, decided).** `/trades/:slug` is deliberately NOT
- *     submitted in v1, so this deriver is narrower than `cacheTagsForPromote` for
- *     the trade facet. Three reasons: the route does not exist until AECI-544, so
- *     today's submissions would be 404s; a trade under the publication floor
- *     (`TRADE_PUBLISH_MIN_PRODUCTS`, §5.5a) renders `noindex,follow` and is
- *     excluded from the sitemap, and pinging indexing services for a noindex'd URL
- *     is the same correctness bug the `INDEXNOW_KEY` gate exists to prevent; and
- *     applying the floor needs a per-term `product_count` this function (pure over
- *     the response) does not have. Gated inclusion is AECI-546's call — it owns the
- *     publication gate and the sitemap. Recorded in `REVIEW_APP_PROMOTE_API.md` §6a.
+ *   - **Trade URLs — PUBLISHED terms only (AECI-546).** AECI-542 excluded trades
+ *     outright and deferred the call here; this issue took it. Two of that
+ *     deferral's three reasons are now answered: `/trades/:slug` exists (AECI-544),
+ *     and the caller resolves the floor for us and passes
+ *     `opts.publishedTradeSlugs` (`promote-trade-publication.ts`) so this function
+ *     stays pure over its inputs. The third reason stands and is exactly what the
+ *     filter enforces: a trade under `TRADE_PUBLISH_MIN_PRODUCTS` renders
+ *     `noindex` and is absent from the sitemap, and pinging an indexing service
+ *     for a noindex'd URL is the same correctness bug the `INDEXNOW_KEY` gate
+ *     exists to prevent. Recorded in `REVIEW_APP_PROMOTE_API.md` §6a.
+ *   - **`/trades` index on any touched trade.** Unlike the three sibling facets —
+ *     whose index pages are pinged only when a term was newly *created* — the
+ *     `/trades` index repaints whenever any trade is touched at all, published or
+ *     not: it renders live per-term product counts, and a term crossing (or
+ *     falling back under) the floor adds or removes a whole tile. Trades are
+ *     find-only, so `operation: 'created'` never fires for them and the
+ *     created-term branch below would never catch this.
+ *   - **No `/` on a trade touch.** Home renders the taxonomy nav, whose trades
+ *     flyout is gated the same way — but home is pinged on term *creation*, which
+ *     a find-only vocabulary cannot produce. Adding it on every trade touch would
+ *     ping the site's most-crawled URL for a change no crawler needs told about.
  *
  * This now models the same "what changed" set as `cacheTagsForPromote` for
  * integrations — both point at the pair page, not the retired detail route
- * (AECI-298 resolved the earlier interim asymmetry).
+ * (AECI-298 resolved the earlier interim asymmetry) — and the same touched-trade
+ * set for trades, narrowed by the publication floor.
  */
 
 import type { PromoteResponse } from '@aeci/shared';
 
+import { touchedTradeSlugs } from './promote-cache-tags';
 import { sortedPairSlugs } from './promote-pair';
+
+/**
+ * Trade inputs the response alone cannot supply. Both default to empty, so a
+ * caller that doesn't resolve them submits no trade URLs at all — the pre-AECI-546
+ * behaviour, and the safe direction if the publication read fails.
+ */
+export interface AffectedUrlOptions {
+  /**
+   * Touched trades that clear `TRADE_PUBLISH_MIN_PRODUCTS` **after** the promote
+   * committed, from `resolvePublishedTradeSlugs`. Only these get a term URL.
+   */
+  publishedTradeSlugs?: readonly string[];
+  /**
+   * Trades this promote dropped from the product. The response echoes only what
+   * was SET, so removals arrive separately — same input `cacheTagsForPromote`
+   * takes, and it feeds the same `/trades`-index decision.
+   */
+  removedTradeSlugs?: readonly string[];
+}
 
 /**
  * Returns the deduplicated set of absolute public URLs to submit to IndexNow for
  * a promote `response`, or an empty array when nothing public changed (e.g. an
- * all-skipped push). Pure — depends only on the response and the base URL.
+ * all-skipped push). Pure — depends only on its arguments; the publication floor
+ * is resolved by the caller and handed in via `opts`.
  */
-export function affectedUrlsForPromote(response: PromoteResponse, baseUrl: string): string[] {
+export function affectedUrlsForPromote(
+  response: PromoteResponse,
+  baseUrl: string,
+  opts: AffectedUrlOptions = {},
+): string[] {
   const base = baseUrl.replace(/\/+$/, '');
   const urls = new Set<string>();
 
@@ -115,6 +152,17 @@ export function affectedUrlsForPromote(response: PromoteResponse, baseUrl: strin
     urls.add(`${base}/categories`);
     urls.add(`${base}/audiences`);
     urls.add(`${base}/phases`);
+  }
+
+  // Trades (AECI-546) — their own block, NOT folded into the loop above, because
+  // both rules differ. Term URLs are filtered by the publication floor, and the
+  // index is pinged on ANY touch rather than on a creation that find-only
+  // resolution can never produce. See the header for the full reasoning.
+  for (const slug of opts.publishedTradeSlugs ?? []) {
+    urls.add(`${base}/trades/${slug}`);
+  }
+  if (touchedTradeSlugs(response, opts.removedTradeSlugs).length) {
+    urls.add(`${base}/trades`);
   }
 
   return [...urls];

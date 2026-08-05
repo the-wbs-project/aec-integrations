@@ -199,8 +199,8 @@ A Figma file ("AEC Integrations — Design System") maintains canonical color st
 | `/audiences/:slug` | Browse by audience | 30 min edge |
 | `/phases` | All project phases (flat taxonomy index) | 5 min edge |
 | `/phases/:slug` | Browse by project phase | 30 min edge |
-| `/trades` | All trades (flat taxonomy index) — **published terms only** (§5.5a) _(AECI-538 epic; ships in AECI-544)_ | 5 min edge |
-| `/trades/:slug` | Browse by trade — `noindex,follow` until the term is published (§5.5a) _(AECI-538 epic; ships in AECI-544)_ | 30 min edge |
+| `/trades` | All trades (flat taxonomy index) — lists **published terms only**, but the page itself is always indexable and always in the sitemap (§5.5a) _(AECI-538 epic; AECI-544 + AECI-546)_ | 5 min edge |
+| `/trades/:slug` | Browse by trade — 200 always; `noindex` and withheld from the sitemap until the term is published (§5.5a) _(AECI-538 epic; AECI-544 + AECI-546)_ | 30 min edge |
 | `/search` | Algolia-powered search results | No cache |
 | `/about` | About AEC Integrations | 24 hr edge |
 | `/updates` | Mailing-list signup page (AECI-536) — focused first-party subscribe destination for external links | 24 hr edge |
@@ -482,7 +482,7 @@ A separate "Roles" facet was evaluated and **rejected**: ~55% of the proposed ro
 
 **Closed and find-only.** Unlike Categories / Audiences / Phases — which the promote flow resolves **find-or-create** (`apps/api/src/routes/promote.ts`, `resolveTaxonomy`) — the promote `trades` key resolves **find-only** against the canonical slug/name/alias set, following the Stage 1.5 `data_object` model. An unmatched term is **rejected and reported**, never auto-created: a curator minting `paving-contractors` alongside `paving-asphalt` would split a trade page's products across two URLs and destroy the SEO asset the facet exists to build. `slug` is immutable identity; `name` / `description` / `aliases` are editable metadata. Governance: `TRADES_VOCABULARY.md` §3.
 
-**Publication gating.** A trade is **published** when at least `TRADE_PUBLISH_MIN_PRODUCTS = 3` promoted products carry it (launch-tunable; exported from `packages/shared` with the `isPublishedTrade` helper). Unpublished terms are hidden from the `/trades` index, the primary-nav flyout, and the sitemap, and their page renders `noindex,follow`; the URL still resolves, so crossing the floor needs no redirect. The **facet sidebar is exempt** (AECI-544): its counts are disjunctive and scoped to the active filters, so a published trade's count legitimately drops below the floor under a filter — gating there would hide published terms, and the sidebar is a control surface rather than indexable content. The API is **not** gated — `product_count` travels on every term and each surface applies the floor. Full matrix and the sidebar rationale: `TRADES_VOCABULARY.md` §6.
+**Publication gating.** A trade is **published** when at least `TRADE_PUBLISH_MIN_PRODUCTS = 3` promoted products carry it (launch-tunable; exported from `packages/shared` with the `isPublishedTrade` helper). Unpublished terms are hidden from the `/trades` index grid, the primary-nav flyout, the sitemap, and the IndexNow/Google submit set (§20.2), and their page renders `noindex`; the URL still resolves, so crossing the floor needs no redirect. Two deliberate exemptions: the **facet sidebar** (AECI-544), whose counts are disjunctive and scoped to the active filters — so a published trade's count legitimately drops below the floor under a filter, gating there would hide published terms, and the sidebar is a control surface rather than indexable content; and the **`/trades` index page itself** (AECI-546), which is always listed in the sitemap and always indexable, because the floor gates thin *term* pages, not the navigational page a crawler needs in order to discover a term as it crosses. The API is **not** gated — `product_count` travels on every term and each surface applies the floor. Full matrix, the `noindex`-vs-`noindex,follow` note, and both rationales: `TRADES_VOCABULARY.md` §6.
 
 **Surface inventory** (the epic's build order — see AECI-538):
 
@@ -493,7 +493,7 @@ A separate "Roles" facet was evaluated and **rejected**: ~55% of the proposed ro
 | Promote contract gains an optional `trades` key (find-only) | `REVIEW_APP_PROMOTE_API.md` — cross-repo | AECI-542 (+ REVIEW: AECI-543) |
 | `/trades` + `/trades/:slug` browse pages, facet-sidebar dimension, product-detail chips | §3.1; mirrors `/phases` | AECI-544 |
 | Algolia `trades` facet + one-time full product reindex | `SEARCH_RANKING.md` §7.2 faceting; lockstep edit across the record schema, index settings, transform, and reindex | AECI-545 |
-| Sitemap section + publication gating | §20.1 | AECI-546 |
+| Sitemap entries + the `noindex` half of the publication gate + gated trade URLs in the indexing pings | §20.1, §20.2 | AECI-546 |
 | Catalog backfill + re-promote so trades reach search records | Cross-repo | REVIEW: AECI-547 |
 
 **The Audience seam is documented, not resolved.** The Audience facet does **not** change — `specialty-contracting` stays. Audience `specialty-contracting` is a statement about *the software's positioning*; Trade `electrical` is a statement about *the work*. A product may carry both, one, or neither. The near-duplicate pairs a curator must keep apart (`hvac-mechanical` vs. `mep-engineering`, `structural-steel` vs. `structural-engineering`, `solar-renewables` vs. `energy-sustainability`) are tabulated in `TRADES_VOCABULARY.md` §7. Terms that fail that distinguishability test are excluded from the vocabulary (§5.2 there) — the same discipline that got the proposed "Roles" facet rejected in AECI-121.
@@ -1204,7 +1204,7 @@ Governed by `docs/STAGE_1_PHASE_6_SPEC.md` (decomposed into AECI Phase 6.1–6.1
 Decomposed into AECI Phase 7.1–7.13 (planned 2026-06-10; **no sibling spec — straight to issues**). Much of §16's original Phase 7 list **already shipped in Phases 2–4** (verified on `main` 2026-06-10) and is struck below; Phase 7 is the genuine launch-readiness remainder.
 
 **Already shipped:** ~~XML sitemap~~ (AECI-63) · ~~OG/Twitter meta~~ + ~~product/vendor JSON-LD~~ (AECI-51) + ~~home JSON-LD~~ (AECI-186) · ~~canonical tags~~ (AECI-147) · ~~404 page~~ (AECI-62) · ~~robots.txt~~ (AECI-63) · ~~axe-core in e2e~~ + ~~Lighthouse a11y ≥95 in CI~~ (AECI-65) · ~~CSP/security headers~~ (AECI-89) · ~~color-contrast validation~~ (AECI-148/150/166/230) · ~~Datadog dashboards~~ (per-phase: AECI-66/141/180/206) — **no Slack** (Phase 6 decision).
-**Deferred (not Stage 1):** integration-page JSON-LD (Phase 2 §9.2 → Stage 2); sitemap index/sub-sitemap split (AECI-63 — only needed beyond 50k URLs).
+**Deferred (not Stage 1):** integration-page JSON-LD (Phase 2 §9.2 → Stage 2); sitemap index/sub-sitemap split (AECI-63 — only needed beyond 50k URLs; now tracked as AECI-560, see §20.1).
 
 **Phase 7.1–7.13 (the remainder):**
 - [x] 7.1 — IndexNow on the write-event pipeline (§20.2) — AECI-236 (Google Indexing API ping deferred → AECI-263)
@@ -1310,9 +1310,13 @@ Generated on request by a Cloudflare Worker, not built statically.
 - `/sitemap-products.xml` — all product URLs with `<lastmod>` reflecting `products.updated_at`
 - `/sitemap-vendors.xml` — all vendor URLs
 - `/sitemap-integrations.xml` — all integration URLs
-- `/sitemap-taxonomy.xml` — category, audience, and phase pages
+- `/sitemap-taxonomy.xml` — category, audience, phase, and **published** trade pages, plus the four taxonomy index pages
 - Edge-cached for 1 hour with tag-based invalidation on writes
 - Includes localized URLs via `<xhtml:link rel="alternate" hreflang="...">` once additional locales exist
+
+> **What actually ships is ONE flat document.** The `<sitemapindex>` split above is the target shape; it was deferred in AECI-63 (see the "Deferred" line in §16 Phase 7) and has never been built. Tracked as **AECI-560**. `apps/web/src/server/sitemap.ts` emits a single `/sitemap.xml` `<urlset>` containing every URL the bullets above describe, edge-cached 1 hour under `Cache-Tag: sitemap,taxonomy`. The split is only needed past the protocol's 50,000-URL cap; the catalog is ~two orders of magnitude below it, and the module warns if that ever changes (`SITEMAP_MAX_URLS`). **Read the sub-sitemap paths above as content groupings, not as routes that resolve.**
+
+> **Trades are the one count-gated facet (AECI-546).** A `/trades/:slug` URL is emitted only once the term clears `TRADE_PUBLISH_MIN_PRODUCTS` (§5.5a) — a sub-floor page serves `noindex`, and advertising a `noindex` URL in the sitemap is the contradiction the publication gate exists to prevent. The `/trades` **index** is emitted unconditionally, like its three siblings. Categories, audiences, and phases are never count-gated: those vocabularies are curated against the catalog, so an empty term is a data problem to fix rather than a page to withhold.
 
 ### 20.2 IndexNow notification
 
@@ -1321,6 +1325,8 @@ On any write to products, vendors, or integrations, a Cloudflare Worker submits 
 This runs as part of the single write-event pipeline described in Section 20.5.
 
 > **Implemented (AECI-236):** the API Worker's `POST /api/promote` post-commit pipeline computes the affected public URLs (`apps/api/src/routes/promote-indexnow-urls.ts`) and submits them to IndexNow (`apps/api/src/lib/indexnow.ts`) right where the Cache-Tag purge fires — best-effort, failures logged to Datadog, never blocking the write. The SSR Worker serves the `{key}.txt` verification file at the site root (`apps/web/src/server/routes/indexnow-key.ts`). Gated on `INDEXNOW_KEY` + `PUBLIC_SITE_URL`, provisioned **only at public launch** (alongside `ALLOW_INDEXING="true"`) so a `noindex` site is never pinged.
+
+> **Trade URLs are publication-gated (AECI-546).** `/trades/:slug` joins the submit set only when the term clears `TRADE_PUBLISH_MIN_PRODUCTS` (§5.5a) — pinging an indexing service for a page that serves `noindex` is the same correctness bug the "provision `INDEXNOW_KEY` only at launch" rule prevents. Because `affectedUrlsForPromote` is pure over the promote response (which carries no `product_count`), the handler resolves the floor with one grouped count **after** the batch commits (`apps/api/src/routes/promote-trade-publication.ts`) and hands the single result to both pings. The `/trades` **index** is submitted whenever any trade is touched at all, published or not: it renders live per-term counts and gains or loses a tile on a floor crossing, and trades are find-only so the "a term was created" trigger that covers the sibling index pages can never fire for them. This supersedes AECI-542's blanket exclusion, which deferred the decision here.
 
 > **Implemented (AECI-263):** the **Google Indexing API** ping is now an additional best-effort `waitUntil` consumer in the same post-commit block, reusing the SAME affected-URL set (`affectedUrlsForPromote`, no second deriver). The transport (`apps/api/src/lib/google-indexing.ts`) signs an RS256 service-account JWT with `jose`, exchanges it for an OAuth access token, then `urlNotifications:publish`-es each URL (`URL_UPDATED`) — pure, never throws, failures recorded to Datadog (`aeci.google_indexing.submit` + `aeci.api.promote.google_indexing_failed`), never blocking the write. Gated on `GOOGLE_INDEXING_SA_EMAIL` + `GOOGLE_INDEXING_SA_PRIVATE_KEY` + `PUBLIC_SITE_URL`, provisioned **only at launch** alongside IndexNow (a missing cred → graceful no-op). It stays best-effort because Google officially supports only `JobPosting`/`BroadcastEvent`; the sitemap `<lastmod>` (§20.5 step 5) remains the primary discovery path.
 

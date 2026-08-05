@@ -433,15 +433,19 @@ no correctness regression. No retry or action is required from the review app.
   `sourceSlug` / `targetSlug` (§4) are populated by the ingest precisely so this
   needs no extra DB read. (The pair page itself renders once AECI-294 lands; until
   then the tag purge is a harmless no-op and the pings are best-effort.)
-- **Trades are purged but NOT submitted to indexing services (AECI-542, decided).** A
-  promote touching any trade — one you *set* **or** one you *removed* by re-pushing
-  without it — purges that trade's browse page plus the `/trades` index, the taxonomy
-  nav, and `sitemap.xml`, because the trade facet is publication-gated (a term crossing
-  the ≥ 3-product floor changes those surfaces without any term being created or
-  deleted). Trade URLs are deliberately **not** submitted to IndexNow / Google in v1:
-  `/trades/:slug` doesn't render until AECI-544, and a sub-floor term is `noindex` and
-  absent from the sitemap, so pinging for it would be wrong. Whether gated term pages
-  join the submit set is AECI-546's call.
+- **Trades are purged in full, but submitted to indexing services only when published
+  (AECI-546, decided).** A promote touching any trade — one you *set* **or** one you
+  *removed* by re-pushing without it — purges that trade's browse page plus the
+  `/trades` index, the taxonomy nav, and `sitemap.xml`, because the trade facet is
+  publication-gated (a term crossing the ≥ 3-product floor changes those surfaces
+  without any term being created or deleted). **Purging and pinging deliberately
+  differ in scope:** purging is about staleness, so it covers every touched trade,
+  published or not; pinging is about *indexing*, so a sub-floor term — which serves
+  `noindex` and is absent from the sitemap — is never submitted. After the write
+  commits, the API re-counts each touched trade and submits only the ones at or above
+  the floor, plus the `/trades` index itself (its per-term counts changed either way).
+  This supersedes AECI-542's interim blanket exclusion, which deferred the call here.
+  Nothing changes on your side: you send `trades`, the API decides what to advertise.
 
 ---
 

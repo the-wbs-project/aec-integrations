@@ -103,8 +103,9 @@ import { runHomeStats, type HomeStatsResult } from '../lib/home-stats';
 import { emitHomeStatsMetrics, type StatsMetricSink } from '../lib/home-stats-metrics';
 import { callIndexNow } from '../lib/indexnow';
 import { recomputeProductCounts } from '../lib/recompute-counts';
-import { cacheTagsForPromote } from './promote-cache-tags';
-import { affectedUrlsForPromote } from './promote-indexnow-urls';
+import { cacheTagsForPromote, touchedTradeSlugs } from './promote-cache-tags';
+import { affectedUrlsForPromote, type AffectedUrlOptions } from './promote-indexnow-urls';
+import { resolvePublishedTradeSlugs } from './promote-trade-publication';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 /** Drop keys whose value is `undefined` so the column is left untouched. */
@@ -394,24 +395,31 @@ function logAlgoliaSyncFailure(
  * `PUBLIC_SITE_URL`. Records `aeci.indexnow.submit{source:promote,outcome:ok|failed}`
  * and warn-logs a failure (Datadog) — never throws, never blocks the committed
  * promote (§20.2 / §20.5). Injected for tests (mirrors the Algolia seam).
+ *
+ * `tradeUrls` carries the trade inputs the response can't supply (AECI-546): the
+ * touched trades that are PUBLISHED post-commit, plus the removed slugs. It
+ * arrives as a promise so the one D1 read backing it is shared with the Google
+ * seam and never awaited on the request path — see `resolveTradeUrlOptions`.
  */
 export type PromoteIndexNowNotify = (
   c: Context<{ Bindings: Env }>,
   response: PromoteResponse,
+  tradeUrls: Promise<AffectedUrlOptions>,
 ) => Promise<void>;
 
-const defaultIndexNowNotify: PromoteIndexNowNotify = (c, response) =>
-  notifyIndexNowAfterPromote(c, response);
+const defaultIndexNowNotify: PromoteIndexNowNotify = (c, response, tradeUrls) =>
+  notifyIndexNowAfterPromote(c, response, tradeUrls);
 
 async function notifyIndexNowAfterPromote(
   c: Context<{ Bindings: Env }>,
   response: PromoteResponse,
+  tradeUrls: Promise<AffectedUrlOptions>,
 ): Promise<void> {
   const key = c.env.INDEXNOW_KEY;
   const siteUrl = c.env.PUBLIC_SITE_URL;
   if (!key || !siteUrl) return;
 
-  const urlList = affectedUrlsForPromote(response, siteUrl);
+  const urlList = affectedUrlsForPromote(response, siteUrl, await tradeUrls);
   if (urlList.length === 0) return;
 
   let host: string;
@@ -449,6 +457,43 @@ function logIndexNowFailure(
   });
 }
 
+/**
+ * Resolves the publication-gated trade inputs both indexing pings need
+ * (AECI-546), as a promise the caller creates but never awaits.
+ *
+ * Three things this shape buys:
+ *   - **One D1 read, two consumers.** IndexNow and Google share the deriver by
+ *     design ("no second deriver", §20.2); they must share the floor read too, or
+ *     the two pings could disagree about what's published.
+ *   - **No added latency.** The read starts as the handler returns and resolves
+ *     inside `waitUntil`, so the promote response never waits on it.
+ *   - **Fails to the safe side.** A rejected read resolves to `{}`, which submits
+ *     no trade URLs at all rather than risking a sub-floor (noindex) submission.
+ *
+ * Skipped entirely when no ping is configured or no trade was touched, so the
+ * overwhelming majority of promotes — trades are sparse by design — pay nothing.
+ */
+function resolveTradeUrlOptions(
+  c: Context<{ Bindings: Env }>,
+  db: Db,
+  response: PromoteResponse,
+  removedTradeSlugs: string[],
+): Promise<AffectedUrlOptions> {
+  const siteUrl = c.env.PUBLIC_SITE_URL;
+  const pingConfigured =
+    Boolean(siteUrl) &&
+    Boolean(
+      c.env.INDEXNOW_KEY ||
+      (c.env.GOOGLE_INDEXING_SA_EMAIL && c.env.GOOGLE_INDEXING_SA_PRIVATE_KEY),
+    );
+  const touched = touchedTradeSlugs(response, removedTradeSlugs);
+  if (!pingConfigured || touched.length === 0) return Promise.resolve({});
+
+  return resolvePublishedTradeSlugs(db, touched)
+    .then((publishedTradeSlugs) => ({ publishedTradeSlugs, removedTradeSlugs }))
+    .catch(() => ({}));
+}
+
 // ─── Google Indexing API ping (AECI-263) ─────────────────────────────────────
 
 /**
@@ -465,21 +510,23 @@ function logIndexNowFailure(
 export type PromoteGoogleIndexingNotify = (
   c: Context<{ Bindings: Env }>,
   response: PromoteResponse,
+  tradeUrls: Promise<AffectedUrlOptions>,
 ) => Promise<void>;
 
-const defaultGoogleIndexingNotify: PromoteGoogleIndexingNotify = (c, response) =>
-  notifyGoogleIndexingAfterPromote(c, response);
+const defaultGoogleIndexingNotify: PromoteGoogleIndexingNotify = (c, response, tradeUrls) =>
+  notifyGoogleIndexingAfterPromote(c, response, tradeUrls);
 
 async function notifyGoogleIndexingAfterPromote(
   c: Context<{ Bindings: Env }>,
   response: PromoteResponse,
+  tradeUrls: Promise<AffectedUrlOptions>,
 ): Promise<void> {
   const clientEmail = c.env.GOOGLE_INDEXING_SA_EMAIL;
   const privateKey = c.env.GOOGLE_INDEXING_SA_PRIVATE_KEY;
   const siteUrl = c.env.PUBLIC_SITE_URL;
   if (!clientEmail || !privateKey || !siteUrl) return;
 
-  const urlList = affectedUrlsForPromote(response, siteUrl);
+  const urlList = affectedUrlsForPromote(response, siteUrl, await tradeUrls);
   if (urlList.length === 0) return;
 
   const outcome = await callGoogleIndexing(fetch, {
@@ -1465,13 +1512,18 @@ export function createPromoteHandler(
       c.executionCtx.waitUntil(syncAlgolia(c, response));
     }
 
+    // AECI-546: resolve the publication floor for any touched trade ONCE, shared
+    // by both pings below. Started here (post-commit, so the count is current) but
+    // deliberately not awaited — see `resolveTradeUrlOptions`.
+    const tradeUrls = resolveTradeUrlOptions(c, db, response, removedTradeSlugs);
+
     // AECI-236: notify IndexNow of the affected public URLs so Bing/Yandex/…
     // re-crawl quickly (§20.2/§20.5). Best-effort, post-commit; no-ops without
     // INDEXNOW_KEY + PUBLIC_SITE_URL. Those are provisioned ONLY at launch
     // (alongside `ALLOW_INDEXING=true`): pinging IndexNow for a noindex'd site is
     // a correctness bug, so the secret's absence is the gate.
     if (c.env.INDEXNOW_KEY && c.env.PUBLIC_SITE_URL) {
-      c.executionCtx.waitUntil(notifyIndexNow(c, response));
+      c.executionCtx.waitUntil(notifyIndexNow(c, response, tradeUrls));
     }
 
     // AECI-263: best-effort Google Indexing API ping for the SAME affected URLs
@@ -1484,7 +1536,7 @@ export function createPromoteHandler(
       c.env.GOOGLE_INDEXING_SA_PRIVATE_KEY &&
       c.env.PUBLIC_SITE_URL
     ) {
-      c.executionCtx.waitUntil(notifyGoogleIndexing(c, response));
+      c.executionCtx.waitUntil(notifyGoogleIndexing(c, response, tradeUrls));
     }
 
     // Surface any `skipped[]` entries (§4) in Datadog: a 200 with skips is a

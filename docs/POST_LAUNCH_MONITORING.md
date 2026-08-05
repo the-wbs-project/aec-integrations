@@ -132,6 +132,21 @@ once the PostHog join lands.
 Deferred to the AECI-280 ~30d follow-up: the PostHog-join weighting + recency decay, and the
 card-resonance/swap review once PostHog + RUM have real volume.
 
+### Trade publication floor (AECI-539 / AECI-546)
+
+Also a compute constant rather than a monitor: `TRADE_PUBLISH_MIN_PRODUCTS` in
+`packages/shared/src/api/taxonomy.ts`. `TRADES_VOCABULARY.md` §6 names it launch-tunable and points
+here, so it is listed for real.
+
+| Constant | Current | Retune signal |
+|---|---|---|
+| `TRADE_PUBLISH_MIN_PRODUCTS` | 3 | The floor a trade must clear before its `/trades/:slug` page is listed, indexed, sitemapped, and pinged. **Raise it** if published trade pages read as thin — the test in `TRADES_VOCABULARY.md` §1.1 is whether the page answers "what understands MY work" rather than duplicating the all-products list. **Lower it (to 2)** only if the AECI-547 backfill leaves most of the 34-term vocabulary permanently under the floor, i.e. the SEO asset never materialises. Prefer fixing tagging coverage over lowering the floor: an under-tagged catalog and an over-permissive floor look identical in the term count but only one produces pages worth indexing. |
+
+Changing it is a normal deploy — no migration, no redirect (an unpublished trade already resolves at
+its permanent URL, so a term crossing the floor simply becomes indexable). Purge `sitemap`,
+`index:trades`, and `taxonomy` after shipping a change, or the edge serves the old membership until
+the TTLs lapse.
+
 ---
 
 ## 4. Triage → ticket loop
