@@ -320,6 +320,51 @@ describe('ProductDetailPage powered-integrations hub', () => {
     expect(el.querySelector('aec-section-nav')!.textContent).toContain('Integrations it powers');
   });
 
+  /**
+   * Catalog-scope note. Both integration lists are bounded by what is promoted
+   * into the directory (an edge needs BOTH endpoints as products), so a
+   * populated list systematically understates the vendor. The note states that
+   * boundary on the POPULATED branch — the empty branch already hedges — and
+   * appears on both sections, because caveating one would imply the other is
+   * complete.
+   */
+  it('notes the catalog boundary under both populated integration lists', () => {
+    const { el } = setup(
+      connector({
+        integrations_as_source: [{ ...edge(procore, acumatica), context_direction: null }],
+        integrations_as_connector: [edge(procore, acumatica), edge(sage, procore)],
+      }),
+    );
+
+    const endpoints = el.querySelector('#integrations')!;
+    expect(endpoints.textContent).toContain('Only partners listed on AECi appear here');
+
+    const powered = el.querySelector('#powered-integrations')!;
+    expect(powered.textContent).toContain(
+      'Only integrations between products listed on AECi appear here',
+    );
+
+    // Each note routes to the same correction drawer the empty states use, so
+    // the caveat is a contribution loop rather than a dead disclaimer.
+    for (const section of [endpoints, powered]) {
+      expect(
+        section.querySelector<HTMLAnchorElement>('p a[href="/products/agave-erp-sync/correction"]'),
+      ).toBeTruthy();
+    }
+  });
+
+  it('omits the catalog-scope note where the list is empty (the empty state already hedges)', () => {
+    // Endpoint table empty, powered list populated: only the populated section
+    // carries the note. Doubling up with "No integrations recorded yet. Vendor
+    // data is curated…" would say the same thing twice.
+    const { el } = setup(connector({ integrations_as_connector: [edge(procore, acumatica)] }));
+
+    expect(el.querySelector('#integrations')!.textContent).not.toContain('Only partners listed');
+    expect(el.querySelector('#powered-integrations')!.textContent).toContain(
+      'Only integrations between products listed on AECi appear here',
+    );
+  });
+
   it('badges the hero with the product role for a connector, and not for an application', () => {
     const { el } = setup(connector());
     const hero = el.querySelector('[slot="hero"]')!;

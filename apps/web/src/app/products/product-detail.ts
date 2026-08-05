@@ -511,6 +511,30 @@ import { RoleBadge } from './role-badge';
                   </tbody>
                 </table>
               </div>
+
+              <!-- Catalog-scope note. An integration row only exists once BOTH
+                   endpoints are promoted products, so this table is bounded by
+                   the directory, not by the vendor's real partner list: a
+                   product with hundreds of marketplace partners can render a
+                   dozen. The empty state already hedges ("Vendor data is
+                   curated"); without this line the POPULATED state makes a bare
+                   confident count, which is the one people screenshot. Scope,
+                   not apology: it states the boundary and offers the fix. -->
+              <p
+                class="text-xs text-(--text-secondary)"
+                i18n="@@products.detail.body.integrations.scope"
+              >
+                Only partners listed on AECi appear here. If one is missing,
+                <a
+                  aecRequestTrigger
+                  [entity]="'product'"
+                  [kind]="'correction'"
+                  [slug]="p.slug"
+                  [href]="'/products/' + p.slug + '/correction'"
+                  class="text-(--accent-primary) underline underline-offset-2"
+                  >suggest a correction</a
+                >.
+              </p>
             }
           </section>
 
@@ -555,6 +579,31 @@ import { RoleBadge } from './role-badge';
                 </p>
               } @else {
                 <aec-product-powered-hub [view]="poweredView()" />
+
+                <!-- Same boundary as the endpoint table above, and it bites
+                     harder here: a connector's whole value proposition is
+                     breadth, so "Integrations it powers (4)" for a product that
+                     markets ~14 ERP connections understates the vendor in an
+                     h2. That is the mirror of the defect Addendum B closed, and
+                     an understatement is as much a trust failure as an
+                     overstatement on a directory that refuses pay-for-placement.
+                     Both sections carry the note, deliberately: caveating one
+                     would imply the other is complete. -->
+                <p
+                  class="text-xs text-(--text-secondary)"
+                  i18n="@@products.detail.body.powers.scope"
+                >
+                  Only integrations between products listed on AECi appear here. If one is missing,
+                  <a
+                    aecRequestTrigger
+                    [entity]="'product'"
+                    [kind]="'correction'"
+                    [slug]="p.slug"
+                    [href]="'/products/' + p.slug + '/correction'"
+                    class="text-(--accent-primary) underline underline-offset-2"
+                    >suggest a correction</a
+                  >.
+                </p>
               }
             </section>
           }
