@@ -27,7 +27,7 @@ const tax = (slug: string, operation: 'created' | 'reused') => ({
   slug,
   operation,
 });
-const emptyTaxonomy = { categories: [], audiences: [], phases: [] };
+const emptyTaxonomy = { categories: [], audiences: [], phases: [], trades: [] };
 
 describe('affectedUrlsForPromote', () => {
   it('created product + vendor + mixed taxonomy → detail, index, browse, home + nav', () => {
@@ -39,6 +39,7 @@ describe('affectedUrlsForPromote', () => {
         categories: [tax('bim', 'reused')],
         audiences: [tax('architecture', 'created')],
         phases: [],
+        trades: [],
       },
       skipped: [],
     };
@@ -63,7 +64,7 @@ describe('affectedUrlsForPromote', () => {
       vendors: [entity('autodesk', 'updated')],
       product: entity('revit', 'updated'),
       integrations: [],
-      taxonomy: { categories: [tax('bim', 'reused')], audiences: [], phases: [] },
+      taxonomy: { categories: [tax('bim', 'reused')], audiences: [], phases: [], trades: [] },
       skipped: [],
     };
     expect(new Set(affectedUrlsForPromote(response, BASE))).toEqual(
@@ -118,7 +119,7 @@ describe('affectedUrlsForPromote', () => {
       vendors: [],
       product: entity('revit', 'updated'),
       integrations: [],
-      taxonomy: { categories: [], audiences: [], phases: [tax('design', 'created')] },
+      taxonomy: { categories: [], audiences: [], phases: [tax('design', 'created')], trades: [] },
       skipped: [],
     };
     expect(new Set(affectedUrlsForPromote(response, BASE))).toEqual(
@@ -132,6 +133,28 @@ describe('affectedUrlsForPromote', () => {
         `${BASE}/phases`,
       ]),
     );
+  });
+
+  // AECI-542 decision: trade browse URLs are deliberately NOT submitted in v1 —
+  // the route doesn't exist until AECI-544 and a sub-floor term is `noindex`.
+  // Gated inclusion is AECI-546's call; this locks the current behaviour so the
+  // omission stays a decision rather than a regression.
+  it('a touched trade contributes no URL (deliberately excluded in v1)', () => {
+    const response: PromoteResponse = {
+      vendors: [],
+      product: entity('revit', 'updated'),
+      integrations: [],
+      taxonomy: {
+        categories: [],
+        audiences: [],
+        phases: [],
+        trades: [tax('electrical', 'reused')],
+      },
+      skipped: [],
+    };
+    const urls = affectedUrlsForPromote(response, BASE);
+    expect(urls).toEqual([`${BASE}/products/revit`, `${BASE}/products`]);
+    expect(urls.some((u) => u.includes('/trades'))).toBe(false);
   });
 
   it('vendor-only create → vendor detail only (no sitemap URL)', () => {

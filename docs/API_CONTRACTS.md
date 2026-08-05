@@ -1230,7 +1230,9 @@ least one of `vendors`, `product`, or `integrations`.
 // Request (abridged — see promote.ts for all optional fields)
 export const PromotePayloadSchema = z.object({
   vendors: z.array(PromoteVendorSchema).default([]),      // { ref, supabaseId?, companyName, isPrimary?, ... }
-  product: PromoteProductSchema.optional(),               // { ref, supabaseId?, name, productRole, categories[], audiences[], phases[], extensionOf[], ... }
+  product: PromoteProductSchema.optional(),               // { ref, supabaseId?, name, productRole, categories[], audiences[], phases[], trades[], extensionOf[], ... }
+  //  product.trades[]: trade slugs/names/aliases (AECI-542) — resolved FIND-ONLY
+  //    against the seeded closed vocabulary; a miss → skipped[] kind 'trade'.
   integrations: z.array(PromoteIntegrationSchema).default([]),
   //  integrations[i].sourceProduct / targetProduct: { ref: <product.ref> } | { supabaseId }
   //  (a { ref } endpoint requires `product`; without it, reference products by supabaseId)
@@ -1261,8 +1263,10 @@ export interface PromoteResponse {
     categories: { slug: string; id: string; operation: 'created' | 'reused' }[];
     audiences: { slug: string; id: string; operation: 'created' | 'reused' }[];
     phases: { slug: string; id: string; operation: 'created' | 'reused' }[];
+    // Always present; always `reused` — the trade vocabulary is closed (AECI-542).
+    trades: { slug: string; id: string; operation: 'reused' }[];
   };
-  skipped: { ref: string; kind: 'integration' | 'extension' | 'usefulness' | 'claim'; reason: string }[];
+  skipped: { ref: string; kind: 'integration' | 'extension' | 'usefulness' | 'claim' | 'trade'; reason: string }[];
 }
 ```
 
@@ -1283,6 +1287,20 @@ the payload exactly, attestations cascading), emits `claim.*` / `attestation.*`
 audit rows in the same `db.batch`, and populates each integration result's
 `sourceSlug`/`targetSlug` so the promote derivers can purge the `pair:{min}__{max}`
 tag and ping the canonical pair URL without a DB read.
+
+**Trades (AECI-542):** the product may carry an optional `trades[]` of trade slugs,
+names, **or aliases** (`STAGE_1_SPEC.md` §5.5a, `docs/TRADES_VOCABULARY.md`). Unlike
+`categories` / `audiences` / `phases`, which are find-**or-create**d by canonical slug,
+a trade resolves **find-only** against the seeded closed vocabulary by `slug` → `name`
+→ `alias`, case-insensitively. An unmatched value is dropped and reported in `skipped[]`
+with `kind: 'trade'` and `ref` = the product's `ref` — never auto-created (a typo minting
+`paving-contractors` alongside `paving-asphalt` would split a trade page's products
+across two permanent URLs), and never a 500. `product_trades` is a full-replace join set
+written in the same `db.batch` as the product mutation and its `audit_log` row; because
+no term is ever created, no `trade.*` audit row exists and every echoed result is
+`operation: 'reused'`. The key is **optional** — omitting it (or sending `[]`) clears the
+product's trades, like every other join set. Trades are sparse by design: only products
+with trade-*specific* value carry them.
 
 Errors: `MALFORMED_REQUEST` (bad JSON), `VALIDATION_FAILED` (schema / duplicate
 `ref` / bad enum), `UNAUTHENTICATED` (token). Full integration guide for the
