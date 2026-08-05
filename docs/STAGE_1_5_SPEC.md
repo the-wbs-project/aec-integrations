@@ -64,6 +64,7 @@ Every Stage 1.5 issue opens with `**Spec section:** §X.Y (docs/STAGE_1_5_SPEC.m
 | §11.5 | AECI-343 | Per-pair "report a missing integration" CTA |
 | §11.6 | AECI-344 | GSC measurement loop — gate + quarterly tier review |
 | §12 | — | Addendum B — connector-role product detail: powered integrations (`integrations_as_connector` + hub view) |
+| §12.7 | — | Catalog-scope note under both populated integration lists |
 
 Prototypes (AECI-289) gate §7/§8 — build the production pair page and claim rendering **against the approved I3 prototype**. The §11 rows are **post-launch Addendum A** work (project "Pair-Page Search Intent (pSEO)"), not part of the original 1.5 critical path.
 
@@ -486,7 +487,8 @@ between `#integrations` and `#reviews`, with a matching "Integrations it powers"
   information, and Agave's own edges are un-backfilled today); an application shows it only when
   it actually powers edges, a data-driven safety net for a mis-roled product.
 - **Empty state** mirrors the endpoint one, with connector wording and the same `aecRequestTrigger`
-  suggest-a-correction link (`@@products.detail.body.powers.empty`).
+  suggest-a-correction link (`@@products.detail.body.powers.empty`). The **populated** branch
+  carries the catalog-scope note of §12.7.
 - **Heading: "Integrations it powers (N)"** (`@@products.detail.body.powers.heading`). A noun
   phrase, parallel to the endpoint "Integrations (N)" heading directly above it, because on a
   connector page **both sections can be populated at once** — NetSuite Connector by Appficiency
@@ -505,7 +507,8 @@ between `#integrations` and `#reviews`, with a matching "Integrations it powers"
   and the rendered rows are provably the same set.
 - **`RoleBadge` in the hero**, beside the "Product" eyebrow. It self-hides for `application`, so
   only connectors/hybrids are flagged. The endpoint "Integrations (0)" section is left as-is — for
-  a pure connector that number is factually correct.
+  a pure connector that number is factually correct. (Its *populated* branch does gain the §12.7
+  scope note.)
 - **Pair page (Stage 1 §4.4).** The mechanism card's "Built by {vendor} · Powered by {product}"
   byline is now **linked** (it rendered as plain text), so a via-connector mechanism navigates to
   the connector's own page — the return path into this surface.
@@ -541,3 +544,41 @@ path is complete; Agave's hub view fills in when the FK is backfilled in **Airta
 (the durable path — no D1 stopgap). Separately tracked follow-ups: 22 exact-duplicate integration
 rows; connector discovery in search/browse (`product_role` on Algolia records, a Connectors facet,
 `RoleBadge` on search cards).
+
+### 12.7 Catalog-scope note on both integration lists (2026-08-05)
+
+**Status:** Shipped. Applies to **both** product-detail integration sections, so it also amends the
+endpoint-table presentation inherited from §7.5 / Stage 1 §3.1.
+
+**The asymmetry it closes.** An `integrations` row only exists once **both** endpoints are promoted
+products (product-driven promotion, `docs/REVIEW_APP_PROMOTE_API.md`), so every list on the page is
+bounded by the directory rather than by the vendor's real partner set. The **empty** branch of each
+section already hedges that ("Vendor data is curated; if you know of one, suggest a correction");
+the **populated** branch did not, and it is the branch that renders an authoritative count in an
+`<h2>`. The miss is worst on a connector, whose entire value proposition is breadth:
+"Integrations it powers (4)" for a product marketing ~14 ERP connections understates the vendor in
+the page's loudest element. That is the mirror image of the defect §12 opened with, and on a
+directory that refuses pay-for-placement an understatement is as much a trust failure as an
+overstatement.
+
+- **One line per section, on the populated branch only.** `text-xs text-(--text-secondary)`, below
+  the list, no callout box, no icon, never repeated per card or per hub.
+  - `#integrations` (`@@products.detail.body.integrations.scope`): "Only partners listed on AECi
+    appear here. If one is missing, suggest a correction."
+  - `#powered-integrations` (`@@products.detail.body.powers.scope`): "Only integrations between
+    products listed on AECi appear here. If one is missing, suggest a correction."
+- **Both sections carry it, deliberately.** The boundary is identical for the two lists; caveating
+  only the powered one would imply the endpoint table is complete.
+- **Scope, not apology.** It states the boundary and ends in the same `aecRequestTrigger`
+  suggest-a-correction link the empty states use, so the caveat is a contribution loop rather than
+  a dead disclaimer. The heading count is deliberately **not** reworded, tooltipped, or asterisked.
+- **Not repeated on the empty branch** — "No integrations recorded yet. Vendor data is curated…"
+  already says it.
+- **`ProductPoweredHub` gains `host: { class: 'block' }`.** A custom element is `display: inline`
+  by default, so the section's `space-y-4` margin was landing on an inline box and being dropped.
+  Invisible while the hub was the section's last child; the note directly below it made the missing
+  16px obvious.
+- **Coverage:** `product-detail.component.spec.ts` asserts both notes render on the populated
+  branch (each linking the correction drawer) and that neither renders on an empty list. The
+  connector page was re-run through the Phase 2 axe (WCAG AA) sweep with both notes present: zero
+  violations.

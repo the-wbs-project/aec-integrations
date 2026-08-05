@@ -52,6 +52,11 @@ import type { PoweredConnection, PoweredHubView } from './powered-hub-grouping';
 @Component({
   selector: 'aec-product-powered-hub',
   imports: [RouterLink, LogoOrInitial],
+  // A custom element defaults to `display: inline`, so the parent section's
+  // `space-y-4` margin lands on an inline box and is silently dropped. Harmless
+  // while this was the section's last child; once the catalog-scope note
+  // (§12.7) followed it, the note sat flush against the final card.
+  host: { class: 'block' },
   template: `
     <div class="space-y-4">
       @for (group of view().groups; track group.hub.slug) {
