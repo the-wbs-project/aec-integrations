@@ -86,9 +86,24 @@ export class SearchProductCard {
 
   protected readonly initial = computed(() => [...this.record().name][0]?.toUpperCase() ?? '');
 
-  /** Up to four taxonomy names (categories first), for the chip row. */
+  /**
+   * Up to four taxonomy names for the chip row. TRADES lead (AECI-545): they are
+   * sparse by design, so a product that carries one is making a rare, specific
+   * claim about whose work it serves — the highest-signal chip on the card, and
+   * it would otherwise be squeezed out by the `slice(0, 4)`.
+   *
+   * `?? []` guards records indexed before AECI-545 — the card renders raw Algolia
+   * hits, which are never Zod-parsed, so the schema's `.default([])` never runs
+   * here. The `Set` dedupes because the template tracks by chip value and Angular
+   * throws NG0955 on duplicate keys; the trade and audience vocabularies live
+   * deliberately close together (§5.5a "the Audience seam"), so a collision is a
+   * realistic input, not a hypothetical.
+   */
   protected readonly chips = computed(() => {
     const r = this.record();
-    return [...r.categories, ...r.audiences, ...r.phases].slice(0, 4);
+    return [...new Set([...(r.trades ?? []), ...r.categories, ...r.audiences, ...r.phases])].slice(
+      0,
+      4,
+    );
   });
 }

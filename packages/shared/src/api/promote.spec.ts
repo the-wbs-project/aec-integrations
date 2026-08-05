@@ -36,6 +36,28 @@ describe('PromotePayloadSchema', () => {
     expect(parsed.integrations).toEqual([]);
   });
 
+  // AECI-542: `trades` is additive and OPTIONAL — the API side deploys before the
+  // review app starts sending it, so a payload written against the pre-trades
+  // contract must keep parsing unchanged.
+  it('defaults trades to [] for a product that omits the key (backwards compat)', () => {
+    const parsed = PromotePayloadSchema.parse(minimal);
+    expect(parsed.product?.trades).toEqual([]);
+  });
+
+  it('preserves trades (slugs, names, or aliases) through a parse round-trip', () => {
+    const parsed = PromotePayloadSchema.parse({
+      product: { ref: 'p1', name: 'Revit', trades: ['electrical', 'HVAC', 'Mechanical'] },
+    });
+    expect(parsed.product?.trades).toEqual(['electrical', 'HVAC', 'Mechanical']);
+  });
+
+  it('rejects an empty-string trade', () => {
+    expect(
+      PromotePayloadSchema.safeParse({ product: { ref: 'p1', name: 'Revit', trades: [''] } })
+        .success,
+    ).toBe(false);
+  });
+
   it('accepts a vendor-only push (no product)', () => {
     const vendorOnly = { vendors: [{ ref: 'v1', supabaseId: uuid, companyName: 'Autodesk' }] };
     const result = PromotePayloadSchema.safeParse(vendorOnly);

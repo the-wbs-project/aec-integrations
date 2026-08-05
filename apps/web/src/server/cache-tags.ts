@@ -177,5 +177,16 @@ export function cacheTagInputsForPath(path: string): CacheTagInputs | null {
   if ((m = /^\/phases\/(.+)$/.exec(path)))
     return { route: 'browse', entity: { type: 'phase', slug: m[1]! } };
 
+  // `/trades` — the fourth facet's flat index (AECI-544), same shape as its
+  // siblings. `trade:{slug}` is emitted for EVERY trade, published or not: the
+  // publication gate controls indexability, not cacheability, so a term that
+  // crosses `TRADE_PUBLISH_MIN_PRODUCTS` is purgeable by the same tag it always
+  // had. A promote that touches any trade must also purge `index:trades`,
+  // `taxonomy`, and `sitemap` (CACHE_STRATEGY.md §2, AECI-542/546).
+  if (path === '/trades')
+    return { route: 'index', entity: { type: 'index', slug: 'trades' }, taxonomy: true };
+  const tradeMatch = path.match(/^\/trades\/(.+)$/);
+  if (tradeMatch) return { route: 'browse', entity: { type: 'trade', slug: tradeMatch[1]! } };
+
   return null;
 }

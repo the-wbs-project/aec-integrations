@@ -5,6 +5,15 @@
 -- across re-runs and environments. Applied with `pnpm db:seed:taxonomy` →
 -- `wrangler d1 execute aeci-app-<env> --file=seed/taxonomy.sql`. NEVER deletes
 -- (removals cascade to product_* joins); touches taxonomy_* tables only.
+--
+-- KNOWN GAP (AECI-540). The exact UUIDv5 namespace + name form behind THESE ids is
+-- unrecovered: they match neither UUIDv5 over the bare slug under any of the five
+-- standard namespaces, nor the `UUIDv5(URL_NS, 'https://aecintegrations.com/vocabulary/<v>')`
+-- scheme that seed/data-objects.sql and seed/trades.sql document and use. The ids are
+-- shipped and immutable (slug is the identity key; ids never regenerate), so this is a
+-- documentation gap, not a defect. ANY NEW TERM added below must therefore have its id
+-- minted by hand and recorded here — do not assume a derivation. New vocabularies should
+-- use the documented scheme in seed/trades.sql instead.
 
 INSERT INTO "taxonomy_categories" ("id","slug","name","display_order","created_at","updated_at") VALUES
   ('42ac2106-9994-5fad-8298-f82bbb85bc14', 'accounting-erp', 'Accounting & ERP', 10, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),

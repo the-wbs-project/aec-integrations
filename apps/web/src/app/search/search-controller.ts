@@ -262,10 +262,19 @@ interface FacetConfig {
  * `packages/shared/src/algolia.ts` exactly (§7.2). `has_api_docs` is faceted as
  * a boolean refinement list; the page maps its `true`/`false` values to a
  * localized yes/no.
+ *
+ * `trades` is the fourth taxonomy facet (AECI-545 / §5.5a) and sits fourth here
+ * for the same reason it sits fourth in the settings. It is NOT gated by the
+ * `TRADE_PUBLISH_MIN_PRODUCTS` publication floor: Algolia facet values are
+ * query-scoped (a trade only appears when it actually matches the current
+ * results) and `/search` is `noindex` + `no-store`, so the floor's SEO rationale
+ * doesn't apply. The floor governs the API-backed sidebar and nav instead
+ * (AECI-546, `TRADES_VOCABULARY.md` §6). Note `trade_aliases` is deliberately
+ * absent — it is searchable-only matching metadata, never a facet.
  */
 const FACET_CONFIG: Record<'products' | 'vendors', FacetConfig> = {
   products: {
-    refinementLists: ['categories', 'audiences', 'phases', 'vendor_name', 'has_api_docs'],
+    refinementLists: ['categories', 'audiences', 'phases', 'trades', 'vendor_name', 'has_api_docs'],
     numericMenus: [{ attribute: 'integration_count', items: COUNT_BUCKETS }],
     ranges: [],
   },

@@ -33,7 +33,7 @@ function term(id: string, name: string, count: number): TaxonomyTermWithCount {
 }
 
 function facets(parts: Partial<ProductFacetsResponse>): ProductFacetsResponse {
-  return { categories: [], audiences: [], phases: [], ...parts };
+  return { categories: [], audiences: [], phases: [], trades: [], ...parts };
 }
 
 /** Flush any still-pending facets requests (a toggle re-fetches scoped counts). */
@@ -64,6 +64,7 @@ describe('FacetSidebar (AECI-143)', () => {
         facets({
           categories: [term('c1', 'Cat One', 3)],
           audiences: [term('a1', 'Aud One', 2)],
+          trades: [term('t1', 'Trade One', 4)],
           phases: [term('p1', 'Phase One', 1)],
         }),
       );
@@ -71,7 +72,9 @@ describe('FacetSidebar (AECI-143)', () => {
     fixture.detectChanges();
 
     const root = fixture.nativeElement as HTMLElement;
-    expect(legends(root)).toEqual(['Categories', 'Audiences', 'Phases']);
+    // Order is `DIMENSIONS` order (AECI-544): trades sit between audiences and
+    // phases on every surface, including the `/search` refinement rail.
+    expect(legends(root)).toEqual(['Categories', 'Audiences', 'Trades', 'Phases']);
     const text = root.textContent ?? '';
     expect(text).toContain('Cat One');
     expect(text).toContain('3');
@@ -359,6 +362,7 @@ describe('FacetSidebar (AECI-143)', () => {
       facets({
         categories: [term('cat-locked', 'Locked', 9)],
         audiences: [term('a1', 'Aud', 2)],
+        trades: [term('t1', 'Trade', 5)],
         phases: [term('p1', 'Phase', 1)],
       }),
     );
@@ -366,8 +370,90 @@ describe('FacetSidebar (AECI-143)', () => {
     fixture.detectChanges();
 
     const root = fixture.nativeElement as HTMLElement;
-    expect(legends(root)).toEqual(['Audiences', 'Phases']);
+    expect(legends(root)).toEqual(['Audiences', 'Trades', 'Phases']);
     expect(root.textContent ?? '').not.toContain('Locked');
+    httpMock.verify();
+  });
+
+  it('locks (and hides) the trades dimension on a /trades/:slug browse page', async () => {
+    const { httpMock, router } = createIndexSetup(FacetSidebarHost, 'products');
+    await router.navigateByUrl('/products');
+    const fixture = TestBed.createComponent(FacetSidebarHost);
+    fixture.componentInstance.kind.set('trade');
+    fixture.componentInstance.lockedId.set('trade-locked');
+    fixture.detectChanges();
+
+    const req = httpMock.expectOne((r) => r.url === FACETS_URL);
+    expect(req.request.params.get('trade_id')).toBe('trade-locked');
+    req.flush(
+      facets({
+        categories: [term('c1', 'Cat', 3)],
+        audiences: [term('a1', 'Aud', 2)],
+        trades: [term('trade-locked', 'Locked Trade', 9)],
+        phases: [term('p1', 'Phase', 1)],
+      }),
+    );
+    await settle();
+    fixture.detectChanges();
+
+    const root = fixture.nativeElement as HTMLElement;
+    expect(legends(root)).toEqual(['Categories', 'Audiences', 'Phases']);
+    expect(root.textContent ?? '').not.toContain('Locked Trade');
+    httpMock.verify();
+  });
+
+  it('toggles a trade into a sorted trade_id CSV', async () => {
+    const { httpMock, router } = createIndexSetup(FacetSidebarHost, 'products');
+    await router.navigateByUrl('/products?trade_id=t-zzz');
+    const fixture = TestBed.createComponent(FacetSidebarHost);
+    fixture.detectChanges();
+
+    httpMock
+      .expectOne((r) => r.url === FACETS_URL)
+      .flush(
+        facets({
+          trades: [term('t-aaa', 'Electrical', 3), term('t-zzz', 'Roofing', 1)],
+        }),
+      );
+    await settle();
+    fixture.detectChanges();
+
+    const root = fixture.nativeElement as HTMLElement;
+    const boxes = [...root.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')];
+    expect(boxes).toHaveLength(2);
+    boxes[0]!.dispatchEvent(new Event('change'));
+    await settle();
+
+    // Sorted CSV regardless of click order — keeps the edge cache key stable.
+    expect(router.url).toContain('trade_id=t-aaa,t-zzz');
+
+    fixture.detectChanges();
+    drain(httpMock);
+    httpMock.verify();
+  });
+
+  it('does NOT apply the trades publication floor — its counts are scoped', async () => {
+    const { httpMock, router } = createIndexSetup(FacetSidebarHost, 'products');
+    await router.navigateByUrl('/products');
+    const fixture = TestBed.createComponent(FacetSidebarHost);
+    fixture.detectChanges();
+
+    httpMock
+      .expectOne((r) => r.url === FACETS_URL)
+      .flush(
+        facets({
+          // Below TRADE_PUBLISH_MIN_PRODUCTS (3) but non-zero under the current
+          // filters, so it must still be offered: a disjunctive count can't
+          // express a global floor (TRADES_VOCABULARY.md §6).
+          trades: [term('t-thin', 'Thin Trade', 1)],
+        }),
+      );
+    await settle();
+    fixture.detectChanges();
+
+    const root = fixture.nativeElement as HTMLElement;
+    expect(legends(root)).toEqual(['Trades']);
+    expect(root.textContent ?? '').toContain('Thin Trade');
     httpMock.verify();
   });
 });

@@ -223,6 +223,7 @@ describe('buildProductJsonLd', () => {
       ],
       audiences: [{ id: 'd1', name: 'Architecture', slug: 'architecture' }],
       phases: [],
+      trades: [],
       usefulness: null,
       integrations_as_source: [],
       integrations_as_target: [],
@@ -386,10 +387,11 @@ describe('buildSiteOrganizationLd', () => {
 });
 
 describe('isBrowseKind', () => {
-  it('returns true for category / audience / phase', () => {
+  it('returns true for category / audience / phase / trade', () => {
     expect(isBrowseKind('category')).toBe(true);
     expect(isBrowseKind('audience')).toBe(true);
     expect(isBrowseKind('phase')).toBe(true);
+    expect(isBrowseKind('trade')).toBe(true);
   });
 
   it('returns false for index pages (no "tools" infix in title)', () => {
@@ -414,6 +416,7 @@ describe('ogTypeForKind', () => {
     expect(ogTypeForKind('category')).toBe('website');
     expect(ogTypeForKind('audience')).toBe('website');
     expect(ogTypeForKind('phase')).toBe('website');
+    expect(ogTypeForKind('trade')).toBe('website');
   });
 
   it('returns "website" for index kind — index is not an article', () => {

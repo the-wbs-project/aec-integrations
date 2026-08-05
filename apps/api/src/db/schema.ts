@@ -289,6 +289,33 @@ export const taxonomyPhases = sqliteTable(
   (t) => [uniqueIndex('taxonomy_phases_slug_key').on(t.slug)],
 );
 
+// `trade` controlled vocabulary — the FOURTH taxonomy facet (STAGE_1_SPEC.md §5.5a,
+// AECI-538/540): "what work does the company sell?". Mirrors `taxonomyPhases` and adds
+// `aliases` exactly as `taxonomyDataObjects` does. Two deliberate divergences from its
+// three sibling facets, both from docs/TRADES_VOCABULARY.md:
+//   - `description` is NOT NULL — `/trades/:slug` ships as an SEO landing page, so copy
+//     is part of the contract, not a later addition (the siblings seed it NULL, ADR 0008).
+//   - `aliases` is dual-purpose (§4): the promote resolver matches an incoming trade
+//     find-only by slug → name → alias (AECI-542, never find-or-create), AND AECI-545
+//     flattens them into a searchable-only `trade_aliases` Algolia attribute so
+//     "blacktop"/"glazier" reach the right products. It never drives ranking.
+// Closed 34-term list; seeded from `apps/api/seed/trades.sql` (UUIDv5-by-slug,
+// idempotent upsert, never deletes).
+export const taxonomyTrades = sqliteTable(
+  'taxonomy_trades',
+  {
+    id: uuidPk(),
+    slug: text('slug').notNull(),
+    name: text('name').notNull(),
+    description: text('description').notNull(),
+    displayOrder: integer('display_order'),
+    aliases: text('aliases', { mode: 'json' }).$type<string[]>(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [uniqueIndex('taxonomy_trades_slug_key').on(t.slug)],
+);
+
 // `data_object` controlled vocabulary (Stage 1.5 — STAGE_1_5_SPEC.md §6.1). Mirrors
 // `taxonomyCategories` and adds `aliases`: resolver metadata (JSON array of alternate
 // names) the promote ingest matches a claim's `dataObject` against, find-only by slug
@@ -423,6 +450,29 @@ export const productPhases = sqliteTable(
   (t) => [
     primaryKey({ columns: [t.productId, t.phaseId] }),
     index('product_phases_phase_idx').on(t.phaseId),
+  ],
+);
+
+// Product ↔ trade join (AECI-538/540). Clone of `productPhases`. SPARSE BY DESIGN —
+// a product is tagged only when it has trade-SPECIFIC value (trade-specific features,
+// cost databases, templates, takeoff logic, or integrations). Horizontal platforms
+// (Procore, Autodesk Build, Bluebeam) carry ZERO rows here, and most of the catalog
+// will: TRADES_VOCABULARY.md §1.1 is the load-bearing constraint of the whole facet.
+// Rows are written ONLY by the promote flow (AECI-542), never by the taxonomy seed.
+export const productTrades = sqliteTable(
+  'product_trades',
+  {
+    productId: text('product_id')
+      .notNull()
+      .references(() => products.id, { onDelete: 'cascade' }),
+    tradeId: text('trade_id')
+      .notNull()
+      .references(() => taxonomyTrades.id, { onDelete: 'cascade' }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.productId, t.tradeId] }),
+    index('product_trades_trade_idx').on(t.tradeId),
   ],
 );
 
@@ -815,6 +865,11 @@ export const translations = sqliteTable(
       t.field,
     ),
     index('translations_lookup_idx').on(t.entityType, t.entityId, t.locale),
+    // NOTE (AECI-540): 'trade' is deliberately NOT in this list. The trade facet is
+    // resolve-only at promote time, so no runtime path writes a translation for one,
+    // and this table has no writer at all today (en-US only at launch — §7a). Adding a
+    // value to a SQLite CHECK forces a full table rebuild, so it is deferred to
+    // whichever issue actually wires i18n for taxonomy terms — add 'trade' there.
     check(
       'translations_entity_type_check',
       sql`"entity_type" IN ('product', 'vendor', 'category', 'audience', 'phase', 'integration')`,
@@ -896,6 +951,7 @@ export const productsRelations = relations(products, ({ many }) => ({
   productCategories: many(productCategories),
   productAudiences: many(productAudiences),
   productPhases: many(productPhases),
+  productTrades: many(productTrades),
   reviews: many(reviews),
   sourceIntegrations: many(integrations, { relationName: 'IntegrationSource' }),
   targetIntegrations: many(integrations, { relationName: 'IntegrationTarget' }),
@@ -940,6 +996,9 @@ export const taxonomyAudiencesRelations = relations(taxonomyAudiences, ({ many }
 export const taxonomyPhasesRelations = relations(taxonomyPhases, ({ many }) => ({
   productPhases: many(productPhases),
 }));
+export const taxonomyTradesRelations = relations(taxonomyTrades, ({ many }) => ({
+  productTrades: many(productTrades),
+}));
 
 export const taxonomyDataObjectsRelations = relations(taxonomyDataObjects, ({ many }) => ({
   claims: many(claims),
@@ -978,6 +1037,13 @@ export const productPhasesRelations = relations(productPhases, ({ one }) => ({
   phase: one(taxonomyPhases, {
     fields: [productPhases.phaseId],
     references: [taxonomyPhases.id],
+  }),
+}));
+export const productTradesRelations = relations(productTrades, ({ one }) => ({
+  product: one(products, { fields: [productTrades.productId], references: [products.id] }),
+  trade: one(taxonomyTrades, {
+    fields: [productTrades.tradeId],
+    references: [taxonomyTrades.id],
   }),
 }));
 
@@ -1023,12 +1089,14 @@ export const schema = {
   taxonomyCategories,
   taxonomyAudiences,
   taxonomyPhases,
+  taxonomyTrades,
   taxonomyDataObjects,
   claims,
   attestations,
   productCategories,
   productAudiences,
   productPhases,
+  productTrades,
   productVendors,
   productExtensions,
   profiles,
@@ -1049,12 +1117,14 @@ export const schema = {
   taxonomyCategoriesRelations,
   taxonomyAudiencesRelations,
   taxonomyPhasesRelations,
+  taxonomyTradesRelations,
   taxonomyDataObjectsRelations,
   claimsRelations,
   attestationsRelations,
   productCategoriesRelations,
   productAudiencesRelations,
   productPhasesRelations,
+  productTradesRelations,
   productVendorsRelations,
   reviewsRelations,
   workflowInstancesRelations,

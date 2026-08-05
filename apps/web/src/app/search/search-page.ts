@@ -628,6 +628,8 @@ export class SearchPage implements OnDestroy {
         return $localize`:@@search.facet.audiences:Audiences`;
       case 'phases':
         return $localize`:@@search.facet.phases:Phases`;
+      case 'trades':
+        return $localize`:@@search.facet.trades:Trades`;
       case 'vendor_name':
         return $localize`:@@search.facet.vendor:Vendor`;
       case 'has_api_docs':
