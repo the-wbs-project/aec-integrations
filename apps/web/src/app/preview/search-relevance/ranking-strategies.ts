@@ -123,7 +123,11 @@ export function textScore(query: string, record: AlgoliaProductRecord): number {
 
   const name = record.name.toLowerCase();
   const vendor = (record.vendor_name ?? '').toLowerCase();
-  const taxonomy = [...record.categories, ...record.audiences, ...record.phases]
+  // All four taxonomy facets, mirroring the searchable-attribute tier in
+  // `SEARCH_RANKING.md` §3.1. `trade_aliases` is deliberately excluded: this
+  // harness models ranking levers, and aliases widen recall without changing
+  // relative order (AECI-545).
+  const taxonomy = [...record.categories, ...record.audiences, ...record.phases, ...record.trades]
     .join(' ')
     .toLowerCase();
   const description = (record.description ?? '').toLowerCase();

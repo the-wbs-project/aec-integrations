@@ -306,6 +306,16 @@ export function mechanismRank(kind: string | null | undefined): number {
  * buckets `0 / 1–10 / 11–50 / 51+` are `ais-numeric-menu` items over the numeric
  * attribute, not a stored field. `searchable(attr)` allows typing to filter a
  * long refinement list (categories, audiences, headquarters, product names).
+ *
+ * Trades (AECI-545 / §5.5a) are the fourth taxonomy facet, and the two trade
+ * attributes are deliberately asymmetric: `trades` is both searchable and
+ * faceted, while `trade_aliases` is SEARCHABLE ONLY — flattened synonyms exist
+ * to widen recall ("blacktop" → paving), and faceting them would put colloquial
+ * duplicates in the refinement list. `trades` ranks above `trade_aliases`
+ * because a canonical trade name is the stronger intent signal, and neither
+ * touches `customRanking`: a trade tag is a factual claim about scope, never a
+ * quality or commercial signal (no pay-for-placement). See `SEARCH_RANKING.md`
+ * §3.1.
  */
 const INDEX_SETTINGS: Readonly<Record<IndexEntity, IndexSettings>> = {
   products: {
@@ -315,12 +325,15 @@ const INDEX_SETTINGS: Readonly<Record<IndexEntity, IndexSettings>> = {
       'categories',
       'audiences',
       'phases',
+      'trades',
+      'trade_aliases',
       'unordered(description)',
     ],
     attributesForFaceting: [
       'searchable(categories)',
       'searchable(audiences)',
       'searchable(phases)',
+      'searchable(trades)',
       'searchable(vendor_name)',
       'has_api_docs',
       'integration_count',

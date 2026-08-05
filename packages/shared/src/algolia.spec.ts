@@ -242,19 +242,45 @@ describe('indexSettingsFor', () => {
     expect(s.customRanking).toEqual(['desc(integration_count)', 'desc(review_count)']);
   });
 
-  it('products: facets categories/audiences/phases/vendor_name/has_api_docs/integration_count (§7.2)', () => {
+  it('products: facets categories/audiences/phases/trades/vendor_name/has_api_docs/integration_count (§7.2)', () => {
     const s = indexSettingsFor('products');
     expect(s.attributesForFaceting).toEqual([
       'searchable(categories)',
       'searchable(audiences)',
       'searchable(phases)',
+      'searchable(trades)',
       'searchable(vendor_name)',
       'has_api_docs',
       'integration_count',
     ]);
-    // name is the most important searchable attribute (first).
-    expect(s.searchableAttributes[0]).toBe('name');
-    expect(s.searchableAttributes).toContain('audiences');
+    // Ordered — earlier = higher textual priority (SEARCH_RANKING.md §3.1). name
+    // leads; the trade name outranks its colloquial aliases, and both outrank the
+    // long description.
+    expect(s.searchableAttributes).toEqual([
+      'name',
+      'vendor_name',
+      'categories',
+      'audiences',
+      'phases',
+      'trades',
+      'trade_aliases',
+      'unordered(description)',
+    ]);
+  });
+
+  it('products: trade_aliases is searchable but NEVER faceted (AECI-545)', () => {
+    const s = indexSettingsFor('products');
+    expect(s.searchableAttributes).toContain('trade_aliases');
+    for (const attr of s.attributesForFaceting) {
+      expect(attr).not.toContain('trade_aliases');
+    }
+  });
+
+  it('products: trades add no custom-ranking signal (no pay-for-placement)', () => {
+    const s = indexSettingsFor('products');
+    for (const attr of s.customRanking) {
+      expect(attr).not.toMatch(/trade/i);
+    }
   });
 
   it('vendors: ranks by integration_count then product_count; facets HQ/founded/product_count (§7.2/§7.3)', () => {

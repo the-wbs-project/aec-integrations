@@ -20,11 +20,18 @@ import type { AlgoliaProductRecord } from '@aeci/shared/algolia-records';
 
 function product(
   n: number,
-  fields: Omit<AlgoliaProductRecord, 'objectID' | 'logo_url'>,
+  fields: Omit<AlgoliaProductRecord, 'objectID' | 'logo_url' | 'trades' | 'trade_aliases'> &
+    Partial<Pick<AlgoliaProductRecord, 'trades' | 'trade_aliases'>>,
 ): AlgoliaProductRecord {
   return {
     objectID: `aec00000-0000-4000-8000-${String(n).padStart(12, '0')}`,
     logo_url: null,
+    // AECI-545: these fixtures are all horizontal platforms, which by the §1.1
+    // tagging rule carry NO trade tags — so the untagged default is the accurate
+    // fixture, and it keeps every existing ranking assertion byte-identical. A
+    // future fixture may opt in by passing `trades` / `trade_aliases`.
+    trades: [],
+    trade_aliases: [],
     ...fields,
   };
 }

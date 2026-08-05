@@ -379,13 +379,14 @@ rejected; you don't need to plumb the response body anywhere else.
 
 A `200` with a non-empty `skipped[]` (§4) is a **partial** promote — some
 entities couldn't be linked (an integration/extension whose far endpoint isn't
-promoted yet, a usefulness group or claim `dataObject` that didn't resolve). Those
-never fail the request, so they're easy to miss. They are surfaced in Datadog as:
+promoted yet, a usefulness group, a claim `dataObject`, or a trade that didn't
+resolve). Those never fail the request, so they're easy to miss. They are surfaced
+in Datadog as:
 
 - a single `warn` log `aeci.api.promote.partial_skipped` (`source:review-app-promote`)
   detailing every `{ ref, kind, reason }` plus per-kind counts, and
 - an `aeci.api.promote.skipped` count metric tagged by `kind`
-  (`integration` / `extension` / `usefulness` / `claim`), for a monitor.
+  (`integration` / `extension` / `usefulness` / `claim` / `trade`), for a monitor.
 
 So a curator's silently-dropped push is visible in Datadog even though the API
 returned `200`. (You should still inspect `skipped[]` in the response and re-push
@@ -432,6 +433,15 @@ no correctness regression. No retry or action is required from the review app.
   `sourceSlug` / `targetSlug` (§4) are populated by the ingest precisely so this
   needs no extra DB read. (The pair page itself renders once AECI-294 lands; until
   then the tag purge is a harmless no-op and the pings are best-effort.)
+- **Trades are purged but NOT submitted to indexing services (AECI-542, decided).** A
+  promote touching any trade — one you *set* **or** one you *removed* by re-pushing
+  without it — purges that trade's browse page plus the `/trades` index, the taxonomy
+  nav, and `sitemap.xml`, because the trade facet is publication-gated (a term crossing
+  the ≥ 3-product floor changes those surfaces without any term being created or
+  deleted). Trade URLs are deliberately **not** submitted to IndexNow / Google in v1:
+  `/trades/:slug` doesn't render until AECI-544, and a sub-floor term is `noindex` and
+  absent from the sitemap, so pinging for it would be wrong. Whether gated term pages
+  join the submit set is AECI-546's call.
 
 ---
 
@@ -559,6 +569,13 @@ Content-Type: application/json
 }
 ```
 
+`"trades": []` comes back because the request sent no `trades` — and that is the
+*right* answer for Revit: it's a horizontal BIM authoring tool, not a tool with
+trade-specific value, so per the tagging rule (§3.3) it carries no trade tags. Most
+of the catalog looks like this. A paving-takeoff product would send
+`"trades": ["paving-asphalt"]` and get `[{ "slug": "paving-asphalt", "id": …,
+"operation": "reused" }]` back.
+
 After this call, store on your Revit record:
 `supabase_product_id = 0f8fad5b-…`; on Autodesk: `supabase_vendor_id = 1b9d6bcd-…`;
 on the integration: `supabase_integration_id = 6ba7b810-…`.
@@ -605,5 +622,6 @@ Every `operation` comes back `updated`; the slugs are unchanged.
 - [ ] Never send slugs; persist the slugs AECi returns (they're the public URLs).
 - [ ] Persist every returned `id` against your record, durably.
 - [ ] Only include integrations whose far endpoint is already promoted (reference it by `supabaseId`); inspect `skipped[]`.
+- [ ] Send `trades[]` only for products with **trade-specific value** (§3.3) — most products send none, and horizontal platforms send an empty array. Values may be slugs, names, or aliases; they resolve find-only, an unrecognized value comes back in `skipped[]` as `kind: "trade"` (never a term you just invented), and omitting the key **clears** the product's trades.
 - [ ] Nest each integration's data-object `claims[]` under it (`dataObject` slug/name, `direction` `a_to_b`/`b_to_a`/`both` relative to source→target, `attestations[]` with `source: "aeci"`); a claim rides with its integration and an unrecognized `dataObject` comes back in `skipped[]` as `kind: "claim"`.
 - [ ] On 4xx, surface `error.message` / `error.field` to the curator; on 5xx, retry then escalate `trace_id`.

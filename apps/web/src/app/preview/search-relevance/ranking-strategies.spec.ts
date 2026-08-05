@@ -22,6 +22,8 @@ function rec(partial: Partial<AlgoliaProductRecord> & { name: string }): Algolia
     categories: partial.categories ?? [],
     audiences: partial.audiences ?? [],
     phases: partial.phases ?? [],
+    trades: partial.trades ?? [],
+    trade_aliases: partial.trade_aliases ?? [],
     integration_count: partial.integration_count ?? 0,
     review_count: partial.review_count ?? 0,
     rating_overall_avg: partial.rating_overall_avg ?? null,

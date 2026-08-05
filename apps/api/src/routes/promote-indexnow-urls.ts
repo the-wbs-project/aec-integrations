@@ -34,6 +34,16 @@
  *   - **No sitemap URL.** `sitemap.xml` is not an IndexNow target; engines
  *     re-fetch it on their own and `updated_at`/`<lastmod>` covers it (§20.5
  *     step 5).
+ *   - **No trade URLs (AECI-542, decided).** `/trades/:slug` is deliberately NOT
+ *     submitted in v1, so this deriver is narrower than `cacheTagsForPromote` for
+ *     the trade facet. Three reasons: the route does not exist until AECI-544, so
+ *     today's submissions would be 404s; a trade under the publication floor
+ *     (`TRADE_PUBLISH_MIN_PRODUCTS`, §5.5a) renders `noindex,follow` and is
+ *     excluded from the sitemap, and pinging indexing services for a noindex'd URL
+ *     is the same correctness bug the `INDEXNOW_KEY` gate exists to prevent; and
+ *     applying the floor needs a per-term `product_count` this function (pure over
+ *     the response) does not have. Gated inclusion is AECI-546's call — it owns the
+ *     publication gate and the sitemap. Recorded in `REVIEW_APP_PROMOTE_API.md` §6a.
  *
  * This now models the same "what changed" set as `cacheTagsForPromote` for
  * integrations — both point at the pair page, not the retired detail route

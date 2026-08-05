@@ -9,7 +9,8 @@
  *
  * D1 has no interactive transactions, so the handler is **plan-then-batch**:
  *   1. **Plan (reads + id generation, NO writes).** Preload slugs; read the
- *      slugs of any rows being updated; resolve taxonomy (find-or-create) and
+ *      slugs of any rows being updated; resolve taxonomy (find-or-create for
+ *      categories/audiences/phases, find-ONLY for trades — AECI-542) and
  *      usefulness against existing+to-be-created terms; resolve every
  *      integration/extension endpoint (refs → planned ids, supabaseIds →
  *      existence reads); read an updated integration's OLD endpoints for the
@@ -80,11 +81,13 @@ import {
   productExtensions,
   productPhases,
   products,
+  productTrades,
   productVendors,
   taxonomyAudiences,
   taxonomyCategories,
   taxonomyDataObjects,
   taxonomyPhases,
+  taxonomyTrades,
   vendors,
 } from '../db/schema';
 import { logToDatadog, submitCount, submitDistribution } from '../datadog';
@@ -266,15 +269,22 @@ const AUDIT_META = { source: 'review-app-promote' } as const;
  * changed. Batches are fired concurrently; each batch's outcome is recorded as
  * `aeci.cache.purge{source:promote,outcome:ok|cf_failed}` and a failed batch is
  * logged (Datadog `warn`) and swallowed so it never affects the committed promote.
+ *
+ * `removedTradeSlugs` carries the trades this promote *dropped* from the product
+ * (AECI-542). The response echoes only what was SET, so a re-promote that clears a
+ * trade would otherwise purge nothing — and because the trade facet is publication-
+ * gated (`TRADE_PUBLISH_MIN_PRODUCTS`), a removal can un-publish a term and change
+ * `/trades`, the facet sidebar, and the sitemap. See `CACHE_STRATEGY.md` §2.
  */
 async function purgeAfterPromote(
   c: Context<{ Bindings: Env }>,
   response: PromoteResponse,
+  removedTradeSlugs: string[] = [],
 ): Promise<void> {
   const creds = { apiToken: c.env.CF_PURGE_API_TOKEN, zoneId: c.env.CF_ZONE_ID };
   if (!creds.apiToken || !creds.zoneId) return;
 
-  const tags = cacheTagsForPromote(response);
+  const tags = cacheTagsForPromote(response, { removedTradeSlugs });
   if (tags.length === 0) return;
 
   const batches: string[][] = [];
@@ -621,16 +631,16 @@ export async function refreshHomeStatsAfterPromote(
 /**
  * Surface a promote's `skipped[]` (§4) in Datadog. A promote returns `200` even
  * when it could not link some entities — an integration/extension whose far
- * endpoint isn't promoted yet, a usefulness group or a claim `dataObject` that
- * didn't resolve — so the response looks like a clean success and the metrics
- * layer (`aeci.api.query.duration_ms{status_class:2xx}`) is blind to the partial
- * data loss. Without this the only record of a curator's silently-dropped push
- * lives in the HTTP response body, which the review app must itself inspect.
+ * endpoint isn't promoted yet, a usefulness group, a claim `dataObject`, or a
+ * trade that didn't resolve — so the response looks like a clean success and the
+ * metrics layer (`aeci.api.query.duration_ms{status_class:2xx}`) is blind to the
+ * partial data loss. Without this the only record of a curator's silently-dropped
+ * push lives in the HTTP response body, which the review app must itself inspect.
  *
  * Emits a single `warn` log detailing every `{ ref, kind, reason }` plus per-kind
  * counts, and an `aeci.api.promote.skipped` count (value = per-kind skip count,
- * so query with `sum:`; `kind` tag ∈ integration/extension/usefulness/claim) as
- * the alertable signal. Best-effort + fire-and-forget: the transport self-gates
+ * so query with `sum:`; `kind` tag ∈ integration/extension/usefulness/claim/trade)
+ * as the alertable signal. Best-effort + fire-and-forget: the transport self-gates
  * on `DD_API_KEY` and dispatches via `ctx.waitUntil`, so this never affects the
  * committed promote. No-op when nothing was skipped.
  */
@@ -864,6 +874,96 @@ export function createPromoteHandler(
         )
       : emptyTax;
 
+    // ── Trades (find-only resolution against the seeded closed vocabulary) ─────
+    // The fourth facet (§5.5a / AECI-542) deliberately diverges from the three
+    // above: `taxonomy_trades` is a GOVERNED closed vocabulary (ADR 0008 /
+    // `docs/TRADES_VOCABULARY.md` §3), so a trade is resolved **find-only** —
+    // never find-or-create. A curator minting `paving-contractors` alongside
+    // `paving-asphalt` would split a trade page's products across two permanent
+    // URLs and destroy the SEO asset the facet exists to build, so an unmatched
+    // value is dropped and reported in `skipped[]` (`kind: 'trade'`), exactly like
+    // an unresolvable usefulness group or claim `dataObject`. No term is ever
+    // created here, so no `trade.created` audit row is possible and every result
+    // is `operation: 'reused'`.
+    //
+    // Matching is by `slug` → `name` → `alias`, case-insensitively
+    // (`TRADES_VOCABULARY.md` §4). The three passes below make that precedence
+    // structural rather than incidental: an alias can never shadow another term's
+    // slug or name, whatever a future vocabulary edit adds. `safeSlugify`
+    // normalizes both sides and returns `null` (→ unresolvable → `skipped`) rather
+    // than throwing on a reserved or empty slug.
+    const resolveTrades = async (
+      values: string[],
+      productRef: string,
+    ): Promise<{ ids: string[]; results: PromoteTaxonomyResult[] }> => {
+      const rows = await db
+        .select({
+          id: taxonomyTrades.id,
+          slug: taxonomyTrades.slug,
+          name: taxonomyTrades.name,
+          aliases: taxonomyTrades.aliases,
+        })
+        .from(taxonomyTrades);
+
+      const byKey = new Map<string, { id: string; slug: string }>();
+      const addKey = (value: string | null | undefined, row: { id: string; slug: string }) => {
+        const key = value ? safeSlugify(value) : null;
+        if (key && !byKey.has(key)) byKey.set(key, row);
+      };
+      for (const row of rows) addKey(row.slug, row);
+      for (const row of rows) addKey(row.name, row);
+      for (const row of rows) for (const alias of row.aliases ?? []) addKey(alias, row);
+
+      const ids: string[] = [];
+      const results: PromoteTaxonomyResult[] = [];
+      const seen = new Set<string>();
+      for (const value of values) {
+        const key = safeSlugify(value);
+        const term = key ? byKey.get(key) : undefined;
+        if (!term) {
+          skipped.push({
+            ref: productRef,
+            kind: 'trade',
+            reason: `trade "${value}" did not resolve to the seeded vocabulary`,
+          });
+          continue;
+        }
+        // Two payload values may name the same term ("HVAC" and "Mechanical" both
+        // resolve to `hvac-mechanical`) — collapse them so the join insert can't
+        // trip the composite primary key.
+        if (seen.has(term.id)) continue;
+        seen.add(term.id);
+        ids.push(term.id);
+        results.push({ slug: term.slug, id: term.id, operation: 'reused' });
+      }
+      return { ids, results };
+    };
+
+    // Load the vocabulary only when the payload actually carries trades — trades are
+    // sparse by design, so most promotes skip this read entirely (same gate as the
+    // `anyClaims` data-object load below).
+    const trades =
+      p && p.trades.length
+        ? await resolveTrades(p.trades, p.ref)
+        : { ids: [] as string[], results: [] as PromoteTaxonomyResult[] };
+
+    // Trades this promote DROPS from the product. The response echoes only what was
+    // SET, so without this a re-promote that clears a trade would purge nothing —
+    // and because the facet is publication-gated (`TRADE_PUBLISH_MIN_PRODUCTS`), a
+    // removal can push a term back under the floor and change `/trades`, the facet
+    // sidebar, and the sitemap (`CACHE_STRATEGY.md` §2). Only an UPDATE can have
+    // prior join rows, so a create skips the read.
+    let removedTradeSlugs: string[] = [];
+    if (p?.supabaseId) {
+      const prior = await db
+        .select({ slug: taxonomyTrades.slug })
+        .from(productTrades)
+        .innerJoin(taxonomyTrades, eq(taxonomyTrades.id, productTrades.tradeId))
+        .where(eq(productTrades.productId, p.supabaseId));
+      const kept = new Set(trades.results.map((r) => r.slug));
+      removedTradeSlugs = prior.map((r) => r.slug).filter((slug) => !kept.has(slug));
+    }
+
     // ── Usefulness (find-only resolution against existing+new terms) ───────────
     const resolveUsefulnessFacet = (
       groups: PromoteUsefulnessGroup[],
@@ -996,6 +1096,7 @@ export function createPromoteHandler(
       stmts.push(db.delete(productCategories).where(eq(productCategories.productId, pid)));
       stmts.push(db.delete(productAudiences).where(eq(productAudiences.productId, pid)));
       stmts.push(db.delete(productPhases).where(eq(productPhases.productId, pid)));
+      stmts.push(db.delete(productTrades).where(eq(productTrades.productId, pid)));
       stmts.push(db.delete(productExtensions).where(eq(productExtensions.productId, pid)));
 
       if (payload.vendors.length) {
@@ -1033,6 +1134,16 @@ export function createPromoteHandler(
           db
             .insert(productPhases)
             .values(phases.ids.map((phaseId) => ({ productId: pid, phaseId })))
+            .onConflictDoNothing(),
+        );
+      }
+      // `taxonomy_trades` rows are seeded (never created here), so this insert has
+      // no new-term statement to order behind — unlike the three facets above.
+      if (trades.ids.length) {
+        stmts.push(
+          db
+            .insert(productTrades)
+            .values(trades.ids.map((tradeId) => ({ productId: pid, tradeId })))
             .onConflictDoNothing(),
         );
       }
@@ -1294,6 +1405,7 @@ export function createPromoteHandler(
         categories: categories.results,
         audiences: audiences.results,
         phases: phases.results,
+        trades: trades.results,
       },
       skipped,
     };
@@ -1334,7 +1446,7 @@ export function createPromoteHandler(
     // AECI-105: purge the edge-cache tags this promote invalidated. Best-effort,
     // post-commit; no-ops without CF creds.
     if (c.env.CF_PURGE_API_TOKEN && c.env.CF_ZONE_ID) {
-      c.executionCtx.waitUntil(purgeAfterPromote(c, response));
+      c.executionCtx.waitUntil(purgeAfterPromote(c, response, removedTradeSlugs));
     }
 
     // AECI-305: refresh the `home.*` `stats_cache` keys the home page reads, then
