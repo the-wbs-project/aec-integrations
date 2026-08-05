@@ -265,3 +265,38 @@ describe('ProductDetailPage powered-integrations hub', () => {
     ).toBe('');
   });
 });
+
+describe('ProductDetailPage taxonomy chips (AECI-544)', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  const link = (slug: string, name: string) => ({
+    id: `id-${slug}`,
+    slug,
+    name,
+  });
+
+  it('renders a Trades section linking each tag to its browse page', () => {
+    const { el } = setup(
+      buildProduct({
+        trades: [link('electrical', 'Electrical'), link('plumbing', 'Plumbing')],
+      }),
+    );
+
+    const section = el.querySelector('section[aria-labelledby="trades-label"]');
+    expect(section).toBeTruthy();
+    expect(section!.querySelector('#trades-label')!.textContent!.trim()).toBe('Trades');
+    expect(section!.querySelector('a[href="/trades/electrical"]')).toBeTruthy();
+    // Chips are never gated on the publication floor — a sub-floor term is a
+    // true tag, so it still links (TRADES_VOCABULARY.md §6).
+    expect(section!.querySelector('a[href="/trades/plumbing"]')).toBeTruthy();
+  });
+
+  it('omits the Trades section entirely when the product carries none', () => {
+    // The common case: trades are sparse by design, and horizontal platforms
+    // must never be tagged.
+    const { el } = setup(buildProduct({ trades: [] }));
+
+    expect(el.querySelector('section[aria-labelledby="trades-label"]')).toBeNull();
+    expect(el.querySelector('a[href^="/trades/"]')).toBeNull();
+  });
+});

@@ -136,6 +136,30 @@ import { RouterLink } from '@angular/router';
           </li>
           <li>
             <a
+              routerLink="/trades"
+              class="block rounded-(--radius-md) border border-(--border-default)
+                bg-(--surface-raised) px-5 py-4 no-underline transition-colors
+                hover:border-(--border-strong) hover:text-(--accent-primary)
+                focus-visible:outline-none focus-visible:ring-2
+                focus-visible:ring-(--accent-primary) focus-visible:ring-offset-2
+                focus-visible:ring-offset-(--surface-base)"
+            >
+              <span
+                class="block text-base font-semibold text-(--text-primary)"
+                i18n="@@notFound.links.trades.label"
+              >
+                Trades
+              </span>
+              <span
+                class="mt-1 block text-sm text-(--text-secondary)"
+                i18n="@@notFound.links.trades.helper"
+              >
+                Tools built for the work you sell.
+              </span>
+            </a>
+          </li>
+          <li>
+            <a
               routerLink="/phases"
               class="block rounded-(--radius-md) border border-(--border-default)
                 bg-(--surface-raised) px-5 py-4 no-underline transition-colors

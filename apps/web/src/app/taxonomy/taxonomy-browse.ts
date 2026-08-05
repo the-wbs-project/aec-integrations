@@ -1,3 +1,4 @@
+import { NgTemplateOutlet } from '@angular/common';
 import { Component, computed, inject } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
@@ -17,16 +18,23 @@ import { createPaginatedIndex } from '../shared/paginated-index/paginated-index-
 import { PaginationFooter } from '../shared/pagination/pagination-footer';
 
 /**
- * AECI-61 — shared browse page for `/categories/:slug`, `/audiences/:slug`,
- * and `/phases/:slug`. One component drives all three routes; the taxonomy
- * `kind` arrives via static `route.data` and the resolved term via
- * `route.data['term']` (populated by the matching `*BrowseResolver`).
+ * AECI-61 / AECI-544 — shared browse page for `/categories/:slug`,
+ * `/audiences/:slug`, `/phases/:slug`, and `/trades/:slug`. One component drives
+ * all four routes; the taxonomy `kind` arrives via static `route.data` and the
+ * resolved term via `route.data['term']` (populated by the matching
+ * `*BrowseResolver`).
  *
  *   - `term === null` → the global `aec-not-found` shell (the resolver already
  *     set `RESPONSE_INIT.status = 404` + noindex meta).
- *   - `term` set → `BrowseLayout` with a header strip (breadcrumb + name +
- *     description + count), the API-backed facet sidebar, and the matching
- *     products as a paginated grid.
+ *   - `term.product_count === 0` → header + an honest "nothing tagged yet"
+ *     panel, no sidebar and no table (AECI-544). Reachable mainly on trades,
+ *     whose closed 34-term vocabulary is seeded ahead of the tagging and whose
+ *     sub-floor terms stay linkable even though the `/trades` index omits them.
+ *     Filter chrome over an empty set is noise, and the generic "No products
+ *     match these filters" row is a lie when no filter is applied.
+ *   - `term` set with products → `BrowseLayout` with a header strip (breadcrumb
+ *     + name + description + count), the API-backed facet sidebar, and the
+ *     matching products as a paginated grid.
  *
  * AECI-143 — the filter sidebar (`aec-facet-sidebar`) is locked to this page's
  * own taxonomy (`lockedKind`/`lockedId`) so it cross-filters by the *other* two
@@ -50,52 +58,105 @@ import { PaginationFooter } from '../shared/pagination/pagination-footer';
     BrowseLayout,
     FacetSidebar,
     MailingListSignup,
+    NgTemplateOutlet,
     NotFound,
     PaginationFooter,
     ProductCard,
     RouterLink,
   ],
   template: `
+    <!--
+      Header strip, shared by the populated and empty-term branches below so the
+      breadcrumb / title / description markup has exactly one definition. The
+      term rides the outlet context rather than the outer \`@let\`, so the
+      template never depends on where it is instantiated.
+    -->
+    <ng-template #pageHeader let-t>
+      <nav i18n-aria-label="@@taxonomy.browse.breadcrumbs.aria" aria-label="Breadcrumb">
+        <ol class="flex flex-wrap items-center gap-2 text-sm text-(--text-secondary)">
+          <li>
+            <a
+              routerLink="/"
+              class="rounded-sm transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              i18n="@@taxonomy.browse.breadcrumbs.home"
+              >Home</a
+            >
+          </li>
+          <li aria-hidden="true" class="text-(--text-secondary)">›</li>
+          <li>
+            @if (parentLink(); as link) {
+              <a
+                [routerLink]="link"
+                class="rounded-sm transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                >{{ parentLabel() }}</a
+              >
+            } @else {
+              <span>{{ parentLabel() }}</span>
+            }
+          </li>
+          <li aria-hidden="true" class="text-(--text-secondary)">›</li>
+          <li class="text-(--text-primary)" aria-current="page">{{ t.name }}</li>
+        </ol>
+      </nav>
+
+      <h1 class="font-display text-4xl font-semibold tracking-tight md:text-5xl">
+        {{ t.name }}
+      </h1>
+
+      @if (t.description) {
+        <p class="max-w-prose text-(--text-secondary)">{{ t.description }}</p>
+      }
+    </ng-template>
+
     @let t = term();
     @if (t === null) {
       <aec-not-found />
+    } @else if (t.product_count === 0) {
+      <!--
+        Nothing tagged yet. No sidebar (there is nothing to cross-filter) and no
+        table: just the header and an honest panel out to the products index.
+        Same page chrome as BrowseLayout, minus its two-column grid.
+      -->
+      <div class="bg-(--surface-base) text-(--text-primary)">
+        <div class="mx-auto w-full max-w-7xl px-6 pt-3 pb-8 md:px-8 md:pt-4 md:pb-12">
+          <header class="mb-8 border-b border-(--border-default) pb-6 md:mb-12 md:pb-8">
+            <div class="space-y-4">
+              <ng-container
+                [ngTemplateOutlet]="pageHeader"
+                [ngTemplateOutletContext]="{ $implicit: t }"
+              />
+            </div>
+          </header>
+
+          <div
+            class="max-w-prose space-y-3 rounded-(--radius-lg) border border-dashed
+              border-(--border-default) bg-(--surface-sunken) p-6"
+          >
+            <p class="text-(--text-primary)">{{ emptyTermHeadline() }}</p>
+            <p class="text-sm text-(--text-secondary)" i18n="@@taxonomy.browse.emptyTerm.body">
+              As the catalog grows, this page fills in on its own.
+            </p>
+            <a
+              routerLink="/products"
+              class="inline-block rounded-sm text-sm font-medium text-(--accent-primary) underline
+                decoration-(--border-strong) underline-offset-4 transition-colors
+                hover:decoration-(--accent-primary) focus-visible:outline-2
+                focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              i18n="@@taxonomy.browse.emptyTerm.cta"
+              >Browse all products</a
+            >
+          </div>
+        </div>
+      </div>
+
+      <aec-mailing-list-signup />
     } @else {
       <aec-browse-layout>
         <div slot="header" class="space-y-4">
-          <nav i18n-aria-label="@@taxonomy.browse.breadcrumbs.aria" aria-label="Breadcrumb">
-            <ol class="flex flex-wrap items-center gap-2 text-sm text-(--text-secondary)">
-              <li>
-                <a
-                  routerLink="/"
-                  class="rounded-sm transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-                  i18n="@@taxonomy.browse.breadcrumbs.home"
-                  >Home</a
-                >
-              </li>
-              <li aria-hidden="true" class="text-(--text-secondary)">›</li>
-              <li>
-                @if (parentLink(); as link) {
-                  <a
-                    [routerLink]="link"
-                    class="rounded-sm transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-                    >{{ parentLabel() }}</a
-                  >
-                } @else {
-                  <span>{{ parentLabel() }}</span>
-                }
-              </li>
-              <li aria-hidden="true" class="text-(--text-secondary)">›</li>
-              <li class="text-(--text-primary)" aria-current="page">{{ t.name }}</li>
-            </ol>
-          </nav>
-
-          <h1 class="font-display text-4xl font-semibold tracking-tight md:text-5xl">
-            {{ t.name }}
-          </h1>
-
-          @if (t.description) {
-            <p class="max-w-prose text-(--text-secondary)">{{ t.description }}</p>
-          }
+          <ng-container
+            [ngTemplateOutlet]="pageHeader"
+            [ngTemplateOutletContext]="{ $implicit: t }"
+          />
 
           <p class="text-sm text-(--text-secondary)">{{ productCountLabel() }}</p>
         </div>
@@ -240,7 +301,7 @@ export class TaxonomyBrowsePage {
   /**
    * Filtered products grid. Locks this page's own dimension via `baseParams`
    * (`{kind}_id=<term.id>`, never a URL param) and lets the facet sidebar drive
-   * the other two dimensions through the URL (`passthroughParams`). `enabled`
+   * the other three dimensions through the URL (`passthroughParams`). `enabled`
    * gates the fetch on a resolved term so a 404 doesn't query the whole catalog.
    * Meta is owned by the resolver, so none is passed here.
    */
@@ -252,7 +313,7 @@ export class TaxonomyBrowsePage {
     // client-side (the page number stays out of the URL). See createPaginatedIndex.
     mode: 'append',
     baseParams: () => ({ [`${this.kind()}_id`]: this.term()?.id }),
-    passthroughParams: (['category_id', 'audience_id', 'phase_id'] as const).filter(
+    passthroughParams: (['category_id', 'audience_id', 'phase_id', 'trade_id'] as const).filter(
       (param) => param !== `${this.kind()}_id`,
     ),
     enabled: () => this.term() !== null,
@@ -278,6 +339,8 @@ export class TaxonomyBrowsePage {
         return $localize`:@@taxonomy.browse.breadcrumbs.audiences:Audiences`;
       case 'phase':
         return $localize`:@@taxonomy.browse.breadcrumbs.phases:Phases`;
+      case 'trade':
+        return $localize`:@@taxonomy.browse.breadcrumbs.trades:Trades`;
     }
   });
 
@@ -291,5 +354,15 @@ export class TaxonomyBrowsePage {
   protected readonly productCountLabel = computed(() => {
     const count = this.term()?.product_count ?? 0;
     return $localize`:@@taxonomy.browse.products.count:${count}:INTERPOLATION: products`;
+  });
+
+  /**
+   * Headline for the "nothing tagged yet" panel. Built in TS with `$localize`
+   * (not an `i18n` attribute with `{{ }}`) because the term name is dynamic —
+   * the same reason `productCountLabel` above lives here.
+   */
+  protected readonly emptyTermHeadline = computed(() => {
+    const name = this.term()?.name ?? '';
+    return $localize`:@@taxonomy.browse.emptyTerm.headline:No products are tagged ${name}:NAME: yet.`;
   });
 }

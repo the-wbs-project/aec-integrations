@@ -87,6 +87,11 @@ import { BrandLogo } from './brand-logo';
                 </a>
               </li>
               <li>
+                <a routerLink="/trades" class="text-(--text-secondary) hover:text-(--text-primary)">
+                  <ng-container i18n="@@app.nav.trades">Trades</ng-container>
+                </a>
+              </li>
+              <li>
                 <a routerLink="/phases" class="text-(--text-secondary) hover:text-(--text-primary)">
                   <ng-container i18n="@@app.nav.phases">Phases</ng-container>
                 </a>

@@ -51,8 +51,16 @@ import { UserMenu } from './user-menu';
       <div class="mx-auto flex max-w-7xl items-center gap-3 px-8 py-5 md:gap-8">
         <aec-nav-menu />
         <aec-brand-logo />
+        <!--
+          AECI-544: the inline nav takes over from the hamburger at lg, not md.
+          With four taxonomy flyouts it needs ~650px; at 768px only ~350px is
+          left after the wordmark and the sign-in button, so the last items were
+          clipped out of the viewport (already true of Phases before trades
+          joined). aec-nav-menu is lg:hidden to match, and it already lists
+          every facet, so nothing becomes unreachable between md and lg.
+        -->
         <nav
-          class="hidden flex-1 items-center justify-center gap-7 text-sm font-medium md:flex"
+          class="hidden flex-1 items-center justify-center gap-5 text-sm font-medium lg:flex xl:gap-7"
           i18n-aria-label="@@app.nav.primary.aria"
           aria-label="Primary"
         >
@@ -84,11 +92,12 @@ import { UserMenu } from './user-menu';
           </a>
           <aec-nav-flyout-trigger kind="category" [items]="taxonomy.categoriesTop10()" />
           <aec-nav-flyout-trigger kind="audience" [items]="taxonomy.audiencesTop10()" />
+          <aec-nav-flyout-trigger kind="trade" [items]="taxonomy.tradesTop10()" />
           <aec-nav-flyout-trigger kind="phase" [items]="taxonomy.phasesAll()" />
         </nav>
         <div class="hidden items-center gap-3 md:flex">
           <aec-search-autocomplete
-            class="hidden lg:block"
+            class="hidden xl:block"
             inputId="header-search"
             (querySubmitted)="onSearchQuery($event)"
             (suggestionChosen)="onSuggestion($event)"
@@ -103,7 +112,7 @@ import { UserMenu } from './user-menu';
           } @else {
             <a
               routerLink="/auth/login"
-              class="inline-flex items-center rounded-(--radius-md) bg-(--accent-primary) px-4 py-1.5 text-sm font-medium text-(--surface-base) hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              class="inline-flex shrink-0 items-center rounded-(--radius-md) bg-(--accent-primary) px-4 py-1.5 text-sm font-medium whitespace-nowrap text-(--surface-base) hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
               i18n="@@app.header.signIn"
             >
               Sign in

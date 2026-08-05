@@ -176,6 +176,11 @@ describe('cacheTagInputsForPath', () => {
       '/phases/preconstruction',
       { route: 'browse', entity: { type: 'phase', slug: 'preconstruction' } },
     ],
+    ['/trades', { route: 'index', entity: { type: 'index', slug: 'trades' }, taxonomy: true }],
+    ['/trades/electrical', { route: 'browse', entity: { type: 'trade', slug: 'electrical' } }],
+    // AECI-544 — a sub-floor trade is still cacheable and purgeable by tag; the
+    // publication gate controls indexability, not cacheability.
+    ['/trades/roofing', { route: 'browse', entity: { type: 'trade', slug: 'roofing' } }],
   ])('maps %s to the expected inputs', (path, expected) => {
     expect(cacheTagInputsForPath(path)).toEqual(expected);
   });
@@ -215,6 +220,8 @@ describe('cacheTagInputsForPath', () => {
       '/audiences/architecture',
       '/phases',
       '/phases/preconstruction',
+      '/trades',
+      '/trades/electrical',
     ];
     for (const p of paths) {
       const inputs = cacheTagInputsForPath(p);

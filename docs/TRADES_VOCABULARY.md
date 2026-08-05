@@ -302,11 +302,23 @@ Thin trade pages are SEO junk and dilute the whole `/trades` namespace. A trade 
 | `/trades` index | Listed | **Hidden** |
 | `/trades/:slug` page | 200, indexable | 200, `noindex,follow` |
 | XML sitemap | Included | **Excluded** |
-| Facet sidebar / nav | Offered as a filter | **Hidden** |
+| Primary-nav flyout (`TaxonomyNavStore.tradesTop10`) | Offered | **Hidden** |
+| Facet sidebar (`aec-facet-sidebar`) | Offered as a filter | **Also offered** — the floor does NOT apply; see below |
 | Product-detail trade chips | Rendered + linked | Rendered + linked (the tag is true; the *page* is just not promoted) |
 | `GET /api/trades`, `GET /api/trades/:slug`, `GET /api/taxonomy`, `GET /api/products/facets` | Returned | Returned (with `product_count`; gating is a presentation decision, not a data one) |
 
-Two consequences worth stating explicitly:
+**Why the facet sidebar is exempt (AECI-544).** Its counts come from
+`GET /api/products/facets`, which is **disjunctive and scoped to the active filters** — a genuinely
+published trade's count legitimately falls below 3 (often to 1) as soon as the visitor picks a
+category, so applying the floor there would hide published terms at exactly the moment they are most
+useful. The floor is meaningful only where the count is **unscoped** (the `/trades` index, the nav
+flyout, the sitemap), and its purpose is to keep thin *pages* out of the search index — the sidebar
+is a control surface, not indexable content, and a sub-floor trade offered there still leads to a
+real, non-empty result set. The sidebar therefore keeps its existing cross-dimension rule: show a
+term when its scoped `count > 0`, or when it is currently refined. This is a deliberate exemption,
+not an implementation gap.
+
+Two further consequences worth stating explicitly:
 
 - **URLs are stable across the gate.** An unpublished trade still resolves at its permanent slug, so
   a trade crossing the floor becomes indexable with no redirect and no URL churn.
@@ -314,7 +326,10 @@ Two consequences worth stating explicitly:
   (`TaxonomyTermWithCountSchema`), and each consuming surface applies the floor. This keeps the gate
   in one presentational place instead of splitting the vocabulary into two API shapes.
 
-Implementation is **AECI-546**; this section is the governing policy.
+`TRADE_PUBLISH_MIN_PRODUCTS` is exported from `packages/shared` (`src/api/taxonomy.ts`) alongside
+the `isPublishedTrade` helper, so every consumer reads one value. The `/trades` index and the nav
+flyout apply it as of **AECI-544**; the sitemap + `noindex` half lands with **AECI-546**. This
+section is the governing policy.
 
 ---
 

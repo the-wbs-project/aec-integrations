@@ -4,7 +4,11 @@ import { Component, PLATFORM_ID, inject } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import type { TaxonomyResponse, TaxonomyTermWithCount } from '@aeci/shared';
+import {
+  TRADE_PUBLISH_MIN_PRODUCTS,
+  type TaxonomyResponse,
+  type TaxonomyTermWithCount,
+} from '@aeci/shared';
 
 import { settle } from '../testing/index-page.harness';
 
@@ -30,9 +34,14 @@ const RESPONSE: TaxonomyResponse = {
   categories: Array.from({ length: 12 }, (_, i) => term(`cat-${i}`, i)),
   audiences: [term('aud-a', 2), term('aud-b', 9), term('aud-c', 5)],
   phases: [term('closeout', 8, 50), term('design', 3, 20)],
-  // AECI-541 — the fourth facet travels on the aggregate response. Nav surfacing
-  // of trades lands with the browse pages (AECI-544); this store ignores it today.
-  trades: [term('electrical', 4, 10)],
+  // AECI-544 — trades rank by count like categories/audiences, but only
+  // PUBLISHED terms are offered in the nav: `roofing` (below the floor) must be
+  // dropped even though it out-orders `hvac` by display_order.
+  trades: [
+    term('electrical', 4, 10),
+    term('roofing', TRADE_PUBLISH_MIN_PRODUCTS - 1, 20),
+    term('hvac', 7, 30),
+  ],
 };
 
 /**
@@ -74,6 +83,8 @@ describe('TaxonomyNavStore', () => {
     // Phases return all terms in lifecycle (display_order) order — `design` (20)
     // before `closeout` (50), despite `closeout` having the higher count.
     expect(store.phasesAll().map((t) => t.slug)).toEqual(['design', 'closeout']);
+    // Trades: published-only, then descending by count.
+    expect(store.tradesTop10().map((t) => t.slug)).toEqual(['hvac', 'electrical']);
 
     httpMock.verify();
   });
@@ -94,6 +105,7 @@ describe('TaxonomyNavStore', () => {
     httpMock.expectNone('/api/taxonomy');
     expect(fixture.componentInstance.store.categoriesTop10()).toEqual([]);
     expect(fixture.componentInstance.store.phasesAll()).toEqual([]);
+    expect(fixture.componentInstance.store.tradesTop10()).toEqual([]);
     httpMock.verify();
   });
 });

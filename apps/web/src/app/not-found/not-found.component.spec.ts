@@ -41,7 +41,7 @@ describe('NotFound component', () => {
     const hrefs = Array.from(el.querySelectorAll('a[href]')).map((a) => a.getAttribute('href'));
     // AECI-165 — vendor/integration index cards replaced by audiences/phases.
     expect(hrefs).toEqual(
-      expect.arrayContaining(['/products', '/categories', '/audiences', '/phases', '/']),
+      expect.arrayContaining(['/products', '/categories', '/audiences', '/trades', '/phases', '/']),
     );
     // The removed indexes must not reappear as recovery links.
     expect(hrefs).not.toContain('/vendors');
@@ -52,8 +52,8 @@ describe('NotFound component', () => {
     const el = render().nativeElement as HTMLElement;
     const nav = el.querySelector('nav[aria-labelledby="not-found-recovery"]');
     expect(nav).not.toBeNull();
-    // Each of the four directory links is in the list, plus the home CTA
-    // sits outside the directory nav.
-    expect(nav!.querySelectorAll('li a')).toHaveLength(4);
+    // Each of the five directory links is in the list (products + the four
+    // taxonomy facets), plus the home CTA which sits outside the directory nav.
+    expect(nav!.querySelectorAll('li a')).toHaveLength(5);
   });
 });
