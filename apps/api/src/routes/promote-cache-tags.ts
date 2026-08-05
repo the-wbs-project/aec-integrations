@@ -40,7 +40,7 @@
  *     (AECI-294) emits the identical tag, so purge and render stay in lockstep.
  *   - `product:{poweredBySlug}` (Stage 1.5 Addendum B) invalidates the *connector*
  *     product's detail page for an integration it powers. The connector is neither
- *     endpoint, so no other rule reaches it, yet its "Powers these integrations"
+ *     endpoint, so no other rule reaches it, yet its "Integrations it powers"
  *     hub view renders that edge. Emitted per integration result that carries
  *     `poweredBySlug`.
  *   - **No `route:*` tags.** §3.3 reserves the coarse `route:detail|index|browse`
@@ -174,7 +174,7 @@ export function cacheTagsForPromote(
       tags.add(pairCacheTag(integration.sourceSlug, integration.targetSlug));
     }
     // The connector product that POWERS the edge renders it in its own
-    // "Powers these integrations" hub view (Stage 1.5 Addendum B), so its detail
+    // "Integrations it powers" hub view (Stage 1.5 Addendum B), so its detail
     // page must repaint too. Absent for edges with no powered-by product (and on
     // older responses) — guard.
     if (integration.poweredBySlug) tags.add(`product:${integration.poweredBySlug}`);
