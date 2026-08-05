@@ -1,14 +1,19 @@
 /**
- * Resolver factory for the three taxonomy browse routes — `/categories/:slug`,
- * `/audiences/:slug`, `/phases/:slug`. Phase 2 Spec §3.1 / §7 / §9 / §10.
+ * Resolver factory for the four taxonomy browse routes — `/categories/:slug`,
+ * `/audiences/:slug`, `/phases/:slug`, `/trades/:slug`. Phase 2 Spec §3.1 / §7 /
+ * §9 / §10; trades per STAGE_1_SPEC.md §5.5a (AECI-544).
  *
- * The three routes are mechanically identical apart from the taxonomy kind, so
- * one factory produces all three resolvers (AECI-61 ships them together to keep
- * a single resolver/test/i18n pattern from drifting into three copies).
+ * The four routes are mechanically identical apart from the taxonomy kind, so
+ * one factory produces all four resolvers (AECI-61 ships them together to keep
+ * a single resolver/test/i18n pattern from drifting into four copies).
+ *
+ * A trade below the publication floor resolves normally here — its URL is stable
+ * across the gate, so crossing the floor needs no redirect. The `noindex` half of
+ * the gate lands with AECI-546.
  *
  * Server flow (RenderMode.Server):
- *   1. Fetch `GET /api/{categories|audiences|phases}/:slug` via the service
- *      binding using `AeciRequestContext.api`.
+ *   1. Fetch `GET /api/{categories|audiences|phases|trades}/:slug` via the
+ *      service binding using `AeciRequestContext.api`.
  *   2. On `NOT_FOUND` → set `RESPONSE_INIT.status = 404` (SSR runtime emits a
  *      real HTTP 404 + `NOT_FOUND_TTL`), set noindex meta, return `null` so the
  *      page renders the inline NotFound panel.
@@ -148,3 +153,4 @@ function createTaxonomyBrowseResolver(kind: TaxonomyKind): ResolveFn<TaxonomyTer
 export const categoryBrowseResolver = createTaxonomyBrowseResolver('category');
 export const audienceBrowseResolver = createTaxonomyBrowseResolver('audience');
 export const phaseBrowseResolver = createTaxonomyBrowseResolver('phase');
+export const tradeBrowseResolver = createTaxonomyBrowseResolver('trade');

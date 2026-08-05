@@ -23,7 +23,7 @@ const AXE_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'];
 
 // Top-level links (not the taxonomy facets, which are flyouts/disclosures).
 const TOP_LINKS = ['Home', 'Products'] as const;
-const FACETS = ['Categories', 'Audiences', 'Phases'] as const;
+const FACETS = ['Categories', 'Audiences', 'Trades', 'Phases'] as const;
 // Pulled out of the nav by AECI-159 — must NOT appear in either arrangement.
 const REMOVED = ['Vendors', 'Integrations'] as const;
 

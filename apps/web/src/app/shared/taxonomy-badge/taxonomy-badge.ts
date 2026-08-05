@@ -41,7 +41,14 @@ import { RouterLink } from '@angular/router';
  * reference site selected for the product detail surface — see the
  * `Mobbin anchor:` line on the AECI-57 commit / Linear issue.
  */
-export type TaxonomyKind = 'category' | 'audience' | 'phase';
+/**
+ * The four taxonomy facets (STAGE_1_SPEC.md §5.5). `trade` — "what work does
+ * your company sell?" — joined in AECI-544. This union is the canonical one:
+ * it keys `KIND_PATH_SEGMENT`, the facet-sidebar dimension table, and the
+ * per-kind `$localize` switches across the nav, browse, and meta layers, so
+ * adding a facet here surfaces every site the compiler needs you to visit.
+ */
+export type TaxonomyKind = 'category' | 'audience' | 'phase' | 'trade';
 
 @Component({
   selector: 'aec-taxonomy-badge',
@@ -99,6 +106,10 @@ export class TaxonomyBadge {
         return ['/audiences', s];
       case 'phase':
         return ['/phases', s];
+      // Trade chips link even when the term is below the publication floor —
+      // the tag is true, the page just isn't promoted (TRADES_VOCABULARY §6).
+      case 'trade':
+        return ['/trades', s];
     }
   });
 }

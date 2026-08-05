@@ -17,6 +17,33 @@ export const TaxonomyTermWithCountSchema = LinkRefSchema.extend({
 export type TaxonomyTermWithCount = z.infer<typeof TaxonomyTermWithCountSchema>;
 
 /**
+ * Minimum promoted products a trade needs before it is **published** —
+ * `TRADES_VOCABULARY.md` §6, launch-tunable. Trades are the only facet with a
+ * publication floor: the vocabulary is a closed 34-term list seeded up front,
+ * so most terms start empty and a thin `/trades/:slug` page would be SEO junk.
+ *
+ * The API deliberately does not apply it (see `TaxonomyResponseSchema` below);
+ * it lives here so every consumer that *can* apply it uses one value. Consumers
+ * today: the `/trades` index grid and the primary-nav flyout (AECI-544), and
+ * the sitemap + `noindex` decision (AECI-546).
+ *
+ * Not applied by the facet sidebar, which sees **scoped** disjunctive counts —
+ * a published trade's count legitimately falls below the floor under an active
+ * filter, so gating there would hide published terms. Not applied to
+ * product-detail trade chips either: the tag is true even when the page isn't
+ * promoted. Both carve-outs are recorded in `TRADES_VOCABULARY.md` §6.
+ */
+export const TRADE_PUBLISH_MIN_PRODUCTS = 3;
+
+/**
+ * Whether a trade term clears the publication floor. Takes the count alone so
+ * callers can pass a term, a facet entry, or a raw number.
+ */
+export function isPublishedTrade(term: { product_count: number }): boolean {
+  return term.product_count >= TRADE_PUBLISH_MIN_PRODUCTS;
+}
+
+/**
  * Full taxonomy fetch returned by `GET /api/taxonomy` — the lookup the SSR
  * Worker uses to render nav, footer, and the `/categories` flat list. All
  * four lists hydrate as `TaxonomyTermWithCount[]` so callers don't need a
@@ -24,9 +51,9 @@ export type TaxonomyTermWithCount = z.infer<typeof TaxonomyTermWithCountSchema>;
  *
  * `trades` is the fourth facet (STAGE_1_SPEC.md §5.5a / AECI-541) and is **not
  * publication-gated here**: every term ships with its `product_count`,
- * including terms below the `TRADE_PUBLISH_MIN_PRODUCTS = 3` floor. Each
- * surface applies the floor itself (`TRADES_VOCABULARY.md` §6) so the gate is
- * tunable without an API deploy.
+ * including terms below the `TRADE_PUBLISH_MIN_PRODUCTS` floor exported above.
+ * Each surface applies the floor itself (`TRADES_VOCABULARY.md` §6) so the gate
+ * is tunable without an API deploy.
  */
 export const TaxonomyResponseSchema = z.object({
   categories: z.array(TaxonomyTermWithCountSchema),

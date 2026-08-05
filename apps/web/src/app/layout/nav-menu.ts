@@ -1,12 +1,12 @@
 /**
- * Primary navigation menu — the small-screen hamburger (below `md`).
+ * Primary navigation menu — the small-screen hamburger (below `lg`).
  *
  * A labelled hamburger trigger (to the left of the wordmark in `site-header.ts`)
  * opens a CDK-overlay dropdown that is the home for all site chrome on small
- * screens: Home + Products links, the three taxonomy facets as tap-to-expand
- * disclosure sections (Categories / Audiences / Phases), search, the theme
- * button group, and the Sign-in CTA. The component is hidden at `md+` via its
- * `md:hidden` host class — at those widths the same affordances render as the
+ * screens: Home + Products links, the four taxonomy facets as tap-to-expand
+ * disclosure sections (Categories / Audiences / Trades / Phases), search, the
+ * theme button group, and the Sign-in CTA. The component is hidden at `lg+` via
+ * its `lg:hidden` host class — at those widths the same affordances render as the
  * inline desktop nav in `site-header.ts` (with hover flyouts). Both surfaces
  * share `NavFlyoutList` + the `@@app.nav.*` copy (`taxonomy-nav-copy.ts`), so
  * the link sets cannot drift. AECI-158/159 re-pointed the nav at the taxonomy;
@@ -51,10 +51,12 @@ import { facetNavLabel, facetViewAllLabel } from './taxonomy-nav-copy';
 
 @Component({
   selector: 'aec-nav-menu',
-  // Hamburger is the small-screen affordance only; at `md+` the inline desktop
+  // Hamburger is the small-screen affordance only; at `lg+` the inline desktop
   // nav in `site-header.ts` takes over, so the trigger (and its overlay) are
-  // removed from the layout above `md`.
-  host: { class: 'md:hidden' },
+  // removed from the layout above `lg`. The handover moved up from `md` in
+  // AECI-544: four taxonomy flyouts no longer fit in the 768px header, so the
+  // hamburger now carries navigation through the md range too.
+  host: { class: 'lg:hidden' },
   imports: [
     RouterLink,
     RouterLinkActive,
@@ -318,6 +320,12 @@ export class NavMenu {
       label: facetNavLabel('audience'),
       viewAll: facetViewAllLabel('audience'),
       items: this.taxonomy.audiencesTop10(),
+    },
+    {
+      kind: 'trade' as const,
+      label: facetNavLabel('trade'),
+      viewAll: facetViewAllLabel('trade'),
+      items: this.taxonomy.tradesTop10(),
     },
     {
       kind: 'phase' as const,

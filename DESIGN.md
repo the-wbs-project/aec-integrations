@@ -441,6 +441,7 @@ The signature data component for review scores. Source Serif 4 numerals (headlin
 - **Default → hover:** color shifts to `accent-primary`. No underline-on-hover for top-level nav (reserved for inline body links).
 - **Active route:** color = `accent-primary`, paired with a 2px bottom border in `accent-primary` for primary nav. Border on the *element*, not as a side stripe (forbidden — see Do's and Don'ts).
 - **Mobile:** collapses into a CDK-overlay dropdown with focus trap. No hamburger-as-mystery — the toggle is labeled.
+- **Handover breakpoint:** the inline primary nav appears at `lg` and up; below that the hamburger carries it (`aec-nav-menu` is `lg:hidden`). Moved up from `md` when Trades became the fourth taxonomy flyout (AECI-544): seven items plus the wordmark and sign-in CTA no longer fit a 768px header, and clipping nav items out of the viewport is worse than deferring to a labeled overlay that already lists every facet. The header search input appears at `xl`. Adding a further top-level nav item needs a re-measure, not just an insert.
 
 ### Layout shells
 

@@ -24,7 +24,11 @@ import { createRequestContext, type AeciRequestContext } from '../../server/requ
 import type { TaxonomyTermDetail } from '../core/api/taxonomy';
 import { MetaService } from '../core/meta.service';
 
-import { categoryBrowseResolver, audienceBrowseResolver } from './taxonomy-browse.resolver';
+import {
+  categoryBrowseResolver,
+  audienceBrowseResolver,
+  tradeBrowseResolver,
+} from './taxonomy-browse.resolver';
 
 function buildProduct(slug: string, id: string): ProductListItem {
   return {
@@ -257,6 +261,62 @@ describe('audienceBrowseResolver — kind wiring', () => {
     });
     const stateKeys = JSON.parse(transferState.toJson());
     expect(stateKeys['aeci.taxonomy-browse:audience:structural']).toEqual(term);
+  });
+});
+
+describe('tradeBrowseResolver — kind wiring (AECI-544)', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  it('hits the trades endpoint and tags the pageView/meta with the trade kind', async () => {
+    const term = buildTerm({ slug: 'electrical', name: 'Electrical' });
+    const setEntityMeta = vi.fn();
+    const ctx = createRequestContext(buildClient(async () => term));
+
+    const { run, transferState } = setup({
+      platform: 'server',
+      ctx,
+      responseInit: { status: 200 },
+      request: new Request('https://aecintegrations.com/trades/electrical'),
+      meta: { setEntityMeta } as Partial<MetaService>,
+      slug: 'electrical',
+      resolver: tradeBrowseResolver,
+    });
+
+    await run();
+
+    expect(ctx.api.request).toHaveBeenCalledWith('/api/trades/electrical');
+    expect(setEntityMeta).toHaveBeenCalledWith(
+      expect.objectContaining({ entity: 'trade', name: 'Electrical' }),
+    );
+    expect(ctx.pageView).toEqual({
+      route: '/trades/:slug',
+      entity_type: 'trade',
+      entity_id: term.id,
+    });
+    const stateKeys = JSON.parse(transferState.toJson());
+    expect(stateKeys['aeci.taxonomy-browse:trade:electrical']).toEqual(term);
+  });
+
+  it('resolves a sub-floor trade normally — the publication gate is not a 404', async () => {
+    // TRADES_VOCABULARY.md §6: URLs are stable across the gate, so a term with
+    // fewer than TRADE_PUBLISH_MIN_PRODUCTS products still returns 200 and only
+    // loses its listing. Crossing the floor therefore needs no redirect.
+    const term = { ...buildTerm({ slug: 'roofing', name: 'Roofing' }), product_count: 0 };
+    const ctx = createRequestContext(buildClient(async () => term));
+    const responseInit = { status: 200 };
+
+    const { run } = setup({
+      platform: 'server',
+      ctx,
+      responseInit,
+      request: new Request('https://aecintegrations.com/trades/roofing'),
+      meta: { setEntityMeta: vi.fn() } as Partial<MetaService>,
+      slug: 'roofing',
+      resolver: tradeBrowseResolver,
+    });
+
+    await expect(run()).resolves.toEqual(term);
+    expect(responseInit.status).toBe(200);
   });
 });
 

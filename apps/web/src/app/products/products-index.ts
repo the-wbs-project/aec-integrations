@@ -321,8 +321,10 @@ export class ProductsIndex {
     // Accumulate pages for the scroll-based listing UX (page 1 still SSRs +
     // edge-caches; pages 2..N append client-side). See createPaginatedIndex.
     mode: 'append',
-    // AECI-143 — taxonomy cross-filters set by the facet sidebar ride the URL.
-    passthroughParams: ['category_id', 'audience_id', 'phase_id'],
+    // AECI-143 / AECI-544 — taxonomy cross-filters set by the facet sidebar
+    // ride the URL. Must stay in step with `DIMENSIONS` in `facet-sidebar.ts`
+    // and `LISTING_CACHE_KEY_PARAMS` in `server-runtime.ts`.
+    passthroughParams: ['category_id', 'audience_id', 'phase_id', 'trade_id'],
     meta: {
       entity: 'index',
       name: $localize`:@@products.index.metaName:Products`,

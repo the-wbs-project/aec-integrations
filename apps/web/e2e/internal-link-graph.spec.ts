@@ -130,8 +130,10 @@ type PageType =
   | 'category-browse'
   | 'audience-index'
   | 'phase-index'
+  | 'trade-index'
   | 'discipline-browse' // = /audiences/:slug (audience browse)
   | 'phase-browse'
+  | 'trade-browse'
   | 'home'
   | 'other';
 
@@ -144,8 +146,10 @@ const PATTERN_OF: Record<PageType, string> = {
   'category-browse': '/categories/:slug',
   'audience-index': '/audiences',
   'phase-index': '/phases',
+  'trade-index': '/trades',
   'discipline-browse': '/audiences/:slug',
   'phase-browse': '/phases/:slug',
+  'trade-browse': '/trades/:slug',
   home: '/',
   other: '(other)',
 };
@@ -159,8 +163,10 @@ const TYPE_LABEL: Record<PageType, string> = {
   'category-browse': 'category browse',
   'audience-index': '/audiences (flat list)',
   'phase-index': '/phases (flat list)',
+  'trade-index': '/trades (flat list)',
   'discipline-browse': 'discipline browse (audience)',
   'phase-browse': 'phase browse',
+  'trade-browse': 'trade browse',
   home: 'home',
   other: 'other',
 };
@@ -175,6 +181,7 @@ const STRUCTURAL_TYPES: PageType[] = [
   'categories',
   'audience-index',
   'phase-index',
+  'trade-index',
 ];
 
 const ENTITY_BROWSE_TYPES: PageType[] = [
@@ -184,6 +191,11 @@ const ENTITY_BROWSE_TYPES: PageType[] = [
   'category-browse',
   'discipline-browse',
   'phase-browse',
+  // AECI-544. Reachable from the `/trades` index, the nav flyout, and the
+  // product-detail trade chips — but ONLY once at least one trade clears the
+  // publication floor, so it is asserted alongside the other browse types on a
+  // seeded catalog (see `apps/api/seed/catalog.sql`).
+  'trade-browse',
 ];
 
 // Where each required type SHOULD be linked from — surfaced in failure messages
@@ -193,6 +205,7 @@ const CANDIDATE_SOURCE: Partial<Record<PageType, string>> = {
   categories: 'site-header primary nav → /categories',
   'audience-index': 'site-header primary nav / footer → /audiences',
   'phase-index': 'site-header primary nav / footer → /phases',
+  'trade-index': 'site-header primary nav / footer → /trades',
   'product-detail': 'a /products index row → /products/:slug',
   'vendor-detail': 'a product-detail vendor link → /vendors/:slug',
   'product-pair':
@@ -202,6 +215,8 @@ const CANDIDATE_SOURCE: Partial<Record<PageType, string>> = {
   'discipline-browse':
     'an /audiences list entry or a product-detail audience badge → /audiences/:slug',
   'phase-browse': 'a /phases list entry or a product-detail phase badge → /phases/:slug',
+  'trade-browse':
+    'a /trades list entry (published terms only) or a product-detail trade badge → /trades/:slug',
 };
 
 // ---------------------------------------------------------------------------
@@ -263,6 +278,8 @@ function classifyPath(pathname: string): PageType {
   if (/^\/audiences\/?$/.test(p)) return 'audience-index';
   if (/^\/phases\/[^/]+\/?$/.test(p)) return 'phase-browse';
   if (/^\/phases\/?$/.test(p)) return 'phase-index';
+  if (/^\/trades\/[^/]+\/?$/.test(p)) return 'trade-browse';
+  if (/^\/trades\/?$/.test(p)) return 'trade-index';
   return 'other';
 }
 
