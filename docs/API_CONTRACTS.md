@@ -174,7 +174,7 @@ Per-detail hydration rules:
 | Detail response | Field | Embedded shape |
 |---|---|---|
 | `ProductDetail` | `vendor` | `VendorLink` |
-| `ProductDetail` | `categories` / `audiences` / `phases` | `LinkRef[]` |
+| `ProductDetail` | `categories` / `audiences` / `phases` / `trades` | `LinkRef[]` — `trades` (AECI-541) is **sparse by design**: most products carry zero trade tags, so `[]` is the common, correct value, not missing data (`STAGE_1_SPEC.md` §5.5a). |
 | `ProductDetail` | `integrations_as_source` / `integrations_as_target` | `ProductIntegrationItem[]` (= `IntegrationListItem` + `context_direction`) |
 | `ProductDetail` | `integrations_as_connector` | `IntegrationListItem[]` — edges this product **powers** as the mechanism (`powered_by_product_id`), not as an endpoint (Stage 1.5 Addendum B). Bare list item **by design**: the page product is neither endpoint, so `context_direction` has no frame to be relative to. |
 | `ProductDetail` | `related_products` | `ProductListItem[]` |
@@ -182,7 +182,7 @@ Per-detail hydration rules:
 | `IntegrationDetail` | `source` / `target` | `ProductLink` |
 | `IntegrationDetail` | `built_by_vendor` | `VendorLink \| null` |
 | `IntegrationDetail` | `powered_by_product` | `ProductLink \| null` |
-| `CategoryDetail` / `AudienceDetail` / `PhaseDetail` | `products` | `ProductListItem[]` |
+| `CategoryDetail` / `AudienceDetail` / `PhaseDetail` / `TradeDetail` | `products` | `ProductListItem[]` |
 
 Each list endpoint returns the lean `*ListItem` shape; the corresponding `*Detail` shape (returned only by the `:slug` / `:id` endpoint) extends it with the heavier hydration.
 
@@ -303,6 +303,10 @@ export const ProductDetailSchema = ProductListItemSchema.extend({
   categories: z.array(LinkRefSchema),
   audiences: z.array(LinkRefSchema),
   phases: z.array(LinkRefSchema),
+  // The fourth facet (§5.5a / AECI-541). SPARSE BY DESIGN — a product is tagged only
+  // when it has trade-SPECIFIC value, so `[]` is the common case (horizontal platforms
+  // get none). Required, not optional: an absent key is a bug, an empty array is data.
+  trades: z.array(LinkRefSchema),
   // Narrative value grouped by audience/phase, distinct from the `audiences`/`phases`
   // facet LinkRef[] above. `null` when the source has nothing for either facet;
   // otherwise either facet array may be empty.

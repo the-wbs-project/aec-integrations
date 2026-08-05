@@ -10,8 +10,10 @@ Everything downstream seeds from it:
 
 - **AECI-540** _(shipped)_ — the main app's D1 `taxonomy_trades` + `product_trades` tables, and
   `apps/api/seed/trades.sql` seeded from §5 under the id convention in §8.
-- **AECI-541** — `packages/shared` contracts, `GET /api/taxonomy → trades`, `GET /api/trades`,
-  `GET /api/trades/:slug`, and the `trade_id` listing param.
+- **AECI-541** _(shipped)_ — `packages/shared` contracts, `GET /api/taxonomy → trades`,
+  `GET /api/trades`, `GET /api/trades/:slug`, the `trades` dimension on
+  `GET /api/products/facets`, the `trades` chip array on `ProductDetail`, and the `trade_id`
+  listing param.
 - **AECI-542 / AECI-543** — the promote `trades` key and the Review-app (bamako) Airtable `Trades`
   field are seeded from this list; the promote resolver matches against §5 **find-only** (§3).
 - **AECI-546** — the publication gate in §6 governs which trade pages are indexable.
@@ -296,7 +298,7 @@ Thin trade pages are SEO junk and dilute the whole `/trades` namespace. A trade 
 | XML sitemap | Included | **Excluded** |
 | Facet sidebar / nav | Offered as a filter | **Hidden** |
 | Product-detail trade chips | Rendered + linked | Rendered + linked (the tag is true; the *page* is just not promoted) |
-| `GET /api/trades`, `GET /api/taxonomy` | Returned | Returned (with `product_count`; gating is a presentation decision, not a data one) |
+| `GET /api/trades`, `GET /api/trades/:slug`, `GET /api/taxonomy`, `GET /api/products/facets` | Returned | Returned (with `product_count`; gating is a presentation decision, not a data one) |
 
 Two consequences worth stating explicitly:
 

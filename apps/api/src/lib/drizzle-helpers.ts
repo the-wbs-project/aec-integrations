@@ -63,6 +63,7 @@ import {
   productCategories,
   productPhases,
   products,
+  productTrades,
   productVendors,
   vendors,
 } from '../db/schema';
@@ -226,6 +227,8 @@ export const productDetailConfig = {
     },
     productAudiences: { columns: {}, with: { audience: { columns: taxonomyLinkColumns } } },
     productPhases: { columns: {}, with: { phase: { columns: taxonomyLinkColumns } } },
+    // Sparse by design (§5.5a) — most products resolve to `[]` here.
+    productTrades: { columns: {}, with: { trade: { columns: taxonomyLinkColumns } } },
     sourceIntegrations: productDetailIntegrationConfig,
     targetIntegrations: productDetailIntegrationConfig,
     // Edges this product powers as the connector/mechanism (Stage 1.5
@@ -382,6 +385,20 @@ export const phaseTermConfig = {
       ),
   },
 } as const;
+/** Trades (§5.5a / AECI-541). Same shape as its three siblings — `aliases` is
+ *  deliberately NOT selected: it is resolver + search metadata (promote find-only,
+ *  Algolia `trade_aliases`), never part of the public term payload. The count is
+ *  ungated: sub-`TRADE_PUBLISH_MIN_PRODUCTS` terms travel with their real count
+ *  and each surface applies the floor (`TRADES_VOCABULARY.md` §6). */
+export const tradeTermConfig = {
+  columns: { id: true, slug: true, name: true, description: true, displayOrder: true },
+  extras: {
+    productCount:
+      sql<number>`(SELECT count(*) FROM product_trades pt WHERE pt.trade_id = "taxonomyTrades"."id")`.as(
+        'product_count',
+      ),
+  },
+} as const;
 
 // ---------------------------------------------------------------------------
 // Raw row shapes (what the configs above return)
@@ -491,6 +508,7 @@ export interface RawProductDetailRow extends RawProductListRow {
   usefulness: unknown;
   productAudiences: Array<{ audience: RawTaxonomyLink }>;
   productPhases: Array<{ phase: RawTaxonomyLink }>;
+  productTrades: Array<{ trade: RawTaxonomyLink }>;
   sourceIntegrations: RawProductIntegrationRow[];
   targetIntegrations: RawProductIntegrationRow[];
   poweredIntegrations: RawIntegrationListRow[];
@@ -1046,6 +1064,7 @@ export function toProductDetail(
     })),
     audiences: raw.productAudiences.map((r) => r.audience),
     phases: raw.productPhases.map((r) => r.phase),
+    trades: raw.productTrades.map((r) => r.trade),
     usefulness: toUsefulness(raw.usefulness),
     // Source bucket: this product IS the integration's source (contextIsSource:
     // true → outbound flows read outbound); target bucket is the mirror.
@@ -1105,13 +1124,14 @@ export function toTaxonomyTermWithCount(raw: RawTaxonomyTermRow): TaxonomyTermWi
 // Product `where` builder (shared by the list + facets endpoints)
 // ---------------------------------------------------------------------------
 
-export type ProductFacetDimension = 'category' | 'audience' | 'phase';
+export type ProductFacetDimension = 'category' | 'audience' | 'phase' | 'trade';
 
 export type ProductFilterParams = {
   search?: string;
   category_id?: string[];
   audience_id?: string[];
   phase_id?: string[];
+  trade_id?: string[];
   vendor_id?: string;
   product_role?: string;
   has_api_docs?: boolean;
@@ -1160,6 +1180,17 @@ export function buildProductsWhere(
           .select({ id: productPhases.productId })
           .from(productPhases)
           .where(inArray(productPhases.phaseId, query.phase_id)),
+      ),
+    );
+  }
+  if (query.trade_id?.length && excludeDimension !== 'trade') {
+    clauses.push(
+      inArray(
+        products.id,
+        db
+          .select({ id: productTrades.productId })
+          .from(productTrades)
+          .where(inArray(productTrades.tradeId, query.trade_id)),
       ),
     );
   }

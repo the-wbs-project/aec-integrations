@@ -86,7 +86,7 @@ describe('ProductsIndex review-driven sort options', () => {
     );
 
     for (const req of httpMock.match((r) => r.url === '/api/products/facets')) {
-      req.flush({ categories: [], audiences: [], phases: [] });
+      req.flush({ categories: [], audiences: [], phases: [], trades: [] });
     }
     httpMock.verify();
   });

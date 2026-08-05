@@ -32,6 +32,7 @@ type ResourceKind =
   | 'category'
   | 'audience'
   | 'phase'
+  | 'trade'
   | 'review'
   | 'vendor_request'
   | 'profile';

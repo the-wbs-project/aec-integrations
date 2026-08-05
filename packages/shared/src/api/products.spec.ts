@@ -121,6 +121,7 @@ describe('ProductDetailSchema', () => {
       categories: [],
       audiences: [],
       phases: [],
+      trades: [],
       usefulness: null,
       integrations_as_source: [],
       integrations_as_target: [],
@@ -132,6 +133,8 @@ describe('ProductDetailSchema', () => {
     expect(parsed.related_products).toEqual([]);
     expect(parsed.usefulness).toBeNull();
     expect(parsed.reviews).toEqual([]);
+    // The common case for the sparse fourth facet (§5.5a) — no trade tags.
+    expect(parsed.trades).toEqual([]);
   });
 
   it('parses a detail with hydrated taxonomy and related products', () => {
@@ -145,6 +148,7 @@ describe('ProductDetailSchema', () => {
       categories: [{ id: uuid(3), name: 'Project management', slug: 'project-management' }],
       audiences: [{ id: uuid(4), name: 'Construction', slug: 'construction' }],
       phases: [{ id: uuid(5), name: 'Construction', slug: 'construction-phase' }],
+      trades: [{ id: uuid(10), name: 'Electrical', slug: 'electrical' }],
       usefulness: {
         audiences: [
           {
@@ -175,6 +179,7 @@ describe('ProductDetailSchema', () => {
       ],
     });
     expect(parsed.categories).toHaveLength(1);
+    expect(parsed.trades).toEqual([{ id: uuid(10), name: 'Electrical', slug: 'electrical' }]);
     expect(parsed.reviews).toHaveLength(1);
     expect(parsed.related_products).toHaveLength(1);
     expect(parsed.usefulness?.audiences[0]?.points).toEqual(['Track RFIs across the project.']);
@@ -191,6 +196,7 @@ describe('ProductDetailSchema', () => {
       categories: [],
       audiences: [],
       phases: [],
+      trades: [],
       usefulness: null,
       integrations_as_source: [],
       integrations_as_target: [],
@@ -198,6 +204,29 @@ describe('ProductDetailSchema', () => {
       related_products: [],
     });
     expect(result.success).toBe(false);
+  });
+
+  it('rejects when trades is missing (the fourth facet is required, not optional)', () => {
+    const detail: Record<string, unknown> = {
+      ...validListItem,
+      description: null,
+      website: null,
+      tool_integrations_url: null,
+      api_docs_url: null,
+      has_api_docs: false,
+      categories: [],
+      audiences: [],
+      phases: [],
+      trades: [],
+      usefulness: null,
+      integrations_as_source: [],
+      integrations_as_target: [],
+      integrations_as_connector: [],
+      related_products: [],
+      reviews: [],
+    };
+    delete detail.trades;
+    expect(ProductDetailSchema.safeParse(detail).success).toBe(false);
   });
 });
 
@@ -259,6 +288,7 @@ describe('ProductsListQuerySchema', () => {
       category_id: uuid(6),
       audience_id: uuid(7),
       phase_id: uuid(8),
+      trade_id: uuid(10),
       vendor_id: uuid(9),
       product_role: 'connector',
       has_api_docs: 'true',
@@ -266,11 +296,25 @@ describe('ProductsListQuerySchema', () => {
     expect(parsed.page).toBe(2);
     expect(parsed.sort).toBe('name');
     expect(parsed.has_api_docs).toBe(true);
+    expect(parsed.trade_id).toEqual([uuid(10)]);
   });
 
   it('decodes a single taxonomy id to a one-element list (AECI-223)', () => {
     const parsed = ProductsListQuerySchema.parse({ category_id: uuid(6) });
     expect(parsed.category_id).toEqual([uuid(6)]);
+  });
+
+  it('gives trade_id the same uuidList semantics as the other three dimensions', () => {
+    const parsed = ProductsListQuerySchema.parse({
+      trade_id: ` ${uuid(2)} , ${uuid(1)} ,`,
+    });
+    expect(parsed.trade_id).toEqual([uuid(2), uuid(1)]);
+    expect(ProductsListQuerySchema.safeParse({ trade_id: `${uuid(1)},nope` }).success).toBe(false);
+    expect(ProductsListQuerySchema.safeParse({ trade_id: '' }).success).toBe(false);
+  });
+
+  it('leaves trade_id undefined when the param is absent', () => {
+    expect(ProductsListQuerySchema.parse({}).trade_id).toBeUndefined();
   });
 
   it('decodes a comma-separated taxonomy id list to an array, preserving order', () => {
