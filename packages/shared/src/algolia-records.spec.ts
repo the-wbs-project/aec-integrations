@@ -4,6 +4,7 @@ import {
   AlgoliaIntegrationRecordSchema,
   AlgoliaProductRecordSchema,
   AlgoliaVendorRecordSchema,
+  flattenTradeAliases,
 } from './algolia-records';
 
 const PRODUCT = {
@@ -16,6 +17,8 @@ const PRODUCT = {
   categories: ['Project Management', 'Document Control'],
   audiences: ['Construction Management'],
   phases: ['Construction', 'Closeout & Operations'],
+  trades: ['Paving & Asphalt'],
+  trade_aliases: ['Blacktop', 'Asphalt Paving'],
   integration_count: 342,
   review_count: 0,
   rating_overall_avg: null,
@@ -71,6 +74,59 @@ describe('AlgoliaProductRecordSchema', () => {
 
   it('rejects a negative count', () => {
     expect(() => AlgoliaProductRecordSchema.parse({ ...PRODUCT, integration_count: -1 })).toThrow();
+  });
+
+  it('defaults trades / trade_aliases to [] (records indexed before AECI-545)', () => {
+    const { trades: _t, trade_aliases: _a, ...stale } = PRODUCT;
+    const record = AlgoliaProductRecordSchema.parse(stale);
+    expect(record.trades).toEqual([]);
+    expect(record.trade_aliases).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AECI-545 — trade_aliases flattening (shared by BOTH record builders)
+// ---------------------------------------------------------------------------
+
+describe('flattenTradeAliases', () => {
+  it('flattens every linked trade’s aliases in order', () => {
+    expect(
+      flattenTradeAliases(
+        ['Paving & Asphalt', 'Earthwork & Sitework'],
+        [
+          ['Blacktop', 'Asphalt Paving'],
+          ['Dirt Work', 'Earthmoving'],
+        ],
+      ),
+    ).toEqual(['Blacktop', 'Asphalt Paving', 'Dirt Work', 'Earthmoving']);
+  });
+
+  it('drops aliases that repeat a canonical trade name (already in `trades`)', () => {
+    expect(flattenTradeAliases(['Roofing'], [['Roofing', 'Roofer']])).toEqual(['Roofer']);
+  });
+
+  it('dedupes an alias shared by two trades', () => {
+    expect(
+      flattenTradeAliases(
+        ['Glazing & Curtain Wall', 'Framing'],
+        [['Curtain Wall'], ['Curtain Wall', 'Carpentry']],
+      ),
+    ).toEqual(['Curtain Wall', 'Carpentry']);
+  });
+
+  it('skips null / undefined / non-array groups (aliases is a nullable JSON column)', () => {
+    expect(flattenTradeAliases(['Roofing', 'Concrete'], [null, undefined])).toEqual([]);
+    expect(
+      flattenTradeAliases(['Roofing'], ['not-an-array' as unknown as string[], ['Roofer']]),
+    ).toEqual(['Roofer']);
+  });
+
+  it('drops empty strings and non-string entries', () => {
+    expect(flattenTradeAliases([], [['', 'Roofer', 7 as unknown as string]])).toEqual(['Roofer']);
+  });
+
+  it('returns [] for an untagged product (the sparse-by-design common case)', () => {
+    expect(flattenTradeAliases([], [])).toEqual([]);
   });
 });
 

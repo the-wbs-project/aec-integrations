@@ -16,6 +16,10 @@ Everything downstream seeds from it:
   listing param.
 - **AECI-542 / AECI-543** — the promote `trades` key and the Review-app (bamako) Airtable `Trades`
   field are seeded from this list; the promote resolver matches against §5 **find-only** (§3).
+- **AECI-545** _(shipped)_ — the Algolia product record gains `trades` (term names, faceted via
+  `searchable(trades)`) and `trade_aliases` (the §4 aliases flattened; **searchable only**), plus the
+  `/search` Trades refinement list. Records stay empty until AECI-542 + AECI-547 populate
+  `product_trades`.
 - **AECI-546** — the publication gate in §6 governs which trade pages are indexable.
 
 ---
@@ -148,10 +152,12 @@ and colloquial naming diverges hardest (*sitework* / *dirt work* / *earthmoving*
 
 **Decision: `aliases` is a real column on `taxonomy_trades`** (JSON-mode `TEXT` in D1, matching
 `taxonomy_data_objects` — `DATABASE_SCHEMA.md` §5.3a), not a map that lives only in the seeder.
-The deciding reason is search, not resolution: because the column exists, AECI-545 can flatten a
+The deciding reason is search, not resolution: because the column exists, AECI-545 **flattens** a
 product's trade aliases into a `trade_aliases` attribute on the Algolia product record, so a query
 for "blacktop" or "glazier" reaches the right products (`SEARCH_RANKING.md` §3.1). `trade_aliases`
-is **searchable only** — never faceted, never displayed.
+is **searchable only** — never faceted, never displayed. (Shipped: the flattening is
+`flattenTradeAliases` in `packages/shared/src/algolia-records.ts`, shared by both record builders,
+and it de-duplicates aliases that two trades have in common or that merely repeat a canonical name.)
 
 So `aliases` is **dual-purpose** here, a deliberate divergence from `taxonomy_data_objects` where it
 is resolver-only:
