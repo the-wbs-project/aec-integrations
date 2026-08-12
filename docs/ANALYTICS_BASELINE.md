@@ -83,8 +83,9 @@ Once the secrets are provisioned (config injected — verify with
   Funnel/attribution (UTM, `source`) = the PostHog `mailing_list_signup` event.
 - **Top entry pages** — PostHog referrers/entry-path breakdown; or the server-side `page_views` D1
   table for a consent-independent view. Public routes only — `/admin/*` and `/account` are excluded
-  (AECI-575); add `and path not like '/admin%' and path not like '/account%'` to any ad-hoc query so
-  it matches what the digest reports.
+  (AECI-575); add `and path not in ('/admin','/account') and path not like '/admin/%' and path not like '/account/%'`
+  to any ad-hoc query so it matches what the digest reports (the digest matches on an exact prefix
+  boundary, so a bare `'/admin%'` would wrongly drop public look-alikes like `/administrators`).
 - **Core Web Vitals** — Datadog **RUM → Performance / Core Web Vitals** for the `aeci` app (us5),
   filter `env:production` (LCP, CLS, INP). Thin sample pre-launch — re-read post-launch.
 

@@ -799,7 +799,7 @@ create index audit_log_created_at_idx on audit_log(created_at desc);
 
 Server-side page view log with Cloudflare header enrichment. Privacy-respecting (no raw IPs, hashed user agents).
 
-**`path` holds public routes only** (AECI-575 / `ADMIN_PANEL_SPEC.md` §9.6). Neither writer records the operator-only prefixes in `@aeci/shared` `UNTRACKED_ROUTE_PREFIXES` (`/admin`, `/account`) — the admin console must not write into the table it reads. Rows captured before that shipped are still present, and every read applies the same exclusion, so query this table with `path not like '/admin%' and path not like '/account%'` if you want numbers that match the daily digest.
+**`path` holds public routes only** (AECI-575 / `ADMIN_PANEL_SPEC.md` §9.6). Neither writer records the operator-only prefixes in `@aeci/shared` `UNTRACKED_ROUTE_PREFIXES` (`/admin`, `/account`) — the admin console must not write into the table it reads. Rows captured before that shipped are still present, and every read applies the same exclusion, so query this table with `path not in ('/admin','/account') and path not like '/admin/%' and path not like '/account/%'` if you want numbers that match the daily digest. (The match is on an exact prefix boundary — a bare `path not like '/admin%'` would wrongly drop look-alike public routes like `/administrators`, which the digest still counts.)
 
 ```sql
 create table page_views (
