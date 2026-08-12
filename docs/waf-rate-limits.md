@@ -286,7 +286,10 @@ rules are live there.
   **Token:** the poll needs `CF_ANALYTICS_API_TOKEN` — a Cloudflare token scoped to
   **`Zone Analytics: Read`** on `aecintegrations.com` (a *different* scope than the
   `Zone.Cache Purge` `CF_PURGE_API_TOKEN`, so it is its own secret). It reuses the
-  existing `CF_ZONE_ID`. Because the analytics token is zone-scoped and the zone is
+  existing `CF_ZONE_ID` — which, until 2026-08-12, was a **manual** `wrangler secret
+  put` that had never been placed on any API Worker, so the poll no-op'd even after
+  `CF_ANALYTICS_API_TOKEN` was provisioned. `CF_ZONE_ID` is now CI-pushed alongside
+  the token by all three deploy/promote workflows. Because the analytics token is zone-scoped and the zone is
   shared across envs, it is a **single un-suffixed GitHub secret** (like
   `SUPABASE_ANON_KEY` / `ALGOLIA_APP_ID`): `gh secret set CF_ANALYTICS_API_TOKEN`.
   CI then pushes it to each env's Worker (`deploy.yml` → staging, `promote-to-demo.yml`
