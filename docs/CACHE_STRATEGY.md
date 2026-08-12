@@ -159,6 +159,22 @@ Implementation of the endpoint shape, rate-limit handling, and Datadog wiring la
 
 **Cloudflare API token scoping:** every `CF_PURGE_API_TOKEN` (the SSR Worker's **and** the API Worker's) must be scoped to `Zone.Cache Purge` on `aecintegrations.com` only — the narrowest possible scope. Reviewers should reject any change that broadens this token scope under deadline pressure; rotate by issuing a new token with the same minimal scope (rotate both Workers together).
 
+### 5a. Provisioning (how the three secrets get onto the Workers)
+
+Purge needs three values, and *all three* are pushed by CI on every deploy/promote (`deploy.yml` → staging, `promote-to-demo.yml` → demo, `promote-to-prod.yml` → production). Set the GitHub Actions secret; the next deploy wires the Worker.
+
+| Secret | Where it lands | What it does | Absent ⇒ |
+| --- | --- | --- | --- |
+| `ADMIN_PURGE_TOKEN` | web Worker | bearer the **caller** of `POST /admin/purge` presents | endpoint returns **401** for every request |
+| `CF_PURGE_API_TOKEN` | web **and** API Worker | the token the handler/ingest uses to call Cloudflare | web: `/admin/purge` authenticates then returns **502**; API: promote purge is a silent no-op |
+| `CF_ZONE_ID` | web **and** API Worker | the zone purge targets (also the zone the AECI-262 WAF poll queries) | same as above, plus the WAF poll reports `skipped_no_creds` |
+
+All three are **recommended, not required** (`RECOMMENDED_SECRETS`, warn-and-skip): a missing purge credential degrades invalidation to TTL self-heal (≤5 min browse, ≤1 hr nav) — it never blocks a release.
+
+**Ordering matters in CI.** `promote-to-prod.yml`'s taxonomy purge step runs *after* the SSR deploy and *after* the cache-purge secret push, because `POST /admin/purge` authenticates against the Worker's `ADMIN_PURGE_TOKEN`. It used to run right after the D1 migration — before any secret push — which 401'd deterministically. Keep it last.
+
+> **History (2026-08-12).** These were documented as manual `wrangler secret put` steps and had never actually been placed on **any** deployed tier, so `POST /admin/purge` 401'd on staging, demo, and production, and the API Worker's post-promote purge silently no-op'd everywhere. `wrangler secret list` is the check: run it per env from `apps/web` and `apps/api` and expect the names above.
+
 ---
 
 ## 6. Cookie / cache hygiene
