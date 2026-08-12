@@ -1697,6 +1697,31 @@ describe('createApp page-view capture (AECI-58)', () => {
     });
   });
 
+  it('does NOT fire page-views for an operator-only route, even with a resolver payload (AECI-575)', async () => {
+    // `/admin/*` is non-cacheable, so the only way to reach `firePageView` is a
+    // resolver attaching `ctx.pageView`. No admin resolver does that today —
+    // this pins the guard so a future one can't start polluting the table the
+    // console reads (ADMIN_PANEL_SPEC §9.6).
+    const { binding, calls } = recordingApiBinding(new Response(null, { status: 204 }));
+    const renderer: SsrRenderer = async (_req, ctx) => {
+      ctx.pageView = { route: '/admin/reviews' };
+      return new Response('<html>admin</html>', { status: 200 });
+    };
+    const app = createApp({ ssrRenderer: renderer });
+
+    const res = await app.fetch(
+      // A session cookie is required to clear the anon admin gate (303 → login).
+      new Request('https://www.aecintegrations.com/admin/reviews', {
+        headers: { cookie: 'sb-proj-auth-token=session' },
+      }),
+      binding as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+
+    expect(res.status).toBe(200);
+    expect(pageViewCalls(calls)).toHaveLength(0);
+  });
+
   it('does NOT fire POST /api/page-views when the renderer returns 404', async () => {
     // A resolver that 404s sets RESPONSE_INIT.status=404; the runtime must
     // gate page-view firing on response status so missing entities don't

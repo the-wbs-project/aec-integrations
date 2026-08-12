@@ -51,3 +51,43 @@ export const PAGE_VIEW_CF_HEADERS = {
   asn: 'x-aeci-cf-asn',
   botScore: 'x-aeci-cf-bot-score',
 } as const;
+
+/**
+ * Route prefixes that are never recorded in `page_views` (AECI-575 /
+ * `docs/ADMIN_PANEL_SPEC.md` §9.6 "No self-pollution").
+ *
+ * These are operator-only surfaces. Recording them means the console measures
+ * its own navigation: every admin click writes a row into the same table the
+ * daily digest reads, from the operator's own ISP. On the 2026-08-10 digest day
+ * that was 67 of 92 "human" views (§14.2). Unlike an ASN allow/deny list, a path
+ * exclusion has **zero false positives** — no genuine visitor browses `/admin`.
+ *
+ * The list is exported (not inlined at each call site) because it is enforced in
+ * three places that must never drift: the two writers skip these routes
+ * (`PageViewTracker.fire()` and the SSR Worker's `firePageView()`), and the read
+ * side excludes them retroactively (the daily analytics digest), since rows
+ * written before the write-side fix shipped are otherwise indistinguishable from
+ * real traffic.
+ *
+ * This is an exclusion list, not a consent concept — `page_views` ingest stays
+ * consent-independent by design (`ADMIN_PANEL_SPEC.md` §1).
+ */
+export const UNTRACKED_ROUTE_PREFIXES = ['/admin', '/account'] as const;
+
+/**
+ * Whether a route is operator-only and must not produce a `page_views` row.
+ *
+ * Matches on the route **prefix**, not the concrete URL, so nested admin routes
+ * (`/admin/reviews`, `/admin/requests`, …) are covered without enumeration and a
+ * new child route inherits the exclusion for free. The boundary is exact —
+ * `/admin` and `/admin/…` match, `/administrators` does not — so a future public
+ * route that merely starts with the same letters keeps being tracked.
+ *
+ * Query string and hash are stripped first, mirroring what the tracker sends.
+ */
+export function isUntrackedRoute(route: string): boolean {
+  const path = route.split(/[?#]/, 1)[0] || '/';
+  return UNTRACKED_ROUTE_PREFIXES.some(
+    (prefix) => path === prefix || path.startsWith(`${prefix}/`),
+  );
+}

@@ -57,7 +57,12 @@
  * from cookie stripping (i.e. added to the non-cacheable list instead).
  */
 
-import { defaultIntegrationContext, LANDING_CF_HEADERS, PAGE_VIEW_CF_HEADERS } from '@aeci/shared';
+import {
+  defaultIntegrationContext,
+  isUntrackedRoute,
+  LANDING_CF_HEADERS,
+  PAGE_VIEW_CF_HEADERS,
+} from '@aeci/shared';
 import type { IntegrationDetail } from '@aeci/shared';
 import { isPublicSite } from '@aeci/shared/deploy-env';
 import { Hono } from 'hono';
@@ -692,6 +697,13 @@ export function withForwardedLandingCf(request: Request): Request {
  * the runtime synthesizes a minimal `{ route }` payload from the locale-stripped
  * path; on MISS the resolver may attach a richer payload (with entity_type /
  * entity_id) via `AeciRequestContext.pageView`.
+ *
+ * Operator-only routes are skipped (AECI-575 / ADMIN_PANEL_SPEC §9.6). Today that
+ * guard is unreachable for `/admin` and `/account`: both are absent from
+ * `ROUTE_CACHE_PATTERNS`, so they take the non-cacheable branch, which fires only
+ * when a resolver attached `ctx.pageView` — and no admin/account resolver does.
+ * It sits at this single choke point anyway so the invariant survives a future
+ * resolver that starts attaching one, rather than depending on that omission.
  */
 function firePageView(
   execCtx: WaitUntilContext,
@@ -699,6 +711,7 @@ function firePageView(
   payload: NonNullable<AeciRequestContext['pageView']>,
   sourceRequest: Request,
 ): void {
+  if (isUntrackedRoute(payload.route)) return;
   const headers = new Headers({ 'content-type': 'application/json' });
   applyCfContextHeaders(headers, sourceRequest);
   const userAgent = sourceRequest.headers.get('user-agent');

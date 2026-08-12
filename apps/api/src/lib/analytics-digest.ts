@@ -18,18 +18,30 @@
  * backfill runs — a safe degradation (matches the pre-split behavior) rather than
  * silently dropping rows.
  *
+ * Internal traffic (AECI-575): every `page_views` read here excludes the
+ * operator-only paths in `UNTRACKED_ROUTE_PREFIXES` (`/admin/*`, `/account`). The
+ * tracker stopped writing them, but rows captured before that shipped are still
+ * in the table and would otherwise keep inflating the headline — on the
+ * 2026-08-10 digest day, 67 of 92 "human" views came from the operator's own ISP.
+ * Filtering on read as well keeps every pre-fix day comparable with every
+ * post-fix one. Unlike the bot split, the exclusion is not surfaced in the email:
+ * these were never visitor traffic.
+ *
  * Every count is a report-only read (no `audit_log` row, no mutation — `page_views`
  * is analytics, not domain state). The day window is **UTC**: Cloudflare cron is
  * UTC-only / DST-unaware (see `scheduled.ts`), so bucketing the day in UTC avoids a
  * DST off-by-one; the email labels the window as UTC. Sources:
- *   - human page views + top products: `page_views` where `is_bot IS NOT 1`.
+ *   - human page views + top products: `page_views` where `is_bot IS NOT 1`, minus
+ *     the operator-only paths (below).
  *   - crawler activity: `page_views` where `is_bot = 1`, grouped by `bot_name`.
  *   - new users: `profiles.created_at` (a profile row is created on first sign-in).
  *   - total users: cumulative `COUNT(profiles)`.
  *   - pending moderation: `reviews` where `status='pending'` (a live snapshot).
  */
 
-import { and, count, desc, eq, gte, isNotNull, isNull, lt, or } from 'drizzle-orm';
+import { and, count, desc, eq, gte, isNotNull, isNull, lt, notLike, or } from 'drizzle-orm';
+
+import { UNTRACKED_ROUTE_PREFIXES } from '@aeci/shared';
 
 import type { Db } from '../db/client';
 import { pageViews, products, profiles, reviews } from '../db/schema';
@@ -116,6 +128,29 @@ const TOP_PRODUCTS_LIMIT = 5;
 const HUMAN = or(isNull(pageViews.isBot), eq(pageViews.isBot, false));
 const BOT = eq(pageViews.isBot, true);
 
+/**
+ * Excludes operator-only paths (`/admin/*`, `/account`) — the read-side half of
+ * AECI-575 / ADMIN_PANEL_SPEC §9.6.
+ *
+ * The tracker no longer writes these rows, but rows captured BEFORE that shipped
+ * are indistinguishable from real traffic once they're in the table, so filtering
+ * only at the write side would leave every pre-fix day permanently inflated and
+ * inconsistent with every post-fix day. Applying it here makes the whole history
+ * read the same way. This is deliberately silent: the digest does not report an
+ * "internal views excluded" count the way it does for bots, because these rows
+ * were never visitor traffic in the first place.
+ *
+ * Prefix list comes from `@aeci/shared` so the read side can't drift from the two
+ * write-side guards. `path` is NOT NULL, so `NOT LIKE` is safe here (no
+ * three-valued-logic surprise), and `page_views_path_idx` covers the column.
+ */
+const NOT_INTERNAL = and(
+  ...UNTRACKED_ROUTE_PREFIXES.flatMap((prefix) => [
+    notLike(pageViews.path, prefix),
+    notLike(pageViews.path, `${prefix}/%`),
+  ]),
+);
+
 /** `COUNT(*)` of human or bot `page_views` in `[startIso, endIso)`. */
 async function countPageViews(
   db: Db,
@@ -131,6 +166,7 @@ async function countPageViews(
         gte(pageViews.createdAt, startIso),
         lt(pageViews.createdAt, endIso),
         kind === 'bot' ? BOT : HUMAN,
+        NOT_INTERNAL,
       ),
     );
   return row?.value ?? 0;
@@ -157,6 +193,7 @@ async function topProductsByViews(db: Db, startIso: string, endIso: string): Pro
         lt(pageViews.createdAt, endIso),
         isNotNull(pageViews.productId),
         HUMAN,
+        NOT_INTERNAL,
       ),
     )
     .groupBy(products.id)
@@ -182,6 +219,7 @@ async function referrerBreakdown(
         lt(pageViews.createdAt, endIso),
         HUMAN,
         isNotNull(pageViews.referrerSource),
+        NOT_INTERNAL,
       ),
     )
     .groupBy(pageViews.referrerSource)
@@ -200,7 +238,9 @@ async function botActivityInWindow(
   const rows = await db
     .select({ name: pageViews.botName, crawls: count() })
     .from(pageViews)
-    .where(and(gte(pageViews.createdAt, startIso), lt(pageViews.createdAt, endIso), BOT))
+    .where(
+      and(gte(pageViews.createdAt, startIso), lt(pageViews.createdAt, endIso), BOT, NOT_INTERNAL),
+    )
     .groupBy(pageViews.botName)
     .orderBy(desc(count()));
   return rows.map((r) => ({ name: r.name ?? 'Other bot', crawls: r.crawls }));

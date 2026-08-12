@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { PageViewPayloadSchema } from './page-views';
+import { UNTRACKED_ROUTE_PREFIXES, PageViewPayloadSchema, isUntrackedRoute } from './page-views';
 
 describe('PageViewPayloadSchema', () => {
   it('parses a route-only payload', () => {
@@ -28,5 +28,46 @@ describe('PageViewPayloadSchema', () => {
   it('rejects a missing route', () => {
     const result = PageViewPayloadSchema.safeParse({});
     expect(result.success).toBe(false);
+  });
+});
+
+describe('isUntrackedRoute (AECI-575)', () => {
+  it.each([
+    '/admin',
+    '/admin/',
+    '/admin/reviews',
+    '/admin/requests',
+    '/admin/reviewers',
+    '/admin/traffic/breakdown/by-country',
+    '/admin/reviews?status=pending',
+    '/admin/reviews#queue',
+    '/account',
+    '/account/',
+  ])('excludes the operator-only route %s', (route) => {
+    expect(isUntrackedRoute(route)).toBe(true);
+  });
+
+  // Prefix matching must not swallow public routes that merely start with the
+  // same letters — a false positive here silently deletes real traffic.
+  it.each([
+    '/',
+    '/admins',
+    '/administrators',
+    '/accounts',
+    '/account-settings',
+    '/products/admin-tool',
+    '/products/procore',
+    '/vendors/autodesk',
+    '/search?q=admin',
+    '/categories/accounting',
+  ])('keeps tracking the public route %s', (route) => {
+    expect(isUntrackedRoute(route)).toBe(false);
+  });
+
+  it('covers every declared prefix', () => {
+    for (const prefix of UNTRACKED_ROUTE_PREFIXES) {
+      expect(isUntrackedRoute(prefix)).toBe(true);
+      expect(isUntrackedRoute(`${prefix}/nested/deeply`)).toBe(true);
+    }
   });
 });

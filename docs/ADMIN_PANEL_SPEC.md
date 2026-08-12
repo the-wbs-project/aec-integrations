@@ -148,13 +148,15 @@ The consent-independent equivalent of PostHog's Activity explorer — a reverse-
 | TIME | Relative, absolute UTC on hover | `created_at` |
 | REFERRER URL | Source — `Google` / `Direct` + host | `referrer_source`, `referrer` |
 
+Operator-only paths (`/admin/*`, `/account`) never appear in this feed — §9.6 / §13 D12 excludes them **beneath** the filters below, historical rows included, so no filter setting can surface them.
+
 Filters: date range · traffic type (humans / bots / all, default humans) · source · country · path contains · **"filter out internal traffic"**, mirroring PostHog's toggle, backed by an `ANALYTICS_INTERNAL_ASNS` var. That last one is not cosmetic: on 2026-08-10, **67 of 92 "human" views came from the operator's own ISP** (AS23700, Jakarta). It is bound by the three constraints in §13 **D10** — query-time only (it never touches `is_bot` and never runs at ingest), both numbers always shown, and the var ships unset.
 
 Entity hydration follows the `target` `LinkRef` pattern already used by `GET /api/admin/requests`, so `/products/:slug` renders as a linked product name.
 
 ### 5.3 Traffic
 
-Time series over `page_views`: views/day split human vs bot · unique visitors/day (§9.8) · sources over time · top pages · top products · geography (country + colo) · crawler activity per bot over time. A UTC ↔ WIB toggle (§9.5), since the digest and every cron are UTC-only and the operator is at UTC+7.
+Time series over `page_views`: views/day split human vs bot · unique visitors/day (§9.8) · sources over time · top pages · top products · geography (country + colo) · crawler activity per bot over time. A UTC ↔ WIB toggle (§9.5), since the digest and every cron are UTC-only and the operator is at UTC+7. "Top pages" is public routes only — the §13 D12 exclusion applies here too, so the console's own routes can never rank in it.
 
 ### 5.4 Audience
 
@@ -316,7 +318,7 @@ Rules:
 3. **Audit.** Reads emit nothing — including the `?recompute=1` reads (§6, §13 D8). For the epic's cron-written tables, §26.1 applies **as scoped by ADR 0022**, not in its former absolute form: `metrics_daily` and `job_runs` are derived bookkeeping and are exempt, while the §7.4 scheduled prune emits one summary `audit_log` row per run in the same batch as its delete. Any *domain-state* write this panel might later grow still emits its `audit_log` row in the same `db.batch([...])`.
 4. **i18n.** All strings `i18n` / `$localize`, admin-only or not — the CLAUDE.md rule is unconditional.
 5. **Timezone.** UTC is the default and matches the digest and every cron. The WIB toggle is presentational only; the underlying window is always UTC and is always labelled.
-6. **No self-pollution.** `PageViewTracker` must skip `/admin/*` (and `/account`) so the console does not record its own navigation into the table it reads.
+6. **No self-pollution — SHIPPED (AECI-575, 2026-08-12).** The console does not record its own navigation into the table it reads. The prefix list is `UNTRACKED_ROUTE_PREFIXES` (`/admin`, `/account`) in `@aeci/shared`, with `isUntrackedRoute()` enforcing an exact prefix-boundary match, so nested admin routes are covered without enumeration and a look-alike public path (`/administrators`) keeps being tracked. It is enforced in **three** places, all off the one list so they cannot drift: (a) `PageViewTracker.fire()` — the browser tracker, the only writer that reaches these routes today; (b) the SSR Worker's `firePageView()` — currently unreachable for these prefixes (`/admin/*` and `/account` are non-cacheable, and that branch fires only on a resolver-attached `ctx.pageView`, which no admin/account resolver sets), guarded anyway so the invariant survives a future resolver; and (c) **on read** — see **§13 D12**. Every query this panel adds over `page_views` (§5.2, §5.3, §6) inherits (c): the exclusion is a floor applied before the user-facing filters, not one of them.
 7. **Privacy.** `page_views` deliberately stores a UA **hash** and a referrer **host** (never the full URL or query). The panel renders a truncated hash as a pseudonymous visitor id and must not attempt correlation beyond that.
 8. **"Visitor" is a defined term.** Absent sessions, a visitor is a distinct `(user_agent_hash, cf_asn)` pair within the selected window. This over-counts (UA changes on browser update) and under-counts (shared NAT). The definition appears in the UI next to the number, not only in this document.
 9. **Accessibility.** axe-clean on every surface; tables use proper header scope; filters are keyboard-operable; `impeccable detect` reports zero P0.
@@ -333,7 +335,7 @@ Issue-sized units. Phase 1 requires **no schema change** and carries most of the
 | # | Issue | Unit | Depends on |
 |---|---|---|---|
 | — | AECI-573 | **Decision gate**: settle §13 Q1–Q7, pick timing + base branch, promote this doc to a contract | — |
-| **§9.6** | AECI-575 | Exclude `/admin/*` + `/account` from `PageViewTracker` | — |
+| **§9.6** | AECI-575 | Exclude `/admin/*` + `/account` from `PageViewTracker` — **SHIPPED 2026-08-12** (write side + retroactive read filter, §13 D12) | — |
 | **P1.1** | AECI-574 | API: `overview`, `metrics/timeseries` (live-aggregation mode), `traffic/breakdown` | AECI-573 (D10) |
 | **P1.2** | AECI-576 | UI: shell nav restructure (three groups, `h1` → "Admin") + Overview | P1.1, §9.6 |
 | **P1.3** | AECI-577 | API + UI: `GET /api/admin/page-views` + the Activity feed | P1.1 |
@@ -348,7 +350,7 @@ Issue-sized units. Phase 1 requires **no schema change** and carries most of the
 | **P5.1** | AECI-586 | Audience section (mailing list + feedback) | P1.4 |
 | **§12** | AECI-587 | Docs closeout: the §12 update contract + the §14.3 stale claims | all shipping units |
 
-**§9.6 moved ahead of P1.1** (§13 D10). `PageViewTracker` has no path predicate, so every admin SPA navigation POSTs a page view *from the operator's own ISP* — the same AS23700 that is 67 of 92 "human" views in the §14.2 census. Excluding `/admin/*` removes a large slice of internal traffic **precisely, with no false positives**, and it must land before the console is usable or the panel starts polluting the table it reads. It is also the cheaper half of the answer to internal-traffic filtering; `ANALYTICS_INTERNAL_ASNS` is the coarse remainder.
+**§9.6 moved ahead of P1.1** (§13 D10) **and has now shipped.** `PageViewTracker` had no path predicate, so every admin SPA navigation POSTed a page view *from the operator's own ISP* — the same AS23700 that is 67 of 92 "human" views in the §14.2 census. Excluding `/admin/*` removes a large slice of internal traffic **precisely, with no false positives**, and it had to land before the console is usable or the panel starts polluting the table it reads. It is also the cheaper half of the answer to internal-traffic filtering; `ANALYTICS_INTERNAL_ASNS` is the coarse remainder and is still unbuilt, so the digest's human count remains an upper bound.
 
 P2.2, P4.1, and the §9.6 tracker exclusion are independent of the panel and improve the daily digest on their own — they can ship first if the panel slips.
 
@@ -385,8 +387,8 @@ Staleness is the recurring review finding, so this list is part of the contract:
 | `CODE_REVIEW_EXEMPTIONS.md` | The carve-out as a standing, non-expiring exemption pointing at ADR 0022 — so a reviewer meeting an unaudited cron write finds the reasoning. **Landed with AECI-573** |
 | `CICD_PLAN.md` §10 | The `admin-panel` epic integration branch as a second time-boxed exception under ADR 0019's precedent (§13 D1). **Landed with AECI-573** |
 | `AUTH_AND_RLS.md` | The new `/api/admin/*` endpoints under `requireAdmin()`, and the GDPR-erasure simplification once `page_views.user_id` is dropped (§7.3) |
-| `ANALYTICS_BASELINE.md` | Drop "write-only today (no reporting endpoint)"; record the panel as the consent-independent read path; record that no session identifier was introduced (§13 D7) and why |
-| `POST_LAUNCH_MONITORING.md` | Replace §1 rows 6 and 8 (cron liveness, moderation queue) with the panel, and the **weekly** §2 item 4 → §3b manual `wrangler d1 execute` ASN audit with §5.3's geography view. *(The manual D1 query is in the weekly procedure, not the daily — an earlier draft of this row said "daily".)* |
+| `ANALYTICS_BASELINE.md` | Drop "write-only today (no reporting endpoint)"; record the panel as the consent-independent read path; record that no session identifier was introduced (§13 D7) and why. The `/admin` + `/account` exclusion and its retroactive effect on pre-2026-08-12 counts **landed with AECI-575** |
+| `POST_LAUNCH_MONITORING.md` | Replace §1 rows 6 and 8 (cron liveness, moderation queue) with the panel, and the **weekly** §2 item 4 → §3b manual `wrangler d1 execute` ASN audit with §5.3's geography view. *(The manual D1 query is in the weekly procedure, not the daily — an earlier draft of this row said "daily".)* The ASN-census query gained the §9.6 path exclusion so it matches the digest — **landed with AECI-575** |
 | `POST_LAUNCH_HEALTH_REPORT.md` | New dated entry (see §14.3) |
 | `OBSERVABILITY.md` | Any new metric emitted by the snapshot / retention crons |
 | `RUNBOOKS.md` | Runbook entries for the snapshot and retention crons, matching every other cron's |
@@ -427,13 +429,19 @@ D1–D4 were settled when this document was drafted. **D5–D11 were settled by 
 
 - **D10 — `ANALYTICS_INTERNAL_ASNS` accepted, as a query-time filter only** (was Q6; §5.2). Q6's worry is the same objection `lib/bot-classification.ts` already codifies for `DATACENTER_ASNS` — *"NO residential subscriber can sit behind it … a false positive deletes a human from the digest."* **The resolution is that the two lists are different kinds of object.** `DATACENTER_ASNS` writes `is_bot` at ingest: permanent, unreviewable, destructive of a real person's row — hence the strict doctrine. `ANALYTICS_INTERNAL_ASNS` is a `WHERE` clause evaluated at read time: nothing stored changes, it is toggleable per query, trivially reversible. The doctrine does not transfer. Three constraints make that binding: **(1) query-time only** — never touches `is_bot`, never runs at ingest, never enters `scripts/ops/backfill-page-view-bots.sql`; **(2) show both numbers, never substitute** — §1.1 forbids silently reporting the filtered figure; **(3) declare the seam, ship it unset**, mirroring `PAGE_VIEWS_MIN_BOT_SCORE`.
 
-  It is also the *coarse remainder*, not the main instrument. Two more precise measures do most of the work: **AECI-575 moves ahead of P1.1** (excluding `/admin/*` from the tracker removes operator traffic with zero false positives), and **`cf_as_organization` is captured at ingest** (§7.3) — the fix `POST_LAUNCH_MONITORING.md` §3b already names: *"not a longer list — it is capturing Cloudflare's `asOrganization` … and matching on the holder name."*
+  It is also the *coarse remainder*, not the main instrument. Two more precise measures do most of the work: **AECI-575 moved ahead of P1.1 and shipped 2026-08-12** (excluding `/admin/*` from the tracker removes operator traffic with zero false positives — see D12 for its retroactive half), and **`cf_as_organization` is captured at ingest** (§7.3) — the fix `POST_LAUNCH_MONITORING.md` §3b already names: *"not a longer list — it is capturing Cloudflare's `asOrganization` … and matching on the holder name."*
 
 - **D11 — No `audit_log` row for cron-internal bookkeeping; scheduled deletes are the exception** (was Q7; §7.1, §7.2, §7.4, §9.3). Recorded as **ADR 0022**, with the carve-out written into `STAGE_1_SPEC.md` §26.1 itself — Q7 was right that a carve-out documented only here would be a spec contradiction waiting to be found in review.
 
   The decisive finding is that **the carve-out already existed, in the wrong file**. §26.1 says, unqualified, *"every write path … no state change happens without a corresponding audit entry"* — but `API_CONTRACTS.md` §6.9 already narrowed it to state-changing **domain** writes in order to exempt `page_views`, and §6.13 extends that to `mailing_list` / `feedback` including the unsubscribe soft-delete. The word "domain" appeared nowhere in §26.1, `DATABASE_SCHEMA.md` §18, or `CLAUDE.md`. Two further facts made "no" the only coherent answer: **every** D1-writing cron today writes without an audit row (`stats_cache` from the 07:00 job, the Algolia watermark, the `*/15` reconcile sweep), and answering "yes" would force `metrics_daily` into a batch, destroying the per-key partial-failure isolation `lib/home-stats.ts` explicitly specifies and which §7.1 mirrors by design. Nothing schema-side blocked "yes" — `actor_type` already permits `'system'` and promote uses it ~10× — which is precisely why the rule had to be written down rather than left to reviewer taste.
 
   **Scheduled deletion is carved back in**: any scheduled `DELETE` emits exactly one *summary* row per run (`action='retention.pruned'`, `metadata={table, cutoff, rowsDeleted}`), in the same batch as the delete. Deletion is the one write whose fact cannot be recovered from the data afterwards.
+
+- **D12 — The §9.6 exclusion is retroactive: filter on read as well, silently** (settled by AECI-575 on 2026-08-12; §5.2, §5.3, §6, §9.6). AECI-575 asked whether the panel's queries should also exclude the `/admin/*` rows already in the table. **Yes.** Stopping the writers only fixes the future; the ~26k rows in the §14.2 census already contain operator navigation, and once written those rows are *indistinguishable from real traffic* — nothing on them says "internal". Filtering only at the write side would leave a permanent seam in the data at the ship date, with every pre-fix day inflated relative to every post-fix day and no way to compare across it. The filter is a `WHERE` clause built from the same `UNTRACKED_ROUTE_PREFIXES` list the writers use, so the two halves cannot drift, and it costs nothing — `page_views_path_idx` already covers `path`.
+
+  It landed in the **daily analytics digest** (`lib/analytics-digest.ts`, all four `page_views` reads), which is the entire live read surface today; `computeTrendingProducts` was already immune via `isNotNull(product_id)`, since an admin row carries no product. Every query P1.1+ adds inherits it as a floor beneath the user-facing filters.
+
+  **It is deliberately silent** — no "N internal views excluded" line in the digest email, unlike the bot-exclusion line beside it. D10's constraint (2) ("show both numbers, never substitute") governs `ANALYTICS_INTERNAL_ASNS`, and does so because that filter is a *heuristic over real visitors* whose false positives must stay visible. A path exclusion is not a heuristic: `/admin/*` traffic is internal by construction, with no false-positive class to disclose. Reporting it as a subtracted quantity would frame operator clicks as visits that were removed, when they were never visits. The one honest-numbers obligation this does carry is recorded in `ANALYTICS_BASELINE.md`: digest counts for days before 2026-08-12 now read lower than the emails sent at the time, and the rows are still in D1 for any query that wants them.
 
 **Open**
 
@@ -479,7 +487,7 @@ Traffic sources for the 2026-08-10 digest day (87 Direct / 2 Other / 2 Google / 
 ### 14.3 Known-stale claims found while planning
 
 - `POST_LAUNCH_HEALTH_REPORT.md` — the "observable-vs-blocked" matrix lists PostHog and Datadog RUM as **dark, gated on secrets**. Production now injects both (`__AECI_POSTHOG__` and `__AECI_DD__` confirmed in the served HTML on 2026-08-12). Because that file is a dated log, the correct fix is a **new entry**, not an edit to the historical one.
-- `ANALYTICS_BASELINE.md` — "write-only today (no reporting endpoint); query D1 directly" becomes false the moment §10 P1.1 lands.
+- `ANALYTICS_BASELINE.md` — "write-only today (no reporting endpoint); query D1 directly" becomes false the moment §10 P1.1 lands. Its *other* half — the description of what `page_views` sees — went stale earlier, on 2026-08-12, when AECI-575 narrowed the table to public routes; **corrected there** (instrumentation-status row + a dated addendum).
 - `data-quality.ts` check #2's inline note that there is no `promoted_at` column is accurate, but **understates the problem**: the check filters `promotion_status='ready'`, and nothing in the repo ever writes `'ready'` to D1, so it can only ever return zero rows. It is unreachable, not proxied (§13 D6). **AECI-592.**
 
 Found while settling §13 (AECI-573):
