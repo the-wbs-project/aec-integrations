@@ -50,7 +50,7 @@ The site is currently in pre-launch. Production data lives in Airtable; Supabase
 | Incident runbooks for Datadog alerts | `docs/RUNBOOKS.md` |
 | Post-launch monitoring (AECI-279 / Phase 8.1): the daily/weekly operate-and-tune procedure over the shipped dashboards, monitors, and crons; the launch-tunable-threshold table; the triage→ticket loop | `docs/POST_LAUNCH_MONITORING.md` |
 | Post-launch health-report log (AECI-279 / Phase 8.1): dated first-week/first-month snapshots fed by the monitoring runbook | `docs/POST_LAUNCH_HEALTH_REPORT.md` |
-| Admin panel / operator console (traffic, audience, catalog, moderation, system health; the consent-independent read surface over `page_views` + a screen for the two cron digests) — **draft plan, not yet a build contract**; timing undecided | `docs/ADMIN_PANEL_SPEC.md` |
+| Admin panel / operator console (traffic, audience, catalog, moderation, system health; the consent-independent read surface over `page_views` + a screen for the two cron digests) — **v1.0 build contract**; **Phase 8.3**, `main` line, epic AECI-572 integrates on the `admin-panel` branch | `docs/ADMIN_PANEL_SPEC.md` |
 | Launch / DNS cutover runbook (go-live: apex flip off the coming-soon landing, launch-secret provisioning, waitlist broadcast, post-cutover verification, rollback) | `docs/launch-cutover-runbook.md` |
 | Phase completion checkpoints (per-phase launch-readiness gates: AC + build-order mapping, punts) | `docs/PHASE_{2..8}_COMPLETION.md` (Phase 8 = the living post-launch checkpoint) |
 | Auth model, GRANTs & RLS policies (3-layer authz: Worker JWT/role/ban, PostgREST GRANTs, RLS; GDPR erasure) | `docs/AUTH_AND_RLS.md` (complete — the authorization source of truth) |
@@ -265,7 +265,9 @@ The spec is the contract. Maintaining its integrity matters more than shipping t
 
 ## Datadog and audit logging
 
-Every state-changing write must emit its `audit_log` row in the SAME atomic `db.batch([...])` as the mutation (the `auditInsert`/`workflowTransitionInsert` builders in `apps/api/src/lib/audit.ts`), then forward to Datadog post-commit via `ctx.waitUntil(forwardAuditLog(...))`. See `docs/STAGE_1_SPEC.md` §26. Failure to log is a transactional failure (the batch rolls back).
+Every write that changes **domain state** must emit its `audit_log` row in the SAME atomic `db.batch([...])` as the mutation (the `auditInsert`/`workflowTransitionInsert` builders in `apps/api/src/lib/audit.ts`), then forward to Datadog post-commit via `ctx.waitUntil(forwardAuditLog(...))`. See `docs/STAGE_1_SPEC.md` §26. Failure to log is a transactional failure (the batch rolls back).
+
+**Scope (ADR 0022).** Domain state = catalog, users/profiles, reviews/moderation, claims/attestations, requests/workflows. **Derived and log-class writes are exempt** — `page_views`, `mailing_list`, `feedback`, `stats_cache`, the Algolia watermark, `recompute-counts`, and the cron-written `metrics_daily`/`job_runs`; they are observable via `job_runs` + Datadog instead. The test is **entity class, not actor class**: a cron or `actorType: 'system'` write that touches domain state still audits (`POST /api/promote` is the canonical example). **Scheduled `DELETE`s are never exempt** — one summary row per run (`action='retention.pruned'`).
 
 ## Cache invalidation
 

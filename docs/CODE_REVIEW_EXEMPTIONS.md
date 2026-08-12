@@ -86,7 +86,38 @@ specific. Reference the spec section or the planned follow-up work.
 
 ## Active exemptions
 
-_None currently active._
+### EX-002 — Cron-written bookkeeping rows carry no `audit_log` row (ADR 0022)
+
+```yaml
+id: EX-002
+scope:
+  paths:
+    - apps/api/src/scheduled.ts
+    - apps/api/src/lib/home-stats.ts
+    - apps/api/src/lib/algolia-sync.ts
+    - apps/api/src/lib/recompute-counts.ts
+    - apps/api/src/routes/page-views.ts
+    - apps/api/src/routes/landing-forms.ts
+  categories:
+    - Audit logging
+    - Data integrity
+  finding_matches:
+    - "audit_log"
+    - "auditInsert"
+    - "same db.batch"
+    - "§26.1"
+severity: any
+expiry: permanent
+status: active
+added: 2026-08-12
+added_by: claude (AECI-573)
+```
+
+**Justification.** `STAGE_1_SPEC.md` §26.1 formerly read as an absolute — "every write path … no state change without a corresponding audit entry" — and reviewers were correctly flagging every unaudited write against it. **ADR 0022 scopes that invariant to *domain state*.** Derived and log-class writes are exempt when they are all three of: computed entirely from data already in the database (or an append-only event / lead-capture log), invisible on every public surface, and reproducible by re-running the job. That covers `stats_cache` (the 07:00 home-stats job and the Algolia sync watermark), the denormalized product counters, `page_views`, `mailing_list` / `feedback` (already documented in `API_CONTRACTS.md` §6.9/§6.13), and — once they ship — `metrics_daily` and `job_runs` (`ADMIN_PANEL_SPEC.md` §7.1/§7.2). Observability for these is `job_runs` plus Datadog.
+
+**This exemption is narrow, and two things fall outside it — keep flagging them.** (1) **Domain-state writes always audit, regardless of actor.** A cron or `actorType: 'system'` write that touches the catalog, users, reviews, claims, requests, or workflows is *not* exempt — the test is entity class, not actor class. The `*/15` reconciliation sweep mutating `vendor_requests` / `workflow_instances` in `apps/api/src/lib/linear.ts` is a real violation and has its own issue; do not treat this entry as covering it. (2) **Scheduled `DELETE`s always audit** — exactly one summary row per run (`action='retention.pruned'`, `metadata={table, cutoff, rowsDeleted}`) in the same batch as the delete. A retention cron that deletes without one is a finding.
+
+`permanent` because it records where a spec boundary sits, not a deferral. It expires only if ADR 0022 is superseded.
 
 ---
 
