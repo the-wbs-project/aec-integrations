@@ -4,6 +4,7 @@ import {
   EntityRefSchema,
   PromoteAttestationSchema,
   PromoteClaimSchema,
+  PromoteJobIdSchema,
   PromotePayloadSchema,
 } from './promote';
 
@@ -259,5 +260,53 @@ describe('PromotePayloadSchema — claims[] round-trip', () => {
       ],
     };
     expect(PromotePayloadSchema.safeParse(bad).success).toBe(false);
+  });
+});
+
+describe('PromoteJobIdSchema (AECI-563)', () => {
+  it('accepts the shapes a caller realistically supplies', () => {
+    for (const id of ['job-abc123', 'recAbC123XyZ', 'a'.repeat(100), 'A_b-9'.repeat(2)]) {
+      expect(PromoteJobIdSchema.safeParse(id).success).toBe(true);
+    }
+  });
+
+  it('rejects an id the Workflows platform would refuse', () => {
+    // Instance ids cap at 100 characters, and the charset excludes anything that would
+    // need escaping in a path segment (the poll URL is `/api/promote/jobs/:id`).
+    expect(PromoteJobIdSchema.safeParse('a'.repeat(101)).success).toBe(false);
+    expect(PromoteJobIdSchema.safeParse('job/with/slashes').success).toBe(false);
+    expect(PromoteJobIdSchema.safeParse('job with spaces').success).toBe(false);
+    expect(PromoteJobIdSchema.safeParse('job:colon').success).toBe(false);
+  });
+
+  it('rejects an id short enough to be a caller bug', () => {
+    // A 1–2 character id is almost certainly a loop index or a truthiness accident, and
+    // would silently fold two different products' promotes onto one Workflow instance.
+    expect(PromoteJobIdSchema.safeParse('1').success).toBe(false);
+    expect(PromoteJobIdSchema.safeParse('abc').success).toBe(false);
+    expect(PromoteJobIdSchema.safeParse('12345678').success).toBe(true);
+  });
+});
+
+describe('PromotePayloadSchema — jobId (AECI-563)', () => {
+  const minimal = { product: { ref: 'p1', name: 'Revit' } };
+
+  it('is optional, so a caller that omits it still validates', () => {
+    const parsed = PromotePayloadSchema.parse(minimal);
+    expect(parsed.jobId).toBeUndefined();
+  });
+
+  it('round-trips a supplied id (the kick-off idempotency key)', () => {
+    const parsed = PromotePayloadSchema.parse({ ...minimal, jobId: 'job-abc123' });
+    expect(parsed.jobId).toBe('job-abc123');
+  });
+
+  it('rejects an invalid id rather than silently generating one', () => {
+    const result = PromotePayloadSchema.safeParse({ ...minimal, jobId: 'no' });
+    expect(result.success).toBe(false);
+  });
+
+  it('still rejects a payload that carries nothing but a jobId', () => {
+    expect(PromotePayloadSchema.safeParse({ jobId: 'job-abc123' }).success).toBe(false);
   });
 });

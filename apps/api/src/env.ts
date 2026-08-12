@@ -1,3 +1,5 @@
+import type { PromoteWorkflowParams } from './lib/promote-jobs';
+
 /**
  * Which scheduled job a queue message asks the consumer to run. `sync` / `drift`
  * are the Algolia jobs (AECI-139 / AECI-140); `stats` is the home-stats compute
@@ -120,6 +122,33 @@ export type Env = {
    * `lib/linear-webhook-auth.ts` against the `Linear-Signature` header.
    */
   LINEAR_WEBHOOK_SIGNING_SECRET?: string;
+  /**
+   * Cloudflare Workflow binding carrying the promote ingest (AECI-563 / ADR 0021).
+   * `POST /api/promote` creates an instance whose **id is the caller-supplied job
+   * id** — the kick-off idempotency key, since `create({ id })` throws on a
+   * duplicate — and `GET /api/promote/jobs/:id` reads its status/output back.
+   * One Workflow per environment (`aeci-promote-{preview,staging,demo,production}`),
+   * like the queues, so environments never share instances.
+   *
+   * Optional because some test/tooling contexts construct a partial Env without a
+   * binding. Absent → promote rejects `503 DEPENDENCY_FAILURE` (a configuration
+   * fault, not a caller error); the poll degrades to the KV result mirror.
+   */
+  PROMOTE_WORKFLOW?: Workflow<PromoteWorkflowParams>;
+  /**
+   * KV namespace backing the promote job protocol (AECI-563). Two key spaces, both
+   * defined in `lib/promote-jobs.ts`:
+   *   - `promote:payload:{jobId}` (24h) — a validated bundle too large to inline into
+   *     the Workflow event params, which the platform caps at 1 MiB. Staged here by
+   *     the kick-off and read back by the Workflow's first step.
+   *   - `promote:result:{jobId}` (90d) — the committed ID map, mirrored so it stays
+   *     fetchable after the Workflow instance ages out of its 30-day retention.
+   *
+   * Own namespace per environment. Optional + degrading: absent → an oversize bundle
+   * is rejected `413 PAYLOAD_TOO_LARGE` (rather than silently over-filling the params)
+   * and the IDs are only fetchable for the instance retention window.
+   */
+  PROMOTE_KV?: KVNamespace;
   /**
    * KV namespace for `GET /api/taxonomy` read-through caching (AECI-54).
    * Optional: handler falls back to a direct D1 read when the binding is
