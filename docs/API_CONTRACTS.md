@@ -1228,7 +1228,7 @@ machine-to-machine auth, not a user session.
 
 **Two independent idempotency keys:**
 
-- **`jobId`** (optional, top-level, `^[A-Za-z0-9_-]{8,100}$`) scopes one promote
+- **`jobId`** (optional, top-level, `^[A-Za-z0-9_][A-Za-z0-9_-]{7,99}$`) scopes one promote
   *attempt*. It becomes the Workflow **instance id**, so `create({ id })`'s duplicate
   guard means a replayed kick-off attaches to the existing instance and returns the same
   `jobId` — it can never start a second instance and therefore never commits twice.
