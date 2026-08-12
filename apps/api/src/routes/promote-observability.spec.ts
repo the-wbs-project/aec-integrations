@@ -1,28 +1,29 @@
 /**
- * `POST /api/promote` — Datadog observability for `skipped[]` (§4). A promote can
- * return `200` while silently NOT linking some entities (an integration whose far
- * endpoint isn't promoted, a usefulness group that didn't resolve, …). The metrics
- * layer only sees the 2xx, so the handler emits a `warn` log + an
+ * Promote ingest — Datadog observability for `skipped[]` (§4). A promote can succeed
+ * while silently NOT linking some entities (an integration whose far endpoint isn't
+ * promoted, a usefulness group that didn't resolve, …). Neither the metrics layer nor a
+ * `status: 'complete'` poll response reveals that, so the ingest emits a `warn` log + an
  * `aeci.api.promote.skipped` count so the partial loss is visible in Datadog alone
  * (docs/REVIEW_APP_PROMOTE_API.md §6). The transport is mocked here to assert the
  * exact log payload + metric tags.
  */
 
-import { Hono } from 'hono';
+import { PromotePayloadSchema } from '@aeci/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { products } from '../db/schema';
 import { logToDatadog, submitCount } from '../datadog';
 import type { Env } from '../env';
-import { errorHandler } from '../errors';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { fakeExecutionContext } from '../test/helpers';
 import {
-  createPromoteHandler,
+  dispatchPromoteHooks,
+  runPromoteIngest,
   type PromoteAlgoliaSync,
   type PromoteGoogleIndexingNotify,
   type PromoteHomeStatsRefresh,
   type PromoteIndexNowNotify,
+  type PromoteRunCtx,
 } from './promote';
 
 vi.mock('../datadog', () => ({
@@ -49,19 +50,25 @@ beforeEach(async () => {
 });
 afterEach(() => t.dispose());
 
-function promote(body: unknown) {
-  const app = new Hono<{ Bindings: Env }>();
-  app.onError(errorHandler());
-  app.post(
-    '/api/promote',
-    createPromoteHandler(t.factory, noopAlgolia, noopIndexNow, noopGoogleIndexing, noopHomeStats),
-  );
-  return app.request(
-    '/api/promote',
-    { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) },
-    baseEnv,
-    fakeExecutionContext(),
-  );
+/** Run the ingest + its post-commit tail exactly as the Workflow's commit step does. */
+async function promote(body: unknown) {
+  const execCtx = fakeExecutionContext();
+  const rc: PromoteRunCtx = {
+    env: baseEnv,
+    request: new Request('http://localhost:8787/api/promote'),
+    waitUntil: (promise) => execCtx.waitUntil(promise),
+    bookmark: () => null,
+  };
+  const deps = {
+    dbFor: t.factory,
+    syncAlgolia: noopAlgolia,
+    notifyIndexNow: noopIndexNow,
+    notifyGoogleIndexing: noopGoogleIndexing,
+    refreshHomeStats: noopHomeStats,
+  };
+  const result = await runPromoteIngest(rc, PromotePayloadSchema.parse(body), deps);
+  dispatchPromoteHooks(rc, result, deps);
+  return result.response;
 }
 
 /** The `logToDatadog` event whose message is the partial-skipped signal. */
@@ -84,7 +91,7 @@ function skippedMetricCalls(): Array<{ value: number; tags: string[] }> {
 
 describe('promote skip observability', () => {
   it('logs partial_skipped with per-kind detail + emits a skipped count per kind', async () => {
-    const res = await promote({
+    const response = await promote({
       vendors: [],
       product: {
         ref: 'p1',
@@ -100,9 +107,7 @@ describe('promote skip observability', () => {
       ],
     });
 
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { skipped: { kind: string }[] };
-    expect(body.skipped).toHaveLength(3);
+    expect(response.skipped).toHaveLength(3);
 
     // One structured log carrying the full detail + per-kind scalar counts.
     const log = partialSkippedLog();
@@ -131,7 +136,7 @@ describe('promote skip observability', () => {
       promotionStatus: 'promoted',
     });
 
-    const res = await promote({
+    const response = await promote({
       vendors: [{ ref: 'v1', companyName: 'Autodesk' }],
       product: { ref: 'p1', name: 'Revit' },
       integrations: [
@@ -139,8 +144,7 @@ describe('promote skip observability', () => {
       ],
     });
 
-    expect(res.status).toBe(200);
-    expect(((await res.json()) as { skipped: unknown[] }).skipped).toHaveLength(0);
+    expect(response.skipped).toHaveLength(0);
     expect(partialSkippedLog()).toBeUndefined();
     expect(skippedMetricCalls()).toHaveLength(0);
   });

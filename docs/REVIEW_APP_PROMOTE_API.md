@@ -1,8 +1,10 @@
 # Review App → AECi Promotion API
 
 **Audience:** whoever builds the "Promote" action in the **review application**.
-**Status:** ready to integrate. The endpoint is live in the main AECi API
-(`apps/api`, `POST /api/promote`).
+**Status:** ready to integrate. Live in the main AECi API (`apps/api`).
+**Asynchronous since AECI-563** — `POST /api/promote` returns `202 { jobId }` and the
+IDs are collected from `GET /api/promote/jobs/{jobId}`. If you implemented against the
+old synchronous `200`, **start at §1.1**.
 
 This document is the contract for pushing a promoted product from the review app
 into the public AECi database (Supabase). Read it end-to-end before implementing.
@@ -15,44 +17,75 @@ Previously, promotion was a **pull**: a CLI script on the AECi side read every
 Airtable record flagged `promotion_status = 'promoted'` and copied it into
 Supabase. That script is now **deprecated**.
 
-Promotion is now a **push you initiate**. When a curator clicks **Promote** in
-the review app, the review app sends that product — plus its vendors, taxonomy,
-and integrations — to `POST /api/promote`. The AECi API inserts (or updates) the
-rows and **returns the database IDs it created**. The review app stores those IDs
-and, whenever the curator edits the product later, **re-pushes** the same bundle
-to update the live records.
+Promotion is a **push you initiate**. When a curator clicks **Promote** in the
+review app, the review app sends that product — plus its vendors, taxonomy, and
+integrations — to `POST /api/promote`. The AECi API inserts (or updates) the rows
+and gives back the database IDs it created. The review app stores those IDs and,
+whenever the curator edits the product later, **re-pushes** the same bundle to
+update the live records.
+
+### 1.1 Breaking change (AECI-563): promotion is now **asynchronous**
+
+`POST /api/promote` **no longer returns the IDs.** It validates your bundle,
+starts a job, and returns **`202 { jobId }`** in about a second. You then **poll**
+`GET /api/promote/jobs/{jobId}` until the job is `complete` and **collect** the ID
+map from its `result`.
 
 ```
 Curator clicks "Promote"
         │
+        ├─ stamp promote_job_id on the Airtable row   ◀── do this FIRST
         ▼
-Review app assembles the product bundle  ──POST /api/promote──▶  AECi API
-        ▲                                                          │ upsert + audit
-        │                                                          ▼
-   store returned IDs   ◀──────────  { vendors[], product, integrations[], … }
+POST /api/promote  ──────────────▶  AECi API   ──▶  202 { jobId }   (~1s)
+                                        │
+                                        │  Workflow: plan → atomic commit → cache/index refresh
+                                        ▼
+GET /api/promote/jobs/{jobId}  ──────▶  { status: "complete", result: { vendors[], product, … } }
+        │
+        ▼
+   write the IDs back to Airtable, then clear promote_job_id
 ```
+
+**Why this changed.** The old synchronous call coupled the durability of a
+committed write to the survival of an HTTP connection, and they came apart: your
+30-second client abort fired, AECi committed anyway, the product went fully live —
+and the response carrying its IDs was lost. Because AECi upserts **only** by the
+`supabaseId` you send (there is no `external_id` column), a lost response was
+**unrecoverable**, and re-promoting such a product minted duplicate public rows.
+Now the commit does not depend on you at all: kill your client at any moment and
+the promote still happens exactly once, with the IDs fetchable by job ID for 90
+days. See `docs/adr/0021-async-promote-ingest-via-workflows.md`.
 
 ### Your responsibilities
 
-1. **Persist the returned IDs.** For each entity you push, store the `id` AECi
+1. **Supply a `jobId` and stamp it before you push.** Write `promote_job_id` onto
+   the Airtable row *before* calling `POST /api/promote`. It is your idempotency
+   key: replaying a kick-off with the same `jobId` attaches to the same job and can
+   never commit twice. A row with a pending marker must never get a fresh push
+   until its job has been collected.
+2. **Poll, then collect.** The job is not done when you get the `202`. Poll until
+   `complete` and persist the IDs from `result`; only then clear the marker.
+3. **Persist the returned IDs.** For each entity you push, store the `id` AECi
    returns (e.g. `supabase_vendor_id`, `supabase_product_id`,
    `supabase_integration_id`). This mapping is **the only link** between your
    records and the AECi rows — AECi does **not** store your Airtable/record IDs.
-2. **Send the stored ID back on edits.** Presence of the ID is what makes a push
+4. **Send the stored ID back on edits.** Presence of the ID is what makes a push
    an update instead of a new insert. **If you lose the mapping, a re-push
    creates duplicates** — persist it durably.
-3. **Do not send slugs.** AECi owns URL slugs; it generates them on first
+5. **Do not send slugs.** AECi owns URL slugs; it generates them on first
    promote and keeps them stable. The response tells you the slug that became the
    public URL.
 
 ---
 
-## 2. Endpoint
+## 2. Endpoints
 
 ```
-POST {API_BASE}/api/promote
-Authorization: Bearer {REVIEW_APP_TOKEN}
-Content-Type: application/json
+POST {API_BASE}/api/promote                 → 202 { jobId, status: "queued" }
+GET  {API_BASE}/api/promote/jobs/{jobId}    → 200 { jobId, status, result?, error? }
+
+Authorization: Bearer {REVIEW_APP_TOKEN}    (both)
+Content-Type: application/json              (POST)
 ```
 
 | Environment | `{API_BASE}` |
@@ -70,24 +103,74 @@ string). Store it securely in the review app's server-side config; never ship it
 to a browser. AECi compares it constant-time and rejects a missing/wrong token
 with `401`.
 
-### 2.1 `x-d1-bookmark` — read-your-writes across calls (optional, AECI-250)
+### 2.1 The kick-off / poll / collect protocol (AECI-563)
 
-AECi serves reads from D1 read replicas (lower latency), so a read issued
-*immediately* after a promote could momentarily hit a replica that hasn't caught
-up. To get **read-your-writes** across successive calls, thread the D1 session
-bookmark:
+**Kick-off.** `POST /api/promote` with your bundle plus a top-level `jobId`:
 
-- Every `POST /api/promote` response includes an **`x-d1-bookmark`** response
-  header — an opaque token naming the database version your write produced.
-- On a **subsequent** request, send that value back as the **`x-d1-bookmark`**
-  request header. AECi resumes the same logical session, so the next read/write is
-  guaranteed to see everything up to that bookmark.
+```jsonc
+{
+  "jobId": "recAbC123XyZ-1754963400",   // your idempotency key — see below
+  "vendors":      [ /* … */ ],
+  "product":      { /* … */ },
+  "integrations": [ /* … */ ]
+}
+```
 
-This is **optional**. If you don't thread it, promotes are still durable and
-strongly consistent (writes go to the primary); only a same-instant follow-up read
-might briefly lag. Treat the header value as opaque (don't parse it), persist the
-**latest** one you've seen, and replay it on the next call. Omitting it is
-equivalent to "start from any replica."
+Response — `202 Accepted`, plus a `Location` header pointing at the poll URL:
+
+```json
+{ "jobId": "recAbC123XyZ-1754963400", "status": "queued" }
+```
+
+**`jobId` rules.** 8–100 characters of `[A-Za-z0-9_-]` (it becomes the job's
+internal instance ID, which the platform caps at 100 characters). Any scheme you
+like as long as it is **unique per promote attempt** — an Airtable record ID plus a
+timestamp works well. It is **optional**: omit it and AECi generates one, but then
+you get no replay protection, so supply it.
+
+**Replaying a kick-off is safe and free.** POST the same `jobId` again — after a
+network blip, a retry, a restarted worker — and you get the same `202 { jobId }`
+back. It attaches to the existing job; it does **not** start a second one and
+cannot commit twice. This is what replaces a duplicate-safety key on the AECi side,
+and it is why the marker must be written *before* the push.
+
+**Poll.** `GET /api/promote/jobs/{jobId}`:
+
+```jsonc
+{ "jobId": "recAbC123XyZ-1754963400", "status": "running" }
+```
+
+`status` is one of **`queued`** (accepted, not started), **`running`** (in flight),
+**`complete`** (committed — `result` carries the ID map), **`errored`** (failed —
+`error` carries the code). Poll every 1–2 seconds; a typical promote completes in a
+few seconds, and a very heavy bundle can take a minute or more. There is no
+`Retry-After`; nothing rate-limits this endpoint, but do back off rather than
+hammering it.
+
+**Collect.** On `complete`, write the IDs from `result` back to Airtable, **then**
+clear `promote_job_id`. Collect must be idempotent and resumable: if you crash
+half-way, re-polling the same job returns the identical `result`, so re-running the
+write-back converges. Clearing the marker last is what guarantees an abandoned run
+is still collectable later (by you or by the reconcile sweep).
+
+**How long IDs stay fetchable.** For the job's retention window (30 days) plus a
+90-day mirror of the committed result. After that a poll returns `404 NOT_FOUND`.
+This is long enough that you should never lose a promote's IDs — but it is not a
+substitute for persisting them.
+
+### 2.2 `x-d1-bookmark` — read-your-writes (no longer on the promote path)
+
+AECi serves reads from D1 read replicas, and a read issued *immediately* after a
+write could momentarily hit a replica that hasn't caught up. AECi threads a D1
+session bookmark internally to close that window for its own post-commit work
+(search indexing, cached counts).
+
+**Nothing for you to do here.** Because the promote now commits off-request, the
+`POST /api/promote` response no longer carries an `x-d1-bookmark` header and there
+is nothing to replay. Promotes remain durable and strongly consistent (writes go to
+the primary). If a future review-app feature needs read-your-writes against an AECi
+**read** endpoint, that endpoint still honours the `x-d1-bookmark` request header —
+ask the AECi team then.
 
 ---
 
@@ -97,6 +180,7 @@ The usual promote = **one product** plus its dependencies. Top-level shape:
 
 ```jsonc
 {
+  "jobId":        "recAbC123XyZ-1754963400",  // idempotency key — §2.1
   "vendors":      [ /* vendors of this product (0+; usually 1) */ ],
   "product":      { /* the product being promoted — OPTIONAL (see below) */ },
   "integrations": [ /* integrations incident to this product (0+) */ ]
@@ -106,7 +190,12 @@ The usual promote = **one product** plus its dependencies. Top-level shape:
 **`product` is optional.** You can push **just a vendor** (or just integrations)
 without a product — see §3.5. The only rule is that the payload must contain at
 least one of `vendors`, `product`, or `integrations`; a fully empty body is
-rejected `400`.
+rejected `400` (a body carrying only a `jobId` counts as empty).
+
+**Size.** Real bundles are kilobytes; there is no practical ceiling you will hit.
+For completeness: a request body over 8 MiB is rejected `413 PAYLOAD_TOO_LARGE`,
+and bundles above ~512 KiB are staged internally rather than inlined — invisible to
+you either way.
 
 ### 3.1 The `ref` vs `supabaseId` rule (read this carefully)
 
@@ -266,9 +355,26 @@ integration-only push (send only `integrations[]`) — but note that without a
 
 ## 4. Response
 
-`200 OK`. Persist every `id`. `operation` tells you what happened. The response
-also carries an **`x-d1-bookmark`** header you can replay for read-your-writes —
-see [§2.1](#21-x-d1-bookmark--read-your-writes-across-calls-optional-aeci-250).
+The kick-off returns `202 { jobId, status: "queued" }` (§2.1). **The ID map below is
+what `GET /api/promote/jobs/{jobId}` returns in `result` once `status` is
+`"complete"`.** Persist every `id`; `operation` tells you what happened.
+
+```jsonc
+{
+  "jobId": "recAbC123XyZ-1754963400",
+  "status": "complete",
+  "result": {
+    // ↓ exactly the shape the old synchronous 200 returned
+    "vendors": [ /* … */ ],
+    "product": { /* … */ },
+    "integrations": [ /* … */ ],
+    "taxonomy": { /* … */ },
+    "skipped": [ /* … */ ]
+  }
+}
+```
+
+The `result` object in full:
 
 ```jsonc
 {
@@ -316,6 +422,19 @@ see [§2.1](#21-x-d1-bookmark--read-your-writes-across-calls-optional-aeci-250).
 
 ## 5. Idempotency, updates, and duplicates
 
+There are **two independent keys**, and mixing them up is the one way to still
+create duplicates:
+
+| Key | Scope | What it protects |
+|---|---|---|
+| `jobId` (§2.1) | one promote *attempt* | Replaying a kick-off can't start a second job or commit twice. |
+| `supabaseId` (§3.1) | one *row*, forever | Whether a push creates a new row or updates the existing one. |
+
+A **new** `jobId` with **no** `supabaseId` is always a create — that is correct, and
+it is why the marker-before-push / collect-before-next-push ordering is load-bearing
+on your side. `jobId` protects a retry; only `supabaseId` protects against pushing
+the same product twice as two different attempts.
+
 - **First promote:** omit `supabaseId` everywhere → everything is created → store
   the returned IDs.
 - **Later edits:** include the stored `supabaseId` on the product (and on any
@@ -334,53 +453,88 @@ see [§2.1](#21-x-d1-bookmark--read-your-writes-across-calls-optional-aeci-250).
 
 ## 6. Errors
 
-Non-2xx responses use the standard AECi envelope:
+Failures now arrive on **two different surfaces**, and you need to handle both:
+
+- **Synchronous** — the kick-off rejected your request outright. These are things
+  you can fix (or must escalate) before any work happened; nothing was committed.
+- **On the job** — the kick-off succeeded but the commit failed. The poll returns
+  `200` with `status: "errored"` and a structured `error`.
+
+Synchronous rejections use the standard AECi envelope:
 
 ```jsonc
 { "error": { "code": "VALIDATION_FAILED", "message": "…", "field": "product.name", "details": { … } },
   "trace_id": "…" }
 ```
 
+### 6.1 Synchronous rejections (`POST /api/promote`)
+
 | HTTP | `code` | Cause | What to do |
 |---|---|---|---|
 | 400 | `MALFORMED_REQUEST` | Body isn't valid JSON | Fix the request serialization. |
-| 400 | `VALIDATION_FAILED` | Schema violation — missing required field, bad enum value, duplicate `ref`, `extensionOf` using `ref`, integration endpoint `ref` that isn't the product, `builtByVendor` `ref` not in `vendors[]` | Read `error.field` / `error.details.issues`; fix and resend. |
+| 400 | `VALIDATION_FAILED` | Schema violation — missing required field, bad enum value, invalid `jobId`, duplicate `ref`, `extensionOf` using `ref`, integration endpoint `ref` that isn't the product, `builtByVendor` `ref` not in `vendors[]` | Read `error.field` / `error.details.issues`; fix and resend (same `jobId` is fine — nothing was started). |
 | 401 | `UNAUTHENTICATED` | Missing or wrong bearer token | Check `REVIEW_APP_TOKEN`. |
-| 409 | `SLUG_CONFLICT` | A concurrent first-time promote generated the same slug, so the create hit a `*_slug_key` unique constraint | Safe to retry; the retry re-reads existing slugs and disambiguates (`-2`, `-3`, …), so it won't re-collide. |
-| 500 | `INTERNAL_ERROR` | Unexpected server fault | Safe to retry; the whole push is transactional (all-or-nothing), so a failed call wrote nothing. Report `trace_id` to the AECi team if it persists. |
+| 413 | `PAYLOAD_TOO_LARGE` | Body over 8 MiB | Almost certainly a serialization bug — a real bundle is kilobytes. |
+| 503 | `DEPENDENCY_FAILURE` | The AECi promote pipeline isn't configured on that environment | Not caller-fixable; report to the AECi team. |
+| 500 | `INTERNAL_ERROR` | Unexpected server fault starting the job | Safe to retry with the **same `jobId`**. Nothing was committed. Report `trace_id` if it persists. |
 
-Retries are safe: the push runs in a single database transaction, so a failure
-leaves no partial state, and a successful retry with the same `supabaseId`s is
-idempotent. A `409 SLUG_CONFLICT` is the conflict-specific, caller-resolvable
-case — distinct from a `500` server fault — and resolves on retry because slug
-generation re-reads the current set and disambiguates.
+### 6.2 Job errors (`GET /api/promote/jobs/{jobId}`)
 
-### 6.1 Every rejection is logged in Datadog
+```jsonc
+{ "jobId": "recAbC123XyZ-1754963400",
+  "status": "errored",
+  "error": { "code": "SLUG_CONFLICT", "message": "A concurrent promote generated a duplicate slug; retry the request." } }
+```
+
+| `error.code` | Cause | What to do |
+|---|---|---|
+| `SLUG_CONFLICT` | A concurrent first-time promote generated the same slug, so the create hit a `*_slug_key` unique constraint | Retry with a **new `jobId`**; the retry re-reads existing slugs and disambiguates (`-2`, `-3`, …), so it won't re-collide. |
+| `VALIDATION_FAILED` | A name that can't be turned into a URL slug (reserved or empty after normalization) — only detectable once AECi tries | Fix the name; re-push with a new `jobId`. |
+| `INTERNAL_ERROR` | Unexpected server fault during the commit | Retry with a **new `jobId`**. The commit is a single atomic batch, so a failed job wrote nothing. Escalate if it repeats. |
+
+**An `errored` job wrote nothing.** The commit is one atomic `db.batch`, so there is
+no partial state to clean up. Retrying needs a **new `jobId`** — the old one is
+permanently bound to the failed attempt (that is the same guard that stops a replay
+from double-committing).
+
+**404 on a poll** means AECi has no record of that job: either the `jobId` was never
+successfully kicked off, or it is older than the retention window. If you have a
+pending marker and get a `404`, the safe move is to re-push with a new `jobId` — but
+check first that the product isn't already live, because a `404` cannot distinguish
+"never ran" from "ran, and aged out".
+
+### 6.3 Every rejection is logged in Datadog
 
 You don't have to keep the HTTP response body to diagnose a failed push. **Every
-non-2xx promote emits a detailed Datadog log** under `source:review-app-promote`,
-so the AECi operator can find and triage a rejection from Datadog alone:
+rejected promote — synchronous or on the job — emits a detailed Datadog log** under
+`source:review-app-promote`, so the AECi operator can find and triage it from
+Datadog alone:
 
 - **Where:** service `aeci-api`, filter `source:review-app-promote`.
-- **What each log carries:** the HTTP status (as `http_status` — Datadog reserves
-  the `status` attribute for the log level), the error `code`, the `field` (when
-  set), the full `details` (for a `VALIDATION_FAILED`, the entire Zod `issues[]`;
-  for a `SLUG_CONFLICT`, the conflicting `target`), the request `path`/`method`,
-  and the **same `trace_id`** returned in the response envelope — so a
-  curator-reported `trace_id` pivots straight to its log line.
-- **Level:** 4xx / 409 client errors log at `warn`; 500 server faults at `error`
-  (and additionally carry the server stack).
+- **Synchronous rejections** carry the HTTP status (as `http_status` — Datadog
+  reserves the `status` attribute for the log level), the error `code`, the `field`
+  (when set), the full `details` (for a `VALIDATION_FAILED`, the entire Zod
+  `issues[]`), the request `path`/`method`, and the **same `trace_id`** returned in
+  the response envelope — so a curator-reported `trace_id` pivots straight to its
+  log line. Level: 4xx at `warn`, 500 at `error` (plus the server stack).
+- **Job failures** emit `aeci.api.promote.job_failed` at `error`, carrying the
+  `job_id`, the error `code`, and the reason. A job failure never passes through the
+  HTTP error path, so this log — not a status code — is the operator's record of it.
+  Pivot on the `job_id` the curator saw.
+- **Job outcomes** are also metrics: `aeci.api.promote.job{outcome:complete|errored}`
+  and `aeci.api.promote.job.duration_ms`, so a slow-but-succeeding ingest is visible
+  too (see `docs/OBSERVABILITY.md`).
 
 This is promote-specific — the public read endpoints stay silent on 4xx to avoid
 log noise. So "look in Datadog" is the authoritative way to see why a promote was
 rejected; you don't need to plumb the response body anywhere else.
 
-### 6.2 Partial promotes (`skipped[]`) are logged too
+### 6.4 Partial promotes (`skipped[]`) are logged too
 
-A `200` with a non-empty `skipped[]` (§4) is a **partial** promote — some
-entities couldn't be linked (an integration/extension whose far endpoint isn't
+A `complete` job with a non-empty `result.skipped[]` (§4) is a **partial** promote —
+some entities couldn't be linked (an integration/extension whose far endpoint isn't
 promoted yet, a usefulness group, a claim `dataObject`, or a trade that didn't
-resolve). Those never fail the request, so they're easy to miss. They are surfaced
+resolve). Those never fail the promote, so they're easy to miss. They are surfaced
 in Datadog as:
 
 - a single `warn` log `aeci.api.promote.partial_skipped` (`source:review-app-promote`)
@@ -388,10 +542,10 @@ in Datadog as:
 - an `aeci.api.promote.skipped` count metric tagged by `kind`
   (`integration` / `extension` / `usefulness` / `claim` / `trade`), for a monitor.
 
-So a curator's silently-dropped push is visible in Datadog even though the API
-returned `200`. (You should still inspect `skipped[]` in the response and re-push
-once the blocking condition clears — the log is the operator's backstop, not a
-substitute for handling `skipped[]`.)
+So a curator's silently-dropped push is visible in Datadog even though the job
+completed successfully. (You should still inspect `result.skipped[]` and re-push once
+the blocking condition clears — the log is the operator's backstop, not a substitute
+for handling `skipped[]`.)
 
 ---
 
@@ -407,8 +561,9 @@ product/vendor was created — the taxonomy nav and `sitemap.xml`). So a re-push
 round-trip rather than waiting out the cache TTL.
 
 **Failure semantics (deliberate):** the purge is **best-effort and runs after the
-write commits**. It is fired asynchronously and **never affects your response** —
-a promote that succeeds returns `200` even if the subsequent purge call fails.
+write commits**. It is fired asynchronously and **never affects the job outcome** —
+a promote still reports `complete` even if the subsequent purge call fails. It is also
+dispatched *after* the job completes, so it never delays your poll.
 On the AECi side, every purge is observable in Datadog as
 `aeci.cache.purge{source:promote,outcome:ok|cf_failed}`, plus a `warn` log if the
 Cloudflare purge-by-tag call fails. If a purge does fail, the only consequence is that
@@ -458,7 +613,8 @@ purge above, a successful promote also pushes the promoted records to Algolia
 the "viewable on promote but not searchable until the daily sync" gap.
 
 Same failure semantics as the purge: it's **best-effort, post-commit, and never
-affects your response** — a promote returns `200` even if the Algolia push fails.
+affects the job outcome** — a promote reports `complete` even if the Algolia push fails,
+and the push never delays your poll.
 Outcomes are observable as `aeci.algolia.sync{trigger:promote,entity,outcome}` plus a
 `warn` log (`aeci.api.promote.algolia_sync_failed`) on failure; a failed push is
 reconciled by the next daily sync. When the Worker has no Algolia credentials
@@ -483,8 +639,8 @@ the same `runHomeStats` the cron uses) and **then** purges the home page's edge 
 (`index:home`) so it repaints with the fresh numbers within one edge round-trip.
 
 Same failure semantics as the purge and Algolia push: **best-effort, post-commit, and
-never affects your response** — a promote returns `200` even if the recompute or purge
-fails. Outcomes are observable as `aeci.stats.compute{trigger:promote,outcome}` (plus
+never affects the job outcome** — a promote reports `complete` even if the recompute or
+purge fails, and neither delays your poll. Outcomes are observable as `aeci.stats.compute{trigger:promote,outcome}` (plus
 the per-key `aeci.stats.compute.key*` signals) and `aeci.cache.purge{source:promote,
 outcome}`. Ordering is deliberate: the `stats_cache` recompute runs in **every**
 environment (it fixes the read-endpoint data even locally); only the `index:home`
@@ -499,7 +655,13 @@ A product (**Revit**) with one vendor (**Autodesk**), two categories, and one
 integration to an already-promoted product (**Navisworks**,
 `id = 7c9e6679-7425-40de-944b-e07fc1f90ae7`), built by Autodesk.
 
-### Request
+### Step 1 — stamp the marker
+
+Write `promote_job_id = "recRevit001-1754963400"` onto the Revit row in Airtable
+**before** anything below. If everything after this point dies, that marker is what
+makes the promote recoverable.
+
+### Step 2 — kick off
 
 ```http
 POST https://<staging-api-host>/api/promote
@@ -509,6 +671,7 @@ Content-Type: application/json
 
 ```json
 {
+  "jobId": "recRevit001-1754963400",
   "vendors": [
     { "ref": "v1", "companyName": "Autodesk", "website": "https://autodesk.com", "isPrimary": true }
   ],
@@ -542,10 +705,27 @@ Content-Type: application/json
 }
 ```
 
-### Response
+Returns immediately:
+
+```json
+{ "jobId": "recRevit001-1754963400", "status": "queued" }
+```
+
+### Step 3 — poll
+
+```http
+GET https://<staging-api-host>/api/promote/jobs/recRevit001-1754963400
+Authorization: Bearer ************
+```
+
+While it runs: `{ "jobId": "recRevit001-1754963400", "status": "running" }`. Once the
+commit lands:
 
 ```json
 {
+  "jobId": "recRevit001-1754963400",
+  "status": "complete",
+  "result": {
   "vendors": [
     { "ref": "v1", "id": "1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed", "slug": "autodesk", "operation": "created" }
   ],
@@ -568,10 +748,18 @@ Content-Type: application/json
     ],
     "phases": [],
     "trades": []
-  },
-  "skipped": []
+    },
+    "skipped": []
+  }
 }
 ```
+
+### Step 4 — collect
+
+Write the IDs back to Airtable — on Revit: `supabase_product_id = 0f8fad5b-…`; on
+Autodesk: `supabase_vendor_id = 1b9d6bcd-…`; on the integration:
+`supabase_integration_id = 6ba7b810-…` — and **then** clear `promote_job_id`. Clearing
+it last is what makes an interrupted collect resumable.
 
 `"trades": []` comes back because the request sent no `trades` — and that is the
 *right* answer for Revit: it's a horizontal BIM authoring tool, not a tool with
@@ -580,16 +768,14 @@ of the catalog looks like this. A paving-takeoff product would send
 `"trades": ["paving-asphalt"]` and get `[{ "slug": "paving-asphalt", "id": …,
 "operation": "reused" }]` back.
 
-After this call, store on your Revit record:
-`supabase_product_id = 0f8fad5b-…`; on Autodesk: `supabase_vendor_id = 1b9d6bcd-…`;
-on the integration: `supabase_integration_id = 6ba7b810-…`.
-
 ### Re-pushing an edit later
 
-The curator fixes the description. Send the same bundle, now with the stored IDs:
+The curator fixes the description. Same four steps, a **new `jobId`**, and the stored
+IDs on the bundle:
 
 ```json
 {
+  "jobId": "recRevit001-1755049800",
   "vendors": [
     { "ref": "v1", "supabaseId": "1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed", "companyName": "Autodesk", "website": "https://autodesk.com" }
   ],
@@ -612,20 +798,28 @@ The curator fixes the description. Send the same bundle, now with the stored IDs
 }
 ```
 
-Every `operation` comes back `updated`; the slugs are unchanged.
+Every `operation` in `result` comes back `updated`; the slugs are unchanged.
+
+Note the new `jobId`. A `jobId` is bound to one attempt for the life of its retention
+window, so reusing the first promote's id would just hand you back that job's old
+`result` instead of running the edit.
 
 ---
 
 ## 8. Quick checklist for the review-app implementer
 
 - [ ] Store the AECi `REVIEW_APP_TOKEN` server-side; send it as `Bearer`.
+- [ ] **Generate a unique `jobId` per promote attempt and stamp `promote_job_id` on the Airtable row BEFORE the push** (§2.1). This ordering is the duplicate-safety guarantee — there is no key on the AECi side.
+- [ ] **Poll `GET /api/promote/jobs/{jobId}` until `complete`, then collect, then clear the marker** — in that order. The `202` means "accepted", not "done".
+- [ ] **Never push a row that still has a pending `promote_job_id`.** Collect its job first (or let the reconcile sweep do it); a fresh push with a new `jobId` and no `supabaseId` is a create, and that is how duplicates happen.
+- [ ] Retry a failed *kick-off* with the same `jobId` (free, idempotent); retry a failed *job* with a NEW `jobId` (§6.2).
 - [ ] Assemble one product bundle per "Promote" click (product + its vendors + its integrations).
 - [ ] For a "push just the vendor edit" action, send only `vendors[]` with the stored `supabaseId` (§3.5); expect `product: null` back.
 - [ ] Use made-up `ref`s to wire the bundle together; keep them unique per request.
 - [ ] Omit `supabaseId` on first promote; include stored IDs on re-push.
 - [ ] Never send slugs; persist the slugs AECi returns (they're the public URLs).
 - [ ] Persist every returned `id` against your record, durably.
-- [ ] Only include integrations whose far endpoint is already promoted (reference it by `supabaseId`); inspect `skipped[]`.
+- [ ] Only include integrations whose far endpoint is already promoted (reference it by `supabaseId`); inspect `result.skipped[]`.
 - [ ] Send `trades[]` only for products with **trade-specific value** (§3.3) — most products send none, and horizontal platforms send an empty array. Values may be slugs, names, or aliases; they resolve find-only, an unrecognized value comes back in `skipped[]` as `kind: "trade"` (never a term you just invented), and omitting the key **clears** the product's trades.
 - [ ] Nest each integration's data-object `claims[]` under it (`dataObject` slug/name, `direction` `a_to_b`/`b_to_a`/`both` relative to source→target, `attestations[]` with `source: "aeci"`); a claim rides with its integration and an unrecognized `dataObject` comes back in `skipped[]` as `kind: "claim"`.
-- [ ] On 4xx, surface `error.message` / `error.field` to the curator; on 5xx, retry then escalate `trace_id`.
+- [ ] On a synchronous 4xx, surface `error.message` / `error.field` to the curator; on 5xx, retry (same `jobId`) then escalate `trace_id`. On `status: "errored"`, surface `error.code` / `error.message` and retry with a new `jobId` (§6).

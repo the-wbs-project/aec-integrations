@@ -90,7 +90,23 @@
   // Workers Paid plan, and the CI CLOUDFLARE_API_TOKEN must carry the Queues edit
   // permission. See ADR 0013 and docs/environments.md.
   //
-  // AECI-105 / Option B: the promote handler purges edge-cache tags by calling
+  // AECI-563 / ADR 0021: `POST /api/promote` no longer commits inline. It validates,
+  // starts an instance of the `PROMOTE_WORKFLOW` Cloudflare Workflow (class
+  // `PromoteWorkflow`, re-exported from `src/index.ts` — wrangler resolves Workflow
+  // classes off the Worker's main module), and returns `202 { jobId }`; the ingest runs
+  // in the Workflow and `GET /api/promote/jobs/:id` serves the resulting IDs. The
+  // instance id IS the caller-supplied job id, which is what makes a replayed kick-off
+  // unable to commit twice. One Workflow per env (like the queues) so environments never
+  // share instances. Workflows are created by `wrangler deploy` — no `queues create`-style
+  // provisioning step — but they DO require the Workers Paid plan.
+  //   PROMOTE_KV — companion namespace, own per env: `promote:payload:{jobId}` (24h)
+  //                stages a bundle too large for the 1 MiB event-params cap, and
+  //                `promote:result:{jobId}` (90d) mirrors the committed ID map so it
+  //                outlives the 30-day instance retention. Absent → an oversize bundle
+  //                is rejected 413 and the IDs are only fetchable while the instance
+  //                lives. Keys + thresholds live in `src/lib/promote-jobs.ts`.
+  //
+  // AECI-105 / Option B: the promote ingest purges edge-cache tags by calling
   // Cloudflare DIRECTLY over HTTPS — there is NO `WEB` service binding back to the
   // SSR Worker. The earlier web↔api cycle (api → web `POST /admin/purge`) was
   // removed because the purge is just a stateless Cloudflare REST call; the API now
@@ -136,6 +152,21 @@
       "id": "331fc1cfc6e0421b985442ac934748fa",
       "preview_id": "331fc1cfc6e0421b985442ac934748fa",
     },
+    {
+      "binding": "PROMOTE_KV",
+      "id": "30d6ca5b9f9e444ea97362e9757b21c3",
+      "preview_id": "30d6ca5b9f9e444ea97362e9757b21c3",
+    },
+  ],
+  // AECI-563 / ADR 0021: the promote ingest Workflow. Base config mirrors preview (bare
+  // `wrangler dev`); per-env blocks below give each environment its own Workflow so
+  // instance ids — which ARE the caller-supplied job ids — never collide across tiers.
+  "workflows": [
+    {
+      "name": "aeci-promote-preview",
+      "binding": "PROMOTE_WORKFLOW",
+      "class_name": "PromoteWorkflow",
+    },
   ],
   // ADR 0016 / AECI-252: the application database is Cloudflare D1, bound as `DB`
   // and reached via the Drizzle client factory `getDb(env)` (`src/db/client.ts`).
@@ -179,6 +210,22 @@
           "binding": "TAXONOMY_KV",
           "id": "331fc1cfc6e0421b985442ac934748fa",
           "preview_id": "331fc1cfc6e0421b985442ac934748fa",
+        },
+        // AECI-563 / ADR 0021: promote job payload staging + result mirror.
+        {
+          "binding": "PROMOTE_KV",
+          "id": "30d6ca5b9f9e444ea97362e9757b21c3",
+          "preview_id": "30d6ca5b9f9e444ea97362e9757b21c3",
+        },
+      ],
+      // AECI-563 / ADR 0021. `pnpm dev:bound` runs the API Worker with `--env preview`,
+      // so this is the Workflow the bound local stack uses — served locally by
+      // `wrangler dev` regardless of account state.
+      "workflows": [
+        {
+          "name": "aeci-promote-preview",
+          "binding": "PROMOTE_WORKFLOW",
+          "class_name": "PromoteWorkflow",
         },
       ],
       // ADR 0016 / AECI-252. `pnpm dev:bound` runs the API Worker with
@@ -239,6 +286,19 @@
           "binding": "TAXONOMY_KV",
           "id": "dcc927dc53be4fdb9b7c5279e4803539",
         },
+        // AECI-563 / ADR 0021: promote job payload staging + result mirror.
+        {
+          "binding": "PROMOTE_KV",
+          "id": "eee38f83e62f473d8d589e08b2a99c07",
+        },
+      ],
+      // AECI-563 / ADR 0021: the promote ingest Workflow (see the base-config note).
+      "workflows": [
+        {
+          "name": "aeci-promote-staging",
+          "binding": "PROMOTE_WORKFLOW",
+          "class_name": "PromoteWorkflow",
+        },
       ],
       // ADR 0016 / AECI-252 + AECI-256. `database_id` is provisioned (AECI-256);
       // deploy CI applies migrations via
@@ -290,11 +350,26 @@
       // deploy.yml).
       "queues": {
         "producers": [
-          { "queue": "aeci-algolia-sync-staging", "binding": "ALGOLIA_SYNC_QUEUE" },
-          { "queue": "aeci-algolia-drift-staging", "binding": "ALGOLIA_DRIFT_QUEUE" },
-          { "queue": "aeci-stats-staging", "binding": "STATS_QUEUE" },
-          { "queue": "aeci-reconcile-staging", "binding": "RECONCILE_QUEUE" },
-          { "queue": "aeci-data-quality-staging", "binding": "DATA_QUALITY_QUEUE" },
+          {
+            "queue": "aeci-algolia-sync-staging",
+            "binding": "ALGOLIA_SYNC_QUEUE",
+          },
+          {
+            "queue": "aeci-algolia-drift-staging",
+            "binding": "ALGOLIA_DRIFT_QUEUE",
+          },
+          {
+            "queue": "aeci-stats-staging",
+            "binding": "STATS_QUEUE",
+          },
+          {
+            "queue": "aeci-reconcile-staging",
+            "binding": "RECONCILE_QUEUE",
+          },
+          {
+            "queue": "aeci-data-quality-staging",
+            "binding": "DATA_QUALITY_QUEUE",
+          },
         ],
         "consumers": [
           {
@@ -369,6 +444,19 @@
           "binding": "TAXONOMY_KV",
           "id": "b05173e9891e4b93948f55b62c4dac84",
         },
+        // AECI-563 / ADR 0021: promote job payload staging + result mirror.
+        {
+          "binding": "PROMOTE_KV",
+          "id": "bda4c6f152384073861d5ff218e0d7da",
+        },
+      ],
+      // AECI-563 / ADR 0021: the promote ingest Workflow (see the base-config note).
+      "workflows": [
+        {
+          "name": "aeci-promote-demo",
+          "binding": "PROMOTE_WORKFLOW",
+          "class_name": "PromoteWorkflow",
+        },
       ],
       // promote-to-demo CI applies migrations via
       // `wrangler d1 migrations apply aeci-app-demo --env demo --remote`.
@@ -399,11 +487,26 @@
       // ADR 0013 (see staging note): cron enqueues → `queue` consumer runs the job.
       "queues": {
         "producers": [
-          { "queue": "aeci-algolia-sync-demo", "binding": "ALGOLIA_SYNC_QUEUE" },
-          { "queue": "aeci-algolia-drift-demo", "binding": "ALGOLIA_DRIFT_QUEUE" },
-          { "queue": "aeci-stats-demo", "binding": "STATS_QUEUE" },
-          { "queue": "aeci-reconcile-demo", "binding": "RECONCILE_QUEUE" },
-          { "queue": "aeci-data-quality-demo", "binding": "DATA_QUALITY_QUEUE" },
+          {
+            "queue": "aeci-algolia-sync-demo",
+            "binding": "ALGOLIA_SYNC_QUEUE",
+          },
+          {
+            "queue": "aeci-algolia-drift-demo",
+            "binding": "ALGOLIA_DRIFT_QUEUE",
+          },
+          {
+            "queue": "aeci-stats-demo",
+            "binding": "STATS_QUEUE",
+          },
+          {
+            "queue": "aeci-reconcile-demo",
+            "binding": "RECONCILE_QUEUE",
+          },
+          {
+            "queue": "aeci-data-quality-demo",
+            "binding": "DATA_QUALITY_QUEUE",
+          },
         ],
         "consumers": [
           {
@@ -499,6 +602,19 @@
           "binding": "TAXONOMY_KV",
           "id": "35d63b5b3c4b492c9d4e6f2041d60136",
         },
+        // AECI-563 / ADR 0021: promote job payload staging + result mirror.
+        {
+          "binding": "PROMOTE_KV",
+          "id": "9f0ce48f3a6b46f98458907baec65bf3",
+        },
+      ],
+      // AECI-563 / ADR 0021: the promote ingest Workflow (see the base-config note).
+      "workflows": [
+        {
+          "name": "aeci-promote-production",
+          "binding": "PROMOTE_WORKFLOW",
+          "class_name": "PromoteWorkflow",
+        },
       ],
       // ADR 0016 / AECI-252 + AECI-256. `database_id` is provisioned (AECI-256);
       // promote-to-prod CI applies migrations via `wrangler d1 migrations apply
@@ -534,11 +650,26 @@
       // ADR 0013 (see staging note): cron enqueues → `queue` consumer runs the job.
       "queues": {
         "producers": [
-          { "queue": "aeci-algolia-sync-production", "binding": "ALGOLIA_SYNC_QUEUE" },
-          { "queue": "aeci-algolia-drift-production", "binding": "ALGOLIA_DRIFT_QUEUE" },
-          { "queue": "aeci-stats-production", "binding": "STATS_QUEUE" },
-          { "queue": "aeci-reconcile-production", "binding": "RECONCILE_QUEUE" },
-          { "queue": "aeci-data-quality-production", "binding": "DATA_QUALITY_QUEUE" },
+          {
+            "queue": "aeci-algolia-sync-production",
+            "binding": "ALGOLIA_SYNC_QUEUE",
+          },
+          {
+            "queue": "aeci-algolia-drift-production",
+            "binding": "ALGOLIA_DRIFT_QUEUE",
+          },
+          {
+            "queue": "aeci-stats-production",
+            "binding": "STATS_QUEUE",
+          },
+          {
+            "queue": "aeci-reconcile-production",
+            "binding": "RECONCILE_QUEUE",
+          },
+          {
+            "queue": "aeci-data-quality-production",
+            "binding": "DATA_QUALITY_QUEUE",
+          },
         ],
         "consumers": [
           {

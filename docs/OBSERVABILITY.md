@@ -29,7 +29,10 @@ below. The bounded render-volume signal is the `aeci.ssr.render` count metric.
 |---|---|---|---|
 | `aeci.page.render.duration_ms` | distribution | `apps/web/src/server-runtime.ts` (`handleSsr`, HIT + MISS branches) | `route_class` (detail/index/browse), `cache_status` (HIT/MISS), `status_code`, `status_class` (2xx/4xx/5xx) |
 | `aeci.ssr.render` | count | `apps/web/src/server-runtime.ts` (`handleSsr`, **all** branches) | `cache_status` (hit/miss/non_cacheable), `status_class` (2xx/4xx/5xx) |
-| `aeci.api.query.duration_ms` | distribution | `apps/api/src/metrics-middleware.ts` (top-level Hono middleware) | `endpoint` (matched route pattern, e.g. `/api/products/:slug`), `status`, `status_class` |
+| `aeci.api.query.duration_ms` | distribution | `apps/api/src/metrics-middleware.ts` (top-level Hono middleware) | `endpoint` (matched route pattern, e.g. `/api/products/:slug`), `status`, `status_class` — **note (AECI-563):** on `endpoint:/api/promote` this now times only the fast kick-off, not the ingest; use `aeci.api.promote.job.duration_ms` for the commit |
+| `aeci.api.promote.kickoff` | count | `apps/api/src/routes/promote-kickoff.ts` (`POST /api/promote`, AECI-563) | `outcome` (`created` / `existing` — `existing` is a replayed kick-off attaching to its already-running job, the idempotency guard firing), `payload` (`inline` / `staged` — `staged` means the bundle exceeded the 1 MiB Workflow-params cap and went to `PROMOTE_KV`) |
+| `aeci.api.promote.job` | count | `apps/api/src/workflows/promote-workflow.ts` (`runPromoteWorkflow`, AECI-563) | `outcome` (`complete` / `errored`), plus `code` (the `ApiErrorCode`) on `errored` — one heartbeat per finished job; the always-emitted `outcome:complete` series is the ingest-liveness signal |
+| `aeci.api.promote.job.duration_ms` | distribution | `apps/api/src/workflows/promote-workflow.ts` (`runPromoteWorkflow`, AECI-563) | `outcome` (`complete` / `errored`) — wall-clock of the whole job (payload load + plan + atomic batch + count recompute). **This is the metric that replaces the old promote request duration**; a slow ingest is no longer visible as a slow request |
 | `aeci.api.promote.skipped` | count | `apps/api/src/routes/promote.ts` (`logPromoteSkips`) | `source` (`promote`), `kind` (`integration` / `extension` / `usefulness` / `claim` / `trade`) — **value = per-kind skip count, query with `sum:`** |
 | `aeci.cache.purge` | count | `apps/web/src/server/routes/admin-purge.ts` | `source` (manual / future webhook), `outcome` (ok / cf_failed) |
 | `aeci.api.data_gap` | count | `apps/api/src/lib/handler-utils.ts` (`reportMissingVendors`, called by the product-list-producing handlers) | `gap_type` (currently `missing_vendor`) |
@@ -310,11 +313,20 @@ one log per 4xx/409 (level `warn`) and 5xx (level `error`), carrying the HTTP st
 `http_status` — Datadog reserves `status` for the log level), error `code`, `field`, full
 `details` (the Zod `issues[]` for a `VALIDATION_FAILED`, the slug `target` for a
 `SLUG_CONFLICT`), `path`/`method`, and the **same `trace_id`** returned in the response envelope
-(so a caller-reported `trace_id` pivots straight to the log). Separately, a **partial** promote — a
-`200` with a non-empty `skipped[]`, which `aeci.api.query.duration_ms` sees as a clean success —
-emits a `warn` log `aeci.api.promote.partial_skipped` (detailing every `{ref, kind, reason}` + per-kind
-counts) plus the `aeci.api.promote.skipped` count above, so a curator's silently-dropped entity is
-visible. All of it is fire-and-forget over the shared transport (no-op without `DD_API_KEY`) and never
+(so a caller-reported `trace_id` pivots straight to the log).
+
+**Since AECI-563 that router only sees the kick-off.** The commit runs in the promote Workflow, so a
+`SLUG_CONFLICT` or an unexpected fault during the ingest never passes through `errorHandler` and would
+otherwise vanish from Datadog. The Workflow logs it itself: an `error`-level
+`aeci.api.promote.job_failed` under the same `source:review-app-promote`, carrying `job_id`, the error
+`code`, and the reason — pivot on `job_id` rather than `trace_id` for those. Together with
+`aeci.api.promote.job{outcome}` this keeps `REVIEW_APP_PROMOTE_API.md` §6.3's "every rejected promote
+is in Datadog" true across both surfaces.
+
+Separately, a **partial** promote — a job that reaches `complete` with a non-empty `skipped[]`, which
+every outcome metric sees as a clean success — emits a `warn` log
+`aeci.api.promote.partial_skipped` (detailing every `{ref, kind, reason}` + per-kind counts) plus the
+`aeci.api.promote.skipped` count above, so a curator's silently-dropped entity is visible. All of it is fire-and-forget over the shared transport (no-op without `DD_API_KEY`) and never
 affects the response. This is deliberately scoped to promote — the high-traffic public read endpoints
 stay silent on 4xx to keep log volume down.
 

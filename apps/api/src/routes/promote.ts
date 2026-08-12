@@ -1,13 +1,23 @@
 /**
- * `POST /api/promote` — push-based Airtable → app-DB promotion — Drizzle/D1
- * (ADR 0016 / AECI-253, AECI-249).
+ * Push-based Airtable → app-DB promotion ingest — Drizzle/D1 (ADR 0016 / AECI-253,
+ * AECI-249).
  *
- * The review application sends one product plus its dependencies; this handler
+ * The review application sends one product plus its dependencies; this module
  * upserts the whole bundle and returns the resulting IDs (see `@aeci/shared`
  * `PromotePayloadSchema` / `PromoteResponse` for the contract and idempotency
  * model).
  *
- * D1 has no interactive transactions, so the handler is **plan-then-batch**:
+ * **This is no longer an HTTP handler (AECI-563 / ADR 0021).** `POST /api/promote`
+ * (`routes/promote-kickoff.ts`) validates the payload, starts the promote Workflow,
+ * and returns `202 { jobId }`; the Workflow (`workflows/promote-workflow.ts`) runs
+ * {@link runPromoteIngest} inside one non-retried step and then
+ * {@link dispatchPromoteHooks}, and `GET /api/promote/jobs/:id`
+ * (`routes/promote-jobs.ts`) serves the ID map. That split exists because the
+ * commit used to be lost to a client timeout: the batch committed, the response
+ * carrying the assigned IDs never arrived, and the product went live with no way
+ * to recover its IDs (AECI-561).
+ *
+ * D1 has no interactive transactions, so the ingest is **plan-then-batch**:
  *   1. **Plan (reads + id generation, NO writes).** Preload slugs; read the
  *      slugs of any rows being updated; resolve taxonomy (find-or-create for
  *      categories/audiences/phases, find-ONLY for trades — AECI-542) and
@@ -47,7 +57,7 @@
 import {
   callCloudflarePurge,
   CF_PURGE_MAX_TAGS,
-  PromotePayloadSchema,
+  type PromotePayload,
   type EntityRef,
   type PromoteEntityResult,
   type PromoteIntegrationResult,
@@ -69,7 +79,6 @@ import {
 import { disambiguateSlug, SlugReservedError, slugify } from '@aeci/shared/slug';
 import { eq, inArray, type Table } from 'drizzle-orm';
 import { type SQLiteColumn } from 'drizzle-orm/sqlite-core';
-import type { Context } from 'hono';
 
 import { getDb, type Db } from '../db/client';
 import {
@@ -93,12 +102,11 @@ import {
 import { logToDatadog, submitCount, submitDistribution } from '../datadog';
 import type { Env } from '../env';
 import { ApiError } from '../errors';
-import { json } from '../http';
 import { syncPromoteTargets } from '../lib/algolia-sync';
 import { emitAlgoliaSyncMetrics, type SyncMetricSink } from '../lib/algolia-sync-metrics';
 import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
 import { callGoogleIndexing } from '../lib/google-indexing';
-import { writeDb, type DbFactory } from '../lib/handler-utils';
+import { type DbFactory } from '../lib/handler-utils';
 import { runHomeStats, type HomeStatsResult } from '../lib/home-stats';
 import { emitHomeStatsMetrics, type StatsMetricSink } from '../lib/home-stats-metrics';
 import { callIndexNow } from '../lib/indexnow';
@@ -246,10 +254,10 @@ function integrationEditableData(intg: PromoteIntegration): Record<string, unkno
   });
 }
 
-function makeForwarder(c: Context<{ Bindings: Env }>): AuditLogForwarder | undefined {
-  if (!c.env.DD_API_KEY) return undefined;
+function makeForwarder(rc: PromoteRunCtx): AuditLogForwarder | undefined {
+  if (!rc.env.DD_API_KEY) return undefined;
   return (entry) => {
-    logToDatadog(c.executionCtx, c.env, c.req.raw, {
+    logToDatadog(rc, rc.env, rc.request, {
       level: 'info',
       message: `audit ${entry.action} ${entry.entityId ?? ''}`.trim(),
       action: entry.action,
@@ -278,11 +286,11 @@ const AUDIT_META = { source: 'review-app-promote' } as const;
  * `/trades`, the facet sidebar, and the sitemap. See `CACHE_STRATEGY.md` §2.
  */
 async function purgeAfterPromote(
-  c: Context<{ Bindings: Env }>,
+  rc: PromoteRunCtx,
   response: PromoteResponse,
   removedTradeSlugs: string[] = [],
 ): Promise<void> {
-  const creds = { apiToken: c.env.CF_PURGE_API_TOKEN, zoneId: c.env.CF_ZONE_ID };
+  const creds = { apiToken: rc.env.CF_PURGE_API_TOKEN, zoneId: rc.env.CF_ZONE_ID };
   if (!creds.apiToken || !creds.zoneId) return;
 
   const tags = cacheTagsForPromote(response, { removedTradeSlugs });
@@ -296,19 +304,19 @@ async function purgeAfterPromote(
   await Promise.allSettled(
     batches.map(async (batch) => {
       const outcome = await callCloudflarePurge(fetch, creds, batch);
-      submitCount(c.executionCtx, c.env, c.req.raw, 'aeci.cache.purge', 1, [
+      submitCount(rc, rc.env, rc.request, 'aeci.cache.purge', 1, [
         'source:promote',
         `outcome:${outcome.ok ? 'ok' : 'cf_failed'}`,
       ]);
       if (!outcome.ok) {
-        logPurgeFailure(c, batch, `cf_${outcome.status}: ${outcome.message}`);
+        logPurgeFailure(rc, batch, `cf_${outcome.status}: ${outcome.message}`);
       }
     }),
   );
 }
 
-function logPurgeFailure(c: Context<{ Bindings: Env }>, batch: string[], reason: string): void {
-  logToDatadog(c.executionCtx, c.env, c.req.raw, {
+function logPurgeFailure(rc: PromoteRunCtx, batch: string[], reason: string): void {
+  logToDatadog(rc, rc.env, rc.request, {
     level: 'warn',
     message: 'aeci.api.promote.cache_purge_failed',
     source: 'review-app-promote',
@@ -325,31 +333,24 @@ function logPurgeFailure(c: Context<{ Bindings: Env }>, batch: string[], reason:
  * pushes them to the env's indexes via the Drizzle `algolia-sync` core, gated on
  * the Algolia secrets. Injected for tests. Never throws.
  */
-export type PromoteAlgoliaSync = (
-  c: Context<{ Bindings: Env }>,
-  response: PromoteResponse,
-) => Promise<void>;
+export type PromoteAlgoliaSync = (rc: PromoteRunCtx, response: PromoteResponse) => Promise<void>;
 
-const defaultAlgoliaSync: PromoteAlgoliaSync = (c, response) =>
+const defaultAlgoliaSync: PromoteAlgoliaSync = (rc, response) =>
   // Post-commit best-effort re-read for indexing. It re-queries the just-promoted
   // rows by id, so it MUST see its own write: resume the write session via its
-  // bookmark (`dbCtx` stashed by `writeDb`) rather than starting a fresh
-  // `'first-unconstrained'` session — otherwise a lagging replica could index
+  // bookmark (`rc.bookmark()`, filled in from the commit step's result) rather than
+  // starting a fresh `'first-unconstrained'` session — otherwise a lagging replica could index
   // stale/missing rows once read replication is enabled. Falls back to the read
   // default when no bookmark exists (single-DB local/test). (AECI-250)
-  syncAlgoliaAfterPromote(
-    c,
-    response,
-    getDb(c.env, { bookmark: c.get('dbCtx')?.getBookmark() ?? null }).db,
-  );
+  syncAlgoliaAfterPromote(rc, response, getDb(rc.env, { bookmark: rc.bookmark() }).db);
 
 async function syncAlgoliaAfterPromote(
-  c: Context<{ Bindings: Env }>,
+  rc: PromoteRunCtx,
   response: PromoteResponse,
   db: Db,
 ): Promise<void> {
-  const creds = { appId: c.env.ALGOLIA_APP_ID, apiKey: c.env.ALGOLIA_ADMIN_KEY };
-  const env: AlgoliaEnv = c.env.ENV ?? 'development';
+  const creds = { appId: rc.env.ALGOLIA_APP_ID, apiKey: rc.env.ALGOLIA_ADMIN_KEY };
+  const env: AlgoliaEnv = rc.env.ENV ?? 'development';
   const started = Date.now();
   try {
     const results = await syncPromoteTargets(db, fetch, creds, env, {
@@ -358,26 +359,21 @@ async function syncAlgoliaAfterPromote(
       integrations: response.integrations.map((i) => ({ id: i.id })),
     });
     const sink: SyncMetricSink = {
-      count: (metric, value, tags) =>
-        submitCount(c.executionCtx, c.env, c.req.raw, metric, value, tags),
+      count: (metric, value, tags) => submitCount(rc, rc.env, rc.request, metric, value, tags),
       distribution: (metric, value, tags) =>
-        submitDistribution(c.executionCtx, c.env, c.req.raw, metric, value, tags),
+        submitDistribution(rc, rc.env, rc.request, metric, value, tags),
     };
     emitAlgoliaSyncMetrics(sink, 'promote', results, Date.now() - started);
     for (const result of results) {
-      if (!result.ok) logAlgoliaSyncFailure(c, result.entity, result.error ?? 'unknown');
+      if (!result.ok) logAlgoliaSyncFailure(rc, result.entity, result.error ?? 'unknown');
     }
   } catch (error) {
-    logAlgoliaSyncFailure(c, 'all', error instanceof Error ? error.message : String(error));
+    logAlgoliaSyncFailure(rc, 'all', error instanceof Error ? error.message : String(error));
   }
 }
 
-function logAlgoliaSyncFailure(
-  c: Context<{ Bindings: Env }>,
-  entity: string,
-  reason: string,
-): void {
-  logToDatadog(c.executionCtx, c.env, c.req.raw, {
+function logAlgoliaSyncFailure(rc: PromoteRunCtx, entity: string, reason: string): void {
+  logToDatadog(rc, rc.env, rc.request, {
     level: 'warn',
     message: 'aeci.api.promote.algolia_sync_failed',
     source: 'review-app-promote',
@@ -402,21 +398,21 @@ function logAlgoliaSyncFailure(
  * seam and never awaited on the request path — see `resolveTradeUrlOptions`.
  */
 export type PromoteIndexNowNotify = (
-  c: Context<{ Bindings: Env }>,
+  rc: PromoteRunCtx,
   response: PromoteResponse,
   tradeUrls: Promise<AffectedUrlOptions>,
 ) => Promise<void>;
 
-const defaultIndexNowNotify: PromoteIndexNowNotify = (c, response, tradeUrls) =>
-  notifyIndexNowAfterPromote(c, response, tradeUrls);
+const defaultIndexNowNotify: PromoteIndexNowNotify = (rc, response, tradeUrls) =>
+  notifyIndexNowAfterPromote(rc, response, tradeUrls);
 
 async function notifyIndexNowAfterPromote(
-  c: Context<{ Bindings: Env }>,
+  rc: PromoteRunCtx,
   response: PromoteResponse,
   tradeUrls: Promise<AffectedUrlOptions>,
 ): Promise<void> {
-  const key = c.env.INDEXNOW_KEY;
-  const siteUrl = c.env.PUBLIC_SITE_URL;
+  const key = rc.env.INDEXNOW_KEY;
+  const siteUrl = rc.env.PUBLIC_SITE_URL;
   if (!key || !siteUrl) return;
 
   const urlList = affectedUrlsForPromote(response, siteUrl, await tradeUrls);
@@ -429,26 +425,22 @@ async function notifyIndexNowAfterPromote(
     keyLocation = `${siteUrl.replace(/\/+$/, '')}/${key}.txt`;
   } catch {
     // PUBLIC_SITE_URL isn't a valid URL — misconfiguration; skip rather than throw.
-    logIndexNowFailure(c, urlList.length, 'invalid_public_site_url');
+    logIndexNowFailure(rc, urlList.length, 'invalid_public_site_url');
     return;
   }
 
   const outcome = await callIndexNow(fetch, { host, key, keyLocation, urlList });
-  submitCount(c.executionCtx, c.env, c.req.raw, 'aeci.indexnow.submit', 1, [
+  submitCount(rc, rc.env, rc.request, 'aeci.indexnow.submit', 1, [
     'source:promote',
     `outcome:${outcome.ok ? 'ok' : 'failed'}`,
   ]);
   if (!outcome.ok) {
-    logIndexNowFailure(c, urlList.length, `indexnow_${outcome.status}: ${outcome.message}`);
+    logIndexNowFailure(rc, urlList.length, `indexnow_${outcome.status}: ${outcome.message}`);
   }
 }
 
-function logIndexNowFailure(
-  c: Context<{ Bindings: Env }>,
-  urlsCount: number,
-  reason: string,
-): void {
-  logToDatadog(c.executionCtx, c.env, c.req.raw, {
+function logIndexNowFailure(rc: PromoteRunCtx, urlsCount: number, reason: string): void {
+  logToDatadog(rc, rc.env, rc.request, {
     level: 'warn',
     message: 'aeci.api.promote.indexnow_failed',
     source: 'review-app-promote',
@@ -474,17 +466,17 @@ function logIndexNowFailure(
  * overwhelming majority of promotes — trades are sparse by design — pay nothing.
  */
 function resolveTradeUrlOptions(
-  c: Context<{ Bindings: Env }>,
+  rc: PromoteRunCtx,
   db: Db,
   response: PromoteResponse,
   removedTradeSlugs: string[],
 ): Promise<AffectedUrlOptions> {
-  const siteUrl = c.env.PUBLIC_SITE_URL;
+  const siteUrl = rc.env.PUBLIC_SITE_URL;
   const pingConfigured =
     Boolean(siteUrl) &&
     Boolean(
-      c.env.INDEXNOW_KEY ||
-      (c.env.GOOGLE_INDEXING_SA_EMAIL && c.env.GOOGLE_INDEXING_SA_PRIVATE_KEY),
+      rc.env.INDEXNOW_KEY ||
+      (rc.env.GOOGLE_INDEXING_SA_EMAIL && rc.env.GOOGLE_INDEXING_SA_PRIVATE_KEY),
     );
   const touched = touchedTradeSlugs(response, removedTradeSlugs);
   if (!pingConfigured || touched.length === 0) return Promise.resolve({});
@@ -508,22 +500,22 @@ function resolveTradeUrlOptions(
  * top of the sitemap `<lastmod>` (§20.5 step 5). Injected for tests.
  */
 export type PromoteGoogleIndexingNotify = (
-  c: Context<{ Bindings: Env }>,
+  rc: PromoteRunCtx,
   response: PromoteResponse,
   tradeUrls: Promise<AffectedUrlOptions>,
 ) => Promise<void>;
 
-const defaultGoogleIndexingNotify: PromoteGoogleIndexingNotify = (c, response, tradeUrls) =>
-  notifyGoogleIndexingAfterPromote(c, response, tradeUrls);
+const defaultGoogleIndexingNotify: PromoteGoogleIndexingNotify = (rc, response, tradeUrls) =>
+  notifyGoogleIndexingAfterPromote(rc, response, tradeUrls);
 
 async function notifyGoogleIndexingAfterPromote(
-  c: Context<{ Bindings: Env }>,
+  rc: PromoteRunCtx,
   response: PromoteResponse,
   tradeUrls: Promise<AffectedUrlOptions>,
 ): Promise<void> {
-  const clientEmail = c.env.GOOGLE_INDEXING_SA_EMAIL;
-  const privateKey = c.env.GOOGLE_INDEXING_SA_PRIVATE_KEY;
-  const siteUrl = c.env.PUBLIC_SITE_URL;
+  const clientEmail = rc.env.GOOGLE_INDEXING_SA_EMAIL;
+  const privateKey = rc.env.GOOGLE_INDEXING_SA_PRIVATE_KEY;
+  const siteUrl = rc.env.PUBLIC_SITE_URL;
   if (!clientEmail || !privateKey || !siteUrl) return;
 
   const urlList = affectedUrlsForPromote(response, siteUrl, await tradeUrls);
@@ -534,31 +526,27 @@ async function notifyGoogleIndexingAfterPromote(
     urlList,
   });
   const failed = !outcome.ok || outcome.failed > 0;
-  submitCount(c.executionCtx, c.env, c.req.raw, 'aeci.google_indexing.submit', 1, [
+  submitCount(rc, rc.env, rc.request, 'aeci.google_indexing.submit', 1, [
     'source:promote',
     `outcome:${failed ? 'failed' : 'ok'}`,
   ]);
   if (!outcome.ok) {
     logGoogleIndexingFailure(
-      c,
+      rc,
       urlList.length,
       `google_indexing_${outcome.status}: ${outcome.message}`,
     );
   } else if (outcome.failed > 0) {
     logGoogleIndexingFailure(
-      c,
+      rc,
       urlList.length,
       `google_indexing_partial: ${outcome.failed} of ${urlList.length} failed`,
     );
   }
 }
 
-function logGoogleIndexingFailure(
-  c: Context<{ Bindings: Env }>,
-  urlsCount: number,
-  reason: string,
-): void {
-  logToDatadog(c.executionCtx, c.env, c.req.raw, {
+function logGoogleIndexingFailure(rc: PromoteRunCtx, urlsCount: number, reason: string): void {
+  logToDatadog(rc, rc.env, rc.request, {
     level: 'warn',
     message: 'aeci.api.promote.google_indexing_failed',
     source: 'review-app-promote',
@@ -589,25 +577,20 @@ const HOME_CACHE_TAG = 'index:home';
  * HTML for another edge TTL). Injected for tests; never throws. Mirrors the Algolia
  * seam above.
  */
-export type PromoteHomeStatsRefresh = (c: Context<{ Bindings: Env }>) => Promise<void>;
+export type PromoteHomeStatsRefresh = (rc: PromoteRunCtx) => Promise<void>;
 
-const defaultHomeStatsRefresh: PromoteHomeStatsRefresh = (c) =>
-  // Re-read with the promote's write bookmark (`dbCtx` stashed by `writeDb`) so the
+const defaultHomeStatsRefresh: PromoteHomeStatsRefresh = (rc) =>
+  // Re-read with the promote's write bookmark (`rc.bookmark()`, filled in from the
+  // commit step's result) so the
   // recompute's COUNT(*)s see the just-committed rows even once D1 read replication
   // is enabled — otherwise a lagging replica would recount the stale catalog. Falls
   // back to the read default when no bookmark exists (single-DB local/test). (AECI-250)
-  refreshHomeStatsAfterPromote(
-    c,
-    getDb(c.env, { bookmark: c.get('dbCtx')?.getBookmark() ?? null }).db,
-  );
+  refreshHomeStatsAfterPromote(rc, getDb(rc.env, { bookmark: rc.bookmark() }).db);
 
 /** Exported for the promote spec: recompute the `home.*` `stats_cache` keys, then
  *  purge the home page. Not the injected seam (`PromoteHomeStatsRefresh`) — that's
  *  the thin `getDb`-binding wrapper above; this is the testable body. */
-export async function refreshHomeStatsAfterPromote(
-  c: Context<{ Bindings: Env }>,
-  db: Db,
-): Promise<void> {
+export async function refreshHomeStatsAfterPromote(rc: PromoteRunCtx, db: Db): Promise<void> {
   const started = Date.now();
   let result: HomeStatsResult;
   try {
@@ -617,11 +600,11 @@ export async function refreshHomeStatsAfterPromote(
     // failure, so reaching here is a pre-compute crash. Count an outright failure +
     // error-log; never rethrow — the promote already committed (this is a
     // post-commit task).
-    submitCount(c.executionCtx, c.env, c.req.raw, 'aeci.stats.compute', 1, [
+    submitCount(rc, rc.env, rc.request, 'aeci.stats.compute', 1, [
       'trigger:promote',
       'outcome:failed',
     ]);
-    logToDatadog(c.executionCtx, c.env, c.req.raw, {
+    logToDatadog(rc, rc.env, rc.request, {
       level: 'error',
       message: 'aeci.stats.compute.crashed',
       source: 'review-app-promote',
@@ -631,15 +614,14 @@ export async function refreshHomeStatsAfterPromote(
   }
 
   const sink: StatsMetricSink = {
-    count: (metric, value, tags) =>
-      submitCount(c.executionCtx, c.env, c.req.raw, metric, value, tags),
+    count: (metric, value, tags) => submitCount(rc, rc.env, rc.request, metric, value, tags),
     distribution: (metric, value, tags) =>
-      submitDistribution(c.executionCtx, c.env, c.req.raw, metric, value, tags),
+      submitDistribution(rc, rc.env, rc.request, metric, value, tags),
   };
   emitHomeStatsMetrics(sink, 'promote', result, Date.now() - started);
   for (const k of result.keys) {
     if (k.status !== 'failed') continue;
-    logToDatadog(c.executionCtx, c.env, c.req.raw, {
+    logToDatadog(rc, rc.env, rc.request, {
       level: 'warn',
       message: `aeci.stats.compute ${k.key} status=failed`,
       source: 'review-app-promote',
@@ -653,23 +635,23 @@ export async function refreshHomeStatsAfterPromote(
   // CF creds (local/preview don't edge-cache, so the refresh above already suffices).
   // Wrapped so a network-level `fetch` throw can't reject this post-commit task —
   // the CF error is recorded, never rethrown.
-  const creds = { apiToken: c.env.CF_PURGE_API_TOKEN, zoneId: c.env.CF_ZONE_ID };
+  const creds = { apiToken: rc.env.CF_PURGE_API_TOKEN, zoneId: rc.env.CF_ZONE_ID };
   if (!creds.apiToken || !creds.zoneId) return;
   try {
     const outcome = await callCloudflarePurge(fetch, creds, [HOME_CACHE_TAG]);
-    submitCount(c.executionCtx, c.env, c.req.raw, 'aeci.cache.purge', 1, [
+    submitCount(rc, rc.env, rc.request, 'aeci.cache.purge', 1, [
       'source:promote',
       `outcome:${outcome.ok ? 'ok' : 'cf_failed'}`,
     ]);
     if (!outcome.ok) {
-      logPurgeFailure(c, [HOME_CACHE_TAG], `cf_${outcome.status}: ${outcome.message}`);
+      logPurgeFailure(rc, [HOME_CACHE_TAG], `cf_${outcome.status}: ${outcome.message}`);
     }
   } catch (error) {
-    submitCount(c.executionCtx, c.env, c.req.raw, 'aeci.cache.purge', 1, [
+    submitCount(rc, rc.env, rc.request, 'aeci.cache.purge', 1, [
       'source:promote',
       'outcome:cf_failed',
     ]);
-    logPurgeFailure(c, [HOME_CACHE_TAG], error instanceof Error ? error.message : String(error));
+    logPurgeFailure(rc, [HOME_CACHE_TAG], error instanceof Error ? error.message : String(error));
   }
 }
 
@@ -691,7 +673,7 @@ export async function refreshHomeStatsAfterPromote(
  * on `DD_API_KEY` and dispatches via `ctx.waitUntil`, so this never affects the
  * committed promote. No-op when nothing was skipped.
  */
-function logPromoteSkips(c: Context<{ Bindings: Env }>, skipped: PromoteSkipped[]): void {
+function logPromoteSkips(rc: PromoteRunCtx, skipped: PromoteSkipped[]): void {
   if (skipped.length === 0) return;
 
   const countByKind = skipped.reduce<Record<string, number>>((acc, s) => {
@@ -699,7 +681,7 @@ function logPromoteSkips(c: Context<{ Bindings: Env }>, skipped: PromoteSkipped[
     return acc;
   }, {});
 
-  logToDatadog(c.executionCtx, c.env, c.req.raw, {
+  logToDatadog(rc, rc.env, rc.request, {
     level: 'warn',
     message: 'aeci.api.promote.partial_skipped',
     source: 'review-app-promote',
@@ -712,14 +694,67 @@ function logPromoteSkips(c: Context<{ Bindings: Env }>, skipped: PromoteSkipped[
   });
 
   for (const [kind, n] of Object.entries(countByKind)) {
-    submitCount(c.executionCtx, c.env, c.req.raw, 'aeci.api.promote.skipped', n, [
+    submitCount(rc, rc.env, rc.request, 'aeci.api.promote.skipped', n, [
       'source:promote',
       `kind:${kind}`,
     ]);
   }
 }
 
-// ─── Handler ─────────────────────────────────────────────────────────────────
+// ─── Ingest ──────────────────────────────────────────────────────────────────
+
+/**
+ * Everything the ingest and its post-commit seams need from their caller, which
+ * since AECI-563 is a Workflow step rather than a Hono request. Deliberately four
+ * members — the ingest never wanted a `Context`, only these:
+ *
+ *   - `env` — the Worker bindings (`DB`, CF/Algolia/IndexNow/Google creds, `DD_*`).
+ *   - `waitUntil` — dispatch for the best-effort post-commit tasks AND for the
+ *     Datadog transport, which is fire-and-forget by design (`@aeci/shared/datadog`).
+ *     `PromoteRunCtx` satisfies that transport's `{ waitUntil }` shape directly, so
+ *     it is passed as the ctx argument.
+ *   - `request` — used ONLY to derive the Datadog `hostname` dimension. The Workflow
+ *     rebuilds one from the kick-off request's URL so workflow-originated promote
+ *     logs stay on the same `hostname` facet as before.
+ *   - `bookmark` — the latest D1 session bookmark of this promote's write (AECI-250).
+ *     Mutable by design: the post-commit re-reads (Algolia, home-stats, the trade
+ *     publication floor) must resume the write's session, and the bookmark only
+ *     exists once the commit step has returned, so the Workflow's implementation
+ *     reads a holder it fills in from {@link PromoteIngestResult}. Returns `null`
+ *     before the commit and in single-DB local/test setups.
+ */
+export type PromoteRunCtx = {
+  env: Env;
+  waitUntil(promise: Promise<unknown>): void;
+  request: Request;
+  bookmark(): string | null;
+};
+
+/** Injectable seams, all defaulted. Tests pass no-op/spy implementations so the real
+ *  transports (D1 binding, Cloudflare purge, Algolia, IndexNow, Google) are never hit. */
+export type PromoteIngestDeps = {
+  dbFor?: DbFactory;
+  syncAlgolia?: PromoteAlgoliaSync;
+  notifyIndexNow?: PromoteIndexNowNotify;
+  notifyGoogleIndexing?: PromoteGoogleIndexingNotify;
+  refreshHomeStats?: PromoteHomeStatsRefresh;
+};
+
+/** What the committed ingest hands back: the caller's ID map plus the inputs the
+ *  post-commit tail needs, none of which are derivable from the response alone. */
+export type PromoteIngestResult = {
+  /** The ID map the review app persists — the former `200` body, now the job result. */
+  response: PromoteResponse;
+  /** Trades this promote DROPPED from the product; the response echoes only what was
+   *  SET, and a removal can still un-publish a trade page (AECI-542/546). */
+  removedTradeSlugs: string[];
+  /** False for an all-skipped promote, which wrote nothing and so needs no stats refresh. */
+  wrote: boolean;
+  /** D1 session bookmark of the commit, for the post-commit re-reads (AECI-250). */
+  bookmark: string | null;
+  /** Audit rows committed inside the batch, forwarded to Datadog post-commit (§26.5). */
+  auditEntries: AuditLogEntry[];
+};
 
 /** A taxonomy facet model (table + the columns the find-or-create reads). The
  *  generic `Table` type doesn't expose columns, so they're passed explicitly. */
@@ -730,820 +765,868 @@ interface TaxonomyTable {
   nameCol: SQLiteColumn;
 }
 
-export function createPromoteHandler(
-  dbFor: DbFactory = getDb,
-  syncAlgolia: PromoteAlgoliaSync = defaultAlgoliaSync,
-  notifyIndexNow: PromoteIndexNowNotify = defaultIndexNowNotify,
-  notifyGoogleIndexing: PromoteGoogleIndexingNotify = defaultGoogleIndexingNotify,
-  refreshHomeStats: PromoteHomeStatsRefresh = defaultHomeStatsRefresh,
-): (c: Context<{ Bindings: Env }>) => Promise<Response> {
-  return async (c) => {
-    let raw: unknown;
-    try {
-      raw = await c.req.json();
-    } catch {
-      throw new ApiError(400, 'MALFORMED_REQUEST', 'Request body is not valid JSON');
-    }
+/**
+ * The plan-then-batch ingest. **Not an HTTP handler** — since AECI-563 the only
+ * caller is the promote Workflow (`workflows/promote-workflow.ts`), which runs it
+ * inside a single non-retried `step.do`. `POST /api/promote` validates the payload
+ * and starts that Workflow; it no longer commits inline, so a client that walks
+ * away mid-flight can't strand a committed promote's IDs.
+ *
+ * Throws — never returns a `Response`:
+ *   - `ApiError(400, VALIDATION_FAILED)` for a name that can't be slugified
+ *     (`generateSlug`), which the caller has no way to detect up front.
+ *   - `ApiError(409, SLUG_CONFLICT)` when a racing promote took the slug (AECI-98).
+ *   - anything else the DB raises → the Workflow reports `INTERNAL_ERROR`.
+ *
+ * Post-commit work is deliberately NOT done here: it is returned as
+ * {@link PromoteIngestResult} and dispatched by {@link dispatchPromoteHooks} after
+ * the step resolves, so a step replay can never double-fire the hooks.
+ */
+export async function runPromoteIngest(
+  rc: PromoteRunCtx,
+  payload: PromotePayload,
+  deps: PromoteIngestDeps = {},
+): Promise<PromoteIngestResult> {
+  const dbFor = deps.dbFor ?? getDb;
+  // Anchor the D1 session at `'first-primary'` so the plan's pre-write reads see
+  // the latest version (no spurious unique-constraint conflicts, no wrong
+  // create/update branch). The Hono-only `writeDb` helper can't be used here —
+  // there is no request context — and `bookmarkMiddleware` no longer applies to
+  // this path, so the outbound bookmark rides `PromoteIngestResult` instead. (AECI-250)
+  const dbCtx = dbFor(rc.env, { bookmark: null, constraint: 'first-primary' });
+  const { db } = dbCtx;
 
-    const payload = PromotePayloadSchema.parse(raw);
-    const { db } = writeDb(c, dbFor);
+  // ── PLAN: reads + id generation. Writes are accumulated, not executed. ──
+  const stmts: BatchStmt[] = [];
+  const auditEntries: AuditLogEntry[] = [];
+  const audit = (entry: AuditLogEntry) => auditEntries.push({ ...entry, metadata: AUDIT_META });
+  const skipped: PromoteSkipped[] = [];
 
-    // ── PLAN: reads + id generation. Writes are accumulated, not executed. ──
-    const stmts: BatchStmt[] = [];
-    const auditEntries: AuditLogEntry[] = [];
-    const audit = (entry: AuditLogEntry) => auditEntries.push({ ...entry, metadata: AUDIT_META });
-    const skipped: PromoteSkipped[] = [];
+  // Preload existing slugs for collision-free generation (outside the batch).
+  const loadSlugs = async (col: SQLiteColumn) =>
+    new Set((await db.select({ slug: col }).from(col.table as Table)).map((r) => r.slug as string));
+  const vendorSlugs = await loadSlugs(vendors.slug);
+  const productSlugs = await loadSlugs(products.slug);
 
-    // Preload existing slugs for collision-free generation (outside the batch).
-    const loadSlugs = async (col: SQLiteColumn) =>
-      new Set(
-        (await db.select({ slug: col }).from(col.table as Table)).map((r) => r.slug as string),
-      );
-    const vendorSlugs = await loadSlugs(vendors.slug);
-    const productSlugs = await loadSlugs(products.slug);
+  // Read the current slugs of vendors being updated (for `firstVendorSlug` + the
+  // response `slug`, which the update doesn't return).
+  const updatedVendorIds = payload.vendors
+    .map((v) => v.supabaseId)
+    .filter((id): id is string => Boolean(id));
+  const vendorSlugById = new Map<string, string>();
+  if (updatedVendorIds.length) {
+    const rows = await db.query.vendors.findMany({
+      columns: { id: true, slug: true },
+      where: inArray(vendors.id, updatedVendorIds),
+    });
+    for (const r of rows) vendorSlugById.set(r.id, r.slug);
+  }
 
-    // Read the current slugs of vendors being updated (for `firstVendorSlug` + the
-    // response `slug`, which the update doesn't return).
-    const updatedVendorIds = payload.vendors
-      .map((v) => v.supabaseId)
-      .filter((id): id is string => Boolean(id));
-    const vendorSlugById = new Map<string, string>();
-    if (updatedVendorIds.length) {
-      const rows = await db.query.vendors.findMany({
-        columns: { id: true, slug: true },
-        where: inArray(vendors.id, updatedVendorIds),
-      });
-      for (const r of rows) vendorSlugById.set(r.id, r.slug);
-    }
-
-    // ── Vendors ──────────────────────────────────────────────────────────────
-    const vendorIdByRef = new Map<string, string>();
-    const vendorResults: PromoteEntityResult[] = [];
-    let firstVendorSlug: string | undefined;
-    for (const v of payload.vendors) {
-      if (v.supabaseId) {
-        const slug = vendorSlugById.get(v.supabaseId) ?? '';
-        stmts.push(
-          db
-            .update(vendors)
-            .set({
-              companyName: v.companyName,
-              promotionStatus: 'promoted',
-              ...vendorEditableData(v),
-            })
-            .where(eq(vendors.id, v.supabaseId)),
-        );
-        vendorIdByRef.set(v.ref, v.supabaseId);
-        vendorResults.push({ ref: v.ref, id: v.supabaseId, slug, operation: 'updated' });
-        firstVendorSlug ??= slug;
-        audit({
-          actorType: 'system',
-          action: 'vendor.updated',
-          entityType: 'vendor',
-          entityId: v.supabaseId,
-        });
-      } else {
-        const slug = generateSlug(v.companyName, vendorSlugs);
-        const id = crypto.randomUUID();
-        stmts.push(
-          db.insert(vendors).values({
-            id,
-            slug,
+  // ── Vendors ──────────────────────────────────────────────────────────────
+  const vendorIdByRef = new Map<string, string>();
+  const vendorResults: PromoteEntityResult[] = [];
+  let firstVendorSlug: string | undefined;
+  for (const v of payload.vendors) {
+    if (v.supabaseId) {
+      const slug = vendorSlugById.get(v.supabaseId) ?? '';
+      stmts.push(
+        db
+          .update(vendors)
+          .set({
             companyName: v.companyName,
             promotionStatus: 'promoted',
             ...vendorEditableData(v),
-          }),
-        );
-        vendorIdByRef.set(v.ref, id);
-        vendorResults.push({ ref: v.ref, id, slug, operation: 'created' });
-        firstVendorSlug ??= slug;
-        audit({
-          actorType: 'system',
-          action: 'vendor.created',
-          entityType: 'vendor',
-          entityId: id,
-        });
-      }
+          })
+          .where(eq(vendors.id, v.supabaseId)),
+      );
+      vendorIdByRef.set(v.ref, v.supabaseId);
+      vendorResults.push({ ref: v.ref, id: v.supabaseId, slug, operation: 'updated' });
+      firstVendorSlug ??= slug;
+      audit({
+        actorType: 'system',
+        action: 'vendor.updated',
+        entityType: 'vendor',
+        entityId: v.supabaseId,
+      });
+    } else {
+      const slug = generateSlug(v.companyName, vendorSlugs);
+      const id = crypto.randomUUID();
+      stmts.push(
+        db.insert(vendors).values({
+          id,
+          slug,
+          companyName: v.companyName,
+          promotionStatus: 'promoted',
+          ...vendorEditableData(v),
+        }),
+      );
+      vendorIdByRef.set(v.ref, id);
+      vendorResults.push({ ref: v.ref, id, slug, operation: 'created' });
+      firstVendorSlug ??= slug;
+      audit({
+        actorType: 'system',
+        action: 'vendor.created',
+        entityType: 'vendor',
+        entityId: id,
+      });
     }
+  }
 
-    // ── Taxonomy (find-or-create by canonical slug) ───────────────────────────
-    // Each facet returns the resolved ids + the public results, AND records a
-    // `{slug → {slug,name}}` map (existing + just-created) for usefulness to
-    // resolve against. New-term inserts are appended to the batch.
-    const resolveTaxonomy = async (
-      names: string[],
-      model: TaxonomyTable,
-      entity: 'category' | 'audience' | 'phase',
-    ): Promise<{
-      ids: string[];
-      results: PromoteTaxonomyResult[];
-      termBySlug: Map<string, { slug: string; name: string }>;
-    }> => {
-      const existing = (await db
-        .select({ id: model.idCol, slug: model.slugCol, name: model.nameCol })
-        .from(model.table)) as Array<{ id: string; slug: string; name: string }>;
-      const bySlug = new Map(existing.map((r) => [r.slug, r.id]));
-      const termBySlug = new Map(existing.map((r) => [r.slug, { slug: r.slug, name: r.name }]));
-      const slugSet = new Set(bySlug.keys());
-      const ids: string[] = [];
-      const results: PromoteTaxonomyResult[] = [];
-      const seen = new Set<string>();
-      for (const name of names) {
-        const canonical = slugify(name);
-        const found = bySlug.get(canonical);
-        if (found) {
-          if (!seen.has(found)) {
-            ids.push(found);
-            results.push({ slug: canonical, id: found, operation: 'reused' });
-            seen.add(found);
-          }
-          continue;
+  // ── Taxonomy (find-or-create by canonical slug) ───────────────────────────
+  // Each facet returns the resolved ids + the public results, AND records a
+  // `{slug → {slug,name}}` map (existing + just-created) for usefulness to
+  // resolve against. New-term inserts are appended to the batch.
+  const resolveTaxonomy = async (
+    names: string[],
+    model: TaxonomyTable,
+    entity: 'category' | 'audience' | 'phase',
+  ): Promise<{
+    ids: string[];
+    results: PromoteTaxonomyResult[];
+    termBySlug: Map<string, { slug: string; name: string }>;
+  }> => {
+    const existing = (await db
+      .select({ id: model.idCol, slug: model.slugCol, name: model.nameCol })
+      .from(model.table)) as Array<{ id: string; slug: string; name: string }>;
+    const bySlug = new Map(existing.map((r) => [r.slug, r.id]));
+    const termBySlug = new Map(existing.map((r) => [r.slug, { slug: r.slug, name: r.name }]));
+    const slugSet = new Set(bySlug.keys());
+    const ids: string[] = [];
+    const results: PromoteTaxonomyResult[] = [];
+    const seen = new Set<string>();
+    for (const name of names) {
+      const canonical = slugify(name);
+      const found = bySlug.get(canonical);
+      if (found) {
+        if (!seen.has(found)) {
+          ids.push(found);
+          results.push({ slug: canonical, id: found, operation: 'reused' });
+          seen.add(found);
         }
-        const slug = disambiguateSlug(canonical, [...slugSet]);
-        slugSet.add(slug);
-        const id = crypto.randomUUID();
-        stmts.push(db.insert(model.table).values({ id, slug, name } as Record<string, unknown>));
-        bySlug.set(canonical, id);
-        termBySlug.set(slug, { slug, name });
-        ids.push(id);
-        results.push({ slug, id, operation: 'created' });
-        seen.add(id);
-        audit({
-          actorType: 'system',
-          action: `${entity}.created`,
-          entityType: entity,
-          entityId: id,
-        });
+        continue;
       }
-      return { ids, results, termBySlug };
-    };
-
-    const p = payload.product;
-    const emptyTax = {
-      ids: [] as string[],
-      results: [] as PromoteTaxonomyResult[],
-      termBySlug: new Map<string, { slug: string; name: string }>(),
-    };
-    const categories = p
-      ? await resolveTaxonomy(
-          p.categories,
-          {
-            table: taxonomyCategories,
-            idCol: taxonomyCategories.id,
-            slugCol: taxonomyCategories.slug,
-            nameCol: taxonomyCategories.name,
-          },
-          'category',
-        )
-      : emptyTax;
-    const audiences = p
-      ? await resolveTaxonomy(
-          p.audiences,
-          {
-            table: taxonomyAudiences,
-            idCol: taxonomyAudiences.id,
-            slugCol: taxonomyAudiences.slug,
-            nameCol: taxonomyAudiences.name,
-          },
-          'audience',
-        )
-      : emptyTax;
-    const phases = p
-      ? await resolveTaxonomy(
-          p.phases,
-          {
-            table: taxonomyPhases,
-            idCol: taxonomyPhases.id,
-            slugCol: taxonomyPhases.slug,
-            nameCol: taxonomyPhases.name,
-          },
-          'phase',
-        )
-      : emptyTax;
-
-    // ── Trades (find-only resolution against the seeded closed vocabulary) ─────
-    // The fourth facet (§5.5a / AECI-542) deliberately diverges from the three
-    // above: `taxonomy_trades` is a GOVERNED closed vocabulary (ADR 0008 /
-    // `docs/TRADES_VOCABULARY.md` §3), so a trade is resolved **find-only** —
-    // never find-or-create. A curator minting `paving-contractors` alongside
-    // `paving-asphalt` would split a trade page's products across two permanent
-    // URLs and destroy the SEO asset the facet exists to build, so an unmatched
-    // value is dropped and reported in `skipped[]` (`kind: 'trade'`), exactly like
-    // an unresolvable usefulness group or claim `dataObject`. No term is ever
-    // created here, so no `trade.created` audit row is possible and every result
-    // is `operation: 'reused'`.
-    //
-    // Matching is by `slug` → `name` → `alias`, case-insensitively
-    // (`TRADES_VOCABULARY.md` §4). The three passes below make that precedence
-    // structural rather than incidental: an alias can never shadow another term's
-    // slug or name, whatever a future vocabulary edit adds. `safeSlugify`
-    // normalizes both sides and returns `null` (→ unresolvable → `skipped`) rather
-    // than throwing on a reserved or empty slug.
-    const resolveTrades = async (
-      values: string[],
-      productRef: string,
-    ): Promise<{ ids: string[]; results: PromoteTaxonomyResult[] }> => {
-      const rows = await db
-        .select({
-          id: taxonomyTrades.id,
-          slug: taxonomyTrades.slug,
-          name: taxonomyTrades.name,
-          aliases: taxonomyTrades.aliases,
-        })
-        .from(taxonomyTrades);
-
-      const byKey = new Map<string, { id: string; slug: string }>();
-      const addKey = (value: string | null | undefined, row: { id: string; slug: string }) => {
-        const key = value ? safeSlugify(value) : null;
-        if (key && !byKey.has(key)) byKey.set(key, row);
-      };
-      for (const row of rows) addKey(row.slug, row);
-      for (const row of rows) addKey(row.name, row);
-      for (const row of rows) for (const alias of row.aliases ?? []) addKey(alias, row);
-
-      const ids: string[] = [];
-      const results: PromoteTaxonomyResult[] = [];
-      const seen = new Set<string>();
-      for (const value of values) {
-        const key = safeSlugify(value);
-        const term = key ? byKey.get(key) : undefined;
-        if (!term) {
-          skipped.push({
-            ref: productRef,
-            kind: 'trade',
-            reason: `trade "${value}" did not resolve to the seeded vocabulary`,
-          });
-          continue;
-        }
-        // Two payload values may name the same term ("HVAC" and "Mechanical" both
-        // resolve to `hvac-mechanical`) — collapse them so the join insert can't
-        // trip the composite primary key.
-        if (seen.has(term.id)) continue;
-        seen.add(term.id);
-        ids.push(term.id);
-        results.push({ slug: term.slug, id: term.id, operation: 'reused' });
-      }
-      return { ids, results };
-    };
-
-    // Load the vocabulary only when the payload actually carries trades — trades are
-    // sparse by design, so most promotes skip this read entirely (same gate as the
-    // `anyClaims` data-object load below).
-    const trades =
-      p && p.trades.length
-        ? await resolveTrades(p.trades, p.ref)
-        : { ids: [] as string[], results: [] as PromoteTaxonomyResult[] };
-
-    // Trades this promote DROPS from the product. The response echoes only what was
-    // SET, so without this a re-promote that clears a trade would purge nothing —
-    // and because the facet is publication-gated (`TRADE_PUBLISH_MIN_PRODUCTS`), a
-    // removal can push a term back under the floor and change `/trades`, the facet
-    // sidebar, and the sitemap (`CACHE_STRATEGY.md` §2). Only an UPDATE can have
-    // prior join rows, so a create skips the read.
-    let removedTradeSlugs: string[] = [];
-    if (p?.supabaseId) {
-      const prior = await db
-        .select({ slug: taxonomyTrades.slug })
-        .from(productTrades)
-        .innerJoin(taxonomyTrades, eq(taxonomyTrades.id, productTrades.tradeId))
-        .where(eq(productTrades.productId, p.supabaseId));
-      const kept = new Set(trades.results.map((r) => r.slug));
-      removedTradeSlugs = prior.map((r) => r.slug).filter((slug) => !kept.has(slug));
+      const slug = disambiguateSlug(canonical, [...slugSet]);
+      slugSet.add(slug);
+      const id = crypto.randomUUID();
+      stmts.push(db.insert(model.table).values({ id, slug, name } as Record<string, unknown>));
+      bySlug.set(canonical, id);
+      termBySlug.set(slug, { slug, name });
+      ids.push(id);
+      results.push({ slug, id, operation: 'created' });
+      seen.add(id);
+      audit({
+        actorType: 'system',
+        action: `${entity}.created`,
+        entityType: entity,
+        entityId: id,
+      });
     }
+    return { ids, results, termBySlug };
+  };
 
-    // ── Usefulness (find-only resolution against existing+new terms) ───────────
-    const resolveUsefulnessFacet = (
-      groups: PromoteUsefulnessGroup[],
-      termBySlug: Map<string, { slug: string; name: string }>,
-      productRef: string,
-    ): UsefulnessGroup[] => {
-      const resolveOne = (value?: string) => {
-        if (!value) return undefined;
-        const key = safeSlugify(value);
-        return key ? termBySlug.get(key) : undefined;
-      };
-      const merged = new Map<string, UsefulnessGroup>();
-      for (const g of groups) {
-        const term = resolveOne(g.slug) ?? resolveOne(g.name);
-        if (!term) {
-          skipped.push({
-            ref: productRef,
-            kind: 'usefulness',
-            reason: `usefulness group "${g.slug ?? g.name}" did not resolve to an existing term`,
-          });
-          continue;
-        }
-        const existing = merged.get(term.slug);
-        if (existing) existing.points.push(...g.points);
-        else merged.set(term.slug, { slug: term.slug, name: term.name, points: [...g.points] });
-      }
-      return [...merged.values()];
+  const p = payload.product;
+  const emptyTax = {
+    ids: [] as string[],
+    results: [] as PromoteTaxonomyResult[],
+    termBySlug: new Map<string, { slug: string; name: string }>(),
+  };
+  const categories = p
+    ? await resolveTaxonomy(
+        p.categories,
+        {
+          table: taxonomyCategories,
+          idCol: taxonomyCategories.id,
+          slugCol: taxonomyCategories.slug,
+          nameCol: taxonomyCategories.name,
+        },
+        'category',
+      )
+    : emptyTax;
+  const audiences = p
+    ? await resolveTaxonomy(
+        p.audiences,
+        {
+          table: taxonomyAudiences,
+          idCol: taxonomyAudiences.id,
+          slugCol: taxonomyAudiences.slug,
+          nameCol: taxonomyAudiences.name,
+        },
+        'audience',
+      )
+    : emptyTax;
+  const phases = p
+    ? await resolveTaxonomy(
+        p.phases,
+        {
+          table: taxonomyPhases,
+          idCol: taxonomyPhases.id,
+          slugCol: taxonomyPhases.slug,
+          nameCol: taxonomyPhases.name,
+        },
+        'phase',
+      )
+    : emptyTax;
+
+  // ── Trades (find-only resolution against the seeded closed vocabulary) ─────
+  // The fourth facet (§5.5a / AECI-542) deliberately diverges from the three
+  // above: `taxonomy_trades` is a GOVERNED closed vocabulary (ADR 0008 /
+  // `docs/TRADES_VOCABULARY.md` §3), so a trade is resolved **find-only** —
+  // never find-or-create. A curator minting `paving-contractors` alongside
+  // `paving-asphalt` would split a trade page's products across two permanent
+  // URLs and destroy the SEO asset the facet exists to build, so an unmatched
+  // value is dropped and reported in `skipped[]` (`kind: 'trade'`), exactly like
+  // an unresolvable usefulness group or claim `dataObject`. No term is ever
+  // created here, so no `trade.created` audit row is possible and every result
+  // is `operation: 'reused'`.
+  //
+  // Matching is by `slug` → `name` → `alias`, case-insensitively
+  // (`TRADES_VOCABULARY.md` §4). The three passes below make that precedence
+  // structural rather than incidental: an alias can never shadow another term's
+  // slug or name, whatever a future vocabulary edit adds. `safeSlugify`
+  // normalizes both sides and returns `null` (→ unresolvable → `skipped`) rather
+  // than throwing on a reserved or empty slug.
+  const resolveTrades = async (
+    values: string[],
+    productRef: string,
+  ): Promise<{ ids: string[]; results: PromoteTaxonomyResult[] }> => {
+    const rows = await db
+      .select({
+        id: taxonomyTrades.id,
+        slug: taxonomyTrades.slug,
+        name: taxonomyTrades.name,
+        aliases: taxonomyTrades.aliases,
+      })
+      .from(taxonomyTrades);
+
+    const byKey = new Map<string, { id: string; slug: string }>();
+    const addKey = (value: string | null | undefined, row: { id: string; slug: string }) => {
+      const key = value ? safeSlugify(value) : null;
+      if (key && !byKey.has(key)) byKey.set(key, row);
     };
+    for (const row of rows) addKey(row.slug, row);
+    for (const row of rows) addKey(row.name, row);
+    for (const row of rows) for (const alias of row.aliases ?? []) addKey(alias, row);
 
-    // `undefined` → column untouched (omitted from the write); `null` → cleared to
-    // SQL NULL (the `Prisma.DbNull` footgun is gone under Drizzle json mode);
-    // object → the resolved value.
-    let usefulnessData:
-      | { audiences: UsefulnessGroup[]; phases: UsefulnessGroup[] }
-      | null
-      | undefined;
-    if (p) {
-      if (p.usefulness === null) {
-        usefulnessData = null;
-      } else if (p.usefulness) {
-        usefulnessData = {
-          audiences: resolveUsefulnessFacet(p.usefulness.audiences, audiences.termBySlug, p.ref),
-          phases: resolveUsefulnessFacet(p.usefulness.phases, phases.termBySlug, p.ref),
-        };
-      }
-    }
-
-    // ── Resolvers (used by extensions + integrations) ─────────────────────────
-    let productResult: PromoteEntityResult | null = null;
-    let productId: string | undefined;
-
-    const productExists = async (id: string): Promise<boolean> =>
-      (await db.query.products.findFirst({ columns: { id: true }, where: eq(products.id, id) })) !==
-      undefined;
-
-    const resolveProduct = async (ref: EntityRef): Promise<string | null> => {
-      if (ref.ref) return p && ref.ref === p.ref ? (productId ?? null) : null;
-      if (ref.supabaseId) return (await productExists(ref.supabaseId)) ? ref.supabaseId : null;
-      return null;
-    };
-
-    const resolveVendor = async (ref: EntityRef): Promise<string | null> => {
-      if (ref.ref) return vendorIdByRef.get(ref.ref) ?? null;
-      if (ref.supabaseId) {
-        const row = await db.query.vendors.findFirst({
-          columns: { id: true },
-          where: eq(vendors.id, ref.supabaseId),
-        });
-        return row ? ref.supabaseId : null;
-      }
-      return null;
-    };
-
-    // ── Product (+ join rows + extensions) ────────────────────────────────────
-    if (p) {
-      if (p.supabaseId) {
-        const existing = await db.query.products.findFirst({
-          columns: { slug: true },
-          where: eq(products.id, p.supabaseId),
-        });
-        const slug = existing?.slug ?? '';
-        productId = p.supabaseId;
-        productResult = { ref: p.ref, id: p.supabaseId, slug, operation: 'updated' };
-        stmts.push(
-          db
-            .update(products)
-            .set(
-              compact({
-                name: p.name,
-                promotionStatus: 'promoted',
-                usefulness: usefulnessData,
-                ...productEditableData(p),
-              }),
-            )
-            .where(eq(products.id, p.supabaseId)),
-        );
-        audit({
-          actorType: 'system',
-          action: 'product.updated',
-          entityType: 'product',
-          entityId: p.supabaseId,
-        });
-      } else {
-        const slug = generateSlug(p.name, productSlugs, firstVendorSlug);
-        const id = crypto.randomUUID();
-        productId = id;
-        productResult = { ref: p.ref, id, slug, operation: 'created' };
-        stmts.push(
-          db.insert(products).values({
-            id,
-            slug,
-            name: p.name,
-            promotionStatus: 'promoted',
-            ...(usefulnessData === undefined ? {} : { usefulness: usefulnessData }),
-            ...productEditableData(p),
-          }),
-        );
-        audit({
-          actorType: 'system',
-          action: 'product.created',
-          entityType: 'product',
-          entityId: id,
-        });
-      }
-
-      // Replace join rows to reflect the pushed state exactly. Deletes are no-ops
-      // for a fresh product; on update they clear the prior joins.
-      const pid = productId;
-      stmts.push(db.delete(productVendors).where(eq(productVendors.productId, pid)));
-      stmts.push(db.delete(productCategories).where(eq(productCategories.productId, pid)));
-      stmts.push(db.delete(productAudiences).where(eq(productAudiences.productId, pid)));
-      stmts.push(db.delete(productPhases).where(eq(productPhases.productId, pid)));
-      stmts.push(db.delete(productTrades).where(eq(productTrades.productId, pid)));
-      stmts.push(db.delete(productExtensions).where(eq(productExtensions.productId, pid)));
-
-      if (payload.vendors.length) {
-        stmts.push(
-          db
-            .insert(productVendors)
-            .values(
-              payload.vendors.map((v, i) => ({
-                productId: pid,
-                vendorId: vendorIdByRef.get(v.ref)!,
-                isPrimary: v.isPrimary ?? i === 0,
-              })),
-            )
-            .onConflictDoNothing(),
-        );
-      }
-      if (categories.ids.length) {
-        stmts.push(
-          db
-            .insert(productCategories)
-            .values(categories.ids.map((categoryId) => ({ productId: pid, categoryId })))
-            .onConflictDoNothing(),
-        );
-      }
-      if (audiences.ids.length) {
-        stmts.push(
-          db
-            .insert(productAudiences)
-            .values(audiences.ids.map((audienceId) => ({ productId: pid, audienceId })))
-            .onConflictDoNothing(),
-        );
-      }
-      if (phases.ids.length) {
-        stmts.push(
-          db
-            .insert(productPhases)
-            .values(phases.ids.map((phaseId) => ({ productId: pid, phaseId })))
-            .onConflictDoNothing(),
-        );
-      }
-      // `taxonomy_trades` rows are seeded (never created here), so this insert has
-      // no new-term statement to order behind — unlike the three facets above.
-      if (trades.ids.length) {
-        stmts.push(
-          db
-            .insert(productTrades)
-            .values(trades.ids.map((tradeId) => ({ productId: pid, tradeId })))
-            .onConflictDoNothing(),
-        );
-      }
-
-      // Extensions: host products must already be promoted (by supabaseId).
-      const hostIds: string[] = [];
-      for (const host of p.extensionOf) {
-        const hostId = await resolveProduct(host);
-        if (!hostId || hostId === pid) {
-          skipped.push({
-            ref: p.ref,
-            kind: 'extension',
-            reason: `host product ${host.supabaseId ?? host.ref} not found or self-referential`,
-          });
-          continue;
-        }
-        hostIds.push(hostId);
-      }
-      if (hostIds.length) {
-        stmts.push(
-          db
-            .insert(productExtensions)
-            .values(hostIds.map((hostProductId) => ({ productId: pid, hostProductId })))
-            .onConflictDoNothing(),
-        );
-        audit({
-          actorType: 'system',
-          action: 'product.extension_created',
-          entityType: 'product',
-          entityId: pid,
-        });
-      }
-    }
-
-    // ── Data-object resolver (find-only, for claims — §6.2) ───────────────────
-    // Claims resolve their `dataObject` against the seeded, frozen
-    // `taxonomy_data_objects` vocabulary by slug OR alias (never find-or-create —
-    // an unmatched term lands in `skipped[]` with `kind: 'claim'`). Load once and
-    // only when a claim is actually present, mirroring the usefulness find-only
-    // path (`resolveUsefulnessFacet`). `safeSlugify` normalizes both the seeded
-    // keys and the incoming value so case/spacing don't matter.
-    const anyClaims = payload.integrations.some((i) => i.claims.length > 0);
-    const dataObjectIdByKey = new Map<string, string>();
-    if (anyClaims) {
-      const doRows = await db
-        .select({
-          id: taxonomyDataObjects.id,
-          slug: taxonomyDataObjects.slug,
-          aliases: taxonomyDataObjects.aliases,
-        })
-        .from(taxonomyDataObjects);
-      const addKey = (value: string | null | undefined, id: string) => {
-        const key = value ? safeSlugify(value) : null;
-        if (key && !dataObjectIdByKey.has(key)) dataObjectIdByKey.set(key, id);
-      };
-      for (const row of doRows) {
-        addKey(row.slug, row.id);
-        for (const alias of row.aliases ?? []) addKey(alias, row.id);
-      }
-    }
-    const resolveDataObject = (value: string): string | undefined => {
+    const ids: string[] = [];
+    const results: PromoteTaxonomyResult[] = [];
+    const seen = new Set<string>();
+    for (const value of values) {
       const key = safeSlugify(value);
-      return key ? dataObjectIdByKey.get(key) : undefined;
+      const term = key ? byKey.get(key) : undefined;
+      if (!term) {
+        skipped.push({
+          ref: productRef,
+          kind: 'trade',
+          reason: `trade "${value}" did not resolve to the seeded vocabulary`,
+        });
+        continue;
+      }
+      // Two payload values may name the same term ("HVAC" and "Mechanical" both
+      // resolve to `hvac-mechanical`) — collapse them so the join insert can't
+      // trip the composite primary key.
+      if (seen.has(term.id)) continue;
+      seen.add(term.id);
+      ids.push(term.id);
+      results.push({ slug: term.slug, id: term.id, operation: 'reused' });
+    }
+    return { ids, results };
+  };
+
+  // Load the vocabulary only when the payload actually carries trades — trades are
+  // sparse by design, so most promotes skip this read entirely (same gate as the
+  // `anyClaims` data-object load below).
+  const trades =
+    p && p.trades.length
+      ? await resolveTrades(p.trades, p.ref)
+      : { ids: [] as string[], results: [] as PromoteTaxonomyResult[] };
+
+  // Trades this promote DROPS from the product. The response echoes only what was
+  // SET, so without this a re-promote that clears a trade would purge nothing —
+  // and because the facet is publication-gated (`TRADE_PUBLISH_MIN_PRODUCTS`), a
+  // removal can push a term back under the floor and change `/trades`, the facet
+  // sidebar, and the sitemap (`CACHE_STRATEGY.md` §2). Only an UPDATE can have
+  // prior join rows, so a create skips the read.
+  let removedTradeSlugs: string[] = [];
+  if (p?.supabaseId) {
+    const prior = await db
+      .select({ slug: taxonomyTrades.slug })
+      .from(productTrades)
+      .innerJoin(taxonomyTrades, eq(taxonomyTrades.id, productTrades.tradeId))
+      .where(eq(productTrades.productId, p.supabaseId));
+    const kept = new Set(trades.results.map((r) => r.slug));
+    removedTradeSlugs = prior.map((r) => r.slug).filter((slug) => !kept.has(slug));
+  }
+
+  // ── Usefulness (find-only resolution against existing+new terms) ───────────
+  const resolveUsefulnessFacet = (
+    groups: PromoteUsefulnessGroup[],
+    termBySlug: Map<string, { slug: string; name: string }>,
+    productRef: string,
+  ): UsefulnessGroup[] => {
+    const resolveOne = (value?: string) => {
+      if (!value) return undefined;
+      const key = safeSlugify(value);
+      return key ? termBySlug.get(key) : undefined;
     };
-
-    // ── Integrations ──────────────────────────────────────────────────────────
-    const integrationResults: PromoteIntegrationResult[] = [];
-    // Endpoint product ids per integration result (parallel to `integrationResults`),
-    // used to backfill `sourceSlug`/`targetSlug` after the loop (§6.2 → pair derivers).
-    // `poweredById` rides along so the connector product's own page can be purged
-    // too (Stage 1.5 Addendum B) — it is NOT added to `affectedProducts`, because
-    // `integration_count` stays endpoint-only (count semantics is an open decision).
-    const integrationEndpoints: Array<{
-      result: PromoteIntegrationResult;
-      sourceId: string;
-      targetId: string;
-      poweredById: string | null;
-    }> = [];
-    const affectedProducts = new Set<string>();
-    if (productId) affectedProducts.add(productId);
-    for (const intg of payload.integrations) {
-      const sourceId = await resolveProduct(intg.sourceProduct);
-      const targetId = await resolveProduct(intg.targetProduct);
-      if (!sourceId || !targetId) {
+    const merged = new Map<string, UsefulnessGroup>();
+    for (const g of groups) {
+      const term = resolveOne(g.slug) ?? resolveOne(g.name);
+      if (!term) {
         skipped.push({
-          ref: intg.ref,
-          kind: 'integration',
-          reason: 'source or target product is not promoted yet',
+          ref: productRef,
+          kind: 'usefulness',
+          reason: `usefulness group "${g.slug ?? g.name}" did not resolve to an existing term`,
         });
         continue;
       }
-      if (sourceId === targetId) {
-        skipped.push({
-          ref: intg.ref,
-          kind: 'integration',
-          reason: 'source and target resolve to the same product (self-link not allowed)',
-        });
-        continue;
-      }
-      const builtByVendorId = intg.builtByVendor ? await resolveVendor(intg.builtByVendor) : null;
-      const poweredByProductId = intg.poweredByProduct
-        ? await resolveProduct(intg.poweredByProduct)
-        : null;
+      const existing = merged.get(term.slug);
+      if (existing) existing.points.push(...g.points);
+      else merged.set(term.slug, { slug: term.slug, name: term.name, points: [...g.points] });
+    }
+    return [...merged.values()];
+  };
 
-      const linkData = {
-        sourceProductId: sourceId,
-        targetProductId: targetId,
-        builtByVendorId,
-        poweredByProductId,
+  // `undefined` → column untouched (omitted from the write); `null` → cleared to
+  // SQL NULL (the `Prisma.DbNull` footgun is gone under Drizzle json mode);
+  // object → the resolved value.
+  let usefulnessData:
+    | { audiences: UsefulnessGroup[]; phases: UsefulnessGroup[] }
+    | null
+    | undefined;
+  if (p) {
+    if (p.usefulness === null) {
+      usefulnessData = null;
+    } else if (p.usefulness) {
+      usefulnessData = {
+        audiences: resolveUsefulnessFacet(p.usefulness.audiences, audiences.termBySlug, p.ref),
+        phases: resolveUsefulnessFacet(p.usefulness.phases, phases.termBySlug, p.ref),
       };
+    }
+  }
 
-      let integrationId: string;
-      let result: PromoteIntegrationResult;
-      if (intg.supabaseId) {
-        // An update may MOVE an endpoint. Capture the pre-update source/target so
-        // the OLD products are recomputed too (the AECI-86 drift fix); the new
-        // endpoints are added below. Read pre-batch.
-        const existing = await db.query.integrations.findFirst({
-          columns: { sourceProductId: true, targetProductId: true },
-          where: eq(integrations.id, intg.supabaseId),
-        });
-        if (existing) {
-          affectedProducts.add(existing.sourceProductId);
-          affectedProducts.add(existing.targetProductId);
-        }
-        stmts.push(
-          db
-            .update(integrations)
-            .set({ ...integrationEditableData(intg), ...linkData })
-            .where(eq(integrations.id, intg.supabaseId)),
-        );
-        integrationId = intg.supabaseId;
-        result = { ref: intg.ref, id: intg.supabaseId, operation: 'updated' };
-        audit({
-          actorType: 'system',
-          action: 'integration.updated',
-          entityType: 'integration',
-          entityId: intg.supabaseId,
-        });
-      } else {
-        const id = crypto.randomUUID();
-        stmts.push(
-          db.insert(integrations).values({ id, ...integrationEditableData(intg), ...linkData }),
-        );
-        integrationId = id;
-        result = { ref: intg.ref, id, operation: 'created' };
-        audit({
-          actorType: 'system',
-          action: 'integration.created',
-          entityType: 'integration',
-          entityId: id,
-        });
-      }
-      integrationResults.push(result);
-      integrationEndpoints.push({ result, sourceId, targetId, poweredById: poweredByProductId });
+  // ── Resolvers (used by extensions + integrations) ─────────────────────────
+  let productResult: PromoteEntityResult | null = null;
+  let productId: string | undefined;
 
-      // ── Claims (replace-by-integration — §6.2) ──────────────────────────────
-      // Claims attach to THIS mechanism row and are replaced to exactly match the
-      // payload (same merge-by-replacement semantics as the product-join sets
-      // above): clear the integration's existing claims — their attestations
-      // cascade via the `attestations.claim_id ON DELETE CASCADE` FK — then
-      // re-insert. Runs for every resolved integration that is an update (so an
-      // empty `claims[]` clears prior claims) or that carries claims (a fresh
-      // integration's delete is a harmless no-op). Statement order stays FK-safe:
-      // integration → delete claims → claims → attestations → audits (last).
-      if (intg.supabaseId || intg.claims.length) {
-        stmts.push(db.delete(claims).where(eq(claims.integrationId, integrationId)));
-        const seenClaims = new Set<string>();
-        for (const claim of intg.claims) {
-          const dataObjectId = resolveDataObject(claim.dataObject);
-          if (!dataObjectId) {
-            skipped.push({
-              ref: intg.ref,
-              kind: 'claim',
-              reason: `dataObject "${claim.dataObject}" did not resolve to the seeded vocabulary`,
-            });
-            continue;
-          }
-          // Collapse identity duplicates within the payload so the re-insert never
-          // orphans an attestation on a claim the unique index would reject.
-          const identity = `${dataObjectId}|${claim.direction}`;
-          if (seenClaims.has(identity)) continue;
-          seenClaims.add(identity);
+  const productExists = async (id: string): Promise<boolean> =>
+    (await db.query.products.findFirst({ columns: { id: true }, where: eq(products.id, id) })) !==
+    undefined;
 
-          const claimId = crypto.randomUUID();
-          stmts.push(
-            db
-              .insert(claims)
-              .values({ id: claimId, integrationId, dataObjectId, direction: claim.direction }),
-          );
-          audit({
-            actorType: 'system',
-            action: 'claim.created',
-            entityType: 'claim',
-            entityId: claimId,
-          });
-          for (const att of claim.attestations) {
-            const attestationId = crypto.randomUUID();
-            stmts.push(
-              db.insert(attestations).values({
-                id: attestationId,
-                claimId,
-                source: att.source,
-                asserted: att.asserted,
-                introducedAt: att.introducedAt ?? null,
-                deprecatedAt: att.deprecatedAt ?? null,
-                note: att.note ?? null,
-              }),
-            );
-            audit({
-              actorType: 'system',
-              action: 'attestation.created',
-              entityType: 'attestation',
-              entityId: attestationId,
-            });
-          }
-        }
-      }
+  const resolveProduct = async (ref: EntityRef): Promise<string | null> => {
+    if (ref.ref) return p && ref.ref === p.ref ? (productId ?? null) : null;
+    if (ref.supabaseId) return (await productExists(ref.supabaseId)) ? ref.supabaseId : null;
+    return null;
+  };
 
-      affectedProducts.add(sourceId);
-      affectedProducts.add(targetId);
+  const resolveVendor = async (ref: EntityRef): Promise<string | null> => {
+    if (ref.ref) return vendorIdByRef.get(ref.ref) ?? null;
+    if (ref.supabaseId) {
+      const row = await db.query.vendors.findFirst({
+        columns: { id: true },
+        where: eq(vendors.id, ref.supabaseId),
+      });
+      return row ? ref.supabaseId : null;
+    }
+    return null;
+  };
+
+  // ── Product (+ join rows + extensions) ────────────────────────────────────
+  if (p) {
+    if (p.supabaseId) {
+      const existing = await db.query.products.findFirst({
+        columns: { slug: true },
+        where: eq(products.id, p.supabaseId),
+      });
+      const slug = existing?.slug ?? '';
+      productId = p.supabaseId;
+      productResult = { ref: p.ref, id: p.supabaseId, slug, operation: 'updated' };
+      stmts.push(
+        db
+          .update(products)
+          .set(
+            compact({
+              name: p.name,
+              promotionStatus: 'promoted',
+              usefulness: usefulnessData,
+              ...productEditableData(p),
+            }),
+          )
+          .where(eq(products.id, p.supabaseId)),
+      );
+      audit({
+        actorType: 'system',
+        action: 'product.updated',
+        entityType: 'product',
+        entityId: p.supabaseId,
+      });
+    } else {
+      const slug = generateSlug(p.name, productSlugs, firstVendorSlug);
+      const id = crypto.randomUUID();
+      productId = id;
+      productResult = { ref: p.ref, id, slug, operation: 'created' };
+      stmts.push(
+        db.insert(products).values({
+          id,
+          slug,
+          name: p.name,
+          promotionStatus: 'promoted',
+          ...(usefulnessData === undefined ? {} : { usefulness: usefulnessData }),
+          ...productEditableData(p),
+        }),
+      );
+      audit({
+        actorType: 'system',
+        action: 'product.created',
+        entityType: 'product',
+        entityId: id,
+      });
     }
 
-    // ── Backfill integration result slugs (§6.2 → pair cache tag + pair URLs) ──
-    // The pair derivers need both endpoint slugs. Seed the map with the in-payload
-    // product (a freshly-created product is not yet readable from D1), then read
-    // the slugs of any endpoints referenced by `supabaseId` in one batched query.
-    if (integrationEndpoints.length) {
-      const slugByProductId = new Map<string, string>();
-      if (productId && productResult) slugByProductId.set(productId, productResult.slug);
-      const needSlugs = new Set<string>();
-      for (const { sourceId, targetId, poweredById } of integrationEndpoints) {
-        if (!slugByProductId.has(sourceId)) needSlugs.add(sourceId);
-        if (!slugByProductId.has(targetId)) needSlugs.add(targetId);
-        if (poweredById && !slugByProductId.has(poweredById)) needSlugs.add(poweredById);
-      }
-      if (needSlugs.size) {
-        const rows = await db.query.products.findMany({
-          columns: { id: true, slug: true },
-          where: inArray(products.id, [...needSlugs]),
-        });
-        for (const row of rows) slugByProductId.set(row.id, row.slug);
-      }
-      for (const { result, sourceId, targetId, poweredById } of integrationEndpoints) {
-        result.sourceSlug = slugByProductId.get(sourceId);
-        result.targetSlug = slugByProductId.get(targetId);
-        if (poweredById) result.poweredBySlug = slugByProductId.get(poweredById);
-      }
+    // Replace join rows to reflect the pushed state exactly. Deletes are no-ops
+    // for a fresh product; on update they clear the prior joins.
+    const pid = productId;
+    stmts.push(db.delete(productVendors).where(eq(productVendors.productId, pid)));
+    stmts.push(db.delete(productCategories).where(eq(productCategories.productId, pid)));
+    stmts.push(db.delete(productAudiences).where(eq(productAudiences.productId, pid)));
+    stmts.push(db.delete(productPhases).where(eq(productPhases.productId, pid)));
+    stmts.push(db.delete(productTrades).where(eq(productTrades.productId, pid)));
+    stmts.push(db.delete(productExtensions).where(eq(productExtensions.productId, pid)));
+
+    if (payload.vendors.length) {
+      stmts.push(
+        db
+          .insert(productVendors)
+          .values(
+            payload.vendors.map((v, i) => ({
+              productId: pid,
+              vendorId: vendorIdByRef.get(v.ref)!,
+              isPrimary: v.isPrimary ?? i === 0,
+            })),
+          )
+          .onConflictDoNothing(),
+      );
     }
-
-    // ── Audit rows (appended last; same atomic batch as the writes above) ─────
-    for (const entry of auditEntries) stmts.push(auditInsert(db, entry));
-
-    const response: PromoteResponse = {
-      vendors: vendorResults,
-      product: productResult,
-      integrations: integrationResults,
-      taxonomy: {
-        categories: categories.results,
-        audiences: audiences.results,
-        phases: phases.results,
-        trades: trades.results,
-      },
-      skipped,
-    };
-
-    // ── BATCH: one atomic unit (§26.1). A racing duplicate slug trips a UNIQUE
-    //    violation → 409 SLUG_CONFLICT (AECI-98); any other failure rethrows → 500.
-    if (stmts.length) {
-      try {
-        await db.batch(stmts as BatchTuple);
-      } catch (err) {
-        if (isSlugUniqueViolation(err)) {
-          throw new ApiError(
-            409,
-            'SLUG_CONFLICT',
-            'A concurrent promote generated a duplicate slug; retry the request.',
-            { details: { target: slugConflictTarget(err) } },
-          );
-        }
-        throw err;
-      }
+    if (categories.ids.length) {
+      stmts.push(
+        db
+          .insert(productCategories)
+          .values(categories.ids.map((categoryId) => ({ productId: pid, categoryId })))
+          .onConflictDoNothing(),
+      );
     }
-
-    // ── Post-batch: recompute the denormalized counts for touched products
-    //    (AECI-104; the brief lag is the drift sweep's backstop). Separate
-    //    read+write under D1 (no interactive tx).
-    if (affectedProducts.size) await recomputeProductCounts(db, affectedProducts);
-
-    // Best-effort §26.5 audit forwards AFTER the commit. Only scheduled when
-    // Datadog is configured — the forwarder is a no-op otherwise, so there is
-    // nothing to await.
-    const forward = makeForwarder(c);
-    if (forward && auditEntries.length) {
-      c.executionCtx.waitUntil(
-        Promise.all(auditEntries.map((entry) => forwardAuditLog(entry, forward))),
+    if (audiences.ids.length) {
+      stmts.push(
+        db
+          .insert(productAudiences)
+          .values(audiences.ids.map((audienceId) => ({ productId: pid, audienceId })))
+          .onConflictDoNothing(),
+      );
+    }
+    if (phases.ids.length) {
+      stmts.push(
+        db
+          .insert(productPhases)
+          .values(phases.ids.map((phaseId) => ({ productId: pid, phaseId })))
+          .onConflictDoNothing(),
+      );
+    }
+    // `taxonomy_trades` rows are seeded (never created here), so this insert has
+    // no new-term statement to order behind — unlike the three facets above.
+    if (trades.ids.length) {
+      stmts.push(
+        db
+          .insert(productTrades)
+          .values(trades.ids.map((tradeId) => ({ productId: pid, tradeId })))
+          .onConflictDoNothing(),
       );
     }
 
-    // AECI-105: purge the edge-cache tags this promote invalidated. Best-effort,
-    // post-commit; no-ops without CF creds.
-    if (c.env.CF_PURGE_API_TOKEN && c.env.CF_ZONE_ID) {
-      c.executionCtx.waitUntil(purgeAfterPromote(c, response, removedTradeSlugs));
+    // Extensions: host products must already be promoted (by supabaseId).
+    const hostIds: string[] = [];
+    for (const host of p.extensionOf) {
+      const hostId = await resolveProduct(host);
+      if (!hostId || hostId === pid) {
+        skipped.push({
+          ref: p.ref,
+          kind: 'extension',
+          reason: `host product ${host.supabaseId ?? host.ref} not found or self-referential`,
+        });
+        continue;
+      }
+      hostIds.push(hostId);
     }
-
-    // AECI-305: refresh the `home.*` `stats_cache` keys the home page reads, then
-    // purge `/` so its credibility strip + stats cards repaint with the new counts.
-    // Those numbers come from the cache, not a live count, so without this the home
-    // banner lags the catalog until the daily cron. Gate on an actual write (an
-    // all-skipped promote changed nothing); best-effort, post-commit — the seam
-    // never throws and self-gates the purge on CF creds.
-    if (stmts.length) {
-      c.executionCtx.waitUntil(refreshHomeStats(c));
+    if (hostIds.length) {
+      stmts.push(
+        db
+          .insert(productExtensions)
+          .values(hostIds.map((hostProductId) => ({ productId: pid, hostProductId })))
+          .onConflictDoNothing(),
+      );
+      audit({
+        actorType: 'system',
+        action: 'product.extension_created',
+        entityType: 'product',
+        entityId: pid,
+      });
     }
+  }
 
-    // AECI-139: push the promoted records to Algolia immediately (independent
-    // best-effort task). No-ops without the Algolia secrets.
-    if (c.env.ALGOLIA_APP_ID && c.env.ALGOLIA_ADMIN_KEY) {
-      c.executionCtx.waitUntil(syncAlgolia(c, response));
+  // ── Data-object resolver (find-only, for claims — §6.2) ───────────────────
+  // Claims resolve their `dataObject` against the seeded, frozen
+  // `taxonomy_data_objects` vocabulary by slug OR alias (never find-or-create —
+  // an unmatched term lands in `skipped[]` with `kind: 'claim'`). Load once and
+  // only when a claim is actually present, mirroring the usefulness find-only
+  // path (`resolveUsefulnessFacet`). `safeSlugify` normalizes both the seeded
+  // keys and the incoming value so case/spacing don't matter.
+  const anyClaims = payload.integrations.some((i) => i.claims.length > 0);
+  const dataObjectIdByKey = new Map<string, string>();
+  if (anyClaims) {
+    const doRows = await db
+      .select({
+        id: taxonomyDataObjects.id,
+        slug: taxonomyDataObjects.slug,
+        aliases: taxonomyDataObjects.aliases,
+      })
+      .from(taxonomyDataObjects);
+    const addKey = (value: string | null | undefined, id: string) => {
+      const key = value ? safeSlugify(value) : null;
+      if (key && !dataObjectIdByKey.has(key)) dataObjectIdByKey.set(key, id);
+    };
+    for (const row of doRows) {
+      addKey(row.slug, row.id);
+      for (const alias of row.aliases ?? []) addKey(alias, row.id);
     }
-
-    // AECI-546: resolve the publication floor for any touched trade ONCE, shared
-    // by both pings below. Started here (post-commit, so the count is current) but
-    // deliberately not awaited — see `resolveTradeUrlOptions`.
-    const tradeUrls = resolveTradeUrlOptions(c, db, response, removedTradeSlugs);
-
-    // AECI-236: notify IndexNow of the affected public URLs so Bing/Yandex/…
-    // re-crawl quickly (§20.2/§20.5). Best-effort, post-commit; no-ops without
-    // INDEXNOW_KEY + PUBLIC_SITE_URL. Those are provisioned ONLY at launch
-    // (alongside `ALLOW_INDEXING=true`): pinging IndexNow for a noindex'd site is
-    // a correctness bug, so the secret's absence is the gate.
-    if (c.env.INDEXNOW_KEY && c.env.PUBLIC_SITE_URL) {
-      c.executionCtx.waitUntil(notifyIndexNow(c, response, tradeUrls));
-    }
-
-    // AECI-263: best-effort Google Indexing API ping for the SAME affected URLs
-    // (§20.2). Additive to IndexNow; no-ops without the service-account creds +
-    // PUBLIC_SITE_URL, which are provisioned ONLY at launch (alongside
-    // `ALLOW_INDEXING=true`) — pinging Google for a noindex'd site is the same
-    // correctness bug the secret's absence guards against. Never blocks the write.
-    if (
-      c.env.GOOGLE_INDEXING_SA_EMAIL &&
-      c.env.GOOGLE_INDEXING_SA_PRIVATE_KEY &&
-      c.env.PUBLIC_SITE_URL
-    ) {
-      c.executionCtx.waitUntil(notifyGoogleIndexing(c, response, tradeUrls));
-    }
-
-    // Surface any `skipped[]` entries (§4) in Datadog: a 200 with skips is a
-    // partial promote — entities the push couldn't link — that the metrics layer
-    // (which only sees the 2xx status) can't otherwise reveal.
-    logPromoteSkips(c, response.skipped);
-
-    return json(response);
+  }
+  const resolveDataObject = (value: string): string | undefined => {
+    const key = safeSlugify(value);
+    return key ? dataObjectIdByKey.get(key) : undefined;
   };
+
+  // ── Integrations ──────────────────────────────────────────────────────────
+  const integrationResults: PromoteIntegrationResult[] = [];
+  // Endpoint product ids per integration result (parallel to `integrationResults`),
+  // used to backfill `sourceSlug`/`targetSlug` after the loop (§6.2 → pair derivers).
+  // `poweredById` rides along so the connector product's own page can be purged
+  // too (Stage 1.5 Addendum B) — it is NOT added to `affectedProducts`, because
+  // `integration_count` stays endpoint-only (count semantics is an open decision).
+  const integrationEndpoints: Array<{
+    result: PromoteIntegrationResult;
+    sourceId: string;
+    targetId: string;
+    poweredById: string | null;
+  }> = [];
+  const affectedProducts = new Set<string>();
+  if (productId) affectedProducts.add(productId);
+  for (const intg of payload.integrations) {
+    const sourceId = await resolveProduct(intg.sourceProduct);
+    const targetId = await resolveProduct(intg.targetProduct);
+    if (!sourceId || !targetId) {
+      skipped.push({
+        ref: intg.ref,
+        kind: 'integration',
+        reason: 'source or target product is not promoted yet',
+      });
+      continue;
+    }
+    if (sourceId === targetId) {
+      skipped.push({
+        ref: intg.ref,
+        kind: 'integration',
+        reason: 'source and target resolve to the same product (self-link not allowed)',
+      });
+      continue;
+    }
+    const builtByVendorId = intg.builtByVendor ? await resolveVendor(intg.builtByVendor) : null;
+    const poweredByProductId = intg.poweredByProduct
+      ? await resolveProduct(intg.poweredByProduct)
+      : null;
+
+    const linkData = {
+      sourceProductId: sourceId,
+      targetProductId: targetId,
+      builtByVendorId,
+      poweredByProductId,
+    };
+
+    let integrationId: string;
+    let result: PromoteIntegrationResult;
+    if (intg.supabaseId) {
+      // An update may MOVE an endpoint. Capture the pre-update source/target so
+      // the OLD products are recomputed too (the AECI-86 drift fix); the new
+      // endpoints are added below. Read pre-batch.
+      const existing = await db.query.integrations.findFirst({
+        columns: { sourceProductId: true, targetProductId: true },
+        where: eq(integrations.id, intg.supabaseId),
+      });
+      if (existing) {
+        affectedProducts.add(existing.sourceProductId);
+        affectedProducts.add(existing.targetProductId);
+      }
+      stmts.push(
+        db
+          .update(integrations)
+          .set({ ...integrationEditableData(intg), ...linkData })
+          .where(eq(integrations.id, intg.supabaseId)),
+      );
+      integrationId = intg.supabaseId;
+      result = { ref: intg.ref, id: intg.supabaseId, operation: 'updated' };
+      audit({
+        actorType: 'system',
+        action: 'integration.updated',
+        entityType: 'integration',
+        entityId: intg.supabaseId,
+      });
+    } else {
+      const id = crypto.randomUUID();
+      stmts.push(
+        db.insert(integrations).values({ id, ...integrationEditableData(intg), ...linkData }),
+      );
+      integrationId = id;
+      result = { ref: intg.ref, id, operation: 'created' };
+      audit({
+        actorType: 'system',
+        action: 'integration.created',
+        entityType: 'integration',
+        entityId: id,
+      });
+    }
+    integrationResults.push(result);
+    integrationEndpoints.push({ result, sourceId, targetId, poweredById: poweredByProductId });
+
+    // ── Claims (replace-by-integration — §6.2) ──────────────────────────────
+    // Claims attach to THIS mechanism row and are replaced to exactly match the
+    // payload (same merge-by-replacement semantics as the product-join sets
+    // above): clear the integration's existing claims — their attestations
+    // cascade via the `attestations.claim_id ON DELETE CASCADE` FK — then
+    // re-insert. Runs for every resolved integration that is an update (so an
+    // empty `claims[]` clears prior claims) or that carries claims (a fresh
+    // integration's delete is a harmless no-op). Statement order stays FK-safe:
+    // integration → delete claims → claims → attestations → audits (last).
+    if (intg.supabaseId || intg.claims.length) {
+      stmts.push(db.delete(claims).where(eq(claims.integrationId, integrationId)));
+      const seenClaims = new Set<string>();
+      for (const claim of intg.claims) {
+        const dataObjectId = resolveDataObject(claim.dataObject);
+        if (!dataObjectId) {
+          skipped.push({
+            ref: intg.ref,
+            kind: 'claim',
+            reason: `dataObject "${claim.dataObject}" did not resolve to the seeded vocabulary`,
+          });
+          continue;
+        }
+        // Collapse identity duplicates within the payload so the re-insert never
+        // orphans an attestation on a claim the unique index would reject.
+        const identity = `${dataObjectId}|${claim.direction}`;
+        if (seenClaims.has(identity)) continue;
+        seenClaims.add(identity);
+
+        const claimId = crypto.randomUUID();
+        stmts.push(
+          db
+            .insert(claims)
+            .values({ id: claimId, integrationId, dataObjectId, direction: claim.direction }),
+        );
+        audit({
+          actorType: 'system',
+          action: 'claim.created',
+          entityType: 'claim',
+          entityId: claimId,
+        });
+        for (const att of claim.attestations) {
+          const attestationId = crypto.randomUUID();
+          stmts.push(
+            db.insert(attestations).values({
+              id: attestationId,
+              claimId,
+              source: att.source,
+              asserted: att.asserted,
+              introducedAt: att.introducedAt ?? null,
+              deprecatedAt: att.deprecatedAt ?? null,
+              note: att.note ?? null,
+            }),
+          );
+          audit({
+            actorType: 'system',
+            action: 'attestation.created',
+            entityType: 'attestation',
+            entityId: attestationId,
+          });
+        }
+      }
+    }
+
+    affectedProducts.add(sourceId);
+    affectedProducts.add(targetId);
+  }
+
+  // ── Backfill integration result slugs (§6.2 → pair cache tag + pair URLs) ──
+  // The pair derivers need both endpoint slugs. Seed the map with the in-payload
+  // product (a freshly-created product is not yet readable from D1), then read
+  // the slugs of any endpoints referenced by `supabaseId` in one batched query.
+  if (integrationEndpoints.length) {
+    const slugByProductId = new Map<string, string>();
+    if (productId && productResult) slugByProductId.set(productId, productResult.slug);
+    const needSlugs = new Set<string>();
+    for (const { sourceId, targetId, poweredById } of integrationEndpoints) {
+      if (!slugByProductId.has(sourceId)) needSlugs.add(sourceId);
+      if (!slugByProductId.has(targetId)) needSlugs.add(targetId);
+      if (poweredById && !slugByProductId.has(poweredById)) needSlugs.add(poweredById);
+    }
+    if (needSlugs.size) {
+      const rows = await db.query.products.findMany({
+        columns: { id: true, slug: true },
+        where: inArray(products.id, [...needSlugs]),
+      });
+      for (const row of rows) slugByProductId.set(row.id, row.slug);
+    }
+    for (const { result, sourceId, targetId, poweredById } of integrationEndpoints) {
+      result.sourceSlug = slugByProductId.get(sourceId);
+      result.targetSlug = slugByProductId.get(targetId);
+      if (poweredById) result.poweredBySlug = slugByProductId.get(poweredById);
+    }
+  }
+
+  // ── Audit rows (appended last; same atomic batch as the writes above) ─────
+  for (const entry of auditEntries) stmts.push(auditInsert(db, entry));
+
+  const response: PromoteResponse = {
+    vendors: vendorResults,
+    product: productResult,
+    integrations: integrationResults,
+    taxonomy: {
+      categories: categories.results,
+      audiences: audiences.results,
+      phases: phases.results,
+      trades: trades.results,
+    },
+    skipped,
+  };
+
+  // ── BATCH: one atomic unit (§26.1). A racing duplicate slug trips a UNIQUE
+  //    violation → 409 SLUG_CONFLICT (AECI-98); any other failure rethrows → 500.
+  if (stmts.length) {
+    try {
+      await db.batch(stmts as BatchTuple);
+    } catch (err) {
+      if (isSlugUniqueViolation(err)) {
+        throw new ApiError(
+          409,
+          'SLUG_CONFLICT',
+          'A concurrent promote generated a duplicate slug; retry the request.',
+          { details: { target: slugConflictTarget(err) } },
+        );
+      }
+      throw err;
+    }
+  }
+
+  // ── Post-batch: recompute the denormalized counts for touched products
+  //    (AECI-104; the brief lag is the drift sweep's backstop). Separate
+  //    read+write under D1 (no interactive tx).
+  if (affectedProducts.size) await recomputeProductCounts(db, affectedProducts);
+
+  return {
+    response,
+    removedTradeSlugs,
+    // An all-skipped promote accumulates no statements and therefore changed
+    // nothing — the home-stats refresh below keys off this.
+    wrote: stmts.length > 0,
+    bookmark: dbCtx.getBookmark(),
+    auditEntries,
+  };
+}
+
+/**
+ * The best-effort, post-commit tail of a promote: §26.5 audit forwards, edge-cache
+ * purge, home-stats refresh, Algolia upsert, and the IndexNow / Google Indexing
+ * pings. Every one of them is fire-and-forget through `rc.waitUntil` and self-gates
+ * on its own credentials, exactly as it did when this ran off the request — the
+ * promote is already committed, so nothing here may throw or delay the result.
+ *
+ * Called by the Workflow AFTER the commit step resolves (not from inside it), so a
+ * replayed step can never double-fire these. Synchronous by design: it dispatches
+ * and returns, which is what lets the job reach `complete` the instant the batch
+ * commits.
+ */
+export function dispatchPromoteHooks(
+  rc: PromoteRunCtx,
+  result: PromoteIngestResult,
+  deps: PromoteIngestDeps = {},
+): void {
+  const dbFor = deps.dbFor ?? getDb;
+  const syncAlgolia = deps.syncAlgolia ?? defaultAlgoliaSync;
+  const notifyIndexNow = deps.notifyIndexNow ?? defaultIndexNowNotify;
+  const notifyGoogleIndexing = deps.notifyGoogleIndexing ?? defaultGoogleIndexingNotify;
+  const refreshHomeStats = deps.refreshHomeStats ?? defaultHomeStatsRefresh;
+  const { response, removedTradeSlugs, auditEntries } = result;
+
+  // Best-effort §26.5 audit forwards AFTER the commit. Only scheduled when
+  // Datadog is configured — the forwarder is a no-op otherwise, so there is
+  // nothing to await.
+  const forward = makeForwarder(rc);
+  if (forward && auditEntries.length) {
+    rc.waitUntil(Promise.all(auditEntries.map((entry) => forwardAuditLog(entry, forward))));
+  }
+
+  // AECI-105: purge the edge-cache tags this promote invalidated. Best-effort,
+  // post-commit; no-ops without CF creds.
+  if (rc.env.CF_PURGE_API_TOKEN && rc.env.CF_ZONE_ID) {
+    rc.waitUntil(purgeAfterPromote(rc, response, removedTradeSlugs));
+  }
+
+  // AECI-305: refresh the `home.*` `stats_cache` keys the home page reads, then
+  // purge `/` so its credibility strip + stats cards repaint with the new counts.
+  // Those numbers come from the cache, not a live count, so without this the home
+  // banner lags the catalog until the daily cron. Gate on an actual write (an
+  // all-skipped promote changed nothing); best-effort, post-commit — the seam
+  // never throws and self-gates the purge on CF creds.
+  if (result.wrote) {
+    rc.waitUntil(refreshHomeStats(rc));
+  }
+
+  // AECI-139: push the promoted records to Algolia immediately (independent
+  // best-effort task). No-ops without the Algolia secrets.
+  if (rc.env.ALGOLIA_APP_ID && rc.env.ALGOLIA_ADMIN_KEY) {
+    rc.waitUntil(syncAlgolia(rc, response));
+  }
+
+  // AECI-546: resolve the publication floor for any touched trade ONCE, shared
+  // by both pings below. Started here (post-commit, so the count is current) but
+  // deliberately not awaited — see `resolveTradeUrlOptions`. Resumes the write's
+  // session via `rc.bookmark()` so the floor re-count can't read a lagging
+  // replica once D1 read replication is enabled (AECI-250).
+  const tradeUrls = resolveTradeUrlOptions(
+    rc,
+    dbFor(rc.env, { bookmark: rc.bookmark() }).db,
+    response,
+    removedTradeSlugs,
+  );
+
+  // AECI-236: notify IndexNow of the affected public URLs so Bing/Yandex/…
+  // re-crawl quickly (§20.2/§20.5). Best-effort, post-commit; no-ops without
+  // INDEXNOW_KEY + PUBLIC_SITE_URL. Those are provisioned ONLY at launch
+  // (alongside `ALLOW_INDEXING=true`): pinging IndexNow for a noindex'd site is
+  // a correctness bug, so the secret's absence is the gate.
+  if (rc.env.INDEXNOW_KEY && rc.env.PUBLIC_SITE_URL) {
+    rc.waitUntil(notifyIndexNow(rc, response, tradeUrls));
+  }
+
+  // AECI-263: best-effort Google Indexing API ping for the SAME affected URLs
+  // (§20.2). Additive to IndexNow; no-ops without the service-account creds +
+  // PUBLIC_SITE_URL, which are provisioned ONLY at launch (alongside
+  // `ALLOW_INDEXING=true`) — pinging Google for a noindex'd site is the same
+  // correctness bug the secret's absence guards against. Never blocks the write.
+  if (
+    rc.env.GOOGLE_INDEXING_SA_EMAIL &&
+    rc.env.GOOGLE_INDEXING_SA_PRIVATE_KEY &&
+    rc.env.PUBLIC_SITE_URL
+  ) {
+    rc.waitUntil(notifyGoogleIndexing(rc, response, tradeUrls));
+  }
+
+  // Surface any `skipped[]` entries (§4) in Datadog: a completed job with skips is
+  // a partial promote — entities the push couldn't link — that neither the metrics
+  // layer nor a `status: 'complete'` poll response can otherwise reveal.
+  logPromoteSkips(rc, response.skipped);
 }

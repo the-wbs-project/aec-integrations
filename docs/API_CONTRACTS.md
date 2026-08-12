@@ -199,6 +199,7 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `VALIDATION_FAILED` | 400 | Request body or query failed schema validation |
 | `MALFORMED_REQUEST` | 400 | Request body could not be parsed |
 | `UNAUTHENTICATED` | 401 | No session, or session expired |
+| `PAYLOAD_TOO_LARGE` | 413 | Request body exceeds the endpoint's hard size ceiling (`POST /api/promote`, AECI-563) |
 | `FORBIDDEN` | 403 | Authenticated but not authorized for this action |
 | `NOT_FOUND` | 404 | Resource does not exist |
 | `REVIEW_DUPLICATE` | 409 | User already reviewed this product |
@@ -216,6 +217,7 @@ Machine-readable codes are stable identifiers. Messages are localized.
 - `403` — authenticated but not authorized, or banned
 - `404` — resource doesn't exist or is not visible to caller
 - `409` — conflict (duplicate, slug collision)
+- `413` — request body over the endpoint's hard ceiling
 - `422` — semantically valid but business rule violation
 - `429` — rate limited (with `Retry-After` header)
 - `500` — unexpected server error (auto-alerts Datadog)
@@ -1200,23 +1202,49 @@ Worker writes corresponding `workflow_transitions` entries (see `STAGE_1_SPEC.md
 
 ### 6.12 Promotion (review-app push)
 
-#### `POST /api/promote`
+#### `POST /api/promote` → `202` + `GET /api/promote/jobs/:id`
 
 Push-based Airtable → app-DB (Cloudflare D1) promotion. The review application sends one
 product plus its dependencies (vendors, taxonomy, integrations); the Worker
-upserts the whole bundle in a single atomic `db.batch([...])` and returns the created/updated
-IDs so the review app can persist the mapping and re-push edits. This is the live
-curator → app-DB path; the pull-based CLI `scripts/airtable-to-supabase-bulk-migrate.ts`
-was **retired** (AECI-278).
+upserts the whole bundle in a single atomic `db.batch([...])` and hands back the
+created/updated IDs so the review app can persist the mapping and re-push edits. This is
+the live curator → app-DB path; the pull-based CLI
+`scripts/airtable-to-supabase-bulk-migrate.ts` was **retired** (AECI-278).
+
+**Asynchronous since AECI-563 (ADR 0021).** `POST /api/promote` validates
+synchronously, starts the `PROMOTE_WORKFLOW` Cloudflare Workflow, and returns
+**`202 { jobId, status: 'queued' }`** plus a `Location: /api/promote/jobs/{jobId}`
+header. The plan-then-batch ingest (`routes/promote.ts` `runPromoteIngest`) runs inside
+one non-retried step of that Workflow, and `GET /api/promote/jobs/:id` serves
+`{ jobId, status, result?, error? }`. This exists because the synchronous shape coupled a
+committed write to the caller's connection: a client timeout left the batch committed
+(product live) while the response carrying the assigned IDs was lost, which — with no
+`external_id` column — was unrecoverable (AECI-561). Full caller-facing contract:
+`docs/REVIEW_APP_PROMOTE_API.md` §2.1.
 
 **Auth:** `Authorization: Bearer <REVIEW_APP_TOKEN>` (a Wrangler secret, compared
-constant-time). Missing/invalid → `401 UNAUTHENTICATED`. This is machine-to-
-machine auth, not a user session.
+constant-time) on **both** endpoints. Missing/invalid → `401 UNAUTHENTICATED`. This is
+machine-to-machine auth, not a user session.
 
-**Idempotency:** the review app holds the IDs — there is no `external_id` column
-on Supabase. An entity carrying `supabaseId` is **updated** by that ID; absent →
-**created** and its new ID is returned. Slugs are server-generated (never sent by
-the client) and stay stable across updates.
+**Two independent idempotency keys:**
+
+- **`jobId`** (optional, top-level, `^[A-Za-z0-9_][A-Za-z0-9_-]{7,99}$`) scopes one promote
+  *attempt*. It becomes the Workflow **instance id**, so `create({ id })`'s duplicate
+  guard means a replayed kick-off attaches to the existing instance and returns the same
+  `jobId` — it can never start a second instance and therefore never commits twice.
+  Absent → server-generated (pollable, but no replay protection).
+- **`supabaseId`** scopes one *row*, as before: present → **updated** by that ID; absent
+  → **created** and its new ID is returned. The review app holds the mapping; there is no
+  `external_id` column. Slugs are server-generated (never sent by the client) and stay
+  stable across updates.
+
+**Errors split across the two surfaces.** Synchronous: `400 MALFORMED_REQUEST` /
+`400 VALIDATION_FAILED` / `401 UNAUTHENTICATED` / `413 PAYLOAD_TOO_LARGE` (body > 8 MiB, or
+oversize with no `PROMOTE_KV` to stage into) / `503 DEPENDENCY_FAILURE` (no
+`PROMOTE_WORKFLOW` binding) / `500 INTERNAL_ERROR`. On the job: `SLUG_CONFLICT` (AECI-98)
+and `INTERNAL_ERROR` now arrive as `{ status: 'errored', error: { code, message } }` — the
+Workflow throws `NonRetryableError(message, code)` and the poll maps the error `name` back
+to the `ApiErrorCode`. A poll for an unknown/expired job → `404 NOT_FOUND`.
 
 Schemas live in `packages/shared/src/api/promote.ts` (`PromotePayloadSchema`,
 `PromoteResponse`). Intra-payload links use a client-local `ref`; cross-request
@@ -1229,6 +1257,7 @@ least one of `vendors`, `product`, or `integrations`.
 ```typescript
 // Request (abridged — see promote.ts for all optional fields)
 export const PromotePayloadSchema = z.object({
+  jobId: PromoteJobIdSchema.optional(),                   // kick-off idempotency key (AECI-563)
   vendors: z.array(PromoteVendorSchema).default([]),      // { ref, supabaseId?, companyName, isPrimary?, ... }
   product: PromoteProductSchema.optional(),               // { ref, supabaseId?, name, productRole, categories[], audiences[], phases[], trades[], extensionOf[], ... }
   //  product.trades[]: trade slugs/names/aliases (AECI-542) — resolved FIND-ONLY
@@ -1242,7 +1271,20 @@ export const PromotePayloadSchema = z.object({
   //    `dataObject` resolves find-only against the seeded vocabulary; a miss → skipped[] kind 'claim'.
 });
 
-// Response — `product` is null for a vendor-only / integration-only push
+// Kick-off response (202) + poll response (200) — AECI-563
+export interface PromoteKickoffResponse { jobId: string; status: 'queued' }
+export type PromoteJobStatus = 'queued' | 'running' | 'complete' | 'errored';
+export interface PromoteJobResponse {
+  jobId: string;
+  status: PromoteJobStatus;
+  // Present exactly when complete: the full PromoteResponse below (the former 200 body).
+  result?: PromoteResponse;
+  // Present exactly when errored: the code the synchronous call used to return.
+  error?: { code: string; message: string };
+}
+
+// The ID map — now delivered as `PromoteJobResponse.result`.
+// `product` is null for a vendor-only / integration-only push.
 export interface PromoteResponse {
   vendors: { ref: string; id: string; slug: string; operation: 'created' | 'updated' }[];
   product: { ref: string; id: string; slug: string; operation: 'created' | 'updated' } | null;
@@ -1273,7 +1315,7 @@ export interface PromoteResponse {
 **Integration rule (product-driven, from AECI-83):** an integration is written
 only when both endpoints resolve — one is the product in this bundle (`ref`), the
 other must already be promoted (`supabaseId`). Integrations whose other endpoint
-isn't promoted yet land in `skipped[]` rather than failing the request. Every
+isn't promoted yet land in `skipped[]` rather than failing the promote. Every
 create/update writes an `audit_log` row in the same transaction (§26).
 
 **Claims (Stage 1.5, AECI-291 contract / AECI-297 ingest):** each integration may

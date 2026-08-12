@@ -50,7 +50,8 @@ import { createProductFacetsHandler } from './routes/product-facets';
 import { createAdminReviewsListHandler, createModerateReviewHandler } from './routes/admin-reviews';
 import { createProductReviewsListHandler } from './routes/product-reviews';
 import { createProductDetailHandler, createProductsListHandler } from './routes/products';
-import { createPromoteHandler } from './routes/promote';
+import { createPromoteJobHandler } from './routes/promote-jobs';
+import { createPromoteKickoffHandler } from './routes/promote-kickoff';
 import { createClaimSubmitHandler, createCorrectionSubmitHandler } from './routes/requests';
 import { createSubmitReviewHandler } from './routes/reviews';
 import { createStatsHomeHandler } from './routes/stats';
@@ -191,20 +192,26 @@ phase28.post('/api/webhooks/linear', createLinearWebhookHandler());
 
 app.route('/', phase28);
 
-// Review-app push endpoint (promotion). Own sub-router so its `onError` opts
-// into `logClientErrors` — every rejected promote (400 malformed/validation,
-// 401 bad token, 409 slug conflict, 500 fault) emits a detailed Datadog log
-// under `source:review-app-promote` with the same `trace_id` the caller gets,
-// so the review app's operator can diagnose a failed push from Datadog alone
-// (docs/REVIEW_APP_PROMOTE_API.md §6) rather than the HTTP response body. The
-// bearer-auth middleware runs first so an unauthenticated request never reaches
-// the DB; both it and the handler throw `ApiError`/`ZodError`, which
-// `errorHandler()` renders as the canonical envelope. Registered before the
-// `/api/*` 404 catch-all (below) so it matches; reached only over the service
-// binding like every other route.
+// Review-app promotion endpoints — kick-off + poll (AECI-563 / ADR 0021). Own
+// sub-router so its `onError` opts into `logClientErrors`: every rejected promote
+// (400 malformed/validation, 401 bad token, 413 oversize, 503 misconfigured, 500
+// fault) emits a detailed Datadog log under `source:review-app-promote` with the
+// same `trace_id` the caller gets, so the review app's operator can diagnose a
+// failed push from Datadog alone (docs/REVIEW_APP_PROMOTE_API.md §6) rather than
+// the HTTP response body. Registered before the `/api/*` 404 catch-all (below) so
+// they match; reached only over the service binding like every other route.
+//
+//   - POST /api/promote          — validate, start the promote Workflow, 202 { jobId }.
+//   - GET  /api/promote/jobs/:id — status + the committed ID map.
+//
+// The commit no longer happens on the request: a client that walks away can no
+// longer strand a committed promote's IDs (AECI-561). A failure inside the Workflow
+// therefore never reaches this `onError` — the Workflow logs it itself, so §6.1's
+// "every rejection is in Datadog" still holds for `SLUG_CONFLICT` / `INTERNAL_ERROR`.
 const reviewPromote = new Hono<{ Bindings: Env }>();
 reviewPromote.onError(errorHandler({ logClientErrors: true, source: 'review-app-promote' }));
-reviewPromote.post('/api/promote', requireReviewAppAuth(), createPromoteHandler());
+reviewPromote.post('/api/promote', requireReviewAppAuth(), createPromoteKickoffHandler());
+reviewPromote.get('/api/promote/jobs/:id', requireReviewAppAuth(), createPromoteJobHandler());
 app.route('/', reviewPromote);
 
 // AECI-193 auth-spike sub-router. Own router because `requireUserAuth()`
@@ -314,3 +321,8 @@ export default {
   scheduled,
   queue,
 };
+
+// The promote ingest Workflow (AECI-563 / ADR 0021). Wrangler resolves a Workflow's
+// `class_name` off the Worker's MAIN module, so the class must be re-exported here —
+// the `workflows` binding block in `wrangler.jsonc` alone is not enough.
+export { PromoteWorkflow } from './workflows/promote-workflow';

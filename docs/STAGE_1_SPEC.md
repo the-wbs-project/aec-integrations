@@ -1696,7 +1696,19 @@ create index audit_log_created_at_idx on audit_log(created_at desc);
 
 **Naming convention:** dot-separated `entity.action` (e.g. `review.approved`, `product.created`, `vendor.updated`, `claim.submitted`, `claim.approved`).
 
-**Coverage:** every write path in the API Worker calls `appendAuditLog(...)` as part of its transaction. Failure to log is a hard failure for the write — the operation is rolled back if audit logging fails. This guarantees no state change happens without a corresponding audit entry.
+**Coverage.** Every write path in the API Worker that changes **domain state** emits its `audit_log` row via `auditInsert()` (`apps/api/src/lib/audit.ts`) inside the **same** `db.batch([...])` as the mutation — D1 has no interactive transactions, so the batch is the atomic unit (ADR 0016 / AECI-249). Failure to log is a transactional failure: the batch rolls back, so no domain state change commits without its audit entry.
+
+**Domain state** means the catalog, users and profiles, reviews and moderation, claims and attestations, requests and workflows — anything a person changed, or that changes what a visitor sees.
+
+**Carve-out — derived and log-class writes are exempt (ADR 0022).** A write is exempt when it is *all three* of: (a) computed entirely from data already in the database, **or** an append-only event / lead-capture log; (b) invisible on every public surface; and (c) reproducible by re-running the job that wrote it. Exempt today:
+
+- `page_views`, `mailing_list`, `feedback` — already documented as exempt in `API_CONTRACTS.md` §6.9 and §6.13, including the unsubscribe soft-delete. This carve-out is where that exemption should always have lived.
+- `stats_cache` (the 07:00 home-stats job and the Algolia sync watermark) and the denormalized product counters (`lib/recompute-counts.ts`), which have never emitted audit rows.
+- `metrics_daily` and `job_runs` once they ship (`ADMIN_PANEL_SPEC.md` §7.1, §7.2).
+
+These are observable through `job_runs` and Datadog instead, not through the audit log. Note the exemption test is **entity class, not actor class**: a system or cron actor writing domain state still audits — `actor_type` already permits `'system'`, and `POST /api/promote` uses it throughout.
+
+**Exception — scheduled deletion is never exempt.** Any *scheduled* `DELETE` emits exactly one **summary** `audit_log` row per run, in the same batch as the delete: `actor_type='system'`, `action='retention.pruned'`, `metadata={table, cutoff, rowsDeleted}`. One row per run, not per row deleted. Deletion is the one write whose fact cannot be recovered from the data afterwards. (Precedent: the single `catalog.integrations_reset` row standing for the 2026-07-25 bulk removal.)
 
 ### 26.2 Workflow instances
 
@@ -1783,9 +1795,11 @@ Every `audit_log` and `workflow_transitions` entry is also forwarded to Datadog 
 
 ### 26.6 Retention policy
 
-**Stage 1: indefinite retention in Supabase.** Audit and workflow tables grow with platform activity but remain small (estimate: thousands of rows in year one). No archiving or pruning at launch.
+**Scope.** This section governs the **audit and workflow tables only** — `audit_log`, `workflow_instances`, `workflow_transitions`. Retention for `page_views`, `metrics_daily`, and `job_runs` is governed by `ADMIN_PANEL_SPEC.md` §7.4, and its pruning cron is explicitly forbidden from touching the three tables named here.
 
-When the table becomes large enough to materially affect performance or storage cost (signaled by the daily data quality job in Section 23.1), introduce a retention policy. Likely approach: archive entries older than 1 year to R2 or BigQuery as Parquet, keeping the most recent year hot in Supabase. Datadog retention is governed by Datadog's plan separately.
+**Stage 1: indefinite retention in D1.** Audit and workflow tables grow with platform activity but remain small (estimate: thousands of rows in year one). No archiving or pruning at launch.
+
+When the table becomes large enough to materially affect performance or storage cost (signaled by the daily data quality job in Section 23.1), introduce a retention policy. Likely approach: archive entries older than 1 year to R2 as Parquet, keeping the most recent year hot in D1. Datadog retention is governed by Datadog's plan separately. Note that D1 Time Travel recovers roughly 30 days, so anything pruned beyond that window is permanent.
 
 This decision is intentionally deferred — easier to introduce retention later than to recover data deleted prematurely.
 
