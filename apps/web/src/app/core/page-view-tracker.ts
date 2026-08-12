@@ -17,6 +17,14 @@
  * server resolver branch knows the entity id); that mirrors the existing
  * cache-HIT behavior and is acceptable for a view counter.
  *
+ * Operator-only surfaces are excluded (AECI-575 / ADMIN_PANEL_SPEC §9.6): an
+ * admin SPA navigation would otherwise write a `page_views` row into the very
+ * table the admin console reads and the daily digest reports on — the panel
+ * measuring itself. The exclusion lives HERE, at the tracker, so nothing is sent
+ * at all; the prefix list is `UNTRACKED_ROUTE_PREFIXES` in `@aeci/shared`, shared
+ * with the SSR Worker's `firePageView` and with the digest's read-side filter so
+ * the three can't drift.
+ *
  * Browser-only (no-op on the server) and fire-and-forget (errors swallowed —
  * analytics must never break navigation). The endpoint returns 204 and, since
  * Phase 4 (AECI-177), inserts an enriched `page_views` row server-side; this
@@ -30,7 +38,7 @@ import { Injectable, PLATFORM_ID, inject } from '@angular/core';
 import { NavigationEnd, Router } from '@angular/router';
 import { filter } from 'rxjs';
 
-import type { PageViewPayload } from '@aeci/shared';
+import { isUntrackedRoute, type PageViewPayload } from '@aeci/shared';
 
 @Injectable({ providedIn: 'root' })
 export class PageViewTracker {
@@ -63,6 +71,9 @@ export class PageViewTracker {
 
   private fire(url: string): void {
     const route = url.split(/[?#]/, 1)[0] || '/';
+    // §9.6 — never record the operator's own navigation. Guarding here rather
+    // than in the subscription means any future caller inherits the exclusion.
+    if (isUntrackedRoute(route)) return;
     const payload: PageViewPayload = { route };
     // Fire-and-forget: subscribe to issue the request, swallow any error.
     this.http.post('/api/page-views', payload).subscribe({ error: () => undefined });

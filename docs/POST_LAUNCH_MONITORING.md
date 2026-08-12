@@ -164,6 +164,7 @@ datacenter/VPN/scanner networks**, 107 from one unlisted colocation provider (AS
 cd apps/api && pnpm exec wrangler d1 execute aeci-app-production --env production --remote \
   --command "SELECT cf_asn, COUNT(*) n, COUNT(DISTINCT user_agent_hash) uas, COUNT(DISTINCT path) paths
              FROM page_views WHERE created_at >= date('now','-7 days') AND is_bot = 0
+               AND path NOT LIKE '/admin%' AND path NOT LIKE '/account%'
              GROUP BY 1 ORDER BY n DESC LIMIT 40"
 # then, per suspicious ASN:
 curl -s "https://stat.ripe.net/data/as-overview/data.json?resource=AS47007" | jq -r .data.holder
@@ -186,10 +187,19 @@ holder before adding.
 rows as of 2026-08-04). It only touches `is_bot IS NULL`, so after a *later* widening the newly-listed ASNs
 also need `UPDATE page_views SET is_bot = 1, bot_name = '…' WHERE is_bot = 0 AND cf_asn IN (…)`.
 
+The `path NOT LIKE` clauses above mirror the digest, which since **AECI-575** excludes the operator-only
+routes (`/admin/*`, `/account`) from every `page_views` read. Leave them in or the census will rank the
+operator's own ISP first and you will spend the audit chasing yourself — on the 2026-08-10 digest day
+**67 of 92 "human" views were the operator** (AS23700, Jakarta). Drop them only when you deliberately want
+the unfiltered table.
+
 **Known ceiling**: the durable fix is not a longer list — it is capturing Cloudflare's `asOrganization`
 (available on all plans, unlike the bot score) at ingest and matching on the holder name, plus the PostHog
-join (AECI-239) as the human source of truth. Until then, treat the digest's human count as an
-**upper bound**.
+join (AECI-239) as the human source of truth. AECI-575 removed the one slice of internal traffic that could
+be excluded **precisely** (operator navigation on authed surfaces, zero false positives); what remains is
+genuine visitors sharing the operator's ISP, which only `ANALYTICS_INTERNAL_ASNS`
+(`ADMIN_PANEL_SPEC.md` §13 D10, unbuilt) or the holder-name fix can separate. Until then, treat the digest's
+human count as an **upper bound**.
 
 ---
 
