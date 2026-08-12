@@ -688,3 +688,71 @@ flood tripping the rate-limit rules or a scraper run hitting the UA challenge �
 if a legitimate surface is being blocked (re-tune the rule) or if the volume suggests a targeted attack worth
 a manual Cloudflare block. The 500/15m threshold is a launch placeholder; re-tune in
 `observability/datadog/monitor-waf-ratelimit-spike.json` once baseline volume is known.
+
+---
+
+## Promote job errored or stuck
+
+**Signal:** `aeci.api.promote.job{outcome:errored}` (with a `code` tag), the
+`aeci.api.promote.job_failed` error log, or `aeci.api.promote.job.duration_ms` running long.
+There is **no monitor on this yet** — promote volume is a handful per day, so today the
+trigger is usually a curator reporting "the promote never finished". (AECI-563 / ADR 0021.)
+
+**What it means:** since AECI-563 `POST /api/promote` only *starts* the ingest. The commit runs
+in the `PROMOTE_WORKFLOW` Cloudflare Workflow, one instance per promote, whose **instance id is
+the review-app-supplied `promote_job_id`**. A failure never surfaces as an HTTP status to the
+caller — it lands as `{ status: 'errored', error: { code } }` on `GET /api/promote/jobs/:id` and
+as the log above. An `errored` job **wrote nothing**: the ingest is one atomic `db.batch`, so
+there is no partial state to clean up.
+
+**First checks**
+
+1. **Get the job id.** From the curator (the Airtable row's `promote_job_id`), or from the
+   `job_id` attribute on the `aeci.api.promote.job_failed` log
+   (`service:aeci-api source:review-app-promote`).
+2. **Read the job.** Either the API (`GET /api/promote/jobs/{jobId}` with the
+   `REVIEW_APP_TOKEN` bearer) or the Cloudflare dashboard → **Workers & Pages → Workflows →
+   `aeci-promote-<env>`** → the instance. The dashboard shows the per-step history, which the
+   API does not.
+3. **Which code?**
+   - `SLUG_CONFLICT` — two first-time promotes raced for the same slug. Benign and
+     caller-resolvable: re-push with a **new** job id and slug disambiguation (`-2`, `-3`) will
+     settle it.
+   - `VALIDATION_FAILED` — a product name that can't be turned into a slug (reserved or empty
+     after normalization). Needs the name fixed in Airtable.
+   - `INTERNAL_ERROR` — a real fault. Read the log's `reason` (D1 errors put the detail in the
+     `cause` chain) and the step history.
+4. **Stuck rather than failed?** A job sitting in `running` far longer than
+   `aeci.api.promote.job.duration_ms`'s normal range is usually a slow plan phase on a
+   heavily-integrated product (many sequential D1 reads) — not a hang. The commit step has a
+   10-minute timeout, after which the instance errors. A job stuck in `queued` means the
+   account is at its concurrent-instance ceiling, which our volume will not reach.
+5. **Was it even started?** A poll returning `404` means AECi has no record of the id: either
+   the kick-off never succeeded (check for a 4xx/5xx `source:review-app-promote` log with that
+   window's `trace_id`) or the job is past its retention (30 days for the instance, 90 for the
+   KV result mirror).
+
+**Repair**
+
+- **Normal path — let the review app re-push.** A new job id, same bundle. Because an `errored`
+  job wrote nothing, this is safe and is the expected remedy for every code above.
+- **The IDs committed but the review app never collected them** (the exact class of damage this
+  design exists to prevent): poll the job id; a `complete` job still serves its full ID map, so
+  the write-back can be re-run. This is what the review-app reconcile sweep (AECI-570) automates.
+- **Do not `restart()` an instance** to retry a failed commit. The commit step is deliberately
+  non-retried (`NonRetryableError`) so a half-planned create can never be replayed; restarting
+  reintroduces exactly the duplicate-row risk that guard removes. Re-push with a new job id
+  instead.
+- **`terminate()`** an instance only to clear a genuinely wedged job, and note that the id is then
+  permanently consumed for its retention window — the review app must use a new one.
+
+**Escalation:** repeated `INTERNAL_ERROR`s across different products point at the ingest itself
+(`apps/api/src/routes/promote.ts`) or at D1 — capture the job id, the `reason`, and the step
+history. Repeated `SLUG_CONFLICT`s with no concurrency suggest a slug-generation regression, not
+a race.
+
+**Known gap:** Workflows guarantee a step runs *at least* once, so an engine crash between the
+`db.batch` committing and the step result being persisted could replay the commit and duplicate
+a **created** row. Client death is fully covered; this narrower window is accepted and documented
+(ADR 0021 → Consequences). If you ever see a duplicated product whose promote job reported
+`complete` exactly once, that is the window — capture it, it justifies the hardening follow-up.

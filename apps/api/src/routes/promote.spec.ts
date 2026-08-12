@@ -10,9 +10,9 @@
  * `db.batch` that throws the SQLite error the DB would raise.
  */
 
-import type { PromoteResponse } from '@aeci/shared';
+import { PromotePayloadSchema, type PromoteResponse } from '@aeci/shared';
 import { eq } from 'drizzle-orm';
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -32,20 +32,22 @@ import {
   taxonomyTrades,
   vendors,
 } from '../db/schema';
-import { bookmarkMiddleware } from '../bookmark-middleware';
 import type { Env } from '../env';
-import { errorHandler } from '../errors';
+import { ApiError, errorHandler } from '../errors';
+import { json } from '../http';
 import type { DbFactory } from '../lib/handler-utils';
-import { requireReviewAppAuth } from '../lib/review-auth';
 import { makeTestDb, recordingFactory, type TestDb } from '../test/d1';
 import { fakeExecutionContext } from '../test/helpers';
 import {
-  createPromoteHandler,
+  dispatchPromoteHooks,
   refreshHomeStatsAfterPromote,
+  runPromoteIngest,
   type PromoteAlgoliaSync,
   type PromoteGoogleIndexingNotify,
   type PromoteHomeStatsRefresh,
   type PromoteIndexNowNotify,
+  type PromoteIngestDeps,
+  type PromoteRunCtx,
 } from './promote';
 import { cacheTagsForPromote, touchedTradeSlugs } from './promote-cache-tags';
 import { affectedUrlsForPromote, type AffectedUrlOptions } from './promote-indexnow-urls';
@@ -86,9 +88,42 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+/**
+ * `PromoteRunCtx` over a Hono context — the test-lane equivalent of what
+ * `createWorkflowRunCtx` builds for a real run. `setBookmark` mirrors the workflow's
+ * mutable holder: the post-commit seams read `rc.bookmark()`, and the bookmark only
+ * exists once the ingest has returned.
+ */
+function testRunCtx(
+  c: Context<{ Bindings: Env }>,
+): PromoteRunCtx & { setBookmark(bookmark: string | null): void } {
+  let bookmark: string | null = null;
+  return {
+    env: c.env,
+    request: c.req.raw,
+    waitUntil: (promise) => c.executionCtx.waitUntil(promise),
+    bookmark: () => bookmark,
+    setBookmark: (next) => {
+      bookmark = next;
+    },
+  };
+}
+
+/**
+ * Drives the ingest over HTTP the way the retired `createPromoteHandler` did, so the
+ * assertions below (status codes, response bodies, `execCtx.waitUntil` counts) keep
+ * exercising the same behaviour after AECI-563 moved the commit into a Workflow.
+ *
+ * This is a HARNESS, not a shipped route: `POST /api/promote` now returns `202 { jobId }`
+ * (`promote-kickoff.spec.ts`) and this sequence — validate → `runPromoteIngest` →
+ * `dispatchPromoteHooks` → return the ID map — is what `runPromoteWorkflow` performs
+ * inside its commit step (`promote-workflow.spec.ts`). Keeping it here means the ~90
+ * ingest cases stay a direct test of the plan-then-batch SQL rather than being rewritten
+ * around a fake step, and the real `errorHandler` still renders the thrown `ApiError` /
+ * `ZodError` envelopes the Workflow now maps onto job errors.
+ */
 function buildApp(
   opts: {
-    withAuth?: boolean;
     syncAlgolia?: PromoteAlgoliaSync;
     notifyIndexNow?: PromoteIndexNowNotify;
     notifyGoogleIndexing?: PromoteGoogleIndexingNotify;
@@ -96,17 +131,29 @@ function buildApp(
     dbFor?: DbFactory;
   } = {},
 ) {
+  const deps: PromoteIngestDeps = {
+    dbFor: opts.dbFor ?? t.factory,
+    syncAlgolia: opts.syncAlgolia ?? noopAlgolia,
+    notifyIndexNow: opts.notifyIndexNow ?? noopIndexNow,
+    notifyGoogleIndexing: opts.notifyGoogleIndexing ?? noopGoogleIndexing,
+    refreshHomeStats: opts.refreshHomeStats ?? noopHomeStats,
+  };
   const app = new Hono<{ Bindings: Env }>();
   app.onError(errorHandler());
-  const handler = createPromoteHandler(
-    opts.dbFor ?? t.factory,
-    opts.syncAlgolia ?? noopAlgolia,
-    opts.notifyIndexNow ?? noopIndexNow,
-    opts.notifyGoogleIndexing ?? noopGoogleIndexing,
-    opts.refreshHomeStats ?? noopHomeStats,
-  );
-  if (opts.withAuth) app.post('/api/promote', requireReviewAppAuth(), handler);
-  else app.post('/api/promote', handler);
+  app.post('/api/promote', async (c) => {
+    let raw: unknown;
+    try {
+      raw = JSON.parse(await c.req.text());
+    } catch {
+      throw new ApiError(400, 'MALFORMED_REQUEST', 'Request body is not valid JSON');
+    }
+    const payload = PromotePayloadSchema.parse(raw);
+    const rc = testRunCtx(c);
+    const result = await runPromoteIngest(rc, payload, deps);
+    rc.setBookmark(result.bookmark);
+    dispatchPromoteHooks(rc, result, deps);
+    return json(result.response);
+  });
   return app;
 }
 
@@ -136,50 +183,47 @@ const seedProduct = (
 const seedDataObject = (id: string, slug: string, name: string, aliases: string[] = []) =>
   t.db.insert(taxonomyDataObjects).values({ id, slug, name, aliases });
 
-describe('createPromoteHandler — Sessions API bookmark threading (AECI-250)', () => {
-  it('threads inbound x-d1-bookmark + first-primary into getDb and emits the outbound bookmark', async () => {
+describe('runPromoteIngest — Sessions API anchoring (AECI-250 / AECI-563)', () => {
+  it('anchors the write session at first-primary and returns the outbound bookmark', async () => {
     const rec = recordingFactory(t.db);
     rec.setBookmark('bk-after-write');
 
-    const app = new Hono<{ Bindings: Env }>();
-    app.onError(errorHandler());
-    app.use('*', bookmarkMiddleware());
-    app.post(
-      '/api/promote',
-      createPromoteHandler(
-        rec.factory,
-        noopAlgolia,
-        noopIndexNow,
-        noopGoogleIndexing,
-        noopHomeStats,
-      ),
+    const rc: PromoteRunCtx = {
+      env: baseEnv,
+      request: new Request('http://localhost:8787/api/promote'),
+      waitUntil: () => {},
+      bookmark: () => null,
+    };
+
+    const result = await runPromoteIngest(
+      rc,
+      PromotePayloadSchema.parse({
+        vendors: [{ ref: 'v1', companyName: 'Autodesk' }],
+        product: { ref: 'p1', name: 'Revit' },
+        integrations: [],
+      }),
+      {
+        dbFor: rec.factory,
+        syncAlgolia: noopAlgolia,
+        notifyIndexNow: noopIndexNow,
+        notifyGoogleIndexing: noopGoogleIndexing,
+        refreshHomeStats: noopHomeStats,
+      },
     );
 
-    const res = await app.request(
-      '/api/promote',
-      post(
-        {
-          vendors: [{ ref: 'v1', companyName: 'Autodesk' }],
-          product: { ref: 'p1', name: 'Revit' },
-          integrations: [],
-        },
-        { 'x-d1-bookmark': 'in-99' },
-      ),
-      baseEnv,
-      fakeExecutionContext(),
-    );
-
-    expect(res.status).toBe(200);
-    // Inbound bookmark + the write anchor reached getDb …
-    expect(rec.calls[0]).toEqual({ bookmark: 'in-99', constraint: 'first-primary' });
-    // … and the session bookmark came back out for the next request.
-    expect(res.headers.get('x-d1-bookmark')).toBe('bk-after-write');
+    // The write anchor reaches getDb. There is no inbound bookmark to thread any more:
+    // the ingest runs in a Workflow step, not on a request, so there is no
+    // `x-d1-bookmark` header and `bookmarkMiddleware` never sees this path (AECI-563).
+    expect(rec.calls[0]).toEqual({ bookmark: null, constraint: 'first-primary' });
+    // The session bookmark rides the result instead of a response header — that is what
+    // the workflow feeds to `rc.setBookmark` so the post-commit re-reads see the write.
+    expect(result.bookmark).toBe('bk-after-write');
     // The real write still happened over the recording factory's client.
     expect(await t.db.select().from(products)).toHaveLength(1);
   });
 });
 
-describe('createPromoteHandler', () => {
+describe('runPromoteIngest', () => {
   it('creates a product with vendor and taxonomy', async () => {
     const existingProd = uuid(1);
     await seedProduct(existingProd, 'navisworks', 'Navisworks');
@@ -615,7 +659,7 @@ describe('usefulness resolution on promote (AECI-172)', () => {
   });
 });
 
-describe('createPromoteHandler — trades ingest (AECI-542)', () => {
+describe('runPromoteIngest — trades ingest (AECI-542)', () => {
   // `taxonomy_trades.description` is NOT NULL (`/trades/:slug` ships as an SEO
   // landing page, so copy is part of the contract — TRADES_VOCABULARY.md §5).
   const seedTrade = (id: string, slug: string, name: string, aliases: string[] = []) =>
@@ -877,7 +921,7 @@ describe('createPromoteHandler — trades ingest (AECI-542)', () => {
   });
 });
 
-describe('createPromoteHandler — claims ingest (AECI-297)', () => {
+describe('runPromoteIngest — claims ingest (AECI-297)', () => {
   it('ingests claims + attestations for a created integration and returns the pair slugs', async () => {
     const target = uuid(1);
     await seedProduct(target, 'navisworks', 'Navisworks');
@@ -1816,51 +1860,5 @@ describe('touchedTradeSlugs', () => {
     for (const slug of touchedTradeSlugs(response, removed)) {
       expect(tags).toContain(`trade:${slug}`);
     }
-  });
-});
-
-describe('requireReviewAppAuth (on /api/promote)', () => {
-  const validBody = { product: { ref: 'p1', name: 'Revit' } };
-  const authApp = () => buildApp({ withAuth: true });
-
-  it('rejects a request with no Authorization header', async () => {
-    const res = await authApp().request(
-      '/api/promote',
-      post(validBody),
-      baseEnv,
-      fakeExecutionContext(),
-    );
-    expect(res.status).toBe(401);
-    expect(((await res.json()) as { error: { code: string } }).error.code).toBe('UNAUTHENTICATED');
-  });
-
-  it('rejects a wrong token', async () => {
-    const res = await authApp().request(
-      '/api/promote',
-      post(validBody, { Authorization: 'Bearer wrong' }),
-      baseEnv,
-      fakeExecutionContext(),
-    );
-    expect(res.status).toBe(401);
-  });
-
-  it('accepts the correct token', async () => {
-    const res = await authApp().request(
-      '/api/promote',
-      post(validBody, { Authorization: 'Bearer secret-token' }),
-      baseEnv,
-      fakeExecutionContext(),
-    );
-    expect(res.status).toBe(200);
-  });
-
-  it('fails closed when REVIEW_APP_TOKEN is unset', async () => {
-    const res = await authApp().request(
-      '/api/promote',
-      post(validBody, { Authorization: 'Bearer anything' }),
-      { ...baseEnv, REVIEW_APP_TOKEN: undefined },
-      fakeExecutionContext(),
-    );
-    expect(res.status).toBe(401);
   });
 });
