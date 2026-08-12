@@ -525,6 +525,35 @@ The two daily Algolia jobs run as cron → enqueue → consume (ADR 0013). The f
   done
   ```
 
+### 2b. Promote Workflow + `PROMOTE_KV` (AECI-563 / ADR 0021)
+
+`POST /api/promote` returns `202 { jobId }` and commits inside a Cloudflare **Workflow**, one per environment (`aeci-promote-{preview,staging,demo,production}`, binding `PROMOTE_WORKFLOW`, class `PromoteWorkflow`).
+
+- [ ] **No provisioning step needed for the Workflow itself** — unlike Queues, `wrangler deploy` creates/updates it from the `workflows` block in `apps/api/wrangler.jsonc`. It does require the **Workers Paid plan** (already satisfied for Queues) and the CI `CLOUDFLARE_API_TOKEN`'s existing **Workers Scripts: Edit** permission.
+- [x] **`PROMOTE_KV` — all four namespaces provisioned 2026-08-12** and their ids are in `apps/api/wrangler.jsonc`, in the base block **and in each of the four env blocks**. The per-env entries are load-bearing: wrangler **replaces** (does not merge) the top-level `kv_namespaces` for an env, so an env block without its own `PROMOTE_KV` entry simply has no such binding. Two key spaces (see `apps/api/src/lib/promote-jobs.ts`): `promote:payload:{jobId}` (24h) stages a bundle too large for the 1 MiB Workflow event-params cap, and `promote:result:{jobId}` (90d) mirrors the committed ID map so it outlives the 30-day instance retention.
+
+  | Namespace | Id |
+  |---|---|
+  | `aeci-api-promote-preview` | `30d6ca5b9f9e444ea97362e9757b21c3` |
+  | `aeci-api-promote-staging` | `eee38f83e62f473d8d589e08b2a99c07` |
+  | `aeci-api-promote-demo` | `bda4c6f152384073861d5ff218e0d7da` |
+  | `aeci-api-promote-production` | `9f0ce48f3a6b46f98458907baec65bf3` |
+
+  To recreate from scratch (KV ids must be literal in the config at deploy time, so this can never be a CI step), from `apps/api`:
+  ```bash
+  for e in preview staging demo production; do
+    pnpm exec wrangler kv namespace create "aeci-api-promote-$e"
+  done
+  # then paste each id into the base block AND that env's block:
+  #   { "binding": "PROMOTE_KV", "id": "<id>" }
+  ```
+  **Verify with `wrangler deploy --env <env> --dry-run`** and confirm `env.PROMOTE_KV` appears in the binding table for all four envs — the binding name must be `PROMOTE_KV` (what the code reads), not the namespace title.
+- [ ] **If the binding is ever absent it degrades gracefully** rather than failing closed: normal promotes (every real bundle) work unchanged; an oversize bundle is rejected `413 PAYLOAD_TOO_LARGE`; and the IDs are fetchable only for the instance retention window rather than the 90-day tail.
+- [ ] **CLI gotcha:** because the preview entries carry both `id` and `preview_id` (mirroring `TAXONOMY_KV`), `wrangler kv key …` against them needs an explicit `--preview false` (or `--preview`) or it errors with "has both an `id` and a `preview_id` configured".
+- [ ] **Release ordering:** the deployed review app still expects the old synchronous `200`. Staging auto-tracks `main`, but **do not run `promote-to-prod` until the review app's AECI-567 is deployed**, or every production promote breaks.
+
+Operating a stuck or failed job: `docs/RUNBOOKS.md` → "Promote job errored or stuck".
+
 ### 3. Cloudflare Access
 
 Already provisioned per `docs/access.md` §1. Re-verify after bootstrapping the staging hostname:
