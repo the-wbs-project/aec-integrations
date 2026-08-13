@@ -154,6 +154,8 @@ Filters: date range · traffic type (humans / bots / all, default humans) · sou
 
 Entity hydration follows the `target` `LinkRef` pattern already used by `GET /api/admin/requests`, so `/products/:slug` renders as a linked product name.
 
+**How D10 constraint 2 resolves on a row feed (settled by AECI-577).** "Show both numbers, never substitute" falls out of `AdminCount` for free on a *count* endpoint, but this is a *row list*: `exclude_internal=1` removes rows, so computing the counts the same way would leave the operator reading a smaller number with nothing beside it — the substitution the constraint exists to prevent. So `GET /api/admin/page-views` resolves the filter **twice**: `window_total` and `window_visitors` are computed both ways **unconditionally** whenever the var is set, toggle or no toggle, and `exclude_internal` governs only which rows come back. The screen therefore always reads "1,204 views · 312 excluding internal traffic", and the toggle's effect is legible before it is used rather than only after. `/api/admin/overview` already set this precedent — it always asks. One local consequence: `internal_filter.applied` means *"the row list was filtered"* on this endpoint, which `API_CONTRACTS.md` §6.10 records.
+
 ### 5.3 Traffic
 
 Time series over `page_views`: views/day split human vs bot · unique visitors/day (§9.8) · sources over time · top pages · top products · geography (country + colo) · crawler activity per bot over time. A UTC ↔ WIB toggle (§9.5), since the digest and every cron are UTC-only and the operator is at UTC+7. "Top pages" is public routes only — the §13 D12 exclusion applies here too, so the console's own routes can never rank in it.
@@ -219,6 +221,15 @@ Nothing about D8's boundary moves: both are still pure reads. From P2.1 the flag
 1. **Digest parity is structural, not periodic.** The overview *calls* `collectAnalyticsMetrics(db, windowsForDay(day))` rather than mirroring its queries, and its deltas come from an exported `computeDelta` that the email's own `deltaText` also calls. There is one implementation of each number. Deltas cross the wire **structured** (`{ current, prior, diff, pct }`), not as the email's prose, because §9.4's i18n rule is unconditional — the semantics are shared, the strings are the UI's.
 2. **Bias notes are derived from the window, not from a date.** `bot_classification_incomplete` fires because the window contains `is_bot IS NULL` rows, so it disappears on its own once P2.2 backfills. Nothing hardcodes 2026-08-05.
 3. **Note `code` is the contract; `message` is a fallback.** The UI localizes from `code` + `params`; `message` (and a null group's `label`) is untranslated operator text for curl and logs. This is what lets §1.1's "machine-readable notes rather than the UI hardcoding prose" coexist with §9.4.
+
+**P1.3 implementation notes (AECI-577).** Contract in the same `packages/shared/src/api/admin-panel.ts`; handler in `apps/api/src/routes/admin-page-views.ts` over `listPageViews` / `pageViewFilterPredicate` in `lib/admin-analytics.ts`. Four choices are worth knowing:
+
+1. **The D12 floor is structural, not a filter.** `listPageViews` builds its `WHERE` from `inWindow()`, the same choke point every other query in the module derives from, so `/admin/*` and `/account` are excluded beneath the caller's filters and no query string can surface them. A hand-rolled `and(gte(...), lt(...))` would silently lose it — which is why there is one `inWindow` rather than a repeated range predicate.
+2. **The internal-ASN filter is resolved twice** — see the §5.2 note above.
+3. **The UA hash is truncated in SQL**, not in the template (`substr(user_agent_hash, 1, 8)`). §9.7 permits a truncated pseudonymous id and forbids correlation beyond it; truncating at the query makes that a property of the contract instead of a habit of the UI, and the full hash never crosses the wire.
+4. **The feed's `source` / `country` dropdowns are fed by `traffic/breakdown`**, not by a duplicated vocabulary. The options are then exactly the values present in the selected window, the NULL bucket arrives as a real `key: null` group, and no list exists in two places waiting to drift. `ADMIN_PAGE_VIEW_NULL_FILTER` (`'__none__'`) is how that bucket is selected, since a query string cannot carry a null.
+
+The UI half also lands three shared pieces under `apps/web/src/app/admin/` that P1.2/P1.4–P1.6 reuse: `AdminNotes` (the first rendering of `AdminNote` codes as localized prose), `AdminPaginator` (the panel's first real pagination — the moderation queues load one capped page), and `AdminSelect` (an Angular Aria combobox + listbox per ADR 0010).
 
 ---
 
@@ -351,7 +362,7 @@ Issue-sized units. Phase 1 requires **no schema change** and carries most of the
 | **§9.6** | AECI-575 | Exclude `/admin/*` + `/account` from `PageViewTracker` — **SHIPPED 2026-08-12** (write side + retroactive read filter, §13 D12) | — |
 | **P1.1** | AECI-574 | API: `overview`, `metrics/timeseries` (live-aggregation mode), `traffic/breakdown` | AECI-573 (D10) |
 | **P1.2** | AECI-576 | UI: shell nav restructure (three groups, `h1` → "Admin") + Overview | P1.1, §9.6 |
-| **P1.3** | AECI-577 | API + UI: `GET /api/admin/page-views` + the Activity feed | P1.1 |
+| **P1.3** | AECI-577 | API + UI: `GET /api/admin/page-views` + the Activity feed — **SHIPPED 2026-08-13** | P1.1 |
 | **P1.4** | AECI-578 | UI: Traffic section + the chart primitives (§8) | P1.1 |
 | **P1.5** | AECI-579 | API + UI: Catalog coverage + promotion funnel | — |
 | **P1.6** | AECI-580 | API + UI: System status (version, DQ on demand, Algolia, table counts) | — |

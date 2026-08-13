@@ -62,11 +62,19 @@ describe('AdminShell', () => {
     expect(root.querySelector('nav[aria-label="Admin sections"]')?.textContent).toContain('0');
   });
 
-  it('renders a <router-outlet> for the child queue and links the nav to /admin/reviews', () => {
+  it('renders a <router-outlet> and links the nav to every admin screen', () => {
     const root = render({ pending_reviews: 4 });
     expect(root.querySelector('router-outlet')).not.toBeNull();
-    const link = root.querySelector('nav[aria-label="Admin sections"] a');
-    expect(link?.getAttribute('href')).toBe('/admin/reviews');
+    const hrefs = [...root.querySelectorAll('nav[aria-label="Admin sections"] a')].map((a) =>
+      a.getAttribute('href'),
+    );
+    // Insights before Operations, matching the IA AECI-576 formalizes into groups.
+    expect(hrefs).toEqual([
+      '/admin/activity',
+      '/admin/reviews',
+      '/admin/requests',
+      '/admin/reviewers',
+    ]);
   });
 
   it('seeds the shared store from the resolver and reflects live decrements in the badge', () => {

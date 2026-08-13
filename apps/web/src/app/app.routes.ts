@@ -248,6 +248,14 @@ export const routes: Routes = [
     resolve: { summary: adminSummaryResolver },
     children: [
       { path: '', pathMatch: 'full', redirectTo: 'reviews' },
+      // AECI-577 / Phase 8.3 P1.3 — the §5.2 Activity feed. AECI-576 restructures
+      // the nav into Insights/Catalog/Operations groups and repoints this
+      // redirect at `overview`; until then the screen lives alongside the
+      // moderation queues.
+      {
+        path: 'activity',
+        loadComponent: () => import('./admin/activity/activity-feed').then((m) => m.ActivityFeed),
+      },
       {
         path: 'reviews',
         loadComponent: () => import('./admin/reviews/review-queue').then((m) => m.ReviewQueue),

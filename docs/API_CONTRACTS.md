@@ -1166,15 +1166,23 @@ themselves (a banned admin would lock themselves out of `requireAdmin()`).
 
 ---
 
-#### Admin panel reads (AECI-574 / Phase 8.3 P1.1)
+#### Admin panel reads (AECI-574 / Phase 8.3 P1.1, AECI-577 / P1.3)
 
-Three `GET`s serving the operator console (`docs/ADMIN_PANEL_SPEC.md` §5–§6).
+Four `GET`s serving the operator console (`docs/ADMIN_PANEL_SPEC.md` §5–§6).
 Source of truth: `packages/shared/src/api/admin-panel.ts` (Zod), and
-`apps/api/src/routes/admin-{overview,metrics,traffic}.ts` + `lib/admin-analytics.ts`
-(handlers). They register on the same `authAdmin` sub-router behind
-`requireAdmin()` — no new gate.
+`apps/api/src/routes/admin-{overview,metrics,traffic,page-views}.ts` +
+`lib/admin-analytics.ts` (handlers). They register on the same `authAdmin`
+sub-router behind `requireAdmin()` — no new gate.
 
-**Conventions that apply to all three.** Read-only: **no `audit_log` row** (reads
+**Every `page_views` read carries the §13 D12 floor.** `/admin/*` and `/account`
+rows are excluded *beneath* the caller's filters, historical rows included, via
+`inWindow()` in `lib/admin-analytics.ts` — the single choke point every query in
+that module derives its base predicate from. It is not a query parameter and
+cannot be turned off. It is also deliberately silent: unlike the ASN filter it is
+not a heuristic over real visitors, so there is no false-positive class to
+disclose and no "N excluded" figure to report.
+
+**Conventions that apply to all four.** Read-only: **no `audit_log` row** (reads
 emit nothing, §26.1 as scoped by ADR 0022). **No `Cache-Tag`, no edge caching** —
 `json()` sets `private, no-store` and `/admin/*` is absent from
 `ROUTE_CACHE_PATTERNS` in `server-runtime.ts`, which `server.spec.ts` asserts; a
@@ -1442,6 +1450,98 @@ since grouping human rows by `bot_name` returns one empty bucket.
 
 Errors: `VALIDATION_FAILED` (400) for an unknown `dimension`, a bad/reversed date
 range, an over-long window, or `perPage > 100`.
+
+#### `GET /api/admin/page-views`
+
+The §5.2 Activity feed: individual visits, newest first. Pagination is over
+**rows** and uses `PageQuerySchema` + the standard paginated envelope, so the
+list shape matches `/api/admin/requests`.
+
+```typescript
+export const AdminPageViewsQuerySchema = PageQuerySchema.extend({
+  from: utcDate,                                        // inclusive
+  to: utcDate,                                          // inclusive
+  traffic: AdminTrafficPopulationSchema.default('human'),
+  source: z.string().min(1).max(64).optional(),         // exact, or '__none__'
+  country: z.string().min(1).max(8).optional(),         // exact, or '__none__'
+  path_contains: z.string().min(1).max(200).optional(),
+  exclude_internal: z.enum(['0', '1']).default('0').transform((v) => v === '1'),
+});
+
+export const AdminPageViewRowSchema = z.object({
+  id: z.number().int().positive(),
+  created_at: z.string().datetime(),
+  is_bot: z.boolean().nullable(),          // null = never classified → reads HUMAN
+  bot_name: z.string().nullable(),
+  visitor_hash: z.string().nullable(),     // FIRST 8 CHARS ONLY (§9.7)
+  cf_asn: z.number().int().positive().nullable(),
+  cf_country: z.string().nullable(),
+  cf_colo: z.string().nullable(),
+  path: z.string().min(1),                 // route PATTERN until AECI-585
+  entity_type: z.enum(['product', 'vendor']).nullable(),
+  entity: LinkRefSchema.nullable(),
+  referrer_source: z.string().nullable(),  // null = UNKNOWN, not Direct
+  referrer: z.string().nullable(),         // external HOST only
+});
+
+export const AdminPageViewsResponseSchema =
+  paginatedResponseSchema(AdminPageViewRowSchema).extend({
+    traffic: AdminTrafficPopulationSchema,
+    window: AdminWindowSchema,
+    generated_at: z.string().datetime(),
+    source: AdminMetricSourceSchema,
+    notes: z.array(AdminNoteSchema),
+    internal_filter: AdminInternalFilterSchema,  // `applied` = ROWS were filtered
+    window_total: AdminCountSchema,              // every filter EXCEPT exclude_internal
+    window_visitors: AdminCountSchema,           // §9.8 distinct (hash, ASN) pairs
+  });
+```
+
+**`ADMIN_PAGE_VIEW_NULL_FILTER` (`'__none__'`) selects the NULL bucket.** Breakdown
+surfaces NULL groups as `key: null` rather than dropping them; a query string
+cannot carry a null, and those rows are a real population (every row before
+August 2026 has a NULL `referrer_source`), so the sentinel makes them selectable
+rather than merely visible. It is not a value either column can legitimately hold.
+
+**`path_contains` matches literally.** `%` and `_` are escaped server-side and the
+`LIKE` carries an explicit `ESCAPE '\'`, so operator input is never a pattern
+language.
+
+**The internal-ASN filter behaves differently here, deliberately.** §13 D10
+constraint 2 is "show both numbers, never substitute"; on a count endpoint that
+falls out of `AdminCount` for free, but on a row feed `exclude_internal=1` removes
+rows, so computing the counts the same way would leave the operator a smaller
+number with nothing to compare it against. The handler therefore resolves the
+filter **twice**: `window_total` and `window_visitors` are computed both ways
+**unconditionally** whenever `ANALYTICS_INTERNAL_ASNS` is set, toggle or no
+toggle, while `exclude_internal` governs only the row list. `/api/admin/overview`
+sets the same precedent (it always asks). Two consequences:
+
+- `internal_filter.applied` means **"the row list was filtered"** on this endpoint,
+  not "the second count was computed".
+- Both counts honour `source` / `country` / `path_contains`, so they reconcile
+  with `total`: toggle off → `total === window_total.total`; toggle on →
+  `total === window_total.excluding_internal`.
+
+With the var unset (the shipped default on every tier) `excluding_internal` is
+null on both counts and the UI hides the toggle entirely.
+
+**Privacy is enforced by the contract, not by the UI.** `visitor_hash` is
+`substr(user_agent_hash, 1, 8)` computed in SQL, so the full hash never crosses
+the wire. `user_id`, `session_id` and `profile_role` are never selected — §13 D7
+settled that the three are *dropped* (AECI-585), not filled, and that no session
+identifier will be introduced.
+
+Ordering is `created_at DESC, id DESC`. `page_views.id` is an autoincrement
+integer PK, so the pair is a strict total order and pagination can neither repeat
+nor skip a row when several visits share a timestamp.
+
+`notes` always includes `visitor_definition_approximate` (§9.8 travels with the
+number) and, when the window earns them, `bot_classification_incomplete`,
+`referrer_source_incomplete`, `direct_is_mixed_bucket`, and `partial_day`.
+
+Errors: `VALIDATION_FAILED` (400) for a missing/bad/reversed date range, a window
+longer than `ADMIN_METRICS_MAX_DAYS`, or `perPage > 100`.
 
 ### 6.11 Webhooks
 

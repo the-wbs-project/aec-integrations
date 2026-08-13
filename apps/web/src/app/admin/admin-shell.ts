@@ -52,6 +52,19 @@ import { AdminSummaryStore } from './admin-summary.store';
             <ul class="space-y-1">
               <li>
                 <a
+                  routerLink="/admin/activity"
+                  routerLinkActive="bg-(--surface-raised) text-(--text-primary)"
+                  ariaCurrentWhenActive="page"
+                  class="flex items-center gap-3 rounded-(--radius-md) px-3 py-2 text-sm
+                    font-bold text-(--text-secondary) no-underline transition-colors
+                    hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2
+                    focus-visible:outline-(--accent-primary)"
+                >
+                  <span i18n="@@admin.shell.nav.activity">Activity</span>
+                </a>
+              </li>
+              <li>
+                <a
                   routerLink="/admin/reviews"
                   routerLinkActive="bg-(--surface-raised) text-(--text-primary)"
                   ariaCurrentWhenActive="page"

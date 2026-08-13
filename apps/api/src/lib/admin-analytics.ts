@@ -1,11 +1,11 @@
 /**
  * The admin panel's read layer (AECI-574 / `ADMIN_PANEL_SPEC.md` §6).
  *
- * Everything the three `/api/admin/*` read endpoints need that is not
+ * Everything the `/api/admin/*` read endpoints need that is not
  * endpoint-specific: UTC windows, day bucketing, the human/bot population,
- * unique visitors, the metric vocabulary, the breakdown dimensions, and the
- * honesty-envelope notes. Route handlers stay thin — parse the query, call in
- * here, wrap the envelope.
+ * unique visitors, the metric vocabulary, the breakdown dimensions, the §5.2
+ * visit feed, and the honesty-envelope notes. Route handlers stay thin — parse
+ * the query, call in here, wrap the envelope.
  *
  * Three things are load-bearing and easy to get wrong:
  *
@@ -30,6 +30,7 @@
 
 import {
   ADMIN_METRICS_MAX_DAYS,
+  ADMIN_PAGE_VIEW_NULL_FILTER,
   type AdminBreakdownDimension,
   type AdminBreakdownRow,
   type AdminCount,
@@ -37,17 +38,19 @@ import {
   type AdminMetricKey,
   type AdminNote,
   type AdminNoteCode,
+  type AdminPageViewRow,
   type AdminTrafficPoint,
   type AdminTrafficPopulation,
   type AdminWindow,
 } from '@aeci/shared';
-import { and, asc, count, desc, eq, gte, isNotNull, lt, sql, type SQL } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gte, isNotNull, isNull, lt, sql, type SQL } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import { auditLog, pageViews, products, profiles } from '../db/schema';
 import type { Env } from '../env';
 import { ApiError } from '../errors';
 import { BOT, HUMAN, NOT_INTERNAL as EXCLUDE_UNTRACKED_ROUTES } from './analytics-digest';
+import { resolveRequestTargets } from './drizzle-helpers';
 import { excludeInternalAsns, parseInternalAsns } from './internal-asns';
 
 const DAY_MS = 86_400_000;
@@ -295,8 +298,9 @@ export async function countUniqueVisitorsBoth(
   w: UtcWindow,
   traffic: AdminTrafficPopulation,
   filter: InternalFilterState,
+  extra?: SQL,
 ): Promise<AdminCount> {
-  const base = and(inWindow(pageViews.createdAt, w), populationPredicate(traffic));
+  const base = and(inWindow(pageViews.createdAt, w), populationPredicate(traffic), extra);
   const total = await countDistinctVisitors(db, base);
   if (!filter.applied) return { total, excluding_internal: null };
   return {
@@ -577,6 +581,178 @@ export async function breakdown(
       views: r.views,
       views_excluding_internal: filtered ? (filtered.get(r.key) ?? 0) : null,
     })),
+  };
+}
+
+// ─── The Activity feed (§5.2) ────────────────────────────────────────────────
+
+/**
+ * How much of `user_agent_hash` the feed is allowed to expose.
+ *
+ * The truncation happens in SQL, not in the template, so the full hash never
+ * leaves the API. §9.7 permits "a truncated hash as a pseudonymous visitor id"
+ * and forbids correlation beyond that; doing it here makes that a property of the
+ * query rather than a habit of the UI.
+ */
+const VISITOR_HASH_CHARS = 8;
+
+/**
+ * Escape the SQL `LIKE` metacharacters so operator input matches literally.
+ *
+ * Without this, a `path_contains` of `%` matches every row and `_` matches any
+ * character — the filter would silently behave as a pattern language nobody
+ * documented. Paired with an explicit `ESCAPE '\'` clause at the call site, since
+ * Drizzle's `like()` helper emits no `ESCAPE`.
+ */
+function escapeLike(value: string): string {
+  return value.replace(/[\\%_]/g, (ch) => `\\${ch}`);
+}
+
+/** The feed's user-facing column filters, straight off the parsed query. */
+export interface PageViewFilterInput {
+  source?: string;
+  country?: string;
+  path_contains?: string;
+}
+
+/**
+ * The `WHERE` fragment for the feed's `source` / `country` / `path_contains`
+ * filters, or `undefined` when none are set.
+ *
+ * `ADMIN_PAGE_VIEW_NULL_FILTER` selects the NULL bucket that `breakdown()`
+ * surfaces as `key: null` — a query string cannot carry a null, and those rows
+ * are a real population (every row before August 2026 has a NULL
+ * `referrer_source`), so they need to be selectable rather than merely visible.
+ *
+ * This is deliberately NOT where the `/admin/*` exclusion lives: that is a floor
+ * beneath these filters, folded into {@link inWindow} (§13 D12).
+ */
+export function pageViewFilterPredicate(f: PageViewFilterInput): SQL | undefined {
+  const source =
+    f.source === undefined
+      ? undefined
+      : f.source === ADMIN_PAGE_VIEW_NULL_FILTER
+        ? isNull(pageViews.referrerSource)
+        : eq(pageViews.referrerSource, f.source);
+
+  const country =
+    f.country === undefined
+      ? undefined
+      : f.country === ADMIN_PAGE_VIEW_NULL_FILTER
+        ? isNull(pageViews.cfCountry)
+        : eq(pageViews.cfCountry, f.country);
+
+  const path =
+    f.path_contains === undefined
+      ? undefined
+      : sql`${pageViews.path} like ${`%${escapeLike(f.path_contains)}%`} escape '\\'`;
+
+  return and(source, country, path);
+}
+
+export interface PageViewPage {
+  rows: AdminPageViewRow[];
+  /** Rows matching every applied filter — the paginated `total`. */
+  total: number;
+}
+
+/**
+ * One page of the reverse-chronological visit feed, entity-hydrated.
+ *
+ * Three things here are load-bearing:
+ *
+ * **The base predicate comes from {@link inWindow}.** That is the single choke
+ * point that folds in `EXCLUDE_UNTRACKED_ROUTES` — §13 D12's retroactive
+ * `/admin/*` + `/account` exclusion, applied *beneath* the caller's filters so no
+ * combination of query parameters can surface an operator row. Hand-rolling the
+ * range here would silently lose it.
+ *
+ * **Ordering is `created_at DESC, id DESC`.** `page_views.id` is an autoincrement
+ * integer PK, so the pair is a strict total order and pagination can neither
+ * repeat nor skip a row when several visits share a timestamp (the AECI-99 rule
+ * `admin-requests.ts` and {@link breakdown} both follow).
+ *
+ * **Hydration reuses `resolveRequestTargets`.** One batched `IN (...)` per target
+ * table over the page, never per row. A row carries `product_id` XOR `vendor_id`;
+ * both are UUIDs, so the single returned map cannot collide. A taxonomy row
+ * (`/categories/:slug`) carries neither and resolves to `null` — expected until
+ * AECI-585 stores the concrete path — as does a row whose entity has since been
+ * deleted.
+ */
+export async function listPageViews(
+  db: Db,
+  w: UtcWindow,
+  traffic: AdminTrafficPopulation,
+  filter: InternalFilterState,
+  extra: SQL | undefined,
+  page: number,
+  perPage: number,
+): Promise<PageViewPage> {
+  const where = and(
+    inWindow(pageViews.createdAt, w),
+    populationPredicate(traffic),
+    extra,
+    filter.predicate,
+  );
+
+  const [raw, total] = await Promise.all([
+    db
+      .select({
+        id: pageViews.id,
+        createdAt: pageViews.createdAt,
+        isBot: pageViews.isBot,
+        botName: pageViews.botName,
+        visitorHash: sql<
+          string | null
+        >`substr(${pageViews.userAgentHash}, 1, ${VISITOR_HASH_CHARS})`,
+        cfAsn: pageViews.cfAsn,
+        cfCountry: pageViews.cfCountry,
+        cfColo: pageViews.cfColo,
+        path: pageViews.path,
+        productId: pageViews.productId,
+        vendorId: pageViews.vendorId,
+        referrerSource: pageViews.referrerSource,
+        referrer: pageViews.referrer,
+      })
+      .from(pageViews)
+      .where(where)
+      .orderBy(desc(pageViews.createdAt), desc(pageViews.id))
+      .limit(perPage)
+      .offset((page - 1) * perPage),
+    countPageViewRows(db, where),
+  ]);
+
+  const entities = await resolveRequestTargets(
+    db,
+    raw.flatMap((r) =>
+      r.productId
+        ? [{ targetType: 'product', targetId: r.productId }]
+        : r.vendorId
+          ? [{ targetType: 'vendor', targetId: r.vendorId }]
+          : [],
+    ),
+  );
+
+  return {
+    total,
+    rows: raw.map((r): AdminPageViewRow => {
+      const entityId = r.productId ?? r.vendorId;
+      return {
+        id: r.id,
+        created_at: r.createdAt,
+        is_bot: r.isBot,
+        bot_name: r.botName,
+        visitor_hash: r.visitorHash,
+        cf_asn: r.cfAsn,
+        cf_country: r.cfCountry,
+        cf_colo: r.cfColo,
+        path: r.path,
+        entity_type: r.productId ? 'product' : r.vendorId ? 'vendor' : null,
+        entity: entityId ? (entities.get(entityId) ?? null) : null,
+        referrer_source: r.referrerSource,
+        referrer: r.referrer,
+      };
+    }),
   };
 }
 
