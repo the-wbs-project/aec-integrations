@@ -15,7 +15,50 @@ marketing produces **before** we produce it.
 | **Mailing-list signup** (client) | PostHog `mailing_list_signup` event, fired on a genuine new subscribe (AECI-326) from the shared band (`home/home-closing-cta.ts` + the directory/detail mounts, AECI-327) and the `/updates` page (AECI-536) | Built; live once `POSTHOG_KEY` is set | Consent-gated → *consented funnel only*. `source`: `home_closing_cta` / `mailing_list_band` / `updates_page`. |
 | **Mailing-list signup** (server, authoritative) | `mailing_list` D1 table via `POST /api/subscribe`; mirrored to Datadog `aeci.email.send{template:landing-signup}` on each new insert | **Live** (consent-independent) | The true signup count. Read this for the number; read PostHog for funnel/attribution. |
 | **Core Web Vitals** (field) | Datadog RUM `@datadog/browser-rum` (`apps/web/src/app/datadog.provider.ts`) | Built; **live once `DD_APPLICATION_ID` + `DD_CLIENT_TOKEN` are set** | RUM collects LCP/CLS/INP/FCP/TTFB automatically on init. `aeci` RUM app, us5. |
-| **Server pageviews / entry pages** | `page_views` D1 table via `POST /api/page-views` | **Live** (consent-independent) | Write-only today (no reporting endpoint); query D1 directly for entry-page counts. The 2026-07-12 AECI-280 pull found 4,917 rows (3,237 in 7d) — but `cf_bot_score` is null on every row (CF Pro exposes no bot score), so the human/bot/synthetic split is **unclassified**. |
+| **Server pageviews / entry pages** | `page_views` D1 table via `POST /api/page-views` | **Live** (consent-independent) | Readable since AECI-574 — see "The consent-independent read path" below. The 2026-07-12 AECI-280 pull found 4,917 rows (3,237 in 7d) — but `cf_bot_score` is null on every row (CF Pro exposes no bot score), so the human/bot/synthetic split is **unclassified**. |
+
+### The consent-independent read path (updated 2026-08-12, AECI-574)
+
+The row above previously read *"write-only today (no reporting endpoint); query D1
+directly"*. **That is no longer true.** `page_views` now has a first-class read
+surface — the admin panel's three endpoints (`docs/ADMIN_PANEL_SPEC.md` §6,
+`API_CONTRACTS.md` §6.10), behind `requireAdmin()`:
+
+- `GET /api/admin/overview` — the daily bundle, reporting the same numbers as the
+  05:00 analytics digest email for the day it covers.
+- `GET /api/admin/metrics/timeseries` — human/bot views and unique visitors per
+  day over any window, plus catalog additions and new sign-ins.
+- `GET /api/admin/traffic/breakdown` — grouped by source, country, path, product,
+  or bot.
+
+This matters for the same reason the panel exists: **PostHog sees only consented
+traffic**, and a single-page arrival from a search engine never grants consent —
+on 2026-08-10 the digest counted 92 human page views across four sources and
+PostHog recorded essentially none of them. `page_views` is the consent-independent
+record; read it for *what happened*, and PostHog for *the consented funnel*.
+
+Three limits travel with those numbers and are returned as machine-readable notes
+on every response rather than left to the reader:
+
+- **Bot classification is incomplete before ~2026-08-05.** Rows with
+  `is_bot IS NULL` are counted as human by the digest's `is_bot IS NOT 1`
+  predicate. AECI-582 runs the backfill; until then the flag is derived from the
+  window's actual contents, so it retires itself.
+- **`referrer_source` is null on every row before August** and is not
+  backfillable — the header was never stored.
+- **`Direct` is a mixed bucket** — `PageViewTracker` POSTs on every SPA
+  navigation and the same-origin `Referer` classifies as `Direct`. AECI-585 adds
+  the flag that separates in-app hops from true arrivals.
+
+**No session identifier was introduced, deliberately** (`ADMIN_PANEL_SPEC.md` §13
+**D7**). A "visitor" is defined as a distinct `(user_agent_hash, cf_asn)` pair
+inside the window — which over-counts on browser updates and under-counts behind
+shared NAT, and says so next to the number. Minting a real session id would create
+a durable first-party identifier, and it is precisely the *absence* of one — a UA
+**hash** and a referrer **host**, never the full URL or query — that makes the
+`page_views` write defensible as consent-independent in the first place. The three
+dead columns (`user_id`, `session_id`, `profile_role`) are dropped rather than
+filled (AECI-585).
 
 ### Provisioning dependency (why prod was dark)
 

@@ -1162,6 +1162,285 @@ banning an already-banned reviewer, unbanning one who isn't banned, or a concurr
 flip; `FORBIDDEN` (403) when the target is an admin account or the acting admin
 themselves (a banned admin would lock themselves out of `requireAdmin()`).
 
+---
+
+#### Admin panel reads (AECI-574 / Phase 8.3 P1.1)
+
+Three `GET`s serving the operator console (`docs/ADMIN_PANEL_SPEC.md` §5–§6).
+Source of truth: `packages/shared/src/api/admin-panel.ts` (Zod), and
+`apps/api/src/routes/admin-{overview,metrics,traffic}.ts` + `lib/admin-analytics.ts`
+(handlers). They register on the same `authAdmin` sub-router behind
+`requireAdmin()` — no new gate.
+
+**Conventions that apply to all three.** Read-only: **no `audit_log` row** (reads
+emit nothing, §26.1 as scoped by ADR 0022). **No `Cache-Tag`, no edge caching** —
+`json()` sets `private, no-store` and `/admin/*` is absent from
+`ROUTE_CACHE_PATTERNS` in `server-runtime.ts`, which `server.spec.ts` asserts; a
+cached admin response is a visitor-state leak (panel spec §9.2). Response shapes
+are Zod-validated in dev/preview/staging via `validateResponseInDev`.
+
+##### The honesty envelope
+
+Every response carries its window and the biases that apply to it, as
+**machine-readable notes** — the UI localizes prose from `code` + `params`;
+`message` is an untranslated operator fallback (curl / logs), matching the
+`label` fallback on breakdown rows.
+
+```typescript
+export const AdminWindowSchema = z.object({
+  from: z.string().datetime(),   // INCLUSIVE, UTC
+  to: z.string().datetime(),     // EXCLUSIVE, UTC
+  timezone: z.literal('UTC'),    // the only timezone this API speaks (§9.5)
+  days: z.number().int().positive(),
+});
+
+export const AdminNoteCodeSchema = z.enum([
+  'partial_day',                       // window overlaps the current UTC day
+  'bot_classification_incomplete',     // N rows have is_bot IS NULL → counted HUMAN
+  'referrer_source_incomplete',        // N human rows have no referrer_source
+  'direct_is_mixed_bucket',            // Direct mixes SPA hops with real arrivals
+  'visitor_definition_approximate',    // §9.8 (user_agent_hash, cf_asn)
+  'catalog_series_is_additions_only',  // catalog.* are events, never net totals (§4)
+  'catalog_series_starts_at',          // window predates the audit log
+  'internal_filter_unavailable',
+  'internal_filter_applied',
+  'requires_recompute',                // an expensive status item was omitted
+  'algolia_credentials_absent',
+]);
+
+export const AdminNoteSchema = z.object({
+  code: AdminNoteCodeSchema,
+  severity: z.enum(['info', 'warn']),
+  message: z.string().min(1),
+  params: z.record(z.string(), z.union([z.string(), z.number()])).optional(),
+});
+```
+
+The bias flags are **derived by querying the window**, never keyed to a hardcoded
+date: `bot_classification_incomplete` fires because the window actually contains
+`is_bot IS NULL` rows, so it retires itself when AECI-582 runs the backfill.
+
+##### `ANALYTICS_INTERNAL_ASNS` — both numbers, never one (§13 D10)
+
+Every traffic count is an `AdminCount` whose `total` is **always the unfiltered
+figure**. The read-time ASN filter only ever adds a second number beside it, so a
+filtered figure can never be reported as *the* figure.
+
+```typescript
+export const AdminCountSchema = z.object({
+  total: z.number().int().nonnegative(),                     // ALWAYS unfiltered
+  excluding_internal: z.number().int().nonnegative().nullable(), // null when unavailable
+});
+
+export const AdminInternalFilterSchema = z.object({
+  available: z.boolean(),  // ANALYTICS_INTERNAL_ASNS parses to ≥1 ASN
+  applied: z.boolean(),    // available AND requested for this query
+  asns: z.array(z.number().int().positive()),
+});
+```
+
+The var ships **unset** on every tier (`docs/environments.md`); absent → the
+filter is unavailable, `excluding_internal` is null everywhere, and the UI hides
+the toggle. It is a `WHERE` clause only — it never touches `is_bot` and never runs
+at ingest (`apps/api/src/lib/internal-asns.ts`).
+
+#### `GET /api/admin/overview`
+
+The §5.1 bundle in one round trip.
+
+```typescript
+export const AdminOverviewQuerySchema = z.object({
+  day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), // default: prior COMPLETE UTC day
+  recompute: z.enum(['0', '1']).default('0').transform((v) => v === '1'),
+});
+
+export const AdminOverviewResponseSchema = z.object({
+  window: AdminWindowSchema,
+  generated_at: z.string().datetime(),
+  source: z.enum(['live']),          // P2.1 adds 'snapshot'
+  recomputed: z.boolean(),
+  notes: z.array(AdminNoteSchema),
+  internal_filter: AdminInternalFilterSchema,
+  traffic: z.object({
+    page_views_human: AdminCountSchema,
+    page_views_bot: AdminCountSchema,
+    unique_visitors: AdminCountSchema,      // DISTINCT (user_agent_hash, cf_asn)
+    delta_day: AdminDeltaSchema,            // human views, day over day
+    delta_7d: AdminDeltaSchema,             // 7 days ending here vs the 7 before
+    series_30d: z.array(AdminTrafficPointSchema),   // zero-filled { day, human, bot }
+    top_sources: z.array(AdminSourceCountSchema),
+    top_products: z.array(AdminProductViewsSchema), // { name, slug, views }
+  }),
+  audience: z.object({
+    new_sign_ins: AdminDeltaSchema,
+    total_users: z.number().int().nonnegative(),
+    active_subscribers: z.number().int().nonnegative(), // unsubscribed_at IS NULL
+  }),
+  catalog: AdminOverviewCatalogSchema,      // products/integrations/vendors/claims/attestations
+  status: AdminStatusStripSchema,
+});
+
+// Structured, not prose — the semantics are the digest's, the strings are the UI's.
+export const AdminDeltaSchema = z.object({
+  current: z.number().int(),
+  prior: z.number().int(),
+  diff: z.number().int(),
+  pct: z.number().nullable(),   // null when prior === 0 (the email omits it too)
+});
+```
+
+**Digest parity is structural.** The handler *calls* `collectAnalyticsMetrics`
+(`lib/analytics-digest.ts`) rather than re-implementing it, and deltas come from
+the exported `computeDelta` that `deltaText` itself uses. The default window is
+the digest's own (`windowsForDay(dailyWindows(now).dayLabel)`), so
+`GET /api/admin/overview` with no params reports exactly what the 05:00 email
+reported. `admin-overview.spec.ts` asserts this against a seeded fixture.
+
+**Status strip and `?recompute=1` (§13 D8).** The first three items are cheap
+D1/env reads and are always present. The last two need the network — the
+data-quality suite HTTP-probes logo URLs, and drift queries three Algolia indexes
+— so the default response returns them as `null` plus a `requires_recompute`
+note, and `?recompute=1` runs them live:
+
+| Field | Source | Default | `?recompute=1` |
+|---|---|---|---|
+| `version` | `COMMIT_SHA` / `DEPLOYED_AT` / `ENV` | ✅ | ✅ |
+| `stats_freshness` | `MAX(stats_cache.computed_at)`, stale > 48 h | ✅ | ✅ |
+| `moderation` | pending reviews + open `vendor_requests` | ✅ | ✅ |
+| `data_quality` | all ten §23.1 checks (`runDataQualityChecks`) | `null` | ✅ |
+| `algolia_drift` | `findAlgoliaIndexDrift` per index | `null` | ✅ |
+
+`?recompute=1` is still a **pure read**: both jobs are already read-only, so it
+writes nothing, sends no email, and carries no `audit_log` obligation — which is
+what keeps "all endpoints are GET, read-only" unconditionally true. The
+side-effecting `POST /api/admin/jobs/:job/run` stays deferred and is not built.
+Data-quality check #10 *is* the Algolia drift check, so the drift runner is
+invoked once and its result feeds both. No Algolia credentials → `algolia_drift`
+is `null` + an `algolia_credentials_absent` note (never a fabricated zero); a
+drift call that throws leaves `algolia_drift` null and surfaces the reason on the
+`algolia_index_drift` check instead.
+
+Errors: `VALIDATION_FAILED` (400) for a `day` that matches `YYYY-MM-DD` but is not
+a real calendar date.
+
+#### `GET /api/admin/metrics/timeseries`
+
+One metric, day-bucketed. **Live aggregation** today; P2.1 (AECI-581) serves the
+same contract from `metrics_daily` with `source: 'snapshot'`, which is why the
+metric keys are already §7.1's `namespace.metric` strings.
+
+```typescript
+export const AdminMetricKeySchema = z.enum([
+  'traffic.page_views_human',      // page_views, is_bot IS NOT 1 (the digest predicate)
+  'traffic.page_views_bot',        // page_views, is_bot = 1
+  'traffic.unique_visitors',       // DISTINCT (user_agent_hash, cf_asn) per day, HUMANS only
+  'catalog.products_created',      // audit_log action='product.created'
+  'catalog.integrations_created',
+  'catalog.vendors_created',
+  'catalog.claims_created',
+  'accounts.sign_ins_new',         // profiles.created_at
+]);
+
+export const ADMIN_METRICS_MAX_DAYS = 400;   // = §7.4 page_views retention
+
+export const AdminTimeseriesQuerySchema = z.object({
+  metric: AdminMetricKeySchema,
+  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),   // INCLUSIVE UTC date
+  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),     // INCLUSIVE UTC date (from === to is legal)
+  interval: z.enum(['day']).default('day'),
+  exclude_internal: z.enum(['0', '1']).default('0').transform((v) => v === '1'),
+});
+
+export const AdminTimeseriesResponseSchema = z.object({
+  metric: AdminMetricKeySchema,
+  interval: z.enum(['day']),
+  window: AdminWindowSchema,
+  generated_at: z.string().datetime(),
+  source: z.enum(['live']),
+  notes: z.array(AdminNoteSchema),
+  internal_filter: AdminInternalFilterSchema,
+  points: z.array(AdminTimeseriesPointSchema), // { day, value, value_excluding_internal }
+  total: AdminCountSchema,
+});
+```
+
+`from`/`to` are **inclusive calendar dates**; the response's `window` reports the
+resulting half-open `[from, to)` instants so the boundary is never inferred. The
+series is **zero-filled** across every day in the window — a chart never has to
+tell "no data" from "no key". `total` is the sum of the series.
+
+One consequence worth stating, because it looks like a bug otherwise:
+`traffic.unique_visitors` **does not sum meaningfully**. Each bucket is its own
+`COUNT(DISTINCT …)`, so a visitor active on three days is counted three times in
+`total`. `total` is reported as the sum anyway because that is the only figure
+that agrees with the chart the caller is drawing; the window-distinct figure is
+`/api/admin/overview`'s `unique_visitors`, which is explicitly scoped to one day.
+
+`catalog.*` count **additions**, never net totals: §4 shows totals are
+unrecoverable (827 `integration.created` events back 496 live rows after the
+2026-07-25 reset), so every `catalog.*` response carries
+`catalog_series_is_additions_only`. `exclude_internal` applies only to `traffic.*`
+— there is no ASN on a catalog or profile row — and a request that asks anyway
+gets `value_excluding_internal: null` plus an `internal_filter_unavailable` note
+naming the metric.
+
+Errors: `VALIDATION_FAILED` (400) for an unknown `metric`, a non-existent date, a
+reversed range (`to < from`), or a window longer than `ADMIN_METRICS_MAX_DAYS`.
+
+#### `GET /api/admin/traffic/breakdown`
+
+Grouped `page_views` counts over a window. Pagination is over **groups** and uses
+`PageQuerySchema` + the standard paginated envelope, so the list shape matches
+`/api/admin/requests`.
+
+```typescript
+export const AdminTrafficBreakdownQuerySchema = PageQuerySchema.extend({
+  dimension: z.enum(['source', 'country', 'path', 'product', 'bot']),
+  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  traffic: z.enum(['human', 'bot', 'all']).default('human'),
+  exclude_internal: z.enum(['0', '1']).default('0').transform((v) => v === '1'),
+});
+
+export const AdminBreakdownRowSchema = z.object({
+  key: z.string().nullable(),         // null = the unattributed / unknown bucket
+  label: z.string().min(1),           // ASCII fallback; UI localizes when key is null
+  ref: LinkRefSchema.nullable(),      // hydrated only for dimension=product
+  views: z.number().int().nonnegative(),
+  views_excluding_internal: z.number().int().nonnegative().nullable(),
+});
+
+export const AdminTrafficBreakdownResponseSchema =
+  paginatedResponseSchema(AdminBreakdownRowSchema).extend({
+    dimension: AdminBreakdownDimensionSchema,
+    traffic: AdminTrafficPopulationSchema,
+    window: AdminWindowSchema,
+    generated_at: z.string().datetime(),
+    source: z.enum(['live']),
+    notes: z.array(AdminNoteSchema),
+    internal_filter: AdminInternalFilterSchema,
+    window_total: AdminCountSchema,
+  });
+```
+
+`total` is the **distinct-group count**. `window_total` is the population's total
+for the whole window — the same figure for every dimension — so a row's share is
+computable without a second request; for `dimension=product` the groups therefore
+sum to less than it (most views are not product pages), which is deliberate.
+
+**NULL groups are shown, not dropped** (`key: null`): a row with no
+`referrer_source` or `cf_country` gets its own bucket, so the groups reconcile
+against `window_total`. Dropping them is how a source breakdown quietly starts
+claiming attribution it does not have.
+
+Ordering is views desc, then **named groups before the NULL bucket**, then the key
+— a total order, so pagination cannot repeat or skip a group. `traffic` defaults
+to `human` (matching §5.2); `dimension=bot` forces the bot population regardless,
+since grouping human rows by `bot_name` returns one empty bucket.
+
+Errors: `VALIDATION_FAILED` (400) for an unknown `dimension`, a bad/reversed date
+range, an over-long window, or `perPage > 100`.
+
 ### 6.11 Webhooks
 
 #### `POST /api/webhooks/linear`

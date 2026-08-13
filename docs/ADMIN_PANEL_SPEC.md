@@ -192,7 +192,7 @@ All endpoints are `GET`, admin-gated, read-only. They register on the existing `
 
 | Endpoint | Purpose | Notes |
 |---|---|---|
-| `GET /api/admin/overview` | The §5.1 bundle | One round trip; mirrors `collectAnalyticsMetrics`. `?recompute=1` re-runs the collection live (pure read; sends no email) |
+| `GET /api/admin/overview` | The §5.1 bundle | One round trip; **calls** `collectAnalyticsMetrics` (see the P1.1 note below). `?day=YYYY-MM-DD` picks a UTC day, default the digest's prior complete day; `?recompute=1` runs the two network-dependent status items (pure read; sends no email) |
 | `GET /api/admin/page-views` | §5.2 feed | Paginated + filtered; entity-hydrated `LinkRef` |
 | `GET /api/admin/metrics/timeseries` | `?metric=&from=&to=&interval=day` | Serves `metrics_daily` (§7.1); falls back to live aggregation pre-snapshot |
 | `GET /api/admin/traffic/breakdown` | `?dimension=source\|country\|path\|product\|bot` | Grouped counts over a window |
@@ -204,6 +204,19 @@ All endpoints are `GET`, admin-gated, read-only. They register on the existing `
 **Conventions.** No `audit_log` rows (reads only — §26.1 governs writes). No `Cache-Tag`, no edge caching; `/admin/*` is absent from `ROUTE_CACHE_PATTERNS` in `server-runtime.ts` and therefore takes the non-cacheable branch with `private, no-store`. That must stay true (§9.2). Response validation in dev via `validateResponseInDev`, as with the other admin routes.
 
 **Manual job triggers — the line is side effects, not manual-ness (§13 D8).** *Recomputation* is in scope and is a `GET`: both `runDataQualityJob` and the digest's metric collection are already pure reads, so `?recompute=1` on the two endpoints above writes nothing, sends nothing, and carries no `audit_log` obligation. *Running a job for real* — sending the digest, `algolia-sync`, the retention prune, the reconcile sweep, anything that writes, emails, purges, or calls an external API — stays **deferred**, and `POST /api/admin/jobs/:job/run` is not built. Owner: **@chrisw**. Revisit when an operator first needs to force a job outside its window during an incident; at that point it is a state-changing write and needs its `audit_log` row in the same batch.
+
+**What `?recompute=1` actually gates in Phase 1 (settled during AECI-574).** D8 wrote the rule (side effects, not manual-ness) but not the Phase-1 mechanics, and there is a wrinkle: before `metrics_daily` exists (P2.1), `/api/admin/overview` *always* live-aggregates, so a "re-run the collection" flag would be a no-op. The flag is therefore made load-bearing now, along the line that actually matters on a dashboard — **network cost**:
+
+- **Default response** — the traffic/audience/catalog figures (all live D1 reads) plus the cheap half of the status strip: prod SHA, `stats_cache` freshness, moderation depth. The two network-dependent items, `data_quality` (whose logo-404 check HTTP-probes a sample of URLs) and `algolia_drift` (three Algolia queries), come back `null` with a `requires_recompute` note.
+- **`?recompute=1`** — additionally runs all ten §23.1 checks and the drift count. Check #10 *is* the drift check, so the drift runner is invoked **once** and its result feeds both the strip and the suite.
+
+Nothing about D8's boundary moves: both are still pure reads. From P2.1 the flag additionally means "bypass the snapshot", which is the meaning D8 anticipated; the response's `source` field (`'live'` today, `'snapshot'` later) is what tells the two apart. Overview and System keep the same convention.
+
+**P1.1 implementation notes (AECI-574).** Contracts in `packages/shared/src/api/admin-panel.ts`; handlers in `apps/api/src/routes/admin-{overview,metrics,traffic}.ts` over `apps/api/src/lib/admin-analytics.ts`. Three choices are worth knowing before extending them:
+
+1. **Digest parity is structural, not periodic.** The overview *calls* `collectAnalyticsMetrics(db, windowsForDay(day))` rather than mirroring its queries, and its deltas come from an exported `computeDelta` that the email's own `deltaText` also calls. There is one implementation of each number. Deltas cross the wire **structured** (`{ current, prior, diff, pct }`), not as the email's prose, because §9.4's i18n rule is unconditional — the semantics are shared, the strings are the UI's.
+2. **Bias notes are derived from the window, not from a date.** `bot_classification_incomplete` fires because the window contains `is_bot IS NULL` rows, so it disappears on its own once P2.2 backfills. Nothing hardcodes 2026-08-05.
+3. **Note `code` is the contract; `message` is a fallback.** The UI localizes from `code` + `params`; `message` (and a null group's `label`) is untranslated operator text for curl and logs. This is what lets §1.1's "machine-readable notes rather than the UI hardcoding prose" coexist with §9.4.
 
 ---
 
@@ -479,7 +492,7 @@ Traffic sources for the 2026-08-10 digest day (87 Direct / 2 Other / 2 Google / 
 ### 14.3 Known-stale claims found while planning
 
 - `POST_LAUNCH_HEALTH_REPORT.md` — the "observable-vs-blocked" matrix lists PostHog and Datadog RUM as **dark, gated on secrets**. Production now injects both (`__AECI_POSTHOG__` and `__AECI_DD__` confirmed in the served HTML on 2026-08-12). Because that file is a dated log, the correct fix is a **new entry**, not an edit to the historical one.
-- `ANALYTICS_BASELINE.md` — "write-only today (no reporting endpoint); query D1 directly" becomes false the moment §10 P1.1 lands.
+- ~~`ANALYTICS_BASELINE.md` — "write-only today (no reporting endpoint); query D1 directly" becomes false the moment §10 P1.1 lands.~~ **Resolved 2026-08-12 by AECI-574**: the row now points at the three read endpoints, and a new "consent-independent read path" section records the three biases and the §13 D7 no-session-identifier decision.
 - `data-quality.ts` check #2's inline note that there is no `promoted_at` column is accurate, but **understates the problem**: the check filters `promotion_status='ready'`, and nothing in the repo ever writes `'ready'` to D1, so it can only ever return zero rows. It is unreachable, not proxied (§13 D6). **AECI-592.**
 
 Found while settling §13 (AECI-573):

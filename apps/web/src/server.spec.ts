@@ -215,6 +215,20 @@ describe('isCacheableRoute', () => {
     expect(isCacheableRoute(new URL('https://x/account/settings'))).toBe(false);
     expect(isCacheableRoute(new URL('https://x/api/health'))).toBe(false);
   });
+
+  // ADMIN_PANEL_SPEC.md §9.2 (AECI-574). The operator console renders one
+  // admin's view of the site; the edge cache is keyed by URL, so a single
+  // cacheable /admin response would serve that view to the next visitor. The
+  // panel spec makes "absent from ROUTE_CACHE_PATTERNS" a standing requirement,
+  // and this is where that requirement is enforced in code rather than in prose.
+  it('never caches /admin/* — an admin response at the edge is a visitor-state leak', () => {
+    expect(isCacheableRoute(new URL('https://x/admin'))).toBe(false);
+    expect(isCacheableRoute(new URL('https://x/admin/overview'))).toBe(false);
+    expect(isCacheableRoute(new URL('https://x/admin/traffic'))).toBe(false);
+    expect(isCacheableRoute(new URL('https://x/admin/reviews'))).toBe(false);
+    // Including under a locale prefix, since matching strips it first.
+    expect(isCacheableRoute(new URL('https://x/en-US/admin/overview'))).toBe(false);
+  });
 });
 
 describe('cacheKeyUrl (AECI-100 — edge cache key normalization)', () => {
