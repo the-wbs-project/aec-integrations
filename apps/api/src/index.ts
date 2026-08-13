@@ -279,7 +279,8 @@ authAdmin.patch(
 // clones the requests LIST; the reviewer decides on the assembled evidence.
 authAdmin.get('/api/admin/claims', requireAdmin(), createAdminClaimsListHandler());
 // Stage 2 / AECI-519: the claim → verified-account grant. `resolveClaimantIdentity`
-// reports `unavailable` (→503) until `SUPABASE_SERVICE_ROLE_KEY` is bound (AECI-530).
+// reports `unavailable` (→503) wherever `SUPABASE_SERVICE_ROLE_KEY` is absent — local
+// dev and PR previews, since AECI-530 CI-pushes it on staging/demo/production.
 // AECI-528 injects the real claim-decision email sender (`sendClaimDecisionEmail`,
 // `lib/email.ts`) into the post-commit seam; it fail-opens to `'skipped'` without
 // `RESEND_API_KEY`/`EMAIL_FROM`.

@@ -1213,7 +1213,8 @@ Errors:
   linked to a **different** vendor; `details.reason` ∈ `already_admin` | `other_vendor`;
   nothing is written. (A second seat on the **same** vendor is allowed, not a conflict.)
 - `DEPENDENCY_FAILURE` (503) — claimant identity resolution is unavailable
-  (`SUPABASE_SERVICE_ROLE_KEY` absent — AECI-530) or upstream GoTrue errored; the
+  (`SUPABASE_SERVICE_ROLE_KEY` absent — local dev and PR previews only, since
+  AECI-530 CI-pushes it on staging/demo/production) or upstream GoTrue errored; the
   grant refuses rather than half-grant.
 - `INVALID_STATE_TRANSITION` (422) — the request is not a claim, is already terminal
   (and not an exact re-grant), or a claimed product has no vendor.

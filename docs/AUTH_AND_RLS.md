@@ -136,12 +136,20 @@ lowercased email match client-side before linking a seat (else `jane@acme.com` w
 never the web Worker (which verifies tokens with public JWKS material, §4.1). It is
 declared optional in `apps/api/src/env.ts`, so every seam above **degrades gracefully**
 rather than failing closed. See [`environments.md`](./environments.md) §Secrets for which
-environments actually carry it. **Today it is pushed to no Worker, so seams #2/#3/#4 are
-inert in every deployed environment** — reviewer emails read `null`, the erasure
-`auth.users` delete is skipped, and claim resolution reports `unavailable`. ADR 0016 §6
-already decided the key belongs on the API Worker; the `environments.md` /
-`CICD_PLAN.md` "never on a Worker" rows are doc lag from the Prisma/Postgres era, when
-the Worker reached `auth.*` over SQL. Reconciling them + the CI push is **AECI-530**.
+environments actually carry it.
+
+**Which environments carry it (AECI-530).** CI pushes the **single shared, un-suffixed**
+`SUPABASE_SERVICE_ROLE_KEY` GH secret to the API Worker on **staging**
+(`deploy.yml`), **demo** (`promote-to-demo.yml`), and **production**
+(`promote-to-prod.yml`) — each a graceful warn-and-skip step, never in
+`REQUIRED_WORKER_SECRETS`. **Local `wrangler dev` and per-PR previews carry no key**,
+so the seams degrade exactly as tabled above there; for previews that is a deliberate
+choice recorded inline in `pr-preview.yml`, not an oversight. (This reconciled CI with
+ADR 0016 §6, which had already decided the key belongs on the API Worker; the former
+`environments.md` / `CICD_PLAN.md` "never on a Worker" rows were doc lag from the
+Prisma/Postgres era, when the Worker reached `auth.*` over SQL.) Because one Supabase
+project backs every environment, the key rotates for all tiers at once —
+[`CICD_PLAN.md`](./CICD_PLAN.md) §7.4.
 
 **The single-module invariant.** `env.SUPABASE_SERVICE_ROLE_KEY` is read in exactly one
 place — `apps/api/src/lib/supabase-admin.ts`, via its private `adminConfig()` /
@@ -157,8 +165,13 @@ admin credential** (no read-only or per-endpoint admin key), so narrowing is not
 available. ADR 0016 accepted this exposure as the cost of Option A (auth stays Supabase,
 app data moves to D1); Option B (self-hosted auth) was explicitly deferred. The
 mitigations are the ones above — one module, API Worker only, optional-and-degrading —
-plus keeping the key off ephemeral per-PR preview Workers. Note the asymmetry: #2/#4a are
-reads, but **#3 destroys** identities and **#4b creates** them.
+plus keeping the key off ephemeral per-PR preview Workers, which since AECI-530 is
+**CI-enforced**: `deploy.yml` / `promote-to-{demo,prod}.yml` push it, `pr-preview.yml`
+deliberately does not. Note the asymmetry: #2/#4a are reads, but **#3 destroys**
+identities and **#4b creates** them. One live consequence of the shared project: a
+`DELETE /api/account` on **staging or demo** now really deletes the `auth.users` row
+that also backs production. That is the accepted ADR-0017 cost, and it is precisely why
+previews are excluded.
 
 ### 3.2 Role exclusivity & the vendor grant
 

@@ -38,12 +38,27 @@ SUPABASE_ANON_KEY=
 # (src/integration/user-auth.jwks.spec.ts), which skips itself when unset or
 # expired.
 SUPABASE_TEST_USER_JWT=
-# Service-role key. Used by the integration CI lane's mint step
+# Service-role key (GoTrue Admin API). The WORKER DOES read this at runtime — it
+# backs the split-identity seams in lib/supabase-admin.ts (the register is
+# docs/AUTH_AND_RLS.md §3.1): auth.users email reads for the moderation queue,
+# the GDPR erasure of the auth.users row, and vendor-claimant lookup +
+# provisioning. In DEPLOYED envs CI pushes it to the API Worker from the single
+# shared (un-suffixed) SUPABASE_SERVICE_ROLE_KEY GH secret — deploy.yml (staging),
+# promote-to-demo.yml, promote-to-prod.yml, all graceful warn-and-skip (AECI-530,
+# per ADR 0016 §6). NEVER on the web Worker, and deliberately NOT on per-PR
+# previews. Also used by the integration CI lane's mint step
 # (.github/workflows/integration-db-tests.yml) to create a throwaway confirmed
-# user via the Supabase admin API, whose freshly-issued access token feeds the
-# JWKS spec. Local Supabase exposes this as the "Secret" key
-# (`pnpm exec supabase status`). Never commit a real value — the Worker has no
-# use for the service role at runtime and shouldn't see it.
+# user via the admin API, whose freshly-issued access token feeds the JWKS spec —
+# but that lane mints its own from a local `supabase start` stack, not this file.
+#
+# LEAVE IT EMPTY HERE. SUPABASE_URL points at the SHARED auth project that backs
+# production (ADR 0017), so a real value locally would let `pnpm dev` enumerate,
+# create, and DELETE production auth identities — and would un-skip the
+# service-role trigger specs warned about above. Absent → every seam degrades
+# gracefully (emails null, the auth.users delete skipped, claim resolution
+# `unavailable`); nothing throws. Local Supabase exposes its own throwaway
+# equivalent as the "Secret" key (`pnpm exec supabase status`) — supply that only
+# in a per-invocation local-stack override. Never commit a real value.
 SUPABASE_SERVICE_ROLE_KEY=
 
 # ─── Airtable PAT (AECI-83) ────────────────────────────────────────────────

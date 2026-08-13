@@ -38,8 +38,9 @@ type FormMode = 'approve' | 'reject';
  * captures a free-text arrangement note (the offline PO/invoice record, §8.1(5) —
  * recorded verbatim in the grant's audit metadata as `entitlement.notes`); reject
  * runs the reject path. A successful action drops the row. **Approve returns 503
- * in every deployed env until AECI-530 provisions `SUPABASE_SERVICE_ROLE_KEY`** —
- * surfaced as an inline "grant unavailable" message (reject still works). A 409 is
+ * wherever `SUPABASE_SERVICE_ROLE_KEY` is absent — local dev and PR previews, since
+ * AECI-530 CI-pushes it on staging/demo/production** — surfaced as an inline
+ * "grant unavailable" message (reject still works). A 409 is
  * an identity conflict (already an admin / claims another vendor). Following the
  * requests precedent there is no summary badge.
  */
