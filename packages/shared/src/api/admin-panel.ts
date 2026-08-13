@@ -28,8 +28,9 @@ import { LinkRefSchema, PageQuerySchema, paginatedResponseSchema } from './commo
  *
  * The bias flags are **derived from the window**, never from a hardcoded
  * calendar date: `bot_classification_incomplete` fires because the window
- * actually contains `is_bot IS NULL` rows, so the note self-retires the day
- * AECI-582 runs the backfill.
+ * actually contains `is_bot IS NULL` rows, so the note self-retired the day
+ * AECI-582 backfilled them (2026-08-13). It stays in the contract because a
+ * future ingest gap re-opens the same hole.
  *
  * **2. Both numbers, never one (§13 D10 constraint 2).** Every traffic count is
  * an {@link AdminCount} whose `total` is ALWAYS the unfiltered figure; the
@@ -73,7 +74,7 @@ export type AdminWindow = z.infer<typeof AdminWindowSchema>;
  * | code | means |
  * |---|---|
  * | `partial_day` | the window overlaps the current UTC day, so its last bucket is incomplete |
- * | `bot_classification_incomplete` | N rows in the window have `is_bot IS NULL` and are counted as HUMAN by the digest's `is_bot IS NOT 1` predicate (§3; AECI-582 fixes the data) |
+ * | `bot_classification_incomplete` | N rows in the window have `is_bot IS NULL` and are counted as HUMAN by the digest's `is_bot IS NOT 1` predicate (§3). Dormant since AECI-582 backfilled every row on 2026-08-13 |
  * | `referrer_source_incomplete` | N human rows in the window have `referrer_source IS NULL` — not backfillable, the header was never stored |
  * | `direct_is_mixed_bucket` | a `Direct` bucket is present; `PageViewTracker` POSTs on every SPA navigation and the same-origin `Referer` classifies as `Direct`, so in-app hops and true direct arrivals are indistinguishable (AECI-585 separates them) |
  * | `visitor_definition_approximate` | `unique_visitors` is `DISTINCT (user_agent_hash, cf_asn)` — over-counts on browser update, under-counts behind shared NAT (§9.8) |

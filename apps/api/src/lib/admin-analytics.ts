@@ -17,11 +17,13 @@
  * which is why day bucketing is `substr(created_at, 1, 10)` rather than
  * `strftime`. No parsing, no timezone, no format assumption beyond ISO 8601.
  *
- * **2. The bias notes are derived, never hardcoded.** The spec names 2026-08-05
+ * **2. The bias notes are derived, never hardcoded.** The spec named 2026-08-05
  * as the date bot classification became trustworthy. That date is deliberately
  * absent from this file: `bot_classification_incomplete` fires because the window
- * actually contains `is_bot IS NULL` rows. The note therefore self-retires the
- * day AECI-582 runs the backfill, instead of lying in the other direction.
+ * actually contains `is_bot IS NULL` rows. That paid off twice — the real date
+ * turned out to be 2026-08-03, and when AECI-582 backfilled those rows on
+ * 2026-08-13 the note retired itself on every screen with no code change, instead
+ * of lingering as a hardcoded date asserting a bias that no longer existed.
  *
  * **3. Both numbers, never one.** Counts are {@link AdminCount}s whose `total` is
  * always unfiltered; `ANALYTICS_INTERNAL_ASNS` only ever adds a second figure
@@ -830,7 +832,7 @@ export async function trafficNotes(
     out.push(
       note(
         'bot_classification_incomplete',
-        `${unclassified} page view(s) in this window were captured before bot classification and are counted as human. AECI-582 backfills them.`,
+        `${unclassified} page view(s) in this window have no bot classification and are counted as human. Backfill them with scripts/ops/2026-08-page-view-bot-backfill/.`,
         { rows: unclassified, window_from: w.fromDay, window_to: w.toDay },
       ),
     );

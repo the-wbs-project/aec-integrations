@@ -62,6 +62,7 @@ import {
 
 import type { Db } from '../db/client';
 import { integrations, pageViews, products, reviews, statsCache, vendors } from '../db/schema';
+import { HUMAN } from './analytics-digest';
 import { COUNTED_REVIEW_STATUS } from './recompute-counts';
 import {
   integrationListConfig,
@@ -258,6 +259,12 @@ export async function computeTrendingProducts(db: Db, now: Date): Promise<Produc
   // any product below `TRENDING_MIN_VIEWS` so 1–2-view noise is never called
   // "trending" (AECI-280 / Phase 8.2). Fewer than `TRENDING_LIMIT` clearing the floor
   // → fewer shown; none clearing it → `[]`, and the home UI falls back to recently-added.
+  //
+  // `HUMAN` is the digest's own predicate (AECI-582), so the public card and the
+  // operator's numbers rank the same population. Crawlers dominate raw page-view
+  // volume — on the day this filter landed, 1,121 product views in the trailing
+  // 7 days were only 74 human — so counting them ranked products by how hard they
+  // were being scraped rather than by what people read.
   const groups = await db
     .select({ productId: pageViews.productId, value: count() })
     .from(pageViews)
@@ -265,6 +272,7 @@ export async function computeTrendingProducts(db: Db, now: Date): Promise<Produc
       and(
         gte(pageViews.createdAt, sinceIso(now, TRENDING_WINDOW_DAYS)),
         isNotNull(pageViews.productId),
+        HUMAN,
       ),
     )
     .groupBy(pageViews.productId)

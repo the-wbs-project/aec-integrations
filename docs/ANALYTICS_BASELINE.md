@@ -15,9 +15,9 @@ marketing produces **before** we produce it.
 | **Mailing-list signup** (client) | PostHog `mailing_list_signup` event, fired on a genuine new subscribe (AECI-326) from the shared band (`home/home-closing-cta.ts` + the directory/detail mounts, AECI-327) and the `/updates` page (AECI-536) | Built; live once `POSTHOG_KEY` is set | Consent-gated → *consented funnel only*. `source`: `home_closing_cta` / `mailing_list_band` / `updates_page`. |
 | **Mailing-list signup** (server, authoritative) | `mailing_list` D1 table via `POST /api/subscribe`; mirrored to Datadog `aeci.email.send{template:landing-signup}` on each new insert | **Live** (consent-independent) | The true signup count. Read this for the number; read PostHog for funnel/attribution. |
 | **Core Web Vitals** (field) | Datadog RUM `@datadog/browser-rum` (`apps/web/src/app/datadog.provider.ts`) | Built; **live once `DD_APPLICATION_ID` + `DD_CLIENT_TOKEN` are set** | RUM collects LCP/CLS/INP/FCP/TTFB automatically on init. `aeci` RUM app, us5. |
-| **Server pageviews / entry pages** | `page_views` D1 table via `POST /api/page-views` | **Live** (consent-independent) | Readable since AECI-574 — see "The consent-independent read path" below. The 2026-07-12 AECI-280 pull found 4,917 rows (3,237 in 7d) — but `cf_bot_score` is null on every row (CF Pro exposes no bot score), so the human/bot/synthetic split is **unclassified**. Since **AECI-575** it captures **public routes only** — `/admin/*` and `/account` are excluded at both writers and filtered out on read (see the 2026-08-12 addendum below). |
+| **Server pageviews / entry pages** | `page_views` D1 table via `POST /api/page-views` | **Live** (consent-independent) | Readable since AECI-574 — see "The consent-independent read path" below. Since **AECI-582** (2026-08-13) every row is classified human/bot — the 2026-07-12 AECI-280 pull's 4,917 rows were counted as human but were ~93% crawls (see the 2026-08-13 addendum). `cf_bot_score` is still null on every row (CF Pro exposes no bot score); the split comes from UA + ASN instead. Since **AECI-575** it captures **public routes only** — `/admin/*` and `/account` are excluded at both writers and filtered out on read (see the 2026-08-12 addendum below). |
 
-### The consent-independent read path (updated 2026-08-13, AECI-574 + AECI-577)
+### The consent-independent read path (updated 2026-08-13, AECI-574 + AECI-577 + AECI-582)
 
 The row above previously read *"write-only today (no reporting endpoint); query D1
 directly"*. **That is no longer true.** `page_views` now has a first-class read
@@ -45,10 +45,17 @@ record; read it for *what happened*, and PostHog for *the consented funnel*.
 Three limits travel with those numbers and are returned as machine-readable notes
 on every response rather than left to the reader:
 
-- **Bot classification is incomplete before ~2026-08-05.** Rows with
-  `is_bot IS NULL` are counted as human by the digest's `is_bot IS NOT 1`
-  predicate. AECI-582 runs the backfill; until then the flag is derived from the
-  window's actual contents, so it retires itself.
+- **Bot classification is complete, and trustworthy from 2026-08-03.** Every row
+  is classified as of **2026-08-13**, when AECI-582 backfilled the 17,784
+  unclassified rows that the digest's `is_bot IS NOT 1` predicate had been
+  counting as human. Live classification began 2026-08-03 (the earlier "~08-05"
+  estimate was off by two days); everything before that is classified
+  retroactively by User-Agent hash and ASN, so it carries the coarser fidelity
+  described in the 2026-08-13 addendum. The `bot_classification_incomplete` note
+  was derived from the window's contents rather than a hardcoded date, so it
+  retired itself the moment the backfill ran. **`is_bot = 0` still means "not
+  known to be a bot", not "human"** — the ASN half is a hand-maintained list, so
+  the human count remains an upper bound.
 - **`referrer_source` is null on every row before August** and is not
   backfillable — the header was never stored.
 - **`Direct` is a mixed bucket** — `PageViewTracker` POSTs on every SPA
@@ -124,6 +131,27 @@ numbers), and again at launch.
 > filtering, with zero false positives. The coarse remainder — genuine visitors who happen to share
 > the operator's ISP — is `ANALYTICS_INTERNAL_ASNS` (`ADMIN_PANEL_SPEC.md` §13 D10), still unbuilt,
 > so the human count remains an **upper bound**.
+
+> **AECI-582 addendum (2026-08-13) — most of the "humans" were bots.** The one-time bot backfill ran
+> on all four tiers. It classified the **17,784 of 26,671** production rows that had `is_bot IS NULL`
+> and were therefore being counted as human by `is_bot IS NOT 1`. In the digest population, all-time
+> human page views fell **18,318 → 2,095**: roughly **89% of everything ever recorded as human
+> traffic was bots** (June ~94%, July ~93%). The real human baseline for the site's first seven weeks
+> is about **2,100 page views**.
+>
+> Three consequences when reading numbers across this date. **(1) Every June/July figure in this
+> document and in the digests sent at the time is overstated** — including the 2026-07-12 addendum
+> above, whose 4,917 rows were themselves largely crawls. Those entries are left as written; this is
+> the correction. **(2) No discontinuity in the daily numbers.** Live classification began
+> **2026-08-03** (not the ~08-05 previously estimated), and every day from 08-04 on was already
+> fully classified, so the backfill moved nothing in any recent digest. **(3) Pre-08-03 rows are
+> classified retroactively and at lower fidelity** — by User-Agent *hash* and by ASN, since the raw
+> UA is discarded at capture. 4,941 rows did recover a true crawler name by matching their UA hash
+> against a row the live classifier had already named; the rest carry a hosting-provider label. A
+> self-identifying crawler on an unlisted, non-datacenter ASN is still counted as human.
+>
+> The residual bias is unchanged in direction: `is_bot = 0` means "not known to be a bot". With
+> `ANALYTICS_INTERNAL_ASNS` still unset, the human count stays an **upper bound**.
 
 ## How to read the numbers (weekly, going forward)
 

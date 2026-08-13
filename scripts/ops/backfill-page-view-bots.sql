@@ -2,23 +2,30 @@
 -- traffic classifier existed (AECI-526 follow-up).
 --
 -- The raw User-Agent was discarded at capture (only its SHA-256 hash persists), so
--- historical rows can only be classified by Cloudflare ASN. This CASE mirrors
+-- this file classifies historical rows by Cloudflare ASN. The CASE mirrors
 -- DATACENTER_ASNS in apps/api/src/lib/bot-classification.ts — KEEP THE TWO IN SYNC;
 -- `bot-classification.spec.ts` parses this file and fails CI if they diverge.
--- Named crawlers (Googlebot / Bingbot / Applebot …) cannot be recovered for old rows
--- because that name comes from the UA, so datacenter ASNs get an org label instead.
+-- Named crawlers (Googlebot / Bingbot / Applebot …) get an org label here instead of
+-- their own name, because that name comes from the UA. AECI-582 recovers many of them
+-- anyway, by hashing: see scripts/ops/2026-08-page-view-bot-backfill/recover-ua-names.sql,
+-- which runs BEFORE this file and claims those rows first.
 --
--- Run it: unclassified rows (is_bot IS NULL) read as HUMAN in the digest, so until this
--- runs, every historical day and every day-over-day delta over-counts humans. As of
--- 2026-08-04 prod held 17,784 such rows (2026-06-23 → 2026-08-03), the majority of them
--- datacenter crawls. Re-run it after every widening of DATACENTER_ASNS — but note it
--- only reaches rows still NULL, so ASNs promoted to bot AFTER a run stay marked human
--- (fix those with a targeted UPDATE … WHERE is_bot = 0 AND cf_asn IN (…new asns…)).
+-- Run it: unclassified rows read as HUMAN in the digest, so until this runs, every
+-- historical day and every day-over-day delta over-counts humans. As of 2026-08-04 prod
+-- held 17,784 such rows (2026-06-23 → 2026-08-03), the majority of them datacenter
+-- crawls. Re-run it after every widening of DATACENTER_ASNS — but note it only reaches
+-- rows that are still null, so ASNs promoted to bot AFTER a run stay marked human
+-- (fix those with a targeted UPDATE … SET is_bot = 1 … for the newly listed ASNs).
 --
--- Run once per environment AFTER migration 0007 is applied, e.g.:
---   pnpm --filter @aeci/api exec wrangler d1 execute aeci-app-production \
---     --env production --remote --file=../../scripts/ops/backfill-page-view-bots.sql
--- Idempotent: only touches rows where is_bot IS NULL.
+-- Run once per environment AFTER migration 0007 is applied. Prefer the AECI-582 runner,
+-- which dry-runs, backs up and verifies around both files:
+--   scripts/ops/2026-08-page-view-bot-backfill/run.sh --env production --apply --allow-production
+-- Idempotent: a second run matches no rows.
+--
+-- RUN LOG — first run on every tier was 2026-08-13 (AECI-582), via that runner:
+--   preview 646 rows / staging 660 / demo 19,557 / production 26,671.
+--   Production: 17,784 unclassified → 24,575 bot + 2,096 human; "reads as human"
+--   fell 18,322 → 2,096. Recorded in docs/POST_LAUNCH_HEALTH_REPORT.md (2026-08-13).
 
 UPDATE page_views
 SET is_bot = 1,

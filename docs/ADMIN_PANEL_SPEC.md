@@ -80,7 +80,7 @@ Other observations from the census that the panel should surface as findings, no
 
 - **171 of 171 products have `logo_url IS NULL`** (vendors do carry logos).
 - **`home.integrations_added_30d` reads 496 — identical to `home.total_integrations`**, an artifact of the 2026-07-25 `catalog.integrations_reset`. The metric is currently indistinguishable from the total.
-- **`page_views` bot classification is only trustworthy from ~2026-08-05.** 17,784 of 26,126 rows have `is_bot IS NULL` and therefore read as *human* under the digest's `is_bot IS NOT 1` predicate. The one-time `scripts/ops/backfill-page-view-bots.sql` has **never been run on production**. Monthly split: Jun 750 (100% unclassified), Jul 15,748 (100%), Aug 9,628 (13%).
+- ~~**`page_views` bot classification is only trustworthy from ~2026-08-05.** 17,784 of 26,126 rows have `is_bot IS NULL` and therefore read as *human*…~~ **Resolved 2026-08-13 by AECI-582** (P2.2): the backfill ran on all four tiers. Every row is now classified, and live classification is trustworthy from **2026-08-03** (measured; the ~08-05 above was an estimate). The correction is large — production's "reads as human" fell **18,322 → 2,096**, i.e. **~89% of all traffic ever recorded as human was bots** (Jun ~94%, Jul ~93%). Treat every June/July traffic figure written before this date as overstated. Nothing after 08-03 moved, so no daily digest shows a discontinuity.
 - **`referrer_source` is null on every row before August** and is not backfillable — the header was never stored.
 - **`page_views.user_id`, `.session_id`, `.profile_role` are dead columns.** The ingest handler (`routes/page-views.ts`) never writes them, so page views cannot be tied to a signed-in user and there is no session concept.
 
@@ -265,7 +265,7 @@ Nothing about D8's boundary moves: both are still pure reads. From P2.1 the flag
 **P1.1 implementation notes (AECI-574).** Contracts in `packages/shared/src/api/admin-panel.ts`; handlers in `apps/api/src/routes/admin-{overview,metrics,traffic}.ts` over `apps/api/src/lib/admin-analytics.ts`. Three choices are worth knowing before extending them:
 
 1. **Digest parity is structural, not periodic.** The overview *calls* `collectAnalyticsMetrics(db, windowsForDay(day))` rather than mirroring its queries, and its deltas come from an exported `computeDelta` that the email's own `deltaText` also calls. There is one implementation of each number. Deltas cross the wire **structured** (`{ current, prior, diff, pct }`), not as the email's prose, because §9.4's i18n rule is unconditional — the semantics are shared, the strings are the UI's.
-2. **Bias notes are derived from the window, not from a date.** `bot_classification_incomplete` fires because the window contains `is_bot IS NULL` rows, so it disappears on its own once P2.2 backfills. Nothing hardcodes 2026-08-05.
+2. **Bias notes are derived from the window, not from a date.** `bot_classification_incomplete` fires because the window contains `is_bot IS NULL` rows, so it disappears on its own once P2.2 backfills. Nothing hardcodes 2026-08-05. *(This paid off: P2.2 ran 2026-08-13 and the note retired itself on every screen with no code change — the design's own test case.)*
 3. **Note `code` is the contract; `message` is a fallback.** The UI localizes from `code` + `params`; `message` (and a null group's `label`) is untranslated operator text for curl and logs. This is what lets §1.1's "machine-readable notes rather than the UI hardcoding prose" coexist with §9.4.
 
 **P1.3 implementation notes (AECI-577).** Contract in the same `packages/shared/src/api/admin-panel.ts`; handler in `apps/api/src/routes/admin-page-views.ts` over `listPageViews` / `pageViewFilterPredicate` in `lib/admin-analytics.ts`. Four choices are worth knowing:
@@ -336,7 +336,7 @@ Each of the eight cron handlers in `scheduled.ts` writes one row. The data-quali
 
 | Item | Why |
 |---|---|
-| Run `scripts/ops/backfill-page-view-bots.sql` on production | 17,784 rows currently read as human; every historical traffic chart is wrong until this runs |
+| ~~Run `scripts/ops/backfill-page-view-bots.sql` on production~~ — **DONE 2026-08-13 (AECI-582)**, all four tiers, via `scripts/ops/2026-08-page-view-bot-backfill/run.sh` | 17,784 rows read as human; every historical traffic chart was wrong until this ran. Production settled at 24,575 bot / 2,096 human. The runner adds a rule the ASN file could not: it recovers the **true crawler name** for 4,941 rows by matching their `user_agent_hash` against rows the live classifier has since named — `classifyTraffic()` tests the UA before the ASN, so such a verdict is UA-derived and transfers across ASNs. That reached 885 `Applebot` rows on AS714, **without** adding Apple to `DATACENTER_ASNS`, which would have taught the live classifier to call iCloud Private Relay visitors bots |
 | Capture taxonomy entities on page views | `resolveEntity` maps only `product`/`vendor`; category/audience/phase/trade ids are dropped, so ~600 rows cannot say *which* term was viewed |
 | Store the concrete path alongside the route pattern | Detail-page rows store `/products/:slug`; product/vendor rows recover the name via FK, taxonomy rows cannot |
 | Add a `navigation: 'spa' \| 'arrival'` flag to the page-view payload | `PageViewTracker` POSTs on every SPA navigation and the same-origin `Referer` classifies as `Direct`, so in-app navigation and true direct arrivals are indistinguishable — `Direct` is a mixed bucket |
@@ -500,7 +500,7 @@ Issue-sized units. Phase 1 requires **no schema change** and carries most of the
 | **P1.5** | AECI-579 | API + UI: Catalog coverage + promotion funnel — **SHIPPED 2026-08-13** (`GET /api/admin/catalog/coverage` + `/admin/catalog`; table-first — the §8 chart primitives from P1.4 can be layered on above the existing table as a follow-up) | — |
 | **P1.6** | AECI-580 | API + UI: System status (version, DQ on demand, Algolia, table counts) | — |
 | **P2.1** | AECI-581 | `metrics_daily` + snapshot cron + backfill, **plus `products.promoted_at`** (§13 D6) | P1.4 |
-| **P2.2** | AECI-582 | Run the page-view bot backfill on production | — |
+| **P2.2** | AECI-582 | Run the page-view bot backfill on production — **SHIPPED 2026-08-13** (all four tiers; §3) | — |
 | **P3.1** | AECI-583 | `job_runs` + instrument all eight crons + persist DQ results | P1.6 |
 | **P3.2** | AECI-584 | Retention/pruning cron (§7.4) — **deprioritized**, see below | P3.1, **P2.1** |
 | **P4.1** | AECI-585 | Page-view ingest fixes (§7.3: taxonomy entity, concrete path, SPA flag, `cf_as_organization`, drop the three dead columns) | — |

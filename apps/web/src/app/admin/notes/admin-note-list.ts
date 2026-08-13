@@ -72,7 +72,9 @@ export class AdminNoteList {
   );
 
   private text(note: AdminNote): string {
-    const count = String(note.params?.['count'] ?? '');
+    // `rows`, not `count` — both note codes that interpolate a number send their
+    // row count under that key (`trafficNotes` in apps/api/src/lib/admin-analytics.ts).
+    const count = String(note.params?.['rows'] ?? '');
     switch (note.code as AdminNoteCode) {
       case 'partial_day':
         return $localize`:@@admin.notes.partialDay:This window includes the current UTC day, so its last bucket is still filling.`;
