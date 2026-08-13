@@ -454,8 +454,17 @@ on 2026-08-10, 67 of the digest's 92 "human" page views came from AS23700
    what distinguishes it from `DATACENTER_ASNS`, which writes a permanent
    classification and therefore carries a much stricter membership doctrine. Keep
    them separate; do not merge the lists.
-2. **Show both numbers, never substitute.**
-3. **Ship it unset. Do not hardcode an ASN.** Prefer the precise instruments
+2. **Show both numbers, never substitute.** On the aggregate endpoints that is
+   `AdminCount.total` (always unfiltered) plus `excluding_internal`. On the §5.2
+   Activity feed (AECI-577), which returns *rows*, the toggle filters the row list
+   while `window_total` / `window_visitors` are computed **both ways regardless of
+   the toggle** — otherwise switching it on would leave a smaller number with
+   nothing to compare it against, which is the substitution this constraint
+   forbids. `/admin/activity` therefore reads "1,204 views · 312 excluding
+   internal traffic" whether the toggle is on or off.
+3. **Ship it unset. Do not hardcode an ASN.** With the var absent the toggle is
+   not rendered at all on `/admin/activity` — a permanently-disabled control is
+   worse than no control. Prefer the precise instruments
    first — AECI-575 (exclude `/admin/*` from `PageViewTracker`) and AECI-585
    (`cf_as_organization` at ingest, so the filter can label itself).
 

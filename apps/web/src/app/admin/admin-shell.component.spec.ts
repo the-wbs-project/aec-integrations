@@ -85,8 +85,10 @@ describe('AdminShell', () => {
         nav.querySelector(`#${ul.getAttribute('aria-labelledby')}`)?.textContent?.trim(),
       );
       expect(headings).toEqual(['Insights', 'Operations']);
+      // Insights = Overview then Activity (AECI-577, §5.2); Operations unchanged.
       expect(navLinks(root)).toEqual([
         '/admin/overview',
+        '/admin/activity',
         '/admin/reviews',
         '/admin/requests',
         '/admin/reviewers',
@@ -105,7 +107,6 @@ describe('AdminShell', () => {
       const root = render({ pending_reviews: 4 });
       const hrefs = navLinks(root);
       for (const unbuilt of [
-        '/admin/activity',
         '/admin/traffic',
         '/admin/audience',
         '/admin/catalog',
