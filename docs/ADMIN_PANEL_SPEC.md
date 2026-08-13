@@ -223,9 +223,9 @@ This is the section that steers daily catalog work, and the one whose underlying
 
 **(3) The untagged-trade count is not a backlog.** This section lists "untagged per facet (`product_trades` is 0)" alongside missing logos and missing vendors. Those are not the same kind of number. `TRADES_VOCABULARY.md` §1.1 tags a product **only** where it has trade-*specific* value, so horizontal platforms (Procore, Autodesk Build, Bluebeam) correctly carry zero rows — the join is sparse by design and most of the catalog will never be tagged. The count is still worth surfacing (nothing at all is tagged today), but it ships with a `trade_facet_sparse_by_design` note. Presenting it as a to-do list without that caveat would make the screen actively misleading.
 
-### 5.6 System
+### 5.6 System — SHIPPED (AECI-580, 2026-08-13)
 
-- SSR + API `sha` / `deployedAt` / `environment` from the two existing endpoints (`/api/version` and the SSR Worker's own `/_version` — they differ precisely so a stale SSR deploy is detectable).
+- SSR + API `sha` / `deployedAt` / `environment` from the two existing endpoints (`/api/version` and the SSR Worker's own `/_version` — they differ precisely so a stale SSR deploy is detectable). The UI reads both and flags a mismatch as a `role="alert"` band; an unknown SHA (the `wrangler --var` injection missing) reads as *unknown*, not as a difference. The bundle carries the **API** Worker's half — nothing reachable from the API Worker knows the SSR Worker's SHA.
 - **Cron liveness** — last run, duration, outcome per job, for all eight crons (§7.2).
 - **The ten data-quality checks** rendered with severity and sample rows — today visible only in an email. Available **on demand** via `GET /api/admin/system?recompute=1`: `runDataQualityJob` is already a pure read, so re-running it writes nothing and needs no `audit_log` row (§13 **D8**). Once §7.2 lands, the default view reads the last persisted `job_runs` result and the recompute is the refresh.
 - Algolia sync watermark, index drift, orphan-sweep results.
@@ -233,6 +233,18 @@ This is the section that steers daily catalog work, and the one whose underlying
 - Link-outs to the Datadog dashboards and PostHog.
 
 Effectively the daily procedure in `POST_LAUNCH_MONITORING.md` turned into one screen.
+
+**What P1.6 could and could not deliver, and how the response says so.** Three of the five blocks are not fully knowable from D1 until §7.2 lands, and the contract makes the gap explicit rather than papering over it (`AdminCronRunSchema.source`, a `null` `orphan_sweep`, a `null` `size_bytes`):
+
+| Item | State after AECI-580 |
+|---|---|
+| Cron **last run** | Derived for two of eight — `home-stats` from `MAX(stats_cache.computed_at)`, `algolia-sync` from the `algolia_sync_watermark` row's stamp — and `unknown` for the other six. A derived stamp proves the job *ran*, never that it *succeeded*. |
+| Cron **outcome / duration** | `null` on every row. `'ok'` is unreachable in P1.6 by construction; the screen renders "Unknown". |
+| **Orphan sweep** | Permanently `null` + an `orphan_sweep_not_persisted` note. The sweep runs inside the 09:00 drift cron and reports only to Datadog — there is no D1 read that could fill it, and inventing a persistence layer here is AECI-583's job, not this one's. |
+| **D1 size** | From D1's own `meta.size_after`; `null` (rendered "unknown") where unavailable. Never approximated from the row counts. |
+| Everything else | Live: version, the ten checks on demand, drift on demand, the watermark, per-table row counts, `stats_cache` freshness. |
+
+Two decisions worth carrying forward. **The recompute is opt-in, matching §6's "Overview and System keep the same convention"** — the checks HTTP-probe logo URLs and query three Algolia indexes, and a screen an operator refreshes should not do that on load; the button is the affordance. And **the nav gained a flat "System status" item** rather than pulling P1.2's three-group restructure forward; AECI-576 still owns that and the `h1` rename.
 
 ---
 
@@ -249,7 +261,7 @@ All endpoints are `GET`, admin-gated, read-only. They register on the existing `
 | `GET /api/admin/catalog/coverage` | §5.5 gap lists + funnel | Capped sample rows, exact counts. `?sample=` (0–50, default 10); `0` returns counts only. **No `window`** — see the P1.5 notes below |
 | `GET /api/admin/audience` | §5.4 aggregates | Subscribers, churn, UTM, geo |
 | `GET /api/admin/feedback` | Paginated feedback list | First read surface for the table |
-| `GET /api/admin/system` | §5.6 bundle | Version, cron runs, latest DQ, Algolia, table counts. `?recompute=1` re-runs the ten DQ checks live (pure read) |
+| `GET /api/admin/system` | §5.6 bundle — **SHIPPED (AECI-580)** | Version, cron runs, latest DQ, Algolia, table counts. `?recompute=1` re-runs the ten DQ checks live (pure read) |
 
 **Conventions.** No `audit_log` rows (reads only — §26.1 governs writes). No `Cache-Tag`, no edge caching; `/admin/*` is absent from `ROUTE_CACHE_PATTERNS` in `server-runtime.ts` and therefore takes the non-cacheable branch with `private, no-store`. That must stay true (§9.2). Response validation in dev via `validateResponseInDev`, as with the other admin routes.
 
@@ -261,6 +273,8 @@ All endpoints are `GET`, admin-gated, read-only. They register on the existing `
 - **`?recompute=1`** — additionally runs all ten §23.1 checks and the drift count. Check #10 *is* the drift check, so the drift runner is invoked **once** and its result feeds both the strip and the suite.
 
 Nothing about D8's boundary moves: both are still pure reads. From P2.1 the flag additionally means "bypass the snapshot", which is the meaning D8 anticipated; the response's `source` field (`'live'` today, `'snapshot'` later) is what tells the two apart. Overview and System keep the same convention.
+
+**And they keep it by sharing one implementation (AECI-580).** The recompute block moved out of `routes/admin-overview.ts` into `lib/admin-status.ts` (`runExpensiveStatusItems`), which both endpoints call — the same reasoning P1.1 note 1 applies to `collectAnalyticsMetrics`: two screens reporting the same check must not be *able* to disagree. It carries the memoize-at-the-promise trick with it, so the drift runner is invoked once per request even though check #10 and the drift panel both consume it. `statsFreshness` moved for the same reason.
 
 **P1.1 implementation notes (AECI-574).** Contracts in `packages/shared/src/api/admin-panel.ts`; handlers in `apps/api/src/routes/admin-{overview,metrics,traffic}.ts` over `apps/api/src/lib/admin-analytics.ts`. Three choices are worth knowing before extending them:
 
@@ -329,6 +343,8 @@ job_runs
 ```
 
 Each of the eight cron handlers in `scheduled.ts` writes one row. The data-quality run stores its full result set in `detail`, which is what §5.6 renders. Retention: 90 days (§7.4).
+
+**AECI-580 already declared the vocabulary this table writes against**, so P3.1 is additive rather than a reshape: `job` uses the eight `AdminCronJob` ids in `packages/shared/src/api/admin-panel.ts`, the cron expressions live in `apps/api/src/lib/cron-schedules.ts` (which `scheduled.ts` dispatches on and `/api/admin/system` renders from — one literal, two readers), and `AdminCronRunSchema.source` already carries a `'job_runs'` member that nothing can currently return. P3.1's job is to make that member reachable and to start populating `last_outcome` / `duration_ms`, which are `null` on every row today.
 
 **No `audit_log` row**, for the same reason as §7.1 — cron-internal bookkeeping, exempt under §13 **D11** / **ADR 0022**. `job_runs` *is* the observability record; auditing it would be auditing the audit.
 
@@ -498,7 +514,7 @@ Issue-sized units. Phase 1 requires **no schema change** and carries most of the
 | **P1.3** | AECI-577 | API + UI: `GET /api/admin/page-views` + the Activity feed — **SHIPPED 2026-08-13** | P1.1 |
 | **P1.4** | AECI-578 | UI: Traffic section + the full chart-primitive library (§8) — **SHIPPED** (§8.1; coexists with the P1.2 sparkline/stacked-bar pending a unify follow-up; three §5.3 items deferred, see §5.3) | P1.1 |
 | **P1.5** | AECI-579 | API + UI: Catalog coverage + promotion funnel — **SHIPPED 2026-08-13** (`GET /api/admin/catalog/coverage` + `/admin/catalog`; table-first — the §8 chart primitives from P1.4 can be layered on above the existing table as a follow-up) | — |
-| **P1.6** | AECI-580 | API + UI: System status (version, DQ on demand, Algolia, table counts) | — |
+| **P1.6** | AECI-580 | API + UI: System status (version, DQ on demand, Algolia, table counts) — **SHIPPED 2026-08-13** | — |
 | **P2.1** | AECI-581 | `metrics_daily` + snapshot cron + backfill, **plus `products.promoted_at`** (§13 D6) | P1.4 |
 | **P2.2** | AECI-582 | Run the page-view bot backfill on production | — |
 | **P3.1** | AECI-583 | `job_runs` + instrument all eight crons + persist DQ results | P1.6 |
@@ -543,13 +559,14 @@ Staleness is the recurring review finding, so this list is part of the contract:
 | `adr/0022-cron-bookkeeping-exempt-from-audit-invariant.md` + `adr/README.md` | The ADR behind the §26.1 carve-out, plus its index row. **Landed with AECI-573** |
 | `CODE_REVIEW_EXEMPTIONS.md` | The carve-out as a standing, non-expiring exemption pointing at ADR 0022 — so a reviewer meeting an unaudited cron write finds the reasoning. **Landed with AECI-573** |
 | `CICD_PLAN.md` §10 | The `admin-panel` epic integration branch as a second time-boxed exception under ADR 0019's precedent (§13 D1). **Landed with AECI-573** |
-| `AUTH_AND_RLS.md` | The new `/api/admin/*` endpoints under `requireAdmin()`, and the GDPR-erasure simplification once `page_views.user_id` is dropped (§7.3) |
+| `AUTH_AND_RLS.md` | The new `/api/admin/*` endpoints under `requireAdmin()`, and the GDPR-erasure simplification once `page_views.user_id` is dropped (§7.3). `/api/admin/system` **landed with AECI-580** |
+| `email.md` | Record which cron digests have a screen equivalent. **AECI-580** added the row for the 04:00 data-quality digest (`/admin/system?recompute=1`); the 05:00 analytics digest's screen is P1.2 (AECI-576) — its *API* shipped with P1.1, its screen has not, and the row must not claim otherwise |
 | `ANALYTICS_BASELINE.md` | Drop "write-only today (no reporting endpoint)"; record the panel as the consent-independent read path; record that no session identifier was introduced (§13 D7) and why. The `/admin` + `/account` exclusion and its retroactive effect on pre-2026-08-12 counts **landed with AECI-575** |
-| `POST_LAUNCH_MONITORING.md` | Replace §1 rows 6 and 8 (cron liveness, moderation queue) with the panel, and the **weekly** §2 item 4 → §3b manual `wrangler d1 execute` ASN audit with §5.3's geography view. *(The manual D1 query is in the weekly procedure, not the daily — an earlier draft of this row said "daily".)* The ASN-census query gained the §9.6 path exclusion so it matches the digest — **landed with AECI-575** |
+| `POST_LAUNCH_MONITORING.md` | Replace §1 rows 6 and 8 (cron liveness, moderation queue) with the panel, and the **weekly** §2 item 4 → §3b manual `wrangler d1 execute` ASN audit with §5.3's geography view. *(The manual D1 query is in the weekly procedure, not the daily — an earlier draft of this row said "daily".)* The ASN-census query gained the §9.6 path exclusion so it matches the digest — **landed with AECI-575**. **Row 6 is only PARTLY retired by AECI-580** and the doc says so explicitly: `/admin/system` renders all eight crons, but until AECI-583 persists `job_runs` those rows read *unknown*, so **Datadog stays the authority for cron liveness**. What AECI-580 did retire outright: the DQ digest is now readable on demand (row 5a), and D1 size / per-table row counts no longer need `wrangler d1 execute`. Row 8 waits on P1.2's Overview |
 | `POST_LAUNCH_HEALTH_REPORT.md` | New dated entry (see §14.3) |
 | `OBSERVABILITY.md` | Any new metric emitted by the snapshot / retention crons |
 | `RUNBOOKS.md` | Runbook entries for the snapshot and retention crons, matching every other cron's |
-| `TESTING_STRATEGY.md` | The §11 approach — chart-geometry pure-function tests are a new category for this repo. **Landed with AECI-576** (§3.2 "Always") |
+| `TESTING_STRATEGY.md` | The §11 approach — chart-geometry pure-function tests are a new category for this repo. **Landed with AECI-576** (§3.2 "Always"). **AECI-580 added §6.3's "the harness is better-sqlite3, and its limits are not D1's"**: the System screen's row-count query passed every unit test and 500'd on the first real request (`SQLITE_MAX_COMPOUND_SELECT` is 5 on D1, 500 in the harness) |
 | `CACHE_STRATEGY.md` | Record `/admin/*` as deliberately uncacheable (`private, no-store`, absent from `ROUTE_CACHE_PATTERNS`) so §9.2 is enforced from the caching doc too. **Landed with AECI-574** (§4, "`/admin/*` is deliberately uncacheable"); AECI-576 added `/admin/overview` to the `server.spec.ts` assertion that backs it |
 | `environments.md`, `access.md` | `ANALYTICS_INTERNAL_ASNS` per tier (§13 D10) — declared, shipped unset |
 | `migrations.md` | Usually no change; confirm consciously, since this epic adds the repo's first table-recreate migration (§7.3) |
