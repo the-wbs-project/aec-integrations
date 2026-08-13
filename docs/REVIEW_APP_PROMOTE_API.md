@@ -461,6 +461,43 @@ the same product twice as two different attempts.
   **lost ID mapping**: without `supabaseId`, AECi has no way to know the row
   already exists and will create a duplicate. Persist the IDs durably.
 
+### 5.1 Promote has NO delete semantics — deleting in Airtable does not retract
+
+This is the sharpest edge in the whole contract, and it is not a bug you can retry
+past. **A promote can create and update rows. It can never delete one.**
+
+The only exception is *within* an entity you push: a product's join sets (categories,
+trades, …) and an integration's `claims[]` are replaced wholesale to match your
+payload. Entities themselves — products, vendors, integrations — are never removed.
+
+So if a curator **deletes an `Integrations` record from the base**, or simply stops
+sending it, the live D1 row does not go anywhere. It stays on the public pair page and
+on both endpoint product pages indefinitely, and — because the only link between the
+two systems is the `supabase_integration_id` Airtable holds — deleting the record also
+destroys the one pointer that could ever have found it again. The row becomes a
+**stray**: unreachable, un-updatable, and un-deletable by any future promote. A
+re-promote of the same product mints a *second* copy alongside it.
+
+Note that this is independent of whether the write-back ever landed. Even a perfectly
+collected promote leaves a stray if the record is later deleted.
+
+**What a curator must do to retract an integration:**
+
+1. Delete the Airtable record (and its `integration_claims` rows) as usual, and record
+   *why* in the product's `tool_integration_check_notes` — that note is what a future
+   auditor uses to tell a deliberate retraction from an accident.
+2. Follow up with an explicit delete of the live D1 row through the datatool's
+   `POST /api/prune-integrations`. It will report `orphansWithoutATwin` (and usually
+   `claimsUniqueToOrphans`) as blocked — correctly, since the row is the only copy of
+   that mechanism — so pass `acknowledgeGuards` naming exactly those, plus an
+   `acknowledgeReason` citing the ruling. See `apps/datatool/README.md`.
+
+**The backstop** is `.github/workflows/promote-strand-audit.yml`, which cross-references
+production D1 against the base daily and fails on any stray. AECI-593 is the worked
+example: two Polycam edges were editorially retracted on 2026-08-09 and sat live on
+production until the audit found them. Repair recipes:
+`scripts/ops/2026-08-promote-strand-audit/README.md` §Healing.
+
 ---
 
 ## 6. Errors

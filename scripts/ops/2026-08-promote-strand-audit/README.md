@@ -45,8 +45,8 @@ node scripts/ops/2026-08-promote-strand-audit/audit.mjs            # production
 node scripts/ops/2026-08-promote-strand-audit/audit.mjs --json     # machine-readable
 ```
 
-Exits **0** when every axis is clean, **1** when any mismatch is found (so it can be
-wired to a cron), **2** on a usage/credential error. Every run also writes
+Exits **0** when every axis is clean, **1** when any mismatch is found, **2** on a
+usage/credential error. Every run also writes
 `report-<UTC>.json` next to the script with the full id lists — gitignored, because it
 holds production catalog content. Use `--out <path>` to put it elsewhere.
 
@@ -59,6 +59,16 @@ scoped to `data.records:read` on the AEC Integrations base.
 > production uuids — there is one curation base, not one per tier — so pointing this at
 > staging/demo/preview compares them against an unrelated seeded catalog and reports
 > near-total mismatch. The script warns when you do.
+
+### Runs daily in CI
+
+`.github/workflows/promote-strand-audit.yml` runs this against production every day at
+09:00 UTC (and on `workflow_dispatch`), so drift surfaces the next morning rather than at
+the next manual audit — which is what AECI-593 needed: two editorially-retracted edges sat
+live for four days because nothing was watching. The job **skips green** until the
+`AIRTABLE_TOKEN` repo secret is set (the script hard-exits 2 without it, and a
+red-on-arrival cron just teaches people to ignore the cron). It writes its report to
+`$RUNNER_TEMP` and uploads nothing.
 
 ## Measurement — 2026-08-13, production
 
@@ -87,22 +97,49 @@ rejected, retracted from D1, and its Airtable row kept the now-dead id. Healed o
 2026-08-13 by clearing `supabase_product_id` + `supabase_slug` on all three (status left
 at `rejected` — these products are intentionally not live).
 
-### The 2 stray integrations
+### The 2 stray integrations — RESOLVED 2026-08-13 (AECI-593)
 
 | D1 id | Pair | Mechanism | Created |
 |---|---|---|---|
 | `4dc9d4bb-494f-4735-8ebb-7cc5389048ce` | polycam → autocad | DXF export (layered floor plan + point cloud) | `2026-08-09T03:03:40.553Z` |
 | `74099c42-e67a-4bab-9053-f6320b17e5ef` | polycam → arcgis | Georeferenced LAS/LAZ export | `2026-08-09T03:03:40.553Z` |
 
-Both were created in the **same** promote as the surviving `polycam ↔ sketchup` row
-(`34a08c6e-…`), which did get its id back — a partial write-back, the AECI-561 failure
-mode exactly. Airtable now holds no counterpart record for either.
+Both were created in the same promote as the surviving `polycam ↔ sketchup` row
+(`34a08c6e-…`), which did get its id back.
 
-**Do not run the datatool prune on these.** Neither has a twin — no surviving row shares
-its `(source, target, mechanism_kind)` — so they are the *only* copy of that mechanism,
-which is precisely what the `orphansWithoutATwin` guard exists to protect. Deleting them
-removes real curated content from `/products/polycam`. Left in place pending an
-editorial decision; tracked separately.
+**Cause: an editorial retraction, not the timeout bug.** The Airtable `Products` record
+for Polycam (`rec48GUZjzwxczUui`) records the ruling in `research_notes` and
+`tool_integration_check_notes`: on 2026-08-09, minutes after this promote committed, a
+curator settled the integration bar as a **purpose-built mechanism** — a manual file
+hand-off ("export a DXF, open it in X") is not an integration however well the vendor
+documents it — and **deleted both Airtable records plus their 3 claims**, leaving SketchUp
+(first-party extension) and Xactimate (paid ESX export) as Polycam's only edges. The base
+corroborates it on every axis: only those two records survive, the AutoCAD record id named
+in the D1 `notes` (`recx2Fe7vQTmi0Rv2`) is gone, the 3 claims are gone from
+`integration_claims`, and no Polycam↔Revit record was added. Full evidence for both removed
+edges is preserved verbatim in `tool_integration_check_notes` for re-materialization if the
+bar ever loosens.
+
+A partial write-back was the original hypothesis and is **not** needed to explain this.
+Deleting an Airtable record strands its D1 row whether or not the id was ever written back,
+because promote has no delete semantics. Whether these two ids reached Airtable is now
+unfalsifiable — the records are gone.
+
+**Exit: DELETE** — honoring the ruling. Both guards trip (`orphansWithoutATwin: 2`,
+`claimsUniqueToOrphans: 3`; `orphansRicherThanTwin: 0`, since a no-twin row has nothing to
+compare against), so the retraction goes through the datatool prune with **both**
+acknowledged by name — see §Healing below. Footprint: 2 integrations + 3 claims + 3
+attestations; `integration_count` repairs to polycam 1, autocad 7, arcgis 13. Two live
+indexable pair pages (`/products/{arcgis,autocad}/integrations/polycam`) begin 404ing and
+drop out of the sitemap, which is correct — the content is retracted.
+
+> **Status: decided, not yet executed.** Update this section and add a Measurement row once
+> the production prune has run and the audit reports `Integrations → stray: 0`.
+
+> **The generalizable lesson.** These rows were not duplicate residue and the guards were
+> right to refuse them — but the exit was still a delete. A tripped guard means "not a
+> redundant copy", which is a reason to *stop and check*, not proof that the row must
+> survive. Look for a recorded editorial ruling before assuming either.
 
 ## Healing
 
@@ -117,11 +154,20 @@ The audit never writes. Once it reports a mismatch:
   D1 row), then re-promote through the normal playbook. The push goes out with the
   recovered `supabaseId`, so it must come back **`updated`**, not `created` — that is
   the convergence check.
-- **`stray`** — a curation judgment, never a mechanical delete. Either recreate the
-  Airtable record and write the existing uuid into `supabase_*_id` (adopt), or delete
-  the D1 row via the datatool's `POST /api/prune-integrations` (guards, ordered delete,
-  rollback SQL, count repair, reindex — see `apps/datatool/README.md`). A tripped guard
-  means it is **not** redundant residue; escalate rather than override.
+- **`stray`** — a curation judgment, never a mechanical delete. Decide from the
+  **content**, and check the product's Airtable `research_notes` /
+  `tool_integration_check_notes` first: a curator who retracted an edge on purpose usually
+  said so there. Then either recreate the Airtable record and write the existing uuid into
+  `supabase_*_id` (**adopt**), or delete the D1 row via the datatool's
+  `POST /api/prune-integrations` (guards, ordered delete, rollback SQL, count repair,
+  reindex — see `apps/datatool/README.md`).
+
+  A tripped guard means it is **not** redundant residue — so stop and find the ruling
+  rather than reaching for the override. If a ruling *does* exist (as in AECI-593), pass
+  `acknowledgeGuards` naming **exactly** the guards the dry run reported, plus an
+  `acknowledgeReason` citing it; the prune writes no `audit_log` row, so that reason and
+  the operator identity in the Workers log line are the only record. Save `rollbackSql`
+  first. Without a ruling, escalate — never override to make a red audit go green.
 - **`duplicatePointers`** — merge per the AECI-403 pattern: keep the richer record,
   re-point edges, delete the duplicate, re-promote.
 - **`pendingJobMarkers`** — never clear the marker by hand; it is the recovery handle.
@@ -137,4 +183,8 @@ Re-run the audit after any heal. `dangling: 0` / `stranded: 0` is the convergenc
 - `scripts/ops/2026-08-orphan-integration-cleanup/` — the earlier, larger stray-integration
   sweep (22 rows, run; all confirmed absent from production on 2026-08-13).
 - `apps/datatool/README.md` — the Access-gated Worker that owns the dangerous half of a
-  prune (guards + rollback + count repair + reindex).
+  prune (guards + rollback + count repair + reindex), including the `acknowledgeGuards`
+  override contract.
+- `.github/workflows/promote-strand-audit.yml` — the daily scheduled run of this script.
+- `docs/REVIEW_APP_PROMOTE_API.md` §5 — why promote has no delete semantics, and what a
+  curator must do after deleting a curated integration record.

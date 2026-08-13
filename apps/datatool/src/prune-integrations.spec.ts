@@ -10,7 +10,14 @@
 import type Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { MAX_PRUNE_IDS, parseIds, pruneExecute, prunePlan } from './prune-integrations';
+import {
+  MAX_PRUNE_IDS,
+  parseAcknowledgedGuards,
+  parseIds,
+  PRUNE_GUARD_NAMES,
+  pruneExecute,
+  prunePlan,
+} from './prune-integrations';
 import { makeShimDb, type ShimHandle } from './test/d1';
 
 const TS = '2026-01-01T00:00:00.000Z';
@@ -88,6 +95,45 @@ describe('parseIds', () => {
       (_, i) => `aaaaaaaa-0000-4000-8000-${String(i).padStart(12, '0')}`,
     );
     expect(() => parseIds(many)).toThrow(/Refusing to prune/);
+  });
+});
+
+describe('parseAcknowledgedGuards', () => {
+  it('accepts a JSON array and a pasted blob, deduped', () => {
+    expect(parseAcknowledgedGuards(['orphansWithoutATwin'])).toEqual(['orphansWithoutATwin']);
+    expect(parseAcknowledgedGuards('orphansWithoutATwin, claimsUniqueToOrphans')).toEqual([
+      'orphansWithoutATwin',
+      'claimsUniqueToOrphans',
+    ]);
+    expect(parseAcknowledgedGuards('orphansWithoutATwin orphansWithoutATwin')).toEqual([
+      'orphansWithoutATwin',
+    ]);
+  });
+
+  it('treats absent input as acknowledging nothing', () => {
+    expect(parseAcknowledgedGuards(undefined)).toEqual([]);
+    expect(parseAcknowledgedGuards('')).toEqual([]);
+  });
+
+  it('throws on an unknown name rather than silently dropping it', () => {
+    // Dropping a typo would downgrade an intended override to "acknowledged
+    // nothing", which then fails the exact-match rule for a misleading reason.
+    expect(() => parseAcknowledgedGuards(['orphansWithoutATwins'])).toThrow(/Not a guard name/);
+  });
+
+  it('is case-sensitive — these are identifiers echoed from the plan, not free text', () => {
+    expect(() => parseAcknowledgedGuards(['orphanswithoutatwin'])).toThrow(/Not a guard name/);
+  });
+
+  it('lists every guard the plan can report, so none is un-acknowledgeable', async () => {
+    const h = makeShimDb();
+    try {
+      seedTwins(h.raw);
+      const plan = await prunePlan(h.db, [ORPHAN]);
+      expect(Object.keys(plan.guards).sort()).toEqual([...PRUNE_GUARD_NAMES].sort());
+    } finally {
+      h.dispose();
+    }
   });
 });
 

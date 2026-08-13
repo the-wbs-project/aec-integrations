@@ -386,6 +386,7 @@ Stored in GitHub Settings → Secrets and Variables → Actions. Scoped per envi
 | `LINEAR_WEBHOOK_SECRET` | Webhook signature verification | All |
 | `ANTHROPIC_API_KEY_STAGING` / `_PRODUCTION` | Anthropic key for review toxicity scoring (Claude Haiku, AECI-258); pushed to the API Worker as `ANTHROPIC_API_KEY`. **Optional + fail-open on every env** (prod included — warn-and-skip, NOT fail-closed): a missing key stores `toxicity_score=null` and the review still enters the moderation queue. Previews reuse the `_STAGING` value. Supersedes the sunsetting `PERSPECTIVE_API_KEY`. **GDPR:** confirm zero-data-retention (ZDR) is enabled on the Anthropic org before provisioning a real key — the Messages API has no per-request no-store control, so otherwise scored review bodies are retained ~30 days outside the §8 erasure boundary. | staging, production |
 | `BRANDFETCH_CLIENT_ID` | Logo CDN | All |
+| `AIRTABLE_TOKEN` | **Single shared, read-only** Airtable PAT scoped to `data.records:read` on the AEC Integrations curation base (`appy81IdGJY6Fngf9`). Consumed only by [`promote-strand-audit.yml`](../.github/workflows/promote-strand-audit.yml) (§11a) to cross-reference production D1 against the base. **Never pushed to a Worker** — no runtime code in this repo talks to Airtable; the curation base belongs to the review app. **Optional + skip-green:** absent → the audit job warns and exits 0, so the guard is simply inert rather than red. Read-only by design: the audit has no write path. | CI (promote-strand-audit.yml) |
 
 ### 7.2 Worker secrets
 
@@ -590,6 +591,20 @@ build ──────────┘
 ### 11.3 Selective testing
 
 For very small PRs (e.g. doc-only changes), skip downstream jobs via `paths-ignore` in workflow triggers.
+
+---
+
+## 11a. Scheduled data-integrity guards
+
+Two workflows run on a cron rather than on a PR, because the drift they catch is
+created by **operator actions against live data**, not by merging code. Both are
+strictly read-only against production and never repair anything — repair is a
+deliberate, reviewed human action.
+
+| Workflow | Cron (UTC) | What it checks | On red |
+|---|---|---|---|
+| [`reconcile-counts.yml`](../.github/workflows/reconcile-counts.yml) | `0 8 * * *` | Denormalized product aggregates (`integration_count`, `review_count`, `rating_*_avg`) against their source rows, on staging + production | A write path mutated rows without `recomputeProductCounts()` landing. Repair with `db:reconcile-counts -- --fix`. |
+| [`promote-strand-audit.yml`](../.github/workflows/promote-strand-audit.yml) | `0 9 * * *` | Production D1 against the Airtable curation base — rows on either side with no valid counterpart link (AECI-568/593). Production only: one curation base serves all tiers and holds production uuids. | Usually a curator deleted or edited an Airtable record whose D1 row is still live; promote has no delete semantics, so that strands the row forever. Recipes in `scripts/ops/2026-08-promote-strand-audit/README.md` §Healing. **Skips green until `AIRTABLE_TOKEN` is set.** |
 
 ---
 

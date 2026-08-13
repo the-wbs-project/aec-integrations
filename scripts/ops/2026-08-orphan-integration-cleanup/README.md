@@ -9,11 +9,16 @@ rows, which is expected — it went through the datatool, whose prune issues raw
 outside the API's `db.batch` + audit builders. This runbook is kept for the diagnosis
 and the rollback recipe; there is nothing left to apply.
 
-> **Production is not orphan-free.** The 2026-08-13 sweep found **2** unreferenced
-> `integrations` rows, both Polycam (`polycam→autocad`, `polycam→arcgis`). They are a
-> *different* failure — **no twin**, so they are the only copy of their mechanism and
-> the `orphans_without_a_twin` guard below will correctly refuse them. Do not reach for
-> this script. See `scripts/ops/2026-08-promote-strand-audit/`.
+> **Production is not orphan-free, and this script is not the tool for the rest.** The
+> 2026-08-13 sweep found **2** more unreferenced `integrations` rows, both Polycam
+> (`polycam→autocad`, `polycam→arcgis`). They are a *different* failure — **no twin**, so
+> they are the only copy of their mechanism and the `orphans_without_a_twin` guard below
+> will correctly refuse them. They turned out to be an **editorial retraction** (a curator
+> deleted the Airtable records on purpose), so the exit was still a delete — but routed
+> through the datatool prune with the tripped guards acknowledged by name, not through this
+> script, which has no override. Tracked as AECI-593; see
+> `scripts/ops/2026-08-promote-strand-audit/` for the evidence and
+> `apps/datatool/README.md` for the acknowledgment contract.
 
 ## What an "orphan" is here
 
