@@ -89,6 +89,24 @@ function skippedMetricCalls(): Array<{ value: number; tags: string[] }> {
     .map((c) => ({ value: c[4] as number, tags: c[5] as string[] }));
 }
 
+/** The `logToDatadog` event whose message is the stale-supabaseId signal (AECI-568). */
+function staleIdLog(): Record<string, unknown> | undefined {
+  const call = vi
+    .mocked(logToDatadog)
+    .mock.calls.find(
+      (c) => (c[3] as { message?: string })?.message === 'aeci.api.promote.stale_supabase_id',
+    );
+  return call?.[3] as Record<string, unknown> | undefined;
+}
+
+/** All `aeci.api.promote.stale_id` count submissions as `[value, tags]` pairs. */
+function staleIdMetricCalls(): Array<{ value: number; tags: string[] }> {
+  return vi
+    .mocked(submitCount)
+    .mock.calls.filter((c) => c[3] === 'aeci.api.promote.stale_id')
+    .map((c) => ({ value: c[4] as number, tags: c[5] as string[] }));
+}
+
 describe('promote skip observability', () => {
   it('logs partial_skipped with per-kind detail + emits a skipped count per kind', async () => {
     const response = await promote({
@@ -147,5 +165,44 @@ describe('promote skip observability', () => {
     expect(response.skipped).toHaveLength(0);
     expect(partialSkippedLog()).toBeUndefined();
     expect(skippedMetricCalls()).toHaveLength(0);
+    expect(staleIdLog()).toBeUndefined();
+    expect(staleIdMetricCalls()).toHaveLength(0);
+  });
+});
+
+/**
+ * AECI-568. A `supabaseId` whose row is gone now falls back to a create instead of a
+ * no-op update. That is the right repair, but it is silent from the outside — the
+ * response just says `created` — so the fallback carries its own warn log + count, the
+ * only signal that the review app is holding a dead pointer.
+ */
+describe('promote stale-supabaseId observability', () => {
+  it('logs stale_supabase_id with per-kind detail + emits a stale_id count per kind', async () => {
+    const goneVendor = uuid(7);
+    const goneProduct = uuid(8);
+
+    await promote({
+      vendors: [{ ref: 'v1', supabaseId: goneVendor, companyName: 'Autodesk' }],
+      product: { ref: 'p1', supabaseId: goneProduct, name: 'Revit' },
+      integrations: [],
+    });
+
+    const log = staleIdLog();
+    expect(log).toMatchObject({
+      level: 'warn',
+      source: 'review-app-promote',
+      outcome: 'recreated',
+      stale_id_count: 2,
+      stale_vendor: 1,
+      stale_product: 1,
+    });
+    expect(log!.stale_supabase_ids).toEqual([
+      { kind: 'vendor', ref: 'v1', supabaseId: goneVendor },
+      { kind: 'product', ref: 'p1', supabaseId: goneProduct },
+    ]);
+
+    const metrics = staleIdMetricCalls();
+    expect(metrics).toContainEqual({ value: 1, tags: ['source:promote', 'kind:vendor'] });
+    expect(metrics).toContainEqual({ value: 1, tags: ['source:promote', 'kind:product'] });
   });
 });

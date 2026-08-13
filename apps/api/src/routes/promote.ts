@@ -36,8 +36,13 @@
  *      backstop), then the best-effort §26.5 audit forwards, edge-cache purge,
  *      and Algolia upsert via `ctx.waitUntil`.
  *
- *   - **Upsert by caller-supplied `supabaseId`.** Present → update; absent →
- *     create. The review app holds the IDs (no `external_id` column exists).
+ *   - **Upsert by caller-supplied `supabaseId`.** Present *and still resolvable*
+ *     → update; absent → create. The review app holds the IDs (no `external_id`
+ *     column exists). A `supabaseId` whose row is **gone** (retracted, pruned,
+ *     deleted) falls back to **create** rather than issuing a no-op
+ *     `UPDATE … WHERE id = <gone>` that silently writes nothing and reports an
+ *     empty slug (AECI-568). The fallback is reported on
+ *     `PromoteIngestResult.staleSupabaseIds` → `aeci.api.promote.stale_id`.
  *   - **Slugs are server-owned.** Generated on create via `@aeci/shared/slug`;
  *     kept stable on update.
  *   - **Joins are replaced, not merged.** On update, the product's
@@ -701,6 +706,45 @@ function logPromoteSkips(rc: PromoteRunCtx, skipped: PromoteSkipped[]): void {
   }
 }
 
+/**
+ * Surface a promote's stale-`supabaseId` fallbacks (AECI-568) in Datadog. The ingest
+ * upserts by the caller-supplied id, so an id whose row no longer exists used to
+ * produce a no-op `UPDATE` reported as `operation: 'updated'` with an empty slug —
+ * invisible everywhere. The ingest now falls back to **create**, which self-heals the
+ * dead pointer on the next write-back, but a silent self-heal is how the *next* drift
+ * ships: it means the review app's copy of that id was wrong, and nothing else says so.
+ *
+ * Mirrors {@link logPromoteSkips}: one `warn` log with every `{ ref, kind, supabaseId }`
+ * plus an `aeci.api.promote.stale_id` count (value = per-kind count, so query with
+ * `sum:`; `kind` tag ∈ vendor/product/integration). Fire-and-forget over the same
+ * self-gating transport, so it never affects the committed promote. No-op when clean.
+ */
+function logPromoteStaleIds(rc: PromoteRunCtx, staleSupabaseIds: PromoteStaleId[]): void {
+  if (staleSupabaseIds.length === 0) return;
+
+  const countByKind = staleSupabaseIds.reduce<Record<string, number>>((acc, s) => {
+    acc[s.kind] = (acc[s.kind] ?? 0) + 1;
+    return acc;
+  }, {});
+
+  logToDatadog(rc, rc.env, rc.request, {
+    level: 'warn',
+    message: 'aeci.api.promote.stale_supabase_id',
+    source: 'review-app-promote',
+    outcome: 'recreated',
+    stale_id_count: staleSupabaseIds.length,
+    ...Object.fromEntries(Object.entries(countByKind).map(([k, n]) => [`stale_${k}`, n])),
+    stale_supabase_ids: staleSupabaseIds,
+  });
+
+  for (const [kind, n] of Object.entries(countByKind)) {
+    submitCount(rc, rc.env, rc.request, 'aeci.api.promote.stale_id', n, [
+      'source:promote',
+      `kind:${kind}`,
+    ]);
+  }
+}
+
 // ─── Ingest ──────────────────────────────────────────────────────────────────
 
 /**
@@ -754,6 +798,21 @@ export type PromoteIngestResult = {
   bookmark: string | null;
   /** Audit rows committed inside the batch, forwarded to Datadog post-commit (§26.5). */
   auditEntries: AuditLogEntry[];
+  /** Entities the caller addressed by a `supabaseId` whose row no longer exists, and
+   *  which were therefore **created** instead of updated (AECI-568). Deliberately NOT
+   *  on `PromoteResponse`: `operation: 'created'` + the new id already tell the review
+   *  app everything it must persist, so this is an operator/Datadog signal only and
+   *  needs no change to the public contract. */
+  staleSupabaseIds: PromoteStaleId[];
+};
+
+/** One entity addressed by a `supabaseId` that resolved to nothing (AECI-568). */
+export type PromoteStaleId = {
+  kind: 'vendor' | 'product' | 'integration';
+  /** The payload `ref` the caller used, so the report is actionable on their side. */
+  ref: string;
+  /** The dead id — what the review app currently has stored for that record. */
+  supabaseId: string;
 };
 
 /** A taxonomy facet model (table + the columns the find-or-create reads). The
@@ -801,6 +860,9 @@ export async function runPromoteIngest(
   const auditEntries: AuditLogEntry[] = [];
   const audit = (entry: AuditLogEntry) => auditEntries.push({ ...entry, metadata: AUDIT_META });
   const skipped: PromoteSkipped[] = [];
+  // Ids the caller supplied that resolve to nothing — each one falls back to a create
+  // below, and is reported post-commit so the dead pointer is visible (AECI-568).
+  const staleSupabaseIds: PromoteStaleId[] = [];
 
   // Preload existing slugs for collision-free generation (outside the batch).
   const loadSlugs = async (col: SQLiteColumn) =>
@@ -827,8 +889,15 @@ export async function runPromoteIngest(
   const vendorResults: PromoteEntityResult[] = [];
   let firstVendorSlug: string | undefined;
   for (const v of payload.vendors) {
-    if (v.supabaseId) {
-      const slug = vendorSlugById.get(v.supabaseId) ?? '';
+    // `vendorSlugById` was loaded by `inArray` over exactly these ids, so a miss IS
+    // the existence test — a supplied id absent from it names a row that is gone, and
+    // updating it would write nothing (AECI-568). Fall through to the create branch.
+    const existingVendorSlug = v.supabaseId ? vendorSlugById.get(v.supabaseId) : undefined;
+    if (v.supabaseId && existingVendorSlug === undefined) {
+      staleSupabaseIds.push({ kind: 'vendor', ref: v.ref, supabaseId: v.supabaseId });
+    }
+    if (v.supabaseId && existingVendorSlug !== undefined) {
+      const slug = existingVendorSlug;
       stmts.push(
         db
           .update(vendors)
@@ -1132,12 +1201,20 @@ export async function runPromoteIngest(
 
   // ── Product (+ join rows + extensions) ────────────────────────────────────
   if (p) {
-    if (p.supabaseId) {
-      const existing = await db.query.products.findFirst({
-        columns: { slug: true },
-        where: eq(products.id, p.supabaseId),
-      });
-      const slug = existing?.slug ?? '';
+    // The existence read the update branch already needed doubles as the guard: a
+    // `supabaseId` with no row behind it means the review app's pointer is dead, so
+    // create instead of no-op-updating a row that isn't there (AECI-568).
+    const existing = p.supabaseId
+      ? await db.query.products.findFirst({
+          columns: { slug: true },
+          where: eq(products.id, p.supabaseId),
+        })
+      : undefined;
+    if (p.supabaseId && !existing) {
+      staleSupabaseIds.push({ kind: 'product', ref: p.ref, supabaseId: p.supabaseId });
+    }
+    if (p.supabaseId && existing) {
+      const slug = existing.slug;
       productId = p.supabaseId;
       productResult = { ref: p.ref, id: p.supabaseId, slug, operation: 'updated' };
       stmts.push(
@@ -1350,18 +1427,22 @@ export async function runPromoteIngest(
 
     let integrationId: string;
     let result: PromoteIntegrationResult;
-    if (intg.supabaseId) {
-      // An update may MOVE an endpoint. Capture the pre-update source/target so
-      // the OLD products are recomputed too (the AECI-86 drift fix); the new
-      // endpoints are added below. Read pre-batch.
-      const existing = await db.query.integrations.findFirst({
-        columns: { sourceProductId: true, targetProductId: true },
-        where: eq(integrations.id, intg.supabaseId),
-      });
-      if (existing) {
-        affectedProducts.add(existing.sourceProductId);
-        affectedProducts.add(existing.targetProductId);
-      }
+    // An update may MOVE an endpoint. Capture the pre-update source/target so the OLD
+    // products are recomputed too (the AECI-86 drift fix); the new endpoints are added
+    // below. Read pre-batch. A miss also means the id is dead, so create instead of
+    // no-op-updating (AECI-568).
+    const existing = intg.supabaseId
+      ? await db.query.integrations.findFirst({
+          columns: { sourceProductId: true, targetProductId: true },
+          where: eq(integrations.id, intg.supabaseId),
+        })
+      : undefined;
+    if (intg.supabaseId && !existing) {
+      staleSupabaseIds.push({ kind: 'integration', ref: intg.ref, supabaseId: intg.supabaseId });
+    }
+    if (intg.supabaseId && existing) {
+      affectedProducts.add(existing.sourceProductId);
+      affectedProducts.add(existing.targetProductId);
       stmts.push(
         db
           .update(integrations)
@@ -1402,7 +1483,10 @@ export async function runPromoteIngest(
     // empty `claims[]` clears prior claims) or that carries claims (a fresh
     // integration's delete is a harmless no-op). Statement order stays FK-safe:
     // integration → delete claims → claims → attestations → audits (last).
-    if (intg.supabaseId || intg.claims.length) {
+    // Keyed off the resolved `operation`, not off `intg.supabaseId`: a stale id took
+    // the create branch above, so `integrationId` is brand new and there is nothing to
+    // clear (AECI-568).
+    if (result.operation === 'updated' || intg.claims.length) {
       stmts.push(db.delete(claims).where(eq(claims.integrationId, integrationId)));
       const seenClaims = new Set<string>();
       for (const claim of intg.claims) {
@@ -1534,6 +1618,7 @@ export async function runPromoteIngest(
     wrote: stmts.length > 0,
     bookmark: dbCtx.getBookmark(),
     auditEntries,
+    staleSupabaseIds,
   };
 }
 
@@ -1559,7 +1644,7 @@ export function dispatchPromoteHooks(
   const notifyIndexNow = deps.notifyIndexNow ?? defaultIndexNowNotify;
   const notifyGoogleIndexing = deps.notifyGoogleIndexing ?? defaultGoogleIndexingNotify;
   const refreshHomeStats = deps.refreshHomeStats ?? defaultHomeStatsRefresh;
-  const { response, removedTradeSlugs, auditEntries } = result;
+  const { response, removedTradeSlugs, auditEntries, staleSupabaseIds } = result;
 
   // Best-effort §26.5 audit forwards AFTER the commit. Only scheduled when
   // Datadog is configured — the forwarder is a no-op otherwise, so there is
@@ -1629,4 +1714,10 @@ export function dispatchPromoteHooks(
   // a partial promote — entities the push couldn't link — that neither the metrics
   // layer nor a `status: 'complete'` poll response can otherwise reveal.
   logPromoteSkips(rc, response.skipped);
+
+  // Surface any stale-`supabaseId` fallbacks (AECI-568): the entity was created
+  // rather than updated because the id the caller sent no longer resolves. The
+  // response says `created`, but only this says *why* — that the review app was
+  // holding a dead pointer.
+  logPromoteStaleIds(rc, staleSupabaseIds);
 }

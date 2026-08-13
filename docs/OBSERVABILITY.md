@@ -34,6 +34,7 @@ below. The bounded render-volume signal is the `aeci.ssr.render` count metric.
 | `aeci.api.promote.job` | count | `apps/api/src/workflows/promote-workflow.ts` (`runPromoteWorkflow`, AECI-563) | `outcome` (`complete` / `errored`), plus `code` (the `ApiErrorCode`) on `errored` — one heartbeat per finished job; the always-emitted `outcome:complete` series is the ingest-liveness signal |
 | `aeci.api.promote.job.duration_ms` | distribution | `apps/api/src/workflows/promote-workflow.ts` (`runPromoteWorkflow`, AECI-563) | `outcome` (`complete` / `errored`) — wall-clock of the whole job (payload load + plan + atomic batch + count recompute). **This is the metric that replaces the old promote request duration**; a slow ingest is no longer visible as a slow request |
 | `aeci.api.promote.skipped` | count | `apps/api/src/routes/promote.ts` (`logPromoteSkips`) | `source` (`promote`), `kind` (`integration` / `extension` / `usefulness` / `claim` / `trade`) — **value = per-kind skip count, query with `sum:`** |
+| `aeci.api.promote.stale_id` | count | `apps/api/src/routes/promote.ts` (`logPromoteStaleIds`, AECI-568) | `source` (`promote`), `kind` (`vendor` / `product` / `integration`) — **value = per-kind count, query with `sum:`**. The caller sent a `supabaseId` whose row no longer exists, so the ingest **created** a replacement instead of no-op-updating. Self-healing, but it means the review app was holding a dead pointer — a sustained non-zero series says the two sides are diverging |
 | `aeci.cache.purge` | count | `apps/web/src/server/routes/admin-purge.ts` | `source` (manual / future webhook), `outcome` (ok / cf_failed) |
 | `aeci.api.data_gap` | count | `apps/api/src/lib/handler-utils.ts` (`reportMissingVendors`, called by the product-list-producing handlers) | `gap_type` (currently `missing_vendor`) |
 | `aeci.algolia.sync` | count | `apps/api/src/scheduled.ts` (daily cron) + `apps/api/src/routes/promote.ts` (`syncAlgoliaAfterPromote`) | `trigger` (cron / promote), `entity` (products / vendors / integrations / all), `outcome` (ok / failed / skipped_no_creds) |
@@ -326,7 +327,17 @@ is in Datadog" true across both surfaces.
 Separately, a **partial** promote — a job that reaches `complete` with a non-empty `skipped[]`, which
 every outcome metric sees as a clean success — emits a `warn` log
 `aeci.api.promote.partial_skipped` (detailing every `{ref, kind, reason}` + per-kind counts) plus the
-`aeci.api.promote.skipped` count above, so a curator's silently-dropped entity is visible. All of it is fire-and-forget over the shared transport (no-op without `DD_API_KEY`) and never
+`aeci.api.promote.skipped` count above, so a curator's silently-dropped entity is visible.
+
+A third silent outcome (AECI-568): a `supabaseId` the caller sent whose row no longer exists. The
+ingest now **creates** a replacement rather than issuing a no-op `UPDATE … WHERE id = <gone>` and
+reporting it as `updated` with an empty slug, and each fallback emits a `warn`
+`aeci.api.promote.stale_supabase_id` (every `{kind, ref, supabaseId}` + per-kind counts) plus the
+`aeci.api.promote.stale_id` count above. The promote itself is correct either way — this is the signal
+that the review app's copy of that id had gone stale, which is the same divergence
+`scripts/ops/2026-08-promote-strand-audit/` sweeps for offline.
+
+All of it is fire-and-forget over the shared transport (no-op without `DD_API_KEY`) and never
 affects the response. This is deliberately scoped to promote — the high-traffic public read endpoints
 stay silent on 4xx to keep log volume down.
 

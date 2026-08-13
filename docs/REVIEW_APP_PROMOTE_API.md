@@ -69,9 +69,18 @@ days. See `docs/adr/0021-async-promote-ingest-via-workflows.md`.
    returns (e.g. `supabase_vendor_id`, `supabase_product_id`,
    `supabase_integration_id`). This mapping is **the only link** between your
    records and the AECi rows — AECi does **not** store your Airtable/record IDs.
+   The `supabase_claim_id` a claim comes back with is the exception: it is
+   **informational only**. Claims are replaced wholesale on every promote (see
+   "`claims` shape & resolution" in §3), so the id you store is invalidated by your
+   next push. Never key anything off it.
 4. **Send the stored ID back on edits.** Presence of the ID is what makes a push
    an update instead of a new insert. **If you lose the mapping, a re-push
-   creates duplicates** — persist it durably.
+   creates duplicates** — persist it durably. An ID you send that no longer
+   resolves — the row was retracted, pruned, or deleted on the AECi side — is
+   **not** an error: AECi falls back to **creating** the row and the response
+   comes back `operation: "created"` with a **new** id. Persist that new id; it
+   replaces your dead pointer. (Before AECI-568 this silently updated nothing and
+   returned an empty `slug`, which the write-back then wrote over the real one.)
 5. **Do not send slugs.** AECi owns URL slugs; it generates them on first
    promote and keeps them stable. The response tells you the slug that became the
    public URL.
@@ -226,7 +235,7 @@ Every vendor in this array becomes a vendor **of the product** (a
 | Field | Type | Required | Notes |
 |---|---|---|---|
 | `ref` | string | ✅ | Unique local label; referenced by `product` and `builtByVendor`. |
-| `supabaseId` | uuid \| null | — | Present → update that vendor; absent → create. |
+| `supabaseId` | uuid \| null | — | Present *and still resolvable* → update that vendor; absent, **or pointing at a row that no longer exists** → create (see responsibility 4). |
 | `companyName` | string | ✅ | |
 | `isPrimary` | boolean | — | Defaults to `true` for the first vendor, `false` otherwise. |
 | `description`, `website`, `headquarters`, `parentCompany`, `linkedinUrl`, `xUrl`, `facebookUrl`, `instagramUrl`, `youtubeUrl`, `crunchbaseUrl`, `wikiUrl`, `sourceUrl`, `githubOrg`, `phoneNumber`, `contactEmail`, `logoUrl` | string \| null | — | Free-form. `xUrl` / `facebookUrl` / `instagramUrl` / `youtubeUrl` are full canonical URLs persisted verbatim to `vendors.{x,facebook,instagram,youtube}_url` and rendered as icons in the public vendor hero; `githubOrg` is persisted as a bare handle but is not surfaced in the public vendor contract. |
@@ -241,7 +250,7 @@ Omit it entirely for a vendor-only / integration-only push (§3.5). When present
 | Field | Type | Required | Notes |
 |---|---|---|---|
 | `ref` | string | ✅ | Unique local label; integrations reference it as their endpoint. |
-| `supabaseId` | uuid \| null | — | Present → update; absent → create. |
+| `supabaseId` | uuid \| null | — | Present *and still resolvable* → update; absent, **or pointing at a row that no longer exists** → create (see responsibility 4). |
 | `name` | string | ✅ | |
 | `productRole` | `"application"` \| `"connector"` \| `"hybrid"` | — | Defaults to `"application"`. |
 | `categories` | string[] | — | Category **names or slugs**. Find-or-created by slug. |
@@ -277,7 +286,7 @@ endpoints**. The other endpoint must already be promoted (reference it by
 | Field | Type | Required | Notes |
 |---|---|---|---|
 | `ref` | string | ✅ | Unique local label. |
-| `supabaseId` | uuid \| null | — | Present → update; absent → create. |
+| `supabaseId` | uuid \| null | — | Present *and still resolvable* → update; absent, **or pointing at a row that no longer exists** → create (see responsibility 4). |
 | `name` | string \| null | — | |
 | `sourceProduct` | `{ ref }` \| `{ supabaseId }` | ✅ | One endpoint. `{ ref: <product.ref> }` for the product in this bundle. |
 | `targetProduct` | `{ ref }` \| `{ supabaseId }` | ✅ | The other endpoint. |
@@ -404,6 +413,9 @@ The `result` object in full:
 - `operation`: `created` | `updated` for vendors/product/integrations;
   `created` | `reused` for taxonomy. **`taxonomy.trades[]` is always `reused`** —
   the vocabulary is closed, so promote can only ever match an existing term.
+  A `created` on an entity you sent a `supabaseId` for means that id no longer
+  resolved and AECi created a replacement row (responsibility 4) — the `id` in the
+  result is the new one, and it is what you must store.
 - **`sourceSlug` / `targetSlug`** on an integration result are the two products'
   slugs for that integration — AECi returns them so it can refresh both pair-page
   orientations without a lookup. They are informational (you don't need to persist

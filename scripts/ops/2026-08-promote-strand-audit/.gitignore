@@ -1,0 +1,4 @@
+# Generated audit reports carry product/vendor/integration names + ids straight out
+# of the production catalog. They are operator artifacts, produced fresh on every
+# run — never committed. The dated measurement that matters lives in README.md.
+report-*.json
