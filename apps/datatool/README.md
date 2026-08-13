@@ -58,6 +58,34 @@ the destination, so search and the site reflect the new data immediately.
   surviving row shares its source/target/mechanism — it is the only copy), and
   `orphansRicherThanTwin` (its `description`/`notes` are longer than its twin's,
   so editorial content would be lost).
+- **A tripped guard is overridable, but only by name and with a reason.** "Not a
+  redundant copy" is usually a reason to stop — but not always: when a curator has
+  *editorially retracted* an edge (deleted the Airtable record on purpose), the live
+  D1 row must go even though it has no twin, because promote has no delete semantics
+  and nothing else will ever remove it (AECI-593). So the execute path accepts
+  `acknowledgeGuards` + `acknowledgeReason`:
+
+  ```jsonc
+  { "target": "production", "ids": "…", "dryRun": false,
+    "confirmName": "aeci-app-production", "prodConfirm": true,
+    "acknowledgeGuards": ["claimsUniqueToOrphans", "orphansWithoutATwin"],
+    "acknowledgeReason": "AECI-593: curator ruled 2026-08-09 …" }
+  ```
+
+  The acknowledged set must **exactly equal** the dry run's `blocked` list — not a
+  superset, not a subset. Naming a guard that reads zero proves the plan under review
+  is not the plan that just ran (the data moved, or the wrong ids were pasted), so the
+  run refuses rather than proceeding on a stale understanding. The reason is mandatory
+  (min 20 chars) and is load-bearing: a prune writes **no** `audit_log` row, so the
+  `datatool.operation` log line — operator identity, guards, reason — is the only
+  durable record of why a guard was overridden. The UI renders a checkbox per tripped
+  guard straight from the dry-run response, so you cannot tick one the plan did not
+  report.
+
+  Error codes: `GUARD_TRIPPED` (409, a tripped guard is unacknowledged),
+  `GUARD_ACK_STALE` (400, acknowledged a guard that reads zero), `ACK_REASON_REQUIRED`
+  (400), `BAD_ACK_GUARDS` (400, unknown guard name). The production double-confirm
+  still applies on top.
 - **Prune repairs `integration_count` itself.** The column is denormalized, so
   the instant the rows are gone every affected product card overstates its count;
   leaving that to a follow-up CLI run is how drift ships. Same rule as
@@ -148,6 +176,11 @@ curl -s "${H[@]}" -d "{\"target\":\"staging\",\"ids\":\"$IDS\"}" $U/api/prune-in
   | tee /tmp/prune-plan.json | jq '{found, footprint, guards, blocked, affectedSlugs}'
 jq -r .rollbackSql /tmp/prune-plan.json > /tmp/prune-rollback.sql   # ← keep this
 curl -s "${H[@]}" -d "{\"target\":\"staging\",\"ids\":\"$IDS\",\"dryRun\":false,\"confirmName\":\"aeci-app-staging\"}" $U/api/prune-integrations
+
+# If (and only if) an editorial ruling retracted the content, acknowledge exactly the
+# guards the dry run reported. `blocked` is pasted back verbatim — no hand-typing.
+ACK=$(jq -c .blocked /tmp/prune-plan.json)
+curl -s "${H[@]}" -d "{\"target\":\"staging\",\"ids\":\"$IDS\",\"dryRun\":false,\"confirmName\":\"aeci-app-staging\",\"acknowledgeGuards\":$ACK,\"acknowledgeReason\":\"AECI-NNN: <the ruling, and where it is recorded>\"}" $U/api/prune-integrations
 ```
 
 **Rollback** (D1 has no undo; the saved SQL is the undo):

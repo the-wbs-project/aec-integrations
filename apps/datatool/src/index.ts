@@ -6,8 +6,9 @@
  * `integrations` rows that no Airtable record points at. Each runs a clean
  * Algolia reindex + edge-cache purge of the target afterward. All writes are
  * dry-run-by-default and require typed confirmation; production needs an extra
- * explicit confirm. The prune adds three data-shape guards that refuse the
- * delete outright — see `prune-integrations.ts`.
+ * explicit confirm. The prune adds three data-shape guards that refuse the delete
+ * by default, overridable only by naming exactly the guards that tripped plus a
+ * logged reason — see `prune-integrations.ts`.
  *
  * The mutating `/api/*` routes are gated by `requireAccess` (Access JWT or
  * TOOL_TOKEN); the UI shell and `/api/version` are not (the edge Access already
@@ -25,7 +26,14 @@ import {
 import { purgeEnvCache } from './cache-purge';
 import { copyDryRun, copyExecute } from './copy';
 import type { Env } from './env';
-import { parseIds, pruneExecute, prunePlan } from './prune-integrations';
+import {
+  MIN_ACK_REASON_LENGTH,
+  parseAcknowledgedGuards,
+  parseIds,
+  type PruneGuardName,
+  pruneExecute,
+  prunePlan,
+} from './prune-integrations';
 import {
   applySeed,
   applyTeardown,
@@ -323,7 +331,7 @@ app.post('/api/prune-integrations', requireAccess(), async (c) => {
       ...plan,
       note:
         plan.blocked.length > 0
-          ? `BLOCKED by ${plan.blocked.join(', ')} — these rows are not redundant copies. Do not execute.`
+          ? `BLOCKED by ${plan.blocked.join(', ')} — these rows are not redundant copies. Stop here unless an editorial ruling says the content is retracted; to proceed anyway, pass acknowledgeGuards: ${JSON.stringify(plan.blocked)} with an acknowledgeReason.`
           : 'Save rollbackSql before executing: D1 has no undo and this Worker cannot write files.',
     });
   }
@@ -331,16 +339,59 @@ app.post('/api/prune-integrations', requireAccess(), async (c) => {
   // A tripped guard means at least one row is NOT a redundant copy. Refuse on the
   // execute path too, not just in the dry-run summary — the operator may not have
   // re-read the plan, and this is the last gate before an irreversible delete.
-  if (plan.blocked.length > 0) {
+  //
+  // Overridable, but only deliberately: the acknowledged set must EXACTLY equal the
+  // tripped set (see prune-integrations.ts for why exact rather than "at least").
+  let acknowledged: PruneGuardName[];
+  try {
+    acknowledged = parseAcknowledgedGuards(body.acknowledgeGuards);
+  } catch (e) {
+    return c.json({ error: { code: 'BAD_ACK_GUARDS', message: (e as Error).message } }, 400);
+  }
+  const acknowledgeReason =
+    typeof body.acknowledgeReason === 'string' ? body.acknowledgeReason.trim() : '';
+
+  const unacknowledged = plan.blocked.filter((g) => !acknowledged.includes(g));
+  const notTripped = acknowledged.filter((g) => !plan.blocked.includes(g));
+
+  if (unacknowledged.length > 0) {
     return c.json(
       {
         error: {
           code: 'GUARD_TRIPPED',
-          message: `Refusing to delete: ${plan.blocked.join(', ')} is non-zero. These rows are not redundant copies.`,
+          message: `Refusing to delete: ${unacknowledged.join(', ')} is non-zero. These rows are not redundant copies. To delete anyway, pass acknowledgeGuards: ${JSON.stringify(plan.blocked)} with an acknowledgeReason.`,
           guards: plan.guards,
+          blocked: plan.blocked,
         },
       },
       409,
+    );
+  }
+  if (notTripped.length > 0) {
+    // Acknowledging a guard that reads zero means the plan under review is not the
+    // plan that just ran — the data moved, or the wrong ids were pasted. Refuse
+    // rather than proceed on a stale understanding.
+    return c.json(
+      {
+        error: {
+          code: 'GUARD_ACK_STALE',
+          message: `Acknowledged ${notTripped.join(', ')}, which read zero on this plan — the plan you reviewed is not the plan that just ran. Re-run the dry run and acknowledge exactly its blocked list (${plan.blocked.length ? plan.blocked.join(', ') : 'empty'}).`,
+          guards: plan.guards,
+          blocked: plan.blocked,
+        },
+      },
+      400,
+    );
+  }
+  if (acknowledged.length > 0 && acknowledgeReason.length < MIN_ACK_REASON_LENGTH) {
+    return c.json(
+      {
+        error: {
+          code: 'ACK_REASON_REQUIRED',
+          message: `Overriding ${acknowledged.join(', ')} requires acknowledgeReason (min ${MIN_ACK_REASON_LENGTH} characters). A prune writes no audit_log row, so this is the only durable record of why the guard was overridden.`,
+        },
+      },
+      400,
     );
   }
   if (plan.found === 0) {
@@ -369,6 +420,9 @@ app.post('/api/prune-integrations', requireAccess(), async (c) => {
     requested: plan.requested,
     deleted: result.deleted,
     recounted: result.recounted.length,
+    // The audit trail for an overridden guard: who, which guards, and why.
+    acknowledgedGuards: acknowledged,
+    acknowledgeReason: acknowledged.length ? acknowledgeReason : undefined,
   });
 
   return c.json({
@@ -377,6 +431,8 @@ app.post('/api/prune-integrations', requireAccess(), async (c) => {
     target,
     ...result,
     affectedSlugs,
+    acknowledgedGuards: acknowledged,
+    acknowledgeReason: acknowledged.length ? acknowledgeReason : null,
     refresh,
     rollbackSql,
   });

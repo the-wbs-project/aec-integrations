@@ -756,3 +756,61 @@ a race.
 a **created** row. Client death is fully covered; this narrower window is accepted and documented
 (ADR 0021 → Consequences). If you ever see a duplicated product whose promote job reported
 `complete` exactly once, that is the window — capture it, it justifies the hardening follow-up.
+
+---
+
+## Promote strand audit is red
+
+**Signal:** the daily `promote-strand-audit` GitHub Action (09:00 UTC, `.github/workflows/promote-strand-audit.yml`)
+exits non-zero. There is no Datadog monitor — the workflow's own red is the alert. (AECI-568 / AECI-593.)
+
+**What it means:** production D1 and the Airtable curation base disagree about which rows exist.
+The only link between them is the `supabase_*_id` column Airtable holds — D1 stores no
+curation-tool key (AECI-562 was rejected deliberately) — so one broken pointer makes a live row
+permanently unreachable. Which bucket fired tells you which direction broke:
+
+| Bucket | Meaning |
+|---|---|
+| `stray` | A D1 row no Airtable record points at. **The common one.** |
+| `dangling` | An Airtable id whose D1 row is gone. |
+| `stranded` | An Airtable record that looks promoted but carries no id. |
+| `duplicatePointers` | One D1 id claimed by two Airtable records. |
+| `pendingJobMarkers` | An uncollected `promote_job_id` — also the liveness check for the AECI-570 hourly reconcile sweep. |
+
+**First checks**
+
+1. **Re-run locally for the full per-bucket dump** (the CI log prints the table; the id lists are
+   in the report file, which CI does not upload):
+   ```bash
+   AIRTABLE_TOKEN=<pat> CLOUDFLARE_API_TOKEN=<token> \
+     node scripts/ops/2026-08-promote-strand-audit/audit.mjs
+   ```
+2. **`stray`: was this an editorial retraction?** Read the affected product's Airtable
+   `research_notes` and `tool_integration_check_notes` *before* anything else. A curator who
+   deleted an integration on purpose normally records the ruling there — that is exactly what
+   AECI-593 turned out to be, and it flips the repair from "adopt" to "delete".
+3. **`pendingJobMarkers`: never clear the marker by hand.** It is the recovery handle; a
+   `complete` job still serves its full ID map. See "Promote job errored or stuck" above.
+
+**Repair**
+
+Every bucket's recipe lives in `scripts/ops/2026-08-promote-strand-audit/README.md` §Healing.
+The audit itself has no `--apply` and never writes. Two things worth repeating here:
+
+- **`stray` is a curation judgement, not a mechanical delete.** Adopt (recreate the Airtable
+  record carrying the existing uuid) or delete (datatool `POST /api/prune-integrations`). A
+  tripped guard means the row is *not* redundant residue — find the ruling rather than reaching
+  for the override. With a ruling, acknowledge exactly the guards the dry run reported plus an
+  `acknowledgeReason`; save `rollbackSql` first (`apps/datatool/README.md`).
+- **A prune does not recompute `stats_cache`.** After deleting integrations the home-page totals
+  read high until the next promote of any product runs `refreshHomeStatsAfterPromote`. Harmless
+  and self-healing; only chase it if no promote is expected soon.
+
+**Root cause, and why this job exists:** promote can create and update but **never delete**
+(`docs/REVIEW_APP_PROMOTE_API.md` §5.1). A curator deleting an Airtable record therefore always
+leaves a stray, and destroys the only pointer that could have found it. Nothing in the promote
+path can guard that, so this scheduled audit is the backstop.
+
+**Escalation:** a `stray` with no recorded ruling and no obvious curator action is a real unknown
+— do **not** delete to make the audit green. Capture the ids and the affected pair pages, and
+raise it with whoever owns the catalog.
