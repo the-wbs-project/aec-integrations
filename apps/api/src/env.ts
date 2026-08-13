@@ -23,7 +23,12 @@ import type { PromoteWorkflowParams } from './lib/promote-jobs';
  * §7.1): it records the prior COMPLETE UTC day, and like `moderation`/`waf`/
  * `analytics` it is queue-less — every metric is isolated in its own try/catch
  * and any missed day is recoverable by re-running the backfill over that range,
- * so queue-native retries would buy nothing.
+ * so queue-native retries would buy nothing. `retention` is the daily 03:00 UTC
+ * §7.4 retention prune (AECI-584): it deletes `page_views` past 400 days and
+ * `job_runs` past 90, never touches `metrics_daily`, and refuses to run at all
+ * if the 00:15 snapshot has not captured every day inside its cut window. Also
+ * queue-less — a skipped or partial run is simply re-attempted tomorrow, and a
+ * retry of a destructive job is the last thing worth automating.
  */
 export type ScheduledJob =
   | 'sync'
@@ -34,7 +39,8 @@ export type ScheduledJob =
   | 'data_quality'
   | 'waf'
   | 'analytics'
-  | 'snapshot';
+  | 'snapshot'
+  | 'retention';
 
 /**
  * Body of a message on a scheduled-job queue. Producer: the cron `scheduled()`
@@ -309,6 +315,25 @@ export type Env = {
    * to drop. Parsed with `parseInt`; a non-numeric value is treated as unset.
    */
   PAGE_VIEWS_MIN_BOT_SCORE?: string;
+  /**
+   * Retention-window overrides for the §7.4 pruning cron (AECI-584), in whole
+   * days. UNSET on every tier — the reviewed defaults live in `@aeci/shared`
+   * (`PAGE_VIEWS_RETENTION_DAYS` 400, `JOB_RUNS_RETENTION_DAYS` 90), and these
+   * exist so §13 D5's figure can be **shortened** on one tier without a deploy.
+   * Same declare-the-seam posture as `PAGE_VIEWS_MIN_BOT_SCORE` above.
+   *
+   * Parsed by `resolveRetentionDays` (`lib/retention-prune.ts`): must be a
+   * finite integer `>= MIN_RETENTION_DAYS` (30 — D1 Time Travel's horizon).
+   * Anything else is IGNORED and logged, not clamped: a typo'd `4` must fall
+   * back to the reviewed default rather than quietly becoming the shortest legal
+   * window, because the mistake it would cause is unrecoverable.
+   *
+   * Note these do NOT move `ADMIN_METRICS_MAX_DAYS` (a build-time constant), so
+   * a shortened window leaves the admin API's query cap wider than what is
+   * retained — which returns empty tails, not wrong numbers.
+   */
+  PAGE_VIEWS_RETENTION_DAYS?: string;
+  JOB_RUNS_RETENTION_DAYS?: string;
   /**
    * Internal-traffic ASN list for the admin panel's read-time filter (AECI-574 /
    * `ADMIN_PANEL_SPEC.md` §13 **D10**). On 2026-08-10, 67 of the digest's 92

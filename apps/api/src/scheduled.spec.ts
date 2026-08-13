@@ -58,6 +58,7 @@ const RECONCILE_CRON = '*/15 * * * *';
 const DATA_QUALITY_CRON = '0 4 * * *';
 const WAF_CRON = '0 * * * *';
 const ANALYTICS_CRON = '0 5 * * *';
+const RETENTION_CRON = '0 3 * * *';
 
 const ctx = { waitUntil: vi.fn(), passThroughOnException: vi.fn() } as unknown as ExecutionContext;
 
@@ -556,7 +557,18 @@ describe('job_runs bookkeeping (§7.2)', () => {
     [DRIFT_CRON, 'algolia-drift'],
     [RECONCILE_CRON, 'request-reconcile'],
     [WAF_CRON, 'waf-poll'],
+    [RETENTION_CRON, 'retention-prune'],
   ];
+
+  /**
+   * Every cron EXCEPT the §7.4 retention prune. ADR 0022 exempts derived and
+   * log-class cron writes from the §26.1 audit invariant — but explicitly NOT
+   * scheduled deletion, so `retention-prune` is carved out here and gets its own
+   * assertions below. Keeping the exception out of the table is deliberate: on an
+   * empty database the prune deletes nothing and would pass the exempt test for
+   * the wrong reason.
+   */
+  const AUDIT_EXEMPT_CRONS = ALL_CRONS.filter(([, job]) => job !== 'retention-prune');
 
   beforeEach(() => {
     // Defaults that let every job reach a normal completion.
@@ -586,12 +598,43 @@ describe('job_runs bookkeeping (§7.2)', () => {
     expect(rows[0]?.outcome).toEqual(expect.any(String));
   });
 
-  it.each(ALL_CRONS)('%s emits NO audit_log row (ADR 0022) for %s', async (cron) => {
+  it.each(AUDIT_EXEMPT_CRONS)('%s emits NO audit_log row (ADR 0022) for %s', async (cron) => {
     await scheduled(cronController(cron), makeEnv({ PUBLIC_SITE_URL: 'https://x.test' }), ctx);
 
     // The §13 D11 carve-out, asserted rather than commented: `job_runs` IS the
     // observability record, so auditing it would be auditing the audit.
     expect(await t.db.select().from(auditLog)).toHaveLength(0);
+  });
+
+  it('the retention prune is the ONE cron that DOES audit — the ADR 0022 exception', async () => {
+    // A `job_runs` row well past the 90-day window. `job_runs` rather than
+    // `page_views` because it carries no `metrics_daily` gate, so this test is
+    // about the audit obligation and nothing else.
+    const old = new Date(Date.now() - 200 * 24 * 60 * 60 * 1000).toISOString();
+    await t.db.insert(jobRuns).values({ job: 'home-stats', startedAt: old, outcome: 'ok' });
+
+    await scheduled(cronController(RETENTION_CRON), makeEnv(), ctx);
+
+    const audits = await t.db.select().from(auditLog);
+    expect(audits).toHaveLength(1);
+    expect(audits[0]).toMatchObject({
+      actorType: 'system',
+      action: 'retention.pruned',
+      entityType: 'retention',
+    });
+    expect((audits[0]?.metadata as { rowsDeleted: number }).rowsDeleted).toBe(1);
+    // The prune's own entry row was written moments ago, so it survives its own
+    // cutoff and is the only `job_runs` row left.
+    const rows = await jobRunRows();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ job: 'retention-prune', outcome: 'ok' });
+  });
+
+  it('a retention run that deletes nothing writes no audit row', async () => {
+    await scheduled(cronController(RETENTION_CRON), makeEnv(), ctx);
+
+    expect(await t.db.select().from(auditLog)).toHaveLength(0);
+    expect((await jobRunRows())[0]).toMatchObject({ job: 'retention-prune', outcome: 'ok' });
   });
 
   it('records a thrown job as failed AND still retry()s it — the reconcile contract', async () => {

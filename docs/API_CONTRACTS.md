@@ -1519,7 +1519,7 @@ export const AdminSystemResponseSchema = z.object({
   recomputed: z.boolean(),
   notes: z.array(AdminNoteSchema),
   version: AdminVersionStatusSchema,            // the API Worker's — see below
-  crons: z.array(AdminCronRunSchema),           // ALWAYS all nine
+  crons: z.array(AdminCronRunSchema),           // ALWAYS all ten
   data_quality: AdminDataQualityStatusSchema.nullable(),   // null unless ?recompute=1
   algolia: z.object({
     watermark: AdminAlgoliaWatermarkSchema.nullable(),     // null = the sync never ran
@@ -1555,6 +1555,8 @@ itself is not called by the panel — the bundle already carries those values.
 
 ```typescript
 export const AdminCronJobSchema = z.enum([
+  'metrics-snapshot',    // 15 0 * * *   (AECI-581)
+  'retention-prune',     // 0 3 * * *    (AECI-584)
   'data-quality',        // 0 4 * * *
   'analytics-digest',    // 0 5 * * *
   'moderation-snapshot', // 0 6 * * *

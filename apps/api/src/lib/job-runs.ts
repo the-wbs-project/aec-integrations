@@ -214,7 +214,36 @@ export type JobRunDetail =
       groups: number;
       events: number;
       truncated: boolean;
+    }
+  | {
+      job: 'retention-prune';
+      durationMs: number;
+      rowsDeleted: number;
+      /** One entry per prunable table, ALWAYS both, zeros included — "the prune
+       *  ran and removed nothing" and "the prune did not consider this table"
+       *  are different facts and this row has to distinguish them. */
+      tables: RetentionPrunedTableDetail[];
+    }
+  /** The §7.4 refusal: a day inside the cut window had no `metrics_daily` row,
+   *  so NOTHING was deleted from either table. Distinct from the shape above
+   *  because the operator's next question is "which days", and answering it from
+   *  a bare `reason` string is not possible. `missingDays` is capped. */
+  | {
+      job: 'retention-prune';
+      reason: 'metrics_daily_gap';
+      window: { fromDay: string; toDay: string };
+      missingCount: number;
+      missingDays: string[];
     };
+
+/** The per-table half of the retention prune's detail. Mirrors `PrunedTable`
+ *  (`./retention-prune`) minus nothing — it is small and fully bounded. */
+export interface RetentionPrunedTableDetail {
+  table: string;
+  cutoff: string;
+  rowsDeleted: number;
+  truncated: boolean;
+}
 
 /**
  * Defensive ceiling on the serialized payload. Nothing today comes close — the
@@ -333,7 +362,7 @@ export async function finishJobRun(
  *
  * 1. the entry row is AWAITED before `run()` is invoked, so a run the isolate
  *    never returns from leaves an unfinished row;
- * 2. `run()`'s own report decides `ok` / `failed` / `skipped`. The eight cron
+ * 2. `run()`'s own report decides `ok` / `failed` / `skipped`. The nine cron
  *    impls swallow their operational errors and return normally, so a naive
  *    try/catch here would record `ok` for a run that failed;
  * 3. a THROWN handler is recorded `failed` and **rethrown** — `runReconcileJob`
@@ -341,7 +370,7 @@ export async function finishJobRun(
  *    `retry()`s, and bookkeeping must not swallow that. Note the converse, which
  *    is load-bearing: a *reported* `outcome: 'failed'` does NOT throw and so does
  *    NOT trigger a retry. Instrumenting must not widen the retry surface from the
- *    one job that has it today to all nine;
+ *    one job that has it today to all ten;
  * 4. every bookkeeping write is failure-isolated, so nothing here can abort,
  *    delay past its own await, or alter the job it records. The throw path uses a
  *    plain `catch` rather than `finally` precisely so nothing can `return` out
@@ -404,10 +433,10 @@ export interface JobRunRow {
  * tie-break because `id` is the rowid, i.e. the index's implicit trailing column;
  * verified by `EXPLAIN QUERY PLAN` to add no temp b-tree.
  *
- * Eight of these fanned out with `Promise.all` beats one clever query for a
+ * Ten of these fanned out with `Promise.all` beats one clever query for a
  * second reason: zero `UNION` terms, so D1's `SQLITE_MAX_COMPOUND_SELECT = 5`
  * (which better-sqlite3 does not share — see `routes/admin-system.ts`) cannot
- * bite. `db.batch()` would be one round trip instead of nine, but the harness
+ * bite. `db.batch()` would be one round trip instead of ten, but the harness
  * shim returns `[]`, so every spec would see an empty result while production
  * worked.
  */

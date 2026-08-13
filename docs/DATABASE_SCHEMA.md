@@ -806,6 +806,8 @@ Server-side page view log with Cloudflare header enrichment. Privacy-respecting 
 
 **Read surfaces:** the 05:00 analytics digest (`lib/analytics-digest.ts`) and the admin panel's four `GET /api/admin/*` reads (`API_CONTRACTS.md` §6.10). Of those, only `GET /api/admin/page-views` (AECI-577, the §5.2 Activity feed) returns individual rows, and it does **not** return `user_agent_hash` — it returns `substr(user_agent_hash, 1, 8)`, computed in SQL, so the full hash never leaves the API. `user_id`, `session_id` and `profile_role` are gone entirely: §13 **D7** dropped all three (AECI-585, migration `0013`) rather than filling them, and no session identifier is being introduced.
 
+**Retention: 400 days** (`ADMIN_PANEL_SPEC.md` §7.4 / §13 **D5**), enforced since AECI-584 by the daily 03:00 UTC pruning cron (`apps/api/src/lib/retention-prune.ts`). Note what the number is protecting: storage was never the binding constraint (400 d ≈ 280 MB against D1's 10 GB limit), **irreversibility** is — D1 Time Travel recovers only ~30 days, so a prune past that is permanent, and 400 days is the first window that keeps year-over-year comparison possible. The cron cuts on **whole UTC days** (the cutoff is always a midnight), deletes in bounded chunks paged by `id`, and **refuses to run at all** if any day inside its cut window has no `metrics_daily` row — that aggregate is the only thing that survives the prune. Given the 2026-06-23 data start it deletes nothing until ~2027-07. The window is a config constant (`PAGE_VIEWS_RETENTION_DAYS` in `@aeci/shared`) with an unset `PAGE_VIEWS_RETENTION_DAYS` env override, so it can be shortened without a migration; values below 30 days are ignored.
+
 **`path` holds public routes only** (AECI-575 / `ADMIN_PANEL_SPEC.md` §9.6). Neither writer records the operator-only prefixes in `@aeci/shared` `UNTRACKED_ROUTE_PREFIXES` (`/admin`, `/account`) — the admin console must not write into the table it reads. Rows captured before that shipped are still present, and every read applies the same exclusion, so query this table with `path not in ('/admin','/account') and path not like '/admin/%' and path not like '/account/%'` if you want numbers that match the daily digest. (The match is on an exact prefix boundary — a bare `path not like '/admin%'` would wrongly drop look-alike public routes like `/administrators`, which the digest still counts.)
 
 **`path` vs `concrete_path` (AECI-585).** `path` is the route the *writer* named: the pattern (`/products/:slug`) when it knows one — an SSR resolver attached `ctx.pageView` — and the concrete path otherwise (the browser tracker, an SSR cache HIT). It has always been that mix; nothing changed about it. `concrete_path` is new and is *always* the real URL path, locale-stripped and without query or hash. Both are stored because they answer different questions: grouping "top pages" wants the pattern, naming an individual row wants the concrete path. Product and vendor rows could always recover a name through their FK; taxonomy rows could not, which is what made this column necessary.
@@ -979,7 +981,10 @@ surfaces it per point as `reconstructed`.
 §26.1 audit-in-batch invariant under ADR 0022. Writes go **per key, outside any
 batch**, so one failing metric never aborts the others. **Retention: indefinite**
 (§7.4 / §13 D5) — the pruning cron must never touch this table, and must never
-prune raw `page_views` for a day it has not captured.
+prune raw `page_views` for a day it has not captured. Both halves of that are
+**asserted by test** since AECI-584 (`apps/api/src/lib/retention-prune.spec.ts`),
+against rows deliberately older than every cutoff, so "untouched" means the prune
+considered and rejected them rather than finding nothing old enough.
 
 Metric vocabulary — **flows** count events inside the day; **stocks** are an
 instantaneous sample. Only the flows are backfillable, and only the flows are
@@ -1014,12 +1019,12 @@ cron writes all 19 keys rather than only the ones a screen reads today.
 
 ### 9.4 `job_runs`
 
-One row per execution of one of the nine `scheduled.ts` cron jobs (AECI-583; `ADMIN_PANEL_SPEC.md` §7.2). Before it existed a cron's outcome lived **only** as a Datadog metric, so nothing in D1 could answer "did the 08:00 Algolia sync run today", and the ten data-quality findings lived **only** in the 04:00 email — computed, sent, discarded.
+One row per execution of one of the ten `scheduled.ts` cron jobs (AECI-583; `ADMIN_PANEL_SPEC.md` §7.2). Before it existed a cron's outcome lived **only** as a Datadog metric, so nothing in D1 could answer "did the 08:00 Algolia sync run today", and the ten data-quality findings lived **only** in the 04:00 email — computed, sent, discarded.
 
 ```sql
 create table job_runs (
   id bigserial primary key,
-  job text not null,                -- one of the nine AdminCronJob ids (packages/shared/src/api/admin-panel.ts)
+  job text not null,                -- one of the ten AdminCronJob ids (packages/shared/src/api/admin-panel.ts)
   started_at timestamptz not null,  -- written on ENTRY: the row exists before the job finishes
   finished_at timestamptz,          -- null = in flight, or the isolate never came back
   outcome text,                     -- 'ok' | 'failed' | 'skipped'; null while finished_at is null
@@ -1036,13 +1041,13 @@ create index job_runs_job_started_at_idx on job_runs(job, started_at); -- per-jo
 
 **`job` carries no CHECK**, following `audit_log.action`: the vocabulary grows with every new cron and SQLite cannot ALTER a CHECK, so a tenth cron would need a table-recreate migration. `Record<ScheduledJob, AdminCronJob>` in `apps/api/src/lib/cron-schedules.ts` plus the Zod enum are the enforcement.
 
-**Why the index is `(job, started_at)` in that order.** Every read is "the newest run of one job": an equality seek on `job`, then one row off the descending `started_at` edge (`LIMIT 1`, nine of them per request). `id` is the rowid and therefore the index's implicit trailing column, which makes `ORDER BY started_at DESC, id DESC` a free deterministic tie-break with no temp b-tree. Verified by `EXPLAIN QUERY PLAN` against a 9,000-row fixture: `SEARCH job_runs USING INDEX job_runs_job_started_at_idx (job=?)`. The `GROUP BY job` and `ROW_NUMBER() OVER (PARTITION BY job)` alternatives both SCAN the whole index, and D1 bills rows read.
+**Why the index is `(job, started_at)` in that order.** Every read is "the newest run of one job": an equality seek on `job`, then one row off the descending `started_at` edge (`LIMIT 1`, ten of them per request). `id` is the rowid and therefore the index's implicit trailing column, which makes `ORDER BY started_at DESC, id DESC` a free deterministic tie-break with no temp b-tree. Verified by `EXPLAIN QUERY PLAN` against a 9,000-row fixture: `SEARCH job_runs USING INDEX job_runs_job_started_at_idx (job=?)`. The `GROUP BY job` and `ROW_NUMBER() OVER (PARTITION BY job)` alternatives both SCAN the whole index, and D1 bills rows read.
 
 **No `audit_log` row.** Derived, log-class, cron-internal bookkeeping, exempt under ADR 0022 / `ADMIN_PANEL_SPEC.md` §13 D11 — and self-evidently the wrong thing to audit, since `job_runs` *is* the observability record. Written the way `stats_cache` is (`lib/home-stats.ts` `upsertStat`): plain single statements, outside any `db.batch`, each inside its own try/catch, so a bookkeeping failure can never abort the job it records. Note the boundary this does **not** cross: the exemption keys on entity class, not actor class, so a cron writing *domain* state still audits.
 
 **Read by** `GET /api/admin/system` (cron liveness + the orphan sweep) and `GET /api/admin/overview`'s status strip (the stored data-quality result) — `API_CONTRACTS.md` §6.10, `ADMIN_PANEL_SPEC.md` §5.1/§5.6. Both treat every field as untrusted and parse rather than assume.
 
-**Retention: 90 days — specified, NOT yet enforced.** `ADMIN_PANEL_SPEC.md` §7.4 sets the window, but the pruning cron is AECI-584 and is deliberately deprioritized. Until it ships the table grows without bound: roughly 44k rows/year, ~80% of them from the `*/15` reconcile sweep. The read path is immune by construction (nine bounded seeks), which is why the query shape above matters more than it looks.
+**Retention: 90 days — enforced** since AECI-584 by the daily 03:00 UTC pruning cron (`apps/api/src/lib/retention-prune.ts`), on the same whole-UTC-day, chunked-by-`id` mechanism as `page_views` §9.1. This is the half of §7.4 that bites first: the table accrues roughly 44k rows/year, ~80% of them from the `*/15` reconcile sweep, so the window first removes rows around **2026-11-11** (90 days past the 2026-08-13 start) versus ~2027-07 for `page_views`. Unlike `page_views` it carries no `metrics_daily` gate of its own — but a snapshot gap still stops it, because the prune aborts the whole run rather than half of it. Window: `JOB_RUNS_RETENTION_DAYS` in `@aeci/shared`, overridable per tier by the like-named env var. The read path was always immune by construction (ten bounded seeks), which is why the query shape above matters more than it looks.
 
 ---
 
@@ -1208,9 +1213,10 @@ Backup policy is deferred to a dedicated operational document (`OPERATIONAL_RUNB
 
 - D1 Time Travel for the application database (point-in-time recovery within D1's retention window; ADR 0016); Supabase automated backups cover the auth-only project
 - Audit log retention: indefinite for Stage 1 (see `STAGE_1_SPEC.md` §26.6 and §14.2)
-- `page_views` retention: **400 days**, settled by `ADMIN_PANEL_SPEC.md` §13 D5 and enforced by the pruning cron that ships with §7.4 (AECI-584) — not indefinite, though the cron deletes nothing until ~2027-07 given the 2026-06-23 data start. 400 rather than 180 because D1 Time Travel gives only ~30 days of point-in-time recovery, so a prune is effectively permanent, and 400 is the first window that keeps year-over-year comparison possible
-- `metrics_daily` retention: **indefinite** — it is the long memory that survives the `page_views` prune (AECI-581 / §7.1). The pruning cron must never touch it, and must never prune a `page_views` day it has not captured
-- `job_runs` retention: 90 days per `ADMIN_PANEL_SPEC.md` §7.4 — **specified but not yet enforced**; the pruning cron is AECI-584 (§9.4)
+- `page_views` retention: **400 days**, settled by `ADMIN_PANEL_SPEC.md` §13 D5 and **enforced since AECI-584** by the daily 03:00 UTC pruning cron — not indefinite, though it deletes nothing until ~2027-07 given the 2026-06-23 data start. 400 rather than 180 because D1 Time Travel gives only ~30 days of point-in-time recovery, so a prune is effectively permanent, and 400 is the first window that keeps year-over-year comparison possible
+- `metrics_daily` retention: **indefinite** — it is the long memory that survives the `page_views` prune (AECI-581 / §7.1). The pruning cron never touches it, and never prunes a `page_views` day it has not captured; both are asserted by test (§9.3)
+- `job_runs` retention: 90 days per `ADMIN_PANEL_SPEC.md` §7.4 — **enforced since AECI-584** (§9.4). This is the window that bites first, around 2026-11-11
+- Every prune run that deletes anything writes exactly **one** `retention.pruned` `audit_log` row, in the same atomic batch as its deletes (`STAGE_1_SPEC.md` §26.1's scheduled-deletion exception / ADR 0022). A run that deletes nothing writes none. That row is the only durable record that the rows ever existed
 - Reviews and core entities: no retention policy — preserve everything
 
 ---
@@ -1246,7 +1252,7 @@ Migrations are generated by **drizzle-kit** from the Drizzle schema and applied 
 
 Every write that changes **domain state** must emit its `audit_log` (+ `workflow_transitions` where applicable) row (`STAGE_1_SPEC.md` §26.1, `CLAUDE.md` §"Datadog and audit logging"). Failure to log is a transactional failure — the mutation must not commit without its audit entry.
 
-**Scope (ADR 0022).** "Domain state" is the catalog, users and profiles, reviews and moderation, claims and attestations, requests and workflows. **Derived and log-class writes are exempt**: `page_views`, `mailing_list`, `feedback` (`API_CONTRACTS.md` §6.9/§6.13), `stats_cache`, the Algolia watermark, the denormalized product counters (§14.2), and the cron-written `metrics_daily` (§9.3 — **shipped**, AECI-581) and `job_runs` (§9.4 — **shipped**, AECI-583) tables (`ADMIN_PANEL_SPEC.md` §7.1/§7.2). The test is **entity class, not actor class** — a `system`/cron actor writing domain state still audits — and **scheduled `DELETE`s are never exempt**: they emit one summary row per run (`action='retention.pruned'`).
+**Scope (ADR 0022).** "Domain state" is the catalog, users and profiles, reviews and moderation, claims and attestations, requests and workflows. **Derived and log-class writes are exempt**: `page_views`, `mailing_list`, `feedback` (`API_CONTRACTS.md` §6.9/§6.13), `stats_cache`, the Algolia watermark, the denormalized product counters (§14.2), and the cron-written `metrics_daily` (§9.3 — **shipped**, AECI-581) and `job_runs` (§9.4 — **shipped**, AECI-583) tables (`ADMIN_PANEL_SPEC.md` §7.1/§7.2). The test is **entity class, not actor class** — a `system`/cron actor writing domain state still audits — and **scheduled `DELETE`s are never exempt**: they emit one summary row per run (`action='retention.pruned'`). That exception is live as of AECI-584 (§9.1/§9.4): the 03:00 retention prune is the only cron that writes an `audit_log` row, and it writes exactly one per run — `actor_type='system'`, `entity_type='retention'`, `metadata={rowsDeleted, tables:[{table, cutoff, rowsDeleted}]}` — inside the same atomic `db.batch` as every chunked `DELETE`. A run that deletes nothing writes none: the exception exists because a deletion's fact is unrecoverable afterwards, and a non-deletion has no such fact.
 
 **Pattern.** D1 has no interactive transactions, so the mutation and the audit insert go into the **same** atomic `db.batch([...])` (ADR 0016 / AECI-249) — both commit or both roll back. The audit/transition statements are built with the `auditInsert` / `workflowTransitionInsert` helpers in `apps/api/src/lib/audit.ts`:
 
