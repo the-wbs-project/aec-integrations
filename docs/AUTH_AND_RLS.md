@@ -185,19 +185,26 @@ await db.batch([
 | `PATCH /api/admin/reviews/:id` | Hard-required | `admin` | `review.approved` / `.rejected` |
 | `POST /api/webhooks/linear` | HMAC-verified | N/A | `workflow.transitioned` |
 
-**Admin panel reads (AECI-574 / Phase 8.3).** Three endpoints join the `GET
-/api/admin/*` row above — `/api/admin/overview`,
-`/api/admin/metrics/timeseries`, `/api/admin/traffic/breakdown` — registered on
-the same `authAdmin` sub-router behind the same `requireAdmin()`. **No new gate
-and no new role**: `requireAdmin()` stays the single enforcement point
-(`ADMIN_PANEL_SPEC.md` §9.1). They are reads and therefore write no `audit_log`
-row, **including under `?recompute=1`**, which re-runs two jobs that are already
-pure reads (§13 D8) — it writes nothing, sends no email, and calls no external
-write API. `admin-panel.authz-matrix.spec.ts` asserts the matrix end-to-end
-against the real guard: anon → 401, authenticated non-admin → 403, banned admin →
-403 (the ban precedes the role grant), admin → 200.
+**Admin panel reads (AECI-574 + AECI-580 / Phase 8.3).** Four endpoints join the
+`GET /api/admin/*` row above — `/api/admin/overview`,
+`/api/admin/metrics/timeseries`, `/api/admin/traffic/breakdown`, and
+`/api/admin/system` — registered on the same `authAdmin` sub-router behind the
+same `requireAdmin()`. **No new gate and no new role**: `requireAdmin()` stays the
+single enforcement point (`ADMIN_PANEL_SPEC.md` §9.1). They are reads and
+therefore write no `audit_log` row, **including under `?recompute=1`**, which
+re-runs two jobs that are already pure reads (§13 D8) — it writes nothing, sends
+no email, and calls no external write API. `admin-panel.authz-matrix.spec.ts`
+asserts the matrix end-to-end against the real guard for **every one of the
+four**: anon → 401, authenticated non-admin → 403, banned admin → 403 (the ban
+precedes the role grant), admin → 200.
 
-These endpoints read `page_views`, which by design holds **no user linkage** — a
+`/api/admin/system` is worth one extra line because it reads more widely than the
+others: it enumerates the live table list from `sqlite_master` and counts every
+row. It returns **counts and table names only** — never a row's contents — so it
+exposes no user data, and it remains a read: the `sqlite_master` walk and the
+`COUNT(*)` union write nothing.
+
+The three analytics endpoints read `page_views`, which by design holds **no user linkage** — a
 UA *hash* and a referrer *host*, never a full URL or query. `ADMIN_PANEL_SPEC.md`
 §13 **D7** settled that no session identifier is introduced and the dead
 `page_views.user_id` column is dropped rather than filled (AECI-585), so the

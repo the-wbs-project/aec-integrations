@@ -47,8 +47,9 @@ healthy day — the point is to catch a regression before a monitor's sustained-
 | 2 | **Edge cache hit rate** | Phase 2 — Traffic (cache-hit per `route_class`); `aeci.page.render.duration_ms{cache_status}` | HIT majority on cacheable route classes (detail/browse/taxonomy/static) | `AECi — Cache hit rate low` (<70%/15m) |
 | 3 | **Render latency** | Phase 2 — Traffic (p95 render per `route_class`) | p95 detail (MISS) < 1.5s | `AECi — Detail render slow` (>1.5s/10m, `cache_status:miss`) |
 | 4 | **Algolia query latency / errors** | Phase 3 — Search (browser RUM `aeci.search.query`: latency p50/p95/p99, error rate) | error rate ~0; p95 within norm | *(no monitor — dashboard-only; add if noisy)* |
-| 5 | **Algolia sync + drift** | Phase 3 — Search; `aeci.algolia.sync`, `aeci.algolia.index_drift` | drift 0; daily sync `outcome:ok` | drift/sync-failed/sync-not-running/orphan-cap monitors |
-| 6 | **Scheduled-job health (8 crons)** | the liveness/no-data monitors (see §1a) | every cron emitted its heartbeat in window | the per-cron `… not running` / `… failed` monitors |
+| 5 | **Algolia sync + drift** | Phase 3 — Search; `aeci.algolia.sync`, `aeci.algolia.index_drift`. Also **`/admin/system`** — the sync watermark (per entity + last advance), and drift on demand via "Run data-quality checks" | drift 0; daily sync `outcome:ok` | drift/sync-failed/sync-not-running/orphan-cap monitors |
+| 5a | **Data quality (10 §23.1 checks)** | **`/admin/system` → "Run data-quality checks"** (AECI-580). Previously the 04:00 UTC email was the only surface, so a fix made at 10:00 couldn't be confirmed until the next morning; the button re-runs the suite live. Pure read — it writes nothing and sends no email | every check *Passing*; `algolia_index_drift` *Skipped* is normal off production (no credentials) | check-error / check-warn monitors (unchanged — the screen is a read surface, not an alerting one) |
+| 6 | **Scheduled-job health (8 crons)** | **Datadog remains the authority** — the liveness/no-data monitors (see §1a). `/admin/system` lists all eight with their schedules, but see the caveat below | every cron emitted its heartbeat in window | the per-cron `… not running` / `… failed` monitors |
 | 7 | **Request → Linear pipeline** | Phase 6 — Requests / Moderation; `aeci.linear.issue`/`.sync`/`.reconcile.*`, `aeci.webhooks.linear.hmac_failure` | failure rate < 50%; no persistent stuck; no HMAC burst | pipeline-failure / reconcile-stuck / reconcile-no-data / hmac monitors |
 | 8 | **Moderation queue** | Phase 5 & 6 dashboards; `aeci.moderation.queue_depth` / `queue_oldest_age_hours`; `GET /api/admin/summary` (`pending_reviews`), `GET /api/admin/requests` | oldest pending < 48h (target 24h, §17) | `AECi — Moderation queue backlog` (>48h) |
 | 9 | **RUM Core Web Vitals** *(gated on §0)* | Datadog **RUM → Optimize Vitals**, `aeci` app, `env:production` (p75 LCP / CLS / INP) | LCP ≤ 2.5s · CLS ≤ 0.1 · INP ≤ 200ms (`STAGE_1_PHASE_2_SPEC.md` §12) | *(no monitor — read manually; see §2)* |
@@ -61,6 +62,15 @@ healthy day — the point is to catch a regression before a monitor's sustained-
 
 Each cron emits an always-on heartbeat; the "not running" monitor's no-data is the liveness signal.
 A green board here means all eight fired on schedule.
+
+> **Do not read cron health off `/admin/system` yet.** The screen renders all eight jobs (AECI-580),
+> but a cron's outcome and duration exist **only as Datadog metrics** until
+> [AECI-583](https://linear.app/aec-integrations/issue/AECI-583) adds the `job_runs` table. Six of
+> the eight therefore show **"Unknown"**, and the two that don't — `home-stats` and `algolia-sync` —
+> show a timestamp *inferred* from a D1 side effect (`stats_cache.computed_at` and the
+> `algolia_sync_watermark` row), which proves the job **ran**, not that it **succeeded**. The screen
+> is deliberately built so it cannot render a green tick it hasn't earned; that is exactly why this
+> row still points at Datadog. Revisit when AECI-583 ships.
 
 | Cron (UTC) | Job | Liveness / failure monitors |
 |---|---|---|
@@ -80,7 +90,9 @@ A green board here means all eight fired on schedule.
 1. **Re-verify the launch-cutover §5 signals** ([`launch-cutover-runbook.md`](./launch-cutover-runbook.md)):
    dual `/api/version` + `/_version` SHA match; `www.` canonical + apex→www 301; indexable headers +
    sitemap/robots; IndexNow firing; a test transactional email; the welcome banner on a `?ref=waitlist`
-   link.
+   link. *(The SHA-match half is now also on **`/admin/system`** — AECI-580 renders both Workers'
+   builds side by side and flags a mismatch, so the two `curl`s are a cross-check rather than the
+   only way to see it.)*
 2. **Review the launch-tunable thresholds** (§3) against the week's data — tighten any that missed a real
    issue, relax any that proved noisy. **Only the enforcement/threshold changes** — never relax a budget
    to make a signal pass (`TESTING_STRATEGY.md` §10.4).
@@ -91,7 +103,12 @@ A green board here means all eight fired on schedule.
    by **AECI-221**) actually surfaces in the field before acting.
 4. **Audit the digest's human/bot split** (§3b) — the "Traffic (humans)" number is only as good as the
    ASN table behind it. One query, and widen the list when it turns up hosting networks reading as human.
-5. **Append a health-report entry** to [`POST_LAUNCH_HEALTH_REPORT.md`](./POST_LAUNCH_HEALTH_REPORT.md)
+5. **Glance at the D1 footprint** on **`/admin/system`** — total size and per-table row counts, which
+   used to mean a `wrangler d1 execute` per table. Watch `page_views` in particular: it grows ~1,000
+   rows/day and `ADMIN_PANEL_SPEC.md` §7.4 sizes the 400-day retention window against it. The table
+   list is read from `sqlite_master` at request time, so a table added by a migration shows up without
+   a code change.
+6. **Append a health-report entry** to [`POST_LAUNCH_HEALTH_REPORT.md`](./POST_LAUNCH_HEALTH_REPORT.md)
    (weekly through the first month, then at the one-month mark).
 
 ---

@@ -33,6 +33,7 @@ import { createAdminOverviewHandler } from './routes/admin-overview';
 import { createAdminTimeseriesHandler } from './routes/admin-metrics';
 import { createAdminTrafficBreakdownHandler } from './routes/admin-traffic';
 import { createAdminSummaryHandler } from './routes/admin-summary';
+import { createAdminSystemHandler } from './routes/admin-system';
 import { createEnsureProfileHandler } from './routes/auth-profile';
 import { createAuthWhoamiHandler } from './routes/auth-whoami';
 import { bookmarkMiddleware } from './bookmark-middleware';
@@ -299,6 +300,13 @@ app.route('/', authAccount);
 //     aggregation (P2.1 swaps in `metrics_daily` behind the same contract).
 //   - GET /api/admin/traffic/breakdown  — grouped counts by
 //     source|country|path|product|bot.
+//
+// Phase 8.3 P1.6 (AECI-580) adds a fourth on the same terms:
+//   - GET /api/admin/system             — the §5.6 bundle: API-Worker version,
+//     one liveness row per cron (explicitly `unknown` until `job_runs` lands —
+//     §7.2 / AECI-583), the Algolia watermark, D1 size + per-table row counts,
+//     and — behind the same `?recompute=1` flag, sharing `/overview`'s
+//     implementation — the ten data-quality checks and the drift count.
 const authAdmin = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
 authAdmin.onError(errorHandler());
 authAdmin.get('/api/admin/summary', requireAdmin(), createAdminSummaryHandler());
@@ -315,11 +323,12 @@ authAdmin.patch(
 );
 authAdmin.get('/api/admin/reviewers', requireAdmin(), createBannedReviewersListHandler());
 authAdmin.patch('/api/admin/reviewers/:id', requireAdmin(), createBanReviewerHandler());
-// Admin panel reads (AECI-574). Registered after the moderation routes; no path
-// collides with `/api/admin/re*` or `/api/admin/summary`.
+// Admin panel reads (AECI-574, AECI-580). Registered after the moderation
+// routes; no path collides with `/api/admin/re*` or `/api/admin/summary`.
 authAdmin.get('/api/admin/overview', requireAdmin(), createAdminOverviewHandler());
 authAdmin.get('/api/admin/metrics/timeseries', requireAdmin(), createAdminTimeseriesHandler());
 authAdmin.get('/api/admin/traffic/breakdown', requireAdmin(), createAdminTrafficBreakdownHandler());
+authAdmin.get('/api/admin/system', requireAdmin(), createAdminSystemHandler());
 app.route('/', authAdmin);
 
 // Catch-alls throw so the root `onError` renders the canonical §3.3 envelope

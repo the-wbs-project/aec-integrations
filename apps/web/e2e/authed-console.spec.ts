@@ -88,6 +88,22 @@ test.describe('authed console health — Phase 5 gated pages (AECI-235)', () => 
     expectConsoleClean(capture, 'GET /admin/reviews');
   });
 
+  // AECI-580 / Phase 8.3 P1.6 — the §5.6 System screen. Beyond console health,
+  // this is the epic's §11 "one smoke per section": an admin can load it and it
+  // renders its own content, not the shell alone.
+  test('/admin/system hydrates with no console errors', async ({ page }) => {
+    const capture = attachConsoleCapture(page);
+    const res = await page.goto('/admin/system');
+    expect(res?.status()).toBe(200);
+    await expect(page.locator('aec-admin-shell')).toBeAttached();
+    await expect(page.locator('aec-system-status')).toBeAttached();
+    // The client-side `GET /api/admin/system` resolved: the scheduled-jobs table
+    // only renders on the loaded branch.
+    await expect(page.getByRole('heading', { name: 'Scheduled jobs' })).toBeVisible();
+    await waitForHydrationSettle(page);
+    expectConsoleClean(capture, 'GET /admin/system');
+  });
+
   test('/products/:slug/review hydrates with no console errors', async ({ page }) => {
     test.skip(
       !reviewFixturePresent,

@@ -86,6 +86,16 @@ import {
   collectAnalyticsMetrics,
   dailyWindows,
 } from './lib/analytics-digest';
+import {
+  ALGOLIA_DRIFT_CRON,
+  ALGOLIA_SYNC_CRON,
+  ANALYTICS_CRON,
+  DATA_QUALITY_CRON,
+  MODERATION_CRON,
+  RECONCILE_CRON,
+  STATS_CRON,
+  WAF_CRON,
+} from './lib/cron-schedules';
 import { hasErrors, runDataQualityChecks, type DataQualityCheckResult } from './lib/data-quality';
 import { buildDataQualityDigest } from './lib/data-quality-email';
 import { parseRecipients, sendEmail } from './lib/email';
@@ -113,62 +123,12 @@ function cronDb(env: Env) {
   return getDb(env, { constraint: 'first-primary' });
 }
 
-/** Cron expression for the daily incremental Algolia sync (`wrangler.jsonc`).
- *  08:00 UTC = 03:00 EST (US-East, our launch customer base). Cloudflare cron
- *  is UTC-only / DST-unaware, so this is 04:00 EDT in summer — both dead-of-night
- *  in the US, deliberately accepted (no per-season retune). MUST stay byte-equal
- *  to the `triggers.crons` entry in `wrangler.jsonc` or `controller.cron` won't
- *  match the `switch` below. */
-const ALGOLIA_SYNC_CRON = '0 8 * * *';
-
-/** Cron expression for the daily index-drift check (`wrangler.jsonc`).
- *  09:00 UTC = 04:00 EST — kept one hour after the sync so reconciliation reads
- *  a settled index. MUST stay byte-equal to `wrangler.jsonc` (see sync note). */
-const ALGOLIA_DRIFT_CRON = '0 9 * * *';
-
-/** Cron expression for the daily home-stats compute (`wrangler.jsonc`, AECI-178).
- *  07:00 UTC = 02:00 EST — one hour before the Algolia sync, so the `home.*`
- *  `stats_cache` rows are fresh at the start of the US morning. MUST stay
- *  byte-equal to `wrangler.jsonc` (see sync note). */
-const STATS_CRON = '0 7 * * *';
-
-/** Cron expression for the daily moderation-queue health snapshot (`wrangler.jsonc`,
- *  AECI-206). 06:00 UTC (= 01:00 EST) — one hour before the home-stats cron, in the
- *  same dead-of-night daily window. A cheap read-only gauge (no queue / ADR 0013
- *  consumer — `queueForJob` returns `undefined`, so it always runs inline). MUST
- *  stay byte-equal to the `triggers.crons` entry in `wrangler.jsonc`. */
-const MODERATION_CRON = '0 6 * * *';
-
-/** Cron expression for the request→Linear reconciliation sweep (`wrangler.jsonc`,
- *  AECI-214 / Phase 6.7). **Every 15 minutes** — unlike the daily batch jobs, this
- *  is a tight backstop: a request whose §6.4 on-submit issue creation failed is
- *  retried within ~15 min. Queue-backed (ADR 0013) so it gets native retries. MUST
- *  stay byte-equal to the `triggers.crons` entry in `wrangler.jsonc`. */
-const RECONCILE_CRON = '*/15 * * * *';
-
-/** Cron expression for the daily §23.1 data-quality job (`wrangler.jsonc`,
- *  AECI-241 / Phase 7.6). 04:00 UTC — the §23.1 slot, two hours ahead of the
- *  06:00 moderation snapshot, in the same dead-of-night daily window. Runs the
- *  ten checks and emails the digest when they finish (~04:30 UTC). MUST stay
- *  byte-equal to the `triggers.crons` entry in `wrangler.jsonc`. */
-const DATA_QUALITY_CRON = '0 4 * * *';
-
-/** Cron expression for the WAF firewall-event poll (`wrangler.jsonc`, AECI-262 /
- *  §15.1). **Every hour** at minute 0 — it reads the *previous clock hour* of
- *  `firewallEventsAdaptiveGroups` from Cloudflare's GraphQL Analytics API and
- *  emits the `aeci.waf.ratelimit.blocked` count, so the hourly cadence matches the
- *  one-hour query window (no overlap / gaps). Queue-less like `moderation` (a
- *  cheap read-only poll). MUST stay byte-equal to the `triggers.crons` entry in
- *  `wrangler.jsonc`. */
-const WAF_CRON = '0 * * * *';
-
-/** Cron expression for the daily operator analytics digest (`wrangler.jsonc`,
- *  AECI-526). 05:00 UTC = 12:00 WIB (noon Jakarta) — a read of the prior *complete*
- *  UTC day (page views, top products, new + total users, pending-moderation depth).
- *  Queue-less like `moderation`/`waf` (a cheap read-only aggregation + one email),
- *  so `queueForJob` returns `undefined` and it always runs inline. MUST stay
- *  byte-equal to the `triggers.crons` entry in `wrangler.jsonc`. */
-const ANALYTICS_CRON = '0 5 * * *';
+// The eight cron expressions now live in `./lib/cron-schedules` — hoisted there
+// by AECI-580 so `GET /api/admin/system`'s liveness rows read the SAME literals
+// this dispatcher `switch`es on rather than a second copy that could drift. Each
+// one MUST still stay byte-equal to its `triggers.crons` entry in
+// `wrangler.jsonc`, or `controller.cron` won't match the `switch` below; see that
+// file for the per-job scheduling rationale.
 
 /** The gauge a Datadog monitor alerts on (see docs/OBSERVABILITY.md). */
 const DRIFT_METRIC = 'aeci.algolia.index_drift';

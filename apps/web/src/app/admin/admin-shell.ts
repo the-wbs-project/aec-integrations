@@ -29,6 +29,11 @@ import { AdminSummaryStore } from './admin-summary.store';
  * `/admin` is a private surface, so on the admin (success) path we set a
  * `robots: noindex` head + a title — mirroring the login utility page. On the
  * not-found path the resolver already set the noindex 404 head, so we leave it.
+ *
+ * The nav is still the flat Phase-5/6 list plus AECI-580's `/admin/system`.
+ * Phase 8.3 P1.2 (AECI-576) restructures it into the three §5 groups (Insights /
+ * Catalog / Operations) and renames the `h1` from "Moderation" to "Admin"; that
+ * is deliberately not pulled forward here.
  */
 @Component({
   selector: 'aec-admin-shell',
@@ -96,6 +101,19 @@ import { AdminSummaryStore } from './admin-summary.store';
                     focus-visible:outline-(--accent-primary)"
                 >
                   <span i18n="@@admin.shell.nav.reviewers">Reviewer bans</span>
+                </a>
+              </li>
+              <li>
+                <a
+                  routerLink="/admin/system"
+                  routerLinkActive="bg-(--surface-raised) text-(--text-primary)"
+                  ariaCurrentWhenActive="page"
+                  class="flex items-center gap-3 rounded-(--radius-md) px-3 py-2 text-sm
+                    font-bold text-(--text-secondary) no-underline transition-colors
+                    hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2
+                    focus-visible:outline-(--accent-primary)"
+                >
+                  <span i18n="@@admin.shell.nav.system">System status</span>
                 </a>
               </li>
             </ul>

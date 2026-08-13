@@ -260,6 +260,14 @@ export const routes: Routes = [
         path: 'reviewers',
         loadComponent: () => import('./admin/reviewers/reviewer-bans').then((m) => m.ReviewerBans),
       },
+      // AECI-580 — Phase 8.3 P1.6, the §5.6 System status screen. Same layout,
+      // same gate; it reads `GET /api/admin/system` client-side (plus the SSR
+      // Worker's own `/_version`, so a stale SSR deploy is visible). P1.2
+      // (AECI-576) regroups this nav into Insights / Catalog / Operations.
+      {
+        path: 'system',
+        loadComponent: () => import('./admin/system/system-status').then((m) => m.SystemStatus),
+      },
     ],
   },
   // AECI-238 — Phase 7.3 static content pages (About + Contact). No resolver:

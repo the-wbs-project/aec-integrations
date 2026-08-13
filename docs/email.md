@@ -65,10 +65,17 @@ id each, on the `aeci.email.send` metric). Two **scheduled digests** ride the se
 low-level `sendEmail` transport (`lib/email.ts`, AECI-241) instead — multi-recipient,
 their own metric, no `template` tag — so they don't appear above:
 
-| Digest | Cron (UTC) | Builder | Recipient var | Metric |
-|---|---|---|---|---|
-| Data-quality report | `0 4 * * *` | `lib/data-quality-email.ts` (`scheduled.ts` `runDataQualityJob`) | `DATA_QUALITY_EMAIL_{FROM,TO}` | `aeci.data_quality.email` |
-| Operator analytics digest (AECI-526) | `0 5 * * *` (05:00 UTC = 12:00 WIB, noon Jakarta) | `lib/analytics-digest.ts` (`scheduled.ts` `runAnalyticsDigestJob`) | `ANALYTICS_DIGEST_EMAIL_TO` — **production only** (sender = shared `EMAIL_FROM`) | `aeci.analytics_digest.email` |
+| Digest | Cron (UTC) | Builder | Recipient var | Metric | Screen equivalent |
+|---|---|---|---|---|---|
+| Data-quality report | `0 4 * * *` | `lib/data-quality-email.ts` (`scheduled.ts` `runDataQualityJob`) | `DATA_QUALITY_EMAIL_{FROM,TO}` | `aeci.data_quality.email` | **`/admin/system` → "Run data-quality checks"** (AECI-580) |
+| Operator analytics digest (AECI-526) | `0 5 * * *` (05:00 UTC = 12:00 WIB, noon Jakarta) | `lib/analytics-digest.ts` (`scheduled.ts` `runAnalyticsDigestJob`) | `ANALYTICS_DIGEST_EMAIL_TO` — **production only** (sender = shared `EMAIL_FROM`) | `aeci.analytics_digest.email` | API only (`GET /api/admin/overview`, AECI-574); the **screen** lands with AECI-576 |
+
+**Neither email is retired by its screen** (`ADMIN_PANEL_SPEC.md` §13 **D2**): push and pull are
+complementary, and no cron is being removed. What the screen adds is *on demand* — the ten §23.1
+checks used to be visible only in the 04:00 send, so a defect fixed at 10:00 could not be confirmed
+until the next morning. `GET /api/admin/system?recompute=1` re-runs the suite live and is a **pure
+read**: it writes no row and, in particular, **sends no email** (§13 **D8** draws the line at side
+effects, not manual-ness). Running a digest *for real* stays deferred.
 
 The analytics digest summarizes the **prior complete UTC day** as a styled HTML email
 (with a plain-text fallback): **human** page views + top products (`page_views` where

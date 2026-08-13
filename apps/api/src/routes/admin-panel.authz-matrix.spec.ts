@@ -1,12 +1,12 @@
 /**
- * Admin-panel deny-matrix (AECI-574) — the AC's "a non-admin receiving 403",
- * exercised against the **real** `requireAdmin()` guard rather than a handler
- * mounted bare.
+ * Admin-panel deny-matrix (AECI-574, extended by AECI-580) — the AC's "a
+ * non-admin receiving 403", exercised against the **real** `requireAdmin()` guard
+ * rather than a handler mounted bare.
  *
  * The per-route specs (`admin-overview.spec.ts` etc.) mount the handler alone, so
  * they prove the queries and never touch authorization. This file is the other
- * half: it mounts all three panel routes behind the same guard `index.ts` uses,
- * so the gate is verified end-to-end and a future registration that forgets
+ * half: it mounts every panel route behind the same guard `index.ts` uses, so the
+ * gate is verified end-to-end and a future registration that forgets
  * `requireAdmin()` fails here.
  *
  * The matrix, per `AUTH_AND_RLS.md` / `ADMIN_PANEL_SPEC.md` §9.1:
@@ -30,6 +30,7 @@ import { makeTestDb, type TestDb } from '../test/d1';
 import { fakeExecutionContext } from '../test/helpers';
 import { createAdminTimeseriesHandler } from './admin-metrics';
 import { createAdminOverviewHandler } from './admin-overview';
+import { createAdminSystemHandler } from './admin-system';
 import { createAdminTrafficBreakdownHandler } from './admin-traffic';
 
 const SUPABASE_URL = 'https://test-project.supabase.co';
@@ -42,7 +43,7 @@ const ADMIN_BANNED = u(902);
 
 const NOW = new Date('2026-08-11T05:00:00.000Z');
 
-/** Every route AECI-574 adds, with a query string that would succeed if the
+/** Every admin-panel read route, with a query string that would succeed if the
  *  caller were an admin — so a 401/403 can only come from the gate. */
 const ROUTES = [
   { name: 'GET /api/admin/overview', url: '/api/admin/overview' },
@@ -54,6 +55,7 @@ const ROUTES = [
     name: 'GET /api/admin/traffic/breakdown',
     url: '/api/admin/traffic/breakdown?dimension=source&from=2026-08-10&to=2026-08-10',
   },
+  { name: 'GET /api/admin/system', url: '/api/admin/system' },
 ] as const;
 
 let jwks: TestJwks;
@@ -89,6 +91,7 @@ function makeApp() {
     requireAdmin(guard),
     createAdminTrafficBreakdownHandler(t.factory, clock),
   );
+  app.get('/api/admin/system', requireAdmin(guard), createAdminSystemHandler(t.factory, clock));
   return app;
 }
 
