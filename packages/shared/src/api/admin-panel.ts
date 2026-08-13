@@ -421,8 +421,8 @@ export type AdminMetricKey = z.infer<typeof AdminMetricKeySchema>;
  *
  * The key names state their own filter — `*_promoted` where the table carries a
  * `promotion_status` gate, `*_total` where it does not. `queue.requests_open`
- * uses the same `('open','in_review')` predicate as the overview's
- * {@link AdminModerationDepthSchema}, so the two can never disagree.
+ * uses the same `status='open'` predicate as the overview's `open_requests`
+ * ({@link AdminModerationDepthSchema}), so the two can never disagree.
  */
 export const ADMIN_SNAPSHOT_STOCK_METRIC_KEYS = [
   'catalog.products_promoted',
