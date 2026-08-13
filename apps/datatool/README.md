@@ -39,6 +39,14 @@ the destination, so search and the site reflect the new data immediately.
   D1 has no auth FK regardless, so the insert always succeeds.)
 - **Not globally atomic.** A clone spans many tables / batches; a mid-clone failure
   leaves the destination partially replaced — **re-run** (replace is idempotent).
+- **`promote_jobs` is cloned too, and that is correct** (AECI-571). The table is the
+  promote ingest's exactly-once ledger, keyed by job id, holding the committed ID map
+  as JSON — so it must travel with the rows it describes, or a replayed job id in the
+  clone would resolve to ids that no longer exist there. One thing to watch: it is the
+  first table whose rows can reach ~100 KB (typical ~10 KB, capped at 512 KiB) and
+  `copy.ts` pages `READ_PAGE = 2000` rows into Worker memory at a time. Fine today;
+  once the table passes roughly 5k rows, either prune it (≥ 90-day floor — see
+  `DATABASE_SCHEMA.md` §8.5) or give wide tables a smaller page size.
 - **Algolia reindex = clear + repopulate, promoted-only.** The incremental cron
   can't self-heal a clone (it syncs by an `updated_at` watermark the clone
   overwrites, and `scripts/algolia-bulk-sync.ts` doesn't exist yet), so datatool

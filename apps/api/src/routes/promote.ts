@@ -85,7 +85,7 @@ import { disambiguateSlug, SlugReservedError, slugify } from '@aeci/shared/slug'
 import { eq, inArray, type Table } from 'drizzle-orm';
 import { type SQLiteColumn } from 'drizzle-orm/sqlite-core';
 
-import { getDb, type Db } from '../db/client';
+import { getDb, type Db, type DbContext } from '../db/client';
 import {
   attestations,
   claims,
@@ -97,6 +97,7 @@ import {
   products,
   productTrades,
   productVendors,
+  promoteJobs,
   taxonomyAudiences,
   taxonomyCategories,
   taxonomyDataObjects,
@@ -182,6 +183,29 @@ function isSlugUniqueViolation(err: unknown): boolean {
   const msg =
     `${typeof e.message === 'string' ? e.message : ''} ${String(e.code ?? '')}`.toLowerCase();
   return msg.includes('unique') && msg.includes('slug');
+}
+
+/**
+ * True when `err` is the `promote_jobs` primary-key violation — i.e. this job id has
+ * already committed and the batch we just attempted IS a replay (AECI-571).
+ *
+ * Sibling of {@link isSlugUniqueViolation}, duck-typed the same way because D1 and
+ * better-sqlite3 both report constraint failures only in the message. Note the trap:
+ * SQLite reports a conflict on a TEXT PRIMARY KEY as `UNIQUE constraint failed:
+ * promote_jobs.job_id` (extended code `SQLITE_CONSTRAINT_PRIMARYKEY`) — the words
+ * "primary key" never appear in the message, so this matches on the TABLE name instead.
+ * D1 wraps the identical text as `D1_ERROR: UNIQUE constraint failed:
+ * promote_jobs.job_id: SQLITE_CONSTRAINT`.
+ *
+ * The message carries no `slug`, and a slug violation carries no `promote_jobs`, so this
+ * predicate and {@link isSlugUniqueViolation} are disjoint by construction.
+ */
+function isPromoteJobDuplicate(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  const e = err as { message?: unknown; code?: unknown };
+  const msg =
+    `${typeof e.message === 'string' ? e.message : ''} ${String(e.code ?? '')}`.toLowerCase();
+  return msg.includes('constraint') && msg.includes('promote_jobs');
 }
 
 /** Columns named in a `UNIQUE constraint failed: <table>.<col>, …` message →
@@ -745,6 +769,45 @@ function logPromoteStaleIds(rc: PromoteRunCtx, staleSupabaseIds: PromoteStaleId[
   }
 }
 
+/**
+ * Surface an absorbed commit replay (AECI-571) in Datadog.
+ *
+ * This is the ONLY direct evidence that the Workflows at-least-once window actually
+ * fired: before the `promote_jobs` ledger, the runbook could only ask an operator to
+ * notice a duplicated product and infer it after the fact. A non-zero
+ * `aeci.api.promote.replay` means the engine really did replay a committed step and the
+ * primary key absorbed it — the promote is correct and needs no action, but the job id
+ * is worth capturing.
+ *
+ * `via` distinguishes the two paths: `pre-read` (the ordinary replay, short-circuited
+ * before the plan phase) and `batch-conflict` (a replay that raced the original
+ * attempt's batch, caught by the in-batch primary key). Fire-and-forget over the same
+ * self-gating transport as {@link logPromoteSkips}.
+ */
+function logPromoteReplay(
+  rc: PromoteRunCtx,
+  jobId: string,
+  via: PromoteReplayPath,
+  ledger: PromoteJobLedger,
+): void {
+  logToDatadog(rc, rc.env, rc.request, {
+    level: 'warn',
+    message: 'aeci.api.promote.replay_detected',
+    source: 'review-app-promote',
+    outcome: 'replayed',
+    job_id: jobId,
+    via,
+    // The ids the replay is about to return, so the log alone answers "which rows".
+    product_id: ledger.response.product?.id,
+    truncated: ledger.truncated,
+  });
+
+  submitCount(rc, rc.env, rc.request, 'aeci.api.promote.replay', 1, [
+    'source:promote',
+    `via:${via}`,
+  ]);
+}
+
 // ─── Ingest ──────────────────────────────────────────────────────────────────
 
 /**
@@ -792,7 +855,9 @@ export type PromoteIngestResult = {
   /** Trades this promote DROPPED from the product; the response echoes only what was
    *  SET, and a removal can still un-publish a trade page (AECI-542/546). */
   removedTradeSlugs: string[];
-  /** False for an all-skipped promote, which wrote nothing and so needs no stats refresh. */
+  /** False for an all-skipped promote, which wrote nothing and so needs no stats refresh.
+   *  Computed from the entity statements BEFORE the AECI-571 ledger row joins the batch —
+   *  the ledger is bookkeeping, not a change. */
   wrote: boolean;
   /** D1 session bookmark of the commit, for the post-commit re-reads (AECI-250). */
   bookmark: string | null;
@@ -815,6 +880,204 @@ export type PromoteStaleId = {
   supabaseId: string;
 };
 
+/**
+ * Per-attempt inputs that are neither run context nor injectable seams (AECI-571).
+ *
+ * Deliberately a fourth parameter rather than a member of {@link PromoteRunCtx}: one
+ * `rc` is legitimately reused across two ingests (the specs' stale-then-healed pair),
+ * and a job id living on it would silently turn the second call into a replay. `jobId`
+ * scopes one *attempt*; `rc` scopes a *run*.
+ */
+export type PromoteIngestOptions = {
+  /**
+   * The promote job id — the Workflow instance id, and the `promote_jobs` primary key.
+   * Supplied → the ingest is **exactly-once for this id, for as long as the ledger row
+   * lives**. Omitted → pre-AECI-571 behaviour: no ledger row and no replay protection.
+   * The Workflow always supplies it; only direct-call tests omit it.
+   */
+  jobId?: string;
+};
+
+/** How a replay was caught — see {@link logPromoteReplay}. */
+type PromoteReplayPath = 'pre-read' | 'batch-conflict';
+
+/**
+ * What a committed promote leaves behind in `promote_jobs.result` (AECI-571).
+ *
+ * This is the replay's ONLY source of truth, and it has to carry more than the ID map.
+ * The post-commit hooks are dispatched by the Workflow AFTER the commit step resolves,
+ * so for the attempt whose result was lost they never ran at all — meaning the replay is
+ * what must drive them. Everything {@link dispatchPromoteHooks} reads is therefore here.
+ *
+ * Deliberately NOT stored:
+ *   - `bookmark` — a D1 session token, meaningless in another session. The replay
+ *     returns its own, which (having just read this row through the `'first-primary'`
+ *     anchor) is already at or past the original commit.
+ *   - `AuditLogEntry.metadata` — the same `AUDIT_META` constant on every entry, so it is
+ *     re-attached on read rather than stored N times.
+ */
+export type PromoteJobLedger = {
+  /** Envelope version. A row written by a future shape reads as unusable rather than
+   *  being silently coerced — see {@link parsePromoteJobLedger}. */
+  v: 1;
+  /** The ID map. The whole point: a replay returns the same ids and the same slug. */
+  response: PromoteResponse;
+  /** Hook input: trades this promote DROPPED (purge + trade-URL derivation). Not
+   *  recoverable after the fact — it is a diff against pre-commit state. */
+  removedTradeSlugs: string[];
+  /** Hook input: gates the home-stats refresh. Computed BEFORE the ledger statement
+   *  joins the batch — see the `wrote` note in {@link runPromoteIngest}. */
+  wrote: boolean;
+  /** Hook input: the §26.5 Datadog audit forwards. Stored without `metadata`. */
+  auditEntries: Omit<AuditLogEntry, 'metadata'>[];
+  /** Hook input: the AECI-568 stale-pointer report. */
+  staleSupabaseIds: PromoteStaleId[];
+  /** Products whose denormalized counts this promote invalidated. Not a member of
+   *  {@link PromoteIngestResult} (the ingest consumes it internally), but it must
+   *  survive: `recomputeProductCounts` runs AFTER the batch, outside the transaction, so
+   *  the lost attempt may have died before reaching it. Re-running it on the replay is
+   *  safe — it recomputes from source rows — and is the only chance to heal the counts
+   *  before the daily drift sweep. */
+  affectedProducts: string[];
+  /** Parts shed to keep the row under {@link PROMOTE_LEDGER_MAX_BYTES}, in drop order.
+   *  Diagnostic only; absent for every realistic bundle. */
+  truncated?: ('auditEntries' | 'affectedProducts')[];
+};
+
+/**
+ * Shed-point for the ledger blob. D1 caps a row at 2 MB; 512 KiB leaves >3x headroom and
+ * keeps a `SELECT *` on this table sane. A typical bundle serializes to ~10 KB, so only a
+ * pathological one (hundreds of integrations, each with claims) can reach this.
+ */
+const PROMOTE_LEDGER_MAX_BYTES = 512 * 1024;
+
+function jsonByteLength(value: unknown): number {
+  return new TextEncoder().encode(JSON.stringify(value)).length;
+}
+
+/**
+ * Build the ledger envelope, shedding the least valuable parts if the blob would exceed
+ * {@link PROMOTE_LEDGER_MAX_BYTES}.
+ *
+ * Degrades, never fails: this row IS the duplicate guard, so an oversized payload must
+ * cost observability rather than block an otherwise valid promote. `response` and
+ * `wrote` are never droppable — they are the reason the row exists. Dropping
+ * `auditEntries` costs a Datadog forward whose `audit_log` rows committed anyway;
+ * dropping `affectedProducts` costs a count recompute the daily drift sweep backstops.
+ */
+function buildPromoteJobLedger(input: {
+  response: PromoteResponse;
+  removedTradeSlugs: string[];
+  wrote: boolean;
+  auditEntries: AuditLogEntry[];
+  staleSupabaseIds: PromoteStaleId[];
+  affectedProducts: Iterable<string>;
+}): PromoteJobLedger {
+  const ledger: PromoteJobLedger = {
+    v: 1,
+    response: input.response,
+    removedTradeSlugs: input.removedTradeSlugs,
+    wrote: input.wrote,
+    auditEntries: input.auditEntries.map(({ metadata: _metadata, ...rest }) => rest),
+    staleSupabaseIds: input.staleSupabaseIds,
+    affectedProducts: [...input.affectedProducts],
+  };
+
+  for (const part of ['auditEntries', 'affectedProducts'] as const) {
+    if (jsonByteLength(ledger) <= PROMOTE_LEDGER_MAX_BYTES) break;
+    ledger[part] = [];
+    (ledger.truncated ??= []).push(part);
+  }
+  return ledger;
+}
+
+/**
+ * Narrow a stored `promote_jobs.result` back to a {@link PromoteJobLedger}, or `null` if
+ * it can't be trusted. Defensive on purpose: the caller's only safe response to `null` is
+ * to fail the job, because the alternative — re-planning — is the duplicate this whole
+ * mechanism exists to prevent.
+ *
+ * Accepts a raw JSON string as well as a parsed object, so a row written by an ops script
+ * outside Drizzle still reads back.
+ */
+function parsePromoteJobLedger(stored: unknown): PromoteJobLedger | null {
+  let value = stored;
+  if (typeof value === 'string') {
+    try {
+      value = JSON.parse(value);
+    } catch {
+      return null;
+    }
+  }
+  if (!value || typeof value !== 'object') return null;
+
+  const candidate = value as Partial<PromoteJobLedger>;
+  if (candidate.v !== 1) return null;
+  if (!candidate.response || typeof candidate.response !== 'object') return null;
+
+  return {
+    v: 1,
+    response: candidate.response,
+    removedTradeSlugs: candidate.removedTradeSlugs ?? [],
+    wrote: candidate.wrote ?? false,
+    auditEntries: candidate.auditEntries ?? [],
+    staleSupabaseIds: candidate.staleSupabaseIds ?? [],
+    affectedProducts: candidate.affectedProducts ?? [],
+    ...(candidate.truncated ? { truncated: candidate.truncated } : {}),
+  };
+}
+
+/**
+ * Rebuild the {@link PromoteIngestResult} of a promote that already committed under this
+ * job id (AECI-571).
+ *
+ * Reached two ways — the pre-read hit (`'pre-read'`, the ordinary replay) and the
+ * in-batch primary-key rollback (`'batch-conflict'`, a replay that raced the original
+ * attempt's batch). Both mean the same thing: the write landed exactly once, and this
+ * attempt must produce the same answer without touching a row.
+ */
+async function replayPromoteJob(
+  rc: PromoteRunCtx,
+  dbCtx: DbContext,
+  jobId: string,
+  stored: unknown,
+  via: PromoteReplayPath,
+): Promise<PromoteIngestResult> {
+  const ledger = parsePromoteJobLedger(stored);
+  if (!ledger) {
+    // The commit HAPPENED; we simply cannot describe it. Failing is the only safe
+    // answer — re-planning would mint the duplicate. This is the one `errored` promote
+    // job that did write, which is why the message says so (see `docs/RUNBOOKS.md`).
+    throw new ApiError(
+      500,
+      'INTERNAL_ERROR',
+      `Promote job "${jobId}" has already committed, but its stored result is unreadable. ` +
+        `The rows ARE live — recover the ID map from the KV mirror (promote:result:${jobId}) ` +
+        `or from promote_jobs.result. Do NOT re-push this bundle.`,
+    );
+  }
+
+  logPromoteReplay(rc, jobId, via, ledger);
+
+  // Idempotent, and outside the original transaction — the attempt that committed may
+  // have died before running it, so the replay is the first real chance to heal.
+  if (ledger.affectedProducts.length) {
+    await recomputeProductCounts(dbCtx.db, ledger.affectedProducts);
+  }
+
+  return {
+    response: ledger.response,
+    removedTradeSlugs: ledger.removedTradeSlugs,
+    wrote: ledger.wrote,
+    // This session's bookmark, not the original's: having just read the ledger row off
+    // the `'first-primary'` anchor, it is already at or past the commit — which is all
+    // the post-commit re-reads need (AECI-250).
+    bookmark: dbCtx.getBookmark(),
+    auditEntries: ledger.auditEntries.map((entry) => ({ ...entry, metadata: AUDIT_META })),
+    staleSupabaseIds: ledger.staleSupabaseIds,
+  };
+}
+
 /** A taxonomy facet model (table + the columns the find-or-create reads). The
  *  generic `Table` type doesn't expose columns, so they're passed explicitly. */
 interface TaxonomyTable {
@@ -831,10 +1094,21 @@ interface TaxonomyTable {
  * and starts that Workflow; it no longer commits inline, so a client that walks
  * away mid-flight can't strand a committed promote's IDs.
  *
+ * **Exactly-once when `opts.jobId` is supplied (AECI-571).** Workflows guarantee a step
+ * runs *at least* once, so an engine crash between `db.batch` committing and the step
+ * result being persisted replays this whole function. Two things absorb that: a pre-read
+ * of `promote_jobs` short-circuits the ordinary case, and the ledger INSERT rides the
+ * batch as its FIRST statement so a racing replay trips the primary key and D1 rolls the
+ * entire batch back. Either way the recorded {@link PromoteIngestResult} is returned —
+ * same ids, same slug — so the job completes normally and the hooks (which never fired
+ * for the lost attempt) fire exactly once.
+ *
  * Throws — never returns a `Response`:
  *   - `ApiError(400, VALIDATION_FAILED)` for a name that can't be slugified
  *     (`generateSlug`), which the caller has no way to detect up front.
  *   - `ApiError(409, SLUG_CONFLICT)` when a racing promote took the slug (AECI-98).
+ *   - `ApiError(500, INTERNAL_ERROR)` when this job id already committed but its ledger
+ *     row is unreadable — the ONE error that means the promote DID write.
  *   - anything else the DB raises → the Workflow reports `INTERNAL_ERROR`.
  *
  * Post-commit work is deliberately NOT done here: it is returned as
@@ -845,6 +1119,7 @@ export async function runPromoteIngest(
   rc: PromoteRunCtx,
   payload: PromotePayload,
   deps: PromoteIngestDeps = {},
+  opts: PromoteIngestOptions = {},
 ): Promise<PromoteIngestResult> {
   const dbFor = deps.dbFor ?? getDb;
   // Anchor the D1 session at `'first-primary'` so the plan's pre-write reads see
@@ -854,6 +1129,19 @@ export async function runPromoteIngest(
   // this path, so the outbound bookmark rides `PromoteIngestResult` instead. (AECI-250)
   const dbCtx = dbFor(rc.env, { bookmark: null, constraint: 'first-primary' });
   const { db } = dbCtx;
+
+  // ── REPLAY SHORT-CIRCUIT (AECI-571) ──────────────────────────────────────
+  // One indexed primary-key lookup so the common replay case never re-plans. It is the
+  // FIRST query on this session — exactly what the `'first-primary'` anchor above
+  // covers — so a hit is strongly consistent and a miss can never be a lagging
+  // replica's miss. This is an OPTIMIZATION, not the guard: two attempts racing can
+  // both miss here, and the in-batch primary key below is what makes that safe.
+  if (opts.jobId) {
+    const prior = await db.query.promoteJobs.findFirst({
+      where: eq(promoteJobs.jobId, opts.jobId),
+    });
+    if (prior) return replayPromoteJob(rc, dbCtx, opts.jobId, prior.result, 'pre-read');
+  }
 
   // ── PLAN: reads + id generation. Writes are accumulated, not executed. ──
   const stmts: BatchStmt[] = [];
@@ -1587,12 +1875,54 @@ export async function runPromoteIngest(
     skipped,
   };
 
-  // ── BATCH: one atomic unit (§26.1). A racing duplicate slug trips a UNIQUE
-  //    violation → 409 SLUG_CONFLICT (AECI-98); any other failure rethrows → 500.
+  // `wrote` MUST be read here, BEFORE the ledger statement joins the batch. It means
+  // "this promote changed something", and the ledger row is bookkeeping, not a change —
+  // computing it after the unshift would make an all-skipped promote claim a write and
+  // fire a pointless home-stats refresh. (AECI-571)
+  const wrote = stmts.length > 0;
+
+  if (opts.jobId) {
+    // FIRST in the batch, deliberately: a replay then trips the primary key before any
+    // duplicate row is even attempted, and the failing statement is unambiguous in the
+    // error message. Safe to lead with — `promote_jobs` has no foreign keys, so it sits
+    // outside the vendors → taxonomy → product → joins → integrations → audits ordering
+    // contract the rest of this batch depends on.
+    stmts.unshift(
+      db.insert(promoteJobs).values({
+        jobId: opts.jobId,
+        result: buildPromoteJobLedger({
+          response,
+          removedTradeSlugs,
+          wrote,
+          auditEntries,
+          staleSupabaseIds,
+          affectedProducts,
+        }),
+      }),
+    );
+  }
+
+  // ── BATCH: one atomic unit (§26.1). A replayed commit trips the `promote_jobs`
+  //    primary key → the WHOLE batch rolls back and the recorded result is returned
+  //    (AECI-571). A racing duplicate slug trips a UNIQUE violation → 409
+  //    SLUG_CONFLICT (AECI-98); any other failure rethrows → 500.
   if (stmts.length) {
     try {
       await db.batch(stmts as BatchTuple);
     } catch (err) {
+      // Checked FIRST so a replay is always reported as a replay. In practice the ledger
+      // insert is statement #1, so no other violation can fire on a replay — but the
+      // ordering is load-bearing rather than incidental. Do not reorder.
+      if (opts.jobId && isPromoteJobDuplicate(err)) {
+        const prior = await db.query.promoteJobs.findFirst({
+          where: eq(promoteJobs.jobId, opts.jobId),
+        });
+        // The primary key tripped but the row is unreadable: that is a genuine fault,
+        // not a replay we can serve. Never guess — guessing means re-planning, and
+        // re-planning is the duplicate this whole change exists to prevent.
+        if (!prior) throw err;
+        return replayPromoteJob(rc, dbCtx, opts.jobId, prior.result, 'batch-conflict');
+      }
       if (isSlugUniqueViolation(err)) {
         throw new ApiError(
           409,
@@ -1613,9 +1943,7 @@ export async function runPromoteIngest(
   return {
     response,
     removedTradeSlugs,
-    // An all-skipped promote accumulates no statements and therefore changed
-    // nothing — the home-stats refresh below keys off this.
-    wrote: stmts.length > 0,
+    wrote,
     bookmark: dbCtx.getBookmark(),
     auditEntries,
     staleSupabaseIds,

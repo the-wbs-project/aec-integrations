@@ -143,6 +143,12 @@ back. It attaches to the existing job; it does **not** start a second one and
 cannot commit twice. This is what replaces a duplicate-safety key on the AECi side,
 and it is why the marker must be written *before* the push.
 
+That holds at two layers, so you can retry as hard as you like. Even if AECi's own
+job engine internally replays a commit that already landed, a ledger keyed on your
+`jobId` makes the second attempt roll back and return the original IDs. **One
+`jobId` commits at most once, ever** — no matter how many times it is replayed, and
+no matter how much later.
+
 **Poll.** `GET /api/promote/jobs/{jobId}`:
 
 ```jsonc
@@ -439,8 +445,12 @@ create duplicates:
 
 | Key | Scope | What it protects |
 |---|---|---|
-| `jobId` (§2.1) | one promote *attempt* | Replaying a kick-off can't start a second job or commit twice. |
+| `jobId` (§2.1) | one promote *attempt* | Replaying a kick-off — or an internal engine replay — can't start a second job or commit twice, **ever**, for that id. |
 | `supabaseId` (§3.1) | one *row*, forever | Whether a push creates a new row or updates the existing one. |
+
+The `jobId` guarantee does not expire with the job's 30-day retention: AECi keeps a
+ledger row per committed job id, so re-pushing an old id returns its original IDs
+rather than committing again.
 
 A **new** `jobId` with **no** `supabaseId` is always a create — that is correct, and
 it is why the marker-before-push / collect-before-next-push ordering is load-bearing

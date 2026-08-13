@@ -35,6 +35,7 @@ below. The bounded render-volume signal is the `aeci.ssr.render` count metric.
 | `aeci.api.promote.job.duration_ms` | distribution | `apps/api/src/workflows/promote-workflow.ts` (`runPromoteWorkflow`, AECI-563) | `outcome` (`complete` / `errored`) — wall-clock of the whole job (payload load + plan + atomic batch + count recompute). **This is the metric that replaces the old promote request duration**; a slow ingest is no longer visible as a slow request |
 | `aeci.api.promote.skipped` | count | `apps/api/src/routes/promote.ts` (`logPromoteSkips`) | `source` (`promote`), `kind` (`integration` / `extension` / `usefulness` / `claim` / `trade`) — **value = per-kind skip count, query with `sum:`** |
 | `aeci.api.promote.stale_id` | count | `apps/api/src/routes/promote.ts` (`logPromoteStaleIds`, AECI-568) | `source` (`promote`), `kind` (`vendor` / `product` / `integration`) — **value = per-kind count, query with `sum:`**. The caller sent a `supabaseId` whose row no longer exists, so the ingest **created** a replacement instead of no-op-updating. Self-healing, but it means the review app was holding a dead pointer — a sustained non-zero series says the two sides are diverging |
+| `aeci.api.promote.replay` | count | `apps/api/src/routes/promote.ts` (`logPromoteReplay`, AECI-571) | `source` (`promote`), `via` (`pre-read` / `batch-conflict`). Non-zero means the Workflows **at-least-once window actually fired** and the `promote_jobs` primary key absorbed it — the commit stayed exactly-once and the original IDs were returned. Informational, not actionable: the promote is correct. Capture the `job_id` from the paired log; a duplicated product on a job that reported `complete` once is now a bug, not this window |
 | `aeci.cache.purge` | count | `apps/web/src/server/routes/admin-purge.ts` | `source` (manual / future webhook), `outcome` (ok / cf_failed) |
 | `aeci.api.data_gap` | count | `apps/api/src/lib/handler-utils.ts` (`reportMissingVendors`, called by the product-list-producing handlers) | `gap_type` (currently `missing_vendor`) |
 | `aeci.algolia.sync` | count | `apps/api/src/scheduled.ts` (daily cron) + `apps/api/src/routes/promote.ts` (`syncAlgoliaAfterPromote`) | `trigger` (cron / promote), `entity` (products / vendors / integrations / all), `outcome` (ok / failed / skipped_no_creds) |
@@ -328,6 +329,12 @@ Separately, a **partial** promote — a job that reaches `complete` with a non-e
 every outcome metric sees as a clean success — emits a `warn` log
 `aeci.api.promote.partial_skipped` (detailing every `{ref, kind, reason}` + per-kind counts) plus the
 `aeci.api.promote.skipped` count above, so a curator's silently-dropped entity is visible.
+
+An absorbed commit **replay** (AECI-571) emits a `warn` `aeci.api.promote.replay_detected`
+(`job_id`, `via`, the product id the replay is about to return) alongside the
+`aeci.api.promote.replay` count above. Nothing is wrong when this fires — the ledger's primary key
+rolled the duplicate batch back and the original IDs were returned — but it is the only direct
+evidence that the Workflows at-least-once window occurred at all, so capture the `job_id`.
 
 A third silent outcome (AECI-568): a `supabaseId` the caller sent whose row no longer exists. The
 ingest now **creates** a replacement rather than issuing a no-op `UPDATE … WHERE id = <gone>` and

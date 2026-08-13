@@ -11,11 +11,11 @@
  * `NonRetryableError` whose `name` carries the structured `ApiErrorCode`.
  */
 
-import { PromotePayloadSchema, type PromotePayload } from '@aeci/shared';
+import { PromotePayloadSchema, type PromotePayload, type PromoteResponse } from '@aeci/shared';
 import { NonRetryableError } from 'cloudflare:workflows';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { products, vendors } from '../db/schema';
+import { auditLog, products, promoteJobs, vendors } from '../db/schema';
 import type { Env } from '../env';
 import { ApiError } from '../errors';
 import { promotePayloadKey, promoteResultKey } from '../lib/promote-jobs';
@@ -54,6 +54,34 @@ function fakeStep() {
       calls.push({ name, config: hasConfig ? second : undefined });
       const callback = (hasConfig ? third : second) as () => Promise<unknown>;
       return callback();
+    }) as PromoteStepRunner['do'],
+  };
+  return { step, calls };
+}
+
+/**
+ * `step.do` that invokes ONE step's callback twice, keeping only the second result — the
+ * engine's at-least-once behaviour when it dies between the callback returning and the
+ * step result being persisted (AECI-571). {@link fakeStep} deliberately does not simulate
+ * this; this is the variant that does.
+ *
+ * Note the attempts run in-process against one DB, so the replay is absorbed by the
+ * ingest's pre-read. The in-batch primary-key path — the guard behind that optimization —
+ * is covered in `promote.spec.ts` by forcing the pre-read to miss.
+ */
+function replayingStep(replayed = 'commit-promote') {
+  const calls: Array<{ name: string; config?: unknown }> = [];
+  const step: PromoteStepRunner = {
+    do: (async (name: string, second: unknown, third?: unknown) => {
+      const hasConfig = typeof second !== 'function';
+      const callback = (hasConfig ? third : second) as () => Promise<unknown>;
+      const record = () => calls.push({ name, config: hasConfig ? second : undefined });
+      record();
+      if (name === replayed) {
+        await callback(); // attempt 1 — commits, then the engine "dies"
+        record();
+      }
+      return callback(); // attempt 2 — the replay, whose result the run actually uses
     }) as PromoteStepRunner['do'],
   };
   return { step, calls };
@@ -179,6 +207,63 @@ describe('runPromoteWorkflow', () => {
     expect(rc.bookmark()).toBe(result.bookmark);
     // Datadog `hostname` continuity: the synthetic request carries the kick-off's origin.
     expect(rc.request.url).toBe(SOURCE_URL);
+  });
+
+  /**
+   * AECI-571 — the acceptance criterion, executed: force the commit step to replay and
+   * assert exactly one product row, one vendor row, one set of audit rows, and the same
+   * IDs from both runs.
+   */
+  describe('at-least-once replay of the commit step (AECI-571)', () => {
+    it('does not duplicate the created rows when the commit step replays', async () => {
+      const { promise, step } = run({}, {}, replayingStep());
+      const response = await promise;
+
+      // The replay really happened…
+      expect(step.calls.filter((c) => c.name === 'commit-promote')).toHaveLength(2);
+      // …and left exactly one of everything, at the original slug.
+      expect(await t.db.select().from(products)).toHaveLength(1);
+      expect(await t.db.select().from(vendors)).toHaveLength(1);
+      expect(await t.db.select().from(promoteJobs)).toHaveLength(1);
+      expect(response.product).toMatchObject({ slug: 'revit', operation: 'created' });
+      expect(await t.db.select().from(auditLog)).toHaveLength(2);
+    });
+
+    it('returns the IDs of the row that actually exists, and mirrors them to KV', async () => {
+      const response = await run({}, {}, replayingStep()).promise;
+
+      const [product] = await t.db.select().from(products);
+      expect(response.product?.id).toBe(product!.id);
+
+      const mirrored = JSON.parse(kv.store.get(promoteResultKey(JOB_ID))!) as PromoteResponse;
+      expect(mirrored.product?.id).toBe(product!.id);
+    });
+
+    it('dispatches the hooks once after a replay, with the reconstructed result', async () => {
+      const dispatchHooks = vi.fn();
+      const response = await run({}, { dispatchHooks }, replayingStep()).promise;
+
+      // The hooks are dispatched from `run()` AFTER the step, so for the attempt whose
+      // result was lost they never fired — the replay is what must drive them, and the
+      // ledger has to carry enough to do it.
+      expect(dispatchHooks).toHaveBeenCalledTimes(1);
+      const [rc, result] = dispatchHooks.mock.calls[0]!;
+      expect(result.response).toEqual(response);
+      expect(result.wrote).toBe(true);
+      expect(result.auditEntries.length).toBeGreaterThan(0);
+      expect(result.auditEntries[0].metadata).toEqual({ source: 'review-app-promote' });
+      expect(rc.bookmark()).toBe(result.bookmark);
+    });
+
+    it('keys the ledger off the instance id when the params carry no jobId', async () => {
+      // The hand-restarted path falls back to `event.instanceId`; the guard must not be
+      // able to silently disable itself there.
+      const response = await run({ jobId: undefined }, {}, replayingStep()).promise;
+
+      expect(await t.db.select().from(products)).toHaveLength(1);
+      expect((await t.db.select().from(promoteJobs))[0]!.jobId).toBe(JOB_ID);
+      expect(response.product?.slug).toBe('revit');
+    });
   });
 
   it('reads a staged payload back from KV when the params carry a reference', async () => {
