@@ -59,7 +59,6 @@
  * derive the `host` tag, which falls back to the worker slug).
  */
 
-import type { AlgoliaEnv } from '@aeci/shared/algolia';
 import { fetchWafFirewallEvents } from '@aeci/shared/cloudflare-analytics';
 import { and, asc, count, eq, inArray } from 'drizzle-orm';
 
@@ -69,11 +68,10 @@ import { logToDatadog, submitCount, submitDistribution, submitGauge } from './da
 import type { ScheduledJob, ScheduledJobMessage, ScheduledJobMessageInput, Env } from './env';
 import {
   createAlgoliaCounter,
-  findAlgoliaIndexDrift,
   reportAlgoliaDrift,
   type AlgoliaIndexDrift,
-  type DriftCount,
 } from './lib/algolia-drift';
+import { algoliaEnvFor, createDriftRunner, drizzleDriftCounter } from './lib/algolia-drift-deps';
 import { runDailySync } from './lib/algolia-sync';
 import {
   createAlgoliaDeleteClient,
@@ -206,61 +204,6 @@ const WAF_POLL_METRIC = 'aeci.waf.poll';
  *  back to the worker slug). */
 function cronRequest(path: string): Request {
   return new Request(`https://aeci-api${path}`);
-}
-
-/** Map the Worker `ENV` var to the Algolia env (unset → `development`, which
- *  folds onto the preview index set — same convention as `/api/version`). */
-function algoliaEnvFor(env: Env): AlgoliaEnv {
-  return env.ENV ?? 'development';
-}
-
-/** A Drizzle-backed `DriftCount` (the index-drift check's injected count
- *  surface). Counts promoted products/vendors and integrations whose BOTH
- *  endpoints are promoted — the same membership filter `algolia-sync` indexes on.
- *  algolia-drift stays ORM-agnostic; only this adapter knows about D1. */
-function drizzleDriftCounter(env: Env): DriftCount {
-  const { db } = cronDb(env);
-  return {
-    product: {
-      count: async ({ where }) =>
-        (
-          await db
-            .select({ value: count() })
-            .from(products)
-            .where(eq(products.promotionStatus, where.promotionStatus))
-        )[0]?.value ?? 0,
-    },
-    vendor: {
-      count: async ({ where }) =>
-        (
-          await db
-            .select({ value: count() })
-            .from(vendors)
-            .where(eq(vendors.promotionStatus, where.promotionStatus))
-        )[0]?.value ?? 0,
-    },
-    integration: {
-      count: async ({ where }) => {
-        const promoted = db
-          .select({ id: products.id })
-          .from(products)
-          .where(eq(products.promotionStatus, where.sourceProduct.promotionStatus));
-        return (
-          (
-            await db
-              .select({ value: count() })
-              .from(integrations)
-              .where(
-                and(
-                  inArray(integrations.sourceProductId, promoted),
-                  inArray(integrations.targetProductId, promoted),
-                ),
-              )
-          )[0]?.value ?? 0
-        );
-      },
-    },
-  };
 }
 
 /** A Drizzle-backed `PromotedIdProvider` (the orphan sweep's injected
@@ -403,7 +346,7 @@ async function runAlgoliaDrift(env: Env, ctx: ExecutionContext): Promise<void> {
     return;
   }
 
-  const driftCounter = drizzleDriftCounter(env);
+  const driftCounter = drizzleDriftCounter(cronDb(env).db);
   const algolia = createAlgoliaCounter(env.ALGOLIA_APP_ID, env.ALGOLIA_ADMIN_KEY);
   const ddEnv = algoliaEnvFor(env);
 
@@ -624,17 +567,9 @@ async function runDataQualityJob(env: Env, ctx: ExecutionContext): Promise<void>
   const { db } = cronDb(env);
 
   // Reuse the AECI-140 drift count when Algolia creds are present (same posture as
-  // runAlgoliaDrift); absent → the drift check skips rather than erroring.
-  const appId = env.ALGOLIA_APP_ID;
-  const adminKey = env.ALGOLIA_ADMIN_KEY;
-  const runDrift =
-    appId && adminKey
-      ? () =>
-          findAlgoliaIndexDrift(
-            { db: drizzleDriftCounter(env), algolia: createAlgoliaCounter(appId, adminKey) },
-            { env: algoliaEnvFor(env) },
-          )
-      : undefined;
+  // runAlgoliaDrift); absent → the drift check skips rather than erroring. Shared
+  // with `GET /api/admin/overview?recompute=1` (AECI-574) via `algolia-drift-deps`.
+  const runDrift = createDriftRunner(env, db);
 
   let results: DataQualityCheckResult[];
   try {

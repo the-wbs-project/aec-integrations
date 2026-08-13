@@ -13,9 +13,68 @@ import { makeTestDb, type TestDb } from '../test/d1';
 import {
   buildAnalyticsDigest,
   collectAnalyticsMetrics,
+  computeDelta,
   dailyWindows,
+  windowsForDay,
   type AnalyticsMetrics,
 } from './analytics-digest';
+
+describe('windowsForDay (AECI-574 — the arbitrary-day window the panel shares)', () => {
+  it('produces the same window `dailyWindows` does for the day it reports', () => {
+    const now = new Date('2026-07-24T12:00:00.000Z');
+    // The panel reports any UTC day through this function; if it ever diverged
+    // from the cron's own arithmetic, the digest-parity criterion would silently
+    // hold for yesterday and fail for every other day.
+    expect(windowsForDay(dailyWindows(now).dayLabel)).toEqual(dailyWindows(now));
+  });
+
+  it('crosses a month boundary correctly', () => {
+    expect(windowsForDay('2026-07-01')).toEqual({
+      startIso: '2026-07-01T00:00:00.000Z',
+      endIso: '2026-07-02T00:00:00.000Z',
+      priorStartIso: '2026-06-30T00:00:00.000Z',
+      dayLabel: '2026-07-01',
+    });
+  });
+});
+
+describe('computeDelta (AECI-574 — the structured form of deltaText)', () => {
+  it('reports the diff and a signed percentage', () => {
+    expect(computeDelta({ day: 512, prior: 400 })).toEqual({
+      current: 512,
+      prior: 400,
+      diff: 112,
+      pct: 28,
+    });
+    expect(computeDelta({ day: 42, prior: 45 })).toEqual({
+      current: 42,
+      prior: 45,
+      diff: -3,
+      pct: -7,
+    });
+  });
+
+  it('omits the percentage when the prior period was 0 — division would be meaningless', () => {
+    expect(computeDelta({ day: 5, prior: 0 })).toEqual({
+      current: 5,
+      prior: 0,
+      diff: 5,
+      pct: null,
+    });
+  });
+
+  it('reports no change as a real zero, never -0', () => {
+    expect(computeDelta({ day: 7, prior: 7 })).toEqual({
+      current: 7,
+      prior: 7,
+      diff: 0,
+      pct: 0,
+    });
+    // A drop too small to round to a whole percent would otherwise produce `-0`,
+    // which serializes as 0 but fails a strict equality assertion.
+    expect(Object.is(computeDelta({ day: 999, prior: 1000 }).pct, 0)).toBe(true);
+  });
+});
 
 describe('dailyWindows', () => {
   it('reports the prior complete UTC day plus the day before it', () => {

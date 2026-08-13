@@ -304,6 +304,36 @@ export type Env = {
    */
   PAGE_VIEWS_MIN_BOT_SCORE?: string;
   /**
+   * Internal-traffic ASN list for the admin panel's read-time filter (AECI-574 /
+   * `ADMIN_PANEL_SPEC.md` §13 **D10**). On 2026-08-10, 67 of the digest's 92
+   * "human" page views came from the operator's own ISP (AS23700, Jakarta); this
+   * is the coarse instrument for subtracting that. The precise ones are AECI-575
+   * (exclude `/admin/*` from `PageViewTracker`) and AECI-585 (capture
+   * `cf_as_organization` so the filter can label itself).
+   *
+   * **QUERY-TIME ONLY — three binding constraints (D10):**
+   *   1. It is a `WHERE` clause evaluated at read time. It must NEVER touch
+   *      `is_bot`, NEVER run at ingest, and NEVER enter
+   *      `scripts/ops/backfill-page-view-bots.sql`. This is a different kind of
+   *      object from `DATACENTER_ASNS` (`lib/bot-classification.ts`), whose
+   *      membership doctrine is strict precisely because it writes a permanent,
+   *      unreviewable classification. A read-time filter is toggleable and
+   *      reversible, so that doctrine does not transfer — keep the two lists
+   *      separate concepts and do not merge them.
+   *   2. Show BOTH numbers, never substitute. Every count the panel returns
+   *      carries the unfiltered figure as its primary value.
+   *   3. Declare the seam, ship it UNSET. Do not hardcode an ASN.
+   *
+   * Format: comma / semicolon / whitespace-separated ASNs, with an optional `AS`
+   * prefix — `"AS23700, 4134"` and `"23700 4134"` are equivalent. Parsed
+   * leniently by `parseInternalAsns` (`lib/internal-asns.ts`), mirroring the
+   * `parseRecipients` splitter (`lib/email.ts`) — junk entries are dropped, not
+   * fatal. Absent (the default on every tier) → the filter is **unavailable**,
+   * `excluding_internal` is null everywhere, and the UI hides the toggle. Same
+   * declare-the-seam posture as `PAGE_VIEWS_MIN_BOT_SCORE` above.
+   */
+  ANALYTICS_INTERNAL_ASNS?: string;
+  /**
    * Anthropic API key for review toxicity scoring (AECI-258, supersedes the
    * AECI-198 / Phase 5.7 `PERSPECTIVE_API_KEY` — Google is sunsetting
    * Perspective). The Worker reads it at runtime to score review bodies via

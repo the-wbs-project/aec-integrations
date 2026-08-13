@@ -185,6 +185,25 @@ await db.batch([
 | `PATCH /api/admin/reviews/:id` | Hard-required | `admin` | `review.approved` / `.rejected` |
 | `POST /api/webhooks/linear` | HMAC-verified | N/A | `workflow.transitioned` |
 
+**Admin panel reads (AECI-574 / Phase 8.3).** Three endpoints join the `GET
+/api/admin/*` row above — `/api/admin/overview`,
+`/api/admin/metrics/timeseries`, `/api/admin/traffic/breakdown` — registered on
+the same `authAdmin` sub-router behind the same `requireAdmin()`. **No new gate
+and no new role**: `requireAdmin()` stays the single enforcement point
+(`ADMIN_PANEL_SPEC.md` §9.1). They are reads and therefore write no `audit_log`
+row, **including under `?recompute=1`**, which re-runs two jobs that are already
+pure reads (§13 D8) — it writes nothing, sends no email, and calls no external
+write API. `admin-panel.authz-matrix.spec.ts` asserts the matrix end-to-end
+against the real guard: anon → 401, authenticated non-admin → 403, banned admin →
+403 (the ban precedes the role grant), admin → 200.
+
+These endpoints read `page_views`, which by design holds **no user linkage** — a
+UA *hash* and a referrer *host*, never a full URL or query. `ADMIN_PANEL_SPEC.md`
+§13 **D7** settled that no session identifier is introduced and the dead
+`page_views.user_id` column is dropped rather than filled (AECI-585), so the
+panel cannot de-anonymize a visitor even for an admin. Its "visitor" is a distinct
+`(user_agent_hash, cf_asn)` pair, and the response says so.
+
 ### 4.5 Things the Worker never does
 
 - Pass user-supplied SQL into raw Drizzle/D1 queries (use parameterized queries / the query builder)
