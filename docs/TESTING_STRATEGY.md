@@ -161,6 +161,36 @@ Component tests render a single Angular component in isolation, with mocked depe
 - Pure presentational components with no logic
 - Components fully covered by E2E tests where rendering is the main concern
 
+### 4.3a The two runners in `apps/web`, and which one owns a file
+
+`apps/web` has **two Vitest runners**, split by filename, and putting a spec in the
+wrong one makes it silently not run:
+
+| Runner | Config | Picks up | Environment |
+|---|---|---|---|
+| plain Vitest | `apps/web/vitest.config.ts` | `src/**/*.spec.ts`, **excluding** `*.component.spec.ts` | `node`, no Angular |
+| `ng test` | `apps/web/angular.json` → `test` target | `src/**/*.component.spec.ts` | Angular build pipeline |
+
+`pnpm --filter @aeci/web test:unit` runs both in sequence.
+
+The split is by capability, not by location: anything needing Angular DI must be
+named `*.component.spec.ts`, and anything that does **not** import from
+`@angular/*` should not be, because the plain runner is an order of magnitude
+faster.
+
+**The admin chart primitives are the worked example** (AECI-578,
+`apps/web/src/app/admin/charts/`, `ADMIN_PANEL_SPEC.md` §8/§11). `geometry.ts`,
+`format.ts`, `axis.ts` and `chart-types.ts` are **Angular-free by rule**, so
+`geometry.spec.ts` and `format.spec.ts` run in the plain runner — which is what
+makes §11's "pure-function unit tests … no rendering involved" cheap enough to be
+exhaustive (scales, ticks, paths, stacking, arcs, plus the empty / single-point /
+all-zero / dominant-outlier cases, and the UTC↔WIB boundary tests). The chart
+*components* are `*.component.spec.ts` and run under `ng test`.
+
+That import discipline is load-bearing rather than stylistic: add an `@angular/*`
+import to `geometry.ts` and its spec stops running, with no error. If you touch
+those modules, check both runners report the file.
+
 ### 4.4 Pattern
 
 ```typescript
@@ -444,8 +474,20 @@ Run axe on:
 - Login page
 - Review submission form
 - Legal pages
+- `/admin/traffic` — **in `authed-console.spec.ts`, not a public spec** (AECI-578). The
+  admin surface authorizes server-side, and the charts do not exist until the
+  authorized `afterNextRender` reads resolve, so an axe run on the unauthenticated
+  route would only ever audit the loading state. That spec is the one place with a
+  real minted session; it waits for the stat tiles before analyzing.
 
 Run in the light theme (Stage 1 is light-only — AECI-226).
+
+**Charts need an assertion axe cannot make.** `role="img"` renders its subtree
+presentational, so a data table nested *inside* a chart's `role="img"` element is
+invisible to a screen reader while remaining perfectly valid markup — axe reports
+nothing. `chart-a11y.component.spec.ts` asserts the placement (and each chart's
+table contents against its series) for every chart type, which is the half of the
+§8 accessibility rule the automated pass structurally cannot cover.
 
 **Phase 2 implementation (AECI-65).** `apps/web/e2e/phase2-a11y.spec.ts` runs axe against every live Phase 2 page type — product/vendor/integration index+detail, category/audience/phase browse, the three flat taxonomy indexes (`/categories`, `/audiences`, `/phases`), and the 404 — in the **light theme** (13 URLs; the dark pass was removed in AECI-226), plus the open state of the AECI-155 taxonomy flyout nav. Detail pages run against committed fixtures (`apps/api/seed/phase2-fixtures.sql`, seeded into the local D1 by `dev:bound`); they self-skip if the fixtures aren't seeded so the suite never wedges CI. Both the header (incl. the new flyout nav) and the **footer** are in scope: the footer's former `.exclude('aec-site-footer')` carve-out covered dark-theme contrast debt only, and AECI-226 removed it after verifying the footer is WCAG-AA clean in the (now sole) light theme.
 

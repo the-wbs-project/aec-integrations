@@ -85,10 +85,12 @@ describe('AdminShell', () => {
         nav.querySelector(`#${ul.getAttribute('aria-labelledby')}`)?.textContent?.trim(),
       );
       expect(headings).toEqual(['Insights', 'Operations']);
-      // Insights = Overview then Activity (AECI-577, §5.2); Operations unchanged.
+      // Insights = Overview, Activity (AECI-577, §5.2), then Traffic (AECI-578,
+      // §5.3); Operations unchanged.
       expect(navLinks(root)).toEqual([
         '/admin/overview',
         '/admin/activity',
+        '/admin/traffic',
         '/admin/reviews',
         '/admin/requests',
         '/admin/reviewers',
@@ -106,12 +108,7 @@ describe('AdminShell', () => {
     it('links nothing that has no route yet — a nav entry is never a 404', () => {
       const root = render({ pending_reviews: 4 });
       const hrefs = navLinks(root);
-      for (const unbuilt of [
-        '/admin/traffic',
-        '/admin/audience',
-        '/admin/catalog',
-        '/admin/system',
-      ]) {
+      for (const unbuilt of ['/admin/audience', '/admin/catalog', '/admin/system']) {
         expect(hrefs).not.toContain(unbuilt);
       }
       // And nothing ships as a disabled/dead entry either.

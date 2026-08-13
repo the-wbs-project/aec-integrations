@@ -144,6 +144,7 @@ export class AdminShell {
       items: [
         { path: '/admin/overview', label: $localize`:@@admin.shell.nav.overview:Overview` },
         { path: '/admin/activity', label: $localize`:@@admin.shell.nav.activity:Activity` },
+        { path: '/admin/traffic', label: $localize`:@@admin.shell.nav.traffic:Traffic` },
       ],
     },
     {

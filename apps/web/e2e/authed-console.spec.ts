@@ -19,6 +19,7 @@
  * AND its D1 profile (`apps/api/seed/auth-fixtures.sql`, `role='admin'`) is
  * present (seeded automatically by `dev:bound` -> `db:seed:local`).
  */
+import AxeBuilder from '@axe-core/playwright';
 import { expect, request as playwrightRequest, test } from '@playwright/test';
 import {
   attachConsoleCapture,
@@ -101,6 +102,38 @@ test.describe('authed console health — Phase 5 gated pages (AECI-235)', () => 
     await expect(page.locator('aec-review-queue')).toBeAttached();
     await waitForHydrationSettle(page);
     expectConsoleClean(capture, 'GET /admin/reviews');
+  });
+
+  // AECI-578 / Phase 8.3 P1.4. This is where the Traffic section's LIVE axe pass
+  // runs: it is the only place with a real admin session, and the charts render
+  // nothing until the authorized `afterNextRender` reads resolve — so an axe run
+  // on the unauthenticated route would only ever audit the loading state.
+  test('/admin/traffic hydrates with no console errors and zero axe violations', async ({
+    page,
+  }) => {
+    const capture = attachConsoleCapture(page);
+    const res = await page.goto('/admin/traffic');
+    expect(res?.status()).toBe(200);
+    await expect(page.locator('aec-admin-shell')).toBeAttached();
+    await expect(page.locator('aec-admin-traffic')).toBeAttached();
+    // Wait for the charts themselves, not just the shell: the a11y contract
+    // under test (role="img" + the sibling data table) does not exist until the
+    // eight reads land and the loading state is replaced.
+    await expect(page.locator('aec-stat-tile').first()).toBeVisible();
+    await waitForHydrationSettle(page);
+
+    const results = await new AxeBuilder({ page })
+      .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
+      .exclude('aec-site-header')
+      .analyze();
+    expect(
+      results.violations,
+      results.violations
+        .map((v) => `[${v.impact ?? '?'}] ${v.id}: ${v.help} (${v.nodes.length} node(s))`)
+        .join('\n'),
+    ).toEqual([]);
+
+    expectConsoleClean(capture, 'GET /admin/traffic');
   });
 
   test('/products/:slug/review hydrates with no console errors', async ({ page }) => {

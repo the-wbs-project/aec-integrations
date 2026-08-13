@@ -245,9 +245,10 @@ export const routes: Routes = [
   // AECI-576 / Phase 8.3 P1.2 — the admin area became the operator console
   // (`docs/ADMIN_PANEL_SPEC.md` §5), so `/admin` now redirects to the Overview
   // rather than to the review queue. The three Operations queues are unchanged.
-  // AECI-577 / P1.3 added `activity` (§5.2). The remaining §5 routes (`traffic`,
-  // `audience`, `catalog`, `system`) land with their own sub-issues; until then
-  // they are neither routed nor linked, so nothing in the nav can reach a 404.
+  // AECI-577 / P1.3 added `activity` (§5.2); AECI-578 / P1.4 added `traffic`
+  // (§5.3). The remaining §5 routes (`audience`, `catalog`, `system`) land with
+  // their own sub-issues; until then they are neither routed nor linked, so
+  // nothing in the nav can reach a 404.
   {
     path: 'admin',
     loadComponent: () => import('./admin/admin-shell').then((m) => m.AdminShell),
@@ -274,6 +275,13 @@ export const routes: Routes = [
       {
         path: 'reviewers',
         loadComponent: () => import('./admin/reviewers/reviewer-bans').then((m) => m.ReviewerBans),
+      },
+      // AECI-578 — Phase 8.3 P1.4, the §5.3 Traffic section. Renders the two
+      // AECI-574 read endpoints; inherits the parent's gate and non-cacheable
+      // branch, so nothing route-level changes here.
+      {
+        path: 'traffic',
+        loadComponent: () => import('./admin/traffic/traffic').then((m) => m.AdminTraffic),
       },
     ],
   },

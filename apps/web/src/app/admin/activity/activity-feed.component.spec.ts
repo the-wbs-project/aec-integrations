@@ -402,7 +402,9 @@ describe('ActivityFeed', () => {
           }),
         ),
       );
-      expect(el.textContent).toContain('17784 views in this window were recorded before bot');
+      expect(el.textContent).toContain(
+        '17784 page views in this window were captured before bot classification',
+      );
       // The API's `message` is for curl and logs, never for the screen.
       expect(el.textContent).not.toContain('untranslated operator fallback');
     });

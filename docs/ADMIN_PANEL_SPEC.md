@@ -176,6 +176,26 @@ Entity hydration follows the `target` `LinkRef` pattern already used by `GET /ap
 
 Time series over `page_views`: views/day split human vs bot · unique visitors/day (§9.8) · sources over time · top pages · top products · geography (country + colo) · crawler activity per bot over time. A UTC ↔ WIB toggle (§9.5), since the digest and every cron are UTC-only and the operator is at UTC+7. "Top pages" is public routes only — the §13 D12 exclusion applies here too, so the console's own routes can never rank in it.
 
+**Shipped in AECI-578, with three items deferred by decision.** Three of the list
+above are not reachable from the P1.1 contract, which was found while building the
+UI rather than while writing P1.1:
+
+| Asked for | Why it does not exist yet |
+|---|---|
+| sources **over time** | `/traffic/breakdown` returns one flat total per group — no time axis — and `/metrics/timeseries` has a fixed metric vocabulary with no group-by |
+| crawler activity per bot **over time** | same |
+| geography by **colo** | `colo` is not a member of `AdminBreakdownDimensionSchema`, though `page_views.cf_colo` is populated |
+
+§10 scopes P1.4 as **UI only**, so rather than widen a UI ticket into API work,
+all three are deferred: sources, crawlers and geography render as **windowed**
+horizontal-bar breakdowns, and colo is absent. The API additions — a `colo`
+dimension (a five-line change) and a multi-series day-bucketed endpoint that
+serves both over-time views — are tracked as their own issue so they can carry
+their own handler specs against the D1 harness. **Nothing else on the page is
+missing**: human-vs-bot per day, unique visitors per day, top pages, top products,
+the UTC ↔ WIB toggle, the §9.8 definition beside the number, the internal-ASN
+toggle and the honesty envelope are all live at `/admin/traffic`.
+
 ### 5.4 Audience
 
 Subscribers cumulative and net-new · unsubscribes and churn rate (`unsubscribed_at` is a soft delete, so churn is exactly computable) · UTM source/medium/campaign breakdown · signup geography · and the **feedback inbox** as a readable list. `feedback` is written by `POST /api/feedback` and has **no read surface anywhere in the product today**.
@@ -349,15 +369,81 @@ Rules:
 - **Responsive** via `viewBox` + `preserveAspectRatio`, not JS resize handlers.
 - Geometry functions are pure and unit-tested independently of rendering (§11).
 
-**Started by P1.2, not P1.4 (AECI-576).** The build order nominally gives the primitives to P1.4, but §5.1 needs a sparkline and a 30-day stacked bar, so `apps/web/src/app/admin/charts/` was created there:
+### 8.1 As shipped (AECI-576 P1.2 + AECI-578 P1.4)
 
-| File | What it is |
-|---|---|
-| `chart-geometry.ts` | The pure layer: `niceMax`, `sparklineGeometry`, `stackedBarGeometry`. No Angular import, so `chart-geometry.spec.ts` is plain Vitest with no TestBed. Non-finite and negative values clamp to 0 rather than emitting `NaN` path commands, which would silently blank a chart. |
-| `sparkline.ts` | `<aec-sparkline>`. Empty series renders **nothing** (a flat line through no data would imply a measured zero); a single value renders a flat line, because one reading is a level, not a trend. No hidden table — the tile always renders the figure itself. |
-| `stacked-bar-chart.ts` | `<aec-stacked-bar-chart>`. Scales on the column **total**, so a stack can never overflow the box. Visible legend + visually-hidden `<table>` of the full series, since these per-day values appear nowhere else. Series colours are Forest and Clay-deep — distinct in hue **and** lightness. |
+The `charts/` folder has **two coexisting primitive sets** today, a deliberate
+outcome of the two issues landing independently:
 
-`ranked-bar-list.ts` (top sources / top products) lives with the Overview rather than here: a horizontal bar needs no geometry, so it is CSS percentages, not SVG. AECI-578 extends this folder with the rest of the vocabulary (line, area, donut) and inherits the two invariants above: pure geometry, and a text alternative for anything a chart is the only view of.
+- **P1.2 (AECI-576)** created `apps/web/src/app/admin/charts/` for the Overview's
+  needs: `chart-geometry.ts` (the pure layer — `niceMax`, `sparklineGeometry`,
+  `stackedBarGeometry`; non-finite/negative values clamp to 0 rather than emitting
+  `NaN` path commands), `sparkline.ts` (`<aec-sparkline>` — empty renders nothing,
+  a single value renders a flat line, no hidden table since the tile shows the
+  figure), and `stacked-bar-chart.ts` (`<aec-stacked-bar-chart>` — scales on the
+  column **total** so a stack never overflows; visible legend + visually-hidden
+  `<table>`; Forest / Clay-deep fills, distinct in hue **and** lightness). Its
+  `ranked-bar-list.ts` lives with the Overview, since a horizontal bar needs no
+  SVG geometry.
+- **P1.4 (AECI-578)** added the full §8 vocabulary as a separate, comprehensive
+  library alongside it. Where the two overlap (a sparkline, a stacked time-series
+  chart), the P1.4 components ship under distinct names —
+  `series-sparkline.ts` (`<aec-series-sparkline>`, slot-based, tile owns the
+  table) and `stacked-series-chart.ts` (`<aec-stacked-series-chart>`, the
+  `[area]`-toggle bar/area with hover + data table) — so the merged Overview code
+  is untouched. **Follow-up:** unify the Overview onto the P1.4 library and retire
+  the P1.2 duplicates (`chart-geometry.ts` / `sparkline.ts` / `stacked-bar-chart.ts`).
+
+The rest of this section describes the P1.4 library. Three things about it differ
+from a literal reading of the rules above, each deliberate and each recorded here
+rather than left for a reviewer to find.
+
+**Modules.** `geometry.ts` (scales, ticks, paths, stacking, arcs), `format.ts`
+(numbers + the UTC/WIB layer), `axis.ts` (the time-axis model), `chart-types.ts`
+(series/category shapes and the slot vocabulary). All four are **Angular-free by
+rule**, which is both the SSR-safety guarantee and what lets their specs run in
+the fast plain-Vitest runner rather than `ng test` (§11).
+
+**Components.** `series-sparkline`, `line-chart`, `stacked-series-chart` (`[area]`
+flips bar ↔ area), `horizontal-bar-chart`, `donut-chart`, plus `stat-tile`,
+`chart-legend` and `chart-data-table`.
+
+**1. The palette is the `dataviz` skill's validated eight-hue reference set,
+scoped to `/admin`.** "Colors from `DESIGN.md` semantic tokens" and "follows the
+`dataviz` skill … categorical palette" are in tension: the brand system has one
+meaning-bearing hue (Forest) plus Clay deep and Error red, which is not a
+categorical palette and cannot become one without its own CVD validation pass. So
+the skill's reference palette is adopted verbatim under a `.aec-charts` scope in
+`apps/web/src/styles.css`, deliberately **outside `@theme inline`** so the hues
+never become Tailwind utilities and cannot reach a public surface. Forest remains
+the sole brand primary. Full table, validator output and the relief rule:
+`DESIGN.md` §"Data visualization — operator console only".
+
+**2. `HorizontalBarChart` is a real `<table>`, not `<svg role="img">` + a hidden
+copy.** The hidden-table rule exists because SVG hides its numbers from a screen
+reader. A ranked category-to-count list is already tabular, and rendering it as a
+real table is strictly better on three counts: `dimension=product` rows link to
+`/products/:slug` and **links inside a `role="img"` subtree are removed from the
+accessibility tree**; a visible list plus an `sr-only` copy double-announces every
+row; and `<th scope>` gives the row/column context §9.9 asks for. The rule's
+actual requirement — *charts are never the only representation of a number* — is
+satisfied maximally, since here the numbers are the primary representation and
+the bar is the decoration. The other four charts carry the hidden table as
+specified, always as a **sibling** of the `role="img"` element (nested, it would
+be presentational and invisible to the reader it is for).
+
+**3. The donut ships without a consumer.** §5.3 has no part-to-whole question the
+horizontal bar does not answer better, and the `dataviz` skill deprioritises the
+form outright and names two anti-patterns this section would hit: a 2-slice pie
+(human/bot, which the stacked bar already answers over time) and a donut for
+comparing close values (countries and sources differ by a few percent). It is
+built and tested so the §8 vocabulary is complete and a later section with a
+genuine few-category split can adopt it.
+
+**Also shipped:** a hover crosshair/tooltip on the time-series charts, per the
+skill's default. It is `aria-hidden` (the data table carries the values) and its
+one `getBoundingClientRect` is inside a pointer handler — it feeds no geometry,
+so the "no DOM measurement" rule is intact: delete the handler and the chart is
+unchanged.
 
 ---
 
@@ -389,7 +475,7 @@ Issue-sized units. Phase 1 requires **no schema change** and carries most of the
 | **P1.1** | AECI-574 | API: `overview`, `metrics/timeseries` (live-aggregation mode), `traffic/breakdown` — **SHIPPED 2026-08-12** | AECI-573 (D10) |
 | **P1.2** | AECI-576 | UI: shell nav restructure (three groups, `h1` → "Admin") + Overview — **SHIPPED 2026-08-13**; also started `admin/charts/` (§8) | P1.1, §9.6 |
 | **P1.3** | AECI-577 | API + UI: `GET /api/admin/page-views` + the Activity feed — **SHIPPED 2026-08-13** | P1.1 |
-| **P1.4** | AECI-578 | UI: Traffic section + the **remaining** chart primitives (§8 — sparkline + stacked bar landed with P1.2) | P1.1 |
+| **P1.4** | AECI-578 | UI: Traffic section + the full chart-primitive library (§8) — **SHIPPED** (§8.1; coexists with the P1.2 sparkline/stacked-bar pending a unify follow-up; three §5.3 items deferred, see §5.3) | P1.1 |
 | **P1.5** | AECI-579 | API + UI: Catalog coverage + promotion funnel | — |
 | **P1.6** | AECI-580 | API + UI: System status (version, DQ on demand, Algolia, table counts) | — |
 | **P2.1** | AECI-581 | `metrics_daily` + snapshot cron + backfill, **plus `products.promoted_at`** (§13 D6) | P1.4 |
