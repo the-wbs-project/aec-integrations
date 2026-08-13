@@ -1235,7 +1235,10 @@ export const AdminNoteSchema = z.object({
 
 The bias flags are **derived by querying the window**, never keyed to a hardcoded
 date: `bot_classification_incomplete` fires because the window actually contains
-`is_bot IS NULL` rows, so it retires itself when AECI-582 runs the backfill.
+`is_bot IS NULL` rows. It duly retired itself when AECI-582 backfilled those rows
+on 2026-08-13 — no code change, and no stale date left behind asserting a bias
+that no longer exists. It stays in the contract because a future ingest gap would
+re-open the same hole, and callers should keep handling the code.
 
 ##### `ANALYTICS_INTERNAL_ASNS` — both numbers, never one (§13 D10)
 
