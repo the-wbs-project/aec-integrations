@@ -107,7 +107,9 @@ The four questions that motivated this document, answered against §3.
 >
 > Two consequences. **(1)** `promoted_at` (§13 D6) is adopted as *future-proofing* — it becomes load-bearing only if a Tier-1 retract endpoint ever introduces a genuine un-promote → re-promote cycle — and its backfill is therefore **exact** (`promoted_at := created_at` for every row), not a reconstruction. **(2)** Because promote re-asserts `'promoted'` on the update branch too, and `product.updated` (358) outnumbers `product.created` (131) ~2.7:1, a naive `promotedAt: now` in that `.set()` would mean *last* promoted and buy nothing over `updated_at`. Set-once is mandatory — `COALESCE("promoted_at", ?)` inside the same batch.
 
-**Conclusion:** for the **products** series, `products.created_at` (and, once D6 lands, `promoted_at`) gives an exact answer for every currently-live row. For **integrations, vendors, claims, traffic, subscribers, and queue depths** — where there is no equivalent stamp and rows can vanish without per-row audit — a **daily snapshot table is still the only honest way to get counts-over-time** (§7.1), with an approximate historical series backfilled from `audit_log` and labelled as approximate in the UI.
+**Conclusion:** for the **products** series, `products.created_at` (and, since D6 landed with AECI-581, `promoted_at`) gives an exact answer for every currently-live row. For **integrations, vendors, claims, traffic, subscribers, and queue depths** — where there is no equivalent stamp and rows can vanish without per-row audit — a **daily snapshot table is still the only honest way to get counts-over-time** (§7.1), with an approximate historical series backfilled from `audit_log` and labelled as approximate in the UI.
+
+> **As shipped (AECI-581).** The backfill split finer than "approximate vs exact" along the way. `traffic.*` and `accounts.sign_ins_new` come from durable per-row timestamps (`page_views`, `profiles.created_at`) that the live endpoint reads anyway, so they backfill as **measured** — flagging them approximate while the live path served the identical number unflagged would have been incoherent. Only `catalog.{integrations,vendors,claims}_created`, which come from `audit_log` events that outlive their rows, are **reconstructed**. And the *stock* metrics are not backfilled at all: a cumulative sum of `*.created` would be wrong rather than approximate, so those series simply start at the first cron run. See §7.1.
 
 ---
 
@@ -226,7 +228,7 @@ This is the section that steers daily catalog work, and the one whose underlying
 ### 5.6 System
 
 - SSR + API `sha` / `deployedAt` / `environment` from the two existing endpoints (`/api/version` and the SSR Worker's own `/_version` — they differ precisely so a stale SSR deploy is detectable).
-- **Cron liveness** — last run, duration, outcome per job, for all eight crons (§7.2).
+- **Cron liveness** — last run, duration, outcome per job, for all nine crons (§7.2).
 - **The ten data-quality checks** rendered with severity and sample rows — today visible only in an email. Available **on demand** via `GET /api/admin/system?recompute=1`: `runDataQualityJob` is already a pure read, so re-running it writes nothing and needs no `audit_log` row (§13 **D8**). Once §7.2 lands, the default view reads the last persisted `job_runs` result and the recompute is the refresh.
 - Algolia sync watermark, index drift, orphan-sweep results.
 - D1 size and per-table row counts.
@@ -294,6 +296,9 @@ None of these are needed for Phase 1 (§10). They are what makes Phases 2–4 po
 
 ### 7.1 `metrics_daily` — the snapshot table
 
+**SHIPPED 2026-08-13 (AECI-581 / P2.1).** This section is reconciled to what
+landed; the three places it deviates from the v0.1 sketch are called out inline.
+
 The fix for §4's hard problem. A narrow key-value shape rather than one column per metric, so adding a metric never needs a migration — mirroring the `stats_cache` key convention (`home.total_products`, …):
 
 ```
@@ -301,15 +306,86 @@ metrics_daily
   day         TEXT NOT NULL   -- 'YYYY-MM-DD', UTC
   metric      TEXT NOT NULL   -- 'catalog.products_promoted', 'traffic.page_views_human', …
   value       REAL NOT NULL
+  source      TEXT NOT NULL DEFAULT 'measured'   -- 'measured' | 'reconstructed'  (CHECK)
   computed_at TEXT NOT NULL
   PRIMARY KEY (day, metric)
+  INDEX (metric, day)
 ```
 
-Written by a daily cron (co-locate with the 07:00 stats job or add a slot after it), idempotent per `(day, metric)` so a re-run corrects rather than duplicates. Metric vocabulary documented here and in `DATABASE_SCHEMA.md`; it covers catalog totals, traffic counts, subscriber counts, and queue depths.
+**Deviation 1 — `source` is a fifth column, not an inference from `computed_at`.**
+The v0.1 sketch had four columns and proposed marking a backfilled row by its
+`computed_at`. That heuristic mislabels a legitimate late re-run of a *missed*
+day, whose sources are still intact, as approximate — the honesty error in the
+direction §1.1 cares least about, but an error the operator then cannot correct.
+A stored column says it outright and yields one precedence rule both writers obey:
+**a `measured` write always wins; a `reconstructed` write applies only over an
+absent or already-`reconstructed` row.** That single asymmetry is what makes the
+backfill re-runnable, in any order relative to the cron, without ever degrading a
+real snapshot. The added `(metric, day)` index serves the endpoint's read
+(one metric, day range); the PK's leading `day` serves §7.4's "is this day
+captured?" probe.
 
-**No `audit_log` row** — this is derived bookkeeping and is exempt from the §26.1 audit-in-batch invariant under the carve-out settled in §13 **D11** / **ADR 0022**. Follow `stats_cache`'s precedent exactly (`lib/home-stats.ts`): write **per key, outside any batch**, each inside its own try/catch, so partial failure of one metric never aborts the others. Observability is Datadog plus the `job_runs` row from §7.2, not the audit log.
+**Deviation 2 — the cron takes 00:15 UTC, not a slot after the 07:00 stats job.**
+A snapshot mixes two metric families: per-day **flows** (page views on that day)
+and instantaneous **stocks** (products that exist right now). A stock has no
+window at all, so the only thing that makes a single `day` label honest for both
+is running just after midnight: the flows for D-1 are closed, and the stock sample
+is ~15 minutes past the end of the day it is filed under rather than the ~7 hours
+a 07:00 slot would cost. It also orders ahead of §7.4's pruning cron by
+construction. Queue-less, like `moderation`/`waf`/`analytics` — every metric is
+already isolated in its own try/catch, and a missed day is recoverable by
+re-running the backfill over that range, which is the same idempotent
+`(day, metric)` upsert.
 
-**Backfill:** derive the historical series from `audit_log` `*.created` events plus `page_views`, insert with a `computed_at` that marks it as reconstructed, and label the pre-snapshot segment in the UI. Do not present it as exact — §4 explains why it cannot be. **The one exception is the products series**, which is exactly recoverable from `products.created_at` (§4's correction); backfill it from that column and mark it measured, not reconstructed.
+Idempotent per `(day, metric)`: a re-run corrects rather than duplicates. Metric
+vocabulary is `ADMIN_SNAPSHOT_METRIC_KEYS` in `packages/shared/src/api/admin-panel.ts`,
+tabulated in `DATABASE_SCHEMA.md` §9.3 — **19 keys**: the 8 flow keys the
+timeseries endpoint already served, plus 11 stocks (catalog totals, subscriber
+counts, queue depths). The stocks are written from day one but **not yet readable
+through the API** — no screen consumes them until §5.4/§5.5 — because a stock is
+unrecoverable retroactively: a day not sampled is gone, so waiting for the reader
+would cost history that cannot be bought back.
+
+**No `audit_log` row** — this is derived bookkeeping and is exempt from the §26.1 audit-in-batch invariant under the carve-out settled in §13 **D11** / **ADR 0022**. Follow `stats_cache`'s precedent exactly (`lib/home-stats.ts`): write **per key, outside any batch**, each inside its own try/catch, so partial failure of one metric never aborts the others. Observability is Datadog (`aeci.metrics_snapshot.*`, `OBSERVABILITY.md`) plus the `job_runs` row from §7.2, not the audit log.
+
+**Backfill** (`apps/api/scripts/backfill-metrics-daily.ts`, core in
+`src/lib/metrics-backfill.ts`): derive the historical series from `audit_log`
+`*.created` events plus `page_views`, and label the pre-snapshot segment. Do not
+present it as exact — §4 explains why it cannot be. **The one exception is the
+products series**, which is exactly recoverable from `products.created_at` (§4's
+correction); it is backfilled from that column and marked measured, not
+reconstructed — and it is *better* than the live audit-log series, which covers
+131 of 171 rows.
+
+**Deviation 3 — backfilled `traffic.*` is `measured`, gated on AECI-582.** This
+section originally lumped `page_views` in with `audit_log` as a reconstruction
+source. But a traffic backfill re-aggregates the very rows the live endpoint reads
+through the same `metricSeries` function; flagging one and not the other would be
+incoherent, and the endpoint would contradict itself either side of the boundary.
+The one real hazard is concrete rather than epistemic: rows with `is_bot IS NULL`
+read as human (AECI-582), and `metrics_daily` is kept forever, so a run today
+would freeze the wrong human/bot split permanently. The script therefore
+**refuses a range containing unclassified page views** unless `--force`, turning
+the P2.2 dependency into an enforced gate rather than a hope. Only the three
+`audit_log`-derived catalog series are `reconstructed`.
+
+**Stocks are never backfilled.** Reconstructing a past total from a cumulative sum
+of `*.created` events would be wrong, not approximate — 827 `integration.created`
+events against 496 live rows. Those series simply begin at the first cron run,
+and the endpoint reports days before it honestly rather than inventing them.
+
+**Zero-fill is load-bearing, not cosmetic.** Both the cron and the backfill write
+a row for every `(day, metric)` in range including zeros, because §7.4 forbids
+the pruning cron from deleting a `page_views` day the snapshot never captured —
+a quiet day with no row would block pruning for that day forever.
+
+**Wiring:** `GET /api/admin/metrics/timeseries` reads `metrics_daily` per day and
+falls back to live aggregation for any day it does not cover; `source` reports
+`snapshot` / `live` / `mixed`, and each point carries `reconstructed`. `mixed` is
+the normal case, not an edge — today is never captured. The internal-ASN filter
+bypasses the snapshot entirely: `metrics_daily` stores only the unfiltered figure,
+since `ANALYTICS_INTERNAL_ASNS` is read-time config that would rot if baked into a
+stored row.
 
 **Retention:** indefinite. This table is small and is the long memory.
 
@@ -328,7 +404,7 @@ job_runs
   INDEX (job, started_at)
 ```
 
-Each of the eight cron handlers in `scheduled.ts` writes one row. The data-quality run stores its full result set in `detail`, which is what §5.6 renders. Retention: 90 days (§7.4).
+Each of the nine cron handlers in `scheduled.ts` writes one row (eight at the time this was written; AECI-581 added the 00:15 `snapshot` job). The data-quality run stores its full result set in `detail`, which is what §5.6 renders. Retention: 90 days (§7.4).
 
 **No `audit_log` row**, for the same reason as §7.1 — cron-internal bookkeeping, exempt under §13 **D11** / **ADR 0022**. `job_runs` *is* the observability record; auditing it would be auditing the audit.
 
@@ -336,13 +412,15 @@ Each of the eight cron handlers in `scheduled.ts` writes one row. The data-quali
 
 | Item | Why |
 |---|---|
-| Run `scripts/ops/backfill-page-view-bots.sql` on production | 17,784 rows currently read as human; every historical traffic chart is wrong until this runs |
+| Run `scripts/ops/backfill-page-view-bots.sql` on production | 17,784 rows currently read as human; every historical traffic chart is wrong until this runs. **Now also a hard prerequisite for the §7.1 metrics backfill**, which refuses a range containing unclassified rows — `metrics_daily` is kept indefinitely, so backfilling first would freeze the wrong human/bot split permanently |
+| Run `pnpm --filter @aeci/api ops:backfill-metrics-daily` per environment (AECI-581) | Reconstructs the pre-snapshot flow series. Dry-run by default; run it **after** the bot backfill on that tier. Stocks are deliberately not backfilled |
+| Run `scripts/ops/backfill-products-promoted-at.sql` per environment (AECI-581) | Fills `promoted_at := created_at` for rows created before migration 0010. Exact, idempotent |
 | Capture taxonomy entities on page views | `resolveEntity` maps only `product`/`vendor`; category/audience/phase/trade ids are dropped, so ~600 rows cannot say *which* term was viewed |
 | Store the concrete path alongside the route pattern | Detail-page rows store `/products/:slug`; product/vendor rows recover the name via FK, taxonomy rows cannot |
 | Add a `navigation: 'spa' \| 'arrival'` flag to the page-view payload | `PageViewTracker` POSTs on every SPA navigation and the same-origin `Referer` classifies as `Direct`, so in-app navigation and true direct arrivals are indistinguishable — `Direct` is a mixed bucket |
 | Capture `cf_as_organization` at ingest (§13 **D10**) | The ASN *number* alone cannot label itself. `mailing_list` already stores `as_organization` (`schema.ts`) from `LANDING_CF_HEADERS`, and `POST_LAUNCH_MONITORING.md` §3b already names holder-name matching as the durable fix — "not a longer list". Makes both the bot classifier's weekly audit and §5.2's internal-traffic filter self-labelling |
 | **Drop** the dead columns — `user_id`, `session_id`, `profile_role` (§13 **D7**) | Settled: drop, do not fill. Per-column cost below |
-| **Add `products.promoted_at`** (§13 **D6**) | Future-proofs the §4 catalog series against a future un-promote → re-promote cycle. **Set-once** — `COALESCE("promoted_at", ?)` in promote's update branch, else it degrades to "last promoted". Backfill `:= created_at` (exact — see §4's correction) |
+| **Add `products.promoted_at`** (§13 **D6**) — **SHIPPED 2026-08-13** (AECI-581) | Future-proofs the §4 catalog series against a future un-promote → re-promote cycle. **Set-once** — `COALESCE("promoted_at", ?)` in promote's update branch, else it degrades to "last promoted". Backfill `:= created_at` (exact — see §4's correction), run per environment via `scripts/ops/backfill-products-promoted-at.sql` |
 
 **Dropping the dead columns is not symmetric, and the migration plan must say so** (AECI-585):
 
@@ -499,9 +577,9 @@ Issue-sized units. Phase 1 requires **no schema change** and carries most of the
 | **P1.4** | AECI-578 | UI: Traffic section + the full chart-primitive library (§8) — **SHIPPED** (§8.1; coexists with the P1.2 sparkline/stacked-bar pending a unify follow-up; three §5.3 items deferred, see §5.3) | P1.1 |
 | **P1.5** | AECI-579 | API + UI: Catalog coverage + promotion funnel — **SHIPPED 2026-08-13** (`GET /api/admin/catalog/coverage` + `/admin/catalog`; table-first — the §8 chart primitives from P1.4 can be layered on above the existing table as a follow-up) | — |
 | **P1.6** | AECI-580 | API + UI: System status (version, DQ on demand, Algolia, table counts) | — |
-| **P2.1** | AECI-581 | `metrics_daily` + snapshot cron + backfill, **plus `products.promoted_at`** (§13 D6) | P1.4 |
+| **P2.1** | AECI-581 | `metrics_daily` + snapshot cron + backfill, **plus `products.promoted_at`** (§13 D6) — **SHIPPED 2026-08-13** (§7.1; three deviations recorded there) | P1.4 |
 | **P2.2** | AECI-582 | Run the page-view bot backfill on production | — |
-| **P3.1** | AECI-583 | `job_runs` + instrument all eight crons + persist DQ results | P1.6 |
+| **P3.1** | AECI-583 | `job_runs` + instrument all **nine** crons + persist DQ results (§7.1's snapshot job is the ninth) | P1.6 |
 | **P3.2** | AECI-584 | Retention/pruning cron (§7.4) — **deprioritized**, see below | P3.1, **P2.1** |
 | **P4.1** | AECI-585 | Page-view ingest fixes (§7.3: taxonomy entity, concrete path, SPA flag, `cf_as_organization`, drop the three dead columns) | — |
 | **P5.1** | AECI-586 | Audience section (mailing list + feedback) | P1.4 |
@@ -536,8 +614,8 @@ Staleness is the recurring review finding, so this list is part of the contract:
 
 | Document | Change |
 |---|---|
-| `API_CONTRACTS.md` | New section for every §6 endpoint, including the `?recompute=1` semantics (§13 D8) |
-| `DATABASE_SCHEMA.md` | `metrics_daily`, `job_runs`, `products.promoted_at`, `page_views.cf_as_organization`, the three dropped `page_views` columns, any new index. **Also correct the "Audit log and page_views retention: indefinite for Stage 1" line** — false once §7.4 lands |
+| `API_CONTRACTS.md` | New section for every §6 endpoint, including the `?recompute=1` semantics (§13 D8). **The timeseries contract's `source` enum, per-point `reconstructed`, and the `exclude_internal`→live rule landed with AECI-581** |
+| `DATABASE_SCHEMA.md` | `metrics_daily`, `job_runs`, `products.promoted_at`, `page_views.cf_as_organization`, the three dropped `page_views` columns, any new index. **Also correct the "Audit log and page_views retention: indefinite for Stage 1" line** — false once §7.4 lands. **`metrics_daily` (§9.3, with the full 19-key vocabulary), `products.promoted_at` (§4.2), and the retention correction all landed with AECI-581**; `job_runs` and the `page_views` column changes remain |
 | `STAGE_1_SPEC.md` §22 | Pointer to this document as the admin-surface source of truth. **Cite-check first** — `PHASE_8_COMPLETION.md` records two stale spec-cites in that file. **Landed with AECI-576**; the two recorded stale cites are §12 and §16, neither of which §22 touches, and §22's own content (`/admin/reviews`, the pending badge) is still accurate |
 | `STAGE_1_SPEC.md` §26.1, §26.6 | The audit carve-out (§13 D11) and the retention scope cross-reference (§7.4). **Landed with AECI-573, not at closeout** |
 | `adr/0022-cron-bookkeeping-exempt-from-audit-invariant.md` + `adr/README.md` | The ADR behind the §26.1 carve-out, plus its index row. **Landed with AECI-573** |
@@ -545,7 +623,7 @@ Staleness is the recurring review finding, so this list is part of the contract:
 | `CICD_PLAN.md` §10 | The `admin-panel` epic integration branch as a second time-boxed exception under ADR 0019's precedent (§13 D1). **Landed with AECI-573** |
 | `AUTH_AND_RLS.md` | The new `/api/admin/*` endpoints under `requireAdmin()`, and the GDPR-erasure simplification once `page_views.user_id` is dropped (§7.3) |
 | `ANALYTICS_BASELINE.md` | Drop "write-only today (no reporting endpoint)"; record the panel as the consent-independent read path; record that no session identifier was introduced (§13 D7) and why. The `/admin` + `/account` exclusion and its retroactive effect on pre-2026-08-12 counts **landed with AECI-575** |
-| `POST_LAUNCH_MONITORING.md` | Replace §1 rows 6 and 8 (cron liveness, moderation queue) with the panel, and the **weekly** §2 item 4 → §3b manual `wrangler d1 execute` ASN audit with §5.3's geography view. *(The manual D1 query is in the weekly procedure, not the daily — an earlier draft of this row said "daily".)* The ASN-census query gained the §9.6 path exclusion so it matches the digest — **landed with AECI-575** |
+| `POST_LAUNCH_MONITORING.md` | The §1a cron table gained the 00:15 snapshot job (nine crons, AECI-581). Replace §1 rows 6 and 8 (cron liveness, moderation queue) with the panel, and the **weekly** §2 item 4 → §3b manual `wrangler d1 execute` ASN audit with §5.3's geography view. *(The manual D1 query is in the weekly procedure, not the daily — an earlier draft of this row said "daily".)* The ASN-census query gained the §9.6 path exclusion so it matches the digest — **landed with AECI-575** |
 | `POST_LAUNCH_HEALTH_REPORT.md` | New dated entry (see §14.3) |
 | `OBSERVABILITY.md` | Any new metric emitted by the snapshot / retention crons |
 | `RUNBOOKS.md` | Runbook entries for the snapshot and retention crons, matching every other cron's |

@@ -1339,9 +1339,10 @@ a real calendar date.
 
 #### `GET /api/admin/metrics/timeseries`
 
-One metric, day-bucketed. **Live aggregation** today; P2.1 (AECI-581) serves the
-same contract from `metrics_daily` with `source: 'snapshot'`, which is why the
-metric keys are already §7.1's `namespace.metric` strings.
+One metric, day-bucketed. Reads the `metrics_daily` snapshot per day and falls
+back to live aggregation for any day it does not cover (P2.1 / AECI-581) — a
+storage swap behind an unchanged shape, which is why the metric keys are §7.1's
+`namespace.metric` strings verbatim.
 
 ```typescript
 export const AdminMetricKeySchema = z.enum([
@@ -1370,13 +1371,35 @@ export const AdminTimeseriesResponseSchema = z.object({
   interval: z.enum(['day']),
   window: AdminWindowSchema,
   generated_at: z.string().datetime(),
-  source: z.enum(['live']),
+  source: z.enum(['live', 'snapshot', 'mixed']),
   notes: z.array(AdminNoteSchema),
   internal_filter: AdminInternalFilterSchema,
-  points: z.array(AdminTimeseriesPointSchema), // { day, value, value_excluding_internal }
+  // { day, value, value_excluding_internal, reconstructed }
+  points: z.array(AdminTimeseriesPointSchema),
   total: AdminCountSchema,
 });
 ```
+
+`source` says where the numbers came from: `snapshot` when every day in the window
+was captured by the 00:15 cron, `live` when none was, `mixed` otherwise. **`mixed`
+is the normal case, not an edge** — the cron captures the prior COMPLETE UTC day,
+so any window reaching today has an uncovered day by construction.
+
+`points[].reconstructed` is a separate axis, and it is about *exactness* rather
+than storage: `true` means that day predates the snapshot and was reconstructed
+from the audit log afterwards, so it can only ever be approximate (§4). It is
+per-point because a window can span the boundary and a response-level flag could
+not say which days it applied to. When any point carries it, the response also
+carries a `series_partly_reconstructed` note with `reconstructed_days` and
+`reconstructed_through` — prose for the UI, which renders it without a chart
+change.
+
+**`exclude_internal=1` forces live aggregation for the whole window.**
+`metrics_daily` stores only the unfiltered figure — `ANALYTICS_INTERNAL_ASNS`
+(§13 D10) is read-time configuration, and baking the current list into a stored
+row would rot silently the moment it changed. `page_views`' 400-day retention means
+live always works for the filterable metrics, so this costs nothing but is worth
+knowing when reading `source`.
 
 `from`/`to` are **inclusive calendar dates**; the response's `window` reports the
 resulting half-open `[from, to)` instants so the boundary is never inferred. The

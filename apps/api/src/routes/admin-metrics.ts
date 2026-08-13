@@ -6,15 +6,31 @@
  * Admin-gated (`requireAdmin()` in `index.ts`), read-only: no `audit_log` row, no
  * caching (`json()` sets `private, no-store`).
  *
- * ─── Live aggregation, storage-agnostic contract ─────────────────────────────
+ * ─── Snapshot first, live fallback (P2.1 / AECI-581) ─────────────────────────
  *
- * P1.1 aggregates on every request over `page_views` / `audit_log` / `profiles`,
- * and says so: `source: 'live'`. P2.1 (AECI-581) adds the `metrics_daily`
- * snapshot table and serves this exact contract with `source: 'snapshot'` — an
- * added enum member, not a reshape. That is why the metric keys here are already
- * §7.1's `namespace.metric` strings: they become `metrics_daily.metric` verbatim.
+ * P1.1 aggregated on every request and said so: `source: 'live'`. P2.1 added the
+ * `metrics_daily` snapshot table, and this handler now reads it per day and falls
+ * back to live aggregation for any day it does not cover — a storage swap behind
+ * an unchanged shape, which is why the metric keys were already §7.1's
+ * `namespace.metric` strings: they are `metrics_daily.metric` verbatim.
  *
- * ─── Two honesty obligations this endpoint carries ───────────────────────────
+ * `source` reports which happened (`snapshot` / `live` / `mixed`). `mixed` is the
+ * normal case, not an edge: the cron captures the prior COMPLETE UTC day, so any
+ * window reaching today has at least one uncovered day by construction.
+ *
+ * **The internal-ASN filter bypasses the snapshot entirely.** `metrics_daily`
+ * stores the unfiltered figure only — `ANALYTICS_INTERNAL_ASNS` (§13 D10) is
+ * read-time configuration, and baking today's list into a stored row would rot
+ * silently the moment it changed. When the filter is applied the whole window is
+ * aggregated live, which `page_views`' 400-day retention always supports.
+ *
+ * ─── Three honesty obligations this endpoint carries ─────────────────────────
+ *
+ * **A reconstructed day says so, per point.** The pre-snapshot segment is
+ * backfilled, and for the three `audit_log`-derived `catalog.*` series it can
+ * only ever be approximate (§4). `points[].reconstructed` marks exactly which
+ * days, and `series_partly_reconstructed` states it in prose — a chart that
+ * silently blends reconstructed and measured data is what §1.1 forbids.
  *
  * **`catalog.*` are additions, never totals.** They count `audit_log` `*.created`
  * events. §4 shows net totals are not recoverable — 827 `integration.created`
@@ -34,7 +50,9 @@
 import {
   AdminTimeseriesQuerySchema,
   AdminTimeseriesResponseSchema,
+  type AdminMetricSource,
   type AdminNote,
+  type AdminTimeseriesPoint,
   type AdminTimeseriesResponse,
 } from '@aeci/shared';
 import type { Context } from 'hono';
@@ -51,10 +69,12 @@ import {
   metricSupportsInternalFilter,
   note,
   resolveInternalFilter,
+  snapshotSeries,
   toAdminInternalFilter,
   toAdminWindow,
   trafficNotes,
   utcRangeWindow,
+  type SnapshotPoint,
 } from '../lib/admin-analytics';
 import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
 
@@ -85,14 +105,39 @@ export function createAdminTimeseriesHandler(
     const w = utcRangeWindow(query.from, query.to);
     const filter = resolveInternalFilter(c.env, query.exclude_internal);
 
-    const { perDay, perDayFiltered } = await metricSeries(db, query.metric, w, filter);
-
     const days = enumerateDays(w);
-    const points = days.map((day) => ({
-      day,
-      value: perDay.get(day) ?? 0,
-      value_excluding_internal: perDayFiltered ? (perDayFiltered.get(day) ?? 0) : null,
-    }));
+
+    // Snapshot first, live for the rest. `filter.applied` skips the snapshot
+    // entirely — see the module header for why a stored row cannot carry a
+    // config-dependent figure.
+    const snapshot: Map<string, SnapshotPoint> = filter.applied
+      ? new Map()
+      : await snapshotSeries(db, query.metric, w);
+    const uncovered = days.filter((day) => !snapshot.has(day));
+
+    // One live query covering the whole window, run only when something is
+    // missing from the snapshot — which, because today is never captured, is the
+    // common case rather than the exception.
+    const live =
+      uncovered.length > 0
+        ? await metricSeries(db, query.metric, w, filter)
+        : { perDay: new Map<string, number>(), perDayFiltered: null };
+    const { perDay, perDayFiltered } = live;
+
+    const points: AdminTimeseriesPoint[] = days.map((day) => {
+      const captured = snapshot.get(day);
+      return {
+        day,
+        value: captured ? captured.value : (perDay.get(day) ?? 0),
+        // Only the live path can produce this: the snapshot stores the unfiltered
+        // figure, and when the filter IS applied nothing comes from the snapshot.
+        value_excluding_internal: perDayFiltered ? (perDayFiltered.get(day) ?? 0) : null,
+        reconstructed: captured?.reconstructed ?? false,
+      };
+    });
+
+    const source: AdminMetricSource =
+      snapshot.size === 0 ? 'live' : uncovered.length === 0 ? 'snapshot' : 'mixed';
 
     // `traffic.unique_visitors` is the one metric whose buckets do not sum to a
     // meaningful window total — a visitor active on three days appears in three
@@ -156,13 +201,27 @@ export function createAdminTimeseriesHandler(
         ),
       );
     }
+    const reconstructed = points.filter((p) => p.reconstructed);
+    const lastReconstructed = reconstructed.at(-1);
+    if (lastReconstructed) {
+      notes.push(
+        note(
+          'series_partly_reconstructed',
+          `${reconstructed.length} day(s) up to ${lastReconstructed.day} were reconstructed from the audit log after the fact, not captured on the day. Treat that segment as approximate.`,
+          {
+            reconstructed_days: reconstructed.length,
+            reconstructed_through: lastReconstructed.day,
+          },
+        ),
+      );
+    }
 
     const body: AdminTimeseriesResponse = {
       metric: query.metric,
       interval: query.interval,
       window: toAdminWindow(w),
       generated_at: now.toISOString(),
-      source: 'live',
+      source,
       notes,
       internal_filter: toAdminInternalFilter(filter),
       points,

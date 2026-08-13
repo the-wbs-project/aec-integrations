@@ -139,4 +139,9 @@ const NOTE_PROSE: Record<AdminNoteCode, (params: NoteParams) => string> = {
 
   api_docs_flag_inconsistent: (p) =>
     $localize`:@@admin.notes.apiDocsFlagInconsistent:Some products are marked as having API documentation but carry no link to it (${num(p, 'rows')}:ROWS:).`,
+
+  // AECI-581 / P2.1 — the pre-snapshot segment of a series. `warn`: a reader who
+  // misses this reads an approximation as a measurement.
+  series_partly_reconstructed: (p) =>
+    $localize`:@@admin.notes.seriesPartlyReconstructed:${num(p, 'reconstructed_days')}:DAYS: day(s) up to ${str(p, 'reconstructed_through')}:THROUGH: predate the daily snapshot and were reconstructed from the audit log afterwards. Read that segment as approximate, not measured.`,
 };

@@ -96,6 +96,10 @@ export class AdminNoteList {
         return $localize`:@@admin.notes.requiresRecompute:Some status items were skipped because they need network calls. Re-request with recompute to include them.`;
       case 'algolia_credentials_absent':
         return $localize`:@@admin.notes.algoliaAbsent:Algolia credentials are not configured, so index drift could not be measured.`;
+      case 'series_partly_reconstructed':
+        // AECI-581 / P2.1. The days named in `params` are marked per point in the
+        // payload too; this is the prose half of the same caveat.
+        return $localize`:@@admin.notes.seriesReconstructed:Part of this series predates the daily snapshot and was reconstructed from the audit log afterwards. Read the earlier segment as approximate, not measured.`;
       default:
         // Unknown code — an API newer than this build. Show the operator text
         // rather than dropping the caveat.

@@ -4,12 +4,18 @@
  * empty (but valid) range, a reversed range, and rows sitting exactly on each
  * bound — plus the human/bot predicate, the metric vocabulary, and the
  * internal-ASN filter's both-numbers rule.
+ *
+ * P2.1 (AECI-581) adds the `metrics_daily` read path: snapshot per covered day,
+ * live aggregation for the rest, and the per-point `reconstructed` flag. Those
+ * specs deliberately seed a snapshot value that DISAGREES with the live rows, so
+ * a passing assertion proves the storage actually switched rather than the two
+ * happening to agree.
  */
 
 import { AdminTimeseriesResponseSchema, type AdminTimeseriesResponse } from '@aeci/shared';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { auditLog, pageViews, profiles } from '../db/schema';
+import { auditLog, metricsDaily, pageViews, profiles } from '../db/schema';
 import type { Env } from '../env';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { buildAppWithHandler, fakeExecutionContext, TEST_ENV } from '../test/helpers';
@@ -62,24 +68,26 @@ describe('GET /api/admin/metrics/timeseries — UTC window boundaries', () => {
     // Both boundary rows behave: midnight-start is IN, midnight-end is OUT.
     expect(body.total.total).toBe(3);
     expect(body.points).toEqual([
-      { day: '2026-08-09', value: 2, value_excluding_internal: null },
-      { day: '2026-08-10', value: 1, value_excluding_internal: null },
+      { day: '2026-08-09', value: 2, value_excluding_internal: null, reconstructed: false },
+      { day: '2026-08-10', value: 1, value_excluding_internal: null, reconstructed: false },
     ]);
   });
 
   it('accepts a single-day range (from === to)', async () => {
     const body = await series('metric=traffic.page_views_human&from=2026-08-10&to=2026-08-10');
     expect(body.window.days).toBe(1);
-    expect(body.points).toEqual([{ day: '2026-08-10', value: 1, value_excluding_internal: null }]);
+    expect(body.points).toEqual([
+      { day: '2026-08-10', value: 1, value_excluding_internal: null, reconstructed: false },
+    ]);
   });
 
   it('zero-fills an empty-but-valid range instead of returning no points', async () => {
     const body = await series('metric=traffic.page_views_human&from=2026-07-01&to=2026-07-03');
     expect(body.total.total).toBe(0);
     expect(body.points).toEqual([
-      { day: '2026-07-01', value: 0, value_excluding_internal: null },
-      { day: '2026-07-02', value: 0, value_excluding_internal: null },
-      { day: '2026-07-03', value: 0, value_excluding_internal: null },
+      { day: '2026-07-01', value: 0, value_excluding_internal: null, reconstructed: false },
+      { day: '2026-07-02', value: 0, value_excluding_internal: null, reconstructed: false },
+      { day: '2026-07-03', value: 0, value_excluding_internal: null, reconstructed: false },
     ]);
   });
 
@@ -227,6 +235,7 @@ describe('GET /api/admin/metrics/timeseries — the internal-ASN filter', () => 
       day: '2026-08-10',
       value: 4,
       value_excluding_internal: 2,
+      reconstructed: false,
     });
   });
 
@@ -241,8 +250,126 @@ describe('GET /api/admin/metrics/timeseries — the internal-ASN filter', () => 
   });
 });
 
+describe('GET /api/admin/metrics/timeseries — the metrics_daily snapshot (P2.1)', () => {
+  /** Seed one snapshot row. `source` decides whether the day reads as measured. */
+  const snap = (day: string, metric: string, value: number, source = 'measured') =>
+    t.db.insert(metricsDaily).values({
+      day,
+      metric,
+      value,
+      source,
+      computedAt: `${day}T00:15:00.000Z`,
+    });
+
+  it('serves a fully covered window from the snapshot, ignoring the live rows', async () => {
+    // A page view the live aggregation WOULD count. The snapshot must win, which
+    // is what proves the read actually switched storage rather than coinciding.
+    await t.db
+      .insert(pageViews)
+      .values([{ path: '/', isBot: false, createdAt: '2026-08-09T01:00:00.000Z' }]);
+    await snap('2026-08-09', 'traffic.page_views_human', 42);
+    await snap('2026-08-10', 'traffic.page_views_human', 7);
+
+    const body = await series('metric=traffic.page_views_human&from=2026-08-09&to=2026-08-10');
+    expect(body.source).toBe('snapshot');
+    expect(body.points.map((p) => p.value)).toEqual([42, 7]);
+    expect(body.total.total).toBe(49);
+  });
+
+  it('falls back to live aggregation for days the snapshot does not cover', async () => {
+    await t.db.insert(pageViews).values([
+      { path: '/', isBot: false, createdAt: '2026-08-10T01:00:00.000Z' },
+      { path: '/', isBot: false, createdAt: '2026-08-10T02:00:00.000Z' },
+    ]);
+    await snap('2026-08-09', 'traffic.page_views_human', 42);
+
+    const body = await series('metric=traffic.page_views_human&from=2026-08-09&to=2026-08-10');
+    expect(body.source).toBe('mixed');
+    expect(body.points.map((p) => p.value)).toEqual([42, 2]);
+  });
+
+  it('reports source:live when no day in the window was captured', async () => {
+    await snap('2026-07-01', 'traffic.page_views_human', 99);
+    const body = await series('metric=traffic.page_views_human&from=2026-08-09&to=2026-08-10');
+    expect(body.source).toBe('live');
+  });
+
+  it('keeps series separate — a snapshot for one metric never answers another', async () => {
+    await snap('2026-08-10', 'traffic.page_views_bot', 500);
+    const body = await series('metric=traffic.page_views_human&from=2026-08-10&to=2026-08-10');
+    expect(body.source).toBe('live');
+    expect(body.points[0]?.value).toBe(0);
+  });
+
+  it('returns a continuous series across the boundary with the reconstructed segment flagged', async () => {
+    // The AC: three backfilled days, then two captured on the day, then a day the
+    // cron has not reached — one unbroken series, honest about which is which.
+    await t.db
+      .insert(auditLog)
+      .values([
+        { actorType: 'system', action: 'vendor.created', createdAt: '2026-08-11T01:00:00.000Z' },
+      ]);
+    await snap('2026-08-06', 'catalog.vendors_created', 3, 'reconstructed');
+    await snap('2026-08-07', 'catalog.vendors_created', 0, 'reconstructed');
+    await snap('2026-08-08', 'catalog.vendors_created', 2, 'reconstructed');
+    await snap('2026-08-09', 'catalog.vendors_created', 4);
+    await snap('2026-08-10', 'catalog.vendors_created', 1);
+
+    const body = await series('metric=catalog.vendors_created&from=2026-08-06&to=2026-08-11');
+    expect(body.source).toBe('mixed');
+    expect(body.points.map((p) => p.value)).toEqual([3, 0, 2, 4, 1, 1]);
+    expect(body.points.map((p) => p.reconstructed)).toEqual([
+      true,
+      true,
+      true,
+      false,
+      false,
+      false,
+    ]);
+
+    const flag = body.notes.find((n) => n.code === 'series_partly_reconstructed');
+    expect(flag?.severity).toBe('warn');
+    expect(flag?.params).toEqual({ reconstructed_days: 3, reconstructed_through: '2026-08-08' });
+  });
+
+  it('omits the reconstructed note when every point was measured', async () => {
+    await snap('2026-08-10', 'traffic.page_views_human', 5);
+    const body = await series('metric=traffic.page_views_human&from=2026-08-10&to=2026-08-10');
+    expect(body.notes.map((n) => n.code)).not.toContain('series_partly_reconstructed');
+    expect(body.points[0]?.reconstructed).toBe(false);
+  });
+
+  it('bypasses the snapshot entirely when the internal-ASN filter is applied', async () => {
+    // The snapshot stores only the unfiltered figure, so a filtered request must
+    // aggregate live or `excluding_internal` would be unanswerable.
+    await t.db.insert(pageViews).values([
+      { path: '/', isBot: false, cfAsn: 23700, createdAt: '2026-08-10T01:00:00.000Z' },
+      { path: '/', isBot: false, cfAsn: 7922, createdAt: '2026-08-10T02:00:00.000Z' },
+    ]);
+    await snap('2026-08-10', 'traffic.page_views_human', 999);
+
+    const body = await series(
+      'metric=traffic.page_views_human&from=2026-08-10&to=2026-08-10&exclude_internal=1',
+      { ...TEST_ENV, ANALYTICS_INTERNAL_ASNS: 'AS23700' },
+    );
+    expect(body.source).toBe('live');
+    expect(body.points[0]).toEqual({
+      day: '2026-08-10',
+      value: 2,
+      value_excluding_internal: 1,
+      reconstructed: false,
+    });
+  });
+
+  it('rounds the REAL column to the integer the wire schema requires', async () => {
+    await snap('2026-08-10', 'traffic.page_views_human', 4.6);
+    const body = await series('metric=traffic.page_views_human&from=2026-08-10&to=2026-08-10');
+    expect(body.points[0]?.value).toBe(5);
+  });
+});
+
 describe('GET /api/admin/metrics/timeseries — conventions', () => {
-  it('declares a storage-agnostic source so P2.1 can swap in metrics_daily', async () => {
+  it('reports live aggregation as such when nothing is snapshotted', async () => {
     const body = await series('metric=traffic.page_views_human&from=2026-08-10&to=2026-08-10');
     expect(body.source).toBe('live');
     expect(body.interval).toBe('day');

@@ -150,6 +150,7 @@ function makeTimeseries(metric: AdminTimeseriesResponse['metric']): AdminTimeser
       day: dayAt(i),
       value: i,
       value_excluding_internal: null,
+      reconstructed: false,
     })),
     total: { total: 435, excluding_internal: null },
   };

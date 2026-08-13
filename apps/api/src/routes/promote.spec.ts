@@ -313,6 +313,74 @@ describe('runPromoteIngest', () => {
     );
   });
 
+  // ── products.promoted_at (AECI-581 / §13 D6) ────────────────────────────────
+  // Set-once, or it degrades to "last promoted" and buys nothing over
+  // `updated_at`: this branch re-asserts `promotion_status: 'promoted'` on EVERY
+  // re-promote, and `product.updated` outnumbers `product.created` ~2.7:1.
+
+  it('stamps promoted_at on a first promote', async () => {
+    const before = new Date().toISOString();
+    const res = await promote({
+      vendors: [{ ref: 'v1', companyName: 'Autodesk' }],
+      product: { ref: 'p1', name: 'Revit' },
+    });
+    expect(res.status).toBe(200);
+
+    const after = new Date().toISOString();
+
+    const prod = await t.db.query.products.findFirst({ where: eq(products.slug, 'revit') });
+    expect(prod?.promotedAt).toBeTruthy();
+    expect(String(prod?.promotedAt) >= before).toBe(true);
+    expect(String(prod?.promotedAt) <= after).toBe(true);
+    // A create IS the first promote, so the stamp is the insert time. Not asserted
+    // byte-equal to `created_at`: `promoted_at` is stamped once for the whole
+    // ingest run while Drizzle's `$defaultFn` fires per statement, so they can sit
+    // a millisecond apart.
+    const skewMs = Math.abs(
+      Date.parse(String(prod?.promotedAt)) - Date.parse(String(prod?.createdAt)),
+    );
+    expect(skewMs).toBeLessThan(1000);
+  });
+
+  it('leaves promoted_at unchanged when a product is mutated and re-promoted', async () => {
+    const prodX = uuid(3);
+    const firstPromote = '2026-01-15T09:30:00.000Z';
+    await seedProduct(prodX, 'revit', 'Revit', { promotedAt: firstPromote });
+
+    // Re-promote twice, changing the row each time — exactly the update branch
+    // that would otherwise overwrite the stamp.
+    for (const name of ['Revit 2025', 'Revit 2026']) {
+      const res = await promote({
+        vendors: [{ ref: 'v1', companyName: 'Autodesk' }],
+        product: { ref: 'p1', supabaseId: prodX, name },
+      });
+      expect(res.status).toBe(200);
+    }
+
+    const prod = await t.db.query.products.findFirst({ where: eq(products.id, prodX) });
+    expect(prod?.name).toBe('Revit 2026');
+    expect(prod?.promotedAt).toBe(firstPromote);
+  });
+
+  it('fills promoted_at on a re-promote when it is still NULL (a pre-backfill row)', async () => {
+    const prodX = uuid(3);
+    await seedProduct(prodX, 'revit', 'Revit');
+    expect(
+      (await t.db.query.products.findFirst({ where: eq(products.id, prodX) }))?.promotedAt,
+    ).toBeNull();
+
+    const res = await promote({
+      vendors: [{ ref: 'v1', companyName: 'Autodesk' }],
+      product: { ref: 'p1', supabaseId: prodX, name: 'Revit 2025' },
+    });
+    expect(res.status).toBe(200);
+
+    // COALESCE fills a NULL — it does not require the ops backfill to have run.
+    expect(
+      (await t.db.query.products.findFirst({ where: eq(products.id, prodX) }))?.promotedAt,
+    ).toBeTruthy();
+  });
+
   it('promotes a vendor on its own (no product)', async () => {
     const vendX = uuid(2);
     await seedVendor(vendX, 'autodesk', 'Autodesk');
