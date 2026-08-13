@@ -17,11 +17,11 @@ marketing produces **before** we produce it.
 | **Core Web Vitals** (field) | Datadog RUM `@datadog/browser-rum` (`apps/web/src/app/datadog.provider.ts`) | Built; **live once `DD_APPLICATION_ID` + `DD_CLIENT_TOKEN` are set** | RUM collects LCP/CLS/INP/FCP/TTFB automatically on init. `aeci` RUM app, us5. |
 | **Server pageviews / entry pages** | `page_views` D1 table via `POST /api/page-views` | **Live** (consent-independent) | Readable since AECI-574 — see "The consent-independent read path" below. The 2026-07-12 AECI-280 pull found 4,917 rows (3,237 in 7d) — but `cf_bot_score` is null on every row (CF Pro exposes no bot score), so the human/bot/synthetic split is **unclassified**. Since **AECI-575** it captures **public routes only** — `/admin/*` and `/account` are excluded at both writers and filtered out on read (see the 2026-08-12 addendum below). |
 
-### The consent-independent read path (updated 2026-08-12, AECI-574)
+### The consent-independent read path (updated 2026-08-13, AECI-574 + AECI-577)
 
 The row above previously read *"write-only today (no reporting endpoint); query D1
 directly"*. **That is no longer true.** `page_views` now has a first-class read
-surface — the admin panel's three endpoints (`docs/ADMIN_PANEL_SPEC.md` §6,
+surface — the admin panel's four endpoints (`docs/ADMIN_PANEL_SPEC.md` §6,
 `API_CONTRACTS.md` §6.10), behind `requireAdmin()`:
 
 - `GET /api/admin/overview` — the daily bundle, reporting the same numbers as the
@@ -30,6 +30,11 @@ surface — the admin panel's three endpoints (`docs/ADMIN_PANEL_SPEC.md` §6,
   day over any window, plus catalog additions and new sign-ins.
 - `GET /api/admin/traffic/breakdown` — grouped by source, country, path, product,
   or bot.
+- `GET /api/admin/page-views` — **individual visits** (AECI-577), newest first,
+  filtered by window / population / source / country / path, rendered at
+  `/admin/activity`. The first per-visit read surface the table has ever had, and
+  the direct answer to "who actually visited today" — the question the three
+  aggregate endpoints above can only answer in bulk.
 
 This matters for the same reason the panel exists: **PostHog sees only consented
 traffic**, and a single-page arrival from a search engine never grants consent —
@@ -59,6 +64,12 @@ a durable first-party identifier, and it is precisely the *absence* of one — a
 `page_views` write defensible as consent-independent in the first place. The three
 dead columns (`user_id`, `session_id`, `profile_role`) are dropped rather than
 filled (AECI-585).
+
+The per-visit feed added by AECI-577 holds that line where it would be easiest to
+cross: it exposes **eight characters** of the UA hash, truncated in SQL so the
+full hash never crosses the wire, and pairs it only with the ASN. There is no
+cross-visit stitching, no reverse lookup, and no enrichment — a row identifies a
+browser-and-network shape, never a person.
 
 ### Provisioning dependency (why prod was dark)
 

@@ -1,5 +1,5 @@
 /**
- * Admin-panel deny-matrix (AECI-574, extended by AECI-580) — the AC's "a
+ * Admin-panel deny-matrix (AECI-574, extended by AECI-577/579/580) — the AC's "a
  * non-admin receiving 403", exercised against the **real** `requireAdmin()` guard
  * rather than a handler mounted bare.
  *
@@ -8,6 +8,10 @@
  * half: it mounts every panel route behind the same guard `index.ts` uses, so the
  * gate is verified end-to-end and a future registration that forgets
  * `requireAdmin()` fails here.
+ *
+ * Extended by AECI-579 with `GET /api/admin/catalog/coverage`. Every read
+ * endpoint the epic adds belongs in {@link ROUTES} — that is the point of the
+ * file.
  *
  * The matrix, per `AUTH_AND_RLS.md` / `ADMIN_PANEL_SPEC.md` §9.1:
  *   anon (no token)   → 401
@@ -28,8 +32,10 @@ import { requireAdmin, type AuthzVariables } from '../lib/authz';
 import { makeTestJwks, type TestJwks } from '../test/auth';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { fakeExecutionContext } from '../test/helpers';
+import { createAdminCatalogCoverageHandler } from './admin-catalog';
 import { createAdminTimeseriesHandler } from './admin-metrics';
 import { createAdminOverviewHandler } from './admin-overview';
+import { createAdminPageViewsHandler } from './admin-page-views';
 import { createAdminSystemHandler } from './admin-system';
 import { createAdminTrafficBreakdownHandler } from './admin-traffic';
 
@@ -55,6 +61,11 @@ const ROUTES = [
     name: 'GET /api/admin/traffic/breakdown',
     url: '/api/admin/traffic/breakdown?dimension=source&from=2026-08-10&to=2026-08-10',
   },
+  {
+    name: 'GET /api/admin/page-views',
+    url: '/api/admin/page-views?from=2026-08-10&to=2026-08-10',
+  },
+  { name: 'GET /api/admin/catalog/coverage', url: '/api/admin/catalog/coverage' },
   { name: 'GET /api/admin/system', url: '/api/admin/system' },
 ] as const;
 
@@ -90,6 +101,16 @@ function makeApp() {
     '/api/admin/traffic/breakdown',
     requireAdmin(guard),
     createAdminTrafficBreakdownHandler(t.factory, clock),
+  );
+  app.get(
+    '/api/admin/page-views',
+    requireAdmin(guard),
+    createAdminPageViewsHandler(t.factory, clock),
+  );
+  app.get(
+    '/api/admin/catalog/coverage',
+    requireAdmin(guard),
+    createAdminCatalogCoverageHandler(t.factory, clock),
   );
   app.get('/api/admin/system', requireAdmin(guard), createAdminSystemHandler(t.factory, clock));
   return app;

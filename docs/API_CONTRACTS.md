@@ -1166,15 +1166,23 @@ themselves (a banned admin would lock themselves out of `requireAdmin()`).
 
 ---
 
-#### Admin panel reads (AECI-574 / Phase 8.3 P1.1, AECI-580 / P1.6)
+#### Admin panel reads (AECI-574 / Phase 8.3 P1.1, extended by AECI-577 / P1.3, AECI-579 / P1.5, and AECI-580 / P1.6)
 
-Four `GET`s serving the operator console (`docs/ADMIN_PANEL_SPEC.md` §5–§6).
+Six `GET`s serving the operator console (`docs/ADMIN_PANEL_SPEC.md` §5–§6).
 Source of truth: `packages/shared/src/api/admin-panel.ts` (Zod), and
-`apps/api/src/routes/admin-{overview,metrics,traffic,system}.ts` +
-`lib/{admin-analytics,admin-status}.ts` (handlers). They register on the same
+`apps/api/src/routes/admin-{overview,metrics,traffic,page-views,catalog,system}.ts` +
+`lib/admin-{analytics,catalog,status}.ts` (handlers). They register on the same
 `authAdmin` sub-router behind `requireAdmin()` — no new gate.
 
-**Conventions that apply to all four.** Read-only: **no `audit_log` row** (reads
+**Every `page_views` read carries the §13 D12 floor.** `/admin/*` and `/account`
+rows are excluded *beneath* the caller's filters, historical rows included, via
+`inWindow()` in `lib/admin-analytics.ts` — the single choke point every query in
+that module derives its base predicate from. It is not a query parameter and
+cannot be turned off. It is also deliberately silent: unlike the ASN filter it is
+not a heuristic over real visitors, so there is no false-positive class to
+disclose and no "N excluded" figure to report.
+
+**Conventions that apply to all six.** Read-only: **no `audit_log` row** (reads
 emit nothing, §26.1 as scoped by ADR 0022). **No `Cache-Tag`, no edge caching** —
 `json()` sets `private, no-store` and `/admin/*` is absent from
 `ROUTE_CACHE_PATTERNS` in `server-runtime.ts`, which `server.spec.ts` asserts; a
@@ -1208,8 +1216,13 @@ export const AdminNoteCodeSchema = z.enum([
   'internal_filter_applied',
   'requires_recompute',                // an expensive status item was omitted
   'algolia_credentials_absent',
-  'cron_liveness_unavailable',         // N of 8 crons have no last-run record (AECI-580)
-  'orphan_sweep_not_persisted',        // the sweep's result is stored nowhere (AECI-580)
+  // AECI-579 / P1.5 — catalog coverage
+  'funnel_is_promoted_cohort_only',    // every product reads 'promoted' (§13 D6)
+  'trade_facet_sparse_by_design',      // untagged trades are not a backlog
+  'api_docs_flag_inconsistent',        // has_api_docs set with no api_docs_url
+  // AECI-580 / P1.6 — system status
+  'cron_liveness_unavailable',         // N of 8 crons have no last-run record
+  'orphan_sweep_not_persisted',        // the sweep's result is stored nowhere
 ]);
 
 export const AdminNoteSchema = z.object({
@@ -1577,6 +1590,223 @@ table added by a migration appears without a code change.
 `PRAGMA page_count` on D1). It is `null` — rendered "unknown" — wherever that field
 is unavailable, notably the better-sqlite3 test harness. It is never approximated
 from the row counts.
+#### `GET /api/admin/catalog/coverage`
+
+The §5.5 catalog readout (AECI-579 / Phase 8.3 P1.5): coverage gaps, the promotion
+funnel, the `research_status` distribution, taxonomy usage per facet, and the
+Stage 1.5 claim/attestation spine. Handler `apps/api/src/routes/admin-catalog.ts`
+over `lib/admin-catalog.ts`; same `authAdmin` sub-router, same `requireAdmin()`,
+same read-only conventions as the three above.
+
+```typescript
+export const AdminCatalogCoverageQuerySchema = z.object({
+  // Rows per gap list. 0 = exact counts with empty samples.
+  sample: z.coerce.number().int().min(0).max(50).default(10),
+});
+
+export const AdminCatalogCoverageResponseSchema = z.object({
+  generated_at: z.string().datetime(),
+  source: z.enum(['live']),
+  notes: z.array(AdminNoteSchema),
+  sample_limit: z.number().int().nonnegative(),   // the `sample` actually applied
+  totals: z.object({ products, integrations, vendors, claims, attestations }),
+  funnel: AdminPromotionFunnelSchema,
+  research_status: z.array(AdminResearchStatusCountSchema),
+  gaps: z.array(AdminCoverageGapSchema),
+  taxonomy: z.array(AdminTaxonomyFacetUsageSchema),
+  claim_coverage: AdminClaimCoverageSchema,
+});
+```
+
+**There is no `window`.** Unlike the three endpoints above, coverage describes
+*current state*: "how many products have no logo" has no time range, and attaching
+one would be the false precision §1.1 forbids. The rest of the envelope
+(`generated_at` / `source` / `notes`) is unchanged.
+
+**The catalog time series lives elsewhere.** §5.5's "counts over time" and
+"additions per day" are served by `GET /api/admin/metrics/timeseries` with the
+`catalog.*` metric keys — which already carry `catalog_series_is_additions_only`
+and `catalog_series_starts_at`. This endpoint deliberately does **not** duplicate
+that series; the UI calls both.
+
+##### Gaps — exact counts, capped samples
+
+```typescript
+export const AdminCoverageGapSchema = z.object({
+  key: z.enum([
+    'products_without_vendor', 'products_without_logo', 'products_without_description',
+    'products_without_api_docs', 'products_without_category', 'products_without_audience',
+    'products_without_phase', 'products_without_trade',
+  ]),
+  total: z.number().int().nonnegative(),      // EXACT
+  universe: z.number().int().nonnegative(),   // total products
+  sample: z.array(LinkRefSchema),             // name-ordered, capped at `sample`
+  sample_truncated: z.boolean(),
+});
+```
+
+The count is the truth; the sample is where the work starts. `universe` travels
+with every gap so a consumer can render "171 of 171" — which is the production
+shape for `products_without_logo` and is a **worklist, not an error**.
+
+Predicates: `without_vendor` is `NOT EXISTS` against `product_vendors` (the same
+predicate as the `products_without_vendor` data-quality check); `without_description`
+treats whitespace as absent; `without_api_docs` keys off `api_docs_url IS NULL` —
+the artifact, not the `has_api_docs` flag — and a flag/URL disagreement is reported
+separately as `api_docs_flag_inconsistent`. Sample rows link to the **AECi product
+page**: D1 stores no curation-tool key (ADR 0021), so a per-row deep link into the
+review app is not constructible.
+
+##### Funnel — expect one populated stage
+
+```typescript
+export const AdminPromotionFunnelSchema = z.object({
+  stages: z.array(z.object({
+    status: z.enum(['pending', 'ready', 'promoted', 'retracted', 'rejected']),
+    count: z.number().int().nonnegative(),
+  })),                                  // zero-filled, pipeline order
+  total: z.number().int().nonnegative(),
+  promoted_cohort_only: z.boolean(),    // DERIVED: every row reads 'promoted'
+});
+```
+
+`promoted_cohort_only` is computed from the rows, never hardcoded, so it retires
+itself if a real un-promote path ever lands. It is true today for the reason
+`ADMIN_PANEL_SPEC.md` §13 D6 gives: promote is D1's only INSERT path into
+`products` and sets `'promoted'` on both branches, nothing writes `'ready'`, and
+retraction hard-deletes. When true the response carries
+`funnel_is_promoted_cohort_only` — without it a 171/0/0/0/0 funnel reads as a bug.
+
+##### Taxonomy usage
+
+```typescript
+export const AdminTaxonomyFacetUsageSchema = z.object({
+  facet: z.enum(['category', 'audience', 'phase', 'trade', 'data_object']),
+  counts_what: z.enum(['products', 'claims']),   // data_object counts CLAIMS
+  terms_total: z.number().int().nonnegative(),
+  terms_used: z.number().int().nonnegative(),    // count > 0
+  publish_floor: z.number().int().positive().nullable(),   // trades only
+  terms_published: z.number().int().nonnegative().nullable(),
+  terms: z.array(z.object({ id, slug, name, count, published: z.boolean().nullable() })),
+});
+```
+
+Terms are **uncapped** — the five vocabularies total ~122 rows. `data_object` is
+the odd facet out: data objects are referenced by claims, not products, so its
+`count` is a claim count and `counts_what` says so rather than leaving a consumer
+to assume. Trades carry the publication gate via `isPublishedTrade` /
+`TRADE_PUBLISH_MIN_PRODUCTS` from `@aeci/shared` (`TRADES_VOCABULARY.md` §6 — one
+copy of the floor); `published` is `null` on the other four facets, which is not
+the same as `false`.
+
+##### Claim coverage
+
+Counts for integrations with/without at least one claim and claims with/without an
+**active** attestation (`deprecated_at IS NULL`, matching `attestations_active_idx`),
+plus a capped sample of claimless integrations. Sample rows carry both endpoints
+(`integrations.name` is nullable) so the consumer can build the pair URL
+`/products/:sourceSlug/integrations/:targetSlug`.
+
+##### Notes this endpoint can raise
+
+`funnel_is_promoted_cohort_only` · `trade_facet_sparse_by_design` (the
+`product_trades` join is sparse by design per `TRADES_VOCABULARY.md` §1.1, so an
+untagged product is not a defect the way a missing logo is) ·
+`api_docs_flag_inconsistent`.
+
+Errors: `VALIDATION_FAILED` (400) for `sample` outside `0…50` or non-numeric.
+
+#### `GET /api/admin/page-views`
+
+The §5.2 Activity feed: individual visits, newest first. Pagination is over
+**rows** and uses `PageQuerySchema` + the standard paginated envelope, so the
+list shape matches `/api/admin/requests`.
+
+```typescript
+export const AdminPageViewsQuerySchema = PageQuerySchema.extend({
+  from: utcDate,                                        // inclusive
+  to: utcDate,                                          // inclusive
+  traffic: AdminTrafficPopulationSchema.default('human'),
+  source: z.string().min(1).max(64).optional(),         // exact, or '__none__'
+  country: z.string().min(1).max(8).optional(),         // exact, or '__none__'
+  path_contains: z.string().min(1).max(200).optional(),
+  exclude_internal: z.enum(['0', '1']).default('0').transform((v) => v === '1'),
+});
+
+export const AdminPageViewRowSchema = z.object({
+  id: z.number().int().positive(),
+  created_at: z.string().datetime(),
+  is_bot: z.boolean().nullable(),          // null = never classified → reads HUMAN
+  bot_name: z.string().nullable(),
+  visitor_hash: z.string().nullable(),     // FIRST 8 CHARS ONLY (§9.7)
+  cf_asn: z.number().int().positive().nullable(),
+  cf_country: z.string().nullable(),
+  cf_colo: z.string().nullable(),
+  path: z.string().min(1),                 // route PATTERN until AECI-585
+  entity_type: z.enum(['product', 'vendor']).nullable(),
+  entity: LinkRefSchema.nullable(),
+  referrer_source: z.string().nullable(),  // null = UNKNOWN, not Direct
+  referrer: z.string().nullable(),         // external HOST only
+});
+
+export const AdminPageViewsResponseSchema =
+  paginatedResponseSchema(AdminPageViewRowSchema).extend({
+    traffic: AdminTrafficPopulationSchema,
+    window: AdminWindowSchema,
+    generated_at: z.string().datetime(),
+    source: AdminMetricSourceSchema,
+    notes: z.array(AdminNoteSchema),
+    internal_filter: AdminInternalFilterSchema,  // `applied` = ROWS were filtered
+    window_total: AdminCountSchema,              // every filter EXCEPT exclude_internal
+    window_visitors: AdminCountSchema,           // §9.8 distinct (hash, ASN) pairs
+  });
+```
+
+**`ADMIN_PAGE_VIEW_NULL_FILTER` (`'__none__'`) selects the NULL bucket.** Breakdown
+surfaces NULL groups as `key: null` rather than dropping them; a query string
+cannot carry a null, and those rows are a real population (every row before
+August 2026 has a NULL `referrer_source`), so the sentinel makes them selectable
+rather than merely visible. It is not a value either column can legitimately hold.
+
+**`path_contains` matches literally.** `%` and `_` are escaped server-side and the
+`LIKE` carries an explicit `ESCAPE '\'`, so operator input is never a pattern
+language.
+
+**The internal-ASN filter behaves differently here, deliberately.** §13 D10
+constraint 2 is "show both numbers, never substitute"; on a count endpoint that
+falls out of `AdminCount` for free, but on a row feed `exclude_internal=1` removes
+rows, so computing the counts the same way would leave the operator a smaller
+number with nothing to compare it against. The handler therefore resolves the
+filter **twice**: `window_total` and `window_visitors` are computed both ways
+**unconditionally** whenever `ANALYTICS_INTERNAL_ASNS` is set, toggle or no
+toggle, while `exclude_internal` governs only the row list. `/api/admin/overview`
+sets the same precedent (it always asks). Two consequences:
+
+- `internal_filter.applied` means **"the row list was filtered"** on this endpoint,
+  not "the second count was computed".
+- Both counts honour `source` / `country` / `path_contains`, so they reconcile
+  with `total`: toggle off → `total === window_total.total`; toggle on →
+  `total === window_total.excluding_internal`.
+
+With the var unset (the shipped default on every tier) `excluding_internal` is
+null on both counts and the UI hides the toggle entirely.
+
+**Privacy is enforced by the contract, not by the UI.** `visitor_hash` is
+`substr(user_agent_hash, 1, 8)` computed in SQL, so the full hash never crosses
+the wire. `user_id`, `session_id` and `profile_role` are never selected — §13 D7
+settled that the three are *dropped* (AECI-585), not filled, and that no session
+identifier will be introduced.
+
+Ordering is `created_at DESC, id DESC`. `page_views.id` is an autoincrement
+integer PK, so the pair is a strict total order and pagination can neither repeat
+nor skip a row when several visits share a timestamp.
+
+`notes` always includes `visitor_definition_approximate` (§9.8 travels with the
+number) and, when the window earns them, `bot_classification_incomplete`,
+`referrer_source_incomplete`, `direct_is_mixed_bucket`, and `partial_day`.
+
+Errors: `VALIDATION_FAILED` (400) for a missing/bad/reversed date range, a window
+longer than `ADMIN_METRICS_MAX_DAYS`, or `perPage > 100`.
 
 ### 6.11 Webhooks
 

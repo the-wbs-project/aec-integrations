@@ -799,6 +799,8 @@ create index audit_log_created_at_idx on audit_log(created_at desc);
 
 Server-side page view log with Cloudflare header enrichment. Privacy-respecting (no raw IPs, hashed user agents).
 
+**Read surfaces:** the 05:00 analytics digest (`lib/analytics-digest.ts`) and the admin panel's four `GET /api/admin/*` reads (`API_CONTRACTS.md` §6.10). Of those, only `GET /api/admin/page-views` (AECI-577, the §5.2 Activity feed) returns individual rows, and it does **not** return `user_agent_hash` — it returns `substr(user_agent_hash, 1, 8)`, computed in SQL, so the full hash never leaves the API. It also never selects `user_id`, `session_id`, or `profile_role`; §13 **D7** drops those three (AECI-585) rather than filling them, and no session identifier is being introduced.
+
 **`path` holds public routes only** (AECI-575 / `ADMIN_PANEL_SPEC.md` §9.6). Neither writer records the operator-only prefixes in `@aeci/shared` `UNTRACKED_ROUTE_PREFIXES` (`/admin`, `/account`) — the admin console must not write into the table it reads. Rows captured before that shipped are still present, and every read applies the same exclusion, so query this table with `path not in ('/admin','/account') and path not like '/admin/%' and path not like '/account/%'` if you want numbers that match the daily digest. (The match is on an exact prefix boundary — a bare `path not like '/admin%'` would wrongly drop look-alike public routes like `/administrators`, which the digest still counts.)
 
 ```sql

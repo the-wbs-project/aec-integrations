@@ -365,6 +365,7 @@ consumers, and where each applies the floor:
 | XML sitemap | `apps/web/src/server/sitemap.ts` (AECI-546) |
 | `<meta name="robots">` on a term page | `apps/web/src/app/taxonomy/taxonomy-browse.resolver.ts` → `applyBrowseMeta` (AECI-546) |
 | IndexNow / Google Indexing submit set | `apps/api/src/routes/promote-trade-publication.ts` → `apps/api/src/routes/promote-indexnow-urls.ts` (AECI-546) |
+| Admin panel — catalog coverage | `apps/api/src/lib/admin-catalog.ts` → `taxonomyUsage()` (AECI-579). Reports **published vs thin per term** so an operator can see which trade pages currently clear the floor. It is the one consumer that neither hides nor filters a sub-floor term — the whole point is to show what is still thin. It also surfaces the untagged-product count with a `trade_facet_sparse_by_design` caveat, because §1.1 makes "untagged" the correct state for most of the catalog rather than a backlog. |
 
 The API-side consumer is the only one that must *read* the floor rather than filter data it already
 holds: `affectedUrlsForPromote` is pure over the promote response, which carries no `product_count`,
