@@ -1,0 +1,564 @@
+<section aria-labelledby="admin-system-heading" class="space-y-10">
+  <div>
+    <h2
+      id="admin-system-heading"
+      class="text-lg font-bold text-(--text-primary)"
+      i18n="@@admin.system.heading"
+    >
+      System status
+    </h2>
+    <p class="mt-1 text-sm text-(--text-secondary)" i18n="@@admin.system.subheading">
+      Deploy versions, scheduled jobs, data quality, search index, and database. All times UTC.
+    </p>
+  </div>
+
+  <!-- Polite announcements: the checks land well after the click. -->
+  <p class="sr-only" role="status" aria-live="polite">{{ liveMessage() }}</p>
+
+  @if (loading()) {
+  <p class="text-sm text-(--text-secondary)" i18n="@@admin.system.loading">
+    Loading system status…
+  </p>
+  } @else if (loadFailed()) {
+  <div class="space-y-3">
+    <p
+      class="text-sm font-medium text-(--text-primary)"
+      role="alert"
+      i18n="@@admin.system.loadFailed"
+    >
+      We couldn't load system status. Your session may have expired.
+    </p>
+    <button
+      type="button"
+      (click)="retry()"
+      class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-raised) px-5 py-2.5 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      i18n="@@admin.system.retry"
+    >
+      Try again
+    </button>
+  </div>
+  } @else if (system(); as s) {
+
+  <!-- ── Versions ─────────────────────────────────────────────────────────── -->
+  <section aria-labelledby="admin-system-versions-heading" class="space-y-4">
+    <h3
+      id="admin-system-versions-heading"
+      class="text-base font-bold text-(--text-primary)"
+      i18n="@@admin.system.versions.heading"
+    >
+      Deploy versions
+    </h3>
+
+    @if (versionMismatch()) {
+    <p
+      role="alert"
+      class="rounded-(--radius-md) border border-(--status-error) bg-(--surface-raised) px-4 py-3 text-sm font-bold text-(--status-error)"
+      i18n="@@admin.system.versions.mismatch"
+    >
+      The site and API Workers are running different commits. One of the two deploys is stale;
+      re-run the deploy for the lagging Worker before trusting anything else on this page.
+    </p>
+    } @else if (ssrVersion() === null) {
+    <p class="text-sm text-(--text-secondary)" i18n="@@admin.system.versions.ssrUnavailable">
+      The site Worker's version could not be read, so the two deploys can't be compared.
+    </p>
+    }
+
+    <div class="grid gap-4 sm:grid-cols-2">
+      <article
+        class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-5"
+      >
+        <h4 class="text-sm font-bold text-(--text-primary)" i18n="@@admin.system.versions.ssr">
+          Site Worker
+        </h4>
+        <p class="mt-0.5 text-xs text-(--text-tertiary)" i18n="@@admin.system.versions.ssrSource">
+          from /_version
+        </p>
+        @if (ssrVersion(); as v) {
+        <dl class="mt-3 space-y-1.5 text-sm">
+          <div class="flex flex-wrap gap-x-2">
+            <dt class="font-bold text-(--text-secondary)" i18n="@@admin.system.versions.sha">
+              Commit
+            </dt>
+            <dd class="font-mono text-(--text-primary)">{{ v.sha }}</dd>
+          </div>
+          <div class="flex flex-wrap gap-x-2">
+            <dt class="font-bold text-(--text-secondary)" i18n="@@admin.system.versions.deployedAt">
+              Deployed
+            </dt>
+            <dd class="text-(--text-primary)">{{ v.deployedAt | date: 'medium' : 'UTC' }}</dd>
+          </div>
+          <div class="flex flex-wrap gap-x-2">
+            <dt
+              class="font-bold text-(--text-secondary)"
+              i18n="@@admin.system.versions.environment"
+            >
+              Environment
+            </dt>
+            <dd class="text-(--text-primary)">{{ v.environment }}</dd>
+          </div>
+        </dl>
+        } @else {
+        <p class="mt-3 text-sm text-(--text-secondary)" i18n="@@admin.system.versions.unavailable">
+          Unavailable
+        </p>
+        }
+      </article>
+
+      <article
+        class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-5"
+      >
+        <h4 class="text-sm font-bold text-(--text-primary)" i18n="@@admin.system.versions.api">
+          API Worker
+        </h4>
+        <p class="mt-0.5 text-xs text-(--text-tertiary)" i18n="@@admin.system.versions.apiSource">
+          from /api/version
+        </p>
+        <dl class="mt-3 space-y-1.5 text-sm">
+          <div class="flex flex-wrap gap-x-2">
+            <dt class="font-bold text-(--text-secondary)" i18n="@@admin.system.versions.sha2">
+              Commit
+            </dt>
+            <dd class="font-mono text-(--text-primary)">{{ s.version.sha }}</dd>
+          </div>
+          <div class="flex flex-wrap gap-x-2">
+            <dt
+              class="font-bold text-(--text-secondary)"
+              i18n="@@admin.system.versions.deployedAt2"
+            >
+              Deployed
+            </dt>
+            <dd class="text-(--text-primary)">
+              {{ s.version.deployed_at | date: 'medium' : 'UTC' }}
+            </dd>
+          </div>
+          <div class="flex flex-wrap gap-x-2">
+            <dt
+              class="font-bold text-(--text-secondary)"
+              i18n="@@admin.system.versions.environment2"
+            >
+              Environment
+            </dt>
+            <dd class="text-(--text-primary)">{{ s.version.environment }}</dd>
+          </div>
+        </dl>
+      </article>
+    </div>
+  </section>
+
+  <!-- ── Data quality ─────────────────────────────────────────────────────── -->
+  <section aria-labelledby="admin-system-dq-heading" class="space-y-4">
+    <div class="flex flex-wrap items-baseline justify-between gap-4">
+      <h3
+        id="admin-system-dq-heading"
+        class="text-base font-bold text-(--text-primary)"
+        i18n="@@admin.system.dq.heading"
+      >
+        Data quality
+      </h3>
+      <button
+        type="button"
+        (click)="runChecks()"
+        [disabled]="recomputing()"
+        class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-2 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        @if (recomputing()) {
+        <span i18n="@@admin.system.dq.running">Running…</span>
+        } @else {
+        <span i18n="@@admin.system.dq.run">Run data-quality checks</span>
+        }
+      </button>
+    </div>
+
+    @if (recomputeFailed()) {
+    <p
+      role="alert"
+      class="text-sm font-medium text-(--text-primary)"
+      i18n="@@admin.system.dq.failed"
+    >
+      The checks didn't finish. Try again.
+    </p>
+    } @if (dataQuality(); as dq) {
+    <p class="text-sm text-(--text-secondary)">
+      @if (dq.failing === 0) {
+      <span i18n="@@admin.system.dq.summaryClean">All {{ dq.checks.length }} checks passing.</span>
+      } @else {
+      <span i18n="@@admin.system.dq.summaryFailing"
+        >{{ dq.failing }} of {{ dq.checks.length }} checks need attention.</span
+      >
+      }
+    </p>
+
+    <ul role="list" class="space-y-3">
+      @for (check of dq.checks; track check.id) {
+      <li class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-4">
+        <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+          <p class="text-sm font-bold text-(--text-primary)">{{ check.label }}</p>
+          <p
+            class="text-xs font-bold"
+            [class]="
+              checkState(check) === 'passing'
+                ? 'text-(--accent-primary)'
+                : checkState(check) === 'error'
+                  ? 'text-(--status-error)'
+                  : checkState(check) === 'findings'
+                    ? 'text-(--accent-secondary-deep)'
+                    : 'text-(--text-tertiary)'
+            "
+          >
+            {{ checkStateLabel(check) }}
+          </p>
+        </div>
+
+        <p class="mt-1 text-xs text-(--text-secondary)">
+          <span i18n="@@admin.system.dq.severity">Severity: {{ check.severity }}</span>
+          <span aria-hidden="true"> · </span>
+          <span i18n="@@admin.system.dq.count">{{ check.count }} finding(s)</span>
+        </p>
+
+        @if (check.note) {
+        <p class="mt-1 text-xs text-(--text-tertiary)">{{ check.note }}</p>
+        } @if (check.error) {
+        <p class="mt-1 text-xs text-(--status-error)">{{ check.error }}</p>
+        } @if (check.sample.length > 0) {
+        <details class="mt-2">
+          <summary
+            class="cursor-pointer text-xs font-bold text-(--text-secondary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            i18n="@@admin.system.dq.samples"
+          >
+            Show {{ check.sample.length }} sample row(s)
+          </summary>
+          <ul role="list" class="mt-2 space-y-1">
+            @for (line of check.sample; track $index) {
+            <li class="font-mono text-xs break-words text-(--text-secondary)">{{ line }}</li>
+            }
+          </ul>
+        </details>
+        }
+      </li>
+      }
+    </ul>
+    } @else {
+    <p class="text-sm text-(--text-secondary)" i18n="@@admin.system.dq.notRun">
+      The ten checks aren't run automatically; they probe logo URLs and query the search index. Run
+      them when you need them; nothing is written or sent.
+    </p>
+    }
+  </section>
+
+  <!-- ── Scheduled jobs ───────────────────────────────────────────────────── -->
+  <section aria-labelledby="admin-system-crons-heading" class="space-y-4">
+    <h3
+      id="admin-system-crons-heading"
+      class="text-base font-bold text-(--text-primary)"
+      i18n="@@admin.system.crons.heading"
+    >
+      Scheduled jobs
+    </h3>
+
+    <div class="overflow-x-auto">
+      <table class="w-full min-w-[36rem] border-collapse text-sm">
+        <caption class="sr-only" i18n="@@admin.system.crons.caption">
+          Last run and outcome for each scheduled job
+        </caption>
+        <thead>
+          <tr class="border-b border-(--border-strong) text-start">
+            <th
+              scope="col"
+              class="py-2 pe-4 font-bold text-(--text-secondary)"
+              i18n="@@admin.system.crons.col.job"
+            >
+              Job
+            </th>
+            <th
+              scope="col"
+              class="py-2 pe-4 font-bold text-(--text-secondary)"
+              i18n="@@admin.system.crons.col.schedule"
+            >
+              Schedule (UTC)
+            </th>
+            <th
+              scope="col"
+              class="py-2 pe-4 font-bold text-(--text-secondary)"
+              i18n="@@admin.system.crons.col.lastRun"
+            >
+              Last run
+            </th>
+            <th
+              scope="col"
+              class="py-2 font-bold text-(--text-secondary)"
+              i18n="@@admin.system.crons.col.outcome"
+            >
+              Outcome
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (run of crons(); track run.job) {
+          <tr class="border-b border-(--border-default)">
+            <th scope="row" class="py-2.5 pe-4 text-start font-bold text-(--text-primary)">
+              {{ run.job }}
+            </th>
+            <td class="py-2.5 pe-4 font-mono text-xs text-(--text-secondary)">
+              {{ run.schedule }}
+            </td>
+            <td class="py-2.5 pe-4 text-(--text-secondary)">
+              @if (run.last_run_at) { {{ run.last_run_at | date: 'medium' : 'UTC' }}
+              <span class="block text-xs text-(--text-tertiary)" i18n="@@admin.system.crons.derived"
+                >inferred from {{ run.derived_from }}</span
+              >
+              } @else {
+              <span i18n="@@admin.system.crons.noRecord">No record</span>
+              }
+            </td>
+            <td class="py-2.5">
+              @if (run.last_outcome) {
+              <span class="font-bold text-(--text-primary)">{{ run.last_outcome }}</span>
+              } @else {
+              <span class="font-bold text-(--text-tertiary)">{{ cronStateLabel(run) }}</span>
+              }
+            </td>
+          </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ── Search index ─────────────────────────────────────────────────────── -->
+  <section aria-labelledby="admin-system-algolia-heading" class="space-y-4">
+    <h3
+      id="admin-system-algolia-heading"
+      class="text-base font-bold text-(--text-primary)"
+      i18n="@@admin.system.algolia.heading"
+    >
+      Search index
+    </h3>
+
+    <div
+      class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-5 text-sm"
+    >
+      <h4
+        class="text-sm font-bold text-(--text-primary)"
+        i18n="@@admin.system.algolia.watermark.heading"
+      >
+        Sync watermark
+      </h4>
+      @if (s.algolia.watermark; as w) {
+      <p class="mt-1 text-xs text-(--text-secondary)" i18n="@@admin.system.algolia.watermark.stamp">
+        Last advanced {{ w.computed_at | date: 'medium' : 'UTC' }}
+      </p>
+      <ul role="list" class="mt-2 space-y-1">
+        @for (e of w.entities; track e.entity) {
+        <li class="text-xs text-(--text-secondary)">
+          <span class="font-bold">{{ e.entity }}</span>
+          <span aria-hidden="true"> · </span>
+          <span class="font-mono">{{ e.watermark }}</span>
+        </li>
+        }
+      </ul>
+      } @else {
+      <p class="mt-1 text-sm text-(--text-secondary)" i18n="@@admin.system.algolia.watermark.never">
+        The incremental sync has never run on this environment.
+      </p>
+      }
+    </div>
+
+    <div
+      class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-5 text-sm"
+    >
+      <h4
+        class="text-sm font-bold text-(--text-primary)"
+        i18n="@@admin.system.algolia.drift.heading"
+      >
+        Index drift
+      </h4>
+      @if (s.algolia.drift; as d) {
+      <p class="mt-1 text-xs text-(--text-secondary)">
+        @if (d.drifted === 0) {
+        <span i18n="@@admin.system.algolia.drift.clean">Every index matches the database.</span>
+        } @else {
+        <span i18n="@@admin.system.algolia.drift.drifted"
+          >{{ d.drifted }} index(es) differ from the database.</span
+        >
+        }
+      </p>
+      <ul role="list" class="mt-2 space-y-1">
+        @for (idx of d.indexes; track idx.index_name) {
+        <li class="text-xs text-(--text-secondary)">
+          <span class="font-mono">{{ idx.index_name }}</span>
+          <span aria-hidden="true"> · </span>
+          <span i18n="@@admin.system.algolia.drift.row"
+            >database {{ idx.database }}, index {{ idx.algolia }} (drift {{ idx.drift }})</span
+          >
+        </li>
+        }
+      </ul>
+      } @else {
+      <p class="mt-1 text-sm text-(--text-secondary)" i18n="@@admin.system.algolia.drift.notRun">
+        Not measured. Run the data-quality checks above (drift is check ten).
+      </p>
+      }
+    </div>
+
+    <div
+      class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-5 text-sm"
+    >
+      <h4
+        class="text-sm font-bold text-(--text-primary)"
+        i18n="@@admin.system.algolia.orphans.heading"
+      >
+        Orphan sweep
+      </h4>
+      <p class="mt-1 text-sm text-(--text-secondary)" i18n="@@admin.system.algolia.orphans.unknown">
+        No result is stored for the orphan sweep, so it can't be shown here. Check the Datadog
+        dashboards below.
+      </p>
+    </div>
+  </section>
+
+  <!-- ── Database ─────────────────────────────────────────────────────────── -->
+  <section aria-labelledby="admin-system-db-heading" class="space-y-4">
+    <h3
+      id="admin-system-db-heading"
+      class="text-base font-bold text-(--text-primary)"
+      i18n="@@admin.system.db.heading"
+    >
+      Database
+    </h3>
+
+    <dl class="flex flex-wrap gap-x-10 gap-y-2 text-sm">
+      <div>
+        <dt class="font-bold text-(--text-secondary)" i18n="@@admin.system.db.size">Total size</dt>
+        <dd class="text-(--text-primary)">
+          @if (s.database.size_bytes !== null) { {{ formatBytes(s.database.size_bytes) }} } @else {
+          <span i18n="@@admin.system.db.sizeUnknown">Unknown</span>
+          }
+        </dd>
+      </div>
+      <div>
+        <dt class="font-bold text-(--text-secondary)" i18n="@@admin.system.db.tables">Tables</dt>
+        <dd class="text-(--text-primary)">{{ s.database.tables.length | number }}</dd>
+      </div>
+      <div>
+        <dt class="font-bold text-(--text-secondary)" i18n="@@admin.system.db.totalRows">
+          Total rows
+        </dt>
+        <dd class="text-(--text-primary)">{{ totalRows() | number }}</dd>
+      </div>
+      <div>
+        <dt class="font-bold text-(--text-secondary)" i18n="@@admin.system.db.statsFreshness">
+          Home stats computed
+        </dt>
+        <dd class="text-(--text-primary)">
+          @if (s.stats_freshness.computed_at) { {{ s.stats_freshness.computed_at | date: 'medium' :
+          'UTC' }} @if (s.stats_freshness.stale) {
+          <span class="text-(--accent-secondary-deep)" i18n="@@admin.system.db.statsStale">
+            (stale)</span
+          >
+          } } @else {
+          <span i18n="@@admin.system.db.statsNever">Never</span>
+          }
+        </dd>
+      </div>
+    </dl>
+
+    <div class="overflow-x-auto">
+      <table class="w-full min-w-[24rem] border-collapse text-sm">
+        <caption class="sr-only" i18n="@@admin.system.db.caption">
+          Row count per database table
+        </caption>
+        <thead>
+          <tr class="border-b border-(--border-strong) text-start">
+            <th
+              scope="col"
+              class="py-2 pe-4 font-bold text-(--text-secondary)"
+              i18n="@@admin.system.db.col.table"
+            >
+              Table
+            </th>
+            <th
+              scope="col"
+              class="py-2 text-end font-bold text-(--text-secondary)"
+              i18n="@@admin.system.db.col.rows"
+            >
+              Rows
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (row of s.database.tables; track row.table) {
+          <tr class="border-b border-(--border-default)">
+            <th
+              scope="row"
+              class="py-2 pe-4 text-start font-mono font-normal text-(--text-primary)"
+            >
+              {{ row.table }}
+            </th>
+            <td class="py-2 text-end tabular-nums text-(--text-secondary)">
+              {{ row.rows | number }}
+            </td>
+          </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ── Caveats ──────────────────────────────────────────────────────────── -->
+  @if (notes().length > 0) {
+  <section aria-labelledby="admin-system-notes-heading" class="space-y-3">
+    <h3
+      id="admin-system-notes-heading"
+      class="text-base font-bold text-(--text-primary)"
+      i18n="@@admin.system.notes.heading"
+    >
+      What this page can't tell you
+    </h3>
+    <!-- Tracked by index, not by `code`: the API is free to attach two notes with
+         the same code and a duplicate track key is a runtime error (NG0955). -->
+    <ul role="list" class="space-y-2">
+      @for (n of notes(); track $index) {
+      <li
+        class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) px-4 py-3 text-sm text-(--text-secondary)"
+      >
+        {{ noteText(n) }}
+      </li>
+      }
+    </ul>
+  </section>
+  }
+
+  <!-- ── Link-outs ────────────────────────────────────────────────────────── -->
+  <section aria-labelledby="admin-system-links-heading" class="space-y-3">
+    <h3
+      id="admin-system-links-heading"
+      class="text-base font-bold text-(--text-primary)"
+      i18n="@@admin.system.links.heading"
+    >
+      Dashboards
+    </h3>
+    <p class="text-sm text-(--text-secondary)" i18n="@@admin.system.links.intro">
+      Request tracing, real-user performance, and product funnels live in Datadog and PostHog, so
+      this page doesn't duplicate them.
+    </p>
+    <ul role="list" class="space-y-1.5">
+      @for (link of externalLinks; track link.url) {
+      <li>
+        <a
+          [href]="link.url"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="text-sm font-bold text-(--accent-primary) underline underline-offset-2 hover:text-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          >{{ link.label }}</a
+        >
+      </li>
+      }
+    </ul>
+  </section>
+
+  <p class="text-xs text-(--text-tertiary)" i18n="@@admin.system.generatedAt">
+    Read at {{ s.generated_at | date: 'medium' : 'UTC' }} UTC.
+  </p>
+  }
+</section>

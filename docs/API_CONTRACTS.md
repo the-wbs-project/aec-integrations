@@ -1166,12 +1166,12 @@ themselves (a banned admin would lock themselves out of `requireAdmin()`).
 
 ---
 
-#### Admin panel reads (AECI-574 / Phase 8.3 P1.1, extended by AECI-577 / P1.3 and AECI-579 / P1.5)
+#### Admin panel reads (AECI-574 / Phase 8.3 P1.1, extended by AECI-577 / P1.3, AECI-579 / P1.5, and AECI-580 / P1.6)
 
-Five `GET`s serving the operator console (`docs/ADMIN_PANEL_SPEC.md` §5–§6).
+Six `GET`s serving the operator console (`docs/ADMIN_PANEL_SPEC.md` §5–§6).
 Source of truth: `packages/shared/src/api/admin-panel.ts` (Zod), and
-`apps/api/src/routes/admin-{overview,metrics,traffic,page-views,catalog}.ts` +
-`lib/admin-{analytics,catalog}.ts` (handlers). They register on the same
+`apps/api/src/routes/admin-{overview,metrics,traffic,page-views,catalog,system}.ts` +
+`lib/admin-{analytics,catalog,status}.ts` (handlers). They register on the same
 `authAdmin` sub-router behind `requireAdmin()` — no new gate.
 
 **Every `page_views` read carries the §13 D12 floor.** `/admin/*` and `/account`
@@ -1182,7 +1182,7 @@ cannot be turned off. It is also deliberately silent: unlike the ASN filter it i
 not a heuristic over real visitors, so there is no false-positive class to
 disclose and no "N excluded" figure to report.
 
-**Conventions that apply to all five.** Read-only: **no `audit_log` row** (reads
+**Conventions that apply to all six.** Read-only: **no `audit_log` row** (reads
 emit nothing, §26.1 as scoped by ADR 0022). **No `Cache-Tag`, no edge caching** —
 `json()` sets `private, no-store` and `/admin/*` is absent from
 `ROUTE_CACHE_PATTERNS` in `server-runtime.ts`, which `server.spec.ts` asserts; a
@@ -1220,6 +1220,9 @@ export const AdminNoteCodeSchema = z.enum([
   'funnel_is_promoted_cohort_only',    // every product reads 'promoted' (§13 D6)
   'trade_facet_sparse_by_design',      // untagged trades are not a backlog
   'api_docs_flag_inconsistent',        // has_api_docs set with no api_docs_url
+  // AECI-580 / P1.6 — system status
+  'cron_liveness_unavailable',         // N of 8 crons have no last-run record
+  'orphan_sweep_not_persisted',        // the sweep's result is stored nowhere
 ]);
 
 export const AdminNoteSchema = z.object({
@@ -1478,6 +1481,138 @@ since grouping human rows by `bot_name` returns one empty bucket.
 Errors: `VALIDATION_FAILED` (400) for an unknown `dimension`, a bad/reversed date
 range, an over-long window, or `perPage > 100`.
 
+#### `GET /api/admin/system` (AECI-580 / Phase 8.3 P1.6)
+
+The §5.6 bundle — deploy identity, cron liveness, the ten data-quality checks,
+Algolia state, and the D1 footprint — in one round trip. Same conventions as the
+three above (read-only, no `audit_log`, no `Cache-Tag`, `private, no-store`).
+Handler: `apps/api/src/routes/admin-system.ts`.
+
+```typescript
+export const AdminSystemQuerySchema = z.object({
+  recompute: z.enum(['0', '1']).default('0').transform((v) => v === '1'),
+});
+
+export const AdminSystemResponseSchema = z.object({
+  window: undefined,                            // NOT windowed — a point-in-time read
+  generated_at: z.string().datetime(),
+  source: z.enum(['live']),
+  recomputed: z.boolean(),
+  notes: z.array(AdminNoteSchema),
+  version: AdminVersionStatusSchema,            // the API Worker's — see below
+  crons: z.array(AdminCronRunSchema),           // ALWAYS all nine
+  data_quality: AdminDataQualityStatusSchema.nullable(),   // null unless ?recompute=1
+  algolia: z.object({
+    watermark: AdminAlgoliaWatermarkSchema.nullable(),     // null = the sync never ran
+    drift: AdminAlgoliaDriftStatusSchema.nullable(),       // null unless ?recompute=1
+    orphan_sweep: z.null(),                                // never persisted — see below
+  }),
+  database: z.object({
+    size_bytes: z.number().int().nonnegative().nullable(), // D1 meta.size_after
+    tables: z.array(z.object({ table: z.string(), rows: z.number().int().nonnegative() })),
+  }),
+  stats_freshness: AdminStatsFreshnessSchema,
+});
+```
+
+*(`window` is listed as absent deliberately: unlike the other three endpoints this
+is a point-in-time system read, not a windowed aggregation, so it carries no
+`AdminWindow`.)*
+
+##### Two version endpoints, and why this one is only half the answer
+
+`version` is the **API Worker's** `COMMIT_SHA` / `DEPLOYED_AT` / `ENV` — byte-for-byte
+what `GET /api/version` returns, since it is the same Worker reading the same vars.
+The SSR Worker's SHA is **not reachable from here**: `apps/web` forwards `/api/*`
+untouched, so `/api/version` can only ever report the API Worker. That is exactly
+why `apps/web` serves its own unproxied `GET /_version` (AECI-92).
+
+The UI therefore fetches **both** and compares them; a mismatch means one of the
+two deploys is stale, and it renders as a visible warning. Rendering one and
+calling it "the version" defeats the point of the endpoint pair. `/api/version`
+itself is not called by the panel — the bundle already carries those values.
+
+##### Cron liveness is honest about not knowing (§7.2 / AECI-583)
+
+```typescript
+export const AdminCronJobSchema = z.enum([
+  'data-quality',        // 0 4 * * *
+  'analytics-digest',    // 0 5 * * *
+  'moderation-snapshot', // 0 6 * * *
+  'home-stats',          // 0 7 * * *
+  'algolia-sync',        // 0 8 * * *
+  'algolia-drift',       // 0 9 * * *
+  'request-reconcile',   // */15 * * * *
+  'waf-poll',            // 0 * * * *
+]);
+
+export const AdminCronRunSchema = z.object({
+  job: AdminCronJobSchema,
+  schedule: z.string().min(1),                       // byte-equal to wrangler.jsonc
+  source: z.enum(['job_runs', 'derived', 'unknown']),
+  last_run_at: z.string().datetime().nullable(),
+  last_outcome: z.enum(['ok', 'failed', 'skipped']).nullable(),
+  duration_ms: z.number().int().nonnegative().nullable(),
+  derived_from: z.string().nullable(),               // e.g. 'stats_cache.computed_at'
+});
+```
+
+`source` is the load-bearing field. **`job_runs` does not exist yet**, so a cron's
+outcome and duration live only as Datadog metrics:
+
+| `source` | meaning | today |
+|---|---|---|
+| `job_runs` | read from the §7.2 table | **unreachable** — declared so AECI-583 is additive, not a reshape |
+| `derived` | inferred from a D1 side effect named in `derived_from`. Proves the job **ran**; says nothing about whether it **succeeded** | only `home-stats` (`MAX(stats_cache.computed_at)`) and `algolia-sync` (the `algolia_sync_watermark` row's stamp), and only once that artifact exists |
+| `unknown` | no record anywhere in D1 | the other six |
+
+`last_outcome` and `duration_ms` are therefore **null on every row** in P1.6. The
+response never emits `'ok'`, and the UI renders `unknown` as *Unknown* rather than
+as a passing state — a status screen that reports "fine" because it has no data is
+worse than one that reports nothing. All eight rows are always present: omitting a
+job would read as "not configured", a different and wrong claim.
+
+The schedule strings come from `apps/api/src/lib/cron-schedules.ts`, which
+`scheduled.ts` also `switch`es on, so the screen and the dispatcher cannot drift.
+
+##### `?recompute=1` (§13 D8) — same semantics as `/overview`
+
+Default: `data_quality` and `algolia.drift` are `null` with a `requires_recompute`
+note. `?recompute=1` runs the ten §23.1 checks and the drift count live. Still a
+**pure read** — writes nothing, sends nothing, no `audit_log` obligation; what
+makes them opt-in is network cost (check #9 HTTP-probes a sample of logo URLs,
+drift costs three Algolia queries), not mutation.
+
+Both endpoints share one implementation (`apps/api/src/lib/admin-status.ts`
+`runExpensiveStatusItems`), so the System screen and the Overview status strip
+cannot report different results for the same check. The drift runner is invoked
+**once** per request and memoized at the promise — check #10 of the ten *is* the
+drift check, so running it twice would double the Algolia round trips to report
+one number.
+
+A check that finds nothing comes back `count: 0` with an empty `sample` — the UI
+renders that as *passing*. `skipped: true` (no Algolia credentials) is **not** a
+failure; `error` (the check threw) is distinct from both.
+
+Two note codes are specific to this endpoint:
+
+| code | severity | means |
+|---|---|---|
+| `cron_liveness_unavailable` | `warn` | `params.unknown` of `params.total` crons have no last-run record in D1 |
+| `orphan_sweep_not_persisted` | `info` | the Algolia orphan sweep runs inside the 09:00 drift cron and reports only to Datadog — its result is stored nowhere, so `algolia.orphan_sweep` is always `null` |
+
+##### The D1 footprint
+
+`database.tables` enumerates the **live** user tables from `sqlite_master` at
+request time (excluding `sqlite_%`, `_cf_%`, and `d1_migrations` — the same
+predicate `apps/datatool/src/introspect.ts` uses), then counts them in a single
+`UNION ALL`, name-ordered. Runtime introspection rather than a hardcoded list, so a
+table added by a migration appears without a code change.
+
+`size_bytes` comes from D1's own `meta.size_after` (there is no supported
+`PRAGMA page_count` on D1). It is `null` — rendered "unknown" — wherever that field
+is unavailable, notably the better-sqlite3 test harness. It is never approximated
+from the row counts.
 #### `GET /api/admin/catalog/coverage`
 
 The §5.5 catalog readout (AECI-579 / Phase 8.3 P1.5): coverage gaps, the promotion

@@ -144,4 +144,13 @@ const NOTE_PROSE: Record<AdminNoteCode, (params: NoteParams) => string> = {
   // misses this reads an approximation as a measurement.
   series_partly_reconstructed: (p) =>
     $localize`:@@admin.notes.seriesPartlyReconstructed:${num(p, 'reconstructed_days')}:DAYS: day(s) up to ${str(p, 'reconstructed_through')}:THROUGH: predate the daily snapshot and were reconstructed from the audit log afterwards. Read that segment as approximate, not measured.`,
+
+  // AECI-580 / P1.6 — system status. `cron_liveness_unavailable` is `warn` (a
+  // reader who misses it may read an unknown cron as healthy); the orphan note is
+  // `info`.
+  cron_liveness_unavailable: (p) =>
+    $localize`:@@admin.notes.cronLivenessUnavailable:${num(p, 'unknown')}:UNKNOWN: of ${num(p, 'total')}:TOTAL: scheduled jobs have no last-run record in the database. Cron outcomes are not stored yet, so Datadog is the only source, and these rows say "Unknown" rather than claiming success.`,
+
+  orphan_sweep_not_persisted: () =>
+    $localize`:@@admin.notes.orphanSweepNotPersisted:The Algolia orphan sweep runs inside the 09:00 UTC drift job and reports only to Datadog. Its result is not stored, so it cannot be shown here.`,
 };
