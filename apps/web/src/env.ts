@@ -160,8 +160,10 @@ export type WebEnv = {
    *   secret to keep values out of git — same convention as
    *   `ALGOLIA_SEARCH_KEY`. Absent → `createSupabaseServerClient` returns
    *   `null` and auth surfaces degrade gracefully (no throw at boot).
-   * - The service-role key is NEVER part of `WebEnv` (or any Worker env) —
-   *   AUTH_AND_RLS.md §3. Mirrors the Algolia admin-key rule above.
+   * - The service-role key is NEVER part of `WebEnv` (nor any web-Worker env) —
+   *   AUTH_AND_RLS.md §3.1. Mirrors the Algolia admin-key rule above. (Since
+   *   AECI-530 it IS a runtime secret on the API Worker for the Admin-API seams,
+   *   read only in `apps/api/src/lib/supabase-admin.ts` — never here.)
    */
   SUPABASE_URL?: string;
   SUPABASE_ANON_KEY?: string;

@@ -71,6 +71,25 @@
   //                 the RESEND_API_KEY_{STAGING,PRODUCTION} GH secrets (graceful — no
   //                 hard gate). Pairs with the `EMAIL_FROM` var (sender). The repo uses
   //                 Resend, not the spec's original "Loops"; see docs/email.md.
+  //   SUPABASE_SERVICE_ROLE_KEY — Supabase GoTrue Admin API key for the
+  //                 split-identity seams (AECI-530 / ADR 0016 §6). Read at runtime
+  //                 by lib/supabase-admin.ts — the ONLY module allowed to read it
+  //                 (the single-module invariant) — for auth.users email reads
+  //                 (seam #2), the GDPR erasure of the auth.users row (#3), and
+  //                 vendor-claimant lookup + provisioning (#4a/#4b). The register
+  //                 with each seam's endpoint and degrade behaviour is
+  //                 docs/AUTH_AND_RLS.md §3.1. SINGLE shared un-suffixed GH secret —
+  //                 one Supabase auth project backs every env (ADR 0017) — pushed
+  //                 per env by CI (deploy.yml staging / promote-to-demo.yml /
+  //                 promote-to-prod.yml, graceful warn-skip, no hard gate).
+  //                 API WORKER ONLY: never the web Worker (which verifies user JWTs
+  //                 with public JWKS material), and DELIBERATELY not on per-PR
+  //                 previews — it is the project-wide auth key and the seams both
+  //                 delete and create identities on the project that backs prod.
+  //                 Optional + fail-open: absent (local/preview) → reviewer emails
+  //                 read null, the auth.users delete is skipped (the D1 erasure
+  //                 still commits), and claim resolution reports 'unavailable'.
+  //                 Rotating it invalidates every env at once — docs/CICD_PLAN.md §7.4.
   //
   // AECI-139: the API Worker also runs `scheduled` + `queue` handlers (daily
   // scheduled jobs). The cron `scheduled` handler does not work inline — it

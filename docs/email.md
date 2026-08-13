@@ -40,8 +40,9 @@ decision record; no separate ADR.
   (`lib/supabase-admin.ts`, the GoTrue Admin API) — D1 has no `auth.users` (ADR
   0016). The submission email uses the verified `session.email` directly; the
   account-deletion email captures `session.email` **before** the `auth.users` row
-  is erased. Note this lookup needs `SUPABASE_SERVICE_ROLE_KEY`, which is currently
-  on no Worker, so it resolves to `null` in every deployed environment
+  is erased. Note this lookup needs `SUPABASE_SERVICE_ROLE_KEY`, which CI pushes to
+  the API Worker on staging, demo and production (AECI-530). It still resolves to
+  `null` on **PR previews and local dev**, where the key is absent by design
   (`AUTH_AND_RLS.md` §3.1).
 
 ## Template catalogue

@@ -79,14 +79,19 @@ export type Env = {
    *
    * Read in exactly ONE module, `lib/supabase-admin.ts` (the single-module
    * invariant, §3.1) — a project-wide auth key with no scoped alternative, so keep
-   * it to one door. Set as a Wrangler secret per env.
+   * it to one door.
+   *
+   * Provisioning (AECI-530, per ADR 0016 §6): a SINGLE shared, un-suffixed GH
+   * secret — one Supabase auth project backs every env (ADR 0017) — that CI pushes
+   * to THIS Worker on staging (`deploy.yml`), demo, and production
+   * (`promote-to-{demo,prod}.yml`), each a graceful warn-and-skip step. Never on
+   * the web Worker, and deliberately never on per-PR previews (see the note in
+   * `pr-preview.yml`), so local dev and previews run keyless by design.
    *
    * Optional + fail-safe: absent → email reads degrade to `null`, claim resolution
    * reports `unavailable`, and the erasure `auth.users` delete is SKIPPED (the D1
    * erasure still commits, but the auth row survives; the skip is currently
-   * unlogged — see the §8 note in `AUTH_AND_RLS.md`). NOTE: this secret is
-   * presently pushed to no Worker, so all of the above is the live behaviour in
-   * every deployed environment.
+   * unlogged — see the §8 note in `AUTH_AND_RLS.md`, tracked as AECI-531).
    */
   SUPABASE_SERVICE_ROLE_KEY?: string;
   /**
