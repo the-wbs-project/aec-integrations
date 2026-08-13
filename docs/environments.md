@@ -466,7 +466,9 @@ on 2026-08-10, 67 of the digest's 92 "human" page views came from AS23700
    not rendered at all on `/admin/activity` — a permanently-disabled control is
    worse than no control. Prefer the precise instruments
    first — AECI-575 (exclude `/admin/*` from `PageViewTracker`) and AECI-585
-   (`cf_as_organization` at ingest, so the filter can label itself).
+   (`cf_as_organization` at ingest, so the filter can label itself). Both have
+   shipped; the holder name is captured from AECI-585's production deploy forward
+   and is null on every earlier row.
 
 Because it is a plain `var`, `scripts/require-secrets.sh` and
 `verify-worker-secrets.sh` do not check it, and its absence never fails a deploy.

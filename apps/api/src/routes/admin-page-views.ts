@@ -39,8 +39,10 @@
  * **Every caveat the window earns travels with it.** `trafficNotes(..., {
  * sources: true, unique: true })` emits all four the feed owes its reader:
  * unclassified rows counted as human, missing `referrer_source` (null reads as
- * *unknown*, never as `Direct`), `Direct` as a mixed bucket until AECI-585, and
- * the approximate §9.8 visitor definition.
+ * *unknown*, never as `Direct`), `Direct` as a mixed bucket (AECI-585 records the
+ * `navigation` flag at ingest, but this feed does not group on it yet and no
+ * earlier row can be separated at all), and the approximate §9.8 visitor
+ * definition.
  */
 
 import {

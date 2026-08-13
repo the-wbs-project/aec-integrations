@@ -77,7 +77,7 @@ export type AdminWindow = z.infer<typeof AdminWindowSchema>;
  * | `partial_day` | the window overlaps the current UTC day, so its last bucket is incomplete |
  * | `bot_classification_incomplete` | N rows in the window have `is_bot IS NULL` and are counted as HUMAN by the digest's `is_bot IS NOT 1` predicate (§3). Dormant since AECI-582 backfilled every row on 2026-08-13 |
  * | `referrer_source_incomplete` | N human rows in the window have `referrer_source IS NULL` — not backfillable, the header was never stored |
- * | `direct_is_mixed_bucket` | a `Direct` bucket is present; `PageViewTracker` POSTs on every SPA navigation and the same-origin `Referer` classifies as `Direct`, so in-app hops and true direct arrivals are indistinguishable (AECI-585 separates them) |
+ * | `direct_is_mixed_bucket` | a `Direct` bucket is present; `PageViewTracker` POSTs on every SPA navigation and the same-origin `Referer` classifies as `Direct`, so in-app hops and true direct arrivals are indistinguishable. AECI-585 stores a `navigation` flag at ingest, but no endpoint groups on it yet and rows written before it cannot be separated at all |
  * | `visitor_definition_approximate` | `unique_visitors` is `DISTINCT (user_agent_hash, cf_asn)` — over-counts on browser update, under-counts behind shared NAT (§9.8) |
  * | `catalog_series_is_additions_only` | a `catalog.*` series counts `*.created` events, never net totals — rows can vanish without per-row audit (§4) |
  * | `catalog_series_starts_at` | the window starts before the earliest `audit_log` row, so the leading segment reads zero for want of data, not for want of activity |
@@ -1176,17 +1176,22 @@ export type AdminPageViewsQuery = z.infer<typeof AdminPageViewsQuerySchema>;
  * discipline, and cannot be undone by a later template change.
  *
  * **`user_id`, `session_id` and `profile_role` are absent and stay absent.** §13
- * **D7** settled that the three dead columns are *dropped* (AECI-585), not
- * filled, and that no session identifier is introduced — a durable first-party id
- * is exactly what would drag `page_views` back inside the consent question this
- * feed exists to route around. A visitor is therefore
+ * **D7** settled that the three dead columns are *dropped*, not filled, and that no
+ * session identifier is introduced — a durable first-party id is exactly what would
+ * drag `page_views` back inside the consent question this feed exists to route
+ * around. AECI-585 dropped them, so their absence here is now structural rather
+ * than a matter of which columns the query selects. A visitor is therefore
  * `(user_agent_hash, cf_asn)` and nothing more (§9.8).
  *
  * `path` is the route **pattern** (`/products/:slug`) as stored at ingest, so
- * `entity` carries the real name for product and vendor rows. A taxonomy row
- * hydrates to `null` and renders as the bare pattern until AECI-585 stores the
- * concrete path; `entity` is also `null` when the referenced row has since been
- * deleted, matching the `target` fallback on `/api/admin/requests`.
+ * `entity` carries the real name for product and vendor rows; `entity` is `null`
+ * when the referenced row has since been deleted, matching the `target` fallback on
+ * `/api/admin/requests`.
+ *
+ * A taxonomy row still hydrates to `null` and renders as the bare pattern. AECI-585
+ * added `concrete_path` / `taxonomy_kind` / `taxonomy_id` at **ingest** — so the
+ * data now exists, where before it did not — but that issue was scoped to the write
+ * side, and widening `entity_type` here to the six kinds is a follow-up.
  */
 export const AdminPageViewRowSchema = z.object({
   id: z.number().int().positive(),

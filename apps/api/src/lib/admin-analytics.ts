@@ -752,9 +752,14 @@ export interface PageViewPage {
  * **Hydration reuses `resolveRequestTargets`.** One batched `IN (...)` per target
  * table over the page, never per row. A row carries `product_id` XOR `vendor_id`;
  * both are UUIDs, so the single returned map cannot collide. A taxonomy row
- * (`/categories/:slug`) carries neither and resolves to `null` — expected until
- * AECI-585 stores the concrete path — as does a row whose entity has since been
- * deleted.
+ * (`/categories/:slug`) carries neither and resolves to `null`, as does a row whose
+ * entity has since been deleted.
+ *
+ * AECI-585 made that taxonomy null *fixable* without making it fixed: ingest now
+ * stores `taxonomy_kind` / `taxonomy_id` / `concrete_path`, but that issue was
+ * scoped to the write side, so this query does not select them and the feed still
+ * renders a taxonomy row as its bare route pattern. Hydrating them is a follow-up —
+ * the data is there now, which it was not before.
  */
 export async function listPageViews(
   db: Db,
@@ -941,7 +946,12 @@ export async function trafficNotes(
     out.push(
       note(
         'direct_is_mixed_bucket',
-        'Direct mixes true direct arrivals with in-app SPA navigation (the same-origin Referer classifies as Direct). AECI-585 separates them.',
+        // Still true, and still emitted unconditionally: AECI-585 records
+        // `navigation` at INGEST, so rows written from its deploy onward are
+        // separable — but this endpoint does not group on that column yet, and no
+        // row written before it ever can be. Narrowing the note to "only rows
+        // before <date>" would claim a split the response does not perform.
+        'Direct mixes true direct arrivals with in-app SPA navigation (the same-origin Referer classifies as Direct). Rows captured since AECI-585 store a navigation flag that separates them; this breakdown does not use it yet, and earlier rows cannot be separated at all.',
       ),
     );
   }

@@ -63,7 +63,7 @@ import {
   LANDING_CF_HEADERS,
   PAGE_VIEW_CF_HEADERS,
 } from '@aeci/shared';
-import type { IntegrationDetail } from '@aeci/shared';
+import type { IntegrationDetail, PageViewPayload } from '@aeci/shared';
 import { isPublicSite } from '@aeci/shared/deploy-env';
 import { Hono } from 'hono';
 import type { Context } from 'hono';
@@ -582,13 +582,15 @@ export type ResponseTransform = (
  * `page_views` (AECI-177). It is populated on the inbound eyeball request but
  * does NOT survive the `env.API` service binding, so we copy the needed fields
  * onto the trusted `PAGE_VIEW_CF_HEADERS` (`x-aeci-cf-*`) before forwarding.
- * Structural — we read only the four fields we forward, so no global CF typing
+ * Structural — we read only the five fields we forward, so no global CF typing
  * is required and a `.cf`-less request (Node tests, local dev) is a clean no-op.
  */
 interface CfLike {
   country?: string | null;
   colo?: string | null;
   asn?: number | null;
+  /** AS holder name (AECI-585) — the label the bare `asn` cannot supply. */
+  asOrganization?: string | null;
   botManagement?: { score?: number | null } | null;
 }
 
@@ -603,6 +605,9 @@ export function applyCfContextHeaders(headers: Headers, request: Request): void 
   if (cf.country) headers.set(PAGE_VIEW_CF_HEADERS.country, cf.country);
   if (cf.colo) headers.set(PAGE_VIEW_CF_HEADERS.colo, cf.colo);
   if (typeof cf.asn === 'number') headers.set(PAGE_VIEW_CF_HEADERS.asn, String(cf.asn));
+  if (cf.asOrganization) {
+    headers.set(PAGE_VIEW_CF_HEADERS.asOrganization, String(cf.asOrganization));
+  }
   const score = cf.botManagement?.score;
   if (typeof score === 'number') headers.set(PAGE_VIEW_CF_HEADERS.botScore, String(score));
 }
@@ -696,7 +701,8 @@ export function withForwardedLandingCf(request: Request): Request {
  * visitor arrivals rather than SSR misses. On HIT the resolver never runs, so
  * the runtime synthesizes a minimal `{ route }` payload from the locale-stripped
  * path; on MISS the resolver may attach a richer payload (with entity_type /
- * entity_id) via `AeciRequestContext.pageView`.
+ * entity_id — including the four taxonomy facets, which AECI-585 taught the API to
+ * store) via `AeciRequestContext.pageView`.
  *
  * Operator-only routes are skipped (AECI-575 / ADMIN_PANEL_SPEC §9.6). Today that
  * guard is unreachable for `/admin` and `/account`: both are absent from
@@ -704,6 +710,15 @@ export function withForwardedLandingCf(request: Request): Request {
  * when a resolver attached `ctx.pageView` — and no admin/account resolver does.
  * It sits at this single choke point anyway so the invariant survives a future
  * resolver that starts attaching one, rather than depending on that omission.
+ *
+ * AECI-585 stamps `path` (the concrete URL path) and `navigation: 'arrival'` HERE
+ * rather than at the three call sites, for two reasons. Every write through this
+ * function is by definition a full-document load, so `'arrival'` is a property of
+ * the function, not of its caller. And the concrete path is derivable from
+ * `sourceRequest` — which this already takes — so the resolver-attached payloads
+ * (which carry a route *pattern* like `/products/:slug`) gain the concrete path
+ * without a single resolver changing. Both overwrite whatever the caller passed:
+ * the request URL is the authority on where the visitor actually is.
  */
 function firePageView(
   execCtx: WaitUntilContext,
@@ -721,12 +736,17 @@ function firePageView(
   // exactly what fires this write. AECI-526.
   const referer = sourceRequest.headers.get('referer');
   if (referer) headers.set('referer', referer);
+  // Pathname only — never the query or hash. `page_views` stores a referrer HOST
+  // for the same reason (§9.7); a concrete path carrying `?token=…` would put the
+  // full URL back into the table the privacy rule keeps it out of.
+  const { path: concretePath } = stripLocalePrefix(new URL(sourceRequest.url).pathname);
+  const body: PageViewPayload = { ...payload, path: concretePath, navigation: 'arrival' };
   execCtx.waitUntil(
     env.API.fetch(
       new Request('https://api/api/page-views', {
         method: 'POST',
         headers,
-        body: JSON.stringify(payload),
+        body: JSON.stringify(body),
       }),
     )
       .then(() => undefined)

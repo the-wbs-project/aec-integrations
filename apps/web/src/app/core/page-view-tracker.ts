@@ -74,7 +74,13 @@ export class PageViewTracker {
     // §9.6 — never record the operator's own navigation. Guarding here rather
     // than in the subscription means any future caller inherits the exclusion.
     if (isUntrackedRoute(route)) return;
-    const payload: PageViewPayload = { route };
+    // `navigation: 'spa'` (AECI-585 / §7.3) — this tracker fires ONLY on in-app
+    // navigation (the initial hydration is skipped above), so the flag is a fact
+    // about the writer, not a guess. Without it the same-origin `Referer` on this
+    // POST classifies as `Direct`, which is what made `Direct` a mixed bucket of
+    // true arrivals and in-app clicks. No `path` is sent: `route` is already the
+    // concrete path here, and the API falls back to it.
+    const payload: PageViewPayload = { route, navigation: 'spa' };
     // Fire-and-forget: subscribe to issue the request, swallow any error.
     this.http.post('/api/page-views', payload).subscribe({ error: () => undefined });
   }

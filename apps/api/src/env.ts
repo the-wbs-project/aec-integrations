@@ -315,7 +315,9 @@ export type Env = {
    * "human" page views came from the operator's own ISP (AS23700, Jakarta); this
    * is the coarse instrument for subtracting that. The precise ones are AECI-575
    * (exclude `/admin/*` from `PageViewTracker`) and AECI-585 (capture
-   * `cf_as_organization` so the filter can label itself).
+   * `cf_as_organization` so the filter can label itself) — both shipped, though
+   * the holder name is null on every row written before AECI-585 deployed and is
+   * not backfillable.
    *
    * **QUERY-TIME ONLY — three binding constraints (D10):**
    *   1. It is a `WHERE` clause evaluated at read time. It must NEVER touch
