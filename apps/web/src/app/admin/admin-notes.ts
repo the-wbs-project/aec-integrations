@@ -1,45 +1,65 @@
-import { ChangeDetectionStrategy, Component, input } from '@angular/core';
+import { Component, computed, input } from '@angular/core';
 
 import type { AdminNote, AdminNoteCode } from '@aeci/shared';
 
 /**
- * Renders the admin panel's honesty envelope (`ADMIN_PANEL_SPEC.md` §1.1) — the
- * `AdminNote[]` every `/api/admin/*` read carries, naming the biases that apply
- * to that particular response.
+ * AECI-576 / Phase 8.3 P1.2 — the operator console's **honesty envelope**,
+ * rendered. Every admin-panel response carries an `AdminNote[]` naming the biases
+ * that apply to *that* window (`docs/ADMIN_PANEL_SPEC.md` §1.1 / §6).
  *
- * **Why this is a shared component and not inline prose.** The API deliberately
- * ships `code` + `params` as the contract and leaves `message` untranslated
- * (`admin-panel.ts`: *"`message` is a plain-English operator fallback for curl /
- * logs and is deliberately NOT translated"*). CLAUDE.md's i18n rule is
- * unconditional, admin-only or not, so the localized string has to live on the
- * UI side — and every panel screen (AECI-576/577/578/579/580) renders the same
- * vocabulary. One mapping, one place: a note added to the API without a string
- * here fails loudly at the `never` in {@link AdminNotes.text}.
+ * The `code` is the contract and the `params` are its data; `message` is a plain
+ * English operator fallback for curl and logs and is deliberately **untranslated**
+ * on the wire. So this component localizes from `code` + `params` and never renders
+ * `message` — which is how "machine-readable notes rather than the UI hardcoding
+ * prose" coexists with CLAUDE.md's unconditional i18n rule (§9.4).
  *
- * `severity` drives the treatment: `warn` is a note whose absence would make a
- * reader draw the *wrong* conclusion (a one-stage funnel looks broken); `info` is
- * context. Neither is an error state — these describe the data, not a failure.
+ * {@link NOTE_PROSE} is typed `Record<AdminNoteCode, …>`, so adding a code to the
+ * shared enum is a **compile error here** rather than a note that silently
+ * disappears from the UI. That is the whole point of the map being exhaustive.
+ *
+ * `warn` notes take the Bone/Clay treatment already used by the requests queue's
+ * duplicate + domain-mismatch chips (the console inherits the queues' visual
+ * language — §9.10, no new anchor site); `info` notes stay quiet. Severity is
+ * carried by a "Note"/"Caveat" chip, never by colour alone.
  */
 @Component({
   selector: 'aec-admin-notes',
-  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    @let items = notes();
+    @let items = rendered();
     @if (items.length > 0) {
-      <ul role="list" class="space-y-2">
-        @for (n of items; track n.code + $index) {
-          <li
-            class="rounded-(--radius-md) border px-3 py-2 text-xs leading-relaxed"
-            [class]="
-              n.severity === 'warn'
-                ? 'border-(--accent-secondary) bg-(--accent-warm) text-(--text-primary)'
-                : 'border-(--border-default) bg-(--surface-sunken) text-(--text-secondary)'
-            "
-          >
-            <span class="sr-only">{{ severityLabel(n.severity) }}: </span>{{ text(n) }}
-          </li>
-        }
-      </ul>
+      <!-- A plain <div>, not an <aside>: a complementary landmark nested inside
+           <main> trips axe's landmark-complementary-is-top-level, and these
+           caveats belong to the numbers below them, not beside them. The list
+           carries the accessible name instead. -->
+      <div class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-4">
+        <ul
+          role="list"
+          class="space-y-2"
+          i18n-aria-label="@@admin.notes.aria"
+          aria-label="How to read these numbers"
+        >
+          @for (n of items; track n.key) {
+            <li class="flex gap-2 text-xs leading-relaxed">
+              <span
+                class="mt-0.5 inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[0.6875rem]
+                  font-bold"
+                [class]="
+                  n.warn
+                    ? 'bg-(--accent-warm) text-(--accent-secondary-deep)'
+                    : 'bg-(--surface-sunken) text-(--text-secondary)'
+                "
+              >
+                @if (n.warn) {
+                  <ng-container i18n="@@admin.notes.severity.warn">Caveat</ng-container>
+                } @else {
+                  <ng-container i18n="@@admin.notes.severity.info">Note</ng-container>
+                }
+              </span>
+              <span class="text-(--text-secondary)">{{ n.text }}</span>
+            </li>
+          }
+        </ul>
+      </div>
     }
   `,
   styles: [':host { display: block; }'],
@@ -47,72 +67,76 @@ import type { AdminNote, AdminNoteCode } from '@aeci/shared';
 export class AdminNotes {
   readonly notes = input.required<readonly AdminNote[]>();
 
-  /** Screen-reader prefix so the visual distinction between warn and info is not
-   *  the only thing carrying it. */
-  protected severityLabel(severity: AdminNote['severity']): string {
-    return severity === 'warn'
-      ? $localize`:@@admin.notes.severity.warn:Caveat`
-      : $localize`:@@admin.notes.severity.info:Note`;
-  }
-
-  /**
-   * `code` + `params` → localized prose. The exhaustive switch is the point: the
-   * `never` in the default branch makes a new `AdminNoteCode` a compile error
-   * here, which is how the API and the UI stay in step.
-   */
-  protected text(n: AdminNote): string {
-    const p = n.params ?? {};
-    const code: AdminNoteCode = n.code;
-    switch (code) {
-      case 'partial_day':
-        return $localize`:@@admin.notes.partialDay:This window includes today (UTC), so its last bucket is still filling.`;
-
-      case 'bot_classification_incomplete':
-        return $localize`:@@admin.notes.botClassificationIncomplete:Page views recorded before bot classification existed (${p['rows']}:ROWS: here) are counted as human, so the human figure is an upper bound.`;
-
-      case 'referrer_source_incomplete':
-        return $localize`:@@admin.notes.referrerSourceIncomplete:Some human page views here have no traffic source (${p['rows']}:ROWS:). This cannot be backfilled: the referrer was never stored.`;
-
-      case 'direct_is_mixed_bucket':
-        return $localize`:@@admin.notes.directIsMixedBucket:“Direct” mixes true direct arrivals with in-app navigation, because a same-site referrer classifies as direct.`;
-
-      case 'visitor_definition_approximate':
-        return $localize`:@@admin.notes.visitorDefinitionApproximate:A visitor is a distinct browser-and-network pair within the window. This over-counts when a browser updates and under-counts when people share a network.`;
-
-      case 'catalog_series_is_additions_only':
-        // The AC's named case: the approximation banner on counts-over-time.
-        return $localize`:@@admin.notes.catalogSeriesIsAdditionsOnly:This chart counts records ADDED each day, taken from the audit log. It is not a running total: records removed later still count on the day they were added, and some records predate the log entirely. Exact totals over time need the daily snapshot, which is not built yet.`;
-
-      case 'catalog_series_starts_at':
-        return $localize`:@@admin.notes.catalogSeriesStartsAt:The audit log begins on ${p['earliest_day']}:EARLIEST_DAY:. Days before that read zero for want of data, not for want of activity.`;
-
-      case 'internal_filter_unavailable':
-        return $localize`:@@admin.notes.internalFilterUnavailable:Internal-traffic filtering is not configured, so every figure here is unfiltered.`;
-
-      case 'internal_filter_applied':
-        return $localize`:@@admin.notes.internalFilterApplied:Figures are shown both unfiltered and excluding internal networks (${p['asns']}:ASNS:). The unfiltered figure is always the primary one.`;
-
-      case 'requires_recompute':
-        return $localize`:@@admin.notes.requiresRecompute:Some status checks were skipped because they are slow. Recompute to run them.`;
-
-      case 'algolia_credentials_absent':
-        return $localize`:@@admin.notes.algoliaCredentialsAbsent:Search-index drift could not be measured: the Algolia credentials are not configured in this environment.`;
-
-      case 'funnel_is_promoted_cohort_only':
-        return $localize`:@@admin.notes.funnelIsPromotedCohortOnly:All ${p['promoted']}:PROMOTED: product(s) here are promoted, so this funnel has one populated stage by design. Promotion is the only way a product enters this database and retraction removes the row outright, so the earlier stages live in the review app, not here.`;
-
-      case 'trade_facet_sparse_by_design':
-        return $localize`:@@admin.notes.tradeFacetSparseByDesign:Products carrying no trade (${p['untagged']}:UNTAGGED: of ${p['universe']}:UNIVERSE:) are not necessarily untagged work. Trades are applied only where a product has trade-specific value, so broad platforms correctly carry none. Read this as coverage, not as a backlog.`;
-
-      case 'api_docs_flag_inconsistent':
-        return $localize`:@@admin.notes.apiDocsFlagInconsistent:Some products are marked as having API documentation but carry no link to it (${p['rows']}:ROWS:).`;
-
-      default: {
-        // Exhaustiveness guard: a new AdminNoteCode fails to compile until it has
-        // a string above, rather than silently rendering nothing.
-        const exhaustive: never = code;
-        return exhaustive;
-      }
-    }
-  }
+  protected readonly rendered = computed(() =>
+    this.notes().map((n, i) => ({
+      key: `${n.code}-${i}`,
+      warn: n.severity === 'warn',
+      text: NOTE_PROSE[n.code](n.params ?? {}),
+    })),
+  );
 }
+
+type NoteParams = Readonly<Record<string, string | number>>;
+
+/** `params` values are `string | number` on the wire; a missing one renders an
+ *  em-dash rather than "undefined" — a note is never worth breaking a page over. */
+function str(params: NoteParams, key: string): string {
+  const v = params[key];
+  return v === undefined ? '–' : String(v);
+}
+
+function num(params: NoteParams, key: string): number {
+  const v = params[key];
+  return typeof v === 'number' ? v : Number(v ?? 0);
+}
+
+/**
+ * Localized prose per note code. EXHAUSTIVE by type — see the class doc.
+ * Wording tracks the API's own `message` fallbacks so the screen and a `curl`
+ * of the same endpoint tell the operator the same story.
+ */
+const NOTE_PROSE: Record<AdminNoteCode, (params: NoteParams) => string> = {
+  partial_day: (p) =>
+    $localize`:@@admin.notes.partialDay:${str(p, 'day')}:DAY: is not a complete UTC day yet, so its figures are still filling and will not match the digest until 00:00 UTC.`,
+
+  bot_classification_incomplete: (p) =>
+    $localize`:@@admin.notes.botClassificationIncomplete:${num(p, 'rows')}:ROWS: page views in this window were captured before bot classification and are counted as human.`,
+
+  referrer_source_incomplete: (p) =>
+    $localize`:@@admin.notes.referrerSourceIncomplete:${num(p, 'rows')}:ROWS: human page views in this window have no traffic source. This is not backfillable: the header was never stored.`,
+
+  direct_is_mixed_bucket: () =>
+    $localize`:@@admin.notes.directIsMixedBucket:Direct mixes true direct arrivals with in-app navigation: a same-origin referrer classifies as Direct.`,
+
+  visitor_definition_approximate: () =>
+    $localize`:@@admin.notes.visitorDefinitionApproximate:A visitor is a distinct browser-and-network pair within the window. It over-counts when a browser updates and under-counts behind a shared network.`,
+
+  catalog_series_is_additions_only: () =>
+    $localize`:@@admin.notes.catalogSeriesIsAdditionsOnly:This series counts creation events from the audit log: additions per day, not a net total. Rows removed later still count on the day they were added.`,
+
+  catalog_series_starts_at: (p) =>
+    $localize`:@@admin.notes.catalogSeriesStartsAt:The audit log begins ${str(p, 'earliest_day')}:EARLIEST_DAY:. Days before that read zero for want of data, not for want of activity.`,
+
+  internal_filter_unavailable: () =>
+    $localize`:@@admin.notes.internalFilterUnavailable:Internal-traffic filtering is not available, so every figure here is unfiltered.`,
+
+  internal_filter_applied: (p) =>
+    $localize`:@@admin.notes.internalFilterApplied:Figures are reported both unfiltered and excluding these networks: ${str(p, 'asns')}:ASNS:. The unfiltered figure is always the primary one.`,
+
+  requires_recompute: () =>
+    $localize`:@@admin.notes.requiresRecompute:Data-quality checks and Algolia drift are left out of this view because they need network calls. Use Recompute to run them.`,
+
+  algolia_credentials_absent: () =>
+    $localize`:@@admin.notes.algoliaCredentialsAbsent:Algolia credentials are not configured in this environment, so index drift could not be measured.`,
+
+  // AECI-579 / P1.5 — catalog coverage. `warn` for the first and last (a reader
+  // who misses them draws a wrong conclusion); `info` for the trade note.
+  funnel_is_promoted_cohort_only: (p) =>
+    $localize`:@@admin.notes.funnelIsPromotedCohortOnly:All ${num(p, 'promoted')}:PROMOTED: product(s) here are promoted, so this funnel has one populated stage by design. Promotion is the only way a product enters this database and retraction removes the row outright, so the earlier stages live in the review app, not here.`,
+
+  trade_facet_sparse_by_design: (p) =>
+    $localize`:@@admin.notes.tradeFacetSparseByDesign:Products carrying no trade (${num(p, 'untagged')}:UNTAGGED: of ${num(p, 'universe')}:UNIVERSE:) are not necessarily untagged work. Trades are applied only where a product has trade-specific value, so broad platforms correctly carry none. Read this as coverage, not as a backlog.`,
+
+  api_docs_flag_inconsistent: (p) =>
+    $localize`:@@admin.notes.apiDocsFlagInconsistent:Some products are marked as having API documentation but carry no link to it (${num(p, 'rows')}:ROWS:).`,
+};

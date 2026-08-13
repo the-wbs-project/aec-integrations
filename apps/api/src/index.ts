@@ -32,6 +32,7 @@ import {
 import { createAdminCatalogCoverageHandler } from './routes/admin-catalog';
 import { createAdminOverviewHandler } from './routes/admin-overview';
 import { createAdminTimeseriesHandler } from './routes/admin-metrics';
+import { createAdminPageViewsHandler } from './routes/admin-page-views';
 import { createAdminTrafficBreakdownHandler } from './routes/admin-traffic';
 import { createAdminSummaryHandler } from './routes/admin-summary';
 import { createEnsureProfileHandler } from './routes/auth-profile';
@@ -286,9 +287,9 @@ app.route('/', authAccount);
 //   - GET   /api/admin/reviewers    (6.11) — paginated currently-banned reviewers.
 //   - PATCH /api/admin/reviewers/:id(6.11) — ban/unban a reviewer.
 //
-// Phase 8.3 P1.1 (AECI-574) adds the admin panel's three READ endpoints to the
-// same router — no new gate, `requireAdmin()` stays the single enforcement point
-// (`ADMIN_PANEL_SPEC.md` §6/§9.1). All three are `GET`, write nothing (no
+// Phase 8.3 (AECI-574 P1.1, AECI-577 P1.3) adds the admin panel's READ endpoints
+// to the same router — no new gate, `requireAdmin()` stays the single enforcement
+// point (`ADMIN_PANEL_SPEC.md` §6/§9.1). All are `GET`, write nothing (no
 // `audit_log` row — reads emit none), and are non-cacheable by construction
 // (`json()` sets `private, no-store`; `/admin/*` is absent from
 // `ROUTE_CACHE_PATTERNS` in the SSR Worker, §9.2):
@@ -300,7 +301,11 @@ app.route('/', authAccount);
 //     aggregation (P2.1 swaps in `metrics_daily` behind the same contract).
 //   - GET /api/admin/traffic/breakdown  — grouped counts by
 //     source|country|path|product|bot.
-// Phase 8.3 P1.5 (AECI-579) adds a fourth on the same terms:
+//   - GET /api/admin/page-views         — the §5.2 Activity feed: individual
+//     visits, newest first, paginated + filtered, `entity`-hydrated. Every
+//     `page_views` read here inherits §13 D12's `/admin/*` + `/account` exclusion
+//     as a floor beneath the caller's filters.
+// Phase 8.3 P1.5 (AECI-579) adds the catalog readout on the same terms:
 //   - GET /api/admin/catalog/coverage   — the §5.5 gap lists, promotion funnel,
 //     taxonomy usage, and claim/attestation coverage. Exact counts + capped
 //     samples; `?sample=0` returns counts only. The catalog TIME SERIES stays on
@@ -321,11 +326,12 @@ authAdmin.patch(
 );
 authAdmin.get('/api/admin/reviewers', requireAdmin(), createBannedReviewersListHandler());
 authAdmin.patch('/api/admin/reviewers/:id', requireAdmin(), createBanReviewerHandler());
-// Admin panel reads (AECI-574). Registered after the moderation routes; no path
-// collides with `/api/admin/re*` or `/api/admin/summary`.
+// Admin panel reads (AECI-574, AECI-577). Registered after the moderation routes;
+// no path collides with `/api/admin/re*` or `/api/admin/summary`.
 authAdmin.get('/api/admin/overview', requireAdmin(), createAdminOverviewHandler());
 authAdmin.get('/api/admin/metrics/timeseries', requireAdmin(), createAdminTimeseriesHandler());
 authAdmin.get('/api/admin/traffic/breakdown', requireAdmin(), createAdminTrafficBreakdownHandler());
+authAdmin.get('/api/admin/page-views', requireAdmin(), createAdminPageViewsHandler());
 authAdmin.get('/api/admin/catalog/coverage', requireAdmin(), createAdminCatalogCoverageHandler());
 app.route('/', authAdmin);
 

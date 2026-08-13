@@ -410,6 +410,16 @@ Phase 6 extends the admin area with **vendor-request moderation** (`/admin/reque
 
 - **Repeat-offender prompt + ban dialog** (in `<aec-review-queue>`, `admin/reviews/review-queue.ts`) — when an admin rejects a review and that pushes the reviewer past the rejection threshold, the `PATCH /api/admin/reviews/:id` response carries a `repeat_offender` payload that raises a dismissible prompt. Confirming opens a **Spartan ban dialog** (`BrnDialog`) with a required reason; the dialog is driven **imperatively** from the event handler (`openBan()`), never from an `effect()` (a `BrnDialog.open()` inside an effect throws NG0602). Banning calls `PATCH /api/admin/reviewers/:id` `{action:'ban', reason}`.
 
+### Operator console (Phase 8.3)
+
+Phase 8.3 (`docs/ADMIN_PANEL_SPEC.md`, epic AECI-572) turns the moderation area into the **operator console**: `<aec-admin-shell>`'s `h1` becomes "Admin", its nav groups into **Insights / Catalog / Operations**, and `/admin` opens on the Overview. **No new Mobbin anchor was picked, deliberately** (spec §9.10): the console inherits the Phase 5/6 admin queues' visual language and the home stats cards' card vocabulary — bordered `--surface-raised`, border not shadow, Forest figures, `tabular-nums`, Bone/Clay-deep for anything cautionary. One publication, one voice (Anchor-Site Rule). Token-only, i18n throughout, light-only.
+
+- **Overview** (`<aec-admin-overview>`, `admin/overview/`) — the `/admin/overview` child route and the 05:00 analytics digest as a live page. Four `<aec-stat-tile>`s plus a catalog-totals card, a 30-day human-vs-bot chart, ranked top-sources / top-products lists, and a five-item status strip. A **Recompute** button re-reads the bundle with `?recompute=1` to fill the two network-dependent status items, announcing via a polite live region.
+
+- **Resolution honesty is a visual rule here, not just a data one.** Every tile's caption states the window it covers, and the unique-visitors definition renders *next to the number* rather than in a tooltip. The response's caveats render through `<aec-admin-notes>` — a Note/Caveat chip plus localized prose keyed off the API's machine-readable `code`, placed above every figure it qualifies. Unmeasured values read "Not measured", never `0`.
+
+- **Charts are hand-rolled SVG** (`admin/charts/`, spec §8 / §13 D3): `<aec-sparkline>` and `<aec-stacked-bar-chart>`, geometry from pure functions so they are SSR-safe, sized by `viewBox` rather than measurement, series in Forest and Clay-deep (distinct in hue **and** lightness). A chart is never the only representation of a number: the stacked bar carries a visible legend and a visually-hidden `<table>` of the full series, and a sparkline only ever accompanies a figure already rendered as text. An empty series renders nothing rather than a flat line implying a measured zero.
+
 ### Inputs / Fields
 
 Native inputs driven by Signal Forms today (ADR 0009); richer controls use Angular Aria per the provider note above (ADR 0010, Accepted) — `select`/`radio` are realised via combobox/listbox (Aria@22 ships neither), and these discrete-choice controls bridge into Signal Forms via `[(value)]`+`(valueChange)`, not `[formField]`. Styling binds to tokens.
@@ -439,6 +449,69 @@ The signature data component for review scores. Source Serif 4 numerals (headlin
 - **Numeric value:** Source Serif 4 600, headline scale (`clamp(1.75rem, 2.5vw + 0.75rem, 2.5rem)`), Forest color (`accent-primary`).
 - **Label below:** Atkinson Hyperlegible label scale, text-secondary color.
 - **Range marker** (optional, sparse): a single vertical mark on a 1-10 axis with no fill, no gradient, no animation — visible at a glance, not a chart.
+
+### Data visualization — operator console only (AECI-578)
+
+The admin panel (`/admin/*`, `docs/ADMIN_PANEL_SPEC.md` §8) is the one surface in
+AECi that plots multi-series data. Its primitives live in
+`apps/web/src/app/admin/charts/` and are hand-rolled SVG + HTML — there is no
+charting dependency and none is to be added (§13 D3). The method comes from the
+`dataviz` skill: pick the form, then assign colour by the job it does, then
+validate the palette with a script rather than by eye.
+
+**The series palette is scoped, and it is not a brand colour.** Eight categorical
+hues are declared under `.aec-charts` in `apps/web/src/styles.css`, deliberately
+**outside `@theme inline`** so they never become Tailwind colour utilities and
+cannot drift onto a public surface. They encode *data-series identity* on an
+operator screen. **Forest remains the sole brand primary** under the
+Forest-Anchor Rule above; nothing here is a second primary, and none of these
+hues may appear outside `/admin`.
+
+| Slot | Hue | Light | Reserved for |
+|---|---|---|---|
+| 1 | blue | `#2a78d6` | human page views |
+| 2 | orange | `#eb6834` | bot page views |
+| 3 | aqua | `#1baf7a` | — |
+| 4 | yellow | `#eda100` | — |
+| 5 | magenta | `#e87ba4` | — |
+| 6 | green | `#008300` | — |
+| 7 | violet | `#4a3aa7` | — |
+| 8 | red | `#e34948` | — |
+
+Adopted verbatim from the `dataviz` skill's validated reference palette rather
+than derived from the AECi hues, because the brand system has exactly one
+meaning-bearing hue (Forest) plus Clay deep and Error red — not a categorical
+set, and a hand-derived one would need its own validation pass. Verified as a set
+with the skill's `validate_palette.js`: lightness band PASS, chroma floor PASS,
+CVD separation PASS (worst adjacent ΔE 9.1), normal-vision floor PASS (worst
+adjacent ΔE 19.6).
+
+Rules that ride with it:
+
+- **Colour follows the entity, never its rank.** Slots are declared as part of a
+  series' identity, not assigned by array index — a filter that changes the series
+  count must not repaint the survivors. Human is always slot 1, bot always slot 2.
+- **The relief rule.** Slots 3, 4 and 5 measure below 3:1 against the light
+  surface (2.74 / 2.11 / 2.62). Any chart reaching slot 3 must ship **visible**
+  value labels. The visually-hidden data table does *not* discharge this — the
+  reader who needs the relief can see the chart.
+- **Eight is the ceiling.** A ninth generated hue is indistinguishable under CVD.
+  Past eight, fold the tail into `--chart-other` or facet.
+- **Text never wears the data colour.** Values, labels, legends and axis text use
+  `--text-primary` / `--text-secondary`; a coloured mark beside the text carries
+  identity.
+- **Marks:** 2px lines with round caps; area fills at ~10% opacity; ≤24px bars
+  with a 4px rounded data end and a square baseline; a **2px surface gap** between
+  every pair of touching fills, columns and stacked segments alike; hairline solid
+  gridlines in `--chart-grid`. White does the separating — never a stroke around a
+  mark.
+- **Never a dual axis**, never a truncated bar baseline, never a rainbow ramp.
+- **Legend for ≥2 series, none for one** (the title already names a lone series).
+- **Light only.** The skill's dark column is recorded there for the Stage 2 dark
+  reintroduction; Stage 1 ships no `dark:` variant.
+- **Responsive via `viewBox`, never a JS resize handler.** Axis labels are HTML
+  positioned by percentage over the SVG, because `viewBox` scaling would shrink
+  SVG text to unreadable sizes in a narrow column.
 
 ### Navigation
 

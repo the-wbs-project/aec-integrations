@@ -240,14 +240,30 @@ export const routes: Routes = [
   // `requireAdmin()`): a 401/403 → 404 render (don't reveal the surface); a 200 →
   // the shell + pending-count badge. A logged-out visitor is bounced to login by
   // the worker-level `isAdminPath` gate before SSR. `AdminShell` is the layout
-  // (gate + nav + badge + <router-outlet/>); the children render in the outlet,
-  // and `/admin` redirects to the review queue.
+  // (gate + nav + badge + <router-outlet/>); the children render in the outlet.
+  //
+  // AECI-576 / Phase 8.3 P1.2 — the admin area became the operator console
+  // (`docs/ADMIN_PANEL_SPEC.md` §5), so `/admin` now redirects to the Overview
+  // rather than to the review queue. The three Operations queues are unchanged.
+  // AECI-577 / P1.3 added `activity` (§5.2); AECI-578 / P1.4 added `traffic`
+  // (§5.3). The remaining §5 routes (`audience`, `catalog`, `system`) land with
+  // their own sub-issues; until then they are neither routed nor linked, so
+  // nothing in the nav can reach a 404.
   {
     path: 'admin',
     loadComponent: () => import('./admin/admin-shell').then((m) => m.AdminShell),
     resolve: { summary: adminSummaryResolver },
     children: [
-      { path: '', pathMatch: 'full', redirectTo: 'reviews' },
+      { path: '', pathMatch: 'full', redirectTo: 'overview' },
+      {
+        path: 'overview',
+        loadComponent: () => import('./admin/overview/overview').then((m) => m.AdminOverview),
+      },
+      // AECI-577 / Phase 8.3 P1.3 — the §5.2 Activity feed, under Insights.
+      {
+        path: 'activity',
+        loadComponent: () => import('./admin/activity/activity-feed').then((m) => m.ActivityFeed),
+      },
       {
         path: 'reviews',
         loadComponent: () => import('./admin/reviews/review-queue').then((m) => m.ReviewQueue),
@@ -259,6 +275,13 @@ export const routes: Routes = [
       {
         path: 'reviewers',
         loadComponent: () => import('./admin/reviewers/reviewer-bans').then((m) => m.ReviewerBans),
+      },
+      // AECI-578 — Phase 8.3 P1.4, the §5.3 Traffic section. Renders the two
+      // AECI-574 read endpoints; inherits the parent's gate and non-cacheable
+      // branch, so nothing route-level changes here.
+      {
+        path: 'traffic',
+        loadComponent: () => import('./admin/traffic/traffic').then((m) => m.AdminTraffic),
       },
       // AECI-579 / Phase 8.3 P1.5 — the operator console's catalog section
       // (`ADMIN_PANEL_SPEC.md` §5.5). No resolver of its own: the parent's

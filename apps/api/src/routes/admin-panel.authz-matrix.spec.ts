@@ -1,7 +1,7 @@
 /**
- * Admin-panel deny-matrix (AECI-574) — the AC's "a non-admin receiving 403",
- * exercised against the **real** `requireAdmin()` guard rather than a handler
- * mounted bare.
+ * Admin-panel deny-matrix (AECI-574, extended by AECI-577) — the AC's "a
+ * non-admin receiving 403", exercised against the **real** `requireAdmin()` guard
+ * rather than a handler mounted bare.
  *
  * The per-route specs (`admin-overview.spec.ts` etc.) mount the handler alone, so
  * they prove the queries and never touch authorization. This file is the other
@@ -35,6 +35,7 @@ import { fakeExecutionContext } from '../test/helpers';
 import { createAdminCatalogCoverageHandler } from './admin-catalog';
 import { createAdminTimeseriesHandler } from './admin-metrics';
 import { createAdminOverviewHandler } from './admin-overview';
+import { createAdminPageViewsHandler } from './admin-page-views';
 import { createAdminTrafficBreakdownHandler } from './admin-traffic';
 
 const SUPABASE_URL = 'https://test-project.supabase.co';
@@ -58,6 +59,10 @@ const ROUTES = [
   {
     name: 'GET /api/admin/traffic/breakdown',
     url: '/api/admin/traffic/breakdown?dimension=source&from=2026-08-10&to=2026-08-10',
+  },
+  {
+    name: 'GET /api/admin/page-views',
+    url: '/api/admin/page-views?from=2026-08-10&to=2026-08-10',
   },
   { name: 'GET /api/admin/catalog/coverage', url: '/api/admin/catalog/coverage' },
 ] as const;
@@ -94,6 +99,11 @@ function makeApp() {
     '/api/admin/traffic/breakdown',
     requireAdmin(guard),
     createAdminTrafficBreakdownHandler(t.factory, clock),
+  );
+  app.get(
+    '/api/admin/page-views',
+    requireAdmin(guard),
+    createAdminPageViewsHandler(t.factory, clock),
   );
   app.get(
     '/api/admin/catalog/coverage',

@@ -50,7 +50,7 @@ const GAP_KEYS: readonly AdminCoverageGapKey[] = [
 const ADDITIONS_NOTE: AdminNote = {
   code: 'catalog_series_is_additions_only',
   severity: 'warn',
-  message: 'This series counts creation events from the audit log.',
+  message: 'WIRE FALLBACK — untranslated operator message',
   params: { metric: 'catalog.products_created' },
 };
 
@@ -262,17 +262,17 @@ describe('CatalogCoverage', () => {
       const { el } = await setup(makeApiMock());
 
       const text = additionsSection(el).textContent ?? '';
-      expect(text).toContain('counts records ADDED each day');
-      expect(text).toContain('not a running total');
+      expect(text).toContain('additions per day');
+      expect(text).toContain('not a net total');
       // Localized prose, never the API's untranslated `message` or raw code.
       expect(text).not.toContain('catalog_series_is_additions_only');
-      expect(text).not.toContain('creation events from the audit log');
+      expect(text).not.toContain('WIRE FALLBACK');
     });
 
     it('disappears when the API stops sending the note (what P2.1 will do)', async () => {
       const { el } = await setup(makeApiMock({ timeseries: vi.fn(async () => makeSeries([])) }));
 
-      expect(additionsSection(el).textContent).not.toContain('not a running total');
+      expect(additionsSection(el).textContent).not.toContain('not a net total');
       // The table itself is still there — only the caveat went away.
       expect(additionsSection(el).querySelector('table')).not.toBeNull();
     });
@@ -505,7 +505,7 @@ describe('CatalogCoverage', () => {
       expect(additionsSection(el).textContent).toContain('Nothing was added');
       expect(additionsSection(el).querySelector('table')).toBeNull();
       // The caveat still shows — it explains the number that is being reported.
-      expect(additionsSection(el).textContent).toContain('not a running total');
+      expect(additionsSection(el).textContent).toContain('not a net total');
     });
   });
 

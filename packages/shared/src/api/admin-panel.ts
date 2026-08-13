@@ -3,13 +3,15 @@ import { z } from 'zod';
 import { LinkRefSchema, PageQuerySchema, paginatedResponseSchema } from './common';
 
 /**
- * Admin panel read contracts (AECI-574 / Phase 8.3 P1.1, extended by AECI-579 /
- * P1.5) — the endpoints the rest of the operator console renders from. Source of
+ * Admin panel read contracts (AECI-574 / Phase 8.3 P1.1, extended by AECI-577 /
+ * P1.3 and AECI-579 / P1.5) — the endpoints the rest of the operator console
+ * renders from. Source of
  * truth: `docs/ADMIN_PANEL_SPEC.md` §6, `docs/API_CONTRACTS.md` §6.10.
  *
  *   GET /api/admin/overview           — the §5.1 bundle in one round trip
  *   GET /api/admin/metrics/timeseries — a single metric, day-bucketed
  *   GET /api/admin/traffic/breakdown  — grouped counts over a window
+ *   GET /api/admin/page-views         — the §5.2 Activity feed, row by row
  *   GET /api/admin/catalog/coverage   — the §5.5 gap lists, funnel, and taxonomy usage
  *
  * All are `GET`, admin-gated (`requireAdmin()`), and **read-only**: no
@@ -121,6 +123,11 @@ export type AdminNote = z.infer<typeof AdminNoteSchema>;
  * is false when the var is unset — the UI hides the toggle rather than showing a
  * disabled one. `applied` is whether THIS response's `excluding_internal` values
  * were actually computed.
+ *
+ * **One endpoint reads `applied` differently**, and deliberately:
+ * {@link AdminPageViewsResponseSchema} is a row feed, not a count, so there the
+ * flag means *"the row list was filtered"*. Its counts are computed both ways
+ * unconditionally — see that schema's docblock for why.
  */
 export const AdminInternalFilterSchema = z.object({
   available: z.boolean(),
@@ -736,3 +743,157 @@ export const AdminCatalogCoverageResponseSchema = z.object({
   claim_coverage: AdminClaimCoverageSchema,
 });
 export type AdminCatalogCoverageResponse = z.infer<typeof AdminCatalogCoverageResponseSchema>;
+
+// ─── GET /api/admin/page-views ───────────────────────────────────────────────
+
+/**
+ * Filter sentinel meaning "this column IS NULL".
+ *
+ * The breakdown endpoint surfaces NULL groups as their own bucket (`key: null`)
+ * rather than dropping them, because dropping them is how a source breakdown
+ * quietly starts claiming attribution it does not have. The feed's `source` and
+ * `country` filters need a way to *select* that bucket, and a query string cannot
+ * carry a null — hence a sentinel rather than a second boolean parameter.
+ *
+ * It is deliberately not a value either column can legitimately hold:
+ * `referrer_source` comes from `lib/referrer-classification.ts`'s closed label
+ * table and `cf_country` is a two-character Cloudflare code.
+ */
+export const ADMIN_PAGE_VIEW_NULL_FILTER = '__none__';
+
+/**
+ * The §5.2 Activity feed's filters. `from` / `to` are UTC calendar dates, both
+ * inclusive, and are **required** — the same contract as
+ * {@link AdminTrafficBreakdownQuerySchema}, so the two page_views endpoints
+ * cannot disagree about what window they are describing.
+ *
+ * `traffic` defaults to `human`, matching §5.2's stated filter default.
+ *
+ * Note what is NOT here: the `/admin/*` + `/account` exclusion. That is §13
+ * **D12**'s read-side floor, applied *beneath* these filters and not settable by
+ * a caller, so no combination of query parameters can surface an operator row.
+ */
+export const AdminPageViewsQuerySchema = PageQuerySchema.extend({
+  from: utcDate,
+  to: utcDate,
+  traffic: AdminTrafficPopulationSchema.default('human'),
+  /** Exact `referrer_source` match, or {@link ADMIN_PAGE_VIEW_NULL_FILTER}. */
+  source: z.string().min(1).max(64).optional(),
+  /** Exact `cf_country` match, or {@link ADMIN_PAGE_VIEW_NULL_FILTER}. */
+  country: z.string().min(1).max(8).optional(),
+  /** Substring match on `path`. `%` and `_` are escaped server-side, so operator
+   *  input is matched literally rather than as a LIKE pattern. */
+  path_contains: z.string().min(1).max(200).optional(),
+  exclude_internal: z
+    .enum(['0', '1'])
+    .default('0')
+    .transform((v) => v === '1'),
+});
+export type AdminPageViewsQuery = z.infer<typeof AdminPageViewsQuerySchema>;
+
+/**
+ * One visit. The column set is §5.2's mapping of PostHog's Activity explorer, and
+ * two absences in it are load-bearing rather than incidental:
+ *
+ * **`visitor_hash` is the FIRST 8 CHARACTERS of `user_agent_hash`, truncated in
+ * SQL.** §9.7 requires the panel to render "a truncated hash as a pseudonymous
+ * visitor id" and to "not attempt correlation beyond that". Truncating at the
+ * query rather than in the template means the full hash never crosses the wire at
+ * all — the privacy property is enforced by this contract instead of by UI
+ * discipline, and cannot be undone by a later template change.
+ *
+ * **`user_id`, `session_id` and `profile_role` are absent and stay absent.** §13
+ * **D7** settled that the three dead columns are *dropped* (AECI-585), not
+ * filled, and that no session identifier is introduced — a durable first-party id
+ * is exactly what would drag `page_views` back inside the consent question this
+ * feed exists to route around. A visitor is therefore
+ * `(user_agent_hash, cf_asn)` and nothing more (§9.8).
+ *
+ * `path` is the route **pattern** (`/products/:slug`) as stored at ingest, so
+ * `entity` carries the real name for product and vendor rows. A taxonomy row
+ * hydrates to `null` and renders as the bare pattern until AECI-585 stores the
+ * concrete path; `entity` is also `null` when the referenced row has since been
+ * deleted, matching the `target` fallback on `/api/admin/requests`.
+ */
+export const AdminPageViewRowSchema = z.object({
+  id: z.number().int().positive(),
+  created_at: z.string().datetime(),
+
+  /** `null` = never classified. Those rows read as HUMAN under the digest's
+   *  `is_bot IS NOT 1` predicate, which is what `bot_classification_incomplete`
+   *  exists to disclose. */
+  is_bot: z.boolean().nullable(),
+  bot_name: z.string().nullable(),
+
+  /** Truncated to 8 characters server-side — never the full hash. */
+  visitor_hash: z.string().nullable(),
+  cf_asn: z.number().int().positive().nullable(),
+
+  cf_country: z.string().nullable(),
+  /** The Cloudflare colo, which *is* the nearest city (§5.2). */
+  cf_colo: z.string().nullable(),
+
+  path: z.string().min(1),
+  entity_type: z.enum(['product', 'vendor']).nullable(),
+  entity: LinkRefSchema.nullable(),
+
+  /** `null` means unknown, NOT `Direct` — every row before August 2026 has it
+   *  null and is not backfillable. The UI must not collapse the two (§1.1). */
+  referrer_source: z.string().nullable(),
+  /** External referrer HOST only, never the path or query (AECI-526 / §9.7). */
+  referrer: z.string().nullable(),
+});
+export type AdminPageViewRow = z.infer<typeof AdminPageViewRowSchema>;
+
+/**
+ * The standard paginated envelope plus the honesty fields. `total` is the number
+ * of **rows** matching every applied filter, so it is what paginates.
+ *
+ * ─── Why the internal-ASN filter behaves differently here ─────────────────────
+ *
+ * §13 **D10** constraint 2 is "show both numbers, never substitute". On a count
+ * endpoint that falls out of {@link AdminCountSchema} for free. On a *row feed* it
+ * does not: `exclude_internal=1` removes rows, and if the counts were computed the
+ * same way the operator would simply see a smaller number with nothing to compare
+ * it against — which is the substitution the constraint forbids.
+ *
+ * So this endpoint resolves the filter twice. `window_total` and
+ * `window_visitors` are computed **both ways unconditionally** whenever
+ * `ANALYTICS_INTERNAL_ASNS` is set, toggle or no toggle, so the UI can always
+ * render "1,204 views · 312 excluding internal traffic". `exclude_internal` then
+ * governs only which rows come back. This follows the precedent already set by
+ * `/api/admin/overview`, which likewise always asks — its whole job is to show
+ * both figures side by side.
+ *
+ * Two consequences worth knowing before reading a response:
+ *
+ * - `internal_filter.applied` means **"the row list was filtered"**, not "the
+ *   second count was computed". It is the toggle's state.
+ * - Both counts honour `source` / `country` / `path_contains`, so they reconcile
+ *   with `total`: with the toggle off `total === window_total.total`, and with it
+ *   on `total === window_total.excluding_internal`.
+ *
+ * When the var is unset — the shipped default on every tier — `excluding_internal`
+ * is null on both counts and the UI hides the toggle entirely (§13 D10
+ * constraint 3).
+ *
+ * `window_visitors` is §9.8's definition: distinct `(user_agent_hash, cf_asn)`
+ * pairs in the window. §13 D7 requires that definition, and its over-count (a
+ * browser update changes the UA) and under-count (shared NAT), to appear next to
+ * the number in the UI — `visitor_definition_approximate` is always in `notes` for
+ * this reason.
+ */
+export const AdminPageViewsResponseSchema = paginatedResponseSchema(AdminPageViewRowSchema).extend({
+  traffic: AdminTrafficPopulationSchema,
+  window: AdminWindowSchema,
+  generated_at: z.string().datetime(),
+  source: AdminMetricSourceSchema,
+  notes: z.array(AdminNoteSchema),
+  /** `applied` = the ROW LIST was filtered. See the docblock above. */
+  internal_filter: AdminInternalFilterSchema,
+  /** Views matching every filter EXCEPT `exclude_internal`, in both forms. */
+  window_total: AdminCountSchema,
+  /** §9.8 distinct `(user_agent_hash, cf_asn)` pairs, in both forms. */
+  window_visitors: AdminCountSchema,
+});
+export type AdminPageViewsResponse = z.infer<typeof AdminPageViewsResponseSchema>;
