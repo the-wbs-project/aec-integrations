@@ -804,18 +804,40 @@ create index audit_log_created_at_idx on audit_log(created_at desc);
 
 Server-side page view log with Cloudflare header enrichment. Privacy-respecting (no raw IPs, hashed user agents).
 
-**Read surfaces:** the 05:00 analytics digest (`lib/analytics-digest.ts`) and the admin panel's four `GET /api/admin/*` reads (`API_CONTRACTS.md` §6.10). Of those, only `GET /api/admin/page-views` (AECI-577, the §5.2 Activity feed) returns individual rows, and it does **not** return `user_agent_hash` — it returns `substr(user_agent_hash, 1, 8)`, computed in SQL, so the full hash never leaves the API. It also never selects `user_id`, `session_id`, or `profile_role`; §13 **D7** drops those three (AECI-585) rather than filling them, and no session identifier is being introduced.
+**Read surfaces:** the 05:00 analytics digest (`lib/analytics-digest.ts`) and the admin panel's four `GET /api/admin/*` reads (`API_CONTRACTS.md` §6.10). Of those, only `GET /api/admin/page-views` (AECI-577, the §5.2 Activity feed) returns individual rows, and it does **not** return `user_agent_hash` — it returns `substr(user_agent_hash, 1, 8)`, computed in SQL, so the full hash never leaves the API. `user_id`, `session_id` and `profile_role` are gone entirely: §13 **D7** dropped all three (AECI-585, migration `0013`) rather than filling them, and no session identifier is being introduced.
 
 **`path` holds public routes only** (AECI-575 / `ADMIN_PANEL_SPEC.md` §9.6). Neither writer records the operator-only prefixes in `@aeci/shared` `UNTRACKED_ROUTE_PREFIXES` (`/admin`, `/account`) — the admin console must not write into the table it reads. Rows captured before that shipped are still present, and every read applies the same exclusion, so query this table with `path not in ('/admin','/account') and path not like '/admin/%' and path not like '/account/%'` if you want numbers that match the daily digest. (The match is on an exact prefix boundary — a bare `path not like '/admin%'` would wrongly drop look-alike public routes like `/administrators`, which the digest still counts.)
+
+**`path` vs `concrete_path` (AECI-585).** `path` is the route the *writer* named: the pattern (`/products/:slug`) when it knows one — an SSR resolver attached `ctx.pageView` — and the concrete path otherwise (the browser tracker, an SSR cache HIT). It has always been that mix; nothing changed about it. `concrete_path` is new and is *always* the real URL path, locale-stripped and without query or hash. Both are stored because they answer different questions: grouping "top pages" wants the pattern, naming an individual row wants the concrete path. Product and vendor rows could always recover a name through their FK; taxonomy rows could not, which is what made this column necessary.
 
 ```sql
 create table page_views (
   id bigserial primary key,
-  path text not null, -- public routes only; /admin* and /account are never recorded (AECI-575)
+  path text not null, -- route PATTERN when the writer knows one, else concrete; public routes only (AECI-575)
+  concrete_path text, -- always the real URL path, locale-stripped, no query/hash (AECI-585); null before it shipped
   product_id uuid references products(id),
   vendor_id uuid references vendors(id),
-  user_id uuid references profiles(id),
-  session_id text,
+
+  -- Which taxonomy term a facet browse page showed (AECI-585 / ADMIN_PANEL_SPEC.md §7.3).
+  -- Two columns for four facets ('category' | 'audience' | 'phase' | 'trade'), and
+  -- deliberately NOT foreign keys: SQLite cannot point one column at four tables, and a
+  -- hard FK would block ever deleting a term (retract-product.ts already has to delete
+  -- page_views rows for exactly that reason on products). Integrity comes from the
+  -- ingest-time existence check in routes/page-views.ts — an unknown id stores as null,
+  -- and the KIND is stored only alongside a confirmed id, so a dangling kind can never
+  -- inflate a per-facet count with unattributable rows. No CHECK on the kind either: this
+  -- is a log table whose write is swallowed on error, so a constraint violation would
+  -- silently drop the row rather than surface anything.
+  taxonomy_kind text,
+  taxonomy_id text,
+
+  -- How the visitor got here (AECI-585): 'arrival' = full-document load (the SSR Worker's
+  -- firePageView), 'spa' = in-app navigation (the browser PageViewTracker). Null = unknown,
+  -- which is every row written before this shipped. NEVER inferred — the same-origin
+  -- Referer on an SPA hop classifies as Direct, which is exactly the conflation this
+  -- column exists to undo, so a guess would recreate the bug in a new column.
+  navigation text,
+
   referrer text, -- external referrer HOST only, no path/query (AECI-526); null for Direct/same-origin
 
   -- Campaign attribution (AECI-243 / §11.2) — populated only on tagged arrivals
@@ -827,6 +849,14 @@ create table page_views (
   cf_country text,
   cf_colo text,
   cf_asn integer,
+  -- The AS holder NAME beside the number (AECI-585 / §13 D10), mirroring
+  -- mailing_list.as_organization. An ASN cannot label itself: without this the panel's
+  -- internal-traffic filter reads "excluding AS23700" and the bot classifier's weekly
+  -- audit is a list of bare numbers. READ-side signal only — it never feeds is_bot at
+  -- ingest, because that verdict is permanent and DATACENTER_ASNS's membership doctrine
+  -- is deliberately strict (POST_LAUNCH_MONITORING.md §3b names holder-name matching as
+  -- the durable fix: "not a longer list").
+  cf_as_organization text,
   cf_bot_score integer,
 
   -- Request metadata
@@ -855,18 +885,26 @@ create table page_views (
   -- rows captured before this shipped (the Referer was never stored → not backfillable).
   referrer_source text,
 
-  -- Profile-derived (denormalized)
-  profile_role text,
-
+  -- user_id / session_id / profile_role were DROPPED by AECI-585 (§13 D7, migration 0013).
+  -- All three were declared at init and never written by any code path. Do not reintroduce
+  -- them: there is no client-side session id anywhere in apps/web, and minting one would
+  -- create a durable first-party identifier — precisely what makes this table's write
+  -- defensible as consent-independent today. user_id was reachable on the browser POST but
+  -- never on the SSR arrival path, so it would have been right half the time.
   created_at timestamptz not null default now()
 );
 
 create index page_views_path_idx on page_views(path, created_at);
 create index page_views_product_idx on page_views(product_id, created_at) where product_id is not null;
 create index page_views_country_idx on page_views(cf_country, created_at);
-create index page_views_user_idx on page_views(user_id, created_at) where user_id is not null;
 create index page_views_bot_idx on page_views(is_bot, created_at); -- digest human/bot split + crawler grouping
+-- page_views_user_idx is gone with its column (AECI-585). No index was added for the
+-- five AECI-585 columns: nothing groups or filters on them yet, and this is the hottest
+-- write path in the app (D1 bills rows written, index rows included). Add one with the
+-- read that needs it.
 ```
+
+**Migration `0013` is the repo's first table recreate** — every `ALTER` before it is an `ADD`. SQLite refuses `DROP COLUMN` on a column carrying an index **or** a `FOREIGN KEY` clause, and `user_id` had both (`page_views_user_idx` + the FK to `profiles`), so the drop is a `__new_page_views` copy-and-rename; `session_id` and `profile_role` ride along in it for free. Two things about that file are load-bearing: the copy lists `id` explicitly, so the autoincrement PK survives (the Activity feed paginates on `(created_at DESC, id DESC)` and would repeat or skip rows otherwise), and drizzle-kit's emitted `PRAGMA foreign_keys=OFF` was **hand-replaced with `PRAGMA defer_foreign_keys = true`**, which is the lever D1 supports. Regenerating that migration reintroduces the wrong pragma. See `docs/migrations.md`.
 
 ### 9.2 `stats_cache`
 

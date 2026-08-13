@@ -85,6 +85,20 @@
       "when": 1786599654110,
       "tag": "0011_aspiring_nomad",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1786606512317,
+      "tag": "0012_glossy_ultron",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1786606528128,
+      "tag": "0013_careful_absorbing_man",
+      "breakpoints": true
     }
   ]
 }

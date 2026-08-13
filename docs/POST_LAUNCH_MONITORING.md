@@ -239,6 +239,15 @@ genuine visitors sharing the operator's ISP, which only `ANALYTICS_INTERNAL_ASNS
 (`ADMIN_PANEL_SPEC.md` §13 D10, unbuilt) or the holder-name fix can separate. Until then, treat the digest's
 human count as an **upper bound**.
 
+**Half of that fix has landed: `page_views.cf_as_organization`** (AECI-585 / §13 D10) captures the holder
+name at ingest, so from that deploy forward the `curl stat.ripe.net` step above is only needed for
+**older** rows — the census query can select `cf_as_organization` directly and read the holder off the
+result. It changes nothing about the audit's doctrine: the name is a **read-side label**, it never feeds
+`is_bot` at ingest, and widening `DATACENTER_ASNS` remains the only thing that writes a classification, with
+the same "a false positive silently deletes a real visitor" rule. Two limits to keep in mind — it is null on
+every row written before the deploy and is not backfillable, and matching *on* the holder name is still
+unbuilt: this is the capture, not the classifier.
+
 ---
 
 ## 4. Triage → ticket loop

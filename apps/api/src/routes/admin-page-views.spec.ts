@@ -188,8 +188,9 @@ describe('GET /api/admin/page-views — the feed', () => {
       entity_type: 'vendor',
       entity: { id: u(9), name: 'Autodesk, Inc.', slug: 'autodesk' },
     });
-    // AECI-585 stores the concrete path; until then a taxonomy row cannot say
-    // WHICH term was viewed, so it renders as the bare pattern.
+    // AECI-585 stores `concrete_path` / `taxonomy_kind` / `taxonomy_id` at ingest,
+    // but this endpoint does not read them (that issue was ingest-only), so a
+    // taxonomy row still renders as the bare pattern with no entity.
     expect(byPath.get('/categories/:slug')).toMatchObject({ entity_type: null, entity: null });
   });
 
