@@ -166,6 +166,8 @@ Renders empty states until signups begin (§3). Cheap to build alongside §5.3 a
 
 ### 5.5 Catalog
 
+**SHIPPED 2026-08-13 (AECI-579 / P1.5)** — `/admin/catalog`, the console's first screen.
+
 - **Counts over time** — products / integrations / vendors / claims (§7.1), with the pre-snapshot segment visually marked as an audit-log approximation.
 - **Additions per day** from `audit_log` `*.created` events.
 - **Promotion funnel** — `pending → ready → promoted → retracted / rejected` from `products.promotion_status`.
@@ -174,6 +176,14 @@ Renders empty states until signups begin (§3). Cheap to build alongside §5.3 a
 - **Claims / attestations** counts and coverage per integration (Stage 1.5 spine).
 
 This is the section that steers daily catalog work, and the one whose underlying data is richest today.
+
+**Three things this section says that the build had to correct or sharpen (AECI-579):**
+
+**(1) The gap lists cannot link out to the review app, and do not.** An earlier draft of this section, and the "Read-only, emphatically" framing below it, both required every gap row to be *"a link out to the review app, not an edit surface"*. The read-only half stands and is absolute. The link half is **not constructible**: **ADR 0021 deliberately kept the curation key out of D1** — `REVIEW_APP_PROMOTE_API.md` states plainly that *"AECi does **not** store your Airtable/record IDs"*, and that ADR vetoed `airtable_record_id` on `products` as "no curation-tool key in the public schema". There is therefore no identifier in D1 from which a per-row review-app URL could be built, and adding one would reopen a settled decision for a convenience link. **Sample rows link to the AECi product page** (`/products/:slug`) instead, which is the honest available target and is also the more useful one for verifying a gap: it shows the operator exactly what a visitor sees. Nothing about the read-only rule changes — there is no edit affordance anywhere on the screen.
+
+**(2) "Counts over time" and "additions per day" are one series, and it is not this endpoint's.** Both bullets are served by `GET /api/admin/metrics/timeseries` with the `catalog.*` metric keys, which P1.1 already shipped complete with `catalog_series_is_additions_only`. `GET /api/admin/catalog/coverage` deliberately does not carry a second copy. Until §7.1's snapshot exists there is exactly one honest series here — **additions**, from the event stream — and the screen renders it as such with the approximation banner attached, rather than drawing a cumulative curve that §4 shows would be wrong (827 `integration.created` events against 496 live rows).
+
+**(3) The untagged-trade count is not a backlog.** This section lists "untagged per facet (`product_trades` is 0)" alongside missing logos and missing vendors. Those are not the same kind of number. `TRADES_VOCABULARY.md` §1.1 tags a product **only** where it has trade-*specific* value, so horizontal platforms (Procore, Autodesk Build, Bluebeam) correctly carry zero rows — the join is sparse by design and most of the catalog will never be tagged. The count is still worth surfacing (nothing at all is tagged today), but it ships with a `trade_facet_sparse_by_design` note. Presenting it as a to-do list without that caveat would make the screen actively misleading.
 
 ### 5.6 System
 
@@ -198,7 +208,7 @@ All endpoints are `GET`, admin-gated, read-only. They register on the existing `
 | `GET /api/admin/page-views` | §5.2 feed | Paginated + filtered; entity-hydrated `LinkRef` |
 | `GET /api/admin/metrics/timeseries` | `?metric=&from=&to=&interval=day` | Serves `metrics_daily` (§7.1); falls back to live aggregation pre-snapshot |
 | `GET /api/admin/traffic/breakdown` | `?dimension=source\|country\|path\|product\|bot` | Grouped counts over a window |
-| `GET /api/admin/catalog/coverage` | §5.5 gap lists + funnel | Capped sample rows, exact counts |
+| `GET /api/admin/catalog/coverage` | §5.5 gap lists + funnel | Capped sample rows, exact counts. `?sample=` (0–50, default 10); `0` returns counts only. **No `window`** — see the P1.5 notes below |
 | `GET /api/admin/audience` | §5.4 aggregates | Subscribers, churn, UTM, geo |
 | `GET /api/admin/feedback` | Paginated feedback list | First read surface for the table |
 | `GET /api/admin/system` | §5.6 bundle | Version, cron runs, latest DQ, Algolia, table counts. `?recompute=1` re-runs the ten DQ checks live (pure read) |
@@ -219,6 +229,15 @@ Nothing about D8's boundary moves: both are still pure reads. From P2.1 the flag
 1. **Digest parity is structural, not periodic.** The overview *calls* `collectAnalyticsMetrics(db, windowsForDay(day))` rather than mirroring its queries, and its deltas come from an exported `computeDelta` that the email's own `deltaText` also calls. There is one implementation of each number. Deltas cross the wire **structured** (`{ current, prior, diff, pct }`), not as the email's prose, because §9.4's i18n rule is unconditional — the semantics are shared, the strings are the UI's.
 2. **Bias notes are derived from the window, not from a date.** `bot_classification_incomplete` fires because the window contains `is_bot IS NULL` rows, so it disappears on its own once P2.2 backfills. Nothing hardcodes 2026-08-05.
 3. **Note `code` is the contract; `message` is a fallback.** The UI localizes from `code` + `params`; `message` (and a null group's `label`) is untranslated operator text for curl and logs. This is what lets §1.1's "machine-readable notes rather than the UI hardcoding prose" coexist with §9.4.
+
+**P1.5 implementation notes (AECI-579).** Contracts extend the same
+`packages/shared/src/api/admin-panel.ts`; handler in `apps/api/src/routes/admin-catalog.ts`
+over `apps/api/src/lib/admin-catalog.ts`. Four choices are worth knowing before extending them:
+
+1. **Coverage carries no `window`, and that is the point.** The three P1.1 endpoints aggregate over a UTC range. Coverage describes *current state* — "how many products have no logo" has no time range — so it reports `generated_at` / `source` / `notes` and nothing else from the envelope. Inventing a window would be the false precision §1.1 exists to prevent.
+2. **The catalog time series stayed on `/metrics/timeseries`.** The screen makes five reads on arrival: one coverage call plus four `catalog.*_created` series. Widening the coverage response to carry them would have put a second implementation of the same number behind the same screen, which is the failure mode P1.1's note 1 already guards against for the digest.
+3. **One statement for eight gap counts.** All eight gaps (plus the `has_api_docs`/`api_docs_url` consistency probe) come from a single conditional-aggregation `SELECT` over `products`, not eight `count(*)` round trips. Beyond cost, it means all eight see the same snapshot — a promote landing mid-request cannot make the numbers disagree with each other. Sample queries then run only for gaps that found something, and not at all when `?sample=0`.
+4. **Correlated subqueries must be explicitly qualified.** Interpolating a Drizzle column into a `sql` template emits a **bare** name (`"id"`) when the surrounding statement has no join — and inside a correlated subquery a bare name binds to the *inner* table if it has a column of that name. `claims` has an `id`, so `… from claims where "data_object_id" = "id"` silently compares two `claims` columns and every data-object count returns 0. The facet joins (`product_categories` and friends) have no `id` column, so the same construction happens to work there, which is exactly the accident that rots when someone adds a surrogate key. `lib/admin-catalog.ts` derives `"table"."column"` from the schema (`col()` / `tbl()`) for every correlated reference; `lib/drizzle-helpers.ts` solves the same problem by hand-writing the qualified name into the template string.
 
 ---
 
@@ -313,6 +332,8 @@ This does **not** contradict `STAGE_1_SPEC.md` §26.6 ("no archiving or pruning 
 
 **Hand-rolled SVG. No charting dependency.** `apps/web` currently has no chart library and the chart vocabulary here is small: sparkline, line, stacked bar/area, horizontal bar, donut. Components live in `apps/web/src/app/admin/charts/`.
 
+> **Status.** The directory does not exist yet — **P1.4 (AECI-578) creates it**. P1.5 shipped first and rendered its counts-over-time as an accessible `<table>` rather than pulling the primitives forward. That is deliberate layering, not a shortcut: the "Accessible" rule below already requires a visually-hidden table carrying the same series under every chart, so AECI-578 adds the SVG *above* an existing, already-tested table rather than replacing anything.
+
 Rules:
 
 - **SSR-safe.** Geometry is computed from data in pure functions — no DOM measurement, no `window`, no post-hydration layout pass.
@@ -353,7 +374,7 @@ Issue-sized units. Phase 1 requires **no schema change** and carries most of the
 | **P1.2** | AECI-576 | UI: shell nav restructure (three groups, `h1` → "Admin") + Overview | P1.1, §9.6 |
 | **P1.3** | AECI-577 | API + UI: `GET /api/admin/page-views` + the Activity feed | P1.1 |
 | **P1.4** | AECI-578 | UI: Traffic section + the chart primitives (§8) | P1.1 |
-| **P1.5** | AECI-579 | API + UI: Catalog coverage + promotion funnel | — |
+| **P1.5** | AECI-579 | API + UI: Catalog coverage + promotion funnel — **SHIPPED 2026-08-13** (`GET /api/admin/catalog/coverage` + `/admin/catalog`; table-first, charts deferred to P1.4) | — |
 | **P1.6** | AECI-580 | API + UI: System status (version, DQ on demand, Algolia, table counts) | — |
 | **P2.1** | AECI-581 | `metrics_daily` + snapshot cron + backfill, **plus `products.promoted_at`** (§13 D6) | P1.4 |
 | **P2.2** | AECI-582 | Run the page-view bot backfill on production | — |

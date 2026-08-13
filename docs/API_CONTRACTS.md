@@ -1166,15 +1166,15 @@ themselves (a banned admin would lock themselves out of `requireAdmin()`).
 
 ---
 
-#### Admin panel reads (AECI-574 / Phase 8.3 P1.1)
+#### Admin panel reads (AECI-574 / Phase 8.3 P1.1, extended by AECI-579 / P1.5)
 
-Three `GET`s serving the operator console (`docs/ADMIN_PANEL_SPEC.md` §5–§6).
+Four `GET`s serving the operator console (`docs/ADMIN_PANEL_SPEC.md` §5–§6).
 Source of truth: `packages/shared/src/api/admin-panel.ts` (Zod), and
-`apps/api/src/routes/admin-{overview,metrics,traffic}.ts` + `lib/admin-analytics.ts`
-(handlers). They register on the same `authAdmin` sub-router behind
-`requireAdmin()` — no new gate.
+`apps/api/src/routes/admin-{overview,metrics,traffic,catalog}.ts` +
+`lib/admin-{analytics,catalog}.ts` (handlers). They register on the same
+`authAdmin` sub-router behind `requireAdmin()` — no new gate.
 
-**Conventions that apply to all three.** Read-only: **no `audit_log` row** (reads
+**Conventions that apply to all four.** Read-only: **no `audit_log` row** (reads
 emit nothing, §26.1 as scoped by ADR 0022). **No `Cache-Tag`, no edge caching** —
 `json()` sets `private, no-store` and `/admin/*` is absent from
 `ROUTE_CACHE_PATTERNS` in `server-runtime.ts`, which `server.spec.ts` asserts; a
@@ -1208,6 +1208,10 @@ export const AdminNoteCodeSchema = z.enum([
   'internal_filter_applied',
   'requires_recompute',                // an expensive status item was omitted
   'algolia_credentials_absent',
+  // AECI-579 / P1.5 — catalog coverage
+  'funnel_is_promoted_cohort_only',    // every product reads 'promoted' (§13 D6)
+  'trade_facet_sparse_by_design',      // untagged trades are not a backlog
+  'api_docs_flag_inconsistent',        // has_api_docs set with no api_docs_url
 ]);
 
 export const AdminNoteSchema = z.object({
@@ -1442,6 +1446,132 @@ since grouping human rows by `bot_name` returns one empty bucket.
 
 Errors: `VALIDATION_FAILED` (400) for an unknown `dimension`, a bad/reversed date
 range, an over-long window, or `perPage > 100`.
+
+#### `GET /api/admin/catalog/coverage`
+
+The §5.5 catalog readout (AECI-579 / Phase 8.3 P1.5): coverage gaps, the promotion
+funnel, the `research_status` distribution, taxonomy usage per facet, and the
+Stage 1.5 claim/attestation spine. Handler `apps/api/src/routes/admin-catalog.ts`
+over `lib/admin-catalog.ts`; same `authAdmin` sub-router, same `requireAdmin()`,
+same read-only conventions as the three above.
+
+```typescript
+export const AdminCatalogCoverageQuerySchema = z.object({
+  // Rows per gap list. 0 = exact counts with empty samples.
+  sample: z.coerce.number().int().min(0).max(50).default(10),
+});
+
+export const AdminCatalogCoverageResponseSchema = z.object({
+  generated_at: z.string().datetime(),
+  source: z.enum(['live']),
+  notes: z.array(AdminNoteSchema),
+  sample_limit: z.number().int().nonnegative(),   // the `sample` actually applied
+  totals: z.object({ products, integrations, vendors, claims, attestations }),
+  funnel: AdminPromotionFunnelSchema,
+  research_status: z.array(AdminResearchStatusCountSchema),
+  gaps: z.array(AdminCoverageGapSchema),
+  taxonomy: z.array(AdminTaxonomyFacetUsageSchema),
+  claim_coverage: AdminClaimCoverageSchema,
+});
+```
+
+**There is no `window`.** Unlike the three endpoints above, coverage describes
+*current state*: "how many products have no logo" has no time range, and attaching
+one would be the false precision §1.1 forbids. The rest of the envelope
+(`generated_at` / `source` / `notes`) is unchanged.
+
+**The catalog time series lives elsewhere.** §5.5's "counts over time" and
+"additions per day" are served by `GET /api/admin/metrics/timeseries` with the
+`catalog.*` metric keys — which already carry `catalog_series_is_additions_only`
+and `catalog_series_starts_at`. This endpoint deliberately does **not** duplicate
+that series; the UI calls both.
+
+##### Gaps — exact counts, capped samples
+
+```typescript
+export const AdminCoverageGapSchema = z.object({
+  key: z.enum([
+    'products_without_vendor', 'products_without_logo', 'products_without_description',
+    'products_without_api_docs', 'products_without_category', 'products_without_audience',
+    'products_without_phase', 'products_without_trade',
+  ]),
+  total: z.number().int().nonnegative(),      // EXACT
+  universe: z.number().int().nonnegative(),   // total products
+  sample: z.array(LinkRefSchema),             // name-ordered, capped at `sample`
+  sample_truncated: z.boolean(),
+});
+```
+
+The count is the truth; the sample is where the work starts. `universe` travels
+with every gap so a consumer can render "171 of 171" — which is the production
+shape for `products_without_logo` and is a **worklist, not an error**.
+
+Predicates: `without_vendor` is `NOT EXISTS` against `product_vendors` (the same
+predicate as the `products_without_vendor` data-quality check); `without_description`
+treats whitespace as absent; `without_api_docs` keys off `api_docs_url IS NULL` —
+the artifact, not the `has_api_docs` flag — and a flag/URL disagreement is reported
+separately as `api_docs_flag_inconsistent`. Sample rows link to the **AECi product
+page**: D1 stores no curation-tool key (ADR 0021), so a per-row deep link into the
+review app is not constructible.
+
+##### Funnel — expect one populated stage
+
+```typescript
+export const AdminPromotionFunnelSchema = z.object({
+  stages: z.array(z.object({
+    status: z.enum(['pending', 'ready', 'promoted', 'retracted', 'rejected']),
+    count: z.number().int().nonnegative(),
+  })),                                  // zero-filled, pipeline order
+  total: z.number().int().nonnegative(),
+  promoted_cohort_only: z.boolean(),    // DERIVED: every row reads 'promoted'
+});
+```
+
+`promoted_cohort_only` is computed from the rows, never hardcoded, so it retires
+itself if a real un-promote path ever lands. It is true today for the reason
+`ADMIN_PANEL_SPEC.md` §13 D6 gives: promote is D1's only INSERT path into
+`products` and sets `'promoted'` on both branches, nothing writes `'ready'`, and
+retraction hard-deletes. When true the response carries
+`funnel_is_promoted_cohort_only` — without it a 171/0/0/0/0 funnel reads as a bug.
+
+##### Taxonomy usage
+
+```typescript
+export const AdminTaxonomyFacetUsageSchema = z.object({
+  facet: z.enum(['category', 'audience', 'phase', 'trade', 'data_object']),
+  counts_what: z.enum(['products', 'claims']),   // data_object counts CLAIMS
+  terms_total: z.number().int().nonnegative(),
+  terms_used: z.number().int().nonnegative(),    // count > 0
+  publish_floor: z.number().int().positive().nullable(),   // trades only
+  terms_published: z.number().int().nonnegative().nullable(),
+  terms: z.array(z.object({ id, slug, name, count, published: z.boolean().nullable() })),
+});
+```
+
+Terms are **uncapped** — the five vocabularies total ~122 rows. `data_object` is
+the odd facet out: data objects are referenced by claims, not products, so its
+`count` is a claim count and `counts_what` says so rather than leaving a consumer
+to assume. Trades carry the publication gate via `isPublishedTrade` /
+`TRADE_PUBLISH_MIN_PRODUCTS` from `@aeci/shared` (`TRADES_VOCABULARY.md` §6 — one
+copy of the floor); `published` is `null` on the other four facets, which is not
+the same as `false`.
+
+##### Claim coverage
+
+Counts for integrations with/without at least one claim and claims with/without an
+**active** attestation (`deprecated_at IS NULL`, matching `attestations_active_idx`),
+plus a capped sample of claimless integrations. Sample rows carry both endpoints
+(`integrations.name` is nullable) so the consumer can build the pair URL
+`/products/:sourceSlug/integrations/:targetSlug`.
+
+##### Notes this endpoint can raise
+
+`funnel_is_promoted_cohort_only` · `trade_facet_sparse_by_design` (the
+`product_trades` join is sparse by design per `TRADES_VOCABULARY.md` §1.1, so an
+untagged product is not a defect the way a missing logo is) ·
+`api_docs_flag_inconsistent`.
+
+Errors: `VALIDATION_FAILED` (400) for `sample` outside `0…50` or non-numeric.
 
 ### 6.11 Webhooks
 

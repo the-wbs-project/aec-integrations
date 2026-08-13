@@ -5,9 +5,13 @@
  *
  * The per-route specs (`admin-overview.spec.ts` etc.) mount the handler alone, so
  * they prove the queries and never touch authorization. This file is the other
- * half: it mounts all three panel routes behind the same guard `index.ts` uses,
- * so the gate is verified end-to-end and a future registration that forgets
+ * half: it mounts every panel route behind the same guard `index.ts` uses, so the
+ * gate is verified end-to-end and a future registration that forgets
  * `requireAdmin()` fails here.
+ *
+ * Extended by AECI-579 with `GET /api/admin/catalog/coverage`. Every read
+ * endpoint the epic adds belongs in {@link ROUTES} — that is the point of the
+ * file.
  *
  * The matrix, per `AUTH_AND_RLS.md` / `ADMIN_PANEL_SPEC.md` §9.1:
  *   anon (no token)   → 401
@@ -28,6 +32,7 @@ import { requireAdmin, type AuthzVariables } from '../lib/authz';
 import { makeTestJwks, type TestJwks } from '../test/auth';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { fakeExecutionContext } from '../test/helpers';
+import { createAdminCatalogCoverageHandler } from './admin-catalog';
 import { createAdminTimeseriesHandler } from './admin-metrics';
 import { createAdminOverviewHandler } from './admin-overview';
 import { createAdminTrafficBreakdownHandler } from './admin-traffic';
@@ -42,7 +47,7 @@ const ADMIN_BANNED = u(902);
 
 const NOW = new Date('2026-08-11T05:00:00.000Z');
 
-/** Every route AECI-574 adds, with a query string that would succeed if the
+/** Every admin-panel read route, with a query string that would succeed if the
  *  caller were an admin — so a 401/403 can only come from the gate. */
 const ROUTES = [
   { name: 'GET /api/admin/overview', url: '/api/admin/overview' },
@@ -54,6 +59,7 @@ const ROUTES = [
     name: 'GET /api/admin/traffic/breakdown',
     url: '/api/admin/traffic/breakdown?dimension=source&from=2026-08-10&to=2026-08-10',
   },
+  { name: 'GET /api/admin/catalog/coverage', url: '/api/admin/catalog/coverage' },
 ] as const;
 
 let jwks: TestJwks;
@@ -88,6 +94,11 @@ function makeApp() {
     '/api/admin/traffic/breakdown',
     requireAdmin(guard),
     createAdminTrafficBreakdownHandler(t.factory, clock),
+  );
+  app.get(
+    '/api/admin/catalog/coverage',
+    requireAdmin(guard),
+    createAdminCatalogCoverageHandler(t.factory, clock),
   );
   return app;
 }

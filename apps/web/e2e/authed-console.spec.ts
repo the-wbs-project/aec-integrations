@@ -9,9 +9,10 @@
  * /admin* pages authorize server-side inside the SSR Worker
  * (`adminSummaryResolver` -> `GET /api/admin/summary`, `requireAdmin()`), which
  * `page.route()` can't stub. So this spec mints ONE real admin session
- * (`auth-session.ts`) and visits all four pages with it, asserting zero console
+ * (`auth-session.ts`) and visits each page with it, asserting zero console
  * `error` / `pageerror` via the shared, single-sourced `console-capture.ts`
- * helpers (warnings stay reported-not-gated — AC #2).
+ * helpers (warnings stay reported-not-gated — AC #2). AECI-579 added
+ * `/admin/catalog` to the set.
  *
  * Skips when the session can't be minted (no anon key / no `SUPABASE_TEST_USER_*`
  * creds / sign-in fails) — same posture as `auth-whoami.spec.ts`. The pages
@@ -86,6 +87,22 @@ test.describe('authed console health — Phase 5 gated pages (AECI-235)', () => 
     await expect(page.locator('aec-review-queue')).toBeAttached();
     await waitForHydrationSettle(page);
     expectConsoleClean(capture, 'GET /admin/reviews');
+  });
+
+  // AECI-579 / Phase 8.3 P1.5. Unlike the moderation queues this screen fires
+  // FIVE client-side reads on arrival (coverage + four `catalog.*` series), so a
+  // console-clean hydration here is a real signal that all of them resolved
+  // through the SSR `/api/*` passthrough with the session cookie attached.
+  test('/admin/catalog hydrates with no console errors', async ({ page }) => {
+    const capture = attachConsoleCapture(page);
+    const res = await page.goto('/admin/catalog');
+    expect(res?.status()).toBe(200);
+    await expect(page.locator('aec-admin-shell')).toBeAttached();
+    await expect(page.locator('aec-catalog-coverage')).toBeAttached();
+    // The data actually arrived — the totals block renders only after the fetch.
+    await expect(page.locator('#admin-catalog-totals-heading')).toBeVisible();
+    await waitForHydrationSettle(page);
+    expectConsoleClean(capture, 'GET /admin/catalog');
   });
 
   test('/products/:slug/review hydrates with no console errors', async ({ page }) => {

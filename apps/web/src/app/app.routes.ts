@@ -260,6 +260,15 @@ export const routes: Routes = [
         path: 'reviewers',
         loadComponent: () => import('./admin/reviewers/reviewer-bans').then((m) => m.ReviewerBans),
       },
+      // AECI-579 / Phase 8.3 P1.5 — the operator console's catalog section
+      // (`ADMIN_PANEL_SPEC.md` §5.5). No resolver of its own: the parent's
+      // `adminSummaryResolver` is the gate, and the screen fetches its own data
+      // client-side in `afterNextRender`, like the moderation queues.
+      {
+        path: 'catalog',
+        loadComponent: () =>
+          import('./admin/catalog/catalog-coverage').then((m) => m.CatalogCoverage),
+      },
     ],
   },
   // AECI-238 — Phase 7.3 static content pages (About + Contact). No resolver:
