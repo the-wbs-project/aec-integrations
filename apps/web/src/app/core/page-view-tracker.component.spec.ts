@@ -36,7 +36,7 @@ function configure(platform: 'browser' | 'server') {
 const nav = (id: number, url: string) => new NavigationEnd(id, url, url);
 
 describe('PageViewTracker', () => {
-  it('skips the initial navigation and POSTs a { route } for subsequent ones', () => {
+  it('skips the initial navigation and POSTs a route for subsequent ones', () => {
     const { events, tracker, httpMock } = configure('browser');
     tracker.start();
 
@@ -47,7 +47,7 @@ describe('PageViewTracker', () => {
     events.next(nav(2, '/vendors/autodesk'));
     const req = httpMock.expectOne('/api/page-views');
     expect(req.request.method).toBe('POST');
-    expect(req.request.body).toEqual({ route: '/vendors/autodesk' });
+    expect(req.request.body).toEqual({ route: '/vendors/autodesk', navigation: 'spa' });
     req.flush(null, { status: 204, statusText: 'No Content' });
 
     httpMock.verify();
@@ -60,7 +60,7 @@ describe('PageViewTracker', () => {
     events.next(nav(2, '/products?page=2&sort=name#top'));
 
     const req = httpMock.expectOne('/api/page-views');
-    expect(req.request.body).toEqual({ route: '/products' });
+    expect(req.request.body).toEqual({ route: '/products', navigation: 'spa' });
     req.flush(null, { status: 204, statusText: 'No Content' });
     httpMock.verify();
   });
@@ -123,7 +123,7 @@ describe('PageViewTracker', () => {
       // The subscription survives the skip — the next public navigation counts.
       events.next(nav(3, '/products/procore'));
       const req = httpMock.expectOne('/api/page-views');
-      expect(req.request.body).toEqual({ route: '/products/procore' });
+      expect(req.request.body).toEqual({ route: '/products/procore', navigation: 'spa' });
       req.flush(null, { status: 204, statusText: 'No Content' });
       httpMock.verify();
     });
@@ -135,7 +135,42 @@ describe('PageViewTracker', () => {
 
       events.next(nav(2, '/products/admin-tool'));
       const req = httpMock.expectOne('/api/page-views');
-      expect(req.request.body).toEqual({ route: '/products/admin-tool' });
+      expect(req.request.body).toEqual({ route: '/products/admin-tool', navigation: 'spa' });
+      req.flush(null, { status: 204, statusText: 'No Content' });
+      httpMock.verify();
+    });
+  });
+
+  // AECI-585 / ADMIN_PANEL_SPEC §7.3 — this tracker fires ONLY on in-app
+  // navigation, so `spa` is a property of the writer rather than a guess. Without
+  // it the same-origin `Referer` on this POST classifies as `Direct`, which is what
+  // made `Direct` a mixed bucket of true arrivals and in-app clicks.
+  describe('navigation flag', () => {
+    it('tags every POST as an SPA navigation', () => {
+      const { events, tracker, httpMock } = configure('browser');
+      tracker.start();
+      events.next(nav(1, '/')); // skipped
+
+      for (const [i, url] of ['/products', '/products/procore', '/vendors/autodesk'].entries()) {
+        events.next(nav(i + 2, url));
+        const req = httpMock.expectOne('/api/page-views');
+        expect(req.request.body).toEqual({ route: url, navigation: 'spa' });
+        req.flush(null, { status: 204, statusText: 'No Content' });
+      }
+
+      httpMock.verify();
+    });
+
+    it('sends no explicit path — the route is already concrete', () => {
+      // The API falls back to `route` for the concrete path, so duplicating it on
+      // the wire would cost bytes on every in-app click for nothing.
+      const { events, tracker, httpMock } = configure('browser');
+      tracker.start();
+      events.next(nav(1, '/')); // skipped
+      events.next(nav(2, '/categories/bim-coordination'));
+
+      const req = httpMock.expectOne('/api/page-views');
+      expect(req.request.body).not.toHaveProperty('path');
       req.flush(null, { status: 204, statusText: 'No Content' });
       httpMock.verify();
     });

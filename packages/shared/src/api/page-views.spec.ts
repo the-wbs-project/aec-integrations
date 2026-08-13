@@ -29,6 +29,44 @@ describe('PageViewPayloadSchema', () => {
     const result = PageViewPayloadSchema.safeParse({});
     expect(result.success).toBe(false);
   });
+
+  // ─── AECI-585 ──────────────────────────────────────────────────────────────
+
+  it('parses the concrete path alongside a route pattern', () => {
+    const parsed = PageViewPayloadSchema.parse({
+      route: '/categories/:slug',
+      path: '/categories/bim-coordination',
+    });
+    expect(parsed.path).toBe('/categories/bim-coordination');
+  });
+
+  it('leaves path undefined when omitted (the API falls back to route)', () => {
+    expect(PageViewPayloadSchema.parse({ route: '/products/procore' }).path).toBeUndefined();
+  });
+
+  it('rejects an unbounded path', () => {
+    const result = PageViewPayloadSchema.safeParse({
+      route: '/',
+      path: `/${'a'.repeat(2048)}`,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it.each(['spa', 'arrival'] as const)('parses navigation=%s', (navigation) => {
+    expect(PageViewPayloadSchema.parse({ route: '/', navigation }).navigation).toBe(navigation);
+  });
+
+  it('rejects a navigation value outside the enum', () => {
+    // A closed enum is what keeps the column readable: an ad-hoc third value would
+    // land in the same "unknown" bucket as null without saying so.
+    expect(PageViewPayloadSchema.safeParse({ route: '/', navigation: 'prefetch' }).success).toBe(
+      false,
+    );
+  });
+
+  it('leaves navigation undefined when omitted', () => {
+    expect(PageViewPayloadSchema.parse({ route: '/' }).navigation).toBeUndefined();
+  });
 });
 
 describe('isUntrackedRoute (AECI-575)', () => {

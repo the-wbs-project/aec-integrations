@@ -928,29 +928,45 @@ Lean fire-and-forget capture hook for pageviews per Phase 2 Spec §7.1. Returns 
 ```typescript
 export const PageViewPayloadSchema = z.object({
   route: z.string().min(1),
+  path: z.string().min(1).max(2048).optional(),      // AECI-585 — concrete path
+  navigation: z.enum(['spa', 'arrival']).optional(), // AECI-585
   entity_type: z.string().optional(),
   entity_id: z.string().optional(),
+  ref_source: z.string().max(64).optional(),         // AECI-243 campaign attribution
+  ref_token: z.string().max(255).optional(),
 });
 
 export type PageViewPayload = z.infer<typeof PageViewPayloadSchema>;
 ```
 
-**Phase 4 (AECI-177) wires the write.** The handler validates the body synchronously (so a malformed body still surfaces `400`), returns `204` immediately, and inserts one `page_views` row via `ctx.waitUntil()` — the write never blocks the response (§14.2). The `page_views` table already exists in the D1 schema (`apps/api/src/db/schema.ts`), so there is no migration. A capture failure is logged to Datadog (`warn`) and swallowed; the endpoint still returns `204`. User-blocking errors are never raised.
+**Phase 4 (AECI-177) wires the write.** The handler validates the body synchronously (so a malformed body still surfaces `400`), returns `204` immediately, and inserts one `page_views` row via `ctx.waitUntil()` — the write never blocks the response (§14.2). A capture failure is logged to Datadog (`warn`) and swallowed; the endpoint still returns `204`. User-blocking errors are never raised.
 
-**Enrichment** (DATABASE_SCHEMA §9.1 columns): `cf_country`, `cf_colo`, `cf_asn`, `cf_bot_score` from Cloudflare request context; `user_agent_hash` = SHA-256 of the `User-Agent` (the raw UA is **never** stored); `locale` = the served locale (`en-US` today); and `product_id` / `vendor_id` resolved from `(entity_type, entity_id)` — `entity_id` is the entity's own UUID (the SSR resolvers attach `entity.id`), existence-checked before storing so a stale/spoofed id becomes null rather than an FK error. `user_id` / `profile_role` stay null until Phase 5 wires the authenticated session. **No raw IP is ever persisted** (§14.2 privacy).
+**Enrichment** (DATABASE_SCHEMA §9.1 columns): `cf_country`, `cf_colo`, `cf_asn`, `cf_as_organization`, `cf_bot_score` from Cloudflare request context; `user_agent_hash` = SHA-256 of the `User-Agent` (the raw UA is **never** stored); `locale` = the served locale (`en-US` today); and the entity columns resolved from `(entity_type, entity_id)` — `entity_id` is the entity's own UUID (the SSR resolvers attach `entity.id`), existence-checked before storing so a stale/spoofed id becomes null rather than an FK error. **No raw IP is ever persisted** (§14.2 privacy).
 
-**CF context forwarding contract.** The browser POST reaches the SSR Worker first, and `request.cf` does **not** survive the SSR→API service binding, so the SSR Worker forwards the four CF fields on trusted headers (`@aeci/shared` `PAGE_VIEW_CF_HEADERS`):
+**AECI-585 (`ADMIN_PANEL_SPEC.md` §7.3) widened what a row records**, and every part of it is write-time-only — nothing here is recoverable from a row that lacks it:
+
+- **`entity_type` now covers the four taxonomy facets**, not just `product` / `vendor`. `category` / `audience` / `phase` / `trade` land in `taxonomy_kind` + `taxonomy_id`. The SSR resolvers always sent them; the handler used to drop them, so ~600 rows could say a facet page was viewed but not which term. The kind is stored **only** alongside a confirmed id — a dangling kind would inflate every per-facet count with unattributable rows. An unrecognized `entity_type` is ignored, not an error.
+- **`path`** is the concrete URL path, stored in `concrete_path` beside the `route` pattern in `path`. Optional: the API falls back to `route`, which is correct for every writer whose route is already concrete (the browser tracker, an SSR cache HIT). Only a writer sending a *pattern* owes an explicit `path`. Locale prefix stripped, no query or hash — the same privacy rule that keeps the full URL out of `referrer` (§9.7) applies here.
+- **`navigation`** distinguishes a full-document `'arrival'` from an in-app `'spa'` hop. Never inferred: an omitted flag stores as null. It exists because the same-origin `Referer` on an SPA hop classifies as `Direct`, making `Direct` — the largest bucket in every digest — a mix of true arrivals and in-app clicks. A value outside the enum is a `400`, like any other schema violation.
+- **`user_id` / `session_id` / `profile_role` were dropped** (§13 D7). They were never written; see `DATABASE_SCHEMA.md` §9.1 for why they were dropped rather than filled.
+
+**CF context forwarding contract.** The browser POST reaches the SSR Worker first, and `request.cf` does **not** survive the SSR→API service binding, so the SSR Worker forwards the CF fields on trusted headers (`@aeci/shared` `PAGE_VIEW_CF_HEADERS`):
 
 | Header | Source (`request.cf`) | `page_views` column |
 |---|---|---|
 | `x-aeci-cf-country` | `cf.country` | `cf_country` |
 | `x-aeci-cf-colo` | `cf.colo` | `cf_colo` |
 | `x-aeci-cf-asn` | `cf.asn` | `cf_asn` |
+| `x-aeci-cf-as-organization` | `cf.asOrganization` | `cf_as_organization` |
 | `x-aeci-cf-bot-score` | `cf.botManagement.score` | `cf_bot_score` |
+
+`x-aeci-cf-as-organization` (AECI-585 / §13 D10) reuses the header name `LANDING_CF_HEADERS` already carries it under, deliberately: both proxies read the same `request.cf` field onto the same wire name, so the two enrichment paths cannot drift apart on it. It is a **read-side label only** — it never feeds `is_bot` at ingest.
 
 The SSR Worker is the **sole writer** of these headers: on the `/api/page-views` proxy path it strips any client-supplied copies (anti-spoof) before setting them from `request.cf`. The API Worker treats them as trusted because it has no public ingress (service-binding only); it falls back to a directly-present `request.cf` for local/test runs.
 
 **Two writers, de-duped.** The browser `PageViewTracker` (AECI-151) is the canonical per-view counter; the SSR Worker's `firePageView` is a supplementary write that adds CF/bot context on full-document renders. They don't double-count — the client tracker skips the initial navigation (the SSR Worker already counted the landing arrival) and only counts subsequent in-app navigations. The SSR path undercounts because true edge-cache hits bypass the SSR Worker (§14.2, accepted). Both writers carry the same `PAGE_VIEW_CF_HEADERS` enrichment.
+
+That split is exactly what `navigation` records, and each writer states its own half as a fact rather than a guess: the tracker sends `'spa'` because it fires only on in-app navigation, and `firePageView` stamps `'arrival'` because every write through it is a full-document load. `firePageView` also stamps `path` from the request URL, so a resolver-attached payload carrying a route *pattern* gains the concrete path without any resolver changing — both fields are set at that one choke point and override whatever the caller passed, since the request URL is the authority on where the visitor is.
 
 **Public routes only (AECI-575).** Both writers skip the operator-only prefixes in `@aeci/shared` `UNTRACKED_ROUTE_PREFIXES` — `/admin` and `/account`, matched on an exact prefix boundary via `isUntrackedRoute()`, so nested admin routes are covered without enumeration and `/administrators` is not. Recording them would mean the admin console writes a row into the table it reads, from the operator's own ISP (`ADMIN_PANEL_SPEC.md` §9.6; on 2026-08-10 that was 67 of 92 "human" views). The exclusion is enforced at the **writers**, not at this endpoint — a `route` of `/admin/reviews` posted directly is still accepted and inserted — because the rule belongs where nothing is sent at all; the read side (the daily digest) applies the same prefix list, which is also what neutralizes rows written before this shipped and anything a stale client emits. This is an exclusion list, not a consent concept: `page_views` ingest stays consent-independent by design.
 
@@ -1826,7 +1842,7 @@ export const AdminPageViewRowSchema = z.object({
   cf_asn: z.number().int().positive().nullable(),
   cf_country: z.string().nullable(),
   cf_colo: z.string().nullable(),
-  path: z.string().min(1),                 // route PATTERN until AECI-585
+  path: z.string().min(1),                 // the stored `path` — see the note below
   entity_type: z.enum(['product', 'vendor']).nullable(),
   entity: LinkRefSchema.nullable(),
   referrer_source: z.string().nullable(),  // null = UNKNOWN, not Direct
@@ -1877,9 +1893,20 @@ null on both counts and the UI hides the toggle entirely.
 
 **Privacy is enforced by the contract, not by the UI.** `visitor_hash` is
 `substr(user_agent_hash, 1, 8)` computed in SQL, so the full hash never crosses
-the wire. `user_id`, `session_id` and `profile_role` are never selected — §13 D7
-settled that the three are *dropped* (AECI-585), not filled, and that no session
-identifier will be introduced.
+the wire. `user_id`, `session_id` and `profile_role` cannot be selected — §13 D7
+settled that the three are *dropped* rather than filled, and AECI-585 dropped them
+(migration `0013`); no session identifier will be introduced.
+
+**`path` is what the writer stored, and this endpoint does not yet read the
+AECI-585 columns.** For a detail or browse page rendered through SSR that is the
+route pattern (`/products/:slug`), which is why `entity` carries the real name for
+product and vendor rows. AECI-585 added `concrete_path`, `taxonomy_kind` and
+`taxonomy_id` at **ingest** — so a taxonomy row written after it *can* say which
+term was viewed — but this contract is unchanged: `entity_type` is still
+`product | vendor`, and a taxonomy row still hydrates to `null` and renders as the
+bare pattern. Surfacing the new columns here (a six-value `entity_type`, taxonomy
+name hydration, the concrete path in the feed) is a follow-up, tracked separately
+from AECI-585, whose scope was ingest only.
 
 Ordering is `created_at DESC, id DESC`. `page_views.id` is an autoincrement
 integer PK, so the pair is a strict total order and pagination can neither repeat

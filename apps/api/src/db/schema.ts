@@ -797,11 +797,44 @@ export const pageViews = sqliteTable(
   'page_views',
   {
     id: integer('id').primaryKey({ autoIncrement: true }),
+
+    // `path` is the route the WRITER named: the pattern (`/products/:slug`) when it
+    // knows one (an SSR resolver attached `ctx.pageView`), the concrete path
+    // otherwise (the browser tracker, an SSR cache HIT). `concrete_path` is always
+    // the real URL path — locale-stripped, no query or hash — so a taxonomy row can
+    // say WHICH term was viewed even when nothing joins (AECI-585 / §7.3). The two
+    // are stored side by side rather than one replacing the other: grouping "top
+    // pages" wants the pattern, naming a row wants the concrete path.
     path: text('path').notNull(),
+    concretePath: text('concrete_path'),
+
     productId: text('product_id').references(() => products.id),
     vendorId: text('vendor_id').references(() => vendors.id),
-    userId: text('user_id').references(() => profiles.id),
-    sessionId: text('session_id'),
+
+    // Which taxonomy term a facet browse page showed (AECI-585 / §7.3). The SSR
+    // resolvers have always sent `entity_type: 'category'|'audience'|'phase'|'trade'`
+    // plus the term id; ingest used to drop them, so ~600 rows could say a taxonomy
+    // page was viewed but not which one.
+    //
+    // Two columns for four facets, and deliberately NOT a foreign key: SQLite cannot
+    // point one column at four tables, and a hard FK would block ever deleting a term
+    // (`lib/retract-product.ts` already has to delete `page_views` rows for exactly
+    // that reason on products). Integrity comes from the ingest-time existence check
+    // in `routes/page-views.ts` instead — an unknown id stores as null, never as a
+    // lie. No CHECK on `taxonomy_kind` for the same reason the write is swallowed on
+    // error: this is a log table, and a constraint violation would silently drop the
+    // row. The value comes from a closed server-side map.
+    taxonomyKind: text('taxonomy_kind'),
+    taxonomyId: text('taxonomy_id'),
+
+    // How the visitor got here (AECI-585 / §7.3): `'arrival'` = full-document load
+    // (the SSR Worker's `firePageView`), `'spa'` = in-app navigation (the browser
+    // `PageViewTracker`). Null = unknown — every row written before this shipped, and
+    // any POST that omits it. NEVER inferred: the same-origin `Referer` on an SPA hop
+    // classifies as `Direct`, which is precisely the conflation this column exists to
+    // undo, so guessing would recreate the bug in a new column.
+    navigation: text('navigation'),
+
     referrer: text('referrer'),
 
     // Campaign attribution (AECI-243 / §11.2). Populated only when a visitor
@@ -813,6 +846,13 @@ export const pageViews = sqliteTable(
     cfCountry: text('cf_country'),
     cfColo: text('cf_colo'),
     cfAsn: integer('cf_asn'),
+    // The AS *holder name* beside the number (AECI-585 / §13 D10), mirroring
+    // `mailing_list.as_organization`. An ASN cannot label itself, so without this the
+    // internal-traffic filter reads "excluding AS23700" and the bot classifier's
+    // weekly audit is a list of bare numbers. `POST_LAUNCH_MONITORING.md` §3b names
+    // holder-name capture as the durable fix for the bot/human split — "not a longer
+    // list". READ-side signal only: it never feeds `is_bot` at ingest.
+    cfAsOrganization: text('cf_as_organization'),
     cfBotScore: integer('cf_bot_score'),
 
     userAgentHash: text('user_agent_hash'),
@@ -835,7 +875,15 @@ export const pageViews = sqliteTable(
     // never stored) — so those are excluded from the digest's Traffic-sources table.
     referrerSource: text('referrer_source'),
 
-    profileRole: text('profile_role'),
+    // NOTE: `user_id`, `session_id` and `profile_role` were dropped by AECI-585
+    // (§13 D7). All three were declared at init and never written by any code path,
+    // and the decision was to drop rather than fill: there is no client-side session
+    // id anywhere in `apps/web`, and minting one would create a durable first-party
+    // identifier — exactly what makes this table's write defensible as
+    // consent-independent today. `user_id` is reachable on the browser POST but never
+    // on the SSR arrival path, so it would have been right half the time. `page_views`
+    // now holds no user linkage at all, which is also the strongest form of the GDPR
+    // erasure story (`AUTH_AND_RLS.md` §12). Do not reintroduce them.
 
     createdAt: createdAt(),
   },
@@ -845,11 +893,11 @@ export const pageViews = sqliteTable(
     index('page_views_product_idx')
       .on(t.productId, t.createdAt)
       .where(sql`"product_id" IS NOT NULL`),
-    index('page_views_user_idx')
-      .on(t.userId, t.createdAt)
-      .where(sql`"user_id" IS NOT NULL`),
     // Serves the digest's human/bot split + crawler grouping over a day window.
     index('page_views_bot_idx').on(t.isBot, t.createdAt),
+    // No index on the AECI-585 columns: nothing groups or filters on them yet, and
+    // `page_views` is the hottest write path in the app (D1 bills rows written,
+    // indexes included). Add one with the read that needs it, not before.
   ],
 );
 

@@ -58,9 +58,34 @@ on every response rather than left to the reader:
   the human count remains an upper bound.
 - **`referrer_source` is null on every row before August** and is not
   backfillable — the header was never stored.
-- **`Direct` is a mixed bucket** — `PageViewTracker` POSTs on every SPA
-  navigation and the same-origin `Referer` classifies as `Direct`. AECI-585 adds
-  the flag that separates in-app hops from true arrivals.
+- **`Direct` is a mixed bucket for every row written before AECI-585** —
+  `PageViewTracker` POSTs on every SPA navigation and the same-origin `Referer`
+  classifies as `Direct`, so in-app hops and true arrivals were indistinguishable.
+  AECI-585 added the `navigation` flag that separates them **at write time**; rows
+  before it carry null and stay permanently mixed, because nothing in a stored row
+  implies which one it was.
+
+### What AECI-585 started recording, and from when
+
+AECI-585 (`ADMIN_PANEL_SPEC.md` §7.3) widened `page_views` ingest. Each field below
+is **null on every earlier row and is not backfillable** — the information was never
+captured, so no query can reconstruct it. The trustworthy-from date is the date the
+change reached **production**, which per §13 D1 is the `admin-panel → main` merge and
+not the PR that built it; fill it in at that merge (AECI-587 owns the closeout).
+
+| Field | What it records | Trustworthy from |
+|---|---|---|
+| `taxonomy_kind` + `taxonomy_id` | Which term a `/categories`, `/audiences`, `/phases` or `/trades` page showed. Before it, ~600 rows could say a facet page was viewed but not which one | _AECI-585 production deploy_ |
+| `concrete_path` | The real URL path beside the route pattern in `path`, so a row without an FK can still name itself | _AECI-585 production deploy_ |
+| `navigation` | `'arrival'` (full-document load) vs `'spa'` (in-app hop) — the split that makes `Direct` a measurement | _AECI-585 production deploy_ |
+| `cf_as_organization` | The AS holder *name* beside the number, so the internal-traffic filter and the weekly bot audit can label themselves instead of showing bare AS numbers | _AECI-585 production deploy_ |
+
+Two consequences worth stating rather than discovering. Any chart that splits on one
+of these must show the pre-capture population as **unknown**, never fold it into the
+majority bucket — that is the same honesty rule `referrer_source` already carries.
+And the read surfaces do not use these columns yet: AECI-585 was scoped to ingest,
+so the panel still renders a taxonomy row as its bare route pattern and still emits
+the `direct_is_mixed_bucket` note. Wiring the reads is tracked separately.
 
 **No session identifier was introduced, deliberately** (`ADMIN_PANEL_SPEC.md` §13
 **D7**). A "visitor" is defined as a distinct `(user_agent_hash, cf_asn)` pair
@@ -69,8 +94,10 @@ shared NAT, and says so next to the number. Minting a real session id would crea
 a durable first-party identifier, and it is precisely the *absence* of one — a UA
 **hash** and a referrer **host**, never the full URL or query — that makes the
 `page_views` write defensible as consent-independent in the first place. The three
-dead columns (`user_id`, `session_id`, `profile_role`) are dropped rather than
-filled (AECI-585).
+dead columns (`user_id`, `session_id`, `profile_role`) were dropped rather than
+filled — AECI-585 removed them in migration `0013`. The table can no longer hold
+user linkage at all, which is also the strongest form of the GDPR erasure story:
+account deletion has nothing to erase here (`AUTH_AND_RLS.md` §12).
 
 The per-visit feed added by AECI-577 holds that line where it would be easiest to
 cross: it exposes **eight characters** of the UA hash, truncated in SQL so the

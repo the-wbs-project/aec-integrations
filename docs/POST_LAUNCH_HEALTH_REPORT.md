@@ -130,7 +130,9 @@ fill the top-5, but the margin is thin and a quiet week will now fall back to re
 still unset, and the ASN list is hand-maintained, so `is_bot = 0` means "not known to be a bot".
 Rule C also hard-set every remaining row to `is_bot = 0`, so the "never classified" signal is gone
 and a future `DATACENTER_ASNS` widening must reach those rows by ASN, not by null. Capturing
-`cf_as_organization` at ingest (§7.3 / AECI-585) is the durable fix.
+`cf_as_organization` at ingest (§7.3 / AECI-585) is the durable fix — **shipped 2026-08-13**,
+though it only labels rows written from its production deploy onward and is not backfillable, so
+the ASNs in this snapshot still have to be looked up by hand.
 
 ## 2026-07-12 — AECI-280 trending data pull (week 1, stats-pipeline slice)
 

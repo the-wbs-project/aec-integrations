@@ -175,6 +175,18 @@ Each migration must leave the DB in a state the previously-deployed Worker code 
 
 `DROP TABLE`, `DROP COLUMN`, type-narrowing (`varchar(255)` → `varchar(64)`), `ADD COLUMN ... NOT NULL` without a backfill, and any change that loses data without a migration path — these require explicit approval in the issue **before** you write the SQL. Not in the PR. In the issue.
 
+### 3.3a Dropping a column on SQLite/D1 may force a table recreate
+
+SQLite refuses `ALTER TABLE … DROP COLUMN` when the column carries an **index** or appears in a **`FOREIGN KEY`** clause. drizzle-kit handles it by emitting a `__new_<table>` copy-and-rename instead of a `DROP COLUMN`, which on a large table is a full row copy — D1 bills rows *written*, and there is no undo.
+
+Three rules when you hit this, all learned from `migrations/0013_careful_absorbing_man.sql` (AECI-585, the first table recreate in this repo — every `ALTER` before it is an `ADD`):
+
+1. **Replace the pragma.** drizzle-kit wraps the swap in `PRAGMA foreign_keys=OFF` / `=ON`. That is **not** the lever D1 supports — [D1's migrations docs](https://developers.cloudflare.com/d1/reference/migrations/) specify `PRAGMA defer_foreign_keys = true`, which holds for the surrounding transaction and resets on commit (so it needs no matching re-enable). Regenerating the file reintroduces the wrong pragma; re-apply the edit and say so in a comment at the top of the migration.
+2. **Check the copy lists the PK explicitly.** For an `AUTOINCREMENT` PK, an implicit copy would reassign ids. Anything paginating on `(created_at, id)` then repeats or skips rows.
+3. **Verify against non-empty data, not just a fresh DB.** Apply to a seeded local D1 and assert the row count and `MAX(id)` before and after. A recreate that "applies cleanly" to an empty table proves nothing.
+
+Splitting the work into two migrations — one additive (`ADD COLUMN`s, trivially safe) and one destructive (the recreate) — also keeps drizzle-kit from prompting for add-vs-rename disambiguation, which needs a TTY it does not have under `pnpm`.
+
 ### 3.4 Idempotency where cheap
 
 Prefer `CREATE INDEX IF NOT EXISTS`, `DROP POLICY IF EXISTS ... CREATE POLICY ...`, `CREATE OR REPLACE FUNCTION`. Postgres migrations don't *have* to be idempotent (the migration system tracks what ran), but idempotent SQL is easier to recover from when something goes wrong mid-apply.
