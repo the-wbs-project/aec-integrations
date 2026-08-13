@@ -553,7 +553,7 @@ The two daily Algolia jobs run as cron → enqueue → consume (ADR 0013). The f
   **Verify with `wrangler deploy --env <env> --dry-run`** and confirm `env.PROMOTE_KV` appears in the binding table for all four envs — the binding name must be `PROMOTE_KV` (what the code reads), not the namespace title.
 - [ ] **If the binding is ever absent it degrades gracefully** rather than failing closed: normal promotes (every real bundle) work unchanged; an oversize bundle is rejected `413 PAYLOAD_TOO_LARGE`; and the IDs are fetchable only for the instance retention window rather than the 90-day tail.
 - [ ] **CLI gotcha:** because the preview entries carry both `id` and `preview_id` (mirroring `TAXONOMY_KV`), `wrangler kv key …` against them needs an explicit `--preview false` (or `--preview`) or it errors with "has both an `id` and a `preview_id` configured".
-- [ ] **Release ordering:** the deployed review app still expects the old synchronous `200`. Staging auto-tracks `main`, but **do not run `promote-to-prod` until the review app's AECI-567 is deployed**, or every production promote breaks.
+- [x] **Release ordering (cleared 2026-08-13):** the hard cutover meant a review app on the old synchronous `200` contract would break on every promote. Ordering was respected — the review app's AECI-567 (async kick-off/poll/collect) merged 2026-08-12, and prod was promoted to the async API afterwards. Keep the rule in mind for any future promote-contract change: **the review app ships first, then `promote-to-prod`.**
 
 Operating a stuck or failed job: `docs/RUNBOOKS.md` → "Promote job errored or stuck".
 
