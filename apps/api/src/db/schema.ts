@@ -147,6 +147,23 @@ export const products = sqliteTable(
     researchNotes: text('research_notes'),
     promotionStatus: text('promotion_status').notNull().default('pending'),
 
+    /**
+     * First-promote timestamp, ISO-8601 (AECI-581 / `ADMIN_PANEL_SPEC.md` §13 D6).
+     * **Set-once**, via `COALESCE("promoted_at", ?)` in `routes/promote.ts`'s update
+     * branch — promote re-asserts `promotion_status='promoted'` on update too, so a
+     * naive `promotedAt: now` there would mean *last* promoted and buy nothing over
+     * `updated_at`.
+     *
+     * Nullable and unset for rows created before the column existed until
+     * `scripts/ops/backfill-products-promoted-at.sql` runs on that tier; that
+     * backfill is `:= created_at` and is **exact**, because promote is D1's only
+     * INSERT path into `products` and retraction is a hard delete (§4's correction).
+     * Which is also why the column buys nothing *today* — it is future-proofing
+     * against a Tier-1 retract endpoint introducing a real un-promote → re-promote
+     * cycle, after which `created_at` stops tracking go-live irrecoverably.
+     */
+    promotedAt: text('promoted_at'),
+
     priorityTier: text('priority_tier'),
     priorityScore: real('priority_score'),
     scoreComputedAt: text('score_computed_at'),
@@ -839,6 +856,62 @@ export const statsCache = sqliteTable('stats_cache', {
     .notNull()
     .$defaultFn(() => new Date().toISOString()),
 });
+
+/**
+ * The admin panel's long memory (AECI-581 / `ADMIN_PANEL_SPEC.md` §7.1). One row
+ * per (UTC day, metric): a narrow key-value shape mirroring `stats_cache`'s key
+ * convention, so adding a metric never needs a migration.
+ *
+ * It exists because nothing else in D1 can answer "how many did we have on July
+ * 3rd" (§4). `stats_cache` is overwritten by the 07:00 cron, so no history
+ * survives; `audit_log` records genuine *additions* but not net totals — 827
+ * `integration.created` events back 496 live rows, because the 2026-07-25 reset
+ * removed rows without per-row audit. Written daily by the `snapshot` cron
+ * (`lib/metrics-snapshot.ts`), which captures the prior COMPLETE UTC day.
+ *
+ * Three properties are load-bearing:
+ *
+ * **`source` is stored, not inferred.** §7.1 proposed marking a backfilled row
+ * through its `computed_at`; that mislabels a legitimate late re-run of a missed
+ * day, whose sources are still intact. The column yields one precedence rule the
+ * cron and the backfill both obey: a `measured` write always wins, a
+ * `reconstructed` write applies only over an absent or `reconstructed` row.
+ *
+ * **No `audit_log` row.** Derived bookkeeping, exempt from the §26.1
+ * audit-in-batch invariant under ADR 0022 / §13 D11. Writes go per key, OUTSIDE
+ * any batch, so one failing metric never aborts the others.
+ *
+ * **Retention is indefinite** (§7.4 / §13 D5). P3.2's pruning cron must never
+ * touch this table, and must never prune raw `page_views` for a day it has not
+ * captured.
+ */
+export const metricsDaily = sqliteTable(
+  'metrics_daily',
+  {
+    /** `YYYY-MM-DD`, UTC. Text, so it sorts lexically = chronologically and can be
+     *  compared directly against `substr(created_at, 1, 10)` elsewhere. */
+    day: text('day').notNull(),
+    /** One of `ADMIN_SNAPSHOT_METRIC_KEYS` (`@aeci/shared`). Deliberately NOT a
+     *  CHECK constraint: the whole point of the key-value shape is that a new
+     *  metric costs no migration, and a SQLite CHECK change forces a table rebuild. */
+    metric: text('metric').notNull(),
+    /** REAL so a future ratio/average metric needs no migration. Every metric in
+     *  the vocabulary today is a count, so readers round. */
+    value: real('value').notNull(),
+    /** `measured` | `reconstructed` — see the docblock above. */
+    source: text('source').notNull().default('measured'),
+    computedAt: text('computed_at')
+      .notNull()
+      .$defaultFn(() => new Date().toISOString()),
+  },
+  (t) => [
+    // Leading `day` serves P3.2's "is this day captured?" probe.
+    primaryKey({ columns: [t.day, t.metric] }),
+    // The read pattern of GET /api/admin/metrics/timeseries: one metric, day range.
+    index('metrics_daily_metric_day_idx').on(t.metric, t.day),
+    check('metrics_daily_source_check', sql`"source" IN ('measured', 'reconstructed')`),
+  ],
+);
 
 // ===========================================================================
 // Future-ready (§10)

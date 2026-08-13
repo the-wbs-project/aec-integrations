@@ -158,8 +158,8 @@ function makeSeries(notes: AdminNote[] = [ADDITIONS_NOTE]): AdminTimeseriesRespo
     notes,
     internal_filter: { available: false, applied: false, asns: [] },
     points: [
-      { day: '2026-08-11', value: 2, value_excluding_internal: null },
-      { day: '2026-08-12', value: 5, value_excluding_internal: null },
+      { day: '2026-08-11', value: 2, value_excluding_internal: null, reconstructed: false },
+      { day: '2026-08-12', value: 5, value_excluding_internal: null, reconstructed: false },
     ],
     total: { total: 7, excluding_internal: null },
   };
@@ -495,8 +495,8 @@ describe('CatalogCoverage', () => {
           timeseries: vi.fn(async () => ({
             ...makeSeries(),
             points: [
-              { day: '2026-08-11', value: 0, value_excluding_internal: null },
-              { day: '2026-08-12', value: 0, value_excluding_internal: null },
+              { day: '2026-08-11', value: 0, value_excluding_internal: null, reconstructed: false },
+              { day: '2026-08-12', value: 0, value_excluding_internal: null, reconstructed: false },
             ],
           })),
         }),

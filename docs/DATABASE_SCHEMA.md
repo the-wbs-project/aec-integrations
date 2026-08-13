@@ -217,6 +217,7 @@ create table products (
   research_status text not null default 'pending' check (research_status in ('pending', 'in_progress', 'done', 'blocked')),
   research_notes text,
   promotion_status text not null default 'pending' check (promotion_status in ('pending', 'ready', 'promoted', 'retracted', 'rejected')),
+  promoted_at timestamptz,  -- first-promote timestamp, SET-ONCE (AECI-581 / ADMIN_PANEL_SPEC.md §13 D6) — see below
 
   -- Scoring
   priority_tier text check (priority_tier in ('tier_1', 'tier_2', 'tier_3', 'tier_4', 'tier_5')),
@@ -247,6 +248,10 @@ create index products_priority_tier_idx on products(priority_tier);
 create index products_product_role_idx on products(product_role);
 create index products_updated_at_idx on products(updated_at desc);
 ```
+
+`promoted_at` (AECI-581 / `ADMIN_PANEL_SPEC.md` §13 D6) is the **first**-promote timestamp, and the "first" is the whole point. `POST /api/promote` re-asserts `promotion_status='promoted'` on its **update** branch too, and `product.updated` outnumbers `product.created` roughly 2.7:1 — so a naive `promoted_at = now` there would mean *last* promoted and buy nothing over `updated_at`. It is therefore set **once**, via `COALESCE("promoted_at", ?)` inside the existing promote batch (`apps/api/src/routes/promote.ts`), which preserves an existing value and fills only a NULL with no extra read.
+
+It buys nothing *today*, and that is expected: `products.created_at` already answers the same question exactly, because promote is D1's only INSERT path into `products` and retraction is a hard delete (`ADMIN_PANEL_SPEC.md` §4's correction — the "a row sits at `'ready'` before going live" claim describes the **review app's** lifecycle, not AECi's). The column is future-proofing: the moment a Tier-1 retract endpoint introduces a real un-promote → re-promote cycle, `created_at` stops tracking go-live and the history cannot be reconstructed retroactively. Backfilled `:= created_at` — **exact**, no approximation — by `scripts/ops/backfill-products-promoted-at.sql`, run once per environment. Not indexed: nothing filters or sorts on it yet.
 
 `usefulness` is a nullable `jsonb` column holding narrative "how teams use it" value, grouped by audience and by project phase. Its stored shape mirrors the public `ProductUsefulness` contract (`API_CONTRACTS.md` §5.1) — `{ audiences: [{ slug, name, points[] }], phases: [{ slug, name, points[] }] }` — where each `slug` references a `taxonomy_audiences` / `taxonomy_phases` slug. It is `null` when the source has no usefulness for either facet; otherwise either facet array may be empty. The column is written by promote (`REVIEW_APP_PROMOTE_API.md` §3.3), which resolves each group to an existing taxonomy term and stores the canonical `{ slug, name }` denormalized — so a later taxonomy rename leaves already-promoted labels stale until the product is re-promoted. Not indexed: it is read with the row, never filtered on.
 
@@ -888,6 +893,84 @@ Keys used (see `STAGE_1_SPEC.md` §10):
 - `audience_counts`
 - `phase_counts`
 
+### 9.3 `metrics_daily`
+
+The admin panel's long memory (AECI-581 / `ADMIN_PANEL_SPEC.md` §7.1). One row per
+(UTC day, metric), written by the `15 0 * * *` snapshot cron
+(`apps/api/src/lib/metrics-snapshot.ts`), which captures the prior **complete**
+UTC day.
+
+It exists because nothing else in D1 can answer *"how many did we have on July
+3rd"*: `stats_cache` above is overwritten daily so no history survives, and
+`audit_log` records genuine **additions** but not net totals — 827
+`integration.created` events back 496 live rows, because the 2026-07-25 reset
+removed rows with no per-row audit (`ADMIN_PANEL_SPEC.md` §4).
+
+Deliberately key-value rather than a column per metric, mirroring `stats_cache`,
+so adding a metric never needs a migration. `metric` therefore carries **no**
+CHECK constraint — the vocabulary lives in `ADMIN_SNAPSHOT_METRIC_KEYS`
+(`packages/shared/src/api/admin-panel.ts`), and a SQLite CHECK change would force
+a table rebuild.
+
+```sql
+create table metrics_daily (
+  day         text not null,                      -- 'YYYY-MM-DD', UTC
+  metric      text not null,                      -- one of the keys below
+  value       real not null,                      -- REAL so a future ratio metric needs no migration; every key today is a count
+  source      text not null default 'measured',   -- 'measured' | 'reconstructed'
+  computed_at text not null,
+  primary key (day, metric),                      -- leading `day` serves "is this day captured?"
+  check (source in ('measured', 'reconstructed'))
+);
+create index metrics_daily_metric_day_idx on metrics_daily(metric, day); -- the timeseries read: one metric, day range
+```
+
+**`source` is a stored fact, not an inference.** `measured` means captured on the
+day (or re-aggregated from rows that still exist); `reconstructed` means derived
+after the fact by `scripts/backfill-metrics-daily.ts` from data that can no longer
+prove the day exactly. One precedence rule follows and both writers obey it: **a
+`measured` write always wins; a `reconstructed` write applies only over an absent
+or already-`reconstructed` row.** That is what makes the backfill re-runnable
+without ever degrading a real snapshot. `GET /api/admin/metrics/timeseries`
+surfaces it per point as `reconstructed`.
+
+**No `audit_log` row** — derived bookkeeping, exempt from the §18 / `STAGE_1_SPEC.md`
+§26.1 audit-in-batch invariant under ADR 0022. Writes go **per key, outside any
+batch**, so one failing metric never aborts the others. **Retention: indefinite**
+(§7.4 / §13 D5) — the pruning cron must never touch this table, and must never
+prune raw `page_views` for a day it has not captured.
+
+Metric vocabulary — **flows** count events inside the day; **stocks** are an
+instantaneous sample. Only the flows are backfillable, and only the flows are
+readable through the timeseries endpoint today (the stocks await §5.4/§5.5):
+
+| Metric | Kind | Source | Backfill provenance |
+|---|---|---|---|
+| `traffic.page_views_human` | flow | `page_views`, `is_bot IS NOT 1`, `/admin`+`/account` excluded | measured |
+| `traffic.page_views_bot` | flow | `page_views`, `is_bot = 1` | measured |
+| `traffic.unique_visitors` | flow | `count(distinct (user_agent_hash, cf_asn))`, humans only (§9.8) | measured |
+| `catalog.products_created` | flow | `audit_log` `product.created` live; **`products.created_at`** when backfilled | measured (§4's exception / D6 — exact, and better than the audit log) |
+| `catalog.integrations_created` | flow | `audit_log` `integration.created` | **reconstructed** |
+| `catalog.vendors_created` | flow | `audit_log` `vendor.created` | **reconstructed** |
+| `catalog.claims_created` | flow | `audit_log` `claim.created` | **reconstructed** |
+| `accounts.sign_ins_new` | flow | `profiles.created_at` | measured |
+| `catalog.products_promoted` | stock | `products` where `promotion_status='promoted'` | not backfilled |
+| `catalog.vendors_promoted` | stock | `vendors` where `promotion_status='promoted'` | not backfilled |
+| `catalog.integrations_total` | stock | `integrations` | not backfilled |
+| `catalog.claims_total` | stock | `claims` | not backfilled |
+| `catalog.reviews_approved` | stock | `reviews` where `status='approved'` | not backfilled |
+| `accounts.profiles_total` | stock | `profiles` | not backfilled |
+| `audience.subscribers_active` | stock | `mailing_list` where `unsubscribed_at is null` | not backfilled |
+| `audience.subscribers_unsubscribed` | stock | `mailing_list` where `unsubscribed_at is not null` | not backfilled |
+| `audience.feedback_total` | stock | `feedback` | not backfilled |
+| `queue.reviews_pending` | stock | `reviews` where `status='pending'` | not backfilled |
+| `queue.requests_open` | stock | `vendor_requests` where `status='open'` | not backfilled |
+
+Stocks are captured from day one but never reconstructed: a past *total* is
+unrecoverable (§4), so a cumulative sum of `*.created` events would be wrong
+rather than approximate. Any day not sampled is simply lost, which is why the
+cron writes all 19 keys rather than only the ones a screen reads today.
+
 ---
 
 ## 10. Future-ready tables
@@ -1051,7 +1134,9 @@ Production starts empty at launch. Initial bulk migration from Airtable happens 
 Backup policy is deferred to a dedicated operational document (`OPERATIONAL_RUNBOOKS.md`, pending). Defaults:
 
 - D1 Time Travel for the application database (point-in-time recovery within D1's retention window; ADR 0016); Supabase automated backups cover the auth-only project
-- Audit log and page_views retention: indefinite for Stage 1 (see `STAGE_1_SPEC.md` §26.6 and §14.2)
+- Audit log retention: indefinite for Stage 1 (see `STAGE_1_SPEC.md` §26.6 and §14.2)
+- `page_views` retention: **400 days**, settled by `ADMIN_PANEL_SPEC.md` §13 D5 and enforced by the pruning cron that ships with §7.4 (AECI-584) — not indefinite, though the cron deletes nothing until ~2027-07 given the 2026-06-23 data start. 400 rather than 180 because D1 Time Travel gives only ~30 days of point-in-time recovery, so a prune is effectively permanent, and 400 is the first window that keeps year-over-year comparison possible
+- `metrics_daily` retention: **indefinite** — it is the long memory that survives the `page_views` prune (AECI-581 / §7.1). The pruning cron must never touch it, and must never prune a `page_views` day it has not captured
 - Reviews and core entities: no retention policy — preserve everything
 
 ---
@@ -1087,7 +1172,7 @@ Migrations are generated by **drizzle-kit** from the Drizzle schema and applied 
 
 Every write that changes **domain state** must emit its `audit_log` (+ `workflow_transitions` where applicable) row (`STAGE_1_SPEC.md` §26.1, `CLAUDE.md` §"Datadog and audit logging"). Failure to log is a transactional failure — the mutation must not commit without its audit entry.
 
-**Scope (ADR 0022).** "Domain state" is the catalog, users and profiles, reviews and moderation, claims and attestations, requests and workflows. **Derived and log-class writes are exempt**: `page_views`, `mailing_list`, `feedback` (`API_CONTRACTS.md` §6.9/§6.13), `stats_cache`, the Algolia watermark, the denormalized product counters (§14.2), and the cron-written `metrics_daily` / `job_runs` tables once they ship (`ADMIN_PANEL_SPEC.md` §7.1/§7.2). The test is **entity class, not actor class** — a `system`/cron actor writing domain state still audits — and **scheduled `DELETE`s are never exempt**: they emit one summary row per run (`action='retention.pruned'`).
+**Scope (ADR 0022).** "Domain state" is the catalog, users and profiles, reviews and moderation, claims and attestations, requests and workflows. **Derived and log-class writes are exempt**: `page_views`, `mailing_list`, `feedback` (`API_CONTRACTS.md` §6.9/§6.13), `stats_cache`, the Algolia watermark, the denormalized product counters (§14.2), the cron-written `metrics_daily` (§9.3 — **shipped**, AECI-581), and `job_runs` once it ships (`ADMIN_PANEL_SPEC.md` §7.1/§7.2). The test is **entity class, not actor class** — a `system`/cron actor writing domain state still audits — and **scheduled `DELETE`s are never exempt**: they emit one summary row per run (`action='retention.pruned'`).
 
 **Pattern.** D1 has no interactive transactions, so the mutation and the audit insert go into the **same** atomic `db.batch([...])` (ADR 0016 / AECI-249) — both commit or both roll back. The audit/transition statements are built with the `auditInsert` / `workflowTransitionInsert` helpers in `apps/api/src/lib/audit.ts`:
 

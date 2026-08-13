@@ -3,7 +3,7 @@
  *
  * The centre of gravity is the AC's failure mode — **the screen must not report
  * "fine" for want of data**. So the cron-liveness block is asserted hard: no row
- * ever carries `last_outcome: 'ok'`, six of eight are `unknown` even on a fully
+ * ever carries `last_outcome: 'ok'`, seven of nine are `unknown` even on a fully
  * seeded database, and the two derivable ones stay `unknown` until their D1
  * artifact actually exists.
  *
@@ -67,11 +67,12 @@ async function system(query = '', env?: Env, deps?: AdminSystemDeps): Promise<Ad
 const codes = (body: AdminSystemResponse) => body.notes.map((n) => n.code);
 
 describe('GET /api/admin/system — cron liveness never reports a passing state', () => {
-  it('returns all eight crons as `unknown` on an empty database', async () => {
+  it('returns all nine crons as `unknown` on an empty database', async () => {
     const body = await system();
 
-    expect(body.crons).toHaveLength(8);
+    expect(body.crons).toHaveLength(9);
     expect(body.crons.map((r) => r.job)).toEqual([
+      'metrics-snapshot',
       'data-quality',
       'analytics-digest',
       'moderation-snapshot',
@@ -112,10 +113,10 @@ describe('GET /api/admin/system — cron liveness never reports a passing state'
     const note = body.notes.find((n) => n.code === 'cron_liveness_unavailable');
     expect(note).toBeDefined();
     expect(note?.severity).toBe('warn');
-    expect(note?.params).toEqual({ unknown: 8, total: 8 });
+    expect(note?.params).toEqual({ unknown: 9, total: 9 });
   });
 
-  it('derives home-stats + algolia-sync from D1 once their artifacts exist, and leaves the other six unknown', async () => {
+  it('derives home-stats + algolia-sync from D1 once their artifacts exist, and leaves the other seven unknown', async () => {
     await t.db.insert(statsCache).values([
       { key: 'home.total_products', value: 3, computedAt: '2026-08-13T01:00:00.000Z' },
       { key: 'home.total_vendors', value: 2, computedAt: '2026-08-13T01:05:00.000Z' },
@@ -145,6 +146,7 @@ describe('GET /api/admin/system — cron liveness never reports a passing state'
 
     const stillUnknown = body.crons.filter((r) => r.source === 'unknown').map((r) => r.job);
     expect(stillUnknown).toEqual([
+      'metrics-snapshot',
       'data-quality',
       'analytics-digest',
       'moderation-snapshot',
@@ -153,8 +155,8 @@ describe('GET /api/admin/system — cron liveness never reports a passing state'
       'waf-poll',
     ]);
     expect(body.notes.find((n) => n.code === 'cron_liveness_unavailable')?.params).toEqual({
-      unknown: 6,
-      total: 8,
+      unknown: 7,
+      total: 9,
     });
   });
 

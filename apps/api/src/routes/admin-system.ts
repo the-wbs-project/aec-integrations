@@ -16,9 +16,9 @@
  * today, and the response shape exists to say so rather than to paper over it:
  *
  *   1. **Cron outcomes.** `job_runs` (§7.2) arrives with AECI-583; until then a
- *      cron's last run exists ONLY as a Datadog metric. Two of the eight leave a
+ *      cron's last run exists ONLY as a Datadog metric. Two of the nine leave a
  *      D1 side effect we can *derive* a run time from ({@link CRON_DERIVATIONS});
- *      the other six report `source: 'unknown'`, and even the derived two report
+ *      the other seven report `source: 'unknown'`, and even the derived two report
  *      `last_outcome: null` — a watermark proves the job RAN, not that it
  *      SUCCEEDED. Nothing here ever emits `'ok'`.
  *   2. **The orphan sweep.** Its result is written nowhere at all — it runs
@@ -219,7 +219,7 @@ async function algoliaWatermark(db: Db): Promise<AdminAlgoliaWatermark | null> {
 }
 
 /**
- * One liveness row per cron. All eight are always present — omitting a job would
+ * One liveness row per cron. All nine are always present — omitting a job would
  * read as "not configured", a different and wrong claim from "we have no record
  * of its last run".
  */
