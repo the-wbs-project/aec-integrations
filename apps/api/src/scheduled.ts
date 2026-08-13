@@ -86,12 +86,30 @@ import {
   collectAnalyticsMetrics,
   dailyWindows,
 } from './lib/analytics-digest';
+import {
+  ALGOLIA_DRIFT_CRON,
+  ALGOLIA_SYNC_CRON,
+  ANALYTICS_CRON,
+  DATA_QUALITY_CRON,
+  MODERATION_CRON,
+  RECONCILE_CRON,
+  SNAPSHOT_CRON,
+  STATS_CRON,
+  WAF_CRON,
+} from './lib/cron-schedules';
 import { hasErrors, runDataQualityChecks, type DataQualityCheckResult } from './lib/data-quality';
 import { buildDataQualityDigest } from './lib/data-quality-email';
 import { parseRecipients, sendEmail } from './lib/email';
 import { emitAlgoliaSyncMetrics, type SyncMetricSink } from './lib/algolia-sync-metrics';
 import { runHomeStats, type HomeStatsResult } from './lib/home-stats';
 import { emitHomeStatsMetrics } from './lib/home-stats-metrics';
+import { shiftDay } from './lib/admin-analytics';
+import {
+  emitMetricsSnapshotMetrics,
+  runMetricsSnapshot,
+  type MetricsSnapshotResult,
+  type SnapshotMetricSink,
+} from './lib/metrics-snapshot';
 import {
   emitModerationQueueMetrics,
   oldestPendingAgeHours,
@@ -113,62 +131,13 @@ function cronDb(env: Env) {
   return getDb(env, { constraint: 'first-primary' });
 }
 
-/** Cron expression for the daily incremental Algolia sync (`wrangler.jsonc`).
- *  08:00 UTC = 03:00 EST (US-East, our launch customer base). Cloudflare cron
- *  is UTC-only / DST-unaware, so this is 04:00 EDT in summer — both dead-of-night
- *  in the US, deliberately accepted (no per-season retune). MUST stay byte-equal
- *  to the `triggers.crons` entry in `wrangler.jsonc` or `controller.cron` won't
- *  match the `switch` below. */
-const ALGOLIA_SYNC_CRON = '0 8 * * *';
-
-/** Cron expression for the daily index-drift check (`wrangler.jsonc`).
- *  09:00 UTC = 04:00 EST — kept one hour after the sync so reconciliation reads
- *  a settled index. MUST stay byte-equal to `wrangler.jsonc` (see sync note). */
-const ALGOLIA_DRIFT_CRON = '0 9 * * *';
-
-/** Cron expression for the daily home-stats compute (`wrangler.jsonc`, AECI-178).
- *  07:00 UTC = 02:00 EST — one hour before the Algolia sync, so the `home.*`
- *  `stats_cache` rows are fresh at the start of the US morning. MUST stay
- *  byte-equal to `wrangler.jsonc` (see sync note). */
-const STATS_CRON = '0 7 * * *';
-
-/** Cron expression for the daily moderation-queue health snapshot (`wrangler.jsonc`,
- *  AECI-206). 06:00 UTC (= 01:00 EST) — one hour before the home-stats cron, in the
- *  same dead-of-night daily window. A cheap read-only gauge (no queue / ADR 0013
- *  consumer — `queueForJob` returns `undefined`, so it always runs inline). MUST
- *  stay byte-equal to the `triggers.crons` entry in `wrangler.jsonc`. */
-const MODERATION_CRON = '0 6 * * *';
-
-/** Cron expression for the request→Linear reconciliation sweep (`wrangler.jsonc`,
- *  AECI-214 / Phase 6.7). **Every 15 minutes** — unlike the daily batch jobs, this
- *  is a tight backstop: a request whose §6.4 on-submit issue creation failed is
- *  retried within ~15 min. Queue-backed (ADR 0013) so it gets native retries. MUST
- *  stay byte-equal to the `triggers.crons` entry in `wrangler.jsonc`. */
-const RECONCILE_CRON = '*/15 * * * *';
-
-/** Cron expression for the daily §23.1 data-quality job (`wrangler.jsonc`,
- *  AECI-241 / Phase 7.6). 04:00 UTC — the §23.1 slot, two hours ahead of the
- *  06:00 moderation snapshot, in the same dead-of-night daily window. Runs the
- *  ten checks and emails the digest when they finish (~04:30 UTC). MUST stay
- *  byte-equal to the `triggers.crons` entry in `wrangler.jsonc`. */
-const DATA_QUALITY_CRON = '0 4 * * *';
-
-/** Cron expression for the WAF firewall-event poll (`wrangler.jsonc`, AECI-262 /
- *  §15.1). **Every hour** at minute 0 — it reads the *previous clock hour* of
- *  `firewallEventsAdaptiveGroups` from Cloudflare's GraphQL Analytics API and
- *  emits the `aeci.waf.ratelimit.blocked` count, so the hourly cadence matches the
- *  one-hour query window (no overlap / gaps). Queue-less like `moderation` (a
- *  cheap read-only poll). MUST stay byte-equal to the `triggers.crons` entry in
- *  `wrangler.jsonc`. */
-const WAF_CRON = '0 * * * *';
-
-/** Cron expression for the daily operator analytics digest (`wrangler.jsonc`,
- *  AECI-526). 05:00 UTC = 12:00 WIB (noon Jakarta) — a read of the prior *complete*
- *  UTC day (page views, top products, new + total users, pending-moderation depth).
- *  Queue-less like `moderation`/`waf` (a cheap read-only aggregation + one email),
- *  so `queueForJob` returns `undefined` and it always runs inline. MUST stay
- *  byte-equal to the `triggers.crons` entry in `wrangler.jsonc`. */
-const ANALYTICS_CRON = '0 5 * * *';
+// The nine cron expressions now live in `./lib/cron-schedules` — hoisted there
+// by AECI-580 (the snapshot cron joined them in AECI-581) so `GET /api/admin/system`'s
+// liveness rows read the SAME literals this dispatcher `switch`es on rather than a
+// second copy that could drift. Each one MUST still stay byte-equal to its
+// `triggers.crons` entry in `wrangler.jsonc`, or `controller.cron` won't match the
+// `switch` below; see that file for the per-job scheduling rationale (including why
+// `SNAPSHOT_CRON` runs at 00:15, the first slot of the day).
 
 /** The gauge a Datadog monitor alerts on (see docs/OBSERVABILITY.md). */
 const DRIFT_METRIC = 'aeci.algolia.index_drift';
@@ -253,14 +222,15 @@ function drizzlePromotedIds(env: Env): PromotedIdProvider {
 
 /** Adapt the shared Datadog submitters into the pure metrics modules' sink, so
  *  `emitAlgoliaSyncMetrics` / `emitHomeStatsMetrics` / `emitModerationQueueMetrics`
- *  stay free of `ctx`/`env`/`Request` plumbing. The count + distribution + gauge
- *  shape satisfies `SyncMetricSink` / `StatsMetricSink` (count + distribution) and
- *  `ModerationMetricSink` (gauge) alike. */
+ *  / `emitMetricsSnapshotMetrics` stay free of `ctx`/`env`/`Request` plumbing. The
+ *  count + distribution + gauge shape satisfies `SyncMetricSink` / `StatsMetricSink`
+ *  / `SnapshotMetricSink` (count + distribution) and `ModerationMetricSink` (gauge)
+ *  alike. */
 function metricSink(
   ctx: ExecutionContext,
   env: Env,
   req: Request,
-): SyncMetricSink & ModerationMetricSink {
+): SyncMetricSink & ModerationMetricSink & SnapshotMetricSink {
   return {
     count: (metric, value, tags) => submitCount(ctx, env, req, metric, value, tags),
     distribution: (metric, value, tags) => submitDistribution(ctx, env, req, metric, value, tags),
@@ -495,6 +465,61 @@ async function runHomeStatsJob(env: Env, ctx: ExecutionContext): Promise<void> {
     keys_written: written,
     keys_failed: failed,
     keys_skipped: skipped,
+  });
+}
+
+/** Capture the prior COMPLETE UTC day into `metrics_daily` (AECI-581 / §7.1) —
+ *  the admin panel's long memory, because §4 shows neither `stats_cache` (which
+ *  is overwritten) nor `audit_log` (additions, not net totals) can answer "how
+ *  many did we have on this date". `runMetricsSnapshot` is per-metric
+ *  best-effort and never throws on a compute/write failure, so reaching the catch
+ *  here is a pre-compute crash (e.g. a missing DB binding): log loudly, count an
+ *  outright failure, never rethrow. */
+async function runMetricsSnapshotJob(env: Env, ctx: ExecutionContext): Promise<void> {
+  const req = cronRequest('/cron/metrics-snapshot');
+  const { db } = cronDb(env);
+  // The prior complete UTC day. Running at 00:15 means "yesterday" is closed and
+  // the stock sample is only minutes past its end.
+  const day = shiftDay(new Date().toISOString().slice(0, 10), -1);
+
+  const started = Date.now();
+  let result: MetricsSnapshotResult;
+  try {
+    result = await runMetricsSnapshot(db, day, new Date());
+  } catch (error) {
+    submitCount(ctx, env, req, 'aeci.metrics_snapshot.run', 1, ['trigger:cron', 'outcome:failed']);
+    logToDatadog(ctx, env, req, {
+      level: 'error',
+      message: 'aeci.metrics_snapshot.crashed',
+      source: 'metrics-snapshot-cron',
+      day,
+      reason: error instanceof Error ? error.message : String(error),
+    });
+    return;
+  }
+
+  const written = result.metrics.filter((m) => m.status === 'written').length;
+  const failed = result.metrics.filter((m) => m.status === 'failed');
+
+  for (const m of failed) {
+    logToDatadog(ctx, env, req, {
+      level: 'error',
+      message: `aeci.metrics_snapshot.metric ${m.metric} status=failed`,
+      source: 'metrics-snapshot-cron',
+      day,
+      metric: m.metric,
+      reason: m.error,
+    });
+  }
+
+  emitMetricsSnapshotMetrics(metricSink(ctx, env, req), result, Date.now() - started);
+  logToDatadog(ctx, env, req, {
+    level: failed.length > 0 ? 'warn' : 'info',
+    message: `aeci.metrics_snapshot.captured day=${day} metrics_written=${written} metrics_failed=${failed.length}`,
+    source: 'metrics-snapshot-cron',
+    day,
+    metrics_written: written,
+    metrics_failed: failed.length,
   });
 }
 
@@ -779,6 +804,13 @@ function queueForJob(env: Env, job: ScheduledJob): Queue<ScheduledJobMessage> | 
       // + one fail-open email needs no retry — the next day re-runs. No
       // `ANALYTICS_QUEUE` binding exists, so it always runs inline.
       return undefined;
+    case 'snapshot':
+      // Queue-less like `moderation`/`waf`/`analytics` (AECI-581): every metric is
+      // already isolated in its own try/catch, and a missed day is recoverable by
+      // re-running `ops:backfill-metrics-daily` over that range — the same
+      // idempotent `(day, metric)` upsert — so queue-native retries buy nothing.
+      // No `SNAPSHOT_QUEUE` binding exists, so it always runs inline.
+      return undefined;
   }
 }
 
@@ -827,6 +859,15 @@ function enqueueFailureLog(job: ScheduledJob): { path: string; message: string; 
       path: '/cron/analytics-digest',
       message: 'aeci.analytics_digest.enqueue_failed',
       source: 'analytics-digest-cron',
+    };
+  }
+  if (job === 'snapshot') {
+    // Unreachable in practice (snapshot is queue-less, so `queue.send` is never
+    // called) — kept so the mapping is total over `ScheduledJob`.
+    return {
+      path: '/cron/metrics-snapshot',
+      message: 'aeci.metrics_snapshot.enqueue_failed',
+      source: 'metrics-snapshot-cron',
     };
   }
   return {
@@ -899,6 +940,9 @@ async function runScheduledJob(env: Env, ctx: ExecutionContext, job: ScheduledJo
     case 'analytics':
       await runAnalyticsDigestJob(env, ctx);
       return;
+    case 'snapshot':
+      await runMetricsSnapshotJob(env, ctx);
+      return;
   }
 }
 
@@ -912,6 +956,9 @@ export const scheduled: ExportedHandlerScheduledHandler<Env> = async (controller
   switch (controller.cron) {
     case STATS_CRON:
       await enqueueOrRun(env, ctx, 'stats');
+      return;
+    case SNAPSHOT_CRON:
+      await enqueueOrRun(env, ctx, 'snapshot');
       return;
     case ALGOLIA_SYNC_CRON:
       await enqueueOrRun(env, ctx, 'sync');

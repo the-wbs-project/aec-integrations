@@ -4,8 +4,8 @@ import { LinkRefSchema, PageQuerySchema, paginatedResponseSchema } from './commo
 
 /**
  * Admin panel read contracts (AECI-574 / Phase 8.3 P1.1, extended by AECI-577 /
- * P1.3 and AECI-579 / P1.5) — the endpoints the rest of the operator console
- * renders from. Source of
+ * P1.3, AECI-579 / P1.5, and AECI-580 / P1.6) — the endpoints the rest of the
+ * operator console renders from. Source of
  * truth: `docs/ADMIN_PANEL_SPEC.md` §6, `docs/API_CONTRACTS.md` §6.10.
  *
  *   GET /api/admin/overview           — the §5.1 bundle in one round trip
@@ -13,6 +13,7 @@ import { LinkRefSchema, PageQuerySchema, paginatedResponseSchema } from './commo
  *   GET /api/admin/traffic/breakdown  — grouped counts over a window
  *   GET /api/admin/page-views         — the §5.2 Activity feed, row by row
  *   GET /api/admin/catalog/coverage   — the §5.5 gap lists, funnel, and taxonomy usage
+ *   GET /api/admin/system             — the §5.6 bundle (AECI-580)
  *
  * All are `GET`, admin-gated (`requireAdmin()`), and **read-only**: no
  * `audit_log` row, no `Cache-Tag`, no edge caching (§6 conventions, §9.2-9.3).
@@ -82,11 +83,14 @@ export type AdminWindow = z.infer<typeof AdminWindowSchema>;
  * | `catalog_series_starts_at` | the window starts before the earliest `audit_log` row, so the leading segment reads zero for want of data, not for want of activity |
  * | `internal_filter_unavailable` | `ANALYTICS_INTERNAL_ASNS` is unset, so `excluding_internal` is null everywhere (the shipped default) |
  * | `internal_filter_applied` | the filter ran; both numbers are present and the excluded ASNs are in `params.asns` |
- * | `requires_recompute` | an expensive status item was omitted from the default `/overview`; re-request with `?recompute=1` |
+ * | `requires_recompute` | an expensive status item was omitted from the default `/overview` or `/system`; re-request with `?recompute=1` |
  * | `algolia_credentials_absent` | `?recompute=1` ran but `ALGOLIA_APP_ID`/`ALGOLIA_ADMIN_KEY` are unset, so drift could not be measured |
  * | `funnel_is_promoted_cohort_only` | every `products` row reads `promotion_status='promoted'`, so the funnel has exactly one populated stage — the pre-promotion stages live in the review app, not D1 (§13 D6) |
  * | `trade_facet_sparse_by_design` | products carry no `trade` tag and that is not by itself a defect: `TRADES_VOCABULARY.md` §1.1 tags a product only when it has trade-SPECIFIC value, so horizontal platforms correctly carry zero rows |
  * | `api_docs_flag_inconsistent` | N products have `has_api_docs = 1` but no `api_docs_url` — the flag and the artifact disagree |
+ * | `series_partly_reconstructed` | some days in the window come from the P2.1 backfill rather than a same-day snapshot, and are approximate (§4); `params.reconstructed_days` counts them and `params.reconstructed_through` is the last such day |
+ * | `cron_liveness_unavailable` | `job_runs` (§7.2) does not exist yet, so N of the nine crons have NO last-run record in D1 — Datadog is the only source (AECI-583 fixes this) |
+ * | `orphan_sweep_not_persisted` | the Algolia orphan sweep's result is written nowhere today; it runs inside the 09:00 drift cron and reports only to Datadog (AECI-583) |
  */
 export const AdminNoteCodeSchema = z.enum([
   'partial_day',
@@ -103,6 +107,9 @@ export const AdminNoteCodeSchema = z.enum([
   'funnel_is_promoted_cohort_only',
   'trade_facet_sparse_by_design',
   'api_docs_flag_inconsistent',
+  'series_partly_reconstructed',
+  'cron_liveness_unavailable',
+  'orphan_sweep_not_persisted',
 ]);
 export type AdminNoteCode = z.infer<typeof AdminNoteCodeSchema>;
 
@@ -168,8 +175,20 @@ export const AdminDeltaSchema = z.object({
 });
 export type AdminDelta = z.infer<typeof AdminDeltaSchema>;
 
-/** Where the numbers came from. P2.1 adds `'snapshot'`; the shape does not change. */
-export const AdminMetricSourceSchema = z.enum(['live']);
+/**
+ * Where the numbers came from.
+ *
+ * - `live` — aggregated over `page_views` / `audit_log` / `profiles` on this request.
+ * - `snapshot` — every day in the window came from `metrics_daily` (P2.1 / §7.1).
+ * - `mixed` — some days from the snapshot, the rest aggregated live.
+ *
+ * `mixed` is not an edge case: the current UTC day is never snapshotted (the
+ * cron writes the prior COMPLETE day), so any window reaching today is mixed by
+ * construction. This is a provenance axis and is deliberately separate from
+ * {@link AdminTimeseriesPointSchema}'s `reconstructed`, which is about
+ * exactness — a snapshot row can be either.
+ */
+export const AdminMetricSourceSchema = z.enum(['live', 'snapshot', 'mixed']);
 export type AdminMetricSource = z.infer<typeof AdminMetricSourceSchema>;
 
 // ─── GET /api/admin/overview ─────────────────────────────────────────────────
@@ -227,9 +246,12 @@ export const AdminProductViewsSchema = z.object({
 });
 export type AdminProductViews = z.infer<typeof AdminProductViewsSchema>;
 
-/** SSR/API deploy identity — the API Worker's own `/api/version` values. The SSR
- *  Worker's `/_version` is read separately by the UI (they differ precisely so a
- *  stale SSR deploy is detectable — AECI-92). */
+/** Deploy identity — the **API Worker's** own `/api/version` values, read from
+ *  the same `COMMIT_SHA` / `DEPLOYED_AT` / `ENV` vars by the same Worker, so this
+ *  and `GET /api/version` can never disagree. The SSR Worker's `/_version` is
+ *  fetched separately by the UI and compared against this (they exist as two
+ *  endpoints precisely so a stale SSR deploy is detectable — AECI-92); nothing
+ *  reachable from the API Worker knows the SSR Worker's SHA. */
 export const AdminVersionStatusSchema = z.object({
   sha: z.string(),
   deployed_at: z.string(),
@@ -375,7 +397,7 @@ export type AdminOverviewResponse = z.infer<typeof AdminOverviewResponseSchema>;
  * `integration.created` events back 496 live rows). Every `catalog.*` response
  * carries `catalog_series_is_additions_only` so the chart cannot be misread.
  */
-export const AdminMetricKeySchema = z.enum([
+export const ADMIN_METRIC_KEYS = [
   'traffic.page_views_human',
   'traffic.page_views_bot',
   /** HUMANS only, and note it does NOT sum: each bucket is its own
@@ -388,8 +410,76 @@ export const AdminMetricKeySchema = z.enum([
   'catalog.vendors_created',
   'catalog.claims_created',
   'accounts.sign_ins_new',
-]);
+] as const;
+
+export const AdminMetricKeySchema = z.enum(ADMIN_METRIC_KEYS);
 export type AdminMetricKey = z.infer<typeof AdminMetricKeySchema>;
+
+/**
+ * The **stock** half of the `metrics_daily` vocabulary (P2.1 / §7.1): an
+ * instantaneous count sampled once a day, as against the *flow* keys above,
+ * which count events inside a day.
+ *
+ * These are written by the snapshot cron but are **not yet readable** through
+ * `GET /api/admin/metrics/timeseries` — {@link AdminMetricKeySchema} is
+ * deliberately still the endpoint's vocabulary. They are captured from day one
+ * anyway because a stock is unrecoverable retroactively: §4 shows the audit log
+ * cannot reproduce a past total (827 `integration.created` events back 496 live
+ * rows), so any day not sampled is lost permanently. §5.4 (Audience) and §5.5
+ * (Catalog "counts over time") are the screens that will read them.
+ *
+ * The key names state their own filter — `*_promoted` where the table carries a
+ * `promotion_status` gate, `*_total` where it does not. `queue.requests_open`
+ * uses the same `status='open'` predicate as the overview's `open_requests`
+ * ({@link AdminModerationDepthSchema}), so the two can never disagree.
+ */
+export const ADMIN_SNAPSHOT_STOCK_METRIC_KEYS = [
+  'catalog.products_promoted',
+  'catalog.vendors_promoted',
+  'catalog.integrations_total',
+  'catalog.claims_total',
+  /** `approved` only — the canonical `COUNTED_REVIEW_STATUS`, matching the public
+   *  review APIs and `products.review_count`. */
+  'catalog.reviews_approved',
+  'accounts.profiles_total',
+  /** `unsubscribed_at IS NULL`. Paired with the key below, churn is exact. */
+  'audience.subscribers_active',
+  'audience.subscribers_unsubscribed',
+  'audience.feedback_total',
+  'queue.reviews_pending',
+  'queue.requests_open',
+] as const;
+
+/**
+ * Every metric the P2.1 snapshot cron writes to `metrics_daily`, flows first.
+ *
+ * Built by spreading {@link ADMIN_METRIC_KEYS} rather than re-listing it, so the
+ * endpoint's vocabulary is a **structural** subset of the snapshot's — a key
+ * added to the endpoint that the cron does not write is impossible by
+ * construction, rather than caught by a reviewer.
+ */
+export const ADMIN_SNAPSHOT_METRIC_KEYS = [
+  ...ADMIN_METRIC_KEYS,
+  ...ADMIN_SNAPSHOT_STOCK_METRIC_KEYS,
+] as const;
+
+export const AdminSnapshotMetricKeySchema = z.enum(ADMIN_SNAPSHOT_METRIC_KEYS);
+export type AdminSnapshotMetricKey = (typeof ADMIN_SNAPSHOT_METRIC_KEYS)[number];
+
+/**
+ * Provenance of one `metrics_daily` row (§7.1, as shipped).
+ *
+ * §7.1 sketched four columns and proposed marking a backfilled row through its
+ * `computed_at`; that heuristic mislabels a legitimate late re-run of a *missed*
+ * day, whose sources are still intact, as approximate. A stored column says it
+ * outright and yields one precedence rule the cron and the backfill both obey:
+ * **a `measured` write always wins; a `reconstructed` write applies only when
+ * the existing row is absent or itself `reconstructed`.** That is what makes the
+ * backfill re-runnable without ever corrupting a real snapshot.
+ */
+export const ADMIN_SNAPSHOT_SOURCES = ['measured', 'reconstructed'] as const;
+export const AdminSnapshotSourceSchema = z.enum(ADMIN_SNAPSHOT_SOURCES);
+export type AdminSnapshotSource = (typeof ADMIN_SNAPSHOT_SOURCES)[number];
 
 /** Longest window the API will aggregate, matching §7.4's 400-day `page_views`
  *  retention: asking for more than is retained can only mislead. */
@@ -417,12 +507,23 @@ export const AdminTimeseriesQuerySchema = z.object({
 });
 export type AdminTimeseriesQuery = z.infer<typeof AdminTimeseriesQuerySchema>;
 
-/** One bucket. `value_excluding_internal` is null unless the metric is
- *  `traffic.*` AND the filter was applied. */
+/**
+ * One bucket. `value_excluding_internal` is null unless the metric is
+ * `traffic.*` AND the filter was applied.
+ *
+ * `reconstructed` is **per point, not per response**, because a window can span
+ * the snapshot boundary and a response-level flag could not say which days it
+ * applied to. True means the value came from P2.1's backfill of a day that
+ * predates the snapshot cron and could only be approximated (§4: 827
+ * `integration.created` events back 496 live rows). False means it was measured
+ * — either snapshotted on the day, or aggregated live from rows that still
+ * exist. Blending the two without saying so is what §1.1 forbids.
+ */
 export const AdminTimeseriesPointSchema = z.object({
   day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   value: z.number().nonnegative(),
   value_excluding_internal: z.number().nonnegative().nullable(),
+  reconstructed: z.boolean(),
 });
 export type AdminTimeseriesPoint = z.infer<typeof AdminTimeseriesPointSchema>;
 
@@ -508,6 +609,180 @@ export const AdminTrafficBreakdownResponseSchema = paginatedResponseSchema(
   window_total: AdminCountSchema,
 });
 export type AdminTrafficBreakdownResponse = z.infer<typeof AdminTrafficBreakdownResponseSchema>;
+
+// ─── GET /api/admin/system (AECI-580 / P1.6) ─────────────────────────────────
+
+/**
+ * The §5.6 bundle: deploy identity, cron liveness, the ten data-quality checks,
+ * Algolia state, and D1 size + row counts — "effectively the daily procedure in
+ * `POST_LAUNCH_MONITORING.md` turned into one screen".
+ *
+ * ─── Why so much of this is nullable ─────────────────────────────────────────
+ *
+ * Two different reasons, and the UI must not conflate them:
+ *
+ * **1. Deferred by cost.** `data_quality` and `algolia.drift` are `null` on the
+ * default response and filled by `?recompute=1`, exactly as on `/overview` — the
+ * data-quality suite HTTP-probes a sample of logo URLs and drift costs three
+ * Algolia queries, neither of which should ride a dashboard poll. Still a pure
+ * read: §13 **D8** draws the line at side effects, not manual-ness, so this
+ * writes nothing, sends nothing, and carries no `audit_log` obligation.
+ *
+ * **2. Genuinely unrecorded.** Cron outcomes and the orphan-sweep result do not
+ * exist in D1 at all until `job_runs` lands (§7.2 / AECI-583); today they live
+ * only as Datadog metrics. These are `null` with an accompanying note, and
+ * {@link AdminCronRunSchema}'s `source` discriminator exists so the UI renders
+ * them as *unknown* rather than as a passing check. A status screen that reports
+ * "fine" because it has no data is worse than one that reports nothing.
+ */
+
+/**
+ * The nine cron jobs in `apps/api/src/scheduled.ts`, as a closed vocabulary.
+ * These are the ids `job_runs.job` will carry (§7.2), so AECI-583 persists
+ * against these strings rather than inventing a second naming. `metrics-snapshot`
+ * is the ninth, added with the §7.1 snapshot cron (AECI-581).
+ */
+export const AdminCronJobSchema = z.enum([
+  'metrics-snapshot', // 15 0 * * *
+  'data-quality', // 0 4 * * *
+  'analytics-digest', // 0 5 * * *
+  'moderation-snapshot', // 0 6 * * *
+  'home-stats', // 0 7 * * *
+  'algolia-sync', // 0 8 * * *
+  'algolia-drift', // 0 9 * * *
+  'request-reconcile', // */15 * * * *
+  'waf-poll', // 0 * * * *
+]);
+export type AdminCronJob = z.infer<typeof AdminCronJobSchema>;
+
+/**
+ * Where a cron row's last-run information came from — the field that stops the
+ * screen lying.
+ *
+ * | value | means |
+ * |---|---|
+ * | `job_runs` | read from the §7.2 table. **Unreachable until AECI-583**; declared now so adding it is not a reshape |
+ * | `derived` | inferred from a D1 side effect the job leaves behind (`derived_from` names it). Proves the job RAN; says nothing about whether it SUCCEEDED, so `last_outcome` stays null |
+ * | `unknown` | no record exists anywhere in D1. The UI renders "Unknown", never a tick |
+ */
+export const AdminCronRunSourceSchema = z.enum(['job_runs', 'derived', 'unknown']);
+export type AdminCronRunSource = z.infer<typeof AdminCronRunSourceSchema>;
+
+/**
+ * One cron's liveness row. All nine are ALWAYS present — a job missing from the
+ * array would read as "not configured", which is a different and wrong claim
+ * from "we have no record of its last run".
+ */
+export const AdminCronRunSchema = z.object({
+  job: AdminCronJobSchema,
+  /** The 5-field cron expression, byte-equal to `wrangler.jsonc`'s
+   *  `triggers.crons` entry (the handler imports the same constants
+   *  `scheduled.ts` declares, so the two cannot desync). */
+  schedule: z.string().min(1),
+  source: AdminCronRunSourceSchema,
+  last_run_at: z.string().datetime().nullable(),
+  /** Null on every row today: `job_runs` does not exist, and a `derived`
+   *  timestamp attests to the run, not to its outcome. */
+  last_outcome: z.enum(['ok', 'failed', 'skipped']).nullable(),
+  duration_ms: z.number().int().nonnegative().nullable(),
+  /** The D1 artifact `source: 'derived'` was read from, e.g.
+   *  `stats_cache.computed_at`. Null otherwise — surfaced so the UI can qualify
+   *  the timestamp instead of presenting an inference as a record. */
+  derived_from: z.string().nullable(),
+});
+export type AdminCronRun = z.infer<typeof AdminCronRunSchema>;
+
+/**
+ * The incremental Algolia sync's watermark (`stats_cache['algolia_sync_watermark']`
+ * — `apps/api/src/lib/algolia-sync.ts`). `computed_at` is the row's own stamp,
+ * i.e. the last time the sync advanced the fence; `entities` is the per-entity
+ * ISO cursor. A never-run sync has no row at all → the whole object is null, not
+ * a fabricated epoch.
+ */
+export const AdminAlgoliaWatermarkSchema = z.object({
+  computed_at: z.string().datetime().nullable(),
+  entities: z.array(
+    z.object({
+      entity: z.string().min(1),
+      watermark: z.string().nullable(),
+    }),
+  ),
+});
+export type AdminAlgoliaWatermark = z.infer<typeof AdminAlgoliaWatermarkSchema>;
+
+/**
+ * Algolia state. `drift` is null unless `?recompute=1` (cost). `orphan_sweep` is
+ * null **always**, for a different reason: the sweep runs inside the 09:00 drift
+ * cron and reports only to Datadog — nothing persists its result, so there is no
+ * D1 read that could fill it. AECI-583 stores it in `job_runs.detail`; the slot
+ * is declared now so filling it later is additive. It is accompanied by an
+ * `orphan_sweep_not_persisted` note.
+ */
+export const AdminAlgoliaStatusSchema = z.object({
+  watermark: AdminAlgoliaWatermarkSchema.nullable(),
+  drift: AdminAlgoliaDriftStatusSchema.nullable(),
+  orphan_sweep: z.null(),
+});
+export type AdminAlgoliaStatus = z.infer<typeof AdminAlgoliaStatusSchema>;
+
+export const AdminTableCountSchema = z.object({
+  table: z.string().min(1),
+  rows: z.number().int().nonnegative(),
+});
+export type AdminTableCount = z.infer<typeof AdminTableCountSchema>;
+
+/**
+ * D1 footprint. `tables` is every user table (SQLite/Cloudflare internals and
+ * `d1_migrations` excluded), name-ordered, enumerated from `sqlite_master` at
+ * request time rather than from a hardcoded list — so a table added by a
+ * migration appears without a code change.
+ *
+ * `size_bytes` comes from D1's own `meta.size_after` and is null where that is
+ * unavailable (notably the better-sqlite3 test harness). Null renders as
+ * "unknown"; it is never approximated from the row counts.
+ */
+export const AdminDatabaseStatusSchema = z.object({
+  size_bytes: z.number().int().nonnegative().nullable(),
+  tables: z.array(AdminTableCountSchema),
+});
+export type AdminDatabaseStatus = z.infer<typeof AdminDatabaseStatusSchema>;
+
+/**
+ * `?recompute=1` (§13 **D8**) re-runs the ten §23.1 checks and the drift count
+ * live. Pure read — it writes nothing, sends no email, and carries no
+ * `audit_log` obligation, which is what keeps §6's "all endpoints are GET,
+ * read-only" unconditionally true. The side-effecting
+ * `POST /api/admin/jobs/:job/run` stays deferred; do not add one.
+ */
+export const AdminSystemQuerySchema = z.object({
+  recompute: z
+    .enum(['0', '1'])
+    .default('0')
+    .transform((v) => v === '1'),
+});
+export type AdminSystemQuery = z.infer<typeof AdminSystemQuerySchema>;
+
+export const AdminSystemResponseSchema = z.object({
+  generated_at: z.string().datetime(),
+  source: AdminMetricSourceSchema,
+  /** True when `?recompute=1` was passed and the expensive items ran. */
+  recomputed: z.boolean(),
+  notes: z.array(AdminNoteSchema),
+  /** The API Worker's build metadata. The SSR Worker's comes from `/_version`,
+   *  which the UI fetches alongside this and compares — see
+   *  {@link AdminVersionStatusSchema}. */
+  version: AdminVersionStatusSchema,
+  /** All eight, always. */
+  crons: z.array(AdminCronRunSchema),
+  /** Null unless `?recompute=1` (with a `requires_recompute` note). */
+  data_quality: AdminDataQualityStatusSchema.nullable(),
+  algolia: AdminAlgoliaStatusSchema,
+  database: AdminDatabaseStatusSchema,
+  /** `MAX(stats_cache.computed_at)` — the same freshness figure the §5.1 status
+   *  strip reports, from the same helper, so the two screens agree. */
+  stats_freshness: AdminStatsFreshnessSchema,
+});
+export type AdminSystemResponse = z.infer<typeof AdminSystemResponseSchema>;
 
 // ─── GET /api/admin/catalog/coverage (AECI-579 / P1.5) ───────────────────────
 

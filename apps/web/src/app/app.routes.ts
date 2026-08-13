@@ -246,9 +246,10 @@ export const routes: Routes = [
   // (`docs/ADMIN_PANEL_SPEC.md` §5), so `/admin` now redirects to the Overview
   // rather than to the review queue. The three Operations queues are unchanged.
   // AECI-577 / P1.3 added `activity` (§5.2); AECI-578 / P1.4 added `traffic`
-  // (§5.3). The remaining §5 routes (`audience`, `catalog`, `system`) land with
-  // their own sub-issues; until then they are neither routed nor linked, so
-  // nothing in the nav can reach a 404.
+  // (§5.3); AECI-579 / P1.5 added `catalog` (§5.5); AECI-580 / P1.6 added
+  // `system` (§5.6). The remaining §5 route (`audience`) lands with its own
+  // sub-issue; until then it is neither routed nor linked, so nothing in the nav
+  // can reach a 404.
   {
     path: 'admin',
     loadComponent: () => import('./admin/admin-shell').then((m) => m.AdminShell),
@@ -291,6 +292,13 @@ export const routes: Routes = [
         path: 'catalog',
         loadComponent: () =>
           import('./admin/catalog/catalog-coverage').then((m) => m.CatalogCoverage),
+      },
+      // AECI-580 — Phase 8.3 P1.6, the §5.6 System status screen. Same layout,
+      // same gate; it reads `GET /api/admin/system` client-side (plus the SSR
+      // Worker's own `/_version`, so a stale SSR deploy is visible).
+      {
+        path: 'system',
+        loadComponent: () => import('./admin/system/system-status').then((m) => m.SystemStatus),
       },
     ],
   },

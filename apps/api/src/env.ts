@@ -18,7 +18,12 @@ import type { PromoteWorkflowParams } from './lib/promote-jobs';
  * `moderation` it is queue-less (a cheap read-only Cloudflare GraphQL Analytics
  * read) and always runs inline. `analytics` is the daily 05:00 UTC (noon Jakarta) operator
  * analytics digest (AECI-526): like `moderation`/`waf` it is queue-less (a cheap
- * read-only aggregation + one email) and always runs inline.
+ * read-only aggregation + one email) and always runs inline. `snapshot` is the
+ * daily 00:15 UTC `metrics_daily` capture (AECI-581 / `ADMIN_PANEL_SPEC.md`
+ * §7.1): it records the prior COMPLETE UTC day, and like `moderation`/`waf`/
+ * `analytics` it is queue-less — every metric is isolated in its own try/catch
+ * and any missed day is recoverable by re-running the backfill over that range,
+ * so queue-native retries would buy nothing.
  */
 export type ScheduledJob =
   | 'sync'
@@ -28,7 +33,8 @@ export type ScheduledJob =
   | 'reconcile'
   | 'data_quality'
   | 'waf'
-  | 'analytics';
+  | 'analytics'
+  | 'snapshot';
 
 /**
  * Body of a message on a scheduled-job queue. Producer: the cron `scheduled()`

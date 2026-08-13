@@ -1,5 +1,5 @@
 /**
- * Admin-panel deny-matrix (AECI-574, extended by AECI-577) — the AC's "a
+ * Admin-panel deny-matrix (AECI-574, extended by AECI-577/579/580) — the AC's "a
  * non-admin receiving 403", exercised against the **real** `requireAdmin()` guard
  * rather than a handler mounted bare.
  *
@@ -36,6 +36,7 @@ import { createAdminCatalogCoverageHandler } from './admin-catalog';
 import { createAdminTimeseriesHandler } from './admin-metrics';
 import { createAdminOverviewHandler } from './admin-overview';
 import { createAdminPageViewsHandler } from './admin-page-views';
+import { createAdminSystemHandler } from './admin-system';
 import { createAdminTrafficBreakdownHandler } from './admin-traffic';
 
 const SUPABASE_URL = 'https://test-project.supabase.co';
@@ -65,6 +66,7 @@ const ROUTES = [
     url: '/api/admin/page-views?from=2026-08-10&to=2026-08-10',
   },
   { name: 'GET /api/admin/catalog/coverage', url: '/api/admin/catalog/coverage' },
+  { name: 'GET /api/admin/system', url: '/api/admin/system' },
 ] as const;
 
 let jwks: TestJwks;
@@ -110,6 +112,7 @@ function makeApp() {
     requireAdmin(guard),
     createAdminCatalogCoverageHandler(t.factory, clock),
   );
+  app.get('/api/admin/system', requireAdmin(guard), createAdminSystemHandler(t.factory, clock));
   return app;
 }
 

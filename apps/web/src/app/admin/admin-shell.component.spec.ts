@@ -86,7 +86,8 @@ describe('AdminShell', () => {
       );
       expect(headings).toEqual(['Insights', 'Catalog', 'Operations']);
       // Insights = Overview, Activity (AECI-577, §5.2), then Traffic (AECI-578,
-      // §5.3); Catalog = Coverage (AECI-579, §5.5); Operations unchanged.
+      // §5.3); Catalog = Coverage (AECI-579, §5.5); Operations = the three queues
+      // plus System status (AECI-580, §5.6).
       expect(navLinks(root)).toEqual([
         '/admin/overview',
         '/admin/activity',
@@ -95,6 +96,7 @@ describe('AdminShell', () => {
         '/admin/reviews',
         '/admin/requests',
         '/admin/reviewers',
+        '/admin/system',
       ]);
     });
 
@@ -109,7 +111,9 @@ describe('AdminShell', () => {
     it('links nothing that has no route yet — a nav entry is never a 404', () => {
       const root = render({ pending_reviews: 4 });
       const hrefs = navLinks(root);
-      for (const unbuilt of ['/admin/audience', '/admin/system']) {
+      // `/admin/audience` (AECI-586) is the only §5 route still unbuilt;
+      // `/admin/system` shipped with AECI-580 and is now linked.
+      for (const unbuilt of ['/admin/audience']) {
         expect(hrefs).not.toContain(unbuilt);
       }
       // And nothing ships as a disabled/dead entry either.

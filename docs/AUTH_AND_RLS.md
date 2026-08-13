@@ -185,11 +185,12 @@ await db.batch([
 | `PATCH /api/admin/reviews/:id` | Hard-required | `admin` | `review.approved` / `.rejected` |
 | `POST /api/webhooks/linear` | HMAC-verified | N/A | `workflow.transitioned` |
 
-**Admin panel reads (AECI-574 / Phase 8.3, extended by AECI-577 and AECI-579).**
-Five endpoints join the `GET /api/admin/*` row above — `/api/admin/overview`,
-`/api/admin/metrics/timeseries`, `/api/admin/traffic/breakdown`,
-`/api/admin/page-views` (the §5.2 Activity feed), and `/api/admin/catalog/coverage`
-(the §5.5 catalog readout) — registered on the same `authAdmin` sub-router behind
+**Admin panel reads (AECI-574 / Phase 8.3, extended by AECI-577, AECI-579, and
+AECI-580).** Six endpoints join the `GET /api/admin/*` row above —
+`/api/admin/overview`, `/api/admin/metrics/timeseries`,
+`/api/admin/traffic/breakdown`, `/api/admin/page-views` (the §5.2 Activity feed),
+`/api/admin/catalog/coverage` (the §5.5 catalog readout), and `/api/admin/system`
+(the §5.6 System bundle) — registered on the same `authAdmin` sub-router behind
 the same `requireAdmin()`. **No new gate and no new role**: `requireAdmin()` stays
 the single enforcement point (`ADMIN_PANEL_SPEC.md` §9.1). They are reads and
 therefore write no `audit_log` row, **including under `?recompute=1`**, which
@@ -200,7 +201,13 @@ authenticated non-admin → 403, banned admin → 403 (the ban precedes the role
 grant), admin → 200. Each new read endpoint the epic adds belongs in that spec's
 `ROUTES` table.
 
-These endpoints read `page_views`, which by design holds **no user linkage** — a
+`/api/admin/system` is worth one extra line because it reads more widely than the
+others: it enumerates the live table list from `sqlite_master` and counts every
+row. It returns **counts and table names only** — never a row's contents — so it
+exposes no user data, and it remains a read: the `sqlite_master` walk and the
+`COUNT(*)` union write nothing.
+
+The three analytics endpoints read `page_views`, which by design holds **no user linkage** — a
 UA *hash* and a referrer *host*, never a full URL or query. `ADMIN_PANEL_SPEC.md`
 §13 **D7** settled that no session identifier is introduced and the dead
 `page_views.user_id` column is dropped rather than filled (AECI-585), so the

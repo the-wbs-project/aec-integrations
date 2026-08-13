@@ -35,28 +35,19 @@
  * The status strip's first three items are cheap D1/env reads and are always
  * present. The last two are not: the data-quality suite HTTP-probes a sample of
  * logo URLs and the Algolia drift count queries three indexes over the network.
- * Loading a dashboard should not do that on every poll, so the default response
- * returns them as `null` with a `requires_recompute` note and `?recompute=1` runs
- * them live. It remains a pure read — both jobs are already read-only, so this
- * writes nothing, sends nothing, and carries no audit obligation, which is what
- * keeps §6's "all endpoints are GET, read-only" unconditionally true. The
- * side-effecting `POST /api/admin/jobs/:job/run` stays deferred; do not add one.
- *
- * The drift runner is invoked ONCE and its result feeds both the strip and the
- * data-quality suite's `runDrift` dep — check #10 of the ten IS the drift check,
- * so running it twice would double the Algolia round trips to report one number.
+ * Both live in `lib/admin-status.ts` (`runExpensiveStatusItems`), shared verbatim
+ * with `GET /api/admin/system` (AECI-580) so the two screens cannot report
+ * different numbers for the same check — see that file for why the flag gates
+ * exactly these two and why the drift runner is invoked only once.
  */
 
 import {
   AdminOverviewQuerySchema,
   AdminOverviewResponseSchema,
-  type AdminAlgoliaDriftStatus,
-  type AdminDataQualityStatus,
   type AdminNote,
   type AdminOverviewResponse,
-  type AdminStatsFreshness,
 } from '@aeci/shared';
-import { and, count, eq, gte, isNull, lt, sql } from 'drizzle-orm';
+import { and, count, eq, gte, isNull, lt } from 'drizzle-orm';
 import type { Context } from 'hono';
 
 import { getDb, type Db } from '../db/client';
@@ -67,13 +58,13 @@ import {
   mailingList,
   pageViews,
   products,
-  statsCache,
   vendorRequests,
   vendors,
 } from '../db/schema';
 import type { Env } from '../env';
 import { json } from '../http';
 import {
+  countAll,
   countUniqueVisitorsBoth,
   countViewsExcludingInternal,
   internalFilterNote,
@@ -89,8 +80,11 @@ import {
   utcDayWindow,
   type UtcWindow,
 } from '../lib/admin-analytics';
-import { createDriftRunner } from '../lib/algolia-drift-deps';
-import type { AlgoliaIndexDrift } from '../lib/algolia-drift';
+import {
+  runExpensiveStatusItems,
+  statsFreshness,
+  type ExpensiveStatusDeps,
+} from '../lib/admin-status';
 import {
   collectAnalyticsMetrics,
   computeDelta,
@@ -99,7 +93,6 @@ import {
   HUMAN,
   NOT_INTERNAL as EXCLUDE_UNTRACKED_ROUTES,
 } from '../lib/analytics-digest';
-import { runDataQualityChecks } from '../lib/data-quality';
 import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
 
 // The `requireAdmin()` gate (index.ts) enforces access and sets `c.get('auth')`,
@@ -107,39 +100,17 @@ import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
 // mirroring `routes/admin-summary.ts`.
 type AdminContext = Context<{ Bindings: Env }>;
 
-/** `stats_cache` older than this is flagged — the same 48h threshold the §23.1
- *  data-quality suite uses, so the strip and the digest agree on "stale". */
-const STATS_STALE_HOURS = 48;
-
 /** Trailing window for the overview's traffic chart (§5.1). */
 const CHART_DAYS = 30;
 
 /** Both halves of the 7-day delta. */
 const WEEK_DAYS = 7;
 
-/** Seams the specs replace: the clock, the Algolia drift runner (network), and
- *  the data-quality suite's logo probe (network). Production defaults are the
- *  real ones. */
-export interface AdminOverviewDeps {
+/** Seams the specs replace: the clock, plus the two network seams
+ *  (`driftRunnerFor` / `fetchImpl`) that `runExpensiveStatusItems` consumes.
+ *  Production defaults are the real ones. */
+export interface AdminOverviewDeps extends ExpensiveStatusDeps {
   now?: () => Date;
-  driftRunnerFor?: (env: Env, db: Db) => (() => Promise<AlgoliaIndexDrift[]>) | undefined;
-  fetchImpl?: typeof fetch;
-}
-
-/** `MAX(stats_cache.computed_at)` — the 07:00 home-stats cron's liveness signal.
- *  A never-run cache reports nulls rather than a fabricated age. */
-async function statsFreshness(db: Db, now: Date): Promise<AdminStatsFreshness> {
-  const [row] = await db
-    .select({ computedAt: sql<string | null>`max(${statsCache.computedAt})` })
-    .from(statsCache);
-  const computedAt = row?.computedAt ?? null;
-  if (!computedAt) return { computed_at: null, age_hours: null, stale: true };
-  const ageHours = (now.getTime() - Date.parse(computedAt)) / 3_600_000;
-  return {
-    computed_at: computedAt,
-    age_hours: Math.round(ageHours * 10) / 10,
-    stale: ageHours > STATS_STALE_HOURS,
-  };
 }
 
 export function createAdminOverviewHandler(
@@ -147,7 +118,6 @@ export function createAdminOverviewHandler(
   deps: AdminOverviewDeps = {},
 ): (c: AdminContext) => Promise<Response> {
   const clock = deps.now ?? (() => new Date());
-  const driftRunnerFor = deps.driftRunnerFor ?? createDriftRunner;
 
   return async (c) => {
     const query = AdminOverviewQuerySchema.parse(
@@ -211,74 +181,14 @@ export function createAdminOverviewHandler(
       );
     }
 
-    // The two expensive status items. One drift call, two consumers.
-    let dataQuality: AdminDataQualityStatus | null = null;
-    let algoliaDrift: AdminAlgoliaDriftStatus | null = null;
-    if (query.recompute) {
-      const runDrift = driftRunnerFor(c.env, db);
-      // Memoize at the PROMISE, not the value: data-quality check #10 IS the
-      // Algolia drift check, so the suite and the status strip both want this
-      // result and neither should pay for a second set of Algolia round trips.
-      let driftPromise: Promise<AlgoliaIndexDrift[]> | undefined;
-      const sharedDrift = runDrift ? () => (driftPromise ??= runDrift()) : undefined;
-
-      const results = await runDataQualityChecks({
-        db,
-        now,
-        runDrift: sharedDrift,
-        ...(deps.fetchImpl ? { fetchImpl: deps.fetchImpl } : {}),
-      });
-      dataQuality = {
-        // A skipped check (no creds) is not a failure — only findings and errors are.
-        failing: results.filter((r) => r.error !== undefined || r.count > 0).length,
-        checks: results.map((r) => ({
-          id: r.id,
-          label: r.label,
-          severity: r.severity,
-          count: r.count,
-          sample: r.sample,
-          ...(r.note ? { note: r.note } : {}),
-          ...(r.skipped ? { skipped: r.skipped } : {}),
-          ...(r.error ? { error: r.error } : {}),
-        })),
-      };
-
-      // A drift call that threw is already reported as an errored check inside
-      // `results`; swallowing it here keeps a flaky Algolia from 500-ing the whole
-      // dashboard, and the strip honestly reports "unknown" rather than "zero".
-      const driftRows = driftPromise ? await driftPromise.catch(() => null) : null;
-
-      if (driftRows) {
-        algoliaDrift = {
-          drifted: driftRows.filter((r) => r.drift !== 0).length,
-          indexes: driftRows.map((r) => ({
-            entity: r.entity,
-            index_name: r.indexName,
-            database: r.database,
-            algolia: r.algolia,
-            drift: r.drift,
-          })),
-        };
-      } else if (!runDrift) {
-        allNotes.push(
-          note(
-            'algolia_credentials_absent',
-            'ALGOLIA_APP_ID / ALGOLIA_ADMIN_KEY are unset, so index drift could not be measured.',
-          ),
-        );
-      }
-      // The remaining case — creds present, the drift call threw — needs no note:
-      // the `algolia_index_drift` check in `data_quality.checks` carries the real
-      // error message, and a `algolia_credentials_absent` note here would name the
-      // wrong cause.
-    } else {
-      allNotes.push(
-        note(
-          'requires_recompute',
-          'Data-quality checks and Algolia drift are omitted from the default view because they require network calls. Re-request with ?recompute=1.',
-        ),
-      );
-    }
+    // The two expensive status items. One drift call, two consumers — shared
+    // verbatim with `GET /api/admin/system` (`lib/admin-status.ts`).
+    const {
+      dataQuality,
+      algoliaDrift,
+      notes: statusNotes,
+    } = await runExpensiveStatusItems(db, c.env, now, query.recompute, deps);
+    allNotes.push(...statusNotes);
 
     const body: AdminOverviewResponse = {
       window: toAdminWindow(dayW),
@@ -329,17 +239,6 @@ export function createAdminOverviewHandler(
 
     return json(body);
   };
-}
-
-/** `COUNT(*)` over an arbitrary table with an optional predicate. */
-async function countAll(
-  db: Db,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- one shared counter across five unrelated tables; each call site is type-checked by its own `where`.
-  table: any,
-  where?: ReturnType<typeof eq>,
-): Promise<number> {
-  const [row] = await db.select({ value: count() }).from(table).where(where);
-  return row?.value ?? 0;
 }
 
 /** Human page views over a multi-day window (the 7-day delta halves), using the

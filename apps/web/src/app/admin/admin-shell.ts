@@ -50,6 +50,10 @@ interface AdminNavGroup {
  * `/admin` is a private surface, so on the admin (success) path we set a
  * `robots: noindex` head + a title — mirroring the login utility page. On the
  * not-found path the resolver already set the noindex 404 head, so we leave it.
+ *
+ * The nav is the three §5 groups (Insights / Catalog / Operations) introduced by
+ * Phase 8.3 P1.2 (AECI-576), driven by {@link navGroups}. AECI-580 adds the
+ * `/admin/system` entry to the Operations group now that its screen ships.
  */
 @Component({
   selector: 'aec-admin-shell',
@@ -131,9 +135,9 @@ export class AdminShell {
    * rather than editing markup.
    *
    * Only routes that **exist** are listed. §5's full IA also names
-   * `/admin/audience` (AECI-586) and `/admin/system` (AECI-580); each appears
-   * here when its screen ships (`/admin/activity` shipped with AECI-577,
-   * `/admin/traffic` with AECI-578, `/admin/catalog` with AECI-579).
+   * `/admin/audience` (AECI-586); it appears here when its screen ships
+   * (`/admin/activity` shipped with AECI-577, `/admin/traffic` with AECI-578,
+   * `/admin/catalog` with AECI-579, `/admin/system` with AECI-580).
    * Nothing links to a 404, and no entry is rendered disabled — a group with no
    * items simply does not render its heading either.
    */
@@ -163,6 +167,7 @@ export class AdminShell {
         },
         { path: '/admin/requests', label: $localize`:@@admin.shell.nav.requests:Requests` },
         { path: '/admin/reviewers', label: $localize`:@@admin.shell.nav.reviewers:Reviewer bans` },
+        { path: '/admin/system', label: $localize`:@@admin.shell.nav.system:System status` },
       ],
     },
   ];

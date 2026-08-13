@@ -45,10 +45,23 @@ import {
   type AdminTrafficPopulation,
   type AdminWindow,
 } from '@aeci/shared';
-import { and, asc, count, desc, eq, gte, isNotNull, isNull, lt, sql, type SQL } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  gte,
+  isNotNull,
+  isNull,
+  lt,
+  lte,
+  sql,
+  type SQL,
+} from 'drizzle-orm';
 
 import type { Db } from '../db/client';
-import { auditLog, pageViews, products, profiles } from '../db/schema';
+import { auditLog, metricsDaily, pageViews, products, profiles } from '../db/schema';
 import type { Env } from '../env';
 import { ApiError } from '../errors';
 import { BOT, HUMAN, NOT_INTERNAL as EXCLUDE_UNTRACKED_ROUTES } from './analytics-digest';
@@ -230,6 +243,24 @@ export function toAdminInternalFilter(state: InternalFilterState): AdminInternal
 }
 
 // ─── Counting ────────────────────────────────────────────────────────────────
+
+/**
+ * `COUNT(*)` over an arbitrary table with an optional predicate.
+ *
+ * Shared by the overview's live totals and the P2.1 snapshot cron's stock
+ * metrics (`lib/metrics-snapshot.ts`) — deliberately one implementation, so a
+ * `metrics_daily` row and the overview's headline figure for the same table can
+ * never be counted two different ways.
+ */
+export async function countAll(
+  db: Db,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- one shared counter across a dozen unrelated tables; each call site is type-checked by its own `where`.
+  table: any,
+  where?: SQL,
+): Promise<number> {
+  const [row] = await db.select({ value: count() }).from(table).where(where);
+  return row?.value ?? 0;
+}
 
 async function countPageViewRows(db: Db, where: SQL | undefined): Promise<number> {
   const [row] = await db.select({ value: count() }).from(pageViews).where(where);
@@ -441,6 +472,50 @@ export async function metricSeries(
     });
   }
   return { perDay: await auditEventsPerDay(db, w, action), perDayFiltered: null };
+}
+
+/** One day's stored snapshot: the value, and whether it was reconstructed by the
+ *  P2.1 backfill rather than captured on the day. */
+export interface SnapshotPoint {
+  value: number;
+  reconstructed: boolean;
+}
+
+/**
+ * The `metrics_daily` rows covering `w` for one metric (AECI-581 / §7.1) —
+ * the storage half of the swap `metricSeries` aggregates live.
+ *
+ * Days with no row simply do not appear: the caller falls back to live
+ * aggregation for those, which is what keeps a window spanning the snapshot
+ * boundary continuous. `day` is `YYYY-MM-DD` TEXT and `w.fromDay`/`w.toDay` are
+ * inclusive calendar labels, so a plain `BETWEEN` on the text column is exact —
+ * the same lexical=chronological property the rest of this module relies on.
+ *
+ * `value` is stored REAL (so a future ratio metric needs no migration) but every
+ * metric in the vocabulary today is a count, and the wire schema is an integer —
+ * hence the round.
+ */
+export async function snapshotSeries(
+  db: Db,
+  metric: AdminMetricKey,
+  w: UtcWindow,
+): Promise<Map<string, SnapshotPoint>> {
+  const rows = await db
+    .select({ day: metricsDaily.day, value: metricsDaily.value, source: metricsDaily.source })
+    .from(metricsDaily)
+    .where(
+      and(
+        eq(metricsDaily.metric, metric),
+        gte(metricsDaily.day, w.fromDay),
+        lte(metricsDaily.day, w.toDay),
+      ),
+    );
+  return new Map(
+    rows.map((r) => [
+      r.day,
+      { value: Math.round(r.value), reconstructed: r.source === 'reconstructed' },
+    ]),
+  );
 }
 
 // ─── Breakdown dimensions ────────────────────────────────────────────────────
@@ -772,6 +847,10 @@ const SEVERITY: Record<AdminNoteCode, 'info' | 'warn'> = {
   internal_filter_applied: 'info',
   requires_recompute: 'info',
   algolia_credentials_absent: 'info',
+  // A cron whose last run cannot be observed at all is a real observability gap,
+  // not a footnote — it is exactly the state AECI-583 exists to close.
+  cron_liveness_unavailable: 'warn',
+  orphan_sweep_not_persisted: 'info',
   // AECI-579 / P1.5. `warn` means a reader who misses the note draws a WRONG
   // conclusion — a one-stage funnel looks broken, and a flag disagreeing with
   // its artifact is a real defect. The trade note is `info`: it reframes a number
@@ -779,6 +858,10 @@ const SEVERITY: Record<AdminNoteCode, 'info' | 'warn'> = {
   funnel_is_promoted_cohort_only: 'warn',
   trade_facet_sparse_by_design: 'info',
   api_docs_flag_inconsistent: 'warn',
+  // AECI-581 / P2.1. `warn`, on the same test: a reader who misses it reads an
+  // approximation as a measurement. §4 shows the pre-snapshot catalog segment can
+  // only ever be approximate (827 `integration.created` events back 496 live rows).
+  series_partly_reconstructed: 'warn',
 };
 
 /** Build a note. `message` is the untranslated operator fallback; the UI renders
