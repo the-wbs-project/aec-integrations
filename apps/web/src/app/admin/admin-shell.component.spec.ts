@@ -75,22 +75,23 @@ describe('AdminShell', () => {
   });
 
   describe('grouped navigation (AECI-576 / §5)', () => {
-    it('groups the routes under Insights and Operations, Overview first', () => {
+    it('groups the routes under Insights, Catalog and Operations, Overview first', () => {
       const root = render({ pending_reviews: 4 });
       const nav = root.querySelector('nav[aria-label="Admin sections"]')!;
       const groups = [...nav.querySelectorAll('ul[aria-labelledby]')];
-      expect(groups).toHaveLength(2);
+      expect(groups).toHaveLength(3);
 
       const headings = groups.map((ul) =>
         nav.querySelector(`#${ul.getAttribute('aria-labelledby')}`)?.textContent?.trim(),
       );
-      expect(headings).toEqual(['Insights', 'Operations']);
+      expect(headings).toEqual(['Insights', 'Catalog', 'Operations']);
       // Insights = Overview, Activity (AECI-577, §5.2), then Traffic (AECI-578,
-      // §5.3); Operations unchanged.
+      // §5.3); Catalog = Coverage (AECI-579, §5.5); Operations unchanged.
       expect(navLinks(root)).toEqual([
         '/admin/overview',
         '/admin/activity',
         '/admin/traffic',
+        '/admin/catalog',
         '/admin/reviews',
         '/admin/requests',
         '/admin/reviewers',
@@ -108,7 +109,7 @@ describe('AdminShell', () => {
     it('links nothing that has no route yet — a nav entry is never a 404', () => {
       const root = render({ pending_reviews: 4 });
       const hrefs = navLinks(root);
-      for (const unbuilt of ['/admin/audience', '/admin/catalog', '/admin/system']) {
+      for (const unbuilt of ['/admin/audience', '/admin/system']) {
         expect(hrefs).not.toContain(unbuilt);
       }
       // And nothing ships as a disabled/dead entry either.
