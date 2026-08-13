@@ -241,6 +241,87 @@ describe('collectAnalyticsMetrics', () => {
     ]);
   });
 
+  // AECI-575 / ADMIN_PANEL_SPEC §9.6 — the read-side half. The tracker no longer
+  // writes these rows, but the ones already in the table must stop counting too,
+  // or every pre-fix day stays inflated relative to every post-fix day.
+  it('excludes operator-only paths (/admin/*, /account) from every page_views read', async () => {
+    await t.db.insert(products).values([{ id: 'p1', slug: 'p1', name: 'P1' }]);
+    await t.db.insert(pageViews).values([
+      // Real traffic on the reported day: 2 human views, 1 of them on p1.
+      {
+        path: '/products/p1',
+        productId: 'p1',
+        isBot: false,
+        referrerSource: 'Google',
+        createdAt: '2026-07-23T10:00:00.000Z',
+      },
+      { path: '/', isBot: false, referrerSource: 'Direct', createdAt: '2026-07-23T11:00:00.000Z' },
+      // Historical operator navigation — must not count anywhere.
+      {
+        path: '/admin',
+        isBot: false,
+        referrerSource: 'Direct',
+        createdAt: '2026-07-23T12:00:00.000Z',
+      },
+      {
+        path: '/admin/reviews',
+        isBot: false,
+        referrerSource: 'Direct',
+        createdAt: '2026-07-23T12:05:00.000Z',
+      },
+      {
+        path: '/admin/traffic/breakdown',
+        isBot: false,
+        referrerSource: 'Direct',
+        createdAt: '2026-07-23T12:10:00.000Z',
+      },
+      {
+        path: '/account',
+        isBot: false,
+        referrerSource: 'Direct',
+        createdAt: '2026-07-23T12:15:00.000Z',
+      },
+      // An admin row that somehow carries a product id (a stale client) — still out.
+      {
+        path: '/admin/reviews',
+        productId: 'p1',
+        isBot: false,
+        createdAt: '2026-07-23T12:20:00.000Z',
+      },
+      // A crawler that wandered onto an admin path — excluded from crawler activity too.
+      {
+        path: '/admin/reviews',
+        isBot: true,
+        botName: 'Googlebot',
+        createdAt: '2026-07-23T12:25:00.000Z',
+      },
+      // Prior day: 1 real view + 1 admin view.
+      { path: '/', isBot: false, createdAt: '2026-07-22T10:00:00.000Z' },
+      { path: '/admin/requests', isBot: false, createdAt: '2026-07-22T11:00:00.000Z' },
+      // Public paths that merely share a prefix must keep counting.
+      {
+        path: '/administrators',
+        isBot: false,
+        referrerSource: 'Google',
+        createdAt: '2026-07-23T14:00:00.000Z',
+      },
+      { path: '/products/admin-tool', isBot: false, createdAt: '2026-07-23T14:05:00.000Z' },
+    ]);
+
+    const m = await collectAnalyticsMetrics(t.db, window);
+
+    // 2 real + 2 prefix look-alikes; the 5 human admin/account rows are gone.
+    expect(m.pageViews).toEqual({ day: 4, prior: 1 });
+    expect(m.botPageViews).toEqual({ day: 0, prior: 0 });
+    expect(m.botActivity).toEqual([]);
+    expect(m.topProducts).toEqual([{ name: 'P1', slug: 'p1', views: 1 }]);
+    // Ranked, not tied — the 4 excluded `Direct` admin rows would have topped this.
+    expect(m.referrers).toEqual([
+      { source: 'Google', views: 2 },
+      { source: 'Direct', views: 1 },
+    ]);
+  });
+
   it('returns zeroes and empty lists on an empty database', async () => {
     const m = await collectAnalyticsMetrics(t.db, window);
     expect(m.pageViews).toEqual({ day: 0, prior: 0 });

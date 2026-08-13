@@ -97,6 +97,7 @@ import {
   dailyWindows,
   windowsForDay,
   HUMAN,
+  NOT_INTERNAL as EXCLUDE_UNTRACKED_ROUTES,
 } from '../lib/analytics-digest';
 import { runDataQualityChecks } from '../lib/data-quality';
 import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
@@ -342,13 +343,21 @@ async function countAll(
 }
 
 /** Human page views over a multi-day window (the 7-day delta halves), using the
- *  digest's own `HUMAN` predicate so the weekly and daily figures count the same
- *  population. */
+ *  digest's own `HUMAN` predicate and its `/admin`+`/account` route exclusion
+ *  (AECI-575) so the weekly and daily figures count the same population as the
+ *  digest and the rest of the panel. */
 async function countHumanViews(db: Db, w: UtcWindow): Promise<number> {
   const [row] = await db
     .select({ value: count() })
     .from(pageViews)
-    .where(and(gte(pageViews.createdAt, w.startIso), lt(pageViews.createdAt, w.endIso), HUMAN));
+    .where(
+      and(
+        gte(pageViews.createdAt, w.startIso),
+        lt(pageViews.createdAt, w.endIso),
+        HUMAN,
+        EXCLUDE_UNTRACKED_ROUTES,
+      ),
+    );
   return row?.value ?? 0;
 }
 

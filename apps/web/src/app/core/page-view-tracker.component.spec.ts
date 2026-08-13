@@ -85,4 +85,59 @@ describe('PageViewTracker', () => {
     httpMock.expectOne('/api/page-views').flush(null, { status: 204, statusText: 'No Content' });
     httpMock.verify();
   });
+
+  // AECI-575 / ADMIN_PANEL_SPEC §9.6 — the console must not record its own
+  // navigation into the table it reads.
+  describe('operator-only routes', () => {
+    const ADMIN_TREE = [
+      '/admin',
+      '/admin/reviews',
+      '/admin/requests',
+      '/admin/reviewers',
+      // A route the tree doesn't have yet: prefix matching must cover it too,
+      // so a new admin child never needs a spec change here.
+      '/admin/traffic/breakdown',
+      '/admin/reviews?status=pending#queue',
+      '/account',
+    ];
+
+    it('writes zero page views across the whole /admin tree and /account', () => {
+      const { events, tracker, httpMock } = configure('browser');
+      tracker.start();
+      events.next(nav(1, '/')); // the skipped initial navigation
+
+      ADMIN_TREE.forEach((url, i) => events.next(nav(i + 2, url)));
+
+      httpMock.expectNone('/api/page-views');
+      httpMock.verify();
+    });
+
+    it('keeps tracking public routes navigated after an excluded one', () => {
+      const { events, tracker, httpMock } = configure('browser');
+      tracker.start();
+      events.next(nav(1, '/')); // skipped
+
+      events.next(nav(2, '/admin/reviews'));
+      httpMock.expectNone('/api/page-views');
+
+      // The subscription survives the skip — the next public navigation counts.
+      events.next(nav(3, '/products/procore'));
+      const req = httpMock.expectOne('/api/page-views');
+      expect(req.request.body).toEqual({ route: '/products/procore' });
+      req.flush(null, { status: 204, statusText: 'No Content' });
+      httpMock.verify();
+    });
+
+    it('does not exclude public routes that merely share a prefix', () => {
+      const { events, tracker, httpMock } = configure('browser');
+      tracker.start();
+      events.next(nav(1, '/')); // skipped
+
+      events.next(nav(2, '/products/admin-tool'));
+      const req = httpMock.expectOne('/api/page-views');
+      expect(req.request.body).toEqual({ route: '/products/admin-tool' });
+      req.flush(null, { status: 204, statusText: 'No Content' });
+      httpMock.verify();
+    });
+  });
 });

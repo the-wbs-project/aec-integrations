@@ -178,6 +178,31 @@ describe('GET /api/admin/overview — digest parity (the AECI-574 acceptance cri
     expect(email.subject).toContain('4 human views');
   });
 
+  it('excludes /admin and /account rows so the panel never measures the console (AECI-575)', async () => {
+    await seedDay();
+    // Operator navigations inside the console, on the reported day AND the prior
+    // day. The digest filters these on read; every panel figure must agree, or
+    // the console re-pollutes the very numbers it exists to report.
+    await t.db.insert(pageViews).values([
+      { path: '/admin', isBot: false, cfAsn: 23700, createdAt: `${DAY}T09:00:00.000Z` },
+      { path: '/admin/traffic', isBot: false, cfAsn: 23700, createdAt: `${DAY}T09:30:00.000Z` },
+      { path: '/account', isBot: false, cfAsn: 23700, createdAt: `${DAY}T10:00:00.000Z` },
+      { path: '/admin', isBot: false, cfAsn: 23700, createdAt: '2026-08-09T09:00:00.000Z' },
+    ]);
+
+    const metrics = await collectAnalyticsMetrics(t.db, windowsForDay(DAY));
+    const body = await overview();
+
+    // Still 4 humans / 2 prior — the console rows are gone from every read path.
+    expect(body.traffic.page_views_human.total).toBe(4);
+    expect(body.traffic.page_views_human.total).toBe(metrics.pageViews.day);
+    expect(body.traffic.delta_day.prior).toBe(metrics.pageViews.prior);
+    expect(body.traffic.series_30d.at(-1)).toEqual({ day: DAY, human: 4, bot: 1 });
+    expect(body.traffic.series_30d.at(-2)).toEqual({ day: '2026-08-09', human: 2, bot: 0 });
+    // `/administrators` would be a false match for a naive prefix filter — but
+    // there is no such row here; the point is the four console rows above vanish.
+  });
+
   it('applies the digest deltaText semantics: pct is null when the prior period was 0', async () => {
     await t.db
       .insert(pageViews)

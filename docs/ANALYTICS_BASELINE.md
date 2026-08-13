@@ -15,7 +15,7 @@ marketing produces **before** we produce it.
 | **Mailing-list signup** (client) | PostHog `mailing_list_signup` event, fired on a genuine new subscribe (AECI-326) from the shared band (`home/home-closing-cta.ts` + the directory/detail mounts, AECI-327) and the `/updates` page (AECI-536) | Built; live once `POSTHOG_KEY` is set | Consent-gated → *consented funnel only*. `source`: `home_closing_cta` / `mailing_list_band` / `updates_page`. |
 | **Mailing-list signup** (server, authoritative) | `mailing_list` D1 table via `POST /api/subscribe`; mirrored to Datadog `aeci.email.send{template:landing-signup}` on each new insert | **Live** (consent-independent) | The true signup count. Read this for the number; read PostHog for funnel/attribution. |
 | **Core Web Vitals** (field) | Datadog RUM `@datadog/browser-rum` (`apps/web/src/app/datadog.provider.ts`) | Built; **live once `DD_APPLICATION_ID` + `DD_CLIENT_TOKEN` are set** | RUM collects LCP/CLS/INP/FCP/TTFB automatically on init. `aeci` RUM app, us5. |
-| **Server pageviews / entry pages** | `page_views` D1 table via `POST /api/page-views` | **Live** (consent-independent) | Readable since AECI-574 — see "The consent-independent read path" below. The 2026-07-12 AECI-280 pull found 4,917 rows (3,237 in 7d) — but `cf_bot_score` is null on every row (CF Pro exposes no bot score), so the human/bot/synthetic split is **unclassified**. |
+| **Server pageviews / entry pages** | `page_views` D1 table via `POST /api/page-views` | **Live** (consent-independent) | Readable since AECI-574 — see "The consent-independent read path" below. The 2026-07-12 AECI-280 pull found 4,917 rows (3,237 in 7d) — but `cf_bot_score` is null on every row (CF Pro exposes no bot score), so the human/bot/synthetic split is **unclassified**. Since **AECI-575** it captures **public routes only** — `/admin/*` and `/account` are excluded at both writers and filtered out on read (see the 2026-08-12 addendum below). |
 
 ### The consent-independent read path (updated 2026-08-12, AECI-574)
 
@@ -97,6 +97,23 @@ numbers), and again at launch.
 > taken to tune the home **trending** card — see [`POST_LAUNCH_HEALTH_REPORT.md`](./POST_LAUNCH_HEALTH_REPORT.md)
 > (2026-07-12 entry) and the `TRENDING_MIN_VIEWS` floor (`POST_LAUNCH_MONITORING.md` §3).
 
+> **AECI-575 addendum (2026-08-12) — `page_views` is public routes only.** What the table "sees"
+> narrowed: operator-only surfaces (`/admin/*` and `/account`) no longer produce rows, and the rows
+> already in the table are filtered out on read. Before this, every admin click wrote a `page_views`
+> row from the operator's own ISP and the daily digest counted it as a visitor — on the 2026-08-10
+> digest day **67 of the 92 "human" page views came from AS23700 (Jakarta), the operator's own ISP**
+> (`ADMIN_PANEL_SPEC.md` §14.2). The prefix list is `UNTRACKED_ROUTE_PREFIXES` in `@aeci/shared`,
+> enforced at both writers (`PageViewTracker.fire()` and the SSR Worker's `firePageView()`) and in
+> the daily digest's reads (`apps/api/src/lib/analytics-digest.ts`).
+>
+> Two consequences when reading numbers across this date. **(1)** Digest human counts for days
+> *before* 2026-08-12 are now reported lower than they were in the email sent at the time — that is
+> the intended retroactive correction, not a data loss; the rows are still in D1 and an ad-hoc query
+> without the filter still sees them. **(2)** This is the *precise* half of internal-traffic
+> filtering, with zero false positives. The coarse remainder — genuine visitors who happen to share
+> the operator's ISP — is `ANALYTICS_INTERNAL_ASNS` (`ADMIN_PANEL_SPEC.md` §13 D10), still unbuilt,
+> so the human count remains an **upper bound**.
+
 ## How to read the numbers (weekly, going forward)
 
 Once the secrets are provisioned (config injected — verify with
@@ -108,7 +125,10 @@ Once the secrets are provisioned (config injected — verify with
   `wrangler d1 execute aeci-app-production --env production --remote --command "select count(*) from mailing_list"`).
   Funnel/attribution (UTM, `source`) = the PostHog `mailing_list_signup` event.
 - **Top entry pages** — PostHog referrers/entry-path breakdown; or the server-side `page_views` D1
-  table for a consent-independent view.
+  table for a consent-independent view. Public routes only — `/admin/*` and `/account` are excluded
+  (AECI-575); add `and path not in ('/admin','/account') and path not like '/admin/%' and path not like '/account/%'`
+  to any ad-hoc query so it matches what the digest reports (the digest matches on an exact prefix
+  boundary, so a bare `'/admin%'` would wrongly drop public look-alikes like `/administrators`).
 - **Core Web Vitals** — Datadog **RUM → Performance / Core Web Vitals** for the `aeci` app (us5),
   filter `env:production` (LCP, CLS, INP). Thin sample pre-launch — re-read post-launch.
 

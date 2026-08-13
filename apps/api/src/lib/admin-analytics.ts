@@ -47,7 +47,7 @@ import type { Db } from '../db/client';
 import { auditLog, pageViews, products, profiles } from '../db/schema';
 import type { Env } from '../env';
 import { ApiError } from '../errors';
-import { BOT, HUMAN } from './analytics-digest';
+import { BOT, HUMAN, NOT_INTERNAL as EXCLUDE_UNTRACKED_ROUTES } from './analytics-digest';
 import { excludeInternalAsns, parseInternalAsns } from './internal-asns';
 
 const DAY_MS = 86_400_000;
@@ -186,10 +186,14 @@ function populationPredicate(traffic: AdminTrafficPopulation): SQL | undefined {
   return undefined;
 }
 
-/** `created_at` inside `[start, end)`. ISO 8601 text sorts lexicographically the
- *  same as chronologically, so the string range is exact. */
+/** `created_at` inside `[start, end)`, with the operator-only routes excluded.
+ *  ISO 8601 text sorts lexicographically the same as chronologically, so the
+ *  string range is exact. `EXCLUDE_UNTRACKED_ROUTES` (AECI-575) is folded in here
+ *  because every `page_views` read in this module derives its base predicate from
+ *  `inWindow`, so this is the single choke point that keeps the panel counting the
+ *  same population the digest does — `/admin/*` and `/account` out of both. */
 function inWindow(column: typeof pageViews.createdAt, w: UtcWindow): SQL {
-  return and(gte(column, w.startIso), lt(column, w.endIso)) as SQL;
+  return and(gte(column, w.startIso), lt(column, w.endIso), EXCLUDE_UNTRACKED_ROUTES) as SQL;
 }
 
 /** Resolved state of the `ANALYTICS_INTERNAL_ASNS` read-time filter. */
