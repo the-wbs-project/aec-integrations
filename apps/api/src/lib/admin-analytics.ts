@@ -17,11 +17,13 @@
  * which is why day bucketing is `substr(created_at, 1, 10)` rather than
  * `strftime`. No parsing, no timezone, no format assumption beyond ISO 8601.
  *
- * **2. The bias notes are derived, never hardcoded.** The spec names 2026-08-05
+ * **2. The bias notes are derived, never hardcoded.** The spec named 2026-08-05
  * as the date bot classification became trustworthy. That date is deliberately
  * absent from this file: `bot_classification_incomplete` fires because the window
- * actually contains `is_bot IS NULL` rows. The note therefore self-retires the
- * day AECI-582 runs the backfill, instead of lying in the other direction.
+ * actually contains `is_bot IS NULL` rows. That paid off twice — the real date
+ * turned out to be 2026-08-03, and when AECI-582 backfilled those rows on
+ * 2026-08-13 the note retired itself on every screen with no code change, instead
+ * of lingering as a hardcoded date asserting a bias that no longer existed.
  *
  * **3. Both numbers, never one.** Counts are {@link AdminCount}s whose `total` is
  * always unfiltered; `ANALYTICS_INTERNAL_ASNS` only ever adds a second figure
@@ -43,10 +45,23 @@ import {
   type AdminTrafficPopulation,
   type AdminWindow,
 } from '@aeci/shared';
-import { and, asc, count, desc, eq, gte, isNotNull, isNull, lt, sql, type SQL } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  gte,
+  isNotNull,
+  isNull,
+  lt,
+  lte,
+  sql,
+  type SQL,
+} from 'drizzle-orm';
 
 import type { Db } from '../db/client';
-import { auditLog, pageViews, products, profiles } from '../db/schema';
+import { auditLog, metricsDaily, pageViews, products, profiles } from '../db/schema';
 import type { Env } from '../env';
 import { ApiError } from '../errors';
 import { BOT, HUMAN, NOT_INTERNAL as EXCLUDE_UNTRACKED_ROUTES } from './analytics-digest';
@@ -228,6 +243,24 @@ export function toAdminInternalFilter(state: InternalFilterState): AdminInternal
 }
 
 // ─── Counting ────────────────────────────────────────────────────────────────
+
+/**
+ * `COUNT(*)` over an arbitrary table with an optional predicate.
+ *
+ * Shared by the overview's live totals and the P2.1 snapshot cron's stock
+ * metrics (`lib/metrics-snapshot.ts`) — deliberately one implementation, so a
+ * `metrics_daily` row and the overview's headline figure for the same table can
+ * never be counted two different ways.
+ */
+export async function countAll(
+  db: Db,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- one shared counter across a dozen unrelated tables; each call site is type-checked by its own `where`.
+  table: any,
+  where?: SQL,
+): Promise<number> {
+  const [row] = await db.select({ value: count() }).from(table).where(where);
+  return row?.value ?? 0;
+}
 
 async function countPageViewRows(db: Db, where: SQL | undefined): Promise<number> {
   const [row] = await db.select({ value: count() }).from(pageViews).where(where);
@@ -439,6 +472,50 @@ export async function metricSeries(
     });
   }
   return { perDay: await auditEventsPerDay(db, w, action), perDayFiltered: null };
+}
+
+/** One day's stored snapshot: the value, and whether it was reconstructed by the
+ *  P2.1 backfill rather than captured on the day. */
+export interface SnapshotPoint {
+  value: number;
+  reconstructed: boolean;
+}
+
+/**
+ * The `metrics_daily` rows covering `w` for one metric (AECI-581 / §7.1) —
+ * the storage half of the swap `metricSeries` aggregates live.
+ *
+ * Days with no row simply do not appear: the caller falls back to live
+ * aggregation for those, which is what keeps a window spanning the snapshot
+ * boundary continuous. `day` is `YYYY-MM-DD` TEXT and `w.fromDay`/`w.toDay` are
+ * inclusive calendar labels, so a plain `BETWEEN` on the text column is exact —
+ * the same lexical=chronological property the rest of this module relies on.
+ *
+ * `value` is stored REAL (so a future ratio metric needs no migration) but every
+ * metric in the vocabulary today is a count, and the wire schema is an integer —
+ * hence the round.
+ */
+export async function snapshotSeries(
+  db: Db,
+  metric: AdminMetricKey,
+  w: UtcWindow,
+): Promise<Map<string, SnapshotPoint>> {
+  const rows = await db
+    .select({ day: metricsDaily.day, value: metricsDaily.value, source: metricsDaily.source })
+    .from(metricsDaily)
+    .where(
+      and(
+        eq(metricsDaily.metric, metric),
+        gte(metricsDaily.day, w.fromDay),
+        lte(metricsDaily.day, w.toDay),
+      ),
+    );
+  return new Map(
+    rows.map((r) => [
+      r.day,
+      { value: Math.round(r.value), reconstructed: r.source === 'reconstructed' },
+    ]),
+  );
 }
 
 // ─── Breakdown dimensions ────────────────────────────────────────────────────
@@ -787,6 +864,10 @@ const SEVERITY: Record<AdminNoteCode, 'info' | 'warn'> = {
   funnel_is_promoted_cohort_only: 'warn',
   trade_facet_sparse_by_design: 'info',
   api_docs_flag_inconsistent: 'warn',
+  // AECI-581 / P2.1. `warn`, on the same test: a reader who misses it reads an
+  // approximation as a measurement. §4 shows the pre-snapshot catalog segment can
+  // only ever be approximate (827 `integration.created` events back 496 live rows).
+  series_partly_reconstructed: 'warn',
 };
 
 /** Build a note. `message` is the untranslated operator fallback; the UI renders
@@ -840,7 +921,7 @@ export async function trafficNotes(
     out.push(
       note(
         'bot_classification_incomplete',
-        `${unclassified} page view(s) in this window were captured before bot classification and are counted as human. AECI-582 backfills them.`,
+        `${unclassified} page view(s) in this window have no bot classification and are counted as human. Backfill them with scripts/ops/2026-08-page-view-bot-backfill/.`,
         { rows: unclassified, window_from: w.fromDay, window_to: w.toDay },
       ),
     );

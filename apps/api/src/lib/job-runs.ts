@@ -40,6 +40,7 @@ import type { IndexEntityResult } from './algolia-sync';
 import type { DataQualityCheckResult } from './data-quality';
 import type { EmailOutcome } from './email';
 import type { HomeStatKeyOutcome } from './home-stats';
+import type { MetricsSnapshotResult } from './metrics-snapshot';
 import type { ReconcileResult } from './reconciliation-sweep';
 
 // ---------------------------------------------------------------------------
@@ -183,6 +184,14 @@ export type JobRunDetail =
       failed: number;
       skipped: number;
       keys: HomeStatKeyOutcome[];
+    }
+  | {
+      job: 'metrics-snapshot';
+      day: string;
+      durationMs: number;
+      written: number;
+      failed: number;
+      metrics: MetricsSnapshotResult['metrics'];
     }
   | { job: 'moderation-snapshot'; pendingCount: number; oldestPendingAgeHours: number }
   | ({ job: 'request-reconcile' } & ReconcileResult)
@@ -332,7 +341,7 @@ export async function finishJobRun(
  *    `retry()`s, and bookkeeping must not swallow that. Note the converse, which
  *    is load-bearing: a *reported* `outcome: 'failed'` does NOT throw and so does
  *    NOT trigger a retry. Instrumenting must not widen the retry surface from the
- *    one job that has it today to all eight;
+ *    one job that has it today to all nine;
  * 4. every bookkeeping write is failure-isolated, so nothing here can abort,
  *    delay past its own await, or alter the job it records. The throw path uses a
  *    plain `catch` rather than `finally` precisely so nothing can `return` out
@@ -398,7 +407,7 @@ export interface JobRunRow {
  * Eight of these fanned out with `Promise.all` beats one clever query for a
  * second reason: zero `UNION` terms, so D1's `SQLITE_MAX_COMPOUND_SELECT = 5`
  * (which better-sqlite3 does not share — see `routes/admin-system.ts`) cannot
- * bite. `db.batch()` would be one round trip instead of eight, but the harness
+ * bite. `db.batch()` would be one round trip instead of nine, but the harness
  * shim returns `[]`, so every spec would see an empty result while production
  * worked.
  */

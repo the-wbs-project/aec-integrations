@@ -39,9 +39,9 @@ function makeTimeseries(over: Partial<AdminTimeseriesResponse> = {}): AdminTimes
     notes: [],
     internal_filter: { available: false, applied: false, asns: [] },
     points: [
-      { day: '2026-08-11', value: 12, value_excluding_internal: null },
-      { day: '2026-08-12', value: 3400, value_excluding_internal: null },
-      { day: '2026-08-13', value: 7, value_excluding_internal: null },
+      { day: '2026-08-11', value: 12, value_excluding_internal: null, reconstructed: false },
+      { day: '2026-08-12', value: 3400, value_excluding_internal: null, reconstructed: false },
+      { day: '2026-08-13', value: 7, value_excluding_internal: null, reconstructed: false },
     ],
     total: { total: 3419, excluding_internal: null },
     ...over,
@@ -295,7 +295,9 @@ describe('AdminTraffic', () => {
         code: 'bot_classification_incomplete' as const,
         severity: 'warn' as const,
         message: 'RAW OPERATOR TEXT',
-        params: { count: 42 },
+        // `rows` is the key the API actually sends (`trafficNotes`). The fixture
+        // used to say `count`, which masked the component reading the wrong key.
+        params: { rows: 42 },
       },
     ];
     const { el } = await setup(

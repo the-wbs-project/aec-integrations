@@ -106,7 +106,7 @@ export interface AdminSystemDeps extends ExpensiveStatusDeps {
  *
  * Since AECI-583 this is a **fallback, not the primary source**: a `job_runs` row
  * always wins. It earns its keep in exactly one window — between a deploy and a
- * job's first instrumented run — and deleting it would make all eight rows read
+ * job's first instrumented run — and deleting it would make all nine rows read
  * "unknown" for up to 24 hours after every deploy, which is a regression against
  * what P1.6 already showed.
  *
@@ -298,7 +298,7 @@ async function algoliaWatermark(db: Db): Promise<AdminAlgoliaWatermark | null> {
 }
 
 /**
- * One liveness row per cron. All eight are always present — omitting a job would
+ * One liveness row per cron. All nine are always present — omitting a job would
  * read as "not configured", a different and wrong claim from "we have no record
  * of its last run".
  */
@@ -322,7 +322,7 @@ async function cronRuns(
   return CRON_JOBS.map((job): AdminCronRun => {
     // A real recorded run beats an inference, always. `CRON_DERIVATIONS` survives
     // as the fallback for a job that has not run since AECI-583 deployed —
-    // deleting it would make all eight read "unknown" for up to 24h after every
+    // deleting it would make all nine read "unknown" for up to 24h after every
     // deploy, a regression against P1.6.
     const run = runs[job];
     const startedAt = run ? isoOrNull(run.startedAt) : null;

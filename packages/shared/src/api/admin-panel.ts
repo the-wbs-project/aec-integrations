@@ -29,8 +29,9 @@ import { LinkRefSchema, PageQuerySchema, paginatedResponseSchema } from './commo
  *
  * The bias flags are **derived from the window**, never from a hardcoded
  * calendar date: `bot_classification_incomplete` fires because the window
- * actually contains `is_bot IS NULL` rows, so the note self-retires the day
- * AECI-582 runs the backfill.
+ * actually contains `is_bot IS NULL` rows, so the note self-retired the day
+ * AECI-582 backfilled them (2026-08-13). It stays in the contract because a
+ * future ingest gap re-opens the same hole.
  *
  * **2. Both numbers, never one (§13 D10 constraint 2).** Every traffic count is
  * an {@link AdminCount} whose `total` is ALWAYS the unfiltered figure; the
@@ -74,7 +75,7 @@ export type AdminWindow = z.infer<typeof AdminWindowSchema>;
  * | code | means |
  * |---|---|
  * | `partial_day` | the window overlaps the current UTC day, so its last bucket is incomplete |
- * | `bot_classification_incomplete` | N rows in the window have `is_bot IS NULL` and are counted as HUMAN by the digest's `is_bot IS NOT 1` predicate (§3; AECI-582 fixes the data) |
+ * | `bot_classification_incomplete` | N rows in the window have `is_bot IS NULL` and are counted as HUMAN by the digest's `is_bot IS NOT 1` predicate (§3). Dormant since AECI-582 backfilled every row on 2026-08-13 |
  * | `referrer_source_incomplete` | N human rows in the window have `referrer_source IS NULL` — not backfillable, the header was never stored |
  * | `direct_is_mixed_bucket` | a `Direct` bucket is present; `PageViewTracker` POSTs on every SPA navigation and the same-origin `Referer` classifies as `Direct`, so in-app hops and true direct arrivals are indistinguishable (AECI-585 separates them) |
  * | `visitor_definition_approximate` | `unique_visitors` is `DISTINCT (user_agent_hash, cf_asn)` — over-counts on browser update, under-counts behind shared NAT (§9.8) |
@@ -87,7 +88,8 @@ export type AdminWindow = z.infer<typeof AdminWindowSchema>;
  * | `funnel_is_promoted_cohort_only` | every `products` row reads `promotion_status='promoted'`, so the funnel has exactly one populated stage — the pre-promotion stages live in the review app, not D1 (§13 D6) |
  * | `trade_facet_sparse_by_design` | products carry no `trade` tag and that is not by itself a defect: `TRADES_VOCABULARY.md` §1.1 tags a product only when it has trade-SPECIFIC value, so horizontal platforms correctly carry zero rows |
  * | `api_docs_flag_inconsistent` | N products have `has_api_docs = 1` but no `api_docs_url` — the flag and the artifact disagree |
- * | `cron_liveness_unavailable` | N of the eight crons have no `job_runs` row yet — they have not run since run recording shipped, or were added since. Datadog's no-data monitors stay the authority for "a job stopped firing" |
+ * | `series_partly_reconstructed` | some days in the window come from the P2.1 backfill rather than a same-day snapshot, and are approximate (§4); `params.reconstructed_days` counts them and `params.reconstructed_through` is the last such day |
+ * | `cron_liveness_unavailable` | N of the nine crons have no `job_runs` row yet — they have not run since run recording shipped, or were added since. Datadog's no-data monitors stay the authority for "a job stopped firing" |
  * | `orphan_sweep_not_persisted` | **No longer emitted (AECI-583)** — the sweep's result IS persisted now, in the 09:00 drift run's `job_runs.detail`. Retained because removing a code is a breaking change, and so an older cached response still renders |
  * | `stored_result_unreadable` | a stored `job_runs.detail` could not be parsed, so the item is omitted rather than partially reported. `params.job` names which cron's payload |
  */
@@ -106,6 +108,7 @@ export const AdminNoteCodeSchema = z.enum([
   'funnel_is_promoted_cohort_only',
   'trade_facet_sparse_by_design',
   'api_docs_flag_inconsistent',
+  'series_partly_reconstructed',
   'cron_liveness_unavailable',
   'orphan_sweep_not_persisted',
   'stored_result_unreadable',
@@ -174,8 +177,20 @@ export const AdminDeltaSchema = z.object({
 });
 export type AdminDelta = z.infer<typeof AdminDeltaSchema>;
 
-/** Where the numbers came from. P2.1 adds `'snapshot'`; the shape does not change. */
-export const AdminMetricSourceSchema = z.enum(['live']);
+/**
+ * Where the numbers came from.
+ *
+ * - `live` — aggregated over `page_views` / `audit_log` / `profiles` on this request.
+ * - `snapshot` — every day in the window came from `metrics_daily` (P2.1 / §7.1).
+ * - `mixed` — some days from the snapshot, the rest aggregated live.
+ *
+ * `mixed` is not an edge case: the current UTC day is never snapshotted (the
+ * cron writes the prior COMPLETE day), so any window reaching today is mixed by
+ * construction. This is a provenance axis and is deliberately separate from
+ * {@link AdminTimeseriesPointSchema}'s `reconstructed`, which is about
+ * exactness — a snapshot row can be either.
+ */
+export const AdminMetricSourceSchema = z.enum(['live', 'snapshot', 'mixed']);
 export type AdminMetricSource = z.infer<typeof AdminMetricSourceSchema>;
 
 // ─── GET /api/admin/overview ─────────────────────────────────────────────────
@@ -402,7 +417,7 @@ export type AdminOverviewResponse = z.infer<typeof AdminOverviewResponseSchema>;
  * `integration.created` events back 496 live rows). Every `catalog.*` response
  * carries `catalog_series_is_additions_only` so the chart cannot be misread.
  */
-export const AdminMetricKeySchema = z.enum([
+export const ADMIN_METRIC_KEYS = [
   'traffic.page_views_human',
   'traffic.page_views_bot',
   /** HUMANS only, and note it does NOT sum: each bucket is its own
@@ -415,8 +430,76 @@ export const AdminMetricKeySchema = z.enum([
   'catalog.vendors_created',
   'catalog.claims_created',
   'accounts.sign_ins_new',
-]);
+] as const;
+
+export const AdminMetricKeySchema = z.enum(ADMIN_METRIC_KEYS);
 export type AdminMetricKey = z.infer<typeof AdminMetricKeySchema>;
+
+/**
+ * The **stock** half of the `metrics_daily` vocabulary (P2.1 / §7.1): an
+ * instantaneous count sampled once a day, as against the *flow* keys above,
+ * which count events inside a day.
+ *
+ * These are written by the snapshot cron but are **not yet readable** through
+ * `GET /api/admin/metrics/timeseries` — {@link AdminMetricKeySchema} is
+ * deliberately still the endpoint's vocabulary. They are captured from day one
+ * anyway because a stock is unrecoverable retroactively: §4 shows the audit log
+ * cannot reproduce a past total (827 `integration.created` events back 496 live
+ * rows), so any day not sampled is lost permanently. §5.4 (Audience) and §5.5
+ * (Catalog "counts over time") are the screens that will read them.
+ *
+ * The key names state their own filter — `*_promoted` where the table carries a
+ * `promotion_status` gate, `*_total` where it does not. `queue.requests_open`
+ * uses the same `status='open'` predicate as the overview's `open_requests`
+ * ({@link AdminModerationDepthSchema}), so the two can never disagree.
+ */
+export const ADMIN_SNAPSHOT_STOCK_METRIC_KEYS = [
+  'catalog.products_promoted',
+  'catalog.vendors_promoted',
+  'catalog.integrations_total',
+  'catalog.claims_total',
+  /** `approved` only — the canonical `COUNTED_REVIEW_STATUS`, matching the public
+   *  review APIs and `products.review_count`. */
+  'catalog.reviews_approved',
+  'accounts.profiles_total',
+  /** `unsubscribed_at IS NULL`. Paired with the key below, churn is exact. */
+  'audience.subscribers_active',
+  'audience.subscribers_unsubscribed',
+  'audience.feedback_total',
+  'queue.reviews_pending',
+  'queue.requests_open',
+] as const;
+
+/**
+ * Every metric the P2.1 snapshot cron writes to `metrics_daily`, flows first.
+ *
+ * Built by spreading {@link ADMIN_METRIC_KEYS} rather than re-listing it, so the
+ * endpoint's vocabulary is a **structural** subset of the snapshot's — a key
+ * added to the endpoint that the cron does not write is impossible by
+ * construction, rather than caught by a reviewer.
+ */
+export const ADMIN_SNAPSHOT_METRIC_KEYS = [
+  ...ADMIN_METRIC_KEYS,
+  ...ADMIN_SNAPSHOT_STOCK_METRIC_KEYS,
+] as const;
+
+export const AdminSnapshotMetricKeySchema = z.enum(ADMIN_SNAPSHOT_METRIC_KEYS);
+export type AdminSnapshotMetricKey = (typeof ADMIN_SNAPSHOT_METRIC_KEYS)[number];
+
+/**
+ * Provenance of one `metrics_daily` row (§7.1, as shipped).
+ *
+ * §7.1 sketched four columns and proposed marking a backfilled row through its
+ * `computed_at`; that heuristic mislabels a legitimate late re-run of a *missed*
+ * day, whose sources are still intact, as approximate. A stored column says it
+ * outright and yields one precedence rule the cron and the backfill both obey:
+ * **a `measured` write always wins; a `reconstructed` write applies only when
+ * the existing row is absent or itself `reconstructed`.** That is what makes the
+ * backfill re-runnable without ever corrupting a real snapshot.
+ */
+export const ADMIN_SNAPSHOT_SOURCES = ['measured', 'reconstructed'] as const;
+export const AdminSnapshotSourceSchema = z.enum(ADMIN_SNAPSHOT_SOURCES);
+export type AdminSnapshotSource = (typeof ADMIN_SNAPSHOT_SOURCES)[number];
 
 /** Longest window the API will aggregate, matching §7.4's 400-day `page_views`
  *  retention: asking for more than is retained can only mislead. */
@@ -444,12 +527,23 @@ export const AdminTimeseriesQuerySchema = z.object({
 });
 export type AdminTimeseriesQuery = z.infer<typeof AdminTimeseriesQuerySchema>;
 
-/** One bucket. `value_excluding_internal` is null unless the metric is
- *  `traffic.*` AND the filter was applied. */
+/**
+ * One bucket. `value_excluding_internal` is null unless the metric is
+ * `traffic.*` AND the filter was applied.
+ *
+ * `reconstructed` is **per point, not per response**, because a window can span
+ * the snapshot boundary and a response-level flag could not say which days it
+ * applied to. True means the value came from P2.1's backfill of a day that
+ * predates the snapshot cron and could only be approximated (§4: 827
+ * `integration.created` events back 496 live rows). False means it was measured
+ * — either snapshotted on the day, or aggregated live from rows that still
+ * exist. Blending the two without saying so is what §1.1 forbids.
+ */
 export const AdminTimeseriesPointSchema = z.object({
   day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   value: z.number().nonnegative(),
   value_excluding_internal: z.number().nonnegative().nullable(),
+  reconstructed: z.boolean(),
 });
 export type AdminTimeseriesPoint = z.infer<typeof AdminTimeseriesPointSchema>;
 
@@ -567,11 +661,13 @@ export type AdminTrafficBreakdownResponse = z.infer<typeof AdminTrafficBreakdown
  */
 
 /**
- * The eight cron jobs in `apps/api/src/scheduled.ts`, as a closed vocabulary.
+ * The nine cron jobs in `apps/api/src/scheduled.ts`, as a closed vocabulary.
  * These are the ids `job_runs.job` will carry (§7.2), so AECI-583 persists
- * against these strings rather than inventing a second naming.
+ * against these strings rather than inventing a second naming. `metrics-snapshot`
+ * is the ninth, added with the §7.1 snapshot cron (AECI-581).
  */
 export const AdminCronJobSchema = z.enum([
+  'metrics-snapshot', // 15 0 * * *
   'data-quality', // 0 4 * * *
   'analytics-digest', // 0 5 * * *
   'moderation-snapshot', // 0 6 * * *
@@ -620,7 +716,7 @@ export const AdminCronRunStateSchema = z.enum(['complete', 'in_flight']);
 export type AdminCronRunState = z.infer<typeof AdminCronRunStateSchema>;
 
 /**
- * One cron's liveness row. All eight are ALWAYS present — a job missing from the
+ * One cron's liveness row. All nine are ALWAYS present — a job missing from the
  * array would read as "not configured", which is a different and wrong claim
  * from "we have no record of its last run".
  */

@@ -1,5 +1,5 @@
 /**
- * The eight cron expressions the API Worker is triggered on, in one place.
+ * The nine cron expressions the API Worker is triggered on, in one place.
  *
  * They used to live as module-private constants in `scheduled.ts`, which was fine
  * while `scheduled.ts` was the only reader. `GET /api/admin/system` (AECI-580 /
@@ -11,7 +11,7 @@
  *
  * **Every value MUST stay byte-equal to the matching `triggers.crons` entry in
  * `apps/api/wrangler.jsonc`** (staging, demo and production each declare the same
- * eight). `scheduled.ts` `switch`es on `controller.cron`, so a mismatch silently
+ * nine). `scheduled.ts` `switch`es on `controller.cron`, so a mismatch silently
  * stops dispatching the job — the failure mode these comments have always warned
  * about.
  *
@@ -23,6 +23,14 @@
 import type { AdminCronJob } from '@aeci/shared';
 
 import type { ScheduledJob } from '../env';
+
+/** Daily `metrics_daily` snapshot (AECI-581 / `ADMIN_PANEL_SPEC.md` §7.1). **00:15
+ *  UTC**, deliberately the first slot of the day: it captures the prior COMPLETE
+ *  UTC day, mixing per-day flows with instantaneous stocks, and only a slot just
+ *  after midnight lets both carry the same day label honestly. Queue-less — every
+ *  metric is isolated in its own try/catch and a missed day is recoverable by
+ *  re-running the backfill, so queue-native retries buy nothing. */
+export const SNAPSHOT_CRON = '15 0 * * *';
 
 /** Daily §23.1 data-quality suite (AECI-241 / Phase 7.6). 04:00 UTC — the §23.1
  *  slot, two hours ahead of the 06:00 moderation snapshot, in the same
@@ -76,6 +84,7 @@ export const WAF_CRON = '0 * * * *';
  * error rather than a row that quietly vanishes from the System screen.
  */
 export const CRON_SCHEDULES: Record<AdminCronJob, string> = {
+  'metrics-snapshot': SNAPSHOT_CRON,
   'data-quality': DATA_QUALITY_CRON,
   'analytics-digest': ANALYTICS_CRON,
   'moderation-snapshot': MODERATION_CRON,
@@ -97,6 +106,7 @@ export const CRON_SCHEDULES: Record<AdminCronJob, string> = {
  * `scheduled.ts` because the read side needs the same map.
  */
 export const ADMIN_CRON_JOB: Record<ScheduledJob, AdminCronJob> = {
+  snapshot: 'metrics-snapshot',
   data_quality: 'data-quality',
   analytics: 'analytics-digest',
   moderation: 'moderation-snapshot',
@@ -110,6 +120,7 @@ export const ADMIN_CRON_JOB: Record<ScheduledJob, AdminCronJob> = {
 /** Display/iteration order for the System screen — chronological through the UTC
  *  day, then the two sub-daily jobs. Matches `POST_LAUNCH_MONITORING.md` §1a. */
 export const CRON_JOBS: readonly AdminCronJob[] = [
+  'metrics-snapshot',
   'data-quality',
   'analytics-digest',
   'moderation-snapshot',

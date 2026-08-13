@@ -64,6 +64,7 @@ import {
 import type { Env } from '../env';
 import { json } from '../http';
 import {
+  countAll,
   countUniqueVisitorsBoth,
   countViewsExcludingInternal,
   internalFilterNote,
@@ -238,17 +239,6 @@ export function createAdminOverviewHandler(
 
     return json(body);
   };
-}
-
-/** `COUNT(*)` over an arbitrary table with an optional predicate. */
-async function countAll(
-  db: Db,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- one shared counter across five unrelated tables; each call site is type-checked by its own `where`.
-  table: any,
-  where?: ReturnType<typeof eq>,
-): Promise<number> {
-  const [row] = await db.select({ value: count() }).from(table).where(where);
-  return row?.value ?? 0;
 }
 
 /** Human page views over a multi-day window (the 7-day delta halves), using the

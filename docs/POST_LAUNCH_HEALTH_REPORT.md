@@ -59,6 +59,79 @@ nil-to-negligible. The value is a known zero to accrue against.
 
 ## Entries
 
+## 2026-08-13 — AECI-582 page-view bot backfill (historical rewrite)
+
+Scope: a **one-time reclassification of `page_views.is_bot`**, run on all four tiers, not a weekly
+monitoring sweep. This entry exists because the run **rewrites the past**: every "human page views"
+number this log, the 05:00 digest, and the admin panel reported for June and July was wrong, and is
+now different. Anyone asking later why July traffic collapsed should land here.
+
+**Prod SHA / deploy:** unchanged; this is a data operation, no deploy.
+**Ran via:** `scripts/ops/2026-08-page-view-bot-backfill/run.sh --env production --apply --allow-production`
+(dry-run → `page_views` export + Time Travel bookmark → apply → verify).
+
+**The defect.** Rows captured before the traffic classifier shipped carry `is_bot IS NULL`, and every
+read predicate in the app is the NULL-safe `is_bot IS NOT 1` (`HUMAN`, `analytics-digest.ts`). An
+unclassified row therefore *counted as a human*. **17,784 of 26,671 prod rows were unclassified.**
+
+**Before → after (production, whole table):**
+
+| Month | Rows | Unclassified before | Read as human before | Human after | Bot after |
+|---|---|---|---|---|---|
+| 2026-06 | 750 | 750 (100%) | 750 | **45** | 705 |
+| 2026-07 | 15,748 | 15,748 (100%) | 15,748 | **1,144** | 14,604 |
+| 2026-08 | 10,173 | 1,286 (13%) | 1,824 | **907** | 9,266 |
+| **Total** | **26,671** | **17,784** | **18,322** | **2,096** | **24,575** |
+
+In the digest population (excluding `/admin` + `/account`) the headline is **18,318 → 2,095 human
+page views. About 89% of all traffic ever recorded as human was bots.** June and July were ~94% and
+~93% bot respectively. The real human baseline for the site's first seven weeks is roughly **2,100
+page views**, not eighteen thousand.
+
+**How the 17,784 resolved:** 4,941 by User-Agent hash to a true crawler name · 441 to one identified
+crawler cohort · 10,844 by datacenter ASN · 1,558 swept to human.
+
+**Recovering real crawler names (the part that was thought impossible).** The raw UA is discarded at
+capture, so the standing assumption was that old rows can only be classified by ASN. But
+`classifyTraffic()` tests the UA *before* the ASN, so any row the live classifier named from its UA
+was decided by the UA alone — and the SHA-256 UA hash *does* persist. Joining old rows to that hash
+transfers the verdict exactly, whatever ASN they came from. That recovered **4,941 rows** with real
+names (`Bingbot` 2,519, `Applebot` 885, `OpenAI` 275, `Googlebot` 123, …) that the ASN rule would
+have stamped with a hosting-provider label, and it reached rows on ASNs the ASN rule deliberately
+does not list. Top crawlers now: Bingbot 3,401 · Other bot 3,244 · Datacenter (Tencent) 2,262 ·
+Datacenter (AWS) 2,073 · SemrushBot 1,750 · Applebot 1,089.
+
+**A false trail worth recording.** The 885 `Applebot` rows sit on **AS714 (Apple)**, and the obvious
+fix was to add AS714 to `DATACENTER_ASNS`. That would have been a mistake: `DATACENTER_ASNS` drives
+the **live** classifier too, and Apple's network carries iCloud Private Relay, so production would
+have begun marking real Apple visitors as bots — the same error as the one being fixed, pointed the
+other way. Same for AS9808/AS56045 (China Mobile's consumer network). **`DATACENTER_ASNS` was not
+touched**; the UA-hash rule reached those rows without it.
+
+**Bot classification is trustworthy from 2026-08-03**, measured — not the ~2026-08-05 the admin-panel
+spec estimated. The first live-classified rows land on 08-03 (0 classified on 08-02, 838 on 08-03),
+and every day from 08-04 on was already fully classified.
+
+**No digest discontinuity.** Because nothing after 08-03 was unclassified, the backfill moves **zero**
+rows in the digest's reported day or its prior-day comparison. The 2026-08-14 email should read the
+same as it would have; the correction is entirely historical.
+
+**Regressions / tickets filed:** none. Two adjacent defects fixed in the same PR: `home.trending_products`
+counted bot views (1,121 product views in the trailing 7 days were only **74** human, so the public
+card ranked products by how hard they were being scraped — it now uses the digest's `HUMAN`
+predicate), and the admin Traffic page rendered two honesty notes with a blank number
+(`admin-note-list.ts` read `params.count`; the API sends `rows`).
+
+**Threshold tuning:** none, but `TRENDING_MIN_VIEWS = 3` **stops being inert** now that trending
+counts humans only — 9 products clear it on human views (8, 8, 5, 4, 4, 3, 3, 3, 3), still enough to
+fill the top-5, but the margin is thin and a quiet week will now fall back to recently-added.
+
+**Actions / follow-ups:** the human count remains an **upper bound** — `ANALYTICS_INTERNAL_ASNS` is
+still unset, and the ASN list is hand-maintained, so `is_bot = 0` means "not known to be a bot".
+Rule C also hard-set every remaining row to `is_bot = 0`, so the "never classified" signal is gone
+and a future `DATACENTER_ASNS` widening must reach those rows by ASN, not by null. Capturing
+`cf_as_organization` at ingest (§7.3 / AECI-585) is the durable fix.
+
 ## 2026-07-12 — AECI-280 trending data pull (week 1, stats-pipeline slice)
 
 Scope: a **targeted read of the `stats_cache` + `page_views` pipeline** for AECI-280 (Phase 8.2 — tune

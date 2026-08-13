@@ -47,6 +47,9 @@ below. The bounded render-volume signal is the `aeci.ssr.render` count metric.
 | `aeci.stats.compute.duration_ms` | distribution | `apps/api/src/lib/home-stats-metrics.ts` (`emitHomeStatsMetrics`, from the cron + promote hook) | `trigger` (cron / promote) |
 | `aeci.stats.compute.key` | count | `apps/api/src/lib/home-stats-metrics.ts` (`emitHomeStatsMetrics`, from the cron + promote hook) | `trigger` (cron / promote), `key` (the `home.*` stats_cache key), `outcome` (written / skipped / failed) |
 | `aeci.stats.compute.key.duration_ms` | distribution | `apps/api/src/lib/home-stats-metrics.ts` (`emitHomeStatsMetrics`, from the cron + promote hook) | `trigger` (cron / promote), `key` (the `home.*` stats_cache key) |
+| `aeci.metrics_snapshot.run` | count | `apps/api/src/lib/metrics-snapshot.ts` (`emitMetricsSnapshotMetrics`, from the daily 00:15 UTC snapshot cron) + an inline pre-compute-crash count in `apps/api/src/scheduled.ts` | `trigger` (cron), `outcome` (ok / partial / failed) — always emitted, so this doubles as the cron-liveness heartbeat |
+| `aeci.metrics_snapshot.run.duration_ms` | distribution | `apps/api/src/lib/metrics-snapshot.ts` (`emitMetricsSnapshotMetrics`) | `trigger` (cron) |
+| `aeci.metrics_snapshot.metric` | count | `apps/api/src/lib/metrics-snapshot.ts` (`emitMetricsSnapshotMetrics`) | `trigger` (cron), `metric` (the `metrics_daily` key — one of the 19 in `ADMIN_SNAPSHOT_METRIC_KEYS`), `outcome` (written / failed) |
 | `aeci.pageviews.write` | count | `apps/api/src/routes/page-views.ts` (`capturePageView`, the deferred `POST /api/page-views` insert) | `outcome` (ok / failed); on `outcome:ok` also `bot` (true / false — the ingest-time UA+ASN classification, AECI-526) so the human/bot ratio is queryable in Datadog without waiting for the daily digest |
 | `aeci.auth.signin` | count | `apps/web/src/server/routes/auth-callback.ts` (the SSR `/auth/callback` handler — **carries `service:aeci-web`**, AECI-206) | `method` (google / magic_link / unknown), `outcome` (success / failed), `reason` on failure (link_invalid / missing_code / auth_not_configured) |
 | `aeci.review.submit` | count | `apps/api/src/routes/reviews.ts` (`createSubmitReviewHandler`, AECI-206) | `outcome` (ok / duplicate / product_not_found) |
@@ -75,7 +78,7 @@ below. The bounded render-volume signal is the `aeci.ssr.render` count metric.
 | `aeci.waf.poll` | count | `apps/api/src/scheduled.ts` (`runWafMetricsJob`, hourly cron, AECI-262) | `trigger` (cron), `outcome` (ok / failed / skipped_no_creds) — one heartbeat per run; the always-emitted `outcome:ok` series is the cron-liveness signal |
 | `aeci.analytics_digest.email` | count | `apps/api/src/scheduled.ts` (`runAnalyticsDigestJob` → `lib/email.ts` `sendEmail`, AECI-526, daily 05:00 UTC = noon Jakarta cron) | `outcome` (sent / failed / skipped) — the daily operator digest: **human** page views + top products (`is_bot IS NOT 1`), new/total sign-ins, pending-moderation depth, and a Crawler-activity breakdown (`is_bot = 1`, grouped by `bot_name`). **`skipped`** when `RESEND_API_KEY` / `EMAIL_FROM` / `ANALYTICS_DIGEST_EMAIL_TO` are unset (fail-open); one count per run, so the always-emitted series doubles as the cron-liveness signal (`outcome:failed` also covers a pre-send crash) |
 | `aeci.moderation.ban` | count | `apps/api/src/routes/admin-reviewers.ts` (`emitBanAction`, **AECI-218 / Phase 6.11** — the `PATCH /api/admin/reviewers/:id` ban/unban write-path) | `action` (`ban` / `unban`), `outcome` (`ok` / `invalid_state` / `forbidden`) — one count per ban/unban attempt, alongside the §9 `appendAuditLog()` + `reviewer_ban` `workflow_transition` |
-| `aeci.job_runs.write` | count | `apps/api/src/scheduled.ts` (`jobRunSink` → `lib/job-runs.ts`, **AECI-583 / Phase 8.3 P3.1**) | `phase` (start / finish), `job` (the `AdminCronJob` id), `outcome` (ok / failed) — this measures the **recorder, not the job**: a `failed` here means the admin panel's cron liveness under-reports while the job itself completed normally. Emitted on success too, so a silently-broken writer is distinguishable from "no crons ran". 32 series, ~240 points/day. Companion error log: `aeci.job_runs.write_failed`, `source:job-runs` |
+| `aeci.job_runs.write` | count | `apps/api/src/scheduled.ts` (`jobRunSink` → `lib/job-runs.ts`, **AECI-583 / Phase 8.3 P3.1**) | `phase` (start / finish), `job` (the `AdminCronJob` id), `outcome` (ok / failed) — this measures the **recorder, not the job**: a `failed` here means the admin panel's cron liveness under-reports while the job itself completed normally. Emitted on success too, so a silently-broken writer is distinguishable from "no crons ran". 36 series, ~245 points/day. Companion error log: `aeci.job_runs.write_failed`, `source:job-runs` |
 
 `aeci.ssr.render` (AECI-103) is one count per SSR render, fired on **every** branch
 of `handleSsr` — including the edge-cache HIT path and the non-cacheable branch, both of
@@ -91,7 +94,7 @@ Every metric also carries the base tags `env`, `app:aeci`, `service` (`aeci-web`
 ### `job_runs` is a second recording surface, not a replacement (AECI-583)
 
 Since AECI-583 every cron also writes a `job_runs` row in D1 (`DATABASE_SCHEMA.md`
-§9.3, `ADMIN_PANEL_SPEC.md` §7.2), and `/admin/system` renders it. That does **not**
+§9.4, `ADMIN_PANEL_SPEC.md` §7.2), and `/admin/system` renders it. That does **not**
 retire anything below. The two surfaces answer different questions, and the split
 is not a matter of taste:
 
@@ -109,6 +112,7 @@ no matching heartbeat, or a heartbeat with no row, is a bug in the instrumentati
 
 | Cron | `job_runs.job` | Its Datadog liveness signal |
 |---|---|---|
+| 00:15 metrics snapshot | `metrics-snapshot` | `aeci.metrics_snapshot.run` (`outcome:success\|partial\|failed`) |
 | 04:00 data quality | `data-quality` | `aeci.data_quality.job` (`outcome:success\|failed`) |
 | 05:00 analytics digest | `analytics-digest` | `aeci.analytics_digest.email` |
 | 06:00 moderation snapshot | `moderation-snapshot` | `aeci.moderation.queue_depth` (gauge; no per-run heartbeat) |
@@ -219,6 +223,24 @@ identical metric family with a `promote` trigger tag (and its own inline pre-com
 event-driven and mustn't feed a fixed-cadence heartbeat — but the "compute failed" monitor is
 trigger-agnostic, so a failed *promote* refresh alerts the same as a failed cron run (a genuine
 "home stats didn't refresh" signal). A failed promote refresh also self-heals at the next daily cron.
+
+`aeci.metrics_snapshot.*` (AECI-581 / `ADMIN_PANEL_SPEC.md` §7.1) is the same shape one layer over:
+the daily 00:15 UTC cron that captures the prior **complete** UTC day into `metrics_daily`, the admin
+panel's long memory. A completed run emits one job-level `aeci.metrics_snapshot.run` count
+(`outcome:ok` = every one of the 19 metrics written, `partial` = some wrote + some failed, `failed` =
+nothing wrote), one `aeci.metrics_snapshot.run.duration_ms` distribution, and a per-metric
+`aeci.metrics_snapshot.metric{outcome:written|failed}` so a dashboard sees *which* key failed without
+reading logs. The pre-compute crash path (a DB-client-init throw before `runMetricsSnapshot`) stays an
+inline single `aeci.metrics_snapshot.run{outcome:failed}` count, exactly as `aeci.stats.compute` does.
+
+Two things make this worth a monitor rather than just a dashboard. The cron is **queue-less**, so a
+failed invocation is not retried — and unlike the other read-only crons, a missed run leaves a
+permanent hole: the *stock* metrics (catalog totals, queue depths, subscriber counts) cannot be
+reconstructed after the fact (§4), so a day not captured is a day lost. Recovery for the flow metrics
+is `pnpm --filter @aeci/api ops:backfill-metrics-daily`, which is the same idempotent
+`(day, metric)` upsert. Until AECI-583's `job_runs` row lands, the always-emitted
+`aeci.metrics_snapshot.run{trigger:cron}` series is the only liveness signal — watch it with
+`notify_no_data` on a >24h window, the same always-reports pattern as the index-drift gauge.
 
 `aeci.pageviews.write` (AECI-180) is the write-health signal for the `POST /api/page-views` insert
 (AECI-177): one count per attempted insert, `outcome:ok` after a successful `page_views` write and

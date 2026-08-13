@@ -7,7 +7,7 @@
  * is now reachable, but only from a `job_runs` row that actually says so, which
  * makes the negative cases the load-bearing ones:
  *
- *   - with no `job_runs` rows the eight read `unknown`/`derived` exactly as they
+ *   - with no `job_runs` rows the nine read `unknown`/`derived` exactly as they
  *     did in P1.6, and no row reports an outcome (the "a newly added cron must
  *     still render honestly" AC);
  *   - an OPEN row (`finished_at IS NULL`) reports `in_flight` with a null outcome
@@ -100,11 +100,12 @@ const cron = (body: AdminSystemResponse, job: string) =>
   body.crons.find((r) => r.job === job) ?? expect.fail(`no cron row for ${job}`);
 
 describe('GET /api/admin/system — cron liveness never reports a passing state', () => {
-  it('returns all eight crons as `unknown` on an empty database', async () => {
+  it('returns all nine crons as `unknown` on an empty database', async () => {
     const body = await system();
 
-    expect(body.crons).toHaveLength(8);
+    expect(body.crons).toHaveLength(9);
     expect(body.crons.map((r) => r.job)).toEqual([
+      'metrics-snapshot',
       'data-quality',
       'analytics-digest',
       'moderation-snapshot',
@@ -147,10 +148,10 @@ describe('GET /api/admin/system — cron liveness never reports a passing state'
     const note = body.notes.find((n) => n.code === 'cron_liveness_unavailable');
     expect(note).toBeDefined();
     expect(note?.severity).toBe('warn');
-    expect(note?.params).toEqual({ unknown: 8, total: 8 });
+    expect(note?.params).toEqual({ unknown: 9, total: 9 });
   });
 
-  it('derives home-stats + algolia-sync from D1 once their artifacts exist, and leaves the other six unknown', async () => {
+  it('derives home-stats + algolia-sync from D1 once their artifacts exist, and leaves the other seven unknown', async () => {
     await t.db.insert(statsCache).values([
       { key: 'home.total_products', value: 3, computedAt: '2026-08-13T01:00:00.000Z' },
       { key: 'home.total_vendors', value: 2, computedAt: '2026-08-13T01:05:00.000Z' },
@@ -180,6 +181,7 @@ describe('GET /api/admin/system — cron liveness never reports a passing state'
 
     const stillUnknown = body.crons.filter((r) => r.source === 'unknown').map((r) => r.job);
     expect(stillUnknown).toEqual([
+      'metrics-snapshot',
       'data-quality',
       'analytics-digest',
       'moderation-snapshot',
@@ -188,8 +190,8 @@ describe('GET /api/admin/system — cron liveness never reports a passing state'
       'waf-poll',
     ]);
     expect(body.notes.find((n) => n.code === 'cron_liveness_unavailable')?.params).toEqual({
-      unknown: 6,
-      total: 8,
+      unknown: 7,
+      total: 9,
     });
   });
 
@@ -665,6 +667,7 @@ describe('GET /api/admin/system — cron liveness from job_runs (§7.2 / AECI-58
 
   it('drops the cron_liveness_unavailable note once every job has a row', async () => {
     for (const job of [
+      'metrics-snapshot',
       'data-quality',
       'analytics-digest',
       'moderation-snapshot',

@@ -49,7 +49,7 @@ healthy day — the point is to catch a regression before a monitor's sustained-
 | 4 | **Algolia query latency / errors** | Phase 3 — Search (browser RUM `aeci.search.query`: latency p50/p95/p99, error rate) | error rate ~0; p95 within norm | *(no monitor — dashboard-only; add if noisy)* |
 | 5 | **Algolia sync + drift** | Phase 3 — Search; `aeci.algolia.sync`, `aeci.algolia.index_drift`. Also **`/admin/system`** — the sync watermark (per entity + last advance), and drift on demand via "Run data-quality checks" | drift 0; daily sync `outcome:ok` | drift/sync-failed/sync-not-running/orphan-cap monitors |
 | 5a | **Data quality (10 §23.1 checks)** | **`/admin/system`** — the page now opens on the **last stored 04:00 result** (AECI-583), labelled with the run's own timestamp, so the morning read needs no click and no email. "Run data-quality checks" re-runs the suite live to confirm a fix made since. Both are pure reads — nothing written, nothing sent | every check *Passing*; `algolia_index_drift` *Skipped* is normal off production (no credentials) | check-error / check-warn monitors (unchanged — the screen is a read surface, not an alerting one) |
-| 6 | **Scheduled-job health (8 crons)** | **`/admin/system`** for the record — real last run, outcome and duration per job (AECI-583). **Datadog for absence** — a job that never starts leaves no row, so the no-data monitors remain the only signal for "it stopped firing" (see §1a) | every cron shows a recent recorded run, and emitted its heartbeat in window | the per-cron `… not running` / `… failed` monitors |
+| 6 | **Scheduled-job health (9 crons)** | **`/admin/system`** for the record — real last run, outcome and duration per job (AECI-583). **Datadog for absence** — a job that never starts leaves no row, so the no-data monitors remain the only signal for "it stopped firing" (see §1a) | every cron shows a recent recorded run, and emitted its heartbeat in window | the per-cron `… not running` / `… failed` monitors |
 | 7 | **Request → Linear pipeline** | Phase 6 — Requests / Moderation; `aeci.linear.issue`/`.sync`/`.reconcile.*`, `aeci.webhooks.linear.hmac_failure` | failure rate < 50%; no persistent stuck; no HMAC burst | pipeline-failure / reconcile-stuck / reconcile-no-data / hmac monitors |
 | 8 | **Moderation queue** | Phase 5 & 6 dashboards; `aeci.moderation.queue_depth` / `queue_oldest_age_hours`; `GET /api/admin/summary` (`pending_reviews`), `GET /api/admin/requests` | oldest pending < 48h (target 24h, §17) | `AECi — Moderation queue backlog` (>48h) |
 | 9 | **RUM Core Web Vitals** *(gated on §0)* | Datadog **RUM → Optimize Vitals**, `aeci` app, `env:production` (p75 LCP / CLS / INP) | LCP ≤ 2.5s · CLS ≤ 0.1 · INP ≤ 200ms (`STAGE_1_PHASE_2_SPEC.md` §12) | *(no monitor — read manually; see §2)* |
@@ -58,10 +58,10 @@ healthy day — the point is to catch a regression before a monitor's sustained-
 > defaults to the wrong one — select **`aeci`** (us5). CWV live under RUM → Optimize Vitals, not the
 > Phase-2 dashboard (that tracks SSR `aeci.page.render.duration_ms`, not field CWV).
 
-### 1a. The 8 scheduled crons (row 6 detail)
+### 1a. The 9 scheduled crons (row 6 detail)
 
 Each cron emits an always-on heartbeat; the "not running" monitor's no-data is the liveness signal.
-A green board here means all eight fired on schedule. Since AECI-583 each run **also** writes a
+A green board here means all nine fired on schedule. Since AECI-583 each run **also** writes a
 `job_runs` row that `/admin/system` renders (see the split below).
 
 > **Read the record off `/admin/system`; read absence off Datadog.** AECI-583 landed the `job_runs`
@@ -78,6 +78,7 @@ A green board here means all eight fired on schedule. Since AECI-583 each run **
 
 | Cron (UTC) | Job | `job_runs.job` | Liveness / failure monitors |
 |---|---|---|---|
+| `15 0 * * *` | `metrics_daily` snapshot of the prior complete UTC day (AECI-581 / `ADMIN_PANEL_SPEC.md` §7.1) — 19 metrics, the admin panel's long memory | `metrics-snapshot` | `aeci.metrics_snapshot.run` heartbeat (no dedicated monitor yet — **worth one**: it is queue-less, so a failed run is not retried, and the *stock* metrics of a missed day are unrecoverable. Flow metrics recover via `pnpm --filter @aeci/api ops:backfill-metrics-daily`) |
 | `0 4 * * *` | Data-quality suite (10 §23.1 checks) + email digest | `data-quality` | check-error / check-warn / failed / not-running |
 | `0 5 * * *` | Operator analytics digest (AECI-526) — **human** page views + top products, sign-ins, moderation depth, and a Crawler-activity breakdown (human/bot split classified at ingest by UA + ASN) | `analytics-digest` | `aeci.analytics_digest.email` heartbeat (no dedicated monitor yet) |
 | `0 6 * * *` | Moderation queue snapshot | `moderation-snapshot` | moderation-queue-age (threshold + no-data) |
@@ -150,7 +151,7 @@ once the PostHog join lands.
 |---|---|---|
 | `TRENDING_WINDOW_DAYS` | 7 | validated (7d had 646 product-page views across 124 products); widen only if trending routinely under-fills at steady state |
 | `TRENDING_LIMIT` | 5 | validated (top-5 well-separated: 17/17/17/12/12); raising it also requires bumping the `home.trending_products` Zod `.max(5)` cap in `@aeci/shared` **and** the web fallback `.slice(0, 5)` |
-| `TRENDING_MIN_VIEWS` | 3 | the honesty floor + the only bot guard **on trending** (CF Pro has no bot score, so `PAGE_VIEWS_MIN_BOT_SCORE` is inert). Note: `page_views` now carries an ingest-time `is_bot` flag (UA+ASN, AECI-526) that the digest filters on, but `home.trending_products` does **not** yet — it still counts all views, so this floor remains trending's only guard until trending adopts `is_bot IS NOT 1`. Inert at healthy traffic; raise if bots/self-views inflate low-traffic windows, lower if legit low-traffic products get over-suppressed |
+| `TRENDING_MIN_VIEWS` | 3 | the honesty floor. **Since AECI-582 (2026-08-13) `computeTrendingProducts` filters on the digest's `HUMAN` predicate**, so the card and the operator's numbers rank the same population; before that it counted every view, and crawlers dominate — of 1,121 product views in the trailing 7 days, only **74** were human, so the card was ranking products by how hard they were being scraped. Consequence: the floor is **no longer inert**. On the day the filter landed exactly 9 products cleared it on human views (8/8/5/4/4/3/3/3/3) — enough to fill the top-5, but a quiet week now falls back to recently-added. Lower it if that fallback starts firing at healthy traffic |
 
 Deferred to the AECI-280 ~30d follow-up: the PostHog-join weighting + recency decay, and the
 card-resonance/swap review once PostHog + RUM have real volume.
@@ -202,11 +203,27 @@ corporate proxies, Tor, mixed consumer/IDC networks, tier-1 transit) are documen
 **a false positive silently deletes a real visitor, which is worse than counting a crawler** — verify the
 holder before adding.
 
-**Backfilling history**: rows captured before the classifier shipped have `is_bot IS NULL` and read as
-**human**, so every historical day and every day-over-day delta over-counts humans until
-`scripts/ops/backfill-page-view-bots.sql` runs against that environment (idempotent; prod had 17,784 such
-rows as of 2026-08-04). It only touches `is_bot IS NULL`, so after a *later* widening the newly-listed ASNs
-also need `UPDATE page_views SET is_bot = 1, bot_name = '…' WHERE is_bot = 0 AND cf_asn IN (…)`.
+**Backfilling history — done 2026-08-13 (AECI-582), on all four tiers.** Rows captured before the
+classifier shipped had `is_bot IS NULL` and read as **human**, so every historical day and every
+day-over-day delta over-counted humans. Production's 17,784 such rows are now classified and its
+"reads as human" total fell **18,322 → 2,096**. Re-run after a widening with the guarded runner, which
+dry-runs, exports `page_views` and verifies around both SQL files:
+
+```bash
+scripts/ops/2026-08-page-view-bot-backfill/run.sh --env production            # dry-run
+scripts/ops/2026-08-page-view-bot-backfill/run.sh --env production --apply --allow-production
+```
+
+Two things to know before relying on it again. **(1)** It only reaches rows that are still null, and the
+2026-08-13 run swept every remaining row to `is_bot = 0` — so newly-listed ASNs now need a targeted
+`UPDATE page_views SET is_bot = 1, bot_name = '…' WHERE is_bot = 0 AND cf_asn IN (…)`, and the
+"never classified" signal no longer exists to find them by. **(2)** The runner applies
+`2026-08-page-view-bot-backfill/recover-ua-names.sql` *first*, which recovers a crawler's **real name**
+by matching `user_agent_hash` against rows the live classifier has since named. That works because
+`classifyTraffic()` tests the UA before the ASN, so such a verdict is UA-derived and transfers across
+ASNs — it is how 885 `Applebot` rows on **AS714 (Apple)** were classified without adding Apple to
+`DATACENTER_ASNS`. Reach for that technique before widening the list against an ASN the map excludes
+on purpose: the map drives the live classifier too, and the exclusions exist to protect real people.
 
 The path-exclusion clauses above mirror the digest, which since **AECI-575** excludes the operator-only
 routes (`/admin/*`, `/account`) from every `page_views` read. Leave them in or the census will rank the

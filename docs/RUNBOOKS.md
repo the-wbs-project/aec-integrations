@@ -691,7 +691,7 @@ telling apart, and the screen distinguishes them on purpose:
    built. A stale open row is cosmetic; the *newest* row is what the screen reports.
 3. **A `*/15` job with several `failed` rows then an `ok`?** That is a queue retry working as
    intended. Each attempt is its own row; the successful one supersedes by `started_at`.
-4. **All eight Unknown right after a deploy?** Expected for up to 24h on the daily jobs — they have
+4. **All nine Unknown right after a deploy?** Expected for up to 24h on the daily jobs — they have
    not run yet under the new deploy. The `cron_liveness_unavailable` note on the response says how
    many, and the note clears itself as the rows arrive.
 

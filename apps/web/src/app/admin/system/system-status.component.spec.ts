@@ -77,6 +77,7 @@ function makeSystem(over: Partial<AdminSystemResponse> = {}): AdminSystemRespons
       environment: 'production',
     },
     crons: [
+      makeCron({ job: 'metrics-snapshot', schedule: '15 0 * * *' }),
       makeCron({ job: 'data-quality', schedule: '0 4 * * *' }),
       makeCron({ job: 'analytics-digest', schedule: '0 5 * * *' }),
       makeCron({ job: 'moderation-snapshot', schedule: '0 6 * * *' }),
@@ -381,6 +382,7 @@ describe('SystemStatus — cron liveness (AC 3)', () => {
     const { el } = await setup();
 
     for (const job of [
+      'metrics-snapshot',
       'data-quality',
       'analytics-digest',
       'moderation-snapshot',
@@ -397,11 +399,11 @@ describe('SystemStatus — cron liveness (AC 3)', () => {
     }
   });
 
-  it('shows all eight jobs with their schedules — an omitted job would read as "not configured"', async () => {
+  it('shows all nine jobs with their schedules — an omitted job would read as "not configured"', async () => {
     const { el } = await setup();
     const rows = el.querySelectorAll('table tbody tr');
-    // Eight cron rows + one row per database table (a second table).
-    expect([...rows].filter((r) => r.textContent?.includes('* *')).length).toBe(8);
+    // Nine cron rows + one row per database table (a second table).
+    expect([...rows].filter((r) => r.textContent?.includes('* *')).length).toBe(9);
     expect(cronRow(el, 'request-reconcile').textContent).toContain('*/15 * * * *');
   });
 
