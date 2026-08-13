@@ -15,6 +15,12 @@
  * `--test-scheduled` tick is never silently dropped.
  *
  * Cron triggers (`wrangler.jsonc`), staging + production:
+ * 03:00 UTC — daily §7.4 retention prune (`./lib/retention-prune`, AECI-584 /
+ * Phase 8.3 P3.2): delete `page_views` older than 400 days and `job_runs` older
+ * than 90, in bounded chunks, committing every chunk together with ONE summary
+ * `audit_log` row (the ADR 0022 exception — the only cron here that audits).
+ * Runs after the 00:15 snapshot, and *verifies* rather than assumes it landed:
+ * a day inside the cut window with no `metrics_daily` row aborts the whole run.
  * 04:00 UTC — daily §23.1 data-quality suite (`./lib/data-quality`, AECI-241 /
  * Phase 7.6): ten read-only integrity checks (orphan products/vendors, stale
  * `ready` products, broken integration refs, anonymized-review integrity, stale
@@ -65,6 +71,7 @@ import { and, asc, count, eq, inArray } from 'drizzle-orm';
 import { getDb } from './db/client';
 import { integrations, products, reviews, vendors } from './db/schema';
 import { logToDatadog, submitCount, submitDistribution, submitGauge } from './datadog';
+import { forwardAuditLog, type AuditLogForwarder } from '@aeci/shared/audit-log';
 import type { ScheduledJob, ScheduledJobMessage, ScheduledJobMessageInput, Env } from './env';
 import {
   createAlgoliaCounter,
@@ -94,6 +101,7 @@ import {
   DATA_QUALITY_CRON,
   MODERATION_CRON,
   RECONCILE_CRON,
+  RETENTION_CRON,
   SNAPSHOT_CRON,
   STATS_CRON,
   WAF_CRON,
@@ -125,6 +133,13 @@ import {
   type ModerationMetricSink,
 } from './lib/moderation-metrics';
 import { runReconciliationSweep } from './lib/reconciliation-sweep';
+import {
+  emitRetentionPruneMetrics,
+  resolveRetentionWindows,
+  runRetentionPrune,
+  RETENTION_RUN_METRIC,
+  type RetentionMetricSink,
+} from './lib/retention-prune';
 import { emitWafEventMetrics, previousHourWindow } from './lib/waf-metrics';
 
 /**
@@ -184,7 +199,7 @@ function jobRunSink(ctx: ExecutionContext, env: Env): JobRunSink {
   };
 }
 
-// The nine cron expressions now live in `./lib/cron-schedules` — hoisted there
+// The ten cron expressions now live in `./lib/cron-schedules` — hoisted there
 // by AECI-580 (the snapshot cron joined them in AECI-581) so `GET /api/admin/system`'s
 // liveness rows read the SAME literals this dispatcher `switch`es on rather than a
 // second copy that could drift. Each one MUST still stay byte-equal to its
@@ -280,15 +295,16 @@ function drizzlePromotedIds(env: Env): PromotedIdProvider {
 
 /** Adapt the shared Datadog submitters into the pure metrics modules' sink, so
  *  `emitAlgoliaSyncMetrics` / `emitHomeStatsMetrics` / `emitModerationQueueMetrics`
- *  / `emitMetricsSnapshotMetrics` stay free of `ctx`/`env`/`Request` plumbing. The
- *  count + distribution + gauge shape satisfies `SyncMetricSink` / `StatsMetricSink`
- *  / `SnapshotMetricSink` (count + distribution) and `ModerationMetricSink` (gauge)
- *  alike. */
+ *  / `emitMetricsSnapshotMetrics` / `emitRetentionPruneMetrics` stay free of
+ *  `ctx`/`env`/`Request` plumbing. The count + distribution + gauge shape
+ *  satisfies `SyncMetricSink` / `StatsMetricSink` / `SnapshotMetricSink` /
+ *  `RetentionMetricSink` (count + distribution) and `ModerationMetricSink`
+ *  (gauge) alike. */
 function metricSink(
   ctx: ExecutionContext,
   env: Env,
   req: Request,
-): SyncMetricSink & ModerationMetricSink & SnapshotMetricSink {
+): SyncMetricSink & ModerationMetricSink & SnapshotMetricSink & RetentionMetricSink {
   return {
     count: (metric, value, tags) => submitCount(ctx, env, req, metric, value, tags),
     distribution: (metric, value, tags) => submitDistribution(ctx, env, req, metric, value, tags),
@@ -672,6 +688,118 @@ async function runMetricsSnapshotJob(env: Env, ctx: ExecutionContext): Promise<J
   };
 }
 
+/**
+ * The §7.4 retention prune (AECI-584 / Phase 8.3 P3.2) — the system's only
+ * scheduled `DELETE`.
+ *
+ * Everything load-bearing lives in `./lib/retention-prune`; this is the shell
+ * that supplies `env`, the clock, the Datadog sink, and the §26.5 forward. Three
+ * things about it are specific to a destructive job:
+ *
+ *   - **`runRetentionPrune` is allowed to throw.** Unlike the snapshot job (per
+ *     metric best-effort) a D1 failure here must NOT be swallowed into a
+ *     partial-success story: the batch is atomic, so a throw means nothing was
+ *     deleted, and `outcome: 'failed'` is the honest record.
+ *   - **The audit forward is post-commit and fire-and-forget** (§26.5). The row
+ *     itself already committed inside the batch with the deletes; this is only
+ *     the Datadog copy. `routes/*.ts` build their forwarder from a Hono
+ *     `Context` — a cron has none, so it binds the synthetic request instead.
+ *   - **A skip is loud.** `outcome: 'skipped'` with the missing days, an
+ *     `error`-level log, and `aeci.retention.prune{outcome:skipped}` — the
+ *     monitor that catches "the long memory stopped being written".
+ */
+async function runRetentionPruneJob(env: Env, ctx: ExecutionContext): Promise<JobRunReport> {
+  const req = cronRequest('/cron/retention-prune');
+  const { db } = cronDb(env);
+
+  const windows = resolveRetentionWindows(env, (table, reason) => {
+    // An override we refused. Loud, because the operator who set it believes a
+    // different window is in force than the one about to run.
+    logToDatadog(ctx, env, req, {
+      level: 'warn',
+      message: 'aeci.retention.invalid_window_override',
+      source: 'retention-prune-cron',
+      table,
+      reason,
+    });
+  });
+
+  const started = Date.now();
+  let result: Awaited<ReturnType<typeof runRetentionPrune>>;
+  try {
+    result = await runRetentionPrune(db, new Date(), windows);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    submitCount(ctx, env, req, RETENTION_RUN_METRIC, 1, ['trigger:cron', 'outcome:failed']);
+    logToDatadog(ctx, env, req, {
+      level: 'error',
+      message: 'aeci.retention.crashed',
+      source: 'retention-prune-cron',
+      reason,
+    });
+    return { outcome: 'failed', detail: { job: 'retention-prune', reason } };
+  }
+
+  const durationMs = Date.now() - started;
+  emitRetentionPruneMetrics(metricSink(ctx, env, req), result, durationMs);
+
+  if (result.status === 'skipped') {
+    logToDatadog(ctx, env, req, {
+      level: 'error',
+      message: `aeci.retention.skipped reason=${result.reason} missing_days=${result.missingCount}`,
+      source: 'retention-prune-cron',
+      reason: result.reason,
+      window_from: result.window.fromDay,
+      window_to: result.window.toDay,
+      missing_days: result.missingDays.join(','),
+      missing_count: result.missingCount,
+    });
+    return {
+      outcome: 'skipped',
+      detail: {
+        job: 'retention-prune',
+        reason: result.reason,
+        window: result.window,
+        missingCount: result.missingCount,
+        missingDays: result.missingDays,
+      },
+    };
+  }
+
+  const truncated = result.tables.filter((t) => t.truncated);
+  logToDatadog(ctx, env, req, {
+    level: truncated.length > 0 ? 'warn' : 'info',
+    message: `aeci.retention.pruned rows_deleted=${result.rowsDeleted}`,
+    source: 'retention-prune-cron',
+    rows_deleted: result.rowsDeleted,
+    tables: result.tables.map((t) => `${t.table}=${t.rowsDeleted}`).join(','),
+    truncated: truncated.map((t) => t.table).join(','),
+  });
+
+  if (result.auditEntry) {
+    const entry = result.auditEntry;
+    const forward: AuditLogForwarder = (e) => {
+      logToDatadog(ctx, env, req, {
+        level: 'info',
+        message: `audit ${e.action}`,
+        source: 'audit_log',
+        audit: e,
+      });
+    };
+    ctx.waitUntil(forwardAuditLog(entry, forward));
+  }
+
+  return {
+    outcome: 'ok',
+    detail: {
+      job: 'retention-prune',
+      durationMs,
+      rowsDeleted: result.rowsDeleted,
+      tables: result.tables,
+    },
+  };
+}
+
 /** Snapshot the pending-review moderation queue and emit its health gauges
  *  (AECI-206 / Phase 5.15): depth + oldest-pending age. Report-only — like the
  *  index-drift check it never mutates; the alert is the Datadog "moderation
@@ -1034,6 +1162,14 @@ function queueForJob(env: Env, job: ScheduledJob): Queue<ScheduledJobMessage> | 
       // + one fail-open email needs no retry — the next day re-runs. No
       // `ANALYTICS_QUEUE` binding exists, so it always runs inline.
       return undefined;
+    case 'retention':
+      // Queue-less, and for a stronger reason than the others (AECI-584): this
+      // is the only DESTRUCTIVE job, and queue-native retries are precisely what
+      // it must not have. A run that was skipped, truncated, or died mid-batch is
+      // re-attempted tomorrow by the cron, from a re-probed cutoff — never
+      // replayed against state it may already have changed. No `RETENTION_QUEUE`
+      // binding exists.
+      return undefined;
     case 'snapshot':
       // Queue-less like `moderation`/`waf`/`analytics` (AECI-581): every metric is
       // already isolated in its own try/catch, and a missed day is recoverable by
@@ -1100,6 +1236,15 @@ function enqueueFailureLog(job: ScheduledJob): { path: string; message: string; 
       source: 'metrics-snapshot-cron',
     };
   }
+  if (job === 'retention') {
+    // Unreachable in practice (retention is queue-less, so `queue.send` is never
+    // called) — kept so the mapping is total over `ScheduledJob`.
+    return {
+      path: '/cron/retention-prune',
+      message: 'aeci.retention.enqueue_failed',
+      source: 'retention-prune-cron',
+    };
+  }
   return {
     path: `/cron/algolia-${job}`,
     message: `aeci.algolia.${job}.enqueue_failed`,
@@ -1146,7 +1291,7 @@ async function enqueueOrRun(env: Env, ctx: ExecutionContext, job: ScheduledJob):
  *  {@link JobRunReport} rather than `void`, because the impls swallow their own
  *  operational errors — a wrapper that only watched for a throw would record `ok`
  *  for a run that failed. `Promise<JobRunReport>` also makes the type checker
- *  enumerate every exit path in all nine, which is what makes "each of the nine
+ *  enumerate every exit path in all ten, which is what makes "each of the ten
  *  writes a row, on every path" verifiable rather than a review checklist. */
 async function dispatchScheduledJob(
   env: Env,
@@ -1172,6 +1317,8 @@ async function dispatchScheduledJob(
       return runAnalyticsDigestJob(env, ctx);
     case 'snapshot':
       return runMetricsSnapshotJob(env, ctx);
+    case 'retention':
+      return runRetentionPruneJob(env, ctx);
   }
 }
 
@@ -1212,6 +1359,9 @@ export const scheduled: ExportedHandlerScheduledHandler<Env> = async (controller
       return;
     case SNAPSHOT_CRON:
       await enqueueOrRun(env, ctx, 'snapshot');
+      return;
+    case RETENTION_CRON:
+      await enqueueOrRun(env, ctx, 'retention');
       return;
     case ALGOLIA_SYNC_CRON:
       await enqueueOrRun(env, ctx, 'sync');

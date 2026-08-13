@@ -214,7 +214,36 @@ export type JobRunDetail =
       groups: number;
       events: number;
       truncated: boolean;
+    }
+  | {
+      job: 'retention-prune';
+      durationMs: number;
+      rowsDeleted: number;
+      /** One entry per prunable table, ALWAYS both, zeros included — "the prune
+       *  ran and removed nothing" and "the prune did not consider this table"
+       *  are different facts and this row has to distinguish them. */
+      tables: RetentionPrunedTableDetail[];
+    }
+  /** The §7.4 refusal: a day inside the cut window had no `metrics_daily` row,
+   *  so NOTHING was deleted from either table. Distinct from the shape above
+   *  because the operator's next question is "which days", and answering it from
+   *  a bare `reason` string is not possible. `missingDays` is capped. */
+  | {
+      job: 'retention-prune';
+      reason: 'metrics_daily_gap';
+      window: { fromDay: string; toDay: string };
+      missingCount: number;
+      missingDays: string[];
     };
+
+/** The per-table half of the retention prune's detail. Mirrors `PrunedTable`
+ *  (`./retention-prune`) minus nothing — it is small and fully bounded. */
+export interface RetentionPrunedTableDetail {
+  table: string;
+  cutoff: string;
+  rowsDeleted: number;
+  truncated: boolean;
+}
 
 /**
  * Defensive ceiling on the serialized payload. Nothing today comes close — the

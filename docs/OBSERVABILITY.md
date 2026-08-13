@@ -79,6 +79,10 @@ below. The bounded render-volume signal is the `aeci.ssr.render` count metric.
 | `aeci.analytics_digest.email` | count | `apps/api/src/scheduled.ts` (`runAnalyticsDigestJob` → `lib/email.ts` `sendEmail`, AECI-526, daily 05:00 UTC = noon Jakarta cron) | `outcome` (sent / failed / skipped) — the daily operator digest: **human** page views + top products (`is_bot IS NOT 1`), new/total sign-ins, pending-moderation depth, and a Crawler-activity breakdown (`is_bot = 1`, grouped by `bot_name`). **`skipped`** when `RESEND_API_KEY` / `EMAIL_FROM` / `ANALYTICS_DIGEST_EMAIL_TO` are unset (fail-open); one count per run, so the always-emitted series doubles as the cron-liveness signal (`outcome:failed` also covers a pre-send crash) |
 | `aeci.moderation.ban` | count | `apps/api/src/routes/admin-reviewers.ts` (`emitBanAction`, **AECI-218 / Phase 6.11** — the `PATCH /api/admin/reviewers/:id` ban/unban write-path) | `action` (`ban` / `unban`), `outcome` (`ok` / `invalid_state` / `forbidden`) — one count per ban/unban attempt, alongside the §9 `appendAuditLog()` + `reviewer_ban` `workflow_transition` |
 | `aeci.job_runs.write` | count | `apps/api/src/scheduled.ts` (`jobRunSink` → `lib/job-runs.ts`, **AECI-583 / Phase 8.3 P3.1**) | `phase` (start / finish), `job` (the `AdminCronJob` id), `outcome` (ok / failed) — this measures the **recorder, not the job**: a `failed` here means the admin panel's cron liveness under-reports while the job itself completed normally. Emitted on success too, so a silently-broken writer is distinguishable from "no crons ran". 36 series, ~245 points/day. Companion error log: `aeci.job_runs.write_failed`, `source:job-runs` |
+| `aeci.retention.prune` | count | `apps/api/src/lib/retention-prune.ts` (`emitRetentionPruneMetrics`, from the daily 03:00 UTC prune cron) + an inline crash count in `apps/api/src/scheduled.ts` (**AECI-584 / Phase 8.3 P3.2**) | `trigger` (cron), `outcome` (ok / skipped / failed), `reason` (`metrics_daily_gap`, on skips only) — always emitted, so this doubles as the cron-liveness heartbeat. **`skipped` is the one to watch**: it means a day inside the `page_views` cut window has no `metrics_daily` row, so the prune refused to delete anything from EITHER table |
+| `aeci.retention.rows_deleted` | count | `apps/api/src/lib/retention-prune.ts` (`emitRetentionPruneMetrics`) | `trigger` (cron), `table` (page_views / job_runs) — **emitted every run for every table, zeros included**, which is what makes a threshold monitor possible. §7.4 asks for a runaway prune to be visible here *before* it is visible as missing data; a series that only appeared when something was deleted could not do that |
+| `aeci.retention.prune.duration_ms` | distribution | `apps/api/src/lib/retention-prune.ts` (`emitRetentionPruneMetrics`) | `trigger` (cron) |
+| `aeci.retention.prune.truncated` | count | `apps/api/src/lib/retention-prune.ts` (`emitRetentionPruneMetrics`) | `trigger` (cron), `table` — the per-table run budget (`MAX_CHUNKS_PER_TABLE × PRUNE_CHUNK_ROWS` = 10,000 rows) stopped the run short. Not a failure: the next night continues. Persisting for several days means the window is shortening faster than the prune can catch up |
 
 `aeci.ssr.render` (AECI-103) is one count per SSR render, fired on **every** branch
 of `handleSsr` — including the edge-cache HIT path and the non-cacheable branch, both of
@@ -113,6 +117,7 @@ no matching heartbeat, or a heartbeat with no row, is a bug in the instrumentati
 | Cron | `job_runs.job` | Its Datadog liveness signal |
 |---|---|---|
 | 00:15 metrics snapshot | `metrics-snapshot` | `aeci.metrics_snapshot.run` (`outcome:success\|partial\|failed`) |
+| 03:00 retention prune | `retention-prune` | `aeci.retention.prune` (`outcome:ok\|skipped\|failed`) |
 | 04:00 data quality | `data-quality` | `aeci.data_quality.job` (`outcome:success\|failed`) |
 | 05:00 analytics digest | `analytics-digest` | `aeci.analytics_digest.email` |
 | 06:00 moderation snapshot | `moderation-snapshot` | `aeci.moderation.queue_depth` (gauge; no per-run heartbeat) |
@@ -540,8 +545,8 @@ the team notification channel. The committed JSON keeps the `@NOTIFICATION_CHANN
 placeholder (env-agnostic for record); substitute the real handle **at apply time**. The
 resolved handle is `@chrisw@thewbsproject.com` (Datadog email notification; AECI-222) — the
 then-nine monitors were applied 2026-06-12 with that substitution; the Phase 3–7 monitors were
-applied in their own phase passes, and AECI-279 (Phase 8.1) added two more, bringing the committed
-set to **23**. One exception to the handle rule: the informational
+applied in their own phase passes, AECI-279 (Phase 8.1) added two more, and AECI-584 (Phase 8.3
+P3.2) added four for the retention prune, bringing the committed set to **27**. One exception to the handle rule: the informational
 `monitor-data-quality-check-warn.json` (AECI-279) uses a distinct `@NOTIFICATION_CHANNEL_LOW_TBD`
 placeholder — substitute a low-urgency handle, or leave it literal to keep that warn monitor
 **UI-only / non-paging** (the daily digest already carries its rows).
@@ -571,6 +576,10 @@ placeholder — substitute a low-urgency handle, or leave it literal to keep tha
 | Data quality job not running | no `aeci.data_quality.job{trigger:cron}` heartbeat for ~26h | `observability/datadog/monitor-data-quality-no-data.json` |
 | WAF rate-limit / challenge spike | `sum:aeci.waf.ratelimit.blocked` (`.as_count()`) > 500 over 15m (`env:production`) | `observability/datadog/monitor-waf-ratelimit-spike.json` |
 | WAF poll not running | no successful `aeci.waf.poll{outcome:ok,trigger:cron}` for ~3h (no-data liveness) | `observability/datadog/monitor-waf-poll-no-data.json` |
+| Retention prune skipped (metrics_daily gap) | any `aeci.retention.prune{outcome:skipped}` > 0 (daily) — a day in the cut window has no snapshot, so nothing was deleted. **Non-paging**, but the long memory is at risk | `observability/datadog/monitor-retention-prune-skipped.json` |
+| Retention prune deleted an unexpected number of rows | `sum:aeci.retention.rows_deleted` by `table` > 5,000 over 1d (`env:production`) — the §7.4 runaway guard. **Pages** | `observability/datadog/monitor-retention-prune-runaway.json` |
+| Retention prune failed | `aeci.retention.prune{outcome:failed}` > 0 in the last 1d | `observability/datadog/monitor-retention-prune-failed.json` |
+| Retention prune not running | no `aeci.retention.prune{trigger:cron}` heartbeat for ~26h | `observability/datadog/monitor-retention-prune-no-data.json` |
 
 The p95-detail monitor is scoped to `cache_status:miss` on purpose: HITs are served
 from the edge and would mask a genuinely slow render.

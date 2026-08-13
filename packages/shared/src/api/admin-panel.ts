@@ -501,9 +501,40 @@ export const ADMIN_SNAPSHOT_SOURCES = ['measured', 'reconstructed'] as const;
 export const AdminSnapshotSourceSchema = z.enum(ADMIN_SNAPSHOT_SOURCES);
 export type AdminSnapshotSource = (typeof ADMIN_SNAPSHOT_SOURCES)[number];
 
-/** Longest window the API will aggregate, matching §7.4's 400-day `page_views`
- *  retention: asking for more than is retained can only mislead. */
-export const ADMIN_METRICS_MAX_DAYS = 400;
+/**
+ * §7.4 / §13 **D5** retention windows, in days — the source literals the
+ * pruning cron (AECI-584) enforces and the read side caps against.
+ *
+ * 400 rather than 180 for `page_views` because storage was never the binding
+ * constraint (280 MB vs 125 MB against D1's 10 GB limit); **irreversibility**
+ * is. D1 Time Travel recovers only ~30 days, so a prune past that is permanent,
+ * and 400 days is the first window that keeps year-over-year comparison
+ * possible with ~5 weeks of overlap. `job_runs` is operational, not historical.
+ *
+ * `metrics_daily` deliberately has NO entry: its retention is indefinite, it is
+ * the long memory that survives the `page_views` prune, and the absence of a
+ * constant is the point — there is no window for the cron to read.
+ */
+export const PAGE_VIEWS_RETENTION_DAYS = 400;
+export const JOB_RUNS_RETENTION_DAYS = 90;
+
+/**
+ * Floor for the `PAGE_VIEWS_RETENTION_DAYS` / `JOB_RUNS_RETENTION_DAYS` env
+ * overrides (`apps/api/src/env.ts`). D1 Time Travel recovers roughly 30 days, so
+ * a window shorter than that would delete rows past the point of any recovery
+ * the moment it took effect. An override below this floor is ignored, not
+ * clamped — a typo'd `4` should fall back to the reviewed default, not quietly
+ * become the shortest legal window.
+ */
+export const MIN_RETENTION_DAYS = 30;
+
+/** Longest window the API will aggregate, tied to §7.4's `page_views`
+ *  retention: asking for more than is retained can only mislead. Derived rather
+ *  than a second `400`, so shortening the retention window moves the query cap
+ *  with it. (An `env` override does NOT move this — it is resolved at build
+ *  time; a shortened window just makes the cap wider than what is retained,
+ *  which returns empty tails rather than wrong numbers.) */
+export const ADMIN_METRICS_MAX_DAYS = PAGE_VIEWS_RETENTION_DAYS;
 
 const utcDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Expected YYYY-MM-DD');
 
@@ -661,13 +692,15 @@ export type AdminTrafficBreakdownResponse = z.infer<typeof AdminTrafficBreakdown
  */
 
 /**
- * The nine cron jobs in `apps/api/src/scheduled.ts`, as a closed vocabulary.
- * These are the ids `job_runs.job` will carry (§7.2), so AECI-583 persists
- * against these strings rather than inventing a second naming. `metrics-snapshot`
- * is the ninth, added with the §7.1 snapshot cron (AECI-581).
+ * The ten cron jobs in `apps/api/src/scheduled.ts`, as a closed vocabulary.
+ * These are the ids `job_runs.job` carries (§7.2), so AECI-583 persists against
+ * these strings rather than inventing a second naming. `metrics-snapshot` is the
+ * ninth, added with the §7.1 snapshot cron (AECI-581); `retention-prune` is the
+ * tenth, added with the §7.4 pruning cron (AECI-584).
  */
 export const AdminCronJobSchema = z.enum([
   'metrics-snapshot', // 15 0 * * *
+  'retention-prune', // 0 3 * * *
   'data-quality', // 0 4 * * *
   'analytics-digest', // 0 5 * * *
   'moderation-snapshot', // 0 6 * * *
