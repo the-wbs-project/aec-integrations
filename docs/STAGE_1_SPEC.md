@@ -1420,6 +1420,15 @@ Brand tokens validated against WCAG AA contrast ratios:
 
 ## 22. Content Moderation Operations
 
+> **Source of truth for the admin surface as a whole: `docs/ADMIN_PANEL_SPEC.md`** (Phase 8.3,
+> epic AECI-572). This section governs the **moderation** screens only. From AECI-576 the `/admin`
+> area is the **operator console**: its `h1` reads "Admin", its nav is grouped into **Insights** /
+> **Catalog** / **Operations**, and `/admin` redirects to `/admin/overview` rather than to the
+> review queue. The moderation queues described below are unchanged and now live under
+> **Operations**. For the information architecture, the read-API surface, the charting rules and
+> the non-functional requirements that govern every admin screen, read that document, not this
+> section. Nav entries appear only when their screen ships, so the group list grows over the epic.
+
 ### 22.1 Moderation queue
 
 - Admin dashboard at `/admin/reviews` shows pending reviews with:

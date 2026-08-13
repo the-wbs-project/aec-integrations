@@ -183,8 +183,12 @@ describe('cacheControlForRoute', () => {
     '/account',
     '/account/settings',
     // AECI-203 — the admin surface is non-cacheable (fail-closed classifier).
+    // AECI-576 / ADMIN_PANEL_SPEC §9.2 keeps that true for the console screens:
+    // every `/admin/*` route must stay absent from ROUTE_CACHE_PATTERNS, because
+    // a cached admin response is a visitor-state leak.
     '/admin',
     '/admin/reviews',
+    '/admin/overview',
     '/search',
     '/does-not-exist',
     '/products/procore/extra',

@@ -240,14 +240,24 @@ export const routes: Routes = [
   // `requireAdmin()`): a 401/403 → 404 render (don't reveal the surface); a 200 →
   // the shell + pending-count badge. A logged-out visitor is bounced to login by
   // the worker-level `isAdminPath` gate before SSR. `AdminShell` is the layout
-  // (gate + nav + badge + <router-outlet/>); the children render in the outlet,
-  // and `/admin` redirects to the review queue.
+  // (gate + nav + badge + <router-outlet/>); the children render in the outlet.
+  //
+  // AECI-576 / Phase 8.3 P1.2 — the admin area became the operator console
+  // (`docs/ADMIN_PANEL_SPEC.md` §5), so `/admin` now redirects to the Overview
+  // rather than to the review queue. The three Operations queues are unchanged.
+  // The remaining §5 routes (`activity`, `traffic`, `audience`, `catalog`,
+  // `system`) land with their own sub-issues; until then they are neither routed
+  // nor linked, so nothing in the nav can reach a 404.
   {
     path: 'admin',
     loadComponent: () => import('./admin/admin-shell').then((m) => m.AdminShell),
     resolve: { summary: adminSummaryResolver },
     children: [
-      { path: '', pathMatch: 'full', redirectTo: 'reviews' },
+      { path: '', pathMatch: 'full', redirectTo: 'overview' },
+      {
+        path: 'overview',
+        loadComponent: () => import('./admin/overview/overview').then((m) => m.AdminOverview),
+      },
       {
         path: 'reviews',
         loadComponent: () => import('./admin/reviews/review-queue').then((m) => m.ReviewQueue),

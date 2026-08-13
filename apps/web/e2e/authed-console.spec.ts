@@ -9,7 +9,7 @@
  * /admin* pages authorize server-side inside the SSR Worker
  * (`adminSummaryResolver` -> `GET /api/admin/summary`, `requireAdmin()`), which
  * `page.route()` can't stub. So this spec mints ONE real admin session
- * (`auth-session.ts`) and visits all four pages with it, asserting zero console
+ * (`auth-session.ts`) and visits every gated page with it, asserting zero console
  * `error` / `pageerror` via the shared, single-sourced `console-capture.ts`
  * helpers (warnings stay reported-not-gated — AC #2).
  *
@@ -67,15 +67,30 @@ test.describe('authed console health — Phase 5 gated pages (AECI-235)', () => 
     expectConsoleClean(capture, 'GET /account');
   });
 
-  test('/admin hydrates with no console errors', async ({ page }) => {
+  test('/admin redirects to the Overview and hydrates with no console errors', async ({ page }) => {
     const capture = attachConsoleCapture(page);
     const res = await page.goto('/admin');
     expect(res?.status()).toBe(200);
     // `aec-admin-shell` renders only for an authorized admin; a non-admin (401/403)
     // 404s to the not-found shell, failing loudly if the D1 admin profile is missing.
     await expect(page.locator('aec-admin-shell')).toBeAttached();
+    // AECI-576: `/admin` now lands on the console Overview, not the review queue.
+    await expect(page).toHaveURL(/\/admin\/overview$/);
     await waitForHydrationSettle(page);
     expectConsoleClean(capture, 'GET /admin');
+  });
+
+  test('/admin/overview hydrates with no console errors', async ({ page }) => {
+    const capture = attachConsoleCapture(page);
+    const res = await page.goto('/admin/overview');
+    expect(res?.status()).toBe(200);
+    await expect(page.locator('aec-admin-shell')).toBeAttached();
+    await expect(page.locator('aec-admin-overview')).toBeAttached();
+    // The bundle resolved client-side: the status strip only renders once
+    // `GET /api/admin/overview` came back, so this asserts the authed read too.
+    await expect(page.locator('aec-status-strip')).toBeAttached();
+    await waitForHydrationSettle(page);
+    expectConsoleClean(capture, 'GET /admin/overview');
   });
 
   test('/admin/reviews hydrates with no console errors', async ({ page }) => {
