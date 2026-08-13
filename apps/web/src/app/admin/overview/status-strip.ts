@@ -1,3 +1,4 @@
+import { DatePipe } from '@angular/common';
 import { Component, computed, input } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
@@ -7,12 +8,18 @@ import type { AdminStatusStrip, VersionResponse } from '@aeci/shared';
  * AECI-576 / Phase 8.3 P1.2 — the §5.1 status strip: the five signals that answer
  * "is anything broken right now?" without opening an email or a dashboard.
  *
- * Two of the five (`data_quality`, `algolia_drift`) are `null` on the default
- * response because they cost network calls — the API returns a `requires_recompute`
- * note instead, and the parent's **Recompute** button re-requests with
- * `?recompute=1` to fill them (§13 D8: still a pure read, still a `GET`). They
- * render an explicit **"Not measured"** rather than a zero: a zero would claim a
- * clean bill of health nobody checked for.
+ * `algolia_drift` is `null` on the default response because it costs network
+ * calls — the API returns a `requires_recompute` note instead, and the parent's
+ * **Recompute** button re-requests with `?recompute=1` to fill it (§13 D8: still a
+ * pure read, still a `GET`). It renders an explicit **"Not measured"** rather than
+ * a zero: a zero would claim a clean bill of health nobody checked for.
+ *
+ * `data_quality` used to behave the same way. Since AECI-583 the 04:00 cron
+ * persists its result set (`job_runs`, §7.2), so the default view replays the last
+ * stored run and the recompute is the refresh — which is why the tile carries an
+ * "as of" line. Without it, stored figures would read as live ones. The same
+ * helper feeds `/admin/system`, so the two screens cannot disagree about a check
+ * on either path.
  *
  * The deploy item compares the API Worker's SHA with the SSR Worker's own
  * `/_version`. That comparison is the entire reason two version endpoints exist
@@ -24,7 +31,7 @@ import type { AdminStatusStrip, VersionResponse } from '@aeci/shared';
  */
 @Component({
   selector: 'aec-status-strip',
-  imports: [RouterLink],
+  imports: [DatePipe, RouterLink],
   template: `
     @let s = status();
     <dl class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
@@ -105,7 +112,7 @@ import type { AdminStatusStrip, VersionResponse } from '@aeci/shared';
         </dd>
       </div>
 
-      <!-- Data quality: null until recomputed. -->
+      <!-- Data quality: the last stored 04:00 run by default, live on recompute. -->
       <div class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-4">
         <dt class="text-xs font-bold text-(--text-secondary)" i18n="@@admin.status.dq.label">
           Data-quality checks
@@ -124,9 +131,19 @@ import type { AdminStatusStrip, VersionResponse } from '@aeci/shared';
                 }
               </ul>
             }
+            <!-- Without this the stored figures read as live ones. -->
+            @if (dq.source === 'job_runs') {
+              <p class="text-xs text-(--text-tertiary)" i18n="@@admin.status.dq.asOfStored">
+                Last scheduled run, {{ dq.computed_at | date: 'short' : 'UTC' }} UTC
+              </p>
+            } @else {
+              <p class="text-xs text-(--text-tertiary)" i18n="@@admin.status.dq.asOfLive">
+                Run just now
+              </p>
+            }
           } @else {
-            <p class="text-sm text-(--text-secondary)" i18n="@@admin.status.notMeasured">
-              Not measured. Use Recompute.
+            <p class="text-sm text-(--text-secondary)" i18n="@@admin.status.dq.noStoredResult">
+              No stored run yet. Use Recompute.
             </p>
           }
         </dd>

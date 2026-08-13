@@ -974,6 +974,38 @@ unrecoverable (§4), so a cumulative sum of `*.created` events would be wrong
 rather than approximate. Any day not sampled is simply lost, which is why the
 cron writes all 19 keys rather than only the ones a screen reads today.
 
+### 9.4 `job_runs`
+
+One row per execution of one of the nine `scheduled.ts` cron jobs (AECI-583; `ADMIN_PANEL_SPEC.md` §7.2). Before it existed a cron's outcome lived **only** as a Datadog metric, so nothing in D1 could answer "did the 08:00 Algolia sync run today", and the ten data-quality findings lived **only** in the 04:00 email — computed, sent, discarded.
+
+```sql
+create table job_runs (
+  id bigserial primary key,
+  job text not null,                -- one of the nine AdminCronJob ids (packages/shared/src/api/admin-panel.ts)
+  started_at timestamptz not null,  -- written on ENTRY: the row exists before the job finishes
+  finished_at timestamptz,          -- null = in flight, or the isolate never came back
+  outcome text,                     -- 'ok' | 'failed' | 'skipped'; null while finished_at is null
+  detail jsonb                      -- per-job payload: the DQ run's full DataQualityCheckResult[],
+                                    -- the 09:00 run's drift rows + orphan-sweep counts, the reconcile totals
+);
+
+create index job_runs_job_started_at_idx on job_runs(job, started_at); -- per-job "latest run" seek (LIMIT 1 each, never a scan)
+```
+
+**Written on entry, completed on exit.** That ordering is the whole point: a run killed by the CPU/wall-clock limit or an isolate eviction leaves `finished_at IS NULL`, and that unfinished row is the signal. It is lost if the row is only written on success.
+
+**`outcome` has no `'running'` member.** In flight is already `finished_at IS NULL AND outcome IS NULL`; a second encoding would let the two disagree. NULL passes the CHECK because SQLite satisfies a CHECK when the expression is true *or* NULL. The read side additionally refuses an outcome on an open row whatever is stored, so an unfinished run structurally cannot render as a success.
+
+**`job` carries no CHECK**, following `audit_log.action`: the vocabulary grows with every new cron and SQLite cannot ALTER a CHECK, so a tenth cron would need a table-recreate migration. `Record<ScheduledJob, AdminCronJob>` in `apps/api/src/lib/cron-schedules.ts` plus the Zod enum are the enforcement.
+
+**Why the index is `(job, started_at)` in that order.** Every read is "the newest run of one job": an equality seek on `job`, then one row off the descending `started_at` edge (`LIMIT 1`, nine of them per request). `id` is the rowid and therefore the index's implicit trailing column, which makes `ORDER BY started_at DESC, id DESC` a free deterministic tie-break with no temp b-tree. Verified by `EXPLAIN QUERY PLAN` against a 9,000-row fixture: `SEARCH job_runs USING INDEX job_runs_job_started_at_idx (job=?)`. The `GROUP BY job` and `ROW_NUMBER() OVER (PARTITION BY job)` alternatives both SCAN the whole index, and D1 bills rows read.
+
+**No `audit_log` row.** Derived, log-class, cron-internal bookkeeping, exempt under ADR 0022 / `ADMIN_PANEL_SPEC.md` §13 D11 — and self-evidently the wrong thing to audit, since `job_runs` *is* the observability record. Written the way `stats_cache` is (`lib/home-stats.ts` `upsertStat`): plain single statements, outside any `db.batch`, each inside its own try/catch, so a bookkeeping failure can never abort the job it records. Note the boundary this does **not** cross: the exemption keys on entity class, not actor class, so a cron writing *domain* state still audits.
+
+**Read by** `GET /api/admin/system` (cron liveness + the orphan sweep) and `GET /api/admin/overview`'s status strip (the stored data-quality result) — `API_CONTRACTS.md` §6.10, `ADMIN_PANEL_SPEC.md` §5.1/§5.6. Both treat every field as untrusted and parse rather than assume.
+
+**Retention: 90 days — specified, NOT yet enforced.** `ADMIN_PANEL_SPEC.md` §7.4 sets the window, but the pruning cron is AECI-584 and is deliberately deprioritized. Until it ships the table grows without bound: roughly 44k rows/year, ~80% of them from the `*/15` reconcile sweep. The read path is immune by construction (nine bounded seeks), which is why the query shape above matters more than it looks.
+
 ---
 
 ## 10. Future-ready tables
@@ -1140,6 +1172,7 @@ Backup policy is deferred to a dedicated operational document (`OPERATIONAL_RUNB
 - Audit log retention: indefinite for Stage 1 (see `STAGE_1_SPEC.md` §26.6 and §14.2)
 - `page_views` retention: **400 days**, settled by `ADMIN_PANEL_SPEC.md` §13 D5 and enforced by the pruning cron that ships with §7.4 (AECI-584) — not indefinite, though the cron deletes nothing until ~2027-07 given the 2026-06-23 data start. 400 rather than 180 because D1 Time Travel gives only ~30 days of point-in-time recovery, so a prune is effectively permanent, and 400 is the first window that keeps year-over-year comparison possible
 - `metrics_daily` retention: **indefinite** — it is the long memory that survives the `page_views` prune (AECI-581 / §7.1). The pruning cron must never touch it, and must never prune a `page_views` day it has not captured
+- `job_runs` retention: 90 days per `ADMIN_PANEL_SPEC.md` §7.4 — **specified but not yet enforced**; the pruning cron is AECI-584 (§9.4)
 - Reviews and core entities: no retention policy — preserve everything
 
 ---
@@ -1175,7 +1208,7 @@ Migrations are generated by **drizzle-kit** from the Drizzle schema and applied 
 
 Every write that changes **domain state** must emit its `audit_log` (+ `workflow_transitions` where applicable) row (`STAGE_1_SPEC.md` §26.1, `CLAUDE.md` §"Datadog and audit logging"). Failure to log is a transactional failure — the mutation must not commit without its audit entry.
 
-**Scope (ADR 0022).** "Domain state" is the catalog, users and profiles, reviews and moderation, claims and attestations, requests and workflows. **Derived and log-class writes are exempt**: `page_views`, `mailing_list`, `feedback` (`API_CONTRACTS.md` §6.9/§6.13), `stats_cache`, the Algolia watermark, the denormalized product counters (§14.2), the cron-written `metrics_daily` (§9.3 — **shipped**, AECI-581), and `job_runs` once it ships (`ADMIN_PANEL_SPEC.md` §7.1/§7.2). The test is **entity class, not actor class** — a `system`/cron actor writing domain state still audits — and **scheduled `DELETE`s are never exempt**: they emit one summary row per run (`action='retention.pruned'`).
+**Scope (ADR 0022).** "Domain state" is the catalog, users and profiles, reviews and moderation, claims and attestations, requests and workflows. **Derived and log-class writes are exempt**: `page_views`, `mailing_list`, `feedback` (`API_CONTRACTS.md` §6.9/§6.13), `stats_cache`, the Algolia watermark, the denormalized product counters (§14.2), and the cron-written `metrics_daily` (§9.3 — **shipped**, AECI-581) and `job_runs` (§9.4 — **shipped**, AECI-583) tables (`ADMIN_PANEL_SPEC.md` §7.1/§7.2). The test is **entity class, not actor class** — a `system`/cron actor writing domain state still audits — and **scheduled `DELETE`s are never exempt**: they emit one summary row per run (`action='retention.pruned'`).
 
 **Pattern.** D1 has no interactive transactions, so the mutation and the audit insert go into the **same** atomic `db.batch([...])` (ADR 0016 / AECI-249) — both commit or both roll back. The audit/transition statements are built with the `auditInsert` / `workflowTransitionInsert` helpers in `apps/api/src/lib/audit.ts`:
 

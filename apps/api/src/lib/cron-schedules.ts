@@ -16,11 +16,13 @@
  * about.
  *
  * The job ids are the `AdminCronJob` vocabulary in `@aeci/shared`, which is also
- * what `job_runs.job` will carry when §7.2 lands (AECI-583) — one naming, three
- * consumers.
+ * what `job_runs.job` carries since §7.2 landed (AECI-583) — one naming, three
+ * consumers. {@link ADMIN_CRON_JOB} maps the dispatcher's internal ids onto it.
  */
 
 import type { AdminCronJob } from '@aeci/shared';
+
+import type { ScheduledJob } from '../env';
 
 /** Daily `metrics_daily` snapshot (AECI-581 / `ADMIN_PANEL_SPEC.md` §7.1). **00:15
  *  UTC**, deliberately the first slot of the day: it captures the prior COMPLETE
@@ -91,6 +93,28 @@ export const CRON_SCHEDULES: Record<AdminCronJob, string> = {
   'algolia-drift': ALGOLIA_DRIFT_CRON,
   'request-reconcile': RECONCILE_CRON,
   'waf-poll': WAF_CRON,
+};
+
+/**
+ * The internal `ScheduledJob` ids `scheduled.ts` dispatches on → the public
+ * `AdminCronJob` ids `job_runs.job` and `GET /api/admin/system` carry (AECI-583).
+ *
+ * Two vocabularies exist because the dispatcher's union predates the shared enum;
+ * this is the one place they meet. `Record<ScheduledJob, …>` so adding a
+ * dispatcher case without a mapping is a type error rather than a `job_runs` row
+ * carrying an id the read side silently drops. It lives here rather than in
+ * `scheduled.ts` because the read side needs the same map.
+ */
+export const ADMIN_CRON_JOB: Record<ScheduledJob, AdminCronJob> = {
+  snapshot: 'metrics-snapshot',
+  data_quality: 'data-quality',
+  analytics: 'analytics-digest',
+  moderation: 'moderation-snapshot',
+  stats: 'home-stats',
+  sync: 'algolia-sync',
+  drift: 'algolia-drift',
+  reconcile: 'request-reconcile',
+  waf: 'waf-poll',
 };
 
 /** Display/iteration order for the System screen — chronological through the UTC

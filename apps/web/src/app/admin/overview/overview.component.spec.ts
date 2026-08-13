@@ -97,6 +97,8 @@ function makeRecomputed(): AdminOverviewResponse {
     status: {
       ...base.status,
       data_quality: {
+        source: 'live',
+        computed_at: '2026-08-13T05:00:00.000Z',
         failing: 1,
         checks: [
           {

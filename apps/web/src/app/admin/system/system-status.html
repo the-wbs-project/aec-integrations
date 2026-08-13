@@ -189,6 +189,19 @@
       }
     </p>
 
+    <!-- Where these numbers came from. A stored result shown without its own
+         timestamp reads as live, which is the one thing this screen must not
+         imply. -->
+    @if (dq.source === 'job_runs') {
+    <p class="text-xs text-(--text-tertiary)" i18n="@@admin.system.dq.asOfStored">
+      Stored result from the last scheduled run, {{ dq.computed_at | date: 'medium' : 'UTC' }} UTC.
+    </p>
+    } @else {
+    <p class="text-xs text-(--text-tertiary)" i18n="@@admin.system.dq.asOfLive">
+      Run just now, live.
+    </p>
+    }
+
     <ul role="list" class="space-y-3">
       @for (check of dq.checks; track check.id) {
       <li class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-4">
@@ -239,9 +252,10 @@
       }
     </ul>
     } @else {
-    <p class="text-sm text-(--text-secondary)" i18n="@@admin.system.dq.notRun">
-      The ten checks aren't run automatically; they probe logo URLs and query the search index. Run
-      them when you need them; nothing is written or sent.
+    <p class="text-sm text-(--text-secondary)" i18n="@@admin.system.dq.noStoredResult">
+      No stored result yet: the checks run at 04:00 UTC daily. They aren't run on page load because
+      they probe logo URLs and query the search index; run them on demand and nothing is written or
+      sent.
     </p>
     }
   </section>
@@ -304,16 +318,37 @@
             </td>
             <td class="py-2.5 pe-4 text-(--text-secondary)">
               @if (run.last_run_at) { {{ run.last_run_at | date: 'medium' : 'UTC' }}
+              <!-- Qualify the stamp. `derived_from` is only set on an inferred
+                   row, so it must be guarded rather than keyed off last_run_at:
+                   a recorded row would otherwise render a dangling "inferred
+                   from". -->
+              @if (run.derived_from) {
               <span class="block text-xs text-(--text-tertiary)" i18n="@@admin.system.crons.derived"
                 >inferred from {{ run.derived_from }}</span
               >
-              } @else {
+              } @else if (run.duration_ms !== null) {
+              <span
+                class="block text-xs text-(--text-tertiary)"
+                i18n="@@admin.system.crons.duration"
+                >took {{ run.duration_ms | number }} ms</span
+              >
+              } @else if (run.run_state === 'in_flight') {
+              <span class="block text-xs text-(--text-tertiary)" i18n="@@admin.system.crons.started"
+                >started, no finish recorded</span
+              >
+              } } @else {
               <span i18n="@@admin.system.crons.noRecord">No record</span>
               }
             </td>
             <td class="py-2.5">
               @if (run.last_outcome) {
-              <span class="font-bold text-(--text-primary)">{{ run.last_outcome }}</span>
+              <span
+                class="font-bold"
+                [class]="
+                  run.last_outcome === 'failed' ? 'text-(--status-error)' : 'text-(--text-primary)'
+                "
+                >{{ cronOutcomeLabel(run.last_outcome) }}</span
+              >
               } @else {
               <span class="font-bold text-(--text-tertiary)">{{ cronStateLabel(run) }}</span>
               }
@@ -410,10 +445,52 @@
       >
         Orphan sweep
       </h4>
-      <p class="mt-1 text-sm text-(--text-secondary)" i18n="@@admin.system.algolia.orphans.unknown">
-        No result is stored for the orphan sweep, so it can't be shown here. Check the Datadog
-        dashboards below.
+      @if (orphanSweep(); as sweep) {
+      <p class="mt-1 text-sm text-(--text-secondary)">
+        @if (sweep.total_deleted === 0 && sweep.total_orphans === 0) {
+        <span i18n="@@admin.system.algolia.orphans.clean">No orphaned records found.</span>
+        } @else {
+        <span i18n="@@admin.system.algolia.orphans.removed"
+          >Removed {{ sweep.total_deleted }} of {{ sweep.total_orphans }} orphaned record(s).</span
+        >
+        }
       </p>
+      @if (sweep.capped > 0) {
+      <p
+        class="mt-1 text-xs text-(--accent-secondary-deep)"
+        i18n="@@admin.system.algolia.orphans.capped"
+      >
+        {{ sweep.capped }} index(es) were refused by the safety cap. See the runbook: a purge this
+        large needs the CLI with --force.
+      </p>
+      } @if (!sweep.ok) {
+      <p class="mt-1 text-xs text-(--status-error)" i18n="@@admin.system.algolia.orphans.errored">
+        At least one index errored during the sweep.
+      </p>
+      }
+      <ul role="list" class="mt-2 space-y-1">
+        @for (idx of sweep.indexes; track idx.index_name) {
+        <li class="text-xs text-(--text-secondary)">
+          <span class="font-mono">{{ idx.index_name }}</span>
+          <span aria-hidden="true"> · </span>
+          <span i18n="@@admin.system.algolia.orphans.row"
+            >{{ idx.orphans }} orphan(s), {{ idx.deleted }} removed</span
+          >
+        </li>
+        }
+      </ul>
+      <p class="mt-2 text-xs text-(--text-tertiary)" i18n="@@admin.system.algolia.orphans.ranAt">
+        From the 09:00 UTC index-drift job, {{ sweep.ran_at | date: 'medium' : 'UTC' }} UTC.
+      </p>
+      } @else {
+      <p
+        class="mt-1 text-sm text-(--text-secondary)"
+        i18n="@@admin.system.algolia.orphans.noRecord"
+      >
+        No sweep has been recorded yet. It runs inside the 09:00 UTC index-drift job; that job skips
+        entirely when Algolia credentials aren't configured.
+      </p>
+      }
     </div>
   </section>
 

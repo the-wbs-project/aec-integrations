@@ -1,14 +1,23 @@
 /**
- * `GET /api/admin/system` (AECI-580 / P1.6) against the in-memory D1 harness.
+ * `GET /api/admin/system` (AECI-580 / P1.6, extended by AECI-583 / P3.1) against
+ * the in-memory D1 harness.
  *
  * The centre of gravity is the AC's failure mode — **the screen must not report
- * "fine" for want of data**. So the cron-liveness block is asserted hard: no row
- * ever carries `last_outcome: 'ok'`, seven of nine are `unknown` even on a fully
- * seeded database, and the two derivable ones stay `unknown` until their D1
- * artifact actually exists.
+ * "fine" for want of data** — and AECI-583 sharpened rather than relaxed it. `ok`
+ * is now reachable, but only from a `job_runs` row that actually says so, which
+ * makes the negative cases the load-bearing ones:
+ *
+ *   - with no `job_runs` rows the nine read `unknown`/`derived` exactly as they
+ *     did in P1.6, and no row reports an outcome (the "a newly added cron must
+ *     still render honestly" AC);
+ *   - an OPEN row (`finished_at IS NULL`) reports `in_flight` with a null outcome
+ *     **even when an outcome is stored**, so an interrupted run cannot render as
+ *     `ok`;
+ *   - a stored value the enum does not recognize reads as no-outcome, not as
+ *     itself.
  *
  * The rest covers the `?recompute=1` contract (§13 D8), the single-drift-call
- * guarantee, the watermark read, and the D1 size/row-count block.
+ * guarantee, the watermark + orphan-sweep reads, and the D1 size/row-count block.
  *
  * One caveat worth knowing before adding cases here: **this harness is
  * better-sqlite3, not D1**, and the two differ on limits. The row-count query hit
@@ -20,7 +29,7 @@
 import { AdminSystemResponseSchema, type AdminSystemResponse } from '@aeci/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { products, statsCache, vendors } from '../db/schema';
+import { jobRuns, products, statsCache, vendors } from '../db/schema';
 import type { Env } from '../env';
 import type { AlgoliaIndexDrift } from '../lib/algolia-drift';
 import { ALGOLIA_WATERMARK_KEY } from '../lib/algolia-sync';
@@ -66,6 +75,30 @@ async function system(query = '', env?: Env, deps?: AdminSystemDeps): Promise<Ad
 
 const codes = (body: AdminSystemResponse) => body.notes.map((n) => n.code);
 
+/** Seed a §7.2 run row. Written through raw SQL so a spec can store a value the
+ *  application layer would refuse — which is the point of the untrusted-input
+ *  cases below. */
+function seedRun(
+  job: string,
+  startedAt: string,
+  over: { finishedAt?: string; outcome?: string; detail?: unknown } = {},
+) {
+  t.raw
+    .prepare(
+      'INSERT INTO job_runs (job, started_at, finished_at, outcome, detail) VALUES (?, ?, ?, ?, ?)',
+    )
+    .run(
+      job,
+      startedAt,
+      over.finishedAt ?? null,
+      over.outcome ?? null,
+      over.detail === undefined ? null : JSON.stringify(over.detail),
+    );
+}
+
+const cron = (body: AdminSystemResponse, job: string) =>
+  body.crons.find((r) => r.job === job) ?? expect.fail(`no cron row for ${job}`);
+
 describe('GET /api/admin/system — cron liveness never reports a passing state', () => {
   it('returns all nine crons as `unknown` on an empty database', async () => {
     const body = await system();
@@ -88,10 +121,11 @@ describe('GET /api/admin/system — cron liveness never reports a passing state'
       expect(row.last_outcome).toBeNull();
       expect(row.duration_ms).toBeNull();
       expect(row.derived_from).toBeNull();
+      expect(row.run_state).toBeNull();
     }
   });
 
-  it('NEVER reports `ok` — not on an empty database, not on a fully seeded one', async () => {
+  it('reports NO outcome for a derived or unknown row, however seeded the database', async () => {
     await t.db.insert(statsCache).values([
       { key: 'home.total_products', value: 3, computedAt: '2026-08-13T01:00:00.000Z' },
       {
@@ -102,8 +136,9 @@ describe('GET /api/admin/system — cron liveness never reports a passing state'
     ]);
 
     const body = await system();
-    // This is the AC: `job_runs` does not exist, so no outcome is knowable, and a
-    // derived timestamp attests to the run, not to its success.
+    // The P1.6 AC, and still the guard for "a newly added cron with no rows yet
+    // must render honestly": with no `job_runs` rows nothing is knowable beyond
+    // "it ran", and a derived stamp attests to the run, not to its success.
     expect(body.crons.every((r) => r.last_outcome === null)).toBe(true);
     expect(body.crons.some((r) => r.source === 'job_runs')).toBe(false);
   });
@@ -188,13 +223,30 @@ describe('GET /api/admin/system — cron liveness never reports a passing state'
 });
 
 describe('GET /api/admin/system — ?recompute=1 (§13 D8)', () => {
-  it('omits the two network-dependent items by default, with a requires_recompute note', async () => {
+  it('omits both items by default when nothing has been stored yet', async () => {
     const body = await system();
 
     expect(body.recomputed).toBe(false);
+    // Null because no 04:00 run has stored a result — not because the default
+    // view refuses to show one. See the job_runs cases below.
     expect(body.data_quality).toBeNull();
     expect(body.algolia.drift).toBeNull();
     expect(codes(body)).toContain('requires_recompute');
+  });
+
+  it('tags a recomputed result as live, stamped with the request clock', async () => {
+    const body = await system('?recompute=1');
+    expect(body.data_quality).toMatchObject({
+      source: 'live',
+      computed_at: NOW.toISOString(),
+    });
+  });
+
+  it('writes nothing while recomputing — the endpoint stays a pure read', async () => {
+    await system('?recompute=1');
+
+    // §6 / §13 D8: `?recompute=1` re-runs the checks but must not record a run.
+    expect(await t.db.select().from(jobRuns)).toHaveLength(0);
   });
 
   it('runs all ten data-quality checks when asked', async () => {
@@ -326,10 +378,339 @@ describe('GET /api/admin/system — Algolia state', () => {
     });
   });
 
-  it('always reports the orphan sweep as unrecorded, with a note', async () => {
+  it('reports the orphan sweep as unrecorded — with no note — when no drift run has stored one', async () => {
     const body = await system('?recompute=1');
+    // Null means "no record", never "clean". The old `orphan_sweep_not_persisted`
+    // note is gone: since AECI-583 the sweep IS persisted, so claiming otherwise
+    // would be false.
     expect(body.algolia.orphan_sweep).toBeNull();
-    expect(codes(body)).toContain('orphan_sweep_not_persisted');
+    expect(codes(body)).not.toContain('orphan_sweep_not_persisted');
+  });
+
+  it('renders the sweep stored by the last 09:00 drift run', async () => {
+    seedRun('algolia-drift', '2026-08-13T09:00:00.000Z', {
+      finishedAt: '2026-08-13T09:00:30.000Z',
+      outcome: 'ok',
+      detail: {
+        job: 'algolia-drift',
+        report: { ran: true, drifted: [] },
+        sweep: {
+          ran: true,
+          ok: true,
+          totalOrphans: 7,
+          totalDeleted: 5,
+          entities: [
+            {
+              entity: 'products',
+              indexName: 'aeci_products',
+              indexCount: 100,
+              promotedCount: 95,
+              orphans: 5,
+              deleted: 5,
+              skippedBySafetyCap: false,
+              ok: true,
+            },
+            {
+              entity: 'vendors',
+              indexName: 'aeci_vendors',
+              indexCount: 50,
+              promotedCount: 48,
+              orphans: 2,
+              deleted: 0,
+              skippedBySafetyCap: true,
+              ok: true,
+            },
+          ],
+        },
+      },
+    });
+
+    const body = await system();
+    expect(body.algolia.orphan_sweep).toMatchObject({
+      ran_at: '2026-08-13T09:00:30.000Z',
+      ok: true,
+      total_orphans: 7,
+      total_deleted: 5,
+      // The `--force` signal an operator acts on.
+      capped: 1,
+    });
+    expect(body.algolia.orphan_sweep?.indexes[1]).toMatchObject({
+      index_name: 'aeci_vendors',
+      orphans: 2,
+      deleted: 0,
+      skipped_by_safety_cap: true,
+    });
+  });
+
+  it('reports a sweep that crashed as unrecorded rather than as a clean one', async () => {
+    seedRun('algolia-drift', '2026-08-13T09:00:00.000Z', {
+      finishedAt: '2026-08-13T09:00:05.000Z',
+      outcome: 'failed',
+      detail: {
+        job: 'algolia-drift',
+        report: { ran: true, drifted: [] },
+        sweep: { ran: false, reason: 'browse failed' },
+      },
+    });
+
+    expect((await system()).algolia.orphan_sweep).toBeNull();
+  });
+
+  it('omits an unparseable sweep payload and says so, rather than reporting it in part', async () => {
+    seedRun('algolia-drift', '2026-08-13T09:00:00.000Z', {
+      finishedAt: '2026-08-13T09:00:05.000Z',
+      outcome: 'ok',
+      detail: { job: 'algolia-drift', report: { ran: true, drifted: [] }, sweep: { ran: true } },
+    });
+
+    const body = await system();
+    expect(body.algolia.orphan_sweep).toBeNull();
+    expect(codes(body)).toContain('stored_result_unreadable');
+  });
+});
+
+describe('GET /api/admin/system — data quality served from the last stored run', () => {
+  const CHECKS = [
+    {
+      id: 'broken_integration_refs',
+      label: 'Broken refs',
+      severity: 'error',
+      count: 2,
+      sample: ['a'],
+    },
+    { id: 'logo_404', label: 'Logo 404s', severity: 'warn', count: 0, sample: [], skipped: true },
+  ];
+
+  const seedDq = (startedAt: string, finishedAt: string, checks: unknown = CHECKS) =>
+    seedRun('data-quality', startedAt, {
+      finishedAt,
+      outcome: 'failed',
+      detail: { job: 'data-quality', durationMs: 900, checks, email: 'sent' },
+    });
+
+  it('replays the stored result on the DEFAULT view, under the run’s own timestamp', async () => {
+    seedDq('2026-08-13T04:00:00.000Z', '2026-08-13T04:01:00.000Z');
+
+    const body = await system();
+    expect(body.data_quality).toMatchObject({
+      source: 'job_runs',
+      // The run's finish stamp, NOT the response's `generated_at` — a stored
+      // result shown under the response clock claims a freshness it lacks.
+      computed_at: '2026-08-13T04:01:00.000Z',
+      failing: 1,
+    });
+    expect(body.data_quality?.checks.map((c) => c.id)).toEqual([
+      'broken_integration_refs',
+      'logo_404',
+    ]);
+    expect(body.generated_at).toBe(NOW.toISOString());
+  });
+
+  it('counts findings and errors as failing, and a skipped check as not', async () => {
+    seedDq('2026-08-13T04:00:00.000Z', '2026-08-13T04:01:00.000Z');
+    // One check with findings, one skipped → exactly one failing.
+    expect((await system()).data_quality?.failing).toBe(1);
+  });
+
+  it('keeps yesterday’s result visible while today’s run is still in flight', async () => {
+    seedDq('2026-08-12T04:00:00.000Z', '2026-08-12T04:01:00.000Z');
+    seedRun('data-quality', '2026-08-13T04:00:00.000Z');
+
+    // Blanking a good result for the few minutes the cron is running would be a
+    // worse lie than showing it with its stamp.
+    expect((await system()).data_quality?.computed_at).toBe('2026-08-12T04:01:00.000Z');
+  });
+
+  it('is superseded by ?recompute=1', async () => {
+    seedDq('2026-08-13T04:00:00.000Z', '2026-08-13T04:01:00.000Z');
+
+    const body = await system('?recompute=1');
+    expect(body.data_quality?.source).toBe('live');
+    expect(body.data_quality?.checks).toHaveLength(10);
+  });
+
+  it.each([
+    ['a non-array payload', { not: 'an array' }],
+    ['an empty result set', []],
+    ['rows that are not checks', [{ id: 'x' }]],
+  ])('omits %s entirely and says so, rather than reporting it in part', async (_label, checks) => {
+    seedDq('2026-08-13T04:00:00.000Z', '2026-08-13T04:01:00.000Z', checks);
+
+    const body = await system();
+    expect(body.data_quality).toBeNull();
+    expect(codes(body)).toContain('stored_result_unreadable');
+  });
+});
+
+describe('GET /api/admin/system — cron liveness from job_runs (§7.2 / AECI-583)', () => {
+  it('reports a completed run with its outcome and duration', async () => {
+    seedRun('waf-poll', '2026-08-13T04:00:00.000Z', {
+      finishedAt: '2026-08-13T04:00:02.500Z',
+      outcome: 'ok',
+    });
+
+    const row = cron(await system(), 'waf-poll');
+    expect(row).toMatchObject({
+      source: 'job_runs',
+      last_run_at: '2026-08-13T04:00:00.000Z',
+      last_outcome: 'ok',
+      duration_ms: 2500,
+      derived_from: null,
+      run_state: 'complete',
+    });
+  });
+
+  it('beats the derived fallback — a real record always wins over an inference', async () => {
+    await t.db.insert(statsCache).values({
+      key: 'home.total_products',
+      value: 3,
+      computedAt: '2026-08-13T01:00:00.000Z',
+    });
+    seedRun('home-stats', '2026-08-13T07:00:00.000Z', {
+      finishedAt: '2026-08-13T07:00:01.000Z',
+      outcome: 'failed',
+    });
+
+    const row = cron(await system(), 'home-stats');
+    expect(row.source).toBe('job_runs');
+    expect(row.last_run_at).toBe('2026-08-13T07:00:00.000Z');
+    expect(row.derived_from).toBeNull();
+    expect(row.last_outcome).toBe('failed');
+  });
+
+  it('keeps the derived fallback for a job that has not run since instrumentation shipped', async () => {
+    await t.db.insert(statsCache).values({
+      key: 'home.total_products',
+      value: 3,
+      computedAt: '2026-08-13T01:00:00.000Z',
+    });
+    seedRun('waf-poll', '2026-08-13T04:00:00.000Z', {
+      finishedAt: '2026-08-13T04:00:01.000Z',
+      outcome: 'ok',
+    });
+
+    // Only `waf-poll` has a row; `home-stats` must still show its inference
+    // rather than regressing to "unknown".
+    expect(cron(await system(), 'home-stats')).toMatchObject({
+      source: 'derived',
+      derived_from: 'stats_cache.computed_at',
+    });
+  });
+
+  it('renders an unfinished run as in flight, never as ok', async () => {
+    seedRun('data-quality', '2026-08-13T04:00:00.000Z');
+
+    const row = cron(await system(), 'data-quality');
+    expect(row).toMatchObject({
+      source: 'job_runs',
+      last_run_at: '2026-08-13T04:00:00.000Z',
+      last_outcome: null,
+      duration_ms: null,
+      run_state: 'in_flight',
+    });
+  });
+
+  it('refuses an outcome on an OPEN row even when one is stored', async () => {
+    // A row can only be written this way by something other than `withJobRun`.
+    // The guard is structural precisely so it does not depend on the writer.
+    seedRun('data-quality', '2026-08-13T04:00:00.000Z', { outcome: 'ok' });
+
+    const row = cron(await system(), 'data-quality');
+    expect(row.last_outcome).toBeNull();
+    expect(row.run_state).toBe('in_flight');
+  });
+
+  it('reads an unrecognized stored outcome as no outcome', async () => {
+    // The CHECK constraint refuses this value today, so suspend it to reach the
+    // read-side guard. Belt and braces on purpose: the column and the wire enum
+    // are two vocabularies that a future migration could let drift, and the
+    // screen must degrade to "no outcome" rather than emit an unvalidatable one.
+    t.raw.pragma('ignore_check_constraints = ON');
+    seedRun('waf-poll', '2026-08-13T04:00:00.000Z', {
+      finishedAt: '2026-08-13T04:00:01.000Z',
+      outcome: 'partial',
+    });
+    t.raw.pragma('ignore_check_constraints = OFF');
+
+    const row = cron(await system(), 'waf-poll');
+    expect(row.last_outcome).toBeNull();
+    expect(row.run_state).toBe('complete');
+  });
+
+  it('falls back to unknown — and still validates — when a stored stamp is not a date', async () => {
+    seedRun('waf-poll', 'yesterday-ish', { finishedAt: 'x', outcome: 'ok' });
+
+    // `system()` parses through `AdminSystemResponseSchema`, so this failing to
+    // validate IS the assertion: a bad stamp must never reach the wire.
+    expect(cron(await system(), 'waf-poll')).toMatchObject({
+      source: 'unknown',
+      last_run_at: null,
+    });
+  });
+
+  it('reports the newest run when a job has several', async () => {
+    seedRun('waf-poll', '2026-08-13T02:00:00.000Z', {
+      finishedAt: '2026-08-13T02:00:01.000Z',
+      outcome: 'failed',
+    });
+    seedRun('waf-poll', '2026-08-13T04:00:00.000Z', {
+      finishedAt: '2026-08-13T04:00:01.000Z',
+      outcome: 'ok',
+    });
+    seedRun('waf-poll', '2026-08-13T03:00:00.000Z', {
+      finishedAt: '2026-08-13T03:00:01.000Z',
+      outcome: 'failed',
+    });
+
+    expect(cron(await system(), 'waf-poll').last_outcome).toBe('ok');
+  });
+
+  it('drops the cron_liveness_unavailable note once every job has a row', async () => {
+    for (const job of [
+      'metrics-snapshot',
+      'data-quality',
+      'analytics-digest',
+      'moderation-snapshot',
+      'home-stats',
+      'algolia-sync',
+      'algolia-drift',
+      'request-reconcile',
+      'waf-poll',
+    ]) {
+      seedRun(job, '2026-08-13T04:00:00.000Z', {
+        finishedAt: '2026-08-13T04:00:01.000Z',
+        outcome: 'ok',
+      });
+    }
+
+    const body = await system();
+    expect(codes(body)).not.toContain('cron_liveness_unavailable');
+    expect(body.crons.every((r) => r.source === 'job_runs')).toBe(true);
+  });
+
+  it('never scans job_runs — every read is a bounded per-job seek', async () => {
+    // The read must not grow with the table: retention is 90 days and the */15
+    // reconcile alone writes ~9k rows into that window. Assert query SHAPE, since
+    // the harness would happily scan without complaint (cf. the compound-SELECT
+    // note in this file's header).
+    const original = t.raw.prepare.bind(t.raw);
+    const seen: string[] = [];
+    const spy = vi.spyOn(t.raw, 'prepare').mockImplementation((sql: string) => {
+      // Only the liveness reads. `tableCounts` legitimately selects `count(*)
+      // FROM "job_runs"` too — it enumerates every user table — and that one IS
+      // a UNION, chunked at D1's compound-SELECT limit.
+      if (/from\s+"?job_runs"?/i.test(sql) && !/count\(\*\)/i.test(sql)) seen.push(sql);
+      return original(sql);
+    });
+
+    await system();
+    spy.mockRestore();
+
+    expect(seen.length).toBeGreaterThan(0);
+    for (const sql of seen) {
+      expect(sql.toLowerCase()).toContain('limit');
+      expect(sql.toLowerCase()).not.toContain('union');
+    }
   });
 });
 

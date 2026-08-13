@@ -102,9 +102,12 @@ it is fixed by the 08:00 incremental sync.
    `_vendors` / `_integrations` and the sign/magnitude (logged with the gauge). Negative =
    orphans (self-healing); positive = missing rows.
 2. Recent promotes? Drift right after a `POST /api/promote` is expected until a sync runs.
-3. Did the sweep heal it? For negative drift, check `aeci.algolia.orphans_removed` and the
-   `source:algolia-drift-cron` log `aeci.algolia.orphans_removed on <env>` for the same run; the
-   next day's `index_drift` should read 0.
+3. Did the sweep heal it? For negative drift, check **`/admin/system` → Search index → Orphan
+   sweep**, which since AECI-583 renders the last 09:00 run's per-index result — orphans found,
+   objects removed, and whether the safety cap refused a purge (the `--force` trigger below).
+   Before that the sweep reported only to Datadog: `aeci.algolia.orphans_removed` and the
+   `source:algolia-drift-cron` log `aeci.algolia.orphans_removed on <env>` for the same run, both
+   still emitted. The next day's `index_drift` should read 0.
 4. No-data variant: if the alert is "no data for 48h", the daily cron
    (`apps/api/src/scheduled.ts`) didn't report — check the staging/production API Worker's
    scheduled invocation in the Cloudflare dashboard / `wrangler tail`, and that
@@ -632,6 +635,12 @@ vendor/product candidates, a Brandfetch logo-404 sample, and the reused AECI-140
    **error** monitor pages, the **warn** monitor is informational (AECI-279). Pivot on the `check:` tag
    (or read the digest) to see the specific check and its count. The full offending rows are in the email and in
    the `source:data-quality-cron` logs (`aeci.data_quality.check <id> count=…`).
+
+   **Since AECI-583, start at `/admin/system` instead.** The run stores its whole result set in
+   `job_runs.detail`, and the page opens on it — same rows the email carried, no inbox needed, no
+   `?recompute=1` click, and stamped with the run's own time so you can tell a stale result from a fresh
+   one. "Run data-quality checks" re-runs the suite live once you have made a fix. The stored history
+   also makes "when did `broken_integration_refs` start failing" answerable, which it was not before.
 2. **A check errored (-1 / job failed)?** Read the `source:data-quality-cron` error logs
    (`aeci.data_quality.check <id>` with `reason`, or `aeci.data_quality.crashed` for a pre-run crash).
    A pre-run crash is usually a missing `DB` binding or a deploy regression — check `GET /api/version`.
@@ -647,6 +656,50 @@ vendor/product candidates, a Brandfetch logo-404 sample, and the reused AECI-140
 a pulled product's integration, dedupe a vendor, re-run the Algolia bulk sync for drift, etc.); the next
 daily run auto-detects the fix. A no-data/liveness failure is a Worker scheduling issue — escalate to
 whoever owns the API Worker's crons.
+
+## Cron runs missing or stuck in flight on `/admin/system`
+
+**Alerts:** none of its own — this is a *triage* entry for what you see on the panel. The paging
+signals remain the per-cron `… not running` / `… failed` monitors listed in
+`POST_LAUNCH_MONITORING.md` §1a.
+
+**Metrics:**
+- `aeci.job_runs.write{phase,job,outcome}` — the **recorder's** own health (AECI-583). `outcome:failed`
+  means a bookkeeping write failed; the job itself was unaffected.
+- Each cron's existing liveness heartbeat (see the table in `OBSERVABILITY.md`).
+
+**What it means:** Every cron writes a `job_runs` row on entry and completes it on exit
+(`DATABASE_SCHEMA.md` §9.3). `/admin/system` renders the newest row per job. Three states are worth
+telling apart, and the screen distinguishes them on purpose:
+
+| On screen | Means |
+|---|---|
+| **Unknown** | No row at all. Either the job has not run **since run recording shipped**, or it was added since. This is *not* the same as "not running" |
+| **Inferred** | No row, but a `stats_cache` side effect gives a plausible last-run time (`home-stats`, `algolia-sync` only). Proves the job **ran**, never that it **succeeded** |
+| **In flight** | A row with `started_at` and no `finished_at`. Either genuinely mid-run, or the isolate was reclaimed (CPU/wall-clock limit, eviction) and never completed it |
+
+**First checks**
+
+1. **Unknown, and the job should have run by now?** Check the Datadog heartbeat *first* — it is the
+   only thing that can distinguish "the cron never fired" from "the cron fired and the bookkeeping
+   write failed". If the heartbeat is present, look for `aeci.job_runs.write{outcome:failed}` and the
+   `source:job-runs` error log `aeci.job_runs.write_failed`.
+2. **In flight, and the stamp is older than the job's cadence?** (Quarter-hourly reconcile: >30 min.
+   A daily job: >6h.) The run was interrupted. Confirm against the job's own `*.crashed` log and the
+   Cloudflare invocation log. **Nothing self-heals a stale open row** — the next run simply writes a
+   newer one and supersedes it, and the prune that would eventually remove it is AECI-584, not yet
+   built. A stale open row is cosmetic; the *newest* row is what the screen reports.
+3. **A `*/15` job with several `failed` rows then an `ok`?** That is a queue retry working as
+   intended. Each attempt is its own row; the successful one supersedes by `started_at`.
+4. **All nine Unknown right after a deploy?** Expected for up to 24h on the daily jobs — they have
+   not run yet under the new deploy. The `cron_liveness_unavailable` note on the response says how
+   many, and the note clears itself as the rows arrive.
+
+**Repair:** nothing here is repaired by hand. A genuinely-not-firing cron is a Worker scheduling
+issue — escalate to whoever owns the API Worker's crons, exactly as for the individual cron runbooks
+above. A failing *recorder* (`aeci.job_runs.write{outcome:failed}`) degrades the panel only: the
+bookkeeping is failure-isolated by design, so the jobs keep running and Datadog keeps alerting. Treat
+it as a defect to file, not an incident to page on.
 
 ## WAF rate-limit / challenge spike
 

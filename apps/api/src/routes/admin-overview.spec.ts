@@ -324,13 +324,51 @@ describe('GET /api/admin/overview — the internal-ASN filter (§13 D10)', () =>
 });
 
 describe('GET /api/admin/overview — the status strip and ?recompute=1 (§13 D8)', () => {
-  it('omits the two network-dependent items by default and says so', async () => {
+  it('omits both items by default when no run has been stored', async () => {
     await seedDay();
     const body = await overview();
     expect(body.recomputed).toBe(false);
     expect(body.status.data_quality).toBeNull();
     expect(body.status.algolia_drift).toBeNull();
     expect(codes(body)).toContain('requires_recompute');
+  });
+
+  it('serves the SAME stored data-quality result /system does — the two strips cannot diverge', async () => {
+    // Both endpoints go through `runExpensiveStatusItems`, which is the whole
+    // reason that helper exists. If this ever fails, the §5.1 strip and the §5.6
+    // screen have started reporting different check counts on the default view.
+    await seedDay();
+    t.raw
+      .prepare(
+        'INSERT INTO job_runs (job, started_at, finished_at, outcome, detail) VALUES (?, ?, ?, ?, ?)',
+      )
+      .run(
+        'data-quality',
+        '2026-08-11T04:00:00.000Z',
+        '2026-08-11T04:01:00.000Z',
+        'failed',
+        JSON.stringify({
+          job: 'data-quality',
+          durationMs: 900,
+          email: 'sent',
+          checks: [
+            {
+              id: 'broken_integration_refs',
+              label: 'Broken refs',
+              severity: 'error',
+              count: 3,
+              sample: ['a'],
+            },
+          ],
+        }),
+      );
+
+    const body = await overview();
+    expect(body.status.data_quality).toMatchObject({
+      source: 'job_runs',
+      computed_at: '2026-08-11T04:01:00.000Z',
+      failing: 1,
+    });
   });
 
   it('always carries the cheap items: version, stats freshness, moderation depth', async () => {

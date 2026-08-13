@@ -78,6 +78,7 @@ below. The bounded render-volume signal is the `aeci.ssr.render` count metric.
 | `aeci.waf.poll` | count | `apps/api/src/scheduled.ts` (`runWafMetricsJob`, hourly cron, AECI-262) | `trigger` (cron), `outcome` (ok / failed / skipped_no_creds) — one heartbeat per run; the always-emitted `outcome:ok` series is the cron-liveness signal |
 | `aeci.analytics_digest.email` | count | `apps/api/src/scheduled.ts` (`runAnalyticsDigestJob` → `lib/email.ts` `sendEmail`, AECI-526, daily 05:00 UTC = noon Jakarta cron) | `outcome` (sent / failed / skipped) — the daily operator digest: **human** page views + top products (`is_bot IS NOT 1`), new/total sign-ins, pending-moderation depth, and a Crawler-activity breakdown (`is_bot = 1`, grouped by `bot_name`). **`skipped`** when `RESEND_API_KEY` / `EMAIL_FROM` / `ANALYTICS_DIGEST_EMAIL_TO` are unset (fail-open); one count per run, so the always-emitted series doubles as the cron-liveness signal (`outcome:failed` also covers a pre-send crash) |
 | `aeci.moderation.ban` | count | `apps/api/src/routes/admin-reviewers.ts` (`emitBanAction`, **AECI-218 / Phase 6.11** — the `PATCH /api/admin/reviewers/:id` ban/unban write-path) | `action` (`ban` / `unban`), `outcome` (`ok` / `invalid_state` / `forbidden`) — one count per ban/unban attempt, alongside the §9 `appendAuditLog()` + `reviewer_ban` `workflow_transition` |
+| `aeci.job_runs.write` | count | `apps/api/src/scheduled.ts` (`jobRunSink` → `lib/job-runs.ts`, **AECI-583 / Phase 8.3 P3.1**) | `phase` (start / finish), `job` (the `AdminCronJob` id), `outcome` (ok / failed) — this measures the **recorder, not the job**: a `failed` here means the admin panel's cron liveness under-reports while the job itself completed normally. Emitted on success too, so a silently-broken writer is distinguishable from "no crons ran". 36 series, ~245 points/day. Companion error log: `aeci.job_runs.write_failed`, `source:job-runs` |
 
 `aeci.ssr.render` (AECI-103) is one count per SSR render, fired on **every** branch
 of `handleSsr` — including the edge-cache HIT path and the non-cacheable branch, both of
@@ -89,6 +90,47 @@ requests.
 
 Every metric also carries the base tags `env`, `app:aeci`, `service` (`aeci-web` /
 `aeci-api`), `worker`, `locale` — the same vocabulary as the log `ddtags` string.
+
+### `job_runs` is a second recording surface, not a replacement (AECI-583)
+
+Since AECI-583 every cron also writes a `job_runs` row in D1 (`DATABASE_SCHEMA.md`
+§9.4, `ADMIN_PANEL_SPEC.md` §7.2), and `/admin/system` renders it. That does **not**
+retire anything below. The two surfaces answer different questions, and the split
+is not a matter of taste:
+
+- **Datadog owns absence.** The no-data monitors are the only signal that can fire
+  when the Worker **never starts** — a job that does not run writes no `job_runs`
+  row either, so its absence is invisible in D1 *by construction*. "The 08:00 sync
+  stopped firing" is a Datadog question and always will be.
+- **`job_runs` owns the record.** Outcome, duration, and a per-job payload, in
+  product, no Datadog login, over a 90-day window. For the data-quality job that
+  payload is the whole ten-check result set, which is a thing no metric can carry.
+
+**The invariant a reviewer can check: every cron emits both.** A `job_runs` row with
+no matching heartbeat, or a heartbeat with no row, is a bug in the instrumentation
+— not a discrepancy to reconcile by hand.
+
+| Cron | `job_runs.job` | Its Datadog liveness signal |
+|---|---|---|
+| 00:15 metrics snapshot | `metrics-snapshot` | `aeci.metrics_snapshot.run` (`outcome:success\|partial\|failed`) |
+| 04:00 data quality | `data-quality` | `aeci.data_quality.job` (`outcome:success\|failed`) |
+| 05:00 analytics digest | `analytics-digest` | `aeci.analytics_digest.email` |
+| 06:00 moderation snapshot | `moderation-snapshot` | `aeci.moderation.queue_depth` (gauge; no per-run heartbeat) |
+| 07:00 home stats | `home-stats` | `aeci.stats.compute` (`outcome:success\|partial\|failed`) |
+| 08:00 Algolia sync | `algolia-sync` | `aeci.algolia.sync` (`trigger:cron`) |
+| 09:00 index drift | `algolia-drift` | `aeci.algolia.index_drift` (gauge; no per-run heartbeat) |
+| `*/15` request reconcile | `request-reconcile` | `aeci.linear.reconcile.stuck` (gauge) |
+| hourly WAF poll | `waf-poll` | `aeci.waf.poll` (`outcome:ok`) |
+
+Two vocabularies meet here on purpose: the dispatcher's internal `ScheduledJob` ids
+(`sync`, `drift`, `stats`, …) never reach either surface — `ADMIN_CRON_JOB` in
+`apps/api/src/lib/cron-schedules.ts` maps them onto the `AdminCronJob` ids above.
+
+One asymmetry worth knowing: **`home-stats` and `algolia-sync` are natively
+partial** (per-key and per-entity respectively), and Datadog models that as
+`outcome:partial`. `job_runs.outcome` has no such member, so a partial run is
+recorded `failed`, derived from the *same* `jobOutcome()` the metric tag uses. The
+panel therefore never claims more success than Datadog does for the same run.
 
 ### Measuring the D1 read-replication latency win (AECI-250)
 

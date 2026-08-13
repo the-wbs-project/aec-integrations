@@ -9,7 +9,13 @@
  *      an `unknown` sentinel, produce no alarm).
  *   2. **A check that returns zero rows renders as passing, not as empty.**
  *   3. **Cron liveness renders "Unknown", never "ok", when `job_runs` is absent.**
- *      This is the failure mode that would make the screen lie.
+ *      This is the failure mode that would make the screen lie. AECI-583 made a
+ *      recorded outcome reachable, and sharpened rather than relaxed this: the
+ *      no-rows case is kept verbatim as the "a newly added cron must still render
+ *      honestly" guard, and an unfinished run reads "In flight", never a success.
+ *   4. **A stored data-quality result is labelled as stored.** The default view
+ *      now replays the last 04:00 run, so the "as of" line is what stops those
+ *      figures reading as live ones.
  *
  * Plus the degradation path: losing `/_version` must cost only that one card.
  *
@@ -42,6 +48,7 @@ function makeCron(over: Partial<AdminCronRun> & { job: AdminCronRun['job'] }): A
     last_outcome: over.last_outcome ?? null,
     duration_ms: over.duration_ms ?? null,
     derived_from: over.derived_from ?? null,
+    run_state: over.run_state ?? null,
   };
 }
 
@@ -209,6 +216,8 @@ describe('SystemStatus — data-quality checks (AC 2)', () => {
     const system = makeSystem({
       recomputed: true,
       data_quality: {
+        source: 'live',
+        computed_at: '2026-08-13T05:00:00.000Z',
         failing: 0,
         checks: [
           makeCheck({ id: 'products_without_vendor', label: 'Products with no vendor', count: 0 }),
@@ -231,6 +240,8 @@ describe('SystemStatus — data-quality checks (AC 2)', () => {
     const system = makeSystem({
       recomputed: true,
       data_quality: {
+        source: 'live',
+        computed_at: '2026-08-13T05:00:00.000Z',
         failing: 1,
         checks: [
           makeCheck({
@@ -258,6 +269,8 @@ describe('SystemStatus — data-quality checks (AC 2)', () => {
     const system = makeSystem({
       recomputed: true,
       data_quality: {
+        source: 'live',
+        computed_at: '2026-08-13T05:00:00.000Z',
         failing: 1,
         checks: [
           makeCheck({
@@ -289,12 +302,14 @@ describe('SystemStatus — data-quality checks (AC 2)', () => {
     const { fixture, el } = await setup(api);
 
     expect(api.getSystem).toHaveBeenCalledWith({ recompute: false });
-    expect(el.textContent).toContain("aren't run automatically");
+    expect(el.textContent).toContain('No stored result yet');
 
     api.getSystem.mockImplementation(async () =>
       makeSystem({
         recomputed: true,
         data_quality: {
+          source: 'live',
+          computed_at: '2026-08-13T05:00:00.000Z',
           failing: 0,
           checks: [makeCheck({ id: 'products_without_vendor', label: 'Products with no vendor' })],
         },
@@ -307,6 +322,55 @@ describe('SystemStatus — data-quality checks (AC 2)', () => {
 
     expect(api.getSystem).toHaveBeenLastCalledWith({ recompute: true });
     expect(el.textContent).toContain('Passing');
+  });
+
+  it('says when the checks shown are a stored result rather than a fresh one', async () => {
+    const system = makeSystem({
+      data_quality: {
+        source: 'job_runs',
+        computed_at: '2026-08-13T04:01:00.000Z',
+        failing: 0,
+        checks: [makeCheck({ id: 'products_without_vendor' })],
+      },
+    });
+    const { el } = await setup(makeApiMock(system));
+
+    // Without this line the stored figures read as live ones.
+    expect(el.textContent).toContain('Stored result from the last scheduled run');
+    expect(el.textContent).not.toContain('Run just now');
+  });
+
+  it('says when they were run live', async () => {
+    const system = makeSystem({
+      recomputed: true,
+      data_quality: {
+        source: 'live',
+        computed_at: '2026-08-13T05:00:00.000Z',
+        failing: 0,
+        checks: [makeCheck({ id: 'products_without_vendor' })],
+      },
+    });
+    const { el } = await setup(makeApiMock(system));
+
+    expect(el.textContent).toContain('Run just now');
+    expect(el.textContent).not.toContain('Stored result from the last scheduled run');
+  });
+
+  it('renders stored_result_unreadable as localized prose naming the job', async () => {
+    const system = makeSystem({
+      notes: [
+        {
+          code: 'stored_result_unreadable',
+          severity: 'warn',
+          message: 'RAW OPERATOR FALLBACK',
+          params: { job: 'data-quality' },
+        },
+      ],
+    });
+    const { el } = await setup(makeApiMock(system));
+
+    expect(el.textContent).toContain("A stored result from the data-quality job couldn't be read");
+    expect(el.textContent).not.toContain('RAW OPERATOR FALLBACK');
   });
 });
 
@@ -376,8 +440,98 @@ describe('SystemStatus — cron liveness (AC 3)', () => {
     });
     const { el } = await setup(makeApiMock(system));
 
-    expect(el.textContent).toContain('8 of 8 scheduled jobs have no last-run record');
+    expect(el.textContent).toContain('8 of 8 scheduled jobs have no recorded run yet');
     expect(el.textContent).not.toContain('RAW OPERATOR FALLBACK');
+  });
+
+  it('renders a recorded success as localized prose, never the raw wire value', async () => {
+    const system = makeSystem({
+      crons: [
+        makeCron({
+          job: 'home-stats',
+          schedule: '0 7 * * *',
+          source: 'job_runs',
+          last_run_at: '2026-08-13T07:00:00.000Z',
+          last_outcome: 'ok',
+          duration_ms: 1234,
+          run_state: 'complete',
+        }),
+      ],
+    });
+    const { el } = await setup(makeApiMock(system));
+
+    const row = cronRow(el, 'home-stats');
+    expect(row.textContent).toContain('Succeeded');
+    // The template used to interpolate `last_outcome` directly. That branch was
+    // unreachable until AECI-583; now that it isn't, it must be translated.
+    expect(row.textContent).not.toMatch(/\bok\b/);
+  });
+
+  it('shows the duration of a recorded run — and NOT a dangling "inferred from"', async () => {
+    const system = makeSystem({
+      crons: [
+        makeCron({
+          job: 'waf-poll',
+          schedule: '0 * * * *',
+          source: 'job_runs',
+          last_run_at: '2026-08-13T07:00:00.000Z',
+          last_outcome: 'ok',
+          duration_ms: 1234,
+          run_state: 'complete',
+        }),
+      ],
+    });
+    const { el } = await setup(makeApiMock(system));
+
+    const row = cronRow(el, 'waf-poll');
+    expect(row.textContent).toContain('took 1,234 ms');
+    // Regression guard: `derived_from` is null on a recorded row, and the
+    // qualifier used to render off `last_run_at` alone.
+    expect(row.textContent).not.toContain('inferred from');
+  });
+
+  it('renders a failed run distinctly', async () => {
+    const system = makeSystem({
+      crons: [
+        makeCron({
+          job: 'algolia-drift',
+          schedule: '0 9 * * *',
+          source: 'job_runs',
+          last_run_at: '2026-08-13T09:00:00.000Z',
+          last_outcome: 'failed',
+          duration_ms: 10,
+          run_state: 'complete',
+        }),
+      ],
+    });
+    const { el } = await setup(makeApiMock(system));
+
+    const row = cronRow(el, 'algolia-drift');
+    expect(row.textContent).toContain('Failed');
+    expect(row.querySelector('.text-\\(--status-error\\)')).not.toBeNull();
+  });
+
+  it('renders an unfinished run as in flight — not as "Recorded", and never as a success', async () => {
+    const system = makeSystem({
+      crons: [
+        makeCron({
+          job: 'data-quality',
+          schedule: '0 4 * * *',
+          source: 'job_runs',
+          last_run_at: '2026-08-13T04:00:00.000Z',
+          last_outcome: null,
+          duration_ms: null,
+          run_state: 'in_flight',
+        }),
+      ],
+    });
+    const { el } = await setup(makeApiMock(system));
+
+    const row = cronRow(el, 'data-quality');
+    expect(row.textContent).toContain('In flight');
+    expect(row.textContent).toContain('started, no finish recorded');
+    expect(row.textContent).not.toContain('Recorded');
+    expect(row.textContent).not.toContain('Succeeded');
   });
 
   it('falls back to the API message for a note code it does not recognize', async () => {
@@ -400,9 +554,53 @@ describe('SystemStatus — Algolia + database', () => {
   beforeEach(() => TestBed.resetTestingModule());
   afterEach(() => vi.restoreAllMocks());
 
-  it('reports the orphan sweep as unrecorded rather than clean', async () => {
+  it('reports an unrecorded orphan sweep as unrecorded — never as clean', async () => {
     const { el } = await setup();
-    expect(el.textContent).toContain('No result is stored for the orphan sweep');
+    expect(el.textContent).toContain('No sweep has been recorded yet');
+    expect(el.textContent).not.toContain('No orphaned records found');
+  });
+
+  it('renders the stored sweep, and flags the safety cap an operator has to act on', async () => {
+    const system = makeSystem({
+      algolia: {
+        watermark: null,
+        drift: null,
+        orphan_sweep: {
+          ran_at: '2026-08-13T09:00:30.000Z',
+          ok: true,
+          total_orphans: 7,
+          total_deleted: 5,
+          capped: 1,
+          indexes: [
+            {
+              entity: 'products',
+              index_name: 'aeci_products',
+              index_count: 100,
+              promoted_count: 95,
+              orphans: 5,
+              deleted: 5,
+              skipped_by_safety_cap: false,
+              ok: true,
+            },
+            {
+              entity: 'vendors',
+              index_name: 'aeci_vendors',
+              index_count: 50,
+              promoted_count: 48,
+              orphans: 2,
+              deleted: 0,
+              skipped_by_safety_cap: true,
+              ok: true,
+            },
+          ],
+        },
+      },
+    });
+    const { el } = await setup(makeApiMock(system));
+
+    expect(el.textContent).toContain('Removed 5 of 7 orphaned record(s)');
+    expect(el.textContent).toContain('aeci_vendors');
+    expect(el.textContent).toContain('1 index(es) were refused by the safety cap');
   });
 
   it('reports a never-run sync rather than a zero watermark', async () => {
