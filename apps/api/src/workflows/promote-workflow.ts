@@ -9,7 +9,7 @@
  * stranded product then minted duplicates (AECI-561).
  *
  * Moving the commit into a Workflow decouples it from the caller entirely: kick off,
- * walk away, poll later. Two properties do the work:
+ * walk away, poll later. Three properties do the work:
  *
  *   1. **The job id IS the Workflow instance id.** The review app supplies it (and
  *      stamps it on the Airtable row *before* pushing — AECI-567), so a replayed
@@ -18,13 +18,18 @@
  *   2. **The commit step is never auto-retried.** It throws `NonRetryableError`, so a
  *      failure surfaces as `errored` with its structured code for the review app to
  *      act on, rather than the engine silently replaying a half-planned create.
+ *   3. **The commit is exactly-once in D1 (AECI-571).** Workflows guarantee a step runs
+ *      at *least* once, so an engine crash between `db.batch` committing and the step
+ *      result being persisted replays the whole callback — and the plan phase would mint
+ *      fresh ids and a disambiguated slug (`revit` → `revit-2`). The ingest therefore
+ *      writes a `promote_jobs` ledger row keyed by the job id **inside the same batch**:
+ *      a replayed batch trips the primary key, D1 rolls the entire batch back, and the
+ *      ingest returns the recorded `PromoteIngestResult` — same ids, same slug — so the
+ *      job completes normally and the hooks, which never ran for the lost attempt, fire
+ *      exactly once.
  *
- * Residual risk, documented rather than engineered around (per the AECI-563 decision):
- * Workflows guarantee a step runs *at least* once, so an engine crash in the window
- * between `db.batch` committing and the step result being persisted could replay the
- * commit and duplicate a *created* row. Client death — the failure this issue exists
- * to fix — is fully covered; the engine-crash window is not. Hardening it needs either
- * deterministic ids derived from the job id or a D1 job ledger — tracked as AECI-571.
+ * (1) covers client death, (2) covers a failed commit, (3) covers engine death. Together
+ * the commit is exactly-once for all three.
  */
 
 import {
@@ -60,6 +65,10 @@ export type { PromoteWorkflowParams };
  * throwing `NonRetryableError` — the documented mechanism for "do not retry this step"
  * — because the `retries.limit` semantics ("total number of attempts") leave no room
  * for a mistake we'd only discover as a duplicate product in production.
+ *
+ * That guard and the AECI-571 ledger are complementary, not redundant: `NonRetryableError`
+ * prevents the engine retrying after a *failure*; the `promote_jobs` primary key prevents
+ * it replaying after a *success*. Neither substitutes for the other.
  *
  * The timeout is generous on purpose: a heavy bundle's plan phase issues many sequential
  * D1 reads, and this used to be a request that could legitimately run for minutes. There
@@ -190,6 +199,12 @@ export async function runPromoteWorkflow(
  * The commit itself. Runs inside the single non-retried step, and mirrors the resulting
  * ID map to KV before returning so the IDs outlive the instance's retention window.
  *
+ * `jobId` is handed to the ingest as its exactly-once key (AECI-571): it becomes the
+ * `promote_jobs` primary key committed inside the promote's own batch, so if the engine
+ * replays this callback the second run rolls back and returns the recorded result rather
+ * than committing a second time. That also makes the KV mirror below a same-bytes
+ * overwrite on a replay, which is harmless.
+ *
  * Every failure is converted to `NonRetryableError(message, code)`: the second argument
  * becomes the error's `name`, which is the only field `instance.status().error` carries
  * besides the message — so the structured code the synchronous endpoint used to return
@@ -204,7 +219,7 @@ async function commitPromote(
 ): Promise<PromoteIngestResult> {
   let result: PromoteIngestResult;
   try {
-    result = await (deps.ingest ?? runPromoteIngest)(rc, payload, deps);
+    result = await (deps.ingest ?? runPromoteIngest)(rc, payload, deps, { jobId });
   } catch (error) {
     throw toNonRetryable(error);
   }

@@ -736,13 +736,21 @@ there is no partial state to clean up.
 
 - **Normal path — let the review app re-push.** A new job id, same bundle. Because an `errored`
   job wrote nothing, this is safe and is the expected remedy for every code above.
+  **One exception (AECI-571):** an `errored` job whose reason reads *"has already committed, but
+  its stored result is unreadable"* **did** write. Its rows are live. Do **not** re-push — recover
+  the ID map from the KV mirror (`promote:result:{jobId}`) or straight from D1
+  (`SELECT result FROM promote_jobs WHERE job_id = '…'`) and hand it to the write-back. This is
+  the only `errored` promote that ever committed, and it means the ledger row itself is corrupt;
+  escalate it.
 - **The IDs committed but the review app never collected them** (the exact class of damage this
   design exists to prevent): poll the job id; a `complete` job still serves its full ID map, so
   the write-back can be re-run. This is what the review-app reconcile sweep (AECI-570) automates.
-- **Do not `restart()` an instance** to retry a failed commit. The commit step is deliberately
-  non-retried (`NonRetryableError`) so a half-planned create can never be replayed; restarting
-  reintroduces exactly the duplicate-row risk that guard removes. Re-push with a new job id
-  instead.
+- **`restart()` no longer risks a duplicate (AECI-571), but is still not a retry.** If the commit
+  already succeeded, a restart replays it, trips the `promote_jobs` primary key, rolls back, and
+  returns the recorded ID map — which makes it the fastest way to recover an instance that is
+  wedged *after* a silently-successful commit. It is still **not** the remedy for a genuinely
+  failed commit: the step is deliberately non-retried (`NonRetryableError`), and a failure that
+  reproduces will simply fail again. Re-push with a new job id for that.
 - **`terminate()`** an instance only to clear a genuinely wedged job, and note that the id is then
   permanently consumed for its retention window — the review app must use a new one.
 
@@ -751,11 +759,30 @@ there is no partial state to clean up.
 history. Repeated `SLUG_CONFLICT`s with no concurrency suggest a slug-generation regression, not
 a race.
 
-**Known gap:** Workflows guarantee a step runs *at least* once, so an engine crash between the
-`db.batch` committing and the step result being persisted could replay the commit and duplicate
-a **created** row. Client death is fully covered; this narrower window is accepted and documented
-(ADR 0021 → Consequences). If you ever see a duplicated product whose promote job reported
-`complete` exactly once, that is the window — capture it, it justifies the hardening follow-up.
+**Duplicate safety (AECI-571).** Workflows guarantee a step runs *at least* once, so an engine
+crash between the `db.batch` committing and the step result being persisted replays the commit.
+That used to be able to duplicate a **created** row; it can't any more. The ingest writes a
+`promote_jobs` row keyed by the job id as the first statement of the promote's own batch, so a
+replayed batch trips the primary key, D1 rolls the whole batch back, and the recorded ID map is
+returned instead — same ids, same slug.
+
+- `sum:aeci.api.promote.replay` is non-zero **exactly when the window fired and was absorbed**.
+  This is informational, not actionable: the promote is correct. Capture the `job_id` from the
+  `aeci.api.promote.replay_detected` log if you want the step history, and note the `via` tag
+  (`pre-read` = the ordinary replay, `batch-conflict` = a replay that raced the original batch).
+- A duplicated product whose promote job reported `complete` exactly once is now a **bug**, not
+  the known gap. Capture the job id and the instance's step history and escalate.
+
+**Pruning the ledger.** `promote_jobs` grows by a handful of ~10 KB rows a day and has no
+automatic prune (deliberately — see `DATABASE_SCHEMA.md` §8.5). If it ever needs one:
+
+```sql
+DELETE FROM promote_jobs WHERE created_at < datetime('now', '-180 days');
+```
+
+**The floor is 90 days, hard.** Below that the guard expires before the `promote:result:{jobId}`
+KV mirror it backstops, leaving a window where a poll still serves IDs while a re-push of that
+job id would duplicate them.
 
 ---
 

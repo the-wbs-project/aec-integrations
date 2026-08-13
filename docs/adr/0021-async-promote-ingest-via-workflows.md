@@ -1,9 +1,16 @@
 # ADR 0021: Promote ingest runs in a Cloudflare Workflow, keyed by a caller-supplied job ID
 
-**Status:** Accepted
+**Status:** Accepted (amended 2026-08-13 — the residual at-least-once window is now closed by a D1 job ledger; see [Amendment](#amendment-2026-08-13--the-promote_jobs-ledger) below)
 **Date:** 2026-08-12
 **Context owner:** chrisw@thewbsproject.com
-**Relates to:** AECI-563 (this change), AECI-561 (epic), AECI-567 / AECI-570 (the review-app half, other repo); narrows ADR 0013's cron→queue posture for a *request*-triggered job; ADR 0016 (D1 has no interactive transactions)
+**Relates to:** AECI-563 (this change), AECI-571 (the amendment), AECI-561 (epic), AECI-567 / AECI-570 (the review-app half, other repo); narrows ADR 0013's cron→queue posture for a *request*-triggered job; ADR 0016 (D1 has no interactive transactions)
+
+> **Amendment 2026-08-13 (AECI-571):** everything below stands, with one exception — the
+> "Residual at-least-once window" under Accepted costs is **no longer accepted**. The ingest
+> now writes a `promote_jobs` ledger row keyed by the job id inside the promote's own
+> `db.batch`, so an engine replay rolls back and returns the recorded IDs. The commit is
+> exactly-once for engine death as well as client death. See the
+> [Amendment](#amendment-2026-08-13--the-promote_jobs-ledger) section.
 
 ---
 
@@ -41,7 +48,7 @@ Three shapes were considered:
 
 **Gained**
 
-- Kill any client at any moment and the commit still happens, exactly once, and the IDs stay fetchable by job ID for 90 days.
+- Kill any client at any moment — and, since the AECI-571 amendment, the job engine too — and the commit still happens, exactly once, and the IDs stay fetchable by job ID for 90 days.
 - A replayed push can no longer double-create, without a public-schema change.
 - Kick-off returns in well under a second regardless of bundle size, so the heavy-bundle timeout class of failure is gone rather than widened.
 - A slow ingest is now *visible* (job duration) instead of *fatal* (client timeout).
@@ -50,7 +57,7 @@ Three shapes were considered:
 
 - **Release coordination.** The deployed review app expects a synchronous `200` with a body. This merges to `main` (staging auto-tracks it), but **production must not be promoted until the review app's AECI-567 is deployed**, or every prod promote breaks. That is the deliberate price of the hard cutover.
 - **The error contract moved.** `SLUG_CONFLICT` and `INTERNAL_ERROR` are no longer HTTP statuses of the promote call; they arrive as `{ status: 'errored', error: { code } }` on the poll. Only `400` / `401` / `413` / `503` remain synchronous.
-- **Residual at-least-once window.** Workflows guarantee a step runs *at least* once. If the engine dies between `db.batch` committing and the step result being persisted, the commit could replay and duplicate a *created* row. Client death — the failure this ADR exists to fix — is fully covered; this narrower engine-crash window is **documented, not engineered around**, per the AECI-563 decision. Hardening it needs either deterministic IDs derived from the job ID (UUIDv5 + existence check) or an internal D1 job ledger whose primary key makes a replayed batch roll back; both are cheap to add later because the job ID is already threaded everywhere. Tracked as **AECI-571**.
+- ~~**Residual at-least-once window.**~~ **Closed by AECI-571 — see the [Amendment](#amendment-2026-08-13--the-promote_jobs-ledger).** Workflows guarantee a step runs *at least* once, so if the engine died between `db.batch` committing and the step result being persisted, the commit replayed and duplicated a *created* row. Client death — the failure this ADR exists to fix — was always covered; this narrower engine-crash window was originally **documented, not engineered around**, per the AECI-563 decision. It is now guarded by the `promote_jobs` primary key.
 - **`ctx.waitUntil` inside a Workflow is not a documented guarantee.** Keeping the hooks fire-and-forget is what buys the zero-latency `complete`, but the platform does not promise `waitUntil` survives instance completion. **Verified against local `wrangler dev`:** after a promote, the `home.*` `stats_cache` rows carried the promote's exact `computed_at`, so the hooks ran to completion after `run()` returned. If it ever regresses, the fallback is a trailing best-effort `step.do('post-commit-hooks')` that awaits them, at the cost of ~1s of poll latency.
 - **New infrastructure to provision:** four KV namespaces (`aeci-api-promote-*`). Workflows themselves need no provisioning step, but they **do require the Workers Paid plan** (already in use for Queues).
 - **`x-d1-bookmark` no longer rides the promote response.** The ingest runs off-request, so there is no header to emit and `bookmarkMiddleware` never sees this path. The write's session bookmark now travels internally (`PromoteIngestResult.bookmark` → `rc.bookmark()`), which is all the post-commit re-reads ever needed it for.
@@ -60,3 +67,72 @@ Three shapes were considered:
 - **A Cloudflare Queue** (the ADR 0013 pattern). Queues give durable execution but no addressable instance identity, no status/output surface, and no caller-supplied dedup key — every one of which this problem needs. We would have had to build the job ledger and the poll surface ourselves, in D1, which is the thing the decision owner ruled out.
 - **A Durable Object per job.** Equivalent power, strictly more code: we would hand-roll retries, retention, and status. Workflows *is* that DO, maintained by the platform.
 - **Returning `202` but keeping the commit on the request via `waitUntil`.** Fast response, no durability: a Worker eviction mid-`waitUntil` loses the commit with no record that a job ever existed. This is the failure mode we are removing, not a fix for it.
+
+---
+
+## Amendment (2026-08-13): the `promote_jobs` ledger
+
+**Issue:** AECI-571. **Closes** the "Residual at-least-once window" accepted cost above.
+
+### What changed
+
+`runPromoteIngest` now takes the job id and writes a **`promote_jobs`** row — `job_id` TEXT
+PRIMARY KEY, the committed result as JSON — as the **first statement of the same atomic
+`db.batch`** as the promote's own writes. Two things follow:
+
+1. A replayed batch trips the primary key, so D1 rolls the **entire** batch back. No
+   duplicate product, no duplicate vendor, no duplicate audit rows, and — the part a
+   deterministic-id scheme would not have given us — no disambiguated slug, because the
+   second insert never lands.
+2. The stored result lets the replay return an **identical** `PromoteIngestResult`: same
+   ids, same slug. The job still reaches `complete`, and the post-commit hooks — which
+   never fired for the attempt whose result was lost, since they are dispatched from
+   `run()` *after* the step — fire exactly once, driven by the recorded result.
+
+A cheap pre-read of the same primary key short-circuits the ordinary replay before the plan
+phase runs. That is an optimization; the in-batch key is the guard, and it is what makes two
+genuinely concurrent attempts safe.
+
+An absorbed replay emits `aeci.api.promote.replay` and an
+`aeci.api.promote.replay_detected` log — the first direct evidence that this window ever
+fires. Before, the runbook could only ask an operator to notice a duplicated product and
+infer it.
+
+### Why the ledger rather than deterministic ids
+
+The original text named two options. Deterministic UUIDv5 ids (derived from `jobId + kind +
+ref`) were rejected on inspection:
+
+- They fix **ids** but not **slugs**. `revit-2` is derived from a *read* of the existing
+  slug set, not from an id, so a replay would still drift — and then collide on the
+  deterministic PK, failing the job instead of duplicating it. Neither outcome is right.
+- They turn all six create branches into create-or-update with an existence check, and
+  still leave duplicate `audit_log` rows to solve separately.
+- The replay would have to re-plan the whole bundle to answer, where the ledger reads the
+  answer back.
+
+One primary key replaces roughly eight subtle invariants, for the price of one additive
+migration.
+
+### Consequences of the amendment
+
+- **Idempotency now outlives Workflow retention.** Previously, once an instance aged out
+  (30 days) `create({ id })` stopped seeing a duplicate, so re-pushing that job id committed
+  a second time — a real hole, and exactly what the AECI-570 reconcile sweep could hit with
+  a stale marker. The ledger row closes it for as long as it lives. Corollary: **any future
+  prune floor must be ≥ 90 days**, the KV result mirror's TTL, or the guard expires before
+  the IDs it protects.
+- **One new failure class: an `errored` job that DID write.** If a ledger row is present but
+  unreadable (corrupt JSON, or a future envelope version), the ingest fails the job rather
+  than re-planning — re-planning is the duplicate. This breaks the otherwise clean "an
+  errored promote wrote nothing" invariant, so `docs/RUNBOOKS.md` carries the exception.
+  Near-zero probability; we write the row ourselves and it is versioned.
+- **The AECI-562 veto is untouched.** `job_id` is AECi's own job id, not an Airtable record
+  id. The ruling was about curation-tool keys in the public schema; a workflow-job ledger is
+  not one.
+- **No pruner shipped.** ~10 KB a row at a handful of promotes a day. The `created_at` index
+  is there so a later sweep is a one-line range delete; `docs/RUNBOOKS.md` carries the
+  manual statement and the 90-day floor.
+- **Not done, deliberately:** wiring `GET /api/promote/jobs/:id` to read the ledger as a
+  third, never-expiring result source behind the instance and the KV mirror. Attractive and
+  small, but it changes 404 semantics and belongs in its own issue.

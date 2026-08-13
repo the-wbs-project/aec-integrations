@@ -1232,6 +1232,10 @@ machine-to-machine auth, not a user session.
   *attempt*. It becomes the Workflow **instance id**, so `create({ id })`'s duplicate
   guard means a replayed kick-off attaches to the existing instance and returns the same
   `jobId` — it can never start a second instance and therefore never commits twice.
+  Since AECI-571 that is enforced in **D1** as well as at instance creation: the ingest's
+  atomic batch carries a `promote_jobs` row keyed by the job id, so even an internal
+  engine replay of an already-committed step rolls back and returns the recorded ID map.
+  The guarantee therefore also outlives the 30-day instance retention.
   Absent → server-generated (pollable, but no replay protection).
 - **`supabaseId`** scopes one *row*, as before: present **and still resolvable** →
   **updated** by that ID; absent → **created** and its new ID is returned. The review app
