@@ -41,7 +41,7 @@ That last point is the immediate trigger for this work. On 2026-08-10 the digest
 - A `/admin` console covering traffic, audience, catalog, moderation, and system health (§5).
 - Read-only API endpoints behind `requireAdmin()` (§6).
 - A daily metrics-snapshot table so counts-over-time become answerable (§7.1).
-- Persisting cron and data-quality results so "current status" is inspectable (§7.2).
+- Persisting cron and data-quality results so "current status" is inspectable (§7.2) — **shipped, AECI-583**.
 - Hand-rolled SVG charts, no new client dependency (§8).
 
 **Out of scope**
@@ -223,26 +223,26 @@ This is the section that steers daily catalog work, and the one whose underlying
 
 **(3) The untagged-trade count is not a backlog.** This section lists "untagged per facet (`product_trades` is 0)" alongside missing logos and missing vendors. Those are not the same kind of number. `TRADES_VOCABULARY.md` §1.1 tags a product **only** where it has trade-*specific* value, so horizontal platforms (Procore, Autodesk Build, Bluebeam) correctly carry zero rows — the join is sparse by design and most of the catalog will never be tagged. The count is still worth surfacing (nothing at all is tagged today), but it ships with a `trade_facet_sparse_by_design` note. Presenting it as a to-do list without that caveat would make the screen actively misleading.
 
-### 5.6 System — SHIPPED (AECI-580, 2026-08-13)
+### 5.6 System — SHIPPED (AECI-580, 2026-08-13; completed by AECI-583, 2026-08-13)
 
 - SSR + API `sha` / `deployedAt` / `environment` from the two existing endpoints (`/api/version` and the SSR Worker's own `/_version` — they differ precisely so a stale SSR deploy is detectable). The UI reads both and flags a mismatch as a `role="alert"` band; an unknown SHA (the `wrangler --var` injection missing) reads as *unknown*, not as a difference. The bundle carries the **API** Worker's half — nothing reachable from the API Worker knows the SSR Worker's SHA.
 - **Cron liveness** — last run, duration, outcome per job, for all eight crons (§7.2).
-- **The ten data-quality checks** rendered with severity and sample rows — today visible only in an email. Available **on demand** via `GET /api/admin/system?recompute=1`: `runDataQualityJob` is already a pure read, so re-running it writes nothing and needs no `audit_log` row (§13 **D8**). Once §7.2 lands, the default view reads the last persisted `job_runs` result and the recompute is the refresh.
+- **The ten data-quality checks** rendered with severity and sample rows — formerly visible only in an email. **Delivered as specified:** since AECI-583 the default view reads the last persisted `job_runs` result (labelled with the run's own `computed_at`) and `?recompute=1` is the refresh. Both are pure reads, so neither writes anything or needs an `audit_log` row (§13 **D8**).
 - Algolia sync watermark, index drift, orphan-sweep results.
 - D1 size and per-table row counts.
 - Link-outs to the Datadog dashboards and PostHog.
 
 Effectively the daily procedure in `POST_LAUNCH_MONITORING.md` turned into one screen.
 
-**What P1.6 could and could not deliver, and how the response says so.** Three of the five blocks are not fully knowable from D1 until §7.2 lands, and the contract makes the gap explicit rather than papering over it (`AdminCronRunSchema.source`, a `null` `orphan_sweep`, a `null` `size_bytes`):
+**What P1.6 could and could not deliver, and how the response says so.** Three of the five blocks were not knowable from D1 until §7.2 landed, and the contract made the gap explicit rather than papering over it (`AdminCronRunSchema.source`, a `null` `orphan_sweep`, a `null` `size_bytes`). AECI-583 closed all three; the honesty machinery stayed:
 
-| Item | State after AECI-580 |
-|---|---|
-| Cron **last run** | Derived for two of eight — `home-stats` from `MAX(stats_cache.computed_at)`, `algolia-sync` from the `algolia_sync_watermark` row's stamp — and `unknown` for the other six. A derived stamp proves the job *ran*, never that it *succeeded*. |
-| Cron **outcome / duration** | `null` on every row. `'ok'` is unreachable in P1.6 by construction; the screen renders "Unknown". |
-| **Orphan sweep** | Permanently `null` + an `orphan_sweep_not_persisted` note. The sweep runs inside the 09:00 drift cron and reports only to Datadog — there is no D1 read that could fill it, and inventing a persistence layer here is AECI-583's job, not this one's. |
-| **D1 size** | From D1's own `meta.size_after`; `null` (rendered "unknown") where unavailable. Never approximated from the row counts. |
-| Everything else | Live: version, the ten checks on demand, drift on demand, the watermark, per-table row counts, `stats_cache` freshness. |
+| Item | State after AECI-580 | State after AECI-583 |
+|---|---|---|
+| Cron **last run** | Derived for two of eight — `home-stats` from `MAX(stats_cache.computed_at)`, `algolia-sync` from the `algolia_sync_watermark` row's stamp — and `unknown` for the other six. | Read from `job_runs` for every job that has run. `derived` survives only as the pre-first-run fallback (deleting it would blank all eight for 24h after each deploy), and still reports no outcome — a stamp proves the job *ran*, never that it *succeeded*. |
+| Cron **outcome / duration** | `null` on every row. `'ok'` is unreachable in P1.6 by construction; the screen renders "Unknown". | Populated. `'ok'` is now reachable — but only from a row that says so: an **open** row (`finished_at IS NULL`) reports `run_state: 'in_flight'` with a null outcome *whatever is stored*, and an unrecognized stored value reads as null. An interrupted run cannot render as a pass. |
+| **Orphan sweep** | Permanently `null` + an `orphan_sweep_not_persisted` note. The sweep runs inside the 09:00 drift cron and reports only to Datadog — there is no D1 read that could fill it, and inventing a persistence layer here is AECI-583's job, not this one's. | Filled from the 09:00 run's `job_runs.detail`, including the `capped` count an operator needs for the `--force` decision. The note is no longer emitted (kept in the enum — removing a code is breaking). `null` now means "no completed run has stored one", never "clean". |
+| **D1 size** | From D1's own `meta.size_after`; `null` (rendered "unknown") where unavailable. Never approximated from the row counts. | Unchanged. |
+| Everything else | Live: version, the ten checks on demand, drift on demand, the watermark, per-table row counts, `stats_cache` freshness. | The ten checks now **default to the last stored 04:00 result** (`source` + `computed_at` say so); drift stays recompute-only. The rest unchanged. |
 
 Two decisions worth carrying forward. **The recompute is opt-in, matching §6's "Overview and System keep the same convention"** — the checks HTTP-probe logo URLs and query three Algolia indexes, and a screen an operator refreshes should not do that on load; the button is the affordance. And **the nav gained a flat "System status" item** rather than pulling P1.2's three-group restructure forward; AECI-576 still owns that and the `h1` rename.
 
@@ -261,7 +261,7 @@ All endpoints are `GET`, admin-gated, read-only. They register on the existing `
 | `GET /api/admin/catalog/coverage` | §5.5 gap lists + funnel | Capped sample rows, exact counts. `?sample=` (0–50, default 10); `0` returns counts only. **No `window`** — see the P1.5 notes below |
 | `GET /api/admin/audience` | §5.4 aggregates | Subscribers, churn, UTM, geo |
 | `GET /api/admin/feedback` | Paginated feedback list | First read surface for the table |
-| `GET /api/admin/system` | §5.6 bundle — **SHIPPED (AECI-580)** | Version, cron runs, latest DQ, Algolia, table counts. `?recompute=1` re-runs the ten DQ checks live (pure read) |
+| `GET /api/admin/system` | §5.6 bundle — **SHIPPED (AECI-580, completed AECI-583)** | Version, cron runs (from `job_runs`), the last stored DQ result, Algolia incl. the orphan sweep, table counts. `?recompute=1` re-runs the ten DQ checks + drift live (pure read — writes nothing, not even a `job_runs` row) |
 
 **Conventions.** No `audit_log` rows (reads only — §26.1 governs writes). No `Cache-Tag`, no edge caching; `/admin/*` is absent from `ROUTE_CACHE_PATTERNS` in `server-runtime.ts` and therefore takes the non-cacheable branch with `private, no-store`. That must stay true (§9.2). Response validation in dev via `validateResponseInDev`, as with the other admin routes.
 
@@ -344,9 +344,16 @@ job_runs
 
 Each of the eight cron handlers in `scheduled.ts` writes one row. The data-quality run stores its full result set in `detail`, which is what §5.6 renders. Retention: 90 days (§7.4).
 
-**AECI-580 already declared the vocabulary this table writes against**, so P3.1 is additive rather than a reshape: `job` uses the eight `AdminCronJob` ids in `packages/shared/src/api/admin-panel.ts`, the cron expressions live in `apps/api/src/lib/cron-schedules.ts` (which `scheduled.ts` dispatches on and `/api/admin/system` renders from — one literal, two readers), and `AdminCronRunSchema.source` already carries a `'job_runs'` member that nothing can currently return. P3.1's job is to make that member reachable and to start populating `last_outcome` / `duration_ms`, which are `null` on every row today.
+**SHIPPED (AECI-583, 2026-08-13.)** The DDL above is the built shape; `DATABASE_SCHEMA.md` §9.3 is the implementation record. Four things settled during the build are worth carrying forward:
 
-**No `audit_log` row**, for the same reason as §7.1 — cron-internal bookkeeping, exempt under §13 **D11** / **ADR 0022**. `job_runs` *is* the observability record; auditing it would be auditing the audit.
+- **Written on entry, completed on exit.** `withJobRun` (`apps/api/src/lib/job-runs.ts`) awaits the entry insert *before* invoking the job, so a run the isolate never returns from leaves `finished_at IS NULL` — the unfinished row is the signal. The finish write is awaited too, never `ctx.waitUntil`: on the queue path `ack()` fires the instant the job returns, and a deferred write would race it and manufacture false timeouts.
+- **All eight impls return a `JobRunReport` rather than `void`.** They swallow their own operational errors, so a wrapper that only watched for a throw would record `ok` for a failed run. A *thrown* handler is recorded `failed` **and rethrown**, preserving the reconcile job's deliberate queue retry; a *reported* failure does not throw, so instrumenting did not widen the retry surface to the other seven.
+- **No `partial`.** `home-stats` and `algolia-sync` are natively partial and Datadog tags them so; §7.2's vocabulary has three values, so a partial run records `failed`, derived from the same `jobOutcome()` the metric uses. The panel never claims more success than Datadog for the same run.
+- **Read as eight bounded seeks, never a scan.** `(job, started_at)` + `LIMIT 1` per job; the `GROUP BY` and window-function alternatives both scan the whole index, which matters because retention is not yet enforced (below).
+
+**No `audit_log` row**, for the same reason as §7.1 — cron-internal bookkeeping, exempt under §13 **D11** / **ADR 0022**. `job_runs` *is* the observability record; auditing it would be auditing the audit. Asserted per cron in `scheduled.spec.ts`, not merely commented.
+
+**Retention is specified but NOT yet enforced.** §7.4's 90-day window needs P3.2 (AECI-584), which is deprioritized. Until it ships this table grows without bound — ~44k rows/year, ~80% of them from the `*/15` reconcile. That makes P3.2 load-bearing sooner than §7.4's `page_views`-centric framing implies.
 
 ### 7.3 Backfills and ingest fixes
 
@@ -517,7 +524,7 @@ Issue-sized units. Phase 1 requires **no schema change** and carries most of the
 | **P1.6** | AECI-580 | API + UI: System status (version, DQ on demand, Algolia, table counts) — **SHIPPED 2026-08-13** | — |
 | **P2.1** | AECI-581 | `metrics_daily` + snapshot cron + backfill, **plus `products.promoted_at`** (§13 D6) | P1.4 |
 | **P2.2** | AECI-582 | Run the page-view bot backfill on production | — |
-| **P3.1** | AECI-583 | `job_runs` + instrument all eight crons + persist DQ results | P1.6 |
+| **P3.1** | AECI-583 | `job_runs` + instrument all eight crons + persist DQ results — **SHIPPED 2026-08-13** | P1.6 |
 | **P3.2** | AECI-584 | Retention/pruning cron (§7.4) — **deprioritized**, see below | P3.1, **P2.1** |
 | **P4.1** | AECI-585 | Page-view ingest fixes (§7.3: taxonomy entity, concrete path, SPA flag, `cf_as_organization`, drop the three dead columns) | — |
 | **P5.1** | AECI-586 | Audience section (mailing list + feedback) | P1.4 |
@@ -553,7 +560,7 @@ Staleness is the recurring review finding, so this list is part of the contract:
 | Document | Change |
 |---|---|
 | `API_CONTRACTS.md` | New section for every §6 endpoint, including the `?recompute=1` semantics (§13 D8) |
-| `DATABASE_SCHEMA.md` | `metrics_daily`, `job_runs`, `products.promoted_at`, `page_views.cf_as_organization`, the three dropped `page_views` columns, any new index. **Also correct the "Audit log and page_views retention: indefinite for Stage 1" line** — false once §7.4 lands |
+| `DATABASE_SCHEMA.md` | `metrics_daily`, `job_runs`, `products.promoted_at`, `page_views.cf_as_organization`, the three dropped `page_views` columns, any new index. **Also correct the "Audit log and page_views retention: indefinite for Stage 1" line** — false once §7.4 lands. **`job_runs` landed as §9.3 (AECI-583)**, with a retention line noting 90 days is specified but unenforced until AECI-584 |
 | `STAGE_1_SPEC.md` §22 | Pointer to this document as the admin-surface source of truth. **Cite-check first** — `PHASE_8_COMPLETION.md` records two stale spec-cites in that file. **Landed with AECI-576**; the two recorded stale cites are §12 and §16, neither of which §22 touches, and §22's own content (`/admin/reviews`, the pending badge) is still accurate |
 | `STAGE_1_SPEC.md` §26.1, §26.6 | The audit carve-out (§13 D11) and the retention scope cross-reference (§7.4). **Landed with AECI-573, not at closeout** |
 | `adr/0022-cron-bookkeeping-exempt-from-audit-invariant.md` + `adr/README.md` | The ADR behind the §26.1 carve-out, plus its index row. **Landed with AECI-573** |
@@ -562,10 +569,10 @@ Staleness is the recurring review finding, so this list is part of the contract:
 | `AUTH_AND_RLS.md` | The new `/api/admin/*` endpoints under `requireAdmin()`, and the GDPR-erasure simplification once `page_views.user_id` is dropped (§7.3). `/api/admin/system` **landed with AECI-580** |
 | `email.md` | Record which cron digests have a screen equivalent. **AECI-580** added the row for the 04:00 data-quality digest (`/admin/system?recompute=1`); the 05:00 analytics digest's screen is P1.2 (AECI-576) — its *API* shipped with P1.1, its screen has not, and the row must not claim otherwise |
 | `ANALYTICS_BASELINE.md` | Drop "write-only today (no reporting endpoint)"; record the panel as the consent-independent read path; record that no session identifier was introduced (§13 D7) and why. The `/admin` + `/account` exclusion and its retroactive effect on pre-2026-08-12 counts **landed with AECI-575** |
-| `POST_LAUNCH_MONITORING.md` | Replace §1 rows 6 and 8 (cron liveness, moderation queue) with the panel, and the **weekly** §2 item 4 → §3b manual `wrangler d1 execute` ASN audit with §5.3's geography view. *(The manual D1 query is in the weekly procedure, not the daily — an earlier draft of this row said "daily".)* The ASN-census query gained the §9.6 path exclusion so it matches the digest — **landed with AECI-575**. **Row 6 is only PARTLY retired by AECI-580** and the doc says so explicitly: `/admin/system` renders all eight crons, but until AECI-583 persists `job_runs` those rows read *unknown*, so **Datadog stays the authority for cron liveness**. What AECI-580 did retire outright: the DQ digest is now readable on demand (row 5a), and D1 size / per-table row counts no longer need `wrangler d1 execute`. Row 8 waits on P1.2's Overview |
+| `POST_LAUNCH_MONITORING.md` | Replace §1 rows 6 and 8 (cron liveness, moderation queue) with the panel, and the **weekly** §2 item 4 → §3b manual `wrangler d1 execute` ASN audit with §5.3's geography view. *(The manual D1 query is in the weekly procedure, not the daily — an earlier draft of this row said "daily".)* The ASN-census query gained the §9.6 path exclusion so it matches the digest — **landed with AECI-575**. **Row 6 is now retired in the sense that matters, and the doc states the split**: since AECI-583 the panel owns the *record* (last run, outcome, duration per job) and **Datadog owns *absence*** — a cron that never starts writes no `job_runs` row either, so only a no-data monitor can catch it. What AECI-580 retired outright: the DQ digest is readable on demand (row 5a) — and AECI-583 went further, making the last stored run the default view so the morning read needs no click and no email. D1 size / per-table row counts no longer need `wrangler d1 execute`. Row 8 waits on P1.2's Overview |
 | `POST_LAUNCH_HEALTH_REPORT.md` | New dated entry (see §14.3) |
-| `OBSERVABILITY.md` | Any new metric emitted by the snapshot / retention crons |
-| `RUNBOOKS.md` | Runbook entries for the snapshot and retention crons, matching every other cron's |
+| `OBSERVABILITY.md` | Any new metric emitted by the snapshot / retention crons. **AECI-583 added** `aeci.job_runs.write` plus a "second recording surface, not a replacement" section reconciling `job_runs` against the existing per-cron heartbeats (panel owns the record, Datadog owns absence) |
+| `RUNBOOKS.md` | Runbook entries for the snapshot and retention crons, matching every other cron's. **AECI-583 added** "Cron runs missing or stuck in flight on `/admin/system`" (the Unknown / Inferred / In-flight triage) and amended the data-quality + Algolia-drift entries, whose first checks now start at the panel |
 | `TESTING_STRATEGY.md` | The §11 approach — chart-geometry pure-function tests are a new category for this repo. **Landed with AECI-576** (§3.2 "Always"). **AECI-580 added §6.3's "the harness is better-sqlite3, and its limits are not D1's"**: the System screen's row-count query passed every unit test and 500'd on the first real request (`SQLITE_MAX_COMPOUND_SELECT` is 5 on D1, 500 in the harness) |
 | `CACHE_STRATEGY.md` | Record `/admin/*` as deliberately uncacheable (`private, no-store`, absent from `ROUTE_CACHE_PATTERNS`) so §9.2 is enforced from the caching doc too. **Landed with AECI-574** (§4, "`/admin/*` is deliberately uncacheable"); AECI-576 added `/admin/overview` to the `server.spec.ts` assertion that backs it |
 | `environments.md`, `access.md` | `ANALYTICS_INTERNAL_ASNS` per tier (§13 D10) — declared, shipped unset |

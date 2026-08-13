@@ -124,7 +124,7 @@ const NOTE_PROSE: Record<AdminNoteCode, (params: NoteParams) => string> = {
     $localize`:@@admin.notes.internalFilterApplied:Figures are reported both unfiltered and excluding these networks: ${str(p, 'asns')}:ASNS:. The unfiltered figure is always the primary one.`,
 
   requires_recompute: () =>
-    $localize`:@@admin.notes.requiresRecompute:Data-quality checks and Algolia drift are left out of this view because they need network calls. Use Recompute to run them.`,
+    $localize`:@@admin.notes.requiresRecompute:Algolia drift is left out of this view because it needs network calls, and the data-quality checks shown are the last stored scheduled run. Use Recompute to run both live.`,
 
   algolia_credentials_absent: () =>
     $localize`:@@admin.notes.algoliaCredentialsAbsent:Algolia credentials are not configured in this environment, so index drift could not be measured.`,
@@ -140,12 +140,20 @@ const NOTE_PROSE: Record<AdminNoteCode, (params: NoteParams) => string> = {
   api_docs_flag_inconsistent: (p) =>
     $localize`:@@admin.notes.apiDocsFlagInconsistent:Some products are marked as having API documentation but carry no link to it (${num(p, 'rows')}:ROWS:).`,
 
-  // AECI-580 / P1.6 — system status. `cron_liveness_unavailable` is `warn` (a
-  // reader who misses it may read an unknown cron as healthy); the orphan note is
-  // `info`.
+  // AECI-580 / P1.6 — system status, reworded by AECI-583 once cron outcomes
+  // became recorded. `warn`: a reader who misses this may read an unrecorded cron
+  // as a healthy one.
   cron_liveness_unavailable: (p) =>
-    $localize`:@@admin.notes.cronLivenessUnavailable:${num(p, 'unknown')}:UNKNOWN: of ${num(p, 'total')}:TOTAL: scheduled jobs have no last-run record in the database. Cron outcomes are not stored yet, so Datadog is the only source, and these rows say "Unknown" rather than claiming success.`,
+    $localize`:@@admin.notes.cronLivenessUnavailable:${num(p, 'unknown')}:UNKNOWN: of ${num(p, 'total')}:TOTAL: scheduled jobs have no recorded run yet: they haven't run since run recording shipped, or they were added since. Datadog remains the place to check whether a job stopped firing altogether.`,
 
+  // AECI-583. `warn`: a stored observability record that cannot be parsed is a
+  // defect in the recorder, not a caveat about the data.
+  stored_result_unreadable: (p) =>
+    $localize`:@@admin.notes.storedResultUnreadable:A stored result from the ${str(p, 'job')}:JOB: job couldn't be read, so it's left out rather than shown in part.`,
+
+  // No longer emitted — AECI-583 persists the sweep in the 09:00 job's run record.
+  // Kept because the map is total over `AdminNoteCode` and removing a code is a
+  // breaking change; an older cached response still renders localized prose.
   orphan_sweep_not_persisted: () =>
     $localize`:@@admin.notes.orphanSweepNotPersisted:The Algolia orphan sweep runs inside the 09:00 UTC drift job and reports only to Datadog. Its result is not stored, so it cannot be shown here.`,
 };

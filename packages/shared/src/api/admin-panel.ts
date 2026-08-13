@@ -87,8 +87,9 @@ export type AdminWindow = z.infer<typeof AdminWindowSchema>;
  * | `funnel_is_promoted_cohort_only` | every `products` row reads `promotion_status='promoted'`, so the funnel has exactly one populated stage — the pre-promotion stages live in the review app, not D1 (§13 D6) |
  * | `trade_facet_sparse_by_design` | products carry no `trade` tag and that is not by itself a defect: `TRADES_VOCABULARY.md` §1.1 tags a product only when it has trade-SPECIFIC value, so horizontal platforms correctly carry zero rows |
  * | `api_docs_flag_inconsistent` | N products have `has_api_docs = 1` but no `api_docs_url` — the flag and the artifact disagree |
- * | `cron_liveness_unavailable` | `job_runs` (§7.2) does not exist yet, so N of the eight crons have NO last-run record in D1 — Datadog is the only source (AECI-583 fixes this) |
- * | `orphan_sweep_not_persisted` | the Algolia orphan sweep's result is written nowhere today; it runs inside the 09:00 drift cron and reports only to Datadog (AECI-583) |
+ * | `cron_liveness_unavailable` | N of the eight crons have no `job_runs` row yet — they have not run since run recording shipped, or were added since. Datadog's no-data monitors stay the authority for "a job stopped firing" |
+ * | `orphan_sweep_not_persisted` | **No longer emitted (AECI-583)** — the sweep's result IS persisted now, in the 09:00 drift run's `job_runs.detail`. Retained because removing a code is a breaking change, and so an older cached response still renders |
+ * | `stored_result_unreadable` | a stored `job_runs.detail` could not be parsed, so the item is omitted rather than partially reported. `params.job` names which cron's payload |
  */
 export const AdminNoteCodeSchema = z.enum([
   'partial_day',
@@ -107,6 +108,7 @@ export const AdminNoteCodeSchema = z.enum([
   'api_docs_flag_inconsistent',
   'cron_liveness_unavailable',
   'orphan_sweep_not_persisted',
+  'stored_result_unreadable',
 ]);
 export type AdminNoteCode = z.infer<typeof AdminNoteCodeSchema>;
 
@@ -276,9 +278,27 @@ export const AdminDataQualityCheckSchema = z.object({
 });
 export type AdminDataQualityCheck = z.infer<typeof AdminDataQualityCheckSchema>;
 
-/** The ten checks, run live. `failing` counts checks with findings OR an error —
- *  a skipped check (no creds) is not a failure. */
+/**
+ * The ten checks. `failing` counts checks with findings OR an error — a skipped
+ * check (no creds) is not a failure.
+ *
+ * Since AECI-583 these are served **from storage by default**: the 04:00 cron
+ * persists its whole result set in `job_runs.detail` (§7.2), and the default
+ * response replays it rather than reporting nothing. `?recompute=1` still runs
+ * them live and is the refresh. `source` + `computed_at` exist so the screen can
+ * never present a stored result as a fresh one — a status object that cannot say
+ * where it came from is precisely what the persistence was added to fix.
+ */
 export const AdminDataQualityStatusSchema = z.object({
+  /** `job_runs` = the stored result of the last scheduled run, byte-identical to
+   *  what that run's email reported (both render the same
+   *  `DataQualityCheckResult[]`). `live` = run just now for this request. */
+  source: z.enum(['job_runs', 'live']),
+  /** When the checks actually RAN — the run's `finished_at` for `job_runs`, and
+   *  the request time for `live`. Never the response's own `generated_at`: a
+   *  stored result shown under the response timestamp claims a freshness it does
+   *  not have. Null only when a stored row somehow carries no finish stamp. */
+  computed_at: z.string().datetime().nullable(),
   failing: z.number().int().nonnegative(),
   checks: z.array(AdminDataQualityCheckSchema),
 });
@@ -527,19 +547,23 @@ export type AdminTrafficBreakdownResponse = z.infer<typeof AdminTrafficBreakdown
  *
  * Two different reasons, and the UI must not conflate them:
  *
- * **1. Deferred by cost.** `data_quality` and `algolia.drift` are `null` on the
- * default response and filled by `?recompute=1`, exactly as on `/overview` — the
- * data-quality suite HTTP-probes a sample of logo URLs and drift costs three
- * Algolia queries, neither of which should ride a dashboard poll. Still a pure
- * read: §13 **D8** draws the line at side effects, not manual-ness, so this
- * writes nothing, sends nothing, and carries no `audit_log` obligation.
+ * **1. Deferred by cost.** `algolia.drift` is `null` on the default response and
+ * filled by `?recompute=1`, exactly as on `/overview` — drift costs three Algolia
+ * queries, which should not ride a dashboard poll. `data_quality` was null for
+ * the same reason (its suite HTTP-probes a sample of logo URLs) until AECI-583
+ * gave it somewhere to be read from: the default now replays the 04:00 run's
+ * stored result, tagged `source: 'job_runs'` with its own `computed_at`, and the
+ * recompute is the refresh. Still a pure read either way: §13 **D8** draws the
+ * line at side effects, not manual-ness, so this writes nothing, sends nothing,
+ * and carries no `audit_log` obligation.
  *
- * **2. Genuinely unrecorded.** Cron outcomes and the orphan-sweep result do not
- * exist in D1 at all until `job_runs` lands (§7.2 / AECI-583); today they live
- * only as Datadog metrics. These are `null` with an accompanying note, and
- * {@link AdminCronRunSchema}'s `source` discriminator exists so the UI renders
- * them as *unknown* rather than as a passing check. A status screen that reports
- * "fine" because it has no data is worse than one that reports nothing.
+ * **2. Genuinely unrecorded.** Still the reason for a null, but a much narrower
+ * one since AECI-583: a cron that has not run since run recording shipped has no
+ * `job_runs` row, and D1 size is unknowable on some engines.
+ * {@link AdminCronRunSchema}'s `source` discriminator, its `run_state`
+ * companion, and the nullability throughout exist so the UI renders those as
+ * *unknown* or *in flight* rather than as a passing check. A status screen that
+ * reports "fine" because it has no data is worse than one that reports nothing.
  */
 
 /**
@@ -565,12 +589,35 @@ export type AdminCronJob = z.infer<typeof AdminCronJobSchema>;
  *
  * | value | means |
  * |---|---|
- * | `job_runs` | read from the §7.2 table. **Unreachable until AECI-583**; declared now so adding it is not a reshape |
- * | `derived` | inferred from a D1 side effect the job leaves behind (`derived_from` names it). Proves the job RAN; says nothing about whether it SUCCEEDED, so `last_outcome` stays null |
+ * | `job_runs` | read from the §7.2 table — the normal case since AECI-583. The row the cron wrote on entry and completed on exit |
+ * | `derived` | inferred from a D1 side effect the job leaves behind (`derived_from` names it). Proves the job RAN; says nothing about whether it SUCCEEDED, so `last_outcome` stays null. Now only the fallback for a job that has not run since run recording shipped |
  * | `unknown` | no record exists anywhere in D1. The UI renders "Unknown", never a tick |
  */
 export const AdminCronRunSourceSchema = z.enum(['job_runs', 'derived', 'unknown']);
 export type AdminCronRunSource = z.infer<typeof AdminCronRunSourceSchema>;
+
+/**
+ * Whether the `job_runs` row this liveness came from is finished.
+ *
+ * `in_flight` means the row has a `started_at` and no `finished_at` — the run is
+ * either genuinely mid-flight, or the isolate was reclaimed and never completed
+ * it. Deliberately NOT folded into `last_outcome`: that field mirrors the stored
+ * `job_runs.outcome` column, and inventing a `'running'` wire value with no
+ * storage counterpart would have the API assert an outcome for a run that has
+ * none. Equally deliberately NOT left implicit — `source: 'job_runs'` with a null
+ * `last_outcome` is also what a finished row with an unrecognized stored outcome
+ * produces, so the UI must not have to infer the difference.
+ *
+ * There is no `stalled` member: classifying stalled needs a per-job threshold —
+ * the quarter-hourly reconcile is late at 30 minutes, a daily job at six hours.
+ * The UI renders "In flight since {stamp}", which is self-evidently stale when
+ * the stamp is days old, and Datadog's no-data monitors remain the alerting
+ * authority for "a job stopped finishing".
+ *
+ * Null on `derived` and `unknown` rows — the question does not apply.
+ */
+export const AdminCronRunStateSchema = z.enum(['complete', 'in_flight']);
+export type AdminCronRunState = z.infer<typeof AdminCronRunStateSchema>;
 
 /**
  * One cron's liveness row. All eight are ALWAYS present — a job missing from the
@@ -585,10 +632,14 @@ export const AdminCronRunSchema = z.object({
   schedule: z.string().min(1),
   source: AdminCronRunSourceSchema,
   last_run_at: z.string().datetime().nullable(),
-  /** Null on every row today: `job_runs` does not exist, and a `derived`
-   *  timestamp attests to the run, not to its outcome. */
+  /** The stored `job_runs.outcome`. Null on a `derived` row (a side-effect
+   *  timestamp attests to the run, not to its outcome), on an `unknown` row, and
+   *  — structurally — on any row whose `run_state` is `in_flight`: an unfinished
+   *  run can never report an outcome, whatever happens to be stored. */
   last_outcome: z.enum(['ok', 'failed', 'skipped']).nullable(),
+  /** `finished_at − started_at`. Null while in flight and on non-`job_runs` rows. */
   duration_ms: z.number().int().nonnegative().nullable(),
+  run_state: AdminCronRunStateSchema.nullable(),
   /** The D1 artifact `source: 'derived'` was read from, e.g.
    *  `stats_cache.computed_at`. Null otherwise — surfaced so the UI can qualify
    *  the timestamp instead of presenting an inference as a record. */
@@ -614,18 +665,62 @@ export const AdminAlgoliaWatermarkSchema = z.object({
 });
 export type AdminAlgoliaWatermark = z.infer<typeof AdminAlgoliaWatermarkSchema>;
 
+/** One index's orphan-sweep outcome — the wire form of `EntityOrphanResult`
+ *  (`apps/api/src/lib/algolia-orphans.ts`), minus its `orphanIds` (an unbounded
+ *  id list the sweep logs to Datadog; the counts are what an operator acts on). */
+export const AdminOrphanSweepIndexSchema = z.object({
+  entity: z.string().min(1),
+  index_name: z.string().min(1),
+  index_count: z.number().int().nonnegative(),
+  promoted_count: z.number().int().nonnegative(),
+  /** Objects in the index with no promoted D1 row (`index − D1`). */
+  orphans: z.number().int().nonnegative(),
+  /** Actually removed — 0 when the safety cap refused, or on a delete error. */
+  deleted: z.number().int().nonnegative(),
+  /** The cap refused this pass; `orphans` is the backlog. Re-run the CLI with
+   *  `--force` (see `docs/RUNBOOKS.md`). */
+  skipped_by_safety_cap: z.boolean(),
+  ok: z.boolean(),
+  error: z.string().optional(),
+});
+export type AdminOrphanSweepIndex = z.infer<typeof AdminOrphanSweepIndexSchema>;
+
 /**
- * Algolia state. `drift` is null unless `?recompute=1` (cost). `orphan_sweep` is
- * null **always**, for a different reason: the sweep runs inside the 09:00 drift
- * cron and reports only to Datadog — nothing persists its result, so there is no
- * D1 read that could fill it. AECI-583 stores it in `job_runs.detail`; the slot
- * is declared now so filling it later is additive. It is accompanied by an
- * `orphan_sweep_not_persisted` note.
+ * The last 09:00 drift cron's orphan sweep, read from that run's
+ * `job_runs.detail` (§7.2 / AECI-583).
+ *
+ * `ok` is false when any index errored — the sweep still ran and its counts are
+ * real, which is why it is a field rather than the reason the whole object is
+ * null. Null means **no record**: no completed drift run has stored a sweep (a
+ * fresh environment, or a tier where the cron skips for want of Algolia
+ * credentials). Null is never "clean".
+ */
+export const AdminOrphanSweepStatusSchema = z.object({
+  /** The storing run's `finished_at`. */
+  ran_at: z.string().datetime().nullable(),
+  ok: z.boolean(),
+  total_orphans: z.number().int().nonnegative(),
+  total_deleted: z.number().int().nonnegative(),
+  /** How many indexes the safety cap refused — the `--force` signal. */
+  capped: z.number().int().nonnegative(),
+  indexes: z.array(AdminOrphanSweepIndexSchema),
+});
+export type AdminOrphanSweepStatus = z.infer<typeof AdminOrphanSweepStatusSchema>;
+
+/**
+ * Algolia state. `drift` is null unless `?recompute=1` (cost).
+ *
+ * `orphan_sweep` used to be null **always**, because the sweep runs inside the
+ * 09:00 drift cron and reported only to Datadog. AECI-583 persists it in that
+ * run's `job_runs.detail`, so the reserved slot is now filled and the
+ * `orphan_sweep_not_persisted` note is no longer emitted. It is still nullable —
+ * for "no completed run has stored one", which is a different claim from "the
+ * sweep found nothing".
  */
 export const AdminAlgoliaStatusSchema = z.object({
   watermark: AdminAlgoliaWatermarkSchema.nullable(),
   drift: AdminAlgoliaDriftStatusSchema.nullable(),
-  orphan_sweep: z.null(),
+  orphan_sweep: AdminOrphanSweepStatusSchema.nullable(),
 });
 export type AdminAlgoliaStatus = z.infer<typeof AdminAlgoliaStatusSchema>;
 
@@ -678,7 +773,9 @@ export const AdminSystemResponseSchema = z.object({
   version: AdminVersionStatusSchema,
   /** All eight, always. */
   crons: z.array(AdminCronRunSchema),
-  /** Null unless `?recompute=1` (with a `requires_recompute` note). */
+  /** The last stored 04:00 run by default, or the live result under
+   *  `?recompute=1` — `source` says which. Null only when nothing has been stored
+   *  yet, or when the stored payload was unreadable (`stored_result_unreadable`). */
   data_quality: AdminDataQualityStatusSchema.nullable(),
   algolia: AdminAlgoliaStatusSchema,
   database: AdminDatabaseStatusSchema,

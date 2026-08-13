@@ -89,6 +89,9 @@ export class SystemStatus {
   protected readonly dataQuality = computed(() => this.system()?.data_quality ?? null);
   protected readonly crons = computed<readonly AdminCronRun[]>(() => this.system()?.crons ?? []);
   protected readonly notes = computed<readonly AdminNote[]>(() => this.system()?.notes ?? []);
+  /** The last 09:00 drift job's orphan sweep (§7.2). Null means no run has
+   *  recorded one — never "clean". */
+  protected readonly orphanSweep = computed(() => this.system()?.algolia.orphan_sweep ?? null);
 
   constructor() {
     afterNextRender(() => {
@@ -173,23 +176,46 @@ export class SystemStatus {
   }
 
   /**
-   * A cron row's liveness state. `job_runs` does not exist yet, so `'ok'` is
-   * unreachable — and it is spelled out here rather than left implicit, because
-   * a future `source: 'job_runs'` must consciously add it.
+   * A cron row's liveness state, as one of four. `in_flight` is a `job_runs` row
+   * with no `finished_at` — the run is mid-flight, or the isolate was reclaimed
+   * and never completed it. The API guarantees such a row carries no outcome, so
+   * this can never be reached with a green tick behind it.
    */
-  protected cronState(run: AdminCronRun): 'unknown' | 'derived' | 'recorded' {
+  protected cronState(run: AdminCronRun): 'unknown' | 'derived' | 'in_flight' | 'recorded' {
     if (run.source === 'unknown') return 'unknown';
-    return run.source === 'derived' ? 'derived' : 'recorded';
+    if (run.source === 'derived') return 'derived';
+    return run.run_state === 'in_flight' ? 'in_flight' : 'recorded';
   }
 
+  /** Exhaustive by design: adding a state to {@link cronState} must not compile
+   *  until it has a label. */
   protected cronStateLabel(run: AdminCronRun): string {
     switch (this.cronState(run)) {
       case 'unknown':
         return $localize`:@@admin.system.cron.state.unknown:Unknown`;
       case 'derived':
         return $localize`:@@admin.system.cron.state.derived:Inferred`;
+      case 'in_flight':
+        return $localize`:@@admin.system.cron.state.inFlight:In flight`;
       case 'recorded':
         return $localize`:@@admin.system.cron.state.recorded:Recorded`;
+    }
+  }
+
+  /**
+   * The stored outcome, localized. Until AECI-583 `last_outcome` was null on every
+   * row, so the template rendered the raw wire literal on a branch that could
+   * never be reached; now that it can, the value needs translating like anything
+   * else the operator reads.
+   */
+  protected cronOutcomeLabel(outcome: 'ok' | 'failed' | 'skipped'): string {
+    switch (outcome) {
+      case 'ok':
+        return $localize`:@@admin.system.cron.outcome.ok:Succeeded`;
+      case 'failed':
+        return $localize`:@@admin.system.cron.outcome.failed:Failed`;
+      case 'skipped':
+        return $localize`:@@admin.system.cron.outcome.skipped:Skipped`;
     }
   }
 
@@ -200,11 +226,15 @@ export class SystemStatus {
     const p = note.params ?? {};
     switch (note.code as AdminNoteCode) {
       case 'requires_recompute':
-        return $localize`:@@admin.system.note.requiresRecompute:Data-quality checks and Algolia drift are not run on load; they need network calls. Use "Run data-quality checks" above.`;
+        return $localize`:@@admin.system.note.requiresRecompute:Algolia drift isn't measured on load, and the data-quality checks below are the last stored scheduled run. Use "Run data-quality checks" above to run both live.`;
       case 'algolia_credentials_absent':
         return $localize`:@@admin.system.note.algoliaCredentialsAbsent:Algolia credentials are not configured on this environment, so index drift could not be measured.`;
       case 'cron_liveness_unavailable':
-        return $localize`:@@admin.system.note.cronLivenessUnavailable:${p['unknown'] ?? ''}:unknown: of ${p['total'] ?? ''}:total: scheduled jobs have no last-run record in the database. Cron outcomes are not stored yet, so Datadog is the only source, and these rows say "Unknown" rather than claiming success.`;
+        return $localize`:@@admin.system.note.cronLivenessUnavailable:${p['unknown'] ?? ''}:unknown: of ${p['total'] ?? ''}:total: scheduled jobs have no recorded run yet: they haven't run since run recording shipped, or they were added since. Datadog remains the place to check whether a job stopped firing altogether.`;
+      case 'stored_result_unreadable':
+        return $localize`:@@admin.system.note.storedResultUnreadable:A stored result from the ${p['job'] ?? ''}:job: job couldn't be read, so it's left out rather than shown in part.`;
+      // No longer emitted (the sweep is stored now), but kept so an older cached
+      // response still renders localized prose rather than the raw API message.
       case 'orphan_sweep_not_persisted':
         return $localize`:@@admin.system.note.orphanSweepNotPersisted:The Algolia orphan sweep runs inside the 09:00 UTC drift job and reports only to Datadog. Its result is not stored, so it cannot be shown here.`;
       default:

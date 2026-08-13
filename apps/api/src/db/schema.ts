@@ -18,6 +18,10 @@
 // - RLS/GRANTs do NOT translate to D1 — authorization is app-layer (ADR 0016 §4,
 //   AECI-254). This file carries data shape + integrity constraints only.
 
+// Type-only, so it is erased before drizzle-kit's esbuild pass ever sees it and
+// cannot create a runtime cycle: `lib/job-runs.ts` imports the `jobRuns` table
+// value from here, never the reverse.
+import type { AdminCronJob } from '@aeci/shared';
 import { relations, sql } from 'drizzle-orm';
 import {
   check,
@@ -841,6 +845,80 @@ export const statsCache = sqliteTable('stats_cache', {
 });
 
 // ===========================================================================
+// Cron bookkeeping (ADMIN_PANEL_SPEC.md §7.2)
+//
+// Derived, log-class, cron-written, and **exempt from the §26.1 audit-in-batch
+// invariant under ADR 0022** — `job_runs` IS the observability record, so an
+// `audit_log` row about it would be auditing the audit. Written per row,
+// OUTSIDE any `db.batch`, each inside its own try/catch (`lib/job-runs.ts`),
+// exactly as `stats_cache` is (`lib/home-stats.ts` `upsertStat`): a bookkeeping
+// write must never abort the job it records.
+// ===========================================================================
+
+/**
+ * One row per execution of one of the eight `scheduled.ts` cron jobs (§7.2).
+ * The row is inserted on ENTRY and completed on EXIT, so a run the isolate never
+ * came back from (CPU/wall-clock limit, eviction) stays durably visible as
+ * `finished_at IS NULL` rather than vanishing — that unfinished row is the
+ * signal, and it is lost if the row is only written on success.
+ */
+export const jobRuns = sqliteTable(
+  'job_runs',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+
+    /**
+     * An `AdminCronJob` id (`packages/shared/src/api/admin-panel.ts`) — the same
+     * vocabulary `CRON_SCHEDULES` keys on and `GET /api/admin/system` renders,
+     * NOT the internal `ScheduledJob` union `scheduled.ts` dispatches on
+     * (`ADMIN_CRON_JOB` in `lib/cron-schedules.ts` is the mapping).
+     *
+     * Deliberately CHECK-free, following `audit_log.action`: the vocabulary grows
+     * every time a cron is added and SQLite cannot ALTER a CHECK, so a ninth cron
+     * would need a table-recreate migration. The `Record<ScheduledJob, …>` map and
+     * the Zod enum are the enforcement; this column is the storage.
+     */
+    job: text('job').notNull().$type<AdminCronJob>(),
+
+    startedAt: text('started_at').notNull(),
+
+    /** Null while the run is in flight — and PERMANENTLY null if the isolate was
+     *  reclaimed mid-run. See the table doc above. */
+    finishedAt: text('finished_at'),
+
+    /**
+     * Null while in flight; one of the three terminal values after.
+     *
+     * There is deliberately **no `'running'` member**: in-flight is already
+     * representable as `finished_at IS NULL AND outcome IS NULL`, and a second
+     * encoding of the same state would let the two disagree. It also assigns
+     * straight into `AdminCronRunSchema.last_outcome` with no translation.
+     *
+     * NULL passes the CHECK below — SQLite satisfies a CHECK when the expression
+     * is true *or* NULL, and `NULL IN (…)` is NULL. Same construction as
+     * `vendors.public_private`.
+     */
+    outcome: text('outcome').$type<'ok' | 'failed' | 'skipped'>(),
+
+    /** Per-job payload: the data-quality run's full `DataQualityCheckResult[]`,
+     *  the 09:00 run's drift + orphan-sweep result, the reconcile counts. Typed
+     *  `unknown` at the schema layer (as `stats_cache.value` and
+     *  `audit_log.metadata` are) because every reader crosses a process boundary
+     *  and must parse rather than assume; `JobRunDetail` in `lib/job-runs.ts` is
+     *  the writer's shape and the typed accessors there are the readers'. */
+    detail: text('detail', { mode: 'json' }).$type<unknown>(),
+  },
+  (t) => [
+    // §7.2's `INDEX (job, started_at)`. Serves the read side's "newest run per
+    // job" as an equality seek + descending scan of one job's slice
+    // (`SEARCH … USING INDEX (job=?)` + LIMIT 1, eight rows read regardless of
+    // table size) and the §7.4 prune's cutoff scan.
+    index('job_runs_job_started_at_idx').on(t.job, t.startedAt),
+    check('job_runs_outcome_check', sql`"outcome" IN ('ok', 'failed', 'skipped')`),
+  ],
+);
+
+// ===========================================================================
 // Future-ready (§10)
 // ===========================================================================
 
@@ -1107,6 +1185,7 @@ export const schema = {
   auditLog,
   pageViews,
   statsCache,
+  jobRuns,
   translations,
   feedback,
   mailingList,

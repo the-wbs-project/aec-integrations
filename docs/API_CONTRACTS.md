@@ -1531,34 +1531,67 @@ export const AdminCronRunSchema = z.object({
   last_outcome: z.enum(['ok', 'failed', 'skipped']).nullable(),
   duration_ms: z.number().int().nonnegative().nullable(),
   derived_from: z.string().nullable(),               // e.g. 'stats_cache.computed_at'
+  run_state: z.enum(['complete', 'in_flight']).nullable(),   // AECI-583
 });
 ```
 
-`source` is the load-bearing field. **`job_runs` does not exist yet**, so a cron's
-outcome and duration live only as Datadog metrics:
+`source` is the load-bearing field:
 
-| `source` | meaning | today |
-|---|---|---|
-| `job_runs` | read from the §7.2 table | **unreachable** — declared so AECI-583 is additive, not a reshape |
-| `derived` | inferred from a D1 side effect named in `derived_from`. Proves the job **ran**; says nothing about whether it **succeeded** | only `home-stats` (`MAX(stats_cache.computed_at)`) and `algolia-sync` (the `algolia_sync_watermark` row's stamp), and only once that artifact exists |
-| `unknown` | no record anywhere in D1 | the other six |
+| `source` | meaning |
+|---|---|
+| `job_runs` | read from the §7.2 table — **the normal case since AECI-583**: the row the cron wrote on entry and completed on exit |
+| `derived` | inferred from a D1 side effect named in `derived_from`. Proves the job **ran**; says nothing about whether it **succeeded**, so `last_outcome` stays null. Now only the fallback for a job that has not run since run recording shipped — `home-stats` (`MAX(stats_cache.computed_at)`) and `algolia-sync` (the `algolia_sync_watermark` row's stamp) |
+| `unknown` | no record anywhere in D1 — the job has never run, or was added since |
 
-`last_outcome` and `duration_ms` are therefore **null on every row** in P1.6. The
-response never emits `'ok'`, and the UI renders `unknown` as *Unknown* rather than
-as a passing state — a status screen that reports "fine" because it has no data is
-worse than one that reports nothing. All eight rows are always present: omitting a
-job would read as "not configured", a different and wrong claim.
+**An unfinished run can never report an outcome.** When the row has no
+`finished_at`, `run_state` is `'in_flight'` and both `last_outcome` and
+`duration_ms` are null **regardless of what is stored in the column**. That is
+enforced on the read side rather than trusted from the writer, so an interrupted
+run — an isolate reclaimed mid-flight — renders as *In flight*, never as a pass.
 
-The schedule strings come from `apps/api/src/lib/cron-schedules.ts`, which
-`scheduled.ts` also `switch`es on, so the screen and the dispatcher cannot drift.
+`run_state` exists rather than a `last_outcome: 'running'` because `last_outcome`
+mirrors the stored column, and inventing a wire value with no storage counterpart
+would have the API assert an outcome for a run that has none. It is null on
+`derived` and `unknown` rows, where the question does not apply. There is no
+`'stalled'` member: that needs a per-job threshold, and Datadog's no-data monitors
+remain the alerting authority for a job that stops finishing.
+
+Everything crossing the `job_runs` boundary is treated as untrusted — another
+process wrote it. Timestamps are normalized through `Date` (an unparseable one
+drops the row to `derived`/`unknown` rather than shipping a value that fails
+`z.string().datetime()`), and an unrecognized stored `outcome` reads as null.
+
+All eight rows are always present: omitting a job would read as "not configured", a
+different and wrong claim. The schedule strings come from
+`apps/api/src/lib/cron-schedules.ts`, which `scheduled.ts` also `switch`es on, so
+the screen and the dispatcher cannot drift; `ADMIN_CRON_JOB` in the same file maps
+the dispatcher's internal ids onto the `AdminCronJob` vocabulary above.
 
 ##### `?recompute=1` (§13 D8) — same semantics as `/overview`
 
-Default: `data_quality` and `algolia.drift` are `null` with a `requires_recompute`
-note. `?recompute=1` runs the ten §23.1 checks and the drift count live. Still a
-**pure read** — writes nothing, sends nothing, no `audit_log` obligation; what
-makes them opt-in is network cost (check #9 HTTP-probes a sample of logo URLs,
-drift costs three Algolia queries), not mutation.
+Since AECI-583 the two items behave differently on the default view, and the reason
+is where the answer can be **read** from, not what it costs to compute:
+
+- **`data_quality` is served from storage.** The 04:00 cron persists its whole
+  result set in `job_runs.detail` (§7.2), so the default response replays the last
+  **completed** run. `AdminDataQualityStatusSchema` carries `source:
+  'job_runs' | 'live'` and `computed_at` (the run's `finished_at`, never the
+  response's own `generated_at`) so the UI cannot present a stored result as a
+  fresh one. Still `null` where nothing has been stored yet.
+- **`algolia.drift` stays `null` by default.** The 09:00 run does store its drift
+  rows, but serving them here would put two differently-aged drift numbers on one
+  screen. Left to the recompute.
+
+`?recompute=1` runs the ten §23.1 checks and the drift count live, tagged
+`source: 'live'`. Still a **pure read** — writes nothing (including no `job_runs`
+row), sends nothing, no `audit_log` obligation; what makes it opt-in is network cost
+(check #9 HTTP-probes a sample of logo URLs, drift costs three Algolia queries), not
+mutation.
+
+A stored payload that does not parse yields `data_quality: null` plus a
+`stored_result_unreadable` note — omitted entirely rather than partially reported,
+because filtering to the checks that happen to parse would present a partial suite
+as a complete one and understate `failing`.
 
 Both endpoints share one implementation (`apps/api/src/lib/admin-status.ts`
 `runExpensiveStatusItems`), so the System screen and the Overview status strip
@@ -1571,12 +1604,35 @@ A check that finds nothing comes back `count: 0` with an empty `sample` — the 
 renders that as *passing*. `skipped: true` (no Algolia credentials) is **not** a
 failure; `error` (the check threw) is distinct from both.
 
-Two note codes are specific to this endpoint:
+Note codes specific to this endpoint:
 
 | code | severity | means |
 |---|---|---|
-| `cron_liveness_unavailable` | `warn` | `params.unknown` of `params.total` crons have no last-run record in D1 |
-| `orphan_sweep_not_persisted` | `info` | the Algolia orphan sweep runs inside the 09:00 drift cron and reports only to Datadog — its result is stored nowhere, so `algolia.orphan_sweep` is always `null` |
+| `cron_liveness_unavailable` | `warn` | `params.unknown` of `params.total` crons have no `job_runs` row yet — they have not run since run recording shipped, or were added since. Self-clearing as the rows arrive |
+| `stored_result_unreadable` | `warn` | a stored `job_runs.detail` did not parse, so that item is omitted. `params.job` names which cron's payload (AECI-583) |
+| `orphan_sweep_not_persisted` | `info` | **No longer emitted (AECI-583).** Retained in the enum because removing a code is a breaking change, and so an older cached response still renders localized prose |
+
+##### `algolia.orphan_sweep`
+
+Read from the last 09:00 drift run's `job_runs.detail` (AECI-583); it was
+permanently `null` in P1.6 because the sweep reported only to Datadog.
+
+```typescript
+export const AdminOrphanSweepStatusSchema = z.object({
+  ran_at: z.string().datetime().nullable(),   // the storing run's finished_at
+  ok: z.boolean(),                            // false when any index errored
+  total_orphans: z.number().int().nonnegative(),
+  total_deleted: z.number().int().nonnegative(),
+  capped: z.number().int().nonnegative(),     // indexes the safety cap refused — the --force signal
+  indexes: z.array(AdminOrphanSweepIndexSchema),
+});
+```
+
+`ok` is a field rather than the reason the object is null because a sweep that
+completed with one index erroring still produced counts worth showing. `null` means
+**no completed run has stored one** — a fresh environment, or a tier where the drift
+cron skips for want of Algolia credentials. Null is never "clean". The per-index
+`orphan_ids` are deliberately not carried: unbounded, and already in the Datadog log.
 
 ##### The D1 footprint
 

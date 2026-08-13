@@ -48,8 +48,8 @@ healthy day — the point is to catch a regression before a monitor's sustained-
 | 3 | **Render latency** | Phase 2 — Traffic (p95 render per `route_class`) | p95 detail (MISS) < 1.5s | `AECi — Detail render slow` (>1.5s/10m, `cache_status:miss`) |
 | 4 | **Algolia query latency / errors** | Phase 3 — Search (browser RUM `aeci.search.query`: latency p50/p95/p99, error rate) | error rate ~0; p95 within norm | *(no monitor — dashboard-only; add if noisy)* |
 | 5 | **Algolia sync + drift** | Phase 3 — Search; `aeci.algolia.sync`, `aeci.algolia.index_drift`. Also **`/admin/system`** — the sync watermark (per entity + last advance), and drift on demand via "Run data-quality checks" | drift 0; daily sync `outcome:ok` | drift/sync-failed/sync-not-running/orphan-cap monitors |
-| 5a | **Data quality (10 §23.1 checks)** | **`/admin/system` → "Run data-quality checks"** (AECI-580). Previously the 04:00 UTC email was the only surface, so a fix made at 10:00 couldn't be confirmed until the next morning; the button re-runs the suite live. Pure read — it writes nothing and sends no email | every check *Passing*; `algolia_index_drift` *Skipped* is normal off production (no credentials) | check-error / check-warn monitors (unchanged — the screen is a read surface, not an alerting one) |
-| 6 | **Scheduled-job health (8 crons)** | **Datadog remains the authority** — the liveness/no-data monitors (see §1a). `/admin/system` lists all eight with their schedules, but see the caveat below | every cron emitted its heartbeat in window | the per-cron `… not running` / `… failed` monitors |
+| 5a | **Data quality (10 §23.1 checks)** | **`/admin/system`** — the page now opens on the **last stored 04:00 result** (AECI-583), labelled with the run's own timestamp, so the morning read needs no click and no email. "Run data-quality checks" re-runs the suite live to confirm a fix made since. Both are pure reads — nothing written, nothing sent | every check *Passing*; `algolia_index_drift` *Skipped* is normal off production (no credentials) | check-error / check-warn monitors (unchanged — the screen is a read surface, not an alerting one) |
+| 6 | **Scheduled-job health (8 crons)** | **`/admin/system`** for the record — real last run, outcome and duration per job (AECI-583). **Datadog for absence** — a job that never starts leaves no row, so the no-data monitors remain the only signal for "it stopped firing" (see §1a) | every cron shows a recent recorded run, and emitted its heartbeat in window | the per-cron `… not running` / `… failed` monitors |
 | 7 | **Request → Linear pipeline** | Phase 6 — Requests / Moderation; `aeci.linear.issue`/`.sync`/`.reconcile.*`, `aeci.webhooks.linear.hmac_failure` | failure rate < 50%; no persistent stuck; no HMAC burst | pipeline-failure / reconcile-stuck / reconcile-no-data / hmac monitors |
 | 8 | **Moderation queue** | Phase 5 & 6 dashboards; `aeci.moderation.queue_depth` / `queue_oldest_age_hours`; `GET /api/admin/summary` (`pending_reviews`), `GET /api/admin/requests` | oldest pending < 48h (target 24h, §17) | `AECi — Moderation queue backlog` (>48h) |
 | 9 | **RUM Core Web Vitals** *(gated on §0)* | Datadog **RUM → Optimize Vitals**, `aeci` app, `env:production` (p75 LCP / CLS / INP) | LCP ≤ 2.5s · CLS ≤ 0.1 · INP ≤ 200ms (`STAGE_1_PHASE_2_SPEC.md` §12) | *(no monitor — read manually; see §2)* |
@@ -61,27 +61,31 @@ healthy day — the point is to catch a regression before a monitor's sustained-
 ### 1a. The 8 scheduled crons (row 6 detail)
 
 Each cron emits an always-on heartbeat; the "not running" monitor's no-data is the liveness signal.
-A green board here means all eight fired on schedule.
+A green board here means all eight fired on schedule. Since AECI-583 each run **also** writes a
+`job_runs` row that `/admin/system` renders (see the split below).
 
-> **Do not read cron health off `/admin/system` yet.** The screen renders all eight jobs (AECI-580),
-> but a cron's outcome and duration exist **only as Datadog metrics** until
-> [AECI-583](https://linear.app/aec-integrations/issue/AECI-583) adds the `job_runs` table. Six of
-> the eight therefore show **"Unknown"**, and the two that don't — `home-stats` and `algolia-sync` —
-> show a timestamp *inferred* from a D1 side effect (`stats_cache.computed_at` and the
-> `algolia_sync_watermark` row), which proves the job **ran**, not that it **succeeded**. The screen
-> is deliberately built so it cannot render a green tick it hasn't earned; that is exactly why this
-> row still points at Datadog. Revisit when AECI-583 ships.
+> **Read the record off `/admin/system`; read absence off Datadog.** AECI-583 landed the `job_runs`
+> table, so the screen now shows each job's real last run, outcome and duration — including the
+> data-quality run's full ten-check result set, which used to exist only in the 04:00 email. Start
+> the daily pass there.
+>
+> **But Datadog stays the authority for "a job stopped firing."** A cron that never starts writes no
+> `job_runs` row either, so its absence is invisible in D1 by construction — only a no-data monitor
+> can catch it. The screen is still built so it cannot render a green tick it hasn't earned: a job
+> with no row reads *Unknown*, a run with no finish stamp reads *In flight* (never *ok*), and the two
+> jobs that leave a `stats_cache` side effect can still show an *Inferred* timestamp, which proves the
+> job **ran**, not that it **succeeded**. Full reconciliation in `OBSERVABILITY.md`.
 
-| Cron (UTC) | Job | Liveness / failure monitors |
-|---|---|---|
-| `0 4 * * *` | Data-quality suite (10 §23.1 checks) + email digest | check-error / check-warn / failed / not-running |
-| `0 5 * * *` | Operator analytics digest (AECI-526) — **human** page views + top products, sign-ins, moderation depth, and a Crawler-activity breakdown (human/bot split classified at ingest by UA + ASN) | `aeci.analytics_digest.email` heartbeat (no dedicated monitor yet) |
-| `0 6 * * *` | Moderation queue snapshot | moderation-queue-age (threshold + no-data) |
-| `0 7 * * *` | Home-stats compute | stats-compute-failed / stats-not-running |
-| `0 8 * * *` | Algolia incremental sync | sync-failed / sync-not-running |
-| `0 9 * * *` | Algolia drift + orphan sweep | index-drift / orphan-sweep-capped |
-| `*/15 * * * *` | Request→Linear reconciliation sweep | reconcile-stuck / reconcile-no-data |
-| `0 * * * *` | WAF firewall-event poll | waf-ratelimit-spike / **waf-poll-not-running** (AECI-279) |
+| Cron (UTC) | Job | `job_runs.job` | Liveness / failure monitors |
+|---|---|---|---|
+| `0 4 * * *` | Data-quality suite (10 §23.1 checks) + email digest | `data-quality` | check-error / check-warn / failed / not-running |
+| `0 5 * * *` | Operator analytics digest (AECI-526) — **human** page views + top products, sign-ins, moderation depth, and a Crawler-activity breakdown (human/bot split classified at ingest by UA + ASN) | `analytics-digest` | `aeci.analytics_digest.email` heartbeat (no dedicated monitor yet) |
+| `0 6 * * *` | Moderation queue snapshot | `moderation-snapshot` | moderation-queue-age (threshold + no-data) |
+| `0 7 * * *` | Home-stats compute | `home-stats` | stats-compute-failed / stats-not-running |
+| `0 8 * * *` | Algolia incremental sync | `algolia-sync` | sync-failed / sync-not-running |
+| `0 9 * * *` | Algolia drift + orphan sweep | `algolia-drift` | index-drift / orphan-sweep-capped |
+| `*/15 * * * *` | Request→Linear reconciliation sweep | `request-reconcile` | reconcile-stuck / reconcile-no-data |
+| `0 * * * *` | WAF firewall-event poll | `waf-poll` | waf-ratelimit-spike / **waf-poll-not-running** (AECI-279) |
 
 ---
 

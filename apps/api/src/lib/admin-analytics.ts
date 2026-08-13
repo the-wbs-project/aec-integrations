@@ -771,9 +771,15 @@ const SEVERITY: Record<AdminNoteCode, 'info' | 'warn'> = {
   requires_recompute: 'info',
   algolia_credentials_absent: 'info',
   // A cron whose last run cannot be observed at all is a real observability gap,
-  // not a footnote — it is exactly the state AECI-583 exists to close.
+  // not a footnote. Since AECI-583 it means the job has not run since run
+  // recording shipped (or was added since), which is still worth a `warn`.
   cron_liveness_unavailable: 'warn',
+  // No longer emitted (AECI-583 persists the sweep); retained because removing a
+  // code is a breaking change and the map must stay total over `AdminNoteCode`.
   orphan_sweep_not_persisted: 'info',
+  // A stored observability record that cannot be parsed is a defect in the
+  // recorder, not a caveat about the data.
+  stored_result_unreadable: 'warn',
   // AECI-579 / P1.5. `warn` means a reader who misses the note draws a WRONG
   // conclusion — a one-stage funnel looks broken, and a flag disagreeing with
   // its artifact is a real defect. The trade note is `info`: it reframes a number
