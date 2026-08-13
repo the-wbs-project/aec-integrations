@@ -128,4 +128,15 @@ const NOTE_PROSE: Record<AdminNoteCode, (params: NoteParams) => string> = {
 
   algolia_credentials_absent: () =>
     $localize`:@@admin.notes.algoliaCredentialsAbsent:Algolia credentials are not configured in this environment, so index drift could not be measured.`,
+
+  // AECI-579 / P1.5 — catalog coverage. `warn` for the first and last (a reader
+  // who misses them draws a wrong conclusion); `info` for the trade note.
+  funnel_is_promoted_cohort_only: (p) =>
+    $localize`:@@admin.notes.funnelIsPromotedCohortOnly:All ${num(p, 'promoted')}:PROMOTED: product(s) here are promoted, so this funnel has one populated stage by design. Promotion is the only way a product enters this database and retraction removes the row outright, so the earlier stages live in the review app, not here.`,
+
+  trade_facet_sparse_by_design: (p) =>
+    $localize`:@@admin.notes.tradeFacetSparseByDesign:Products carrying no trade (${num(p, 'untagged')}:UNTAGGED: of ${num(p, 'universe')}:UNIVERSE:) are not necessarily untagged work. Trades are applied only where a product has trade-specific value, so broad platforms correctly carry none. Read this as coverage, not as a backlog.`,
+
+  api_docs_flag_inconsistent: (p) =>
+    $localize`:@@admin.notes.apiDocsFlagInconsistent:Some products are marked as having API documentation but carry no link to it (${num(p, 'rows')}:ROWS:).`,
 };

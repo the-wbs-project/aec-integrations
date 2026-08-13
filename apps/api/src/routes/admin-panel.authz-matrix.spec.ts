@@ -9,6 +9,10 @@
  * gate is verified end-to-end and a future registration that forgets
  * `requireAdmin()` fails here.
  *
+ * Extended by AECI-579 with `GET /api/admin/catalog/coverage`. Every read
+ * endpoint the epic adds belongs in {@link ROUTES} — that is the point of the
+ * file.
+ *
  * The matrix, per `AUTH_AND_RLS.md` / `ADMIN_PANEL_SPEC.md` §9.1:
  *   anon (no token)   → 401
  *   authed non-admin  → 403
@@ -28,6 +32,7 @@ import { requireAdmin, type AuthzVariables } from '../lib/authz';
 import { makeTestJwks, type TestJwks } from '../test/auth';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { fakeExecutionContext } from '../test/helpers';
+import { createAdminCatalogCoverageHandler } from './admin-catalog';
 import { createAdminTimeseriesHandler } from './admin-metrics';
 import { createAdminOverviewHandler } from './admin-overview';
 import { createAdminPageViewsHandler } from './admin-page-views';
@@ -59,6 +64,7 @@ const ROUTES = [
     name: 'GET /api/admin/page-views',
     url: '/api/admin/page-views?from=2026-08-10&to=2026-08-10',
   },
+  { name: 'GET /api/admin/catalog/coverage', url: '/api/admin/catalog/coverage' },
 ] as const;
 
 let jwks: TestJwks;
@@ -98,6 +104,11 @@ function makeApp() {
     '/api/admin/page-views',
     requireAdmin(guard),
     createAdminPageViewsHandler(t.factory, clock),
+  );
+  app.get(
+    '/api/admin/catalog/coverage',
+    requireAdmin(guard),
+    createAdminCatalogCoverageHandler(t.factory, clock),
   );
   return app;
 }

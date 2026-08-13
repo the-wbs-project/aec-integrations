@@ -185,18 +185,20 @@ await db.batch([
 | `PATCH /api/admin/reviews/:id` | Hard-required | `admin` | `review.approved` / `.rejected` |
 | `POST /api/webhooks/linear` | HMAC-verified | N/A | `workflow.transitioned` |
 
-**Admin panel reads (AECI-574 + AECI-577 / Phase 8.3).** Four endpoints join the
-`GET /api/admin/*` row above — `/api/admin/overview`,
-`/api/admin/metrics/timeseries`, `/api/admin/traffic/breakdown`, and
-`/api/admin/page-views` (the §5.2 Activity feed) — registered on
-the same `authAdmin` sub-router behind the same `requireAdmin()`. **No new gate
-and no new role**: `requireAdmin()` stays the single enforcement point
-(`ADMIN_PANEL_SPEC.md` §9.1). They are reads and therefore write no `audit_log`
-row, **including under `?recompute=1`**, which re-runs two jobs that are already
-pure reads (§13 D8) — it writes nothing, sends no email, and calls no external
-write API. `admin-panel.authz-matrix.spec.ts` asserts the matrix end-to-end
-against the real guard: anon → 401, authenticated non-admin → 403, banned admin →
-403 (the ban precedes the role grant), admin → 200.
+**Admin panel reads (AECI-574 / Phase 8.3, extended by AECI-577 and AECI-579).**
+Five endpoints join the `GET /api/admin/*` row above — `/api/admin/overview`,
+`/api/admin/metrics/timeseries`, `/api/admin/traffic/breakdown`,
+`/api/admin/page-views` (the §5.2 Activity feed), and `/api/admin/catalog/coverage`
+(the §5.5 catalog readout) — registered on the same `authAdmin` sub-router behind
+the same `requireAdmin()`. **No new gate and no new role**: `requireAdmin()` stays
+the single enforcement point (`ADMIN_PANEL_SPEC.md` §9.1). They are reads and
+therefore write no `audit_log` row, **including under `?recompute=1`**, which
+re-runs two jobs that are already pure reads (§13 D8) — it writes nothing, sends no
+email, and calls no external write API. `admin-panel.authz-matrix.spec.ts` asserts
+the matrix end-to-end against the real guard for **every** panel route: anon → 401,
+authenticated non-admin → 403, banned admin → 403 (the ban precedes the role
+grant), admin → 200. Each new read endpoint the epic adds belongs in that spec's
+`ROUTES` table.
 
 These endpoints read `page_views`, which by design holds **no user linkage** — a
 UA *hash* and a referrer *host*, never a full URL or query. `ADMIN_PANEL_SPEC.md`

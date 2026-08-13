@@ -4,15 +4,17 @@ import { LinkRefSchema, PageQuerySchema, paginatedResponseSchema } from './commo
 
 /**
  * Admin panel read contracts (AECI-574 / Phase 8.3 P1.1, extended by AECI-577 /
- * P1.3) — the endpoints the rest of the operator console renders from. Source of
+ * P1.3 and AECI-579 / P1.5) — the endpoints the rest of the operator console
+ * renders from. Source of
  * truth: `docs/ADMIN_PANEL_SPEC.md` §6, `docs/API_CONTRACTS.md` §6.10.
  *
  *   GET /api/admin/overview           — the §5.1 bundle in one round trip
  *   GET /api/admin/metrics/timeseries — a single metric, day-bucketed
  *   GET /api/admin/traffic/breakdown  — grouped counts over a window
  *   GET /api/admin/page-views         — the §5.2 Activity feed, row by row
+ *   GET /api/admin/catalog/coverage   — the §5.5 gap lists, funnel, and taxonomy usage
  *
- * All four are `GET`, admin-gated (`requireAdmin()`), and **read-only**: no
+ * All are `GET`, admin-gated (`requireAdmin()`), and **read-only**: no
  * `audit_log` row, no `Cache-Tag`, no edge caching (§6 conventions, §9.2-9.3).
  *
  * ─── Two shapes carry the design ─────────────────────────────────────────────
@@ -81,6 +83,9 @@ export type AdminWindow = z.infer<typeof AdminWindowSchema>;
  * | `internal_filter_applied` | the filter ran; both numbers are present and the excluded ASNs are in `params.asns` |
  * | `requires_recompute` | an expensive status item was omitted from the default `/overview`; re-request with `?recompute=1` |
  * | `algolia_credentials_absent` | `?recompute=1` ran but `ALGOLIA_APP_ID`/`ALGOLIA_ADMIN_KEY` are unset, so drift could not be measured |
+ * | `funnel_is_promoted_cohort_only` | every `products` row reads `promotion_status='promoted'`, so the funnel has exactly one populated stage — the pre-promotion stages live in the review app, not D1 (§13 D6) |
+ * | `trade_facet_sparse_by_design` | products carry no `trade` tag and that is not by itself a defect: `TRADES_VOCABULARY.md` §1.1 tags a product only when it has trade-SPECIFIC value, so horizontal platforms correctly carry zero rows |
+ * | `api_docs_flag_inconsistent` | N products have `has_api_docs = 1` but no `api_docs_url` — the flag and the artifact disagree |
  */
 export const AdminNoteCodeSchema = z.enum([
   'partial_day',
@@ -94,6 +99,9 @@ export const AdminNoteCodeSchema = z.enum([
   'internal_filter_applied',
   'requires_recompute',
   'algolia_credentials_absent',
+  'funnel_is_promoted_cohort_only',
+  'trade_facet_sparse_by_design',
+  'api_docs_flag_inconsistent',
 ]);
 export type AdminNoteCode = z.infer<typeof AdminNoteCodeSchema>;
 
@@ -499,6 +507,242 @@ export const AdminTrafficBreakdownResponseSchema = paginatedResponseSchema(
   window_total: AdminCountSchema,
 });
 export type AdminTrafficBreakdownResponse = z.infer<typeof AdminTrafficBreakdownResponseSchema>;
+
+// ─── GET /api/admin/catalog/coverage (AECI-579 / P1.5) ───────────────────────
+
+/**
+ * The §5.5 catalog readout: coverage gaps, the promotion funnel, the
+ * `research_status` distribution, taxonomy usage per facet, and the Stage 1.5
+ * claim/attestation spine.
+ *
+ * ─── Three shapes carry the design ───────────────────────────────────────────
+ *
+ * **1. No `window`.** Unlike the three P1.1 endpoints, coverage is a snapshot of
+ * *current state*, not an aggregate over a time range — "how many products have
+ * no logo" has no window. Attaching one would be exactly the false precision
+ * §1.1 forbids. `generated_at` / `source` / `notes` carry over unchanged; the
+ * time-series half of §5.5 ("counts over time", "additions per day") is served by
+ * `GET /api/admin/metrics/timeseries` with the `catalog.*` metric keys, which
+ * already carries `catalog_series_is_additions_only`. There is one implementation
+ * of that series and it is not here.
+ *
+ * **2. The count is the truth; the sample is the starting point.** Every gap
+ * reports an EXACT `total` alongside a capped `sample`. `universe` travels with
+ * it so the UI can render "171 of 171" — and 171-of-171 is a worklist, not an
+ * error state. `?sample=0` returns counts only.
+ *
+ * **3. Degeneracy is reported, not hidden.** `promoted_cohort_only` is DERIVED
+ * from the rows (every product reads `promoted`), never hardcoded, so it
+ * self-retires the day a genuine un-promote path lands. §13 D6 explains why it is
+ * true today: promote is D1's only INSERT path into `products` and sets
+ * `'promoted'` on both branches, nothing ever writes `'ready'`/`'pending'`, and
+ * retraction hard-deletes (`lib/retract-product.ts`). The pre-promotion funnel
+ * lives in the review app.
+ */
+
+/** Max sample rows a caller may request per gap list. Beyond this the list stops
+ *  being a starting point and starts being a data export — which is the review
+ *  app's job, not the console's. */
+export const ADMIN_COVERAGE_MAX_SAMPLE = 50;
+
+/** Default sample size, matching `SAMPLE_LIMIT` in `apps/api/src/lib/data-quality.ts`
+ *  so the screen and the 04:00 data-quality email show the same depth. */
+export const ADMIN_COVERAGE_DEFAULT_SAMPLE = 10;
+
+export const AdminCatalogCoverageQuerySchema = z.object({
+  /** Rows returned per gap list. `0` returns exact counts with empty samples —
+   *  the cheap mode for a summary strip. */
+  sample: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(ADMIN_COVERAGE_MAX_SAMPLE)
+    .default(ADMIN_COVERAGE_DEFAULT_SAMPLE),
+});
+export type AdminCatalogCoverageQuery = z.infer<typeof AdminCatalogCoverageQuerySchema>;
+
+/** Live catalog totals, as of the request. */
+export const AdminCatalogTotalsSchema = z.object({
+  products: z.number().int().nonnegative(),
+  integrations: z.number().int().nonnegative(),
+  vendors: z.number().int().nonnegative(),
+  claims: z.number().int().nonnegative(),
+  attestations: z.number().int().nonnegative(),
+});
+export type AdminCatalogTotals = z.infer<typeof AdminCatalogTotalsSchema>;
+
+/**
+ * The gap vocabulary. Each is a `products` predicate an operator can act on.
+ *
+ * | key | predicate |
+ * |---|---|
+ * | `products_without_vendor` | no `product_vendors` row (same predicate as the `products_without_vendor` data-quality check) |
+ * | `products_without_logo` | `logo_url IS NULL` — 171 of 171 in the §14.2 census; vendors do carry logos |
+ * | `products_without_description` | `description IS NULL` or blank after trim |
+ * | `products_without_api_docs` | `api_docs_url IS NULL` — the URL is the actionable artifact, not the `has_api_docs` flag |
+ * | `products_without_category` / `_audience` / `_phase` | no row in the matching join table |
+ * | `products_without_trade` | no `product_trades` row. **Read this one with `trade_facet_sparse_by_design`**: the join is sparse by design (`TRADES_VOCABULARY.md` §1.1), so a horizontal platform carrying zero rows is correct, not a defect. |
+ */
+export const AdminCoverageGapKeySchema = z.enum([
+  'products_without_vendor',
+  'products_without_logo',
+  'products_without_description',
+  'products_without_api_docs',
+  'products_without_category',
+  'products_without_audience',
+  'products_without_phase',
+  'products_without_trade',
+]);
+export type AdminCoverageGapKey = z.infer<typeof AdminCoverageGapKeySchema>;
+
+/**
+ * One gap. `total` is exact; `sample` is capped at the request's `sample` value
+ * and ordered by name so the list is stable between requests. `ref` rows link to
+ * the AECi product page — D1 stores no curation-tool key (ADR 0021: "AECi does
+ * not store your Airtable/record IDs"), so a per-row deep link into the review
+ * app is not constructible from this data.
+ */
+export const AdminCoverageGapSchema = z.object({
+  key: AdminCoverageGapKeySchema,
+  /** EXACT count of affected products. */
+  total: z.number().int().nonnegative(),
+  /** Total products, so a share ("171 of 171") is computable without a second read. */
+  universe: z.number().int().nonnegative(),
+  sample: z.array(LinkRefSchema),
+  /** `total > sample.length` — true whenever the list is a window onto more work. */
+  sample_truncated: z.boolean(),
+});
+export type AdminCoverageGap = z.infer<typeof AdminCoverageGapSchema>;
+
+/** The five `products.promotion_status` values the CHECK constraint admits. */
+export const AdminPromotionStatusSchema = z.enum([
+  'pending',
+  'ready',
+  'promoted',
+  'retracted',
+  'rejected',
+]);
+export type AdminPromotionStatus = z.infer<typeof AdminPromotionStatusSchema>;
+
+/**
+ * The §5.5 funnel. `stages` is zero-filled across all five statuses in pipeline
+ * order, so an absent status renders as 0 rather than vanishing.
+ */
+export const AdminPromotionFunnelSchema = z.object({
+  stages: z.array(
+    z.object({
+      status: AdminPromotionStatusSchema,
+      count: z.number().int().nonnegative(),
+    }),
+  ),
+  total: z.number().int().nonnegative(),
+  /**
+   * DERIVED: there is at least one product and every one reads `promoted`. When
+   * true the response also carries `funnel_is_promoted_cohort_only`, and the UI
+   * must say so — a 171/0/0/0/0 funnel with no explanation reads as a bug.
+   */
+  promoted_cohort_only: z.boolean(),
+});
+export type AdminPromotionFunnel = z.infer<typeof AdminPromotionFunnelSchema>;
+
+/** The four `products.research_status` values the CHECK constraint admits. */
+export const AdminResearchStatusSchema = z.enum(['pending', 'in_progress', 'done', 'blocked']);
+export type AdminResearchStatus = z.infer<typeof AdminResearchStatusSchema>;
+
+/** `research_status` distribution, zero-filled across all four values. */
+export const AdminResearchStatusCountSchema = z.object({
+  status: AdminResearchStatusSchema,
+  count: z.number().int().nonnegative(),
+});
+export type AdminResearchStatusCount = z.infer<typeof AdminResearchStatusCountSchema>;
+
+export const AdminTaxonomyFacetSchema = z.enum([
+  'category',
+  'audience',
+  'phase',
+  'trade',
+  'data_object',
+]);
+export type AdminTaxonomyFacet = z.infer<typeof AdminTaxonomyFacetSchema>;
+
+/** One term and how much of the catalog uses it. `published` is non-null only for
+ *  `trade`, where `TRADE_PUBLISH_MIN_PRODUCTS` gates the term's own SEO page. */
+export const AdminTaxonomyTermUsageSchema = z.object({
+  id: z.string().uuid(),
+  slug: z.string().min(1),
+  name: z.string().min(1),
+  count: z.number().int().nonnegative(),
+  published: z.boolean().nullable(),
+});
+export type AdminTaxonomyTermUsage = z.infer<typeof AdminTaxonomyTermUsageSchema>;
+
+/**
+ * Usage for one facet. Terms come back **uncapped** — the five vocabularies total
+ * ~122 terms, so paging would be ceremony.
+ *
+ * `counts_what` exists because `data_object` is not like its four siblings: data
+ * objects are referenced by **claims**, not by products, so its `count` is a claim
+ * count. Saying so on the wire is cheaper than a UI that has to remember.
+ */
+export const AdminTaxonomyFacetUsageSchema = z.object({
+  facet: AdminTaxonomyFacetSchema,
+  counts_what: z.enum(['products', 'claims']),
+  terms_total: z.number().int().nonnegative(),
+  /** Terms with `count > 0`. */
+  terms_used: z.number().int().nonnegative(),
+  /** `TRADE_PUBLISH_MIN_PRODUCTS`, or null for the facets that have no gate. */
+  publish_floor: z.number().int().positive().nullable(),
+  /** Terms clearing the floor, or null for the facets that have no gate. */
+  terms_published: z.number().int().nonnegative().nullable(),
+  terms: z.array(AdminTaxonomyTermUsageSchema),
+});
+export type AdminTaxonomyFacetUsage = z.infer<typeof AdminTaxonomyFacetUsageSchema>;
+
+/** An integration in a sample list. `name` is nullable in the schema, so the
+ *  endpoints of the pair travel too — they are what the pair URL is built from
+ *  (`/products/:contextSlug/integrations/:otherSlug`). */
+export const AdminIntegrationRefSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string().nullable(),
+  source_product: LinkRefSchema,
+  target_product: LinkRefSchema,
+});
+export type AdminIntegrationRef = z.infer<typeof AdminIntegrationRefSchema>;
+
+/**
+ * The Stage 1.5 claim/attestation spine (§5.5). 915 claims backed by 915
+ * attestations in the §14.2 census — the interesting numbers are the zeros:
+ * integrations carrying no claim at all, and claims carrying no ACTIVE
+ * attestation (`deprecated_at IS NULL`, matching `attestations_active_idx`).
+ */
+export const AdminClaimCoverageSchema = z.object({
+  integrations_total: z.number().int().nonnegative(),
+  integrations_with_claims: z.number().int().nonnegative(),
+  integrations_without_claims: z.number().int().nonnegative(),
+  claims_total: z.number().int().nonnegative(),
+  claims_with_active_attestation: z.number().int().nonnegative(),
+  claims_without_active_attestation: z.number().int().nonnegative(),
+  attestations_total: z.number().int().nonnegative(),
+  /** Capped sample of integrations with zero claims — the actionable half. */
+  integrations_without_claims_sample: z.array(AdminIntegrationRefSchema),
+  integrations_without_claims_sample_truncated: z.boolean(),
+});
+export type AdminClaimCoverage = z.infer<typeof AdminClaimCoverageSchema>;
+
+export const AdminCatalogCoverageResponseSchema = z.object({
+  generated_at: z.string().datetime(),
+  source: AdminMetricSourceSchema,
+  notes: z.array(AdminNoteSchema),
+  /** The `sample` actually applied, echoed so the UI can label a truncated list. */
+  sample_limit: z.number().int().nonnegative(),
+  totals: AdminCatalogTotalsSchema,
+  funnel: AdminPromotionFunnelSchema,
+  research_status: z.array(AdminResearchStatusCountSchema),
+  gaps: z.array(AdminCoverageGapSchema),
+  taxonomy: z.array(AdminTaxonomyFacetUsageSchema),
+  claim_coverage: AdminClaimCoverageSchema,
+});
+export type AdminCatalogCoverageResponse = z.infer<typeof AdminCatalogCoverageResponseSchema>;
 
 // ─── GET /api/admin/page-views ───────────────────────────────────────────────
 

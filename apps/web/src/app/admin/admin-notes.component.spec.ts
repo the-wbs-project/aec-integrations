@@ -1,5 +1,5 @@
 /**
- * AECI-576 / Phase 8.3 P1.2 — `AdminNotes`.
+ * AECI-576 / Phase 8.3 P1.2 — `AdminNotes` (extended by AECI-579 / P1.5).
  *
  * The contract worth protecting here is the one §1.1 / §9.4 of
  * `docs/ADMIN_PANEL_SPEC.md` set up together: the API's `code` + `params` are the
@@ -32,6 +32,10 @@ const ALL_CODES: ReadonlyArray<{ code: AdminNoteCode; params?: AdminNote['params
   { code: 'internal_filter_applied', params: { asns: '23700' } },
   { code: 'requires_recompute' },
   { code: 'algolia_credentials_absent' },
+  // AECI-579 / P1.5 — catalog coverage.
+  { code: 'funnel_is_promoted_cohort_only', params: { promoted: 171 } },
+  { code: 'trade_facet_sparse_by_design', params: { untagged: 171, universe: 171 } },
+  { code: 'api_docs_flag_inconsistent', params: { rows: 3 } },
 ];
 
 const OPERATOR_FALLBACK = 'UNTRANSLATED OPERATOR MESSAGE';

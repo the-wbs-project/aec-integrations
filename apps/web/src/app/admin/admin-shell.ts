@@ -131,11 +131,11 @@ export class AdminShell {
    * rather than editing markup.
    *
    * Only routes that **exist** are listed. §5's full IA also names
-   * `/admin/traffic` (AECI-578), `/admin/catalog` (AECI-579),
    * `/admin/audience` (AECI-586) and `/admin/system` (AECI-580); each appears
-   * here when its screen ships (`/admin/activity` shipped with AECI-577).
+   * here when its screen ships (`/admin/activity` shipped with AECI-577,
+   * `/admin/traffic` with AECI-578, `/admin/catalog` with AECI-579).
    * Nothing links to a 404, and no entry is rendered disabled — a group with no
-   * items (Catalog, today) simply does not render its heading either.
+   * items simply does not render its heading either.
    */
   protected readonly navGroups: readonly AdminNavGroup[] = [
     {
@@ -146,6 +146,11 @@ export class AdminShell {
         { path: '/admin/activity', label: $localize`:@@admin.shell.nav.activity:Activity` },
         { path: '/admin/traffic', label: $localize`:@@admin.shell.nav.traffic:Traffic` },
       ],
+    },
+    {
+      id: 'admin-nav-catalog',
+      heading: $localize`:@@admin.shell.nav.group.catalog:Catalog`,
+      items: [{ path: '/admin/catalog', label: $localize`:@@admin.shell.nav.catalog:Coverage` }],
     },
     {
       id: 'admin-nav-operations',

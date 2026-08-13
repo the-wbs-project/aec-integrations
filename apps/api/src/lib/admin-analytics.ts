@@ -770,6 +770,13 @@ const SEVERITY: Record<AdminNoteCode, 'info' | 'warn'> = {
   internal_filter_applied: 'info',
   requires_recompute: 'info',
   algolia_credentials_absent: 'info',
+  // AECI-579 / P1.5. `warn` means a reader who misses the note draws a WRONG
+  // conclusion — a one-stage funnel looks broken, and a flag disagreeing with
+  // its artifact is a real defect. The trade note is `info`: it reframes a number
+  // that is otherwise easy to misread as a backlog, but nothing is wrong.
+  funnel_is_promoted_cohort_only: 'warn',
+  trade_facet_sparse_by_design: 'info',
+  api_docs_flag_inconsistent: 'warn',
 };
 
 /** Build a note. `message` is the untranslated operator fallback; the UI renders

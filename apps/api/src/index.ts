@@ -29,6 +29,7 @@ import {
   createBanReviewerHandler,
   createBannedReviewersListHandler,
 } from './routes/admin-reviewers';
+import { createAdminCatalogCoverageHandler } from './routes/admin-catalog';
 import { createAdminOverviewHandler } from './routes/admin-overview';
 import { createAdminTimeseriesHandler } from './routes/admin-metrics';
 import { createAdminPageViewsHandler } from './routes/admin-page-views';
@@ -304,6 +305,11 @@ app.route('/', authAccount);
 //     visits, newest first, paginated + filtered, `entity`-hydrated. Every
 //     `page_views` read here inherits §13 D12's `/admin/*` + `/account` exclusion
 //     as a floor beneath the caller's filters.
+// Phase 8.3 P1.5 (AECI-579) adds the catalog readout on the same terms:
+//   - GET /api/admin/catalog/coverage   — the §5.5 gap lists, promotion funnel,
+//     taxonomy usage, and claim/attestation coverage. Exact counts + capped
+//     samples; `?sample=0` returns counts only. The catalog TIME SERIES stays on
+//     `/api/admin/metrics/timeseries` (`catalog.*`), not here.
 const authAdmin = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
 authAdmin.onError(errorHandler());
 authAdmin.get('/api/admin/summary', requireAdmin(), createAdminSummaryHandler());
@@ -326,6 +332,7 @@ authAdmin.get('/api/admin/overview', requireAdmin(), createAdminOverviewHandler(
 authAdmin.get('/api/admin/metrics/timeseries', requireAdmin(), createAdminTimeseriesHandler());
 authAdmin.get('/api/admin/traffic/breakdown', requireAdmin(), createAdminTrafficBreakdownHandler());
 authAdmin.get('/api/admin/page-views', requireAdmin(), createAdminPageViewsHandler());
+authAdmin.get('/api/admin/catalog/coverage', requireAdmin(), createAdminCatalogCoverageHandler());
 app.route('/', authAdmin);
 
 // Catch-alls throw so the root `onError` renders the canonical §3.3 envelope
