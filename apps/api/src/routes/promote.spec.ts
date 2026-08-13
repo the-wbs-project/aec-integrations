@@ -313,6 +313,145 @@ describe('runPromoteIngest', () => {
     );
   });
 
+  // AECI-568. A `supabaseId` pointing at a row that no longer exists (retracted,
+  // pruned, deleted) used to take the update branch anyway: `UPDATE … WHERE id =
+  // <gone>` writes nothing, yet the response said `operation: 'updated'` with an
+  // empty slug — which the review app then wrote back over its real slug. The ingest
+  // now falls through to a create, so the next write-back self-heals the pointer.
+  describe('stale supabaseId → falls back to create', () => {
+    it('recreates a vendor whose supabaseId no longer resolves', async () => {
+      const gone = uuid(7);
+
+      const res = await promote({
+        vendors: [{ ref: 'v1', supabaseId: gone, companyName: 'Autodesk' }],
+      });
+
+      expect(res.status).toBe(200);
+      const b = (await res.json()) as {
+        vendors: { id: string; slug: string; operation: string }[];
+      };
+      expect(b.vendors[0]).toMatchObject({ slug: 'autodesk', operation: 'created' });
+      expect(b.vendors[0].id).not.toBe(gone);
+
+      const rows = await t.db.select().from(vendors);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ id: b.vendors[0].id, slug: 'autodesk' });
+      expect(await auditActions()).toEqual(['vendor.created']);
+    });
+
+    it('recreates a product whose supabaseId no longer resolves, with a real slug', async () => {
+      const gone = uuid(7);
+
+      const res = await promote({
+        vendors: [{ ref: 'v1', companyName: 'Autodesk' }],
+        product: { ref: 'p1', supabaseId: gone, name: 'Revit' },
+      });
+
+      expect(res.status).toBe(200);
+      const b = (await res.json()) as { product: { id: string; slug: string; operation: string } };
+      // The slug is generated, not the '' the no-op update used to report.
+      expect(b.product).toMatchObject({ slug: 'revit', operation: 'created' });
+      expect(b.product.id).not.toBe(gone);
+
+      const rows = await t.db.select().from(products);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ id: b.product.id, slug: 'revit', name: 'Revit' });
+      expect(await auditActions()).toEqual(
+        expect.arrayContaining(['vendor.created', 'product.created']),
+      );
+    });
+
+    it('recreates an integration whose supabaseId no longer resolves, with its claims', async () => {
+      const srcId = uuid(1);
+      const tgtId = uuid(2);
+      const gone = uuid(7);
+      await seedProduct(srcId, 'revit', 'Revit');
+      await seedProduct(tgtId, 'navisworks', 'Navisworks');
+      await seedDataObject(uuid(3), 'rfis', 'RFIs');
+
+      const res = await promote({
+        integrations: [
+          {
+            ref: 'i1',
+            supabaseId: gone,
+            sourceProduct: { supabaseId: srcId },
+            targetProduct: { supabaseId: tgtId },
+            claims: [
+              {
+                dataObject: 'rfis',
+                direction: 'a_to_b',
+                attestations: [{ source: 'aeci', asserted: true }],
+              },
+            ],
+          },
+        ],
+      });
+
+      expect(res.status).toBe(200);
+      const b = (await res.json()) as { integrations: { id: string; operation: string }[] };
+      expect(b.integrations[0]).toMatchObject({ operation: 'created' });
+      expect(b.integrations[0].id).not.toBe(gone);
+
+      const rows = await t.db.select().from(integrations);
+      expect(rows).toHaveLength(1);
+      expect(rows[0].id).toBe(b.integrations[0].id);
+      // The claim rides the NEW integration id, not the dead one.
+      const claimRows = await t.db.select().from(claims);
+      expect(claimRows).toHaveLength(1);
+      expect(claimRows[0].integrationId).toBe(b.integrations[0].id);
+      expect(await t.db.select().from(attestations)).toHaveLength(1);
+      expect(await auditActions()).toEqual(
+        expect.arrayContaining(['integration.created', 'claim.created']),
+      );
+    });
+
+    it('reports every fallback on staleSupabaseIds, and nothing when the ids resolve', async () => {
+      const goneVendor = uuid(7);
+      const goneProduct = uuid(8);
+      const rc: PromoteRunCtx = {
+        env: baseEnv,
+        request: new Request('http://localhost:8787/api/promote'),
+        waitUntil: () => {},
+        bookmark: () => null,
+      };
+      const deps: PromoteIngestDeps = {
+        dbFor: t.factory,
+        syncAlgolia: noopAlgolia,
+        notifyIndexNow: noopIndexNow,
+        notifyGoogleIndexing: noopGoogleIndexing,
+        refreshHomeStats: noopHomeStats,
+      };
+
+      const stale = await runPromoteIngest(
+        rc,
+        PromotePayloadSchema.parse({
+          vendors: [{ ref: 'v1', supabaseId: goneVendor, companyName: 'Autodesk' }],
+          product: { ref: 'p1', supabaseId: goneProduct, name: 'Revit' },
+        }),
+        deps,
+      );
+      expect(stale.staleSupabaseIds).toEqual([
+        { kind: 'vendor', ref: 'v1', supabaseId: goneVendor },
+        { kind: 'product', ref: 'p1', supabaseId: goneProduct },
+      ]);
+
+      // Re-push with the ids the first run actually assigned: both resolve now, so the
+      // pointer is healed and the report is empty.
+      const healed = await runPromoteIngest(
+        rc,
+        PromotePayloadSchema.parse({
+          vendors: [
+            { ref: 'v1', supabaseId: stale.response.vendors[0].id, companyName: 'Autodesk' },
+          ],
+          product: { ref: 'p1', supabaseId: stale.response.product?.id, name: 'Revit' },
+        }),
+        deps,
+      );
+      expect(healed.staleSupabaseIds).toEqual([]);
+      expect(healed.response.product).toMatchObject({ slug: 'revit', operation: 'updated' });
+    });
+  });
+
   it('promotes a vendor on its own (no product)', async () => {
     const vendX = uuid(2);
     await seedVendor(vendX, 'autodesk', 'Autodesk');

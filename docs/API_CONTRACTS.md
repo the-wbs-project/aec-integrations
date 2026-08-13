@@ -1233,10 +1233,14 @@ machine-to-machine auth, not a user session.
   guard means a replayed kick-off attaches to the existing instance and returns the same
   `jobId` — it can never start a second instance and therefore never commits twice.
   Absent → server-generated (pollable, but no replay protection).
-- **`supabaseId`** scopes one *row*, as before: present → **updated** by that ID; absent
-  → **created** and its new ID is returned. The review app holds the mapping; there is no
-  `external_id` column. Slugs are server-generated (never sent by the client) and stay
-  stable across updates.
+- **`supabaseId`** scopes one *row*, as before: present **and still resolvable** →
+  **updated** by that ID; absent → **created** and its new ID is returned. The review app
+  holds the mapping; there is no `external_id` column. Slugs are server-generated (never
+  sent by the client) and stay stable across updates. A `supabaseId` whose row is **gone**
+  (retracted, pruned, deleted) also takes the **create** branch (AECI-568) — the alternative
+  is a no-op `UPDATE … WHERE id = <gone>` reported as `updated` with an empty slug, which
+  the review app then writes back over the real one. Each fallback is reported post-commit
+  as `aeci.api.promote.stale_id{kind}`.
 
 **Errors split across the two surfaces.** Synchronous: `400 MALFORMED_REQUEST` /
 `400 VALIDATION_FAILED` / `401 UNAUTHENTICATED` / `413 PAYLOAD_TOO_LARGE` (body > 8 MiB, or
