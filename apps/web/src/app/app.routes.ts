@@ -260,6 +260,13 @@ export const routes: Routes = [
         path: 'reviewers',
         loadComponent: () => import('./admin/reviewers/reviewer-bans').then((m) => m.ReviewerBans),
       },
+      // AECI-578 — Phase 8.3 P1.4, the §5.3 Traffic section. Renders the two
+      // AECI-574 read endpoints; inherits the parent's gate and non-cacheable
+      // branch, so nothing route-level changes here.
+      {
+        path: 'traffic',
+        loadComponent: () => import('./admin/traffic/traffic').then((m) => m.AdminTraffic),
+      },
     ],
   },
   // AECI-238 — Phase 7.3 static content pages (About + Contact). No resolver:

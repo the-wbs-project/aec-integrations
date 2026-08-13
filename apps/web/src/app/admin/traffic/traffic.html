@@ -1,0 +1,335 @@
+<!--
+  /admin/traffic — §5.3. AECI-578 / Phase 8.3 P1.4.
+
+  Order is deliberate: controls, then the headline numbers, then the shape over
+  time, then the breakdowns, then the caveats. A reader who stops after the tiles
+  has still read something true.
+-->
+<section>
+  <header class="mb-6">
+    <h2 class="text-xl font-bold text-(--text-primary)" i18n="@@admin.traffic.heading">Traffic</h2>
+    <p class="mt-1 text-sm text-(--text-secondary)" i18n="@@admin.traffic.subheading">
+      Page views, visitors, sources and crawlers over a UTC window.
+    </p>
+  </header>
+
+  <!-- ── Controls. One row above the charts. ─────────────────────────────── -->
+  <div
+    class="mb-6 flex flex-wrap items-center gap-x-6 gap-y-3 border-b border-(--border-default) pb-5"
+  >
+    <fieldset class="flex items-center gap-2">
+      <legend class="sr-only" i18n="@@admin.traffic.filter.range.legend">Date range</legend>
+      @for (days of rangeOptions; track days) {
+      <button
+        type="button"
+        (click)="setRange(days)"
+        [attr.aria-pressed]="rangeDays() === days"
+        class="rounded-(--radius-md) border px-2.5 py-1 text-xs font-bold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        [class]="
+            rangeDays() === days
+              ? 'border-(--accent-primary) bg-(--accent-primary-soft) text-(--text-primary)'
+              : 'border-(--border-default) text-(--text-secondary) hover:text-(--text-primary)'
+          "
+      >
+        <span i18n="@@admin.traffic.filter.range.option">{{ days }} days</span>
+      </button>
+      }
+    </fieldset>
+
+    <fieldset class="flex items-center gap-2">
+      <legend class="sr-only" i18n="@@admin.traffic.filter.population.legend">Traffic type</legend>
+      @for (option of populationOptions; track option.key) {
+      <button
+        type="button"
+        (click)="setPopulation(option.key)"
+        [attr.aria-pressed]="population() === option.key"
+        class="rounded-(--radius-md) border px-2.5 py-1 text-xs font-bold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        [class]="
+            population() === option.key
+              ? 'border-(--accent-primary) bg-(--accent-primary-soft) text-(--text-primary)'
+              : 'border-(--border-default) text-(--text-secondary) hover:text-(--text-primary)'
+          "
+      >
+        {{ option.label }}
+      </button>
+      }
+    </fieldset>
+
+    <!--
+      §9.5 — presentational only. This control re-labels instants; it never
+      touches a query parameter and never triggers a fetch. The day buckets are
+      UTC and stay UTC.
+    -->
+    <fieldset class="flex items-center gap-2">
+      <legend class="sr-only" i18n="@@admin.traffic.filter.zone.legend">
+        Timestamp display timezone
+      </legend>
+      <button
+        type="button"
+        (click)="setZone('UTC')"
+        [attr.aria-pressed]="zone() === 'UTC'"
+        class="rounded-(--radius-md) border px-2.5 py-1 text-xs font-bold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        [class]="
+          zone() === 'UTC'
+            ? 'border-(--accent-primary) bg-(--accent-primary-soft) text-(--text-primary)'
+            : 'border-(--border-default) text-(--text-secondary) hover:text-(--text-primary)'
+        "
+      >
+        UTC
+      </button>
+      <button
+        type="button"
+        (click)="setZone('WIB')"
+        [attr.aria-pressed]="zone() === 'WIB'"
+        class="rounded-(--radius-md) border px-2.5 py-1 text-xs font-bold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        [class]="
+          zone() === 'WIB'
+            ? 'border-(--accent-primary) bg-(--accent-primary-soft) text-(--text-primary)'
+            : 'border-(--border-default) text-(--text-secondary) hover:text-(--text-primary)'
+        "
+      >
+        WIB
+      </button>
+    </fieldset>
+
+    @if (internalFilterAvailable()) {
+    <label class="flex items-center gap-2 text-xs text-(--text-secondary)">
+      <input
+        type="checkbox"
+        [checked]="excludeInternal()"
+        (change)="toggleInternal()"
+        class="size-4 accent-(--accent-primary)"
+      />
+      {{ internalFilterLabel() }}
+    </label>
+    }
+  </div>
+
+  @if (loadFailed()) {
+  <div
+    class="rounded-(--radius-lg) border border-(--status-error) bg-(--surface-raised) p-6"
+    role="alert"
+  >
+    <p class="text-sm text-(--text-primary)" i18n="@@admin.traffic.error.body">
+      Traffic data could not be loaded.
+    </p>
+    <button
+      type="button"
+      (click)="retry()"
+      class="mt-3 rounded-(--radius-md) bg-(--accent-primary) px-3 py-1.5 text-sm font-bold text-(--surface-base) hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      i18n="@@admin.traffic.error.retry"
+    >
+      Try again
+    </button>
+  </div>
+  } @else if (loading()) {
+  <!-- The SSR-neutral first paint. No visitor state, no data, no date. -->
+  <p class="py-16 text-center text-sm text-(--text-secondary)" i18n="@@admin.traffic.loading">
+    Loading traffic data…
+  </p>
+  } @else {
+  <!-- ── Window statement. Always labelled with its zone (§9.5). ───────── -->
+  <p class="mb-5 text-xs text-(--text-secondary)">
+    <span i18n="@@admin.traffic.window.label">Window</span>
+    <span class="ms-1 font-semibold tabular-nums text-(--text-primary)">{{ windowLabel() }}</span>
+    <span class="mx-2" aria-hidden="true">·</span>
+    <span>{{ bucketCaption() }}</span>
+    @if (generatedLabel()) {
+    <span class="mx-2" aria-hidden="true">·</span>
+    <span i18n="@@admin.traffic.window.generated">Generated {{ generatedLabel() }}</span>
+    }
+  </p>
+
+  <!-- ── KPI row. Stat tiles, not one-bar bar charts. ──────────────────── -->
+  <div class="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+    <aec-stat-tile
+      [label]="humanTileLabel"
+      [value]="humanTotal()"
+      [series]="humanValues()"
+      [categories]="dayLabels()"
+      [categoryHeader]="dayHeader"
+      [tableCaption]="humanTileLabel"
+      [slot]="1"
+    />
+    <aec-stat-tile
+      [label]="botTileLabel"
+      [value]="botTotal()"
+      [series]="botValues()"
+      [categories]="dayLabels()"
+      [categoryHeader]="dayHeader"
+      [tableCaption]="botTileLabel"
+      [slot]="2"
+    />
+    <!--
+        §9.8: the visitor definition renders next to the number, not only in the
+        spec. The "visitor-days" wording is also load-bearing — each bucket is its
+        own COUNT(DISTINCT …), so the window figure is not window-distinct.
+      -->
+    <aec-stat-tile
+      [label]="visitorTileLabel"
+      [value]="visitorTotal()"
+      [caveat]="visitorCaveat"
+      [series]="visitorValues()"
+      [categories]="dayLabels()"
+      [categoryHeader]="dayHeader"
+      [tableCaption]="visitorTileLabel"
+      [slot]="1"
+    />
+  </div>
+
+  <!-- ── Views per day, human vs bot. The page's primary chart. ────────── -->
+  <section
+    class="mb-8 rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) p-5"
+  >
+    <h3 class="mb-4 text-base font-bold text-(--text-primary)" i18n="@@admin.traffic.chart.views">
+      Page views per day
+    </h3>
+    <aec-stacked-bar-chart
+      [series]="trafficSeries()"
+      [categories]="dayLabels()"
+      [categoryHeader]="dayHeader"
+      [ariaLabel]="viewsChartLabel"
+      [emptyLabel]="emptyLabel"
+      [area]="rangeDays() > 30"
+    />
+  </section>
+
+  <!-- ── Unique visitors per day. Single series, no legend. ────────────── -->
+  <section
+    class="mb-8 rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) p-5"
+  >
+    <h3
+      class="mb-1 text-base font-bold text-(--text-primary)"
+      i18n="@@admin.traffic.chart.visitors"
+    >
+      Unique visitors per day
+    </h3>
+    <p class="mb-4 text-xs text-(--text-secondary)">{{ visitorCaveat }}</p>
+    <aec-line-chart
+      [series]="visitorChartSeries()"
+      [categories]="dayLabels()"
+      [categoryHeader]="dayHeader"
+      [ariaLabel]="visitorsChartLabel"
+      [emptyLabel]="emptyLabel"
+    />
+  </section>
+
+  <!-- ── Breakdowns. Windowed, not over time — see the class comment. ──── -->
+  <div class="mb-8 grid gap-5 lg:grid-cols-2">
+    <section
+      class="rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) p-5"
+    >
+      <h3
+        class="mb-3 text-base font-bold text-(--text-primary)"
+        i18n="@@admin.traffic.chart.sources"
+      >
+        Top sources
+      </h3>
+      <aec-horizontal-bar-chart
+        [data]="sourceRows()"
+        [categoryHeader]="sourceHeader"
+        [valueHeader]="viewsHeader"
+        [ariaLabel]="sourcesChartLabel"
+        [emptyLabel]="emptyLabel"
+        [total]="windowTotal()"
+      />
+    </section>
+
+    <section
+      class="rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) p-5"
+    >
+      <h3 class="mb-3 text-base font-bold text-(--text-primary)" i18n="@@admin.traffic.chart.pages">
+        Top pages
+      </h3>
+      <aec-horizontal-bar-chart
+        [data]="pageRows()"
+        [categoryHeader]="pageHeader"
+        [valueHeader]="viewsHeader"
+        [ariaLabel]="pagesChartLabel"
+        [emptyLabel]="emptyLabel"
+        [total]="windowTotal()"
+      />
+    </section>
+
+    <section
+      class="rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) p-5"
+    >
+      <h3
+        class="mb-3 text-base font-bold text-(--text-primary)"
+        i18n="@@admin.traffic.chart.products"
+      >
+        Top products
+      </h3>
+      <aec-horizontal-bar-chart
+        [data]="productRows()"
+        [categoryHeader]="productHeader"
+        [valueHeader]="viewsHeader"
+        [ariaLabel]="productsChartLabel"
+        [emptyLabel]="emptyLabel"
+        [total]="windowTotal()"
+      />
+    </section>
+
+    <section
+      class="rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) p-5"
+    >
+      <h3
+        class="mb-3 text-base font-bold text-(--text-primary)"
+        i18n="@@admin.traffic.chart.countries"
+      >
+        Geography
+      </h3>
+      <aec-horizontal-bar-chart
+        [data]="countryRows()"
+        [categoryHeader]="countryHeader"
+        [valueHeader]="viewsHeader"
+        [ariaLabel]="countriesChartLabel"
+        [emptyLabel]="emptyLabel"
+        [total]="windowTotal()"
+      />
+    </section>
+
+    <!--
+        Crawlers are always the bot population — the API forces it for
+        dimension=bot, because grouping human rows by bot_name returns one empty
+        bucket. The share is therefore against the bot window total, not the
+        page-level one.
+      -->
+    <section
+      class="rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) p-5 lg:col-span-2"
+    >
+      <h3
+        class="mb-1 text-base font-bold text-(--text-primary)"
+        i18n="@@admin.traffic.chart.crawlers"
+      >
+        Crawler activity
+      </h3>
+      <p class="mb-3 text-xs text-(--text-secondary)" i18n="@@admin.traffic.chart.crawlersNote">
+        Bot traffic only, regardless of the traffic-type filter above.
+      </p>
+      <aec-horizontal-bar-chart
+        [data]="crawlerRows()"
+        [categoryHeader]="crawlerHeader"
+        [valueHeader]="viewsHeader"
+        [ariaLabel]="crawlersChartLabel"
+        [emptyLabel]="emptyLabel"
+        [total]="crawlerWindowTotal()"
+        [slot]="2"
+      />
+    </section>
+  </div>
+
+  <!-- ── The honesty envelope, last: caveats about what you just read. ─── -->
+  @if (notes().length > 0) {
+  <section aria-labelledby="traffic-notes-heading">
+    <h3
+      id="traffic-notes-heading"
+      class="mb-2 text-sm font-bold text-(--text-primary)"
+      i18n="@@admin.traffic.notes.heading"
+    >
+      About these numbers
+    </h3>
+    <aec-admin-note-list [notes]="notes()" />
+  </section>
+  } }
+</section>

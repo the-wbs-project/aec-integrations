@@ -85,6 +85,24 @@ import { AdminSummaryStore } from './admin-summary.store';
                   <span i18n="@@admin.shell.nav.requests">Requests</span>
                 </a>
               </li>
+              <!-- AECI-578 (Phase 8.3 P1.4). Deliberately a single item copied
+                   from the pattern above rather than the start of a restructure:
+                   AECI-576 (P1.2) regroups this nav into Insights / Catalog /
+                   Operations and renames the h1, and a one-<li> addition is
+                   trivial for it to reconcile. -->
+              <li>
+                <a
+                  routerLink="/admin/traffic"
+                  routerLinkActive="bg-(--surface-raised) text-(--text-primary)"
+                  ariaCurrentWhenActive="page"
+                  class="flex items-center gap-3 rounded-(--radius-md) px-3 py-2 text-sm
+                    font-bold text-(--text-secondary) no-underline transition-colors
+                    hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2
+                    focus-visible:outline-(--accent-primary)"
+                >
+                  <span i18n="@@admin.shell.nav.traffic">Traffic</span>
+                </a>
+              </li>
               <li>
                 <a
                   routerLink="/admin/reviewers"

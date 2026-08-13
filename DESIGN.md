@@ -440,6 +440,69 @@ The signature data component for review scores. Source Serif 4 numerals (headlin
 - **Label below:** Atkinson Hyperlegible label scale, text-secondary color.
 - **Range marker** (optional, sparse): a single vertical mark on a 1-10 axis with no fill, no gradient, no animation — visible at a glance, not a chart.
 
+### Data visualization — operator console only (AECI-578)
+
+The admin panel (`/admin/*`, `docs/ADMIN_PANEL_SPEC.md` §8) is the one surface in
+AECi that plots multi-series data. Its primitives live in
+`apps/web/src/app/admin/charts/` and are hand-rolled SVG + HTML — there is no
+charting dependency and none is to be added (§13 D3). The method comes from the
+`dataviz` skill: pick the form, then assign colour by the job it does, then
+validate the palette with a script rather than by eye.
+
+**The series palette is scoped, and it is not a brand colour.** Eight categorical
+hues are declared under `.aec-charts` in `apps/web/src/styles.css`, deliberately
+**outside `@theme inline`** so they never become Tailwind colour utilities and
+cannot drift onto a public surface. They encode *data-series identity* on an
+operator screen. **Forest remains the sole brand primary** under the
+Forest-Anchor Rule above; nothing here is a second primary, and none of these
+hues may appear outside `/admin`.
+
+| Slot | Hue | Light | Reserved for |
+|---|---|---|---|
+| 1 | blue | `#2a78d6` | human page views |
+| 2 | orange | `#eb6834` | bot page views |
+| 3 | aqua | `#1baf7a` | — |
+| 4 | yellow | `#eda100` | — |
+| 5 | magenta | `#e87ba4` | — |
+| 6 | green | `#008300` | — |
+| 7 | violet | `#4a3aa7` | — |
+| 8 | red | `#e34948` | — |
+
+Adopted verbatim from the `dataviz` skill's validated reference palette rather
+than derived from the AECi hues, because the brand system has exactly one
+meaning-bearing hue (Forest) plus Clay deep and Error red — not a categorical
+set, and a hand-derived one would need its own validation pass. Verified as a set
+with the skill's `validate_palette.js`: lightness band PASS, chroma floor PASS,
+CVD separation PASS (worst adjacent ΔE 9.1), normal-vision floor PASS (worst
+adjacent ΔE 19.6).
+
+Rules that ride with it:
+
+- **Colour follows the entity, never its rank.** Slots are declared as part of a
+  series' identity, not assigned by array index — a filter that changes the series
+  count must not repaint the survivors. Human is always slot 1, bot always slot 2.
+- **The relief rule.** Slots 3, 4 and 5 measure below 3:1 against the light
+  surface (2.74 / 2.11 / 2.62). Any chart reaching slot 3 must ship **visible**
+  value labels. The visually-hidden data table does *not* discharge this — the
+  reader who needs the relief can see the chart.
+- **Eight is the ceiling.** A ninth generated hue is indistinguishable under CVD.
+  Past eight, fold the tail into `--chart-other` or facet.
+- **Text never wears the data colour.** Values, labels, legends and axis text use
+  `--text-primary` / `--text-secondary`; a coloured mark beside the text carries
+  identity.
+- **Marks:** 2px lines with round caps; area fills at ~10% opacity; ≤24px bars
+  with a 4px rounded data end and a square baseline; a **2px surface gap** between
+  every pair of touching fills, columns and stacked segments alike; hairline solid
+  gridlines in `--chart-grid`. White does the separating — never a stroke around a
+  mark.
+- **Never a dual axis**, never a truncated bar baseline, never a rainbow ramp.
+- **Legend for ≥2 series, none for one** (the title already names a lone series).
+- **Light only.** The skill's dark column is recorded there for the Stage 2 dark
+  reintroduction; Stage 1 ships no `dark:` variant.
+- **Responsive via `viewBox`, never a JS resize handler.** Axis labels are HTML
+  positioned by percentage over the SVG, because `viewBox` scaling would shrink
+  SVG text to unreadable sizes in a narrow column.
+
 ### Navigation
 
 - **Style:** Atkinson Hyperlegible label scale, sentence case, text-primary color, transparent background.
