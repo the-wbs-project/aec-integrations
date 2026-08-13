@@ -1,102 +1,131 @@
-import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
+import { Component, computed, input } from '@angular/core';
 
 import type { AdminNote, AdminNoteCode } from '@aeci/shared';
 
-/** `AdminNote.params` — string/number values interpolated into the prose. */
-type NoteParams = Record<string, string | number> | undefined;
-
 /**
- * The honesty envelope, rendered (AECI-577 / `ADMIN_PANEL_SPEC.md` §1.1).
+ * AECI-576 / Phase 8.3 P1.2 — the operator console's **honesty envelope**,
+ * rendered. Every admin-panel response carries an `AdminNote[]` naming the biases
+ * that apply to *that* window (`docs/ADMIN_PANEL_SPEC.md` §1.1 / §6).
  *
- * Every admin-panel response carries an `AdminNote[]` naming the biases that
- * apply to *its* window. The API deliberately does not send prose: `code` +
- * `params` are the contract and `message` is an untranslated operator fallback
- * for curl and logs. That split is what lets the spec's "machine-readable notes"
- * requirement coexist with CLAUDE.md's unconditional i18n rule — so this
- * component is where the codes become localized sentences, and it is shared so
- * every panel screen says the same thing about the same caveat.
+ * The `code` is the contract and the `params` are its data; `message` is a plain
+ * English operator fallback for curl and logs and is deliberately **untranslated**
+ * on the wire. So this component localizes from `code` + `params` and never renders
+ * `message` — which is how "machine-readable notes rather than the UI hardcoding
+ * prose" coexists with CLAUDE.md's unconditional i18n rule (§9.4).
  *
- * {@link PROSE} is a `Record<AdminNoteCode, …>`, not a `switch`: adding a code to
- * the shared enum then fails the build here rather than silently rendering an
- * empty banner.
+ * {@link NOTE_PROSE} is typed `Record<AdminNoteCode, …>`, so adding a code to the
+ * shared enum is a **compile error here** rather than a note that silently
+ * disappears from the UI. That is the whole point of the map being exhaustive.
+ *
+ * `warn` notes take the Bone/Clay treatment already used by the requests queue's
+ * duplicate + domain-mismatch chips (the console inherits the queues' visual
+ * language — §9.10, no new anchor site); `info` notes stay quiet. Severity is
+ * carried by a "Note"/"Caveat" chip, never by colour alone.
  */
 @Component({
   selector: 'aec-admin-notes',
-  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    @let list = visible();
-    @if (list.length > 0) {
-      <ul
-        role="list"
-        class="space-y-1.5"
-        i18n-aria-label="@@admin.notes.aria"
-        aria-label="How to read these numbers"
-      >
-        @for (n of list; track n.code) {
-          <li
-            class="flex gap-2 text-xs leading-relaxed"
-            [class]="
-              n.severity === 'warn' ? 'text-(--accent-secondary-deep)' : 'text-(--text-secondary)'
-            "
-          >
-            <span aria-hidden="true" class="select-none">•</span>
-            <span>{{ prose(n) }}</span>
-          </li>
-        }
-      </ul>
+    @let items = rendered();
+    @if (items.length > 0) {
+      <!-- A plain <div>, not an <aside>: a complementary landmark nested inside
+           <main> trips axe's landmark-complementary-is-top-level, and these
+           caveats belong to the numbers below them, not beside them. The list
+           carries the accessible name instead. -->
+      <div class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-4">
+        <ul
+          role="list"
+          class="space-y-2"
+          i18n-aria-label="@@admin.notes.aria"
+          aria-label="How to read these numbers"
+        >
+          @for (n of items; track n.key) {
+            <li class="flex gap-2 text-xs leading-relaxed">
+              <span
+                class="mt-0.5 inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[0.6875rem]
+                  font-bold"
+                [class]="
+                  n.warn
+                    ? 'bg-(--accent-warm) text-(--accent-secondary-deep)'
+                    : 'bg-(--surface-sunken) text-(--text-secondary)'
+                "
+              >
+                @if (n.warn) {
+                  <ng-container i18n="@@admin.notes.severity.warn">Caveat</ng-container>
+                } @else {
+                  <ng-container i18n="@@admin.notes.severity.info">Note</ng-container>
+                }
+              </span>
+              <span class="text-(--text-secondary)">{{ n.text }}</span>
+            </li>
+          }
+        </ul>
+      </div>
     }
   `,
   styles: [':host { display: block; }'],
 })
 export class AdminNotes {
-  readonly notes = input<readonly AdminNote[]>([]);
+  readonly notes = input.required<readonly AdminNote[]>();
 
-  /** Warnings first — they change how a number should be read, not just how it
-   *  was produced. Order within a severity is the API's. */
-  protected readonly visible = computed(() =>
-    [...this.notes()].sort((a, b) => Number(b.severity === 'warn') - Number(a.severity === 'warn')),
+  protected readonly rendered = computed(() =>
+    this.notes().map((n, i) => ({
+      key: `${n.code}-${i}`,
+      warn: n.severity === 'warn',
+      text: NOTE_PROSE[n.code](n.params ?? {}),
+    })),
   );
+}
 
-  protected prose(note: AdminNote): string {
-    return PROSE[note.code](note.params);
-  }
+type NoteParams = Readonly<Record<string, string | number>>;
+
+/** `params` values are `string | number` on the wire; a missing one renders an
+ *  em-dash rather than "undefined" — a note is never worth breaking a page over. */
+function str(params: NoteParams, key: string): string {
+  const v = params[key];
+  return v === undefined ? '–' : String(v);
+}
+
+function num(params: NoteParams, key: string): number {
+  const v = params[key];
+  return typeof v === 'number' ? v : Number(v ?? 0);
 }
 
 /**
- * One localized sentence per code. Each says what the number actually means, not
- * that a flag was set — a caveat the operator cannot act on is noise.
+ * Localized prose per note code. EXHAUSTIVE by type — see the class doc.
+ * Wording tracks the API's own `message` fallbacks so the screen and a `curl`
+ * of the same endpoint tell the operator the same story.
  */
-const PROSE: Record<AdminNoteCode, (p: NoteParams) => string> = {
+const NOTE_PROSE: Record<AdminNoteCode, (params: NoteParams) => string> = {
   partial_day: (p) =>
-    $localize`:@@admin.notes.partialDay:This window includes today (UTC), so ${String(p?.['day'] ?? '')}:DAY: is still filling.`,
+    $localize`:@@admin.notes.partialDay:${str(p, 'day')}:DAY: is not a complete UTC day yet, so its figures are still filling and will not match the digest until 00:00 UTC.`,
 
   bot_classification_incomplete: (p) =>
-    $localize`:@@admin.notes.botClassificationIncomplete:${Number(p?.['rows'] ?? 0)}:ROWS: views in this window were recorded before bot classification existed, and are counted as human.`,
+    $localize`:@@admin.notes.botClassificationIncomplete:${num(p, 'rows')}:ROWS: page views in this window were captured before bot classification and are counted as human.`,
 
   referrer_source_incomplete: (p) =>
-    $localize`:@@admin.notes.referrerSourceIncomplete:${Number(p?.['rows'] ?? 0)}:ROWS: human views have no recorded source. The referrer was never stored for them, so this cannot be backfilled. They read as unknown, not as Direct.`,
+    $localize`:@@admin.notes.referrerSourceIncomplete:${num(p, 'rows')}:ROWS: human page views in this window have no traffic source. This is not backfillable: the header was never stored.`,
 
   direct_is_mixed_bucket: () =>
-    $localize`:@@admin.notes.directIsMixedBucket:Direct mixes true direct arrivals with in-app navigation, because a same-origin referrer also classifies as Direct.`,
+    $localize`:@@admin.notes.directIsMixedBucket:Direct mixes true direct arrivals with in-app navigation: a same-origin referrer classifies as Direct.`,
 
   visitor_definition_approximate: () =>
-    $localize`:@@admin.notes.visitorDefinitionApproximate:A visitor is one distinct browser-and-network pair inside the window. That over-counts when a browser updates, and under-counts when several people share a network.`,
+    $localize`:@@admin.notes.visitorDefinitionApproximate:A visitor is a distinct browser-and-network pair within the window. It over-counts when a browser updates and under-counts behind a shared network.`,
 
   catalog_series_is_additions_only: () =>
-    $localize`:@@admin.notes.catalogSeriesIsAdditionsOnly:This series counts additions, not running totals: rows can be removed without leaving a per-row record.`,
+    $localize`:@@admin.notes.catalogSeriesIsAdditionsOnly:This series counts creation events from the audit log: additions per day, not a net total. Rows removed later still count on the day they were added.`,
 
   catalog_series_starts_at: (p) =>
-    $localize`:@@admin.notes.catalogSeriesStartsAt:The window starts before record-keeping began (${String(p?.['day'] ?? '')}:DAY:), so the earliest days read as zero for want of data, not for want of activity.`,
+    $localize`:@@admin.notes.catalogSeriesStartsAt:The audit log begins ${str(p, 'earliest_day')}:EARLIEST_DAY:. Days before that read zero for want of data, not for want of activity.`,
 
   internal_filter_unavailable: () =>
-    $localize`:@@admin.notes.internalFilterUnavailable:Internal-traffic filtering is not configured, so every figure here is unfiltered.`,
+    $localize`:@@admin.notes.internalFilterUnavailable:Internal-traffic filtering is not available, so every figure here is unfiltered.`,
 
   internal_filter_applied: (p) =>
-    $localize`:@@admin.notes.internalFilterApplied:Figures are shown both unfiltered and excluding internal traffic (AS${String(p?.['asns'] ?? '')}:ASNS:). The unfiltered figure is always the primary one.`,
+    $localize`:@@admin.notes.internalFilterApplied:Figures are reported both unfiltered and excluding these networks: ${str(p, 'asns')}:ASNS:. The unfiltered figure is always the primary one.`,
 
   requires_recompute: () =>
-    $localize`:@@admin.notes.requiresRecompute:Some checks were left out because they are slow to run. Re-run them to fill in the gaps.`,
+    $localize`:@@admin.notes.requiresRecompute:Data-quality checks and Algolia drift are left out of this view because they need network calls. Use Recompute to run them.`,
 
   algolia_credentials_absent: () =>
-    $localize`:@@admin.notes.algoliaCredentialsAbsent:Search-index drift could not be measured. The Algolia credentials are not configured on this environment.`,
+    $localize`:@@admin.notes.algoliaCredentialsAbsent:Algolia credentials are not configured in this environment, so index drift could not be measured.`,
 };
