@@ -52,6 +52,14 @@ Priorities in order:
 - Helper functions (`computeCacheTags`, `invalidateForEntity`, `appendAuditLog`)
 - Score calculations and aggregations
 - Business rules (review duplicate detection, ban enforcement)
+- **Chart geometry** (AECI-576 / `ADMIN_PANEL_SPEC.md` §8, §11) — scales, path strings, bar
+  layout, and the degenerate cases (empty, single-point, all-zero, non-finite input). This is a
+  category rather than a one-off: the admin console's charts are hand-rolled SVG with **no
+  charting dependency**, so their maths is ours to test. It only stays testable because §8
+  requires the geometry to be a pure function of `(values, box)` with no DOM measurement — which
+  is also what makes the charts SSR-safe. `apps/web/src/app/admin/charts/chart-geometry.spec.ts`
+  is the reference: plain Vitest, no TestBed, no `*.component.spec.ts` suffix. If a chart's maths
+  needs a mounted component to test, the maths is in the wrong file.
 
 **Sometimes:**
 - Service classes if they have meaningful logic beyond delegation

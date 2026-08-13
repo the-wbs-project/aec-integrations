@@ -25,7 +25,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { DonutChart } from './donut-chart';
 import { HorizontalBarChart } from './horizontal-bar-chart';
 import { LineChart } from './line-chart';
-import { StackedBarChart } from './stacked-bar-chart';
+import { StackedSeriesChart } from './stacked-series-chart';
 import type { ChartCategory, ChartSeries } from './chart-types';
 
 const DAYS = ['1 Aug', '2 Aug', '3 Aug'];
@@ -72,8 +72,8 @@ const CASES: ChartCase[] = [
     emptyInputs: { series: [], categories: [] },
   },
   {
-    name: 'StackedBarChart',
-    type: StackedBarChart,
+    name: 'StackedSeriesChart',
+    type: StackedSeriesChart,
     inputs: {
       series: SERIES,
       categories: DAYS,

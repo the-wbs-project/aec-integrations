@@ -410,6 +410,16 @@ Phase 6 extends the admin area with **vendor-request moderation** (`/admin/reque
 
 - **Repeat-offender prompt + ban dialog** (in `<aec-review-queue>`, `admin/reviews/review-queue.ts`) — when an admin rejects a review and that pushes the reviewer past the rejection threshold, the `PATCH /api/admin/reviews/:id` response carries a `repeat_offender` payload that raises a dismissible prompt. Confirming opens a **Spartan ban dialog** (`BrnDialog`) with a required reason; the dialog is driven **imperatively** from the event handler (`openBan()`), never from an `effect()` (a `BrnDialog.open()` inside an effect throws NG0602). Banning calls `PATCH /api/admin/reviewers/:id` `{action:'ban', reason}`.
 
+### Operator console (Phase 8.3)
+
+Phase 8.3 (`docs/ADMIN_PANEL_SPEC.md`, epic AECI-572) turns the moderation area into the **operator console**: `<aec-admin-shell>`'s `h1` becomes "Admin", its nav groups into **Insights / Catalog / Operations**, and `/admin` opens on the Overview. **No new Mobbin anchor was picked, deliberately** (spec §9.10): the console inherits the Phase 5/6 admin queues' visual language and the home stats cards' card vocabulary — bordered `--surface-raised`, border not shadow, Forest figures, `tabular-nums`, Bone/Clay-deep for anything cautionary. One publication, one voice (Anchor-Site Rule). Token-only, i18n throughout, light-only.
+
+- **Overview** (`<aec-admin-overview>`, `admin/overview/`) — the `/admin/overview` child route and the 05:00 analytics digest as a live page. Four `<aec-stat-tile>`s plus a catalog-totals card, a 30-day human-vs-bot chart, ranked top-sources / top-products lists, and a five-item status strip. A **Recompute** button re-reads the bundle with `?recompute=1` to fill the two network-dependent status items, announcing via a polite live region.
+
+- **Resolution honesty is a visual rule here, not just a data one.** Every tile's caption states the window it covers, and the unique-visitors definition renders *next to the number* rather than in a tooltip. The response's caveats render through `<aec-admin-notes>` — a Note/Caveat chip plus localized prose keyed off the API's machine-readable `code`, placed above every figure it qualifies. Unmeasured values read "Not measured", never `0`.
+
+- **Charts are hand-rolled SVG** (`admin/charts/`, spec §8 / §13 D3): `<aec-sparkline>` and `<aec-stacked-bar-chart>`, geometry from pure functions so they are SSR-safe, sized by `viewBox` rather than measurement, series in Forest and Clay-deep (distinct in hue **and** lightness). A chart is never the only representation of a number: the stacked bar carries a visible legend and a visually-hidden `<table>` of the full series, and a sparkline only ever accompanies a figure already rendered as text. An empty series renders nothing rather than a flat line implying a measured zero.
+
 ### Inputs / Fields
 
 Native inputs driven by Signal Forms today (ADR 0009); richer controls use Angular Aria per the provider note above (ADR 0010, Accepted) — `select`/`radio` are realised via combobox/listbox (Aria@22 ships neither), and these discrete-choice controls bridge into Signal Forms via `[(value)]`+`(valueChange)`, not `[formField]`. Styling binds to tokens.

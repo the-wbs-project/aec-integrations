@@ -131,9 +131,25 @@ Nine routes under the existing `AdminShell` (`app/admin/admin-shell.ts`). The sh
     /admin/system          §5.6
 ```
 
+**Shell restructure — SHIPPED (AECI-576, P1.2).** The `h1` reads "Admin", `/admin` redirects to `/admin/overview`, and the nav is grouped. Two mechanics were settled while building it:
+
+- **An unbuilt route is omitted, not disabled.** P1.2 shipped **Insights → Overview** and **Operations → Review queue · Requests · Reviewer bans**; the other five entries appear when their screen does. A group with no items renders no heading either, so `Catalog` is absent until AECI-579. This is the "do not link to a 404" requirement resolved in favour of a nav that only ever shows working destinations — a disabled entry advertises a capability the operator cannot use, and there is no second surface where these routes are discoverable, so nothing is lost by adding them one at a time. The nav is a `readonly AdminNavGroup[]` in the shell, so a later unit adds one array entry rather than editing markup.
+- **Group labels are `<p>` + `aria-labelledby`, not headings.** The shell owns the only `h1` and each screen owns the only `h2` (asserted by every queue's component spec). A heading in the nav would sit between them and break axe's heading-order rule for no navigational gain — the `<ul>` gets its accessible name from the label either way.
+
+The three Operations queues moved under a heading and are otherwise untouched. The header user-menu / nav-menu admin links still point at `/admin/reviews`, deliberately: that link carries the pending-review count.
+
 ### 5.1 Overview
 
 The analytics digest as a live page. Stat tiles with sparklines — human page views, unique visitors, new sign-ins, active subscribers, catalog totals — each with a day-over-day and 7-day delta matching the email's `deltaText` semantics. Below: a 30-day traffic chart (human vs bot), top traffic sources, top viewed products, and a status strip (prod SHA · stats freshness · failing DQ checks · Algolia drift · moderation depth). A **"recompute today's digest"** action so the operator is not waiting for 05:00 UTC — implemented as `GET /api/admin/overview?recompute=1`, which re-runs the digest's metric collection (already a pure read) and returns it. It does **not** send the email and writes nothing; §13 **D8** draws that line.
+
+**SHIPPED (AECI-576, P1.2), with one paragraph above corrected by what P1.1 actually returns.**
+
+- **"each with a day-over-day and 7-day delta" overshoots the contract.** `/api/admin/overview` returns `delta_7d` for **human page views only**; `new_sign_ins` carries a day delta, and `active_subscribers` + catalog totals are live snapshots that are deliberately not windowed at all (`AdminOverviewAudienceSchema`, `AdminOverviewCatalogSchema`). The screen therefore **renders only the deltas the API returns and derives none client-side** — re-deriving one in the browser would fork `computeDelta`, the single implementation the digest email and the panel share, which is the property §6's P1.1 note 1 exists to protect. Tiles with no delta state their window instead. Adding the missing deltas is an additive change to the endpoint; it is not a UI concern.
+- **Sparklines come from two sources.** Human page views uses the bundle's own `series_30d`. Unique visitors and new sign-ins are fetched in a **second, non-blocking wave** from `/api/admin/metrics/timeseries` over the same window, so the tiles paint on the first response and a failed series costs one sparkline rather than the page. `active_subscribers` has **no metric key** — it is a live `mailing_list` snapshot, not a series — so that tile ships with no sparkline rather than an invented one.
+- **The status strip reads two version endpoints.** The bundle's `status.version` is the API Worker's; the strip additionally fetches the SSR Worker's own `GET /_version` and flags a mismatch. That comparison is why both endpoints exist (AECI-92) — `/api/version` is proxied, so a stale SSR bundle in front of a current API is invisible from it alone. A sha of `"unknown"` (the placeholder when `COMMIT_SHA` was not injected) is never reported as drift.
+- **`null` renders as "Not measured", never as zero.** `data_quality` and `algolia_drift` are absent by default; showing `0 failing` would claim a clean bill of health nobody checked for.
+- **A failed recompute keeps the page.** Initial-load failure and recompute failure are separate states: the first replaces the page with a retry, the second shows an inline alert and leaves the figures already on screen intact. Discarding a good response because an *optional* refresh failed would lose real information.
+- **A day picker is out of scope for P1.2.** The endpoint's `?day=` is unused by the UI, which always reports the digest's default window (the prior complete UTC day). Historical navigation belongs with §5.3's Traffic section.
 
 ### 5.2 Activity
 
@@ -153,6 +169,8 @@ Operator-only paths (`/admin/*`, `/account`) never appear in this feed — §9.6
 Filters: date range · traffic type (humans / bots / all, default humans) · source · country · path contains · **"filter out internal traffic"**, mirroring PostHog's toggle, backed by an `ANALYTICS_INTERNAL_ASNS` var. That last one is not cosmetic: on 2026-08-10, **67 of 92 "human" views came from the operator's own ISP** (AS23700, Jakarta). It is bound by the three constraints in §13 **D10** — query-time only (it never touches `is_bot` and never runs at ingest), both numbers always shown, and the var ships unset.
 
 Entity hydration follows the `target` `LinkRef` pattern already used by `GET /api/admin/requests`, so `/products/:slug` renders as a linked product name.
+
+**How D10 constraint 2 resolves on a row feed (settled by AECI-577).** "Show both numbers, never substitute" falls out of `AdminCount` for free on a *count* endpoint, but this is a *row list*: `exclude_internal=1` removes rows, so computing the counts the same way would leave the operator reading a smaller number with nothing beside it — the substitution the constraint exists to prevent. So `GET /api/admin/page-views` resolves the filter **twice**: `window_total` and `window_visitors` are computed both ways **unconditionally** whenever the var is set, toggle or no toggle, and `exclude_internal` governs only which rows come back. The screen therefore always reads "1,204 views · 312 excluding internal traffic", and the toggle's effect is legible before it is used rather than only after. `/api/admin/overview` already set this precedent — it always asks. One local consequence: `internal_filter.applied` means *"the row list was filtered"* on this endpoint, which `API_CONTRACTS.md` §6.10 records.
 
 ### 5.3 Traffic
 
@@ -239,6 +257,15 @@ Nothing about D8's boundary moves: both are still pure reads. From P2.1 the flag
 1. **Digest parity is structural, not periodic.** The overview *calls* `collectAnalyticsMetrics(db, windowsForDay(day))` rather than mirroring its queries, and its deltas come from an exported `computeDelta` that the email's own `deltaText` also calls. There is one implementation of each number. Deltas cross the wire **structured** (`{ current, prior, diff, pct }`), not as the email's prose, because §9.4's i18n rule is unconditional — the semantics are shared, the strings are the UI's.
 2. **Bias notes are derived from the window, not from a date.** `bot_classification_incomplete` fires because the window contains `is_bot IS NULL` rows, so it disappears on its own once P2.2 backfills. Nothing hardcodes 2026-08-05.
 3. **Note `code` is the contract; `message` is a fallback.** The UI localizes from `code` + `params`; `message` (and a null group's `label`) is untranslated operator text for curl and logs. This is what lets §1.1's "machine-readable notes rather than the UI hardcoding prose" coexist with §9.4.
+
+**P1.3 implementation notes (AECI-577).** Contract in the same `packages/shared/src/api/admin-panel.ts`; handler in `apps/api/src/routes/admin-page-views.ts` over `listPageViews` / `pageViewFilterPredicate` in `lib/admin-analytics.ts`. Four choices are worth knowing:
+
+1. **The D12 floor is structural, not a filter.** `listPageViews` builds its `WHERE` from `inWindow()`, the same choke point every other query in the module derives from, so `/admin/*` and `/account` are excluded beneath the caller's filters and no query string can surface them. A hand-rolled `and(gte(...), lt(...))` would silently lose it — which is why there is one `inWindow` rather than a repeated range predicate.
+2. **The internal-ASN filter is resolved twice** — see the §5.2 note above.
+3. **The UA hash is truncated in SQL**, not in the template (`substr(user_agent_hash, 1, 8)`). §9.7 permits a truncated pseudonymous id and forbids correlation beyond it; truncating at the query makes that a property of the contract instead of a habit of the UI, and the full hash never crosses the wire.
+4. **The feed's `source` / `country` dropdowns are fed by `traffic/breakdown`**, not by a duplicated vocabulary. The options are then exactly the values present in the selected window, the NULL bucket arrives as a real `key: null` group, and no list exists in two places waiting to drift. `ADMIN_PAGE_VIEW_NULL_FILTER` (`'__none__'`) is how that bucket is selected, since a query string cannot carry a null.
+
+The UI half also lands three shared pieces under `apps/web/src/app/admin/` that P1.2/P1.4–P1.6 reuse: `AdminNotes` (the first rendering of `AdminNote` codes as localized prose), `AdminPaginator` (the panel's first real pagination — the moderation queues load one capped page), and `AdminSelect` (an Angular Aria combobox + listbox per ADR 0010).
 
 ---
 
@@ -342,11 +369,33 @@ Rules:
 - **Responsive** via `viewBox` + `preserveAspectRatio`, not JS resize handlers.
 - Geometry functions are pure and unit-tested independently of rendering (§11).
 
-### 8.1 As shipped (AECI-578, P1.4)
+### 8.1 As shipped (AECI-576 P1.2 + AECI-578 P1.4)
 
-All five forms are built and live in `apps/web/src/app/admin/charts/`. Three
-things about the implementation differ from a literal reading of the rules above,
-each deliberate and each recorded here rather than left for a reviewer to find.
+The `charts/` folder has **two coexisting primitive sets** today, a deliberate
+outcome of the two issues landing independently:
+
+- **P1.2 (AECI-576)** created `apps/web/src/app/admin/charts/` for the Overview's
+  needs: `chart-geometry.ts` (the pure layer — `niceMax`, `sparklineGeometry`,
+  `stackedBarGeometry`; non-finite/negative values clamp to 0 rather than emitting
+  `NaN` path commands), `sparkline.ts` (`<aec-sparkline>` — empty renders nothing,
+  a single value renders a flat line, no hidden table since the tile shows the
+  figure), and `stacked-bar-chart.ts` (`<aec-stacked-bar-chart>` — scales on the
+  column **total** so a stack never overflows; visible legend + visually-hidden
+  `<table>`; Forest / Clay-deep fills, distinct in hue **and** lightness). Its
+  `ranked-bar-list.ts` lives with the Overview, since a horizontal bar needs no
+  SVG geometry.
+- **P1.4 (AECI-578)** added the full §8 vocabulary as a separate, comprehensive
+  library alongside it. Where the two overlap (a sparkline, a stacked time-series
+  chart), the P1.4 components ship under distinct names —
+  `series-sparkline.ts` (`<aec-series-sparkline>`, slot-based, tile owns the
+  table) and `stacked-series-chart.ts` (`<aec-stacked-series-chart>`, the
+  `[area]`-toggle bar/area with hover + data table) — so the merged Overview code
+  is untouched. **Follow-up:** unify the Overview onto the P1.4 library and retire
+  the P1.2 duplicates (`chart-geometry.ts` / `sparkline.ts` / `stacked-bar-chart.ts`).
+
+The rest of this section describes the P1.4 library. Three things about it differ
+from a literal reading of the rules above, each deliberate and each recorded here
+rather than left for a reviewer to find.
 
 **Modules.** `geometry.ts` (scales, ticks, paths, stacking, arcs), `format.ts`
 (numbers + the UTC/WIB layer), `axis.ts` (the time-axis model), `chart-types.ts`
@@ -354,8 +403,8 @@ each deliberate and each recorded here rather than left for a reviewer to find.
 rule**, which is both the SSR-safety guarantee and what lets their specs run in
 the fast plain-Vitest runner rather than `ng test` (§11).
 
-**Components.** `sparkline`, `line-chart`, `stacked-bar-chart` (`[area]` flips
-bar ↔ area), `horizontal-bar-chart`, `donut-chart`, plus `stat-tile`,
+**Components.** `series-sparkline`, `line-chart`, `stacked-series-chart` (`[area]`
+flips bar ↔ area), `horizontal-bar-chart`, `donut-chart`, plus `stat-tile`,
 `chart-legend` and `chart-data-table`.
 
 **1. The palette is the `dataviz` skill's validated eight-hue reference set,
@@ -423,10 +472,10 @@ Issue-sized units. Phase 1 requires **no schema change** and carries most of the
 |---|---|---|---|
 | — | AECI-573 | **Decision gate**: settle §13 Q1–Q7, pick timing + base branch, promote this doc to a contract | — |
 | **§9.6** | AECI-575 | Exclude `/admin/*` + `/account` from `PageViewTracker` — **SHIPPED 2026-08-12** (write side + retroactive read filter, §13 D12) | — |
-| **P1.1** | AECI-574 | API: `overview`, `metrics/timeseries` (live-aggregation mode), `traffic/breakdown` | AECI-573 (D10) |
-| **P1.2** | AECI-576 | UI: shell nav restructure (three groups, `h1` → "Admin") + Overview | P1.1, §9.6 |
-| **P1.3** | AECI-577 | API + UI: `GET /api/admin/page-views` + the Activity feed | P1.1 |
-| **P1.4** | AECI-578 | UI: Traffic section + the chart primitives (§8) — **SHIPPED** (§8.1; three §5.3 items deferred to a follow-up, see §5.3) | P1.1 |
+| **P1.1** | AECI-574 | API: `overview`, `metrics/timeseries` (live-aggregation mode), `traffic/breakdown` — **SHIPPED 2026-08-12** | AECI-573 (D10) |
+| **P1.2** | AECI-576 | UI: shell nav restructure (three groups, `h1` → "Admin") + Overview — **SHIPPED 2026-08-13**; also started `admin/charts/` (§8) | P1.1, §9.6 |
+| **P1.3** | AECI-577 | API + UI: `GET /api/admin/page-views` + the Activity feed — **SHIPPED 2026-08-13** | P1.1 |
+| **P1.4** | AECI-578 | UI: Traffic section + the full chart-primitive library (§8) — **SHIPPED** (§8.1; coexists with the P1.2 sparkline/stacked-bar pending a unify follow-up; three §5.3 items deferred, see §5.3) | P1.1 |
 | **P1.5** | AECI-579 | API + UI: Catalog coverage + promotion funnel | — |
 | **P1.6** | AECI-580 | API + UI: System status (version, DQ on demand, Algolia, table counts) | — |
 | **P2.1** | AECI-581 | `metrics_daily` + snapshot cron + backfill, **plus `products.promoted_at`** (§13 D6) | P1.4 |
@@ -468,7 +517,7 @@ Staleness is the recurring review finding, so this list is part of the contract:
 |---|---|
 | `API_CONTRACTS.md` | New section for every §6 endpoint, including the `?recompute=1` semantics (§13 D8) |
 | `DATABASE_SCHEMA.md` | `metrics_daily`, `job_runs`, `products.promoted_at`, `page_views.cf_as_organization`, the three dropped `page_views` columns, any new index. **Also correct the "Audit log and page_views retention: indefinite for Stage 1" line** — false once §7.4 lands |
-| `STAGE_1_SPEC.md` §22 | Pointer to this document as the admin-surface source of truth. **Cite-check first** — `PHASE_8_COMPLETION.md` records two stale spec-cites in that file |
+| `STAGE_1_SPEC.md` §22 | Pointer to this document as the admin-surface source of truth. **Cite-check first** — `PHASE_8_COMPLETION.md` records two stale spec-cites in that file. **Landed with AECI-576**; the two recorded stale cites are §12 and §16, neither of which §22 touches, and §22's own content (`/admin/reviews`, the pending badge) is still accurate |
 | `STAGE_1_SPEC.md` §26.1, §26.6 | The audit carve-out (§13 D11) and the retention scope cross-reference (§7.4). **Landed with AECI-573, not at closeout** |
 | `adr/0022-cron-bookkeeping-exempt-from-audit-invariant.md` + `adr/README.md` | The ADR behind the §26.1 carve-out, plus its index row. **Landed with AECI-573** |
 | `CODE_REVIEW_EXEMPTIONS.md` | The carve-out as a standing, non-expiring exemption pointing at ADR 0022 — so a reviewer meeting an unaudited cron write finds the reasoning. **Landed with AECI-573** |
@@ -479,8 +528,8 @@ Staleness is the recurring review finding, so this list is part of the contract:
 | `POST_LAUNCH_HEALTH_REPORT.md` | New dated entry (see §14.3) |
 | `OBSERVABILITY.md` | Any new metric emitted by the snapshot / retention crons |
 | `RUNBOOKS.md` | Runbook entries for the snapshot and retention crons, matching every other cron's |
-| `TESTING_STRATEGY.md` | The §11 approach — chart-geometry pure-function tests are a new category for this repo |
-| `CACHE_STRATEGY.md` | Record `/admin/*` as deliberately uncacheable (`private, no-store`, absent from `ROUTE_CACHE_PATTERNS`) so §9.2 is enforced from the caching doc too |
+| `TESTING_STRATEGY.md` | The §11 approach — chart-geometry pure-function tests are a new category for this repo. **Landed with AECI-576** (§3.2 "Always") |
+| `CACHE_STRATEGY.md` | Record `/admin/*` as deliberately uncacheable (`private, no-store`, absent from `ROUTE_CACHE_PATTERNS`) so §9.2 is enforced from the caching doc too. **Landed with AECI-574** (§4, "`/admin/*` is deliberately uncacheable"); AECI-576 added `/admin/overview` to the `server.spec.ts` assertion that backs it |
 | `environments.md`, `access.md` | `ANALYTICS_INTERNAL_ASNS` per tier (§13 D10) — declared, shipped unset |
 | `migrations.md` | Usually no change; confirm consciously, since this epic adds the repo's first table-recreate migration (§7.3) |
 | `PHASE_8_COMPLETION.md` | **Append** Phase 8.3, per that file's own Note D ("intentionally re-openable") |

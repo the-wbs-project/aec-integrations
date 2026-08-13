@@ -3,7 +3,7 @@ import { Component, computed, input } from '@angular/core';
 import type { AdminDelta } from '@aeci/shared';
 
 import { ChartDataTable } from './chart-data-table';
-import { Sparkline } from './sparkline';
+import { SeriesSparkline } from './series-sparkline';
 import { formatThousands } from './format';
 import type { ChartSeries, ChartSlot } from './chart-types';
 
@@ -39,7 +39,7 @@ import type { ChartSeries, ChartSlot } from './chart-types';
  */
 @Component({
   selector: 'aec-stat-tile',
-  imports: [ChartDataTable, Sparkline],
+  imports: [ChartDataTable, SeriesSparkline],
   template: `
     <div
       class="flex h-full flex-col gap-1 rounded-(--radius-lg) border border-(--border-default)
@@ -68,7 +68,7 @@ import type { ChartSeries, ChartSlot } from './chart-types';
 
       @if (series().length > 0) {
         <div class="mt-auto pt-3">
-          <aec-sparkline [values]="series()" [slot]="slot()" />
+          <aec-series-sparkline [values]="series()" [slot]="slot()" />
         </div>
         <!-- The sparkline is aria-hidden (it restates the value beside it), so
              the series it draws is carried here instead. -->

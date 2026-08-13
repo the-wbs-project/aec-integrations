@@ -1,5 +1,5 @@
 /**
- * AECI-578 / Phase 8.3 P1.4 — `StackedBarChart` rendering logic.
+ * AECI-578 / Phase 8.3 P1.4 — `StackedSeriesChart` rendering logic.
  *
  * The shared §8 a11y contract is asserted in `chart-a11y.component.spec.ts`. This
  * file covers what is specific to stacking, and specifically the two mistakes
@@ -14,7 +14,7 @@ import { provideZonelessChangeDetection } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import { StackedBarChart } from './stacked-bar-chart';
+import { StackedSeriesChart } from './stacked-series-chart';
 import type { ChartSeries } from './chart-types';
 
 const DAYS = ['1 Aug', '2 Aug', '3 Aug'];
@@ -22,7 +22,7 @@ const DAYS = ['1 Aug', '2 Aug', '3 Aug'];
 function render(series: ChartSeries[], area = false) {
   TestBed.resetTestingModule();
   TestBed.configureTestingModule({ providers: [provideZonelessChangeDetection()] });
-  const fixture = TestBed.createComponent(StackedBarChart);
+  const fixture = TestBed.createComponent(StackedSeriesChart);
   fixture.componentRef.setInput('series', series);
   fixture.componentRef.setInput('categories', DAYS);
   fixture.componentRef.setInput('categoryHeader', 'Day (UTC)');
@@ -46,7 +46,7 @@ function yRange(path: SVGPathElement): { min: number; max: number } {
   return { min: Math.min(...ys), max: Math.max(...ys) };
 }
 
-describe('StackedBarChart', () => {
+describe('StackedSeriesChart', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
   it('draws one mark per non-zero segment', () => {
@@ -161,7 +161,7 @@ describe('StackedBarChart', () => {
   it('draws a single-day window as one visible column', () => {
     TestBed.resetTestingModule();
     TestBed.configureTestingModule({ providers: [provideZonelessChangeDetection()] });
-    const fixture = TestBed.createComponent(StackedBarChart);
+    const fixture = TestBed.createComponent(StackedSeriesChart);
     fixture.componentRef.setInput('series', [
       { key: 'a', label: 'A', slot: 1, values: [42] },
     ] satisfies ChartSeries[]);

@@ -1,295 +1,156 @@
-import { Component, computed, input, signal } from '@angular/core';
+import { Component, computed, input } from '@angular/core';
 
-import { buildTimeAxis } from './axis';
-import { ChartDataTable } from './chart-data-table';
-import { ChartLegend, type ChartLegendItem } from './chart-legend';
-import { areaPath, barPath, indexAtFraction, stackSeries } from './geometry';
-import { formatThousands } from './format';
-import { slotClass, type ChartSeries } from './chart-types';
+import { type ChartBox, type StackedBarPoint, stackedBarGeometry } from './chart-geometry';
 
-const BOX = { width: 720, height: 220, padding: { top: 12, right: 12, bottom: 8, left: 8 } };
-/** The surface gap — 2 user units of white between touching columns. White does
- *  the separating; a stroke around a mark would add ink that isn't data. */
-const COLUMN_GAP = 2;
-/** The same gap, applied vertically between the segments of one column. Same
- *  width as the column gap by design: one consistent spacer across the chart. */
-const SEGMENT_GAP = 2;
-/** 4px rounded data end, square at the baseline. */
-const BAR_RADIUS = 4;
+/** Unitless drawing space, scaled by `viewBox`. `preserveAspectRatio="none"` is
+ *  deliberate: stretching rectangles horizontally distorts nothing a reader
+ *  measures, and it lets the chart fill any column width without JS (§8). */
+const BOX: ChartBox = { width: 300, height: 80 };
 
 /**
- * Stacked bar / area chart over a day axis — AECI-578 / Phase 8.3 P1.4.
- * `docs/ADMIN_PANEL_SPEC.md` §8 lists these as one form because they answer the
- * same question (part-to-whole over time) and differ only in mark; `[area]`
- * flips between them.
+ * Fill per stacked series, by index. Forest first (the primary population),
+ * Clay-deep second — they differ in **hue and lightness**, so the two series stay
+ * distinguishable without relying on color perception alone, and both clear the
+ * 3:1 non-text contrast floor on `--surface-base` / `--surface-raised`. The
+ * visually-hidden table carries the same numbers regardless.
+ */
+const SERIES_FILLS = ['var(--accent-primary)', 'var(--accent-secondary-deep)'] as const;
+
+/**
+ * AECI-576 / Phase 8.3 P1.2 — a stacked bar chart, built for the Overview's
+ * 30-day human-vs-bot traffic series.
  *
- * The page's primary chart: human vs bot page views per day.
+ * §8 rules: hand-rolled SVG (no charting dependency), pure geometry from
+ * `chart-geometry.ts` so it is SSR-safe, tokenized colors, light theme only,
+ * responsive via `viewBox`.
  *
- * ─── Two things that are easy to get wrong, and are handled ──────────────────
+ * **Accessibility.** `role="img"` with a descriptive `aria-label`, PLUS a
+ * visually-hidden `<table>` carrying the same series — §8 is explicit that a chart
+ * is never the only representation of a number, and unlike a sparkline these
+ * per-day values appear nowhere else on the page. A visible legend names each
+ * series so the fills are never the only encoding.
  *
- * **The y-domain is the stack TOTAL, not the tallest series.** `buildTimeAxis`
- * does this (`stacked: true`); getting it wrong clips the top segment above its
- * own axis, and it looks plausible enough to ship.
- *
- * **Only the topmost non-zero segment gets the rounded data end.** Rounding
- * every segment would put a rounded cap in the middle of a column, which reads as
- * a gap in the data. Interior segments are square, and the 2px surface gap is
- * what separates them.
+ * An empty series renders nothing but the empty-state message the caller passes;
+ * the geometry function returns no rects, and no axis is drawn for data that
+ * does not exist.
  */
 @Component({
   selector: 'aec-stacked-bar-chart',
-  imports: [ChartDataTable, ChartLegend],
   template: `
-    <figure class="m-0">
-      @if (legendItems().length > 1) {
-        <aec-chart-legend class="mb-3" [items]="legendItems()" />
+    @let g = geometry();
+
+    <div class="mb-3 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+      <!-- Legend: the fills are never the only encoding of which series is which. -->
+      <ul role="list" class="flex flex-wrap gap-x-4 gap-y-1">
+        @for (s of seriesLabels(); track s; let i = $index) {
+          <li class="flex items-center gap-1.5 text-xs text-(--text-secondary)">
+            <span
+              class="inline-block size-2.5 shrink-0 rounded-[2px]"
+              [style.background-color]="fillFor(i)"
+              aria-hidden="true"
+            ></span>
+            {{ s }}
+          </li>
+        }
+      </ul>
+      <!-- The bars have no axis, so without this they carry no magnitude at all:
+           a full-height column could be 9 or 9,000. This is the scale ceiling
+           (niceMax), not the observed peak. -->
+      @if (g.rects.length > 0) {
+        <span class="text-xs tabular-nums text-(--text-secondary)">{{ scaleLabel() }}</span>
       }
+    </div>
 
-      @if (isEmpty()) {
-        <p class="py-10 text-center text-sm text-(--text-secondary)">{{ emptyLabel() }}</p>
-      } @else {
-        <div class="flex gap-2">
-          <div class="relative w-10 shrink-0" aria-hidden="true">
-            @for (tick of axis().ticks; track tick.value) {
-              <span
-                class="absolute right-0 -translate-y-1/2 text-[0.6875rem] tabular-nums
-                  text-(--text-secondary)"
-                [style.top.%]="tick.pct"
-                >{{ tickLabel(tick.value) }}</span
-              >
+    @if (g.rects.length > 0) {
+      <svg
+        [attr.viewBox]="viewBox"
+        preserveAspectRatio="none"
+        role="img"
+        [attr.aria-label]="label()"
+        class="h-32 w-full border-t border-dashed border-(--border-default)"
+      >
+        @for (r of g.rects; track r.pointIndex + ':' + r.seriesIndex) {
+          <rect
+            [attr.x]="r.x"
+            [attr.y]="r.y"
+            [attr.width]="r.width"
+            [attr.height]="r.height"
+            [attr.fill]="fillFor(r.seriesIndex)"
+            aria-hidden="true"
+          />
+        }
+      </svg>
+
+      <!-- Endpoints only: 30 in-SVG day labels would be unreadable, and the
+           hidden table below carries every day for anyone who needs them. -->
+      <div class="mt-2 flex justify-between text-xs text-(--text-secondary)">
+        <span>{{ firstLabel() }}</span>
+        <span>{{ lastLabel() }}</span>
+      </div>
+    } @else {
+      <p class="py-8 text-sm text-(--text-secondary)">{{ emptyLabel() }}</p>
+    }
+
+    <!-- §8: the same series, readable by a screen reader and by anyone who
+         needs the exact numbers. Hidden visually, never from the a11y tree. -->
+    @if (points().length > 0) {
+      <table class="sr-only">
+        <caption>
+          {{
+            label()
+          }}
+        </caption>
+        <thead>
+          <tr>
+            <th scope="col" i18n="@@admin.chart.table.day">Day</th>
+            @for (s of seriesLabels(); track s) {
+              <th scope="col">{{ s }}</th>
             }
-          </div>
-
-          <div class="relative min-w-0 flex-1">
-            <svg
-              [attr.viewBox]="viewBox"
-              preserveAspectRatio="xMidYMid meet"
-              class="block h-auto w-full"
-              role="img"
-              [attr.aria-label]="ariaLabel()"
-              (pointermove)="onPointerMove($event)"
-              (pointerleave)="hoverIndex.set(null)"
-            >
-              <g aria-hidden="true">
-                @for (tick of axis().ticks; track tick.value) {
-                  <line
-                    [attr.x1]="axis().plot.x"
-                    [attr.x2]="axis().plot.x + axis().plot.width"
-                    [attr.y1]="tick.y"
-                    [attr.y2]="tick.y"
-                    stroke="var(--chart-grid)"
-                    stroke-width="1"
-                    vector-effect="non-scaling-stroke"
-                  />
-                }
-              </g>
-
-              @if (area()) {
-                @for (band of areaBands(); track band.key) {
-                  <path [attr.d]="band.d" [class]="band.fill" opacity="0.6" />
-                }
-              } @else {
-                @for (mark of marks(); track mark.key) {
-                  <path [attr.d]="mark.d" [class]="mark.fill" />
-                }
+          </tr>
+        </thead>
+        <tbody>
+          @for (p of points(); track p.label) {
+            <tr>
+              <th scope="row">{{ p.label }}</th>
+              @for (v of p.segments; track $index) {
+                <td>{{ v }}</td>
               }
-
-              @if (hoverIndex() !== null) {
-                <rect
-                  aria-hidden="true"
-                  [attr.x]="hoverBand().start"
-                  [attr.y]="axis().plot.y"
-                  [attr.width]="hoverBand().width"
-                  [attr.height]="axis().plot.height"
-                  fill="var(--text-primary)"
-                  opacity="0.06"
-                />
-              }
-            </svg>
-
-            @if (hoverIndex(); as idx) {
-              <div
-                class="pointer-events-none absolute top-0 z-10 min-w-32 -translate-x-1/2
-                  rounded-(--radius-md) border border-(--border-default) bg-(--surface-base)
-                  px-3 py-2 text-xs shadow-sm"
-                [style.left.%]="hoverPct()"
-                aria-hidden="true"
-              >
-                <p class="font-semibold text-(--text-primary)">{{ categories()[idx - 1] }}</p>
-                @for (row of hoverRows(); track row.key) {
-                  <p class="flex items-center gap-1.5 text-(--text-secondary)">
-                    <span class="size-2 shrink-0 rounded-full {{ row.swatch }}"></span>
-                    <span>{{ row.label }}</span>
-                    <span class="ms-auto font-semibold tabular-nums text-(--text-primary)">{{
-                      row.value
-                    }}</span>
-                  </p>
-                }
-              </div>
-            }
-
-            <div class="relative mt-1 h-4" aria-hidden="true">
-              @for (label of axis().labelled; track label.index) {
-                <span
-                  class="absolute -translate-x-1/2 text-[0.6875rem] whitespace-nowrap
-                    text-(--text-secondary)"
-                  [style.left.%]="label.pct"
-                  >{{ categories()[label.index] }}</span
-                >
-              }
-            </div>
-          </div>
-        </div>
-      }
-
-      <aec-chart-data-table
-        [caption]="ariaLabel()"
-        [categoryHeader]="categoryHeader()"
-        [categories]="categories()"
-        [series]="series()"
-      />
-    </figure>
+            </tr>
+          }
+        </tbody>
+      </table>
+    }
   `,
   styles: [':host { display: block; }'],
 })
 export class StackedBarChart {
-  readonly series = input.required<readonly ChartSeries[]>();
-  readonly categories = input.required<readonly string[]>();
-  readonly categoryHeader = input.required<string>();
-  readonly ariaLabel = input.required<string>();
+  /** Oldest-first columns. `segments[i]` pairs with `seriesLabels()[i]`, series 0
+   *  stacking at the bottom. */
+  readonly points = input.required<readonly StackedBarPoint[]>();
+  /** One localized label per stacked series — drives the legend and the table. */
+  readonly seriesLabels = input.required<readonly string[]>();
+  /** Accessible name for the whole chart (also the table caption). */
+  readonly label = input.required<string>();
+  /** Localized message when there is nothing to plot. */
   readonly emptyLabel = input.required<string>();
-  /** Stacked area instead of stacked columns. Same data, same domain, same
-   *  table — a denser read for long windows where columns get hairline-thin. */
-  readonly area = input(false);
 
   protected readonly viewBox = `0 0 ${BOX.width} ${BOX.height}`;
-  /** 1-based; see `LineChart.hoverIndex` for why. */
-  protected readonly hoverIndex = signal<number | null>(null);
-
-  protected readonly isEmpty = computed(() => this.categories().length === 0);
-
-  protected readonly axis = computed(() =>
-    buildTimeAxis({
-      box: BOX,
-      count: this.categories().length,
-      series: this.series().map((s) => s.values),
-      stacked: true,
-      gap: this.area() ? 0 : COLUMN_GAP,
-    }),
+  protected readonly geometry = computed(() =>
+    stackedBarGeometry(this.points(), BOX, { gap: 0.2 }),
   );
 
-  private readonly stacked = computed(() => stackSeries(this.series().map((s) => s.values)));
-
-  /** One path per series per day. Flattened so the template does not nest two
-   *  `@for`s over index-aligned arrays, which is where off-by-ones live. */
-  protected readonly marks = computed(() => {
-    const axis = this.axis();
-    const stacked = this.stacked();
-    const series = this.series();
-    const out: Array<{ key: string; d: string; fill: string }> = [];
-
-    axis.bands.forEach((band, dayIndex) => {
-      // Which series is on top TODAY — it varies per day, because a series can
-      // be zero on any given day and a zero segment must not claim the cap.
-      let topSeries = -1;
-      for (let s = series.length - 1; s >= 0; s--) {
-        if ((stacked[s]?.[dayIndex]?.value ?? 0) > 0) {
-          topSeries = s;
-          break;
-        }
-      }
-
-      series.forEach((s, seriesIndex) => {
-        const segment = stacked[seriesIndex]?.[dayIndex];
-        if (!segment || segment.value <= 0) return;
-        const isTopSegment = seriesIndex === topSeries;
-        const yTop = axis.y(segment.top);
-        const yBase = axis.y(segment.base);
-
-        // The surface gap, vertically. Every segment with another above it gives
-        // 2 units back off its TOP edge, so the boundary between two fills is
-        // white rather than a hue-on-hue seam. Without it, `human` under `bot`
-        // reads as one bar with a coloured underline instead of two quantities.
-        //
-        // Clamped to half the segment so a thin day shrinks rather than
-        // inverting into a negative height, and skipped on the topmost segment,
-        // which has nothing to separate from.
-        const inset = isTopSegment ? 0 : Math.min(SEGMENT_GAP, Math.max(0, (yBase - yTop) / 2));
-        const y = yTop + inset;
-        const height = Math.max(0, yBase - y);
-
-        out.push({
-          key: `${s.key}-${dayIndex}`,
-          d: barPath(
-            { x: band.start, y, width: band.width, height },
-            isTopSegment ? BAR_RADIUS : 0,
-            'vertical',
-          ),
-          fill: slotClass(s.slot, 'fill'),
-        });
-      });
-    });
-    return out;
-  });
-
-  /** Stacked-area variant: one filled band per series between its base and top. */
-  protected readonly areaBands = computed(() => {
-    const axis = this.axis();
-    const stacked = this.stacked();
-    return this.series().map((s, seriesIndex) => {
-      const segments = stacked[seriesIndex] ?? [];
-      const tops = axis.bands.map((band, i) => ({
-        x: band.center,
-        y: axis.y(segments[i]?.top ?? 0),
-      }));
-      const bases = axis.bands
-        .map((band, i) => ({ x: band.center, y: axis.y(segments[i]?.base ?? 0) }))
-        .reverse();
-      // Trace the top edge forward and the base edge back — a true band, not an
-      // area to the axis, so lower series are not overpainted by higher ones.
-      const d = [
-        areaPath(tops, axis.plot.y + axis.plot.height).split(' Z')[0] ?? '',
-        ...bases.map((p) => `L ${p.x} ${p.y}`),
-        'Z',
-      ].join(' ');
-      return { key: s.key, d, fill: slotClass(s.slot, 'fill') };
-    });
-  });
-
-  protected readonly legendItems = computed<ChartLegendItem[]>(() =>
-    this.series().map((s) => ({ key: s.key, label: s.label, slot: s.slot })),
+  protected readonly firstLabel = computed(() => this.points()[0]?.label ?? '');
+  protected readonly lastLabel = computed(
+    () => this.points()[this.points().length - 1]?.label ?? '',
   );
 
-  protected readonly hoverBand = computed(() => {
-    const idx = this.hoverIndex();
-    return (idx === null ? null : this.axis().bands[idx - 1]) ?? { start: 0, center: 0, width: 0 };
-  });
+  /** The dashed rule above the bars is this value; the baseline is zero. It is the
+   *  scale ceiling from `niceMax`, deliberately not the observed peak. */
+  protected readonly scaleLabel = computed(
+    () => $localize`:@@admin.chart.scale:Scale 0 to ${this.geometry().max}:MAX:`,
+  );
 
-  protected readonly hoverPct = computed(() => (this.hoverBand().center / BOX.width) * 100);
-
-  protected readonly hoverRows = computed(() => {
-    const idx = this.hoverIndex();
-    if (idx === null) return [];
-    return this.series().map((s) => ({
-      key: s.key,
-      label: s.label,
-      value: formatThousands(s.values[idx - 1] ?? 0),
-      swatch: slotClass(s.slot, 'swatch'),
-    }));
-  });
-
-  protected tickLabel(value: number): string {
-    return formatThousands(value);
-  }
-
-  /** See `LineChart.onPointerMove` — same rationale, same purity boundary. */
-  protected onPointerMove(event: PointerEvent): void {
-    const target = event.currentTarget as SVGSVGElement | null;
-    if (!target) return;
-    const rect = target.getBoundingClientRect();
-    if (rect.width === 0) return;
-    const fraction = (event.clientX - rect.left) / rect.width;
-    const index = indexAtFraction(fraction, this.categories().length);
-    this.hoverIndex.set(index === null ? null : index + 1);
+  protected fillFor(seriesIndex: number): string {
+    return SERIES_FILLS[seriesIndex % SERIES_FILLS.length]!;
   }
 }

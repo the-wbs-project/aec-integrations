@@ -185,9 +185,10 @@ await db.batch([
 | `PATCH /api/admin/reviews/:id` | Hard-required | `admin` | `review.approved` / `.rejected` |
 | `POST /api/webhooks/linear` | HMAC-verified | N/A | `workflow.transitioned` |
 
-**Admin panel reads (AECI-574 / Phase 8.3).** Three endpoints join the `GET
-/api/admin/*` row above — `/api/admin/overview`,
-`/api/admin/metrics/timeseries`, `/api/admin/traffic/breakdown` — registered on
+**Admin panel reads (AECI-574 + AECI-577 / Phase 8.3).** Four endpoints join the
+`GET /api/admin/*` row above — `/api/admin/overview`,
+`/api/admin/metrics/timeseries`, `/api/admin/traffic/breakdown`, and
+`/api/admin/page-views` (the §5.2 Activity feed) — registered on
 the same `authAdmin` sub-router behind the same `requireAdmin()`. **No new gate
 and no new role**: `requireAdmin()` stays the single enforcement point
 (`ADMIN_PANEL_SPEC.md` §9.1). They are reads and therefore write no `audit_log`
@@ -203,6 +204,13 @@ UA *hash* and a referrer *host*, never a full URL or query. `ADMIN_PANEL_SPEC.md
 `page_views.user_id` column is dropped rather than filled (AECI-585), so the
 panel cannot de-anonymize a visitor even for an admin. Its "visitor" is a distinct
 `(user_agent_hash, cf_asn)` pair, and the response says so.
+
+`/api/admin/page-views` is the one endpoint that returns visit rows rather than
+aggregates, so it tightens that further: it selects **eight characters** of
+`user_agent_hash`, truncated in SQL (`substr(user_agent_hash, 1, 8)`), so the full
+hash never leaves the API even on an admin-authenticated response. It never
+selects `user_id`, `session_id`, or `profile_role`. Both are asserted in
+`admin-page-views.spec.ts` rather than left to review.
 
 ### 4.5 Things the Worker never does
 
