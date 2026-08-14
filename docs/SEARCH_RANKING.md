@@ -20,7 +20,9 @@ The ranking **configuration** is not prose — it is executable code, and that c
 
 `applyIndexSettings()` is invoked by the CI step (`CICD_PLAN.md` §3.2) and the sync pipeline (Phase 3.5/3.6). **A ranking change means editing `INDEX_SETTINGS` (or `MECHANISM_RANK`) and updating this doc in the same PR** — neither prose nor code is allowed to drift from the other.
 
-**Ranking is purely algorithmic.** Per the CLAUDE.md non-negotiable, there is no pay-for-placement: paid vendor tiers (Stage 4+) affect profile richness, never ranking position. No ranking signal in this document may be a function of payment.
+**Ranking is purely algorithmic.** Per the CLAUDE.md non-negotiable, there is no pay-for-placement: paid vendor tiers affect profile richness, never ranking position. No ranking signal in this document may be a function of payment.
+
+**And it is asserted, not merely documented (AECI-610).** The entitlement vocabulary (`packages/shared/src/entitlements.ts`) and the ranking vocabulary defined here are both pure data in the same package, so `packages/shared/src/entitlements.spec.ts` proves they are **disjoint sets**: no capability id appears in the union of every entity's `searchableAttributes ∪ attributesForFaceting ∪ customRanking`, and none of `verified` / `tier` / `entitlement` / `status` / `paid` / `plan` appears in it either. That test plus the per-entity `customRanking` freezes in `algolia.spec.ts` are the two halves of the firewall. Both are **invariant tests** (`STAGE_2_PAID_TIERS_SPEC.md` §10) — a ranking change that trips one is not a test to update, it is a decision to reopen.
 
 ---
 
@@ -65,7 +67,7 @@ The values below are quoted from `INDEX_SETTINGS` in `packages/shared/src/algoli
 - **Faceting:** `searchable(headquarters)`, `founded_year`, `product_count`, `integration_count`
 - **Custom ranking:** `desc(integration_count)`, then `desc(product_count)`
   - *Rationale:* a vendor whose catalog participates in more integrations ranks first; product count breaks the tie.
-- **`verified` (AECI-529)** is denormalized onto the vendor record for the search-card badge only. It is **display-only** — deliberately **not** a searchable attribute, facet, or custom-ranking signal, so the settings above are unchanged (no pay-for-placement). See §6 for its freshness behavior.
+- **`verified` (AECI-529)** is denormalized onto the vendor record for the search-card badge only. It is **display-only** — deliberately **not** a searchable attribute, facet, or custom-ranking signal, so the settings above are unchanged (no pay-for-placement). See §6 for its freshness behavior. The **record** may carry it; `INDEX_SETTINGS` may never name it, and `entitlements.spec.ts` asserts exactly that (§1).
 
 ### 3.3 `integrations`
 

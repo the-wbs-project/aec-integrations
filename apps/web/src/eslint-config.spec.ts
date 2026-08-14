@@ -34,13 +34,22 @@ import { beforeAll, describe, expect, it } from 'vitest';
 const WEB = process.cwd();
 const REPO_ROOT = join(WEB, '..', '..');
 const API = join(REPO_ROOT, 'apps', 'api');
+const SHARED = join(REPO_ROOT, 'packages', 'shared');
 
-/** A representative real file for each (package × tier) combination. */
+/**
+ * A representative real file for each (package × tier) combination, plus the
+ * two `packages/shared` files that sit on either side of the AECI-610
+ * file-scoped zod ban.
+ */
 const FIXTURE_FILES = {
   webSource: { cwd: WEB, file: join(WEB, 'src/app/home/home-hero.ts') },
   webTest: { cwd: WEB, file: join(WEB, 'src/server/seo-headers.spec.ts') },
   apiSource: { cwd: API, file: join(API, 'src/index.ts') },
   apiTest: { cwd: API, file: join(API, 'src/routes/vendors.spec.ts') },
+  /** The capability registry — the one file that may not import zod. */
+  sharedRegistry: { cwd: SHARED, file: join(SHARED, 'src/entitlements.ts') },
+  /** Its wire-contract sibling — zod is exactly where it belongs. */
+  sharedWireContract: { cwd: SHARED, file: join(SHARED, 'src/api/admin-entitlements.ts') },
 } as const;
 
 type Target = keyof typeof FIXTURE_FILES;
@@ -58,6 +67,7 @@ const CONSTRAINT = {
   darkVariant: 'No `dark:` variants',
   themeDark: 'No `.theme-dark` block',
   vary: 'Only `Vary: Accept-Language` is permitted',
+  registryZod: 'The capability registry must import no zod',
 } as const;
 
 /** Only the two core rules — a bare Linter cannot resolve plugin rules. */
@@ -197,6 +207,46 @@ describe('constraint rules fire on deliberate violations', () => {
       lint('apiTest', 'import { PrismaClient } from "@prisma/client";').length,
     ).toBeGreaterThan(0);
     expect(lint('apiTest', 'const db = getPrisma(env);').join()).toContain(CONSTRAINT.prisma);
+  });
+});
+
+describe('the capability registry is zod-free by lint (AECI-610)', () => {
+  // packages/shared/eslint.config.mjs scopes this to ONE file. The bundle
+  // constraint it protects (STAGE_2_PAID_TIERS_SPEC.md §10 R11) is invisible at
+  // runtime — nothing fails, the Angular initial graph just grows a 327 kB zod
+  // chunk again — so the lint rule is the only feedback there is.
+
+  it('rejects zod, and any hop through api/* that would reintroduce it', () => {
+    expect(lint('sharedRegistry', 'import { z } from "zod";').join()).toContain(
+      CONSTRAINT.registryZod,
+    );
+    expect(
+      lint('sharedRegistry', 'import { PageQuerySchema } from "./api/common";').join(),
+    ).toContain(CONSTRAINT.registryZod);
+    expect(
+      lint('sharedRegistry', 'import { VendorSchema } from "@aeci/shared/api";').join(),
+    ).toContain(CONSTRAINT.registryZod);
+  });
+
+  it('keeps the shared constraint bans through the flat-config restate', () => {
+    // The file-scoped block sets `no-restricted-imports`, which REPLACES rather
+    // than merges. If it ever stops spreading CONSTRAINT_IMPORTS, these are the
+    // bans that vanish — silently, on the one file with the strictest rules.
+    expect(
+      lint('sharedRegistry', 'import { PrismaClient } from "@prisma/client";').length,
+    ).toBeGreaterThan(0);
+    expect(lint('sharedRegistry', 'import "zone.js";').length).toBeGreaterThan(0);
+  });
+
+  it('bans zod on the registry only, not across packages/shared', () => {
+    // The whole design is a registry/wire-contract split: if the ban leaked to
+    // the package it would make `api/*` unwritable and the split pointless.
+    expect(lint('sharedWireContract', 'import { z } from "zod";')).toEqual([]);
+    expect(lint('sharedWireContract', 'import { TIERS } from "../entitlements";')).toEqual([]);
+  });
+
+  it('permits the registry its own legitimate imports (it has none today)', () => {
+    expect(lint('sharedRegistry', 'import { INDEX_ENTITIES } from "./algolia";')).toEqual([]);
   });
 });
 
