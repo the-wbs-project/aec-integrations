@@ -187,13 +187,25 @@ vendor-initiated invalidation from AECi-initiated `moderation`.
   reason (`promote-cache-tags.ts`). The `taxonomy` tag is deliberately **not**
   emitted: that one is for a change to the term *set*, and a vendor can only
   assign existing terms, never mint one.
+- **Product-version write** (`POST`/`PATCH`/`DELETE
+  /api/vendor/products/:id/versions`, AECI-607) → **`product:{slug}` alone**, and
+  that is the complete set for two reasons worth stating so nobody "fixes" it
+  later. The pair page embeds `product:{slug}` for **both** of its endpoints
+  (§3 rule 2), so this one tag also drops every pair page the product appears on
+  — which is where AECI-303's version selectors render, and the only reader-facing
+  consumer versions will ever have. And `index:products` is deliberately omitted:
+  unlike a product edit, versions never appear on the `/products` catalog, so
+  purging it would evict a 300s-TTL page for content that cannot have changed.
 
 Same best-effort contract — no-op without the binding, `queue.send` rejection
 logged and swallowed, never fails the committed edit. Note the asymmetry with
 search: the purge makes SSR immediate, while Algolia only catches up on the
-nightly watermark sync (≤24h — `STAGE_2_SPEC.md` §8.3(5)); a vendor write always
-stamps `products.updated_at` so that sync actually sees it, including a
-taxonomy-only edit that touches no other column. The same asymmetry governs the
+nightly watermark sync (≤24h — `STAGE_2_SPEC.md` §8.3(5)); a vendor **profile or
+product** write always stamps `products.updated_at` so that sync actually sees it,
+including a taxonomy-only edit that touches no other column. A **version** write
+deliberately does not stamp it: versions do not feed the Algolia record, so
+bumping `updated_at` would drag the product through the nightly window for
+nothing. The same asymmetry governs the
 **verified-badge flip** (AECI-529): the §5(b) claim→grant stamps `vendors.updated_at`
 alongside `verified = true`, so the `vendors` index re-indexes the flip on the next
 nightly window while the grant's `vendor:{slug}` + `product:{slug}` purge repaints the

@@ -62,6 +62,12 @@ import {
   createVendorMeHandler,
   createVendorSeatsHandler,
 } from './routes/vendor';
+import {
+  createDeleteProductVersionHandler,
+  createListProductVersionsHandler,
+  createProductVersionHandler,
+  createUpdateProductVersionHandler,
+} from './routes/vendor-product-versions';
 import { createVendorDetailHandler, createVendorsListHandler } from './routes/vendors';
 import { createVersionHandler } from './routes/version';
 import { queue, scheduled } from './scheduled';
@@ -306,11 +312,44 @@ app.route('/', authAdmin);
 //   - GET   /api/vendor/seats        — the vendor's seat roster (read-only).
 //   - PATCH /api/vendor/profile      — edit the caller's own vendor row.
 //   - PATCH /api/vendor/products/:id — edit an owned product (cross-vendor → 404).
+//
+// Stage 2 / AECI-607 adds the product-version CRUD on the same sub-router. Two
+// gates, in this order: ownership → 404 (as above), then `vendors.verified` → 403
+// on the WRITES only — authoring is a Verified-vendor capability
+// (`STAGE_2_ATTESTATIONS_SPEC.md` §1), while the list stays readable so the
+// dashboard can render a read-only tab instead of 403-ing a vendor out of its
+// own data.
+//   - GET    /api/vendor/products/:id/versions            — ordered by sort_key.
+//   - POST   /api/vendor/products/:id/versions            — create (201).
+//   - PATCH  /api/vendor/products/:id/versions/:versionId — edit.
+//   - DELETE /api/vendor/products/:id/versions/:versionId — remove (204).
 const authVendor = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
 authVendor.onError(errorHandler());
 authVendor.get('/api/vendor/me', requireVendor(), createVendorMeHandler());
 authVendor.get('/api/vendor/seats', requireVendor(), createVendorSeatsHandler());
 authVendor.patch('/api/vendor/profile', requireVendor(), createUpdateVendorProfileHandler());
+// Registered BEFORE `/api/vendor/products/:id` so the more specific version
+// paths are not shadowed by the product PATCH's parameterised route.
+authVendor.get(
+  '/api/vendor/products/:id/versions',
+  requireVendor(),
+  createListProductVersionsHandler(),
+);
+authVendor.post(
+  '/api/vendor/products/:id/versions',
+  requireVendor(),
+  createProductVersionHandler(),
+);
+authVendor.patch(
+  '/api/vendor/products/:id/versions/:versionId',
+  requireVendor(),
+  createUpdateProductVersionHandler(),
+);
+authVendor.delete(
+  '/api/vendor/products/:id/versions/:versionId',
+  requireVendor(),
+  createDeleteProductVersionHandler(),
+);
 authVendor.patch('/api/vendor/products/:id', requireVendor(), createUpdateVendorProductHandler());
 app.route('/', authVendor);
 

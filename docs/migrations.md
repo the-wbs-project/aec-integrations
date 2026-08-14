@@ -113,7 +113,13 @@ PRAGMA foreign_keys=ON;
    `attestations` row in the database.
 
 Also note: `ALTER TABLE … ADD COLUMN` with a Drizzle `.references()` emits a bare
-`REFERENCES <table>(id)` and **silently drops the `ON DELETE` clause**.
+`REFERENCES <table>(id)` and **silently drops the `ON DELETE` clause**. This one has now bitten
+twice (AECI-603, AECI-607) and it is the quieter of the two failures: the migration *applies
+cleanly*, and the wrong behaviour only shows up the first time someone deletes a parent row. Treat
+any generated `ADD COLUMN … REFERENCES` as wrong by default, and **pin the intended behaviour with
+a test** — `apps/api/src/test/d1.spec.ts` runs the real migration files, so a case asserting the
+child column goes NULL (or cascades, or is rejected) is what stops a future regeneration from
+quietly reverting it.
 
 **The workflow when you hit this:** run `db:generate` as normal (you want its `meta/` snapshot and
 journal entry), then **replace the SQL body** with equivalent additive statements — SQLite accepts
@@ -128,8 +134,29 @@ This does not break the drift gate: drizzle-kit diffs `schema.ts` against
 `meta/NNNN_snapshot.json`, never the database, so leaving the generated snapshot untouched keeps
 `db:generate` a no-op. **Verify by re-running it and confirming `git status --porcelain` is clean**,
 and leave a header comment in the migration saying it is hand-authored and why
-(`0006_lyrical_leper_queen.sql` is the reference). `0003_gray_eternity.sql` is the lighter
-precedent — a hand-appended backfill after the generated statement.
+(`0006_lyrical_leper_queen.sql` and `0008_slim_iron_lad.sql` are the references).
+`0003_gray_eternity.sql` is the lighter precedent — a hand-appended backfill after the generated
+statement.
+
+#### Renumbering a migration (parallel epic branches)
+
+Two long-lived epic branches that each add a migration will each generate the **same** next index,
+because drizzle-kit numbers from the journal it can see. `aeci-514` and `aeci-515` both produced a
+`0006_*.sql`; they collide at the `stage-2` merge and the second one in has to move. Renumbering is
+three coordinated renames:
+
+1. `migrations/NNNN_<name>.sql` → `MMMM_<name>.sql`
+2. `migrations/meta/NNNN_snapshot.json` → `meta/MMMM_snapshot.json`
+3. the matching `_journal.json` entry's `idx` **and** `tag`
+
+**Leaving a gap is safe**, and is worth doing pre-emptively when you know a collision is coming —
+AECI-607 shipped as `0008` to leave `0007` free for exactly that reconciliation. Verified: wrangler
+applies unapplied migrations in filename order (gaps are irrelevant; it tracks applied names in
+`d1_migrations`), the test harness sorts `*.sql`, and drizzle-kit reads `_journal.json` rather than
+the file sequence, so `db:generate` still reports "No schema changes". Keep `_journal.json` in
+drizzle's exact format — no trailing newline; it is `.prettierignore`d for that reason. **Renumber
+before the migration is applied anywhere remote**; once a tier has recorded the old filename,
+renaming it makes the migration re-run.
 
 ### Read replication (D1 Sessions API — AECI-250)
 

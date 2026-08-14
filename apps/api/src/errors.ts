@@ -27,6 +27,7 @@ import { json } from './http';
 
 type ResourceKind =
   | 'product'
+  | 'product_version'
   | 'vendor'
   | 'integration'
   | 'category'

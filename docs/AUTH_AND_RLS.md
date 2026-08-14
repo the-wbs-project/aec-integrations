@@ -341,6 +341,10 @@ await db.batch([
 | `GET /api/vendor/me`, `/seats` | Hard-required | `vendor_admin` + non-null `vendor_id`, not banned | No (reads only) |
 | `PATCH /api/vendor/profile` | Hard-required | same | `vendor.updated` (`metadata.source: 'vendor-portal'`) |
 | `PATCH /api/vendor/products/:id` | Hard-required | same **+ ownership** | `product.updated` (`metadata.source: 'vendor-portal'`) |
+| `GET /api/vendor/products/:id/versions` (AECI-607) | Hard-required | same **+ ownership** | No (reads only) |
+| `POST /api/vendor/products/:id/versions` (AECI-607) | Hard-required | same **+ ownership + `vendors.verified`** | `product_version.created` (`metadata.source: 'vendor-portal'`) |
+| `PATCH /api/vendor/products/:id/versions/:versionId` (AECI-607) | Hard-required | same **+ ownership + `vendors.verified`** (+ the version must belong to `:id`) | `product_version.updated` |
+| `DELETE /api/vendor/products/:id/versions/:versionId` (AECI-607) | Hard-required | same **+ ownership + `vendors.verified`** (+ the version must belong to `:id`) | `product_version.deleted` |
 | `POST /api/webhooks/linear` | HMAC-verified | N/A | `workflow.transitioned` |
 
 **The `/api/vendor/*` rows carry two extra obligations** (AECI-520,
@@ -352,10 +356,36 @@ row filter RLS would have provided, and they are not optional:
    `c.get('auth').vendorId`. No `/api/vendor/*` contract carries a vendor id, so
    the Worker never has a client-supplied one to be tempted by.
 2. **Ownership before writing a client-supplied id.** `PATCH
-   /api/vendor/products/:id` proves the product belongs to the session's vendor
-   (a `product_vendors` read) *before* anything is written, and a miss returns
-   **`404`, not `403`** — a non-owner must not learn the product exists. Same
-   "don't reveal the surface" posture as the `/admin` gate.
+   /api/vendor/products/:id` and every `/products/:id/versions` route prove the
+   product belongs to the session's vendor (a `product_vendors` read) *before*
+   anything is written, and a miss returns **`404`, not `403`** — a non-owner
+   must not learn the product exists. One implementation, `requireOwnedProduct()`
+   in `apps/api/src/routes/vendor-shared.ts`; it is the **product-grain**
+   counterpart to the integration-grain `resolveAttestationSlots()`
+   (`lib/attestation-authority.ts`), which enforces the same 404 posture for the
+   two-slot attestation rule. Same "don't reveal the surface" posture as the
+   `/admin` gate.
+
+**A third obligation applies to the version WRITES only** (AECI-607,
+`STAGE_2_ATTESTATIONS_SPEC.md` §1/§8.3): authoring is a **Verified-vendor
+capability**, so `POST` / `PATCH` / `DELETE` additionally require
+`vendors.verified` and answer **`403`** without it. Two details that are easy to
+get backwards:
+
+- **Ownership (404) is evaluated before verification (403).** Reversed, the
+  ordering would start leaking on the day a *verified* non-owner probes a
+  product. `requireOwnedProduct()` loads the ownership row, the product and the
+  caller's `vendors` row in one wave and then checks them in that fixed order.
+- **`GET` is not gated.** Reading your own product's versions is not the
+  capability; authoring is. Gating the read would 403 a vendor out of its own
+  data instead of letting the dashboard render a read-only tab that explains what
+  verification unlocks. The 403 copy points at the claim/verification flow and
+  **never at ranking, placement, or search** — no pay-for-placement.
+- The check lives in `assertVerifiedVendor()` (`routes/vendor-shared.ts`), a
+  deliberate **one-function stand-in** for the capability registry AECI-610/611
+  is landing on the Paid Tiers branch (`@aeci/shared/entitlements` already
+  declares the `attestation.author` id). It **reads** `vendors.verified` and
+  never writes it.
 
 Two rejection cells are deliberate and easy to get wrong:
 

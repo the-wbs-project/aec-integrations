@@ -91,7 +91,9 @@ they are safe to apply ahead of the code that reads them (`docs/migrations.md`: 
 | index | `attestations_active_idx` predicate changes `deprecated_at IS NULL` → `retracted_at IS NULL` |
 
 **Migration 2 (§8)** — the product-version model: a new `product_versions` table plus
-`attestations.introduced_version_id` / `deprecated_version_id`.
+`attestations.introduced_version_id` / `deprecated_version_id`. **Shipped as
+`0008_slim_iron_lad.sql`** — the `0007` gap is deliberate, and the two `ALTER`s are hand-authored
+for the reason §2.5 documents; see §8.4.
 
 > **⚠️ `deprecated_at` is a version stamp, not a retraction — the shipped schema comment says
 > otherwise.** `STAGE_1_5_SPEC.md` §3.3 defines `introduced_at`/`deprecated_at` as **version
@@ -158,7 +160,11 @@ Verified against the tree at kickoff (paths are anchors, not guarantees — chec
 - **The vendor write template** — `requireVendor()` + `sessionVendorId()` + one-`db.batch`
   write + `auditInsert` + `waitUntil(purgeTags + forwardAuditLog)` + the 404-not-403
   non-disclosure rule. `apps/api/src/routes/vendor.ts` is the file every §5 endpoint copies;
-  `apps/api/src/lib/authz.ts` is the guard.
+  `apps/api/src/lib/authz.ts` is the guard. **Since §8/AECI-607 those mechanics live in
+  `apps/api/src/routes/vendor-shared.ts`** — `sessionVendorId`, `parseJsonBody`, `purgeTags`,
+  `afterVendorWrite`, the audit source, plus `requireOwnedProduct()` (product-grain ownership,
+  the sibling of §2.3's integration-grain `resolveAttestationSlots`) and `assertVerifiedVendor()`
+  (the §1 capability gate). **§5 imports them; it does not re-implement them.**
 - **Cache-Tag helpers** — `pairCacheTag(a, b)` / `sortedPairSlugs` (`apps/api/src/routes/promote-pair.ts`)
   and `cacheTagsForPromote` (`apps/api/src/routes/promote-cache-tags.ts`) already emit the exact
   `pair:{min}__{max}` tag the pair page sets. §5 purges through the same tag.
@@ -732,6 +738,87 @@ ownership check `PATCH /api/vendor/products/:id` already uses — ownership prov
 `claims[]` contract extension and a bamako change for a capability only Verified vendors can use
 anyway. Recorded as a deferral (§10), not an oversight.
 
+### 8.4 As built (AECI-607 — 2026-08-14)
+
+Shipped as **migration 2 of two**: `apps/api/migrations/0008_slim_iron_lad.sql`, plus the pure
+ordering primitive `packages/shared/src/version-sort.ts`, the wire contract
+`packages/shared/src/api/product-versions.ts`, the CRUD handlers
+`apps/api/src/routes/vendor-product-versions.ts`, and a new shared guard seam
+`apps/api/src/routes/vendor-shared.ts`. Constraint coverage lives in
+`apps/api/src/test/d1.spec.ts` alongside §2.5's. `docs/DATABASE_SCHEMA.md` §5a.2/§5a.3,
+`docs/API_CONTRACTS.md` §6.14, `docs/AUTH_AND_RLS.md` §4.4 and `docs/CACHE_STRATEGY.md` §5(b2) are
+brought forward to match. Decisions taken at build that §8.1–§8.3 did not pre-specify:
+
+- **The migration is numbered `0008`, and the gap is deliberate.** `origin/aeci-514` and
+  `origin/aeci-515` (Paid Tiers) each independently generated a **different** `0006_*.sql` —
+  `0006_lyrical_leper_queen` here, `0006_easy_sandman` (`vendor_entitlements`, AECI-609) there.
+  They collide when both epics merge to `stage-2` and whichever merges second must renumber;
+  leaving `0007` free gives that reconciliation somewhere to land without touching this file.
+  Verified that the gap is inert: `db:generate` still reports "No schema changes" (drizzle-kit
+  reads `meta/_journal.json`, not the file sequence), `wrangler d1 migrations apply` applies in
+  filename order, and the test harness sorts `*.sql`. **The `aeci-514`/`aeci-515` `0006` collision
+  itself is unresolved and is not this issue's to fix.**
+- **The two `ALTER`s are hand-authored — §2.5's finding reproduced exactly.** `drizzle-kit
+  generate` emitted `ALTER TABLE attestations ADD introduced_version_id text REFERENCES
+  product_versions(id)` with **no `ON DELETE` clause at all**, silently dropping the SET NULL §8.2
+  specifies. Left as generated, SQLite's default RESTRICT would have made deleting a version
+  *fail outright* rather than degrade the stamp. The `CREATE TABLE` + indexes are untouched
+  generator output (`CREATE TABLE` does emit the full FK clause). The `d1.spec.ts` case
+  "degrades an attestation version stamp to NULL on version delete" is the regression guard — it
+  runs the real migration files, so a future regeneration silently reverting the clause fails CI.
+- **`sort_key` is derived from the label, and overridable.** `deriveVersionSortKey` packs the first
+  three numeric runs into one base-100000 integer — `2026.9` → 20_260_000_900_000, `2026.10` →
+  20_260_001_000_000 — maxing out at `MAX_VERSION_SORT_KEY` (999,999,999,999,999), an order of
+  magnitude under `Number.MAX_SAFE_INTEGER`, so the value survives JSON, D1's INTEGER column and JS
+  arithmetic intact. Segments beyond the third are ignored and an oversized run clamps; both are
+  lossy on purpose, since the alternative is a key that leaves the safe-integer range. A digit-free
+  label (`'LTS'`, `'Fall release'`) derives **0**, which is why the create API accepts an explicit
+  `sort_key` — the derivation is the default, not the rule.
+- **The tiebreak is `created_at`, then `id` — never `label`.** Ties are legal (the unique index is
+  on `(product_id, label)`, not `sort_key`, and every digit-free label derives 0), and §9's
+  "previous version pair" needs a *total* order. Falling back to the label would reintroduce
+  precisely the lexical ordering this section forbids; insertion order is arbitrary but honest.
+  `compareProductVersions` and the SQL `ORDER BY` are the same rule written twice and say so.
+- **`PATCH` never re-derives `sort_key` implicitly.** Changing `label` alone leaves the key where it
+  is; explicit `sort_key: null` means "recompute from the (new) label"; a number sets it. A silent
+  re-derive would discard a deliberate override the moment a vendor fixed a typo in a label. This
+  is the only field on the `/api/vendor/*` surface where `null` means *recompute* rather than
+  *clear*, and it is called out in the schema doc-comment for that reason.
+- **Writes are Verified-gated; the read is not.** §8.3 named only the ownership check, but §1 makes
+  authoring a Verified-vendor capability and versions exist solely to stamp attestations, so
+  `POST`/`PATCH`/`DELETE` require `vendors.verified` (**403**) while `GET` needs only ownership —
+  gating the read would 403 a vendor out of its own data instead of letting §6's tab render
+  read-only and explain what verification unlocks. **Ownership (404) is evaluated before
+  verification (403)**, so a non-owner never gets the 403 that would confirm the product exists.
+  The check is `assertVerifiedVendor()`, deliberately ONE function with ONE call site per handler:
+  it is a stand-in for `requireCapability('attestation.author')`, whose registry AECI-610 has
+  already shipped on `aeci-515` (`@aeci/shared/entitlements` declares the id) and whose guard
+  AECI-611 adds. Swapping it at the `stage-2` merge is mechanical. It **reads** `vendors.verified`
+  and never writes it — `aeci-515` lints that column's writes down to the entitlement mirror.
+- **A shared vendor-route seam was extracted, and §5 should build on it.**
+  `routes/vendor-shared.ts` now owns `sessionVendorId` / `parseJsonBody` / `purgeTags` /
+  `afterVendorWrite` / the audit source, plus `requireOwnedProduct()` — the **product-grain**
+  counterpart to §2.3's integration-grain `resolveAttestationSlots()`. Same `product_vendors`
+  source, same 404-never-403 property, different question; neither re-derives the other.
+  `createUpdateVendorProductHandler` was refactored onto it so the ownership rule has exactly one
+  implementation. `requireOwnedProduct` returns the caller's `vendors` row alongside the product
+  precisely so the capability gate costs no extra D1 hop.
+- **The purge is `product:{slug}` and nothing else.** The pair page embeds `product:{slug}` for
+  both endpoints (`CACHE_STRATEGY.md` §3 rule 2), so one tag also drops every pair page the product
+  appears on — where §9's selectors will render. `index:products` is omitted because versions never
+  appear on the catalog. And `products.updated_at` is deliberately **not** stamped: versions do not
+  feed the Algolia record, so bumping it would drag the product through the nightly sync for
+  nothing — the exact inverse of the taxonomy-edit case, whose comment explains why the bump *is*
+  mandatory there.
+- **`errors.ts` gained a `product_version` resource kind** so the 404 envelope names the right
+  thing. `audit_log.entity_type` needed nothing — it is deliberately unconstrained.
+- **Duplicate labels are pre-checked, with the index as the backstop.**
+  `product_versions_label_key` is the guarantee; the read before the batch exists so a vendor gets
+  a `400` naming `label` instead of a constraint violation surfacing as a 500 — the same
+  resolve-everything-that-can-fail-first discipline as taxonomy-term resolution.
+- **Applied to remote `aeci-app-preview` by hand**, per `docs/migrations.md` §0 — CI still migrates
+  staging/demo/production only.
+
 ---
 
 ## 9. Version-diff timeline + per-product selectors (AECI-303)
@@ -778,15 +865,18 @@ without touching this epic's code. Design checklist applies as in §4.3.
 
 Runs alongside; finishes what each sub-issue seeds (the AECI-525 pattern).
 
-- **`docs/AUTH_AND_RLS.md`** — add the `/api/vendor/claims*` and
-  `/api/vendor/products/:id/versions` rows to the §4.4 endpoint table (auth + scope + audit), and
-  document the §2.1 two-slot authority rule as the canonical extension of the `vendor_id`-scoping
-  invariant.
-- **`docs/API_CONTRACTS.md`** — the §5 and §8.3 endpoint shapes, Zod schemas, error codes.
+- **`docs/AUTH_AND_RLS.md`** — add the `/api/vendor/claims*` rows to the §4.4 endpoint table
+  (auth + scope + audit), and document the §2.1 two-slot authority rule as the canonical extension
+  of the `vendor_id`-scoping invariant. *(The four `/api/vendor/products/:id/versions` rows and the
+  ownership-before-verified precedence landed with AECI-607 — §8.4.)*
+- **`docs/API_CONTRACTS.md`** — the §5 endpoint shapes, Zod schemas, error codes. *(§8.3's landed
+  with AECI-607, in the §6.14 "Product versions" subsection.)*
 - **`docs/DATABASE_SCHEMA.md`** — both migrations (it trails `schema.ts`; bring it forward).
+  *(§5a.2's provenance/authority columns landed with AECI-603 and §5a.3 `product_versions` with
+  AECI-607; verify rather than re-add.)*
 - **`docs/REVIEW_APP_PROMOTE_API.md`** — the §3.3 replace-by-origin carve-out.
 - **`docs/CACHE_STRATEGY.md`** — the §5.2 purge tag set for attestation writes; the §9.2
-  `cacheKeyParams` addition.
+  `cacheKeyParams` addition. *(§5(b2) already carries the AECI-607 version-write tag.)*
 - **`docs/email.md`** — the §7.2 template catalogue entries.
 - **`docs/OBSERVABILITY.md`** + **`docs/POST_LAUNCH_MONITORING.md`** — the §7.4 detector metrics
   and the launch-tunable thresholds.
