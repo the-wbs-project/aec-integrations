@@ -30,7 +30,7 @@ Stage 2 inherits every Stage 1 / 1.5 constraint. It leans on these existing comp
 |---|---|
 | Authorization (roles, GRANT-equivalent, ban, 3-layer Worker authz) | `docs/AUTH_AND_RLS.md` — add `vendor_admin` enforcement + `/api/vendor/*` |
 | API endpoint shapes / Zod / errors | `docs/API_CONTRACTS.md` — add the `/api/vendor/*` surface |
-| D1 schema & migrations | `apps/api/src/db/schema.ts` + `docs/DATABASE_SCHEMA.md` (see §3 — the hooks already exist) |
+| D1 schema & migrations | `apps/api/src/db/schema.ts` + `docs/DATABASE_SCHEMA.md` (see §3 — the hooks already exist; the **one** Stage 2 migration is the `vendor_entitlements` table, §8.4(1)) |
 | Claim / attestation model | `docs/STAGE_1_5_SPEC.md` §3 — Stage 2 activates the dormant `vendor_a`/`vendor_b` sources |
 | Edge caching / invalidation | `docs/CACHE_STRATEGY.md` (mid-migration to native Workers Cache — see §6) |
 | Transactional email | `docs/email.md` (Resend — see §4) |
@@ -57,6 +57,8 @@ The foundation everything else layers on. A vendor authenticates, proves associa
 - **Moderation escalation.** `profiles.banned_at` / `ban_reason` (§3) gate vendor write access; abuse of the portal is a ban path.
 
 ### 2.2 Paid Tiers & Entitlements — *no pay-for-placement*
+
+> **Build contract:** this pillar is decomposed and specified in **`docs/STAGE_2_PAID_TIERS_SPEC.md`** (the AECI-515 epic). The subsections below remain the scope outline; that doc is what each sub-issue anchors to.
 
 Monetization layered on verified vendor accounts. **Ranking is never for sale;** **vendors pay, always** (§8.1(4)).
 
@@ -152,13 +154,18 @@ Stage 2 feature work branches from and merges to `stage-2` (post-launch branch m
 
 ## 7. Epic map → Linear ("Stage 2 Build" project)
 
-The initial epics seeded by AECI-282 (in the `Stage 2 Build` project — renamed from `Stage 2 Planning`), following the AECI-314 "(epic)" parent-issue convention. Each epic opens with `**Spec section:** docs/STAGE_2_SPEC.md §X` and `**Base branch:** stage-2`. The anchor epic (Vendor Portal, AECI-513) is decomposed into buildable sub-issues **AECI-519…525 plus 527, 528, 529** (the +3 from the 2026-07-24 epic review), specified in **`docs/STAGE_2_VENDOR_PORTAL_SPEC.md`**.
+The initial epics seeded by AECI-282 (in the `Stage 2 Build` project — renamed from `Stage 2 Planning`), following the AECI-314 "(epic)" parent-issue convention. Each epic opens with `**Spec section:** docs/STAGE_2_SPEC.md §X` and `**Base branch:** stage-2`.
+
+Two epics have been through their build review and now have their own build-contract docs — a sub-issue anchors to **that** doc's §, not to this one:
+
+- **Vendor Portal (AECI-513)** → sub-issues **AECI-519…525 plus 527, 528, 529** (2026-07-24 review), specified in **`docs/STAGE_2_VENDOR_PORTAL_SPEC.md`**. **All shipped 2026-07-25.**
+- **Paid Tiers & Entitlements (AECI-515)** → sub-issues **AECI-609…615 plus the re-scoped AECI-532** (2026-08-14 review), specified in **`docs/STAGE_2_PAID_TIERS_SPEC.md`**. AECI-304 stays parented there but is excluded from its build order (blocked by the unbuilt AECI-303).
 
 | Epic | Spec | Notes |
 |---|---|---|
-| Vendor Portal & Self-Serve Claiming | §2.1 | The anchor; blocks the rest |
+| Vendor Portal & Self-Serve Claiming | §2.1 | The anchor; blocks the rest. **Shipped** — decomposed in `STAGE_2_VENDOR_PORTAL_SPEC.md` |
 | Integration Attestations & Conflict | §2.4 | Re-parents AECI-301 / 302 / 303 |
-| Paid Tiers & Entitlements | §2.2 | Relates AECI-304; no pay-for-placement |
+| Paid Tiers & Entitlements | §2.2 | No pay-for-placement. Decomposed in `STAGE_2_PAID_TIERS_SPEC.md` (AECI-515 → 609, 610, 611, 532, 612, 613, 614, 615). Parents AECI-304, which is **excluded from its build order** (blocked by the unbuilt AECI-303) |
 | Real-Time / Live Portal | §2.3 | Durable Objects |
 | Dark Theme Reintroduction | §2.5 | Token-block + toggle; AECI-226 deferral |
 | Stage-1 Deferrals & Carryover | §5 | JSON-LD, sitemap split |
@@ -181,19 +188,30 @@ Resolved **2026-07-12** (AECI-282 kickoff, Chris). The Stage-2-launch model is *
 
 ### 8.2 Still open (further discussion — do not block AECI-513 on these)
 
-- **Tier ladder above the entry Verified fee** — whether there are richness sub-tiers and what they cost. *Direction is set* (there **is** a verification fee; vendors pay); the structure is TBD.
-- **Offline-invoicing mechanics** — the exact PO/invoice workflow, who toggles entitlement, renewal/expiry/dunning. Start with the minimum (admin toggle + status) and grow it.
+- ~~**Tier ladder above the entry Verified fee**~~ — **structure resolved 2026-08-14, see §8.4(2).** The ladder is binary at launch and adding a rung is now a data-only change. *Pricing* above the entry fee remains a business question, not a build blocker.
+- ~~**Offline-invoicing mechanics**~~ — **resolved 2026-08-14, see §8.4.** Who toggles, what is recorded, and the renewal/expiry posture are all settled; dunning stays deliberately out.
 - **Real-time transport** (§2.3) — Durable-Object WebSockets vs SSE vs revalidation. **Deferred** — decide when the build reaches AECI-516; the portal ships without persistent sockets until a concrete latency need proves one. (Search-index freshness *within* the portal is separately **decided** — §8.3(5): nightly ≤24h + immediate SSR — and does not wait on this transport choice.)
 
 ### 8.3 Decided at build kickoff (2026-07-24 epic review — AECI-513)
 
 Resolved when the Vendor Portal epic was decomposed. These **promote the epic's working decisions into the spec** and are the contract carried in `docs/STAGE_2_VENDOR_PORTAL_SPEC.md`; they refine §8.1 without contradicting it.
 
-1. **Entitlement launch shape.** `vendors.verified` **is** the launch entitlement bit (per §8.1(5)); the PO/invoice arrangement is recorded in `audit_log` metadata. **No new schema** in this epic — the Paid Tiers epic (AECI-515) formalizes the entitlement model later. (Breaks the 513↔515 coordination knot.)
+1. ~~**Entitlement launch shape.**~~ **SUPERSEDED by §8.4(1) (2026-08-14).** As decided here: `vendors.verified` **is** the launch entitlement bit (per §8.1(5)); the PO/invoice arrangement is recorded in `audit_log` metadata; **no new schema** in the AECI-513 epic — the Paid Tiers epic (AECI-515) formalizes the entitlement model later. (That broke the 513↔515 coordination knot, and 515 has now done it: `vendors.verified` is a **mirror** of a `vendor_entitlements` row, and the arrangement lives in the row as well as the audit trail. Everything AECI-513 shipped against this bullet is still correct — only the storage model moved.)
 2. **Seat semantics.** Revoke and ban are **per-seat** and **never** touch `vendors.verified` (vendor-level paid state). Un-verifying a vendor is a **separate entitlement action**, not a ban.
 3. **Role exclusivity.** `role` / `vendor_id` are **single-valued** — no `vendor_admin` grant to `admin` accounts; **one vendor per account** at launch; conflicts are **explicit errors** (a `vendors.parent_company` multi-vendor admin uses separate accounts).
 4. **Enrichment at launch.** Reviewer-assist signals are **domain-match + a pre-built LinkedIn/person search link only**; real person-lookup providers are a **deferred DPA/GDPR decision**.
 5. **Search freshness.** Vendor edits + badge flips reach **Algolia on the nightly watermark sync (≤24h)**; **SSR is immediate** via Cache-Tag purge. Accepted for launch — **UI copy must not promise instant search**.
+
+### 8.4 Decided at the Paid-Tiers epic review (2026-08-14 — AECI-515)
+
+Resolved when the Paid Tiers epic was decomposed. These close §8.2's first two items and are the contract carried in **`docs/STAGE_2_PAID_TIERS_SPEC.md`**; they refine §8.1 and supersede §8.3(1) without contradicting the rest.
+
+1. **Entitlement storage — a real table, with `vendors.verified` demoted to a mirror.** A new `vendor_entitlements` table (tier / status / term / offline-arrangement record) carries the model; **`vendors.verified` becomes a denormalized mirror**, maintained in the same `db.batch([...])`, with the invariant *`verified = true` **iff** an `active` entitlement row exists*. `vendor_id` is **UNIQUE** — that is what lets the mirror flip be a guarded single-row `UPDATE`, which is the only concurrency-safe shape available given D1 has no interactive transactions. **This supersedes §8.3(1)'s "no new schema"**, which was the AECI-513 launch shape and named AECI-515 as its successor. One migration, `0006_*`; everything downstream is additive-with-no-DDL. All five existing readers of `verified` (the public `?verified=` filter, `VendorLinkSchema`, `VendorDetail`, the Algolia vendor record, `aec-verified-badge`) are **untouched**.
+2. **Tier ladder — binary at launch, extensible as data.** `unclaimed` (the AECi-curated baseline) vs `verified` (the paid entry fee). A **capability registry** (`packages/shared/src/entitlements.ts`, pure data, zod-free) maps tier → capability set, so adding a rung later is a data edit and not a code change. `tier` is deliberately **unconstrained** at the DB layer for exactly that reason (`workflow_instances_type_check` is the cautionary precedent); an unknown tier fails closed to zero capabilities.
+3. **Renewal / expiry — warn, never auto-lapse.** Entitlements carry `period_start` / `period_end`. A daily cron **warns** the vendor's seats and `ADMIN_ALERT_EMAIL` before expiry and **never writes `status`**. Auto-lapse would strip a badge from a paying customer over a data-entry mistake; **un-verifying stays a deliberate admin action** — consistent with §8.3(2). No dunning.
+4. **Who toggles — an admin, through the entitlement, never the bit.** `PATCH /api/admin/vendors/:id/entitlement` (`set` / `renew` / `clear`) is the sole owner of the un-verify half §8.3(2) left unowned. `verified` is never named in the payload; it follows in the same batch. **Clearing an entitlement does not revoke seats** — the vendor keeps portal access, read-only, with a renewal notice.
+5. **No pay-for-placement becomes an asserted property.** The entitlement capability vocabulary and the Algolia ranking vocabulary (`searchableAttributes ∪ attributesForFaceting ∪ customRanking` across `INDEX_SETTINGS`) are proven **disjoint** by unit test, and no cacheable SSR component may import the entitlement registry. The invariant stops depending on reviewer vigilance.
+6. **AECI-304 stays parented to AECI-515 but is excluded from the epic's build order and completion criteria** — it is blocked by the unbuilt AECI-303. The epic mints the `integration.version_diff` capability id so 304 later reduces to a render-path gate.
 
 ---
 

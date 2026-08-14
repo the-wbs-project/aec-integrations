@@ -212,8 +212,11 @@ deliberately kept **out** of AECI-524's scope (the 2026-07-24 epic re-scope: AEC
 ban/unban action only). A **ban** sets `profiles.banned_at` / `ban_reason` on the seat
 and is checked **before** the role check in the Layer-1 guard (§4.2 / §4.4). Both are
 per-seat — they touch one `profiles` row and **never** touch `vendors.verified`, which is a
-vendor-level paid state (un-verifying is a separate, currently-unowned entitlement action,
-AECI-515; `STAGE_2_SPEC.md` §8.3(2)). Banning or revoking one abusive seat leaves the vendor
+vendor-level paid state. **Un-verifying is a separate entitlement action** (`STAGE_2_SPEC.md`
+§8.3(2)); as of the 2026-08-14 AECI-515 epic review it **has an owner — AECI-532**
+(`PATCH /api/admin/vendors/:id/entitlement`, `docs/STAGE_2_PAID_TIERS_SPEC.md` §5) — though it
+is **not built yet**. Clearing an entitlement there does **not** revoke seats: the vendor keeps
+portal access, read-only. Banning or revoking one abusive seat leaves the vendor
 verified and its other seats working. Grant and revoke each emit their `audit_log` row in the
 same batch (§4.3) and are fully reversible. Full contract:
 [`STAGE_2_VENDOR_PORTAL_SPEC.md`](./STAGE_2_VENDOR_PORTAL_SPEC.md) §2, §3.1, §7.
@@ -664,9 +667,12 @@ the erasure batch's seven-FK trap (§8, above) is unaffected and nothing cascade
 `vendor_admin` seat removes the last seat but leaves **`vendors.verified = true`**. This is a
 **legitimate state, not a bug**: `verified` is vendor-level paid state, **decoupled** from
 seats — the same §8.3(2) decoupling under which revoke and ban never un-verify
-(`STAGE_2_SPEC.md` §8.3(2); §3.2 above). No un-verify writer exists today (deferred to the Paid
-Tiers epic, AECI-515), so nothing is available to flip it, and account-deletion deliberately
-does not add one. The vendor is therefore **verified-but-unclaimed**: it diverges from the
+(`STAGE_2_SPEC.md` §8.3(2); §3.2 above). No un-verify writer exists today — the Paid Tiers epic
+gave it an owner at its 2026-08-14 review (**AECI-532**, `docs/STAGE_2_PAID_TIERS_SPEC.md` §5)
+but it is not built — so nothing is available to flip it, and account-deletion deliberately
+does not add one. **This stays true after AECI-532 ships:** the entitlement is vendor-level and
+the seat is not, so losing the last seat leaves the entitlement row (and therefore the mirror)
+intact, by design. The vendor is therefore **verified-but-unclaimed**: it diverges from the
 "claimed = ≥1 *active* `vendor_admin` seat" predicate (`loadClaimedVendorIds`,
 `lib/claimed-vendors.ts`) — the same divergence a fully-banned vendor exhibits. AECi re-grants
 a seat through the normal claim→grant flow (§3.2) when a new contact is verified. (Erasure's

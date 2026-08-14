@@ -142,6 +142,8 @@ The approval action that turns an `open` vendor claim into a live verified vendo
 
 **Entitlement launch shape.** `vendors.verified` **is** the launch entitlement bit. The offline PO/invoice arrangement lives in `audit_log` metadata (payer, amount/terms, arranged-by). A formal entitlement model is deferred to the Paid Tiers epic (AECI-515); this epic adds **no new schema**.
 
+> **Successor (2026-08-14 — AECI-515 epic review).** The formal model is now specified in **`docs/STAGE_2_PAID_TIERS_SPEC.md`** §2: a `vendor_entitlements` table with `vendors.verified` demoted to a **mirror** of it (`verified = true` **iff** an `active` entitlement row exists), maintained in the same `db.batch`. Nothing this epic shipped changes — the grant still writes the seat, still flips the bit, still records the arrangement in audit metadata — but after AECI-612 the flip is **emitted by `lib/vendor-entitlement.ts`, not by `grantSeatStatements`**.
+
 **Post-commit (best-effort, `waitUntil`).**
 
 - **Cache purge** — the grant flips `vendors.verified`, which changes the cacheable `/vendors/:slug` page **and** the product pages that embed the vendor tag. Enqueue a Cache-Tag purge onto `CACHE_PURGE_QUEUE` — `{ tags: ['vendor:<slug>'], source: 'moderation' }` — mirroring `purgeProductTag` (`apps/api/src/routes/admin-reviews.ts` ~:135-147). **Note:** the existing request-moderation path deliberately skips purge (a `vendor_request` renders on no cacheable page); the grant path **must add it** because it mutates `vendors`.
@@ -151,7 +153,7 @@ The approval action that turns an `open` vendor claim into a live verified vendo
 
 **Reversibility.** Grants are app-side and reversible — a later revoke (§7) is a separate audited write; it removes the seat but does **not** by itself un-verify the vendor (see §7 seat semantics).
 
-> **This flow is now the ONLY writer of `vendors.verified`.** AECI-520 removed the column from the promote payload's writable set (§4.2) because a routine Airtable push could otherwise silently un-verify a paying vendor. This section's `UPDATE vendors SET verified = true` (step 2) is the sole SET path; the **un-verify** half (the "separate entitlement action" §7 defers) still has no owner — a seat revoke (below / AECI-524) deliberately never un-verifies, so if a vendor-level un-verify is needed before the Paid Tiers epic (AECI-515) it needs its own issue. The bit is read by the public vendor API shapes and the `GET /api/vendors?verified=` filter, and — as of AECI-523 — **rendered as the verified badge on the SSR detail surfaces** (§8.1); it is still **not in the Algolia record** (AECI-529).
+> **This flow is now the ONLY writer of `vendors.verified`.** AECI-520 removed the column from the promote payload's writable set (§4.2) because a routine Airtable push could otherwise silently un-verify a paying vendor. This section's `UPDATE vendors SET verified = true` (step 2) is the sole SET path; the **un-verify** half (the "separate entitlement action" §7 defers) had no owner at the close of this epic — a seat revoke (below / AECI-524) deliberately never un-verifies. **It has one now: AECI-532** (`PATCH /api/admin/vendors/:id/entitlement`, `set` / `renew` / `clear`), specified in `docs/STAGE_2_PAID_TIERS_SPEC.md` §5. Clearing an entitlement does **not** revoke seats — the vendor keeps portal access, read-only. The bit is read by the public vendor API shapes and the `GET /api/vendors?verified=` filter, and — as of AECI-523 — **rendered as the verified badge on the SSR detail surfaces** (§8.1); it is still **not in the Algolia record** (AECI-529).
 
 ### 3.1 As built (AECI-519 — 2026-07-25)
 
@@ -265,7 +267,7 @@ Shipped as the Angular `/vendor` surface (singular — the public `/vendors/:slu
 - **Gate = the `/admin` pattern.** `vendorMeResolver` (`vendor-me.resolver.ts`) calls `GET /api/vendor/me`; a **401/403/404 → 404 render** (`<aec-not-found/>` + `RESPONSE_INIT.status = 404` + noindex), a 200 → the dashboard, a 5xx rethrows. `requireVendor()` rejects anon, reviewers, banned seats, null-`vendor_id` seats, **and site admins** — all surface as the same 404. Non-cacheable + `Cache-Tag`-free by the fail-closed classifier (no `server-runtime.ts` change; the worker login-bounce for anon `/vendor` already shipped with AECI-520). The page sets `robots: noindex`.
 - **Edits.** `vendor-profile-form.ts` / `vendor-product-form.ts` are dirty-diff editors validated **live against the shared `UpdateVendorProfile*`/`UpdateVendorProduct*` schemas** (single source of truth; a single-key parse per field). Only changed fields are PATCHed (the endpoint requires ≥1; Save is disabled until a real change); the echo re-seeds the baseline so the form settles clean. **Optimistic + on-demand revalidation, no socket.** Save-confirmation copy never promises instant search — it says the listing updates now and search refreshes within a day (§8.3(5) / AECI-529). Product taxonomy is assigned via `aria-pressed` toggle chips fed by `GET /api/taxonomy` (existing terms only); `name`/`slug` are read-only with a "rename = correction request" hint. `public_private` uses the Angular Aria single-select listbox stand-in (ADR 0010).
 - **Header entry point.** A role-gated "Vendor dashboard" link in the signed-in user menu (`layout/user-menu.ts` + `layout/nav-menu.ts`), driven by `VendorStatus` (`vendor/vendor-status.ts`) — the cache-neutral clone of `AdminStatus`: it probes the cheap `GET /api/account` `role` (never `/api/vendor/*`) and stays `false` during SSR.
-- **Verified state.** Rendered read-only (`vendor-verified-status.ts`) as the launch-minimum entitlement display; the richer paid-tier display is deferred to AECI-515.
+- **Verified state.** Rendered read-only (`vendor-verified-status.ts`) as the launch-minimum entitlement display; the richer paid-tier display is deferred to AECI-515 — **now owned by AECI-614** (`docs/STAGE_2_PAID_TIERS_SPEC.md` §8), which replaces this component with a plan panel carrying tier, status, term, and a downgraded read-only state.
 - **e2e.** The AECI-235 real-session mint (`apps/web/e2e/auth-session.ts`) was parameterized with a `vendor` persona; `vendor-dashboard.spec.ts` drives `/vendor` + a profile-edit round-trip. Seeded by a `vendor_admin` D1 profile in `apps/api/seed/auth-fixtures.sql` (id = the real vendor test account's Supabase `sub`, anchored to the `...061` fixture vendor). Skips-green until the `SUPABASE_VENDOR_TEST_USER_*` GH secrets are set (see `environments.md`).
 
 ---
@@ -332,7 +334,7 @@ Claim approved / rejected notifications over **Resend** (`apps/api/src/lib/email
 - Fire from the §3 grant/reject handler via `c.executionCtx.waitUntil(...)`, to the claim's `submitter_email`.
 - Update the template catalogue in `docs/email.md`.
 
-Billing/invoice notices are a Paid-Tiers concern (`STAGE_2_SPEC.md` §2.2 / AECI-515), not this issue.
+Billing/invoice notices are a Paid-Tiers concern (`STAGE_2_SPEC.md` §2.2 / AECI-515), not this issue — **now owned by AECI-613** (`entitlement-expiring` / `entitlement-expiring-admin`, `docs/STAGE_2_PAID_TIERS_SPEC.md` §7).
 
 ### As built (AECI-528 — 2026-07-25)
 
@@ -358,7 +360,7 @@ Complete `AUTH_AND_RLS.md` for `vendor_admin`. The **kickoff** already seeds the
 Explicitly **not** in this epic (tracked elsewhere or later):
 
 - **Self-serve seat invite/revoke + owner/admin distinction** — needs a small schema add; deferred (`STAGE_2_SPEC.md` §8.1(2)). Launch is admin-granted seats only.
-- **Paid-tier ladder above the entry Verified fee, automated billing, self-serve card, offline-invoicing mechanics** (renewal/expiry/dunning) — the Paid Tiers epic (AECI-515); still open in `STAGE_2_SPEC.md` §8.2.
+- **Paid-tier ladder above the entry Verified fee, automated billing, self-serve card, offline-invoicing mechanics** (renewal/expiry/dunning) — the Paid Tiers epic (AECI-515). **Decomposed 2026-08-14** in `docs/STAGE_2_PAID_TIERS_SPEC.md`; the decisions landed in `STAGE_2_SPEC.md` §8.4. Automated billing and self-serve card stay deferred there; dunning is deliberately out (expiry **warns**, never auto-lapses).
 - **Real-time / live vendor edits** — the Real-Time epic (AECI-516); transport (Durable Objects vs SSE vs revalidation) deferred. The portal ships without persistent sockets.
 - **Integration attestation authoring / conflict UI / version-diff** — the Integration Attestations epic (activates the dormant `vendor_a`/`vendor_b` sources); `STAGE_2_SPEC.md` §2.4.
 - **Person-lookup enrichment providers** — deferred DPA/GDPR decision (§5 surfaces a link only).
@@ -379,6 +381,7 @@ Explicitly **not** in this epic (tracked elsewhere or later):
 | Cache-Tag purge (queue producer + tag map) | `CACHE_STRATEGY.md` (§3/§8) |
 | Algolia index settings + `verified` facet | `SEARCH_RANKING.md` (§8) |
 | Stage 2 scope, decisions, epic map | `STAGE_2_SPEC.md` (§2.1 scope, §8.3 decisions) |
+| Paid tiers & entitlements — the successor epic (AECI-515) | `STAGE_2_PAID_TIERS_SPEC.md` (§3's un-verify owner, §6.1's paid-tier display, §9's billing notices, §11's deferrals) |
 
 ---
 
