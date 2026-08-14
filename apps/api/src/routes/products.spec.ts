@@ -13,6 +13,7 @@ import { ProductDetailSchema, ProductsListResponseSchema } from '@aeci/shared';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
+  attestations,
   claims,
   integrations,
   productAudiences,
@@ -303,6 +304,102 @@ describe('GET /api/products/:slug', () => {
       await (await get(detailApp(), '/api/products/procore')).json(),
     );
     expect(fromTarget.integrations_as_target[0]?.context_direction).toBe('inbound');
+  });
+
+  // §4.3: once every voting vendor denies a flow, it must stop steering the
+  // table's arrow — otherwise the table keeps asserting a direction the pair
+  // page has already struck through (the §7.1 drift bug, in the other direction).
+  it('drops a refuted claim from the effective context direction', async () => {
+    await seedProduct(u(1), 'egnyte', 'Egnyte');
+    await seedProduct(u(2), 'procore', 'Procore');
+    await t.db.insert(vendors).values({ id: u(91), companyName: 'Acme', slug: 'acme' });
+    // Stored direction null, so the claims are the only signal.
+    await t.db
+      .insert(integrations)
+      .values({ id: u(51), sourceProductId: u(1), targetProductId: u(2) });
+    await t.db.insert(taxonomyDataObjects).values([
+      { id: u(71), slug: 'drawings', name: 'Drawings' },
+      { id: u(72), slug: 'rfis', name: 'RFIs' },
+    ]);
+    await t.db.insert(claims).values([
+      { id: u(81), integrationId: u(51), dataObjectId: u(71), direction: 'a_to_b' },
+      { id: u(82), integrationId: u(51), dataObjectId: u(72), direction: 'b_to_a' },
+    ]);
+    // The b_to_a claim is denied by the only vendor that voted on it. Without
+    // the filter the two opposing claims would aggregate to 'both'.
+    await t.db.insert(attestations).values({
+      id: u(85),
+      claimId: u(82),
+      source: 'vendor_a',
+      asserted: false,
+      attestedByVendorId: u(91),
+    });
+
+    const detail = ProductDetailSchema.parse(
+      await (await get(detailApp(), '/api/products/egnyte')).json(),
+    );
+    expect(detail.integrations_as_source[0]?.context_direction).toBe('outbound');
+  });
+
+  it('falls back to the stored row direction when every claim is refuted', async () => {
+    await seedProduct(u(1), 'egnyte', 'Egnyte');
+    await seedProduct(u(2), 'procore', 'Procore');
+    await t.db.insert(vendors).values({ id: u(91), companyName: 'Acme', slug: 'acme' });
+    await t.db.insert(integrations).values({
+      id: u(51),
+      sourceProductId: u(1),
+      targetProductId: u(2),
+      direction: 'bidirectional',
+    });
+    await t.db
+      .insert(taxonomyDataObjects)
+      .values({ id: u(71), slug: 'drawings', name: 'Drawings' });
+    await t.db
+      .insert(claims)
+      .values({ id: u(81), integrationId: u(51), dataObjectId: u(71), direction: 'a_to_b' });
+    await t.db.insert(attestations).values({
+      id: u(85),
+      claimId: u(81),
+      source: 'vendor_a',
+      asserted: false,
+      attestedByVendorId: u(91),
+    });
+
+    const detail = ProductDetailSchema.parse(
+      await (await get(detailApp(), '/api/products/egnyte')).json(),
+    );
+    // The a_to_b claim is gone, so the stored `bidirectional` wins.
+    expect(detail.integrations_as_source[0]?.context_direction).toBe('both');
+  });
+
+  // A retracted denial is a withdrawn assertion, not a live "no" — the claim
+  // must go back to steering the arrow.
+  it('ignores a retracted denial when computing the context direction', async () => {
+    await seedProduct(u(1), 'egnyte', 'Egnyte');
+    await seedProduct(u(2), 'procore', 'Procore');
+    await t.db.insert(vendors).values({ id: u(91), companyName: 'Acme', slug: 'acme' });
+    await t.db
+      .insert(integrations)
+      .values({ id: u(51), sourceProductId: u(1), targetProductId: u(2) });
+    await t.db
+      .insert(taxonomyDataObjects)
+      .values({ id: u(71), slug: 'drawings', name: 'Drawings' });
+    await t.db
+      .insert(claims)
+      .values({ id: u(81), integrationId: u(51), dataObjectId: u(71), direction: 'both' });
+    await t.db.insert(attestations).values({
+      id: u(85),
+      claimId: u(81),
+      source: 'vendor_a',
+      asserted: false,
+      attestedByVendorId: u(91),
+      retractedAt: '2026-08-14T00:00:00.000Z',
+    });
+
+    const detail = ProductDetailSchema.parse(
+      await (await get(detailApp(), '/api/products/egnyte')).json(),
+    );
+    expect(detail.integrations_as_source[0]?.context_direction).toBe('both');
   });
 
   it('withholds rating averages below the 5-review gate', async () => {

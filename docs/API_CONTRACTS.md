@@ -375,7 +375,10 @@ export const IntegrationListItemSchema = z.object({
 // `effectiveContextDirection` prefers the aggregate of the mechanism's claim
 // directions (the same signal the pair page surfaces) and falls back to the
 // stored `direction`, both framed to this product; `null` (em-dash) only when
-// there is neither. Precomputed server-side so the product-detail table can never
+// there is neither. **Refuted claims are excluded** — once every vendor that
+// voted denies a flow it stops steering the arrow (STAGE_2_ATTESTATIONS_SPEC.md
+// §4.3 / AECI-605); a `conflict` claim still counts, since disputed is not
+// withdrawn. Precomputed server-side so the product-detail table can never
 // contradict the pair page. Only this embed carries it — the bare
 // `IntegrationListItem` used by `/api/integrations` and the home rail has no
 // single context product. `ContextDirectionSchema` = `['outbound','inbound','both']`.
@@ -559,14 +562,20 @@ The **product-PAIR read**. Consolidates every integration between two products i
 
 // The claim's computed agreement (§3.4 — computeAgreement, never stored). Only
 // `unverified` is reachable in Stage 1.5 (AECi-only attestations, AECi-never-red).
-export const AgreementStateSchema = z.enum(['unverified', 'confirmed', 'conflict']);
+// `confirmed` requires TWO DISTINCT vendor identities; one vendor affirming alone
+// is `single_source` (STAGE_2_ATTESTATIONS_SPEC.md §4.2 — AECI-605).
+export const AgreementStateSchema = z.enum([
+  'unverified', 'single_source', 'confirmed', 'conflict',
+]);
 
-// One attestation behind a claim (§3.3), for the AECi-annotated provenance (§8).
+// One LIVE attestation behind a claim (§3.3), for the annotated provenance (§8).
+// Retracted rows are filtered out by the read path, so they never appear here.
 export const PairClaimAttestationSchema = z.object({
   source: z.enum(['aeci', 'vendor_a', 'vendor_b']),   // only `aeci` written in 1.5
+  attestor: z.enum(['aeci', 'context', 'other']),     // the slot, framed context-relative (§4.3)
   asserted: z.boolean(),
   note: z.string().nullable(),
-  introduced_at: z.string().nullable(),               // dormant version stamps (Stage 2)
+  introduced_at: z.string().nullable(),               // version stamps (Stage 2) — NOT retraction
   deprecated_at: z.string().nullable(),
 });
 
@@ -595,7 +604,11 @@ export const ProductPairMechanismSchema = z.object({
 
 export const SyncHeadlineSchema = z.object({
   total: z.number().int().min(0),      // distinct claims on the pair (all mechanisms/directions)
-  confirmed: z.number().int().min(0),  // vendor-confirmed — always 0 in Stage 1.5
+  confirmed: z.number().int().min(0),  // TWO distinct vendors affirm — always 0 in Stage 1.5
+  // Exactly one vendor affirms, counterparty silent. Reported separately, never
+  // folded into `confirmed` (§8.1(4)). `.default(0)` so an SSR Worker running this
+  // schema still parses a response from an API Worker that predates the field.
+  single_source: z.number().int().min(0).default(0),
 });
 
 export const ProductPairResponseSchema = z.object({
@@ -609,7 +622,8 @@ export type ProductPairResponse = z.infer<typeof ProductPairResponseSchema>;
 
 - **`direction`** (mechanism) is the integration row's stored `one-way`/`bidirectional` translated to the **context product's** frame: `one-way` → `outbound` when the context product is the integration's `source`, else `inbound`; `bidirectional` → `both`; `null` → `null` (§3.2, applied at the mechanism level).
 - **`claims[]`** (Layer B — §8) are the `data_object` flows on each mechanism. `direction` is the **claim-level** stored `a_to_b`/`b_to_a`/`both` translated to the context frame (§3.2 — distinct from the mechanism translation), and `agreement` is `computeAgreement(attestations)` (§3.4, `packages/shared/src/agreement.ts`) — always `unverified` in 1.5. Ordered by the `data_object`'s `display_order`. A `data_object` moving through two mechanisms is **two claims** (§3.1), never de-duplicated.
-- **`sync_headline`** = `computeSyncHeadline` over every claim on the pair (§3.5): `total` is the distinct claim count, `confirmed` is always `0` in Stage 1.5. `{ total: 0, confirmed: 0 }` for an unseeded/empty pair.
+- **`attestations[]`** carry only **live** rows: the read config filters `retracted_at IS NULL` (`liveAttestationsWhere`, `apps/api/src/lib/drizzle-helpers.ts`), so a withdrawn assertion neither votes nor renders. `deprecated_at` is a *version stamp* and never gates the read. `attestor` is the slot translated to the page's frame by `attestorForContext` (`vendor_a` = endpoint A = the integration's `source_product`): the browser attributes a `single_source` claim by looking the name up on `context_product.vendor` / `other_product.vendor`. The raw `attested_by_vendor_id` is **not** exposed — it feeds the §4.2 distinct-identity dedupe server-side only.
+- **`sync_headline`** = `computeSyncHeadline` over every claim on the pair (§3.5): `total` is the distinct claim count; `confirmed` (two distinct vendors) and `single_source` (one vendor, counterparty silent) are both `0` in Stage 1.5 and are **never summed**. `{ total: 0, confirmed: 0, single_source: 0 }` for an unseeded/empty pair.
 - **Errors / status:** `NOT_FOUND` when either slug is unknown **or the two slugs are equal**. A valid-but-unconnected pair (both products exist, no integration between them) is a **200** with `mechanisms: []`.
 - SSR caching (pair page): detail TTL, `Cache-Tag: route:detail,pair:{min}__{max},product:{slug}×2` (see `CACHE_STRATEGY.md`).
 

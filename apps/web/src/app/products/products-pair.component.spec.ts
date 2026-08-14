@@ -12,7 +12,14 @@ import { ActivatedRoute, convertToParamMap, provideRouter, Router } from '@angul
 import { of } from 'rxjs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { ContextDirection, ProductPairClaim, ProductPairResponse } from '@aeci/shared';
+import type {
+  AgreementState,
+  ContextDirection,
+  PairClaimAttestation,
+  ProductPairClaim,
+  ProductPairResponse,
+  SyncHeadline,
+} from '@aeci/shared';
 
 import { ProductsPairPage } from './products-pair';
 
@@ -33,6 +40,25 @@ const productListItem = (slug: string, name: string, overrides = {}) => ({
   ...overrides,
 });
 
+const aeciSeed = (note: string | null = 'Curated by AECi.'): PairClaimAttestation => ({
+  source: 'aeci',
+  attestor: 'aeci',
+  asserted: true,
+  note,
+  introduced_at: null,
+  deprecated_at: null,
+});
+
+/** A vendor attestation, framed context-relative the way the API resolves it. */
+const vendorVote = (attestor: 'context' | 'other', asserted: boolean): PairClaimAttestation => ({
+  source: attestor === 'context' ? 'vendor_a' : 'vendor_b',
+  attestor,
+  asserted,
+  note: null,
+  introduced_at: null,
+  deprecated_at: null,
+});
+
 const claim = (
   slug: string,
   name: string,
@@ -43,9 +69,21 @@ const claim = (
   data_object_name: name,
   direction,
   agreement: 'unverified',
-  attestations: [
-    { source: 'aeci', asserted: true, note, introduced_at: null, deprecated_at: null },
-  ],
+  attestations: [aeciSeed(note)],
+});
+
+/** A claim in an arbitrary agreement state, for the §4.2 render matrix. */
+const claimInState = (
+  slug: string,
+  name: string,
+  agreement: AgreementState,
+  attestations: PairClaimAttestation[],
+): ProductPairClaim => ({
+  data_object_slug: slug,
+  data_object_name: name,
+  direction: 'outbound',
+  agreement,
+  attestations,
 });
 
 function buildPair(overrides: Partial<ProductPairResponse> = {}): ProductPairResponse {
@@ -66,18 +104,27 @@ function buildPair(overrides: Partial<ProductPairResponse> = {}): ProductPairRes
         claims: [],
       },
     ],
-    sync_headline: { total: 0, confirmed: 0 },
+    sync_headline: { total: 0, confirmed: 0, single_source: 0 },
     ...overrides,
   };
 }
 
-/** A pair whose single mechanism carries claims (Layer B). */
-function buildPairWithClaims(claims: ProductPairClaim[]): ProductPairResponse {
+/** A pair whose single mechanism carries claims (Layer B). `headline` overrides
+ *  the derived counts for the states-rendering cases. */
+function buildPairWithClaims(
+  claims: ProductPairClaim[],
+  headline: Partial<SyncHeadline> = {},
+): ProductPairResponse {
   const base = buildPair();
   return {
     ...base,
     mechanisms: [{ ...base.mechanisms[0]!, claims }],
-    sync_headline: { total: claims.length, confirmed: 0 },
+    sync_headline: {
+      total: claims.length,
+      confirmed: 0,
+      single_source: 0,
+      ...headline,
+    },
   };
 }
 
@@ -193,6 +240,145 @@ describe('ProductsPairPage', () => {
   it('shows the empty-mechanisms message when the pair has no integrations', () => {
     const { el } = setup(buildPair({ mechanisms: [] }));
     expect(el.textContent).toContain('don’t have any integrations documented');
+  });
+
+  // The §4.2 matrix, rendered from fixtures with no vendor data in the DB.
+  describe('agreement states (§4)', () => {
+    /** Both endpoints carry a vendor, so attribution has names to use. */
+    const withVendors = (pair: ProductPairResponse): ProductPairResponse => ({
+      ...pair,
+      context_product: {
+        ...pair.context_product,
+        vendor: {
+          id: 'v1',
+          name: 'Acme Software',
+          slug: 'acme-software',
+          logo_url: null,
+          verified: true,
+        },
+      },
+      other_product: {
+        ...pair.other_product,
+        vendor: { id: 'v2', name: 'Globex', slug: 'globex', logo_url: null, verified: false },
+      },
+    });
+
+    const renderState = (
+      agreement: AgreementState,
+      attestations: PairClaimAttestation[],
+      headline: Partial<SyncHeadline> = {},
+    ) =>
+      setup(
+        withVendors(
+          buildPairWithClaims([claimInState('rfis', 'RFIs', agreement, attestations)], headline),
+        ),
+      ).el;
+
+    it('renders 0 voters as the neutral unverified chip', () => {
+      expect(renderState('unverified', [aeciSeed()]).textContent).toContain('Unverified · AECi');
+    });
+
+    it('renders a denied-only claim as unverified, never as a conflict', () => {
+      const el = renderState('unverified', [aeciSeed(), vendorVote('context', false)]);
+      expect(el.textContent).toContain('Unverified · AECi');
+      expect(el.textContent).not.toContain('Vendors disagree');
+    });
+
+    it('renders single_source attributed to the affirming vendor', () => {
+      const el = renderState('single_source', [aeciSeed(), vendorVote('context', true)], {
+        single_source: 1,
+      });
+      expect(el.textContent).toContain('Confirmed by Acme Software');
+      // Never the bilateral wording.
+      expect(el.textContent).not.toContain('Both vendors confirmed');
+    });
+
+    it('attributes single_source to the other product’s vendor when that side affirmed', () => {
+      const el = renderState('single_source', [vendorVote('other', true)], { single_source: 1 });
+      expect(el.textContent).toContain('Confirmed by Globex');
+    });
+
+    it('renders confirmed with the bilateral wording', () => {
+      const el = renderState(
+        'confirmed',
+        [vendorVote('context', true), vendorVote('other', true)],
+        { confirmed: 1 },
+      );
+      expect(el.textContent).toContain('Both vendors confirmed');
+    });
+
+    it('renders conflict as a disagreement between vendors', () => {
+      const el = renderState('conflict', [vendorVote('context', true), vendorVote('other', false)]);
+      expect(el.textContent).toContain('Vendors disagree');
+    });
+
+    it('reports one-sided and bilateral verification as separate clauses', () => {
+      const el = setup(
+        withVendors(
+          buildPairWithClaims(
+            [
+              claimInState('rfis', 'RFIs', 'confirmed', [
+                vendorVote('context', true),
+                vendorVote('other', true),
+              ]),
+              claimInState('models', 'Models', 'single_source', [vendorVote('context', true)]),
+            ],
+            { total: 2, confirmed: 1, single_source: 1 },
+          ),
+        ),
+      ).el;
+      expect(el.textContent).toContain('1 of 2 vendor-confirmed');
+      expect(el.textContent).toContain('1 confirmed by one vendor only');
+      // The one-sided count must never be folded into the bilateral figure.
+      expect(el.textContent).not.toContain('2 of 2 vendor-confirmed');
+    });
+
+    it('omits the one-sided clause entirely when there are none', () => {
+      const el = renderState('unverified', [aeciSeed()]);
+      expect(el.textContent).toContain('0 of 1 vendor-confirmed');
+      expect(el.textContent).not.toContain('confirmed by one vendor only');
+    });
+
+    // The "confirmation arrives with the portal" subline is only true while no
+    // vendor has spoken. Each case needs its own test — `setup()` instantiates
+    // the TestBed, which can only happen once per spec.
+    const AWAITING = 'Vendor confirmation arrives with the vendor portal';
+
+    it('keeps the awaiting-vendors subline while every attestation is AECi’s', () => {
+      expect(renderState('unverified', [aeciSeed()]).textContent).toContain(AWAITING);
+    });
+
+    it('retires the awaiting-vendors subline once a vendor has spoken, even to deny', () => {
+      const el = renderState('unverified', [aeciSeed(), vendorVote('context', false)]);
+      expect(el.textContent).not.toContain(AWAITING);
+    });
+
+    it('retires the awaiting-vendors subline once a vendor has affirmed', () => {
+      const el = renderState('single_source', [vendorVote('context', true)], { single_source: 1 });
+      expect(el.textContent).not.toContain(AWAITING);
+    });
+
+    // AC: `?view=basic` still collapses the lanes, whatever state the claims are in.
+    it('still collapses the lanes in Basic view for a non-unverified claim', () => {
+      const { el } = setup(
+        withVendors(
+          buildPairWithClaims(
+            [
+              claimInState('rfis', 'RFIs', 'conflict', [
+                vendorVote('context', true),
+                vendorVote('other', false),
+              ]),
+            ],
+            { total: 1 },
+          ),
+        ),
+        { view: 'basic' },
+      );
+      expect(el.querySelectorAll('aec-agreement-badge')).toHaveLength(0);
+      expect(el.textContent).not.toContain('Vendors disagree');
+      // The headline survives — Basic hides granularity, not breadth.
+      expect(el.textContent).toContain('1 data object syncs');
+    });
   });
 
   it('renders the NotFound shell when the pair is null', () => {

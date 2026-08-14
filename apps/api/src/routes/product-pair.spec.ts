@@ -7,7 +7,14 @@ import type { ClaimDirection } from '@aeci/shared';
 import { ProductPairResponseSchema } from '@aeci/shared';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { attestations, claims, integrations, products, taxonomyDataObjects } from '../db/schema';
+import {
+  attestations,
+  claims,
+  integrations,
+  products,
+  taxonomyDataObjects,
+  vendors,
+} from '../db/schema';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { buildAppWithHandler, fakeExecutionContext, TEST_ENV } from '../test/helpers';
 import { createProductPairHandler } from './integrations';
@@ -56,16 +63,36 @@ async function dataObject(id: string, slug: string, name: string, displayOrder?:
   await t.db.insert(taxonomyDataObjects).values({ id, slug, name, displayOrder });
 }
 
-/** Seed a claim on an integration with an AECi-seeded attestation (the Stage 1.5
- *  reality — the only source ever written). */
+/** Two vendor companies for the §4.2 distinct-identity cases. `ACME` owning both
+ *  endpoints of an integration is the case the dedupe exists for. */
+const ACME = u(901);
+const GLOBEX = u(902);
+
+async function seedVendors() {
+  await t.db.insert(vendors).values([
+    { id: ACME, companyName: 'Acme Software', slug: 'acme-software' },
+    { id: GLOBEX, companyName: 'Globex', slug: 'globex' },
+  ]);
+}
+
+interface SeedAttestation {
+  source: string;
+  asserted: boolean;
+  note?: string;
+  /** `attested_by_vendor_id` — the identity `computeAgreement` dedupes by (§4.2). */
+  by?: string;
+  /** Supersession (AECI-603). A retracted row must neither vote nor render. */
+  retractedAt?: string;
+}
+
+/** Seed a claim on an integration. Defaults to the Stage 1.5 reality: a single
+ *  AECi seed, which resolves `unverified`. */
 async function claim(
   id: string,
   integrationId: string,
   dataObjectId: string,
   direction: ClaimDirection,
-  atts: Array<{ source: string; asserted: boolean; note?: string }> = [
-    { source: 'aeci', asserted: true, note: 'Curated by AECi.' },
-  ],
+  atts: SeedAttestation[] = [{ source: 'aeci', asserted: true, note: 'Curated by AECi.' }],
 ) {
   await t.db.insert(claims).values({ id, integrationId, dataObjectId, direction });
   for (const a of atts) {
@@ -75,6 +102,8 @@ async function claim(
       source: a.source,
       asserted: a.asserted,
       note: a.note ?? null,
+      attestedByVendorId: a.by ?? null,
+      retractedAt: a.retractedAt ?? null,
     });
   }
 }
@@ -90,7 +119,7 @@ describe('GET /api/products/:slug/integrations/:otherSlug', () => {
     expect(body.context_product.slug).toBe('procore');
     expect(body.other_product.slug).toBe('revit');
     expect(body.mechanisms).toHaveLength(1);
-    expect(body.sync_headline).toEqual({ total: 0, confirmed: 0 });
+    expect(body.sync_headline).toEqual({ total: 0, confirmed: 0, single_source: 0 });
   });
 
   it('translates a one-way direction relative to the context product', async () => {
@@ -146,7 +175,7 @@ describe('GET /api/products/:slug/integrations/:otherSlug', () => {
     expect(res.status).toBe(200);
     const body = ProductPairResponseSchema.parse(await res.json());
     expect(body.mechanisms).toEqual([]);
-    expect(body.sync_headline).toEqual({ total: 0, confirmed: 0 });
+    expect(body.sync_headline).toEqual({ total: 0, confirmed: 0, single_source: 0 });
   });
 
   it('404s when either slug is unknown', async () => {
@@ -192,10 +221,12 @@ describe('GET /api/products/:slug/integrations/:otherSlug — Layer B claims (§
     ]);
     // Stage 1.5: every claim is AECi-only, so agreement is always unverified.
     expect(claimsOut.every((c) => c.agreement === 'unverified')).toBe(true);
-    // Provenance rides along: the single AECi attestation with its note.
+    // Provenance rides along: the single AECi attestation with its note. The
+    // AECi seed is never attributed to an endpoint — it is not a party to the vote.
     expect(claimsOut[0]!.attestations).toEqual([
       {
         source: 'aeci',
+        attestor: 'aeci',
         asserted: true,
         note: 'Curated by AECi.',
         introduced_at: null,
@@ -203,7 +234,7 @@ describe('GET /api/products/:slug/integrations/:otherSlug — Layer B claims (§
       },
     ]);
     // Sync headline: breadth honest, confirmed always 0 in 1.5.
-    expect(body.sync_headline).toEqual({ total: 3, confirmed: 0 });
+    expect(body.sync_headline).toEqual({ total: 3, confirmed: 0, single_source: 0 });
   });
 
   it('mirrors claim directions when the pair is viewed from the other product', async () => {
@@ -218,7 +249,7 @@ describe('GET /api/products/:slug/integrations/:otherSlug — Layer B claims (§
     expect(bySlug.get('models')).toBe('inbound'); // a_to_b, context = target B (Revit) → arrives
     expect(bySlug.get('rfis')).toBe('outbound');
     expect(bySlug.get('schedules')).toBe('both');
-    expect(body.sync_headline).toEqual({ total: 3, confirmed: 0 });
+    expect(body.sync_headline).toEqual({ total: 3, confirmed: 0, single_source: 0 });
   });
 
   it('counts a data_object moving through two mechanisms as two distinct claims (§3.1)', async () => {
@@ -236,7 +267,7 @@ describe('GET /api/products/:slug/integrations/:otherSlug — Layer B claims (§
     expect(byMech.get(u(10))!.map((c) => c.direction)).toEqual(['inbound']);
     expect(byMech.get(u(11))!.map((c) => c.direction)).toEqual(['outbound']);
     // Two rows, never de-duplicated → total counts both.
-    expect(body.sync_headline).toEqual({ total: 2, confirmed: 0 });
+    expect(body.sync_headline).toEqual({ total: 2, confirmed: 0, single_source: 0 });
   });
 
   it('orders claims by the data_object display_order', async () => {
@@ -258,5 +289,145 @@ describe('GET /api/products/:slug/integrations/:otherSlug — Layer B claims (§
       'rfis',
       'schedules',
     ]);
+  });
+});
+
+describe('GET /api/products/:slug/integrations/:otherSlug — agreement states (§4)', () => {
+  /** One mechanism (Procore/A → Revit/B) with one RFIs claim carrying `atts`. */
+  async function seedClaimWith(atts: SeedAttestation[]) {
+    await seedProducts();
+    await seedVendors();
+    await integration(u(10), u(1), u(2), { mechanismKind: 'native' });
+    await dataObject(u(102), 'rfis', 'RFIs', 2);
+    await claim(u(201), u(10), u(102), 'a_to_b', atts);
+  }
+
+  const readClaim = async (url = '/api/products/procore/integrations/revit') => {
+    const body = ProductPairResponseSchema.parse(await (await get(url)).json());
+    return { claim: body.mechanisms[0]!.claims[0]!, headline: body.sync_headline };
+  };
+
+  it('resolves single_source when one vendor affirms and the counterparty is silent', async () => {
+    await seedClaimWith([
+      { source: 'aeci', asserted: true },
+      { source: 'vendor_a', asserted: true, by: ACME },
+    ]);
+    const { claim: c, headline } = await readClaim();
+    expect(c.agreement).toBe('single_source');
+    expect(headline).toEqual({ total: 1, confirmed: 0, single_source: 1 });
+  });
+
+  it('resolves confirmed only for two DISTINCT vendor identities', async () => {
+    await seedClaimWith([
+      { source: 'vendor_a', asserted: true, by: ACME },
+      { source: 'vendor_b', asserted: true, by: GLOBEX },
+    ]);
+    const { claim: c, headline } = await readClaim();
+    expect(c.agreement).toBe('confirmed');
+    expect(headline).toEqual({ total: 1, confirmed: 1, single_source: 0 });
+  });
+
+  // The reason the dedupe exists: `product_vendors` is many-to-many, so one
+  // company can own both endpoints, fill both slots, and would otherwise
+  // manufacture "Vendor-confirmed" on its own intra-portfolio integration.
+  it('resolves single_source when ONE vendor owns both endpoints and affirms both slots', async () => {
+    await seedClaimWith([
+      { source: 'vendor_a', asserted: true, by: ACME },
+      { source: 'vendor_b', asserted: true, by: ACME },
+    ]);
+    const { claim: c, headline } = await readClaim();
+    expect(c.agreement).toBe('single_source');
+    expect(headline).toEqual({ total: 1, confirmed: 0, single_source: 1 });
+  });
+
+  it('resolves conflict when two distinct vendors disagree', async () => {
+    await seedClaimWith([
+      { source: 'vendor_a', asserted: true, by: ACME },
+      { source: 'vendor_b', asserted: false, by: GLOBEX },
+    ]);
+    const { claim: c, headline } = await readClaim();
+    expect(c.agreement).toBe('conflict');
+    // A disputed claim counts in neither verified bucket.
+    expect(headline).toEqual({ total: 1, confirmed: 0, single_source: 0 });
+  });
+
+  it('keeps a denied-only claim at unverified, never conflict', async () => {
+    await seedClaimWith([
+      { source: 'aeci', asserted: true },
+      { source: 'vendor_a', asserted: false, by: ACME },
+    ]);
+    expect((await readClaim()).claim.agreement).toBe('unverified');
+  });
+
+  // The AECI-603 §2.5 handoff: the read path must filter `retracted_at IS NULL`,
+  // or a withdrawn assertion keeps voting once AECI-301 ships the retract endpoint.
+  it('excludes a retracted attestation from both the vote and the payload', async () => {
+    await seedClaimWith([
+      { source: 'vendor_a', asserted: true, by: ACME },
+      { source: 'vendor_b', asserted: true, by: GLOBEX, retractedAt: '2026-08-14T00:00:00.000Z' },
+    ]);
+    const { claim: c, headline } = await readClaim();
+    // Two affirmations on the row, but only one live → not bilateral.
+    expect(c.agreement).toBe('single_source');
+    expect(headline).toEqual({ total: 1, confirmed: 0, single_source: 1 });
+    expect(c.attestations.map((a) => a.source)).toEqual(['vendor_a']);
+  });
+
+  // `deprecated_at` is a version stamp (§3.3), NOT retraction — gating the read
+  // on it would silence a vendor the moment it recorded that a flow ended.
+  it('does not treat a deprecated_at version stamp as retraction', async () => {
+    await seedProducts();
+    await seedVendors();
+    await integration(u(10), u(1), u(2), { mechanismKind: 'native' });
+    await dataObject(u(102), 'rfis', 'RFIs', 2);
+    await t.db.insert(claims).values({
+      id: u(201),
+      integrationId: u(10),
+      dataObjectId: u(102),
+      direction: 'a_to_b',
+    });
+    for (const [source, by] of [
+      ['vendor_a', ACME],
+      ['vendor_b', GLOBEX],
+    ] as const) {
+      await t.db.insert(attestations).values({
+        id: crypto.randomUUID(),
+        claimId: u(201),
+        source,
+        asserted: true,
+        attestedByVendorId: by,
+        deprecatedAt: '2026-01-01T00:00:00.000Z',
+      });
+    }
+    const { claim: c } = await readClaim();
+    expect(c.agreement).toBe('confirmed');
+    expect(c.attestations).toHaveLength(2);
+  });
+
+  // `attestor` is what lets the pair page render "Confirmed by {vendor}" from
+  // the two hydrated `ProductListItem.vendor` links, with no vendors join.
+  it('translates the attestation slot into the context frame, both orientations', async () => {
+    await seedClaimWith([
+      { source: 'vendor_a', asserted: true, by: ACME },
+      { source: 'vendor_b', asserted: false, by: GLOBEX },
+    ]);
+
+    // Viewed from Procore (endpoint A): vendor_a is the context's own vendor.
+    const fromA = await readClaim();
+    expect(new Map(fromA.claim.attestations.map((a) => [a.source, a.attestor]))).toEqual(
+      new Map([
+        ['vendor_a', 'context'],
+        ['vendor_b', 'other'],
+      ]),
+    );
+
+    // Viewed from Revit (endpoint B): the mirror.
+    const fromB = await readClaim('/api/products/revit/integrations/procore');
+    expect(new Map(fromB.claim.attestations.map((a) => [a.source, a.attestor]))).toEqual(
+      new Map([
+        ['vendor_a', 'other'],
+        ['vendor_b', 'context'],
+      ]),
+    );
   });
 });
