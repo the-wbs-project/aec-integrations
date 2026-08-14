@@ -22,7 +22,7 @@ This is the "Phase 6 is Done" gate. Like the Phase 2/3/4/5 gates it **surfaces**
 | Gate | Result |
 |------|--------|
 | `pnpm typecheck` (shared, api, datatool — web excluded by design, no web code changed) | ✅ exit 0 |
-| `pnpm lint` (ESLint ×5 packages + `check-logical-properties` + Prettier) | ✅ exit 0 · "All matched files use Prettier code style!" · no physical-direction utilities |
+| `pnpm lint` (ESLint ×5 packages + `check-source-constraints` + Prettier) | ✅ exit 0 · "All matched files use Prettier code style!" · no physical-direction utilities |
 | `pnpm test` (unit + integration) | ✅ **api 573** (60 files) · **shared 272** (21 files) · **web 576** (86 files) · web integration: no files |
 | `ng extract-i18n` (verification only — **not** committed) | ✅ exit 0 · **770 messages → 724 trans-units** · committed `src/locale/messages.xlf` untouched · ⚠️ 4 pre-existing duplicate-id warnings (see §F3) |
 | `grep -rin "slack\|n8n"` over `apps/ packages/ .github/` | ✅ no live wiring — only historical "dropped" comments (one stale `n8n` comment fixed, §4.2) |
