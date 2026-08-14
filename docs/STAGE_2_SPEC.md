@@ -110,12 +110,12 @@ Stage 1 shipped **light-only** (AECI-226), which deferred dark to "the Stage 2 v
 | attestation `introduced_at` / `deprecated_at` version stamps | ✅ `schema.ts` — additive, dormant. **⚠️ Not sufficient for AECI-303** — see the note below. |
 | `translations` table (localized vendor-managed content) | ✅ `schema.ts` — present |
 | `profiles.theme_preference` (dark-theme persistence) | ✅ `schema.ts` — `'system' \| 'light' \| 'dark'` |
-| `computeAgreement` (computed-not-stored agreement) | ✅ defined in `packages/shared/src/agreement.ts` (imported/used in `apps/api/src/lib/drizzle-helpers.ts`) — unit-tested |
+| `computeAgreement` (computed-not-stored agreement) | ✅ defined in `packages/shared/src/agreement.ts` (imported/used in `apps/api/src/lib/drizzle-helpers.ts`) — unit-tested. **Four states as of AECI-605** (`single_source` added; `confirmed` narrowed to two distinct vendor identities) |
 
 > **Two gaps found at the AECI-514 epic review (2026-08-14).** The table above is accurate about the *columns*, but readiness ≠ sufficiency:
 >
 > 1. **The version stamps are dates, not versions.** `introduced_at` / `deprecated_at` are ISO dates on an attestation. AECI-303's "source-version × target-version selectors" needs a **version entity per product**, and there is none in `schema.ts`. That is migration 2 of `STAGE_2_ATTESTATIONS_SPEC.md` §8.
-> 2. **`computeAgreement` renders a *single* vendor's affirmation as `confirmed`.** Unreachable in Stage 1.5 (AECi never votes), so the gap was latent — but it contradicts §8.1(4)'s "one-sided states are visibly labeled". A `single_source` state is added before any vendor attestation reaches production (`STAGE_2_ATTESTATIONS_SPEC.md` §4).
+> 2. **`computeAgreement` renders a *single* vendor's affirmation as `confirmed`.** ✅ **Closed by AECI-605** (2026-08-14). Unreachable in Stage 1.5 (AECi never votes), so the gap was latent — but it contradicted §8.1(4)'s "one-sided states are visibly labeled". A `single_source` state now carries the one-sided case, rendered neutral and attributed ("Confirmed by {vendor}") with the counterparty's silence stated; `confirmed` requires two **distinct** vendor identities. Shipped ahead of the authoring API (AECI-301), which is what would first make the branch reachable — see the §1.1 release gate and §4.5 in `STAGE_2_ATTESTATIONS_SPEC.md`.
 >
 > A third finding is a live defect rather than a readiness gap: **`POST /api/promote` deletes claims by `integration_id` and cascades to attestations**, so the first re-promote of a claimed product would silently destroy every vendor attestation. Fixed in `STAGE_2_ATTESTATIONS_SPEC.md` §3.
 

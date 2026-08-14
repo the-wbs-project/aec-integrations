@@ -176,10 +176,11 @@ It lives at **`packages/shared/src/agreement.ts`** (AECI-300) so the API, SSR, a
 Rules:
 
 - **Only vendor attestations vote.** Agreement is a *vendor-vs-vendor* signal: it asks whether the two vendors of a pair agree about a data flow. **The AECi attestation is excluded from the vote** — it is the baseline/seed, not a party to the disagreement.
-- **AECi-never-red.** Because AECi never votes, an AECi-only claim can **never** produce a `conflict` state. The conflict (red) state requires `vendor_a` and `vendor_b` to disagree — impossible until the Stage 2 portal exists.
+- **AECi-never-red.** Because AECi never votes, an AECi-only claim can **never** produce a `conflict` state. The conflict (red) state requires two distinct vendors to disagree — impossible until the Stage 2 portal exists.
+- **Distinct vendor identities** *(added by AECI-605 — `STAGE_2_ATTESTATIONS_SPEC.md` §4)*. Votes are deduped by `attestations.attested_by_vendor_id`, and **`confirmed` requires two of them**. `product_vendors` is many-to-many, so one company can own *both* endpoints of an integration and fill both attestation slots; without the dedupe it could affirm both and manufacture "Vendor-confirmed" on its own intra-portfolio integrations. A single vendor affirming alone resolves **`single_source`**, never `confirmed`. Retracted attestations (`retracted_at IS NOT NULL`) do not vote — note that `deprecated_at` is a *version stamp* (§3.3), not retraction, and never gates the read.
 - **Stage 1.5 reality.** With only an `aeci` attestation present, every claim resolves to an **"Unverified"** state and renders as such (§8). The agreement engine ships fully but, by construction, only ever returns the unverified branch in 1.5.
 
-`AgreementState` is enumerated in `agreement.ts`; the 1.5-reachable value is the unverified one. The conflict/confirmed branches are implemented and unit-tested against synthetic vendor attestations so Stage 2 inherits a proven function.
+`AgreementState` is enumerated in `agreement.ts` as `unverified | single_source | confirmed | conflict` (ascending verification); the 1.5-reachable value is the unverified one. The other three branches are implemented and unit-tested against synthetic vendor attestations so Stage 2 inherits a proven function. The full outcome matrix lives in `STAGE_2_ATTESTATIONS_SPEC.md` §4.2, and the render contract for each state in §4.3.
 
 ### 3.5 The `confirmed / total` sync headline
 
@@ -187,8 +188,11 @@ The pair page leads its data-flow section with a headline of the form **"N data 
 
 - **`total`** — the number of distinct claims on the pair (all directions, all mechanisms).
 - **`confirmed`** — claims whose computed agreement is vendor-confirmed.
+- **`single_source`** *(added by AECI-605 — `STAGE_2_ATTESTATIONS_SPEC.md` §4.3)* — claims exactly one vendor affirms with the counterparty silent.
 
-In Stage 1.5 **`confirmed = 0`** for every pair (no vendor attestations), so the headline communicates breadth ("12 data objects sync") with an honest **"Unverified"** posture, never a fake trust signal. The ratio becomes meaningful in Stage 2.
+`single_source` is reported as its **own clause**, never added into `confirmed` — folding a one-sided assertion into the bilateral figure is the overstatement `STAGE_2_SPEC.md` §8.1(4) forbids. The rendered line reads e.g. "3 of 12 vendor-confirmed · 4 confirmed by one vendor only", and the second clause is omitted entirely at zero rather than rendered as "0".
+
+In Stage 1.5 **both counts are 0** for every pair (no vendor attestations), so the headline communicates breadth ("12 data objects sync") with an honest **"Unverified"** posture, never a fake trust signal. The ratio becomes meaningful in Stage 2.
 
 ---
 
@@ -307,7 +311,7 @@ The pair page is **Layer A**: it ships first, needs **no** claim data, and deliv
 
 - **`computeAgreement`** — `packages/shared/src/agreement.ts` (pure; vendor-vs-vendor; AECi excluded → never `conflict` — §3.4), unit-tested against synthetic vendor attestations so the Stage 2 branches are proven now.
 - **Data-flow section.** For the pair, list each claim as a **`data_object` + direction** row, with the direction shown **context-relative** to the page's context product (`outbound` / `inbound` / `both` — §3.2). Group by integration (mechanism) so a pair connected by two connectors reads clearly.
-- **"Unverified" pills.** Every claim shows an **"Unverified"** state in 1.5 (§3.4). The pill styling and copy must read as *"not yet vendor-confirmed"*, not as a warning/defect.
+- **"Unverified" pills.** Every claim shows an **"Unverified"** state in 1.5 (§3.4). The pill styling and copy must read as *"not yet vendor-confirmed"*, not as a warning/defect. *(AECI-605 added the other three states to the same `AgreementBadge`; their tone and copy are specified in `STAGE_2_ATTESTATIONS_SPEC.md` §4.3/§4.5. `unverified` is unchanged and still the only 1.5-reachable one.)*
 - **Sync headline.** Lead with the `confirmed / total` headline (§3.5) — in 1.5, `confirmed = 0`, so it communicates breadth honestly.
 - API: a pair-page read (extend the integrations read path / a `GET /api/claims` for a pair) returns claims with context-relative direction already translated (§3.2) and the computed agreement state — the browser does not re-derive identity.
 - **Basic / Detailed disclosure toggle.** The consolidated page carries a lot of per-mechanism detail; a segmented **Basic / Detailed** control in the header lets readers collapse it. **Detailed** (the default) is the full page above. **Basic** ("Overview") keeps the rail, the sync headline, and each mechanism's kind/name + description + external links, and hides the granular data transfers — the Layer-B `data_object` claim lanes **and** the standalone Layer-A direction arrow. State is a **content-affecting URL param** `?view=basic|detailed` (absent ⇒ `detailed`), so the page stays deep-linkable, SSR-correct, and visitor-state-neutral; it is **added to the pair route's `cacheKeyParams`** (`CACHE_STRATEGY.md` §4a), mirroring `/products ?view=table` (AECI-190). The default (param-absent) URL renders the full claim set, so the crawler-indexed page and the canonical are unaffected. The toggle is suppressed when no mechanism has a claim lane or a direction arrow (nothing to collapse).
@@ -339,7 +343,7 @@ The Stage 1.5 schema and contract are forward-compatible with all four in the se
 > **Two corrections from the AECI-514 kickoff**, recorded here because they touch §3's definitions:
 >
 > 1. **`introduced_at`/`deprecated_at` are version *stamps*, per §3.3 — not attestation retirement.** The shipped `attestations_active_idx` in `schema.ts` is partial on `deprecated_at IS NULL` with a comment describing it as retirement. §3.3's definition wins (AECI-303 depends on it); supersession moves to a new `retracted_at` column and the index predicate follows it.
-> 2. **`computeAgreement` needs a `single_source` state.** As shipped (§3.4), a *single* vendor affirming with the counterparty silent resolves to `confirmed`. That branch is unreachable in 1.5, so the gap was latent — but it would render one-sided assertion as agreement, which `STAGE_2_SPEC.md` §8.1(4) forbids. `confirmed` is narrowed to **two distinct vendor identities**.
+> 2. **`computeAgreement` needs a `single_source` state.** ✅ **Resolved by AECI-605** (2026-08-14; `STAGE_2_ATTESTATIONS_SPEC.md` §4.5). As originally shipped (§3.4), a *single* vendor affirming with the counterparty silent resolved to `confirmed`. That branch was unreachable in 1.5, so the gap was latent — but it would have rendered one-sided assertion as agreement, which `STAGE_2_SPEC.md` §8.1(4) forbids. `confirmed` is now narrowed to **two distinct vendor identities** and §3.4 above reflects the shipped rule.
 >
 > Also: "no migration is required to light them up" was **too strong**. It holds for the agreement engine and the attestation sources; it does not hold for vendor-created claims or for real per-product version selectors, which need a version entity that §6.1 never defined. AECI-514 ships two additive migrations (`STAGE_2_ATTESTATIONS_SPEC.md` §1.2).
 

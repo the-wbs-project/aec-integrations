@@ -21,6 +21,7 @@
  */
 
 import {
+  attestorForContext,
   claimDirectionForContext,
   computeAgreement,
   computeSyncHeadline,
@@ -58,10 +59,11 @@ import type {
   VendorLink,
   VendorListItem,
 } from '@aeci/shared';
-import { and, eq, inArray, like, sql, type SQL } from 'drizzle-orm';
+import { and, eq, inArray, isNull, like, sql, type SQL } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import {
+  attestations,
   productAudiences,
   productCategories,
   productPhases,
@@ -107,17 +109,50 @@ export const integrationListConfig = {
 } as const;
 
 /**
+ * The predicate both claim-loading read configs apply to their `attestations`
+ * sub-query, and the load-bearing half of the §4 read path: `retracted_at IS
+ * NULL` is what keeps a withdrawn assertion from voting
+ * (`STAGE_2_ATTESTATIONS_SPEC.md` §2.5 handed this to §4 / AECI-605).
+ *
+ * It filters on `retracted_at` **only**. Gating on the `deprecated_at` version
+ * stamp (`STAGE_1_5_SPEC.md` §3.3) would make an attestation vanish the moment
+ * a vendor recorded that a flow was deprecated in some version — the opposite
+ * of what AECI-303's timeline needs. The two columns are easy to conflate;
+ * `schema.ts` spells out the distinction at the table.
+ *
+ * `computeAgreement` re-checks `retractedAt` itself, so the shared engine is
+ * safe for callers that assemble attestations another way. This is the
+ * belt — that is the braces.
+ */
+const liveAttestationsWhere = isNull(attestations.retractedAt);
+
+/**
  * Product-detail embed of an integration (`ProductDetail.integrations_as_*`).
- * Like the list config but also loads each mechanism's claim **directions** so
- * `toProductIntegrationItem` can derive the claims-aware `context_direction`
+ * Like the list config but also loads each mechanism's claims — their
+ * **directions** and the attestations that decide whether each still counts —
+ * so `toProductIntegrationItem` can derive the claims-aware `context_direction`
  * (Stage 1.5 §3.2) the table renders. Kept separate from `integrationListConfig`
  * so `/api/integrations` and the home rail don't pay for the extra join.
+ *
+ * The attestation hydration is the §4 refuted-claim rule: a flow every voting
+ * vendor denies must stop steering the table's arrow. Its column list is
+ * deliberately narrower than the pair page's (no `note`/version stamps) —
+ * nothing here is serialised, and this join already costs roughly
+ * integrations × claims × attestations rows on a product-detail read.
  */
 export const productDetailIntegrationConfig = {
   columns: integrationListConfig.columns,
   with: {
     ...integrationListConfig.with,
-    claims: { columns: { direction: true } },
+    claims: {
+      columns: { direction: true },
+      with: {
+        attestations: {
+          columns: { source: true, asserted: true, attestedByVendorId: true, retractedAt: true },
+          where: liveAttestationsWhere,
+        },
+      },
+    },
   },
 } as const;
 
@@ -163,17 +198,14 @@ export const integrationPairConfig = {
     builtByVendor: { columns: vendorLinkColumns },
     poweredByProduct: { columns: productLinkColumns },
     // Layer B (§8 — AECI-300): the `data_object` claims on this mechanism, each
-    // with its stored direction + AECi-seeded attestations, mapped to a
+    // with its stored direction + live attestations, mapped to a
     // context-relative claim with computed agreement in `toProductPairClaim`.
     //
-    // ⚠️ There is deliberately NO `where` on `attestations` yet, so every row still
-    // reaches `computeAgreement`. Harmless today — AECI-603 added `retracted_at` but
-    // no code path can set it — but AECI-605 MUST add
-    // `where: isNull(attestations.retractedAt)` before AECI-301 ships the retract
-    // endpoint, or a withdrawn attestation keeps voting. Filter on `retracted_at`
-    // only: `deprecated_at` is a version stamp (`STAGE_1_5_SPEC.md` §3.3), and gating
-    // the read on it would hide an attestation the moment a vendor recorded that a
-    // flow was deprecated in some version. See STAGE_2_ATTESTATIONS_SPEC.md §2.5.
+    // `liveAttestationsWhere` discharges the AECI-603 handoff
+    // (STAGE_2_ATTESTATIONS_SPEC.md §2.5): a retracted attestation must neither
+    // vote nor render. `attestedByVendorId` feeds the §4.2 distinct-identity
+    // dedupe and is dropped by the mapper; `note` + the version stamps are the
+    // provenance popover's payload.
     claims: {
       columns: { id: true, direction: true },
       with: {
@@ -182,10 +214,13 @@ export const integrationPairConfig = {
           columns: {
             source: true,
             asserted: true,
+            attestedByVendorId: true,
+            retractedAt: true,
             note: true,
             introducedAt: true,
             deprecatedAt: true,
           },
+          where: liveAttestationsWhere,
         },
       },
     },
@@ -433,10 +468,13 @@ export interface RawIntegrationListRow {
   sourceProduct: RawProductLink;
   targetProduct: RawProductLink;
 }
-/** List row + each mechanism's claim directions, for the product-detail embed
- *  (`productDetailIntegrationConfig`). Directions feed `effectiveContextDirection`. */
+/** List row + each mechanism's claims, for the product-detail embed
+ *  (`productDetailIntegrationConfig`). Both halves feed
+ *  `effectiveContextDirection`: the direction is what the table renders, the
+ *  attestations decide whether a claim still gets a say (§4.3 — a flow every
+ *  voting vendor denies must stop steering the arrow). */
 export interface RawProductIntegrationRow extends RawIntegrationListRow {
-  claims: Array<{ direction: string }>;
+  claims: Array<{ direction: string; attestations: RawAgreementVoteRow[] }>;
 }
 
 export interface RawIntegrationDetailRow extends RawIntegrationListRow {
@@ -450,9 +488,21 @@ export interface RawIntegrationDetailRow extends RawIntegrationListRow {
   poweredByProduct: RawProductLink | null;
 }
 
-export interface RawClaimAttestationRow {
+/** The minimum an attestation must carry to be counted by `computeAgreement`
+ *  (§4.2): who voted, under which vendor identity, and whether the assertion
+ *  still stands. Structurally an `AgreementAttestation` with Drizzle's camelCase
+ *  column names — the read configs already filter `retractedAt IS NULL`, but the
+ *  column is carried so the shared engine's own re-check has something to read. */
+export interface RawAgreementVoteRow {
   source: string;
   asserted: boolean;
+  attestedByVendorId: string | null;
+  retractedAt: string | null;
+}
+
+/** A pair-page attestation: the vote plus the provenance payload the popover
+ *  renders. */
+export interface RawClaimAttestationRow extends RawAgreementVoteRow {
   note: string | null;
   introducedAt: string | null;
   deprecatedAt: string | null;
@@ -679,9 +729,10 @@ export function toIntegrationListItem(raw: RawIntegrationListRow): IntegrationLi
  * `context_direction` (Stage 1.5 §3.2). The effective direction prefers the
  * mechanism's `data_object` claim directions (the richer signal the pair page
  * surfaces) and falls back to the stored row `direction`, both framed to this
- * page's product. `contextIsSource` is whether this product is the integration's
- * `source` (its endpoint A). Precomputed here so the table can't drift from the
- * pair page.
+ * page's product. Claims every voting vendor denies are dropped by
+ * `effectiveContextDirection` (§4.3). `contextIsSource` is whether this product
+ * is the integration's `source` (its endpoint A). Precomputed here so the table
+ * can't drift from the pair page.
  */
 export function toProductIntegrationItem(
   raw: RawProductIntegrationRow,
@@ -691,7 +742,10 @@ export function toProductIntegrationItem(
     ...toIntegrationListItem(raw),
     context_direction: effectiveContextDirection(
       coerceDirection(raw.direction),
-      raw.claims.map((claim) => coerceClaimDirection(claim.direction, raw.id)),
+      raw.claims.map((claim) => ({
+        direction: coerceClaimDirection(claim.direction, raw.id),
+        attestations: claim.attestations,
+      })),
       contextIsSource,
     ),
   };
@@ -711,9 +765,18 @@ export function toIntegrationDetail(raw: RawIntegrationDetailRow): IntegrationDe
   };
 }
 
-function toPairClaimAttestation(raw: RawClaimAttestationRow): PairClaimAttestation {
+/** Surface one attestation for the provenance popover, with its slot translated
+ *  into the page's context frame (§4.3). `attested_by_vendor_id` stays server-
+ *  side: the reader has no use for a vendor UUID, and `attestor` is enough to
+ *  name the party from the response's two hydrated vendor links. */
+function toPairClaimAttestation(
+  raw: RawClaimAttestationRow,
+  contextIsSource: boolean,
+): PairClaimAttestation {
+  const source = raw.source as PairClaimAttestation['source'];
   return {
-    source: raw.source as PairClaimAttestation['source'],
+    source,
+    attestor: attestorForContext(source, contextIsSource),
     asserted: raw.asserted,
     note: raw.note,
     introduced_at: raw.introducedAt,
@@ -723,8 +786,9 @@ function toPairClaimAttestation(raw: RawClaimAttestationRow): PairClaimAttestati
 
 /** One `data_object` claim on a mechanism (§8), with its stored direction
  *  translated to the context product's frame (§3.2) and its agreement computed
- *  from the attestation set (§3.4 — never stored, ADR 0018). `contextIsSource`
- *  is whether the page's context product is the integration's endpoint A. */
+ *  from the attestation set (§3.4 / §4.2 — never stored, ADR 0018).
+ *  `contextIsSource` is whether the page's context product is the integration's
+ *  endpoint A. */
 function toProductPairClaim(raw: RawPairClaimRow, contextIsSource: boolean): ProductPairClaim {
   return {
     data_object_slug: raw.dataObject.slug,
@@ -734,7 +798,7 @@ function toProductPairClaim(raw: RawPairClaimRow, contextIsSource: boolean): Pro
       contextIsSource,
     ),
     agreement: computeAgreement(raw.attestations),
-    attestations: raw.attestations.map(toPairClaimAttestation),
+    attestations: raw.attestations.map((a) => toPairClaimAttestation(a, contextIsSource)),
   };
 }
 
@@ -778,8 +842,10 @@ function toProductPairMechanism(
  * `ProductListItem` (vendor + review recap) for the rail; each integration row
  * becomes a mechanism with a context-relative direction and its `data_object`
  * claims. `sync_headline` is derived from every claim on the pair via
- * `computeSyncHeadline` (§3.5) — `confirmed` is `0` in Stage 1.5 (no vendor
- * attestations), `total` is the distinct claim count across all mechanisms.
+ * `computeSyncHeadline` (§3.5 / §4.3) — `total` is the distinct claim count
+ * across all mechanisms; `confirmed` and `single_source` are both `0` until the
+ * Stage 2 portal writes vendor attestations, and stay separate counts so a
+ * one-sided assertion is never folded into the bilateral figure.
  */
 export function toProductPairResponse(
   contextProduct: RawProductListRow,

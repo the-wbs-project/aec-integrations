@@ -74,7 +74,7 @@ function pairFixture(overrides: Partial<ProductPairResponse> = {}): ProductPairR
         claims: [],
       },
     ],
-    sync_headline: { total: 0, confirmed: 0 },
+    sync_headline: { total: 0, confirmed: 0, single_source: 0 },
     ...overrides,
   };
 }

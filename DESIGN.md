@@ -214,7 +214,8 @@ A neutral surface palette with three brand accents (Forest, Clay, Bone) and two 
 
 ### Status
 
-- **Error** (`#B3261E` / `oklch(50.13% 0.1783 28.70)`): form/validation error text and icons (6.54:1 on white). Always paired with an inline message or icon — color is never the sole signal. Success states use Forest; warning states use Clay deep. No additional status hues exist.
+- **Error** (`#B3261E` / `oklch(50.13% 0.1783 28.70)`): form/validation error text and icons, **and the `conflict` agreement badge** (6.54:1 on white). Always paired with an inline message or icon — color is never the sole signal. Success states use Forest; warning states use Clay deep. No additional status hues exist.
+  - **The scope widened in AECI-605** from form/validation only. `conflict` — two vendors describing the same data flow differently — is the **one non-form state permitted to be red**, and the only red state in the agreement set (`STAGE_2_ATTESTATIONS_SPEC.md` §4.3). It is red because it is genuinely actionable for the reader, not because anything is broken: the copy names the disagreement ("Vendors disagree") rather than faulting either product. It carries an `✕` glyph alongside the hue so it survives greyscale and colour-vision deficiency. Do not extend Error to any further state without a spec decision — `unverified` and `single_source` are deliberately neutral, and making an unconfirmed claim look like a defect is the failure mode this system is built to avoid.
 
 ### Dark theme — deferred to Stage 2 (not shipped in Stage 1)
 
@@ -419,6 +420,16 @@ Native inputs driven by Signal Forms today (ADR 0009); richer controls use Angul
 - **Verified** (`badge-verified`): Forest fill, surface-base text, `rounded.sm`, label typography. Reserved for vendor-verified integrations and other editorially-confirmed states.
 - **Pending** (`badge-pending`): surface-sunken fill, text-secondary text, 0.5px border-default. Indicates "submitted, not yet reviewed" — never confused with verified.
 - **Verified vendor** (`aec-verified-badge`, AECI-523): the trust-surface indicator for an **AECi-verified vendor _account_** (`vendors.verified`). A quiet editorial **pill** — Forest-soft wash (`--accent-primary-soft`) + Forest text + 0.5px Forest border + a shield-check glyph (Forest text on Forest-soft = 10.80:1). This is the badge the **pill shape is reserved for** (see Tags / taxonomy chips below): the `rounded-full` pill and the shield glyph keep it distinct from the `rounded.sm` integration `badge-verified` above and from the rating anatomy (gold stars). Two variants — `full` (icon + "Verified vendor" label) and `compact` (icon-only, accessible name via `aria-label`, for dense contexts like the product-pair rail). Renders **only when verified** — the public "Unverified" baseline is the badge's absence, never a label (the explicit "Unverified" readout is a vendor-dashboard concept). It is a **trust** signal, never a paid-placement or ranking signal (no pay-for-placement), and never an endorsement of product quality.
+- **Agreement badge** (`aec-agreement-badge`, AECI-300 / AECI-605): the per-claim state on the product-pair page's data-flow lanes — whether the two vendors agree that a `data_object` flows between their products. A `rounded.sm` **chip**, deliberately *not* the pill: the pill belongs to `aec-verified-badge`, which means an AECi-verified vendor *account*, and the two must never be read as the same signal. Four states, and the tonal ladder between them is the point:
+
+  | State | Treatment | Label |
+  |---|---|---|
+  | `unverified` | `border-default` / `surface-raised` / `text-secondary`, tertiary dot | "Unverified · AECi" |
+  | `single_source` | the **same neutral chip**, `text-secondary` dot | "Confirmed by {vendor}" |
+  | `confirmed` | Forest-soft wash + Forest text + Forest border (10.80:1) | "Both vendors confirmed" |
+  | `conflict` | `--status-error` text + border on `surface-base`, `✕` glyph | "Vendors disagree" |
+
+  Three rules hold this together. **`single_source` shares the neutral chip with `unverified` on purpose** — one vendor affirming while the counterparty stays silent must never borrow the affirmative Forest treatment, so the only difference is a slightly stronger dot; the badge names the vendor and its `aria-label` states the other's silence outright. **`confirmed` is the only badge that earns the wash**, and only for two *distinct* vendors. **`conflict` is the only red**, and it reports a difference between vendors, not a defect in either product. Colour is never the sole signal (WCAG 1.4.1): every state carries a distinct visible label and accessible name, and the dot/glyph is `aria-hidden`.
 
 ### Tags / Taxonomy chips
 

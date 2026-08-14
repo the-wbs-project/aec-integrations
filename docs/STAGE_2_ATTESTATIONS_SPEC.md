@@ -315,13 +315,13 @@ brought forward to match. Decisions taken at build that this section did not pre
   current; `wrangler d1 migrations apply aeci-app-preview --env preview --remote` is the command,
   and it stays a manual step until a CI job owns it.
 
-> **⚠️ Handoff to §4 (AECI-605) — the read path does not filter `retracted_at` yet.**
-> `integrationPairConfig` (`apps/api/src/lib/drizzle-helpers.ts`) has **no `where`** on its
-> `attestations` sub-query, so every attestation still reaches `computeAgreement`. That is harmless
-> today — no code can create a retracted row — but **§4 must add
-> `where: isNull(attestations.retractedAt)` before §5 ships the retract endpoint**, or a withdrawn
-> attestation keeps voting. Deliberately not done here: this sub-issue is schema + helper, and
-> changing what the pair page counts is a §4 behaviour change.
+> **✅ Handoff to §4 (AECI-605) — discharged.** At the time of writing,
+> `integrationPairConfig` (`apps/api/src/lib/drizzle-helpers.ts`) had **no `where`** on its
+> `attestations` sub-query, so every attestation still reached `computeAgreement` — harmless while
+> no code could create a retracted row, but a latent hole once §5 ships the retract endpoint.
+> §4 closed it: both claim-loading read configs now apply the shared `liveAttestationsWhere`
+> (`isNull(attestations.retractedAt)`), and `computeAgreement` re-checks `retractedAt` itself so
+> the shared engine is safe for callers that assemble attestations another way. See §4.4.
 
 **Why no public surface moved:** both read configs use an explicit column allowlist
 (`claims: { id, direction }`, `attestations: { source, asserted, note, introducedAt, deprecatedAt }`),
@@ -471,6 +471,76 @@ variants) → axe pass. All copy through `$localize` / `i18n` attributes.
 - No claim anywhere renders `confirmed` without two distinct attesting vendors — assert it.
 - The pair page renders all five states from fixtures with no vendor data in the DB.
 - `?view=basic` still collapses the lanes; cache-key behavior unchanged.
+
+### 4.5 As built (AECI-605 — 2026-08-14)
+
+Shipped **after** AECI-603, so the vendor identity and the retraction column were real and every
+state is exercised end-to-end in the API's D1 harness rather than only in shared unit tests. No
+migration. Decisions taken at build that §4.1–§4.4 did not pre-specify:
+
+- **A voter's stance is `affirm` only if *every* one of its live votes asserts — any deny wins.**
+  `attestations_slot_key` is unique per `(claim, slot)`, **not** per vendor, so one company owning
+  both endpoints can affirm one slot and deny the other. §4.2's matrix has no row for it. That is
+  self-contradiction — neither bilateral agreement nor a vendor-vs-vendor conflict — so it resolves
+  `unverified`. Failing toward "not verified" is the safe direction, and it collapses the matrix
+  back to exactly five outcomes.
+- **Unattributable votes collapse into ONE voter bucket.** `attested_by_vendor_id` is
+  `ON DELETE SET NULL` (§2.1), so deleting a vendor row leaves a *live* attestation with a null
+  identity. Two such orphans must not read as two distinct vendors. All null-identity votes fold
+  into a single module-private sentinel, which makes `confirmed` unreachable without provable
+  distinctness — the §4.4 acceptance criterion enforced structurally rather than by convention.
+- **`isClaimRefuted()` is a second exported predicate, not a sixth state.** The §4.3
+  denied-claim carve-out cannot be read off `AgreementState`: `unverified` conflates "nobody voted"
+  (an AECi-seeded claim that still describes a real flow) with "every vendor denies". Only the
+  latter may stop feeding `effectiveContextDirection`. Both functions share one private
+  `tallyVoters()` so the dedupe rule has a single implementation.
+- **`effectiveContextDirection` takes claims, not bare directions.** Its second parameter widened
+  from `readonly ClaimDirection[]` to `readonly DirectionalClaim[]` (`{ direction, attestations }`)
+  and it filters refuted claims itself. Filtering at the call site was the alternative; putting it
+  in `integration-context.ts` keeps the rule in the single home for direction framing, which is
+  what §7.1's drift bug argues for. A `conflict` claim still counts — disputed is not withdrawn.
+- **Attribution ships as a context-relative `attestor`, not a vendor id.**
+  `PairClaimAttestation` gains `attestor: 'aeci' | 'context' | 'other'`, resolved server-side by the
+  new `attestorForContext()` (the same A/B mirror as `claimDirectionForContext`). The pair page
+  renders "Confirmed by {vendor}" against the two `ProductListItem.vendor` links the response
+  already hydrates — **no join through `attested_by_vendor_id`, and no new query cost**. The raw
+  vendor UUID is deliberately not exposed: attribution is a display concern.
+- **`sync_headline.single_source` carries `.default(0)`.** The SSR and API Workers deploy
+  per-commit but not atomically, so the SSR schema must still parse a response from an API Worker
+  that predates the field (the same reason `claims` uses `.default([])`).
+- **The product-detail read got wider, deliberately.** `productDetailIntegrationConfig` now
+  hydrates each claim's attestations (`source`, `asserted`, `attestedByVendorId`, `retractedAt` —
+  no `note`, no version stamps) to feed the refuted-claim filter. That is roughly
+  integrations × claims × attestations rows on an edge-cached product-detail read; the column list
+  is kept minimal because none of it is serialised.
+- **Copy and tone (the design decision §4.3 left open).** `conflict` → **"Vendors disagree"**;
+  `single_source` → **"Confirmed by {vendor}"** (falling back to "Confirmed by one vendor" when the
+  product has no `product_vendors` row); `confirmed` → **"Both vendors confirmed"**; `unverified`
+  unchanged. `conflict` is the only red state and uses `--status-error` — **`DESIGN.md`'s Error
+  token was widened** from "form/validation error text and icons" to cover it. It also carries an
+  `✕` glyph so it survives greyscale and CVD (WCAG 1.4.1); every state has a distinct visible label
+  and `aria-label`, and `single_source`'s aria states the counterparty's silence outright.
+  `single_source` shares the neutral chip with `unverified` — by design, so a lone affirmation can
+  never borrow the affirmative treatment.
+- **The badge stays a `rounded.sm` chip, never the pill.** `DESIGN.md` reserves the pill for
+  `VerifiedBadge`, which means an AECi-verified vendor *account* — a different claim entirely. A
+  spec asserts the shape so the two cannot converge.
+- **`@@pair.dataflow.subline`** ("Vendor confirmation arrives with the vendor portal") is now
+  conditional on no vendor having attested at all — keyed off the presence of a vendor attestation,
+  not off the agreement state, because a claim every vendor *denied* is still `unverified` yet the
+  subline would be false.
+- **No Mobbin anchor exists for the pair page.** DESIGN.md and the AECI-289/294/300 commits name
+  none, so the anchor-site rule had nothing to anchor to. No second site was introduced: the badge
+  states reuse the in-repo chip vocabulary and the `VerifiedBadge` token set.
+
+**Test coverage:** the §4.2 matrix plus the both-endpoints, null-identity, self-contradiction and
+retraction cases in `packages/shared/src/agreement.spec.ts`; the refuted-claim carve-out and
+`attestorForContext` in `integration-context.spec.ts`; all five outcomes end-to-end (real vendor
+rows, real `retracted_at`) in `apps/api/src/routes/product-pair.spec.ts`; the direction fallback in
+`products.spec.ts`; and all five rendered from fixtures — plus the `?view=basic` collapse — in the
+three `apps/web/src/app/products/*.component.spec.ts` files. Suites green at merge: `packages/shared`
+23 files / 328 tests (`agreement.spec.ts` 20, `integration-context.spec.ts` 23), `apps/api` 72 / 926
+(`product-pair.spec.ts` 19), `apps/web` 107 / 754 under `ng test` plus 37 / 570 under plain Vitest.
 
 ---
 

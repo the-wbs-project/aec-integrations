@@ -40,3 +40,35 @@ Stage 1.5 (Integration Redesign) adds a structured answer to *"what data flows b
 - **Agreement is recomputed on every read.** Acceptable: the input is a small per-claim attestation set and the pair page is edge-cached; if it ever matters, a derived column can be added without changing the contract (the function stays the boundary).
 - **Multi-mechanism duplication.** The same data_object moving through two mechanisms is two claims, which the pair page must group sensibly (§8). Accepted — it reflects reality (two distinct integration paths) and avoids a lossy merge.
 - **Dormant surface area.** `vendor_a`/`vendor_b` attestation sources and the `introduced_at`/`deprecated_at` version stamps ship in the 1.5 schema/contract but are exercised by no 1.5 code path — carried for Stage 2 (AECI-301/303) to avoid a later migration.
+
+## Amendment — 2026-08-14 (AECI-605, Stage 2 attestations epic)
+
+Decision 2 stands; the **state set** it produces has widened. `docs/STAGE_2_ATTESTATIONS_SPEC.md`
+§4 is the governing spec.
+
+- **`AgreementState` has four values**, ascending: `unverified | single_source | confirmed |
+  conflict`. `single_source` is new.
+- **`confirmed` now requires two *distinct vendor identities***, deduped by
+  `attestations.attested_by_vendor_id` (added by AECI-603's migration 1). As originally written the
+  function returned `confirmed` for *any* affirming vendor with no denial — so a single vendor
+  affirming while the counterparty stayed silent would have rendered "Vendor-confirmed". That
+  branch was unreachable in Stage 1.5 (AECi never votes), so the defect was latent; the vendor
+  portal (AECI-301) makes it reachable. One-sided affirmation is now `single_source`, rendered
+  neutral and attributed.
+- **Why identity and not slot.** `product_vendors` is many-to-many, so one company can own *both*
+  endpoints of an integration and fill both attestation slots. Counting slots would let a vendor
+  manufacture bilateral agreement on its own intra-portfolio integrations. `attested_by_vendor_id`
+  is `ON DELETE SET NULL`, so unattributable votes collapse into one bucket rather than being
+  trusted as distinct.
+- **Retracted attestations do not vote** (`retracted_at`, also AECI-603). The `introduced_at` /
+  `deprecated_at` version stamps are **not** retraction and never gate the read.
+- **The "no migration" claim held for the engine.** Agreement is still computed-not-stored, and
+  this change needed no schema of its own — but it does *read* two columns AECI-603 added, so
+  "Stage 2 lights up the branches with no migration" (above) was true of the function and not of
+  the epic. The wider correction is recorded in `STAGE_1_5_SPEC.md` §10.
+- **AECi-never-red is now doubly true:** AECi does not vote, *and* `conflict` requires two distinct
+  vendors.
+
+A companion predicate `isClaimRefuted()` ships alongside, because `unverified` conflates "nobody
+voted" with "every vendor denies" — and only the latter may stop a claim contributing its direction
+to the product-detail integrations table.

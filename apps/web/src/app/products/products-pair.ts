@@ -52,6 +52,23 @@ function directionAria(direction: ContextDirection, otherName: string): string {
 /** The order the three direction lanes render in within a mechanism (§8). */
 const DIRECTION_ORDER = ['outbound', 'inbound', 'both'] as const;
 
+/** The two vendor names a pair page can attribute an attestation to, keyed by
+ *  the context-relative `attestor` the API resolves (§4.3). Either may be `null`
+ *  — `ProductListItem.vendor` is nullable. */
+interface PairVendorNames {
+  readonly context: string | null;
+  readonly other: string | null;
+}
+
+/** A claim row with its attribution resolved once, so the template never has to
+ *  reach back into the response. */
+interface ClaimRow {
+  readonly claim: ProductPairClaim;
+  /** The vendor named on a `single_source` badge; `null` for every other state
+   *  (and when the affirming side has no vendor record). */
+  readonly attributedTo: string | null;
+}
+
 /** One direction lane of a mechanism's claims — heading/glyph/aria resolved,
  *  empty lanes dropped. Mirrors the AECI-289 prototype's `renderedGroups`. */
 interface ClaimGroup {
@@ -59,20 +76,39 @@ interface ClaimGroup {
   readonly heading: string;
   readonly glyph: string;
   readonly aria: string;
-  readonly claims: readonly ProductPairClaim[];
+  readonly rows: readonly ClaimRow[];
+}
+
+/**
+ * Name the vendor a `single_source` claim is attributed to: the side whose live
+ * attestation affirms, mapped through the API's context-relative `attestor`
+ * (§4.3). Only meaningful for `single_source` — `confirmed` needs no name (both
+ * vendors agree) and `conflict` names both in the provenance popover instead.
+ */
+function attributedVendorName(claim: ProductPairClaim, vendors: PairVendorNames): string | null {
+  if (claim.agreement !== 'single_source') return null;
+  const affirming = claim.attestations.find((a) => a.attestor !== 'aeci' && a.asserted);
+  if (!affirming) return null;
+  return affirming.attestor === 'context' ? vendors.context : vendors.other;
 }
 
 /** Group a mechanism's claims by context-relative direction, in canonical order,
  *  dropping empty lanes. Reuses the file's direction copy helpers so the Layer-A
  *  mechanism arrow and the Layer-B lanes can't drift. */
-function buildClaimGroups(claims: readonly ProductPairClaim[], otherName: string): ClaimGroup[] {
+function buildClaimGroups(
+  claims: readonly ProductPairClaim[],
+  otherName: string,
+  vendors: PairVendorNames,
+): ClaimGroup[] {
   return DIRECTION_ORDER.map((direction) => ({
     direction,
     heading: directionHeading(direction, otherName),
     glyph: directionGlyph(direction),
     aria: directionAria(direction, otherName),
-    claims: claims.filter((c) => c.direction === direction),
-  })).filter((g) => g.claims.length > 0);
+    rows: claims
+      .filter((c) => c.direction === direction)
+      .map((claim) => ({ claim, attributedTo: attributedVendorName(claim, vendors) })),
+  })).filter((g) => g.rows.length > 0);
 }
 
 /** Sync-headline breadth line (§3.5), pluralised. */
@@ -82,10 +118,18 @@ function syncHeadlineText(total: number): string {
     : $localize`:@@pair.dataflow.headline.other:${total}:count: data objects sync`;
 }
 
-/** The muted verification ratio (§3.5) — never a hero trust stat; `confirmed`
- *  is always 0 in Stage 1.5. */
-function confirmedRatioText(confirmed: number, total: number): string {
-  return $localize`:@@pair.dataflow.ratio:${confirmed}:confirmed: of ${total}:total: vendor-confirmed`;
+/**
+ * The muted verification ratio (§3.5, widened by §4.3) — never a hero trust
+ * stat. Two clauses, because bilateral and one-sided verification must not be
+ * added together: folding a lone vendor's affirmation into the "vendor-confirmed"
+ * figure is exactly the overstatement `STAGE_2_SPEC.md` §8.1(4) forbids. The
+ * second clause is omitted entirely at zero rather than rendered as "0".
+ */
+function confirmedRatioText(confirmed: number, total: number, singleSource: number): string {
+  const bilateral = $localize`:@@pair.dataflow.ratio:${confirmed}:confirmed: of ${total}:total: vendor-confirmed`;
+  if (singleSource === 0) return bilateral;
+  const oneSided = $localize`:@@pair.dataflow.ratio.singleSource:${singleSource}:count: confirmed by one vendor only`;
+  return `${bilateral} · ${oneSided}`;
 }
 
 /** One mechanism with its direction copy resolved against the `other` product. */
@@ -112,6 +156,12 @@ interface PairView {
   readonly syncTotal: number;
   readonly syncHeadline: string;
   readonly confirmedRatio: string;
+  /** True while no vendor has said anything about any claim on this pair — the
+   *  Stage 1.5 posture, and the only time the "vendor confirmation arrives with
+   *  the portal" subline is still true. */
+  readonly awaitingVendors: boolean;
+  /** The two vendor names attestations are attributed to (§4.3). */
+  readonly vendorNames: PairVendorNames;
   /** True when some mechanism carries a Layer-B claim lane or a Layer-A direction
    *  arrow — i.e. there is detail for the Basic view to hide. Gates the toggle so
    *  a pair with nothing to collapse doesn't show a no-op control. */
@@ -353,9 +403,13 @@ function writePairViewCookie(mode: PairViewMode): void {
               <p class="font-display text-2xl leading-tight text-(--text-primary)">
                 {{ v.syncHeadline }}
               </p>
-              <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@pair.dataflow.subline">
-                Unverified. Vendor confirmation arrives with the vendor portal.
-              </p>
+              <!-- Only honest while no vendor has spoken; once attestations
+                   exist the ratio line below carries the posture. -->
+              @if (v.awaitingVendors) {
+                <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@pair.dataflow.subline">
+                  Unverified. Vendor confirmation arrives with the vendor portal.
+                </p>
+              }
               <!-- text-secondary (not tertiary): tertiary fails AA contrast on the Bone band. -->
               <p class="mt-2 text-xs tabular-nums text-(--text-secondary)">
                 {{ v.confirmedRatio }}
@@ -431,16 +485,26 @@ function writePairViewCookie(mode: PairViewMode): void {
                         <h3 class="aec-overline text-(--text-secondary)">{{ g.heading }}</h3>
                       </div>
                       <ul class="mt-3 grid gap-2 sm:grid-cols-2">
-                        @for (c of g.claims; track c.data_object_slug + '|' + c.direction) {
+                        @for (
+                          r of g.rows;
+                          track r.claim.data_object_slug + '|' + r.claim.direction
+                        ) {
                           <li
                             class="flex items-center justify-between gap-3 rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2"
                           >
                             <span class="text-sm text-(--text-primary)">{{
-                              c.data_object_name
+                              r.claim.data_object_name
                             }}</span>
                             <span class="flex items-center gap-2">
-                              <aec-agreement-badge [agreement]="c.agreement" />
-                              <aec-claim-provenance [claim]="c" />
+                              <aec-agreement-badge
+                                [agreement]="r.claim.agreement"
+                                [attributedTo]="r.attributedTo"
+                              />
+                              <aec-claim-provenance
+                                [claim]="r.claim"
+                                [contextVendorName]="v.vendorNames.context"
+                                [otherVendorName]="v.vendorNames.other"
+                              />
                             </span>
                           </li>
                         }
@@ -561,21 +625,36 @@ export class ProductsPairPage {
     const pair = this.pair();
     if (!pair) return null;
     const otherName = pair.other_product.name;
-    const { total, confirmed } = pair.sync_headline;
-    const mechanisms = pair.mechanisms.map((m) => this.toMechanismView(m, otherName));
+    const { total, confirmed, single_source: singleSource } = pair.sync_headline;
+    const vendorNames: PairVendorNames = {
+      context: pair.context_product.vendor?.name ?? null,
+      other: pair.other_product.vendor?.name ?? null,
+    };
+    const mechanisms = pair.mechanisms.map((m) => this.toMechanismView(m, otherName, vendorNames));
     return {
       pair,
       mechanisms,
       syncTotal: total,
       syncHeadline: syncHeadlineText(total),
-      confirmedRatio: confirmedRatioText(confirmed, total),
+      confirmedRatio: confirmedRatioText(confirmed, total, singleSource),
+      // Keyed off the presence of a vendor attestation, not off the agreement
+      // state: a claim every vendor *denied* is still `unverified`, but a vendor
+      // has spoken, so "confirmation arrives with the portal" is no longer true.
+      awaitingVendors: pair.mechanisms.every((m) =>
+        m.claims.every((c) => c.attestations.every((a) => a.attestor === 'aeci')),
+      ),
+      vendorNames,
       hasDetail: mechanisms.some(
         (m) => m.claimGroups.length > 0 || (m.direction !== null && !m.hasClaims),
       ),
     };
   });
 
-  private toMechanismView(m: ProductPairMechanism, otherName: string): MechanismView {
+  private toMechanismView(
+    m: ProductPairMechanism,
+    otherName: string,
+    vendorNames: PairVendorNames,
+  ): MechanismView {
     return {
       id: m.id,
       kindLabel: mechanismKindLabel(m.mechanism_kind),
@@ -587,7 +666,7 @@ export class ProductsPairPage {
       glyph: m.direction ? directionGlyph(m.direction) : '',
       directionLabel: m.direction ? directionHeading(m.direction, otherName) : '',
       directionAria: m.direction ? directionAria(m.direction, otherName) : '',
-      claimGroups: buildClaimGroups(m.claims, otherName),
+      claimGroups: buildClaimGroups(m.claims, otherName, vendorNames),
       hasClaims: m.claims.length > 0,
     };
   }
