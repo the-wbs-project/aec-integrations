@@ -48,14 +48,7 @@ import type { Context } from 'hono';
 import type { ZodType } from 'zod';
 
 import { getDb, type Db } from '../db/client';
-import {
-  products,
-  productVendors,
-  profiles,
-  vendorRequests,
-  vendors,
-  workflowInstances,
-} from '../db/schema';
+import { productVendors, profiles, vendorRequests, vendors, workflowInstances } from '../db/schema';
 import { logToDatadog, submitCount } from '../datadog';
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
@@ -73,16 +66,10 @@ import {
 } from '../lib/drizzle-helpers';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import { fetchAuthAccountsByEmail } from '../lib/supabase-admin';
+import { vendorPurgeTags, type TargetVendor } from '../lib/vendor-cache-tags';
 import { grantSeatStatements, rejectClaimStatements } from '../lib/vendor-grant';
 
 type ClaimContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
-
-/** The target vendor of a claim — the row the grant flips + purges. */
-interface TargetVendor {
-  id: string;
-  slug: string;
-  verified: boolean;
-}
 
 /**
  * Claim-decision email seam (§9 / AECI-528). Fired post-commit after an
@@ -239,19 +226,6 @@ async function purgeGrantTags(c: ClaimContext, tags: readonly string[]): Promise
       outcome: error instanceof Error ? error.message : String(error),
     });
   }
-}
-
-/** The `vendor:<slug>` + `product:<slug>` (+ `index:products`) tag set a grant
- *  invalidates: the vendor detail page and every product page that embeds it. */
-async function grantPurgeTags(db: Db, vendor: TargetVendor): Promise<string[]> {
-  const productRows = await db
-    .select({ slug: products.slug })
-    .from(productVendors)
-    .innerJoin(products, eq(products.id, productVendors.productId))
-    .where(eq(productVendors.vendorId, vendor.id));
-  const tags = [`vendor:${vendor.slug}`, ...productRows.map((r) => `product:${r.slug}`)];
-  if (productRows.length > 0) tags.push('index:products');
-  return tags;
 }
 
 /** Build the response row from the preloaded claim + the values just committed. */
@@ -465,7 +439,7 @@ async function approveClaim(
 
   // Post-commit, best-effort (§3): purge the vendor + its products, send the
   // claim-approved email (AECI-528 seam), forward audit + workflow to Datadog.
-  const purgeTags = await grantPurgeTags(db, vendor);
+  const purgeTags = await vendorPurgeTags(db, vendor);
   c.executionCtx.waitUntil(purgeGrantTags(c, purgeTags));
   c.executionCtx.waitUntil(
     sendClaimDecisionEmail(c, {

@@ -17,6 +17,7 @@ import {
   profiles,
   reviews,
   statsCache,
+  vendorEntitlements,
   vendors,
 } from '../db/schema';
 import { makeTestDb, type TestDb } from '../test/d1';
@@ -26,6 +27,7 @@ import {
   checkBrokenIntegrationRefs,
   checkDuplicateProducts,
   checkDuplicateVendors,
+  checkEntitlementMirrorDrift,
   checkLogo404Sample,
   checkProductsWithoutVendor,
   checkReviewsMissingAnonymizedAt,
@@ -322,6 +324,65 @@ describe('checkAlgoliaDrift', () => {
   });
 });
 
+// ── #11 entitlement_mirror_drift (AECI-609 Guard 2) ───────────────────────────
+
+describe('checkEntitlementMirrorDrift', () => {
+  /** Seed a vendor + (optionally) its entitlement row in one go. */
+  async function seedPair(
+    id: string,
+    slug: string,
+    verified: boolean,
+    status: string | null,
+  ): Promise<void> {
+    await t.db.insert(vendors).values({ id, slug, companyName: slug, verified });
+    if (status !== null) {
+      await t.db
+        .insert(vendorEntitlements)
+        .values({ vendorId: id, tier: 'verified', status, grantedAt: OLD });
+    }
+  }
+
+  it('flags a verified vendor with NO entitlement row (the backfill-did-not-run case)', async () => {
+    await seedPair('v1', 'autodesk', true, null);
+    const finding = await checkEntitlementMirrorDrift(t.db);
+    expect(finding.lines).toHaveLength(1);
+    expect(finding.lines[0]).toContain('no entitlement row');
+    expect(finding.lines[0]).toContain('verified=1');
+  });
+
+  it('flags a verified vendor whose entitlement is NOT active', async () => {
+    // This is the case that silently disappears if the `isNull(id)` disjunct is
+    // "simplified" away — `status <> 'active'` is NULL, not true, for a missing row,
+    // so the two halves of the predicate must both be present.
+    await seedPair('v1', 'bluebeam', true, 'revoked');
+    const finding = await checkEntitlementMirrorDrift(t.db);
+    expect(finding.lines).toHaveLength(1);
+    expect(finding.lines[0]).toContain("entitlement is 'revoked'");
+  });
+
+  it('flags the reverse half — an active entitlement on an unverified vendor', async () => {
+    await seedPair('v1', 'procore', false, 'active');
+    const finding = await checkEntitlementMirrorDrift(t.db);
+    expect(finding.lines).toHaveLength(1);
+    expect(finding.lines[0]).toContain('verified=0');
+    expect(finding.lines[0]).toContain("entitlement is 'active'");
+  });
+
+  it('is clean for every in-sync shape', async () => {
+    await seedPair('v1', 'autodesk', true, 'active'); // verified + active
+    await seedPair('v2', 'procore', false, null); // unclaimed baseline
+    await seedPair('v3', 'bluebeam', false, 'revoked'); // lapsed, mirror cleared
+    await seedPair('v4', 'trimble', false, 'pending'); // PO issued, not yet effective
+    expect((await checkEntitlementMirrorDrift(t.db)).lines).toEqual([]);
+  });
+
+  it('is registered at `error` severity — this invariant pages', () => {
+    const spec = CHECKS.find((c) => c.id === 'entitlement_mirror_drift');
+    expect(spec).toBeDefined();
+    expect(spec!.severity).toBe('error');
+  });
+});
+
 // ── orchestrator ───────────────────────────────────────────────────────────────
 
 describe('runDataQualityChecks', () => {
@@ -339,7 +400,7 @@ describe('runDataQualityChecks', () => {
   });
 
   it('captures a thrown check as an error result without aborting the rest', async () => {
-    // A runDrift that throws makes the drift check error; the other nine still run.
+    // A runDrift that throws makes the drift check error; the other ten still run.
     const results = await runDataQualityChecks({
       db: t.db,
       now: NOW,

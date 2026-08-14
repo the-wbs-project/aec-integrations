@@ -524,7 +524,7 @@ the Anthropic org behind `ANTHROPIC_API_KEY` **must** have zero data retention
 window (~30 days) outside this boundary. Confirm ZDR before provisioning a real
 key; the absent-key path (a silent no-op) sends nothing.
 
-**The FK trap (AECI-202).** There are **seven** inbound FKs to `profiles(id)` in D1.
+**The FK trap (AECI-202).** There are **eight** inbound FKs to `profiles(id)` in D1.
 Six are `ON DELETE NO ACTION`, so any `DELETE FROM profiles` **FK-fails**
 unless every one of them is nulled first. A real reviewer always trips at least
 `audit_log.actor_id` (every `review.submitted` writes an `audit_log` row) and
@@ -539,6 +539,7 @@ usually `page_views.user_id`. The full list:
 | `workflow_transitions.actor_id` | NO ACTION | nulled |
 | `audit_log.actor_id` | NO ACTION | nulled (severs the actor link; rows survive) |
 | `page_views.user_id` | NO ACTION | nulled |
+| `vendor_entitlements.granted_by` | SET NULL | nulled (explicit too, matching `reviews.reviewer_id`; the entitlement row survives — only the granting admin's link is severed) — AECI-609 |
 
 **Flow (`DELETE /api/account`, `requireAuth`, AECI-202; D1 re-platform AECI-254/278).**
 Because the app store (D1) and Supabase Auth are now **separate systems** (ADR 0016),
@@ -547,7 +548,7 @@ and no `apps/api/src/prisma.ts`:
 
 1. User confirms Delete in `/account` → `DELETE /api/account`.
 2. **D1 erasure — one atomic `db.batch([...])`** (`apps/api/src/routes/account.ts`):
-   in order, null all seven inbound references above, write the `account.deleted`
+   in order, null all eight inbound references above, write the `account.deleted`
    audit row, then delete the `profiles` row. All commit or roll back as a unit.
 3. The `account.deleted` audit row has **`actorId = null`** — the profile is deleted
    in the same batch and `audit_log.actor_id` is `NO ACTION`, so a non-null actor
@@ -661,7 +662,10 @@ A `vendor_admin` **seat *is* a `profiles` row** — it carries `role = 'vendor_a
 non-null `vendor_id`. `DELETE /api/account` (`routes/account.ts`, the §8 flow) deletes that
 `profiles` row and **never touches the `vendors` table**: there is no `vendors.verified = false`
 flip anywhere in the handler, and there is **no inbound FK from `vendors` to `profiles`**, so
-the erasure batch's seven-FK trap (§8, above) is unaffected and nothing cascades to the vendor.
+the erasure batch's eight-FK trap (§8, above) is unaffected and nothing cascades to the vendor.
+(AECI-609 adds the eighth ref, `vendor_entitlements.granted_by`. It points at the *granting
+admin*, not the vendor, so deleting a seat still cannot disturb the vendor's entitlement — the
+row survives with `granted_by` nulled.)
 
 **The last-seat edge (2026-07-24 epic review, AECI-513).** Deleting a vendor's **only**
 `vendor_admin` seat removes the last seat but leaves **`vendors.verified = true`**. This is a

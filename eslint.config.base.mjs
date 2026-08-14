@@ -135,6 +135,51 @@ const NO_FORBIDDEN_VARY = [
 ];
 
 /**
+ * `vendors.verified` is a DENORMALIZED MIRROR of `vendor_entitlements`
+ * (`docs/STAGE_2_PAID_TIERS_SPEC.md` §2.1), not an independent flag. The invariant —
+ * `verified = true` IFF an `active` entitlement row exists — is only safe under D1's
+ * no-interactive-transactions model if BOTH sides move inside one `db.batch([...])`,
+ * so exactly one module emits both: `apps/api/src/lib/vendor-entitlement.ts`.
+ *
+ * This is Guard 1. Guard 2 is the `entitlement_mirror_drift` data-quality check
+ * (04:00 UTC), which catches what lint structurally cannot: hand-written D1 SQL
+ * against a tier, the `apps/datatool` worker, and a backfill that ran on staging but
+ * not demo.
+ *
+ * Shaped to the Drizzle CHAIN, not to the property name, and using the
+ * `> ObjectExpression > Property` child combinator rather than `:has()` — that is what
+ * keeps every real near-miss clean: `columns: { verified: true }` read projections
+ * (`routes/admin-claims.ts`, `lib/drizzle-helpers.ts`, `lib/algolia-transforms.ts`);
+ * `db.update(vendors).set(writeColumns)` (`routes/vendor.ts` — an Identifier argument,
+ * and that path is separately allow-listed by `VENDOR_COLUMN_MAP`, which has no
+ * `verified` entry); the `.set({ companyName, promotionStatus, … })` upsert in
+ * `routes/promote.ts`; and Angular's `signal.set({ … })`, which has no
+ * `.update(vendors)` callee.
+ *
+ * The `insert`/`values` twin closes the "create a vendor already verified with no
+ * entitlement row" hole, which the `.set` selector alone would miss.
+ *
+ * Limitation (accepted): `db.update(schema.vendors)` would evade the exact-name match.
+ * Nothing in the repo writes it that way, and Guard 2 covers what Guard 1 cannot see —
+ * which is precisely why there are two guards.
+ */
+const MIRROR_WRITE_MESSAGE =
+  '`vendors.verified` is a denormalized mirror of `vendor_entitlements`. Only apps/api/src/lib/vendor-entitlement.ts may write it, and never without the entitlement statement in the same db.batch. See docs/STAGE_2_PAID_TIERS_SPEC.md §2.1.';
+
+const NO_DIRECT_VERIFIED_WRITE = [
+  {
+    selector:
+      'CallExpression[callee.property.name="set"][callee.object.callee.property.name="update"][callee.object.arguments.0.name="vendors"] > ObjectExpression > Property[key.name="verified"]',
+    message: MIRROR_WRITE_MESSAGE,
+  },
+  {
+    selector:
+      'CallExpression[callee.property.name="values"][callee.object.callee.property.name="insert"][callee.object.arguments.0.name="vendors"] > ObjectExpression > Property[key.name="verified"]',
+    message: MIRROR_WRITE_MESSAGE,
+  },
+];
+
+/**
  * Constraint selectors that apply to every file, tests included: importing or
  * naming a decommissioned dependency is a violation wherever it happens.
  */
@@ -147,6 +192,40 @@ export const CONSTRAINT_SYNTAX_ALL = [...NO_PRISMA_OR_PG];
  * to assert the middleware strips them.
  */
 export const CONSTRAINT_SYNTAX_SOURCE_ONLY = [...NO_DARK_THEME, ...NO_FORBIDDEN_VARY];
+
+/**
+ * The sole-writer tier (AECI-609). A THIRD tier rather than an entry in
+ * `CONSTRAINT_SYNTAX_SOURCE_ONLY`, because this is the only constraint with a
+ * per-FILE exemption and flat config REPLACES a rule's options per file: folding the
+ * exemption into the source-only block would silently strip `dark:` and `Vary` from
+ * the exempted files too.
+ */
+export const CONSTRAINT_SYNTAX_MIRROR = [...NO_DIRECT_VERIFIED_WRITE];
+
+/**
+ * Files exempt from the sole-writer rule.
+ *
+ * `lib/vendor-entitlement.ts` is the permanent, by-design writer (§2.1).
+ *
+ * `lib/vendor-grant.ts` is a TEMPORARY baseline carve-out: it still emits the
+ * `verified` flip today, and AECI-612 (§6 step 1) is the issue that deletes that
+ * statement and composes `activateEntitlementStatements` instead. Landing a rule
+ * scoped to the clean subset and widening it as the rest is cleaned up is the
+ * documented lifecycle (`ANGULAR_STYLE_GUIDE.md` §24 "Rule lifecycle"); `warn` is NOT
+ * a usable staging severity here because `pnpm lint` runs without `--max-warnings`,
+ * so a warning would be decorative.
+ *
+ * ⚠️ AECI-612 MUST delete the second entry AND its assertion in
+ * `apps/web/src/eslint-config.spec.ts`.
+ *
+ * `**\/`-prefixed so the globs resolve under both the package basePath (`eslint .`
+ * inside `apps/api`, which is how `pnpm -r run lint` runs) and the repo root (editors)
+ * — the same reason `TEST_FILES` uses them.
+ */
+export const MIRROR_WRITE_EXEMPT = [
+  '**/lib/vendor-entitlement.ts',
+  '**/lib/vendor-grant.ts', // TEMPORARY — AECI-612 removes this
+];
 
 /**
  * Decommissioned and forbidden dependencies (CLAUDE.md): Prisma / Accelerate and
@@ -245,6 +324,23 @@ export const tsBase = [
     ignores: TEST_FILES,
     rules: {
       'no-restricted-syntax': ['error', ...CONSTRAINT_SYNTAX_ALL, ...CONSTRAINT_SYNTAX_SOURCE_ONLY],
+    },
+  },
+  {
+    // The sole-writer tier (AECI-609). Restates BOTH earlier tiers, so a file in
+    // `MIRROR_WRITE_EXEMPT` falls back to the block above (all + source-only) and
+    // loses only this one selector family — it does not fall off the constraint set
+    // entirely. `eslint-config.spec.ts` asserts exactly that, because flat config
+    // replacing rather than merging is the trap this repo has been bitten by before.
+    files: ['**/*.ts'],
+    ignores: [...TEST_FILES, ...MIRROR_WRITE_EXEMPT],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        ...CONSTRAINT_SYNTAX_ALL,
+        ...CONSTRAINT_SYNTAX_SOURCE_ONLY,
+        ...CONSTRAINT_SYNTAX_MIRROR,
+      ],
     },
   },
 ];
@@ -346,6 +442,11 @@ export const angularBase = [
         NO_INJECT_IN_CONSTRUCTOR,
         ...CONSTRAINT_SYNTAX_ALL,
         ...CONSTRAINT_SYNTAX_SOURCE_ONLY,
+        // apps/web has no Drizzle, but this block is the LAST writer for every
+        // apps/web `.ts` file (the app config spreads angularBase after tsBase), so
+        // omitting the mirror tier here would silently drop it. No exempt globs:
+        // apps/web has no sole-writer file, and adding them would over-exempt.
+        ...CONSTRAINT_SYNTAX_MIRROR,
         ...NO_EM_DASH_IN_COPY,
       ],
     },

@@ -41,6 +41,12 @@ const FIXTURE_FILES = {
   webTest: { cwd: WEB, file: join(WEB, 'src/server/seo-headers.spec.ts') },
   apiSource: { cwd: API, file: join(API, 'src/index.ts') },
   apiTest: { cwd: API, file: join(API, 'src/routes/vendors.spec.ts') },
+  // AECI-609 sole-writer tier: the permanent exempt file, the TEMPORARY exempt file,
+  // and a neighbouring lib that must still carry the rule (so the exemption is proven
+  // to be exactly two files, not "anything under lib/").
+  apiMirrorWriter: { cwd: API, file: join(API, 'src/lib/vendor-entitlement.ts') },
+  apiMirrorBaseline: { cwd: API, file: join(API, 'src/lib/vendor-grant.ts') },
+  apiMirrorNeighbour: { cwd: API, file: join(API, 'src/lib/vendor-cache-tags.ts') },
 } as const;
 
 type Target = keyof typeof FIXTURE_FILES;
@@ -58,6 +64,7 @@ const CONSTRAINT = {
   darkVariant: 'No `dark:` variants',
   themeDark: 'No `.theme-dark` block',
   vary: 'Only `Vary: Accept-Language` is permitted',
+  mirror: 'is a denormalized mirror of',
 } as const;
 
 /** Only the two core rules — a bare Linter cannot resolve plugin rules. */
@@ -146,6 +153,39 @@ describe('resolved ESLint config — constraint coverage per package and tier', 
       ).toBeDefined();
     }
   });
+
+  // ── AECI-609 Guard 1: the `vendors.verified` sole-writer tier ────────────────
+
+  it('the mirror sole-writer rule reaches apps/api AND apps/web source', () => {
+    // apps/web has no Drizzle, but angularBase REPLACES the rule per file, so what is
+    // actually being asserted for webSource is that the restate did not drop it.
+    expect(syntaxMessages('apiSource')).toContain(CONSTRAINT.mirror);
+    expect(syntaxMessages('webSource')).toContain(CONSTRAINT.mirror);
+  });
+
+  it('tests are exempt from the mirror rule (they seed verified rows as fixtures)', () => {
+    expect(syntaxMessages('apiTest')).not.toContain(CONSTRAINT.mirror);
+    expect(syntaxMessages('webTest')).not.toContain(CONSTRAINT.mirror);
+  });
+
+  it('lib/vendor-entitlement.ts is exempt from the mirror rule but keeps both other tiers', () => {
+    const messages = syntaxMessages('apiMirrorWriter');
+    expect(messages).not.toContain(CONSTRAINT.mirror);
+    // The flat-config trap: an `ignores` on the wrong block would drop these too.
+    for (const fragment of [...ALL_TIER, ...SOURCE_TIER]) {
+      expect(messages, `the sole-writer file lost: ${fragment}`).toContain(fragment);
+    }
+  });
+
+  it('lib/vendor-grant.ts carries the TEMPORARY AECI-612 baseline exemption', () => {
+    // ⚠️ AECI-612 (§6 step 1) deletes vendor-grant.ts's `verified` write and removes it
+    // from MIRROR_WRITE_EXEMPT. Delete THIS test in the same commit.
+    expect(syntaxMessages('apiMirrorBaseline')).not.toContain(CONSTRAINT.mirror);
+  });
+
+  it('the exemption is exactly those two files — a neighbouring lib still carries it', () => {
+    expect(syntaxMessages('apiMirrorNeighbour')).toContain(CONSTRAINT.mirror);
+  });
 });
 
 describe('constraint rules fire on deliberate violations', () => {
@@ -198,6 +238,15 @@ describe('constraint rules fire on deliberate violations', () => {
     ).toBeGreaterThan(0);
     expect(lint('apiTest', 'const db = getPrisma(env);').join()).toContain(CONSTRAINT.prisma);
   });
+
+  it('rejects a direct write to vendors.verified, via UPDATE or INSERT', () => {
+    expect(
+      lint('apiSource', 'db.update(vendors).set({ verified: true, updatedAt: now });').join(),
+    ).toContain(CONSTRAINT.mirror);
+    expect(
+      lint('apiSource', 'db.insert(vendors).values({ id, slug, verified: true });').join(),
+    ).toContain(CONSTRAINT.mirror);
+  });
 });
 
 describe('constraint rules do not fire on legitimate code', () => {
@@ -219,5 +268,30 @@ describe('constraint rules do not fire on legitimate code', () => {
   it('lets tests build a forbidden Vary fixture, which is why seo-headers.spec.ts is clean', () => {
     expect(lint('webTest', 'const h = new Headers({ vary: "Cookie" });')).toEqual([]);
     expect(lint('webTest', 'h.append("vary", "User-Agent");')).toEqual([]);
+  });
+
+  it('permits `verified` in read projections, spread column vars, and other tables', () => {
+    // Every one of these is a real shape in the tree today; the mirror selector is
+    // anchored to the `.update(vendors).set({...})` chain precisely so they stay clean.
+    expect(
+      lint('apiSource', 'const cfg = { columns: { id: true, slug: true, verified: true } };'),
+    ).toEqual([]);
+    expect(
+      lint('apiSource', 'db.update(vendors).set(writeColumns).where(eq(vendors.id, id));'),
+    ).toEqual([]);
+    expect(
+      lint('apiSource', 'db.update(vendors).set({ companyName: n, promotionStatus: "promoted" });'),
+    ).toEqual([]);
+    expect(lint('apiSource', 'db.update(profiles).set({ verified: true });')).toEqual([]);
+  });
+
+  it('permits an Angular signal .set({ … }) that happens to carry a verified key', () => {
+    expect(lint('webSource', 'this.model.set({ verified: true });')).toEqual([]);
+  });
+
+  it('lets the sole writer write the mirror', () => {
+    expect(
+      lint('apiMirrorWriter', 'db.update(vendors).set({ verified: true, updatedAt: now });'),
+    ).toEqual([]);
   });
 });

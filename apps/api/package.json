@@ -27,6 +27,7 @@
     "db:reconcile-algolia-drift": "tsx scripts/reconcile-algolia-drift.ts",
     "ops:purge-algolia-orphans": "tsx scripts/purge-algolia-orphans.ts",
     "ops:retract-product": "tsx scripts/retract-product.ts",
+    "ops:backfill-entitlements": "tsx scripts/backfill-entitlements.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest",
     "test:unit": "vitest run",
