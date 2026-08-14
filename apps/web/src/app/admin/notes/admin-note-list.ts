@@ -102,6 +102,16 @@ export class AdminNoteList {
         // AECI-581 / P2.1. The days named in `params` are marked per point in the
         // payload too; this is the prose half of the same caveat.
         return $localize`:@@admin.notes.seriesReconstructed:Part of this series predates the daily snapshot and was reconstructed from the audit log afterwards. Read the earlier segment as approximate, not measured.`;
+      // AECI-586 / P5.1 — audience.
+      case 'utm_attribution_incomplete': {
+        // This code sends `missing`, not `rows` — the local `count` above is the
+        // other codes' key and does not apply.
+        const missing = String(note.params?.['missing'] ?? '');
+        const total = String(note.params?.['total'] ?? '');
+        return $localize`:@@admin.notes.utmIncomplete:${missing}:MISSING: of ${total}:TOTAL: signups in this window arrived with no campaign parameters. They are real signups grouped under “Unattributed”, not missing records.`;
+      }
+      case 'audience_history_is_current_state':
+        return $localize`:@@admin.notes.audienceCurrentState:Churn is computed from each subscriber’s opt-out timestamp, so it is exact rather than estimated. The one thing it cannot see is a return: resubscribing clears that timestamp, so anyone who opted out and came back reads as never having left.`;
       default:
         // Unknown code — an API newer than this build. Show the operator text
         // rather than dropping the caveat.

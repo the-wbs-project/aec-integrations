@@ -185,12 +185,14 @@ await db.batch([
 | `PATCH /api/admin/reviews/:id` | Hard-required | `admin` | `review.approved` / `.rejected` |
 | `POST /api/webhooks/linear` | HMAC-verified | N/A | `workflow.transitioned` |
 
-**Admin panel reads (AECI-574 / Phase 8.3, extended by AECI-577, AECI-579, and
-AECI-580).** Six endpoints join the `GET /api/admin/*` row above —
+**Admin panel reads (AECI-574 / Phase 8.3, extended by AECI-577, AECI-579,
+AECI-580, and AECI-586).** Eight endpoints join the `GET /api/admin/*` row above —
 `/api/admin/overview`, `/api/admin/metrics/timeseries`,
 `/api/admin/traffic/breakdown`, `/api/admin/page-views` (the §5.2 Activity feed),
-`/api/admin/catalog/coverage` (the §5.5 catalog readout), and `/api/admin/system`
-(the §5.6 System bundle) — registered on the same `authAdmin` sub-router behind
+`/api/admin/catalog/coverage` (the §5.5 catalog readout), `/api/admin/system`
+(the §5.6 System bundle), `/api/admin/audience` (the §5.4 subscriber, churn, UTM
+and geography bundle), and `/api/admin/feedback` (the feedback inbox) — registered
+on the same `authAdmin` sub-router behind
 the same `requireAdmin()`. **No new gate and no new role**: `requireAdmin()` stays
 the single enforcement point (`ADMIN_PANEL_SPEC.md` §9.1). They are reads and
 therefore write no `audit_log` row, **including under `?recompute=1`**, which
@@ -222,6 +224,19 @@ hash never leaves the API even on an admin-authenticated response. It cannot
 select `user_id`, `session_id`, or `profile_role` — AECI-585 dropped all three.
 Both properties are asserted in `admin-page-views.spec.ts` rather than left to
 review.
+
+`/api/admin/feedback` (AECI-586) goes the **other** way on identity, and the
+contrast is deliberate rather than an inconsistency. It returns the submitter's
+`email` in full. A `page_views` row observes someone who never identified
+themself, which is why §9.7 requires a truncated pseudonymous hash there; a
+feedback submission is contact information a person volunteered *in order to be
+replied to*, and redacting it would defeat the field's only purpose.
+`GET /api/admin/requests` already returns `submitter_email` whole on the same
+reasoning. Both stay admin-only and both stay `private, no-store` — a cached
+response on this route would put a volunteered address in a shared cache, which is
+one more reason `/admin/*` must remain absent from `ROUTE_CACHE_PATTERNS`.
+`/api/admin/audience` returns **aggregates only**: counts, rates and grouped
+breakdowns, never a subscriber's address or a row that identifies one.
 
 ### 4.5 Things the Worker never does
 

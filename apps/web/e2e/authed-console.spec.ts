@@ -12,7 +12,7 @@
  * (`auth-session.ts`) and visits every gated page with it, asserting zero console
  * `error` / `pageerror` via the shared, single-sourced `console-capture.ts`
  * helpers (warnings stay reported-not-gated — AC #2). AECI-579 added
- * `/admin/catalog` to the set.
+ * `/admin/catalog` to the set, and AECI-586 `/admin/audience`.
  *
  * Skips when the session can't be minted (no anon key / no `SUPABASE_TEST_USER_*`
  * creds / sign-in fails) — same posture as `auth-whoami.spec.ts`. The pages
@@ -167,6 +167,24 @@ test.describe('authed console health — Phase 5 gated pages (AECI-235)', () => 
     await expect(page.locator('#admin-catalog-totals-heading')).toBeVisible();
     await waitForHydrationSettle(page);
     expectConsoleClean(capture, 'GET /admin/catalog');
+  });
+
+  // AECI-586 / Phase 8.3 P5.1. `mailing_list` and `feedback` are empty in every
+  // environment this runs against, so this exercises the section's EMPTY path —
+  // which is the one that ships broken if a chart is handed a zero-filled window
+  // or a rate divides by zero. A console-clean hydration plus a visible inbox
+  // heading is the signal that both reads resolved and the empty branches
+  // rendered rather than throwing.
+  test('/admin/audience hydrates with no console errors', async ({ page }) => {
+    const capture = attachConsoleCapture(page);
+    const res = await page.goto('/admin/audience');
+    expect(res?.status()).toBe(200);
+    await expect(page.locator('aec-admin-shell')).toBeAttached();
+    await expect(page.locator('aec-admin-audience')).toBeAttached();
+    // Renders only after both fetches land.
+    await expect(page.locator('#admin-audience-feedback-heading')).toBeVisible();
+    await waitForHydrationSettle(page);
+    expectConsoleClean(capture, 'GET /admin/audience');
   });
 
   test('/products/:slug/review hydrates with no console errors', async ({ page }) => {

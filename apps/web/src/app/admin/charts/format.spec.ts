@@ -19,6 +19,7 @@ import {
   formatCompact,
   formatInstant,
   formatPercent,
+  formatRate,
   formatThousands,
   utcDayKey,
   zonedParts,
@@ -218,5 +219,34 @@ describe('formatPercent', () => {
   it('returns 0% rather than NaN% for an empty window', () => {
     expect(formatPercent(0, 0)).toBe('0%');
     expect(formatPercent(5, 0)).toBe('0%');
+  });
+});
+
+describe('formatRate — AECI-586', () => {
+  it('renders a fraction as a percentage, trimming a bare .0', () => {
+    expect(formatRate(0.375)).toBe('37.5%');
+    expect(formatRate(0.5)).toBe('50%');
+    expect(formatRate(1)).toBe('100%');
+    expect(formatRate(0)).toBe('0%');
+  });
+
+  it('keeps one decimal, because at these volumes it is the only precision there is', () => {
+    // One opt-out from eight subscribers. Rounding to 13% throws that away.
+    expect(formatRate(1 / 8)).toBe('12.5%');
+    expect(formatRate(2 / 3)).toBe('66.7%');
+  });
+
+  it('propagates null rather than returning 0%', () => {
+    // The whole reason this is not `formatPercent`: 0% churn over an empty
+    // mailing list is a clean bill of health nobody measured (§5.1). Null rather
+    // than a placeholder because this module is Angular-free and cannot own the
+    // localized words for it.
+    expect(formatRate(null)).toBeNull();
+    expect(formatPercent(0, 0)).toBe('0%'); // the contrast, stated
+  });
+
+  it('never emits NaN or Infinity', () => {
+    expect(formatRate(Number.NaN)).toBeNull();
+    expect(formatRate(Number.POSITIVE_INFINITY)).toBeNull();
   });
 });

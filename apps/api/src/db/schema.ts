@@ -1085,19 +1085,26 @@ export const translations = sqliteTable(
 // spec; modeled here because they share the D1 database (ADR 0016).
 // ===========================================================================
 
-export const feedback = sqliteTable('feedback', {
-  id: integer('id').primaryKey({ autoIncrement: true }),
-  features: text('features'),
-  tools: text('tools'),
-  email: text('email'),
-  subscribed: integer('subscribed', { mode: 'boolean' }).notNull().default(false),
-  country: text('country'),
-  city: text('city'),
-  region: text('region'),
-  timezone: text('timezone'),
-  referrer: text('referrer'),
-  createdAt: createdAt(),
-});
+export const feedback = sqliteTable(
+  'feedback',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    features: text('features'),
+    tools: text('tools'),
+    email: text('email'),
+    subscribed: integer('subscribed', { mode: 'boolean' }).notNull().default(false),
+    country: text('country'),
+    city: text('city'),
+    region: text('region'),
+    timezone: text('timezone'),
+    referrer: text('referrer'),
+    createdAt: createdAt(),
+  },
+  // AECI-586: this table's first index, added with its first read surface
+  // (`GET /api/admin/feedback`), which orders the whole inbox by `created_at`.
+  // `page_views` and `audit_log` have carried the equivalent since 0000.
+  (t) => [index('feedback_created_at_idx').on(t.createdAt)],
+);
 
 export const mailingList = sqliteTable(
   'mailing_list',
@@ -1129,6 +1136,13 @@ export const mailingList = sqliteTable(
   (t) => [
     uniqueIndex('mailing_list_email_key').on(t.email),
     uniqueIndex('mailing_list_unsubscribe_token_key').on(t.unsubscribeToken),
+    // AECI-586: the §5.4 Audience section buckets signups by day on `created_at`
+    // and churn by day on `unsubscribed_at`, and computes the active population
+    // at a window boundary from both. Without these every one of those is a full
+    // scan — the two lead-capture tables were the only ones in the schema with no
+    // `created_at` index at all.
+    index('mailing_list_created_at_idx').on(t.createdAt),
+    index('mailing_list_unsubscribed_at_idx').on(t.unsubscribedAt),
   ],
 );
 

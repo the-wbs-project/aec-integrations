@@ -9,9 +9,9 @@
  * gate is verified end-to-end and a future registration that forgets
  * `requireAdmin()` fails here.
  *
- * Extended by AECI-579 with `GET /api/admin/catalog/coverage`. Every read
- * endpoint the epic adds belongs in {@link ROUTES} — that is the point of the
- * file.
+ * Extended by AECI-579 with `GET /api/admin/catalog/coverage`, and by AECI-586
+ * with the Audience pair. Every read endpoint the epic adds belongs in
+ * {@link ROUTES} — that is the point of the file.
  *
  * The matrix, per `AUTH_AND_RLS.md` / `ADMIN_PANEL_SPEC.md` §9.1:
  *   anon (no token)   → 401
@@ -32,7 +32,9 @@ import { requireAdmin, type AuthzVariables } from '../lib/authz';
 import { makeTestJwks, type TestJwks } from '../test/auth';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { fakeExecutionContext } from '../test/helpers';
+import { createAdminAudienceHandler } from './admin-audience';
 import { createAdminCatalogCoverageHandler } from './admin-catalog';
+import { createAdminFeedbackHandler } from './admin-feedback';
 import { createAdminTimeseriesHandler } from './admin-metrics';
 import { createAdminOverviewHandler } from './admin-overview';
 import { createAdminPageViewsHandler } from './admin-page-views';
@@ -67,6 +69,11 @@ const ROUTES = [
   },
   { name: 'GET /api/admin/catalog/coverage', url: '/api/admin/catalog/coverage' },
   { name: 'GET /api/admin/system', url: '/api/admin/system' },
+  {
+    name: 'GET /api/admin/audience',
+    url: '/api/admin/audience?from=2026-08-10&to=2026-08-10',
+  },
+  { name: 'GET /api/admin/feedback', url: '/api/admin/feedback' },
 ] as const;
 
 let jwks: TestJwks;
@@ -113,6 +120,8 @@ function makeApp() {
     createAdminCatalogCoverageHandler(t.factory, clock),
   );
   app.get('/api/admin/system', requireAdmin(guard), createAdminSystemHandler(t.factory, clock));
+  app.get('/api/admin/audience', requireAdmin(guard), createAdminAudienceHandler(t.factory, clock));
+  app.get('/api/admin/feedback', requireAdmin(guard), createAdminFeedbackHandler(t.factory, clock));
   return app;
 }
 

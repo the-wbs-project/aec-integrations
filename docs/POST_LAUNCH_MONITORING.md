@@ -28,7 +28,9 @@ curl -s https://www.aecintegrations.com/ | grep -oE '__AECI_(POSTHOG|DD)__'
 
 - **Nothing printed** → PostHog + RUM are **not capturing**. Skip the RUM-CWV and PostHog-funnel rows
   below; they have no data. Server-side signals (Worker metrics, `page_views` / `mailing_list` D1) are
-  unaffected and still valid. Un-dark by setting `DD_APPLICATION_ID`, `DD_CLIENT_TOKEN`, and
+  unaffected and still valid — and since **AECI-586** the `mailing_list` half has a screen,
+  `/admin/audience`, so signup volume, churn and campaign attribution stay readable with the
+  consent-gated tools dark. Un-dark by setting `DD_APPLICATION_ID`, `DD_CLIENT_TOKEN`, and
   `POSTHOG_KEY` (see [`OBSERVABILITY.md` → Credentials](./OBSERVABILITY.md#credentials)); this is an
   ops action, not code.
 - **`__AECI_POSTHOG__` + `__AECI_DD__` both printed** → analytics is live; the RUM-CWV and PostHog rows

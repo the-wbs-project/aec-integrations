@@ -4,8 +4,8 @@ import { LinkRefSchema, PageQuerySchema, paginatedResponseSchema } from './commo
 
 /**
  * Admin panel read contracts (AECI-574 / Phase 8.3 P1.1, extended by AECI-577 /
- * P1.3, AECI-579 / P1.5, and AECI-580 / P1.6) — the endpoints the rest of the
- * operator console renders from. Source of
+ * P1.3, AECI-579 / P1.5, AECI-580 / P1.6, and AECI-586 / P5.1) — the endpoints
+ * the rest of the operator console renders from. Source of
  * truth: `docs/ADMIN_PANEL_SPEC.md` §6, `docs/API_CONTRACTS.md` §6.10.
  *
  *   GET /api/admin/overview           — the §5.1 bundle in one round trip
@@ -14,6 +14,8 @@ import { LinkRefSchema, PageQuerySchema, paginatedResponseSchema } from './commo
  *   GET /api/admin/page-views         — the §5.2 Activity feed, row by row
  *   GET /api/admin/catalog/coverage   — the §5.5 gap lists, funnel, and taxonomy usage
  *   GET /api/admin/system             — the §5.6 bundle (AECI-580)
+ *   GET /api/admin/audience           — the §5.4 bundle: subscribers, churn, UTM, geo (AECI-586)
+ *   GET /api/admin/feedback           — the feedback inbox, paginated (AECI-586)
  *
  * All are `GET`, admin-gated (`requireAdmin()`), and **read-only**: no
  * `audit_log` row, no `Cache-Tag`, no edge caching (§6 conventions, §9.2-9.3).
@@ -92,6 +94,8 @@ export type AdminWindow = z.infer<typeof AdminWindowSchema>;
  * | `cron_liveness_unavailable` | N of the ten crons have no `job_runs` row yet — they have not run since run recording shipped, or were added since. Datadog's no-data monitors stay the authority for "a job stopped firing" |
  * | `orphan_sweep_not_persisted` | **No longer emitted (AECI-583)** — the sweep's result IS persisted now, in the 09:00 drift run's `job_runs.detail`. Retained because removing a code is a breaking change, and so an older cached response still renders |
  * | `stored_result_unreadable` | a stored `job_runs.detail` could not be parsed, so the item is omitted rather than partially reported. `params.job` names which cron's payload |
+ * | `utm_attribution_incomplete` | `params.missing` of `params.total` signups in the window carry no `utm_source` — the unattributed bucket is real signups, not missing rows. The direct analogue of `referrer_source_incomplete`, and like it, derived from the window rather than from a date |
+ * | `audience_history_is_current_state` | the subscriber series reads each `mailing_list` row's CURRENT `created_at` / `unsubscribed_at`. A resubscribe **clears** `unsubscribed_at` (`POST /api/subscribe`'s reactivation path), so a subscriber who churned and returned reads as never-churned and their earlier suppressed days are reported as active. This is the one thing the soft delete cannot preserve, and it is the honest counterweight to "churn is exactly computable" |
  */
 export const AdminNoteCodeSchema = z.enum([
   'partial_day',
@@ -112,6 +116,9 @@ export const AdminNoteCodeSchema = z.enum([
   'cron_liveness_unavailable',
   'orphan_sweep_not_persisted',
   'stored_result_unreadable',
+  // AECI-586 / P5.1 — audience
+  'utm_attribution_incomplete',
+  'audience_history_is_current_state',
 ]);
 export type AdminNoteCode = z.infer<typeof AdminNoteCodeSchema>;
 
@@ -440,13 +447,28 @@ export type AdminMetricKey = z.infer<typeof AdminMetricKeySchema>;
  * instantaneous count sampled once a day, as against the *flow* keys above,
  * which count events inside a day.
  *
- * These are written by the snapshot cron but are **not yet readable** through
+ * These are written by the snapshot cron but are **not readable** through
  * `GET /api/admin/metrics/timeseries` — {@link AdminMetricKeySchema} is
  * deliberately still the endpoint's vocabulary. They are captured from day one
  * anyway because a stock is unrecoverable retroactively: §4 shows the audit log
  * cannot reproduce a past total (827 `integration.created` events back 496 live
- * rows), so any day not sampled is lost permanently. §5.4 (Audience) and §5.5
- * (Catalog "counts over time") are the screens that will read them.
+ * rows), so any day not sampled is lost permanently.
+ *
+ * **The three `audience.*` keys are the exception that proves the rule, and
+ * AECI-586 deliberately did NOT read them.** An earlier draft of this comment
+ * said §5.4 (Audience) would. It does not, because `mailing_list` is the one
+ * source here that *can* be reconstructed exactly: `unsubscribed_at` is a soft
+ * delete (AECI-537), so no row is ever removed and
+ * `created_at <= D AND (unsubscribed_at IS NULL OR unsubscribed_at > D)` gives
+ * the active count on any past day. Serving §5.4 from the snapshot instead would
+ * have cost history (stocks are never backfilled, so these series begin at the
+ * first cron run on 2026-08-13) and risked a worse error: the timeseries
+ * endpoint **zero-fills**, and a zero-filled stock reports an uncaptured day as
+ * *zero subscribers* rather than as unknown. `GET /api/admin/audience` therefore
+ * derives its own series live, and these rows remain the durable record — the
+ * only place a pre-resubscribe state survives, since a reactivation erases
+ * `unsubscribed_at` from the row itself. §5.5 (Catalog "counts over time")
+ * remains the screen that will read the `catalog.*` stocks.
  *
  * The key names state their own filter — `*_promoted` where the table carries a
  * `promotion_status` gate, `*_total` where it does not. `queue.requests_open`
@@ -1308,3 +1330,243 @@ export const AdminPageViewsResponseSchema = paginatedResponseSchema(AdminPageVie
   window_visitors: AdminCountSchema,
 });
 export type AdminPageViewsResponse = z.infer<typeof AdminPageViewsResponseSchema>;
+
+// ─── GET /api/admin/audience (AECI-586 / Phase 8.3 P5.1) ─────────────────────
+
+/** Rows per breakdown dimension. A cap rather than pagination: seven breakdowns
+ *  ride in one bundle and paginating each would need seven cursors for a screen
+ *  whose whole point is the shape of the head, not the tail. */
+export const ADMIN_AUDIENCE_MAX_BREAKDOWN = 50;
+export const ADMIN_AUDIENCE_DEFAULT_BREAKDOWN = 8;
+
+/**
+ * `from` / `to` are UTC calendar dates, both inclusive, and required — the same
+ * contract as {@link AdminTimeseriesQuerySchema}, so no two panel endpoints can
+ * disagree about what window they describe. The `ADMIN_METRICS_MAX_DAYS` cap
+ * applies here too, even though `mailing_list` has no retention policy: a
+ * consistent ceiling is easier to reason about than a per-endpoint one.
+ */
+export const AdminAudienceQuerySchema = z.object({
+  from: utcDate,
+  to: utcDate,
+  breakdown_limit: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(ADMIN_AUDIENCE_MAX_BREAKDOWN)
+    .default(ADMIN_AUDIENCE_DEFAULT_BREAKDOWN),
+});
+export type AdminAudienceQuery = z.infer<typeof AdminAudienceQuerySchema>;
+
+/**
+ * One group in a UTM or geography breakdown.
+ *
+ * `key` is the raw column value and is **null for the unattributed bucket** — a
+ * signup with no `utm_source`, or one Cloudflare could not geolocate. That
+ * bucket is surfaced rather than dropped, exactly as on
+ * {@link AdminBreakdownRowSchema}, so the rows reconcile against
+ * `window_totals.signups`; dropping it is how an attribution breakdown quietly
+ * starts claiming attribution it does not have.
+ *
+ * `label` is untranslated operator text (a fallback for curl and logs). The UI
+ * keys off `key === null` and renders its own localized placeholder. For the
+ * `asn` dimension it carries `as_organization` where the row has one — an ASN
+ * cannot label itself — and `AS<number>` where it does not.
+ */
+export const AdminAudienceBreakdownRowSchema = z.object({
+  key: z.string().nullable(),
+  label: z.string().min(1),
+  subscribers: z.number().int().nonnegative(),
+});
+export type AdminAudienceBreakdownRow = z.infer<typeof AdminAudienceBreakdownRowSchema>;
+
+/**
+ * Lifetime subscriber state. **No window** — "how many people are on the list"
+ * has no time range, the same reasoning that keeps a window off
+ * {@link AdminCatalogCoverageResponseSchema}.
+ *
+ * `active` is the identical predicate `/api/admin/overview`'s
+ * `active_subscribers` and the snapshot cron's `audience.subscribers_active`
+ * use (`unsubscribed_at IS NULL`), so the three can never disagree.
+ *
+ * **`churn_rate` is `null`, never `0`, when `total_ever` is 0.** A rate over an
+ * empty list is undefined, not zero, and rendering `0%` would claim a clean bill
+ * of health nobody measured — §5.1's "`null` renders as *Not measured*, never as
+ * zero", applied to a ratio. It is a fraction in `[0, 1]`; the UI formats it.
+ */
+export const AdminAudienceSubscribersSchema = z.object({
+  /** `unsubscribed_at IS NULL`. */
+  active: z.number().int().nonnegative(),
+  /** `unsubscribed_at IS NOT NULL` — a suppression record, not a deleted row. */
+  unsubscribed: z.number().int().nonnegative(),
+  /** Row count: `active + unsubscribed`. One row per email, ever. */
+  total_ever: z.number().int().nonnegative(),
+  /** `unsubscribed / total_ever`, or null when the list is empty. */
+  churn_rate: z.number().min(0).max(1).nullable(),
+});
+export type AdminAudienceSubscribers = z.infer<typeof AdminAudienceSubscribersSchema>;
+
+/**
+ * One day of the subscriber series, zero-filled across the whole window.
+ *
+ * `signups` and `unsubscribes` are *flows* bucketed on `created_at` and
+ * `unsubscribed_at`. `active_cumulative` is the *stock* at the end of that day,
+ * carried forward from `window_totals.active_at_start` — a row can only enter
+ * the population through `created_at` and leave it through `unsubscribed_at`,
+ * so the running sum is exact rather than an estimate, and
+ * `active_at_start + Σ(signups − unsubscribes) === active_at_end` holds by
+ * construction.
+ */
+export const AdminAudienceSeriesPointSchema = z.object({
+  day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  signups: z.number().int().nonnegative(),
+  unsubscribes: z.number().int().nonnegative(),
+  active_cumulative: z.number().int().nonnegative(),
+});
+export type AdminAudienceSeriesPoint = z.infer<typeof AdminAudienceSeriesPointSchema>;
+
+/**
+ * The windowed half. `churn_rate` here is the conventional period churn —
+ * unsubscribes in the window over the population that existed when it opened —
+ * and is `null` when nobody was subscribed at the start, for the same reason as
+ * the lifetime one. `net` is the only signed figure in the response: a window
+ * can lose more subscribers than it gains.
+ */
+export const AdminAudienceWindowTotalsSchema = z.object({
+  signups: z.number().int().nonnegative(),
+  unsubscribes: z.number().int().nonnegative(),
+  /** `signups − unsubscribes`. May be negative. */
+  net: z.number().int(),
+  active_at_start: z.number().int().nonnegative(),
+  active_at_end: z.number().int().nonnegative(),
+  /** `unsubscribes / active_at_start`, or null when `active_at_start` is 0. */
+  churn_rate: z.number().min(0).nullable(),
+});
+export type AdminAudienceWindowTotals = z.infer<typeof AdminAudienceWindowTotalsSchema>;
+
+/**
+ * The §5.4 Audience bundle.
+ *
+ * ─── Why this series is derived live and not read from `metrics_daily` ───────
+ *
+ * §7.1 snapshots `audience.subscribers_active` / `_unsubscribed` /
+ * `feedback_total` every day and anticipated this screen reading them. It does
+ * not, for two reasons that only apply to this table.
+ *
+ * **It does not need to.** `unsubscribed_at` is a soft delete (AECI-537) and
+ * nothing anywhere hard-deletes a `mailing_list` row, so the population on any
+ * past day is exactly `created_at <= D AND (unsubscribed_at IS NULL OR
+ * unsubscribed_at > D)`. That is the property §4 shows the catalog stocks lack —
+ * 827 `integration.created` events back 496 live rows — and it is why a snapshot
+ * was needed there and is redundant here.
+ *
+ * **And it would cost.** Stocks are never backfilled, so those series begin at
+ * the first cron run (2026-08-13) while `mailing_list` reaches back to the first
+ * signup; and `/metrics/timeseries` zero-fills, which is right for a flow and
+ * wrong for a stock — an uncaptured day would report *zero subscribers* rather
+ * than unknown. The snapshot rows stay written: they are the only durable record
+ * of a pre-resubscribe state, which is precisely what
+ * `audience_history_is_current_state` discloses this response cannot see.
+ *
+ * `source` is therefore the literal `'live'` rather than
+ * {@link AdminMetricSourceSchema} — `'snapshot'` and `'mixed'` are unreachable
+ * here by design, and a three-value enum would imply a storage swap that is not
+ * coming.
+ */
+export const AdminAudienceResponseSchema = z.object({
+  window: AdminWindowSchema,
+  generated_at: z.string().datetime(),
+  source: z.literal('live'),
+  notes: z.array(AdminNoteSchema),
+  breakdown_limit: z.number().int().positive(),
+
+  /** Lifetime, windowless. */
+  subscribers: AdminAudienceSubscribersSchema,
+
+  /** Every day in the window, zero-filled — a chart never infers a gap. */
+  series: z.array(AdminAudienceSeriesPointSchema),
+  window_totals: AdminAudienceWindowTotalsSchema,
+
+  /** Grouped over signups **inside the window**, so a row's share is
+   *  `subscribers / window_totals.signups` with no second request. */
+  utm: z.object({
+    source: z.array(AdminAudienceBreakdownRowSchema),
+    medium: z.array(AdminAudienceBreakdownRowSchema),
+    campaign: z.array(AdminAudienceBreakdownRowSchema),
+  }),
+  geography: z.object({
+    country: z.array(AdminAudienceBreakdownRowSchema),
+    region: z.array(AdminAudienceBreakdownRowSchema),
+    city: z.array(AdminAudienceBreakdownRowSchema),
+    asn: z.array(AdminAudienceBreakdownRowSchema),
+  }),
+
+  /** Counts only — the rows are `GET /api/admin/feedback`. */
+  feedback: z.object({
+    total_ever: z.number().int().nonnegative(),
+    in_window: z.number().int().nonnegative(),
+  }),
+});
+export type AdminAudienceResponse = z.infer<typeof AdminAudienceResponseSchema>;
+
+// ─── GET /api/admin/feedback (AECI-586 / Phase 8.3 P5.1) ─────────────────────
+
+/**
+ * The feedback inbox. `PageQuerySchema` only — no window, deliberately: this is
+ * an inbox read end to end, not a measurement, and the windowed count already
+ * rides on `/api/admin/audience` as `feedback.in_window`.
+ */
+export const AdminFeedbackQuerySchema = PageQuerySchema;
+export type AdminFeedbackQuery = z.infer<typeof AdminFeedbackQuerySchema>;
+
+/**
+ * One submission, as `POST /api/feedback` stored it (`api/landing.ts`).
+ *
+ * **This is the first read surface the `feedback` table has ever had.** Until
+ * now the only way anyone saw a submission was the fire-and-forget operator
+ * email to `ADMIN_ALERT_EMAIL` (§6.13) — so nothing here is a re-shaping of an
+ * existing view; the column set simply is the row.
+ *
+ * `email` crosses in full rather than truncated. That is the opposite of
+ * {@link AdminPageViewRowSchema}'s `visitor_hash` and deliberately so: a page
+ * view is an observation of someone who never identified themself, while this is
+ * contact information a person volunteered *in order to be replied to*. Redacting
+ * it would defeat the field's only purpose. It follows `/api/admin/requests`,
+ * which likewise returns `submitter_email` whole.
+ *
+ * `referrer` is a URL a submitter's browser supplied. It is data, not a
+ * destination — the UI renders it as text, never as a link.
+ */
+export const AdminFeedbackRowSchema = z.object({
+  id: z.number().int().positive(),
+  created_at: z.string().datetime(),
+  /** Free text: "what features would you want?" `null` when only `tools` was given. */
+  features: z.string().nullable(),
+  /** Free text: "what tools do you use?" `null` when only `features` was given. */
+  tools: z.string().nullable(),
+  email: z.string().nullable(),
+  /** The mailing-list opt-in checkbox on the feedback form. */
+  subscribed: z.boolean(),
+  country: z.string().nullable(),
+  city: z.string().nullable(),
+  region: z.string().nullable(),
+  timezone: z.string().nullable(),
+  referrer: z.string().nullable(),
+});
+export type AdminFeedbackRow = z.infer<typeof AdminFeedbackRowSchema>;
+
+/**
+ * The standard paginated envelope. `total` is every row in the table, since the
+ * endpoint takes no filters; ordering is `created_at DESC, id DESC` — the
+ * autoincrement id breaks ties so a page boundary is stable even for two
+ * submissions stamped in the same millisecond.
+ *
+ * `notes` is present and normally empty. It costs nothing and means a future
+ * caveat here needs no envelope change on either side of the wire.
+ */
+export const AdminFeedbackResponseSchema = paginatedResponseSchema(AdminFeedbackRowSchema).extend({
+  generated_at: z.string().datetime(),
+  source: z.literal('live'),
+  notes: z.array(AdminNoteSchema),
+});
+export type AdminFeedbackResponse = z.infer<typeof AdminFeedbackResponseSchema>;

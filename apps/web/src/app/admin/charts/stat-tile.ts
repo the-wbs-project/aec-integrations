@@ -8,6 +8,14 @@ import { formatThousands } from './format';
 import type { ChartSeries, ChartSlot } from './chart-types';
 
 /**
+ * What a tile shows when it has no figure. §5.1: "`null` renders as *Not
+ * measured*, never as zero" — and the wording is the spec's own. Module-level so
+ * every tile says it identically, and a `$localize` string rather than a glyph
+ * so it translates.
+ */
+const NOT_MEASURED_LABEL = $localize`:@@admin.stat.notMeasured:Not measured`;
+
+/**
  * Stat tile — AECI-578 / Phase 8.3 P1.4. The `dataviz` contract: `label` ·
  * `value` · `delta` · `sparkline`, in that order and no more.
  *
@@ -85,7 +93,22 @@ import type { ChartSeries, ChartSlot } from './chart-types';
 })
 export class StatTile {
   readonly label = input.required<string>();
-  readonly value = input.required<number>();
+  /**
+   * The count. `null` means **not measured**, which is not the same claim as
+   * zero, and renders as {@link NOT_MEASURED_LABEL} rather than as a figure
+   * (§5.1). Words rather than a dash: a glyph is untranslatable and the brand
+   * voice bars the em dash outright (PRODUCT.md), so "Not measured" is both the
+   * clearer and the only compliant rendering (AECI-586).
+   */
+  readonly value = input<number | null>(null);
+  /**
+   * A pre-formatted value that replaces {@link value} entirely. For measures that
+   * are not counts — a rate, a percentage — where `formatThousands` would be
+   * wrong. The caller owns the formatting *and* its empty case, because only the
+   * caller knows whether an absent rate should read as an em dash or as something
+   * more specific (AECI-586).
+   */
+  readonly valueText = input<string>('');
   /** The §9.8-style definition that must sit next to the number. */
   readonly caveat = input<string>('');
   readonly delta = input<AdminDelta | null>(null);
@@ -98,7 +121,12 @@ export class StatTile {
   readonly tableCaption = input<string>('');
   readonly slot = input<ChartSlot>(1);
 
-  protected readonly formattedValue = computed(() => formatThousands(this.value()));
+  protected readonly formattedValue = computed(() => {
+    const override = this.valueText();
+    if (override) return override;
+    const v = this.value();
+    return v === null ? NOT_MEASURED_LABEL : formatThousands(v);
+  });
 
   /** Text tokens only — direction is stated, never judged by colour. */
   protected readonly deltaGlyph = computed(() => {

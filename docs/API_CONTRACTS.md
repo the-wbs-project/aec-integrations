@@ -1182,13 +1182,13 @@ themselves (a banned admin would lock themselves out of `requireAdmin()`).
 
 ---
 
-#### Admin panel reads (AECI-574 / Phase 8.3 P1.1, extended by AECI-577 / P1.3, AECI-579 / P1.5, and AECI-580 / P1.6)
+#### Admin panel reads (AECI-574 / Phase 8.3 P1.1, extended by AECI-577 / P1.3, AECI-579 / P1.5, AECI-580 / P1.6, and AECI-586 / P5.1)
 
-Six `GET`s serving the operator console (`docs/ADMIN_PANEL_SPEC.md` §5–§6).
+Eight `GET`s serving the operator console (`docs/ADMIN_PANEL_SPEC.md` §5–§6).
 Source of truth: `packages/shared/src/api/admin-panel.ts` (Zod), and
-`apps/api/src/routes/admin-{overview,metrics,traffic,page-views,catalog,system}.ts` +
-`lib/admin-{analytics,catalog,status}.ts` (handlers). They register on the same
-`authAdmin` sub-router behind `requireAdmin()` — no new gate.
+`apps/api/src/routes/admin-{overview,metrics,traffic,page-views,catalog,system,audience,feedback}.ts` +
+`lib/admin-{analytics,catalog,status,audience}.ts` (handlers). They register on the
+same `authAdmin` sub-router behind `requireAdmin()` — no new gate.
 
 **Every `page_views` read carries the §13 D12 floor.** `/admin/*` and `/account`
 rows are excluded *beneath* the caller's filters, historical rows included, via
@@ -1239,6 +1239,9 @@ export const AdminNoteCodeSchema = z.enum([
   // AECI-580 / P1.6 — system status
   'cron_liveness_unavailable',         // N of 8 crons have no last-run record
   'orphan_sweep_not_persisted',        // the sweep's result is stored nowhere
+  // AECI-586 / P5.1 — audience
+  'utm_attribution_incomplete',        // N of M signups in the window carry no utm_source
+  'audience_history_is_current_state', // a resubscribe erases the churn it is computed from
 ]);
 
 export const AdminNoteSchema = z.object({
@@ -1919,6 +1922,156 @@ number) and, when the window earns them, `bot_classification_incomplete`,
 Errors: `VALIDATION_FAILED` (400) for a missing/bad/reversed date range, a window
 longer than `ADMIN_METRICS_MAX_DAYS`, or `perPage > 100`.
 
+#### `GET /api/admin/audience` (AECI-586 / Phase 8.3 P5.1)
+
+The §5.4 bundle: lifetime subscriber stocks, the day-bucketed growth/churn
+series, the UTM and signup-geography breakdowns, and the feedback counts.
+
+```typescript
+export const ADMIN_AUDIENCE_MAX_BREAKDOWN = 50;
+export const ADMIN_AUDIENCE_DEFAULT_BREAKDOWN = 8;
+
+export const AdminAudienceQuerySchema = z.object({
+  from: utcDate,                                  // inclusive
+  to: utcDate,                                    // inclusive
+  breakdown_limit: z.coerce.number().int().min(1)
+    .max(ADMIN_AUDIENCE_MAX_BREAKDOWN).default(ADMIN_AUDIENCE_DEFAULT_BREAKDOWN),
+});
+
+export const AdminAudienceBreakdownRowSchema = z.object({
+  key: z.string().nullable(),      // null = the unattributed bucket, surfaced not dropped
+  label: z.string().min(1),        // untranslated operator fallback; UI keys off `key === null`
+  subscribers: z.number().int().nonnegative(),
+});
+
+export const AdminAudienceResponseSchema = z.object({
+  window: AdminWindowSchema,
+  generated_at: z.string().datetime(),
+  source: z.literal('live'),       // NOT AdminMetricSourceSchema — see below
+  notes: z.array(AdminNoteSchema),
+  breakdown_limit: z.number().int().positive(),
+
+  // Lifetime, windowless.
+  subscribers: z.object({
+    active: …,                     // unsubscribed_at IS NULL
+    unsubscribed: …,               // unsubscribed_at IS NOT NULL (a suppression record)
+    total_ever: …,                 // = active + unsubscribed; one row per email, ever
+    churn_rate: z.number().min(0).max(1).nullable(),   // NULL when total_ever === 0
+  }),
+
+  // Zero-filled across every day in the window.
+  series: z.array(z.object({
+    day: …, signups: …, unsubscribes: …, active_cumulative: …,
+  })),
+  window_totals: z.object({
+    signups: …, unsubscribes: …,
+    net: z.number().int(),                              // signups − unsubscribes; MAY BE NEGATIVE
+    active_at_start: …, active_at_end: …,
+    churn_rate: z.number().min(0).nullable(),           // NULL when active_at_start === 0
+  }),
+
+  utm: { source: rows, medium: rows, campaign: rows },
+  geography: { country: rows, region: rows, city: rows, asn: rows },
+  feedback: { total_ever: …, in_window: … },            // rows are the endpoint below
+});
+```
+
+**Why this series is derived live and does not read `metrics_daily`.**
+`ADMIN_PANEL_SPEC.md` §7.1 snapshots `audience.subscribers_active` /
+`_unsubscribed` / `feedback_total` daily and anticipated this endpoint reading
+them. It does not, for two reasons that apply only to this table. **It does not
+need to**: `unsubscribed_at` is a soft delete (§6.13 / AECI-537) and nothing
+hard-deletes a `mailing_list` row, so the population on any past day is exactly
+`created_at <= D AND (unsubscribed_at IS NULL OR unsubscribed_at > D)` — the
+property §4 shows the *catalog* stocks lack, and the reason a snapshot was needed
+there. **And it would cost**: stocks are never backfilled, so those series begin
+at the first cron run (2026-08-13) while `mailing_list` reaches back to the first
+signup, and `/metrics/timeseries` zero-fills — which is right for a flow and wrong
+for a stock, since an uncaptured day would report *zero subscribers* rather than
+unknown. `source` is therefore the literal `'live'`: `'snapshot'` and `'mixed'`
+are unreachable here by design, and a three-value enum would imply a storage swap
+that is not coming. The snapshot rows stay written; they are the only durable
+record of a pre-resubscribe state.
+
+**Both `churn_rate` fields are `null`, never `0`, on an empty denominator.** A
+rate over nobody is undefined, and `0%` would be a clean bill of health nobody
+measured — §5.1's "`null` renders as *Not measured*, never as zero" applied to a
+ratio. `mailing_list` holds zero rows today (§3), so this is the first thing any
+caller sees. The two rates answer different questions and are not interchangeable:
+`subscribers.churn_rate` is "what fraction of everyone who ever joined has left",
+`window_totals.churn_rate` is "what fraction of the opening population left during
+this window".
+
+**`active_cumulative` is exact, not sampled.** It carries forward from
+`active_at_start`, so `active_at_start + Σ(signups − unsubscribes) ===
+active_at_end` holds by construction — a row can only enter the population through
+`created_at` and leave through `unsubscribed_at`, and both are bucketed here.
+
+**The breakdowns group signups *inside the window***, so a row's share is
+`subscribers / window_totals.signups` with no second request. NULL groups are
+surfaced with `key: null` rather than dropped — an organic signup carries no
+`utm_source`, and hiding it is how an attribution breakdown starts claiming
+attribution it does not have. Ordering is count desc, then named groups before the
+NULL bucket, then the key, the same total order `/traffic/breakdown` uses. The
+`asn` dimension is labelled from `as_organization` where present and `AS<number>`
+otherwise: an ASN cannot label itself.
+
+`notes` carries `utm_attribution_incomplete` when signups in the window lack a
+`utm_source` (`params: { missing, total }`), `audience_history_is_current_state`
+whenever the list is non-empty, and `partial_day` when the window reaches into the
+current UTC day. **Neither of the first two fires on an empty list**: 0 of 0
+signups is not incomplete, and there is no history to caveat.
+
+Errors: `VALIDATION_FAILED` (400) for a missing/bad/reversed date range, a window
+longer than `ADMIN_METRICS_MAX_DAYS`, or a `breakdown_limit` outside `[1, 50]`.
+
+#### `GET /api/admin/feedback` (AECI-586 / Phase 8.3 P5.1)
+
+The feedback inbox, paginated. **This is the first read surface the `feedback`
+table has ever had** — it is written by `POST /api/feedback` (§6.13) and forwarded
+as a fire-and-forget operator email, and that email has been the only way anyone
+has seen a submission. Nothing here re-shapes an existing view; the column set
+simply is the row.
+
+```typescript
+export const AdminFeedbackQuerySchema = PageQuerySchema;   // page / perPage ≤ 100
+
+export const AdminFeedbackRowSchema = z.object({
+  id: z.number().int().positive(),
+  created_at: z.string().datetime(),
+  features: z.string().nullable(),     // free text; null when only `tools` was given
+  tools: z.string().nullable(),
+  email: z.string().nullable(),        // IN FULL — see below
+  subscribed: z.boolean(),             // the mailing-list opt-in on the form
+  country: …, city: …, region: …, timezone: …, referrer: z.string().nullable(),
+});
+
+export const AdminFeedbackResponseSchema =
+  paginatedResponseSchema(AdminFeedbackRowSchema)
+    .extend({ generated_at: …, source: z.literal('live'), notes: z.array(AdminNoteSchema) });
+```
+
+No window filter, deliberately: an inbox is read end to end rather than measured,
+and the windowed count already rides on `/api/admin/audience` as
+`feedback.in_window`. `total` is every row in the table, since the endpoint takes
+no filters.
+
+Ordering is `created_at DESC, id DESC`. `feedback.id` is an autoincrement integer
+PK, so the pair is a strict total order and a page boundary is stable even for two
+submissions stamped in the same millisecond.
+
+**`email` crosses in full rather than truncated, and that is the opposite of
+`/api/admin/page-views` on purpose.** A page view observes someone who never
+identified themself, so §9.7 requires a truncated pseudonymous hash. This is
+contact information a person volunteered *in order to be replied to*; redacting it
+would defeat the field's only purpose. `/api/admin/requests` returns
+`submitter_email` whole on the same reasoning.
+
+`referrer` is a URL a submitter's browser supplied. It is data, not a destination —
+the UI renders it as text and never as a link.
+
+Errors: `VALIDATION_FAILED` (400) for `perPage > 100`, `perPage < 1`, or `page < 1`.
+
 ### 6.11 Webhooks
 
 #### `POST /api/webhooks/linear`
@@ -2121,6 +2274,15 @@ The handlers read a header when present and fall back to the body value otherwis
 
 Mailing-list signup. `email` is required and unique (`mailing_list_email_key`); the rest is best-effort attribution. Idempotent: returns `created: false` when the email is already on the list **and still active**. A fresh row is assigned an opaque `unsubscribe_token` (`crypto.randomUUID()`) used by the welcome-email opt-out link (AECI-537). If the email is on the list but previously **unsubscribed** (`unsubscribed_at` set), the handler **reactivates** it — clears `unsubscribed_at`, keeps the existing token, and re-welcomes — returning `created: true` (status `200`, since no new row was created). Only a genuine new insert returns `201`.
 
+> **The reactivation path is lossy, and the admin panel says so.** Clearing
+> `unsubscribed_at` and keeping the original `created_at` means the row no longer
+> records that the subscriber ever left. `GET /api/admin/audience` derives its
+> churn series from those two columns, so a churn-then-return reads as
+> never-churned; that is disclosed as `audience_history_is_current_state` rather
+> than silently absorbed. `metrics_daily`'s `audience.subscribers_active` stock
+> (AECI-581) is the only durable record of the state before a reactivation
+> rewrote it.
+
 ```typescript
 export const SubscribeSubmitSchema = z.object({
   email: z.string().trim().email().max(200),
@@ -2137,6 +2299,12 @@ export const SubscribeSubmitSchema = z.object({
 #### `POST /api/feedback`
 
 Free-text product feedback. At least one of `features` / `tools` must be present (mirrors the form's own guard). `email` is optional; when present it must be valid, and `subscribed` is the mailing-list opt-in flag. No unique constraint, so it always returns `created: true`.
+
+> **Since AECI-586 this table has a read surface** — `GET /api/admin/feedback`
+> (§6.10) and the `/admin/audience` screen. Before that, the operator email fired
+> from this handler was the only way anyone ever saw a submission, so a lost or
+> filtered alert meant a lost submission. The email is unchanged and still sends;
+> the panel is the durable second path, not a replacement.
 
 ```typescript
 export const FeedbackSubmitSchema = z

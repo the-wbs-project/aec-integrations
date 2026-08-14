@@ -134,12 +134,13 @@ export class AdminShell {
    * The §5 information architecture, as data — later sub-issues add one entry
    * rather than editing markup.
    *
-   * Only routes that **exist** are listed. §5's full IA also names
-   * `/admin/audience` (AECI-586); it appears here when its screen ships
-   * (`/admin/activity` shipped with AECI-577, `/admin/traffic` with AECI-578,
-   * `/admin/catalog` with AECI-579, `/admin/system` with AECI-580).
-   * Nothing links to a 404, and no entry is rendered disabled — a group with no
-   * items simply does not render its heading either.
+   * Only routes that **exist** are listed — nothing links to a 404, and no entry
+   * is rendered disabled; a group with no items simply does not render its
+   * heading either. Each screen added its own entry as it shipped
+   * (`/admin/activity` with AECI-577, `/admin/traffic` with AECI-578,
+   * `/admin/catalog` with AECI-579, `/admin/system` with AECI-580, and
+   * `/admin/audience` with AECI-586). **This list is now complete**: every route
+   * in §5's information architecture exists and appears here.
    */
   protected readonly navGroups: readonly AdminNavGroup[] = [
     {
@@ -149,6 +150,7 @@ export class AdminShell {
         { path: '/admin/overview', label: $localize`:@@admin.shell.nav.overview:Overview` },
         { path: '/admin/activity', label: $localize`:@@admin.shell.nav.activity:Activity` },
         { path: '/admin/traffic', label: $localize`:@@admin.shell.nav.traffic:Traffic` },
+        { path: '/admin/audience', label: $localize`:@@admin.shell.nav.audience:Audience` },
       ],
     },
     {

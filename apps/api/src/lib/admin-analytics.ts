@@ -873,6 +873,13 @@ const SEVERITY: Record<AdminNoteCode, 'info' | 'warn'> = {
   // approximation as a measurement. §4 shows the pre-snapshot catalog segment can
   // only ever be approximate (827 `integration.created` events back 496 live rows).
   series_partly_reconstructed: 'warn',
+  // AECI-586 / P5.1. Both `info`, and for the same reason: neither makes a number
+  // wrong. Unattributed signups are real signups whose bucket is simply named
+  // rather than hidden, and the resubscribe caveat narrows a claim ("churn is
+  // exact") without contradicting it — a reader who misses either still reads the
+  // figures correctly, which is the `warn` test.
+  utm_attribution_incomplete: 'info',
+  audience_history_is_current_state: 'info',
 };
 
 /** Build a note. `message` is the untranslated operator fallback; the UI renders

@@ -66,14 +66,20 @@ Migration approach is documented in Section 10.
 
 ### 2a. Landing-page lead-capture tables
 
-The two lead-capture tables — `feedback` and `mailing_list` — were cut over to **D1** (AECI-257). They are written by the API Worker's `POST /api/feedback` + `/api/subscribe` handlers (`apps/api/src/routes/landing-forms.ts`), reached over the `env.API` service binding (no longer Supabase Postgres / PostgREST). They predate the AECI Stage 1 schema and are otherwise **out of scope for everything in this document**:
+The two lead-capture tables — `feedback` and `mailing_list` — were cut over to **D1** (AECI-257). They are written by the API Worker's `POST /api/feedback` + `/api/subscribe` handlers (`apps/api/src/routes/landing-forms.ts`), reached over the `env.API` service binding (no longer Supabase Postgres / PostgREST). They predate the AECI Stage 1 schema and remain outside the Stage 1 entity model — but since **AECI-586** they are no longer write-only, so they are documented rather than merely listed:
 
-| Table | Written by | Purpose |
-| --- | --- | --- |
-| `feedback` | `POST /api/feedback` (`routes/landing-forms.ts`) | Lead-capture feedback form. |
-| `mailing_list` | `POST /api/subscribe` + `POST /api/unsubscribe` (`routes/landing-forms.ts`) | Mailing-list signups (idempotent on `email`). |
+| Table | Written by | Read by | Purpose |
+| --- | --- | --- | --- |
+| `feedback` | `POST /api/feedback` (`routes/landing-forms.ts`) | `GET /api/admin/feedback` (AECI-586) | Lead-capture feedback form. |
+| `mailing_list` | `POST /api/subscribe` + `POST /api/unsubscribe` (`routes/landing-forms.ts`) | `GET /api/admin/audience` (AECI-586); `GET /api/admin/overview`; the 00:15 snapshot cron | Mailing-list signups (idempotent on `email`). |
+
+**Columns, and which read surface exposes them (AECI-586).** `GET /api/admin/feedback` returns a `feedback` row whole — `id`, `created_at`, `features`, `tools`, `email`, `subscribed`, `country`, `city`, `region`, `timezone`, `referrer` — because the operator email fired from the handler was previously the table's only reader, so there is no prior projection to preserve. `GET /api/admin/audience` reads `mailing_list` in **aggregate only**: `created_at` and `unsubscribed_at` for the growth/churn series, `utm_source` / `utm_medium` / `utm_campaign` for attribution, and `country` / `region` / `city` / `asn` / `as_organization` for geography. It never returns `email` or `unsubscribe_token`, and no endpoint returns a `mailing_list` row.
+
+**Indexes (`0014`, AECI-586).** `feedback_created_at_idx` on `feedback (created_at)`; `mailing_list_created_at_idx` and `mailing_list_unsubscribed_at_idx` on the matching `mailing_list` columns. These two tables were the only ones in the database with **no `created_at` index at all** — `page_views` and `audit_log` have carried the equivalent since `0000` — so every day-bucketed signup or churn query and the inbox's `ORDER BY created_at DESC` was a full scan. Pure `CREATE INDEX`; none of §3.3a's table-recreate machinery applies.
 
 **`mailing_list` opt-out columns (AECI-537).** Two columns support unsubscribe: `unsubscribe_token` (TEXT, unique — `mailing_list_unsubscribe_token_key`) is an opaque per-subscriber token set on insert (`crypto.randomUUID()`; backfilled for pre-existing rows in migration `0006` via `hex(randomblob(16))`) and embedded in the welcome email's `/unsubscribe?token=…` link; `unsubscribed_at` (TEXT, nullable ISO-8601) is the **soft-delete / suppression** marker — `null` = active, a timestamp = opted out. `POST /api/unsubscribe` sets it (keyed on the token); a resubscribe (`POST /api/subscribe`) clears it back to active.
+
+That soft delete is what makes churn **exactly computable** rather than modelled: no `mailing_list` row is ever removed, so the active population on any past day is exactly `created_at <= D AND (unsubscribed_at IS NULL OR unsubscribed_at > D)` — the property `ADMIN_PANEL_SPEC.md` §4 shows the catalog counts lack, and the reason §5.4 derives its series live instead of reading the `metrics_daily` stocks. **The one thing it cannot preserve is a return**: the reactivation path clears `unsubscribed_at` and keeps the original `created_at`, so a subscriber who left and came back leaves no trace of having left. `GET /api/admin/audience` discloses that as `audience_history_is_current_state`, and `metrics_daily`'s `audience.subscribers_active` (§9.3) is the only durable record of the state a reactivation overwrites.
 
 The **pre-launch `apps/landing` Worker** was the original caller of both endpoints; it was **retired at the apex cutover (AECI-247/277)**, so the caller is now the shared mailing-list signup band (`apps/web/.../shared/mailing-list-signup`, mounted on the home closing-CTA plus the directory + detail pages — AECI-327, extracted from the home closing-CTA island of AECI-275). These tables are defined in the D1 schema (`apps/api/src/db/schema.ts`) and reproduce on a fresh local D1 via `pnpm db:setup:local`. The original `supabase/migrations/20260101000000_landing_baseline.sql` is retained only as an archived record (`supabase/archive/migrations/`) — the app DB no longer runs on Postgres (ADR 0016 / AECI-278). No AECI Stage 1 directory code reads or writes them; treat them as the lead-capture surface within the shared D1 database.
 
@@ -1016,6 +1022,19 @@ Stocks are captured from day one but never reconstructed: a past *total* is
 unrecoverable (§4), so a cumulative sum of `*.created` events would be wrong
 rather than approximate. Any day not sampled is simply lost, which is why the
 cron writes all 19 keys rather than only the ones a screen reads today.
+
+**The three `audience.*` stocks are the exception, and AECI-586 deliberately did
+not read them.** `ADMIN_PANEL_SPEC.md` §7.1 named §5.4 as their reader; the
+Audience screen derives its series live from `mailing_list` instead, because
+`unsubscribed_at` is a soft delete and no subscriber row is ever removed (§2a), so
+the past *is* exactly recoverable there — the one place the §4 argument for
+snapshotting does not hold. Two things follow. These rows still earn their keep:
+they begin at the first cron run rather than the first signup, but they are the
+**only durable record of a state a resubscribe overwrites**, since reactivation
+clears `unsubscribed_at` from the row itself. And they remain unreadable through
+`GET /api/admin/metrics/timeseries`, whose vocabulary is the flow keys only —
+partly because that endpoint **zero-fills**, which is correct for a flow and a lie
+for a stock: an uncaptured day would report zero subscribers rather than unknown.
 
 ### 9.4 `job_runs`
 
