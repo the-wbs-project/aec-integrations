@@ -207,6 +207,7 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `NOT_FOUND` | 404 | Resource does not exist |
 | `REVIEW_DUPLICATE` | 409 | User already reviewed this product |
 | `REVIEW_BANNED` | 403 | User is banned and cannot submit reviews |
+| `ENTITLEMENT_REQUIRED` | 403 | The vendor's entitlement tier does not hold the capability this write requires (AECI-610; `details: { capability, tier, fields? }`). **403, not 402** — 402 Payment Required would leak a billing model into a contract that must stay payer-model-agnostic, and this table has no 402 row. Reads are never gated |
 | `SLUG_CONFLICT` | 409 | Slug collision detected on entity creation |
 | `GRANT_CONFLICT` | 409 | Vendor-claim grant would violate role/vendor exclusivity — the claimant account is a site `admin`, or is already linked to a different vendor (AECI-519; `details.reason` ∈ `already_admin` \| `other_vendor`) |
 | `INVALID_STATE_TRANSITION` | 422 | Attempted workflow transition is not allowed from current state |
@@ -218,7 +219,7 @@ Machine-readable codes are stable identifiers. Messages are localized.
 
 - `400` — validation errors, malformed requests
 - `401` — not authenticated
-- `403` — authenticated but not authorized, or banned
+- `403` — authenticated but not authorized, banned, or lacking the entitlement a write requires
 - `404` — resource doesn't exist or is not visible to caller
 - `409` — conflict (duplicate, slug collision, vendor-claim grant exclusivity)
 - `422` — semantically valid but business rule violation

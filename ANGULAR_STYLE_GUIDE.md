@@ -333,11 +333,12 @@ Lint: 🟡 review-only (custom regex rule deferred — see §24 "Future enforcem
 
 ## 24. Appendix: ESLint enforcement matrix
 
-Rules enforced by `pnpm lint`. Three layers, and knowing which is which matters when you add a rule:
+Rules enforced by `pnpm lint`. Four layers, and knowing which is which matters when you add a rule:
 
 1. **`angularBase`** (`eslint.config.base.mjs`, consumed by `apps/web/eslint.config.mjs`) — the Angular and brand-voice rules. `apps/web` only.
 2. **`tsBase`** (same file, consumed by all four packages) — the cross-cutting constraint guards from AECI-549. These reach `apps/api`, `apps/datatool`, and `packages/shared` as well.
-3. **`apps/web/scripts/check-source-constraints.mjs`** — a line scanner for what ESLint structurally cannot read: Tailwind class strings inside external `.html` templates (the template processor parses them into a template AST, not lintable string literals) and selectors in `.css` (nothing lints CSS here — there is no stylelint). Wired into `apps/web`'s `lint` script.
+3. **Package-local file-scoped blocks** (e.g. `packages/shared/eslint.config.mjs`) — a rule that applies to one file, not a tier. See "Package-local guards" below.
+4. **`apps/web/scripts/check-source-constraints.mjs`** — a line scanner for what ESLint structurally cannot read: Tailwind class strings inside external `.html` templates (the template processor parses them into a template AST, not lintable string literals) and selectors in `.css` (nothing lints CSS here — there is no stylelint). Wired into `apps/web`'s `lint` script.
 
 **Two traps when editing the config.** First, flat config *replaces* a rule's options per file rather than merging them, and `apps/web` spreads `angularBase` after `tsBase` — so both `angularBase` TypeScript blocks must restate every `no-restricted-syntax` selector or they silently drop the ones `tsBase` set. Second, the `tsBase` rules object has no `files` key, so it also applies to the `.html` files `apps/web` lints; ESTree selectors belong in a `files`-scoped block. `apps/web/src/eslint-config.spec.ts` asserts the resolved config for both packages in both tiers, so either regression fails a test rather than quietly disabling a constraint.
 
@@ -379,6 +380,21 @@ These live in `tsBase`, so they apply to `apps/api`, `apps/datatool`, and `packa
 | `no-restricted-syntax` | `getPrisma` / `prismaFor` / `PrismaClient` identifiers; `DATABASE_URL` / `DIRECT_URL` | no | Drizzle over D1 (ADR 0016) |
 | `no-restricted-syntax` | `dark:` Tailwind variants (incl. stacked `md:dark:`); `.theme-dark` | yes | Light only (AECI-226) |
 | `no-restricted-syntax` | `Vary` set to anything but `Accept-Language`, via `headers.set` / `append` or an object literal | yes | Edge-cache discipline |
+
+### Package-local guards
+
+One rule is scoped to a single file rather than a tier, because the thing it protects is invisible at runtime.
+
+| Rule | Scope | Bans | Constraint |
+|---|---|---|---|
+| `no-restricted-imports` | `packages/shared/src/entitlements.ts` only (`packages/shared/eslint.config.mjs`) | `zod`, `zod/*`, and `./api/*` / `@aeci/shared/api*` | The capability registry ships in the lazy `/vendor` Angular route; one value import from an `api/*` module once dragged the whole schema set plus a 327 kB zod chunk into the initial graph (AECI-610 / `STAGE_2_PAID_TIERS_SPEC.md` §3.1, R11) |
+
+Two things about it generalize to any future file-scoped rule here:
+
+- **It restates `CONSTRAINT_IMPORTS`.** Flat config replaces a rule's options per file, so a block setting only the new ban would silently drop the Prisma and zone.js bans for that file — the same trap described above, in miniature.
+- **`api/*` is banned alongside `zod` itself**, because `no-restricted-imports` matches only direct imports. Banning the dependency without banning the one-hop route to it would leave the rule looking enforced while doing nothing.
+
+`apps/web/src/eslint-config.spec.ts` resolves `packages/shared` configs too, and asserts both halves fire, that the restated bans survived, and that the ban is scoped to the file rather than leaking across the package.
 
 ### Line-scanner guards (`check-source-constraints.mjs`)
 
