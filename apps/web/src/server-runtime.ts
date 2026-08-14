@@ -339,6 +339,11 @@ const ROUTE_CACHE_PATTERNS: readonly RoutePattern[] = [
   // is dropped from the cache key; UTM still survives in the real browser URL for
   // `buildAttribution` at submit time (same as every other lead-capture surface).
   { match: (p) => p === '/updates', ttl: { edge: 86_400, browser: 3_600 } },
+  // /roadmap — coming-soon placeholder behind the header "More" menu. Static and
+  // visitor-state-neutral like /about, so the same static-page TTL. It is
+  // `robots: noindex` (component-set) and absent from sitemap.xml; neither
+  // affects cacheability.
+  { match: (p) => p === '/roadmap', ttl: { edge: 86_400, browser: 3_600 } },
   {
     match: (p) => p === '/legal' || p.startsWith('/legal/'),
     ttl: { edge: 86_400, browser: 3_600 },

@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, input, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 import { RouterLink, RouterLinkActive } from '@angular/router';
 
 import type { TaxonomyTermWithCount } from '@aeci/shared';
@@ -6,6 +6,7 @@ import type { TaxonomyTermWithCount } from '@aeci/shared';
 import { KIND_PATH_SEGMENT } from '../core/api/taxonomy';
 import type { TaxonomyKind } from '../shared/taxonomy-badge/taxonomy-badge';
 
+import { NavDisclosure } from './nav-disclosure';
 import { NavFlyoutList } from './nav-flyout-list';
 import { facetNavLabel, facetViewAllLabel } from './taxonomy-nav-copy';
 
@@ -20,12 +21,8 @@ import { facetNavLabel, facetViewAllLabel } from './taxonomy-nav-copy';
  * `aria-haspopup`; the panel is `[hidden]` when closed so its links are never
  * silently tabbable.
  *
- * Open/close:
- *   - pointer: hover the host opens, leaving closes (the panel's transparent
- *     `pt-2` bridge keeps the trigger→panel path inside the host, so there is no
- *     dead gap to fall through);
- *   - keyboard: the button toggles (native Enter/Space), Escape closes and
- *     returns focus to the button, and focus leaving the host closes.
+ * Open/close behaviour (hover, Escape, focusout) comes from the shared
+ * `NavDisclosure` base, so this and the "More" overflow menu behave identically.
  *
  * i18n lives here, keyed by `kind` via `$localize` switches (the same pattern
  * `TaxonomyBrowsePage` uses for its breadcrumb labels), so the parent passes
@@ -37,13 +34,8 @@ import { facetNavLabel, facetViewAllLabel } from './taxonomy-nav-copy';
   selector: 'aec-nav-flyout-trigger',
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [RouterLink, RouterLinkActive, NavFlyoutList],
-  host: {
-    class: 'relative inline-flex items-center',
-    '(mouseenter)': 'open()',
-    '(mouseleave)': 'close()',
-    '(focusout)': 'onFocusOut($event)',
-    '(keydown.escape)': 'onEscape($event)',
-  },
+  // Hover / focusout / Escape listeners are inherited from `NavDisclosure`.
+  host: { class: 'relative inline-flex items-center' },
   template: `
     <a
       [routerLink]="indexPath()"
@@ -84,7 +76,7 @@ import { facetNavLabel, facetViewAllLabel } from './taxonomy-nav-copy';
     </div>
   `,
 })
-export class NavFlyoutTrigger {
+export class NavFlyoutTrigger extends NavDisclosure {
   readonly kind = input.required<TaxonomyKind>();
   readonly items = input.required<readonly TaxonomyTermWithCount[]>();
 
@@ -110,33 +102,4 @@ export class NavFlyoutTrigger {
         return $localize`:@@app.nav.flyout.trades.aria:Trades menu`;
     }
   });
-
-  private readonly openSig = signal(false);
-  protected readonly isOpen = this.openSig.asReadonly();
-
-  protected open(): void {
-    this.openSig.set(true);
-  }
-
-  protected close(): void {
-    this.openSig.set(false);
-  }
-
-  protected toggle(): void {
-    this.openSig.update((v) => !v);
-  }
-
-  /** Close when focus leaves the host entirely (e.g. Tab past the last link). */
-  protected onFocusOut(event: FocusEvent): void {
-    const host = event.currentTarget as HTMLElement;
-    if (!host.contains(event.relatedTarget as Node | null)) this.close();
-  }
-
-  /** Escape closes the flyout and returns focus to the disclosure button. */
-  protected onEscape(event: Event): void {
-    if (!this.isOpen()) return;
-    this.close();
-    const host = event.currentTarget as HTMLElement;
-    host.querySelector<HTMLButtonElement>('button[aria-haspopup]')?.focus();
-  }
 }

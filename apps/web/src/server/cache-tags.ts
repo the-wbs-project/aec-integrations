@@ -119,6 +119,9 @@ export function cacheTagInputsForPath(path: string): CacheTagInputs | null {
   // AECI-536 — /updates is a static content page with no §2 entity, so it emits
   // only the route-class tag (like /about), never an ad-hoc tag namespace.
   if (path === '/updates') return { route: 'index' };
+  // /roadmap — the coming-soon placeholder behind the header "More" menu. Same
+  // shape as /updates: static content page with no §2 entity, route-class tag only.
+  if (path === '/roadmap') return { route: 'index' };
   if (path === '/legal' || path.startsWith('/legal/')) return { route: 'index' };
 
   let m: RegExpExecArray | null;

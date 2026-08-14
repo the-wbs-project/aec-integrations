@@ -332,6 +332,13 @@ export const routes: Routes = [
     path: 'updates',
     loadComponent: () => import('./updates/updates').then((m) => m.UpdatesPage),
   },
+  // The header "More" menu's roadmap entry — a coming-soon placeholder. Static +
+  // CACHEABLE on the same static-page TTL as /about and /updates, but NOINDEX
+  // (thin placeholder content) and deliberately absent from `sitemap.xml`.
+  {
+    path: 'roadmap',
+    loadComponent: () => import('./roadmap/roadmap').then((m) => m.RoadmapPage),
+  },
   {
     path: 'contact',
     loadComponent: () => import('./contact/contact').then((m) => m.ContactPage),

@@ -69,7 +69,10 @@ test.describe(`${PATH} — AECI-536`, () => {
     await page.goto('/');
     await expect(page.locator('app-root')).toBeAttached();
 
+    // Updates moved out of the primary row into the "More" overflow menu, whose
+    // panel is `[hidden]` until opened — so open it before clicking the link.
     const primary = page.getByRole('navigation', { name: 'Primary' });
+    await primary.getByRole('button', { name: 'More menu' }).hover();
     await primary.getByRole('link', { name: 'Updates', exact: true }).click();
 
     await expect(page).toHaveURL(new RegExp(`${PATH}$`));
