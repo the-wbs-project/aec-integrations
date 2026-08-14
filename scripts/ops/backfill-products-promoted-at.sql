@@ -1,5 +1,5 @@
 -- One-time backfill of products.promoted_at for rows created before the column
--- existed (AECI-581 / ADMIN_PANEL_SPEC.md §13 D6, migration 0010).
+-- existed (AECI-581 / ADMIN_PANEL_SPEC.md §13 D6, migration 0011).
 --
 -- This backfill is EXACT, not an approximation, and §4's correction is why:
 -- `POST /api/promote` is D1's only INSERT path into `products` and it sets
@@ -18,7 +18,7 @@
 -- lossy. Going forward promote maintains it set-once, via
 -- COALESCE("promoted_at", ?) on its update branch — see routes/promote.ts.
 --
--- Run once per environment AFTER migration 0010 is applied, e.g.:
+-- Run once per environment AFTER migration 0011 is applied, e.g.:
 --   pnpm --filter @aeci/api exec wrangler d1 execute aeci-app-production \
 --     --env production --remote --file=../../scripts/ops/backfill-products-promoted-at.sql
 -- Idempotent: only touches rows where promoted_at IS NULL, so a second run is a

@@ -19,7 +19,7 @@
  *     not ours), so the check can only ever return zero rows. It is unreachable,
  *     not an approximation. Replacing it with a promotion-status invariant guard
  *     is AECI-592. Note `products.promoted_at` DOES now exist (AECI-581, migration
- *     `0010`) — the older note here claiming otherwise was wrong — but adding the
+ *     `0011`) — the older note here claiming otherwise was wrong — but adding the
  *     column does not revive the check, which is why §13 D6 withdrew that claim.
  *   - #3 "broken integration refs" — the `source/target_product_id` FKs are
  *     enforced with `ON DELETE CASCADE`, so a *dangling* row is impossible; the

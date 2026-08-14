@@ -179,7 +179,7 @@ Each migration must leave the DB in a state the previously-deployed Worker code 
 
 SQLite refuses `ALTER TABLE … DROP COLUMN` when the column carries an **index** or appears in a **`FOREIGN KEY`** clause. drizzle-kit handles it by emitting a `__new_<table>` copy-and-rename instead of a `DROP COLUMN`, which on a large table is a full row copy — D1 bills rows *written*, and there is no undo.
 
-Three rules when you hit this, all learned from `migrations/0013_careful_absorbing_man.sql` (AECI-585, the first table recreate in this repo — every `ALTER` before it is an `ADD`):
+Three rules when you hit this, all learned from `migrations/0014_careful_absorbing_man.sql` (AECI-585, the first table recreate in this repo — every `ALTER` before it is an `ADD`):
 
 1. **Replace the pragma.** drizzle-kit wraps the swap in `PRAGMA foreign_keys=OFF` / `=ON`. That is **not** the lever D1 supports — [D1's migrations docs](https://developers.cloudflare.com/d1/reference/migrations/) specify `PRAGMA defer_foreign_keys = true`, which holds for the surrounding transaction and resets on commit (so it needs no matching re-enable). Regenerating the file reintroduces the wrong pragma; re-apply the edit and say so in a comment at the top of the migration.
 2. **Check the copy lists the PK explicitly.** For an `AUTOINCREMENT` PK, an implicit copy would reassign ids. Anything paginating on `(created_at, id)` then repeats or skips rows.

@@ -108,7 +108,7 @@ a durable first-party identifier, and it is precisely the *absence* of one — a
 **hash** and a referrer **host**, never the full URL or query — that makes the
 `page_views` write defensible as consent-independent in the first place. The three
 dead columns (`user_id`, `session_id`, `profile_role`) were dropped rather than
-filled — AECI-585 removed them in migration `0013`. The table can no longer hold
+filled — AECI-585 removed them in migration `0014`. The table can no longer hold
 user linkage at all, which is also the strongest form of the GDPR erasure story:
 account deletion has nothing to erase here (`AUTH_AND_RLS.md` §12).
 

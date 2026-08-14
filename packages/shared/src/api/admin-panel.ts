@@ -771,7 +771,7 @@ export const AdminCronRunStateSchema = z.enum(['complete', 'in_flight']);
 export type AdminCronRunState = z.infer<typeof AdminCronRunStateSchema>;
 
 /**
- * One cron's liveness row. All nine are ALWAYS present — a job missing from the
+ * One cron's liveness row. All ten are ALWAYS present — a job missing from the
  * array would read as "not configured", which is a different and wrong claim
  * from "we have no record of its last run".
  */
@@ -922,7 +922,7 @@ export const AdminSystemResponseSchema = z.object({
    *  which the UI fetches alongside this and compares — see
    *  {@link AdminVersionStatusSchema}. */
   version: AdminVersionStatusSchema,
-  /** All eight, always. */
+  /** All ten, always. */
   crons: z.array(AdminCronRunSchema),
   /** The last stored 04:00 run by default, or the live result under
    *  `?recompute=1` — `source` says which. Null only when nothing has been stored

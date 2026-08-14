@@ -871,7 +871,7 @@ Notes:
 
 Server-side page view log with Cloudflare header enrichment. Privacy-respecting (no raw IPs, hashed user agents).
 
-**Read surfaces:** the 05:00 analytics digest (`lib/analytics-digest.ts`) and the admin panel's four `GET /api/admin/*` reads (`API_CONTRACTS.md` §6.10). Of those, only `GET /api/admin/page-views` (AECI-577, the §5.2 Activity feed) returns individual rows, and it does **not** return `user_agent_hash` — it returns `substr(user_agent_hash, 1, 8)`, computed in SQL, so the full hash never leaves the API. `user_id`, `session_id` and `profile_role` are gone entirely: §13 **D7** dropped all three (AECI-585, migration `0013`) rather than filling them, and no session identifier is being introduced.
+**Read surfaces:** the 05:00 analytics digest (`lib/analytics-digest.ts`) and the admin panel's four `GET /api/admin/*` reads (`API_CONTRACTS.md` §6.10). Of those, only `GET /api/admin/page-views` (AECI-577, the §5.2 Activity feed) returns individual rows, and it does **not** return `user_agent_hash` — it returns `substr(user_agent_hash, 1, 8)`, computed in SQL, so the full hash never leaves the API. `user_id`, `session_id` and `profile_role` are gone entirely: §13 **D7** dropped all three (AECI-585, migration `0014`) rather than filling them, and no session identifier is being introduced.
 
 **Retention: 400 days** (`ADMIN_PANEL_SPEC.md` §7.4 / §13 **D5**), enforced since AECI-584 by the daily 03:00 UTC pruning cron (`apps/api/src/lib/retention-prune.ts`). Note what the number is protecting: storage was never the binding constraint (400 d ≈ 280 MB against D1's 10 GB limit), **irreversibility** is — D1 Time Travel recovers only ~30 days, so a prune past that is permanent, and 400 days is the first window that keeps year-over-year comparison possible. The cron cuts on **whole UTC days** (the cutoff is always a midnight), deletes in bounded chunks paged by `id`, and **refuses to run at all** if any day inside its cut window has no `metrics_daily` row — that aggregate is the only thing that survives the prune. Given the 2026-06-23 data start it deletes nothing until ~2027-07. The window is a config constant (`PAGE_VIEWS_RETENTION_DAYS` in `@aeci/shared`) with an unset `PAGE_VIEWS_RETENTION_DAYS` env override, so it can be shortened without a migration; values below 30 days are ignored.
 
@@ -954,7 +954,7 @@ create table page_views (
   -- rows captured before this shipped (the Referer was never stored → not backfillable).
   referrer_source text,
 
-  -- user_id / session_id / profile_role were DROPPED by AECI-585 (§13 D7, migration 0013).
+  -- user_id / session_id / profile_role were DROPPED by AECI-585 (§13 D7, migration 0014).
   -- All three were declared at init and never written by any code path. Do not reintroduce
   -- them: there is no client-side session id anywhere in apps/web, and minting one would
   -- create a durable first-party identifier — precisely what makes this table's write
@@ -973,7 +973,7 @@ create index page_views_bot_idx on page_views(is_bot, created_at); -- digest hum
 -- read that needs it.
 ```
 
-**Migration `0013` is the repo's first table recreate** — every `ALTER` before it is an `ADD`. SQLite refuses `DROP COLUMN` on a column carrying an index **or** a `FOREIGN KEY` clause, and `user_id` had both (`page_views_user_idx` + the FK to `profiles`), so the drop is a `__new_page_views` copy-and-rename; `session_id` and `profile_role` ride along in it for free. Two things about that file are load-bearing: the copy lists `id` explicitly, so the autoincrement PK survives (the Activity feed paginates on `(created_at DESC, id DESC)` and would repeat or skip rows otherwise), and drizzle-kit's emitted `PRAGMA foreign_keys=OFF` was **hand-replaced with `PRAGMA defer_foreign_keys = true`**, which is the lever D1 supports. Regenerating that migration reintroduces the wrong pragma. See `docs/migrations.md`.
+**Migration `0014` is the repo's first table recreate** — every `ALTER` before it is an `ADD`. SQLite refuses `DROP COLUMN` on a column carrying an index **or** a `FOREIGN KEY` clause, and `user_id` had both (`page_views_user_idx` + the FK to `profiles`), so the drop is a `__new_page_views` copy-and-rename; `session_id` and `profile_role` ride along in it for free. Two things about that file are load-bearing: the copy lists `id` explicitly, so the autoincrement PK survives (the Activity feed paginates on `(created_at DESC, id DESC)` and would repeat or skip rows otherwise), and drizzle-kit's emitted `PRAGMA foreign_keys=OFF` was **hand-replaced with `PRAGMA defer_foreign_keys = true`**, which is the lever D1 supports. Regenerating that migration reintroduces the wrong pragma. See `docs/migrations.md`.
 
 ### 9.2 `stats_cache`
 

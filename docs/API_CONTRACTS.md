@@ -1296,7 +1296,7 @@ export const AdminOverviewQuerySchema = z.object({
 export const AdminOverviewResponseSchema = z.object({
   window: AdminWindowSchema,
   generated_at: z.string().datetime(),
-  source: z.enum(['live']),          // P2.1 adds 'snapshot'
+  source: AdminMetricSourceSchema,   // 'live' | 'snapshot' | 'mixed'
   recomputed: z.boolean(),
   notes: z.array(AdminNoteSchema),
   internal_filter: AdminInternalFilterSchema,
@@ -1478,7 +1478,7 @@ export const AdminTrafficBreakdownResponseSchema =
     traffic: AdminTrafficPopulationSchema,
     window: AdminWindowSchema,
     generated_at: z.string().datetime(),
-    source: z.enum(['live']),
+    source: AdminMetricSourceSchema,   // 'live' | 'snapshot' | 'mixed'
     notes: z.array(AdminNoteSchema),
     internal_filter: AdminInternalFilterSchema,
     window_total: AdminCountSchema,
@@ -1527,7 +1527,7 @@ export const AdminSystemResponseSchema = z.object({
   algolia: z.object({
     watermark: AdminAlgoliaWatermarkSchema.nullable(),     // null = the sync never ran
     drift: AdminAlgoliaDriftStatusSchema.nullable(),       // null unless ?recompute=1
-    orphan_sweep: z.null(),                                // never persisted — see below
+    orphan_sweep: AdminOrphanSweepStatusSchema.nullable(), // AECI-583 persists it in the 09:00 run — see below
   }),
   database: z.object({
     size_bytes: z.number().int().nonnegative().nullable(), // D1 meta.size_after
@@ -1608,7 +1608,7 @@ process wrote it. Timestamps are normalized through `Date` (an unparseable one
 drops the row to `derived`/`unknown` rather than shipping a value that fails
 `z.string().datetime()`), and an unrecognized stored `outcome` reads as null.
 
-All nine rows are always present: omitting a job would read as "not configured", a
+All ten rows are always present: omitting a job would read as "not configured", a
 different and wrong claim. The schedule strings come from
 `apps/api/src/lib/cron-schedules.ts`, which `scheduled.ts` also `switch`es on, so
 the screen and the dispatcher cannot drift; `ADMIN_CRON_JOB` in the same file maps
@@ -1898,7 +1898,7 @@ null on both counts and the UI hides the toggle entirely.
 `substr(user_agent_hash, 1, 8)` computed in SQL, so the full hash never crosses
 the wire. `user_id`, `session_id` and `profile_role` cannot be selected — §13 D7
 settled that the three are *dropped* rather than filled, and AECI-585 dropped them
-(migration `0013`); no session identifier will be introduced.
+(migration `0014`); no session identifier will be introduced.
 
 **`path` is what the writer stored, and this endpoint does not yet read the
 AECI-585 columns.** For a detail or browse page rendered through SSR that is the

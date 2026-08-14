@@ -60,8 +60,8 @@ export class AdminNoteList {
       glyph: note.severity === 'warn' ? '!' : 'i',
       severityLabel:
         note.severity === 'warn'
-          ? $localize`:@@admin.notes.severity.warn:Warning:`
-          : $localize`:@@admin.notes.severity.info:Note:`,
+          ? $localize`:@@admin.notes.srWarn:Warning:`
+          : $localize`:@@admin.notes.srInfo:Note:`,
       // Clay deep is the warning hue (DESIGN.md); info stays neutral. Severity is
       // never colour-alone — the glyph and the screen-reader label carry it too.
       tone:
@@ -77,7 +77,7 @@ export class AdminNoteList {
     const count = String(note.params?.['rows'] ?? '');
     switch (note.code as AdminNoteCode) {
       case 'partial_day':
-        return $localize`:@@admin.notes.partialDay:This window includes the current UTC day, so its last bucket is still filling.`;
+        return $localize`:@@admin.notes.partialDayWindow:This window includes the current UTC day, so its last bucket is still filling.`;
       case 'bot_classification_incomplete':
         return $localize`:@@admin.notes.botIncomplete:${count}:COUNT: views in this window have no bot classification and are counted as human. The figure is an upper bound.`;
       case 'referrer_source_incomplete':
@@ -95,7 +95,7 @@ export class AdminNoteList {
       case 'internal_filter_applied':
         return $localize`:@@admin.notes.internalApplied:Internal-traffic filtering is applied. Both the unfiltered and the filtered figure are shown.`;
       case 'requires_recompute':
-        return $localize`:@@admin.notes.requiresRecompute:Some status items were skipped because they need network calls. Re-request with recompute to include them.`;
+        return $localize`:@@admin.notes.requiresRecomputeSkipped:Some status items were skipped because they need network calls. Re-request with recompute to include them.`;
       case 'algolia_credentials_absent':
         return $localize`:@@admin.notes.algoliaAbsent:Algolia credentials are not configured, so index drift could not be measured.`;
       case 'series_partly_reconstructed':
