@@ -635,7 +635,7 @@ export const CategoriesListResponseSchema = z.object({
 
 Not paginated — the taxonomy is small by design (Phase 2 Spec §3.1).
 
-**`/api/trades` is not publication-gated.** Every term is returned with its `product_count`, including terms below the `TRADE_PUBLISH_MIN_PRODUCTS = 3` floor; the gate is applied per-surface by the consumer (`STAGE_1_SPEC.md` §5.5a, `TRADES_VOCABULARY.md` §6). Keeping the gate out of the API avoids splitting the vocabulary into two response shapes.
+**`/api/trades` is not publication-gated.** Every term is returned with its `product_count`, including terms below the `TRADE_PUBLISH_MIN_PRODUCTS = 1` floor — i.e. the zero-product terms, which after the AECI-547 backfill is 27 of the 34; the gate is applied per-surface by the consumer (`STAGE_1_SPEC.md` §5.5a, `TRADES_VOCABULARY.md` §6). Keeping the gate out of the API avoids splitting the vocabulary into two response shapes.
 
 #### `GET /api/categories/:slug`, `/api/audiences/:slug`, `/api/phases/:slug`, `/api/trades/:slug`
 

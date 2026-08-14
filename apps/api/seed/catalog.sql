@@ -123,12 +123,14 @@ ON CONFLICT DO NOTHING;
 -- Navisworks, Procore, and Bluebeam Revu are absent below. Copying this block
 -- for a general-purpose tool would be a tagging error, not a fixture shortcut.
 --
--- Deliberately spans both sides of the publication floor
--- (`TRADE_PUBLISH_MIN_PRODUCTS = 3`, §6) so local dev and e2e exercise the gate:
+-- Both tagged terms clear the publication floor (`TRADE_PUBLISH_MIN_PRODUCTS = 1`,
+-- §6), and their different depths are what makes the gate testable:
 --   electrical → 3 products → PUBLISHED  (listed on /trades, offered in nav)
---   plumbing   → 1 product  → UNPUBLISHED (hidden from /trades and nav; the
---                                          page still resolves, and the chip on
---                                          McCormick still links to it)
+--   plumbing   → 1 product  → PUBLISHED  — the single-item page the floor of 1
+--                                          deliberately admits; do not pad it
+-- The UNPUBLISHED side of the gate is any of the other 32 seeded trades, which
+-- carry no products at all — that is what `e2e/meta.spec.ts` picks up when it
+-- looks for a term below the floor, so it needs no tagged term to stay thin.
 -- ---------------------------------------------------------------------------
 INSERT INTO "product_trades" ("product_id","trade_id","created_at")
   SELECT 'b0000000-0000-4000-8000-000000000006', id, strftime('%Y-%m-%dT%H:%M:%fZ','now') FROM "taxonomy_trades" WHERE "slug" IN ('electrical')

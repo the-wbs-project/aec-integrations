@@ -442,9 +442,17 @@ describe('FacetSidebar (AECI-143)', () => {
       .expectOne((r) => r.url === FACETS_URL)
       .flush(
         facets({
-          // Below TRADE_PUBLISH_MIN_PRODUCTS (3) but non-zero under the current
-          // filters, so it must still be offered: a disjunctive count can't
-          // express a global floor (TRADES_VOCABULARY.md §6).
+          // The sidebar's rule is scoped `count > 0`, never the global floor: a
+          // disjunctive count can't express one (TRADES_VOCABULARY.md §6).
+          //
+          // NOTE — this assertion is currently weak, and no fixture can fix it.
+          // It discriminated when TRADE_PUBLISH_MIN_PRODUCTS was 3 (a count of 1
+          // was sub-floor, so a floor-applying sidebar would have hidden it). At
+          // the present floor of 1 the only sub-floor count is 0, which the
+          // sidebar hides for its own `count > 0` reason — so no count tells the
+          // two behaviours apart, and this passes either way. Kept as a
+          // regression guard on trades rendering at all; if the floor is ever
+          // raised again, drop this count below it to restore the teeth.
           trades: [term('t-thin', 'Thin Trade', 1)],
         }),
       );

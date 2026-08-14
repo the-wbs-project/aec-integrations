@@ -80,8 +80,9 @@ test.describe('GET /sitemap.xml', () => {
     }
 
     // The local seed straddles the floor on purpose (`apps/api/seed/catalog.sql`:
-    // electrical = 3, plumbing = 1), so a run against it exercises both branches.
-    // Guarded so a differently-seeded environment doesn't fail spuriously.
+    // electrical = 3 and plumbing = 1 both clear the floor of 1, while the other
+    // seeded trades carry zero products), so a run against it exercises both
+    // branches. Guarded so a differently-seeded environment doesn't fail spuriously.
     const published = terms.filter((t) => t.product_count >= TRADE_PUBLISH_MIN_PRODUCTS);
     const unpublished = terms.filter((t) => t.product_count < TRADE_PUBLISH_MIN_PRODUCTS);
     if (published.length && unpublished.length) {

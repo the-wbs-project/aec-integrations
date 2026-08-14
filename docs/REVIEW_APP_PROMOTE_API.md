@@ -651,7 +651,8 @@ no correctness regression. No retry or action is required from the review app.
   (AECI-546, decided).** A promote touching any trade — one you *set* **or** one you
   *removed* by re-pushing without it — purges that trade's browse page plus the
   `/trades` index, the taxonomy nav, and `sitemap.xml`, because the trade facet is
-  publication-gated (a term crossing the ≥ 3-product floor changes those surfaces
+  publication-gated (a term crossing the `TRADE_PUBLISH_MIN_PRODUCTS` floor — 1
+  promoted product since 2026-08-14 — changes those surfaces
   without any term being created or deleted). **Purging and pinging deliberately
   differ in scope:** purging is about staleness, so it covers every touched trade,
   published or not; pinging is about *indexing*, so a sub-floor term — which serves

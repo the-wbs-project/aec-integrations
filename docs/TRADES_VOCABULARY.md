@@ -292,14 +292,27 @@ The §1.1 rule is the only gate. `product_role` never is.
 
 ## 6. Publication gating
 
-Thin trade pages are SEO junk and dilute the whole `/trades` namespace. A trade term is
-**published** only when it clears a product floor.
+The vocabulary is a closed 34-term list seeded up front (§3), not a list grown from the catalog.
+Without a gate, every term nobody has tagged yet would still ship an empty `/trades/:slug` page and
+dilute the whole namespace. A trade term is therefore **published** only when it clears a product
+floor.
 
-- **`TRADE_PUBLISH_MIN_PRODUCTS = 3`** — a trade is published when at least 3 promoted products
-  carry it. Launch-tunable (`docs/POST_LAUNCH_MONITORING.md` threshold table); 3 is low enough to
-  publish early and high enough that the page is never a single-item stub.
+- **`TRADE_PUBLISH_MIN_PRODUCTS = 1`** — a trade is published as soon as any promoted product
+  genuinely carries it. Launch-tunable (`docs/POST_LAUNCH_MONITORING.md` threshold table). At 1 the
+  floor still does the job it exists for — it withholds the terms with no promoted product at all,
+  which after the AECI-547 backfill is 27 of the 34 — while letting a term publish the moment it
+  becomes true. That deliberately admits single-product pages: a page with one honestly-tagged
+  product still answers "what understands MY work" for that trade, which is the §1.1 test, and it is
+  a *truthful* page rather than a thin one. The lever against thinness is tagging coverage, not the
+  floor.
+- **Lowered from 3 on 2026-08-14**, once the AECI-547 backfill revealed the real distribution: 7
+  terms carried products (roofing 5, hvac-mechanical 3, electrical 2, sitework-utilities 2,
+  earthwork-excavation 1, fire-protection 1, plumbing 1) and a floor of 3 published only two of
+  them. The earlier rationale — that 3 was "high enough that the page is never a single-item stub" —
+  was written before that distribution was known and is superseded by this decision, not overlooked
+  by it.
 
-| Surface | Published trade | Unpublished trade (`product_count < 3`) |
+| Surface | Published trade | Unpublished trade (`product_count < 1`) |
 |---|---|---|
 | `/trades` index — the terms it *lists* | Listed | **Hidden** |
 | `/trades` index — *the page itself* | Always in the sitemap, always indexable — the floor gates terms, not the navigational page that lists them (AECI-546); see below |
@@ -336,15 +349,23 @@ tile on a floor crossing. AECI-542 excluded trade URLs outright and deferred the
 AECI-546; this is that decision.
 
 **Why the facet sidebar is exempt (AECI-544).** Its counts come from
-`GET /api/products/facets`, which is **disjunctive and scoped to the active filters** — a genuinely
-published trade's count legitimately falls below 3 (often to 1) as soon as the visitor picks a
-category, so applying the floor there would hide published terms at exactly the moment they are most
+`GET /api/products/facets`, which is **disjunctive and scoped to the active filters** — a scoped
+count is simply not the quantity the floor is defined over, so comparing the two is a category
+error. A genuinely published trade's scoped count drops as soon as the visitor picks a category, and
+applying an unscoped floor to it would hide published terms at exactly the moment they are most
 useful. The floor is meaningful only where the count is **unscoped** (the `/trades` index, the nav
-flyout, the sitemap), and its purpose is to keep thin *pages* out of the search index — the sidebar
-is a control surface, not indexable content, and a sub-floor trade offered there still leads to a
-real, non-empty result set. The sidebar therefore keeps its existing cross-dimension rule: show a
-term when its scoped `count > 0`, or when it is currently refined. This is a deliberate exemption,
-not an implementation gap.
+flyout, the sitemap), and its purpose is to keep empty *pages* out of the search index — the sidebar
+is a control surface, not indexable content, and any trade offered there already leads to a real,
+non-empty result set. The sidebar therefore keeps its existing cross-dimension rule: show a term when
+its scoped `count > 0`, or when it is currently refined. That rule is **floor-independent** — it does
+not change when the floor is retuned. This is a deliberate exemption, not an implementation gap.
+
+One consequence worth recording: at a floor of 1 the exemption is no longer *observable*, because the
+only sub-floor count is 0 and the sidebar already hides those under its own `count > 0` rule. The
+carve-out remains correct and stays in place — it is the reason the sidebar reads scoped counts at
+all, and it becomes load-bearing again the moment the floor is raised — but no test fixture can
+currently distinguish "the sidebar ignores the floor" from "the sidebar applies it". This is noted in
+`apps/web/src/app/shared/facets/facet-sidebar.component.spec.ts`.
 
 Two further consequences worth stating explicitly:
 
@@ -466,7 +487,7 @@ that carries the reasoning.
 | 2 | Approve/trim the draft list. Heavy-civil umbrellas (Bridges & Structures, Marine & Waterfront, Rail) in v1? | **34 terms; heavy-civil umbrellas excluded** — they are market sectors, which is a named out-of-scope follow-up. Fencing and Pools & Aquatics also dropped (no software population). Four draft terms split, nine added. **This is the one decision still wanting a human yes.** | §5, §5.2, §5.3 |
 | 3 | Promote semantics: find-or-create (like categories/audiences) or resolve-only? | **Resolve-only.** Unmatched value → dropped + reported in `skipped[]` with `kind: "trade"`; never auto-created, never a promote failure. Matches the issue's recommendation and the `usefulness` / `dataObject` precedent. | §3 |
 | 4 | `aliases` **column** on `taxonomy_trades` so Algolia can index aliases as searchable content? | **Yes.** JSON-mode `TEXT` in D1, mirroring `taxonomy_data_objects`. Dual-purpose here: promote resolution **and** a `trade_aliases` searchable attribute on the Algolia product record (searchable only — never faceted, never displayed, never a ranking signal). | §4, `DATABASE_SCHEMA.md` §5.3a, `SEARCH_RANKING.md` §3.1 |
-| 5 | Publication gate **N**? | **`TRADE_PUBLISH_MIN_PRODUCTS = 3`**, launch-tunable. Gates which terms the `/trades` index and nav flyout list, which term URLs reach the sitemap and the indexing pings, and each term page's indexability — **not** the API, not the facet sidebar (its counts are scoped), not the `/trades` index page itself, and not the URL (an unpublished trade still resolves, so crossing the floor needs no redirect). | §6 |
+| 5 | Publication gate **N**? | **`TRADE_PUBLISH_MIN_PRODUCTS = 1`**, launch-tunable — originally 3, **lowered to 1 on 2026-08-14** after the AECI-547 backfill showed a floor of 3 published only 2 of the 7 tagged terms. Single-product pages are now deliberately admitted. Gates which terms the `/trades` index and nav flyout list, which term URLs reach the sitemap and the indexing pings, and each term page's indexability — **not** the API, not the facet sidebar (its counts are scoped), not the `/trades` index page itself, and not the URL (an unpublished trade still resolves, so crossing the floor needs no redirect). | §6 |
 | 6 | May connector-role products carry trade tags, or apps only? | **All roles, connectors included.** A connector built for a trade ERP is as trade-specific as an app. `product_role` is never a gate; the §1.1 trade-specific-value rule is the only one. | §5.4 |
 
 **The one item deferred to AECI-540 is now closed.** This issue deferred the UUIDv5 namespace +
