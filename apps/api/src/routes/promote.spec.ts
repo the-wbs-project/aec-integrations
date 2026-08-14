@@ -660,6 +660,42 @@ describe('createPromoteHandler — claims ingest (AECI-297)', () => {
     );
   });
 
+  it('collapses a repeated attestation source within one claim rather than failing the batch', async () => {
+    // `attestations_slot_key` (AECI-603) is unique on (claim_id, source) among
+    // non-retracted rows, so without the in-payload dedupe a bundle that repeated a
+    // source would take down the WHOLE promote, not just the duplicate row. First
+    // occurrence wins, matching the claim-identity dedupe.
+    const target = uuid(1);
+    await seedProduct(target, 'navisworks', 'Navisworks');
+    await seedDataObject(uuid(20), 'rfis', 'RFIs', []);
+
+    const res = await promote({
+      product: { ref: 'p1', name: 'Revit' },
+      integrations: [
+        {
+          ref: 'i1',
+          sourceProduct: { ref: 'p1' },
+          targetProduct: { supabaseId: target },
+          claims: [
+            {
+              dataObject: 'rfis',
+              direction: 'a_to_b',
+              attestations: [
+                { source: 'aeci', asserted: true, note: 'first' },
+                { source: 'aeci', asserted: false, note: 'duplicate' },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(res.status).toBe(200);
+    const attRows = await t.db.select().from(attestations);
+    expect(attRows).toHaveLength(1);
+    expect(attRows[0]).toMatchObject({ source: 'aeci', asserted: true, note: 'first' });
+  });
+
   it('reports an unresolved dataObject in skipped[] (kind: claim), never a 500', async () => {
     const target = uuid(1);
     await seedProduct(target, 'navisworks', 'Navisworks');

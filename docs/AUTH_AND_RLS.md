@@ -282,6 +282,27 @@ if (requiredRole === 'admin' && profile.role !== 'admin') {
 
 The D1 binding is privileged (no RLS), so this re-fetch of `profiles.role` + `bannedAt` is the authorization source of truth — never trust client claims (§4.5).
 
+#### 4.2a Attestation authority — the two-slot extension of `vendor_id` scoping (AECI-603)
+
+`requireVendor()` proves *which* vendor the caller is; it scopes nothing. Every `/api/vendor/*` handler must still filter by `c.get('auth').vendorId` — that filter is what stands in for the RLS row policy this stack does not have.
+
+Integration attestations are the one place that filter is not a single equality, because an integration has **two** vendor-writable slots. `attestations.source` reserves `vendor_a` / `vendor_b` for the integration's endpoint-A / endpoint-B vendors, where **A = `integrations.source_product_id`** and **B = `target_product_id`**, and ownership lives in `product_vendors`:
+
+| `product_vendors` row exists for… | May attest |
+|---|---|
+| the integration's `source_product_id` | `vendor_a` |
+| the integration's `target_product_id` | `vendor_b` |
+| **both** endpoints | **both** slots |
+| neither | **404**, not 403 |
+
+Three rules bind here:
+
+- **Authority derives from ownership, never from the request.** Nothing in the `/api/vendor/*` contract carries a slot or a vendor id, exactly as nothing in it carries a `vendor_id` today.
+- **404, not 403** — the non-disclosure rule (`apps/api/src/routes/vendor.ts` header). A vendor must not be able to probe for the existence of another vendor's integration, so "you own neither endpoint" and "no such integration" answer identically. The check runs **before** any other read or write, in its own wave: folding it into a `Promise.all` lets a validation error win the race and answer a request that should have been a flat 404.
+- **One implementation.** `resolveAttestationSlots()` / `resolveAttestationSlotsForVendor()` in `apps/api/src/lib/attestation-authority.ts` own the rule; no handler and no detector re-derives it inline. Full contract: `docs/STAGE_2_ATTESTATIONS_SPEC.md` §2.
+
+Two schema facts the rule has to survive: `product_vendors` is many-to-many, so one vendor can own both endpoints (it may write both slots, but §4 of that spec still renders the result one-sided, since `confirmed` needs two **distinct** `attested_by_vendor_id` values); and `profiles.vendor_id` is many-to-one, so two accounts can target the same slot — the `attestations_slot_key` partial unique index makes that explicitly last-write-wins rather than silently accumulating duplicate votes.
+
 ### 4.3 Audit log inside the same batch
 
 Every state-changing write goes into the **same** atomic `db.batch([...])` as its audit log entry. D1 has no interactive transactions, so the mutation and the `auditInsert(...)` statement commit or roll back as one unit (`apps/api/src/lib/audit.ts`; see `DATABASE_SCHEMA.md` §18).

@@ -90,9 +90,9 @@ Tables grouped by domain:
 - `taxonomy_phases` — closed vocabulary: project phases (e.g. "Design Development")
 - `taxonomy_data_objects` — closed vocabulary: data objects that flow through integrations (e.g. "RFIs", "Models") — Stage 1.5
 
-**Claims & attestations** (Stage 1.5 — the integration claim spine):
-- `claims` — a data object flowing in a direction through one integration (mechanism) row
-- `attestations` — who affirms a claim (AECi-seeded in 1.5; vendor sources dormant)
+**Claims & attestations** (Stage 1.5 spine + Stage 2 provenance/authority):
+- `claims` — a data object flowing in a direction through one integration (mechanism) row, with its `origin` (AECi curation vs. vendor-created)
+- `attestations` — who affirms a claim: the AECi seed plus the two vendor slots, one live row per slot
 
 **Join tables**:
 - `product_categories` — product ↔ category many-to-many
@@ -368,9 +368,11 @@ create index taxonomy_data_objects_slug_idx on taxonomy_data_objects(slug);
 
 ---
 
-## 5a. Claims & attestations (Stage 1.5)
+## 5a. Claims & attestations (Stage 1.5 + Stage 2 migration 1)
 
 The integration **claim spine** (AECI-293; `STAGE_1_5_SPEC.md` §3/§6.1). A *claim* asserts that a `data_object` flows in a `direction` through one integration (mechanism) row — the integration row is the anchor (ADR 0018), so the same product pair connected by two mechanisms yields two claims. An *attestation* records who affirms a claim. **No `integrations`-table change** — consolidation onto the pair page is a query-time grouping (§7), not a stored entity.
+
+**Stage 2 migration 1** (AECI-603, `STAGE_2_ATTESTATIONS_SPEC.md` §2) added claim provenance (`claims.origin`, `claims.created_by_vendor_id`), attestation authorship (`attestations.attested_by_vendor_id`) and supersession (`attestations.retracted_at` + the `attestations_slot_key` partial unique index). All of it is additive; the second migration of that epic (`product_versions`, AECI-607) is separate.
 
 ### 5a.1 `claims`
 
@@ -380,6 +382,8 @@ create table claims (
   integration_id uuid not null references integrations(id) on delete cascade,
   data_object_id uuid not null references taxonomy_data_objects(id) on delete restrict,
   direction text not null check (direction in ('a_to_b', 'b_to_a', 'both')),
+  origin text not null default 'aeci' check (origin in ('aeci', 'vendor')),
+  created_by_vendor_id uuid references vendors(id) on delete set null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -391,7 +395,9 @@ create index claims_data_object_idx on claims(data_object_id);
 ```
 
 - **`direction`** is stored relative to the integration row's own endpoints (**A = `source_product_id`**, **B = `target_product_id`**; §3.2). This canonical value is never rewritten; the API translates it to a context-relative `inbound`/`outbound` view per pair page.
-- **Cascade/restrict.** Deleting an integration removes its claims; a `data_object` referenced by any claim cannot be deleted.
+- **`origin` is write arbitration, not a trust badge.** It exists so promote can replace AECi curation without touching vendor-created rows (`STAGE_2_ATTESTATIONS_SPEC.md` §3) and so AECi ops can see where a claim came from. A vendor-created claim renders through exactly the same computed agreement states as an AECi-seeded one — nothing reader-facing keys off `origin`. Every row that predates migration 1 backfilled to `'aeci'` via the column default, which is correct: they all came from promote.
+- **`origin = 'vendor'` ⟺ `created_by_vendor_id is not null`** is a two-column invariant enforced in **application code**, not by a DB CHECK — deliberately, so the rule lives in one place: `claimProvenance()` / `assertClaimProvenance()` in `apps/api/src/lib/attestation-authority.ts` (§2.2).
+- **Cascade/restrict/set-null.** Deleting an integration removes its claims; a `data_object` referenced by any claim cannot be deleted; deleting a **vendor** nulls `created_by_vendor_id` and leaves the claim standing for AECi to re-curate.
 
 ### 5a.2 `attestations`
 
@@ -401,21 +407,31 @@ create table attestations (
   claim_id uuid not null references claims(id) on delete cascade,
   source text not null check (source in ('aeci', 'vendor_a', 'vendor_b')),
   asserted boolean not null default true,
-  introduced_at timestamptz,   -- dormant version stamp (Stage 2 timeline, AECI-303)
-  deprecated_at timestamptz,   -- dormant version stamp
+  introduced_at timestamptz,   -- version stamp (§3.3) — NOT retirement
+  deprecated_at timestamptz,   -- version stamp (§3.3) — NOT retirement
+  retracted_at timestamptz,    -- supersession: the vendor withdrew or replaced this
+  attested_by_vendor_id uuid references vendors(id) on delete set null,
   note text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
 
--- Active attestations for a claim; partial on the dormant version stamp so Stage 2 can
--- retire an attestation without deleting its history.
-create index attestations_active_idx on attestations(claim_id) where deprecated_at is null;
+-- One LIVE attestation per (claim, slot). Partial, so retract-then-insert works: any
+-- number of retracted rows may share a slot, exactly one non-retracted row may.
+create unique index attestations_slot_key on attestations(claim_id, source) where retracted_at is null;
+
+-- Live attestations for a claim. Predicated on `retracted_at`, NOT on the `deprecated_at`
+-- version stamp — a vendor recording that a flow was deprecated in v6 must not make the
+-- attestation vanish from the read path (AECI-303's timeline reads it).
+create index attestations_active_idx on attestations(claim_id) where retracted_at is null;
 ```
 
-- **Stage 1.5 reality.** Only `source: 'aeci'` (`asserted: true`) is ever written. `vendor_a` / `vendor_b` and the `introduced_at` / `deprecated_at` version stamps are **additive-and-dormant** — present in the schema/contract, written by no 1.5 code path (reserved for the Stage 2 vendor portal + timeline).
-- **Agreement is computed, never stored** (§3.4, ADR 0018; `packages/shared/src/agreement.ts`). With only an AECi attestation present, every claim resolves to **"Unverified"** in 1.5.
-- **Ingest** replaces a claim's attestations to exactly match the promote payload, inside the same `db.batch([...])` as the rest of the transaction (§6.2, the §26.1 audit-in-tx invariant).
+- **Two lifecycle columns that must not be conflated.** `introduced_at` / `deprecated_at` are **version stamps** ("this flow existed from v4 until v6", §3.3); `retracted_at` is **supersession** (the vendor withdrew or replaced its assertion). Only `retracted_at` may gate a read. Migration 1 moved `attestations_active_idx` off `deprecated_at` for exactly this reason — the original predicate and its comment were wrong (`STAGE_2_ATTESTATIONS_SPEC.md` §1.2).
+- **Supersession is retract-then-insert, never `update`** — both statements in the same `db.batch` as the audit row, so history stays append-only for the version-diff timeline (§9).
+- **`vendor_a` / `vendor_b` are no longer dormant** (Stage 2, AECI-514). Which slot a caller may write derives from product ownership in `product_vendors` — `vendor_a` = the `source_product_id` owner, `vendor_b` = the `target_product_id` owner — and never from the request. `apps/api/src/lib/attestation-authority.ts` is the single implementation; a vendor owning neither endpoint gets a **404, not a 403**.
+- **`attested_by_vendor_id` records which identity filled the slot**, because `confirmed` requires **two distinct** identities: one company owning both endpoints of an integration can affirm both slots and must still render as one-sided (`STAGE_2_ATTESTATIONS_SPEC.md` §4). Deleting the vendor nulls the column and keeps the historical assertion.
+- **Agreement is computed, never stored** (§3.4, ADR 0018; `packages/shared/src/agreement.ts`).
+- **Ingest** replaces a claim's attestations to exactly match the promote payload, inside the same `db.batch([...])` as the rest of the transaction (§6.2, the §26.1 audit-in-tx invariant). AECI-604 scopes that replacement to `source = 'aeci'` so vendor rows survive a re-promote.
 
 ---
 

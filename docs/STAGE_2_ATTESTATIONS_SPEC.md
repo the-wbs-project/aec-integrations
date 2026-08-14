@@ -243,6 +243,94 @@ ownership cases in the §2.1 table plus the both-endpoints case.
 - `resolveAttestationSlots` unit-tested across the ownership matrix.
 - No behavior change on any public surface — this sub-issue is schema + helper only.
 
+### 2.5 As built (AECI-603 — 2026-08-14)
+
+Shipped as **migration 1 of two**: `apps/api/migrations/0006_lyrical_leper_queen.sql`, generated from
+`apps/api/src/db/schema.ts` (`claims` / `attestations` + their `relations`), plus the helper seam
+`apps/api/src/lib/attestation-authority.ts` and its spec. Constraint coverage lives in
+`apps/api/src/test/d1.spec.ts` (the harness applies the real migration files, so the CHECK, the
+partial unique index and the SET NULL FKs are genuinely exercised). `docs/DATABASE_SCHEMA.md` §5a is
+brought forward to match. Decisions taken at build that this section did not pre-specify:
+
+- **The migration body is hand-authored, and it had to be.** drizzle-kit answers a new CHECK
+  constraint on SQLite with a full table recreate — `PRAGMA foreign_keys=OFF` → `CREATE __new_claims`
+  → `INSERT…SELECT` → `DROP TABLE claims` → `RENAME`. All three parts fail here: its
+  `INSERT…SELECT origin, created_by_vendor_id … FROM claims` reads columns that do not exist yet
+  (the statement errors outright); D1 does not support `PRAGMA foreign_keys = on|off`, only
+  `defer_foreign_keys`; and with FKs enforced `DROP TABLE claims` fires
+  `attestations.claim_id ON DELETE CASCADE`, deleting **every attestation in the database**.
+  Separately, `ALTER TABLE … ADD COLUMN … .references()` emits a bare `REFERENCES vendors(id)` with
+  **no `ON DELETE` clause**, silently dropping the SET NULL this section specifies. So: generate for
+  the snapshot, then replace the SQL body with additive `ALTER`s. Drift-check still passes — it
+  diffs `schema.ts` against `meta/0006_snapshot.json`, never the database — and a re-run of
+  `db:generate` reports "No schema changes". The general rule is now recorded in `docs/migrations.md` §0.
+- **The 404 is structural, not a branch.** `resolveAttestationSlots` runs one `INNER JOIN` of
+  `integrations` against `product_vendors` scoped to the caller's vendor, so "this integration does
+  not exist" and "you own neither endpoint" produce the *same empty result*. There is no code path
+  that could distinguish them, which is stronger than remembering to return the same error from two
+  branches. Pinned by a spec that asserts the two responses are byte-identical in shape.
+- **Both endpoint ids come back with the slots.** `AttestationAuthority` carries `sourceProductId` /
+  `targetProductId` alongside `slots`, because every §5 caller needs them anyway — for the
+  `pairCacheTag` purge and for translating stored direction into the caller's frame — and re-reading
+  the integration row would be a second D1 hop on the Worker.
+- **The batched variant is vendor-keyed, not id-keyed.** `resolveAttestationSlotsForVendor(db,
+  vendorId, { integrationIds? })`: omit the scope and it returns the caller's *entire* attestable
+  surface, which is precisely what `GET /api/vendor/integrations` (§5.1) is. Passing ids scopes it.
+  One private `loadAuthorities()` backs both entry points so the §2.1 table is computed in one place.
+- **`slotsForOwnership(ownsSource, ownsTarget)` is exported** as a pure function. §7's detectors need
+  the *inverse* lookup (slot → which vendors to notify), which is deliberately **not** built here —
+  AECI-302 should build it on this function rather than as a second copy of the ownership table.
+- **Provenance is a type, not a checked pair.** `claimProvenance(vendorId | null)` returns a
+  discriminated union, so `origin='vendor'` without a vendor id is unrepresentable rather than
+  merely rejected; `assertClaimProvenance()` is defence in depth for paths that assemble the two
+  columns by hand, and raises **500 `INTERNAL_ERROR`** — a violation is a programming fault and must
+  never be blamed on the caller. An empty-string vendor id resolves to `'aeci'`, not to a
+  `'vendor'` row with no vendor.
+- **`ON DELETE SET NULL`, not cascade, on both new FKs.** Losing a vendor row must not delete the
+  claim or erase its historical assertion; the claim survives as an orphan for AECi to re-curate and
+  the attestation stays readable by §9's timeline.
+- **One three-line guard added to `promote.ts` — the only production code this issue touched.**
+  `attestations_slot_key` is enforced against the *existing* writer too, so a payload repeating a
+  source on one claim (nothing in `PromoteAttestationSchema` prevents it) would newly fail the
+  **whole** `db.batch`, turning a duplicated vote into a 500 on the entire promote. The claims loop
+  already collapses in-payload identity duplicates for exactly this reason; the attestation loop now
+  does the same, first-occurrence-wins, with a regression spec. This is the "don't ship an index
+  without the guard that keeps the current writer working" half of the change — the real
+  replace-by-origin rework is still §3/AECI-604's.
+- **Pre-flight before any tier with data.** `CREATE UNIQUE INDEX attestations_slot_key` fails if a
+  tier already holds two live rows for one `(claim_id, source)`. Run against all four tiers on
+  2026-08-14: **zero duplicates everywhere** — demo and production each carry 951 claims / 951
+  attestations (a clean 1:1, since promote has only ever written one `aeci` row per claim); preview
+  and staging hold none. Re-run before the epic merges, because the count moves with every promote:
+
+  ```sql
+  SELECT claim_id, source, COUNT(*) c FROM attestations
+  WHERE retracted_at IS NULL GROUP BY 1,2 HAVING c > 1;
+  ```
+
+- **Applied to remote `aeci-app-preview` by hand.** CI applies migrations remotely for staging, demo
+  and production only (`scripts/d1-apply-migrations.sh`, invoked from `deploy.yml` /
+  `promote-to-demo.yml` / `promote-to-prod.yml`) — **nothing migrates remote preview**, which PR
+  previews bind to, so it drifts silently. It was one migration behind before this issue and is now
+  current; `wrangler d1 migrations apply aeci-app-preview --env preview --remote` is the command,
+  and it stays a manual step until a CI job owns it.
+
+> **⚠️ Handoff to §4 (AECI-605) — the read path does not filter `retracted_at` yet.**
+> `integrationPairConfig` (`apps/api/src/lib/drizzle-helpers.ts`) has **no `where`** on its
+> `attestations` sub-query, so every attestation still reaches `computeAgreement`. That is harmless
+> today — no code can create a retracted row — but **§4 must add
+> `where: isNull(attestations.retractedAt)` before §5 ships the retract endpoint**, or a withdrawn
+> attestation keeps voting. Deliberately not done here: this sub-issue is schema + helper, and
+> changing what the pair page counts is a §4 behaviour change.
+
+**Why no public surface moved:** both read configs use an explicit column allowlist
+(`claims: { id, direction }`, `attestations: { source, asserted, note, introducedAt, deprecatedAt }`),
+so the new columns cannot leak into a response; and promote's inserts omit them, so SQLite applies
+the `origin` default. Every pre-existing spec — including the promote and product-pair suites —
+passes **unmodified**; the only test files this issue touched are the new
+`attestation-authority.spec.ts` and four added cases in `d1.spec.ts` (`pnpm test:unit`: 72 files /
+914 tests green in `apps/api`, 23 / 311 in `packages/shared`).
+
 ---
 
 ## 3. Promote coexistence — stop clobbering vendor attestations (AECI-604)

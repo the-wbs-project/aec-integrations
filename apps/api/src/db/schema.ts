@@ -310,7 +310,9 @@ export const taxonomyDataObjects = sqliteTable(
 );
 
 // ===========================================================================
-// Claims & attestations (Stage 1.5 — STAGE_1_5_SPEC.md §3 / §6.1)
+// Claims & attestations (Stage 1.5 — STAGE_1_5_SPEC.md §3 / §6.1;
+// provenance + authority added by Stage 2 migration 1 —
+// STAGE_2_ATTESTATIONS_SPEC.md §2 / AECI-603)
 // ===========================================================================
 
 // A claim asserts a `data_object` flows in a `direction` through one integration
@@ -318,6 +320,15 @@ export const taxonomyDataObjects = sqliteTable(
 // is stored relative to the row's own endpoints (A = source_product, B = target_product,
 // §3.2). The unique `(integration_id, data_object_id, direction)` index is the claim's
 // immutable identity AND the promote-ingest upsert target (§6.2).
+//
+// `origin` + `created_by_vendor_id` are the Stage 2 provenance pair
+// (STAGE_2_ATTESTATIONS_SPEC.md §2.2). They exist for WRITE ARBITRATION — promote
+// replaces AECi curation without touching vendor-created rows (§3) — and for the AECi
+// ops view. Provenance is deliberately NOT a reader-facing trust badge: a
+// vendor-created claim renders through the same agreement states as an AECi-seeded one.
+// The biconditional `origin = 'vendor' ⟺ created_by_vendor_id IS NOT NULL` is a
+// two-column invariant enforced in ONE place in application code
+// (`lib/attestation-authority.ts`), not by a DB CHECK.
 export const claims = sqliteTable(
   'claims',
   {
@@ -329,6 +340,12 @@ export const claims = sqliteTable(
       .notNull()
       .references(() => taxonomyDataObjects.id, { onDelete: 'restrict' }),
     direction: text('direction').notNull(),
+    origin: text('origin').notNull().default('aeci'),
+    // SET NULL, not cascade: losing the vendor row must not silently delete the claim.
+    // The claim survives as an orphan for AECi to re-curate.
+    createdByVendorId: text('created_by_vendor_id').references(() => vendors.id, {
+      onDelete: 'set null',
+    }),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -338,14 +355,27 @@ export const claims = sqliteTable(
     // the leftmost prefix of `claims_identity_key`, so no separate integration index.
     index('claims_data_object_idx').on(t.dataObjectId),
     check('claims_direction_check', sql`"direction" IN ('a_to_b', 'b_to_a', 'both')`),
+    check('claims_origin_check', sql`"origin" IN ('aeci', 'vendor')`),
   ],
 );
 
-// An attestation records who affirms a claim (§3.3). In Stage 1.5 only `source: 'aeci'`
-// is ever written; `vendor_a`/`vendor_b` and the `introduced_at`/`deprecated_at` version
-// stamps are additive-and-dormant — present in the schema/contract, written by no 1.5
-// code path (reserved for the Stage 2 portal + timeline). Agreement is computed from the
+// An attestation records who affirms a claim (§3.3). Agreement is computed from the
 // attestation set, never stored (§3.4, `packages/shared/src/agreement.ts`).
+//
+// `vendor_a` / `vendor_b` stopped being dormant with the Stage 2 attestations epic
+// (AECI-514): which slot a caller may write is derived from product ownership in
+// `product_vendors`, never from the request — `lib/attestation-authority.ts` is the
+// single implementation of that rule (STAGE_2_ATTESTATIONS_SPEC.md §2.1).
+// `attested_by_vendor_id` records WHICH vendor identity filled the slot, because
+// `confirmed` requires two DISTINCT identities (§4) — one company owning both endpoints
+// of an integration must never render as bilateral agreement.
+//
+// Two lifecycle columns that are easy to conflate and must not be:
+//   - `introduced_at` / `deprecated_at` are VERSION STAMPS (§3.3) — "this flow existed
+//     from v4 until v6". They say nothing about whether the attestation still stands.
+//   - `retracted_at` is SUPERSESSION — the vendor withdrew or replaced its assertion.
+// Supersession is retract-then-insert, never UPDATE, so the history stays append-only
+// for the §9 timeline. Only `retracted_at` may gate the read path.
 export const attestations = sqliteTable(
   'attestations',
   {
@@ -357,16 +387,30 @@ export const attestations = sqliteTable(
     asserted: integer('asserted', { mode: 'boolean' }).notNull().default(true),
     introducedAt: text('introduced_at'),
     deprecatedAt: text('deprecated_at'),
+    retractedAt: text('retracted_at'),
+    // SET NULL rather than cascade — see the claims note; the historical assertion
+    // survives for the §9 timeline even if the vendor row goes away.
+    attestedByVendorId: text('attested_by_vendor_id').references(() => vendors.id, {
+      onDelete: 'set null',
+    }),
     note: text('note'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
   (t) => [
-    // Active attestations for a claim (the §8 read). Partial on the dormant version
-    // stamp so Stage 2 can retire an attestation without deleting its history.
+    // One LIVE attestation per slot (§2.1). Partial so retract-then-insert works: any
+    // number of retracted rows may share a slot, exactly one non-retracted row may.
+    // This is what makes last-write-wins explicit when two accounts on the same vendor
+    // target the same slot, instead of silently accumulating duplicate votes.
+    uniqueIndex('attestations_slot_key')
+      .on(t.claimId, t.source)
+      .where(sql`"retracted_at" IS NULL`),
+    // Live attestations for a claim (the §8 read). Predicated on `retracted_at`, NOT on
+    // the `deprecated_at` version stamp — a vendor recording that a flow was deprecated
+    // in v6 must not make the attestation vanish from the read path (AECI-303 reads it).
     index('attestations_active_idx')
       .on(t.claimId)
-      .where(sql`"deprecated_at" IS NULL`),
+      .where(sql`"retracted_at" IS NULL`),
     check('attestations_source_check', sql`"source" IN ('aeci', 'vendor_a', 'vendor_b')`),
   ],
 );
@@ -858,6 +902,10 @@ export const mailingList = sqliteTable(
 export const vendorsRelations = relations(vendors, ({ many }) => ({
   productVendors: many(productVendors),
   builtIntegrations: many(integrations, { relationName: 'IntegrationBuiltByVendor' }),
+  // Stage 2 provenance/authority back-relations (AECI-603). Named because a vendor is
+  // reachable from two different tables here, same as the built-by disambiguation above.
+  createdClaims: many(claims, { relationName: 'ClaimCreatedByVendor' }),
+  attestationsMade: many(attestations, { relationName: 'AttestationAttestedByVendor' }),
 }));
 
 export const productsRelations = relations(products, ({ many }) => ({
@@ -918,10 +966,20 @@ export const claimsRelations = relations(claims, ({ one, many }) => ({
     fields: [claims.dataObjectId],
     references: [taxonomyDataObjects.id],
   }),
+  createdByVendor: one(vendors, {
+    fields: [claims.createdByVendorId],
+    references: [vendors.id],
+    relationName: 'ClaimCreatedByVendor',
+  }),
   attestations: many(attestations),
 }));
 export const attestationsRelations = relations(attestations, ({ one }) => ({
   claim: one(claims, { fields: [attestations.claimId], references: [claims.id] }),
+  attestedByVendor: one(vendors, {
+    fields: [attestations.attestedByVendorId],
+    references: [vendors.id],
+    relationName: 'AttestationAttestedByVendor',
+  }),
 }));
 
 export const productCategoriesRelations = relations(productCategories, ({ one }) => ({
