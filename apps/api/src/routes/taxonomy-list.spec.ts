@@ -108,9 +108,10 @@ describe('GET /api/trades (list)', () => {
     expect(body.data[0]?.product_count).toBe(1);
   });
 
-  it('is NOT publication-gated: sub-floor and zero-count terms are still listed', async () => {
-    // TRADE_PUBLISH_MIN_PRODUCTS = 3 — both of these are below it, and both must
-    // travel with their real count so each surface can apply the floor itself.
+  it('is NOT publication-gated: zero-count terms are still listed', async () => {
+    // `paving-asphalt` sits below TRADE_PUBLISH_MIN_PRODUCTS at any floor value,
+    // and the endpoint returns it anyway. Every term travels with its real count
+    // so each surface can apply the floor itself.
     await t.db.insert(taxonomyTrades).values([
       {
         id: u(1),

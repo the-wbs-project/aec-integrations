@@ -19,8 +19,17 @@ export type TaxonomyTermWithCount = z.infer<typeof TaxonomyTermWithCountSchema>;
 /**
  * Minimum promoted products a trade needs before it is **published** —
  * `TRADES_VOCABULARY.md` §6, launch-tunable. Trades are the only facet with a
- * publication floor: the vocabulary is a closed 34-term list seeded up front,
- * so most terms start empty and a thin `/trades/:slug` page would be SEO junk.
+ * publication floor, because the vocabulary is a closed 34-term list seeded up
+ * front rather than grown from the catalog: without a floor, every term that
+ * nobody has tagged yet would still ship an empty `/trades/:slug` page.
+ *
+ * At **1** the floor still does that job — it withholds the terms carrying no
+ * promoted product at all, which after the AECI-547 backfill is 27 of the 34 —
+ * but a term is published the moment any product genuinely carries it. That
+ * deliberately admits single-product pages: a page with one honestly-tagged
+ * product answers "what understands MY work" for that trade, which is the §1.1
+ * test, and it is a truthful page rather than a thin one. Lowered from 3 on
+ * 2026-08-14 once the backfill showed the real tagging distribution.
  *
  * The API deliberately does not apply it (see `TaxonomyResponseSchema` below);
  * it lives here so every consumer that *can* apply it uses one value. Consumers
@@ -28,13 +37,15 @@ export type TaxonomyTermWithCount = z.infer<typeof TaxonomyTermWithCountSchema>;
  * sitemap, each term page's `noindex` decision, and the IndexNow / Google
  * Indexing submit set (AECI-546).
  *
- * Not applied by the facet sidebar, which sees **scoped** disjunctive counts —
- * a published trade's count legitimately falls below the floor under an active
- * filter, so gating there would hide published terms. Not applied to
- * product-detail trade chips either: the tag is true even when the page isn't
- * promoted. Both carve-outs are recorded in `TRADES_VOCABULARY.md` §6.
+ * Not applied by the facet sidebar, whose rule is its own — show a term when its
+ * **scoped** disjunctive count is `> 0`, or when it is currently refined. That
+ * rule is floor-independent by design: a scoped count is not a global one, so
+ * gating it on an unscoped floor would hide published terms under an active
+ * filter. Not applied to product-detail trade chips either: the tag is true even
+ * when the page isn't promoted. Both carve-outs are recorded in
+ * `TRADES_VOCABULARY.md` §6.
  */
-export const TRADE_PUBLISH_MIN_PRODUCTS = 3;
+export const TRADE_PUBLISH_MIN_PRODUCTS = 1;
 
 /**
  * Whether a trade term clears the publication floor. Takes the count alone so

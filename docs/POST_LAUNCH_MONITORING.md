@@ -167,12 +167,21 @@ here, so it is listed for real.
 
 | Constant | Current | Retune signal |
 |---|---|---|
-| `TRADE_PUBLISH_MIN_PRODUCTS` | 3 | The floor a trade must clear before its `/trades/:slug` page is listed, indexed, sitemapped, and pinged. **Raise it** if published trade pages read as thin — the test in `TRADES_VOCABULARY.md` §1.1 is whether the page answers "what understands MY work" rather than duplicating the all-products list. **Lower it (to 2)** only if the AECI-547 backfill leaves most of the 34-term vocabulary permanently under the floor, i.e. the SEO asset never materialises. Prefer fixing tagging coverage over lowering the floor: an under-tagged catalog and an over-permissive floor look identical in the term count but only one produces pages worth indexing. |
+| `TRADE_PUBLISH_MIN_PRODUCTS` | 1 | The floor a trade must clear before its `/trades/:slug` page is listed, indexed, sitemapped, and pinged. **Already retuned once: 3 → 1 on 2026-08-14.** The AECI-547 backfill landed and left 7 of the 34 terms carrying products (roofing 5, hvac-mechanical 3, electrical 2, sitework-utilities 2, and three at 1); a floor of 3 published only 2 of them, so the floor — not tagging coverage — was what suppressed the namespace. At 1 it withholds only the 27 zero-product terms, and single-product pages are deliberately admitted. **Raising it back** is justified if published trade pages read as thin *while tagging is healthy* — the §1.1 test is whether the page answers "what understands MY work" rather than duplicating the all-products list — or if the single-product pages measurably underperform in Search Console (impressions without clicks, or exclusion as "Crawled – currently not indexed"). Give them a full indexing cycle first. **Do not raise it to hide an under-tagged catalog**: an under-tagged catalog and an over-permissive floor look identical in the term count, but the fix for the first is tagging, and raising the floor only hides the symptom. There is no headroom left below — 1 is the minimum meaningful value, since 0 would publish all 34 terms including 27 empty pages. |
 
 Changing it is a normal deploy — no migration, no redirect (an unpublished trade already resolves at
-its permanent URL, so a term crossing the floor simply becomes indexable). Purge `sitemap`,
-`index:trades`, and `taxonomy` after shipping a change, or the edge serves the old membership until
-the TTLs lapse.
+its permanent URL, so a term crossing the floor simply becomes indexable). Two follow-ups the deploy
+does **not** do for you, both because a floor change moves terms across the gate without any promote
+behind it:
+
+1. **Purge `sitemap`, `index:trades`, and `taxonomy`**, or the edge serves the old membership until
+   the TTLs lapse. The automatic purge is a promote hook; there is no promote here.
+2. **Announce the newly indexable term URLs.** The IndexNow / Google Indexing pings are the same
+   promote hook, so nothing tells an indexing service the pages exist. Run
+   `pnpm --filter @aeci/api ops:submit-trade-urls -- --env production` (dry-run) to see the set, then
+   re-run with `--apply --allow-production`. It verifies each page really serves without `noindex`
+   before submitting, so run it **after** the purge — if the edge is still serving the old
+   membership, it will correctly refuse rather than ping `noindex` pages.
 
 ### 3b. Traffic classification — auditing the digest's "humans" (AECI-526 follow-up)
 

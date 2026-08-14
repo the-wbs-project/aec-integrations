@@ -1266,10 +1266,17 @@ describe('runPromoteIngest — trades ingest (AECI-542)', () => {
       return { res, tradeUrls: await captured[0]! };
     }
 
-    it('submits a trade that this promote pushed OVER the floor, but not a sub-floor one', async () => {
+    // `plumbing` is the load-bearing half: it has ZERO products until this promote
+    // writes its link, so it clears the floor only if the resolver counts AFTER the
+    // commit. A pre-commit read would see 0 and drop it. (At TRADE_PUBLISH_MIN_PRODUCTS
+    // = 1 this is the only way a *set* trade can be sub-floor at all — one the promote
+    // tags always ends with at least one product. The sub-floor exclusion itself is
+    // covered by the removal test below, where a term drops back to zero.)
+    it('submits trades this promote pushed over the floor, counting rows it just wrote', async () => {
       await seedTrade(uuid(1), 'electrical', 'Electrical');
       await seedTrade(uuid(2), 'plumbing', 'Plumbing');
       // Two products already carry `electrical`; the promoted one makes three.
+      // Nothing carries `plumbing` — this promote takes it 0 → 1.
       for (const n of [10, 11]) {
         await seedProduct(uuid(n), `p${n}`, `P${n}`);
         await t.db.insert(productTrades).values({ productId: uuid(n), tradeId: uuid(1) });
@@ -1279,10 +1286,10 @@ describe('runPromoteIngest — trades ingest (AECI-542)', () => {
         product: { ref: 'p1', name: 'Revit', trades: ['electrical', 'plumbing'] },
       });
 
-      expect(tradeUrls.publishedTradeSlugs).toEqual(['electrical']);
+      expect(tradeUrls.publishedTradeSlugs?.slice().sort()).toEqual(['electrical', 'plumbing']);
       const urls = affectedUrlsForPromote((await res.json()) as PromoteResponse, SITE, tradeUrls);
       expect(urls).toContain(`${SITE}/trades/electrical`);
-      expect(urls).not.toContain(`${SITE}/trades/plumbing`);
+      expect(urls).toContain(`${SITE}/trades/plumbing`);
       expect(urls).toContain(`${SITE}/trades`);
     });
 
