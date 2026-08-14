@@ -98,6 +98,15 @@ scope:
     - apps/api/src/lib/recompute-counts.ts
     - apps/api/src/routes/page-views.ts
     - apps/api/src/routes/landing-forms.ts
+    # Added 2026-08-14 (AECI-587): the three Phase 8.3 bookkeeping writers this
+    # exemption was reasoned about but never listed. `metrics-snapshot.ts` and
+    # `job-runs.ts` write unaudited by design; `retention-prune.ts` is here for
+    # the opposite reason — a reviewer reading it should land on the carve-out
+    # AND on the scheduled-DELETE exception below, which it must satisfy.
+    - apps/api/src/lib/metrics-snapshot.ts
+    - apps/api/src/lib/metrics-backfill.ts
+    - apps/api/src/lib/job-runs.ts
+    - apps/api/src/lib/retention-prune.ts
   categories:
     - Audit logging
     - Data integrity
@@ -113,7 +122,7 @@ added: 2026-08-12
 added_by: claude (AECI-573)
 ```
 
-**Justification.** `STAGE_1_SPEC.md` §26.1 formerly read as an absolute — "every write path … no state change without a corresponding audit entry" — and reviewers were correctly flagging every unaudited write against it. **ADR 0022 scopes that invariant to *domain state*.** Derived and log-class writes are exempt when they are all three of: computed entirely from data already in the database (or an append-only event / lead-capture log), invisible on every public surface, and reproducible by re-running the job. That covers `stats_cache` (the 07:00 home-stats job and the Algolia sync watermark), the denormalized product counters, `page_views`, `mailing_list` / `feedback` (already documented in `API_CONTRACTS.md` §6.9/§6.13), and — once they ship — `metrics_daily` and `job_runs` (`ADMIN_PANEL_SPEC.md` §7.1/§7.2). Observability for these is `job_runs` plus Datadog.
+**Justification.** `STAGE_1_SPEC.md` §26.1 formerly read as an absolute — "every write path … no state change without a corresponding audit entry" — and reviewers were correctly flagging every unaudited write against it. **ADR 0022 scopes that invariant to *domain state*.** Derived and log-class writes are exempt when they are all three of: computed entirely from data already in the database (or an append-only event / lead-capture log), invisible on every public surface, and reproducible by re-running the job. That covers `stats_cache` (the 07:00 home-stats job and the Algolia sync watermark), the denormalized product counters, `page_views`, `mailing_list` / `feedback` (already documented in `API_CONTRACTS.md` §6.9/§6.13), and `metrics_daily` / `job_runs` (`ADMIN_PANEL_SPEC.md` §7.1/§7.2, **shipped 2026-08-13** with AECI-581 and AECI-583). Observability for these is `job_runs` plus Datadog.
 
 **This exemption is narrow, and two things fall outside it — keep flagging them.** (1) **Domain-state writes always audit, regardless of actor.** A cron or `actorType: 'system'` write that touches the catalog, users, reviews, claims, requests, or workflows is *not* exempt — the test is entity class, not actor class. The `*/15` reconciliation sweep mutating `vendor_requests` / `workflow_instances` in `apps/api/src/lib/linear.ts` is a real violation and has its own issue; do not treat this entry as covering it. (2) **Scheduled `DELETE`s always audit** — exactly one summary row per run (`action='retention.pruned'`, `metadata={table, cutoff, rowsDeleted}`) in the same batch as the delete. A retention cron that deletes without one is a finding.
 

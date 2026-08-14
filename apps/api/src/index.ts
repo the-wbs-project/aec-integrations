@@ -315,8 +315,10 @@ app.route('/', authAccount);
 //     `/api/admin/metrics/timeseries` (`catalog.*`), not here.
 // Phase 8.3 P1.6 (AECI-580) adds the System bundle on the same terms:
 //   - GET /api/admin/system             — the §5.6 bundle: API-Worker version,
-//     one liveness row per cron (explicitly `unknown` until `job_runs` lands —
-//     §7.2 / AECI-583), the Algolia watermark, D1 size + per-table row counts,
+//     one liveness row per cron, read from `job_runs` since AECI-583 (§7.2);
+//     rows still read `unknown` when a job has no recorded run yet, which is
+//     NOT the same as "not running" — Datadog no-data monitors own absence.
+//     Plus the Algolia watermark, D1 size + per-table row counts,
 //     and — behind the same `?recompute=1` flag, sharing `/overview`'s
 //     implementation — the ten data-quality checks and the drift count.
 // Phase 8.3 P5.1 (AECI-586) adds the Audience pair on the same terms:

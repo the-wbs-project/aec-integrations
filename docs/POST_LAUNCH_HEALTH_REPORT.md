@@ -22,14 +22,14 @@ nil-to-negligible. The value is a known zero to accrue against.
 |---|---|---|
 | Worker error rate / APM | ✅ live | `aeci.api.query.duration_ms`, SSR error logs |
 | Edge cache hit rate + render latency | ✅ live | `aeci.page.render.duration_ms{cache_status}` |
-| 7 scheduled crons (health/liveness) | ✅ live | per-cron heartbeat + no-data monitors |
+| 10 scheduled crons (health/liveness) | ✅ live | per-cron heartbeat + no-data monitors (**absence**); `job_runs` + `/admin/system` (**the record**) |
 | Moderation queue depth / age | ✅ live | `aeci.moderation.queue_*`, `/api/admin/*` |
 | Request → Linear pipeline | ✅ live | `aeci.linear.*`, `aeci.webhooks.linear.*` |
-| Authoritative signups | ✅ live | `mailing_list` D1 + `aeci.email.send{template:landing-signup}` |
-| Server pageviews / entry pages | ✅ live | `page_views` D1 (write-only; query directly) |
+| Authoritative signups | ✅ live | `mailing_list` D1 + `aeci.email.send{template:landing-signup}`; `/admin/audience` |
+| Server pageviews / entry pages | ✅ live | `page_views` D1 via the admin panel's read endpoints (`API_CONTRACTS.md` §6.10) |
 | Algolia query latency / error rate | ⚠️ live but low-sample | browser RUM `aeci.search.query` |
-| **PostHog** pageviews + signup funnel | ❌ **dark** | gated on `POSTHOG_KEY` value |
-| **RUM Core Web Vitals** (field LCP/CLS/INP) | ❌ **dark** | gated on `DD_APPLICATION_ID` + `DD_CLIENT_TOKEN` values |
+| **PostHog** pageviews + signup funnel | ✅ live | `__AECI_POSTHOG__` injected in prod HTML since 2026-08-12 |
+| **RUM Core Web Vitals** (field LCP/CLS/INP) | ✅ live | `__AECI_DD__` injected in prod HTML since 2026-08-12 |
 
 ---
 
@@ -45,7 +45,7 @@ nil-to-negligible. The value is a known zero to accrue against.
 **Edge cache hit rate:** <%; per route_class notes>
 **Render latency:** <p95 detail MISS>
 **Algolia:** <query p95 + error rate; sync outcome; drift>
-**Scheduled crons:** <all 7 green? any missed heartbeat / failure>
+**Scheduled crons:** <all 10 green on `/admin/system`? any missed heartbeat / failure in Datadog>
 **Request→Linear + moderation:** <pipeline failure rate; stuck; HMAC; queue depth + oldest age>
 **Core Web Vitals (field):** <p75 LCP / CLS / INP per page type vs §12 — or "blocked, RUM dark">
 **Traffic / signups:** <weekly visitors (PostHog); mailing_list count; top entry pages>
@@ -58,6 +58,86 @@ nil-to-negligible. The value is a known zero to accrue against.
 ---
 
 ## Entries
+
+## 2026-08-14 — Phase 8.3 admin-panel epic (AECI-572) closeout
+
+Scope: the **instrumentation snapshot at the close of the admin-panel epic**, not a weekly traffic
+sweep. This entry exists because the epic changes what is observable at all — three of the ten rows
+in the matrix above moved, and two of them had been `❌ dark` since this log's first entry
+(2026-07-11). Written at AECI-587 (the §12 docs closeout), against `admin-panel` **before** its
+squash merge to `main`.
+
+**Prod SHA / deploy:** `c461a883…` · `2026-08-13T07:53:37Z` (`/api/version` = `/_version`, no stale
+SSR). That is a **`main`** commit — AECI-571's `promote_jobs` ledger. **None of the epic's 15
+commits is deployed anywhere**: per §13 D1 the epic integrates on `admin-panel` and reaches `main`
+as one squash merge, so staging never exercised the panel and per-PR preview Workers were the
+verification surface. Read every "now live" below as *true in the repo, not yet true in production*.
+
+**Analytics injection (§0 gate):** `curl -s https://www.aecintegrations.com/ | grep -oE
+'__AECI_(POSTHOG|DD)__'` returns **both** (verified 2026-08-14). This is the AECI-279 **§F1
+blocker clearing** — `PHASE_8_COMPLETION.md` recorded AC3 as blocked because the secret *values*
+were unset and there was zero field CWV data. They are set. The first field CWV read against the
+`STAGE_1_PHASE_2_SPEC.md` §12 budgets is now possible and is the next thing this log owes.
+
+**Errors / APM:** unchanged — the epic adds no public request path. Its eight endpoints are all
+`GET`, admin-gated, read-only, and reachable only over the SSR→API service binding.
+**Edge cache hit rate:** unchanged. `/admin/*` is deliberately absent from `ROUTE_CACHE_PATTERNS`
+(`CACHE_STRATEGY.md` §4) and every panel response is `private, no-store`.
+**Algolia:** unchanged; the panel reads the sync watermark and drift result rather than writing.
+
+**Scheduled crons: 7 → 10.** The 00:15 UTC `metrics-snapshot` (AECI-581) and the 03:00 UTC
+`retention-prune` (AECI-584) join the eight already running. More consequential than the count:
+since AECI-583 every cron writes a `job_runs` row on entry and completes it on exit, so **a cron's
+outcome is now a record rather than only a metric**. The split that matters operationally — *the
+panel owns the record, Datadog owns absence*. A cron that never starts writes no `job_runs` row
+either, so only a no-data monitor can catch it.
+
+**Known gap:** `metrics-snapshot` has **no dedicated Datadog monitor**. It is queue-less, so a
+failed run is not retried, and the *stock* metrics of a missed day are unrecoverable — the one cron
+where absence is permanently lossy is the one without an absence monitor. Runbook added at
+`RUNBOOKS.md` → "Metrics snapshot missing or incomplete"; the monitor is a punt
+(`PHASE_8_COMPLETION.md` §F5).
+
+**`page_views` has a read surface.** This log previously described it as "write-only; query
+directly" — the matrix row above is corrected. The consent-independent read path is the panel's
+endpoints behind `requireAdmin()` (`ADMIN_PANEL_SPEC.md` §6, `API_CONTRACTS.md` §6.10). Two honesty
+properties carried over from the epic and worth restating here, because they bound every number
+this log will quote from the panel:
+
+- **The human count is an upper bound.** `is_bot = 0` means "not known to be a bot".
+  `ANALYTICS_INTERNAL_ASNS` is built but **ships unset on every tier** (§13 D10 constraint 3), so
+  no internal-traffic figure is available and every number is unfiltered.
+- **Pre-2026-08-12 counts read lower than the emails sent at the time**, silently — AECI-575's
+  `/admin` + `/account` exclusion filters on read as well as write (§13 D12).
+
+**Retention is now enforced** (§7.4 / AECI-584): `page_views` 400 days, `job_runs` 90,
+`metrics_daily` indefinite. Nothing is deleted yet — the first run that removes anything is
+`job_runs` around **2026-11-11**, and `page_views` not until **~2027-07**. The prune refuses its
+whole run if any day inside the cut window lacks a `metrics_daily` row, which is why the snapshot
+gap above is a retention concern and not only an analytics one.
+
+**Traffic / signups:** not re-read here; the authoritative correction is the 2026-08-13 entry below
+(~2,100 real human page views across the site's first seven weeks). `mailing_list` and `feedback`
+were both **0 rows** at the 2026-08-12 census and now have a screen (`/admin/audience`) rather than
+an operator email as their only record.
+
+**Regressions / tickets filed:** none from this closeout. Three issues spun out of the decision gate
+remain **consciously open**, none blocking: [AECI-590](https://linear.app/aec-integrations/issue/AECI-590)
+(reverse-proxy PostHog, Low) · [AECI-591](https://linear.app/aec-integrations/issue/AECI-591) (the
+`*/15` reconcile sweep's real §26.1 violation, Medium) · [AECI-592](https://linear.app/aec-integrations/issue/AECI-592)
+(data-quality check #2 is unreachable, Medium).
+
+**Threshold tuning:** none.
+
+**Actions / follow-ups:**
+1. **First field CWV read** — §F1's remaining half, now unblocked. Datadog RUM → Optimize Vitals,
+   `aeci` app, `env:production`, p75 LCP/CLS/INP vs `STAGE_1_PHASE_2_SPEC.md` §12. Closes AC3.
+2. **Add a `metrics-snapshot` no-data monitor** (§F5).
+3. **At the `admin-panel → main` merge**, discharge `ADMIN_PANEL_SPEC.md` §12a
+   ([AECI-596](https://linear.app/aec-integrations/issue/AECI-596)) — the placeholder dates in
+   `ANALYTICS_BASELINE.md`, the migration-deploy note in §7.3, migrations `0010`–`0014` per tier,
+   and retiring the branch. **Re-read this entry's "now live" claims after that merge**: they are
+   true in the repo and become true in production only then.
 
 ## 2026-08-13 — AECI-582 page-view bot backfill (historical rewrite)
 
