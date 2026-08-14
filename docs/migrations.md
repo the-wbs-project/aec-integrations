@@ -81,6 +81,55 @@ Rules:
   leaves the tree dirty under `apps/api/migrations/` — i.e. you edited `schema.ts` but forgot
   to generate + commit the migration. Fix by running `db:generate` and committing the new
   `apps/api/migrations/*` (including `meta/`).
+- **Remote `aeci-app-preview` is NOT migrated by CI.** The per-env apply above covers staging,
+  demo and production only, but PR previews bind the shared `env.preview` D1 — so it drifts
+  until someone applies by hand:
+  `cd apps/api && pnpm exec wrangler d1 migrations apply aeci-app-preview --env preview --remote`.
+  Do it as part of any PR that adds a migration. (`db:migrate:local` also names
+  `aeci-app-preview`, but that is the *local* SQLite copy — a different database.)
+
+#### ⚠️ When drizzle-kit wants to recreate a table, hand-author the ALTERs instead
+
+SQLite cannot `ALTER` a CHECK constraint, so drizzle-kit answers **any check-constraint change**
+(and PK/notnull/type changes, and FKs added to existing columns) with a full **table recreate**:
+
+```sql
+PRAGMA foreign_keys=OFF;
+CREATE TABLE `__new_claims` ( … );
+INSERT INTO `__new_claims`(…) SELECT … FROM `claims`;
+DROP TABLE `claims`;
+ALTER TABLE `__new_claims` RENAME TO `claims`;
+PRAGMA foreign_keys=ON;
+```
+
+**Never ship that on D1.** Three independent reasons, seen for real on AECI-603:
+
+1. When the recreate accompanies new columns, the generated `INSERT … SELECT` lists the **new**
+   column names but reads from the **old** table — the statement errors out immediately.
+2. **D1 does not support `PRAGMA foreign_keys = on|off`** (only `defer_foreign_keys`), so the
+   guard around the drop does nothing there.
+3. With foreign keys enforced, `DROP TABLE` performs an implicit `DELETE FROM` and **fires
+   `ON DELETE CASCADE` on every child row**. Dropping `claims` would have deleted every
+   `attestations` row in the database.
+
+Also note: `ALTER TABLE … ADD COLUMN` with a Drizzle `.references()` emits a bare
+`REFERENCES <table>(id)` and **silently drops the `ON DELETE` clause**.
+
+**The workflow when you hit this:** run `db:generate` as normal (you want its `meta/` snapshot and
+journal entry), then **replace the SQL body** with equivalent additive statements — SQLite accepts
+a column-level CHECK and a full FK clause on `ADD COLUMN`:
+
+```sql
+ALTER TABLE `claims` ADD `origin` text DEFAULT 'aeci' NOT NULL CONSTRAINT "claims_origin_check" CHECK("origin" IN ('aeci', 'vendor'));
+ALTER TABLE `claims` ADD `created_by_vendor_id` text REFERENCES vendors(id) ON DELETE SET NULL;
+```
+
+This does not break the drift gate: drizzle-kit diffs `schema.ts` against
+`meta/NNNN_snapshot.json`, never the database, so leaving the generated snapshot untouched keeps
+`db:generate` a no-op. **Verify by re-running it and confirming `git status --porcelain` is clean**,
+and leave a header comment in the migration saying it is hand-authored and why
+(`0006_lyrical_leper_queen.sql` is the reference). `0003_gray_eternity.sql` is the lighter
+precedent — a hand-appended backfill after the generated statement.
 
 ### Read replication (D1 Sessions API — AECI-250)
 

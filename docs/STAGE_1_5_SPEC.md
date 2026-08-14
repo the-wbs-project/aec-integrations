@@ -161,6 +161,8 @@ An **attestation** records *who asserts a claim*. Attestations hang off a claim 
 
 `vendor_a` / `vendor_b` and the version stamps are **additive and dormant**: present in schema and contract, written by no 1.5 code path.
 
+> **Stage 2 update (AECI-603, 2026-08-14).** `vendor_a` / `vendor_b` are no longer dormant, and the table above is no longer the whole row. Migration 1 of the AECI-514 epic added **`attested_by_vendor_id`** (which vendor identity filled the slot — `confirmed` requires two *distinct* ones) and **`retracted_at`** (supersession, which is **not** what `introduced_at`/`deprecated_at` mean — those stay version stamps exactly as defined above). Which slot a caller may write derives from product ownership in `product_vendors`, never from the request. See `docs/STAGE_2_ATTESTATIONS_SPEC.md` §2 and `docs/DATABASE_SCHEMA.md` §5a.2.
+
 ### 3.4 Computed agreement — `computeAgreement` and the AECi-never-red rule
 
 Agreement is **computed from the attestation set, never stored** (ADR 0018). A single pure function owns it:

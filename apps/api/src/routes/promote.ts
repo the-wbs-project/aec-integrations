@@ -1322,7 +1322,17 @@ export function createPromoteHandler(
             entityType: 'claim',
             entityId: claimId,
           });
+          // Same defence one level down, for the same reason: `attestations_slot_key`
+          // (AECI-603) is unique on `(claim_id, source)` among non-retracted rows, so a
+          // payload repeating a source on one claim would fail the WHOLE batch rather
+          // than just duplicating a vote. First occurrence wins, matching the claim
+          // dedupe above. Real payloads have never done this — demo and production both
+          // sit at a clean 1 attestation per claim — but the ingest must not be one
+          // malformed bundle away from a 500.
+          const seenSources = new Set<string>();
           for (const att of claim.attestations) {
+            if (seenSources.has(att.source)) continue;
+            seenSources.add(att.source);
             const attestationId = crypto.randomUUID();
             stmts.push(
               db.insert(attestations).values({

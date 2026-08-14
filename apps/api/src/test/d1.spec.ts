@@ -188,6 +188,115 @@ describe('claims / attestations spine (AECI-293)', () => {
     t.dispose();
   });
 
+  it('defaults claims.origin to aeci and rejects an out-of-vocabulary origin (AECI-603)', async () => {
+    const t = await makeTestDb();
+    await seedClaimPrereqs(t);
+    // Every claim in D1 today came from promote, so the default IS the backfill.
+    await t.db
+      .insert(claims)
+      .values({ id: 'c1', integrationId: 'i1', dataObjectId: 'd1', direction: 'a_to_b' });
+    const [row] = await t.db.select().from(claims).where(eq(claims.id, 'c1'));
+    expect(row?.origin).toBe('aeci');
+    expect(row?.createdByVendorId).toBeNull();
+
+    await expect(
+      (async () =>
+        t.db.insert(claims).values({
+          id: 'cx',
+          integrationId: 'i1',
+          dataObjectId: 'd1',
+          direction: 'both',
+          origin: 'partner',
+        }))(),
+    ).rejects.toThrow();
+    t.dispose();
+  });
+
+  it('allows one LIVE attestation per (claim, source) and permits retract-then-insert (AECI-603)', async () => {
+    const t = await makeTestDb();
+    await seedClaimPrereqs(t);
+    await t.db
+      .insert(claims)
+      .values({ id: 'c1', integrationId: 'i1', dataObjectId: 'd1', direction: 'a_to_b' });
+    await t.db.insert(attestations).values({ id: 'at1', claimId: 'c1', source: 'vendor_a' });
+
+    // Second live row in the same slot → the partial unique index rejects. This is what
+    // makes two accounts on one vendor last-write-wins instead of stacking votes.
+    await expect(
+      (async () =>
+        t.db.insert(attestations).values({ id: 'at2', claimId: 'c1', source: 'vendor_a' }))(),
+    ).rejects.toThrow();
+    // The OTHER slot on the same claim is unaffected.
+    await t.db.insert(attestations).values({ id: 'at3', claimId: 'c1', source: 'vendor_b' });
+
+    // Supersession is retract-then-insert, never UPDATE — history stays append-only for
+    // the §9 timeline, and any number of retracted rows may share a slot.
+    await t.db
+      .update(attestations)
+      .set({ retractedAt: '2026-08-14T00:00:00.000Z' })
+      .where(eq(attestations.id, 'at1'));
+    await t.db.insert(attestations).values({ id: 'at4', claimId: 'c1', source: 'vendor_a' });
+    await t.db
+      .update(attestations)
+      .set({ retractedAt: '2026-08-15T00:00:00.000Z' })
+      .where(eq(attestations.id, 'at4'));
+    await t.db.insert(attestations).values({ id: 'at5', claimId: 'c1', source: 'vendor_a' });
+    expect((await t.db.select().from(attestations)).length).toBe(4);
+    t.dispose();
+  });
+
+  it('does NOT gate the slot index on the deprecated_at version stamp (AECI-603)', async () => {
+    const t = await makeTestDb();
+    await seedClaimPrereqs(t);
+    await t.db
+      .insert(claims)
+      .values({ id: 'c1', integrationId: 'i1', dataObjectId: 'd1', direction: 'a_to_b' });
+    // `deprecated_at` says "this flow existed until v6" (STAGE_1_5_SPEC.md §3.3) — it is
+    // a version stamp, not retirement. Stamping it must NOT free the slot, or AECI-303's
+    // timeline would lose the row the moment a vendor recorded a deprecation.
+    await t.db.insert(attestations).values({
+      id: 'at1',
+      claimId: 'c1',
+      source: 'vendor_a',
+      deprecatedAt: '2026-01-01T00:00:00.000Z',
+    });
+    await expect(
+      (async () =>
+        t.db.insert(attestations).values({ id: 'at2', claimId: 'c1', source: 'vendor_a' }))(),
+    ).rejects.toThrow();
+    t.dispose();
+  });
+
+  it('nulls the vendor provenance FKs on vendor delete rather than losing the row (AECI-603)', async () => {
+    const t = await makeTestDb();
+    await seedClaimPrereqs(t);
+    await t.db.insert(vendors).values({ id: 'v1', slug: 'acme', companyName: 'Acme' });
+    await t.db.insert(claims).values({
+      id: 'c1',
+      integrationId: 'i1',
+      dataObjectId: 'd1',
+      direction: 'a_to_b',
+      origin: 'vendor',
+      createdByVendorId: 'v1',
+    });
+    await t.db.insert(attestations).values({
+      id: 'at1',
+      claimId: 'c1',
+      source: 'vendor_a',
+      attestedByVendorId: 'v1',
+    });
+
+    // ON DELETE SET NULL, not cascade: losing the vendor row must not delete the claim
+    // or erase its historical assertion. AECi re-curates the orphan.
+    await t.db.delete(vendors).where(eq(vendors.id, 'v1'));
+    const [claim] = await t.db.select().from(claims).where(eq(claims.id, 'c1'));
+    const [attestation] = await t.db.select().from(attestations).where(eq(attestations.id, 'at1'));
+    expect(claim?.createdByVendorId).toBeNull();
+    expect(claim?.origin).toBe('vendor');
+    expect(attestation?.attestedByVendorId).toBeNull();
+    t.dispose();
+  });
+
   it('seed/data-objects.sql materialises exactly the 20-term vocabulary from the JSON mirror', async () => {
     const t = await makeTestDb();
     // Applying the real seed also proves it is valid against the migrated schema.

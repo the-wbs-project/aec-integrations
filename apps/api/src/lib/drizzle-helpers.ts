@@ -165,6 +165,15 @@ export const integrationPairConfig = {
     // Layer B (§8 — AECI-300): the `data_object` claims on this mechanism, each
     // with its stored direction + AECi-seeded attestations, mapped to a
     // context-relative claim with computed agreement in `toProductPairClaim`.
+    //
+    // ⚠️ There is deliberately NO `where` on `attestations` yet, so every row still
+    // reaches `computeAgreement`. Harmless today — AECI-603 added `retracted_at` but
+    // no code path can set it — but AECI-605 MUST add
+    // `where: isNull(attestations.retractedAt)` before AECI-301 ships the retract
+    // endpoint, or a withdrawn attestation keeps voting. Filter on `retracted_at`
+    // only: `deprecated_at` is a version stamp (`STAGE_1_5_SPEC.md` §3.3), and gating
+    // the read on it would hide an attestation the moment a vendor recorded that a
+    // flow was deprecated in some version. See STAGE_2_ATTESTATIONS_SPEC.md §2.5.
     claims: {
       columns: { id: true, direction: true },
       with: {
