@@ -7,9 +7,9 @@
  * row (Supabase).
  *
  * ── Erasure (DELETE), split across the identity seam ────────────────────────────
- * `profiles(id)` has seven inbound FKs; six are NO ACTION, so they must be nulled
+ * `profiles(id)` has eight inbound FKs; six are NO ACTION, so they must be nulled
  * before the profile delete. Under D1 that erasure is ONE atomic `db.batch([...])`
- * (null the 7 refs + the PII-free `account.deleted` audit + delete the profile).
+ * (null the 8 refs + the PII-free `account.deleted` audit + delete the profile).
  * The `auth.users` row then goes via the GoTrue Admin API (seam #3,
  * `lib/supabase-admin.ts`) AFTER the batch commits — an HTTP call can't join the
  * D1 transaction. The D1 data erasure is the GDPR-load-bearing step; if the auth
@@ -37,6 +37,7 @@ import {
   pageViews,
   profiles,
   reviews,
+  vendorEntitlements,
   vendorRequests,
   workflowInstances,
   workflowTransitions,
@@ -169,8 +170,9 @@ export function createDeleteAccountHandler(
       metadata: { source: 'account', initiated_by_self: true },
     };
 
-    // One atomic unit: null every inbound reference (six NO ACTION + the SET NULL
-    // reviewer ref made explicit) → PII-free audit → delete the profile.
+    // One atomic unit: null every inbound reference (six NO ACTION + the two SET NULL
+    // refs — `reviews.reviewer_id` and `vendor_entitlements.granted_by` — made
+    // explicit) → PII-free audit → delete the profile.
     const stmts: BatchStmt[] = [
       db
         .update(reviews)
@@ -197,6 +199,14 @@ export function createDeleteAccountHandler(
         .where(eq(workflowTransitions.actorId, userId)),
       db.update(auditLog).set({ actorId: null }).where(eq(auditLog.actorId, userId)),
       db.update(pageViews).set({ userId: null }).where(eq(pageViews.userId, userId)),
+      // AECI-609 / R6: the EIGHTH inbound FK. It is `ON DELETE SET NULL`, so SQLite
+      // would cover it, but it is nulled explicitly like `reviews.reviewer_id` so the
+      // erasure test asserts it directly rather than trusting the cascade. The
+      // entitlement ROW survives — only the granting admin's link is severed.
+      db
+        .update(vendorEntitlements)
+        .set({ grantedBy: null })
+        .where(eq(vendorEntitlements.grantedBy, userId)),
       auditInsert(db, auditEntry),
       db.delete(profiles).where(eq(profiles.id, userId)),
     ];

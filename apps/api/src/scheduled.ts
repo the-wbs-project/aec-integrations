@@ -16,7 +16,7 @@
  *
  * Cron triggers (`wrangler.jsonc`), staging + production:
  * 04:00 UTC — daily §23.1 data-quality suite (`./lib/data-quality`, AECI-241 /
- * Phase 7.6): ten read-only integrity checks (orphan products/vendors, stale
+ * Phase 7.6): eleven read-only integrity checks (orphan products/vendors, stale
  * `ready` products, broken integration refs, anonymized-review integrity, stale
  * `stats_cache`, duplicate candidates, a Brandfetch logo-404 sample, and the
  * reused AECI-140 Algolia drift) → an email digest to Chris + Bill via Resend
@@ -146,7 +146,7 @@ const RECONCILE_CRON = '*/15 * * * *';
 /** Cron expression for the daily §23.1 data-quality job (`wrangler.jsonc`,
  *  AECI-241 / Phase 7.6). 04:00 UTC — the §23.1 slot, two hours ahead of the
  *  06:00 moderation snapshot, in the same dead-of-night daily window. Runs the
- *  ten checks and emails the digest when they finish (~04:30 UTC). MUST stay
+ *  eleven checks and emails the digest when they finish (~04:30 UTC). MUST stay
  *  byte-equal to the `triggers.crons` entry in `wrangler.jsonc`. */
 const DATA_QUALITY_CRON = '0 4 * * *';
 
@@ -592,7 +592,7 @@ async function runReconcileJob(env: Env, ctx: ExecutionContext): Promise<void> {
   await runReconciliationSweep({ env, executionCtx: ctx, req: { raw: req } }, db);
 }
 
-/** Run the daily §23.1 data-quality suite (AECI-241 / Phase 7.6): ten read-only
+/** Run the daily §23.1 data-quality suite (AECI-241 / Phase 7.6): eleven read-only
  *  checks → per-check gauge + job heartbeat/duration → email digest to Chris +
  *  Bill. Report-only — no auto-remediation. The Algolia-drift check (#10) reuses
  *  the AECI-140 count (`findAlgoliaIndexDrift`) when creds are present; otherwise
