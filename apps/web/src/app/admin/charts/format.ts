@@ -175,6 +175,31 @@ export function formatPercent(part: number, total: number): string {
   return `${Math.round((part / total) * 100)}%`;
 }
 
+/**
+ * A rate (a fraction in `[0, 1]`) as a percentage, or **`null` when there is no
+ * rate to report**.
+ *
+ * **This is deliberately not `formatPercent`.** That one answers "what share of
+ * this total is this part", and `0%` is the right answer for a slice of an empty
+ * breakdown. A *rate* over an empty denominator is undefined, and `0% churn` on
+ * an empty mailing list would be a clean bill of health nobody measured: §5.1's
+ * "`null` renders as *Not measured*, never as zero" (AECI-586).
+ *
+ * Null propagates rather than becoming a placeholder here, because this module
+ * is Angular-free by rule (§8.1) and so cannot own a localized string. The
+ * caller supplies the words; this decides only whether there is a number.
+ *
+ * One decimal place, trimmed. At the volumes this reports on, one opt-out from
+ * eight subscribers is 12.5%, and rounding that to 13% throws away the only
+ * precision the number has.
+ */
+export function formatRate(rate: number | null): string | null {
+  if (rate === null || !Number.isFinite(rate)) return null;
+  const pct = rate * 100;
+  const fixed = pct.toFixed(1);
+  return `${fixed.endsWith('.0') ? fixed.slice(0, -2) : fixed}%`;
+}
+
 function trimZero(n: number): string {
   const s = n.toFixed(1);
   return s.endsWith('.0') ? s.slice(0, -2) : s;

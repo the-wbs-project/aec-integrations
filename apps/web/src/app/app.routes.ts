@@ -247,9 +247,8 @@ export const routes: Routes = [
   // rather than to the review queue. The three Operations queues are unchanged.
   // AECI-577 / P1.3 added `activity` (§5.2); AECI-578 / P1.4 added `traffic`
   // (§5.3); AECI-579 / P1.5 added `catalog` (§5.5); AECI-580 / P1.6 added
-  // `system` (§5.6). The remaining §5 route (`audience`) lands with its own
-  // sub-issue; until then it is neither routed nor linked, so nothing in the nav
-  // can reach a 404.
+  // `system` (§5.6); AECI-586 / P5.1 added `audience` (§5.4), which completes
+  // the §5 information architecture — every route it names now exists.
   {
     path: 'admin',
     loadComponent: () => import('./admin/admin-shell').then((m) => m.AdminShell),
@@ -283,6 +282,14 @@ export const routes: Routes = [
       {
         path: 'traffic',
         loadComponent: () => import('./admin/traffic/traffic').then((m) => m.AdminTraffic),
+      },
+      // AECI-586 — Phase 8.3 P5.1, the §5.4 Audience section. Same gate, same
+      // client-side fetch. It reads `GET /api/admin/audience` (subscribers,
+      // churn, UTM, geography) and `GET /api/admin/feedback` — the first read
+      // surface the `feedback` table has ever had.
+      {
+        path: 'audience',
+        loadComponent: () => import('./admin/audience/audience').then((m) => m.AdminAudience),
       },
       // AECI-579 / Phase 8.3 P1.5 — the operator console's catalog section
       // (`ADMIN_PANEL_SPEC.md` §5.5). No resolver of its own: the parent's

@@ -120,4 +120,27 @@ describe('StatTile', () => {
     expect(el.querySelector('svg')).toBeNull();
     expect(el.querySelector('table')).toBeNull();
   });
+
+  // ── AECI-586: measures that are not counts, and figures nobody measured ────
+
+  it('renders a null value as "Not measured", not as zero', () => {
+    // "Not measured" and "measured zero" are different claims. A tile that
+    // renders 0 for an absent figure asserts the second (§5.1). Words, not a
+    // glyph: a dash is untranslatable and the brand voice bars the em dash.
+    const el = render({ value: null });
+    expect(el.textContent).toContain('Not measured');
+    expect(el.textContent).not.toContain('0');
+  });
+
+  it('lets a caller supply a pre-formatted value for a non-count measure', () => {
+    const el = render({ value: null, valueText: '37.5%' });
+    expect(el.textContent).toContain('37.5%');
+    expect(el.textContent).not.toContain('Not measured');
+  });
+
+  it('prefers valueText over value when both are given', () => {
+    const el = render({ value: 3419, valueText: '12.5%' });
+    expect(el.textContent).toContain('12.5%');
+    expect(el.textContent).not.toContain('3,419');
+  });
 });

@@ -85,13 +85,14 @@ describe('AdminShell', () => {
         nav.querySelector(`#${ul.getAttribute('aria-labelledby')}`)?.textContent?.trim(),
       );
       expect(headings).toEqual(['Insights', 'Catalog', 'Operations']);
-      // Insights = Overview, Activity (AECI-577, §5.2), then Traffic (AECI-578,
-      // §5.3); Catalog = Coverage (AECI-579, §5.5); Operations = the three queues
-      // plus System status (AECI-580, §5.6).
+      // Insights = Overview, Activity (AECI-577, §5.2), Traffic (AECI-578, §5.3),
+      // Audience (AECI-586, §5.4); Catalog = Coverage (AECI-579, §5.5);
+      // Operations = the three queues plus System status (AECI-580, §5.6).
       expect(navLinks(root)).toEqual([
         '/admin/overview',
         '/admin/activity',
         '/admin/traffic',
+        '/admin/audience',
         '/admin/catalog',
         '/admin/reviews',
         '/admin/requests',
@@ -111,11 +112,20 @@ describe('AdminShell', () => {
     it('links nothing that has no route yet — a nav entry is never a 404', () => {
       const root = render({ pending_reviews: 4 });
       const hrefs = navLinks(root);
-      // `/admin/audience` (AECI-586) is the only §5 route still unbuilt;
-      // `/admin/system` shipped with AECI-580 and is now linked.
-      for (const unbuilt of ['/admin/audience']) {
-        expect(hrefs).not.toContain(unbuilt);
-      }
+      // Since AECI-586 every §5 route exists, so there is nothing left to hold
+      // back — the assertion that matters now is that the nav and the §5
+      // information architecture are the same set, in the same order.
+      expect(hrefs).toEqual([
+        '/admin/overview',
+        '/admin/activity',
+        '/admin/traffic',
+        '/admin/audience',
+        '/admin/catalog',
+        '/admin/reviews',
+        '/admin/requests',
+        '/admin/reviewers',
+        '/admin/system',
+      ]);
       // And nothing ships as a disabled/dead entry either.
       const nav = root.querySelector('nav[aria-label="Admin sections"]')!;
       expect(nav.querySelectorAll('li').length).toBe(hrefs.length);

@@ -29,7 +29,9 @@ import {
   createBanReviewerHandler,
   createBannedReviewersListHandler,
 } from './routes/admin-reviewers';
+import { createAdminAudienceHandler } from './routes/admin-audience';
 import { createAdminCatalogCoverageHandler } from './routes/admin-catalog';
+import { createAdminFeedbackHandler } from './routes/admin-feedback';
 import { createAdminOverviewHandler } from './routes/admin-overview';
 import { createAdminTimeseriesHandler } from './routes/admin-metrics';
 import { createAdminPageViewsHandler } from './routes/admin-page-views';
@@ -317,6 +319,16 @@ app.route('/', authAccount);
 //     §7.2 / AECI-583), the Algolia watermark, D1 size + per-table row counts,
 //     and — behind the same `?recompute=1` flag, sharing `/overview`'s
 //     implementation — the ten data-quality checks and the drift count.
+// Phase 8.3 P5.1 (AECI-586) adds the Audience pair on the same terms:
+//   - GET /api/admin/audience           — the §5.4 bundle: lifetime subscriber
+//     stocks, the day-bucketed growth/churn series, UTM + signup geography, and
+//     the feedback counts. Derived LIVE from `mailing_list`, not from
+//     `metrics_daily`: `unsubscribed_at` is a soft delete and no row is ever
+//     removed, so the population on a past day is exactly recoverable — the
+//     property §4 shows the catalog stocks lack.
+//   - GET /api/admin/feedback           — the feedback inbox, paginated. The FIRST
+//     read surface that table has ever had; until now an operator email was the
+//     only way anyone saw a submission.
 const authAdmin = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
 authAdmin.onError(errorHandler());
 authAdmin.get('/api/admin/summary', requireAdmin(), createAdminSummaryHandler());
@@ -333,15 +345,17 @@ authAdmin.patch(
 );
 authAdmin.get('/api/admin/reviewers', requireAdmin(), createBannedReviewersListHandler());
 authAdmin.patch('/api/admin/reviewers/:id', requireAdmin(), createBanReviewerHandler());
-// Admin panel reads (AECI-574, AECI-577, AECI-579, AECI-580). Registered after
-// the moderation routes; no path collides with `/api/admin/re*` or
-// `/api/admin/summary`.
+// Admin panel reads (AECI-574, AECI-577, AECI-579, AECI-580, AECI-586).
+// Registered after the moderation routes; no path collides with
+// `/api/admin/re*` or `/api/admin/summary`.
 authAdmin.get('/api/admin/overview', requireAdmin(), createAdminOverviewHandler());
 authAdmin.get('/api/admin/metrics/timeseries', requireAdmin(), createAdminTimeseriesHandler());
 authAdmin.get('/api/admin/traffic/breakdown', requireAdmin(), createAdminTrafficBreakdownHandler());
 authAdmin.get('/api/admin/page-views', requireAdmin(), createAdminPageViewsHandler());
 authAdmin.get('/api/admin/catalog/coverage', requireAdmin(), createAdminCatalogCoverageHandler());
 authAdmin.get('/api/admin/system', requireAdmin(), createAdminSystemHandler());
+authAdmin.get('/api/admin/audience', requireAdmin(), createAdminAudienceHandler());
+authAdmin.get('/api/admin/feedback', requireAdmin(), createAdminFeedbackHandler());
 app.route('/', authAdmin);
 
 // Catch-alls throw so the root `onError` renders the canonical §3.3 envelope

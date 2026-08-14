@@ -13,7 +13,8 @@ marketing produces **before** we produce it.
 |---|---|---|---|
 | **Pageviews** (client) | PostHog `capture_pageview: 'history_change'` (`apps/web/src/app/analytics/`) | Built; **live once `POSTHOG_KEY` is set** | Auto-captures initial load + SPA navigations, consent-gated. |
 | **Mailing-list signup** (client) | PostHog `mailing_list_signup` event, fired on a genuine new subscribe (AECI-326) from the shared band (`home/home-closing-cta.ts` + the directory/detail mounts, AECI-327) and the `/updates` page (AECI-536) | Built; live once `POSTHOG_KEY` is set | Consent-gated → *consented funnel only*. `source`: `home_closing_cta` / `mailing_list_band` / `updates_page`. |
-| **Mailing-list signup** (server, authoritative) | `mailing_list` D1 table via `POST /api/subscribe`; mirrored to Datadog `aeci.email.send{template:landing-signup}` on each new insert | **Live** (consent-independent) | The true signup count. Read this for the number; read PostHog for funnel/attribution. |
+| **Mailing-list signup** (server, authoritative) | `mailing_list` D1 table via `POST /api/subscribe`; mirrored to Datadog `aeci.email.send{template:landing-signup}` on each new insert | **Live** (consent-independent) | The true signup count. **Readable since AECI-586** at `/admin/audience` (`GET /api/admin/audience`), which also carries growth, exact churn, and a **consent-independent** UTM + geography breakdown. Read PostHog for the on-site funnel (*which band* converted); read the panel for the number, the trend, and *where they came from*. |
+| **Product feedback** (server) | `feedback` D1 table via `POST /api/feedback` | **Live** (consent-independent) | **Readable since AECI-586** at `/admin/audience` → Feedback inbox (`GET /api/admin/feedback`). Before that the operator email fired from the handler was the only record — the table was genuinely write-only, so a filtered alert was a lost submission. |
 | **Core Web Vitals** (field) | Datadog RUM `@datadog/browser-rum` (`apps/web/src/app/datadog.provider.ts`) | Built; **live once `DD_APPLICATION_ID` + `DD_CLIENT_TOKEN` are set** | RUM collects LCP/CLS/INP/FCP/TTFB automatically on init. `aeci` RUM app, us5. |
 | **Server pageviews / entry pages** | `page_views` D1 table via `POST /api/page-views` | **Live** (consent-independent) | Readable since AECI-574 — see "The consent-independent read path" below. Since **AECI-582** (2026-08-13) every row is classified human/bot — the 2026-07-12 AECI-280 pull's 4,917 rows were counted as human but were ~93% crawls (see the 2026-08-13 addendum). `cf_bot_score` is still null on every row (CF Pro exposes no bot score); the split comes from UA + ASN instead. Since **AECI-575** it captures **public routes only** — `/admin/*` and `/account` are excluded at both writers and filtered out on read (see the 2026-08-12 addendum below). |
 
@@ -41,6 +42,18 @@ traffic**, and a single-page arrival from a search engine never grants consent �
 on 2026-08-10 the digest counted 92 human page views across four sources and
 PostHog recorded essentially none of them. `page_views` is the consent-independent
 record; read it for *what happened*, and PostHog for *the consented funnel*.
+
+**The same argument extended to the mailing list and feedback with AECI-586**
+(`GET /api/admin/audience`, `GET /api/admin/feedback`, rendered at
+`/admin/audience`). PostHog's `mailing_list_signup` event knows which on-site band
+converted, but only for consenting visitors; the panel's UTM and geography
+breakdowns cover **every** signup and answer where they arrived from. The gap is
+starker here than for page views, because attribution is exactly what a marketing
+read needs and exactly what consent gating removes. Two further things only the
+panel can report: **churn**, which is *exact* rather than modelled because
+`unsubscribed_at` is a suppression record and no subscriber row is ever deleted;
+and the **feedback inbox**, whose table had no read path at all before that unit —
+the operator email was the only copy of a submission.
 
 Three limits travel with those numbers and are returned as machine-readable notes
 on every response rather than left to the reader:
@@ -187,9 +200,18 @@ Once the secrets are provisioned (config injected — verify with
 
 - **Weekly visitors + pageviews** — PostHog UI (Web Analytics / Insights), filter to production.
   Cross-check against the Datadog **Phase-2 Traffic** dashboard (top routes by request count; us5).
-- **Signups** — authoritative count = the `mailing_list` D1 table (from `apps/api`:
-  `wrangler d1 execute aeci-app-production --env production --remote --command "select count(*) from mailing_list"`).
-  Funnel/attribution (UTM, `source`) = the PostHog `mailing_list_signup` event.
+- **Signups** — **`/admin/audience`** (AECI-586). The authoritative count is still the
+  `mailing_list` D1 table; that screen is now the read path for it, so the manual
+  `wrangler d1 execute … "select count(*) from mailing_list"` is no longer the procedure
+  (it still works, and is the fallback if the panel is down). The screen also carries
+  growth and churn over a window, which the raw count never did — churn is *exact* there,
+  because `unsubscribed_at` is a suppression record rather than a delete.
+  Funnel/attribution has **two** sources now, and they answer different questions: the
+  PostHog `mailing_list_signup` event covers the consented slice and knows the on-site
+  `source` (which band the visitor used); `/admin/audience`'s UTM and geography
+  breakdowns are **consent-independent**, cover every signup, and know where the visitor
+  came from. Prefer the panel for "how many and from where", PostHog for "through which
+  surface".
 - **Top entry pages** — PostHog referrers/entry-path breakdown; or the server-side `page_views` D1
   table for a consent-independent view. Public routes only — `/admin/*` and `/account` are excluded
   (AECI-575); add `and path not in ('/admin','/account') and path not like '/admin/%' and path not like '/account/%'`

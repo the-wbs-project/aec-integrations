@@ -134,9 +134,9 @@ Nine routes under the existing `AdminShell` (`app/admin/admin-shell.ts`). The sh
     /admin/system          §5.6
 ```
 
-**Shell restructure — SHIPPED (AECI-576, P1.2).** The `h1` reads "Admin", `/admin` redirects to `/admin/overview`, and the nav is grouped. Two mechanics were settled while building it:
+**Shell restructure — SHIPPED (AECI-576, P1.2); the nav has been COMPLETE since AECI-586 (P5.1).** The `h1` reads "Admin", `/admin` redirects to `/admin/overview`, and the nav is grouped. Every route listed above now exists and is linked, so the "omitted until built" mechanic below has no remaining subjects — it is recorded because it governed how the epic shipped, not because anything is still held back. Two mechanics were settled while building it:
 
-- **An unbuilt route is omitted, not disabled.** P1.2 shipped **Insights → Overview** and **Operations → Review queue · Requests · Reviewer bans**; the other five entries appear when their screen does. A group with no items renders no heading either, so `Catalog` is absent until AECI-579. This is the "do not link to a 404" requirement resolved in favour of a nav that only ever shows working destinations — a disabled entry advertises a capability the operator cannot use, and there is no second surface where these routes are discoverable, so nothing is lost by adding them one at a time. The nav is a `readonly AdminNavGroup[]` in the shell, so a later unit adds one array entry rather than editing markup.
+- **An unbuilt route is omitted, not disabled.** P1.2 shipped **Insights → Overview** and **Operations → Review queue · Requests · Reviewer bans**; the other five entries appeared as their screens did, `Audience` last (AECI-586). A group with no items renders no heading either, so `Catalog` was absent until AECI-579. This is the "do not link to a 404" requirement resolved in favour of a nav that only ever shows working destinations — a disabled entry advertises a capability the operator cannot use, and there is no second surface where these routes are discoverable, so nothing is lost by adding them one at a time. The nav is a `readonly AdminNavGroup[]` in the shell, so a later unit adds one array entry rather than editing markup.
 - **Group labels are `<p>` + `aria-labelledby`, not headings.** The shell owns the only `h1` and each screen owns the only `h2` (asserted by every queue's component spec). A heading in the nav would sit between them and break axe's heading-order rule for no navigational gain — the `<ul>` gets its accessible name from the label either way.
 
 The three Operations queues moved under a heading and are otherwise untouched. The header user-menu / nav-menu admin links still point at `/admin/reviews`, deliberately: that link carries the pending-review count.
@@ -199,11 +199,23 @@ missing**: human-vs-bot per day, unique visitors per day, top pages, top product
 the UTC ↔ WIB toggle, the §9.8 definition beside the number, the internal-ASN
 toggle and the honesty envelope are all live at `/admin/traffic`.
 
-### 5.4 Audience
+### 5.4 Audience — SHIPPED (AECI-586, 2026-08-13)
 
-Subscribers cumulative and net-new · unsubscribes and churn rate (`unsubscribed_at` is a soft delete, so churn is exactly computable) · UTM source/medium/campaign breakdown · signup geography · and the **feedback inbox** as a readable list. `feedback` is written by `POST /api/feedback` and has **no read surface anywhere in the product today**.
+Subscribers cumulative and net-new · unsubscribes and churn rate (`unsubscribed_at` is a soft delete, so churn is exactly computable) · UTM source/medium/campaign breakdown · signup geography · and the **feedback inbox** as a readable list. `feedback` is written by `POST /api/feedback` and had **no read surface anywhere in the product** before this unit.
 
 Renders empty states until signups begin (§3). Cheap to build alongside §5.3 and needed the day the first subscriber arrives.
+
+**Four things the build settled, three of which correct or sharpen the paragraph above.**
+
+**(1) The screen does NOT read the three `audience.*` snapshot stocks, though §7.1 said it would.** `metrics_daily` has captured `audience.subscribers_active` / `_unsubscribed` / `feedback_total` since AECI-581, and that section's comment named §5.4 as the reader. It is not, and the reason is specific to this table rather than a change of mind. `unsubscribed_at` is a **soft delete** and nothing anywhere hard-deletes a `mailing_list` row, so the active population on any past day is exactly `created_at <= D AND (unsubscribed_at IS NULL OR unsubscribed_at > D)` — precisely the property §4 shows the *catalog* stocks lack (827 `integration.created` events against 496 live rows), and the reason a snapshot was necessary there. Reading the snapshot instead would have **cost history**, since stocks are never backfilled and those series begin at the first cron run on 2026-08-13 while `mailing_list` reaches back to the first signup; and it would have risked a worse error, because `/metrics/timeseries` **zero-fills**, which is right for a flow and a lie for a stock — an uncaptured day would report *zero subscribers* rather than unknown. `GET /api/admin/audience` therefore derives its own series live and reports `source: 'live'` as a literal, not an enum. The snapshot rows keep being written; see (2) for what they are now for.
+
+**(2) "Exactly computable" is true, and it has exactly one blind spot: the resubscribe.** `POST /api/subscribe`'s reactivation path *clears* `unsubscribed_at` and keeps the original `created_at`, so a subscriber who opted out and came back leaves no trace of having left. Both the series and the churn rate read current row state, so that person reads as never-churned and their suppressed days read as active. Nothing on the row could tell the query otherwise, so this is disclosed as a derived note (`audience_history_is_current_state`) rather than absorbed silently — and it is the answer to "then why keep writing the snapshot": `metrics_daily` is the only durable record of the state a reactivation rewrites. The screen states the exactness claim beside the number (§9.8's obligation, applied to churn) and the note carries the limit.
+
+**(3) The empty states were the deliverable, and they turned on one distinction.** With both tables at zero the section must not render `0%` churn, an axis around a flat zero line, or a `NaN`. Two mechanisms do it. The API returns `churn_rate: null` — never `0` — so the UI *cannot* fudge a rate over an empty denominator; §5.1's "`null` renders as *Not measured*, never as zero" is enforced at the contract rather than by UI discipline. And the screen passes an **empty category array** to every chart when the list has never had a subscriber, so each renders its `emptyLabel` instead of plotting a zero-filled window. That second switch is deliberately *not* "was this window quiet": a list with subscribers and no activity has a real, flat, non-zero cumulative line worth drawing. A chart of nothing and a chart of a measured zero are different artefacts.
+
+**(4) The em dash was the wrong glyph, and the spec's own wording was the right one.** The obvious rendering for an absent figure is `—`; the brand voice bars it outright (`PRODUCT.md`, enforced by lint) and a glyph is untranslatable besides. §5.1 had already written the answer — *"Not measured"* — so `StatTile` renders that localized string for a null value. `formatRate()` returns `string | null` rather than a placeholder, because `charts/format.ts` is Angular-free by rule (§8.1) and cannot own copy; the words belong to the component, which is also §9.4's division.
+
+Two smaller notes. The breakdowns group **signups inside the window**, matching `/traffic/breakdown`'s convention, with `window_totals.signups` alongside so a row's share needs no second request — and the NULL bucket is surfaced, since an organic signup with no `utm_source` is a real signup. And the section shipped the epic's only **schema change outside §7**: three `created_at` / `unsubscribed_at` indexes (§7.5), because the two lead-capture tables were the only ones in the schema with none.
 
 ### 5.5 Catalog
 
@@ -262,8 +274,8 @@ All endpoints are `GET`, admin-gated, read-only. They register on the existing `
 | `GET /api/admin/metrics/timeseries` | `?metric=&from=&to=&interval=day` | Serves `metrics_daily` (§7.1); falls back to live aggregation pre-snapshot |
 | `GET /api/admin/traffic/breakdown` | `?dimension=source\|country\|path\|product\|bot` | Grouped counts over a window |
 | `GET /api/admin/catalog/coverage` | §5.5 gap lists + funnel | Capped sample rows, exact counts. `?sample=` (0–50, default 10); `0` returns counts only. **No `window`** — see the P1.5 notes below |
-| `GET /api/admin/audience` | §5.4 aggregates | Subscribers, churn, UTM, geo |
-| `GET /api/admin/feedback` | Paginated feedback list | First read surface for the table |
+| `GET /api/admin/audience` | §5.4 aggregates — **SHIPPED (AECI-586)** | Subscribers, churn, UTM, geo. `?from=&to=` (both inclusive) + `?breakdown_limit=` (1–50, default 8). Derived **live** from `mailing_list`, not from `metrics_daily` — see §5.4 note (1) |
+| `GET /api/admin/feedback` | Paginated feedback list — **SHIPPED (AECI-586)** | First read surface for the table. `PageQuerySchema` only; no window (the windowed count rides on `/audience`) |
 | `GET /api/admin/system` | §5.6 bundle — **SHIPPED (AECI-580, completed AECI-583)** | Version, cron runs (from `job_runs`), the last stored DQ result, Algolia incl. the orphan sweep, table counts. `?recompute=1` re-runs the ten DQ checks + drift live (pure read — writes nothing, not even a `job_runs` row) |
 
 **Conventions.** No `audit_log` rows (reads only — §26.1 governs writes). No `Cache-Tag`, no edge caching; `/admin/*` is absent from `ROUTE_CACHE_PATTERNS` in `server-runtime.ts` and therefore takes the non-cacheable branch with `private, no-store`. That must stay true (§9.2). Response validation in dev via `validateResponseInDev`, as with the other admin routes.
@@ -481,6 +493,31 @@ The window lives in a **config constant**, not a literal, so it can be shortened
 
 This does **not** contradict `STAGE_1_SPEC.md` §26.6 ("no archiving or pruning at launch"), which is scoped to the audit and workflow tables; §7.4 governs `page_views`, `metrics_daily`, and `job_runs` only. The two are cross-referenced so a future reader does not have to re-derive that.
 
+### 7.5 Lead-capture indexes — SHIPPED (AECI-586, migration `0014`)
+
+Three indexes, added with §5.4 because that section is the first thing ever to
+query these two tables by time:
+
+```
+feedback_created_at_idx           ON feedback (created_at)
+mailing_list_created_at_idx       ON mailing_list (created_at)
+mailing_list_unsubscribed_at_idx  ON mailing_list (unsubscribed_at)
+```
+
+`feedback` and `mailing_list` predate the AECI schema and were the **only** tables
+in the database with no `created_at` index at all — `page_views` and `audit_log`
+have carried the equivalent since migration `0000`. Without them every day-bucketed
+signup or churn query and the inbox's `ORDER BY created_at DESC` is a full scan.
+Both tables hold zero rows today, so this is not a fix for an observed problem; it
+is the consistent shape, added at the moment a read path first existed to justify
+it rather than left for whoever first notices the scan.
+
+Unlike §7.3's column changes this migration is **pure `CREATE INDEX`** — SQLite
+adds an index in place, so none of the table-recreate machinery
+`migrations.md` §3.3a documents applies. It is the epic's only schema change
+outside §7.1–§7.4, and one more entry to reconcile in the Drizzle journal at the
+`admin-panel → main` merge-up (§13 D1(a)).
+
 ---
 
 ## 8. Charting
@@ -612,7 +649,7 @@ Issue-sized units. Phase 1 requires **no schema change** and carries most of the
 | **P3.1** | AECI-583 | `job_runs` + instrument all **nine** crons + persist DQ results (§7.1's snapshot job is the ninth) — **SHIPPED 2026-08-13** | P1.6 |
 | **P3.2** | AECI-584 | Retention/pruning cron (§7.4) — **deprioritized**, see below | P3.1, **P2.1** |
 | **P4.1** | AECI-585 | Page-view ingest fixes (§7.3: taxonomy entity, concrete path, SPA flag, `cf_as_organization`, drop the three dead columns) — **SHIPPED 2026-08-13**; ingest only, and its migration waits for the epic merge (§7.3) | — |
-| **P5.1** | AECI-586 | Audience section (mailing list + feedback) | P1.4 |
+| **P5.1** | AECI-586 | Audience section (mailing list + feedback) — **SHIPPED 2026-08-13** (`GET /api/admin/audience` + `GET /api/admin/feedback` + `/admin/audience`; the §5 nav is now complete). Carries the epic's only schema change outside §7: three lead-capture indexes (§7.5) | P1.4 |
 | **§12** | AECI-587 | Docs closeout: the §12 update contract + the §14.3 stale claims | all shipping units |
 
 **§9.6 moved ahead of P1.1** (§13 D10) **and has now shipped.** `PageViewTracker` had no path predicate, so every admin SPA navigation POSTed a page view *from the operator's own ISP* — the same AS23700 that is 67 of 92 "human" views in the §14.2 census. Excluding `/admin/*` removes a large slice of internal traffic **precisely, with no false positives**, and it had to land before the console is usable or the panel starts polluting the table it reads. It is also the cheaper half of the answer to internal-traffic filtering; `ANALYTICS_INTERNAL_ASNS` is the coarse remainder and is still unbuilt, so the digest's human count remains an upper bound.
@@ -644,16 +681,16 @@ Staleness is the recurring review finding, so this list is part of the contract:
 
 | Document | Change |
 |---|---|
-| `API_CONTRACTS.md` | New section for every §6 endpoint, including the `?recompute=1` semantics (§13 D8). **The timeseries contract's `source` enum, per-point `reconstructed`, and the `exclude_internal`→live rule landed with AECI-581** |
-| `DATABASE_SCHEMA.md` | `metrics_daily`, `job_runs`, `products.promoted_at`, `page_views.cf_as_organization`, the three dropped `page_views` columns, any new index. **Also correct the "Audit log and page_views retention: indefinite for Stage 1" line** — false once §7.4 lands. **`metrics_daily` (§9.3, with the full 19-key vocabulary), `products.promoted_at` (§4.2), and the retention correction all landed with AECI-581; `job_runs` landed as §9.4 (AECI-583); the `page_views` column changes — five added, three dropped, plus the migration-`0013` table-recreate note — landed with AECI-585**, with a retention line noting 90 days is specified but unenforced until AECI-584 |
+| `API_CONTRACTS.md` | New section for every §6 endpoint, including the `?recompute=1` semantics (§13 D8). **The timeseries contract's `source` enum, per-point `reconstructed`, and the `exclude_internal`→live rule landed with AECI-581**; **AECI-586 added `GET /api/admin/audience` + `GET /api/admin/feedback`, the two new note codes, and the two §6.13 cross-references** (that a reactivation is lossy and what the panel does about it, and that `feedback` now has a read surface) |
+| `DATABASE_SCHEMA.md` | `metrics_daily`, `job_runs`, `products.promoted_at`, `page_views.cf_as_organization`, the three dropped `page_views` columns, any new index. **Also correct the "Audit log and page_views retention: indefinite for Stage 1" line** — false once §7.4 lands. **`metrics_daily` (§9.3, with the full 19-key vocabulary), `products.promoted_at` (§4.2), and the retention correction all landed with AECI-581; `job_runs` landed as §9.4 (AECI-583); the `page_views` column changes — five added, three dropped, plus the migration-`0013` table-recreate note — landed with AECI-585**, with a retention line noting 90 days is specified but unenforced until AECI-584. **AECI-586 added the three §7.5 lead-capture indexes, and — since `feedback` and `mailing_list` now have a documented read surface rather than being write-only — the columns each endpoint exposes** |
 | `STAGE_1_SPEC.md` §22 | Pointer to this document as the admin-surface source of truth. **Cite-check first** — `PHASE_8_COMPLETION.md` records two stale spec-cites in that file. **Landed with AECI-576**; the two recorded stale cites are §12 and §16, neither of which §22 touches, and §22's own content (`/admin/reviews`, the pending badge) is still accurate |
 | `STAGE_1_SPEC.md` §26.1, §26.6 | The audit carve-out (§13 D11) and the retention scope cross-reference (§7.4). **Landed with AECI-573, not at closeout** |
 | `adr/0022-cron-bookkeeping-exempt-from-audit-invariant.md` + `adr/README.md` | The ADR behind the §26.1 carve-out, plus its index row. **Landed with AECI-573** |
 | `CODE_REVIEW_EXEMPTIONS.md` | The carve-out as a standing, non-expiring exemption pointing at ADR 0022 — so a reviewer meeting an unaudited cron write finds the reasoning. **Landed with AECI-573** |
 | `CICD_PLAN.md` §10 | The `admin-panel` epic integration branch as a second time-boxed exception under ADR 0019's precedent (§13 D1). **Landed with AECI-573** |
-| `AUTH_AND_RLS.md` | The new `/api/admin/*` endpoints under `requireAdmin()`, and the GDPR-erasure simplification once `page_views.user_id` is dropped (§7.3). `/api/admin/system` **landed with AECI-580**; the erasure simplification **landed with AECI-585** — §8's FK trap is now six inbound FKs, not seven, and the note explains why removing one *strengthens* erasure |
-| `email.md` | Record which cron digests have a screen equivalent. **AECI-580** added the row for the 04:00 data-quality digest (`/admin/system?recompute=1`); the 05:00 analytics digest's screen is P1.2 (AECI-576) — its *API* shipped with P1.1, its screen has not, and the row must not claim otherwise |
-| `ANALYTICS_BASELINE.md` | Drop "write-only today (no reporting endpoint)"; record the panel as the consent-independent read path; record that no session identifier was introduced (§13 D7) and why. The `/admin` + `/account` exclusion and its retroactive effect on pre-2026-08-12 counts **landed with AECI-575**. **AECI-585 added the trustworthy-from table** for the four new ingest fields — its dates are written as "the AECI-585 production deploy" and must be replaced with the real date at the `admin-panel → main` merge |
+| `AUTH_AND_RLS.md` | The new `/api/admin/*` endpoints under `requireAdmin()`, and the GDPR-erasure simplification once `page_views.user_id` is dropped (§7.3). `/api/admin/system` **landed with AECI-580**, `/api/admin/{audience,feedback}` **with AECI-586**; the erasure simplification **landed with AECI-585** — §8's FK trap is now six inbound FKs, not seven, and the note explains why removing one *strengthens* erasure |
+| `email.md` | Record which cron digests have a screen equivalent. **AECI-580** added the row for the 04:00 data-quality digest (`/admin/system?recompute=1`); the 05:00 analytics digest's screen is P1.2 (AECI-576) — its *API* shipped with P1.1, its screen has not, and the row must not claim otherwise. **AECI-586** extended the same column to the two *transactional* operator alerts: `landing-feedback` and `landing-signup` now have `/admin/audience` behind them, which matters more than for a digest — those emails were the ONLY record of a submission, so a filtered alert was a lost one |
+| `ANALYTICS_BASELINE.md` | Drop "write-only today (no reporting endpoint)"; record the panel as the consent-independent read path; record that no session identifier was introduced (§13 D7) and why. The `/admin` + `/account` exclusion and its retroactive effect on pre-2026-08-12 counts **landed with AECI-575**. **AECI-585 added the trustworthy-from table** for the four new ingest fields — its dates are written as "the AECI-585 production deploy" and must be replaced with the real date at the `admin-panel → main` merge. **AECI-586** replaced the weekly "Signups" step's manual `wrangler d1 execute … count(*) from mailing_list` with the screen, and recorded that UTM attribution now has a **consent-independent** read path beside the consent-gated PostHog one |
 | `POST_LAUNCH_MONITORING.md` | The §1a cron table gained the 00:15 snapshot job (nine crons, AECI-581). Replace §1 rows 6 and 8 (cron liveness, moderation queue) with the panel, and the **weekly** §2 item 4 → §3b manual `wrangler d1 execute` ASN audit with §5.3's geography view. *(The manual D1 query is in the weekly procedure, not the daily — an earlier draft of this row said "daily".)* The ASN-census query gained the §9.6 path exclusion so it matches the digest — **landed with AECI-575**. **Row 6 is now retired in the sense that matters, and the doc states the split**: since AECI-583 the panel owns the *record* (last run, outcome, duration per job) and **Datadog owns *absence*** — a cron that never starts writes no `job_runs` row either, so only a no-data monitor can catch it. What AECI-580 retired outright: the DQ digest is readable on demand (row 5a) — and AECI-583 went further, making the last stored run the default view so the morning read needs no click and no email. D1 size / per-table row counts no longer need `wrangler d1 execute`. Row 8 waits on P1.2's Overview |
 | `POST_LAUNCH_HEALTH_REPORT.md` | New dated entry (see §14.3). **AECI-585** amended the 2026-08-13 entry's follow-up: `cf_as_organization` is captured, but only forward, so that snapshot's ASNs still need manual lookup |
 | `OBSERVABILITY.md` | Any new metric emitted by the snapshot / retention crons. **AECI-583 added** `aeci.job_runs.write` plus a "second recording surface, not a replacement" section reconciling `job_runs` against the existing per-cron heartbeats (panel owns the record, Datadog owns absence) |

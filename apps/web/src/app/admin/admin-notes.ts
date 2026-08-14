@@ -161,4 +161,11 @@ const NOTE_PROSE: Record<AdminNoteCode, (params: NoteParams) => string> = {
   // breaking change; an older cached response still renders localized prose.
   orphan_sweep_not_persisted: () =>
     $localize`:@@admin.notes.orphanSweepNotPersisted:The Algolia orphan sweep runs inside the 09:00 UTC drift job and reports only to Datadog. Its result is not stored, so it cannot be shown here.`,
+
+  // AECI-586 / P5.1 — audience. Both `info`: neither makes a number wrong.
+  utm_attribution_incomplete: (p) =>
+    $localize`:@@admin.notes.utmAttributionIncomplete:${num(p, 'missing')}:MISSING: of ${num(p, 'total')}:TOTAL: signups in this window arrived with no campaign parameters. They are real signups grouped under Unattributed, not missing records.`,
+
+  audience_history_is_current_state: () =>
+    $localize`:@@admin.notes.audienceHistoryIsCurrentState:Churn is computed from the opt-out timestamp on each subscriber, so it is exact rather than estimated. The one thing it cannot see is a return: resubscribing clears that timestamp, so anyone who opted out and came back reads as never having left.`,
 };
