@@ -7,23 +7,8 @@ import { map } from 'rxjs';
 import type { AdminSummaryResponse } from '@aeci/shared';
 
 import { NotFound } from '../not-found/not-found';
+import { ADMIN_NAV_GROUPS } from './admin-nav';
 import { AdminSummaryStore } from './admin-summary.store';
-
-/** One nav entry. `badge` marks the single entry that carries the live
- *  pending-review count. */
-interface AdminNavItem {
-  path: string;
-  label: string;
-  badge?: boolean;
-}
-
-/** A labelled group of entries. `id` wires the group label to its `<ul>` via
- *  `aria-labelledby`. */
-interface AdminNavGroup {
-  id: string;
-  heading: string;
-  items: readonly AdminNavItem[];
-}
 
 /**
  * AECI-203 / Phase 5.12 — the admin surface gate + shell at `/admin`. Refactored
@@ -52,8 +37,10 @@ interface AdminNavGroup {
  * not-found path the resolver already set the noindex 404 head, so we leave it.
  *
  * The nav is the three §5 groups (Insights / Catalog / Operations) introduced by
- * Phase 8.3 P1.2 (AECI-576), driven by {@link navGroups}. AECI-580 adds the
- * `/admin/system` entry to the Operations group now that its screen ships.
+ * Phase 8.3 P1.2 (AECI-576), driven by `ADMIN_NAV_GROUPS` (`./admin-nav.ts`).
+ * That array moved out of this file when the site header's "More" overflow menu
+ * gained the same nine-screen Admin section — both surfaces render one list, so
+ * they cannot drift.
  */
 @Component({
   selector: 'aec-admin-shell',
@@ -130,49 +117,8 @@ export class AdminShell {
   private readonly metaSvc = inject(Meta);
   private readonly summaryStore = inject(AdminSummaryStore);
 
-  /**
-   * The §5 information architecture, as data — later sub-issues add one entry
-   * rather than editing markup.
-   *
-   * Only routes that **exist** are listed — nothing links to a 404, and no entry
-   * is rendered disabled; a group with no items simply does not render its
-   * heading either. Each screen added its own entry as it shipped
-   * (`/admin/activity` with AECI-577, `/admin/traffic` with AECI-578,
-   * `/admin/catalog` with AECI-579, `/admin/system` with AECI-580, and
-   * `/admin/audience` with AECI-586). **This list is now complete**: every route
-   * in §5's information architecture exists and appears here.
-   */
-  protected readonly navGroups: readonly AdminNavGroup[] = [
-    {
-      id: 'admin-nav-insights',
-      heading: $localize`:@@admin.shell.nav.group.insights:Insights`,
-      items: [
-        { path: '/admin/overview', label: $localize`:@@admin.shell.nav.overview:Overview` },
-        { path: '/admin/activity', label: $localize`:@@admin.shell.nav.activity:Activity` },
-        { path: '/admin/traffic', label: $localize`:@@admin.shell.nav.traffic:Traffic` },
-        { path: '/admin/audience', label: $localize`:@@admin.shell.nav.audience:Audience` },
-      ],
-    },
-    {
-      id: 'admin-nav-catalog',
-      heading: $localize`:@@admin.shell.nav.group.catalog:Catalog`,
-      items: [{ path: '/admin/catalog', label: $localize`:@@admin.shell.nav.catalog:Coverage` }],
-    },
-    {
-      id: 'admin-nav-operations',
-      heading: $localize`:@@admin.shell.nav.group.operations:Operations`,
-      items: [
-        {
-          path: '/admin/reviews',
-          label: $localize`:@@admin.shell.nav.reviews:Review queue`,
-          badge: true,
-        },
-        { path: '/admin/requests', label: $localize`:@@admin.shell.nav.requests:Requests` },
-        { path: '/admin/reviewers', label: $localize`:@@admin.shell.nav.reviewers:Reviewer bans` },
-        { path: '/admin/system', label: $localize`:@@admin.shell.nav.system:System status` },
-      ],
-    },
-  ];
+  /** The §5 IA, shared with the header's "More" menu — see `./admin-nav.ts`. */
+  protected readonly navGroups = ADMIN_NAV_GROUPS;
 
   /** Resolved data. `adminSummaryResolver` runs server-side and on hydration
    *  reads from `TransferState`; the snapshot value is the SSR-resolved summary

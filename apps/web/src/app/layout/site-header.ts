@@ -1,22 +1,29 @@
 /**
  * Site header.
  *
- * Responsive: below `md` it is a minimal `[☰ wordmark]` bar — the hamburger
- * `aec-nav-menu` (its own `md:hidden` host) opens an overlay that holds the
- * links, search, and Sign-in. At `md+` the hamburger drops out and those
+ * Responsive: below `lg` it is a minimal `[☰ wordmark]` bar — the hamburger
+ * `aec-nav-menu` (its own `lg:hidden` host) opens an overlay that holds the
+ * links, search, and Sign-in. At `lg+` the hamburger drops out and those
  * affordances render inline: a centered primary `<nav>` with the directory
- * links, plus a right-side cluster (search at `lg+`, Sign-in CTA), over a warm
+ * links, plus a right-side cluster (search at `xl+`, Sign-in CTA), over a warm
  * Bone "shelf" that reads as editorial structure rather than chrome.
  *
- * AECI-158 re-points the directory at the taxonomy: Home · Products ·
- * Categories▾ · Audiences▾ · Phases▾. Vendors / Integrations were removed from
- * the primary nav AND the footer (AECI-160, PO decision) — they stay reachable
- * via `sitemap.xml`, detail-page breadcrumbs, and search. The three taxonomy
- * entries each link to their facet index AND open a
- * `aec-nav-flyout-trigger` flyout of the top values by count. The same link set
- * renders in the overlay (`nav-menu.ts`) and footer, so only one
- * `<nav aria-label="Primary">` is ever in the a11y tree at a given width (the
- * inline nav is `display:none` below `md`; the overlay nav never mounts at `md+`).
+ * The row is Home · Products · Categories▾ · Trades▾ · Audiences▾ · Phases▾ ·
+ * More▾. AECI-158 re-pointed the directory at the taxonomy; Vendors /
+ * Integrations were removed from the primary nav AND the footer (AECI-160, PO
+ * decision) — they stay reachable via `sitemap.xml`, detail-page breadcrumbs,
+ * and search. Each taxonomy entry links to its facet index AND opens a
+ * `aec-nav-flyout-trigger` flyout of the top values by count.
+ *
+ * `aec-nav-more-trigger` is the overflow menu and the last item in the row: it
+ * carries every destination that isn't a primary directory surface (Updates,
+ * Roadmap, About, Contact, Legal) plus the full `/admin` section for an admin.
+ * Updates lived in the primary row until that menu landed; secondary
+ * destinations go there from now on rather than widening this row.
+ *
+ * The same link set renders in the overlay (`nav-menu.ts`) and footer, so only
+ * one `<nav aria-label="Primary">` is ever in the a11y tree at a given width (the
+ * inline nav is `display:none` below `lg`; the overlay nav never mounts at `lg+`).
  *
  * Spec: DESIGN.md §5 (Navigation); §16 Phase 1 ("Basic layout shell"); §3.1
  * (route inventory drives nav); §2a (theming); §21 (a11y).
@@ -33,6 +40,7 @@ import { navigateToSearchQuery, navigateToSuggestion } from './search-submit';
 import { BrandLogo } from './brand-logo';
 import { NavFlyoutTrigger } from './nav-flyout-trigger';
 import { NavMenu } from './nav-menu';
+import { NavMoreTrigger } from './nav-more-trigger';
 import { UserMenu } from './user-menu';
 
 @Component({
@@ -43,6 +51,7 @@ import { UserMenu } from './user-menu';
     BrandLogo,
     NavMenu,
     NavFlyoutTrigger,
+    NavMoreTrigger,
     SearchAutocomplete,
     UserMenu,
   ],
@@ -58,6 +67,9 @@ import { UserMenu } from './user-menu';
           clipped out of the viewport (already true of Phases before trades
           joined). aec-nav-menu is lg:hidden to match, and it already lists
           every facet, so nothing becomes unreachable between md and lg.
+          The row is still measured: "More" replaced the Updates link (net width
+          ~neutral), and any further top-level item needs a re-measure at 1024px,
+          not just an insert. Secondary destinations belong in More.
         -->
         <nav
           class="hidden flex-1 items-center justify-center gap-5 text-sm font-medium lg:flex xl:gap-7"
@@ -81,19 +93,11 @@ import { UserMenu } from './user-menu';
           >
             Products
           </a>
-          <!-- AECI-536: mailing-list signup destination for external links. -->
-          <a
-            routerLink="/updates"
-            routerLinkActive="text-(--accent-primary)"
-            class="text-(--text-primary) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-            i18n="@@app.nav.updates"
-          >
-            Updates
-          </a>
           <aec-nav-flyout-trigger kind="category" [items]="taxonomy.categoriesTop10()" />
-          <aec-nav-flyout-trigger kind="audience" [items]="taxonomy.audiencesTop10()" />
           <aec-nav-flyout-trigger kind="trade" [items]="taxonomy.tradesTop10()" />
+          <aec-nav-flyout-trigger kind="audience" [items]="taxonomy.audiencesTop10()" />
           <aec-nav-flyout-trigger kind="phase" [items]="taxonomy.phasesAll()" />
+          <aec-nav-more-trigger />
         </nav>
         <div class="hidden items-center gap-3 md:flex">
           <aec-search-autocomplete

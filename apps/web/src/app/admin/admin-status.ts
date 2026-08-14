@@ -10,8 +10,10 @@ import { SessionStatus } from '../auth/session-status';
 import { AdminSummaryStore } from './admin-summary.store';
 
 /**
- * App-wide "is the signed-in visitor an admin?" hint, driving the header's user
- * menu (its admin section) and the user-icon pending-review badge (AECI-259).
+ * App-wide "is the signed-in visitor an admin?" hint, driving the header's "More"
+ * overflow menu (its Admin section, `layout/nav-more-trigger.ts` + the mobile
+ * `layout/nav-menu.ts`) and the pending-review badge on that trigger (AECI-259).
+ * Both moved off the account menu when the overflow menu took over admin nav.
  *
  * Like `SessionStatus` (Phase 5 §4.4 / §8) this MUST stay neutral during SSR and
  * pre-hydration so the header's URL-keyed cached HTML is visitor-state-neutral:
@@ -29,8 +31,8 @@ import { AdminSummaryStore } from './admin-summary.store';
  * `AdminShell`/`ReviewQueue` use, so the badge ticks down live as reviews are
  * moderated, and a fresh visit to `/admin` re-seeds it authoritatively.
  *
- * `providedIn: 'root'` so the desktop header (`user-menu.ts`) and the mobile
- * overlay (`nav-menu.ts`) share one reconciled value.
+ * `providedIn: 'root'` so the desktop header (`nav-more-trigger.ts`) and the
+ * mobile overlay (`nav-menu.ts`) share one reconciled value.
  */
 @Injectable({ providedIn: 'root' })
 export class AdminStatus {

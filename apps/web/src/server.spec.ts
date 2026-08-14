@@ -158,6 +158,10 @@ describe('cacheControlForRoute', () => {
   it.each([
     ['/', { edge: 900, browser: 300 }],
     ['/about', { edge: 86_400, browser: 3_600 }],
+    // Static content pages share the /about TTL. /roadmap is noindex but still
+    // cacheable — indexability and cacheability are independent.
+    ['/updates', { edge: 86_400, browser: 3_600 }],
+    ['/roadmap', { edge: 86_400, browser: 3_600 }],
     ['/legal/privacy', { edge: 86_400, browser: 3_600 }],
     ['/products/procore', { edge: 900, browser: 0 }],
     ['/vendors/autodesk', { edge: 900, browser: 0 }],

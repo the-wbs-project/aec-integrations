@@ -125,6 +125,9 @@ describe('cacheTagInputsForPath', () => {
     // alongside `taxonomy`.
     ['/', { route: 'index', entity: { type: 'index', slug: 'home' }, taxonomy: true }],
     ['/about', { route: 'index' }],
+    // /updates + /roadmap are static content pages with no §2 entity — route tag only.
+    ['/updates', { route: 'index' }],
+    ['/roadmap', { route: 'index' }],
     ['/legal', { route: 'index' }],
     ['/legal/privacy', { route: 'index' }],
     ['/products', { route: 'index', entity: { type: 'index', slug: 'products' } }],
@@ -209,6 +212,8 @@ describe('cacheTagInputsForPath', () => {
     const paths = [
       '/',
       '/about',
+      '/updates',
+      '/roadmap',
       '/legal/terms',
       '/products',
       '/products/procore',
