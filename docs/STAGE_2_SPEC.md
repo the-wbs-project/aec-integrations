@@ -75,12 +75,16 @@ Monetization layered on verified vendor accounts. **Ranking is never for sale;**
 
 ### 2.4 Integration Attestations & Conflict — *activating the dormant 1.5 spine*
 
+> **Build contract:** this pillar is decomposed and specified in **`docs/STAGE_2_ATTESTATIONS_SPEC.md`** (the AECI-514 epic). The subsection below remains the scope outline; that doc is what each sub-issue anchors to.
+
 Stage 1.5 shipped the claim spine with **dormant** `vendor_a`/`vendor_b` attestation sources and additive `introduced_at`/`deprecated_at` version stamps (§3). Stage 2 makes them live. These are **already tracked** as Stage 1.5 carve-outs and become the sub-issues of this epic:
 
-- **Vendor attestation authoring** (AECI-301) — vendors assert/deny claims, producing real `vendor_a`/`vendor_b` attestations; `computeAgreement` (already unit-tested, computed-not-stored) lights up the confirmed/conflict states with **no migration**.
-- **Agreement/conflict surfacing + notification pipeline** (AECI-302) — the red vendor-vs-vendor conflict badge the AECi baseline can never trigger, plus the detector-fed notification pipeline (delivered via §2.3 + Resend).
-- **Version-diff timeline** (AECI-303) — per-product version selectors over the dormant `introduced_at`/`deprecated_at` stamps.
-- **Paywalled integration depth** (AECI-304) — see §2.2; the diff is paywalled, the latest view is not.
+- **Vendor attestation authoring** (AECI-301) — vendors assert/deny claims **and create their own**, producing real `vendor_a`/`vendor_b` attestations; `computeAgreement` (already unit-tested, computed-not-stored) lights up the confirmed/conflict states.
+- **Agreement/conflict surfacing + notification pipeline** (AECI-302) — the red vendor-vs-vendor conflict badge the AECi baseline can never trigger, plus the detector-fed notification pipeline. **Email-only at launch** (Resend + cron detectors + an in-portal list); real-time delivery over §2.3 is deferred to AECI-516 (§8.4(4)).
+- **Version-diff timeline** (AECI-303) — per-product version selectors. These need a **product-version entity that does not exist in the schema** (§3 note); the dormant `introduced_at`/`deprecated_at` date stamps alone cannot express "source-version × target-version".
+- **Paywalled integration depth** (AECI-304) — see §2.2; the diff is paywalled, the latest view is not. This epic ships the **seam**, not the gate.
+
+> **Correction (2026-08-14 epic review — AECI-514): the "no migration" claim above was wrong.** It held for the *agreement engine* (computed-not-stored, ADR 0018) and for the `vendor_a`/`vendor_b` sources, and that much is unchanged. But two kickoff decisions (§8.4(1) vendor-created claims, §8.4(3) the product-version model) each require schema, so this epic ships **two additive migrations**. They are specified in `STAGE_2_ATTESTATIONS_SPEC.md` §1.2. Do not plan against the old promise.
 
 ### 2.5 Dark Theme Reintroduction
 
@@ -103,10 +107,17 @@ Stage 1 shipped **light-only** (AECI-226), which deferred dark to "the Stage 2 v
 | `vendors.verified` boolean | ✅ `schema.ts` — column + `vendors_verified_idx` |
 | `profiles.banned_at` / `ban_reason` (moderation escalation) | ✅ `schema.ts` — columns + partial index `profiles_banned_idx` |
 | attestation `source` reserves `vendor_a` / `vendor_b` | ✅ `schema.ts` — `attestations_source_check` (`'aeci' \| 'vendor_a' \| 'vendor_b'`) |
-| attestation `introduced_at` / `deprecated_at` version stamps | ✅ `schema.ts` — additive, dormant |
+| attestation `introduced_at` / `deprecated_at` version stamps | ✅ `schema.ts` — additive, dormant. **⚠️ Not sufficient for AECI-303** — see the note below. |
 | `translations` table (localized vendor-managed content) | ✅ `schema.ts` — present |
 | `profiles.theme_preference` (dark-theme persistence) | ✅ `schema.ts` — `'system' \| 'light' \| 'dark'` |
 | `computeAgreement` (computed-not-stored agreement) | ✅ defined in `packages/shared/src/agreement.ts` (imported/used in `apps/api/src/lib/drizzle-helpers.ts`) — unit-tested |
+
+> **Two gaps found at the AECI-514 epic review (2026-08-14).** The table above is accurate about the *columns*, but readiness ≠ sufficiency:
+>
+> 1. **The version stamps are dates, not versions.** `introduced_at` / `deprecated_at` are ISO dates on an attestation. AECI-303's "source-version × target-version selectors" needs a **version entity per product**, and there is none in `schema.ts`. That is migration 2 of `STAGE_2_ATTESTATIONS_SPEC.md` §8.
+> 2. **`computeAgreement` renders a *single* vendor's affirmation as `confirmed`.** Unreachable in Stage 1.5 (AECi never votes), so the gap was latent — but it contradicts §8.1(4)'s "one-sided states are visibly labeled". A `single_source` state is added before any vendor attestation reaches production (`STAGE_2_ATTESTATIONS_SPEC.md` §4).
+>
+> A third finding is a live defect rather than a readiness gap: **`POST /api/promote` deletes claims by `integration_id` and cascades to attestations**, so the first re-promote of a claimed product would silently destroy every vendor attestation. Fixed in `STAGE_2_ATTESTATIONS_SPEC.md` §3.
 
 ---
 
@@ -152,12 +163,14 @@ Stage 2 feature work branches from and merges to `stage-2` (post-launch branch m
 
 ## 7. Epic map → Linear ("Stage 2 Build" project)
 
-The initial epics seeded by AECI-282 (in the `Stage 2 Build` project — renamed from `Stage 2 Planning`), following the AECI-314 "(epic)" parent-issue convention. Each epic opens with `**Spec section:** docs/STAGE_2_SPEC.md §X` and `**Base branch:** stage-2`. The anchor epic (Vendor Portal, AECI-513) is decomposed into buildable sub-issues **AECI-519…525 plus 527, 528, 529** (the +3 from the 2026-07-24 epic review), specified in **`docs/STAGE_2_VENDOR_PORTAL_SPEC.md`**.
+The initial epics seeded by AECI-282 (in the `Stage 2 Build` project — renamed from `Stage 2 Planning`), following the AECI-314 "(epic)" parent-issue convention. Each epic opens with `**Spec section:** docs/STAGE_2_SPEC.md §X` and `**Base branch:** stage-2`. The anchor epic (Vendor Portal, AECI-513) is decomposed into buildable sub-issues **AECI-519…525 plus 527, 528, 529** (the +3 from the 2026-07-24 epic review), specified in **`docs/STAGE_2_VENDOR_PORTAL_SPEC.md`**. The Integration Attestations epic (AECI-514) is decomposed into **AECI-301 / 302 / 303 plus 603…608** (the +6 from the 2026-08-14 epic review), specified in **`docs/STAGE_2_ATTESTATIONS_SPEC.md`**.
+
+> **Epic branches.** Both decomposed epics use a **long-lived epic integration branch** (`aeci-513`, `aeci-514`) rather than basing sub-issues on `stage-2` directly, because each sub-issue has to update a companion spec that does not exist on `stage-2` yet. Sub-issues branch from and PR into their epic branch; the epic branch merges to `stage-2` when it completes. **The Linear template's `**Base branch:** stage-2` line is stale for a decomposed epic's sub-issues.**
 
 | Epic | Spec | Notes |
 |---|---|---|
-| Vendor Portal & Self-Serve Claiming | §2.1 | The anchor; blocks the rest |
-| Integration Attestations & Conflict | §2.4 | Re-parents AECI-301 / 302 / 303 |
+| Vendor Portal & Self-Serve Claiming | §2.1 | The anchor; blocks the rest. **Build spec:** `STAGE_2_VENDOR_PORTAL_SPEC.md` |
+| Integration Attestations & Conflict | §2.4 | Re-parents AECI-301 / 302 / 303, +6 at kickoff. **Build spec:** `STAGE_2_ATTESTATIONS_SPEC.md` |
 | Paid Tiers & Entitlements | §2.2 | Relates AECI-304; no pay-for-placement |
 | Real-Time / Live Portal | §2.3 | Durable Objects |
 | Dark Theme Reintroduction | §2.5 | Token-block + toggle; AECI-226 deferral |
@@ -194,6 +207,21 @@ Resolved when the Vendor Portal epic was decomposed. These **promote the epic's 
 3. **Role exclusivity.** `role` / `vendor_id` are **single-valued** — no `vendor_admin` grant to `admin` accounts; **one vendor per account** at launch; conflicts are **explicit errors** (a `vendors.parent_company` multi-vendor admin uses separate accounts).
 4. **Enrichment at launch.** Reviewer-assist signals are **domain-match + a pre-built LinkedIn/person search link only**; real person-lookup providers are a **deferred DPA/GDPR decision**.
 5. **Search freshness.** Vendor edits + badge flips reach **Algolia on the nightly watermark sync (≤24h)**; **SSR is immediate** via Cache-Tag purge. Accepted for launch — **UI copy must not promise instant search**.
+
+### 8.4 Decided at build kickoff (2026-08-14 epic review — AECI-514)
+
+Resolved when the Integration Attestations epic was decomposed. These **promote the epic's working decisions into the spec** and are the contract carried in `docs/STAGE_2_ATTESTATIONS_SPEC.md`; they refine §2.4 without contradicting §8.1.
+
+1. **Vendors may CREATE claims, not just attest to AECi-seeded ones.** A vendor knows its own integration surface better than AECi's curation does; attest-only would cap coverage at whatever AECi happened to seed. Cost: a **provenance column on `claims`** (`origin` + `created_by_vendor_id`) and the promote carve-out in (4) below. **This is migration 1** — it overturns §2.4's original "no migration" promise.
+2. **Attestation authority derives from product ownership, never from the request.** `vendor_a` = a vendor with a `product_vendors` row on the integration's `source_product_id`; `vendor_b` = the same on `target_product_id`; owning **both** endpoints permits attesting both slots; owning **neither is a 404, not a 403** (the AECI-520 non-disclosure rule). This is the two-slot extension of the §8.3 `vendor_id`-scoping invariant.
+   - **One live attestation per slot**, enforced by a partial unique index on `(claim_id, source) WHERE retracted_at IS NULL`. Supersession is **retract-then-insert**, never `UPDATE`, so history stays append-only for the version timeline.
+   - **`retracted_at` is a new column.** `deprecated_at` is a *version stamp* (`STAGE_1_5_SPEC.md` §3.3), not a retraction — the shipped `attestations_active_idx` comment conflates the two and is corrected.
+3. **A real product-version model is added** (`product_versions` + version FKs on `attestations`) so AECI-303's per-product selectors are buildable. **This is migration 2.** Ordering keys off an explicit `sort_key`, never off the label (version labels do not sort lexically) or `released_at` (nullable). Versions are **vendor-authored only** at launch; promote does not ingest them.
+4. **Promote coexistence — replace-by-origin.** `POST /api/promote` replaces only `origin='aeci'` claims and `source='aeci'` attestations; vendor rows survive re-promote, and claims upsert by their identity index so ids stay stable. When AECi drops a claim that carries a live vendor attestation, it is **converted to `origin='vendor'`, not deleted** — AECi withdraws its curation, the vendor's assertion stands. This fixes a **live defect**: today promote deletes claims by `integration_id` and cascades to attestations.
+5. **`confirmed` requires two *distinct vendor identities*.** A new **`single_source`** agreement state is added so one vendor's affirmation is never rendered as bilateral agreement — the structural form of §8.1(4)'s "one-sided states are visibly labeled". `conflict` remains the only red state, and the AECi-never-red rule is unchanged.
+6. **Notifications ship email-only** (Resend) with cron-driven detectors and an in-portal list. Real-time delivery is deferred to AECI-516, whose transport is still open (§8.2) — nothing in the attestations epic waits on it.
+7. **Notification dedupe uses `audit_log` as the ledger** (`action: 'notification.sent'`), so the epic needs no notifications table and the in-portal list gets its backing query for free.
+8. **The paywall is a seam, not a gate, in this epic.** AECI-303 ships `canViewVersionDiff(...)` defaulting to open; AECI-304 / the Paid Tiers epic (AECI-515) swaps the implementation. The §8.1(4) invariant holds throughout: the **latest-version view and the latest conflict / single-source state are always free and full-fidelity**; only historical diff depth is gateable.
 
 ---
 

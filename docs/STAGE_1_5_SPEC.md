@@ -325,14 +325,21 @@ Follow-through after the pair page lands.
 
 ## 10. Out of scope / Stage 2 carve-outs
 
-Recorded so the boundary is explicit (see §1.1). These are **placeholders in the Linear "Stage 2 Planning" state**, not 1.5 work:
+Recorded so the boundary is explicit (see §1.1). These were **placeholders** when 1.5 shipped; three of them are now **active Stage 2 work** under the AECI-514 epic, specified in **`docs/STAGE_2_ATTESTATIONS_SPEC.md`** (kickoff 2026-08-14):
 
-- **AECI-301** — vendor attestation authoring (the portal seam that makes `vendor_a`/`vendor_b` attestations real).
-- **AECI-302** — conflict UI + notification pipeline (activates the red/`conflict` branch of `computeAgreement`).
-- **AECI-303** — version-diff timeline using the dormant `introduced_at`/`deprecated_at` stamps.
-- **AECI-304** — paywalled integration depth.
+- **AECI-301** — vendor attestation authoring (the portal seam that makes `vendor_a`/`vendor_b` attestations real). → `STAGE_2_ATTESTATIONS_SPEC.md` §5.
+- **AECI-302** — conflict UI + notification pipeline (activates the red/`conflict` branch of `computeAgreement`). → §4 (surfacing) + §7 (notifications).
+- **AECI-303** — version-diff timeline using the dormant `introduced_at`/`deprecated_at` stamps. → §8 (version model) + §9 (the diff).
+- **AECI-304** — paywalled integration depth. Stays under the Paid Tiers epic (AECI-515); AECI-514 ships the entitlement **seam** only (§9.3).
 
-The Stage 1.5 schema and contract are forward-compatible with all four (dormant fields, computed-not-stored agreement) — no migration is required to light them up beyond the portal itself.
+The Stage 1.5 schema and contract are forward-compatible with all four in the sense that matters — the dormant `vendor_a`/`vendor_b` sources and the computed-not-stored agreement need no change.
+
+> **Two corrections from the AECI-514 kickoff**, recorded here because they touch §3's definitions:
+>
+> 1. **`introduced_at`/`deprecated_at` are version *stamps*, per §3.3 — not attestation retirement.** The shipped `attestations_active_idx` in `schema.ts` is partial on `deprecated_at IS NULL` with a comment describing it as retirement. §3.3's definition wins (AECI-303 depends on it); supersession moves to a new `retracted_at` column and the index predicate follows it.
+> 2. **`computeAgreement` needs a `single_source` state.** As shipped (§3.4), a *single* vendor affirming with the counterparty silent resolves to `confirmed`. That branch is unreachable in 1.5, so the gap was latent — but it would render one-sided assertion as agreement, which `STAGE_2_SPEC.md` §8.1(4) forbids. `confirmed` is narrowed to **two distinct vendor identities**.
+>
+> Also: "no migration is required to light them up" was **too strong**. It holds for the agreement engine and the attestation sources; it does not hold for vendor-created claims or for real per-product version selectors, which need a version entity that §6.1 never defined. AECI-514 ships two additive migrations (`STAGE_2_ATTESTATIONS_SPEC.md` §1.2).
 
 ---
 
