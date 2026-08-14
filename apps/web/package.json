@@ -43,7 +43,7 @@
     "test:e2e:browserstack": "browserstack-node-sdk playwright test --config=playwright.browserstack.config.ts",
     "test:extras": "scripts/run-extra-tests.sh",
     "lighthouse": "lhci autorun --config=../../.lighthouserc.cjs",
-    "lint": "eslint . && node scripts/check-logical-properties.mjs",
+    "lint": "eslint . && node scripts/check-source-constraints.mjs",
     "lint:fix": "eslint . --fix"
   },
   "dependencies": {
@@ -90,7 +90,7 @@
     "tailwindcss": "^4.3.0",
     "typescript": "~6.0.3",
     "vitest": "^4.1.8",
-    "wrangler": "^4.111.0",
+    "wrangler": "^4.123.0",
     "xhr2": "^0.2.1"
   }
 }

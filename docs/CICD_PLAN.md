@@ -142,8 +142,10 @@ Runs in parallel where possible to minimize wall time. Goal: under 10 minutes to
 1. Checkout
 2. Setup Node 24 with cache
 3. `pnpm install --frozen-lockfile`
-4. `pnpm run lint` (ESLint + Prettier)
+4. `pnpm run lint` (ESLint ×4 packages + `apps/web/scripts/check-source-constraints.mjs` + Prettier)
 5. `pnpm run typecheck` (`tsc --noEmit` across the monorepo)
+
+This job is where the non-negotiable constraints are enforced (AECI-549), not just style: the Drizzle/D1 data-layer ban, zoneless, light-theme-only, and the `Vary` discipline all fail here. Because `lint-and-types` is a required check on `main` and `stage-2`, a PR cannot merge while violating one. See `ANGULAR_STYLE_GUIDE.md` §24 for the rule-to-constraint map.
 
 **Job: `unit-tests`** (~3 min)
 1. Checkout, install

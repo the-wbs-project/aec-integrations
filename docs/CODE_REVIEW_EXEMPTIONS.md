@@ -15,6 +15,8 @@ This file is the list of findings the team has consciously accepted, deferred, o
 3. If an active exemption matches → drop the finding silently. Do not list it. Do not even mention the exemption in the review output (otherwise PRs accumulate noise).
 4. If a matching exemption is **expired** (see below) → report the finding normally, AND add a one-line note at the bottom of the review: `Note: EX-NNN has expired; the underlying finding is back in scope.` The exemption stays in the file until someone retires it.
 
+**This file does not cover mechanically-enforced items.** An `EX-NNN` entry suppresses a *review finding*; it has no effect on a lint error, which fails the build before review happens. Checklist items tagged `Lint: ✅` (see `docs/CODE_REVIEW_CHECKLIST.md` §Approach and `ANGULAR_STYLE_GUIDE.md` §24) are therefore out of scope here. To make an exception to one of those, use the mechanism's own escape hatch and say why in the comment: an `eslint-disable-next-line` with a justification for an ESLint rule, or `constraints-guard-allow-next-line` for a `check-source-constraints.mjs` rule. If you find yourself wanting a standing exemption for a lint rule, the rule is wrong — fix the rule (AECI-549).
+
 ## Active vs. expired
 
 An entry is **active** when:
