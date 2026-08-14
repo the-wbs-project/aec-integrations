@@ -687,11 +687,12 @@ telling apart, and the screen distinguishes them on purpose:
 2. **In flight, and the stamp is older than the job's cadence?** (Quarter-hourly reconcile: >30 min.
    A daily job: >6h.) The run was interrupted. Confirm against the job's own `*.crashed` log and the
    Cloudflare invocation log. **Nothing self-heals a stale open row** — the next run simply writes a
-   newer one and supersedes it, and the prune that would eventually remove it is AECI-584, not yet
-   built. A stale open row is cosmetic; the *newest* row is what the screen reports.
+   newer one and supersedes it. Since AECI-584 the 03:00 retention prune does eventually remove it,
+   but only once it falls outside the 90-day `job_runs` window, so it is no help in the moment. A
+   stale open row is cosmetic; the *newest* row is what the screen reports.
 3. **A `*/15` job with several `failed` rows then an `ok`?** That is a queue retry working as
    intended. Each attempt is its own row; the successful one supersedes by `started_at`.
-4. **All nine Unknown right after a deploy?** Expected for up to 24h on the daily jobs — they have
+4. **All ten Unknown right after a deploy?** Expected for up to 24h on the daily jobs — they have
    not run yet under the new deploy. The `cron_liveness_unavailable` note on the response says how
    many, and the note clears itself as the rows arrive.
 
@@ -700,6 +701,98 @@ issue — escalate to whoever owns the API Worker's crons, exactly as for the in
 above. A failing *recorder* (`aeci.job_runs.write{outcome:failed}`) degrades the panel only: the
 bookkeeping is failure-isolated by design, so the jobs keep running and Datadog keeps alerting. Treat
 it as a defect to file, not an incident to page on.
+
+## Retention prune skipped, failed, or not running
+
+**Alerts:**
+- `AECi — Retention prune skipped (metrics_daily gap)` — a day inside the `page_views` cut window has no snapshot, so **nothing was deleted from either table**. **Informational / non-paging** — the failure direction is safe — but do not sit on it.
+- `AECi — Retention prune deleted an unexpected number of rows` — >5,000 rows in a day for one table. **Pages.**
+- `AECi — Retention prune failed (daily cron)` — the job threw; the batch is atomic, so nothing was deleted.
+- `AECi — Retention prune not running (no daily run)` — the cron stopped firing.
+
+**Metrics:**
+- `aeci.retention.prune{outcome:ok|skipped|failed}` — one heartbeat per completed run; the always-emitted series is the liveness signal. `reason:metrics_daily_gap` on a skip.
+- `aeci.retention.rows_deleted{table}` — rows removed per table, **emitted every run including zeros**.
+- `aeci.retention.prune.truncated{table}` — the per-table run budget (10,000 rows) stopped the run short.
+- `aeci.retention.prune.duration_ms` — run duration.
+
+**What it means:** The daily **03:00 UTC** §7.4 retention prune (AECI-584 / Phase 8.3 P3.2,
+`ADMIN_PANEL_SPEC.md` §7.4) deletes `page_views` older than **400 days** and `job_runs` older than
+**90**, in bounded chunks. It is the system's only scheduled `DELETE`, and the only cron that writes
+an `audit_log` row — exactly one `retention.pruned` summary row per run, in the same atomic batch as
+the deletes (the ADR 0022 exception).
+
+Two facts shape every response here. **Deletion is effectively permanent**: D1 Time Travel recovers
+only ~30 days. And **`metrics_daily` is the only thing that survives a `page_views` prune**, which is
+why the job verifies a `metrics_daily` row exists for *every* day inside its cut window before
+deleting anything, and refuses the whole run — the `job_runs` half included — if one is missing.
+
+`metrics_daily`, `audit_log`, `workflow_instances` and `workflow_transitions` are never touched
+(§26.6 / §7.4 rule 3), asserted by test rather than by comment.
+
+**First checks**
+
+1. **Skipped?** Read the `source:retention-prune-cron` log `aeci.retention.skipped` — it carries
+   `window_from`, `window_to`, `missing_count`, and the first ten `missing_days`. The fault is in the
+   **snapshot** pipeline, not here: check the `metrics-snapshot` row on `/admin/system` and the
+   `AECi — metrics snapshot` signals. Backfill the gap, then the prune resumes on its own the next
+   night:
+   ```bash
+   pnpm --filter @aeci/api ops:backfill-metrics-daily -- --env production \
+     --from <first-missing-day> --to <last-missing-day> --apply --allow-production
+   ```
+2. **Unexpected row count?** Check the two overrides on the production Worker first — both should be
+   **unset**; a `PAGE_VIEWS_RETENTION_DAYS` or `JOB_RUNS_RETENTION_DAYS` that someone shortened is
+   the most likely cause. Then read the run's audit row, which records the cutoff and per-table
+   counts:
+   ```bash
+   wrangler d1 execute aeci-app-production --env production --remote \
+     --command "select created_at, metadata from audit_log where action = 'retention.pruned' order by created_at desc limit 5"
+   ```
+   A catch-up after downtime looks identical to a runaway in the metric; the audit row's `cutoff` is
+   what tells them apart.
+3. **Failed?** `source:retention-prune-cron`, `aeci.retention.crashed`. The batch is atomic, so
+   nothing was deleted and nothing was logged — the next run re-probes from scratch.
+4. **No-data (not running)?** The cron is not firing. Check the production API Worker's scheduled
+   invocations in the Cloudflare dashboard, `wrangler tail`, and that `"0 3 * * *"` is still in
+   `apps/api/wrangler.jsonc`'s production `triggers.crons`. Nothing is lost while it is down — the
+   table just grows.
+5. **`truncated` for several consecutive days?** The per-table budget is holding it back. That is
+   fine for a catch-up (it will converge), and a real problem only if the window keeps shrinking.
+
+**Repair:** there is nothing to un-delete, which is the whole design. A skip needs the *snapshot*
+fixed, not the prune. A not-running cron is a Worker scheduling issue — escalate to whoever owns the
+API Worker's crons. If a window must be shortened urgently, set the env override rather than shipping
+a code change; values below **30 days** are ignored (D1 Time Travel's horizon) and logged as
+`aeci.retention.invalid_window_override`.
+
+### First production run — treat it as an operation, not a deploy
+
+At the shipped windows the prune deletes **nothing** until ~**2026-11-11** (`job_runs`) and
+~**2027-07** (`page_views`, whose data starts 2026-06-23). Before the first run that will actually
+remove rows — or immediately after shortening a window — dry-run the counts and record before/after
+on AECI-584.
+
+```bash
+# 1. What WOULD be deleted (both tables), at today's cutoffs.
+wrangler d1 execute aeci-app-production --env production --remote --command \
+  "select 'page_views' as t, count(*) from page_views where created_at < date('now','-400 day') || 'T00:00:00.000Z'
+   union all
+   select 'job_runs', count(*) from job_runs where started_at < date('now','-90 day') || 'T00:00:00.000Z'"
+
+# 2. Is every day in the page_views cut window captured? Zero rows = the prune will proceed.
+wrangler d1 execute aeci-app-production --env production --remote --command \
+  "select distinct substr(created_at,1,10) as day from page_views
+   where created_at < date('now','-400 day') || 'T00:00:00.000Z'
+     and substr(created_at,1,10) not in (select day from metrics_daily)
+   order by day"
+
+# 3. After the run: the single summary row it wrote.
+wrangler d1 execute aeci-app-production --env production --remote --command \
+  "select created_at, metadata from audit_log where action = 'retention.pruned' order by created_at desc limit 1"
+```
+
+If step 2 returns any rows, the prune will skip — backfill those days first (First checks 1).
 
 ## WAF rate-limit / challenge spike
 

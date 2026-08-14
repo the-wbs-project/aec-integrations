@@ -977,7 +977,7 @@ export const metricsDaily = sqliteTable(
 // ===========================================================================
 
 /**
- * One row per execution of one of the nine `scheduled.ts` cron jobs (§7.2).
+ * One row per execution of one of the ten `scheduled.ts` cron jobs (§7.2).
  * The row is inserted on ENTRY and completed on EXIT, so a run the isolate never
  * came back from (CPU/wall-clock limit, eviction) stays durably visible as
  * `finished_at IS NULL` rather than vanishing — that unfinished row is the

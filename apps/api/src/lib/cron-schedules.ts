@@ -1,5 +1,5 @@
 /**
- * The nine cron expressions the API Worker is triggered on, in one place.
+ * The ten cron expressions the API Worker is triggered on, in one place.
  *
  * They used to live as module-private constants in `scheduled.ts`, which was fine
  * while `scheduled.ts` was the only reader. `GET /api/admin/system` (AECI-580 /
@@ -11,9 +11,9 @@
  *
  * **Every value MUST stay byte-equal to the matching `triggers.crons` entry in
  * `apps/api/wrangler.jsonc`** (staging, demo and production each declare the same
- * nine). `scheduled.ts` `switch`es on `controller.cron`, so a mismatch silently
- * stops dispatching the job — the failure mode these comments have always warned
- * about.
+ * ten, and `cron-schedules.spec.ts` asserts it). `scheduled.ts` `switch`es on
+ * `controller.cron`, so a mismatch silently stops dispatching the job — the
+ * failure mode these comments have always warned about.
  *
  * The job ids are the `AdminCronJob` vocabulary in `@aeci/shared`, which is also
  * what `job_runs.job` carries since §7.2 landed (AECI-583) — one naming, three
@@ -31,6 +31,17 @@ import type { ScheduledJob } from '../env';
  *  metric is isolated in its own try/catch and a missed day is recoverable by
  *  re-running the backfill, so queue-native retries buy nothing. */
 export const SNAPSHOT_CRON = '15 0 * * *';
+
+/** Daily §7.4 retention prune (AECI-584 / `ADMIN_PANEL_SPEC.md` §7.4). **03:00
+ *  UTC** — after the 00:15 snapshot, which is the ordering the whole job depends
+ *  on: `metrics_daily` is the only thing that survives a `page_views` prune, so
+ *  running ahead of the snapshot could permanently destroy a day's traffic. The
+ *  2h45m gap is margin, not necessity (the job also *verifies* the snapshot
+ *  landed rather than trusting the schedule), and it keeps the prune an hour
+ *  clear of the 04:00 data-quality suite. Queue-less: a skipped or truncated run
+ *  is simply re-attempted tomorrow, and automatic retries are the last thing a
+ *  destructive job should have. */
+export const RETENTION_CRON = '0 3 * * *';
 
 /** Daily §23.1 data-quality suite (AECI-241 / Phase 7.6). 04:00 UTC — the §23.1
  *  slot, two hours ahead of the 06:00 moderation snapshot, in the same
@@ -85,6 +96,7 @@ export const WAF_CRON = '0 * * * *';
  */
 export const CRON_SCHEDULES: Record<AdminCronJob, string> = {
   'metrics-snapshot': SNAPSHOT_CRON,
+  'retention-prune': RETENTION_CRON,
   'data-quality': DATA_QUALITY_CRON,
   'analytics-digest': ANALYTICS_CRON,
   'moderation-snapshot': MODERATION_CRON,
@@ -107,6 +119,7 @@ export const CRON_SCHEDULES: Record<AdminCronJob, string> = {
  */
 export const ADMIN_CRON_JOB: Record<ScheduledJob, AdminCronJob> = {
   snapshot: 'metrics-snapshot',
+  retention: 'retention-prune',
   data_quality: 'data-quality',
   analytics: 'analytics-digest',
   moderation: 'moderation-snapshot',
@@ -121,6 +134,7 @@ export const ADMIN_CRON_JOB: Record<ScheduledJob, AdminCronJob> = {
  *  day, then the two sub-daily jobs. Matches `POST_LAUNCH_MONITORING.md` §1a. */
 export const CRON_JOBS: readonly AdminCronJob[] = [
   'metrics-snapshot',
+  'retention-prune',
   'data-quality',
   'analytics-digest',
   'moderation-snapshot',
