@@ -259,6 +259,29 @@ The other half of the firewall **already exists and must stay untouched**: `algo
 - **Vendor dashboard (`/vendor`)** — non-cacheable and `Cache-Tag`-free by the fail-closed classifier, so per-session forking is safe. `GET /api/vendor/me` returns an `entitlement` block and the forms disable on it (§8).
 - **Public SSR (`/vendors/:slug`, `/products/:slug`, the pair page — all cacheable)** — **consults the mirror, never `hasCapability`.** `aec-verified-badge` is untouched. **No cacheable SSR component may import `@aeci/shared/entitlements`** — worth a `no-restricted-imports` boundary, because AECI-304 is precisely the future build that would reach for it. If a paid capability ever forks public HTML it forks on **the subject vendor's** tier — already in the URL's entity, already purged by `vendor:{slug}` — never on the viewer's. See R3 in §10.
 
+### 3.4 As built (AECI-610 — 2026-08-14)
+
+Shipped as specified. Five source files, no behaviour: nothing consults the registry yet, by design.
+
+| File | What landed |
+|---|---|
+| `packages/shared/src/entitlements.ts` | `CAPABILITIES` (the 7 ids, §3.1 order), `TIERS`, `TIER_CAPABILITIES`, `tierFor`, `hasCapability`, `capabilitiesFor`, `isEntitlementTier`. **Zero imports.** |
+| `packages/shared/src/entitlements.spec.ts` | The three-assertion firewall (§3.2) + the fail-closed matrix. 20 cases. |
+| `packages/shared/src/api/admin-entitlements.ts` | `SetVendorEntitlementSchema`, `VendorEntitlementResponseSchema` (+ `EntitlementTierSchema` / `EntitlementStatusSchema` / `EntitlementArrangementSchema`), on the `api/index.ts` barrel. §5 consumes it. |
+| `packages/shared/src/errors/codes.ts` | `ENTITLEMENT_REQUIRED`. No thrower yet — §4 wires it. |
+| `packages/shared/eslint.config.mjs` | The file-scoped `no-restricted-imports` (§3.1). |
+
+Four decisions worth knowing before building on this:
+
+1. **`ENTITLEMENT_STATUSES` lives in the registry, not the wire module.** A small, deliberate addition beyond the §3.1 sketch. The status vocabulary is a plain `as const` array (zod-free, so it costs the bundle nothing), and putting it beside `TIERS` means the D1 CHECK (§2.2, AECI-609), the admin wire enum (§5), and the session block (§4) read one list instead of three copies. `tierFor` still takes a loose `status: string` and fails closed on anything that isn't `active`, including a value outside the vocabulary.
+2. **The registry is NOT on the root `src/index.ts` barrel.** That barrel does `export * from './api'`, i.e. it carries zod — the same reason `algolia.ts` was kept out. `@aeci/shared/entitlements` being the only import path makes R11 structural rather than a convention. **Import it by subpath; a root-barrel import will not resolve.**
+3. **The lint ban also covers `api/*`, not just `zod`.** `no-restricted-imports` sees only direct imports, so one hop through a wire-contract module would reintroduce the chunk with nothing to catch it. Both halves are proved in `apps/web/src/eslint-config.spec.ts`, which now resolves `packages/shared` configs too — including the case that the ban is scoped to the one file and does not leak across the package.
+4. **The §3.3(c) SSR import boundary is NOT built.** Deferred to whichever issue adds the first SSR consumer (AECI-614 is the likely one; AECI-304 is the build R3 actually warns about). **R3 stays open until then** — there is no mechanical guard today stopping a cacheable SSR component from importing the registry.
+
+The disjointness proof carries a non-vacuity case of its own (it asserts the ranking vocabulary is non-empty and that the `unordered()`/`searchable()`/`desc()` wrappers really were stripped), because a broken strip helper would make every assertion below it pass trivially. Per AC 2, `algolia.ts` and the three `customRanking` freezes in `algolia.spec.ts` were not touched.
+
+**Bundle impact, measured** (AC 5, `ng build --configuration production` before/after): **`main-*.js` is byte-identical** (51,305 B) and the chunk count is unchanged (99). The only delta anywhere is **+44 bytes in one lazy chunk** — the `ENTITLEMENT_REQUIRED` entry landing in the already-shipped `ApiErrorCode` map, which `apps/web` genuinely imports. No zod schema, no `TIER_CAPABILITIES`, and no registry function entered the browser graph. R11 held.
+
 ---
 
 ## 4. The entitlement gate (AECI-611)
@@ -428,7 +451,7 @@ The three tests below are **invariant tests** — they encode decisions, not beh
 | Test | Owner | Asserts |
 |---|---|---|
 | Mirror sole-writer | §2 | `grantSeatStatements` (and every route handler) emits no statement touching `vendors.verified`; only `lib/vendor-entitlement.ts` does, and never one side of the *iff* without the other |
-| Ranking disjointness | §3 | the capability vocabulary and the union of `INDEX_SETTINGS` searchable/facet/customRanking attributes are disjoint sets (§3.2) |
+| Ranking disjointness | §3 | the capability vocabulary and the union of `INDEX_SETTINGS` searchable/facet/customRanking attributes are disjoint sets (§3.2) — **live** in `packages/shared/src/entitlements.spec.ts` |
 | Reads are never gated | §4 | `GET /api/vendor/me` returns 200 for a vendor whose entitlement is `revoked`/`expired`, with the downgraded `entitlement` block |
 
 Plus, per issue: the second-seat no-op matrix (§2.3) against the in-memory D1 harness; **`vendors.updated_at` moves iff `vendors.verified` moves, in both directions** (§2.3 / R2); 422 idempotency on `set`/`clear` (§5); `POST /api/promote` still cannot move the bit (the AECI-520 regression guard, carried over from AECI-532); the cron writes no `status` (§7.3); and the no-read-path guard on `drizzle-helpers.ts` (§2.5).
@@ -439,7 +462,7 @@ Plus, per issue: the second-seat no-op matrix (§2.3) against the in-memory D1 h
 |---|---|---|
 | R1 | `workflow_instances_type_check` is a **closed** CHECK; a new type is a SQLite table rebuild | No workflow row for entitlement changes; `audit_log.entity_type` is unconstrained. Settled in §1.2/§2, not §5. |
 | R2 | The Algolia watermark. AECI-529 only ever reasoned about the flip to **`true`** | **`vendors.updated_at` moves iff `verified` moves**, both directions tested. A renewal that doesn't flip the mirror must **not** bump it (needless nightly re-push); an **un-verify must**, or a lapsed vendor keeps a Verified badge in search indefinitely. |
-| R3 | Cache key vs Cache-Tag | A public page may never fork on the **viewer's** entitlement (Workers Cache is URL-keyed; `CLAUDE.md` visitor-state-neutral constraint). Enforced by the SSR import boundary (§3.3c). Tag side: one shared tag builder (§2.5). |
+| R3 | Cache key vs Cache-Tag | A public page may never fork on the **viewer's** entitlement (Workers Cache is URL-keyed; `CLAUDE.md` visitor-state-neutral constraint). To be enforced by the SSR import boundary (§3.3c) — **still open**: AECI-610 deferred that rule to the issue adding the first SSR consumer (§3.4). Tag side: one shared tag builder (§2.5). |
 | R4 | `profiles.trust_tier`'s CHECK vocabulary **literally contains `'verified'`** — a reviewer concept on the neighbouring table | Session field is `entitlementTier`, never `tier`; no `TrustTier` type; `DATABASE_SCHEMA.md` §7.1 gets a pointer. `grantSeatStatements`' no-clobber comment already lists `trust_tier` — that stays true and now needs the disambiguating word. |
 | R5 | Seeds already ship `verified = 1`; the `…0061` fixture is the `/vendor` e2e persona's anchor | §2.4 — three seeded states, a script-based backfill per tier, and the drift check as proof. |
 | R6 | `vendor_entitlements.granted_by` is the **eighth** inbound FK to `profiles.id`; `AUTH_AND_RLS.md` §8 documents seven, all nulled by the `DELETE /api/account` batch | `ON DELETE SET NULL` **and** an explicit null-out in the erasure batch **and** the doc table goes to eight rows. Otherwise account deletion FK-fails for any admin who ever granted an entitlement — silent, delayed, GDPR-relevant. |
@@ -447,7 +470,7 @@ Plus, per issue: the second-seat no-op matrix (§2.3) against the in-memory D1 h
 | R8 | Three orthogonal "take it away" actions | §5.2 table + admin UI copy. |
 | R9 | `GET /api/vendors?verified=` quietly changes meaning (from "was granted a claim" to "has an active entitlement") | No code change, and §2.5 forbids "fixing" it to join the entitlement table. Backed by the read-path test. |
 | R10 | New response fields shipping as `undefined` | Make them **required** so `validateResponseInDev` catches a missed construction site (§6.7). |
-| R11 | The 327 kB zod-chunk regression | `entitlements.ts` imports no zod; wire schemas live in a separate `api/` module (§3.1). |
+| R11 | The 327 kB zod-chunk regression | **Closed (AECI-610).** `entitlements.ts` imports no zod and no `api/*`, enforced by a file-scoped lint rule and kept off the zod-carrying root barrel; wire schemas live in `api/admin-entitlements.ts` (§3.1 / §3.4). |
 | R12 | `OBSERVABILITY.md`'s `aeci.email.send` template list is **already** stale | Fix it in §9 rather than adding two more templates to a wrong list. |
 | R13 | Gating `GET /api/vendor/me` would 404 the whole dashboard and hide the renewal notice from exactly the cohort being billed | §4.3 — an acceptance criterion with a test. |
 

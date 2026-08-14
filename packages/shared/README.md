@@ -25,18 +25,39 @@ into both Workers via TypeScript at the next typecheck. No regeneration step.
 ```
 packages/shared/
 ├── src/
-│   ├── api/
+│   ├── api/                  # wire contracts — request/response Zod. Carries zod.
 │   │   ├── common.ts         # ApiErrorSchema, PaginationQuerySchema, SortOrderSchema
 │   │   ├── common.spec.ts
 │   │   └── index.ts          # barrel for `@aeci/shared/api`
 │   ├── errors/
 │   │   ├── codes.ts          # ApiErrorCode constants (NOT_FOUND, FORBIDDEN, …)
 │   │   └── index.ts
+│   ├── entitlements.ts       # domain rule table — see "Zod-free modules" below
+│   ├── algolia.ts            #   "
 │   └── index.ts              # top-level barrel
 ├── package.json
 ├── tsconfig.json
 └── vitest.config.ts
 ```
+
+### Zod-free modules
+
+`src/api/*` is the wire-contract namespace. Beside it sit root-level **domain
+rule tables** — pure const data and pure functions, no zod: `algolia.ts`,
+`agreement.ts`, `slug.ts`, `entitlements.ts`.
+
+Two of them (`algolia.ts`, `entitlements.ts`) are deliberately **not** on the
+root `src/index.ts` barrel, and that is not an oversight. The barrel does
+`export * from './api'`, so it carries zod; leaving the subpath as the only
+import path is what keeps a browser-bound consumer from reaching one of these
+through a module that drags the whole schema set with it. Import them as
+`@aeci/shared/entitlements`, not from `@aeci/shared`.
+
+`entitlements.ts` additionally has a **file-scoped `no-restricted-imports`** in
+`eslint.config.mjs` banning `zod` and `api/*` outright — it ships in the lazy
+`/vendor` Angular route, and the `//sideEffects` note in `package.json` records
+what happened the one time that graph picked up zod. See
+`docs/STAGE_2_PAID_TIERS_SPEC.md` §3.1.
 
 Consumers can import either from the root or from a subpath that matches the
 shape shown in the docs:

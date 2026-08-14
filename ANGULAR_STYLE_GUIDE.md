@@ -333,11 +333,12 @@ Lint: 🟡 review-only (custom regex rule deferred — see §24 "Future enforcem
 
 ## 24. Appendix: ESLint enforcement matrix
 
-Rules enforced by `pnpm lint`. Three layers, and knowing which is which matters when you add a rule:
+Rules enforced by `pnpm lint`. Four layers, and knowing which is which matters when you add a rule:
 
 1. **`angularBase`** (`eslint.config.base.mjs`, consumed by `apps/web/eslint.config.mjs`) — the Angular and brand-voice rules. `apps/web` only.
 2. **`tsBase`** (same file, consumed by all four packages) — the cross-cutting constraint guards from AECI-549. These reach `apps/api`, `apps/datatool`, and `packages/shared` as well.
-3. **`apps/web/scripts/check-source-constraints.mjs`** — a line scanner for what ESLint structurally cannot read: Tailwind class strings inside external `.html` templates (the template processor parses them into a template AST, not lintable string literals) and selectors in `.css` (nothing lints CSS here — there is no stylelint). Wired into `apps/web`'s `lint` script.
+3. **Package-local file-scoped blocks** (e.g. `packages/shared/eslint.config.mjs`) — a rule that applies to one file, not a tier. See "Package-local guards" below.
+4. **`apps/web/scripts/check-source-constraints.mjs`** — a line scanner for what ESLint structurally cannot read: Tailwind class strings inside external `.html` templates (the template processor parses them into a template AST, not lintable string literals) and selectors in `.css` (nothing lints CSS here — there is no stylelint). Wired into `apps/web`'s `lint` script.
 
 **Two traps when editing the config.** First, flat config *replaces* a rule's options per file rather than merging them, and `apps/web` spreads `angularBase` after `tsBase` — so both `angularBase` TypeScript blocks must restate every `no-restricted-syntax` selector or they silently drop the ones `tsBase` set. Second, the `tsBase` rules object has no `files` key, so it also applies to the `.html` files `apps/web` lints; ESTree selectors belong in a `files`-scoped block. `apps/web/src/eslint-config.spec.ts` asserts the resolved config for both packages in both tiers, so either regression fails a test rather than quietly disabling a constraint.
 
@@ -382,6 +383,21 @@ These live in `tsBase`, so they apply to `apps/api`, `apps/datatool`, and `packa
 | `no-restricted-syntax` | a `verified` key in `db.update(vendors).set({…})` or `db.insert(vendors).values({…})` | yes | Entitlement mirror sole-writer (`docs/STAGE_2_PAID_TIERS_SPEC.md` §2.1) |
 
 **Scope note on the mirror sole-writer rule (AECI-609).** It is the only guard with a *per-file* exemption, so it lives in its own `CONSTRAINT_SYNTAX_MIRROR` tier and its own `tsBase` block rather than joining the source-only list — folding a file exemption into that list would silently strip `dark:` and `Vary` from the exempted files too. `MIRROR_WRITE_EXEMPT` holds exactly two entries: `lib/vendor-entitlement.ts`, the permanent by-design writer, and `lib/vendor-grant.ts`, a **temporary** carve-out because it still emits the `verified` flip today — **AECI-612 (§6 step 1) deletes that statement and must delete the exemption and its `eslint-config.spec.ts` assertion in the same commit.** Landing scoped and widening as the baseline is cleaned up is the documented lifecycle below. The selector is anchored to the Drizzle *chain* (`.update(vendors).set(…)`), not to the property name, so `columns: { verified: true }` read projections, `db.update(vendors).set(writeColumns)`, and Angular's `signal.set({…})` all stay clean. Accepted limitation: `db.update(schema.vendors)` would evade it — the `entitlement_mirror_drift` data-quality check is the run-time backstop that covers what lint cannot see (raw D1 SQL, `apps/datatool`, an unrun backfill).
+
+### Package-local guards
+
+One rule is scoped to a single file rather than a tier, because the thing it protects is invisible at runtime.
+
+| Rule | Scope | Bans | Constraint |
+|---|---|---|---|
+| `no-restricted-imports` | `packages/shared/src/entitlements.ts` only (`packages/shared/eslint.config.mjs`) | `zod`, `zod/*`, and `./api/*` / `@aeci/shared/api*` | The capability registry ships in the lazy `/vendor` Angular route; one value import from an `api/*` module once dragged the whole schema set plus a 327 kB zod chunk into the initial graph (AECI-610 / `STAGE_2_PAID_TIERS_SPEC.md` §3.1, R11) |
+
+Two things about it generalize to any future file-scoped rule here:
+
+- **It restates `CONSTRAINT_IMPORTS`.** Flat config replaces a rule's options per file, so a block setting only the new ban would silently drop the Prisma and zone.js bans for that file — the same trap described above, in miniature.
+- **`api/*` is banned alongside `zod` itself**, because `no-restricted-imports` matches only direct imports. Banning the dependency without banning the one-hop route to it would leave the rule looking enforced while doing nothing.
+
+`apps/web/src/eslint-config.spec.ts` resolves `packages/shared` configs too, and asserts both halves fire, that the restated bans survived, and that the ban is scoped to the file rather than leaking across the package.
 
 ### Line-scanner guards (`check-source-constraints.mjs`)
 
