@@ -3,8 +3,22 @@
 Remove **22 orphaned `integrations` rows** (+ their 63 claims and 63 attestations) from
 production D1. They render as duplicate mechanism cards on the public pair pages.
 
-**Status: not yet run.** The dry-run has been executed against production and all guards
-pass; the `--apply` step is waiting on operator sign-off.
+**Status: RUN — complete.** Verified 2026-08-13 (AECI-568): all 22 ids in
+`orphan-ids.txt` are absent from `aeci-app-production`. The delete left no `audit_log`
+rows, which is expected — it went through the datatool, whose prune issues raw SQL
+outside the API's `db.batch` + audit builders. This runbook is kept for the diagnosis
+and the rollback recipe; there is nothing left to apply.
+
+> **Production is not orphan-free, and this script is not the tool for the rest.** The
+> 2026-08-13 sweep found **2** more unreferenced `integrations` rows, both Polycam
+> (`polycam→autocad`, `polycam→arcgis`). They are a *different* failure — **no twin**, so
+> they are the only copy of their mechanism and the `orphans_without_a_twin` guard below
+> will correctly refuse them. They turned out to be an **editorial retraction** (a curator
+> deleted the Airtable records on purpose), so the exit was still a delete — but routed
+> through the datatool prune with the tripped guards acknowledged by name, not through this
+> script, which has no override. Tracked as AECI-593; see
+> `scripts/ops/2026-08-promote-strand-audit/` for the evidence and
+> `apps/datatool/README.md` for the acknowledgment contract.
 
 ## What an "orphan" is here
 
@@ -25,6 +39,10 @@ ever delete it. It is permanently stranded.
 | Airtable records carrying a `supabase_integration_id` | 414 |
 | **Orphans** (in D1, unreferenced by Airtable) | **22** |
 | Dangling (Airtable id with no D1 row) | 0 |
+
+Re-measured 2026-08-13 after the run, by
+`scripts/ops/2026-08-promote-strand-audit/audit.mjs`: 496 D1 rows / 494 Airtable
+pointers / **2** orphans (none of them from this batch) / 0 dangling.
 
 Worked example — Smartsheet ↔ Procore. Airtable holds exactly **two** records
 (`recLidKj1VUMFR5XT`, `rectnbqtS4V2xexTH`); D1 holds **four**. Airtable's two ids point at
@@ -48,6 +66,13 @@ because Airtable already holds the surviving ids and will `UPDATE` those.
 **Follow-up worth filing:** promote has no natural-key guard on
 `(source, target, mechanism)`, so a dropped write-back silently duplicates rather than
 failing. That is the durable fix; this runbook only clears the existing residue.
+
+**Update (2026-08-13, AECI-561/568).** The *upstream* cause is fixed: promote is now
+asynchronous (AECI-563), the review app stamps a `promote_job_id` ledger before pushing
+and collects the ids afterwards (AECI-567), and an hourly cron sweeps abandoned jobs
+(AECI-570) — so a lost response no longer strands ids at all. A natural-key guard is
+still unfiled; it would now only defend against a curator deleting an Airtable record
+that D1 still holds, which is exactly the residual the promote-strand audit reports.
 
 ## Safety guards (all verified 0 against production)
 

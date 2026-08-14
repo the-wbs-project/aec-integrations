@@ -292,8 +292,8 @@ export type PromoteIntegration = z.infer<typeof PromoteIntegrationSchema>;
 export const PromoteJobIdSchema = z
   .string()
   .regex(
-    /^[A-Za-z0-9_][A-Za-z0-9_-]{7,99}$/,
-    'jobId must be 8–100 characters of [A-Za-z0-9_-] starting with [A-Za-z0-9_] (it becomes the Workflow instance id)',
+    /^[A-Za-z0-9_-]{8,100}$/,
+    'jobId must be 8–100 characters of [A-Za-z0-9_-] (it becomes the Workflow instance id)',
   );
 
 export const PromotePayloadSchema = z

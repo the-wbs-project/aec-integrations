@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "e5d48681-9123-4602-9128-9808c58aaf56",
-  "prevId": "9a4c84fd-7bf5-4f18-b66d-9b23a30a8eac",
+  "id": "25a6c317-bc7c-447d-9c26-fb1a5ace1c19",
+  "prevId": "7e5d3e5f-7a36-4e15-9678-9c6e948c2884",
   "tables": {
     "attestations": {
       "name": "attestations",
@@ -422,7 +422,15 @@
           "autoincrement": false
         }
       },
-      "indexes": {},
+      "indexes": {
+        "feedback_created_at_idx": {
+          "name": "feedback_created_at_idx",
+          "columns": [
+            "created_at"
+          ],
+          "isUnique": false
+        }
+      },
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
@@ -706,6 +714,72 @@
         }
       }
     },
+    "job_runs": {
+      "name": "job_runs",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "job": {
+          "name": "job",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "started_at": {
+          "name": "started_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "finished_at": {
+          "name": "finished_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "outcome": {
+          "name": "outcome",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "detail": {
+          "name": "detail",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "job_runs_job_started_at_idx": {
+          "name": "job_runs_job_started_at_idx",
+          "columns": [
+            "job",
+            "started_at"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "job_runs_outcome_check": {
+          "name": "job_runs_outcome_check",
+          "value": "\"outcome\" IN ('ok', 'failed', 'skipped')"
+        }
+      }
+    },
     "mailing_list": {
       "name": "mailing_list",
       "columns": {
@@ -836,12 +910,94 @@
             "unsubscribe_token"
           ],
           "isUnique": true
+        },
+        "mailing_list_created_at_idx": {
+          "name": "mailing_list_created_at_idx",
+          "columns": [
+            "created_at"
+          ],
+          "isUnique": false
+        },
+        "mailing_list_unsubscribed_at_idx": {
+          "name": "mailing_list_unsubscribed_at_idx",
+          "columns": [
+            "unsubscribed_at"
+          ],
+          "isUnique": false
         }
       },
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {}
+    },
+    "metrics_daily": {
+      "name": "metrics_daily",
+      "columns": {
+        "day": {
+          "name": "day",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "metric": {
+          "name": "metric",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "value": {
+          "name": "value",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source": {
+          "name": "source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'measured'"
+        },
+        "computed_at": {
+          "name": "computed_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "metrics_daily_metric_day_idx": {
+          "name": "metrics_daily_metric_day_idx",
+          "columns": [
+            "metric",
+            "day"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "metrics_daily_day_metric_pk": {
+          "columns": [
+            "day",
+            "metric"
+          ],
+          "name": "metrics_daily_day_metric_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "metrics_daily_source_check": {
+          "name": "metrics_daily_source_check",
+          "value": "\"source\" IN ('measured', 'reconstructed')"
+        }
+      }
     },
     "page_views": {
       "name": "page_views",
@@ -860,6 +1016,13 @@
           "notNull": true,
           "autoincrement": false
         },
+        "concrete_path": {
+          "name": "concrete_path",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "product_id": {
           "name": "product_id",
           "type": "text",
@@ -874,15 +1037,22 @@
           "notNull": false,
           "autoincrement": false
         },
-        "user_id": {
-          "name": "user_id",
+        "taxonomy_kind": {
+          "name": "taxonomy_kind",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
         },
-        "session_id": {
-          "name": "session_id",
+        "taxonomy_id": {
+          "name": "taxonomy_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "navigation": {
+          "name": "navigation",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
@@ -930,6 +1100,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "cf_as_organization": {
+          "name": "cf_as_organization",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "cf_bot_score": {
           "name": "cf_bot_score",
           "type": "integer",
@@ -972,13 +1149,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "profile_role": {
-          "name": "profile_role",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "text",
@@ -1013,15 +1183,6 @@
           "isUnique": false,
           "where": "\"product_id\" IS NOT NULL"
         },
-        "page_views_user_idx": {
-          "name": "page_views_user_idx",
-          "columns": [
-            "user_id",
-            "created_at"
-          ],
-          "isUnique": false,
-          "where": "\"user_id\" IS NOT NULL"
-        },
         "page_views_bot_idx": {
           "name": "page_views_bot_idx",
           "columns": [
@@ -1051,19 +1212,6 @@
           "tableTo": "vendors",
           "columnsFrom": [
             "vendor_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "page_views_user_id_profiles_id_fk": {
-          "name": "page_views_user_id_profiles_id_fk",
-          "tableFrom": "page_views",
-          "tableTo": "profiles",
-          "columnsFrom": [
-            "user_id"
           ],
           "columnsTo": [
             "id"
@@ -1675,6 +1823,13 @@
           "autoincrement": false,
           "default": "'pending'"
         },
+        "promoted_at": {
+          "name": "promoted_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "priority_tier": {
           "name": "priority_tier",
           "type": "text",
@@ -1971,45 +2126,6 @@
           "value": "\"theme_preference\" IN ('system', 'light', 'dark')"
         }
       }
-    },
-    "promote_jobs": {
-      "name": "promote_jobs",
-      "columns": {
-        "job_id": {
-          "name": "job_id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "result": {
-          "name": "result",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "promote_jobs_created_at_idx": {
-          "name": "promote_jobs_created_at_idx",
-          "columns": [
-            "created_at"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
     },
     "reviews": {
       "name": "reviews",
@@ -3429,6 +3545,45 @@
           "onUpdate": "no action"
         }
       },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "promote_jobs": {
+      "name": "promote_jobs",
+      "columns": {
+        "job_id": {
+          "name": "job_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "result": {
+          "name": "result",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "promote_jobs_created_at_idx": {
+          "name": "promote_jobs_created_at_idx",
+          "columns": [
+            "created_at"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {}

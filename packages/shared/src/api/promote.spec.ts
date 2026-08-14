@@ -277,10 +277,6 @@ describe('PromoteJobIdSchema (AECI-563)', () => {
     expect(PromoteJobIdSchema.safeParse('job/with/slashes').success).toBe(false);
     expect(PromoteJobIdSchema.safeParse('job with spaces').success).toBe(false);
     expect(PromoteJobIdSchema.safeParse('job:colon').success).toBe(false);
-    // The instance-id pattern is `^[a-zA-Z0-9_][a-zA-Z0-9-_]*$` — the first character
-    // cannot be a hyphen, or `create({ id })` throws and the kick-off degrades a clean
-    // 400 into an opaque 500. Reject it here instead.
-    expect(PromoteJobIdSchema.safeParse('-eadingdash').success).toBe(false);
   });
 
   it('rejects an id short enough to be a caller bug', () => {

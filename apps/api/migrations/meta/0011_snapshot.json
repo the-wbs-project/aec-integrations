@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "2755d703-66aa-43ef-b2e8-6c783b70f01d",
-  "prevId": "8283fe9d-9217-4064-bfa6-a9bf2596e253",
+  "id": "8283fe9d-9217-4064-bfa6-a9bf2596e253",
+  "prevId": "e5d48681-9123-4602-9128-9808c58aaf56",
   "tables": {
     "attestations": {
       "name": "attestations",
@@ -703,72 +703,6 @@
         "integrations_distinct_endpoints_check": {
           "name": "integrations_distinct_endpoints_check",
           "value": "\"source_product_id\" <> \"target_product_id\""
-        }
-      }
-    },
-    "job_runs": {
-      "name": "job_runs",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "integer",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": true
-        },
-        "job": {
-          "name": "job",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "started_at": {
-          "name": "started_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "finished_at": {
-          "name": "finished_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "outcome": {
-          "name": "outcome",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "detail": {
-          "name": "detail",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "job_runs_job_started_at_idx": {
-          "name": "job_runs_job_started_at_idx",
-          "columns": [
-            "job",
-            "started_at"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {
-        "job_runs_outcome_check": {
-          "name": "job_runs_outcome_check",
-          "value": "\"outcome\" IN ('ok', 'failed', 'skipped')"
         }
       }
     },
@@ -3531,6 +3465,45 @@
           "onUpdate": "no action"
         }
       },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "promote_jobs": {
+      "name": "promote_jobs",
+      "columns": {
+        "job_id": {
+          "name": "job_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "result": {
+          "name": "result",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "promote_jobs_created_at_idx": {
+          "name": "promote_jobs_created_at_idx",
+          "columns": [
+            "created_at"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {}

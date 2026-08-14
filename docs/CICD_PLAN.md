@@ -365,7 +365,9 @@ Stored in GitHub Settings → Secrets and Variables → Actions. Scoped per envi
 |---|---|---|
 | `CLOUDFLARE_API_TOKEN` | Wrangler auth + cache purge. Scope: **`Zone.Cache Purge` on `aecintegrations.com`**, the Workers Scripts edit `wrangler deploy` requires, **and `Account → Queues → Edit`** (ADR 0013 — the deploy provisions + binds the Algolia job queues; without it `wrangler queues create` and the consumer-binding deploy fail). Keep it as narrow as these three need; issue a new token at the same scope and rotate rather than broadening reactively. | All |
 | `CLOUDFLARE_ACCOUNT_ID` | Account identifier | All |
-| `CLOUDFLARE_ZONE_ID` | Zone ID for `aecintegrations.com`; used by wrangler and the zone-scoped cache-purge token backing `POST /admin/purge` (see `CACHE_STRATEGY.md` §5) | staging, production |
+| `CF_ZONE_ID` | Zone ID for `aecintegrations.com` (single shared value — one zone). **Pushed to both Workers** by `deploy.yml` / `promote-to-demo.yml` / `promote-to-prod.yml`: it is the zone the purge-by-tag calls target *and* the zone the AECI-262 WAF poll queries. Graceful warn-and-skip. (Earlier drafts of this table called it `CLOUDFLARE_ZONE_ID`; the live secret name is `CF_ZONE_ID`.) | All |
+| `CF_PURGE_API_TOKEN` | Cloudflare API token used to **call** purge-by-tag, scoped to **`Zone.Cache Purge` on `aecintegrations.com` only**. Pushed to **both** Workers by the same three workflows (the web Worker's `POST /admin/purge` handler and the API Worker's post-promote purge each hold their own copy — ADR 0010). Graceful warn-and-skip: absent → purge no-ops / 502s and the edge self-heals at TTL. See `CACHE_STRATEGY.md` §5a. | All |
+| `ADMIN_PURGE_TOKEN` | Long-lived bearer the **caller** of `POST /admin/purge` presents (CI's post-seed taxonomy purge + manual incident purges). Single shared un-suffixed value; pushed to the **web Worker only** by the same three workflows, so the token CI presents and the token the Worker checks are the same secret by construction. Graceful warn-and-skip: absent → the endpoint 401s. | All |
 | `CF_ANALYTICS_API_TOKEN` | **Single shared** (un-suffixed, like `SUPABASE_ANON_KEY` — the token is zone-scoped and the zone is shared) Cloudflare token for the hourly WAF firewall-event poll (AECI-262 / §15.1): reads the zone's `firewallEventsAdaptiveGroups` over the GraphQL Analytics API and emits `aeci.waf.ratelimit.blocked`. Scope: **`Zone Analytics: Read` on `aecintegrations.com`** — a *different* scope than the `Zone.Cache Purge` purge token, so it is its own secret. Pushed to the API Worker as `CF_ANALYTICS_API_TOKEN` by `deploy.yml` (staging) / `promote-to-demo.yml` (demo) / `promote-to-prod.yml` (production), all **graceful warn-and-skip**. Reuses the env's `CF_ZONE_ID`. **Optional + fail-safe:** absent → the poll logs `outcome:skipped_no_creds` and no-ops. See `docs/waf-rate-limits.md` §5. | All |
 | `SUPABASE_ACCESS_TOKEN` — **orphaned** | Was for the Supabase CLI app-DB migrations; the Postgres `supabase db push` machinery was decommissioned (AECI-278). Only manual auth-baseline reconciliation uses the CLI now. | — |
 | `SUPABASE_DB_URL` / `DIRECT_URL` — **retired** | The Postgres app-DB `supabase db push` path is gone (AECI-278). No DB connection URL is needed — the app DB is Cloudflare D1, reached via the Worker's `DB` binding. | — |
@@ -384,6 +386,7 @@ Stored in GitHub Settings → Secrets and Variables → Actions. Scoped per envi
 | `LINEAR_WEBHOOK_SECRET` | Webhook signature verification | All |
 | `ANTHROPIC_API_KEY_STAGING` / `_PRODUCTION` | Anthropic key for review toxicity scoring (Claude Haiku, AECI-258); pushed to the API Worker as `ANTHROPIC_API_KEY`. **Optional + fail-open on every env** (prod included — warn-and-skip, NOT fail-closed): a missing key stores `toxicity_score=null` and the review still enters the moderation queue. Previews reuse the `_STAGING` value. Supersedes the sunsetting `PERSPECTIVE_API_KEY`. **GDPR:** confirm zero-data-retention (ZDR) is enabled on the Anthropic org before provisioning a real key — the Messages API has no per-request no-store control, so otherwise scored review bodies are retained ~30 days outside the §8 erasure boundary. | staging, production |
 | `BRANDFETCH_CLIENT_ID` | Logo CDN | All |
+| `AIRTABLE_TOKEN` | **Single shared, read-only** Airtable PAT scoped to `data.records:read` on the AEC Integrations curation base (`appy81IdGJY6Fngf9`). Consumed only by [`promote-strand-audit.yml`](../.github/workflows/promote-strand-audit.yml) (§11a) to cross-reference production D1 against the base. **Never pushed to a Worker** — no runtime code in this repo talks to Airtable; the curation base belongs to the review app. **Optional + skip-green:** absent → the audit job warns and exits 0, so the guard is simply inert rather than red. Read-only by design: the audit has no write path. | CI (promote-strand-audit.yml) |
 
 ### 7.2 Worker secrets
 
@@ -600,6 +603,20 @@ build ──────────┘
 ### 11.3 Selective testing
 
 For very small PRs (e.g. doc-only changes), skip downstream jobs via `paths-ignore` in workflow triggers.
+
+---
+
+## 11a. Scheduled data-integrity guards
+
+Two workflows run on a cron rather than on a PR, because the drift they catch is
+created by **operator actions against live data**, not by merging code. Both are
+strictly read-only against production and never repair anything — repair is a
+deliberate, reviewed human action.
+
+| Workflow | Cron (UTC) | What it checks | On red |
+|---|---|---|---|
+| [`reconcile-counts.yml`](../.github/workflows/reconcile-counts.yml) | `0 8 * * *` | Denormalized product aggregates (`integration_count`, `review_count`, `rating_*_avg`) against their source rows, on staging + production | A write path mutated rows without `recomputeProductCounts()` landing. Repair with `db:reconcile-counts -- --fix`. |
+| [`promote-strand-audit.yml`](../.github/workflows/promote-strand-audit.yml) | `0 9 * * *` | Production D1 against the Airtable curation base — rows on either side with no valid counterpart link (AECI-568/593). Production only: one curation base serves all tiers and holds production uuids. | Usually a curator deleted or edited an Airtable record whose D1 row is still live; promote has no delete semantics, so that strands the row forever. Recipes in `scripts/ops/2026-08-promote-strand-audit/README.md` §Healing. **Skips green until `AIRTABLE_TOKEN` is set.** |
 
 ---
 

@@ -120,6 +120,7 @@ Tables grouped by domain:
 - `workflow_instances` — multi-step process tracking
 - `workflow_transitions` — state transitions for workflows
 - `audit_log` — every state-changing event
+- `promote_jobs` — exactly-once ledger for the async promote ingest (AECI-571)
 
 **Analytics and caching**:
 - `page_views` — server-side page view log with CF enrichment
@@ -813,6 +814,57 @@ create index audit_log_created_at_idx on audit_log(created_at);
 
 ---
 
+### 8.5 `promote_jobs`
+
+Exactly-once ledger for the async promote ingest (AECI-571 / ADR 0021). Internal
+bookkeeping — nothing public reads it.
+
+Cloudflare Workflows guarantee a step runs *at least* once. `POST /api/promote` runs the
+whole plan-then-batch ingest inside one `step.do`, so if the engine dies between the
+`db.batch` committing and the step result being persisted, the callback re-executes. The
+plan phase then mints fresh UUIDs and re-derives the slug against the row it just
+committed, and a **created** product lands twice — as `revit` *and* `revit-2`.
+
+**The primary key is the guard, not application logic.** `runPromoteIngest`
+(`apps/api/src/routes/promote.ts`) pushes this INSERT as the **first statement of the same
+atomic `db.batch`** as the promote's writes, so a replayed batch trips the PK and D1 rolls
+the *whole* batch back — the duplicate is impossible rather than detected afterwards.
+`result` then lets the replay return an identical `PromoteIngestResult` (same ids, same
+slug), so the job still completes and the post-commit hooks — which never fired for the
+lost attempt, being dispatched after the step — fire exactly once. A cheap pre-read of the
+same PK short-circuits the ordinary replay before the plan phase runs.
+
+```sql
+create table promote_jobs (
+  job_id text primary key, -- caller-supplied promote job id = the Workflow instance id
+  result jsonb not null,   -- the committed PromoteJobLedger: the ID map plus everything
+                           -- the post-commit hooks read, minus the D1 session bookmark
+  created_at timestamptz not null default now()
+);
+
+create index promote_jobs_created_at_idx on promote_jobs(created_at);
+```
+
+Notes:
+
+- **No foreign keys, deliberately.** A cascade delete would silently drop the guard and
+  re-open the duplicate window.
+- **Deleting a row is a safety regression, not housekeeping.** Any prune floor must be
+  **≥ 90 days** — the TTL of the `promote:result:{jobId}` KV mirror this row backstops
+  (`PROMOTE_RESULT_TTL_SECONDS`). Below that you get a window where the poll still serves
+  IDs while a re-push would duplicate them. See §15.
+- **It holds no curation-tool key.** `job_id` is AECi's own job id, so the AECI-562 ruling
+  that no Airtable record id belongs in this schema is untouched.
+- **It extends idempotency past Workflow retention.** Once an instance ages out (30 days),
+  `create({ id })` stops seeing a duplicate; the ledger row is what keeps a re-push of that
+  same job id from committing a second time.
+- `result` is written by the ingest only. It is capped at 512 KiB (D1's row limit is 2 MB);
+  a pathological bundle sheds `auditEntries` then `affectedProducts` and records what it
+  dropped in `truncated`, so an oversized payload costs observability rather than blocking
+  a valid promote. A typical row is ~10 KB.
+
+---
+
 ## 9. Analytics and caching tables
 
 ### 9.1 `page_views`
@@ -1244,6 +1296,7 @@ Backup policy is deferred to a dedicated operational document (`OPERATIONAL_RUNB
 - `page_views` retention: **400 days**, settled by `ADMIN_PANEL_SPEC.md` §13 D5 and **enforced since AECI-584** by the daily 03:00 UTC pruning cron — not indefinite, though it deletes nothing until ~2027-07 given the 2026-06-23 data start. 400 rather than 180 because D1 Time Travel gives only ~30 days of point-in-time recovery, so a prune is effectively permanent, and 400 is the first window that keeps year-over-year comparison possible
 - `metrics_daily` retention: **indefinite** — it is the long memory that survives the `page_views` prune (AECI-581 / §7.1). The pruning cron never touches it, and never prunes a `page_views` day it has not captured; both are asserted by test (§9.3)
 - `job_runs` retention: 90 days per `ADMIN_PANEL_SPEC.md` §7.4 — **enforced since AECI-584** (§9.4). This is the window that bites first, around 2026-11-11
+- `promote_jobs`: indefinite for Stage 1 (see §8.5). The row is a duplicate **guard**, not a log — pruning it below a 90-day floor re-opens the AECI-571 replay window. At a handful of promotes a day and ~10 KB a row this is ~100 MB per 10,000 promotes, so there is no pressure to prune; the `created_at` index is there so a future sweep is a cheap range delete
 - Every prune run that deletes anything writes exactly **one** `retention.pruned` `audit_log` row, in the same atomic batch as its deletes (`STAGE_1_SPEC.md` §26.1's scheduled-deletion exception / ADR 0022). A run that deletes nothing writes none. That row is the only durable record that the rows ever existed
 - Reviews and core entities: no retention policy — preserve everything
 

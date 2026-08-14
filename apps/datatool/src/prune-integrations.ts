@@ -28,6 +28,17 @@
  *   - `orphansRicherThanTwin` — the orphan's `description`/`notes` are longer
  *     than its twin's, so deleting it would lose editorial content.
  *
+ * **Blocking is the default, not an absolute.** A tripped guard means "not
+ * redundant residue" — which is usually a reason to stop, but not always. When a
+ * curator has *editorially retracted* an edge (deleted the Airtable record on
+ * purpose) the live D1 row must go even though it has no twin, because promote has
+ * no delete semantics and nothing else will ever remove it (AECI-593). So the
+ * route accepts an acknowledgment that must name EXACTLY the guards that tripped,
+ * plus a reason. Exact-match rather than "at least these": naming a guard that
+ * reads zero proves the plan being acknowledged is not the plan that just ran, so
+ * the run refuses. The reason is load-bearing — a prune writes no `audit_log` row,
+ * so the observability log line is the only durable record of why.
+ *
  * `claims.integration_id` and `attestations.claim_id` both cascade
  * (`apps/api/src/db/schema.ts`), but the delete walks child → parent explicitly
  * so the footprint is auditable rather than implicit.
@@ -39,6 +50,12 @@
 /** Upper bound on a single prune, so a malformed paste can't become a mass delete. */
 export const MAX_PRUNE_IDS = 500;
 
+/**
+ * Shortest acceptable `acknowledgeReason`. Long enough that "ok" / "yes" won't
+ * pass: the reason is the whole audit trail for an overridden guard.
+ */
+export const MIN_ACK_REASON_LENGTH = 20;
+
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export interface PruneFootprint {
@@ -47,11 +64,21 @@ export interface PruneFootprint {
   attestations: number;
 }
 
-export interface PruneGuards {
-  claimsUniqueToOrphans: number;
-  orphansWithoutATwin: number;
-  orphansRicherThanTwin: number;
-}
+/**
+ * The guard names, in report order. This array is the single source of truth —
+ * `PruneGuards` is derived from it, so a new guard cannot be added to one and
+ * forgotten in the other (which would make it silently un-acknowledgeable).
+ */
+export const PRUNE_GUARD_NAMES = [
+  'claimsUniqueToOrphans',
+  'orphansWithoutATwin',
+  'orphansRicherThanTwin',
+] as const;
+
+export type PruneGuardName = (typeof PRUNE_GUARD_NAMES)[number];
+
+/** Guard counts for a prune set. Zero on every key ⇒ the rows are redundant copies. */
+export type PruneGuards = Record<PruneGuardName, number>;
 
 export interface PruneRow {
   id: string;
@@ -69,8 +96,11 @@ export interface PrunePlan {
   missing: string[];
   footprint: PruneFootprint;
   guards: PruneGuards;
-  /** Names of the guards that tripped. Non-empty ⇒ the execute path refuses. */
-  blocked: (keyof PruneGuards)[];
+  /**
+   * Names of the guards that tripped. Non-empty ⇒ the execute path refuses unless
+   * the operator acknowledges exactly this list with a reason.
+   */
+  blocked: PruneGuardName[];
   rows: PruneRow[];
   affectedProductIds: string[];
   affectedSlugs: string[];
@@ -109,6 +139,33 @@ export function parseIds(input: unknown): string[] {
     throw new Error(`Refusing to prune ${unique.length} ids (max ${MAX_PRUNE_IDS}).`);
   }
   return unique;
+}
+
+/**
+ * Normalize an operator's guard acknowledgment into validated guard names. Same
+ * contract as `parseIds`: accepts a JSON array or a pasted blob, de-dupes, and
+ * throws on anything unrecognized rather than dropping it — a typo'd guard name
+ * must not quietly downgrade an override into "acknowledged nothing", which the
+ * exact-match rule in the route would then reject for the wrong reason.
+ *
+ * Case-sensitive on purpose: these are code identifiers echoed back verbatim from
+ * the dry-run `blocked` list, not free text.
+ */
+export function parseAcknowledgedGuards(input: unknown): PruneGuardName[] {
+  const raw: string[] = Array.isArray(input)
+    ? input.map((v) => String(v))
+    : typeof input === 'string'
+      ? input.split(/[\s,]+/)
+      : [];
+  const cleaned = raw.map((s) => s.trim()).filter((s) => s.length > 0);
+  const known: readonly string[] = PRUNE_GUARD_NAMES;
+  const bad = cleaned.filter((s) => !known.includes(s));
+  if (bad.length) {
+    throw new Error(
+      `Not a guard name: ${bad.slice(0, 3).join(', ')}${bad.length > 3 ? ' …' : ''}. Valid names: ${PRUNE_GUARD_NAMES.join(', ')}.`,
+    );
+  }
+  return [...new Set(cleaned)] as PruneGuardName[];
 }
 
 /** `?,?,?` for an IN clause — ids are always bound, never interpolated. */
@@ -247,7 +304,9 @@ export async function prunePlan(db: D1Database, ids: string[]): Promise<PrunePla
     orphansWithoutATwin: num(agg?.orphansWithoutATwin),
     orphansRicherThanTwin: num(agg?.orphansRicherThanTwin),
   };
-  const blocked = (Object.keys(guards) as (keyof PruneGuards)[]).filter((k) => guards[k] > 0);
+  // Iterate the name list, not Object.keys, so `blocked` has a stable documented
+  // order — the operator pastes it back verbatim as `acknowledgeGuards`.
+  const blocked = PRUNE_GUARD_NAMES.filter((k) => guards[k] > 0);
 
   const affected = await selectAll(
     db,

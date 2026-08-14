@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "7e5d3e5f-7a36-4e15-9678-9c6e948c2884",
-  "prevId": "c72ba1e7-4d24-4fb9-a0fd-f1958d199fd3",
+  "id": "c72ba1e7-4d24-4fb9-a0fd-f1958d199fd3",
+  "prevId": "2755d703-66aa-43ef-b2e8-6c783b70f01d",
   "tables": {
     "attestations": {
       "name": "attestations",
@@ -1127,6 +1127,27 @@
           "notNull": false,
           "autoincrement": false
         },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "session_id": {
+          "name": "session_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "profile_role": {
+          "name": "profile_role",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "text",
@@ -1161,6 +1182,15 @@
           "isUnique": false,
           "where": "\"product_id\" IS NOT NULL"
         },
+        "page_views_user_idx": {
+          "name": "page_views_user_idx",
+          "columns": [
+            "user_id",
+            "created_at"
+          ],
+          "isUnique": false,
+          "where": "\"user_id\" IS NOT NULL"
+        },
         "page_views_bot_idx": {
           "name": "page_views_bot_idx",
           "columns": [
@@ -1190,6 +1220,19 @@
           "tableTo": "vendors",
           "columnsFrom": [
             "vendor_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "page_views_user_id_profiles_id_fk": {
+          "name": "page_views_user_id_profiles_id_fk",
+          "tableFrom": "page_views",
+          "tableTo": "profiles",
+          "columnsFrom": [
+            "user_id"
           ],
           "columnsTo": [
             "id"
@@ -3523,6 +3566,45 @@
           "onUpdate": "no action"
         }
       },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "promote_jobs": {
+      "name": "promote_jobs",
+      "columns": {
+        "job_id": {
+          "name": "job_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "result": {
+          "name": "result",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "promote_jobs_created_at_idx": {
+          "name": "promote_jobs_created_at_idx",
+          "columns": [
+            "created_at"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {}

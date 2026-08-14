@@ -69,9 +69,18 @@ days. See `docs/adr/0021-async-promote-ingest-via-workflows.md`.
    returns (e.g. `supabase_vendor_id`, `supabase_product_id`,
    `supabase_integration_id`). This mapping is **the only link** between your
    records and the AECi rows — AECi does **not** store your Airtable/record IDs.
+   The `supabase_claim_id` a claim comes back with is the exception: it is
+   **informational only**. Claims are replaced wholesale on every promote (see
+   "`claims` shape & resolution" in §3), so the id you store is invalidated by your
+   next push. Never key anything off it.
 4. **Send the stored ID back on edits.** Presence of the ID is what makes a push
    an update instead of a new insert. **If you lose the mapping, a re-push
-   creates duplicates** — persist it durably.
+   creates duplicates** — persist it durably. An ID you send that no longer
+   resolves — the row was retracted, pruned, or deleted on the AECi side — is
+   **not** an error: AECi falls back to **creating** the row and the response
+   comes back `operation: "created"` with a **new** id. Persist that new id; it
+   replaces your dead pointer. (Before AECI-568 this silently updated nothing and
+   returned an empty `slug`, which the write-back then wrote over the real one.)
 5. **Do not send slugs.** AECi owns URL slugs; it generates them on first
    promote and keeps them stable. The response tells you the slug that became the
    public URL.
@@ -133,6 +142,12 @@ network blip, a retry, a restarted worker — and you get the same `202 { jobId 
 back. It attaches to the existing job; it does **not** start a second one and
 cannot commit twice. This is what replaces a duplicate-safety key on the AECi side,
 and it is why the marker must be written *before* the push.
+
+That holds at two layers, so you can retry as hard as you like. Even if AECi's own
+job engine internally replays a commit that already landed, a ledger keyed on your
+`jobId` makes the second attempt roll back and return the original IDs. **One
+`jobId` commits at most once, ever** — no matter how many times it is replayed, and
+no matter how much later.
 
 **Poll.** `GET /api/promote/jobs/{jobId}`:
 
@@ -226,7 +241,7 @@ Every vendor in this array becomes a vendor **of the product** (a
 | Field | Type | Required | Notes |
 |---|---|---|---|
 | `ref` | string | ✅ | Unique local label; referenced by `product` and `builtByVendor`. |
-| `supabaseId` | uuid \| null | — | Present → update that vendor; absent → create. |
+| `supabaseId` | uuid \| null | — | Present *and still resolvable* → update that vendor; absent, **or pointing at a row that no longer exists** → create (see responsibility 4). |
 | `companyName` | string | ✅ | |
 | `isPrimary` | boolean | — | Defaults to `true` for the first vendor, `false` otherwise. |
 | `description`, `website`, `headquarters`, `parentCompany`, `linkedinUrl`, `xUrl`, `facebookUrl`, `instagramUrl`, `youtubeUrl`, `crunchbaseUrl`, `wikiUrl`, `sourceUrl`, `githubOrg`, `phoneNumber`, `contactEmail`, `logoUrl` | string \| null | — | Free-form. `xUrl` / `facebookUrl` / `instagramUrl` / `youtubeUrl` are full canonical URLs persisted verbatim to `vendors.{x,facebook,instagram,youtube}_url` and rendered as icons in the public vendor hero; `githubOrg` is persisted as a bare handle but is not surfaced in the public vendor contract. |
@@ -241,7 +256,7 @@ Omit it entirely for a vendor-only / integration-only push (§3.5). When present
 | Field | Type | Required | Notes |
 |---|---|---|---|
 | `ref` | string | ✅ | Unique local label; integrations reference it as their endpoint. |
-| `supabaseId` | uuid \| null | — | Present → update; absent → create. |
+| `supabaseId` | uuid \| null | — | Present *and still resolvable* → update; absent, **or pointing at a row that no longer exists** → create (see responsibility 4). |
 | `name` | string | ✅ | |
 | `productRole` | `"application"` \| `"connector"` \| `"hybrid"` | — | Defaults to `"application"`. |
 | `categories` | string[] | — | Category **names or slugs**. Find-or-created by slug. |
@@ -277,7 +292,7 @@ endpoints**. The other endpoint must already be promoted (reference it by
 | Field | Type | Required | Notes |
 |---|---|---|---|
 | `ref` | string | ✅ | Unique local label. |
-| `supabaseId` | uuid \| null | — | Present → update; absent → create. |
+| `supabaseId` | uuid \| null | — | Present *and still resolvable* → update; absent, **or pointing at a row that no longer exists** → create (see responsibility 4). |
 | `name` | string \| null | — | |
 | `sourceProduct` | `{ ref }` \| `{ supabaseId }` | ✅ | One endpoint. `{ ref: <product.ref> }` for the product in this bundle. |
 | `targetProduct` | `{ ref }` \| `{ supabaseId }` | ✅ | The other endpoint. |
@@ -404,6 +419,9 @@ The `result` object in full:
 - `operation`: `created` | `updated` for vendors/product/integrations;
   `created` | `reused` for taxonomy. **`taxonomy.trades[]` is always `reused`** —
   the vocabulary is closed, so promote can only ever match an existing term.
+  A `created` on an entity you sent a `supabaseId` for means that id no longer
+  resolved and AECi created a replacement row (responsibility 4) — the `id` in the
+  result is the new one, and it is what you must store.
 - **`sourceSlug` / `targetSlug`** on an integration result are the two products'
   slugs for that integration — AECi returns them so it can refresh both pair-page
   orientations without a lookup. They are informational (you don't need to persist
@@ -427,8 +445,12 @@ create duplicates:
 
 | Key | Scope | What it protects |
 |---|---|---|
-| `jobId` (§2.1) | one promote *attempt* | Replaying a kick-off can't start a second job or commit twice. |
+| `jobId` (§2.1) | one promote *attempt* | Replaying a kick-off — or an internal engine replay — can't start a second job or commit twice, **ever**, for that id. |
 | `supabaseId` (§3.1) | one *row*, forever | Whether a push creates a new row or updates the existing one. |
+
+The `jobId` guarantee does not expire with the job's 30-day retention: AECi keeps a
+ledger row per committed job id, so re-pushing an old id returns its original IDs
+rather than committing again.
 
 A **new** `jobId` with **no** `supabaseId` is always a create — that is correct, and
 it is why the marker-before-push / collect-before-next-push ordering is load-bearing
@@ -448,6 +470,43 @@ the same product twice as two different attempts.
 - **Re-pushing is safe** (same `supabaseId` → same row). The one hazard is a
   **lost ID mapping**: without `supabaseId`, AECi has no way to know the row
   already exists and will create a duplicate. Persist the IDs durably.
+
+### 5.1 Promote has NO delete semantics — deleting in Airtable does not retract
+
+This is the sharpest edge in the whole contract, and it is not a bug you can retry
+past. **A promote can create and update rows. It can never delete one.**
+
+The only exception is *within* an entity you push: a product's join sets (categories,
+trades, …) and an integration's `claims[]` are replaced wholesale to match your
+payload. Entities themselves — products, vendors, integrations — are never removed.
+
+So if a curator **deletes an `Integrations` record from the base**, or simply stops
+sending it, the live D1 row does not go anywhere. It stays on the public pair page and
+on both endpoint product pages indefinitely, and — because the only link between the
+two systems is the `supabase_integration_id` Airtable holds — deleting the record also
+destroys the one pointer that could ever have found it again. The row becomes a
+**stray**: unreachable, un-updatable, and un-deletable by any future promote. A
+re-promote of the same product mints a *second* copy alongside it.
+
+Note that this is independent of whether the write-back ever landed. Even a perfectly
+collected promote leaves a stray if the record is later deleted.
+
+**What a curator must do to retract an integration:**
+
+1. Delete the Airtable record (and its `integration_claims` rows) as usual, and record
+   *why* in the product's `tool_integration_check_notes` — that note is what a future
+   auditor uses to tell a deliberate retraction from an accident.
+2. Follow up with an explicit delete of the live D1 row through the datatool's
+   `POST /api/prune-integrations`. It will report `orphansWithoutATwin` (and usually
+   `claimsUniqueToOrphans`) as blocked — correctly, since the row is the only copy of
+   that mechanism — so pass `acknowledgeGuards` naming exactly those, plus an
+   `acknowledgeReason` citing the ruling. See `apps/datatool/README.md`.
+
+**The backstop** is `.github/workflows/promote-strand-audit.yml`, which cross-references
+production D1 against the base daily and fails on any stray. AECI-593 is the worked
+example: two Polycam edges were editorially retracted on 2026-08-09 and sat live on
+production until the audit found them. Repair recipes:
+`scripts/ops/2026-08-promote-strand-audit/README.md` §Healing.
 
 ---
 

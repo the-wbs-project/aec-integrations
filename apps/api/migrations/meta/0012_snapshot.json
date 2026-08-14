@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "c72ba1e7-4d24-4fb9-a0fd-f1958d199fd3",
-  "prevId": "2755d703-66aa-43ef-b2e8-6c783b70f01d",
+  "id": "2755d703-66aa-43ef-b2e8-6c783b70f01d",
+  "prevId": "8283fe9d-9217-4064-bfa6-a9bf2596e253",
   "tables": {
     "attestations": {
       "name": "attestations",
@@ -994,13 +994,6 @@
           "notNull": true,
           "autoincrement": false
         },
-        "concrete_path": {
-          "name": "concrete_path",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "product_id": {
           "name": "product_id",
           "type": "text",
@@ -1015,22 +1008,15 @@
           "notNull": false,
           "autoincrement": false
         },
-        "taxonomy_kind": {
-          "name": "taxonomy_kind",
+        "user_id": {
+          "name": "user_id",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
         },
-        "taxonomy_id": {
-          "name": "taxonomy_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "navigation": {
-          "name": "navigation",
+        "session_id": {
+          "name": "session_id",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
@@ -1078,13 +1064,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "cf_as_organization": {
-          "name": "cf_as_organization",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "cf_bot_score": {
           "name": "cf_bot_score",
           "type": "integer",
@@ -1122,20 +1101,6 @@
         },
         "referrer_source": {
           "name": "referrer_source",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "session_id": {
-          "name": "session_id",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
@@ -3566,6 +3531,45 @@
           "onUpdate": "no action"
         }
       },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "promote_jobs": {
+      "name": "promote_jobs",
+      "columns": {
+        "job_id": {
+          "name": "job_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "result": {
+          "name": "result",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "promote_jobs_created_at_idx": {
+          "name": "promote_jobs_created_at_idx",
+          "columns": [
+            "created_at"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {}

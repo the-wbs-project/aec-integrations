@@ -24,6 +24,7 @@ import {
   products,
   productTrades,
   productVendors,
+  promoteJobs,
   statsCache,
   taxonomyAudiences,
   taxonomyCategories,
@@ -379,6 +380,368 @@ describe('runPromoteIngest', () => {
     expect(
       (await t.db.query.products.findFirst({ where: eq(products.id, prodX) }))?.promotedAt,
     ).toBeTruthy();
+  });
+
+  // AECI-568. A `supabaseId` pointing at a row that no longer exists (retracted,
+  // pruned, deleted) used to take the update branch anyway: `UPDATE … WHERE id =
+  // <gone>` writes nothing, yet the response said `operation: 'updated'` with an
+  // empty slug — which the review app then wrote back over its real slug. The ingest
+  // now falls through to a create, so the next write-back self-heals the pointer.
+  describe('stale supabaseId → falls back to create', () => {
+    it('recreates a vendor whose supabaseId no longer resolves', async () => {
+      const gone = uuid(7);
+
+      const res = await promote({
+        vendors: [{ ref: 'v1', supabaseId: gone, companyName: 'Autodesk' }],
+      });
+
+      expect(res.status).toBe(200);
+      const b = (await res.json()) as {
+        vendors: { id: string; slug: string; operation: string }[];
+      };
+      expect(b.vendors[0]).toMatchObject({ slug: 'autodesk', operation: 'created' });
+      expect(b.vendors[0].id).not.toBe(gone);
+
+      const rows = await t.db.select().from(vendors);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ id: b.vendors[0].id, slug: 'autodesk' });
+      expect(await auditActions()).toEqual(['vendor.created']);
+    });
+
+    it('recreates a product whose supabaseId no longer resolves, with a real slug', async () => {
+      const gone = uuid(7);
+
+      const res = await promote({
+        vendors: [{ ref: 'v1', companyName: 'Autodesk' }],
+        product: { ref: 'p1', supabaseId: gone, name: 'Revit' },
+      });
+
+      expect(res.status).toBe(200);
+      const b = (await res.json()) as { product: { id: string; slug: string; operation: string } };
+      // The slug is generated, not the '' the no-op update used to report.
+      expect(b.product).toMatchObject({ slug: 'revit', operation: 'created' });
+      expect(b.product.id).not.toBe(gone);
+
+      const rows = await t.db.select().from(products);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ id: b.product.id, slug: 'revit', name: 'Revit' });
+      expect(await auditActions()).toEqual(
+        expect.arrayContaining(['vendor.created', 'product.created']),
+      );
+    });
+
+    it('recreates an integration whose supabaseId no longer resolves, with its claims', async () => {
+      const srcId = uuid(1);
+      const tgtId = uuid(2);
+      const gone = uuid(7);
+      await seedProduct(srcId, 'revit', 'Revit');
+      await seedProduct(tgtId, 'navisworks', 'Navisworks');
+      await seedDataObject(uuid(3), 'rfis', 'RFIs');
+
+      const res = await promote({
+        integrations: [
+          {
+            ref: 'i1',
+            supabaseId: gone,
+            sourceProduct: { supabaseId: srcId },
+            targetProduct: { supabaseId: tgtId },
+            claims: [
+              {
+                dataObject: 'rfis',
+                direction: 'a_to_b',
+                attestations: [{ source: 'aeci', asserted: true }],
+              },
+            ],
+          },
+        ],
+      });
+
+      expect(res.status).toBe(200);
+      const b = (await res.json()) as { integrations: { id: string; operation: string }[] };
+      expect(b.integrations[0]).toMatchObject({ operation: 'created' });
+      expect(b.integrations[0].id).not.toBe(gone);
+
+      const rows = await t.db.select().from(integrations);
+      expect(rows).toHaveLength(1);
+      expect(rows[0].id).toBe(b.integrations[0].id);
+      // The claim rides the NEW integration id, not the dead one.
+      const claimRows = await t.db.select().from(claims);
+      expect(claimRows).toHaveLength(1);
+      expect(claimRows[0].integrationId).toBe(b.integrations[0].id);
+      expect(await t.db.select().from(attestations)).toHaveLength(1);
+      expect(await auditActions()).toEqual(
+        expect.arrayContaining(['integration.created', 'claim.created']),
+      );
+    });
+
+    it('reports every fallback on staleSupabaseIds, and nothing when the ids resolve', async () => {
+      const goneVendor = uuid(7);
+      const goneProduct = uuid(8);
+      const rc: PromoteRunCtx = {
+        env: baseEnv,
+        request: new Request('http://localhost:8787/api/promote'),
+        waitUntil: () => {},
+        bookmark: () => null,
+      };
+      const deps: PromoteIngestDeps = {
+        dbFor: t.factory,
+        syncAlgolia: noopAlgolia,
+        notifyIndexNow: noopIndexNow,
+        notifyGoogleIndexing: noopGoogleIndexing,
+        refreshHomeStats: noopHomeStats,
+      };
+
+      const stale = await runPromoteIngest(
+        rc,
+        PromotePayloadSchema.parse({
+          vendors: [{ ref: 'v1', supabaseId: goneVendor, companyName: 'Autodesk' }],
+          product: { ref: 'p1', supabaseId: goneProduct, name: 'Revit' },
+        }),
+        deps,
+      );
+      expect(stale.staleSupabaseIds).toEqual([
+        { kind: 'vendor', ref: 'v1', supabaseId: goneVendor },
+        { kind: 'product', ref: 'p1', supabaseId: goneProduct },
+      ]);
+
+      // Re-push with the ids the first run actually assigned: both resolve now, so the
+      // pointer is healed and the report is empty.
+      const healed = await runPromoteIngest(
+        rc,
+        PromotePayloadSchema.parse({
+          vendors: [
+            { ref: 'v1', supabaseId: stale.response.vendors[0].id, companyName: 'Autodesk' },
+          ],
+          product: { ref: 'p1', supabaseId: stale.response.product?.id, name: 'Revit' },
+        }),
+        deps,
+      );
+      expect(healed.staleSupabaseIds).toEqual([]);
+      expect(healed.response.product).toMatchObject({ slug: 'revit', operation: 'updated' });
+    });
+  });
+
+  /**
+   * AECI-571 — the `promote_jobs` ledger makes the commit exactly-once per job id.
+   *
+   * Cloudflare Workflows guarantee a step runs *at least* once, so an engine crash
+   * between `db.batch` committing and the step result being persisted re-executes the
+   * whole ingest. Without the ledger the plan phase mints fresh uuids and re-derives the
+   * slug against the row it just committed, so a *created* product lands twice — as
+   * `revit` AND `revit-2`. These cases drive the ingest directly (the `buildApp` harness
+   * has no job id) and assert the guard from both sides: the pre-read short-circuit and
+   * the in-batch primary key.
+   */
+  describe('exactly-once job ledger (AECI-571)', () => {
+    const LEDGER_JOB = 'job-aeci-571-0001';
+
+    const ledgerRc = (): PromoteRunCtx => ({
+      env: baseEnv,
+      request: new Request('http://localhost:8787/api/promote'),
+      waitUntil: () => {},
+      bookmark: () => null,
+    });
+    const ledgerDeps = (): PromoteIngestDeps => ({
+      dbFor: t.factory,
+      syncAlgolia: noopAlgolia,
+      notifyIndexNow: noopIndexNow,
+      notifyGoogleIndexing: noopGoogleIndexing,
+      refreshHomeStats: noopHomeStats,
+    });
+    const ingest = (body: unknown, jobId?: string) =>
+      runPromoteIngest(
+        ledgerRc(),
+        PromotePayloadSchema.parse(body),
+        ledgerDeps(),
+        jobId ? { jobId } : {},
+      );
+
+    const REVIT = {
+      vendors: [{ ref: 'v1', companyName: 'Autodesk' }],
+      product: { ref: 'p1', name: 'Revit', categories: ['BIM'] },
+      integrations: [],
+    };
+
+    it('commits once and returns the identical ID map when the same jobId is ingested twice', async () => {
+      const first = await ingest(REVIT, LEDGER_JOB);
+      const auditsAfterFirst = await auditActions();
+
+      const second = await ingest(REVIT, LEDGER_JOB);
+
+      // One of everything, and — the part a deterministic-id fix would NOT give us —
+      // the slug never drifted to `revit-2`.
+      expect(await t.db.select().from(products)).toHaveLength(1);
+      expect(await t.db.select().from(vendors)).toHaveLength(1);
+      expect(await t.db.select().from(promoteJobs)).toHaveLength(1);
+      expect(second.response.product).toMatchObject({ slug: 'revit', operation: 'created' });
+      expect(second.response).toEqual(first.response);
+
+      // The audit rows are inside the same batch, so the rollback covers them too.
+      expect(await auditActions()).toEqual(auditsAfterFirst);
+      // …and the replay still hands the hooks the §26.5 entries the lost attempt never
+      // forwarded, `metadata` re-attached after the ledger round-trip.
+      expect(second.auditEntries).toEqual(first.auditEntries);
+      expect(second.auditEntries[0]?.metadata).toEqual({ source: 'review-app-promote' });
+    });
+
+    it('rolls the entire replayed batch back — joins, integrations, claims and attestations included', async () => {
+      const target = uuid(1);
+      await seedProduct(target, 'navisworks', 'Navisworks');
+      await seedDataObject(uuid(20), 'rfis', 'RFIs');
+
+      const bundle = {
+        vendors: [{ ref: 'v1', companyName: 'Autodesk' }],
+        product: { ref: 'p1', name: 'Revit', categories: ['BIM'] },
+        integrations: [
+          {
+            ref: 'i1',
+            sourceProduct: { ref: 'p1' },
+            targetProduct: { supabaseId: target },
+            claims: [
+              {
+                dataObject: 'rfis',
+                direction: 'a_to_b',
+                attestations: [{ source: 'aeci', asserted: true }],
+              },
+            ],
+          },
+        ],
+      };
+
+      await ingest(bundle, LEDGER_JOB);
+      const before = {
+        integrations: await t.db.select().from(integrations),
+        claims: await t.db.select().from(claims),
+        attestations: await t.db.select().from(attestations),
+        productVendors: await t.db.select().from(productVendors),
+        productCategories: await t.db.select().from(productCategories),
+      };
+
+      await ingest(bundle, LEDGER_JOB);
+
+      expect(await t.db.select().from(integrations)).toEqual(before.integrations);
+      expect(await t.db.select().from(claims)).toEqual(before.claims);
+      expect(await t.db.select().from(attestations)).toEqual(before.attestations);
+      expect(await t.db.select().from(productVendors)).toEqual(before.productVendors);
+      expect(await t.db.select().from(productCategories)).toEqual(before.productCategories);
+    });
+
+    it('short-circuits on the pre-read, before the plan phase runs', async () => {
+      const first = await ingest(REVIT, LEDGER_JOB);
+
+      // If the replay reached the batch at all, this spy would fire.
+      const batch = vi.spyOn(t.db, 'batch');
+      const second = await ingest(REVIT, LEDGER_JOB);
+
+      expect(batch).not.toHaveBeenCalled();
+      expect(second.response).toEqual(first.response);
+    });
+
+    it('falls back to the in-batch primary key when the pre-read misses (concurrent replay)', async () => {
+      const first = await ingest(REVIT, LEDGER_JOB);
+
+      // Force the replay to miss the short-circuit exactly once, so it plans in full and
+      // the real guard — the PK inside `db.batch` — is what absorbs it. This is the only
+      // case that exercises the guard rather than the optimization in front of it.
+      const findFirst = vi
+        .spyOn(t.db.query.promoteJobs, 'findFirst')
+        .mockReturnValueOnce(Promise.resolve(undefined) as never);
+
+      const second = await ingest(REVIT, LEDGER_JOB);
+
+      expect(findFirst).toHaveBeenCalled();
+      expect(second.response).toEqual(first.response);
+      // The rollback was total: no orphaned `revit-2`, no second vendor.
+      const rows = await t.db.select().from(products);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]!.slug).toBe('revit');
+      expect(await t.db.select().from(vendors)).toHaveLength(1);
+    });
+
+    it('still returns 409 SLUG_CONFLICT when a jobId is supplied', async () => {
+      // The new duplicate branch must not swallow the AECI-98 path.
+      t.db.batch = (() =>
+        Promise.reject(new Error('UNIQUE constraint failed: products.slug'))) as never;
+
+      await expect(ingest(REVIT, LEDGER_JOB)).rejects.toMatchObject({
+        status: 409,
+        code: 'SLUG_CONFLICT',
+      });
+    });
+
+    it('refuses to re-commit when the stored result is unreadable', async () => {
+      // A future envelope version reads as unusable rather than being coerced. The
+      // commit already happened, so re-planning is the one thing we must never do.
+      await t.db.insert(promoteJobs).values({ jobId: LEDGER_JOB, result: { v: 99 } });
+
+      await expect(ingest(REVIT, LEDGER_JOB)).rejects.toMatchObject({
+        status: 500,
+        code: 'INTERNAL_ERROR',
+        message: expect.stringMatching(/already committed/),
+      });
+      expect(await t.db.select().from(products)).toHaveLength(0);
+    });
+
+    it('keeps pre-AECI-571 behaviour when no jobId is supplied', async () => {
+      await ingest(REVIT);
+      await ingest(REVIT);
+
+      // No ledger row, no protection: two creates, both slugs disambiguated against the
+      // rows the first run committed (the vendor duplicates too, so the product's
+      // vendor-qualified fallback is itself suffixed). This is exactly the damage the
+      // ledger prevents, and the contract the other ~90 cases in this file depend on.
+      expect((await t.db.select().from(products)).map((p) => p.slug).sort()).toEqual([
+        'revit',
+        'revit-autodesk-2',
+      ]);
+      expect((await t.db.select().from(vendors)).map((v) => v.slug).sort()).toEqual([
+        'autodesk',
+        'autodesk-2',
+      ]);
+      expect(await t.db.select().from(promoteJobs)).toHaveLength(0);
+    });
+
+    it('reports wrote:false for an all-skipped promote even though a ledger row is written', async () => {
+      // `wrote` must be read BEFORE the ledger statement joins the batch — otherwise an
+      // all-skipped promote claims a write and fires a pointless home-stats refresh.
+      const result = await ingest(
+        {
+          integrations: [
+            {
+              ref: 'i1',
+              sourceProduct: { supabaseId: uuid(8) },
+              targetProduct: { supabaseId: uuid(9) },
+            },
+          ],
+        },
+        LEDGER_JOB,
+      );
+
+      expect(result.wrote).toBe(false);
+      expect(await t.db.select().from(promoteJobs)).toHaveLength(1);
+    });
+
+    it('repairs the denormalized counts on replay', async () => {
+      const target = uuid(1);
+      await seedProduct(target, 'navisworks', 'Navisworks');
+      const bundle = {
+        product: { ref: 'p1', name: 'Revit' },
+        integrations: [
+          { ref: 'i1', sourceProduct: { ref: 'p1' }, targetProduct: { supabaseId: target } },
+        ],
+      };
+      const first = await ingest(bundle, LEDGER_JOB);
+      const productId = first.response.product!.id;
+
+      // The attempt whose result was lost may have died before `recomputeProductCounts`,
+      // which runs after the batch and outside the transaction. Simulate that drift.
+      await t.db.update(products).set({ integrationCount: 99 }).where(eq(products.id, productId));
+
+      await ingest(bundle, LEDGER_JOB);
+
+      const [row] = await t.db.select().from(products).where(eq(products.id, productId));
+      expect(row!.integrationCount).toBe(1);
+    });
   });
 
   it('promotes a vendor on its own (no product)', async () => {

@@ -789,6 +789,51 @@ export const auditLog = sqliteTable(
   ],
 );
 
+/**
+ * Exactly-once guard for the async promote ingest (AECI-571 / ADR 0021).
+ *
+ * Cloudflare Workflows guarantee a step runs *at least* once: if the engine dies in
+ * the window between the ingest's `db.batch` committing and the step result being
+ * persisted, the step callback re-executes on resume. The plan phase then mints fresh
+ * `crypto.randomUUID()`s and re-derives the slug against the row it just committed, so
+ * an unguarded replay lands a *created* product twice — as `revit` AND `revit-2`.
+ *
+ * The guard is this primary key, not application logic. `runPromoteIngest` pushes the
+ * INSERT as the FIRST statement of the same atomic `db.batch` as the promote's writes,
+ * so a replayed batch trips the PK and D1 rolls the WHOLE batch back — the duplicate is
+ * impossible rather than detected afterwards. `result` then lets the replay return an
+ * identical `PromoteIngestResult` (same ids, same slug), so the job still completes and
+ * the post-commit hooks — which never fired for the lost attempt, being dispatched from
+ * `run()` *after* the step — fire exactly once.
+ *
+ * Internal bookkeeping, NOT a curation-tool key: `job_id` is AECi's own promote job id
+ * (= the Workflow instance id), so the AECI-562 ruling that no Airtable record id
+ * belongs in this schema is untouched.
+ *
+ * Deliberately has NO foreign keys: a cascade delete would silently drop the guard and
+ * re-open the window. For the same reason, deleting a row is a safety regression rather
+ * than housekeeping — any future prune floor must be >= 90 days, the TTL of the KV
+ * result mirror this row backstops (`PROMOTE_RESULT_TTL_SECONDS`).
+ */
+export const promoteJobs = sqliteTable(
+  'promote_jobs',
+  {
+    /** The caller-supplied promote job id, which is also the Workflow instance id.
+     *  Deliberately not `uuidPk()`: the value is always supplied, never generated here
+     *  (`PromoteJobIdSchema` — 8-100 chars of `[A-Za-z0-9_-]`). */
+    jobId: text('job_id').primaryKey(),
+    /** The committed `PromoteJobLedger` envelope (`routes/promote.ts`) — the ID map plus
+     *  everything the post-commit hooks read, minus the per-session D1 bookmark. Typed
+     *  `unknown` here, like `stats_cache.value`, so this module stays a leaf: narrowing
+     *  belongs to the ingest that owns the envelope. */
+    result: text('result', { mode: 'json' }).$type<unknown>().notNull(),
+    createdAt: createdAt(),
+  },
+  // The write path is served by the PK; this indexes the only sane ops query on the
+  // table (time-windowed) and makes a future range-delete prune cheap.
+  (t) => [index('promote_jobs_created_at_idx').on(t.createdAt)],
+);
+
 // ===========================================================================
 // Analytics and caching (§9)
 // ===========================================================================
@@ -1318,6 +1363,7 @@ export const schema = {
   workflowInstances,
   workflowTransitions,
   auditLog,
+  promoteJobs,
   pageViews,
   statsCache,
   jobRuns,

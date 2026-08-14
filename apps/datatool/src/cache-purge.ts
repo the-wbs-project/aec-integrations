@@ -21,12 +21,18 @@ import {
   type CfPurgeOutcome,
 } from '@aeci/shared/cache-purge';
 
-/** Route-class tags covering every cacheable SSR surface. */
+/**
+ * Route-class tags covering every cacheable SSR surface, plus `sitemap`: a copy,
+ * seed or prune changes which URLs exist, and the sitemap is tagged separately
+ * from the route classes, so omitting it leaves the sitemap advertising pages
+ * that now 404 (or missing ones that now resolve).
+ */
 export const BROAD_CACHE_TAGS = [
   'route:detail',
   'route:index',
   'route:browse',
   'taxonomy',
+  'sitemap',
 ] as const;
 
 export async function purgeEnvCache(

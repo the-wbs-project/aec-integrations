@@ -2138,15 +2138,23 @@ machine-to-machine auth, not a user session.
 
 **Two independent idempotency keys:**
 
-- **`jobId`** (optional, top-level, `^[A-Za-z0-9_][A-Za-z0-9_-]{7,99}$`) scopes one promote
+- **`jobId`** (optional, top-level, `^[A-Za-z0-9_-]{8,100}$`) scopes one promote
   *attempt*. It becomes the Workflow **instance id**, so `create({ id })`'s duplicate
   guard means a replayed kick-off attaches to the existing instance and returns the same
   `jobId` — it can never start a second instance and therefore never commits twice.
+  Since AECI-571 that is enforced in **D1** as well as at instance creation: the ingest's
+  atomic batch carries a `promote_jobs` row keyed by the job id, so even an internal
+  engine replay of an already-committed step rolls back and returns the recorded ID map.
+  The guarantee therefore also outlives the 30-day instance retention.
   Absent → server-generated (pollable, but no replay protection).
-- **`supabaseId`** scopes one *row*, as before: present → **updated** by that ID; absent
-  → **created** and its new ID is returned. The review app holds the mapping; there is no
-  `external_id` column. Slugs are server-generated (never sent by the client) and stay
-  stable across updates.
+- **`supabaseId`** scopes one *row*, as before: present **and still resolvable** →
+  **updated** by that ID; absent → **created** and its new ID is returned. The review app
+  holds the mapping; there is no `external_id` column. Slugs are server-generated (never
+  sent by the client) and stay stable across updates. A `supabaseId` whose row is **gone**
+  (retracted, pruned, deleted) also takes the **create** branch (AECI-568) — the alternative
+  is a no-op `UPDATE … WHERE id = <gone>` reported as `updated` with an empty slug, which
+  the review app then writes back over the real one. Each fallback is reported post-commit
+  as `aeci.api.promote.stale_id{kind}`.
 
 **Errors split across the two surfaces.** Synchronous: `400 MALFORMED_REQUEST` /
 `400 VALIDATION_FAILED` / `401 UNAUTHENTICATED` / `413 PAYLOAD_TOO_LARGE` (body > 8 MiB, or

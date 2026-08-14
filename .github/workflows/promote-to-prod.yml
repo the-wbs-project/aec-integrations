@@ -144,7 +144,7 @@ jobs:
       #   Promotes must be against an explicit commit. Checking out main would
       #   defeat the purpose of the explicit-sha gate.
       # -----------------------------------------------------------------------
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ inputs.commit_sha }}
 
@@ -167,6 +167,12 @@ jobs:
           CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
           ADMIN_PURGE_TOKEN: ${{ secrets.ADMIN_PURGE_TOKEN }}
           DATADOG_API_KEY: ${{ secrets.DATADOG_API_KEY }}
+          # The RUM pair is un-suffixed + shared across envs (one "aeci" app on
+          # us5) and IS pushed to the web Worker below. Mapped here so the VALUE
+          # check is real — named-but-unmapped always reads empty and false-warns
+          # "not set" on every promote even though the GH secrets exist.
+          DD_APPLICATION_ID: ${{ secrets.DD_APPLICATION_ID }}
+          DD_CLIENT_TOKEN: ${{ secrets.DD_CLIENT_TOKEN }}
           CF_PURGE_API_TOKEN: ${{ secrets.CF_PURGE_API_TOKEN }}
           CF_ZONE_ID: ${{ secrets.CF_ZONE_ID }}
           CF_ANALYTICS_API_TOKEN: ${{ secrets.CF_ANALYTICS_API_TOKEN }}
@@ -266,13 +272,13 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ inputs.commit_sha }}
 
       - name: Install pnpm
         run: npm install -g pnpm@${{ env.PNPM_VERSION }}
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'pnpm'
@@ -345,28 +351,12 @@ jobs:
         working-directory: apps/api
         run: bash "$GITHUB_WORKSPACE/scripts/d1-apply-migrations.sh" aeci-app-production production
 
-      # -----------------------------------------------------------------------
-      # Purge the taxonomy cache tags (idempotent, non-fatal).
-      #   The D1 taxonomy reconcile above can change the published vocabulary,
-      #   bypassing the app's POST /admin/purge path — so the edge would keep
-      #   serving the old taxonomy until TTL (≤5 min browse, ≤1 hr nav). Purge
-      #   `taxonomy` (home + /categories index) and the coarse `route:browse` tag
-      #   (every category/discipline/phase browse page) — the documented use of
-      #   route-class tags (CACHE_STRATEGY §3). continue-on-error so a purge hiccup
-      #   never blocks the release; the TTL is the fallback. The seed is almost
-      #   always a no-op on a promote, so this usually purges nothing. (Relocated
-      #   here from the retired Postgres seed step — AECI-256.) See
-      #   docs/adr/0008-taxonomy-reference-data.md.
-      # -----------------------------------------------------------------------
-      - name: Purge taxonomy cache tags
-        continue-on-error: true
-        env:
-          HOST: https://prod.aecintegrations.com
-          PURGE_TAGS: 'taxonomy route:browse'
-          ADMIN_PURGE_TOKEN: ${{ secrets.ADMIN_PURGE_TOKEN }}
-          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
-          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
-        run: ./scripts/purge-cache.sh
+      # NOTE: the taxonomy cache-tag purge used to sit here (right after the D1
+      # reconcile). It now runs AFTER the SSR deploy + the cache-purge secret
+      # push below — `POST /admin/purge` authenticates against the web Worker's
+      # `ADMIN_PURGE_TOKEN` secret, so purging before that secret is on the
+      # Worker is a guaranteed 401. Purging last also means the edge refills
+      # from the newly deployed Worker instead of the outgoing one.
 
       # API deploys FIRST. The SSR Worker's `services.API` binding talks to
       # `aeci-api-production`; deploying API ahead of SSR means any brief
@@ -491,6 +481,36 @@ jobs:
           fi
           printf '%s' "$CF_ANALYTICS_API_TOKEN_VALUE" \
             | pnpm exec wrangler secret put CF_ANALYTICS_API_TOKEN --env production
+
+      # ADR 0010: the promote ingest (and the admin review-approve path) purge
+      # edge-cache tags by calling Cloudflare DIRECTLY — the API Worker holds its
+      # own scoped `CF_PURGE_API_TOKEN` + `CF_ZONE_ID`. Both were manual-only
+      # `wrangler secret put`s and had never landed on the prod Worker, so every
+      # post-promote purge silently no-op'd (and, since `CF_ZONE_ID` is also the
+      # zone the AECI-262 WAF poll queries, that poll no-op'd too even with
+      # CF_ANALYTICS_API_TOKEN present). Push them here on every promote — same
+      # idempotent deploy→secret order as the tokens above. Optional +
+      # FAIL-OPEN: absent → the purge/poll skip, so warn-and-skip and NOT in
+      # REQUIRED_WORKER_SECRETS. `CF_ZONE_ID` is not secret, but it lives in GH
+      # secrets already, so it rides along rather than being duplicated into
+      # wrangler.jsonc `vars`.
+      - name: Push cache-purge credentials to API Worker (production)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CF_PURGE_API_TOKEN_VALUE: ${{ secrets.CF_PURGE_API_TOKEN }}
+          CF_ZONE_ID_VALUE: ${{ secrets.CF_ZONE_ID }}
+        working-directory: apps/api
+        run: |
+          set -euo pipefail
+          if [ -z "$CF_PURGE_API_TOKEN_VALUE" ] || [ -z "$CF_ZONE_ID_VALUE" ]; then
+            echo "::warning::CF_PURGE_API_TOKEN / CF_ZONE_ID not set — skipping push. Post-promote cache-tag purge and the WAF→Datadog poll no-op in production (edge self-heals at TTL) until both are provisioned. CF_PURGE_API_TOKEN must be a Cloudflare API token scoped to Zone → Cache Purge on aecintegrations.com ONLY (docs/CACHE_STRATEGY.md §5)."
+            exit 0
+          fi
+          printf '%s' "$CF_PURGE_API_TOKEN_VALUE" \
+            | pnpm exec wrangler secret put CF_PURGE_API_TOKEN --env production
+          printf '%s' "$CF_ZONE_ID_VALUE" \
+            | pnpm exec wrangler secret put CF_ZONE_ID --env production
 
       # AECI-236/§20.2: push INDEXNOW_KEY to the prod API Worker so the
       # post-promote IndexNow submission (lib/indexnow.ts, gated on INDEXNOW_KEY +
@@ -682,6 +702,72 @@ jobs:
           fi
           printf '%s' "$INDEXNOW_KEY_VALUE" \
             | pnpm exec wrangler secret put INDEXNOW_KEY --env production
+
+      # AECI-56 / docs/CACHE_STRATEGY.md §5: push the three credentials that make
+      # `POST /admin/purge` work on the prod SSR Worker:
+      #   ADMIN_PURGE_TOKEN  — bearer the CALLER presents (CI below, plus manual
+      #                        incident purges). Absent → the handler 401s every
+      #                        request, which is exactly what prod did.
+      #   CF_PURGE_API_TOKEN — the token the handler uses to call Cloudflare.
+      #   CF_ZONE_ID         — the zone that purge targets.
+      # These were manual-only `wrangler secret put`s (docs/environments.md §6)
+      # and had never been placed on ANY deployed tier, so the endpoint was dead
+      # everywhere. Pushing them from CI makes the CI purge below self-consistent
+      # by construction: the bearer CI presents is the same GH secret the Worker
+      # was just given. Optional + FAIL-OPEN (warn-and-skip, NOT in
+      # REQUIRED_WORKER_SECRETS) — cache invalidation degrades to TTL self-heal,
+      # never a launch-critical surface. Same idempotent deploy→secret order.
+      - name: Push cache-purge credentials to web Worker (production)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          ADMIN_PURGE_TOKEN_VALUE: ${{ secrets.ADMIN_PURGE_TOKEN }}
+          CF_PURGE_API_TOKEN_VALUE: ${{ secrets.CF_PURGE_API_TOKEN }}
+          CF_ZONE_ID_VALUE: ${{ secrets.CF_ZONE_ID }}
+        working-directory: apps/web
+        run: |
+          set -euo pipefail
+          if [ -z "$ADMIN_PURGE_TOKEN_VALUE" ]; then
+            echo "::warning::ADMIN_PURGE_TOKEN not set — skipping push. POST /admin/purge stays 401 (fail-closed) in production; cache invalidation falls back to TTL."
+          else
+            printf '%s' "$ADMIN_PURGE_TOKEN_VALUE" \
+              | pnpm exec wrangler secret put ADMIN_PURGE_TOKEN --env production
+          fi
+          if [ -z "$CF_PURGE_API_TOKEN_VALUE" ] || [ -z "$CF_ZONE_ID_VALUE" ]; then
+            echo "::warning::CF_PURGE_API_TOKEN / CF_ZONE_ID not set — skipping push. POST /admin/purge will authenticate but return 502 (no Cloudflare creds). CF_PURGE_API_TOKEN must be a Cloudflare API token scoped to Zone → Cache Purge on aecintegrations.com ONLY (docs/CACHE_STRATEGY.md §5)."
+            exit 0
+          fi
+          printf '%s' "$CF_PURGE_API_TOKEN_VALUE" \
+            | pnpm exec wrangler secret put CF_PURGE_API_TOKEN --env production
+          printf '%s' "$CF_ZONE_ID_VALUE" \
+            | pnpm exec wrangler secret put CF_ZONE_ID --env production
+
+      # -----------------------------------------------------------------------
+      # Purge the taxonomy cache tags (idempotent, non-fatal).
+      #   The D1 taxonomy reconcile earlier in this job can change the published
+      #   vocabulary, bypassing the app's POST /admin/purge path — so the edge
+      #   would keep serving the old taxonomy until TTL (≤5 min browse, ≤1 hr
+      #   nav). Purge `taxonomy` (home + /categories index) and the coarse
+      #   `route:browse` tag (every category/discipline/phase browse page) — the
+      #   documented use of route-class tags (CACHE_STRATEGY §3).
+      #   ORDER MATTERS: this runs after the SSR deploy AND after the
+      #   cache-purge secret push above, because the endpoint authenticates
+      #   against the Worker's `ADMIN_PURGE_TOKEN` — running it before the push
+      #   (where it used to live) 401s deterministically. continue-on-error so a
+      #   purge hiccup never blocks the release; the TTL is the fallback. The
+      #   seed is almost always a no-op on a promote, so this usually purges
+      #   nothing. (Relocated from the retired Postgres seed step — AECI-256.)
+      #   See docs/adr/0008-taxonomy-reference-data.md.
+      # -----------------------------------------------------------------------
+      - name: Purge taxonomy cache tags
+        continue-on-error: true
+        env:
+          HOST: https://prod.aecintegrations.com
+          PURGE_TAGS: 'taxonomy route:browse'
+          ADMIN_PURGE_TOKEN: ${{ secrets.ADMIN_PURGE_TOKEN }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+        run: ./scripts/purge-cache.sh
 
       # Postflight enforcement of THE RULE at the Worker level: assert the prod
       # API Worker actually carries its required runtime secrets after the pushes
