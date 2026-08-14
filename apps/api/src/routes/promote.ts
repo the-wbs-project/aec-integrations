@@ -82,7 +82,7 @@ import {
   type AuditLogForwarder,
 } from '@aeci/shared/audit-log';
 import { disambiguateSlug, SlugReservedError, slugify } from '@aeci/shared/slug';
-import { eq, inArray, type Table } from 'drizzle-orm';
+import { eq, inArray, sql, type Table } from 'drizzle-orm';
 import { type SQLiteColumn } from 'drizzle-orm/sqlite-core';
 
 import { getDb, type Db, type DbContext } from '../db/client';
@@ -1130,6 +1130,10 @@ export async function runPromoteIngest(
   const dbCtx = dbFor(rc.env, { bookmark: null, constraint: 'first-primary' });
   const { db } = dbCtx;
 
+  // One timestamp for the whole run, so every row this ingest promotes shares a
+  // first-promote instant (AECI-581 / §13 D6 — see the product branches below).
+  const promotedAtIso = new Date().toISOString();
+
   // ── REPLAY SHORT-CIRCUIT (AECI-571) ──────────────────────────────────────
   // One indexed primary-key lookup so the common replay case never re-plans. It is the
   // FIRST query on this session — exactly what the `'first-primary'` anchor above
@@ -1508,14 +1512,21 @@ export async function runPromoteIngest(
       stmts.push(
         db
           .update(products)
-          .set(
-            compact({
+          .set({
+            ...compact({
               name: p.name,
               promotionStatus: 'promoted',
               usefulness: usefulnessData,
               ...productEditableData(p),
             }),
-          )
+            // Set-once (AECI-581 / §13 D6). This branch re-asserts
+            // `promotion_status: 'promoted'` on EVERY re-promote — `product.updated`
+            // outnumbers `product.created` ~2.7:1 — so a plain `promotedAt:
+            // promotedAtIso` here would mean *last* promoted and buy nothing over
+            // `updated_at`. COALESCE fills only a NULL, with no extra read. Sits
+            // outside `compact()` because it is an SQL expression, not a value.
+            promotedAt: sql`COALESCE(${products.promotedAt}, ${promotedAtIso})`,
+          })
           .where(eq(products.id, p.supabaseId)),
       );
       audit({
@@ -1535,6 +1546,8 @@ export async function runPromoteIngest(
           slug,
           name: p.name,
           promotionStatus: 'promoted',
+          // A create IS the first promote, so there is nothing to preserve here.
+          promotedAt: promotedAtIso,
           ...(usefulnessData === undefined ? {} : { usefulness: usefulnessData }),
           ...productEditableData(p),
         }),

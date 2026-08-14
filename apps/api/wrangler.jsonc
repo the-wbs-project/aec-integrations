@@ -328,9 +328,22 @@
       // operator analytics digest (AECI-526, queue-less): the prior UTC day's page views, top
       // products, new/total sign-ins + pending-moderation depth, emailed to ANALYTICS_DIGEST_EMAIL_TO.
       // UTC is DST-unaware; WIB (UTC+7) has no DST, so noon Jakarta is fixed at 05:00 UTC
-      // year-round. Strings MUST match the constants in `src/scheduled.ts`.
+      // year-round. "15 0 * * *" runs daily at 00:15 UTC — the metrics_daily snapshot
+      // (AECI-581 / ADMIN_PANEL_SPEC.md §7.1, queue-less): it captures the prior COMPLETE
+      // UTC day, so it sits first in the day rather than in the 04:00–09:00 batch —
+      // a snapshot mixes per-day flows with instantaneous stocks, and only a slot just
+      // after midnight lets both carry the same day label honestly. "0 3 * * *" runs
+      // daily at 03:00 UTC — the §7.4 retention prune (AECI-584 / ADMIN_PANEL_SPEC.md
+      // §7.4, queue-less): the system's ONLY scheduled DELETE. It removes page_views
+      // past 400 days and job_runs past 90 in bounded chunks, never touches
+      // metrics_daily, and refuses to run at all if the 00:15 snapshot has not
+      // captured every day inside its cut window — which is why it sits after that
+      // slot and an hour clear of the 04:00 batch. Strings MUST match the constants
+      // in `src/scheduled.ts` (asserted by `src/lib/cron-schedules.spec.ts`).
       "triggers": {
         "crons": [
+          "15 0 * * *",
+          "0 3 * * *",
           "0 4 * * *",
           "0 5 * * *",
           "0 6 * * *",
@@ -468,12 +481,16 @@
           "migrations_dir": "migrations",
         },
       ],
-      // Same eight crons as staging/production (see staging note — incl. the hourly
-      // "0 * * * *" WAF firewall-event poll, AECI-262, and the daily "0 5 * * *"
-      // operator analytics digest, AECI-526, at 05:00 UTC = noon Jakarta). Dispatched
+      // Same ten crons as staging/production (see staging note — incl. the hourly
+      // "0 * * * *" WAF firewall-event poll, AECI-262, the daily "0 5 * * *"
+      // operator analytics digest, AECI-526, at 05:00 UTC = noon Jakarta, the
+      // daily "15 0 * * *" metrics_daily snapshot, AECI-581, and the daily
+      // "0 3 * * *" §7.4 retention prune, AECI-584). Dispatched
       // by `controller.cron`. Strings MUST match the constants in `src/scheduled.ts`.
       "triggers": {
         "crons": [
+          "15 0 * * *",
+          "0 3 * * *",
           "0 4 * * *",
           "0 5 * * *",
           "0 6 * * *",
@@ -634,9 +651,16 @@
       // index-drift reconciliation (AECI-140); "*/15 * * * *" every 15 min — request→Linear
       // reconciliation sweep (AECI-214 / Phase 6.7); "0 * * * *" every hour — WAF firewall-event
       // poll (AECI-262 / §15.1, queue-less); "0 5 * * *" daily (= 12:00 WIB, noon Jakarta) — operator
-      // analytics digest (AECI-526, queue-less). Dispatched by `controller.cron`.
+      // analytics digest (AECI-526, queue-less); "15 0 * * *" daily at 00:15 UTC — the
+      // metrics_daily snapshot of the prior complete UTC day (AECI-581 / §7.1, queue-less);
+      // "0 3 * * *" daily at 03:00 UTC — the §7.4 retention prune (AECI-584, queue-less),
+      // the only scheduled DELETE: page_views past 400 days, job_runs past 90, gated on
+      // the 00:15 snapshot having captured every day in the cut window.
+      // Dispatched by `controller.cron`.
       "triggers": {
         "crons": [
+          "15 0 * * *",
+          "0 3 * * *",
           "0 4 * * *",
           "0 5 * * *",
           "0 6 * * *",

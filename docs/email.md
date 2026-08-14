@@ -52,8 +52,17 @@ decision record; no separate ADR.
 | `account-deleted` | `DELETE /api/account` (`routes/account.ts`) | the deleted user (captured pre-erasure) | GDPR confirmation |
 | `mailing-list-welcome` | `POST /api/subscribe` on a fresh insert or reactivation (`routes/landing-forms.ts`) | the new subscriber (`payload.email`) | Subscriber welcome / first touch (AECI-327). Links to `/products` when `PUBLIC_SITE_URL` set. Not sent on the still-active already-listed no-op. Sibling of the operator `landing-signup` alert. Unsubscribe (AECI-537): with a public host + the subscriber's token, the in-body link and `List-Unsubscribe` header point at the tokenized `/unsubscribe` flow and set RFC 8058 one-click (`List-Unsubscribe-Post`); without them it degrades to the `unsubscribe@<EMAIL_FROM domain>` mailto (see List-Unsubscribe section below). |
 | `stuck-request-alert` | reconciliation sweep (`lib/admin-alert.ts` → `lib/reconciliation-sweep.ts`) | `ADMIN_ALERT_EMAIL` | §6.2 persistent-failure digest |
-| `landing-signup` | `POST /api/subscribe` on a fresh insert (`routes/landing-forms.ts`) | `ADMIN_ALERT_EMAIL` | Operator "new mailing-list signup" (AECI-247/277 — replaces the retired `apps/landing` Worker's own send). Not sent on the idempotent already-listed no-op. |
-| `landing-feedback` | `POST /api/feedback` (`routes/landing-forms.ts`) | `ADMIN_ALERT_EMAIL` | Operator "new feedback submitted" (AECI-247/277). |
+| `landing-signup` | `POST /api/subscribe` on a fresh insert (`routes/landing-forms.ts`) | `ADMIN_ALERT_EMAIL` | Operator "new mailing-list signup" (AECI-247/277 — replaces the retired `apps/landing` Worker's own send). Not sent on the idempotent already-listed no-op. **Screen equivalent since AECI-586: `/admin/audience`.** |
+| `landing-feedback` | `POST /api/feedback` (`routes/landing-forms.ts`) | `ADMIN_ALERT_EMAIL` | Operator "new feedback submitted" (AECI-247/277). **Screen equivalent since AECI-586: `/admin/audience` → Feedback inbox, over `GET /api/admin/feedback`.** |
+
+**The two `landing-*` operator alerts got a screen behind them for a stronger reason
+than the digests did (AECI-586).** A digest is a summary of data that stays in D1
+either way, so its screen is a convenience. These two were the **only** record: the
+`feedback` table had no read path anywhere in the product, so a filtered, deleted or
+undelivered alert was a permanently lost submission, recoverable only by querying D1
+by hand. `/admin/audience` makes the table readable and the email a notification
+rather than an archive. Both sends are unchanged and still fire, fail-open, on the
+same conditions (`ADMIN_PANEL_SPEC.md` §13 **D2** — push and pull are complementary).
 
 Copy is en-US plain text + minimal HTML, built inline in `lib/email.ts` (emails are
 not i18n'd at launch — the CLAUDE.md i18n rule is for rendered `apps/web` templates).
@@ -65,10 +74,17 @@ id each, on the `aeci.email.send` metric). Two **scheduled digests** ride the se
 low-level `sendEmail` transport (`lib/email.ts`, AECI-241) instead — multi-recipient,
 their own metric, no `template` tag — so they don't appear above:
 
-| Digest | Cron (UTC) | Builder | Recipient var | Metric |
-|---|---|---|---|---|
-| Data-quality report | `0 4 * * *` | `lib/data-quality-email.ts` (`scheduled.ts` `runDataQualityJob`) | `DATA_QUALITY_EMAIL_{FROM,TO}` | `aeci.data_quality.email` |
-| Operator analytics digest (AECI-526) | `0 5 * * *` (05:00 UTC = 12:00 WIB, noon Jakarta) | `lib/analytics-digest.ts` (`scheduled.ts` `runAnalyticsDigestJob`) | `ANALYTICS_DIGEST_EMAIL_TO` — **production only** (sender = shared `EMAIL_FROM`) | `aeci.analytics_digest.email` |
+| Digest | Cron (UTC) | Builder | Recipient var | Metric | Screen equivalent |
+|---|---|---|---|---|---|
+| Data-quality report | `0 4 * * *` | `lib/data-quality-email.ts` (`scheduled.ts` `runDataQualityJob`) | `DATA_QUALITY_EMAIL_{FROM,TO}` | `aeci.data_quality.email` | **`/admin/system` → "Run data-quality checks"** (AECI-580) |
+| Operator analytics digest (AECI-526) | `0 5 * * *` (05:00 UTC = 12:00 WIB, noon Jakarta) | `lib/analytics-digest.ts` (`scheduled.ts` `runAnalyticsDigestJob`) | `ANALYTICS_DIGEST_EMAIL_TO` — **production only** (sender = shared `EMAIL_FROM`) | `aeci.analytics_digest.email` | **`/admin/overview`** (AECI-576) over `GET /api/admin/overview` (AECI-574). `?day=YYYY-MM-DD` reads any UTC day, defaulting to the digest's prior complete day; `?recompute=1` refreshes the two network-dependent status items and **sends no email** |
+
+**Neither email is retired by its screen** (`ADMIN_PANEL_SPEC.md` §13 **D2**): push and pull are
+complementary, and no cron is being removed. What the screen adds is *on demand* — the ten §23.1
+checks used to be visible only in the 04:00 send, so a defect fixed at 10:00 could not be confirmed
+until the next morning. `GET /api/admin/system?recompute=1` re-runs the suite live and is a **pure
+read**: it writes no row and, in particular, **sends no email** (§13 **D8** draws the line at side
+effects, not manual-ness). Running a digest *for real* stays deferred.
 
 The analytics digest summarizes the **prior complete UTC day** as a styled HTML email
 (with a plain-text fallback): **human** page views + top products (`page_views` where

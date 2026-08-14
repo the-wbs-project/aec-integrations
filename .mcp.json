@@ -6,6 +6,20 @@
         "-c",
         "cd \"${CLAUDE_PROJECT_DIR:-.}/apps/web\" && exec npx -y @angular/cli mcp -E all"
       ]
+    },
+    "aeci-review": {
+      "type": "http",
+      "url": "https://review.aecintegrations.com/mcp",
+      "headers": {
+        "Authorization": "Bearer ${AECI_MCP_TOKEN}"
+      }
+    },
+    "linear": {
+      "type": "http",
+      "url": "https://mcp.linear.app/mcp",
+      "headers": {
+        "Authorization": "Bearer ${LINEAR_API_KEY}"
+      }
     }
   }
 }

@@ -183,8 +183,12 @@ describe('cacheControlForRoute', () => {
     '/account',
     '/account/settings',
     // AECI-203 — the admin surface is non-cacheable (fail-closed classifier).
+    // AECI-576 / ADMIN_PANEL_SPEC §9.2 keeps that true for the console screens:
+    // every `/admin/*` route must stay absent from ROUTE_CACHE_PATTERNS, because
+    // a cached admin response is a visitor-state leak.
     '/admin',
     '/admin/reviews',
+    '/admin/overview',
     '/search',
     '/does-not-exist',
     '/products/procore/extra',
@@ -214,6 +218,20 @@ describe('isCacheableRoute', () => {
   it('returns false for non-cacheable routes', () => {
     expect(isCacheableRoute(new URL('https://x/account/settings'))).toBe(false);
     expect(isCacheableRoute(new URL('https://x/api/health'))).toBe(false);
+  });
+
+  // ADMIN_PANEL_SPEC.md §9.2 (AECI-574). The operator console renders one
+  // admin's view of the site; the edge cache is keyed by URL, so a single
+  // cacheable /admin response would serve that view to the next visitor. The
+  // panel spec makes "absent from ROUTE_CACHE_PATTERNS" a standing requirement,
+  // and this is where that requirement is enforced in code rather than in prose.
+  it('never caches /admin/* — an admin response at the edge is a visitor-state leak', () => {
+    expect(isCacheableRoute(new URL('https://x/admin'))).toBe(false);
+    expect(isCacheableRoute(new URL('https://x/admin/overview'))).toBe(false);
+    expect(isCacheableRoute(new URL('https://x/admin/traffic'))).toBe(false);
+    expect(isCacheableRoute(new URL('https://x/admin/reviews'))).toBe(false);
+    // Including under a locale prefix, since matching strips it first.
+    expect(isCacheableRoute(new URL('https://x/en-US/admin/overview'))).toBe(false);
   });
 });
 
@@ -1588,8 +1606,13 @@ describe('createApp page-view capture (AECI-58)', () => {
     expect(pv[0]!.method).toBe('POST');
     expect(pv[0]!.headers.get('content-type')).toContain('application/json');
     // Query string is not part of the captured route — `cacheControlForRoute`
-    // matches by pathname only and the body mirrors that.
-    expect(await pv[0]!.clone().json()).toEqual({ route: '/products' });
+    // matches by pathname only and the body mirrors that. `path` + `navigation`
+    // are stamped by `firePageView` itself (AECI-585).
+    expect(await pv[0]!.clone().json()).toEqual({
+      route: '/products',
+      path: '/products',
+      navigation: 'arrival',
+    });
   });
 
   it('fires page-views again on a cache HIT (visitor arrivals, not just SSR misses)', async () => {
@@ -1692,9 +1715,39 @@ describe('createApp page-view capture (AECI-58)', () => {
     expect(pv).toHaveLength(1);
     expect(await pv[0]!.clone().json()).toEqual({
       route: '/products/:slug',
+      // AECI-585: the resolver knows the pattern, `firePageView` knows the URL —
+      // so a resolver-supplied payload gains the concrete path without the
+      // resolver changing.
+      path: '/products/procore',
+      navigation: 'arrival',
       entity_type: 'product',
       entity_id: 'prod-uuid',
     });
+  });
+
+  it('does NOT fire page-views for an operator-only route, even with a resolver payload (AECI-575)', async () => {
+    // `/admin/*` is non-cacheable, so the only way to reach `firePageView` is a
+    // resolver attaching `ctx.pageView`. No admin resolver does that today —
+    // this pins the guard so a future one can't start polluting the table the
+    // console reads (ADMIN_PANEL_SPEC §9.6).
+    const { binding, calls } = recordingApiBinding(new Response(null, { status: 204 }));
+    const renderer: SsrRenderer = async (_req, ctx) => {
+      ctx.pageView = { route: '/admin/reviews' };
+      return new Response('<html>admin</html>', { status: 200 });
+    };
+    const app = createApp({ ssrRenderer: renderer });
+
+    const res = await app.fetch(
+      // A session cookie is required to clear the anon admin gate (303 → login).
+      new Request('https://www.aecintegrations.com/admin/reviews', {
+        headers: { cookie: 'sb-proj-auth-token=session' },
+      }),
+      binding as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+
+    expect(res.status).toBe(200);
+    expect(pageViewCalls(calls)).toHaveLength(0);
   });
 
   it('does NOT fire POST /api/page-views when the renderer returns 404', async () => {
@@ -1720,8 +1773,8 @@ describe('createApp page-view capture (AECI-58)', () => {
 
   it('forwards the user-agent header (for API-side hashing) but never the raw UA in the body (AECI-177)', async () => {
     // The SSR supplementary write forwards the eyeball `user-agent` so the API
-    // Worker can SHA-256 it; the body stays the lean `{ route }` payload — the
-    // raw UA must never appear in the JSON the SSR Worker sends.
+    // Worker can SHA-256 it; the body stays a lean route payload — the raw UA
+    // must never appear in the JSON the SSR Worker sends.
     const { binding, calls } = recordingApiBinding(new Response(null, { status: 204 }));
     const app = createApp({
       ssrRenderer: fixedRenderer(new Response('<html>index</html>', { status: 200 })),
@@ -1738,7 +1791,11 @@ describe('createApp page-view capture (AECI-58)', () => {
     const pv = pageViewCalls(calls);
     expect(pv).toHaveLength(1);
     expect(pv[0]!.headers.get('user-agent')).toBe('Mozilla/5.0 (AECI test)');
-    expect(await pv[0]!.clone().json()).toEqual({ route: '/products' });
+    expect(await pv[0]!.clone().json()).toEqual({
+      route: '/products',
+      path: '/products',
+      navigation: 'arrival',
+    });
   });
 
   it('forwards the Referer header so the API can classify the traffic source (AECI-526)', async () => {
@@ -1759,6 +1816,107 @@ describe('createApp page-view capture (AECI-58)', () => {
     expect(pv).toHaveLength(1);
     expect(pv[0]!.headers.get('referer')).toBe('https://www.linkedin.com/feed/');
   });
+
+  // ─── AECI-585: concrete path + navigation flag ───────────────────────────
+
+  it('marks a cache HIT as an arrival with the concrete path', async () => {
+    cacheStub.match.mockResolvedValueOnce(
+      new Response('<html>cached</html>', {
+        status: 200,
+        headers: { 'content-type': 'text/html' },
+      }),
+    );
+    const { binding, calls } = recordingApiBinding();
+    const app = createApp({ ssrRenderer: vi.fn() as unknown as SsrRenderer });
+
+    await app.fetch(
+      new Request('https://www.aecintegrations.com/categories/bim-coordination'),
+      binding as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+
+    const pv = pageViewCalls(calls);
+    expect(pv).toHaveLength(1);
+    // On a HIT no resolver runs, so `route` is already concrete and `path` agrees.
+    expect(await pv[0]!.clone().json()).toEqual({
+      route: '/categories/bim-coordination',
+      path: '/categories/bim-coordination',
+      navigation: 'arrival',
+    });
+  });
+
+  it('carries the taxonomy entity plus the concrete path on a browse-page miss', async () => {
+    const { binding, calls } = recordingApiBinding(new Response(null, { status: 204 }));
+    const renderer: SsrRenderer = async (_req, ctx) => {
+      ctx.pageView = {
+        route: '/trades/:slug',
+        entity_type: 'trade',
+        entity_id: 'trade-uuid',
+      };
+      return new Response('<html>trade</html>', { status: 200 });
+    };
+    const app = createApp({ ssrRenderer: renderer });
+
+    await app.fetch(
+      new Request('https://www.aecintegrations.com/trades/electrical'),
+      binding as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+
+    const pv = pageViewCalls(calls);
+    expect(await pv[0]!.clone().json()).toEqual({
+      route: '/trades/:slug',
+      path: '/trades/electrical',
+      navigation: 'arrival',
+      entity_type: 'trade',
+      entity_id: 'trade-uuid',
+    });
+  });
+
+  it('excludes the query string and hash from the concrete path', async () => {
+    // `page_views` stores a referrer HOST for the same privacy reason (§9.7) — a
+    // concrete path carrying `?token=…` would put the full URL back in the table.
+    const { binding, calls } = recordingApiBinding();
+    const app = createApp({
+      ssrRenderer: fixedRenderer(new Response('<html>index</html>', { status: 200 })),
+    });
+
+    await app.fetch(
+      new Request('https://www.aecintegrations.com/products?ref=waitlist&token=secret'),
+      binding as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+
+    const body = (await pageViewCalls(calls)[0]!.clone().json()) as { path: string };
+    expect(body.path).toBe('/products');
+  });
+
+  it('overrides a caller-supplied path and navigation with the request URL', async () => {
+    // The request URL is the authority on where the visitor actually is, and this
+    // function only ever runs on a full-document load.
+    const { binding, calls } = recordingApiBinding(new Response(null, { status: 204 }));
+    const renderer: SsrRenderer = async (_req, ctx) => {
+      ctx.pageView = {
+        route: '/products/:slug',
+        path: '/products/stale',
+        navigation: 'spa',
+      };
+      return new Response('<html>x</html>', { status: 200 });
+    };
+    const app = createApp({ ssrRenderer: renderer });
+
+    await app.fetch(
+      new Request('https://www.aecintegrations.com/products/procore'),
+      binding as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+
+    expect(await pageViewCalls(calls)[0]!.clone().json()).toEqual({
+      route: '/products/:slug',
+      path: '/products/procore',
+      navigation: 'arrival',
+    });
+  });
 });
 
 // ─── AECI-177: CF request-context forwarding across the SSR→API binding ──────
@@ -1771,13 +1929,39 @@ describe('CF context forwarding for page-views (AECI-177)', () => {
   it('maps request.cf onto the trusted x-aeci-cf-* headers', () => {
     const headers = new Headers();
     applyCfContextHeaders(headers, {
-      cf: { country: 'US', colo: 'SJC', asn: 13335, botManagement: { score: 88 } },
+      cf: {
+        country: 'US',
+        colo: 'SJC',
+        asn: 13335,
+        asOrganization: 'Cloudflare, Inc.',
+        botManagement: { score: 88 },
+      },
     } as unknown as Request);
 
     expect(headers.get('x-aeci-cf-country')).toBe('US');
     expect(headers.get('x-aeci-cf-colo')).toBe('SJC');
     expect(headers.get('x-aeci-cf-asn')).toBe('13335');
+    // AECI-585 / §13 D10 — the holder NAME beside the number, so the panel's
+    // internal-traffic filter can label itself instead of showing a bare AS number.
+    expect(headers.get('x-aeci-cf-as-organization')).toBe('Cloudflare, Inc.');
     expect(headers.get('x-aeci-cf-bot-score')).toBe('88');
+  });
+
+  it('forwards the AS organization on the SSR write when request.cf carries it', async () => {
+    const { binding, calls } = recordingApiBinding();
+    const app = createApp({
+      ssrRenderer: fixedRenderer(new Response('<html>index</html>', { status: 200 })),
+    });
+
+    const request = new Request('https://www.aecintegrations.com/products');
+    Object.defineProperty(request, 'cf', {
+      value: { country: 'ID', asn: 23700, asOrganization: 'Biznet Networks' },
+    });
+    await app.fetch(request, binding as unknown as Bindings, fakeExecutionContext());
+
+    const pv = calls.filter((r) => new URL(r.url).pathname === '/api/page-views');
+    expect(pv).toHaveLength(1);
+    expect(pv[0]!.headers.get('x-aeci-cf-as-organization')).toBe('Biznet Networks');
   });
 
   it('sets only the CF fields that are present (no empty headers)', () => {
@@ -1811,6 +1995,7 @@ describe('CF context forwarding for page-views (AECI-177)', () => {
           // A malicious client forging CF context — must not survive the proxy.
           'x-aeci-cf-country': 'SPOOF',
           'x-aeci-cf-bot-score': '99',
+          'x-aeci-cf-as-organization': 'Definitely Not A Bot Inc.',
         },
         body: JSON.stringify({ route: '/products/procore' }),
       }),
@@ -1824,7 +2009,9 @@ describe('CF context forwarding for page-views (AECI-177)', () => {
     // replaced — the API Worker would see no (untrusted) CF context.
     expect(pv[0]!.headers.get('x-aeci-cf-country')).toBeNull();
     expect(pv[0]!.headers.get('x-aeci-cf-bot-score')).toBeNull();
-    // Body and method pass through unchanged.
+    expect(pv[0]!.headers.get('x-aeci-cf-as-organization')).toBeNull();
+    // Body and method pass through unchanged — the browser POST is proxied, not
+    // rebuilt, so the tracker's own `navigation: 'spa'` survives untouched.
     expect(pv[0]!.method).toBe('POST');
     expect(await pv[0]!.clone().json()).toEqual({ route: '/products/procore' });
   });

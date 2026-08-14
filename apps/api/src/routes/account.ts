@@ -34,7 +34,6 @@ import type { ZodType } from 'zod';
 import { getDb } from '../db/client';
 import {
   auditLog,
-  pageViews,
   profiles,
   reviews,
   vendorRequests,
@@ -169,8 +168,14 @@ export function createDeleteAccountHandler(
       metadata: { source: 'account', initiated_by_self: true },
     };
 
-    // One atomic unit: null every inbound reference (six NO ACTION + the SET NULL
+    // One atomic unit: null every inbound reference (five NO ACTION + the SET NULL
     // reviewer ref made explicit) → PII-free audit → delete the profile.
+    //
+    // `page_views` is deliberately absent (AECI-585 / §13 D7). It used to be nulled
+    // here, but `page_views.user_id` was never written by any code path and has now
+    // been dropped along with `session_id` and `profile_role`. That strengthens this
+    // handler rather than weakening it: the table can no longer hold user linkage at
+    // all, so there is nothing here to erase (`AUTH_AND_RLS.md` §12).
     const stmts: BatchStmt[] = [
       db
         .update(reviews)
@@ -196,7 +201,6 @@ export function createDeleteAccountHandler(
         .set({ actorId: null })
         .where(eq(workflowTransitions.actorId, userId)),
       db.update(auditLog).set({ actorId: null }).where(eq(auditLog.actorId, userId)),
-      db.update(pageViews).set({ userId: null }).where(eq(pageViews.userId, userId)),
       auditInsert(db, auditEntry),
       db.delete(profiles).where(eq(profiles.id, userId)),
     ];

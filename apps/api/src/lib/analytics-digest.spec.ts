@@ -13,9 +13,68 @@ import { makeTestDb, type TestDb } from '../test/d1';
 import {
   buildAnalyticsDigest,
   collectAnalyticsMetrics,
+  computeDelta,
   dailyWindows,
+  windowsForDay,
   type AnalyticsMetrics,
 } from './analytics-digest';
+
+describe('windowsForDay (AECI-574 — the arbitrary-day window the panel shares)', () => {
+  it('produces the same window `dailyWindows` does for the day it reports', () => {
+    const now = new Date('2026-07-24T12:00:00.000Z');
+    // The panel reports any UTC day through this function; if it ever diverged
+    // from the cron's own arithmetic, the digest-parity criterion would silently
+    // hold for yesterday and fail for every other day.
+    expect(windowsForDay(dailyWindows(now).dayLabel)).toEqual(dailyWindows(now));
+  });
+
+  it('crosses a month boundary correctly', () => {
+    expect(windowsForDay('2026-07-01')).toEqual({
+      startIso: '2026-07-01T00:00:00.000Z',
+      endIso: '2026-07-02T00:00:00.000Z',
+      priorStartIso: '2026-06-30T00:00:00.000Z',
+      dayLabel: '2026-07-01',
+    });
+  });
+});
+
+describe('computeDelta (AECI-574 — the structured form of deltaText)', () => {
+  it('reports the diff and a signed percentage', () => {
+    expect(computeDelta({ day: 512, prior: 400 })).toEqual({
+      current: 512,
+      prior: 400,
+      diff: 112,
+      pct: 28,
+    });
+    expect(computeDelta({ day: 42, prior: 45 })).toEqual({
+      current: 42,
+      prior: 45,
+      diff: -3,
+      pct: -7,
+    });
+  });
+
+  it('omits the percentage when the prior period was 0 — division would be meaningless', () => {
+    expect(computeDelta({ day: 5, prior: 0 })).toEqual({
+      current: 5,
+      prior: 0,
+      diff: 5,
+      pct: null,
+    });
+  });
+
+  it('reports no change as a real zero, never -0', () => {
+    expect(computeDelta({ day: 7, prior: 7 })).toEqual({
+      current: 7,
+      prior: 7,
+      diff: 0,
+      pct: 0,
+    });
+    // A drop too small to round to a whole percent would otherwise produce `-0`,
+    // which serializes as 0 but fails a strict equality assertion.
+    expect(Object.is(computeDelta({ day: 999, prior: 1000 }).pct, 0)).toBe(true);
+  });
+});
 
 describe('dailyWindows', () => {
   it('reports the prior complete UTC day plus the day before it', () => {
@@ -178,6 +237,87 @@ describe('collectAnalyticsMetrics', () => {
     expect(m.referrers).toEqual([
       { source: 'LinkedIn', views: 2 },
       { source: 'Google', views: 1 },
+      { source: 'Direct', views: 1 },
+    ]);
+  });
+
+  // AECI-575 / ADMIN_PANEL_SPEC §9.6 — the read-side half. The tracker no longer
+  // writes these rows, but the ones already in the table must stop counting too,
+  // or every pre-fix day stays inflated relative to every post-fix day.
+  it('excludes operator-only paths (/admin/*, /account) from every page_views read', async () => {
+    await t.db.insert(products).values([{ id: 'p1', slug: 'p1', name: 'P1' }]);
+    await t.db.insert(pageViews).values([
+      // Real traffic on the reported day: 2 human views, 1 of them on p1.
+      {
+        path: '/products/p1',
+        productId: 'p1',
+        isBot: false,
+        referrerSource: 'Google',
+        createdAt: '2026-07-23T10:00:00.000Z',
+      },
+      { path: '/', isBot: false, referrerSource: 'Direct', createdAt: '2026-07-23T11:00:00.000Z' },
+      // Historical operator navigation — must not count anywhere.
+      {
+        path: '/admin',
+        isBot: false,
+        referrerSource: 'Direct',
+        createdAt: '2026-07-23T12:00:00.000Z',
+      },
+      {
+        path: '/admin/reviews',
+        isBot: false,
+        referrerSource: 'Direct',
+        createdAt: '2026-07-23T12:05:00.000Z',
+      },
+      {
+        path: '/admin/traffic/breakdown',
+        isBot: false,
+        referrerSource: 'Direct',
+        createdAt: '2026-07-23T12:10:00.000Z',
+      },
+      {
+        path: '/account',
+        isBot: false,
+        referrerSource: 'Direct',
+        createdAt: '2026-07-23T12:15:00.000Z',
+      },
+      // An admin row that somehow carries a product id (a stale client) — still out.
+      {
+        path: '/admin/reviews',
+        productId: 'p1',
+        isBot: false,
+        createdAt: '2026-07-23T12:20:00.000Z',
+      },
+      // A crawler that wandered onto an admin path — excluded from crawler activity too.
+      {
+        path: '/admin/reviews',
+        isBot: true,
+        botName: 'Googlebot',
+        createdAt: '2026-07-23T12:25:00.000Z',
+      },
+      // Prior day: 1 real view + 1 admin view.
+      { path: '/', isBot: false, createdAt: '2026-07-22T10:00:00.000Z' },
+      { path: '/admin/requests', isBot: false, createdAt: '2026-07-22T11:00:00.000Z' },
+      // Public paths that merely share a prefix must keep counting.
+      {
+        path: '/administrators',
+        isBot: false,
+        referrerSource: 'Google',
+        createdAt: '2026-07-23T14:00:00.000Z',
+      },
+      { path: '/products/admin-tool', isBot: false, createdAt: '2026-07-23T14:05:00.000Z' },
+    ]);
+
+    const m = await collectAnalyticsMetrics(t.db, window);
+
+    // 2 real + 2 prefix look-alikes; the 5 human admin/account rows are gone.
+    expect(m.pageViews).toEqual({ day: 4, prior: 1 });
+    expect(m.botPageViews).toEqual({ day: 0, prior: 0 });
+    expect(m.botActivity).toEqual([]);
+    expect(m.topProducts).toEqual([{ name: 'P1', slug: 'p1', views: 1 }]);
+    // Ranked, not tied — the 4 excluded `Direct` admin rows would have topped this.
+    expect(m.referrers).toEqual([
+      { source: 'Google', views: 2 },
       { source: 'Direct', views: 1 },
     ]);
   });

@@ -1420,6 +1420,15 @@ Brand tokens validated against WCAG AA contrast ratios:
 
 ## 22. Content Moderation Operations
 
+> **Source of truth for the admin surface as a whole: `docs/ADMIN_PANEL_SPEC.md`** (Phase 8.3,
+> epic AECI-572). This section governs the **moderation** screens only. From AECI-576 the `/admin`
+> area is the **operator console**: its `h1` reads "Admin", its nav is grouped into **Insights** /
+> **Catalog** / **Operations**, and `/admin` redirects to `/admin/overview` rather than to the
+> review queue. The moderation queues described below are unchanged and now live under
+> **Operations**. For the information architecture, the read-API surface, the charting rules and
+> the non-functional requirements that govern every admin screen, read that document, not this
+> section. Nav entries appear only when their screen ships, so the group list grows over the epic.
+
 ### 22.1 Moderation queue
 
 - Admin dashboard at `/admin/reviews` shows pending reviews with:
@@ -1674,61 +1683,93 @@ Comprehensive logging of state-changing events and multi-step approval flows. Al
 
 Captures every state-changing event across the platform.
 
+> **DDL source of truth: `DATABASE_SCHEMA.md` §8.4** (and `apps/api/src/db/schema.ts`, which
+> generates it). The block below is the shape, kept here for readability; where the two disagree,
+> the schema doc is right.
+
 ```sql
+-- Cloudflare D1 / SQLite (ADR 0016). Ids are application-generated UUID `text`
+-- (`crypto.randomUUID()`), timestamps are ISO-8601 `text`, and JSON columns are
+-- `text` read through Drizzle's `{ mode: 'json' }`. There is no `uuid`, `jsonb`,
+-- `timestamptz` or `gen_random_uuid()` in this database.
 create table audit_log (
-  id uuid primary key default gen_random_uuid(),
-  actor_id uuid references profiles(id), -- who did it (null for system/anonymous)
-  actor_type text not null, -- 'user' | 'admin' | 'system' | 'workflow'
+  id text primary key not null,
+  actor_id text references profiles(id), -- who did it (null for system/anonymous)
+  actor_type text not null, -- 'user' | 'admin' | 'system' | 'workflow' (CHECK-constrained)
   action text not null, -- 'review.approved', 'product.updated', 'claim.requested', etc.
-  entity_type text, -- 'review' | 'product' | 'vendor' | 'integration' | 'claim' | 'correction'
-  entity_id uuid,
-  before_state jsonb, -- prior state of changed fields (updates only)
-  after_state jsonb, -- new state of changed fields (updates only)
-  metadata jsonb, -- workflow context: linear_issue_id, ip_address, user_agent, cf_country, etc.
-  created_at timestamptz not null default now()
+  entity_type text, -- deliberately unconstrained: 'review' | 'product' | 'vendor' | 'integration' | 'data_object' | 'claim' | 'attestation' | 'correction' | 'retention' | …
+  entity_id text,
+  before_state text, -- JSON: prior state of changed fields (updates only)
+  after_state text, -- JSON: new state of changed fields (updates only)
+  metadata text, -- JSON workflow context: linear_issue_id, ip_address, user_agent, cf_country, etc.
+  created_at text not null, -- ISO-8601 UTC
+  constraint audit_log_actor_type_check check (actor_type in ('user', 'admin', 'system', 'workflow'))
 );
 
-create index audit_log_entity_idx on audit_log(entity_type, entity_id, created_at desc);
-create index audit_log_actor_idx on audit_log(actor_id, created_at desc);
-create index audit_log_action_idx on audit_log(action, created_at desc);
-create index audit_log_created_at_idx on audit_log(created_at desc);
+create index audit_log_entity_idx on audit_log(entity_type, entity_id, created_at);
+create index audit_log_action_idx on audit_log(action, created_at);
+create index audit_log_created_at_idx on audit_log(created_at);
+create index audit_log_actor_idx on audit_log(actor_id, created_at) where actor_id is not null;
 ```
 
 **Naming convention:** dot-separated `entity.action` (e.g. `review.approved`, `product.created`, `vendor.updated`, `claim.submitted`, `claim.approved`).
 
-**Coverage:** every write path in the API Worker calls `appendAuditLog(...)` as part of its transaction. Failure to log is a hard failure for the write — the operation is rolled back if audit logging fails. This guarantees no state change happens without a corresponding audit entry.
+**Coverage.** Every write path in the API Worker that changes **domain state** emits its `audit_log` row via `auditInsert()` (`apps/api/src/lib/audit.ts`) inside the **same** `db.batch([...])` as the mutation — D1 has no interactive transactions, so the batch is the atomic unit (ADR 0016 / AECI-249). Failure to log is a transactional failure: the batch rolls back, so no domain state change commits without its audit entry.
+
+**Domain state** means the catalog, users and profiles, reviews and moderation, claims and attestations, requests and workflows — anything a person changed, or that changes what a visitor sees.
+
+**Carve-out — derived and log-class writes are exempt (ADR 0022).** A write is exempt when it is *all three* of: (a) computed entirely from data already in the database, **or** an append-only event / lead-capture log; (b) invisible on every public surface; and (c) reproducible by re-running the job that wrote it. Exempt today:
+
+- `page_views`, `mailing_list`, `feedback` — already documented as exempt in `API_CONTRACTS.md` §6.9 and §6.13, including the unsubscribe soft-delete. This carve-out is where that exemption should always have lived.
+- `stats_cache` (the 07:00 home-stats job and the Algolia sync watermark) and the denormalized product counters (`lib/recompute-counts.ts`), which have never emitted audit rows.
+- `metrics_daily` and `job_runs` (`ADMIN_PANEL_SPEC.md` §7.1, §7.2) — **shipped 2026-08-13** with AECI-581 and AECI-583.
+
+These are observable through `job_runs` and Datadog instead, not through the audit log. Note the exemption test is **entity class, not actor class**: a system or cron actor writing domain state still audits — `actor_type` already permits `'system'`, and `POST /api/promote` uses it throughout.
+
+**Exception — scheduled deletion is never exempt.** Any *scheduled* `DELETE` emits exactly one **summary** `audit_log` row per run, in the same batch as the delete: `actor_type='system'`, `action='retention.pruned'`, `metadata={table, cutoff, rowsDeleted}`. One row per run, not per row deleted. Deletion is the one write whose fact cannot be recovered from the data afterwards. (Precedent: the single `catalog.integrations_reset` row standing for the 2026-07-25 bulk removal.)
 
 ### 26.2 Workflow instances
 
 Multi-step processes (with approval gates, multiple actors, or external system handoffs) get explicit workflow tracking.
 
+> **DDL source of truth: `DATABASE_SCHEMA.md` §8.2–§8.3.** Same D1/SQLite conventions as §26.1.
+
 ```sql
 create table workflow_instances (
-  id uuid primary key default gen_random_uuid(),
-  workflow_type text not null, -- 'vendor_claim' | 'review_moderation' | 'correction_request'
-  entity_id uuid not null, -- the entity being acted on (vendor_request.id, review.id, etc.)
+  id text primary key not null,
+  workflow_type text not null, -- 'vendor_claim' | 'review_moderation' | 'correction_request' | 'reviewer_ban'
+  entity_id text not null, -- the entity being acted on (vendor_request.id, review.id, etc.); FK varies by type, not enforced
   current_state text not null,
   linear_issue_id text, -- link back to Linear issue if applicable
-  initiated_by uuid references profiles(id),
-  initiated_at timestamptz not null default now(),
-  completed_at timestamptz,
-  final_outcome text -- 'approved' | 'rejected' | 'cancelled' | 'completed'
+  initiated_by text references profiles(id),
+  initiated_at text not null, -- ISO-8601 UTC
+  completed_at text,
+  final_outcome text, -- 'approved' | 'rejected' | 'cancelled' | 'completed'
+  constraint workflow_instances_type_check check (workflow_type in ('vendor_claim', 'review_moderation', 'correction_request', 'reviewer_ban')),
+  constraint workflow_instances_final_outcome_check check (final_outcome in ('approved', 'rejected', 'cancelled', 'completed'))
 );
 
 create table workflow_transitions (
-  id uuid primary key default gen_random_uuid(),
-  workflow_id uuid not null references workflow_instances(id) on delete cascade,
+  id text primary key not null,
+  workflow_id text not null references workflow_instances(id) on delete cascade,
   from_state text,
   to_state text not null,
-  actor_id uuid references profiles(id),
+  actor_id text references profiles(id),
   reason text, -- rejection reason, approval note, etc.
-  metadata jsonb,
-  created_at timestamptz not null default now()
+  metadata text, -- JSON
+  created_at text not null -- ISO-8601 UTC
 );
 
-create index workflow_instances_entity_idx on workflow_instances(workflow_type, entity_id);
+create index workflow_instances_type_entity_idx on workflow_instances(workflow_type, entity_id);
+create index workflow_instances_state_idx on workflow_instances(workflow_type, current_state) where completed_at is null;
+create index workflow_instances_linear_idx on workflow_instances(linear_issue_id) where linear_issue_id is not null;
 create index workflow_transitions_workflow_idx on workflow_transitions(workflow_id, created_at);
 ```
+
+**`reviewer_ban` is a fourth workflow type.** It arrived with Phase 6.11 (AECI-218) and was **missing
+from the Postgres baseline's CHECK** — the ban workflow would have CHECK-failed in production. The
+D1 schema carries all four; the test harness is what caught it. §26.3 below tabulates the three
+Stage 1 workflows that have documented state machines.
 
 ### 26.3 Stage 1 workflow types
 
@@ -1783,15 +1824,17 @@ Every `audit_log` and `workflow_transitions` entry is also forwarded to Datadog 
 
 ### 26.6 Retention policy
 
-**Stage 1: indefinite retention in Supabase.** Audit and workflow tables grow with platform activity but remain small (estimate: thousands of rows in year one). No archiving or pruning at launch.
+**Scope.** This section governs the **audit and workflow tables only** — `audit_log`, `workflow_instances`, `workflow_transitions`. Retention for `page_views`, `metrics_daily`, and `job_runs` is governed by `ADMIN_PANEL_SPEC.md` §7.4, and its pruning cron is explicitly forbidden from touching the three tables named here.
 
-When the table becomes large enough to materially affect performance or storage cost (signaled by the daily data quality job in Section 23.1), introduce a retention policy. Likely approach: archive entries older than 1 year to R2 or BigQuery as Parquet, keeping the most recent year hot in Supabase. Datadog retention is governed by Datadog's plan separately.
+**Stage 1: indefinite retention in D1.** Audit and workflow tables grow with platform activity but remain small (estimate: thousands of rows in year one). No archiving or pruning at launch.
+
+When the table becomes large enough to materially affect performance or storage cost (signaled by the daily data quality job in Section 23.1), introduce a retention policy. Likely approach: archive entries older than 1 year to R2 as Parquet, keeping the most recent year hot in D1. Datadog retention is governed by Datadog's plan separately. Note that D1 Time Travel recovers roughly 30 days, so anything pruned beyond that window is permanent.
 
 This decision is intentionally deferred — easier to introduce retention later than to recover data deleted prematurely.
 
 ### 26.7 Access control
 
-- `audit_log` and workflow tables are admin-read only via RLS
+- `audit_log` and workflow tables are admin-read only, enforced by the **Worker request guard** (`requireAdmin()` in `apps/api/src/lib/authz.ts`) — **not** by RLS. D1 has no PostgREST, no GRANTs and no row-level security, so app-layer authorization is the only layer (ADR 0016; `AUTH_AND_RLS.md` Layer 1, and §14's note to the same effect). No-leakage authz-matrix specs are what hold the line
 - No public API exposes audit data
 - Personal data in audit entries follows GDPR rules — when a user invokes right to erasure, their `actor_id` references are nulled but audit entries remain (the action happened; the actor is anonymized)
 

@@ -50,6 +50,7 @@ The site is currently in pre-launch. Production data lives in Airtable; Supabase
 | Incident runbooks for Datadog alerts | `docs/RUNBOOKS.md` |
 | Post-launch monitoring (AECI-279 / Phase 8.1): the daily/weekly operate-and-tune procedure over the shipped dashboards, monitors, and crons; the launch-tunable-threshold table; the triage→ticket loop | `docs/POST_LAUNCH_MONITORING.md` |
 | Post-launch health-report log (AECI-279 / Phase 8.1): dated first-week/first-month snapshots fed by the monitoring runbook | `docs/POST_LAUNCH_HEALTH_REPORT.md` |
+| Admin panel / operator console (traffic, audience, catalog, moderation, system health; the consent-independent read surface over `page_views` + a screen for the two cron digests) — **v1.0 build contract**; **Phase 8.3**, `main` line, epic AECI-572 integrates on the `admin-panel` branch | `docs/ADMIN_PANEL_SPEC.md` |
 | Launch / DNS cutover runbook (go-live: apex flip off the coming-soon landing, launch-secret provisioning, waitlist broadcast, post-cutover verification, rollback) | `docs/launch-cutover-runbook.md` |
 | Phase completion checkpoints (per-phase launch-readiness gates: AC + build-order mapping, punts) | `docs/PHASE_{2..8}_COMPLETION.md` (Phase 8 = the living post-launch checkpoint) |
 | Auth model, GRANTs & RLS policies (3-layer authz: Worker JWT/role/ban, PostgREST GRANTs, RLS; GDPR erasure) | `docs/AUTH_AND_RLS.md` (complete — the authorization source of truth) |
@@ -264,7 +265,9 @@ The spec is the contract. Maintaining its integrity matters more than shipping t
 
 ## Datadog and audit logging
 
-Every state-changing write must emit its `audit_log` row in the SAME atomic `db.batch([...])` as the mutation (the `auditInsert`/`workflowTransitionInsert` builders in `apps/api/src/lib/audit.ts`), then forward to Datadog post-commit via `ctx.waitUntil(forwardAuditLog(...))`. See `docs/STAGE_1_SPEC.md` §26. Failure to log is a transactional failure (the batch rolls back).
+Every write that changes **domain state** must emit its `audit_log` row in the SAME atomic `db.batch([...])` as the mutation (the `auditInsert`/`workflowTransitionInsert` builders in `apps/api/src/lib/audit.ts`), then forward to Datadog post-commit via `ctx.waitUntil(forwardAuditLog(...))`. See `docs/STAGE_1_SPEC.md` §26. Failure to log is a transactional failure (the batch rolls back).
+
+**Scope (ADR 0022).** Domain state = catalog, users/profiles, reviews/moderation, claims/attestations, requests/workflows. **Derived and log-class writes are exempt** — `page_views`, `mailing_list`, `feedback`, `stats_cache`, the Algolia watermark, `recompute-counts`, and the cron-written `metrics_daily`/`job_runs`; they are observable via `job_runs` + Datadog instead. The test is **entity class, not actor class**: a cron or `actorType: 'system'` write that touches domain state still audits (`POST /api/promote` is the canonical example). **Scheduled `DELETE`s are never exempt** — one summary row per run (`action='retention.pruned'`).
 
 ## Cache invalidation
 
@@ -277,6 +280,15 @@ Every cacheable SSR response sets a `Cache-Tag` header via the AECI-56 helper (`
 - For any Angular API question (signals, control flow, forms, router, SSR, zoneless), call `search_documentation` before answering from training data.
 - Use `list_projects` to orient before generating files in the workspace — it discovers `apps/web/angular.json`; pass that workspace `path` to `run_target` and the devserver tools.
 - The companion `angular-developer` skill (see "Skills") loads version-specific best-practice references on demand; prefer it over training-data recall for Angular patterns.
+
+**Linear MCP (`linear`):** wired via the repo-root `.mcp.json` (remote HTTP, `https://mcp.linear.app/mcp`) and pre-approved in `enabledMcpjsonServers`, so it connects automatically. Auth is `Authorization: Bearer ${LINEAR_API_KEY}`; the token is injected from the Conductor keychain (`.conductor/settings.local.toml` → `[environment_variables]`), never committed. Tools cover issues (`list_issues`, `get_issue`, `save_issue`, `list_issue_statuses`, `list_issue_labels`), comments (`list_comments`, `save_comment`), projects, cycles, documents, and releases.
+- The team prefix is `AECI`. This is the server the **`spec-anchor` skill** uses to fetch an issue and read its `**Spec section:** §X.Y` line — that skill assumes this MCP is connected.
+- Reads are free; **writes are not.** `save_issue` / `save_comment` / `save_project` mutate the shared team tracker that other people read. Per the workspace preferences, assigning an issue and moving it to "In Progress" at workspace start is standing authorization; anything beyond that (closing issues, editing someone else's issue, posting comments) gets confirmed first.
+
+**AECi review-app MCP (`aeci-review`):** wired via the repo-root `.mcp.json` (remote HTTP, `https://review.aecintegrations.com/mcp`) and pre-approved in `enabledMcpjsonServers`. Auth is `Authorization: Bearer ${AECI_MCP_TOKEN}`, also injected from the Conductor keychain.
+- What it is: the **curation/review application** upstream of this repo — the system described in `docs/REVIEW_APP_PROMOTE_API.md` that pushes promoted products into the AECi API via `POST /api/promote`. It exposes the curation catalog: vendors, products, integrations, claims/attestations, and taxonomy.
+- When to use: to inspect real production catalog shape when building or debugging a surface that renders it — `list_products` / `get_product` / `find_product`, `list_vendors` / `get_vendor`, `list_integrations` / `get_integration`, `list_claims` / `get_claim`, `list_taxonomy`, and the scoring/demand tools (`compute_product_score`, `compute_vendor_score`, `compute_product_search_demand`, `compute_product_reddit_mentions`). Prefer it over inventing fixture data when you need to know what the real records look like.
+- **Treat the write tools as production actions.** `create_*`, `update_*`, `add_attestation`, and especially `promote_product` mutate the live curation database — and `promote_product` pushes rows into the live AECi database and purges edge cache. Never call them to "try something out"; confirm with the user first. Default to the read tools.
 
 **Mobbin MCP (`mobbin`):**
 - What it is: a visual reference library of real shipping apps — flows, screens, and component patterns sourced from production iOS, Android, and web products.

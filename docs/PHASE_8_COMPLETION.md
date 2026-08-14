@@ -47,7 +47,7 @@ _This checkpoint changes **only docs + monitor JSON** — no application logic �
 
 | AC | Criterion | Status | Evidence |
 |----|-----------|--------|----------|
-| 1 | Daily monitoring: errors/APM, RUM CWV, edge cache, Algolia latency/errors, scheduled-job health, request→Linear + moderation | ✅ | Repeatable procedure shipped: `docs/POST_LAUNCH_MONITORING.md` §1 (daily checklist, all named dashboards/metrics/monitors) + §1a (8 crons). RUM-CWV row is gated on §0 (analytics dark); every server-side signal is live. Ongoing *execution* is operational, not a code artifact. |
+| 1 | Daily monitoring: errors/APM, RUM CWV, edge cache, Algolia latency/errors, scheduled-job health, request→Linear + moderation | ✅ | Repeatable procedure shipped: `docs/POST_LAUNCH_MONITORING.md` §1 (daily checklist, all named dashboards/metrics/monitors) + §1a (8 crons at the time of this pass; **10 since Phase 8.3** — §2c). RUM-CWV row is gated on §0 (analytics dark **at the time of this pass**; both globals are injected as of 2026-08-12 — §2c). Ongoing *execution* is operational, not a code artifact. |
 | 2 | Triage + ticket regressions; tighten warn-level alerts that prove noisy or miss real issues | ⚠️ | **Two concrete fixes shipped.** "Noisy": data-quality **severity split** — `monitor-data-quality-check.json` scoped `severity:error` (pages) + new `monitor-data-quality-check-warn.json` (informational, non-paging) so 8 hygiene checks stop paging like integrity errors. "Miss real issues": new `monitor-waf-poll-no-data.json` (a silently-dead hourly WAF poll now pages). Triage→ticket loop documented (`POST_LAUNCH_MONITORING.md` §4). Threshold retuning is traffic-gated → **§F3**. |
 | 3 | Confirm real-user CWV against the (Phase 2) §12 budgets; address the worst offenders | ❌ | **Blocked** — prod RUM dark (no `__AECI_DD__`); zero field CWV data. **Not read** (scope decision). Interim lab reference recorded in `POST_LAUNCH_HEALTH_REPORT.md` (2026-07-11 entry) + `PERFORMANCE_AUDIT.md`. Likely field offenders (CLS on detail/browse/taxonomy 0.145–0.326; detail JS ~227 KB) are **owned by AECI-221**. Provision + first read → **§F1**. |
 | 4 | Capture a "first week / first month" health report | ✅ | `docs/POST_LAUNCH_HEALTH_REPORT.md` — a dated log modeled on `ANALYTICS_BASELINE.md`, with the observable-vs-blocked matrix, an entry template, and the first (2026-07-11, structural) snapshot. Weekly/first-month entries accrue operationally. |
@@ -63,15 +63,76 @@ _This checkpoint changes **only docs + monitor JSON** — no application logic �
 
 **Score: AC — 2 ✅ / 1 ⚠️ / 1 ❌ (blocked) · §16 Phase 8 — 0 done / 2 ⚠️ in-progress / 2 not-started** (AECI-280 / Phase 8.2 moved "iterate stats-card content" to in-progress). Phase 8 is **ongoing** — 8.1 + 8.2 are slices, not the whole phase. Every non-green item is an ops flip (§F1), a traffic-gated retune (§F3), or a later Phase-8 slice (§F4) — not a build defect.
 
+### 2c. Phase 8.3 — Admin panel / operator console (epic AECI-572)
+
+> **Appended 2026-08-14 by AECI-587** (the §12 docs closeout), per Note D. The 8.1 verdict, AC table
+> and score above are the AECI-279 record as written on 2026-07-11 and are **not restated or
+> rescored here** — where 8.3 changed a fact one of them asserts, the change is recorded in this
+> section and cross-referenced from there.
+
+**Spec:** `docs/ADMIN_PANEL_SPEC.md` (v1.0 build contract, promoted 2026-08-12 by AECI-573).
+**Scope:** a read-only operator console over data AECi already collects — the consent-independent
+read surface for `page_views`, plus a screen for the two cron digests. §13 **D1** placed it in Phase
+8.3 on the **`main` line** (not Stage 2 — no vendor auth), integrated on the **`admin-panel`** epic
+branch as a second time-boxed exception under ADR 0019 (`CICD_PLAN.md` §10).
+
+**Status at this checkpoint: all 15 units Done; the epic has not yet merged to `main`.** Prod is at
+`c461a883` (2026-08-13T07:53Z), a `main` commit. Nothing below is deployed — staging auto-tracks
+`main`, so per §13 D1 obligation (b) **per-PR preview Workers were the verification surface** for
+the whole epic.
+
+| §10 unit | Issue | Shipped |
+|---|---|---|
+| — | AECI-573 | Decision gate: §13 Q1–Q7 → D5–D11, timing + base branch (D1), spec promoted to contract |
+| §9.6 | AECI-575 | `/admin/*` + `/account` excluded from `PageViewTracker` — write side **and** retroactive read filter (D12) |
+| P1.1–P1.6 | AECI-574, 576, 577, 578, 579, 580 | The read API (8 `GET` endpoints) + the shell restructure, Overview, Activity, Traffic, Catalog and System screens; hand-rolled SVG chart primitives (D3, no new client dependency) |
+| P2.1–P2.2 | AECI-581, 582 | `metrics_daily` + the 00:15 snapshot cron + historical backfill, `products.promoted_at` (D6); the production page-view bot backfill |
+| P3.1–P3.2 | AECI-583, 584 | `job_runs` + all ten crons instrumented + DQ results persisted; the 03:00 retention prune (400d / 90d / indefinite, D5) |
+| P4.1 | AECI-585 | Page-view ingest fixes; the three dead columns dropped (D7) — the repo's first table-recreate migration |
+| P5.1 | AECI-586 | Audience section (mailing list, churn, UTM, geography) + the feedback inbox |
+| §12 | AECI-587 | This docs closeout |
+
+**What changed for post-launch operations** — the reason this belongs in *this* file:
+
+1. **`page_views` has a read surface.** It was write-only-in-practice since launch; the daily digest
+   was the only thing that read it. Eight admin endpoints now do, behind `requireAdmin()`.
+2. **Cron liveness split in two.** Since AECI-583 the panel owns the **record** (last run, outcome,
+   duration per job, from `job_runs`); **Datadog still owns absence** — a cron that never starts
+   writes no row either, so only a no-data monitor catches it. §1 row 6 of the monitoring runbook
+   states the split rather than replacing one with the other.
+3. **The morning read needs no email.** The 04:00 data-quality digest is readable on demand at
+   `/admin/system`, with the last stored run as the default view; D1 size and per-table row counts
+   no longer need `wrangler d1 execute`. Per **D2 no cron was retired** — push and pull are
+   complementary.
+4. **Retention exists and is enforced.** Nothing is deleted yet: `job_runs` first bites ~2026-11-11,
+   `page_views` ~2027-07.
+5. **§F1's blocker cleared.** Both `__AECI_POSTHOG__` and `__AECI_DD__` are injected in prod HTML
+   (verified 2026-08-14). AC3 above is no longer *blocked* — only *unread*. See §F1.
+
+**Two audit-model decisions worth carrying forward** (they govern review, not just this epic):
+**ADR 0022** scopes the §26.1 audit-in-batch invariant to **domain state** — derived and log-class
+writes are exempt, recorded as the standing exemption EX-002; and **scheduled deletion is never
+exempt**, so the retention prune writes exactly one `retention.pruned` summary row per run in the
+same batch as its deletes. The test is *entity class, not actor class*.
+
+**Consciously open, none blocking:** AECI-590 (reverse-proxy PostHog, D9, Low, outside the epic) ·
+AECI-591 (the `*/15` reconcile sweep's genuine §26.1 violation — surfaced by ADR 0022, deliberately
+not legitimized, Medium) · AECI-592 (data-quality check #2 is unreachable, Medium).
+
+**New punts from this slice:** §F5 (no `metrics-snapshot` monitor) and §F6 (the at-merge
+obligations).
+
 ---
 
 ## 3. Outstanding items — follow-ups & punts
 
 > Per the checkpoint convention (Phases 2–7, per Chris's standing instruction), outstanding items are **documented here as punts for Chris to file**; this checkpoint creates no Linear issues.
 
-### F1 — Provision the analytics secrets + first field CWV read (the AC3 blocker)
+### F1 — Provision the analytics secrets + first field CWV read (the AC3 blocker) — **half done**
 
 Set the GitHub secret **values** so the CI-wired push lights up prod: `DD_APPLICATION_ID`, `DD_CLIENT_TOKEN` (Datadog RUM), and `POSTHOG_KEY`. Then verify `curl -s https://www.aecintegrations.com/ | grep -oE '__AECI_(POSTHOG|DD)__'` prints both, and ~1 week later do the first field CWV read (Datadog RUM → Optimize Vitals, `aeci` app, `env:production`, p75 LCP/CLS/INP vs `STAGE_1_PHASE_2_SPEC.md` §12) — recording it in `POST_LAUNCH_HEALTH_REPORT.md`. This closes AC3. Ops-only, no code.
+
+> **Update (2026-08-14, AECI-587).** The provisioning half is **done** — both globals are injected in prod HTML (verified by the `curl` above on 2026-08-14; first confirmed 2026-08-12). **AC3 is no longer blocked, only unread**: field data has been accruing for ~2 days, so the first CWV read is now a task rather than an impossibility. That read is the remaining half of this punt. Note the RUM sample stays thin while the site is pre-marketing, and PostHog additionally under-counts by whatever share of visitors run a blocker (→ AECI-590).
 
 ### F2 — Apply the three AECI-279 monitors to Datadog
 
@@ -84,6 +145,18 @@ The launch-placeholder thresholds (`POST_LAUNCH_MONITORING.md` §3: error-rate 1
 ### F4 — Later Phase-8 slices (8.2+)
 
 The remaining §16 Phase 8 bullets are separate slices needing real traffic/reviews. **Iterate home stats-card content** is now under way as **Phase 8.2 / AECI-280** — the first pass (2026-07-12) tuned the trending card on real `page_views` (added the `TRENDING_MIN_VIEWS` floor; window/top-N validated and left unchanged) and documented the trending tunables (`POST_LAUNCH_MONITORING.md` §3). Its own **~30d follow-up** is still to be filed: window/top-N re-evaluation, PostHog-join weighting + recency decay, and the card-resonance/swap review once PostHog + RUM have volume. The other two — refine the moderation workflow after the first real reviews; start Stage 2 planning (`stage-2` branch) — remain to be filed as their own issues when the traffic/inputs exist.
+
+> **Update (2026-08-14, AECI-587).** Two more slices have since happened, neither of them from the §16 bullet list. **Stage 2 planning has started** (AECI-282 → `docs/STAGE_2_SPEC.md` + six epics on the `stage-2` branch), so that bullet is no longer "not started". And **Phase 8.3 — the admin panel (epic AECI-572) — is code-complete** (§2c); it was not a §16 bullet at all, which is the point of Note D: Phase 8 is a period, and slices arrive that the original build order never named. Its own punts are §F5 and §F6. Moderation-workflow refinement remains genuinely not started — it still needs the first real user reviews, and `reviews` was **0 rows** at the 2026-08-12 census.
+
+### F5 — Add a `metrics-snapshot` no-data monitor (Phase 8.3)
+
+The 00:15 UTC `metrics_daily` snapshot is the **only cron with no dedicated Datadog monitor**, and it is the one where absence is permanently lossy: it is queue-less (a failed run is never retried) and a missed day's **stock** metrics cannot be reconstructed — only flows can. A gap also silently aborts the whole 03:00 retention prune (§7.4 forbids pruning an uncaptured day), so today a snapshot outage surfaces as a *retention* alert or not at all.
+
+Build it on `aeci.metrics_snapshot.run{outcome:ok,trigger:cron,env:production}` with `notify_no_data` over ~30h, modeled on `monitor-algolia-sync-no-data.json`. A second, non-paging monitor on `aeci.metrics_snapshot.metric{outcome:failed}` would catch the `partial` case (one broken producer out of 19) that the run-level tag hides. Runbook already written: `RUNBOOKS.md` → "Metrics snapshot missing or incomplete".
+
+### F6 — At-merge obligations for `admin-panel → main` (Phase 8.3)
+
+Four things AECI-587 could not discharge, because the docs closeout lands *before* the squash merge. The canonical list is `ADMIN_PANEL_SPEC.md` **§12a**; it is also filed as **[AECI-596](https://linear.app/aec-integrations/issue/AECI-596)** so it survives outside the spec. In short: replace `ANALYTICS_BASELINE.md`'s placeholder "the AECI-585 production deploy" dates with the real date; retire §7.3's migration-not-yet-deployed note and confirm `main`'s `account.ts` no longer nulls `page_views.user_id`; apply migrations `0010`–`0014` per tier after reconciling the Drizzle journal (§13 D1 obligation (a)); retire the `admin-panel` branch (`CICD_PLAN.md` §10 — time-boxed, not a standing third line).
 
 ### Not a defect — flagged, not fixed here
 
@@ -101,7 +174,7 @@ The remaining §16 Phase 8 bullets are separate slices needing real traffic/revi
 New `observability/datadog/monitor-waf-poll-no-data.json` — `notify_no_data` on `aeci.waf.poll{outcome:ok,trigger:cron,env:production}` over a 3h window, modeled on `monitor-algolia-sync-no-data.json`. Fills the gap `OBSERVABILITY.md` itself flagged.
 
 ### 4.3 Monitoring runbook — `docs/POST_LAUNCH_MONITORING.md`
-The daily/weekly operate-and-tune procedure: the §0 analytics-injection gate, the daily checklist (§1) + 7-cron table (§1a), the weekly checklist (§2), the launch-tunable-threshold table (§3), the triage→ticket loop (§4), and the monitor-apply ops note (§5).
+The daily/weekly operate-and-tune procedure: the §0 analytics-injection gate, the daily checklist (§1) + the cron table (§1a — 7 crons as shipped here, 10 since Phase 8.3), the weekly checklist (§2), the launch-tunable-threshold table (§3), the triage→ticket loop (§4), and the monitor-apply ops note (§5).
 
 ### 4.4 Health-report log — `docs/POST_LAUNCH_HEALTH_REPORT.md`
 Dated log (template + first structural entry) modeled on `ANALYTICS_BASELINE.md`, with the observable-vs-blocked matrix; CWV marked blocked with the interim lab reference.
@@ -111,6 +184,10 @@ The living Phase 8 checkpoint: AC + §16-bullet mapping with evidence, the four 
 
 ### 4.6 Dependent-doc updates
 `OBSERVABILITY.md` (monitors table completed to 23 incl. the DQ + WAF-poll rows; DQ-severity + WAF-poll-liveness prose; apply-note count/placeholder); `RUNBOOKS.md` (DQ + WAF alert lists reflect the split + new monitor); `docs/README.md` (index rows for the two new docs); `CLAUDE.md` (source-of-truth rows + `PHASE_{2..7}` → `{2..8}`).
+
+### 4.7 Phase 8.3 — admin panel (epic AECI-572, appended 2026-08-14 by AECI-587)
+
+Not work done *in AECI-279* — appended per Note D so this file keeps describing Phase 8 as a whole. The build is recorded in §2c; what the **closeout** (AECI-587) itself did: verified all 20 rows of the `ADMIN_PANEL_SPEC.md` §12 update contract against the files rather than trusting the owning sub-issues (17 were already satisfied); wrote the three that were not — a new dated `POST_LAUNCH_HEALTH_REPORT.md` entry, the missing `metrics-snapshot` runbook, and this section; closed the seven §14.3 known-stale claims; and reconciled the spec's own §10 against what shipped. Two accuracy fixes worth naming because they were wrong in a way review would not have caught: `CODE_REVIEW_EXEMPTIONS.md` EX-002's path scope did not list the three new bookkeeping writers, so the exemption would not have matched the writes it exists for; and `STAGE_1_SPEC.md` §26's DDL was still Postgres (`uuid` / `jsonb` / `timestamptz`) two migrations after the D1 move — AECI-573 had corrected the prose only.
 
 ---
 
@@ -137,6 +214,8 @@ The living Phase 8 checkpoint: AC + §16-bullet mapping with evidence, the four 
 - **F2** — apply the three AECI-279 monitors to Datadog; decide the warn monitor's low-urgency routing.
 - **F3** — retune the launch-placeholder thresholds once a real-traffic baseline exists.
 - **F4** — the later Phase-8 slices (stats-card iteration, moderation-workflow refinement, Stage 2 planning).
+- **F5** *(Phase 8.3)* — add a `metrics-snapshot` no-data monitor; it is the only cron without one, and the only one where a missed run is permanently lossy.
+- **F6** *(Phase 8.3)* — the `admin-panel → main` at-merge obligations (`ADMIN_PANEL_SPEC.md` §12a), filed as **AECI-596**.
 
 **Linear housekeeping:** AECI-279 moved to **In Progress** and assigned to Chris at start.
 

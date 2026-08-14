@@ -928,29 +928,47 @@ Lean fire-and-forget capture hook for pageviews per Phase 2 Spec §7.1. Returns 
 ```typescript
 export const PageViewPayloadSchema = z.object({
   route: z.string().min(1),
+  path: z.string().min(1).max(2048).optional(),      // AECI-585 — concrete path
+  navigation: z.enum(['spa', 'arrival']).optional(), // AECI-585
   entity_type: z.string().optional(),
   entity_id: z.string().optional(),
+  ref_source: z.string().max(64).optional(),         // AECI-243 campaign attribution
+  ref_token: z.string().max(255).optional(),
 });
 
 export type PageViewPayload = z.infer<typeof PageViewPayloadSchema>;
 ```
 
-**Phase 4 (AECI-177) wires the write.** The handler validates the body synchronously (so a malformed body still surfaces `400`), returns `204` immediately, and inserts one `page_views` row via `ctx.waitUntil()` — the write never blocks the response (§14.2). The `page_views` table already exists in the D1 schema (`apps/api/src/db/schema.ts`), so there is no migration. A capture failure is logged to Datadog (`warn`) and swallowed; the endpoint still returns `204`. User-blocking errors are never raised.
+**Phase 4 (AECI-177) wires the write.** The handler validates the body synchronously (so a malformed body still surfaces `400`), returns `204` immediately, and inserts one `page_views` row via `ctx.waitUntil()` — the write never blocks the response (§14.2). A capture failure is logged to Datadog (`warn`) and swallowed; the endpoint still returns `204`. User-blocking errors are never raised.
 
-**Enrichment** (DATABASE_SCHEMA §9.1 columns): `cf_country`, `cf_colo`, `cf_asn`, `cf_bot_score` from Cloudflare request context; `user_agent_hash` = SHA-256 of the `User-Agent` (the raw UA is **never** stored); `locale` = the served locale (`en-US` today); and `product_id` / `vendor_id` resolved from `(entity_type, entity_id)` — `entity_id` is the entity's own UUID (the SSR resolvers attach `entity.id`), existence-checked before storing so a stale/spoofed id becomes null rather than an FK error. `user_id` / `profile_role` stay null until Phase 5 wires the authenticated session. **No raw IP is ever persisted** (§14.2 privacy).
+**Enrichment** (DATABASE_SCHEMA §9.1 columns): `cf_country`, `cf_colo`, `cf_asn`, `cf_as_organization`, `cf_bot_score` from Cloudflare request context; `user_agent_hash` = SHA-256 of the `User-Agent` (the raw UA is **never** stored); `locale` = the served locale (`en-US` today); and the entity columns resolved from `(entity_type, entity_id)` — `entity_id` is the entity's own UUID (the SSR resolvers attach `entity.id`), existence-checked before storing so a stale/spoofed id becomes null rather than an FK error. **No raw IP is ever persisted** (§14.2 privacy).
 
-**CF context forwarding contract.** The browser POST reaches the SSR Worker first, and `request.cf` does **not** survive the SSR→API service binding, so the SSR Worker forwards the four CF fields on trusted headers (`@aeci/shared` `PAGE_VIEW_CF_HEADERS`):
+**AECI-585 (`ADMIN_PANEL_SPEC.md` §7.3) widened what a row records**, and every part of it is write-time-only — nothing here is recoverable from a row that lacks it:
+
+- **`entity_type` now covers the four taxonomy facets**, not just `product` / `vendor`. `category` / `audience` / `phase` / `trade` land in `taxonomy_kind` + `taxonomy_id`. The SSR resolvers always sent them; the handler used to drop them, so ~600 rows could say a facet page was viewed but not which term. The kind is stored **only** alongside a confirmed id — a dangling kind would inflate every per-facet count with unattributable rows. An unrecognized `entity_type` is ignored, not an error.
+- **`path`** is the concrete URL path, stored in `concrete_path` beside the `route` pattern in `path`. Optional: the API falls back to `route`, which is correct for every writer whose route is already concrete (the browser tracker, an SSR cache HIT). Only a writer sending a *pattern* owes an explicit `path`. Locale prefix stripped, no query or hash — the same privacy rule that keeps the full URL out of `referrer` (§9.7) applies here.
+- **`navigation`** distinguishes a full-document `'arrival'` from an in-app `'spa'` hop. Never inferred: an omitted flag stores as null. It exists because the same-origin `Referer` on an SPA hop classifies as `Direct`, making `Direct` — the largest bucket in every digest — a mix of true arrivals and in-app clicks. A value outside the enum is a `400`, like any other schema violation.
+- **`user_id` / `session_id` / `profile_role` were dropped** (§13 D7). They were never written; see `DATABASE_SCHEMA.md` §9.1 for why they were dropped rather than filled.
+
+**CF context forwarding contract.** The browser POST reaches the SSR Worker first, and `request.cf` does **not** survive the SSR→API service binding, so the SSR Worker forwards the CF fields on trusted headers (`@aeci/shared` `PAGE_VIEW_CF_HEADERS`):
 
 | Header | Source (`request.cf`) | `page_views` column |
 |---|---|---|
 | `x-aeci-cf-country` | `cf.country` | `cf_country` |
 | `x-aeci-cf-colo` | `cf.colo` | `cf_colo` |
 | `x-aeci-cf-asn` | `cf.asn` | `cf_asn` |
+| `x-aeci-cf-as-organization` | `cf.asOrganization` | `cf_as_organization` |
 | `x-aeci-cf-bot-score` | `cf.botManagement.score` | `cf_bot_score` |
+
+`x-aeci-cf-as-organization` (AECI-585 / §13 D10) reuses the header name `LANDING_CF_HEADERS` already carries it under, deliberately: both proxies read the same `request.cf` field onto the same wire name, so the two enrichment paths cannot drift apart on it. It is a **read-side label only** — it never feeds `is_bot` at ingest.
 
 The SSR Worker is the **sole writer** of these headers: on the `/api/page-views` proxy path it strips any client-supplied copies (anti-spoof) before setting them from `request.cf`. The API Worker treats them as trusted because it has no public ingress (service-binding only); it falls back to a directly-present `request.cf` for local/test runs.
 
 **Two writers, de-duped.** The browser `PageViewTracker` (AECI-151) is the canonical per-view counter; the SSR Worker's `firePageView` is a supplementary write that adds CF/bot context on full-document renders. They don't double-count — the client tracker skips the initial navigation (the SSR Worker already counted the landing arrival) and only counts subsequent in-app navigations. The SSR path undercounts because true edge-cache hits bypass the SSR Worker (§14.2, accepted). Both writers carry the same `PAGE_VIEW_CF_HEADERS` enrichment.
+
+That split is exactly what `navigation` records, and each writer states its own half as a fact rather than a guess: the tracker sends `'spa'` because it fires only on in-app navigation, and `firePageView` stamps `'arrival'` because every write through it is a full-document load. `firePageView` also stamps `path` from the request URL, so a resolver-attached payload carrying a route *pattern* gains the concrete path without any resolver changing — both fields are set at that one choke point and override whatever the caller passed, since the request URL is the authority on where the visitor is.
+
+**Public routes only (AECI-575).** Both writers skip the operator-only prefixes in `@aeci/shared` `UNTRACKED_ROUTE_PREFIXES` — `/admin` and `/account`, matched on an exact prefix boundary via `isUntrackedRoute()`, so nested admin routes are covered without enumeration and `/administrators` is not. Recording them would mean the admin console writes a row into the table it reads, from the operator's own ISP (`ADMIN_PANEL_SPEC.md` §9.6; on 2026-08-10 that was 67 of 92 "human" views). The exclusion is enforced at the **writers**, not at this endpoint — a `route` of `/admin/reviews` posted directly is still accepted and inserted — because the rule belongs where nothing is sent at all; the read side (the daily digest) applies the same prefix list, which is also what neutralizes rows written before this shipped and anything a stale client emits. This is an exclusion list, not a consent concept: `page_views` ingest stays consent-independent by design.
 
 **Bot-score sampling** is a deferred §14.2 policy: the `PAGE_VIEWS_MIN_BOT_SCORE` env knob (unset everywhere today → capture all) drops views below the floor when set. Nothing is hardcoded to drop.
 
@@ -1162,6 +1180,898 @@ banning an already-banned reviewer, unbanning one who isn't banned, or a concurr
 flip; `FORBIDDEN` (403) when the target is an admin account or the acting admin
 themselves (a banned admin would lock themselves out of `requireAdmin()`).
 
+---
+
+#### Admin panel reads (AECI-574 / Phase 8.3 P1.1, extended by AECI-577 / P1.3, AECI-579 / P1.5, AECI-580 / P1.6, and AECI-586 / P5.1)
+
+Eight `GET`s serving the operator console (`docs/ADMIN_PANEL_SPEC.md` §5–§6).
+Source of truth: `packages/shared/src/api/admin-panel.ts` (Zod), and
+`apps/api/src/routes/admin-{overview,metrics,traffic,page-views,catalog,system,audience,feedback}.ts` +
+`lib/admin-{analytics,catalog,status,audience}.ts` (handlers). They register on the
+same `authAdmin` sub-router behind `requireAdmin()` — no new gate.
+
+**Every `page_views` read carries the §13 D12 floor.** `/admin/*` and `/account`
+rows are excluded *beneath* the caller's filters, historical rows included, via
+`inWindow()` in `lib/admin-analytics.ts` — the single choke point every query in
+that module derives its base predicate from. It is not a query parameter and
+cannot be turned off. It is also deliberately silent: unlike the ASN filter it is
+not a heuristic over real visitors, so there is no false-positive class to
+disclose and no "N excluded" figure to report.
+
+**Conventions that apply to all six.** Read-only: **no `audit_log` row** (reads
+emit nothing, §26.1 as scoped by ADR 0022). **No `Cache-Tag`, no edge caching** —
+`json()` sets `private, no-store` and `/admin/*` is absent from
+`ROUTE_CACHE_PATTERNS` in `server-runtime.ts`, which `server.spec.ts` asserts; a
+cached admin response is a visitor-state leak (panel spec §9.2). Response shapes
+are Zod-validated in dev/preview/staging via `validateResponseInDev`.
+
+##### The honesty envelope
+
+Every response carries its window and the biases that apply to it, as
+**machine-readable notes** — the UI localizes prose from `code` + `params`;
+`message` is an untranslated operator fallback (curl / logs), matching the
+`label` fallback on breakdown rows.
+
+```typescript
+export const AdminWindowSchema = z.object({
+  from: z.string().datetime(),   // INCLUSIVE, UTC
+  to: z.string().datetime(),     // EXCLUSIVE, UTC
+  timezone: z.literal('UTC'),    // the only timezone this API speaks (§9.5)
+  days: z.number().int().positive(),
+});
+
+export const AdminNoteCodeSchema = z.enum([
+  'partial_day',                       // window overlaps the current UTC day
+  'bot_classification_incomplete',     // N rows have is_bot IS NULL → counted HUMAN
+  'referrer_source_incomplete',        // N human rows have no referrer_source
+  'direct_is_mixed_bucket',            // Direct mixes SPA hops with real arrivals
+  'visitor_definition_approximate',    // §9.8 (user_agent_hash, cf_asn)
+  'catalog_series_is_additions_only',  // catalog.* are events, never net totals (§4)
+  'catalog_series_starts_at',          // window predates the audit log
+  'internal_filter_unavailable',
+  'internal_filter_applied',
+  'requires_recompute',                // an expensive status item was omitted
+  'algolia_credentials_absent',
+  // AECI-579 / P1.5 — catalog coverage
+  'funnel_is_promoted_cohort_only',    // every product reads 'promoted' (§13 D6)
+  'trade_facet_sparse_by_design',      // untagged trades are not a backlog
+  'api_docs_flag_inconsistent',        // has_api_docs set with no api_docs_url
+  // AECI-580 / P1.6 — system status
+  'cron_liveness_unavailable',         // N of 8 crons have no last-run record
+  'orphan_sweep_not_persisted',        // the sweep's result is stored nowhere
+  // AECI-586 / P5.1 — audience
+  'utm_attribution_incomplete',        // N of M signups in the window carry no utm_source
+  'audience_history_is_current_state', // a resubscribe erases the churn it is computed from
+]);
+
+export const AdminNoteSchema = z.object({
+  code: AdminNoteCodeSchema,
+  severity: z.enum(['info', 'warn']),
+  message: z.string().min(1),
+  params: z.record(z.string(), z.union([z.string(), z.number()])).optional(),
+});
+```
+
+The bias flags are **derived by querying the window**, never keyed to a hardcoded
+date: `bot_classification_incomplete` fires because the window actually contains
+`is_bot IS NULL` rows. It duly retired itself when AECI-582 backfilled those rows
+on 2026-08-13 — no code change, and no stale date left behind asserting a bias
+that no longer exists. It stays in the contract because a future ingest gap would
+re-open the same hole, and callers should keep handling the code.
+
+##### `ANALYTICS_INTERNAL_ASNS` — both numbers, never one (§13 D10)
+
+Every traffic count is an `AdminCount` whose `total` is **always the unfiltered
+figure**. The read-time ASN filter only ever adds a second number beside it, so a
+filtered figure can never be reported as *the* figure.
+
+```typescript
+export const AdminCountSchema = z.object({
+  total: z.number().int().nonnegative(),                     // ALWAYS unfiltered
+  excluding_internal: z.number().int().nonnegative().nullable(), // null when unavailable
+});
+
+export const AdminInternalFilterSchema = z.object({
+  available: z.boolean(),  // ANALYTICS_INTERNAL_ASNS parses to ≥1 ASN
+  applied: z.boolean(),    // available AND requested for this query
+  asns: z.array(z.number().int().positive()),
+});
+```
+
+The var ships **unset** on every tier (`docs/environments.md`); absent → the
+filter is unavailable, `excluding_internal` is null everywhere, and the UI hides
+the toggle. It is a `WHERE` clause only — it never touches `is_bot` and never runs
+at ingest (`apps/api/src/lib/internal-asns.ts`).
+
+#### `GET /api/admin/overview`
+
+The §5.1 bundle in one round trip.
+
+```typescript
+export const AdminOverviewQuerySchema = z.object({
+  day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), // default: prior COMPLETE UTC day
+  recompute: z.enum(['0', '1']).default('0').transform((v) => v === '1'),
+});
+
+export const AdminOverviewResponseSchema = z.object({
+  window: AdminWindowSchema,
+  generated_at: z.string().datetime(),
+  source: AdminMetricSourceSchema,   // 'live' | 'snapshot' | 'mixed'
+  recomputed: z.boolean(),
+  notes: z.array(AdminNoteSchema),
+  internal_filter: AdminInternalFilterSchema,
+  traffic: z.object({
+    page_views_human: AdminCountSchema,
+    page_views_bot: AdminCountSchema,
+    unique_visitors: AdminCountSchema,      // DISTINCT (user_agent_hash, cf_asn)
+    delta_day: AdminDeltaSchema,            // human views, day over day
+    delta_7d: AdminDeltaSchema,             // 7 days ending here vs the 7 before
+    series_30d: z.array(AdminTrafficPointSchema),   // zero-filled { day, human, bot }
+    top_sources: z.array(AdminSourceCountSchema),
+    top_products: z.array(AdminProductViewsSchema), // { name, slug, views }
+  }),
+  audience: z.object({
+    new_sign_ins: AdminDeltaSchema,
+    total_users: z.number().int().nonnegative(),
+    active_subscribers: z.number().int().nonnegative(), // unsubscribed_at IS NULL
+  }),
+  catalog: AdminOverviewCatalogSchema,      // products/integrations/vendors/claims/attestations
+  status: AdminStatusStripSchema,
+});
+
+// Structured, not prose — the semantics are the digest's, the strings are the UI's.
+export const AdminDeltaSchema = z.object({
+  current: z.number().int(),
+  prior: z.number().int(),
+  diff: z.number().int(),
+  pct: z.number().nullable(),   // null when prior === 0 (the email omits it too)
+});
+```
+
+**Digest parity is structural.** The handler *calls* `collectAnalyticsMetrics`
+(`lib/analytics-digest.ts`) rather than re-implementing it, and deltas come from
+the exported `computeDelta` that `deltaText` itself uses. The default window is
+the digest's own (`windowsForDay(dailyWindows(now).dayLabel)`), so
+`GET /api/admin/overview` with no params reports exactly what the 05:00 email
+reported. `admin-overview.spec.ts` asserts this against a seeded fixture.
+
+**Status strip and `?recompute=1` (§13 D8).** The first three items are cheap
+D1/env reads and are always present. The last two need the network — the
+data-quality suite HTTP-probes logo URLs, and drift queries three Algolia indexes
+— so the default response returns them as `null` plus a `requires_recompute`
+note, and `?recompute=1` runs them live:
+
+| Field | Source | Default | `?recompute=1` |
+|---|---|---|---|
+| `version` | `COMMIT_SHA` / `DEPLOYED_AT` / `ENV` | ✅ | ✅ |
+| `stats_freshness` | `MAX(stats_cache.computed_at)`, stale > 48 h | ✅ | ✅ |
+| `moderation` | pending reviews + open `vendor_requests` | ✅ | ✅ |
+| `data_quality` | all ten §23.1 checks (`runDataQualityChecks`) | `null` | ✅ |
+| `algolia_drift` | `findAlgoliaIndexDrift` per index | `null` | ✅ |
+
+`?recompute=1` is still a **pure read**: both jobs are already read-only, so it
+writes nothing, sends no email, and carries no `audit_log` obligation — which is
+what keeps "all endpoints are GET, read-only" unconditionally true. The
+side-effecting `POST /api/admin/jobs/:job/run` stays deferred and is not built.
+Data-quality check #10 *is* the Algolia drift check, so the drift runner is
+invoked once and its result feeds both. No Algolia credentials → `algolia_drift`
+is `null` + an `algolia_credentials_absent` note (never a fabricated zero); a
+drift call that throws leaves `algolia_drift` null and surfaces the reason on the
+`algolia_index_drift` check instead.
+
+Errors: `VALIDATION_FAILED` (400) for a `day` that matches `YYYY-MM-DD` but is not
+a real calendar date.
+
+#### `GET /api/admin/metrics/timeseries`
+
+One metric, day-bucketed. Reads the `metrics_daily` snapshot per day and falls
+back to live aggregation for any day it does not cover (P2.1 / AECI-581) — a
+storage swap behind an unchanged shape, which is why the metric keys are §7.1's
+`namespace.metric` strings verbatim.
+
+```typescript
+export const AdminMetricKeySchema = z.enum([
+  'traffic.page_views_human',      // page_views, is_bot IS NOT 1 (the digest predicate)
+  'traffic.page_views_bot',        // page_views, is_bot = 1
+  'traffic.unique_visitors',       // DISTINCT (user_agent_hash, cf_asn) per day, HUMANS only
+  'catalog.products_created',      // audit_log action='product.created'
+  'catalog.integrations_created',
+  'catalog.vendors_created',
+  'catalog.claims_created',
+  'accounts.sign_ins_new',         // profiles.created_at
+]);
+
+export const ADMIN_METRICS_MAX_DAYS = 400;   // = §7.4 page_views retention
+
+export const AdminTimeseriesQuerySchema = z.object({
+  metric: AdminMetricKeySchema,
+  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),   // INCLUSIVE UTC date
+  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),     // INCLUSIVE UTC date (from === to is legal)
+  interval: z.enum(['day']).default('day'),
+  exclude_internal: z.enum(['0', '1']).default('0').transform((v) => v === '1'),
+});
+
+export const AdminTimeseriesResponseSchema = z.object({
+  metric: AdminMetricKeySchema,
+  interval: z.enum(['day']),
+  window: AdminWindowSchema,
+  generated_at: z.string().datetime(),
+  source: z.enum(['live', 'snapshot', 'mixed']),
+  notes: z.array(AdminNoteSchema),
+  internal_filter: AdminInternalFilterSchema,
+  // { day, value, value_excluding_internal, reconstructed }
+  points: z.array(AdminTimeseriesPointSchema),
+  total: AdminCountSchema,
+});
+```
+
+`source` says where the numbers came from: `snapshot` when every day in the window
+was captured by the 00:15 cron, `live` when none was, `mixed` otherwise. **`mixed`
+is the normal case, not an edge** — the cron captures the prior COMPLETE UTC day,
+so any window reaching today has an uncovered day by construction.
+
+`points[].reconstructed` is a separate axis, and it is about *exactness* rather
+than storage: `true` means that day predates the snapshot and was reconstructed
+from the audit log afterwards, so it can only ever be approximate (§4). It is
+per-point because a window can span the boundary and a response-level flag could
+not say which days it applied to. When any point carries it, the response also
+carries a `series_partly_reconstructed` note with `reconstructed_days` and
+`reconstructed_through` — prose for the UI, which renders it without a chart
+change.
+
+**`exclude_internal=1` forces live aggregation for the whole window.**
+`metrics_daily` stores only the unfiltered figure — `ANALYTICS_INTERNAL_ASNS`
+(§13 D10) is read-time configuration, and baking the current list into a stored
+row would rot silently the moment it changed. `page_views`' 400-day retention means
+live always works for the filterable metrics, so this costs nothing but is worth
+knowing when reading `source`.
+
+`from`/`to` are **inclusive calendar dates**; the response's `window` reports the
+resulting half-open `[from, to)` instants so the boundary is never inferred. The
+series is **zero-filled** across every day in the window — a chart never has to
+tell "no data" from "no key". `total` is the sum of the series.
+
+One consequence worth stating, because it looks like a bug otherwise:
+`traffic.unique_visitors` **does not sum meaningfully**. Each bucket is its own
+`COUNT(DISTINCT …)`, so a visitor active on three days is counted three times in
+`total`. `total` is reported as the sum anyway because that is the only figure
+that agrees with the chart the caller is drawing; the window-distinct figure is
+`/api/admin/overview`'s `unique_visitors`, which is explicitly scoped to one day.
+
+`catalog.*` count **additions**, never net totals: §4 shows totals are
+unrecoverable (827 `integration.created` events back 496 live rows after the
+2026-07-25 reset), so every `catalog.*` response carries
+`catalog_series_is_additions_only`. `exclude_internal` applies only to `traffic.*`
+— there is no ASN on a catalog or profile row — and a request that asks anyway
+gets `value_excluding_internal: null` plus an `internal_filter_unavailable` note
+naming the metric.
+
+Errors: `VALIDATION_FAILED` (400) for an unknown `metric`, a non-existent date, a
+reversed range (`to < from`), or a window longer than `ADMIN_METRICS_MAX_DAYS`.
+
+#### `GET /api/admin/traffic/breakdown`
+
+Grouped `page_views` counts over a window. Pagination is over **groups** and uses
+`PageQuerySchema` + the standard paginated envelope, so the list shape matches
+`/api/admin/requests`.
+
+```typescript
+export const AdminTrafficBreakdownQuerySchema = PageQuerySchema.extend({
+  dimension: z.enum(['source', 'country', 'path', 'product', 'bot']),
+  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  traffic: z.enum(['human', 'bot', 'all']).default('human'),
+  exclude_internal: z.enum(['0', '1']).default('0').transform((v) => v === '1'),
+});
+
+export const AdminBreakdownRowSchema = z.object({
+  key: z.string().nullable(),         // null = the unattributed / unknown bucket
+  label: z.string().min(1),           // ASCII fallback; UI localizes when key is null
+  ref: LinkRefSchema.nullable(),      // hydrated only for dimension=product
+  views: z.number().int().nonnegative(),
+  views_excluding_internal: z.number().int().nonnegative().nullable(),
+});
+
+export const AdminTrafficBreakdownResponseSchema =
+  paginatedResponseSchema(AdminBreakdownRowSchema).extend({
+    dimension: AdminBreakdownDimensionSchema,
+    traffic: AdminTrafficPopulationSchema,
+    window: AdminWindowSchema,
+    generated_at: z.string().datetime(),
+    source: AdminMetricSourceSchema,   // 'live' | 'snapshot' | 'mixed'
+    notes: z.array(AdminNoteSchema),
+    internal_filter: AdminInternalFilterSchema,
+    window_total: AdminCountSchema,
+  });
+```
+
+`total` is the **distinct-group count**. `window_total` is the population's total
+for the whole window — the same figure for every dimension — so a row's share is
+computable without a second request; for `dimension=product` the groups therefore
+sum to less than it (most views are not product pages), which is deliberate.
+
+**NULL groups are shown, not dropped** (`key: null`): a row with no
+`referrer_source` or `cf_country` gets its own bucket, so the groups reconcile
+against `window_total`. Dropping them is how a source breakdown quietly starts
+claiming attribution it does not have.
+
+Ordering is views desc, then **named groups before the NULL bucket**, then the key
+— a total order, so pagination cannot repeat or skip a group. `traffic` defaults
+to `human` (matching §5.2); `dimension=bot` forces the bot population regardless,
+since grouping human rows by `bot_name` returns one empty bucket.
+
+Errors: `VALIDATION_FAILED` (400) for an unknown `dimension`, a bad/reversed date
+range, an over-long window, or `perPage > 100`.
+
+#### `GET /api/admin/system` (AECI-580 / Phase 8.3 P1.6)
+
+The §5.6 bundle — deploy identity, cron liveness, the ten data-quality checks,
+Algolia state, and the D1 footprint — in one round trip. Same conventions as the
+three above (read-only, no `audit_log`, no `Cache-Tag`, `private, no-store`).
+Handler: `apps/api/src/routes/admin-system.ts`.
+
+```typescript
+export const AdminSystemQuerySchema = z.object({
+  recompute: z.enum(['0', '1']).default('0').transform((v) => v === '1'),
+});
+
+export const AdminSystemResponseSchema = z.object({
+  window: undefined,                            // NOT windowed — a point-in-time read
+  generated_at: z.string().datetime(),
+  source: z.enum(['live']),
+  recomputed: z.boolean(),
+  notes: z.array(AdminNoteSchema),
+  version: AdminVersionStatusSchema,            // the API Worker's — see below
+  crons: z.array(AdminCronRunSchema),           // ALWAYS all ten
+  data_quality: AdminDataQualityStatusSchema.nullable(),   // null unless ?recompute=1
+  algolia: z.object({
+    watermark: AdminAlgoliaWatermarkSchema.nullable(),     // null = the sync never ran
+    drift: AdminAlgoliaDriftStatusSchema.nullable(),       // null unless ?recompute=1
+    orphan_sweep: AdminOrphanSweepStatusSchema.nullable(), // AECI-583 persists it in the 09:00 run — see below
+  }),
+  database: z.object({
+    size_bytes: z.number().int().nonnegative().nullable(), // D1 meta.size_after
+    tables: z.array(z.object({ table: z.string(), rows: z.number().int().nonnegative() })),
+  }),
+  stats_freshness: AdminStatsFreshnessSchema,
+});
+```
+
+*(`window` is listed as absent deliberately: unlike the other three endpoints this
+is a point-in-time system read, not a windowed aggregation, so it carries no
+`AdminWindow`.)*
+
+##### Two version endpoints, and why this one is only half the answer
+
+`version` is the **API Worker's** `COMMIT_SHA` / `DEPLOYED_AT` / `ENV` — byte-for-byte
+what `GET /api/version` returns, since it is the same Worker reading the same vars.
+The SSR Worker's SHA is **not reachable from here**: `apps/web` forwards `/api/*`
+untouched, so `/api/version` can only ever report the API Worker. That is exactly
+why `apps/web` serves its own unproxied `GET /_version` (AECI-92).
+
+The UI therefore fetches **both** and compares them; a mismatch means one of the
+two deploys is stale, and it renders as a visible warning. Rendering one and
+calling it "the version" defeats the point of the endpoint pair. `/api/version`
+itself is not called by the panel — the bundle already carries those values.
+
+##### Cron liveness is honest about not knowing (§7.2 / AECI-583)
+
+```typescript
+export const AdminCronJobSchema = z.enum([
+  'metrics-snapshot',    // 15 0 * * *   (AECI-581)
+  'retention-prune',     // 0 3 * * *    (AECI-584)
+  'data-quality',        // 0 4 * * *
+  'analytics-digest',    // 0 5 * * *
+  'moderation-snapshot', // 0 6 * * *
+  'home-stats',          // 0 7 * * *
+  'algolia-sync',        // 0 8 * * *
+  'algolia-drift',       // 0 9 * * *
+  'request-reconcile',   // */15 * * * *
+  'waf-poll',            // 0 * * * *
+]);
+
+export const AdminCronRunSchema = z.object({
+  job: AdminCronJobSchema,
+  schedule: z.string().min(1),                       // byte-equal to wrangler.jsonc
+  source: z.enum(['job_runs', 'derived', 'unknown']),
+  last_run_at: z.string().datetime().nullable(),
+  last_outcome: z.enum(['ok', 'failed', 'skipped']).nullable(),
+  duration_ms: z.number().int().nonnegative().nullable(),
+  derived_from: z.string().nullable(),               // e.g. 'stats_cache.computed_at'
+  run_state: z.enum(['complete', 'in_flight']).nullable(),   // AECI-583
+});
+```
+
+`source` is the load-bearing field:
+
+| `source` | meaning |
+|---|---|
+| `job_runs` | read from the §7.2 table — **the normal case since AECI-583**: the row the cron wrote on entry and completed on exit |
+| `derived` | inferred from a D1 side effect named in `derived_from`. Proves the job **ran**; says nothing about whether it **succeeded**, so `last_outcome` stays null. Now only the fallback for a job that has not run since run recording shipped — `home-stats` (`MAX(stats_cache.computed_at)`) and `algolia-sync` (the `algolia_sync_watermark` row's stamp) |
+| `unknown` | no record anywhere in D1 — the job has never run, or was added since |
+
+**An unfinished run can never report an outcome.** When the row has no
+`finished_at`, `run_state` is `'in_flight'` and both `last_outcome` and
+`duration_ms` are null **regardless of what is stored in the column**. That is
+enforced on the read side rather than trusted from the writer, so an interrupted
+run — an isolate reclaimed mid-flight — renders as *In flight*, never as a pass.
+
+`run_state` exists rather than a `last_outcome: 'running'` because `last_outcome`
+mirrors the stored column, and inventing a wire value with no storage counterpart
+would have the API assert an outcome for a run that has none. It is null on
+`derived` and `unknown` rows, where the question does not apply. There is no
+`'stalled'` member: that needs a per-job threshold, and Datadog's no-data monitors
+remain the alerting authority for a job that stops finishing.
+
+Everything crossing the `job_runs` boundary is treated as untrusted — another
+process wrote it. Timestamps are normalized through `Date` (an unparseable one
+drops the row to `derived`/`unknown` rather than shipping a value that fails
+`z.string().datetime()`), and an unrecognized stored `outcome` reads as null.
+
+All ten rows are always present: omitting a job would read as "not configured", a
+different and wrong claim. The schedule strings come from
+`apps/api/src/lib/cron-schedules.ts`, which `scheduled.ts` also `switch`es on, so
+the screen and the dispatcher cannot drift; `ADMIN_CRON_JOB` in the same file maps
+the dispatcher's internal ids onto the `AdminCronJob` vocabulary above.
+
+##### `?recompute=1` (§13 D8) — same semantics as `/overview`
+
+Since AECI-583 the two items behave differently on the default view, and the reason
+is where the answer can be **read** from, not what it costs to compute:
+
+- **`data_quality` is served from storage.** The 04:00 cron persists its whole
+  result set in `job_runs.detail` (§7.2), so the default response replays the last
+  **completed** run. `AdminDataQualityStatusSchema` carries `source:
+  'job_runs' | 'live'` and `computed_at` (the run's `finished_at`, never the
+  response's own `generated_at`) so the UI cannot present a stored result as a
+  fresh one. Still `null` where nothing has been stored yet.
+- **`algolia.drift` stays `null` by default.** The 09:00 run does store its drift
+  rows, but serving them here would put two differently-aged drift numbers on one
+  screen. Left to the recompute.
+
+`?recompute=1` runs the ten §23.1 checks and the drift count live, tagged
+`source: 'live'`. Still a **pure read** — writes nothing (including no `job_runs`
+row), sends nothing, no `audit_log` obligation; what makes it opt-in is network cost
+(check #9 HTTP-probes a sample of logo URLs, drift costs three Algolia queries), not
+mutation.
+
+A stored payload that does not parse yields `data_quality: null` plus a
+`stored_result_unreadable` note — omitted entirely rather than partially reported,
+because filtering to the checks that happen to parse would present a partial suite
+as a complete one and understate `failing`.
+
+Both endpoints share one implementation (`apps/api/src/lib/admin-status.ts`
+`runExpensiveStatusItems`), so the System screen and the Overview status strip
+cannot report different results for the same check. The drift runner is invoked
+**once** per request and memoized at the promise — check #10 of the ten *is* the
+drift check, so running it twice would double the Algolia round trips to report
+one number.
+
+A check that finds nothing comes back `count: 0` with an empty `sample` — the UI
+renders that as *passing*. `skipped: true` (no Algolia credentials) is **not** a
+failure; `error` (the check threw) is distinct from both.
+
+Note codes specific to this endpoint:
+
+| code | severity | means |
+|---|---|---|
+| `cron_liveness_unavailable` | `warn` | `params.unknown` of `params.total` crons have no `job_runs` row yet — they have not run since run recording shipped, or were added since. Self-clearing as the rows arrive |
+| `stored_result_unreadable` | `warn` | a stored `job_runs.detail` did not parse, so that item is omitted. `params.job` names which cron's payload (AECI-583) |
+| `orphan_sweep_not_persisted` | `info` | **No longer emitted (AECI-583).** Retained in the enum because removing a code is a breaking change, and so an older cached response still renders localized prose |
+
+##### `algolia.orphan_sweep`
+
+Read from the last 09:00 drift run's `job_runs.detail` (AECI-583); it was
+permanently `null` in P1.6 because the sweep reported only to Datadog.
+
+```typescript
+export const AdminOrphanSweepStatusSchema = z.object({
+  ran_at: z.string().datetime().nullable(),   // the storing run's finished_at
+  ok: z.boolean(),                            // false when any index errored
+  total_orphans: z.number().int().nonnegative(),
+  total_deleted: z.number().int().nonnegative(),
+  capped: z.number().int().nonnegative(),     // indexes the safety cap refused — the --force signal
+  indexes: z.array(AdminOrphanSweepIndexSchema),
+});
+```
+
+`ok` is a field rather than the reason the object is null because a sweep that
+completed with one index erroring still produced counts worth showing. `null` means
+**no completed run has stored one** — a fresh environment, or a tier where the drift
+cron skips for want of Algolia credentials. Null is never "clean". The per-index
+`orphan_ids` are deliberately not carried: unbounded, and already in the Datadog log.
+
+##### The D1 footprint
+
+`database.tables` enumerates the **live** user tables from `sqlite_master` at
+request time (excluding `sqlite_%`, `_cf_%`, and `d1_migrations` — the same
+predicate `apps/datatool/src/introspect.ts` uses), then counts them in a single
+`UNION ALL`, name-ordered. Runtime introspection rather than a hardcoded list, so a
+table added by a migration appears without a code change.
+
+`size_bytes` comes from D1's own `meta.size_after` (there is no supported
+`PRAGMA page_count` on D1). It is `null` — rendered "unknown" — wherever that field
+is unavailable, notably the better-sqlite3 test harness. It is never approximated
+from the row counts.
+#### `GET /api/admin/catalog/coverage`
+
+The §5.5 catalog readout (AECI-579 / Phase 8.3 P1.5): coverage gaps, the promotion
+funnel, the `research_status` distribution, taxonomy usage per facet, and the
+Stage 1.5 claim/attestation spine. Handler `apps/api/src/routes/admin-catalog.ts`
+over `lib/admin-catalog.ts`; same `authAdmin` sub-router, same `requireAdmin()`,
+same read-only conventions as the three above.
+
+```typescript
+export const AdminCatalogCoverageQuerySchema = z.object({
+  // Rows per gap list. 0 = exact counts with empty samples.
+  sample: z.coerce.number().int().min(0).max(50).default(10),
+});
+
+export const AdminCatalogCoverageResponseSchema = z.object({
+  generated_at: z.string().datetime(),
+  source: z.enum(['live']),
+  notes: z.array(AdminNoteSchema),
+  sample_limit: z.number().int().nonnegative(),   // the `sample` actually applied
+  totals: z.object({ products, integrations, vendors, claims, attestations }),
+  funnel: AdminPromotionFunnelSchema,
+  research_status: z.array(AdminResearchStatusCountSchema),
+  gaps: z.array(AdminCoverageGapSchema),
+  taxonomy: z.array(AdminTaxonomyFacetUsageSchema),
+  claim_coverage: AdminClaimCoverageSchema,
+});
+```
+
+**There is no `window`.** Unlike the three endpoints above, coverage describes
+*current state*: "how many products have no logo" has no time range, and attaching
+one would be the false precision §1.1 forbids. The rest of the envelope
+(`generated_at` / `source` / `notes`) is unchanged.
+
+**The catalog time series lives elsewhere.** §5.5's "counts over time" and
+"additions per day" are served by `GET /api/admin/metrics/timeseries` with the
+`catalog.*` metric keys — which already carry `catalog_series_is_additions_only`
+and `catalog_series_starts_at`. This endpoint deliberately does **not** duplicate
+that series; the UI calls both.
+
+##### Gaps — exact counts, capped samples
+
+```typescript
+export const AdminCoverageGapSchema = z.object({
+  key: z.enum([
+    'products_without_vendor', 'products_without_logo', 'products_without_description',
+    'products_without_api_docs', 'products_without_category', 'products_without_audience',
+    'products_without_phase', 'products_without_trade',
+  ]),
+  total: z.number().int().nonnegative(),      // EXACT
+  universe: z.number().int().nonnegative(),   // total products
+  sample: z.array(LinkRefSchema),             // name-ordered, capped at `sample`
+  sample_truncated: z.boolean(),
+});
+```
+
+The count is the truth; the sample is where the work starts. `universe` travels
+with every gap so a consumer can render "171 of 171" — which is the production
+shape for `products_without_logo` and is a **worklist, not an error**.
+
+Predicates: `without_vendor` is `NOT EXISTS` against `product_vendors` (the same
+predicate as the `products_without_vendor` data-quality check); `without_description`
+treats whitespace as absent; `without_api_docs` keys off `api_docs_url IS NULL` —
+the artifact, not the `has_api_docs` flag — and a flag/URL disagreement is reported
+separately as `api_docs_flag_inconsistent`. Sample rows link to the **AECi product
+page**: D1 stores no curation-tool key (ADR 0021), so a per-row deep link into the
+review app is not constructible.
+
+##### Funnel — expect one populated stage
+
+```typescript
+export const AdminPromotionFunnelSchema = z.object({
+  stages: z.array(z.object({
+    status: z.enum(['pending', 'ready', 'promoted', 'retracted', 'rejected']),
+    count: z.number().int().nonnegative(),
+  })),                                  // zero-filled, pipeline order
+  total: z.number().int().nonnegative(),
+  promoted_cohort_only: z.boolean(),    // DERIVED: every row reads 'promoted'
+});
+```
+
+`promoted_cohort_only` is computed from the rows, never hardcoded, so it retires
+itself if a real un-promote path ever lands. It is true today for the reason
+`ADMIN_PANEL_SPEC.md` §13 D6 gives: promote is D1's only INSERT path into
+`products` and sets `'promoted'` on both branches, nothing writes `'ready'`, and
+retraction hard-deletes. When true the response carries
+`funnel_is_promoted_cohort_only` — without it a 171/0/0/0/0 funnel reads as a bug.
+
+##### Taxonomy usage
+
+```typescript
+export const AdminTaxonomyFacetUsageSchema = z.object({
+  facet: z.enum(['category', 'audience', 'phase', 'trade', 'data_object']),
+  counts_what: z.enum(['products', 'claims']),   // data_object counts CLAIMS
+  terms_total: z.number().int().nonnegative(),
+  terms_used: z.number().int().nonnegative(),    // count > 0
+  publish_floor: z.number().int().positive().nullable(),   // trades only
+  terms_published: z.number().int().nonnegative().nullable(),
+  terms: z.array(z.object({ id, slug, name, count, published: z.boolean().nullable() })),
+});
+```
+
+Terms are **uncapped** — the five vocabularies total ~122 rows. `data_object` is
+the odd facet out: data objects are referenced by claims, not products, so its
+`count` is a claim count and `counts_what` says so rather than leaving a consumer
+to assume. Trades carry the publication gate via `isPublishedTrade` /
+`TRADE_PUBLISH_MIN_PRODUCTS` from `@aeci/shared` (`TRADES_VOCABULARY.md` §6 — one
+copy of the floor); `published` is `null` on the other four facets, which is not
+the same as `false`.
+
+##### Claim coverage
+
+Counts for integrations with/without at least one claim and claims with/without an
+**active** attestation (`deprecated_at IS NULL`, matching `attestations_active_idx`),
+plus a capped sample of claimless integrations. Sample rows carry both endpoints
+(`integrations.name` is nullable) so the consumer can build the pair URL
+`/products/:sourceSlug/integrations/:targetSlug`.
+
+##### Notes this endpoint can raise
+
+`funnel_is_promoted_cohort_only` · `trade_facet_sparse_by_design` (the
+`product_trades` join is sparse by design per `TRADES_VOCABULARY.md` §1.1, so an
+untagged product is not a defect the way a missing logo is) ·
+`api_docs_flag_inconsistent`.
+
+Errors: `VALIDATION_FAILED` (400) for `sample` outside `0…50` or non-numeric.
+
+#### `GET /api/admin/page-views`
+
+The §5.2 Activity feed: individual visits, newest first. Pagination is over
+**rows** and uses `PageQuerySchema` + the standard paginated envelope, so the
+list shape matches `/api/admin/requests`.
+
+```typescript
+export const AdminPageViewsQuerySchema = PageQuerySchema.extend({
+  from: utcDate,                                        // inclusive
+  to: utcDate,                                          // inclusive
+  traffic: AdminTrafficPopulationSchema.default('human'),
+  source: z.string().min(1).max(64).optional(),         // exact, or '__none__'
+  country: z.string().min(1).max(8).optional(),         // exact, or '__none__'
+  path_contains: z.string().min(1).max(200).optional(),
+  exclude_internal: z.enum(['0', '1']).default('0').transform((v) => v === '1'),
+});
+
+export const AdminPageViewRowSchema = z.object({
+  id: z.number().int().positive(),
+  created_at: z.string().datetime(),
+  is_bot: z.boolean().nullable(),          // null = never classified → reads HUMAN
+  bot_name: z.string().nullable(),
+  visitor_hash: z.string().nullable(),     // FIRST 8 CHARS ONLY (§9.7)
+  cf_asn: z.number().int().positive().nullable(),
+  cf_country: z.string().nullable(),
+  cf_colo: z.string().nullable(),
+  path: z.string().min(1),                 // the stored `path` — see the note below
+  entity_type: z.enum(['product', 'vendor']).nullable(),
+  entity: LinkRefSchema.nullable(),
+  referrer_source: z.string().nullable(),  // null = UNKNOWN, not Direct
+  referrer: z.string().nullable(),         // external HOST only
+});
+
+export const AdminPageViewsResponseSchema =
+  paginatedResponseSchema(AdminPageViewRowSchema).extend({
+    traffic: AdminTrafficPopulationSchema,
+    window: AdminWindowSchema,
+    generated_at: z.string().datetime(),
+    source: AdminMetricSourceSchema,
+    notes: z.array(AdminNoteSchema),
+    internal_filter: AdminInternalFilterSchema,  // `applied` = ROWS were filtered
+    window_total: AdminCountSchema,              // every filter EXCEPT exclude_internal
+    window_visitors: AdminCountSchema,           // §9.8 distinct (hash, ASN) pairs
+  });
+```
+
+**`ADMIN_PAGE_VIEW_NULL_FILTER` (`'__none__'`) selects the NULL bucket.** Breakdown
+surfaces NULL groups as `key: null` rather than dropping them; a query string
+cannot carry a null, and those rows are a real population (every row before
+August 2026 has a NULL `referrer_source`), so the sentinel makes them selectable
+rather than merely visible. It is not a value either column can legitimately hold.
+
+**`path_contains` matches literally.** `%` and `_` are escaped server-side and the
+`LIKE` carries an explicit `ESCAPE '\'`, so operator input is never a pattern
+language.
+
+**The internal-ASN filter behaves differently here, deliberately.** §13 D10
+constraint 2 is "show both numbers, never substitute"; on a count endpoint that
+falls out of `AdminCount` for free, but on a row feed `exclude_internal=1` removes
+rows, so computing the counts the same way would leave the operator a smaller
+number with nothing to compare it against. The handler therefore resolves the
+filter **twice**: `window_total` and `window_visitors` are computed both ways
+**unconditionally** whenever `ANALYTICS_INTERNAL_ASNS` is set, toggle or no
+toggle, while `exclude_internal` governs only the row list. `/api/admin/overview`
+sets the same precedent (it always asks). Two consequences:
+
+- `internal_filter.applied` means **"the row list was filtered"** on this endpoint,
+  not "the second count was computed".
+- Both counts honour `source` / `country` / `path_contains`, so they reconcile
+  with `total`: toggle off → `total === window_total.total`; toggle on →
+  `total === window_total.excluding_internal`.
+
+With the var unset (the shipped default on every tier) `excluding_internal` is
+null on both counts and the UI hides the toggle entirely.
+
+**Privacy is enforced by the contract, not by the UI.** `visitor_hash` is
+`substr(user_agent_hash, 1, 8)` computed in SQL, so the full hash never crosses
+the wire. `user_id`, `session_id` and `profile_role` cannot be selected — §13 D7
+settled that the three are *dropped* rather than filled, and AECI-585 dropped them
+(migration `0014`); no session identifier will be introduced.
+
+**`path` is what the writer stored, and this endpoint does not yet read the
+AECI-585 columns.** For a detail or browse page rendered through SSR that is the
+route pattern (`/products/:slug`), which is why `entity` carries the real name for
+product and vendor rows. AECI-585 added `concrete_path`, `taxonomy_kind` and
+`taxonomy_id` at **ingest** — so a taxonomy row written after it *can* say which
+term was viewed — but this contract is unchanged: `entity_type` is still
+`product | vendor`, and a taxonomy row still hydrates to `null` and renders as the
+bare pattern. Surfacing the new columns here (a six-value `entity_type`, taxonomy
+name hydration, the concrete path in the feed) is a follow-up, tracked separately
+from AECI-585, whose scope was ingest only.
+
+Ordering is `created_at DESC, id DESC`. `page_views.id` is an autoincrement
+integer PK, so the pair is a strict total order and pagination can neither repeat
+nor skip a row when several visits share a timestamp.
+
+`notes` always includes `visitor_definition_approximate` (§9.8 travels with the
+number) and, when the window earns them, `bot_classification_incomplete`,
+`referrer_source_incomplete`, `direct_is_mixed_bucket`, and `partial_day`.
+
+Errors: `VALIDATION_FAILED` (400) for a missing/bad/reversed date range, a window
+longer than `ADMIN_METRICS_MAX_DAYS`, or `perPage > 100`.
+
+#### `GET /api/admin/audience` (AECI-586 / Phase 8.3 P5.1)
+
+The §5.4 bundle: lifetime subscriber stocks, the day-bucketed growth/churn
+series, the UTM and signup-geography breakdowns, and the feedback counts.
+
+```typescript
+export const ADMIN_AUDIENCE_MAX_BREAKDOWN = 50;
+export const ADMIN_AUDIENCE_DEFAULT_BREAKDOWN = 8;
+
+export const AdminAudienceQuerySchema = z.object({
+  from: utcDate,                                  // inclusive
+  to: utcDate,                                    // inclusive
+  breakdown_limit: z.coerce.number().int().min(1)
+    .max(ADMIN_AUDIENCE_MAX_BREAKDOWN).default(ADMIN_AUDIENCE_DEFAULT_BREAKDOWN),
+});
+
+export const AdminAudienceBreakdownRowSchema = z.object({
+  key: z.string().nullable(),      // null = the unattributed bucket, surfaced not dropped
+  label: z.string().min(1),        // untranslated operator fallback; UI keys off `key === null`
+  subscribers: z.number().int().nonnegative(),
+});
+
+export const AdminAudienceResponseSchema = z.object({
+  window: AdminWindowSchema,
+  generated_at: z.string().datetime(),
+  source: z.literal('live'),       // NOT AdminMetricSourceSchema — see below
+  notes: z.array(AdminNoteSchema),
+  breakdown_limit: z.number().int().positive(),
+
+  // Lifetime, windowless.
+  subscribers: z.object({
+    active: …,                     // unsubscribed_at IS NULL
+    unsubscribed: …,               // unsubscribed_at IS NOT NULL (a suppression record)
+    total_ever: …,                 // = active + unsubscribed; one row per email, ever
+    churn_rate: z.number().min(0).max(1).nullable(),   // NULL when total_ever === 0
+  }),
+
+  // Zero-filled across every day in the window.
+  series: z.array(z.object({
+    day: …, signups: …, unsubscribes: …, active_cumulative: …,
+  })),
+  window_totals: z.object({
+    signups: …, unsubscribes: …,
+    net: z.number().int(),                              // signups − unsubscribes; MAY BE NEGATIVE
+    active_at_start: …, active_at_end: …,
+    churn_rate: z.number().min(0).nullable(),           // NULL when active_at_start === 0
+  }),
+
+  utm: { source: rows, medium: rows, campaign: rows },
+  geography: { country: rows, region: rows, city: rows, asn: rows },
+  feedback: { total_ever: …, in_window: … },            // rows are the endpoint below
+});
+```
+
+**Why this series is derived live and does not read `metrics_daily`.**
+`ADMIN_PANEL_SPEC.md` §7.1 snapshots `audience.subscribers_active` /
+`_unsubscribed` / `feedback_total` daily and anticipated this endpoint reading
+them. It does not, for two reasons that apply only to this table. **It does not
+need to**: `unsubscribed_at` is a soft delete (§6.13 / AECI-537) and nothing
+hard-deletes a `mailing_list` row, so the population on any past day is exactly
+`created_at <= D AND (unsubscribed_at IS NULL OR unsubscribed_at > D)` — the
+property §4 shows the *catalog* stocks lack, and the reason a snapshot was needed
+there. **And it would cost**: stocks are never backfilled, so those series begin
+at the first cron run (2026-08-13) while `mailing_list` reaches back to the first
+signup, and `/metrics/timeseries` zero-fills — which is right for a flow and wrong
+for a stock, since an uncaptured day would report *zero subscribers* rather than
+unknown. `source` is therefore the literal `'live'`: `'snapshot'` and `'mixed'`
+are unreachable here by design, and a three-value enum would imply a storage swap
+that is not coming. The snapshot rows stay written; they are the only durable
+record of a pre-resubscribe state.
+
+**Both `churn_rate` fields are `null`, never `0`, on an empty denominator.** A
+rate over nobody is undefined, and `0%` would be a clean bill of health nobody
+measured — §5.1's "`null` renders as *Not measured*, never as zero" applied to a
+ratio. `mailing_list` holds zero rows today (§3), so this is the first thing any
+caller sees. The two rates answer different questions and are not interchangeable:
+`subscribers.churn_rate` is "what fraction of everyone who ever joined has left",
+`window_totals.churn_rate` is "what fraction of the opening population left during
+this window".
+
+**`active_cumulative` is exact, not sampled.** It carries forward from
+`active_at_start`, so `active_at_start + Σ(signups − unsubscribes) ===
+active_at_end` holds by construction — a row can only enter the population through
+`created_at` and leave through `unsubscribed_at`, and both are bucketed here.
+
+**The breakdowns group signups *inside the window***, so a row's share is
+`subscribers / window_totals.signups` with no second request. NULL groups are
+surfaced with `key: null` rather than dropped — an organic signup carries no
+`utm_source`, and hiding it is how an attribution breakdown starts claiming
+attribution it does not have. Ordering is count desc, then named groups before the
+NULL bucket, then the key, the same total order `/traffic/breakdown` uses. The
+`asn` dimension is labelled from `as_organization` where present and `AS<number>`
+otherwise: an ASN cannot label itself.
+
+`notes` carries `utm_attribution_incomplete` when signups in the window lack a
+`utm_source` (`params: { missing, total }`), `audience_history_is_current_state`
+whenever the list is non-empty, and `partial_day` when the window reaches into the
+current UTC day. **Neither of the first two fires on an empty list**: 0 of 0
+signups is not incomplete, and there is no history to caveat.
+
+Errors: `VALIDATION_FAILED` (400) for a missing/bad/reversed date range, a window
+longer than `ADMIN_METRICS_MAX_DAYS`, or a `breakdown_limit` outside `[1, 50]`.
+
+#### `GET /api/admin/feedback` (AECI-586 / Phase 8.3 P5.1)
+
+The feedback inbox, paginated. **This is the first read surface the `feedback`
+table has ever had** — it is written by `POST /api/feedback` (§6.13) and forwarded
+as a fire-and-forget operator email, and that email has been the only way anyone
+has seen a submission. Nothing here re-shapes an existing view; the column set
+simply is the row.
+
+```typescript
+export const AdminFeedbackQuerySchema = PageQuerySchema;   // page / perPage ≤ 100
+
+export const AdminFeedbackRowSchema = z.object({
+  id: z.number().int().positive(),
+  created_at: z.string().datetime(),
+  features: z.string().nullable(),     // free text; null when only `tools` was given
+  tools: z.string().nullable(),
+  email: z.string().nullable(),        // IN FULL — see below
+  subscribed: z.boolean(),             // the mailing-list opt-in on the form
+  country: …, city: …, region: …, timezone: …, referrer: z.string().nullable(),
+});
+
+export const AdminFeedbackResponseSchema =
+  paginatedResponseSchema(AdminFeedbackRowSchema)
+    .extend({ generated_at: …, source: z.literal('live'), notes: z.array(AdminNoteSchema) });
+```
+
+No window filter, deliberately: an inbox is read end to end rather than measured,
+and the windowed count already rides on `/api/admin/audience` as
+`feedback.in_window`. `total` is every row in the table, since the endpoint takes
+no filters.
+
+Ordering is `created_at DESC, id DESC`. `feedback.id` is an autoincrement integer
+PK, so the pair is a strict total order and a page boundary is stable even for two
+submissions stamped in the same millisecond.
+
+**`email` crosses in full rather than truncated, and that is the opposite of
+`/api/admin/page-views` on purpose.** A page view observes someone who never
+identified themself, so §9.7 requires a truncated pseudonymous hash. This is
+contact information a person volunteered *in order to be replied to*; redacting it
+would defeat the field's only purpose. `/api/admin/requests` returns
+`submitter_email` whole on the same reasoning.
+
+`referrer` is a URL a submitter's browser supplied. It is data, not a destination —
+the UI renders it as text and never as a link.
+
+Errors: `VALIDATION_FAILED` (400) for `perPage > 100`, `perPage < 1`, or `page < 1`.
+
 ### 6.11 Webhooks
 
 #### `POST /api/webhooks/linear`
@@ -1372,6 +2282,15 @@ The handlers read a header when present and fall back to the body value otherwis
 
 Mailing-list signup. `email` is required and unique (`mailing_list_email_key`); the rest is best-effort attribution. Idempotent: returns `created: false` when the email is already on the list **and still active**. A fresh row is assigned an opaque `unsubscribe_token` (`crypto.randomUUID()`) used by the welcome-email opt-out link (AECI-537). If the email is on the list but previously **unsubscribed** (`unsubscribed_at` set), the handler **reactivates** it — clears `unsubscribed_at`, keeps the existing token, and re-welcomes — returning `created: true` (status `200`, since no new row was created). Only a genuine new insert returns `201`.
 
+> **The reactivation path is lossy, and the admin panel says so.** Clearing
+> `unsubscribed_at` and keeping the original `created_at` means the row no longer
+> records that the subscriber ever left. `GET /api/admin/audience` derives its
+> churn series from those two columns, so a churn-then-return reads as
+> never-churned; that is disclosed as `audience_history_is_current_state` rather
+> than silently absorbed. `metrics_daily`'s `audience.subscribers_active` stock
+> (AECI-581) is the only durable record of the state before a reactivation
+> rewrote it.
+
 ```typescript
 export const SubscribeSubmitSchema = z.object({
   email: z.string().trim().email().max(200),
@@ -1388,6 +2307,12 @@ export const SubscribeSubmitSchema = z.object({
 #### `POST /api/feedback`
 
 Free-text product feedback. At least one of `features` / `tools` must be present (mirrors the form's own guard). `email` is optional; when present it must be valid, and `subscribed` is the mailing-list opt-in flag. No unique constraint, so it always returns `created: true`.
+
+> **Since AECI-586 this table has a read surface** — `GET /api/admin/feedback`
+> (§6.10) and the `/admin/audience` screen. Before that, the operator email fired
+> from this handler was the only way anyone ever saw a submission, so a lost or
+> filtered alert meant a lost submission. The email is unchanged and still sends;
+> the panel is the durable second path, not a replacement.
 
 ```typescript
 export const FeedbackSubmitSchema = z

@@ -974,6 +974,12 @@ export interface RawAdminVendorRequestRow {
  * target row is missing (deleted/un-promoted) simply gets no map entry → the
  * caller passes `null` and the UI shows a non-linked label. Vendors expose their
  * label as `companyName`, mapped to `LinkRef.name`.
+ *
+ * Second caller (AECI-577): `listPageViews` in `lib/admin-analytics.ts` hydrates
+ * the Activity feed's `entity` the same way. A `page_views` row carries
+ * `product_id` XOR `vendor_id` rather than a `(type, id)` pair, so it maps its
+ * rows into this shape first; product and vendor ids are both UUIDs, so the one
+ * returned map cannot collide.
  */
 export async function resolveRequestTargets(
   db: Db,

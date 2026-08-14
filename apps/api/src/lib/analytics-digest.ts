@@ -18,18 +18,30 @@
  * backfill runs — a safe degradation (matches the pre-split behavior) rather than
  * silently dropping rows.
  *
+ * Internal traffic (AECI-575): every `page_views` read here excludes the
+ * operator-only paths in `UNTRACKED_ROUTE_PREFIXES` (`/admin/*`, `/account`). The
+ * tracker stopped writing them, but rows captured before that shipped are still
+ * in the table and would otherwise keep inflating the headline — on the
+ * 2026-08-10 digest day, 67 of 92 "human" views came from the operator's own ISP.
+ * Filtering on read as well keeps every pre-fix day comparable with every
+ * post-fix one. Unlike the bot split, the exclusion is not surfaced in the email:
+ * these were never visitor traffic.
+ *
  * Every count is a report-only read (no `audit_log` row, no mutation — `page_views`
  * is analytics, not domain state). The day window is **UTC**: Cloudflare cron is
  * UTC-only / DST-unaware (see `scheduled.ts`), so bucketing the day in UTC avoids a
  * DST off-by-one; the email labels the window as UTC. Sources:
- *   - human page views + top products: `page_views` where `is_bot IS NOT 1`.
+ *   - human page views + top products: `page_views` where `is_bot IS NOT 1`, minus
+ *     the operator-only paths (below).
  *   - crawler activity: `page_views` where `is_bot = 1`, grouped by `bot_name`.
  *   - new users: `profiles.created_at` (a profile row is created on first sign-in).
  *   - total users: cumulative `COUNT(profiles)`.
  *   - pending moderation: `reviews` where `status='pending'` (a live snapshot).
  */
 
-import { and, count, desc, eq, gte, isNotNull, isNull, lt, or } from 'drizzle-orm';
+import { and, count, desc, eq, gte, isNotNull, isNull, lt, notLike, or } from 'drizzle-orm';
+
+import { UNTRACKED_ROUTE_PREFIXES } from '@aeci/shared';
 
 import type { Db } from '../db/client';
 import { pageViews, products, profiles, reviews } from '../db/schema';
@@ -46,6 +58,25 @@ export interface DigestWindow {
   dayLabel: string;
 }
 
+const DAY = 86_400_000;
+
+/**
+ * The window for an arbitrary UTC day, `YYYY-MM-DD`. Factored out of
+ * {@link dailyWindows} so the admin panel can report any single day through the
+ * exact same window arithmetic the 05:00 email uses — "identical to that day's
+ * digest" is an AECI-574 acceptance criterion, and a second copy of this
+ * arithmetic is precisely how the two would drift apart.
+ */
+export function windowsForDay(dayLabel: string): DigestWindow {
+  const startDay = Date.parse(`${dayLabel}T00:00:00.000Z`);
+  return {
+    startIso: new Date(startDay).toISOString(),
+    endIso: new Date(startDay + DAY).toISOString(),
+    priorStartIso: new Date(startDay - DAY).toISOString(),
+    dayLabel,
+  };
+}
+
 /**
  * The prior *complete* UTC day relative to `now`, plus the day before it (delta
  * baseline). Run at ~05:00 UTC (noon Jakarta), this reports a full, already-closed calendar day —
@@ -53,16 +84,8 @@ export interface DigestWindow {
  * chronologically, so the `gte`/`lt` string range on `created_at` is exact.
  */
 export function dailyWindows(now: Date): DigestWindow {
-  const DAY = 86_400_000;
   const startToday = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
-  const startDay = startToday - DAY;
-  const priorStart = startDay - DAY;
-  return {
-    startIso: new Date(startDay).toISOString(),
-    endIso: new Date(startToday).toISOString(),
-    priorStartIso: new Date(priorStart).toISOString(),
-    dayLabel: new Date(startDay).toISOString().slice(0, 10),
-  };
+  return windowsForDay(new Date(startToday - DAY).toISOString().slice(0, 10));
 }
 
 /** A product and its human view count in the reported window. */
@@ -111,10 +134,47 @@ export interface AnalyticsMetrics {
 
 const TOP_PRODUCTS_LIMIT = 5;
 
-/** A row is "human" when it isn't flagged as a bot. `is_bot IS NOT 1` (NULL-safe) so
- *  pre-classification rows (`is_bot = NULL`) count as human, not vanish. */
-const HUMAN = or(isNull(pageViews.isBot), eq(pageViews.isBot, false));
-const BOT = eq(pageViews.isBot, true);
+/**
+ * A row is "human" when it isn't flagged as a bot. `is_bot IS NOT 1` (NULL-safe) so
+ * pre-classification rows (`is_bot = NULL`) count as human, not vanish.
+ *
+ * Exported because the admin panel (AECI-574) reads the SAME population — sharing
+ * the predicate is what makes "the screen and the 05:00 email cannot disagree"
+ * structural rather than a convention someone has to remember. The panel also
+ * surfaces the resulting bias as a `bot_classification_incomplete` note.
+ */
+export const HUMAN = or(isNull(pageViews.isBot), eq(pageViews.isBot, false));
+export const BOT = eq(pageViews.isBot, true);
+
+/**
+ * Excludes operator-only paths (`/admin/*`, `/account`) — the read-side half of
+ * AECI-575 / ADMIN_PANEL_SPEC §9.6.
+ *
+ * The tracker no longer writes these rows, but rows captured BEFORE that shipped
+ * are indistinguishable from real traffic once they're in the table, so filtering
+ * only at the write side would leave every pre-fix day permanently inflated and
+ * inconsistent with every post-fix day. Applying it here makes the whole history
+ * read the same way. This is deliberately silent: the digest does not report an
+ * "internal views excluded" count the way it does for bots, because these rows
+ * were never visitor traffic in the first place.
+ *
+ * Prefix list comes from `@aeci/shared` so the read side can't drift from the two
+ * write-side guards. `path` is NOT NULL, so `NOT LIKE` is safe here (no
+ * three-valued-logic surprise), and `page_views_path_idx` covers the column.
+ *
+ * Exported because the admin panel (AECI-574) reads the SAME `page_views` table
+ * through its own queries (`lib/admin-analytics.ts`) and must exclude the same
+ * operator-only rows — otherwise the panel would re-count the console's own
+ * traffic and diverge from the digest it is meant to mirror. Imported there as
+ * `EXCLUDE_UNTRACKED_ROUTES` to keep it distinct from that module's unrelated
+ * `ANALYTICS_INTERNAL_ASNS` "internal" filter.
+ */
+export const NOT_INTERNAL = and(
+  ...UNTRACKED_ROUTE_PREFIXES.flatMap((prefix) => [
+    notLike(pageViews.path, prefix),
+    notLike(pageViews.path, `${prefix}/%`),
+  ]),
+);
 
 /** `COUNT(*)` of human or bot `page_views` in `[startIso, endIso)`. */
 async function countPageViews(
@@ -131,6 +191,7 @@ async function countPageViews(
         gte(pageViews.createdAt, startIso),
         lt(pageViews.createdAt, endIso),
         kind === 'bot' ? BOT : HUMAN,
+        NOT_INTERNAL,
       ),
     );
   return row?.value ?? 0;
@@ -157,6 +218,7 @@ async function topProductsByViews(db: Db, startIso: string, endIso: string): Pro
         lt(pageViews.createdAt, endIso),
         isNotNull(pageViews.productId),
         HUMAN,
+        NOT_INTERNAL,
       ),
     )
     .groupBy(products.id)
@@ -182,6 +244,7 @@ async function referrerBreakdown(
         lt(pageViews.createdAt, endIso),
         HUMAN,
         isNotNull(pageViews.referrerSource),
+        NOT_INTERNAL,
       ),
     )
     .groupBy(pageViews.referrerSource)
@@ -200,7 +263,9 @@ async function botActivityInWindow(
   const rows = await db
     .select({ name: pageViews.botName, crawls: count() })
     .from(pageViews)
-    .where(and(gte(pageViews.createdAt, startIso), lt(pageViews.createdAt, endIso), BOT))
+    .where(
+      and(gte(pageViews.createdAt, startIso), lt(pageViews.createdAt, endIso), BOT, NOT_INTERNAL),
+    )
     .groupBy(pageViews.botName)
     .orderBy(desc(count()));
   return rows.map((r) => ({ name: r.name ?? 'Other bot', crawls: r.crawls }));
@@ -277,16 +342,46 @@ function plural(n: number, singular: string): string {
   return `${n} ${singular}${n === 1 ? '' : 's'}`;
 }
 
+/** The arithmetic behind {@link deltaText}, as structured data. */
+export interface Delta {
+  current: number;
+  prior: number;
+  /** `current - prior`. */
+  diff: number;
+  /** Rounded percentage change, or `null` when `prior` is 0 — a percentage
+   *  against zero is meaningless, so the digest omits it in exactly that case. */
+  pct: number | null;
+}
+
+/**
+ * Period-over-period delta. Extracted from {@link deltaText} so the admin panel
+ * (AECI-574) can return the SAME numbers as structured JSON: the panel must
+ * localize its own prose (CLAUDE.md's i18n rule is unconditional), but it must
+ * not re-derive the semantics — "identical to that day's digest email" is an
+ * acceptance criterion, and sharing this function is what makes it true by
+ * construction rather than by inspection.
+ */
+export function computeDelta(c: DailyCount): Delta {
+  const diff = c.day - c.prior;
+  // `|| 0` normalizes the `-0` that `Math.sign(-1) * 0` produces for a change too
+  // small to round to a whole percent — `-0` serializes as `0` but fails a strict
+  // `Object.is` assertion, which is exactly the kind of ghost a parity spec should
+  // not have to chase.
+  const pct =
+    c.prior > 0 ? Math.round((Math.abs(diff) / c.prior) * 100) * Math.sign(diff) || 0 : null;
+  return { current: c.day, prior: c.prior, diff, pct };
+}
+
 /** Human day-over-day delta, e.g. `+8 (+18%) vs 45 prior day`, `-3 (-7%) vs 45 prior
  *  day`, or `no change vs prior day`. Percentages are omitted when the prior day was 0
  *  (division would be meaningless). ASCII only, so it renders cleanly in plain text. */
 function deltaText(c: DailyCount): string {
-  const diff = c.day - c.prior;
+  const { diff, pct } = computeDelta(c);
   if (diff === 0) return 'no change vs prior day';
   const magnitude = Math.abs(diff);
   const sign = diff > 0 ? '+' : '-';
-  const pct = c.prior > 0 ? ` (${sign}${Math.round((magnitude / c.prior) * 100)}%)` : '';
-  return `${sign}${magnitude}${pct} vs ${c.prior} prior day`;
+  const pctText = pct === null ? '' : ` (${sign}${Math.abs(pct)}%)`;
+  return `${sign}${magnitude}${pctText} vs ${c.prior} prior day`;
 }
 
 export function buildAnalyticsDigest(

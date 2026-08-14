@@ -430,6 +430,50 @@ Secrets are stored in three places:
 | `POSTHOG_HOST` (ingestion host) | ✅ per env (web Worker, wrangler `var`) | ✅ per env (web Worker, wrangler `var`) | — (public `var` in `wrangler.jsonc`, not a GH secret) | AECI-239. `https://us.i.posthog.com` (US Cloud). The static CSP `connect-src` is pinned to the US hosts, so a non-US host needs a matching CSP change. Defaulted in code when unset. |
 | Supabase **service-role** key | ❌ never on a Worker | ❌ never on a Worker | operator-held `SUPABASE_SERVICE_ROLE_KEY` GH secret; **no workflow reads it** | The Worker runtime has no use for the service role (`AUTH_AND_RLS.md` §3) — it is **never** pushed to a Worker, and **no GitHub workflow consumes it**: the `integration-db-tests` job mints its own service-role key from a local `supabase start` stack (`supabase status -o env`), not from a repo secret. The GH secret exists only for transient operator-shell use (e.g. provisioning the dev test user, AECI-193). Not a per-env runtime secret and **not involved in sign-in** — auth uses `SUPABASE_URL` + the anon key (rows above). |
 
+#### Declared-but-unset knobs (the "seam" vars)
+
+Two API-Worker vars are **deliberately shipped unset on every tier**. They are not
+secrets and not GH-managed; they exist so a policy can be turned on later without
+a code change, and their absence *is* the current policy. Set either with a plain
+`wrangler` `var` (or a `--var` on deploy) only when you actually want the
+behaviour.
+
+| Var | Tiers | Unset behaviour (today, everywhere) | Set behaviour |
+| --- | --- | --- | --- |
+| `PAGE_VIEWS_MIN_BOT_SCORE` | API Worker | Every page view is captured. Inert in practice anyway — CF **Pro** exposes no bot score, so `cf_bot_score` is null on every row. | Drops captured views below the integer floor (`STAGE_1_SPEC.md` §14.2 sampling policy, deferred until launch traffic is visible). |
+| `ANALYTICS_INTERNAL_ASNS` | API Worker | The admin panel's internal-traffic filter is **unavailable**: every figure is reported unfiltered, `excluding_internal` is null, and the UI hides the toggle. | The panel additionally reports each traffic figure with those ASNs excluded — **alongside** the unfiltered number, never instead of it. |
+
+`ANALYTICS_INTERNAL_ASNS` (AECI-574 / `ADMIN_PANEL_SPEC.md` §13 **D10**) is a
+comma/semicolon/whitespace-separated ASN list, `AS` prefix optional —
+`ANALYTICS_INTERNAL_ASNS="AS23700, 4134"`. Its purpose is the operator's own ISP:
+on 2026-08-10, 67 of the digest's 92 "human" page views came from AS23700
+(Jakarta). Three constraints are binding and a review checks all three:
+
+1. **Query-time only.** It is a `WHERE` clause at read time
+   (`apps/api/src/lib/internal-asns.ts`). It never touches `is_bot`, never runs at
+   ingest, and never enters `scripts/ops/backfill-page-view-bots.sql`. That is
+   what distinguishes it from `DATACENTER_ASNS`, which writes a permanent
+   classification and therefore carries a much stricter membership doctrine. Keep
+   them separate; do not merge the lists.
+2. **Show both numbers, never substitute.** On the aggregate endpoints that is
+   `AdminCount.total` (always unfiltered) plus `excluding_internal`. On the §5.2
+   Activity feed (AECI-577), which returns *rows*, the toggle filters the row list
+   while `window_total` / `window_visitors` are computed **both ways regardless of
+   the toggle** — otherwise switching it on would leave a smaller number with
+   nothing to compare it against, which is the substitution this constraint
+   forbids. `/admin/activity` therefore reads "1,204 views · 312 excluding
+   internal traffic" whether the toggle is on or off.
+3. **Ship it unset. Do not hardcode an ASN.** With the var absent the toggle is
+   not rendered at all on `/admin/activity` — a permanently-disabled control is
+   worse than no control. Prefer the precise instruments
+   first — AECI-575 (exclude `/admin/*` from `PageViewTracker`) and AECI-585
+   (`cf_as_organization` at ingest, so the filter can label itself). Both have
+   shipped; the holder name is captured from AECI-585's production deploy forward
+   and is null on every earlier row.
+
+Because it is a plain `var`, `scripts/require-secrets.sh` and
+`verify-worker-secrets.sh` do not check it, and its absence never fails a deploy.
+
 All Worker secrets are pushed per environment: `wrangler secret put REVIEW_APP_TOKEN --env staging` (and the same for `--env production`).
 
 > **`REVIEW_APP_TOKEN` is pushed automatically by CI.** `deploy.yml` (`deploy-staging`) re-pushes it to the staging API Worker from `REVIEW_APP_TOKEN`; `promote-to-prod.yml` (`deploy-prod-workers`) does the same to the prod API Worker. Idempotent, right after the API Worker deploys. The manual `wrangler secret put` is only needed to bootstrap a Worker *before* its first CI deploy (and as a fallback). The other Worker secrets in §6 are still pushed by hand. (`DATABASE_URL` is no longer pushed — the app DB is D1, ADR 0016 / AECI-253.)

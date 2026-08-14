@@ -541,6 +541,18 @@ If the smoke check fails, the deployment is marked failed and:
   **`main → stage-2` regularly** (after every hotfix, at least weekly) to absorb fixes and keep
   drift small. When Stage 2 is ready, merge **`stage-2 → main`** via PR, promote through the
   tiers, then reset/retire the branch.
+- **`admin-panel` = a second, narrower epic integration branch** (2026-08-12, AECI-572 /
+  `ADMIN_PANEL_SPEC.md` §13 D1). The admin panel is **Phase 8.3 post-launch work on the `main`
+  line**, not Stage 2 — but its 14 sub-issues carry schema migrations (`metrics_daily`,
+  `job_runs`, `products.promoted_at`, three dropped `page_views` columns), and ADR 0019's
+  forward-only-migration reasoning applies to *any* migration on `main`, not only Stage 2 ones.
+  So the epic integrates on `admin-panel` and reaches `main` as **one squash merge** at the end.
+  Same discipline as `stage-2`: merge **`main → admin-panel` regularly** and reconcile the
+  Drizzle journal before the merge-up. The trade-off to know: **staging never exercises the
+  panel until that final merge** (staging auto-tracks `main`), so **per-PR preview Workers are
+  the verification surface** for the epic — the same posture `environments.md` describes for
+  Stage 2. Retire the branch on merge-up; this is time-boxed to the epic, not a standing third
+  line.
 - **Hotfix flow (unchanged)** — this *is* the "apply a fix to live prod" path:
   branch from `main` → PR to `main` → squash-merge → staging auto-deploys → `promote-to-demo`
   (SHA) → `promote-to-prod` (SHA). The promote buttons already take an **arbitrary** `commit_sha`

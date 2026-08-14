@@ -18,6 +18,10 @@
 // - RLS/GRANTs do NOT translate to D1 — authorization is app-layer (ADR 0016 §4,
 //   AECI-254). This file carries data shape + integrity constraints only.
 
+// Type-only, so it is erased before drizzle-kit's esbuild pass ever sees it and
+// cannot create a runtime cycle: `lib/job-runs.ts` imports the `jobRuns` table
+// value from here, never the reverse.
+import type { AdminCronJob } from '@aeci/shared';
 import { relations, sql } from 'drizzle-orm';
 import {
   check,
@@ -146,6 +150,23 @@ export const products = sqliteTable(
     researchStatus: text('research_status').notNull().default('pending'),
     researchNotes: text('research_notes'),
     promotionStatus: text('promotion_status').notNull().default('pending'),
+
+    /**
+     * First-promote timestamp, ISO-8601 (AECI-581 / `ADMIN_PANEL_SPEC.md` §13 D6).
+     * **Set-once**, via `COALESCE("promoted_at", ?)` in `routes/promote.ts`'s update
+     * branch — promote re-asserts `promotion_status='promoted'` on update too, so a
+     * naive `promotedAt: now` there would mean *last* promoted and buy nothing over
+     * `updated_at`.
+     *
+     * Nullable and unset for rows created before the column existed until
+     * `scripts/ops/backfill-products-promoted-at.sql` runs on that tier; that
+     * backfill is `:= created_at` and is **exact**, because promote is D1's only
+     * INSERT path into `products` and retraction is a hard delete (§4's correction).
+     * Which is also why the column buys nothing *today* — it is future-proofing
+     * against a Tier-1 retract endpoint introducing a real un-promote → re-promote
+     * cycle, after which `created_at` stops tracking go-live irrecoverably.
+     */
+    promotedAt: text('promoted_at'),
 
     priorityTier: text('priority_tier'),
     priorityScore: real('priority_score'),
@@ -821,11 +842,44 @@ export const pageViews = sqliteTable(
   'page_views',
   {
     id: integer('id').primaryKey({ autoIncrement: true }),
+
+    // `path` is the route the WRITER named: the pattern (`/products/:slug`) when it
+    // knows one (an SSR resolver attached `ctx.pageView`), the concrete path
+    // otherwise (the browser tracker, an SSR cache HIT). `concrete_path` is always
+    // the real URL path — locale-stripped, no query or hash — so a taxonomy row can
+    // say WHICH term was viewed even when nothing joins (AECI-585 / §7.3). The two
+    // are stored side by side rather than one replacing the other: grouping "top
+    // pages" wants the pattern, naming a row wants the concrete path.
     path: text('path').notNull(),
+    concretePath: text('concrete_path'),
+
     productId: text('product_id').references(() => products.id),
     vendorId: text('vendor_id').references(() => vendors.id),
-    userId: text('user_id').references(() => profiles.id),
-    sessionId: text('session_id'),
+
+    // Which taxonomy term a facet browse page showed (AECI-585 / §7.3). The SSR
+    // resolvers have always sent `entity_type: 'category'|'audience'|'phase'|'trade'`
+    // plus the term id; ingest used to drop them, so ~600 rows could say a taxonomy
+    // page was viewed but not which one.
+    //
+    // Two columns for four facets, and deliberately NOT a foreign key: SQLite cannot
+    // point one column at four tables, and a hard FK would block ever deleting a term
+    // (`lib/retract-product.ts` already has to delete `page_views` rows for exactly
+    // that reason on products). Integrity comes from the ingest-time existence check
+    // in `routes/page-views.ts` instead — an unknown id stores as null, never as a
+    // lie. No CHECK on `taxonomy_kind` for the same reason the write is swallowed on
+    // error: this is a log table, and a constraint violation would silently drop the
+    // row. The value comes from a closed server-side map.
+    taxonomyKind: text('taxonomy_kind'),
+    taxonomyId: text('taxonomy_id'),
+
+    // How the visitor got here (AECI-585 / §7.3): `'arrival'` = full-document load
+    // (the SSR Worker's `firePageView`), `'spa'` = in-app navigation (the browser
+    // `PageViewTracker`). Null = unknown — every row written before this shipped, and
+    // any POST that omits it. NEVER inferred: the same-origin `Referer` on an SPA hop
+    // classifies as `Direct`, which is precisely the conflation this column exists to
+    // undo, so guessing would recreate the bug in a new column.
+    navigation: text('navigation'),
+
     referrer: text('referrer'),
 
     // Campaign attribution (AECI-243 / §11.2). Populated only when a visitor
@@ -837,6 +891,13 @@ export const pageViews = sqliteTable(
     cfCountry: text('cf_country'),
     cfColo: text('cf_colo'),
     cfAsn: integer('cf_asn'),
+    // The AS *holder name* beside the number (AECI-585 / §13 D10), mirroring
+    // `mailing_list.as_organization`. An ASN cannot label itself, so without this the
+    // internal-traffic filter reads "excluding AS23700" and the bot classifier's
+    // weekly audit is a list of bare numbers. `POST_LAUNCH_MONITORING.md` §3b names
+    // holder-name capture as the durable fix for the bot/human split — "not a longer
+    // list". READ-side signal only: it never feeds `is_bot` at ingest.
+    cfAsOrganization: text('cf_as_organization'),
     cfBotScore: integer('cf_bot_score'),
 
     userAgentHash: text('user_agent_hash'),
@@ -859,7 +920,15 @@ export const pageViews = sqliteTable(
     // never stored) — so those are excluded from the digest's Traffic-sources table.
     referrerSource: text('referrer_source'),
 
-    profileRole: text('profile_role'),
+    // NOTE: `user_id`, `session_id` and `profile_role` were dropped by AECI-585
+    // (§13 D7). All three were declared at init and never written by any code path,
+    // and the decision was to drop rather than fill: there is no client-side session
+    // id anywhere in `apps/web`, and minting one would create a durable first-party
+    // identifier — exactly what makes this table's write defensible as
+    // consent-independent today. `user_id` is reachable on the browser POST but never
+    // on the SSR arrival path, so it would have been right half the time. `page_views`
+    // now holds no user linkage at all, which is also the strongest form of the GDPR
+    // erasure story (`AUTH_AND_RLS.md` §12). Do not reintroduce them.
 
     createdAt: createdAt(),
   },
@@ -869,11 +938,11 @@ export const pageViews = sqliteTable(
     index('page_views_product_idx')
       .on(t.productId, t.createdAt)
       .where(sql`"product_id" IS NOT NULL`),
-    index('page_views_user_idx')
-      .on(t.userId, t.createdAt)
-      .where(sql`"user_id" IS NOT NULL`),
     // Serves the digest's human/bot split + crawler grouping over a day window.
     index('page_views_bot_idx').on(t.isBot, t.createdAt),
+    // No index on the AECI-585 columns: nothing groups or filters on them yet, and
+    // `page_views` is the hottest write path in the app (D1 bills rows written,
+    // indexes included). Add one with the read that needs it, not before.
   ],
 );
 
@@ -884,6 +953,136 @@ export const statsCache = sqliteTable('stats_cache', {
     .notNull()
     .$defaultFn(() => new Date().toISOString()),
 });
+
+/**
+ * The admin panel's long memory (AECI-581 / `ADMIN_PANEL_SPEC.md` §7.1). One row
+ * per (UTC day, metric): a narrow key-value shape mirroring `stats_cache`'s key
+ * convention, so adding a metric never needs a migration.
+ *
+ * It exists because nothing else in D1 can answer "how many did we have on July
+ * 3rd" (§4). `stats_cache` is overwritten by the 07:00 cron, so no history
+ * survives; `audit_log` records genuine *additions* but not net totals — 827
+ * `integration.created` events back 496 live rows, because the 2026-07-25 reset
+ * removed rows without per-row audit. Written daily by the `snapshot` cron
+ * (`lib/metrics-snapshot.ts`), which captures the prior COMPLETE UTC day.
+ *
+ * Three properties are load-bearing:
+ *
+ * **`source` is stored, not inferred.** §7.1 proposed marking a backfilled row
+ * through its `computed_at`; that mislabels a legitimate late re-run of a missed
+ * day, whose sources are still intact. The column yields one precedence rule the
+ * cron and the backfill both obey: a `measured` write always wins, a
+ * `reconstructed` write applies only over an absent or `reconstructed` row.
+ *
+ * **No `audit_log` row.** Derived bookkeeping, exempt from the §26.1
+ * audit-in-batch invariant under ADR 0022 / §13 D11. Writes go per key, OUTSIDE
+ * any batch, so one failing metric never aborts the others.
+ *
+ * **Retention is indefinite** (§7.4 / §13 D5). P3.2's pruning cron must never
+ * touch this table, and must never prune raw `page_views` for a day it has not
+ * captured.
+ */
+export const metricsDaily = sqliteTable(
+  'metrics_daily',
+  {
+    /** `YYYY-MM-DD`, UTC. Text, so it sorts lexically = chronologically and can be
+     *  compared directly against `substr(created_at, 1, 10)` elsewhere. */
+    day: text('day').notNull(),
+    /** One of `ADMIN_SNAPSHOT_METRIC_KEYS` (`@aeci/shared`). Deliberately NOT a
+     *  CHECK constraint: the whole point of the key-value shape is that a new
+     *  metric costs no migration, and a SQLite CHECK change forces a table rebuild. */
+    metric: text('metric').notNull(),
+    /** REAL so a future ratio/average metric needs no migration. Every metric in
+     *  the vocabulary today is a count, so readers round. */
+    value: real('value').notNull(),
+    /** `measured` | `reconstructed` — see the docblock above. */
+    source: text('source').notNull().default('measured'),
+    computedAt: text('computed_at')
+      .notNull()
+      .$defaultFn(() => new Date().toISOString()),
+  },
+  (t) => [
+    // Leading `day` serves P3.2's "is this day captured?" probe.
+    primaryKey({ columns: [t.day, t.metric] }),
+    // The read pattern of GET /api/admin/metrics/timeseries: one metric, day range.
+    index('metrics_daily_metric_day_idx').on(t.metric, t.day),
+    check('metrics_daily_source_check', sql`"source" IN ('measured', 'reconstructed')`),
+  ],
+);
+
+// ===========================================================================
+// Cron bookkeeping (ADMIN_PANEL_SPEC.md §7.2)
+//
+// Derived, log-class, cron-written, and **exempt from the §26.1 audit-in-batch
+// invariant under ADR 0022** — `job_runs` IS the observability record, so an
+// `audit_log` row about it would be auditing the audit. Written per row,
+// OUTSIDE any `db.batch`, each inside its own try/catch (`lib/job-runs.ts`),
+// exactly as `stats_cache` is (`lib/home-stats.ts` `upsertStat`): a bookkeeping
+// write must never abort the job it records.
+// ===========================================================================
+
+/**
+ * One row per execution of one of the ten `scheduled.ts` cron jobs (§7.2).
+ * The row is inserted on ENTRY and completed on EXIT, so a run the isolate never
+ * came back from (CPU/wall-clock limit, eviction) stays durably visible as
+ * `finished_at IS NULL` rather than vanishing — that unfinished row is the
+ * signal, and it is lost if the row is only written on success.
+ */
+export const jobRuns = sqliteTable(
+  'job_runs',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+
+    /**
+     * An `AdminCronJob` id (`packages/shared/src/api/admin-panel.ts`) — the same
+     * vocabulary `CRON_SCHEDULES` keys on and `GET /api/admin/system` renders,
+     * NOT the internal `ScheduledJob` union `scheduled.ts` dispatches on
+     * (`ADMIN_CRON_JOB` in `lib/cron-schedules.ts` is the mapping).
+     *
+     * Deliberately CHECK-free, following `audit_log.action`: the vocabulary grows
+     * every time a cron is added and SQLite cannot ALTER a CHECK, so a ninth cron
+     * would need a table-recreate migration. The `Record<ScheduledJob, …>` map and
+     * the Zod enum are the enforcement; this column is the storage.
+     */
+    job: text('job').notNull().$type<AdminCronJob>(),
+
+    startedAt: text('started_at').notNull(),
+
+    /** Null while the run is in flight — and PERMANENTLY null if the isolate was
+     *  reclaimed mid-run. See the table doc above. */
+    finishedAt: text('finished_at'),
+
+    /**
+     * Null while in flight; one of the three terminal values after.
+     *
+     * There is deliberately **no `'running'` member**: in-flight is already
+     * representable as `finished_at IS NULL AND outcome IS NULL`, and a second
+     * encoding of the same state would let the two disagree. It also assigns
+     * straight into `AdminCronRunSchema.last_outcome` with no translation.
+     *
+     * NULL passes the CHECK below — SQLite satisfies a CHECK when the expression
+     * is true *or* NULL, and `NULL IN (…)` is NULL. Same construction as
+     * `vendors.public_private`.
+     */
+    outcome: text('outcome').$type<'ok' | 'failed' | 'skipped'>(),
+
+    /** Per-job payload: the data-quality run's full `DataQualityCheckResult[]`,
+     *  the 09:00 run's drift + orphan-sweep result, the reconcile counts. Typed
+     *  `unknown` at the schema layer (as `stats_cache.value` and
+     *  `audit_log.metadata` are) because every reader crosses a process boundary
+     *  and must parse rather than assume; `JobRunDetail` in `lib/job-runs.ts` is
+     *  the writer's shape and the typed accessors there are the readers'. */
+    detail: text('detail', { mode: 'json' }).$type<unknown>(),
+  },
+  (t) => [
+    // §7.2's `INDEX (job, started_at)`. Serves the read side's "newest run per
+    // job" as an equality seek + descending scan of one job's slice
+    // (`SEARCH … USING INDEX (job=?)` + LIMIT 1, ten rows read regardless of
+    // table size — one per cron) and the §7.4 prune's cutoff scan.
+    index('job_runs_job_started_at_idx').on(t.job, t.startedAt),
+    check('job_runs_outcome_check', sql`"outcome" IN ('ok', 'failed', 'skipped')`),
+  ],
+);
 
 // ===========================================================================
 // Future-ready (§10)
@@ -931,19 +1130,26 @@ export const translations = sqliteTable(
 // spec; modeled here because they share the D1 database (ADR 0016).
 // ===========================================================================
 
-export const feedback = sqliteTable('feedback', {
-  id: integer('id').primaryKey({ autoIncrement: true }),
-  features: text('features'),
-  tools: text('tools'),
-  email: text('email'),
-  subscribed: integer('subscribed', { mode: 'boolean' }).notNull().default(false),
-  country: text('country'),
-  city: text('city'),
-  region: text('region'),
-  timezone: text('timezone'),
-  referrer: text('referrer'),
-  createdAt: createdAt(),
-});
+export const feedback = sqliteTable(
+  'feedback',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    features: text('features'),
+    tools: text('tools'),
+    email: text('email'),
+    subscribed: integer('subscribed', { mode: 'boolean' }).notNull().default(false),
+    country: text('country'),
+    city: text('city'),
+    region: text('region'),
+    timezone: text('timezone'),
+    referrer: text('referrer'),
+    createdAt: createdAt(),
+  },
+  // AECI-586: this table's first index, added with its first read surface
+  // (`GET /api/admin/feedback`), which orders the whole inbox by `created_at`.
+  // `page_views` and `audit_log` have carried the equivalent since 0000.
+  (t) => [index('feedback_created_at_idx').on(t.createdAt)],
+);
 
 export const mailingList = sqliteTable(
   'mailing_list',
@@ -975,6 +1181,13 @@ export const mailingList = sqliteTable(
   (t) => [
     uniqueIndex('mailing_list_email_key').on(t.email),
     uniqueIndex('mailing_list_unsubscribe_token_key').on(t.unsubscribeToken),
+    // AECI-586: the §5.4 Audience section buckets signups by day on `created_at`
+    // and churn by day on `unsubscribed_at`, and computes the active population
+    // at a window boundary from both. Without these every one of those is a full
+    // scan — the two lead-capture tables were the only ones in the schema with no
+    // `created_at` index at all.
+    index('mailing_list_created_at_idx').on(t.createdAt),
+    index('mailing_list_unsubscribed_at_idx').on(t.unsubscribedAt),
   ],
 );
 
@@ -1153,6 +1366,7 @@ export const schema = {
   promoteJobs,
   pageViews,
   statsCache,
+  jobRuns,
   translations,
   feedback,
   mailingList,
