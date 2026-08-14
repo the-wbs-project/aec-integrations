@@ -20,7 +20,7 @@ This is the "Phase 7 is Done" gate — and, because Phase 7 is the last build ph
 | Gate | Result |
 |------|--------|
 | `pnpm typecheck` (shared, api, datatool — web excluded by design, no web code changed) | ✅ exit 0 |
-| `pnpm lint` (ESLint ×N packages + `check-logical-properties` + Prettier) | ✅ exit 0 · "All matched files use Prettier code style!" |
+| `pnpm lint` (ESLint ×N packages + `check-source-constraints` + Prettier) | ✅ exit 0 · "All matched files use Prettier code style!" |
 | `pnpm test` (unit + integration) | ✅ exit 0 · unit + integration suites green (shared / api / datatool / web); web integration: no files |
 | `ng extract-i18n` (verification only — **not** committed) | ✅ exit 0 · **826 messages** · committed `src/locale/messages.xlf` untouched (stray default-path artifact removed) · ⚠️ 4 **pre-existing** duplicate-id warnings (`admin.shell.eyebrow`, `admin.shell.nav.reviewers`, `listing.filters.title`, `app.header.account`) — the same 4 the Phase 6 gate flagged (`PHASE_6_COMPLETION.md` §F3); no Phase 7 templates touched here |
 | light-only check — `dark:` variants / theme toggle in `apps/web/src` | ✅ none (AECI-226); analytics dimension hard-codes `theme:'light'` |

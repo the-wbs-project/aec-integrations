@@ -475,7 +475,9 @@ Every visible string i18n-wrapped from day one (per AECI-23). English-only at la
 
 ### 11.4 Theme
 
-Every component renders correctly in light and dark per AECI-25 / AECI-41 tokens. No hard-coded color literals. Lint rule (Phase 1) catches violations.
+Every component uses the AECI-25 / AECI-41 semantic tokens. No hard-coded color literals.
+
+> **Corrected 2026-08-14 (AECI-549).** This section previously read "renders correctly in light and dark" and "Lint rule (Phase 1) catches violations." Both were wrong. Dark was removed for Stage 1 (AECI-226 — light only), and **no color lint rule has ever existed**; `docs/PHASE_2_COMPLETION.md` §3.F4 flagged the discrepancy at the time. Color literals are enforced by `npx impeccable detect` and code review; a real lint rule is tracked as **AECI-597**. What *is* mechanically enforced as of AECI-549 is the light-only constraint itself — `dark:` variants, `.theme-dark`, `@custom-variant dark`, `prefers-color-scheme: dark`, and `[data-theme=…]` all fail `pnpm lint`.
 
 ---
 

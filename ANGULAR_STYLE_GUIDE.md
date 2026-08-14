@@ -4,7 +4,7 @@ How we write Angular and TypeScript in this codebase. Source of truth for "how i
 
 **Audience:** humans and AI agents (Claude Code, Conductor) authoring or reviewing code in `apps/web/` and any future Angular app in this monorepo.
 
-**Lint enforcement:** rules tagged `Lint: ✅` are enforced by `pnpm lint` and gated in CI (`.github/workflows/deploy.yml` — the `lint-and-types` job fails the build). Rules tagged `Lint: 🟡 review-only` are the reviewer's job — see `docs/CODE_REVIEW_CHECKLIST.md`. The full mapping is in §24.
+**Lint enforcement:** rules tagged `Lint: ✅` are enforced by `pnpm lint` and gated in CI (`.github/workflows/deploy.yml` — the `lint-and-types` job fails the build, and it is a required check on `main` and `stage-2`). Enforcement means ESLint *or* the `check-source-constraints.mjs` line scanner that runs in the same `lint` script — see §24 for which does what and why some constraints can only be caught by the latter. Rules tagged `Lint: 🟡 review-only` are the reviewer's job — see `docs/CODE_REVIEW_CHECKLIST.md`. The full mapping is in §24.
 
 ---
 
@@ -15,7 +15,7 @@ This guide governs every `.ts` and `.html` file under `apps/web/`. It defers to:
 - **`DESIGN.md`** (repo root) for color tokens, typography scales, component visual specs.
 - **`PRODUCT.md`** (repo root) for voice, tone, anti-references.
 - **`docs/design/v0-porting-rules.md`** for v0.dev → Angular porting mechanics.
-- **`CLAUDE.md`** (repo root) for stack-wide constraints (Drizzle/D1 data layer, cache invalidation, i18n, both themes, no pay-for-placement).
+- **`CLAUDE.md`** (repo root) for stack-wide constraints (Drizzle/D1 data layer, cache invalidation, i18n, light theme only, no pay-for-placement).
 - **`docs/STAGE_1_SPEC.md`** §2a.2 + §16 Phase 1 for the spec contract these rules implement.
 
 If a rule here contradicts one of those, the more-specific document wins.
@@ -39,7 +39,7 @@ If a rule here contradicts one of those, the more-specific document wins.
 - `provideRouter` gets `withInMemoryScrolling({ scrollPositionRestoration: 'enabled', anchorScrolling: 'enabled' })` so new routes open at the top and Back/Forward restores scroll (`apps/web/src/app/app.config.ts:19-40`). The router resets scroll with `window.scrollTo`, which honors the global `html { scroll-behavior: smooth }`, so a browser-only `ScrollBehaviorManager` (`core/scroll-behavior-manager.ts`, started from `App`) forces the reset instant while native fragment anchors (section-nav, skip-link) stay smooth. A browser-only `InitialFragmentScroller` (`core/initial-fragment-scroller.ts`, also started from `App`) covers the one case the router misses — the *initial* load of a `…#section` deep link, where no `Scroll` event fires on the initial hydration navigation and `scrollRestoration: 'manual'` has disabled the browser's native jump. Don't route in-page section jumps through the router — they're native `<a href="{path}#id">` anchors by design.
 - Don't reintroduce `zone.js` to make a flaky test pass — fix the test instead.
 
-Lint: 🟡 review-only.
+Lint: ✅ `no-restricted-imports` bans `zone.js`, `zone.js/*`, and the `NgZone` / `provideZoneChangeDetection` symbols from `@angular/core` in every package, tests included (AECI-549). 🟡 review-only for the *ordering* of the hydration providers, which no rule checks.
 
 ---
 
@@ -314,8 +314,8 @@ Lint: 🟡 review-only (custom regex rule deferred — see §24 "Future enforcem
 ## 22. Cross-cutting constraints (don't restate — link)
 
 - **i18n from day one.** Every visible string wrapped in `i18n="@@unique.id"` (templates) or `$localize` (TS). See `CLAUDE.md` constraints and `docs/STAGE_1_SPEC.md` §7a.
-- **Both themes always.** Light and dark must both render correctly. See `CLAUDE.md` constraints and `docs/CODE_REVIEW_CHECKLIST.md` "Theming".
-- **Data layer is Drizzle over D1.** The Worker reaches the app DB through its `DB` binding via `getDb(env)` — no Prisma, no Accelerate. See `CLAUDE.md` constraints and ADR 0016.
+- **Light only (Stage 1).** One light theme: no `dark:` variants, no `.theme-dark` block, no toggle, no system-preference detection (AECI-226; supersedes the former "Both themes always" rule). Dark returns with the Stage 2 vendor portal as a token-block re-introduction. See `CLAUDE.md` constraints and `docs/CODE_REVIEW_CHECKLIST.md` "Theming". Lint: ✅ (AECI-549).
+- **Data layer is Drizzle over D1.** The Worker reaches the app DB through its `DB` binding via `getDb(env)` — no Prisma, no Accelerate, no pg adapter. See `CLAUDE.md` constraints and ADR 0016. Lint: ✅ (AECI-549).
 - **Cached SSR is visitor-state-neutral.** See `CLAUDE.md` constraints and `docs/STAGE_1_SPEC.md` §9.1a.
 - **No pay-for-placement.** Ranking is algorithmic. See `PRODUCT.md`.
 
@@ -333,7 +333,13 @@ Lint: 🟡 review-only (custom regex rule deferred — see §24 "Future enforcem
 
 ## 24. Appendix: ESLint enforcement matrix
 
-Rules enforced by `pnpm lint` (via `apps/web/eslint.config.mjs`, consuming the shared `angularBase` export from `eslint.config.base.mjs`):
+Rules enforced by `pnpm lint`. Three layers, and knowing which is which matters when you add a rule:
+
+1. **`angularBase`** (`eslint.config.base.mjs`, consumed by `apps/web/eslint.config.mjs`) — the Angular and brand-voice rules. `apps/web` only.
+2. **`tsBase`** (same file, consumed by all four packages) — the cross-cutting constraint guards from AECI-549. These reach `apps/api`, `apps/datatool`, and `packages/shared` as well.
+3. **`apps/web/scripts/check-source-constraints.mjs`** — a line scanner for what ESLint structurally cannot read: Tailwind class strings inside external `.html` templates (the template processor parses them into a template AST, not lintable string literals) and selectors in `.css` (nothing lints CSS here — there is no stylelint). Wired into `apps/web`'s `lint` script.
+
+**Two traps when editing the config.** First, flat config *replaces* a rule's options per file rather than merging them, and `apps/web` spreads `angularBase` after `tsBase` — so both `angularBase` TypeScript blocks must restate every `no-restricted-syntax` selector or they silently drop the ones `tsBase` set. Second, the `tsBase` rules object has no `files` key, so it also applies to the `.html` files `apps/web` lints; ESTree selectors belong in a `files`-scoped block. `apps/web/src/eslint-config.spec.ts` asserts the resolved config for both packages in both tiers, so either regression fails a test rather than quietly disabling a constraint.
 
 ### TypeScript files (`**/*.ts`)
 
@@ -358,6 +364,33 @@ Rules enforced by `pnpm lint` (via `apps/web/eslint.config.mjs`, consuming the s
 | `@angular-eslint/no-empty-lifecycle-method` | error | §15 |
 | `@angular-eslint/no-async-lifecycle-method` | error | §15 |
 | `@angular-eslint/use-injectable-provided-in` | error | §17 |
+| `no-restricted-syntax` (em dash in copy) | error | `PRODUCT.md` / `DESIGN.md` |
+
+Scope note: the em-dash guard is shipped-source only (`**/*.spec.ts`, `**/*.harness.ts`, and `e2e/**` are exempt) because `describe()` / `it()` titles and assertion messages are developer-facing, not rendered copy.
+
+### Cross-cutting constraint guards (`**/*.ts`, all packages — AECI-549)
+
+These live in `tsBase`, so they apply to `apps/api`, `apps/datatool`, and `packages/shared` too. The **dependency** bans apply everywhere including tests; the **value** bans exempt tests, because a fixture legitimately constructs a forbidden value in order to prove the code rejects it (`seo-headers.spec.ts` builds `Vary: Cookie` upstream responses for exactly that reason).
+
+| Rule | Bans | Tests exempt? | Constraint |
+|---|---|---|---|
+| `no-restricted-imports` | `@prisma/*`, `@prisma/extension-accelerate`, `pg`, `postgres`, `@neondatabase/serverless`, `drizzle-orm/node-postgres`, `drizzle-orm/postgres-js` | no | Drizzle over D1 (ADR 0016) |
+| `no-restricted-imports` | `zone.js`, `zone.js/*`, and `NgZone` / `provideZoneChangeDetection` from `@angular/core` | no | Zoneless (§3) |
+| `no-restricted-syntax` | `getPrisma` / `prismaFor` / `PrismaClient` identifiers; `DATABASE_URL` / `DIRECT_URL` | no | Drizzle over D1 (ADR 0016) |
+| `no-restricted-syntax` | `dark:` Tailwind variants (incl. stacked `md:dark:`); `.theme-dark` | yes | Light only (AECI-226) |
+| `no-restricted-syntax` | `Vary` set to anything but `Accept-Language`, via `headers.set` / `append` or an object literal | yes | Edge-cache discipline |
+
+### Line-scanner guards (`check-source-constraints.mjs`)
+
+ESLint cannot see these. `.ts` is deliberately excluded from the dark-theme rules so they never double-report against the selectors above.
+
+| Rule | Scans | Bans | Constraint |
+|---|---|---|---|
+| `logical-properties` | `.ts`, `.html` | `ml-*`, `mr-*`, `pl-*`, `pr-*`, `text-left`, `text-right` | RTL readiness (AECI-153) |
+| `no-dark-variant` | `.html`, `.css` | `dark:` Tailwind variants | Light only (AECI-226) |
+| `no-dark-theme-css` | `.css`, `.html` | `.theme-dark`, `@custom-variant dark`, `prefers-color-scheme: dark`, `[data-theme=…]` | Light only (AECI-226) |
+
+Escape hatch: `constraints-guard-allow-next-line` in a comment on the preceding line. Use it sparingly and say why — it exists so a comment that legitimately *names* a banned pattern (documenting why it is banned) does not make the file uneditable.
 
 ### Template files (`**/*.html`)
 
@@ -376,7 +409,7 @@ Rules enforced by `pnpm lint` (via `apps/web/eslint.config.mjs`, consuming the s
 
 | Rule | Section |
 |---|---|
-| Zoneless + hydration provider order | §3 |
+| Hydration provider order (the zoneless *provider* is lint-enforced via the `NgZone` / `provideZoneChangeDetection` import ban; ordering is not) | §3 |
 | Omit explicit `changeDetection` (OnPush is the v22 default) | §5 |
 | `ngStyle` ban (use `[style.X]`) | §8 |
 | Async pipe for observables | §8 |
@@ -385,11 +418,17 @@ Rules enforced by `pnpm lint` (via `apps/web/eslint.config.mjs`, consuming the s
 | SSR-safety patterns (`isPlatformBrowser`, `afterNextRender`, dynamic `import()`) | §16 |
 | Lazy-loaded feature routes | §18 |
 | Spartan brain composition without wrappers | §19 |
-| Token usage; no hex / oklch literals | §20 |
-| i18n; both themes; cache; Drizzle/D1; no pay-for-placement | §22 |
+| Token usage; no hex / oklch literals (AECI-597) | §20 |
+| i18n string wrapping; `Cache-Tag` emission; `db.batch([...])` atomicity; no pay-for-placement | §22 |
 
 ### Future enforcement (deferred)
 
 - `@angular-eslint/prefer-signals` and `@angular-eslint/no-uncalled-signals` — both require typed linting (`parserOptions.project`), which isn't yet wired in this workspace. Enabling typed linting is a separate scope-expanding change (slower lint, broader rule surface) and is tracked as a follow-up. Until then, signal usage is review-only.
-- Custom regex / processor rule banning hex / oklch / named Tailwind colors in templates and inline styles (§20).
+- Custom regex / processor rule banning hex / oklch / named Tailwind colors in templates and inline styles (§20). Tracked as AECI-597 — measured during AECI-549 as feasible but not yet false-positive-free (CSS id selectors whose name is accidentally hex, e.g. `#aec-facet-panel`; and legitimately hardcoded hex in transactional email HTML, where custom properties don't work).
 - Custom rule banning template-driven `[(ngModel)]` outside a `<form>` context (§13).
+
+**Rejected, with evidence — do not re-propose without new information.** `@angular-eslint/template/i18n` was evaluated in AECI-549 for the "no hardcoded English in templates" constraint (§22). Its attribute check produced **53 findings in this codebase and zero real ones** — it flags every static attribute, including `d`, `stroke-linecap`, `rel`, `crossorigin`, `inputmode`, `aria-labelledby`, `selectionMode`, `orientation` — because it is configured by denylist (`ignoreAttributes`) and the allowlist we would need is inexpressible. Its text check was cleaner (4 findings) but all four were legitimate: decorative `aria-hidden` icon glyphs and the SVG brand wordmark. A rule with that false-positive rate is worse than no rule, so i18n stays review-only.
+
+### Rule lifecycle
+
+New rules land at `error` when the base branch is already clean, which is how the AECI-549 set shipped. Note that `warn` is **not** a usable staging severity here: `pnpm lint` runs without `--max-warnings`, so a warning does not fail the build and the rule is decorative. If a rule must land against a dirty baseline, either fix the baseline in the same PR or land the rule scoped (via `files` / `ignores`) to the clean subset and widen it as the rest is cleaned up.
