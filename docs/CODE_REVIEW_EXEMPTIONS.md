@@ -1,7 +1,7 @@
 # AEC Integrations — Code Review Exemptions
 
-**Audience:** LLMs and humans performing pre-merge code review.
-**Companion:** `CODE_REVIEW_CHECKLIST.md` (the categories and severity rules).
+**Audience:** LLMs and humans performing pre-merge code review, or the pre-implementation plan check.
+**Companions:** `CODE_REVIEW_CHECKLIST.md` (the categories and severity rules for a diff) and `.agents/skills/spec-anchor/SKILL.md` step 4.5 (the same job for a plan, before code exists — see §"Plan-time matching" below).
 
 This file is the list of findings the team has consciously accepted, deferred, or scheduled for later — so the review process stops re-flagging them on every PR. The reviewer reads this file **before** producing a review, and any finding that matches an active entry here is dropped silently.
 
@@ -81,6 +81,19 @@ added_by: name-or-handle
 **Justification.** One paragraph explaining why this is being deferred. Be
 specific. Reference the spec section or the planned follow-up work.
 ```
+
+---
+
+## Plan-time matching (the `spec-anchor` plan check)
+
+The pre-implementation reviewer — step 4.5 of `.agents/skills/spec-anchor/SKILL.md` — loads this file too, reading the same entries through the adjustments below. No schema change: a finding the team has consciously accepted at merge time is one they also don't want raised at plan time, so one list serves both reviewers.
+
+- **`files:` / `paths:`** are evaluated against the paths the **plan names**. If the plan names no paths, a path-scoped exemption does **not** match — report the finding. Fail open toward reporting here: a plan is cheap to correct, so a false positive costs a sentence, while a wrongly suppressed finding costs a build.
+- **`categories:`** may name a category from either `CODE_REVIEW_CHECKLIST.md` or the plan check's own six. Match on intent where the names differ — `Caching` covers "missing contract element — cache tag/purge"; `Spec alignment` covers "spec contradiction" and "doc invalidation".
+- **`severity:`** maps across the two vocabularies: a `BLOCKER` exemption covers a plan-time **CRITICAL**; `MAJOR` covers **MAJOR**; `any` covers **MINOR** as well.
+- **`finding_matches:`** applies unchanged and is the preferred matcher for plan-time exemptions, since plan findings are anchored to a step number rather than a file.
+
+**This is also how the plan check's false-positive rate gets measured.** There is no dashboard and no artifact directory. A finding the team decides is wrong gets written up here as an ordinary exemption with a `finding_matches:` matcher — the count and content of plan-time exemptions *is* the signal, and each one silences the recurrence for free. If they accumulate faster than they expire, the check needs recalibrating, not more categories.
 
 ---
 
