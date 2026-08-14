@@ -223,7 +223,7 @@ pnpm exec wrangler d1 time-travel restore aeci-app-production --env production -
 
 Auth lives in the single shared Supabase project (ADR 0017) and is **not** touched by the promote — recover it via a Supabase point-in-time restore only if ever needed.
 
-**Common failure modes:**
+**Common failure modes.** Re-runs are **job-scoped**: `Re-run failed jobs` re-runs only the failed job and its dependents, preserving the original `commit_sha` / `confirm` inputs, and a re-run of `deploy-prod-workers` re-enters the `production` approval gate. So a `pre-promotion-checks` failure costs one ~2-min job, not a full promote. There is no step-level resume — see `CICD_PLAN.md` §13.4 for why that is sufficient here.
 
 | Failure | Where | What it means / what to do |
 | --- | --- | --- |
@@ -231,6 +231,7 @@ Auth lives in the single shared Supabase project (ADR 0017) and is **not** touch
 | `demo is not at <sha> on both Workers (API + SSR), refusing to promote` | `pre-promotion-checks` | Demo's `/api/version` (API Worker) and/or `/_version` (SSR Worker) don't match `inputs.commit_sha`; `scripts/verify-version.sh` logs the actual per-Worker SHAs. Promote the SHA to demo first (`promote-to-demo`), or change the input. |
 | `wrangler d1 migrations apply` exits non-zero | `deploy-prod-workers` | The D1 migration failed (commonly `CLOUDFLARE_API_TOKEN` lacking Account → D1 → Edit). Runs after approval but **before** the Worker deploys, so nothing shipped — fix the token/migration and re-run. |
 | Deployed but `/api/version` or `/_version` doesn't return the new SHA within 60s | `deploy-prod-workers` | Wrangler deploy completed but propagation hasn't caught up, or the SSR deploy failed half-way (a stale `/_version` with a current `/api/version` is exactly the AECI-92 case the dual check catches). The smoke failure auto-rolls-back both Workers; inspect the deploy step logs. |
+| `pnpm algolia:apply-settings` exits non-zero | `deploy-prod-workers`, **after** the smoke gate | **The release is live and healthy** — this step runs after smoke and sits outside the auto-rollback guard (which fires only on `steps.smoke.outcome == 'failure'`), so nothing was reverted. Do **not** re-run the whole promote to retry one `setSettings`. Re-apply directly: `pnpm algolia:apply-settings --env production` (needs `ALGOLIA_APP_ID` + `ALGOLIA_ADMIN_KEY`). |
 
 ## Local dev: running the API Worker (D1)
 

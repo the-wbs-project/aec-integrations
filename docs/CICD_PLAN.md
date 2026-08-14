@@ -3,6 +3,7 @@
 **Referenced by:** `STAGE_1_SPEC.md` §16 (Build Order), §24 (Development Workflow)
 **Version:** 1.1
 **Date:** May 2026 — **last reconciled against the live pipeline 2026-08-14**
+**Platform re-evaluation:** Cloudflare CI on Workflows assessed and declined 2026-08-14 (AECI-555) — §1, §13.4
 
 > **Reconciliation note (2026-08-14).** §2, §3.2, §3.3, §3.4, §4.1 and §9.1 were written
 > pre-launch and had drifted from what the workflows actually do. Corrected in this pass:
@@ -31,6 +32,31 @@ GitHub Actions is the CI/CD platform. Cloudflare Workers Builds is rejected for 
 - Less flexible for the multi-step pipeline we need (lint, type check, test, build, deploy, smoke test)
 - Smaller ecosystem of reusable steps
 - Workers Builds is fine for "deploy on push" projects — we need more
+
+**Why not Cloudflare CI on Workflows (re-evaluated 2026-08-14 — AECI-555):**
+
+A different Cloudflare product from Workers Builds above: CI pipelines written in **TypeScript** via
+[`@cloudflare/ci`](https://github.com/cloudflare/ci) instead of YAML, running as Cloudflare
+Workflows — durable execution, retry-with-state, **restart from a specific step**, and dependency
+caching snapshotted to R2 ([announcement](https://blog.cloudflare.com/ci-workflows/)). Genuinely
+attractive; declined for now on five counts:
+
+1. **Monorepo support has not shipped** — still roadmap item #3 ("Monorepos: simplified management
+   for multi-Worker deployments using one CI pipeline"). We are a pnpm monorepo with two Workers.
+2. **Triggers are Artifacts-push-only** (`cf.artifacts.repo.pushed`). Push events "from any version
+   control system, not just Artifacts" are roadmap item #4 — so today the repo would have to *live*
+   in Cloudflare Artifacts, taking Linear's GitHub integration, branch protection, and the §8
+   required-check gate with it. This is a larger cost than "code lives there" suggests.
+3. **Artifacts is still closed beta** — access is request-gated.
+4. **No pricing announced.**
+5. **The ten workflows here encode load-bearing logic** — the dual SSR+API SHA gate (§9.2), the
+   demo→prod promotion ordering (§3.3), the schema-drift gate (§5.5), reconcile-counts. Porting that
+   onto a closed beta for a *live production site* is a bad trade.
+
+The one feature worth wanting — restart-from-step — turns out to be adequately approximated by
+GitHub Actions' job-scoped re-runs given how this pipeline is already structured. **§13.4** carries
+that analysis and the dated re-check log. Revisit when Artifacts is GA **and** monorepos have
+shipped.
 
 ---
 
@@ -760,6 +786,61 @@ For very small PRs (e.g. doc-only changes), skip downstream jobs via `paths-igno
 - Payment failure handling adds new alert categories
 
 Not pursued in Stage 1.
+
+### 13.4 Cloudflare CI on Workflows — watch item (AECI-555)
+
+A standing **watch item**, not planned work. §1 carries the rejection rationale; this section carries
+the evidence, the restart-from-step analysis that closed the actionable half of the question, and the
+dated re-check log. **Revisit trigger: Artifacts is GA _and_ monorepo support has shipped.**
+
+#### Status of the revisit gates
+
+| Gate | State (2026-08-14) | Source |
+|---|---|---|
+| Artifacts GA | **Closed beta** — "Artifacts is currently in closed beta. To request access, fill out this form." | `developers.cloudflare.com/artifacts/` |
+| Monorepo support | **Not shipped** — "What's coming next" item #3 | `blog.cloudflare.com/ci-workflows/` |
+| Non-Artifacts (GitHub) triggers | **Not shipped** — "What's coming next" item #4 | same |
+| Pricing | **Unannounced** | — |
+| `@cloudflare/ci` maturity | Early-stage repo, no GA label. Importing Worker must enable `nodejs_compat`; runner commands must be **idempotent** because Workflow steps are retryable | `github.com/cloudflare/ci` |
+
+#### Restart-from-step: what GitHub Actions can and can't do
+
+GitHub Actions has **no step-level resume**. Re-runs are job-scoped — `Re-run failed jobs` (the
+failed job plus its dependents) or `Re-run specific job` — they preserve the original
+`workflow_dispatch` inputs, and they are available for 30 days after the initial run. Mapping that
+onto the workflow the issue named, `promote-to-prod.yml`:
+
+| Failure point | Mutated before it fails? | Recovery today | Would restart-from-step help? |
+|---|---|---|---|
+| `pre-promotion-checks` — `confirm`, `require-secrets.sh`, the demo SHA gate | **Nothing** | `Re-run failed jobs` re-runs only this ~2-min job; `deploy-prod-workers` then re-enters the `production` approval gate | **No — already job-scoped.** This *is* the "version gate" the issue complained about |
+| Provision queues → `d1 migrations apply` → purge taxonomy tags | Queues + D1 | Full job re-run; all three are idempotent (`scripts/d1-apply-migrations.sh` even retries a transient D1 `[code: 7500]`) | Marginal |
+| `Deploy API` → the Worker secret pushes → `Deploy SSR` → `verify-worker-secrets.sh` | Workers live | Full job re-run; `wrangler deploy` and `wrangler secret put` are idempotent | Marginal |
+| **Smoke gate** (`verify-version.sh` + `verify-health.sh`) | Workers went live, then were **auto-rolled-back** (AECI-91) | Full job re-run | **No — resuming would be wrong.** The rollback reverted the deploy, so a fresh deploy is the only correct recovery |
+| **`Update Algolia production index settings`** — runs *after* the smoke gate, deliberately outside the rollback guard (`steps.smoke.outcome == 'failure'`) | Workers live **and healthy** at the new SHA | Full job re-run — queues, migrations, both deploys and every secret push, to retry one `setSettings` — **or** `pnpm algolia:apply-settings --env production` by hand | **Yes — the only genuine case in the file** |
+
+`promote-to-demo.yml` has the same smoke → Algolia-settings → auto-rollback tail and the same
+profile.
+
+**Verdict.** Two properties make job-scoped re-runs sufficient here: the safety-critical gate is
+*already* its own job, and every mutating step is idempotent by design. Cloudflare's
+restart-from-step is nicer, but it does not justify migrating a live production promote chain onto a
+closed beta. **The actionable half of AECI-555 is answered; the issue stays open only as the GA
+watch.**
+
+**Deliberately not done:** splitting the post-smoke Algolia step into its own `needs:`-chained job
+would close the one residual gap and make it independently re-runnable. Declined under AECI-555 —
+re-applying by hand costs seconds, and the promote workflows are the wrong place to take structural
+risk for a marginal convenience. Recorded so it isn't re-proposed without new information. Also
+declined: a `resume_from` workflow_dispatch input gating each step — it would let an operator skip
+migrations on the single most safety-critical workflow.
+
+#### Re-check log
+
+Append a row on each re-check rather than re-researching from scratch.
+
+| Date | Artifacts | Monorepos | Non-Artifacts triggers | Pricing | Verdict |
+|---|---|---|---|---|---|
+| 2026-08-14 (AECI-555) | Closed beta | Roadmap #3 | Roadmap #4 | Unannounced | No migration; keep watching. GH Actions approximation judged sufficient |
 
 ---
 
