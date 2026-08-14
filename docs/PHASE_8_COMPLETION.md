@@ -20,7 +20,7 @@
 | Gate | Result |
 |------|--------|
 | `pnpm format:check` (Prettier; `*.md` is prettier-ignored, so JSON + code only) | ✅ exit 0 · "All matched files use Prettier code style!" |
-| `pnpm lint` (ESLint ×N packages + `check-logical-properties` + Prettier) | ✅ exit 0 |
+| `pnpm lint` (ESLint ×N packages + `check-source-constraints` + Prettier) | ✅ exit 0 |
 | `pnpm typecheck` (shared, api, datatool — web excluded by design) | ✅ exit 0 |
 | `jq` parse of all 23 `observability/datadog/monitor-*.json` | ✅ 23 / 23 valid |
 | `pnpm test` | **Not run** — this change is documentation (prettier-ignored `*.md`) + Datadog **monitor JSON** only; no application code, schema, or test surface changed. The DQ severity split and WAF-poll liveness are Datadog config (metric tags they query already exist), not code paths under test. Reflects `main` @ `a0dfe6b`. |

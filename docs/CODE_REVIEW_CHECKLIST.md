@@ -19,6 +19,8 @@ Then:
 
 Severity is binary: blocker or major. Anything else does not get reported. Style nits, formatting, micro-optimizations, naming preferences — skip them. The CI gate handles formatting; the unit testing guide handles coverage. Reviewers handle correctness, security, and intent.
 
+**Items tagged `Lint: ✅` are enforced mechanically — do not hand-check them.** They fail `pnpm lint` (the `lint-and-types` CI job, a required check on `main` and `stage-2`), so a PR that reaches review cannot be violating them. Spending review attention there is wasted; spend it on the untagged items, which are the ones a machine cannot decide. The tag mirrors the `Lint: ✅` / `Lint: 🟡 review-only` convention in `ANGULAR_STYLE_GUIDE.md` §24, which holds the full rule-to-constraint matrix. If you believe a tagged item is genuinely violated in a diff, the lint rule has a gap — that's a defect in the rule, so report it as such rather than as a one-off review finding.
+
 ---
 
 ## Categories to check
@@ -31,7 +33,7 @@ The most distinctive concern for this codebase. Code that diverges from the spec
 - If the diff modifies behavior covered by a spec section, does the spec get updated in the same PR?
 - If the PR adds or renames a `docs/*.md` (or root doc) that governs work, is it added to the `CLAUDE.md` source-of-truth table in the same PR? (No orphaned governing docs — see AECI-106.)
 - Does the code use the entity types, error codes, and field names defined in `API_CONTRACTS.md` and `DATABASE_SCHEMA.md`?
-- Does the code respect the constraints in `CLAUDE.md` (DB access is Drizzle over the D1 `DB` binding via `getDb(env)` — no Prisma, no Accelerate, no pg adapter; atomic writes use `db.batch([...])`; cacheable SSR responses set `Cache-Tag` via the AECI-56 helper; zoneless; light theme only; no pay-for-placement; i18n strings wrapped)?
+- Does the code respect the constraints in `CLAUDE.md` (DB access is Drizzle over the D1 `DB` binding via `getDb(env)` — no Prisma, no Accelerate, no pg adapter; atomic writes use `db.batch([...])`; cacheable SSR responses set `Cache-Tag` via the AECI-56 helper; zoneless; light theme only; no pay-for-placement; i18n strings wrapped)? `Lint: ✅` for the statically-checkable half — no Prisma / Accelerate / pg adapter / connection vars, no `zone.js` or `NgZone`, no `dark:` variant or `.theme-dark` block, no forbidden `Vary` (AECI-549). The rest — `db.batch([...])` atomicity, `Cache-Tag` emission, no pay-for-placement, i18n wrapping — is `Lint: 🟡 review-only` and still needs your eyes.
 
 If the spec is wrong, that's also a defect — flag it. Do not silently work around it.
 
@@ -120,7 +122,7 @@ If the spec is wrong, that's also a defect — flag it. Do not silently work aro
 - Cache key that includes user-specific data, fragmenting the cache
 - **BLOCKER** — Cached SSR route reads a request cookie and bakes the value into rendered HTML (cookie/cache pollution). Visitor-state cookies must be stripped before forwarding to SSR for cacheable routes, or the route must not be cached. See `STAGE_1_SPEC.md` §9.1a.
 - **BLOCKER** — 404 / not-found returns HTTP 200 with a long TTL (the "pinned 404" trap). 404 must return status 404 with TTL ≤60s. See `STAGE_1_SPEC.md` §9.1b.
-- **MAJOR** — Response emits a forbidden `Vary` header (`Vary: Cookie`, `Vary: User-Agent`, etc.) that fragments the edge cache without a corresponding `Cache-Tag` advantage. `Vary: Accept-Language` is permitted (URL-prefix locale dispatch already handles the variance); any other `Vary` value is rejected unless there's an explicit, documented reason. Use URL-prefix segmentation instead.
+- **MAJOR** — `Lint: ✅` Response emits a forbidden `Vary` header (`Vary: Cookie`, `Vary: User-Agent`, etc.) that fragments the edge cache without a corresponding `Cache-Tag` advantage. `Vary: Accept-Language` is permitted (URL-prefix locale dispatch already handles the variance); any other `Vary` value is rejected unless there's an explicit, documented reason. Use URL-prefix segmentation instead. Enforced by `no-restricted-syntax` on `headers.set`/`append` and the object-literal form (AECI-549); test files are exempt because fixtures legitimately build a forbidden `Vary` to prove the middleware strips it.
 - **MAJOR** — `CLOUDFLARE_API_TOKEN` scope broadened beyond `Zone.Cache Purge` on `aecintegrations.com`.
 
 ### Accessibility
@@ -137,18 +139,18 @@ If the spec is wrong, that's also a defect — flag it. Do not silently work aro
 
 ### Internationalization
 
-- Hardcoded English string in a template (must be wrapped in `i18n` attribute)
+- `Lint: 🟡 review-only` Hardcoded English string in a template (must be wrapped in `i18n` attribute). AECI-549 evaluated `@angular-eslint/template/i18n` and rejected it: its attribute check flagged 53 sites in this codebase and **none** were real copy (`d`, `stroke-linecap`, `rel`, `inputmode`, `aria-labelledby`, `selectionMode`, …), because the rule is configured by denylist and the allowlist we would need is inexpressible. A rule with that false-positive rate is worse than no rule. This stays the reviewer's job.
 - Hardcoded English string in code (must use `$localize` tagged template)
 - Date or number formatted without locale awareness
 - New entity that should accept localized variants but doesn't write to `translations`
-- Logical CSS properties (margin-inline-start) NOT used in directional contexts — important for future RTL languages
+- `Lint: ✅` Logical CSS properties (margin-inline-start) NOT used in directional contexts — important for future RTL languages. Enforced by the `logical-properties` rule in `apps/web/scripts/check-source-constraints.mjs` (AECI-153), which scans `.ts` and `.html` for `ml-*` / `mr-*` / `pl-*` / `pr-*` / `text-left` / `text-right`.
 - **MAJOR** — New locale added without updating both `angular.json` `i18n.locales` and the SSR Worker's `LOCALES` constant. The two must stay in lockstep; an out-of-sync `LOCALES` means the Worker can't dispatch the new prefix or purge across it.
 - **MAJOR** — Translation merge code path that doesn't apply per-field fallback to canonical (missing overlay field → blank instead of canonical value). See `STAGE_1_SPEC.md` §7a.2.
 
 ### Theming
 
-- New component renders correctly in light but not dark (or vice versa)
-- Color hardcoded instead of using a theme token (`--surface-base`, `--text-primary`, etc.) — see `ANGULAR_STYLE_GUIDE.md` §20 (tokens, not literals)
+- `Lint: ✅` Dark-theme surface reintroduced: a `dark:` Tailwind variant, a `.theme-dark` block, a `@custom-variant dark` re-declaration, a `prefers-color-scheme: dark` query, or `[data-theme]` switching. Stage 1 ships a single light theme (AECI-226) and dark returns with the Stage 2 vendor portal as a semantic-token block, not as scattered utilities. Enforced two ways (AECI-549): `no-restricted-syntax` covers `.ts` including inline templates, and `apps/web/scripts/check-source-constraints.mjs` covers external `.html` and `.css`, which ESLint structurally cannot read as class strings. (This item previously read "renders correctly in light but not dark" — that predates AECI-226 and no longer applies.)
+- Color hardcoded instead of using a theme token (`--surface-base`, `--text-primary`, etc.) — see `ANGULAR_STYLE_GUIDE.md` §20 (tokens, not literals). `Lint: 🟡 review-only` — despite what `STAGE_1_PHASE_2_SPEC.md` used to claim, no lint rule checks this; see AECI-597.
 - Vendor-uploaded content not wrapped in the neutral media block container
 - Brand accent (Clay, Forest) used in a low-contrast context that fails WCAG AA
 - **BLOCKER** — A `data-theme`-dependent value is rendered in SSR for a cacheable route (same cookie/cache pollution rule as Caching above). Theme must be applied on the client after hydration for cached routes; server-rendered HTML is theme-neutral.
@@ -183,7 +185,7 @@ Be especially vigilant about these in AI-authored PRs. They are easy to miss bec
 - **Copy-paste from outside this codebase.** Style, naming, or patterns that don't match the rest of the codebase signal copy-paste from training data — review extra carefully.
 - **Comments that confidently describe wrong behavior.** "// This handles the bot-score check" on code that doesn't check bot score.
 - **Stub or placeholder code committed.** `// TODO: implement actual logic` left in alongside passing tests — the tests are testing the stub, not real behavior.
-- **DB client reached by any path other than the D1 binding.** Any reach for Prisma / Accelerate / a pg adapter / a `DATABASE_URL` is wrong — DB access is Drizzle over the native `DB` binding via `getDb(env)` (ADR 0016, AECI-278). See `DATABASE_SCHEMA.md` §1a.
+- **DB client reached by any path other than the D1 binding.** `Lint: ✅` Any reach for Prisma / Accelerate / a pg adapter / a `DATABASE_URL` is wrong — DB access is Drizzle over the native `DB` binding via `getDb(env)` (ADR 0016, AECI-278). See `DATABASE_SCHEMA.md` §1a. Enforced by `no-restricted-imports` (`@prisma/*`, `pg`, `postgres`, `@neondatabase/serverless`, `drizzle-orm/node-postgres`, `drizzle-orm/postgres-js`) plus `no-restricted-syntax` on the `getPrisma` / `PrismaClient` identifiers and the `DATABASE_URL` / `DIRECT_URL` vars (AECI-549). Unlike the value bans, this one applies to test files too.
 - **Module-level DB client.** Constructed once at import time and reused across requests. Should be per-request via the `getDb(env)` factory injected into the handler. Breaks request isolation and testability.
 - **Angular-decorator carryover.** `@HostBinding` / `@HostListener` / `@Input` / `@Output` / `ngClass` / `ngStyle` / `*ngIf` / `*ngFor` / `*ngSwitch` / `[(ngModel)]` in a form context — all banned. Use the `host: { ... }` metadata object, `input()` / `output()` / `model()`, `[class.X]` / `[style.X]` bindings, `@if` / `@for` / `@switch`, and reactive forms. `pnpm lint` catches most of these; if one slips past lint, flag it as a BLOCKER. See `ANGULAR_STYLE_GUIDE.md` for the full enforcement matrix.
 

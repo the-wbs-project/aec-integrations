@@ -24,6 +24,187 @@ export const ignores = {
   ],
 };
 
+/**
+ * Files whose contents are developer-facing rather than shipped: their string
+ * literals are fixtures and assertion messages, not product code or rendered
+ * copy. Rules that ban a *value* (an em dash, a `dark:` class, a forbidden
+ * `Vary`) exempt them; rules that ban a *dependency* (Prisma, zone.js) do not.
+ */
+const TEST_FILES = ['**/*.spec.ts', '**/*.harness.ts', '**/e2e/**'];
+
+/**
+ * AECI-549 — the mechanically-checkable half of CLAUDE.md §"Constraints that
+ * aren't negotiable". These were prose, so compliance depended on an agent
+ * having read the right file; anything statically expressible belongs in the
+ * linter instead. See ANGULAR_STYLE_GUIDE.md §24 for the rule-to-constraint map.
+ *
+ * Division of labour: ESLint owns the TypeScript AST (imports, identifiers,
+ * member access, string and template literals). It cannot see Tailwind class
+ * strings inside external `.html` templates, nor selectors in `.css` — those go
+ * to `apps/web/scripts/check-source-constraints.mjs`, the same grep-guard
+ * precedent AECI-153 established for the RTL logical-property rule.
+ */
+
+/**
+ * Drizzle over the native D1 binding is the only DB path (ADR 0016 / AECI-278).
+ * Prisma, Accelerate, a pg adapter, and the Postgres connection vars are all
+ * gone and must not come back.
+ *
+ * Both selectors are deliberately narrow. The identifier match is exact-name so
+ * an unrelated symbol containing the substring is untouched, and the connection
+ * vars are `^…$`-anchored so a *sentence* mentioning `DATABASE_URL` (a log line,
+ * an error message, or a fixture line in this rule's own spec) does not trip —
+ * only the bare env-var name or a `foo.DATABASE_URL` access does. Comments are
+ * not AST nodes, so the ~60 "Prisma is gone" archaeology comments across
+ * `apps/api` stay legal.
+ */
+const NO_PRISMA_OR_PG = [
+  {
+    selector: 'Identifier[name=/^(getPrisma|prismaFor|PrismaClient)$/]',
+    message:
+      'No Prisma. DB access is Drizzle over the D1 `DB` binding via getDb(env). See ADR 0016 / CLAUDE.md.',
+  },
+  {
+    selector:
+      'MemberExpression[property.name=/^(DATABASE_URL|DIRECT_URL)$/], Literal[value=/^(DATABASE_URL|DIRECT_URL)$/]',
+    message:
+      'No Postgres connection vars. The Worker reaches D1 through its native `DB` binding. See ADR 0016 / CLAUDE.md.',
+  },
+];
+
+/**
+ * Light only (Stage 1, AECI-226). No `dark:` Tailwind variant, no `.theme-dark`
+ * block, no toggle. Dark returns with the Stage 2 vendor portal as a token-block
+ * re-introduction, not as scattered `dark:` utilities.
+ *
+ * Boundary-anchored the same way as the RTL guard's `PHYSICAL_UTILITY`: the
+ * leading class is start-of-line / whitespace / a stacked-variant colon (so
+ * `md:dark:bg-x` matches) / quote / backtick (`\x60`, since a literal backtick
+ * cannot appear inside the template literal that builds this source). The
+ * trailing `[a-z[(-]` requires a real utility to follow the colon, which is what
+ * keeps prose like `'light and dark: themes'` or `'Dark: A Novel'` from
+ * matching while still catching `dark:[&>svg]:x`, `dark:(--token)`, and
+ * `dark:-mt-2`.
+ *
+ * This covers `.ts` only — inline templates are template literals, so they are
+ * in scope, but external `.html` and `.css` are not. `check-source-constraints.mjs`
+ * owns those, and deliberately does NOT scan `.ts`, so nothing double-reports.
+ */
+const DARK_VARIANT = String.raw`(^|[\s:"'\x60])dark:[a-z[(-]`;
+const NO_DARK_THEME = [
+  {
+    selector: `Literal[value=/${DARK_VARIANT}/], TemplateElement[value.raw=/${DARK_VARIANT}/]`,
+    message:
+      'No `dark:` variants. Stage 1 ships one light theme (AECI-226). See CLAUDE.md "Light only (Stage 1)".',
+  },
+  {
+    selector: String.raw`Literal[value=/\.theme-dark\b/], TemplateElement[value.raw=/\.theme-dark\b/]`,
+    message:
+      'No `.theme-dark` block. Stage 1 ships one light theme (AECI-226). See CLAUDE.md "Light only (Stage 1)".',
+  },
+];
+
+/**
+ * `Vary: Accept-Language` is permitted — URL-prefix locale dispatch already
+ * handles the actual variance. Any other value (`Cookie`, `User-Agent`, …)
+ * fragments the edge cache without a corresponding `Cache-Tag` advantage.
+ *
+ * The `:not([arguments.1.value="Accept-Language"])` carve-out is why this is a
+ * usable rule rather than a blanket ban on touching the header: the one real
+ * write site (`apps/web/src/server/seo-headers.ts`) does a delete-then-set of
+ * exactly the permitted value and stays clean. esquery indexes into `arguments`
+ * by position, so `arguments.0` / `arguments.1` address the header name and
+ * value directly.
+ *
+ * The object-literal form covers `new Headers({ vary: 'Cookie' })`; `key.name`
+ * matches a bare key and `key.value` a quoted one.
+ */
+const NO_FORBIDDEN_VARY = [
+  {
+    selector:
+      'CallExpression[callee.property.name=/^(set|append)$/][arguments.0.value=/^vary$/i]:not([arguments.1.value="Accept-Language"])',
+    message:
+      'Only `Vary: Accept-Language` is permitted; any other value fragments the edge cache. See docs/CACHE_STRATEGY.md.',
+  },
+  {
+    selector:
+      'Property[key.name=/^vary$/i]:not([value.value="Accept-Language"]), Property[key.value=/^vary$/i]:not([value.value="Accept-Language"])',
+    message:
+      'Only `Vary: Accept-Language` is permitted; any other value fragments the edge cache. See docs/CACHE_STRATEGY.md.',
+  },
+];
+
+/**
+ * Constraint selectors that apply to every file, tests included: importing or
+ * naming a decommissioned dependency is a violation wherever it happens.
+ */
+export const CONSTRAINT_SYNTAX_ALL = [...NO_PRISMA_OR_PG];
+
+/**
+ * Constraint selectors that apply to shipped source only. Tests legitimately
+ * construct a forbidden *value* as a fixture in order to prove the code rejects
+ * it — `seo-headers.spec.ts` builds `Vary: Cookie` upstream responses precisely
+ * to assert the middleware strips them.
+ */
+export const CONSTRAINT_SYNTAX_SOURCE_ONLY = [...NO_DARK_THEME, ...NO_FORBIDDEN_VARY];
+
+/**
+ * Decommissioned and forbidden dependencies (CLAUDE.md): Prisma / Accelerate and
+ * every pg adapter (ADR 0016 — the Worker reaches D1 natively), plus zone.js and
+ * the two `@angular/core` symbols that would silently re-enable zone-based
+ * change detection under the zoneless constraint.
+ */
+export const CONSTRAINT_IMPORTS = [
+  'error',
+  {
+    paths: [
+      {
+        name: '@prisma/client',
+        message:
+          'Prisma is removed. Use Drizzle over the D1 `DB` binding via getDb(env). ADR 0016.',
+      },
+      {
+        name: '@prisma/extension-accelerate',
+        message:
+          'Accelerate is removed. The Worker reaches D1 through its native binding. ADR 0016.',
+      },
+      {
+        name: 'pg',
+        message: 'No pg adapter on the Worker. Use Drizzle over the D1 binding. ADR 0016.',
+      },
+      {
+        name: 'postgres',
+        message: 'No pg adapter on the Worker. Use Drizzle over the D1 binding. ADR 0016.',
+      },
+      {
+        name: '@neondatabase/serverless',
+        message: 'No pg adapter on the Worker. Use Drizzle over the D1 binding. ADR 0016.',
+      },
+      {
+        name: 'drizzle-orm/node-postgres',
+        message: 'Use `drizzle-orm/d1`. The app DB is Cloudflare D1. ADR 0016.',
+      },
+      {
+        name: 'drizzle-orm/postgres-js',
+        message: 'Use `drizzle-orm/d1`. The app DB is Cloudflare D1. ADR 0016.',
+      },
+      { name: 'zone.js', message: 'Zoneless Angular. Use provideZonelessChangeDetection().' },
+      {
+        name: '@angular/core',
+        importNames: ['NgZone', 'provideZoneChangeDetection'],
+        message:
+          'Zoneless Angular. Use provideZonelessChangeDetection(). See ANGULAR_STYLE_GUIDE.md §3.',
+      },
+    ],
+    patterns: [
+      {
+        group: ['@prisma/*', 'zone.js/*'],
+        message: 'Prisma and zone.js are removed (ADR 0016 / zoneless constraint).',
+      },
+    ],
+  },
+];
+
 export const tsBase = [
   js.configs.recommended,
   ...tseslint.configs.recommended,
@@ -46,6 +227,24 @@ export const tsBase = [
         },
       ],
       '@typescript-eslint/no-explicit-any': 'warn',
+    },
+  },
+  {
+    // Scoped to source extensions on purpose: the block above has no `files`
+    // key, so it also applies to the `.html` templates apps/web lints. Running
+    // esquery selectors written against the ESTree AST over Angular's template
+    // AST would be meaningless, so these two blocks restrict themselves.
+    files: ['**/*.ts', '**/*.mjs'],
+    rules: {
+      'no-restricted-imports': CONSTRAINT_IMPORTS,
+      'no-restricted-syntax': ['error', ...CONSTRAINT_SYNTAX_ALL],
+    },
+  },
+  {
+    files: ['**/*.ts'],
+    ignores: TEST_FILES,
+    rules: {
+      'no-restricted-syntax': ['error', ...CONSTRAINT_SYNTAX_ALL, ...CONSTRAINT_SYNTAX_SOURCE_ONLY],
     },
   },
 ];
@@ -103,9 +302,11 @@ export const angularBase = [
 
       '@angular-eslint/prefer-standalone': 'error',
       '@angular-eslint/prefer-inject': 'error',
-      // Constructor-body inject() guard (style guide §9). The em-dash brand
-      // guard is a separate, test-exempt config block below (NO_EM_DASH_IN_COPY).
-      'no-restricted-syntax': ['error', NO_INJECT_IN_CONSTRUCTOR],
+      // Constructor-body inject() guard (style guide §9), plus the all-files
+      // constraint tier restated from `tsBase`. The em-dash brand guard and the
+      // source-only constraint tier are a separate, test-exempt config block
+      // below. Restating is mandatory, not redundant — see the comment there.
+      'no-restricted-syntax': ['error', NO_INJECT_IN_CONSTRUCTOR, ...CONSTRAINT_SYNTAX_ALL],
       '@angular-eslint/prefer-host-metadata-property': 'error',
       '@angular-eslint/prefer-signal-model': 'error',
       '@angular-eslint/prefer-output-emitter-ref': 'error',
@@ -123,18 +324,30 @@ export const angularBase = [
     },
   },
   {
-    // Em-dash brand guard — shipped UI source only. Test files are exempt:
-    // their describe()/it() titles and assertion messages are developer-facing,
-    // not rendered copy. This covers both *.spec.ts and the shared *.harness.ts
-    // test helpers (describe()/it() titles live there too once specs are
-    // de-duplicated onto a harness). Flat config replaces a rule's options per
-    // file rather than merging, so this block restates the inject() guard
-    // alongside the em-dash selectors (otherwise the guard above is dropped for
-    // these files).
+    // Em-dash brand guard + the source-only constraint tier (AECI-549) —
+    // shipped UI source only. Test files are exempt: their describe()/it()
+    // titles and assertion messages are developer-facing, not rendered copy,
+    // and their fixtures deliberately build forbidden values (a `Vary: Cookie`
+    // upstream response) to prove the code rejects them. This covers both
+    // *.spec.ts and the shared *.harness.ts test helpers (describe()/it()
+    // titles live there too once specs are de-duplicated onto a harness).
+    //
+    // Flat config replaces a rule's options per file rather than merging, so
+    // this block restates EVERY selector that should apply here — the inject()
+    // guard from the block above and the all-files constraint tier from
+    // `tsBase`. Dropping one from this list silently disables it for every
+    // non-test file in apps/web. `eslint-config.spec.ts` asserts the resolved
+    // config so that regression cannot land quietly.
     files: ['**/*.ts'],
-    ignores: ['**/*.spec.ts', '**/*.harness.ts', '**/e2e/**'],
+    ignores: TEST_FILES,
     rules: {
-      'no-restricted-syntax': ['error', NO_INJECT_IN_CONSTRUCTOR, ...NO_EM_DASH_IN_COPY],
+      'no-restricted-syntax': [
+        'error',
+        NO_INJECT_IN_CONSTRUCTOR,
+        ...CONSTRAINT_SYNTAX_ALL,
+        ...CONSTRAINT_SYNTAX_SOURCE_ONLY,
+        ...NO_EM_DASH_IN_COPY,
+      ],
     },
   },
   {
