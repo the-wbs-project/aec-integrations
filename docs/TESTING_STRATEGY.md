@@ -32,6 +32,19 @@ Priorities in order:
 | Smoke | Playwright (subset) | Staging, production | Medium | Post-deploy |
 | Load | k6 or similar | Staging | Slow | Pre-launch, rarely |
 
+> **"Every PR" means *every* PR — any base branch.** `deploy.yml` and `integration-db-tests.yml`
+> carry no `branches:` (base-branch) filter on their `pull_request` trigger, so a PR into
+> `stage-2`, `admin-panel`, or an epic branch runs the same lanes as a PR into `main`. This was
+> **not** true before 2026-08-14: both were pinned to `branches: [main]`, which filters by base
+> branch, so under the ADR 0019 branch model this table over-claimed for most PRs in flight —
+> the ~13k-line AECI-513 epic merged into `stage-2` having run none of it. Two rows carry their
+> own caveats regardless of base: **Performance** (Lighthouse) is push-to-`main`-only by design
+> (`lighthouse.yml`, §10.5) — not on PRs — and **Visual** (Chromatic) is not wired at all.
+> `CICD_PLAN.md` §3.1 has the full rationale. `main` and `stage-2` are branch-protected on the
+> same three required contexts, so a red `Lint & typecheck` / `Unit tests` / `Build SSR Worker`
+> blocks the merge on both (§8). **`admin-panel` is the exception on every count** — the trigger
+> fix landed on `stage-2` only, so its PRs still run none of this, and it has no protection.
+
 ---
 
 ## 3. Unit testing — Vitest

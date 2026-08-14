@@ -1,8 +1,16 @@
 # AEC Integrations — CI/CD Plan
 
 **Referenced by:** `STAGE_1_SPEC.md` §16 (Build Order), §24 (Development Workflow)
-**Version:** 1.0
-**Date:** May 2026
+**Version:** 1.1
+**Date:** May 2026 — **last reconciled against the live pipeline 2026-08-14**
+
+> **Reconciliation note (2026-08-14).** §2, §3.2, §3.3, §3.4, §4.1 and §9.1 were written
+> pre-launch and had drifted from what the workflows actually do. Corrected in this pass:
+> the Supabase-project topology (one shared project, not per-env), production's Access +
+> indexing state (launched — public and indexable), `deploy-staging`'s real step list (D1
+> migrations, no Datadog marker, no Playwright smoke, no approval-request step), and the
+> removal of every Slack reference. Claims below were verified against
+> `.github/workflows/*.yml`, `apps/web/wrangler.jsonc`, and live HTTP probes.
 
 ---
 
@@ -38,10 +46,18 @@ Four environments, all on Cloudflare:
 
 | Environment | URL pattern | Triggered by | Auto/Manual | Data |
 |---|---|---|---|---|
-| **Preview** | `aeci-web-pr-<N>.aec-integrations.workers.dev` | Every PR push | Auto | Shared dev DB via `aeci-api-preview` (Option 1, see environments.md) |
-| **Staging** | `staging.aecintegrations.com` | Merge to `main` | Auto | Staging Supabase project |
-| **Demo** | `demo.aecintegrations.com` | Manual, after staging | Manual | Own D1 (`aeci-app-demo`); shares the prod Supabase auth project |
-| **Production** | `prod.aecintegrations.com` | Manual approval, after demo | Manual | Production D1 + Supabase |
+| **Preview** | `aeci-web-pr-<N>.aec-integrations.workers.dev` | Every PR push | Auto | `aeci-app-preview` D1 via `aeci-api-preview` (Option 1, see environments.md) |
+| **Staging** | `staging.aecintegrations.com` | Merge to `main` | Auto | `aeci-app-staging` D1 |
+| **Demo** | `demo.aecintegrations.com` | Manual, after staging | Manual | `aeci-app-demo` D1 |
+| **Production** | `aecintegrations.com` + `www.` (public, canonical) and `prod.` | Manual approval, after demo | Manual | `aeci-app-production` D1 |
+
+> **One Supabase project, four D1 databases.** Per **ADR 0017** every tier shares a *single*
+> Supabase project (`ktuhnlypztujpsseujzx`, verified in all four `env.*` blocks of both
+> `wrangler.jsonc` files) and Supabase is **auth only** — hence the single un-suffixed
+> `SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY` (§7.1). The application database is
+> Cloudflare D1 (ADR 0016) and *that* is what is per-tier. Earlier revisions of this table said
+> "Staging Supabase project" / "Production D1 + Supabase", implying per-env Supabase projects;
+> they do not exist.
 
 ### 2.1 Preview environment
 
@@ -58,13 +74,13 @@ Spun up per PR by [`pr-preview.yml`](../.github/workflows/pr-preview.yml) (AECI-
 Mirror of production, but with test data and isolated from real users.
 
 - Always reflects the latest `main` branch
-- Connects to a dedicated staging Supabase project
+- Own D1 database (`aeci-app-staging`); shares the single Supabase **auth** project with every other tier (ADR 0017)
 - Algolia connects to dedicated staging indexes (`staging_*`; physical naming per §7.5)
 - Datadog under `env:staging` tag
 - Resend sends real emails but only to allowlisted internal addresses
 - Linear creates real issues in a "Staging Test" project
 - Used for smoke tests, manual QA, and demos
-- **Network-level access control:** staging and `*.aec-integrations.workers.dev` previews sit behind Cloudflare Access (email-allowlist OTP for humans, service token for CI). The demo tier is intentionally public (showcase); production is also behind Cloudflare Access until launch (ADR 0017), then made public. See [`access.md`](./access.md) for the runbook (allowlist management, service-token rotation, lockout recovery).
+- **Network-level access control:** staging and `*.aec-integrations.workers.dev` previews sit behind Cloudflare Access (email-allowlist OTP for humans, service token for CI) — verified 2026-08-14: `https://staging.aecintegrations.com/` still 302s to the Access login. The demo tier is intentionally public (showcase), and **production is now public too** (see §2.4 — the pre-launch Access gate is gone). See [`access.md`](./access.md) for the runbook (allowlist management, service-token rotation, lockout recovery).
 
 ### 2.3 Demo environment
 
@@ -77,16 +93,26 @@ The public showcase tier (`demo.aecintegrations.com`), inserted between staging 
 
 ### 2.4 Production environment
 
-The real site (`prod.aecintegrations.com`, the eventual home page). Promoted from **demo** via manual approval — see `docs/environments.md` → "Promote runbook" for the operator flow.
+The real site. **Launched** — the AECI-247/277 apex cutover is done, so production serves the public apex `aecintegrations.com` and `www.aecintegrations.com` (the bare apex 301s to `www.`, which is canonical per ADR 0011 as amended 2026-07-05) plus the internal `prod.aecintegrations.com`. Promoted from **demo** via manual approval — see `docs/environments.md` → "Promote runbook" for the operator flow.
 
 - Deployed only after the demo deployment is verified (the pre-promotion check asserts demo is at the SHA)
 - Manual approval gate in GitHub Environments (Chris clicks "Approve" button on the `deploy-prod-workers` job in `.github/workflows/promote-to-prod.yml`)
-- Connects to production Supabase + the `aeci-app-production` D1
+- Own D1 (`aeci-app-production`); shares the single Supabase auth project (ADR 0017)
 - Production Algolia indexes (`production_*`)
 - Datadog under `env:production` tag, with deployment markers
-- Cloudflare Access-gated until launch (ADR 0017); `ALLOW_INDEXING="false"` (no-index) until the apex cutover (when the app takes over `aecintegrations.com`)
+- **Public and indexable.** `ALLOW_INDEXING="true"` (`apps/web/wrangler.jsonc` `env.production`) — no `X-Robots-Tag: noindex`, and `robots.txt` / `sitemap.xml` are crawlable
 - Resend sends to real users
 - Linear is the live vendor request destination
+
+> **Production is NOT behind Cloudflare Access.** Verified 2026-08-14 by direct probe: both
+> `https://www.aecintegrations.com/` and `https://prod.aecintegrations.com/` return **HTTP 200**
+> with no Access redirect (staging, by contrast, still 302s to the Access login). Earlier text
+> here said "Cloudflare Access-gated until launch (ADR 0017)"; launch has happened. Note that
+> the `env.production` comment block in `apps/web/wrangler.jsonc` still claims the `prod.` host
+> "stays crawler-free via Cloudflare Access" — **that comment is stale and its premise is
+> false**, which means `prod.` is a publicly reachable duplicate of `www.` under a single
+> `ALLOW_INDEXING="true"`. Worth either re-gating `prod.` in Access or dropping the host;
+> tracked separately, not changed here.
 
 ---
 
@@ -95,6 +121,22 @@ The real site (`prod.aecintegrations.com`, the eventual home page). Promoted fro
 ### 3.1 On every PR push
 
 Runs in parallel where possible to minimize wall time. Goal: under 10 minutes total.
+
+> **The PR lane is base-branch-agnostic — every PR runs the full gate regardless of what it
+> targets.** `deploy.yml` and `integration-db-tests.yml` intentionally carry **no `branches:`
+> filter** on their `pull_request` trigger, matching `pr-preview.yml` and `drift-check.yml`.
+> This is load-bearing under the ADR 0019 branch model (§10): `branches:` on `pull_request`
+> filters by **base** branch, so the former `branches: [main]` made this entire suite invisible
+> to any PR targeting a long-lived integration branch (`stage-2`, `admin-panel`) or an epic
+> branch (`aeci-513`) — i.e. to most of the work in flight. It went unnoticed until PR #521
+> (the AECI-513 vendor-portal epic, ~13k lines into `stage-2`) merged having run **only**
+> `pr-preview`: no lint, no typecheck, no unit tests, no build, no E2E. Omitting the filter
+> rather than listing branches means epic branches are covered as they come and go, with no
+> list to maintain. It is safe because `deploy-staging` is independently gated on
+> `push` + `refs/heads/main` (plus `vars.STAGING_ENABLED`), so a non-`main` PR runs
+> `lint-and-types` / `unit-tests` / `build-web` / `e2e-and-integration` and **deploys nothing**.
+> The `paths-ignore` (docs-only) and `paths` (auth/JWKS input set) filters are unchanged and
+> remain the real cost control.
 
 **Job: `lint-and-types`** (~2 min)
 1. Checkout
@@ -168,27 +210,49 @@ Runs in parallel where possible to minimize wall time. Goal: under 10 minutes to
 - All checks green: PR is mergeable
 - Any check failed: merge blocked, PR comment shows failure details
 
-### 3.2 On merge to `main`
-
-> **Not currently wired — see §2 callout.** Merges to `main` re-run CI (lint, typecheck, unit tests, build) only; no environment is deployed.
+### 3.2 On merge to `main` (and to the long-lived integration branches)
 
 Re-runs all PR checks against the merged code (in case of merge conflicts), then deploys to staging.
 
-**Job: `deploy-staging`**
-1. All PR checks repeat (lint, types, tests, build)
-2. Run pending Supabase migrations against staging
-3. `wrangler deploy --env staging`
-4. Run smoke test suite against staging (Playwright subset, ~2 min)
-5. Update Algolia staging index settings (AECI-137; as of AECI-175 this also links +
+> **This IS wired.** An older callout here said "Merges to `main` re-run CI only; no environment
+> is deployed" — that was true only while `deploy-staging` was gated off. The repo variable
+> `STAGING_ENABLED` has been `true` since 2026-05-28 (verified 2026-08-14 via `gh variable
+> list`), so every merge to `main` deploys staging.
+
+> **Which branches get a post-merge run.** Unlike the PR lane (§3.1, base-branch-agnostic), the
+> `push` trigger *does* keep an explicit branch list — `[main, stage-2, admin-panel]`: the
+> production line plus the long-lived integration branches of §10. A post-merge run only earns
+> its cost on branches that accumulate merges, where it catches what PR-time gating structurally
+> cannot — a squash-merge whose result differs from every PR head (a semantic conflict between
+> two PRs that landed in sequence). Feature and epic branches are already covered by their own PR
+> run, so listing them here would only double-bill. **Maintenance:** add a branch to
+> `deploy.yml`'s `push.branches` when a new long-lived integration branch is opened, and remove
+> it once that branch merges up and is retired. Only the `main` entry deploys anything —
+> `deploy-staging` is separately gated on `github.ref == 'refs/heads/main'`, so a push to
+> `stage-2` / `admin-panel` runs the test jobs and stops.
+
+**Job: `deploy-staging`** — the actual step order in `deploy.yml`, verified 2026-08-14:
+1. All PR checks repeat (lint, types, tests, build) — via `needs:`
+2. `scripts/require-secrets.sh` preflight — refuse to deploy a half-provisioned staging
+3. Provision the staging queues (`aeci-algolia-sync-staging`, `aeci-algolia-drift-staging`, and the WC-5 `aeci-cache-purge-staging` purge queue); idempotent
+4. Apply **Cloudflare D1** migrations — `scripts/d1-apply-migrations.sh aeci-app-staging staging`. *(Not Supabase: the app DB is D1 per ADR 0016 and the `supabase db push` path was decommissioned in AECI-278 — see §5.)*
+5. `wrangler deploy --env staging` for the API Worker, then push its runtime secrets (`REVIEW_APP_TOKEN`, Algolia, `ANTHROPIC_API_KEY`, `RESEND_API_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `CF_ANALYTICS_API_TOKEN` — the optional ones warn-and-skip)
+6. `wrangler deploy --env staging` for the SSR Worker, then push its public config (`SUPABASE_ANON_KEY`, Algolia public config, PostHog key, Datadog RUM credentials)
+7. `scripts/verify-worker-secrets.sh` — assert the staging API Worker has the required set
+8. Smoke test: poll until **both** Workers report the deployed SHA and `/api/health` is `db:ok` (`scripts/verify-version.sh` + `verify-health.sh`, §9.2). This is a version/health poll, **not** a Playwright suite
+9. Update Algolia staging index settings (AECI-137; as of AECI-175 this also links +
    configures each primary's sort **replicas** — needs the management key scoped to the
    replicas, see §7.4/§7.5), then run the **report-only**
-   Algolia ↔ Supabase index-drift check (AECI-140, `scripts/reconcile-algolia-drift.ts`,
+   Algolia ↔ D1 index-drift check (AECI-140, `scripts/reconcile-algolia-drift.ts`,
    `continue-on-error`) — surfaces drift via the `aeci.algolia.index_drift` gauge without
    blocking the deploy. The scheduled (daily 09:00 UTC = 04:00 EST) drift check runs as the API Worker
    cron (`apps/api/src/scheduled.ts`, §23.1); this step is the immediate post-deploy check.
-6. Send deployment marker to Datadog
-7. Notify Slack: "Staging updated, awaiting production approval"
-8. Open GitHub Environment approval request
+
+> **Three steps this section used to list do not exist.** There is **no Datadog deployment
+> marker** on `deploy-staging` — markers are posted only by `promote-to-prod.yml` and
+> `promote-to-demo.yml` (§9.1). There is **no Slack notification** anywhere in the repo (§3.3).
+> And there is **no "open GitHub Environment approval request" step** — promotion is a separate
+> manual `workflow_dispatch` (§3.3), not something staging queues up.
 
 ### 3.3 On manual production approval
 
@@ -213,16 +277,20 @@ Triggered by Chris (workflow_dispatch with `commit_sha` + `confirm=PROMOTE` inpu
 
 The **demo** tier is deployed by the light sibling [`promote-to-demo.yml`](../.github/workflows/promote-to-demo.yml): validate `confirm` → assert **staging** is at the SHA → (GH Environment `demo`) provision `aeci-*-demo` queues (the scheduled-job set + the WC-5 `aeci-cache-purge-demo` queue) → apply `aeci-app-demo` D1 migrations (`scripts/d1-apply-migrations.sh`, which retries a transient D1 `[code: 7500]` internal error) → deploy `aeci-{api,web}-demo` → push demo Worker secrets → smoke `demo.aecintegrations.com` → auto-rollback on smoke failure. The `demo` GH Environment has no required reviewer by default (add one to gate it). It touches no Postgres (demo shares the prod Supabase project, which production owns).
 
-Algolia index updates, release-tag automation, and Slack notifications are out of scope until later epics.
+Algolia index updates **are** wired (step 9 of `deploy-staging` above, and the equivalent in both promote workflows). **Slack was dropped from the project entirely**, not deferred — there is no Slack integration anywhere in `.github/workflows/` or `scripts/` (the only mention is a comment in `promote-to-prod.yml:890` recording that an alert-grade Datadog *event* replaced it on rollback). Release-tag automation remains unbuilt — see §3.4.
 
-### 3.4 On release tag (e.g. `v1.0.0`)
+### 3.4 On release tag (e.g. `v1.0.0`) — **NOT IMPLEMENTED**
 
-Triggered when a release tag is pushed.
+> **Aspirational, not wired.** There is no release/tag workflow in `.github/workflows/`
+> (verified 2026-08-14), so pushing a `vX.Y.Z` tag today triggers nothing. Release tags are cut
+> by hand from `main` after a validated prod promote and serve as break-glass branch points
+> (§10). The list below is the design if this is ever built; the Slack line is void regardless,
+> per §3.3.
 
-- Same as production approval, but also:
-  - Generates changelog from commit messages since previous tag
-  - Creates a GitHub Release with the changelog
-  - Posts release notes to Slack and any internal communication channels
+- Would be the same as production approval, but also:
+  - Generate a changelog from commit messages since the previous tag
+  - Create a GitHub Release with the changelog
+  - ~~Post release notes to Slack~~ (no Slack in this project)
 
 ---
 
@@ -260,9 +328,14 @@ Wrangler is the only deployment tool. Single source of truth for Worker configur
       "routes": [{ "pattern": "demo.aecintegrations.com", "custom_domain": true }]
     },
     "production": {
-      "vars": { "ENV": "production" },
-      // prod.aecintegrations.com (pre-apex-cutover); apex + www stay on the landing Worker
-      "routes": [{ "pattern": "prod.aecintegrations.com", "custom_domain": true }]
+      "vars": { "ENV": "production", "ALLOW_INDEXING": "true" },
+      // Post-apex-cutover (AECI-247/277): the app IS the public site. The bare
+      // apex 301s to www. inside the SSR Worker; `prod.` is the internal host.
+      "routes": [
+        { "pattern": "aecintegrations.com", "custom_domain": true },
+        { "pattern": "www.aecintegrations.com", "custom_domain": true },
+        { "pattern": "prod.aecintegrations.com", "custom_domain": true }
+      ]
     }
   }
 }
@@ -489,13 +562,42 @@ Two checks run **advisory / non-blocking** rather than as merge gates: coverage 
 
 The "human reviewer" requirement is enforced by GitHub branch protection on `main`.
 
+> **Branch protection, per branch (verified 2026-08-14).**
+>
+> | Branch | Protected | Required contexts |
+> |---|---|---|
+> | `main` | Yes | `Lint & typecheck`, `Unit tests`, `Build SSR Worker` |
+> | `stage-2` | **Yes — added 2026-08-14**, an exact mirror of `main` | same three |
+> | `admin-panel` | **No** (404 "Branch not protected") | — |
+>
+> Both protected branches also set `strict: true` (PR must be up to date with the base before
+> merging), `required_linear_history`, `required_conversation_resolution`, and no
+> force-push/deletion. Neither sets `required_pull_request_reviews`, so the "human reviewer"
+> line above is aspirational, not enforced. Both leave **`enforce_admins: false`** — an admin can
+> still merge past red or missing checks.
+>
+> **Known quirk — a `paths-ignore`-skipped run reports nothing, and "nothing" is not "green."**
+> A docs-only PR skips `deploy.yml` entirely (§3.1), so the three required contexts never arrive
+> and GitHub blocks the merge pending checks that will never run. This already happens on `main`
+> — PR #518 (docs-only, 2026-08-13) merged with an empty check list purely on the
+> `enforce_admins: false` admin bypass — and now applies to `stage-2` identically. Live with the
+> bypass, or fix it properly by moving the path filtering from the workflow-level `paths-ignore`
+> into job-level conditions so the jobs always report (a no-op green on docs-only PRs). Not done
+> here; it is a separate change.
+
 ---
 
 ## 9. Monitoring deployments
 
 ### 9.1 Datadog deployment markers
 
-Every deployment to staging or production sends a marker to Datadog. Markers appear on dashboards as vertical lines, making it easy to correlate any new errors or performance regressions with a specific deploy.
+Markers appear on Datadog dashboards as vertical lines, making it easy to correlate any new errors or performance regressions with a specific deploy.
+
+> **Only the promote workflows post one.** Verified 2026-08-14: `promote-to-prod.yml` and
+> `promote-to-demo.yml` each have a `Datadog deployment marker` step; **`deploy.yml`'s
+> `deploy-staging` does not** — it pushes `DATADOG_API_KEY` to the Worker but never posts an
+> event. So staging deploys are unmarked. Adding the step to `deploy-staging` would be a small
+> change if staging markers turn out to be wanted; the snippet below is what it would use.
 
 ```yaml
 - name: Mark deployment in Datadog
@@ -555,8 +657,26 @@ If the smoke check fails, the deployment is marked failed and:
 - **Migration-journal reconciliation.** Stage 2 migrations accumulate on `stage-2` while hotfix
   migrations may land on `main`. Before merging `stage-2 → main`, re-run
   `pnpm --filter @aeci/api db:generate` and reconcile against any `main` migrations so the
-  Drizzle journal (`apps/api/migrations/meta/_journal.json`) stays linear. `drift-check.yml` is
-  base-branch-agnostic, so Stage 2 PRs into `stage-2` still get the PR-time schema-drift gate.
+  Drizzle journal (`apps/api/migrations/meta/_journal.json`) stays linear.
+- **CI on the integration branches.** Every PR gets the full gate no matter which branch it
+  targets — `deploy.yml`, `integration-db-tests.yml`, `drift-check.yml` and `pr-preview.yml` are
+  all base-branch-agnostic (§3.1). `main`, `stage-2` and `admin-panel` additionally get a
+  post-merge `push` run (§3.2); only `main` deploys. `main` and `stage-2` are branch-protected on
+  the same three required contexts (§8); `admin-panel` is not. **Opening a new long-lived
+  integration branch is a two-line change:** add it to `deploy.yml`'s `push.branches`, and remove
+  it when the branch merges up. Nothing needs touching for a short-lived feature or epic branch.
+  *(Historical note: until 2026-08-14 `deploy.yml` and `integration-db-tests.yml` pinned
+  `pull_request: branches: [main]`. Because that filter matches the **base** branch, it exempted
+  every PR into `stage-2` / `admin-panel` / an epic branch from lint, typecheck, unit tests,
+  build and E2E — the gap that let PR #521, the ~13k-line AECI-513 epic, merge into `stage-2` on
+  preview-deploy signal alone.)*
+- **A workflow fix only helps the branches that actually contain it.** For `pull_request` events
+  GitHub evaluates the workflow from the PR's **merge ref** (head merged into base), so the fix
+  above protects `stage-2` as soon as it lands there. But `push`-triggered runs use the *pushed
+  branch's own* copy — and `admin-panel` is **not** descended from current `main`. The 2026-08-14
+  fix landed on `stage-2` only, so **`admin-panel` PRs still run no tests**, and the
+  `admin-panel` entry in `deploy.yml`'s `push.branches` stays inert, until the fix is merged into
+  that branch. Do that when `admin-panel` next absorbs `main`/`stage-2`.
 - Release tags (`v1.0.0`, `v1.1.0`) cut from `main` after a production deploy is validated —
   they double as break-glass branch points.
 
@@ -599,12 +719,19 @@ build ──────────┘
 
 For very small PRs (e.g. doc-only changes), skip downstream jobs via `paths-ignore` in workflow triggers.
 
+> **Caveat now that `main` and `stage-2` have required checks:** a workflow skipped by
+> `paths-ignore` reports *nothing*, and GitHub treats a missing required context as pending, not
+> passing — so a docs-only PR blocks on checks that will never run and needs the
+> `enforce_admins: false` bypass to merge. See the §8 quirk note. The clean fix is job-level path
+> conditions (jobs always run and report a no-op green) rather than a workflow-level
+> `paths-ignore`.
+
 ---
 
 ## 12. Observability for CI itself
 
 - GitHub Actions usage tracked monthly to stay under free-tier minutes
-- Failed builds notify Slack
+- ~~Failed builds notify Slack~~ — **no Slack in this project** (§3.3). A failed build's signal is the red run + GitHub's own email/UI notification; there is no chat integration
 - Long-running jobs (>15 min) flagged for investigation
 - Edge cache HIT-rate observed via `Cf-Cache-Status` on the Cloudflare Workers observability dashboard — the Datadog `cache hit rate < 70%` monitor was retired in WC-8 (a HIT skips the SSR Worker, so it's unmeasurable from render metrics). See `docs/CACHE_STRATEGY.md` §9.
 
