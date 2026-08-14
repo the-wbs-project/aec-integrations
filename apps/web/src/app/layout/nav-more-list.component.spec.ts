@@ -9,7 +9,7 @@ import { NavMoreList } from './nav-more-list';
 const GROUPS: readonly MoreMenuGroup[] = [
   {
     id: 'lead',
-    heading: null,
+    heading: 'General',
     items: [{ path: '/updates', label: 'Updates' }],
   },
   {
@@ -52,19 +52,27 @@ describe('NavMoreList', () => {
     return fixture;
   }
 
-  it('names a labelled group via aria-labelledby and leaves an unlabelled one bare', () => {
+  it('names every group via aria-labelledby, with a <p> label', () => {
     const root = render().nativeElement as HTMLElement;
     const lists = root.querySelectorAll('ul');
     expect(lists.length).toBe(2);
-    // The lead group has no heading, so nothing to point at.
-    expect(lists[0]!.getAttribute('aria-labelledby')).toBeNull();
-    expect(root.querySelector('#lead')).toBeNull();
-    // The labelled group's <p> names its list. A <p>, not a heading — the page
-    // owns its heading outline (same reasoning as the admin shell).
-    expect(lists[1]!.getAttribute('aria-labelledby')).toBe('ops');
-    const label = root.querySelector('#ops')!;
-    expect(label.tagName).toBe('P');
-    expect(label.textContent?.trim()).toBe('Operations');
+    // Every group is labelled — an unlabelled one reads as orphan items floating
+    // above the first overline. Each label is a <p>, not a heading: the page owns
+    // its heading outline (same reasoning as the admin shell).
+    GROUPS.forEach((group, index) => {
+      expect(lists[index]!.getAttribute('aria-labelledby')).toBe(group.id);
+      const label = root.querySelector(`#${group.id}`)!;
+      expect(label.tagName).toBe('P');
+      expect(label.textContent?.trim()).toBe(group.heading);
+    });
+  });
+
+  it('pins the item weight so the nav row cannot leak font-medium in', () => {
+    // The desktop primary <nav> sets `font-medium` on the whole row, which an
+    // unpinned item inherits — collapsing it into the 600 overline above it and
+    // splitting desktop (500) from the mobile overlay (400).
+    const root = render().nativeElement as HTMLElement;
+    expect(root.querySelector('a[href="/updates"]')!.className).toContain('font-normal');
   });
 
   it('renders one link per item with its label', () => {

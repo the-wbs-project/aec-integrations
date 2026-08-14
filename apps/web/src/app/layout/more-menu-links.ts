@@ -16,8 +16,9 @@
  * with an identical source is one translation unit, not a collision.
  *
  * The shapes are structurally identical to `AdminNavItem` / `AdminNavGroup` so
- * `nav-more-list.ts` renders both with one template; `heading: null` marks the
- * lead group, which renders as a bare list with no overline.
+ * `nav-more-list.ts` renders both with one template. Every group is labelled —
+ * the lead four (General) as much as Legal — because an unlabelled group reads
+ * as orphan items floating above the first overline.
  */
 
 export interface MoreMenuItem {
@@ -28,11 +29,9 @@ export interface MoreMenuItem {
 }
 
 export interface MoreMenuGroup {
-  /** Wires the group label to its `<ul>` via `aria-labelledby`. Always set, so
-   *  an unlabelled group can still be addressed for testing. */
+  /** Wires the group label to its `<ul>` via `aria-labelledby`. */
   id: string;
-  /** `null` renders the list with no visible heading (the lead group). */
-  heading: string | null;
+  heading: string;
   items: readonly MoreMenuItem[];
 }
 
@@ -40,8 +39,8 @@ export interface MoreMenuGroup {
 export function moreSiteGroups(): readonly MoreMenuGroup[] {
   return [
     {
-      id: 'nav-more-site',
-      heading: null,
+      id: 'nav-more-general',
+      heading: $localize`:@@app.nav.more.general:General`,
       items: [
         { path: '/updates', label: $localize`:@@app.nav.updates:Updates` },
         { path: '/roadmap', label: $localize`:@@app.nav.roadmap:Roadmap` },
