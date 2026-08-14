@@ -735,16 +735,16 @@ Multi-step process tracking with approval gates.
 
 ```sql
 create table workflow_instances (
-  id uuid primary key default gen_random_uuid(),
-  workflow_type text not null check (workflow_type in ('vendor_claim', 'review_moderation', 'correction_request')),
-  entity_id uuid not null, -- foreign key varies by workflow_type; not enforced at DB level
+  id text primary key not null, -- application-generated UUID (crypto.randomUUID())
+  workflow_type text not null check (workflow_type in ('vendor_claim', 'review_moderation', 'correction_request', 'reviewer_ban')),
+  entity_id text not null, -- foreign key varies by workflow_type; not enforced at DB level
 
   current_state text not null,
   linear_issue_id text,
 
-  initiated_by uuid references profiles(id),
-  initiated_at timestamptz not null default now(),
-  completed_at timestamptz,
+  initiated_by text references profiles(id),
+  initiated_at text not null, -- ISO-8601 UTC
+  completed_at text,
   final_outcome text check (final_outcome in ('approved', 'rejected', 'cancelled', 'completed'))
 );
 
@@ -759,16 +759,16 @@ State changes for workflow instances. Append-only.
 
 ```sql
 create table workflow_transitions (
-  id uuid primary key default gen_random_uuid(),
-  workflow_id uuid not null references workflow_instances(id) on delete cascade,
+  id text primary key not null,
+  workflow_id text not null references workflow_instances(id) on delete cascade,
 
   from_state text,
   to_state text not null,
-  actor_id uuid references profiles(id),
+  actor_id text references profiles(id),
   reason text,
-  metadata jsonb,
+  metadata text, -- JSON (Drizzle `{ mode: 'json' }`)
 
-  created_at timestamptz not null default now()
+  created_at text not null -- ISO-8601 UTC
 );
 
 create index workflow_transitions_workflow_idx on workflow_transitions(workflow_id, created_at);
@@ -780,27 +780,36 @@ Every state-changing event in the platform. Append-only.
 
 ```sql
 create table audit_log (
-  id uuid primary key default gen_random_uuid(),
+  id text primary key not null, -- application-generated UUID (crypto.randomUUID())
 
-  actor_id uuid references profiles(id),
+  actor_id text references profiles(id),
   actor_type text not null check (actor_type in ('user', 'admin', 'system', 'workflow')),
 
-  action text not null, -- e.g. 'review.approved', 'product.updated'; Stage 1.5 promote ingest (AECI-297) adds 'data_object.created', 'claim.*', 'attestation.*'
-  entity_type text, -- unconstrained (no CHECK): 'review' | 'product' | 'vendor' | 'integration' | 'data_object' | 'claim' | 'attestation' | 'correction'
-  entity_id uuid,
+  action text not null, -- e.g. 'review.approved', 'product.updated'; Stage 1.5 promote ingest (AECI-297) adds 'data_object.created', 'claim.*', 'attestation.*'; the retention prune (§7.4) adds 'retention.pruned'
+  entity_type text, -- unconstrained (no CHECK): 'review' | 'product' | 'vendor' | 'integration' | 'data_object' | 'claim' | 'attestation' | 'correction' | 'retention'
+  entity_id text,
 
-  before_state jsonb,
-  after_state jsonb,
-  metadata jsonb, -- workflow context: linear_issue_id, ip_address, user_agent, cf_country
+  before_state text, -- JSON (Drizzle `{ mode: 'json' }`)
+  after_state text, -- JSON
+  metadata text, -- JSON workflow context: linear_issue_id, ip_address, user_agent, cf_country
 
-  created_at timestamptz not null default now()
+  created_at text not null -- ISO-8601 UTC
 );
 
-create index audit_log_entity_idx on audit_log(entity_type, entity_id, created_at desc);
-create index audit_log_actor_idx on audit_log(actor_id, created_at desc) where actor_id is not null;
-create index audit_log_action_idx on audit_log(action, created_at desc);
-create index audit_log_created_at_idx on audit_log(created_at desc);
+create index audit_log_entity_idx on audit_log(entity_type, entity_id, created_at);
+create index audit_log_actor_idx on audit_log(actor_id, created_at) where actor_id is not null;
+create index audit_log_action_idx on audit_log(action, created_at);
+create index audit_log_created_at_idx on audit_log(created_at);
 ```
+
+> **Notation.** These three tables are **D1/SQLite**: ids are application-generated UUID `text`,
+> timestamps are ISO-8601 `text`, and JSON columns are `text` read through Drizzle's
+> `{ mode: 'json' }` — there is no `uuid`, `jsonb`, `timestamptz` or `gen_random_uuid()` in this
+> database, and SQLite indexes carry no `desc` in these definitions. Converted 2026-08-14 (AECI-587)
+> because `STAGE_1_SPEC.md` §26 duplicates them and the two had diverged. **Other sections of this
+> document still carry the Postgres-baseline notation** — a pre-existing residue of the ADR 0016
+> migration, tracked separately; `apps/api/src/db/schema.ts` and `apps/api/migrations/` remain the
+> executable truth for every table.
 
 ---
 

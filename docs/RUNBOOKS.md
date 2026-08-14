@@ -669,7 +669,7 @@ signals remain the per-cron `… not running` / `… failed` monitors listed in
 - Each cron's existing liveness heartbeat (see the table in `OBSERVABILITY.md`).
 
 **What it means:** Every cron writes a `job_runs` row on entry and completes it on exit
-(`DATABASE_SCHEMA.md` §9.3). `/admin/system` renders the newest row per job. Three states are worth
+(`DATABASE_SCHEMA.md` §9.4). `/admin/system` renders the newest row per job. Three states are worth
 telling apart, and the screen distinguishes them on purpose:
 
 | On screen | Means |
@@ -701,6 +701,80 @@ issue — escalate to whoever owns the API Worker's crons, exactly as for the in
 above. A failing *recorder* (`aeci.job_runs.write{outcome:failed}`) degrades the panel only: the
 bookkeeping is failure-isolated by design, so the jobs keep running and Datadog keeps alerting. Treat
 it as a defect to file, not an incident to page on.
+
+## Metrics snapshot missing or incomplete
+
+**Alerts:** **none yet — this cron has no dedicated monitor.** That is a known gap
+(`PHASE_8_COMPLETION.md` §F5), and the worst one to have: the job is **queue-less**, so a failed run
+is never retried, and a missed day's *stock* metrics are **unrecoverable**. Today you find out from
+`/admin/system` (the `metrics-snapshot` row), from a hole in an admin chart, or — worst case —
+from the 03:00 retention prune skipping because of the gap. Until the monitor exists, the
+`aeci.metrics_snapshot.run` count is the liveness signal to build a no-data check on.
+
+**Metrics:**
+- `aeci.metrics_snapshot.run{outcome:ok|partial|failed}` — one per completed run; the always-emitted
+  series is the liveness signal. Note `partial` exists **here but not in `job_runs`**, which records
+  a partial run as `failed` (§7.2) — the metric is the finer-grained view.
+- `aeci.metrics_snapshot.metric{metric,outcome:written|failed}` — per-key, 19 keys per run. This is
+  what tells you *which* series is broken.
+- `aeci.metrics_snapshot.run.duration_ms` — run duration.
+- `aeci.metrics_snapshot.crashed` / `.enqueue_failed` — the handler threw, or dispatch failed.
+
+**What it means:** The daily **00:15 UTC** §7.1 snapshot (AECI-581 / Phase 8.3 P2.1,
+`apps/api/src/lib/metrics-snapshot.ts`) writes one `metrics_daily` row per `(day, metric)` for all
+19 `ADMIN_SNAPSHOT_METRIC_KEYS`, capturing the prior **complete** UTC day. It is the only writer.
+
+Three properties shape every response here:
+
+| Property | Consequence |
+|---|---|
+| **Flows are recoverable, stocks are not** | Flow metrics (page views, `*.created` events, new profiles) can be reconstructed from `page_views` + `audit_log`. **Stocks** (catalog totals, queue depths, subscriber counts) are an instantaneous sample — a day not sampled is **gone permanently**. §4: 827 `integration.created` events back 496 live rows, so a cumulative sum would be wrong, not approximate |
+| **Per-key isolation** | Each metric computes and writes in its own try/catch, outside any batch (mirroring `lib/home-stats.ts`). `runMetricsSnapshot` **never throws**. One failing producer is recorded; the other 18 still land. So `partial` is the expected shape of a problem, not `failed` |
+| **Zero-fill is load-bearing** | §7.4 forbids pruning a day the snapshot never captured, so a gap here **aborts the whole 03:00 retention run** — `job_runs` half included. A snapshot problem surfaces as a retention alert |
+
+Writes are idempotent per `(day, metric)`, which is what makes a missed day fixable: a re-run
+corrects rather than duplicates. **No `audit_log` row** — derived bookkeeping, exempt under ADR 0022
+/ §13 D11; forcing these writes into a batch to carry one would destroy the isolation above.
+
+**First checks**
+
+1. **`/admin/system` first.** The `metrics-snapshot` row gives last run, outcome and duration. The
+   Unknown / Inferred / In-flight triage above applies unchanged.
+2. **Which days are actually missing?** This is the same query the prune runs before it deletes:
+   ```bash
+   wrangler d1 execute aeci-app-production --env production --remote --command \
+     "select distinct substr(created_at,1,10) as day from page_views
+      where substr(created_at,1,10) not in (select day from metrics_daily)
+      order by day desc limit 30"
+   ```
+3. **`partial`, not `failed`?** Read `aeci.metrics_snapshot.metric{outcome:failed}` to find the
+   offending key. One broken producer does not need a full re-run — re-running is idempotent, so
+   just re-run the day.
+4. **Nothing at all since a deploy?** Check the cron is still scheduled: `"15 0 * * *"` must be in
+   `apps/api/wrangler.jsonc`'s `triggers.crons` for the tier (it is in `staging`, `demo` and
+   `production`; `preview` deliberately has none, so PR previews run no crons). Confirm against the
+   Worker's scheduled invocations and `wrangler tail`.
+
+**Repair:** re-run the affected range through the backfill. It is dry-run by default and refuses
+production without `--allow-production`:
+
+```bash
+pnpm --filter @aeci/api ops:backfill-metrics-daily -- --env production \
+  --from <first-missing-day> --to <last-missing-day> --apply --allow-production
+```
+
+Two things to know before you run it:
+
+- **It only restores flows.** Stocks for the missing days stay absent, permanently and by design —
+  the script does not pretend otherwise. Charts of stock series will keep their hole.
+- **It refuses a range containing unclassified page views** (`is_bot IS NULL`) unless `--force`.
+  Do not reach for `--force`: those rows read as human, and `metrics_daily` is the long memory, so
+  forcing would freeze the wrong human/bot split in permanently (the exact defect AECI-582 fixed).
+  Run the classifier on that tier first.
+
+Precedence protects you: a `measured` write always wins, and a `reconstructed` write applies only
+over an absent or already-`reconstructed` row — so a backfill can never overwrite what the cron
+genuinely measured.
 
 ## Retention prune skipped, failed, or not running
 
@@ -734,9 +808,10 @@ deleting anything, and refuses the whole run — the `job_runs` half included �
 
 1. **Skipped?** Read the `source:retention-prune-cron` log `aeci.retention.skipped` — it carries
    `window_from`, `window_to`, `missing_count`, and the first ten `missing_days`. The fault is in the
-   **snapshot** pipeline, not here: check the `metrics-snapshot` row on `/admin/system` and the
-   `AECi — metrics snapshot` signals. Backfill the gap, then the prune resumes on its own the next
-   night:
+   **snapshot** pipeline, not here — work "Metrics snapshot missing or incomplete" above (note it
+   has no monitor of its own yet, so `/admin/system`'s `metrics-snapshot` row and
+   `aeci.metrics_snapshot.*` are the signals). Backfill the gap, then the prune resumes on its own
+   the next night:
    ```bash
    pnpm --filter @aeci/api ops:backfill-metrics-daily -- --env production \
      --from <first-missing-day> --to <last-missing-day> --apply --allow-production

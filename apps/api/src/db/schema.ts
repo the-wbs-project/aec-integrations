@@ -1032,8 +1032,8 @@ export const jobRuns = sqliteTable(
   (t) => [
     // §7.2's `INDEX (job, started_at)`. Serves the read side's "newest run per
     // job" as an equality seek + descending scan of one job's slice
-    // (`SEARCH … USING INDEX (job=?)` + LIMIT 1, eight rows read regardless of
-    // table size) and the §7.4 prune's cutoff scan.
+    // (`SEARCH … USING INDEX (job=?)` + LIMIT 1, ten rows read regardless of
+    // table size — one per cron) and the §7.4 prune's cutoff scan.
     index('job_runs_job_started_at_idx').on(t.job, t.startedAt),
     check('job_runs_outcome_check', sql`"outcome" IN ('ok', 'failed', 'skipped')`),
   ],

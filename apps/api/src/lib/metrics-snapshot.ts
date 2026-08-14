@@ -274,8 +274,14 @@ function jobOutcome(result: MetricsSnapshotResult): 'ok' | 'partial' | 'failed' 
 
 /**
  * Emit the metrics for one completed snapshot run. The always-emitted
- * `aeci.metrics_snapshot.run` count doubles as the cron-liveness signal until
- * AECI-583's `job_runs` row lands.
+ * `aeci.metrics_snapshot.run` count is the cron-liveness signal — and stays so
+ * after AECI-583's `job_runs` row: a run that never starts writes no row either,
+ * so only a Datadog no-data check can catch absence. This job has no such monitor
+ * yet (`PHASE_8_COMPLETION.md` §F5) and is the one where absence is permanently
+ * lossy, since stock metrics for a missed day cannot be reconstructed.
+ *
+ * Note `partial` exists on this tag but not in `job_runs`, which records a
+ * partial run as `failed` (§7.2).
  */
 export function emitMetricsSnapshotMetrics(
   sink: SnapshotMetricSink,
