@@ -34,7 +34,21 @@ import { coerceDirection, pickPrimaryVendor, toMechanismKind } from './drizzle-h
 // Leaf column sets
 // ---------------------------------------------------------------------------
 
-const vendorLinkColumns = { id: true, companyName: true, slug: true, logoUrl: true } as const;
+// Mirrors `drizzle-helpers`'s `vendorLinkColumns` so the imported `pickPrimaryVendor`
+// can build a full `VendorLink`. `verified` is selected only to satisfy that shared
+// contract — it is intentionally NOT mapped into the Algolia *product* record here.
+// The vendor `verified` bit lives on the Algolia *vendor* record instead, emitted by
+// `toAlgoliaVendor` (AECI-529): a vendor's verified flip bumps `vendors.updated_at`
+// (not `products.updated_at`), so the vendor index catches it on the next nightly
+// sync while product records would go stale — keeping the badge on the vendor record
+// is the freshness-clean choice.
+const vendorLinkColumns = {
+  id: true,
+  companyName: true,
+  slug: true,
+  logoUrl: true,
+  verified: true,
+} as const;
 const taxonomyNameColumns = { name: true } as const;
 
 // ---------------------------------------------------------------------------
@@ -89,6 +103,7 @@ export const algoliaVendorConfig = {
     headquarters: true,
     foundedYear: true,
     logoUrl: true,
+    verified: true, // AECI-529: denormalized onto the record for the search-card badge
     promotionStatus: true,
     updatedAt: true,
   },
@@ -139,7 +154,13 @@ export interface RawAlgoliaProductRow {
   updatedAt: string;
   productVendors: Array<{
     isPrimary: boolean;
-    vendor: { id: string; companyName: string; slug: string; logoUrl: string | null };
+    vendor: {
+      id: string;
+      companyName: string;
+      slug: string;
+      logoUrl: string | null;
+      verified: boolean;
+    };
   }>;
   productCategories: Array<{ category: { name: string } }>;
   productAudiences: Array<{ audience: { name: string } }>;
@@ -154,6 +175,7 @@ export interface RawAlgoliaVendorRow {
   headquarters: string | null;
   foundedYear: number | null;
   logoUrl: string | null;
+  verified: boolean;
   promotionStatus: string;
   updatedAt: string;
   productCount: number;
@@ -200,6 +222,7 @@ export function toAlgoliaVendor(row: RawAlgoliaVendorRow): AlgoliaVendorRecord {
     objectID: row.id,
     company_name: row.companyName,
     slug: row.slug,
+    verified: row.verified, // AECI-529: search-card verified badge
     description: row.description,
     headquarters: row.headquarters,
     founded_year: row.foundedYear,

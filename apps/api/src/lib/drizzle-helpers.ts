@@ -31,8 +31,10 @@ import {
 } from '@aeci/shared';
 import type {
   AccountReview,
+  AdminClaim,
   AdminReview,
   AdminVendorRequest,
+  AdminVendorSeat,
   ClaimDirection,
   IntegrationDetail,
   IntegrationListItem,
@@ -49,6 +51,7 @@ import type {
   ProductRole,
   ProductUsefulness,
   PublicReview,
+  RelatedRequestRef,
   ReviewStatus,
   TaxonomyTermWithCount,
   VendorDetail,
@@ -71,7 +74,13 @@ import {
 // Leaf column sets (reused by several parents)
 // ---------------------------------------------------------------------------
 
-const vendorLinkColumns = { id: true, companyName: true, slug: true, logoUrl: true } as const;
+const vendorLinkColumns = {
+  id: true,
+  companyName: true,
+  slug: true,
+  logoUrl: true,
+  verified: true,
+} as const;
 const productLinkColumns = { id: true, name: true, slug: true, logoUrl: true } as const;
 const taxonomyLinkColumns = { id: true, name: true, slug: true } as const;
 const taxonomyLinkWithOrderColumns = { ...taxonomyLinkColumns, displayOrder: true } as const;
@@ -387,6 +396,7 @@ interface RawVendorLink {
   companyName: string;
   slug: string;
   logoUrl: string | null;
+  verified: boolean;
 }
 interface RawProductLink {
   id: string;
@@ -614,7 +624,13 @@ function toProductLink(raw: RawProductLink): ProductLink {
   return { id: raw.id, name: raw.name, slug: raw.slug, logo_url: raw.logoUrl };
 }
 function toVendorLink(raw: RawVendorLink): VendorLink {
-  return { id: raw.id, name: raw.companyName, slug: raw.slug, logo_url: raw.logoUrl };
+  return {
+    id: raw.id,
+    name: raw.companyName,
+    slug: raw.slug,
+    logo_url: raw.logoUrl,
+    verified: raw.verified,
+  };
 }
 function synthesizeIntegrationName(
   rawName: string | null,
@@ -916,6 +932,9 @@ export const adminVendorRequestConfig = {
     sourceUrl: true,
     linearIssueId: true,
     linearIssueUrl: true,
+    // AECI-521: the Phase-6 duplicate chain, surfaced only by the claims LIST
+    // (`toAdminClaim`); harmless to the requests path, which never reads it.
+    duplicateOfRequestId: true,
     createdAt: true,
     resolvedAt: true,
     resolvedById: true,
@@ -936,6 +955,7 @@ export interface RawAdminVendorRequestRow {
   sourceUrl: string | null;
   linearIssueId: string | null;
   linearIssueUrl: string | null;
+  duplicateOfRequestId: string | null;
   createdAt: string;
   resolvedAt: string | null;
   resolvedById: string | null;
@@ -995,6 +1015,11 @@ export function toAdminVendorRequest(
   raw: RawAdminVendorRequestRow,
   isDuplicate: boolean,
   target: LinkRef | null = null,
+  /** AECI-527 reviewer signal, keyed by `submitter_email` VERBATIM (see
+   *  `fetchAuthAccountsByEmail`) so there is no normalization here. Defaulted to
+   *  empty so the single-row PATCH confirmation — which does not fan out to
+   *  GoTrue — reports `null` without needing to pass anything. */
+  authAccountByEmail: ReadonlyMap<string, boolean> = new Map(),
 ): AdminVendorRequest {
   return {
     id: raw.id,
@@ -1010,11 +1035,37 @@ export function toAdminVendorRequest(
     body: raw.body,
     source_url: raw.sourceUrl,
     is_duplicate: isDuplicate,
+    // Claim-only: a correction never links an account, so it must not inherit the
+    // signal from a claim row that happens to share a submitter email on the same
+    // page. Keep this gate in step with the fetch-side gate in `admin-requests.ts`.
+    has_auth_account:
+      raw.kind === 'claim' ? (authAccountByEmail.get(raw.submitterEmail) ?? null) : null,
     linear_issue_id: raw.linearIssueId,
     linear_issue_url: raw.linearIssueUrl,
     created_at: raw.createdAt,
     resolved_at: raw.resolvedAt,
     resolved_by: raw.resolvedById,
+  };
+}
+
+/** Map a raw `vendor_requests` claim row → `AdminClaim` (AECI-521): the shared
+ *  `AdminVendorRequest` (delegated to `toAdminVendorRequest`, so the two never
+ *  drift) plus the three claim-only reviewer signals. `existingSeats` /
+ *  `relatedRequests` are supplied by the LIST handler's fail-soft enrichment —
+ *  `null` = signal unavailable (degraded), `[]` = computed-and-empty. */
+export function toAdminClaim(
+  raw: RawAdminVendorRequestRow,
+  isDuplicate: boolean,
+  target: LinkRef | null,
+  authAccountByEmail: ReadonlyMap<string, boolean>,
+  existingSeats: AdminVendorSeat[] | null,
+  relatedRequests: RelatedRequestRef[] | null,
+): AdminClaim {
+  return {
+    ...toAdminVendorRequest(raw, isDuplicate, target, authAccountByEmail),
+    duplicate_of_request_id: raw.duplicateOfRequestId,
+    existing_seats: existingSeats,
+    related_requests: relatedRequests,
   };
 }
 

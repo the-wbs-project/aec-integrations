@@ -42,7 +42,7 @@ function appFor(handler: (c: never) => Promise<Response>, method: 'get' | 'patch
   const a = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
   a.onError(errorHandler());
   a.use('*', async (c, next) => {
-    c.set('auth', { userId: USER, email: 'me@example.com', role: 'reviewer' });
+    c.set('auth', { userId: USER, email: 'me@example.com', role: 'reviewer', vendorId: null });
     await next();
   });
   a.on(method.toUpperCase(), '/api/account', handler as never);

@@ -9,7 +9,9 @@ import { Hono } from 'hono';
 import { getDb } from './db/client';
 import type { Env } from './env';
 import { ApiError, errorHandler } from './errors';
-import { requireAdmin, requireAuth, type AuthzVariables } from './lib/authz';
+import { requireAdmin, requireAuth, requireVendor, type AuthzVariables } from './lib/authz';
+import { resolveClaimantIdentity } from './lib/claimant-identity';
+import { sendClaimDecisionEmail } from './lib/email';
 import { pushRequestResolutionToLinear } from './lib/linear';
 import { requireReviewAppAuth } from './lib/review-auth';
 import { requireUserAuth } from './lib/user-auth';
@@ -20,6 +22,7 @@ import {
   createUpdateAccountHandler,
 } from './routes/account';
 import { createGetAccountReviewsHandler } from './routes/account-reviews';
+import { createAdminClaimsListHandler, createModerateClaimHandler } from './routes/admin-claims';
 import {
   createAdminRequestsListHandler,
   createModerateRequestHandler,
@@ -53,6 +56,12 @@ import { createLinearWebhookHandler } from './routes/webhooks';
 import { createTaxonomyHandler } from './routes/taxonomy';
 import { createTaxonomyDetailHandler } from './routes/taxonomy-detail';
 import { createTaxonomyListHandler } from './routes/taxonomy-list';
+import {
+  createUpdateVendorProductHandler,
+  createUpdateVendorProfileHandler,
+  createVendorMeHandler,
+  createVendorSeatsHandler,
+} from './routes/vendor';
 import { createVendorDetailHandler, createVendorsListHandler } from './routes/vendors';
 import { createVersionHandler } from './routes/version';
 import { queue, scheduled } from './scheduled';
@@ -242,6 +251,14 @@ app.route('/', authAccount);
 //   - PATCH /api/admin/reviews/:id  (5.13) — approve/reject a review.
 //   - GET   /api/admin/requests     (6.9)  — paginated vendor-requests queue.
 //   - PATCH /api/admin/requests/:id (6.9)  — resolve/reject a vendor request.
+//   - GET   /api/admin/claims       (S2 §5, AECI-521) — the claim-review queue:
+//     pending vendor CLAIMS enriched with the §5 reviewer-assist signals (existing
+//     seats, prior requests) on top of the shared `domain_match` / `has_auth_account`.
+//     Read-only; the reviewer decides (no auto-grant).
+//   - PATCH /api/admin/claims/:id   (S2 §3, AECI-519) — approve (grant a verified
+//     vendor account) / reject a vendor CLAIM. Sibling of the requests PATCH: a
+//     claim grants a `vendor_admin` seat + flips `vendors.verified` in one batch,
+//     rather than a plain resolve. The `/admin/claims` LIST is AECI-521.
 //   - GET   /api/admin/reviewers    (6.11) — paginated currently-banned reviewers.
 //   - PATCH /api/admin/reviewers/:id(6.11) — ban/unban a reviewer.
 const authAdmin = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
@@ -258,9 +275,44 @@ authAdmin.patch(
   requireAdmin(),
   createModerateRequestHandler(getDb, pushRequestResolutionToLinear),
 );
+// Stage 2 / AECI-521: the claim-review LIST (reviewer-assist signals). Read-only,
+// clones the requests LIST; the reviewer decides on the assembled evidence.
+authAdmin.get('/api/admin/claims', requireAdmin(), createAdminClaimsListHandler());
+// Stage 2 / AECI-519: the claim → verified-account grant. `resolveClaimantIdentity`
+// reports `unavailable` (→503) wherever `SUPABASE_SERVICE_ROLE_KEY` is absent — local
+// dev and PR previews, since AECI-530 CI-pushes it on staging/demo/production.
+// AECI-528 injects the real claim-decision email sender (`sendClaimDecisionEmail`,
+// `lib/email.ts`) into the post-commit seam; it fail-opens to `'skipped'` without
+// `RESEND_API_KEY`/`EMAIL_FROM`.
+authAdmin.patch(
+  '/api/admin/claims/:id',
+  requireAdmin(),
+  createModerateClaimHandler(getDb, resolveClaimantIdentity, sendClaimDecisionEmail),
+);
 authAdmin.get('/api/admin/reviewers', requireAdmin(), createBannedReviewersListHandler());
 authAdmin.patch('/api/admin/reviewers/:id', requireAdmin(), createBanReviewerHandler());
 app.route('/', authAdmin);
+
+// Stage 2 vendor-portal sub-router (AECI-520, `STAGE_2_VENDOR_PORTAL_SPEC.md` §4).
+// Same shape as `authAdmin` but gated by `requireVendor()`: valid JWT, not banned,
+// `role === 'vendor_admin'`, non-null `vendor_id`. A site `admin` is rejected here
+// on purpose — there is no impersonation at launch, admins act via `/api/admin/*`.
+//
+// The guard only establishes WHICH vendor is calling; there is no RLS behind it,
+// so every handler additionally scopes its queries by `c.get('auth').vendorId` and
+// proves ownership of any client-supplied id before writing.
+//   - GET   /api/vendor/me           — dashboard payload (vendor + products +
+//     request status + seat count).
+//   - GET   /api/vendor/seats        — the vendor's seat roster (read-only).
+//   - PATCH /api/vendor/profile      — edit the caller's own vendor row.
+//   - PATCH /api/vendor/products/:id — edit an owned product (cross-vendor → 404).
+const authVendor = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
+authVendor.onError(errorHandler());
+authVendor.get('/api/vendor/me', requireVendor(), createVendorMeHandler());
+authVendor.get('/api/vendor/seats', requireVendor(), createVendorSeatsHandler());
+authVendor.patch('/api/vendor/profile', requireVendor(), createUpdateVendorProfileHandler());
+authVendor.patch('/api/vendor/products/:id', requireVendor(), createUpdateVendorProductHandler());
+app.route('/', authVendor);
 
 // Catch-alls throw so the root `onError` renders the canonical §3.3 envelope
 // (AECI-101) — an unmatched `/api/*` route parses with `ApiErrorSchema` too.

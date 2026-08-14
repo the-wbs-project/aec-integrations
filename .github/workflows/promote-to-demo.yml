@@ -62,6 +62,16 @@
 #                              Shared fail-open keys (reused on demo). RESEND_API_KEY
 #                              is a single shared (un-suffixed) key — one Resend
 #                              account/key spans every env (like SUPABASE_ANON_KEY).
+#   SUPABASE_SERVICE_ROLE_KEY  GoTrue Admin API key for the AUTH_AND_RLS.md §3.1
+#                              split-identity seams (AECI-530, reconciling CI with
+#                              ADR 0016 §6). Single shared un-suffixed key — one
+#                              Supabase auth project backs every env (ADR 0017).
+#                              Pushed to the demo API Worker below; **API Worker
+#                              only** (never the web Worker) and never on per-PR
+#                              previews. Fail-open — absent → reviewer emails read
+#                              null, the account-erasure auth.users delete is
+#                              silently skipped, and vendor-claim resolution
+#                              reports 'unavailable'.
 #   DATADOG_API_KEY            Deploy marker.
 #   DD_APPLICATION_ID / DD_CLIENT_TOKEN
 #                              Public Datadog RUM app id + client token (shared,
@@ -138,17 +148,30 @@ jobs:
           ALGOLIA_ADMIN_KEY: ${{ secrets.ALGOLIA_ADMIN_KEY }}
           ALGOLIA_SEARCH_KEY: ${{ secrets.ALGOLIA_SEARCH_KEY }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          # AECI-530: single shared (un-suffixed) GoTrue service-role key for the
+          # AUTH_AND_RLS.md §3.1 seams. Must be mapped here (not just named in
+          # RECOMMENDED_SECRETS) or require-secrets.sh reads it empty and
+          # false-warns "not set".
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           ANTHROPIC_API_KEY_PRODUCTION: ${{ secrets.ANTHROPIC_API_KEY_PRODUCTION }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           POSTHOG_KEY_PRODUCTION: ${{ secrets.POSTHOG_KEY_PRODUCTION }}
           DATADOG_API_KEY: ${{ secrets.DATADOG_API_KEY }}
+          # Public Datadog RUM app id + client token, pushed to the demo WEB Worker
+          # further down. Named in RECOMMENDED_SECRETS, so they need the same
+          # mapping or require-secrets.sh permanently false-warns "not set".
+          DD_APPLICATION_ID: ${{ secrets.DD_APPLICATION_ID }}
+          DD_CLIENT_TOKEN: ${{ secrets.DD_CLIENT_TOKEN }}
           CF_ANALYTICS_API_TOKEN: ${{ secrets.CF_ANALYTICS_API_TOKEN }}
           ENV_LABEL: demo
           REQUIRED_SECRETS: 'CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID'
           # AECI-262: CF_ANALYTICS_API_TOKEN (single shared, un-suffixed) backs the
           # hourly WAF firewall-event poll — recommended/fail-safe (absent → the poll
-          # no-ops outcome:skipped_no_creds).
-          RECOMMENDED_SECRETS: 'CF_ACCESS_CLIENT_ID CF_ACCESS_CLIENT_SECRET REVIEW_APP_TOKEN ALGOLIA_APP_ID ALGOLIA_ADMIN_KEY ALGOLIA_SEARCH_KEY SUPABASE_ANON_KEY ANTHROPIC_API_KEY_PRODUCTION RESEND_API_KEY POSTHOG_KEY_PRODUCTION DATADOG_API_KEY DD_APPLICATION_ID DD_CLIENT_TOKEN CF_ANALYTICS_API_TOKEN'
+          # no-ops outcome:skipped_no_creds). AECI-530: SUPABASE_SERVICE_ROLE_KEY
+          # (single shared, un-suffixed) backs the AUTH_AND_RLS.md §3.1 split-identity
+          # seams on the API Worker — recommended, never REQUIRED, because every seam
+          # degrades rather than failing closed.
+          RECOMMENDED_SECRETS: 'CF_ACCESS_CLIENT_ID CF_ACCESS_CLIENT_SECRET REVIEW_APP_TOKEN ALGOLIA_APP_ID ALGOLIA_ADMIN_KEY ALGOLIA_SEARCH_KEY SUPABASE_ANON_KEY SUPABASE_SERVICE_ROLE_KEY ANTHROPIC_API_KEY_PRODUCTION RESEND_API_KEY POSTHOG_KEY_PRODUCTION DATADOG_API_KEY DD_APPLICATION_ID DD_CLIENT_TOKEN CF_ANALYTICS_API_TOKEN'
         run: bash scripts/require-secrets.sh
 
       # Assert STAGING (the immediate upstream tier) is at the SHA on BOTH the API
@@ -336,6 +359,28 @@ jobs:
           fi
           printf '%s' "$RESEND_API_KEY_VALUE" \
             | pnpm exec wrangler secret put RESEND_API_KEY --env demo
+
+      # AECI-530: push the Supabase GoTrue service-role key (shared, fail-open) so the
+      # AUTH_AND_RLS.md §3.1 split-identity seams run on demo instead of degrading.
+      # Reconciles CI with ADR 0016 §6. SINGLE shared un-suffixed key — one auth
+      # project backs every env (ADR 0017). API WORKER ONLY (the web Worker verifies
+      # with public JWKS material; apps/web/src/supabase-bootstrap-inject.spec.ts is
+      # the standing guard), and deliberately never on per-PR previews — see
+      # pr-preview.yml. Optional + fail-open, so NOT in REQUIRED_WORKER_SECRETS.
+      - name: Push SUPABASE_SERVICE_ROLE_KEY to API Worker (demo)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          SUPABASE_SERVICE_ROLE_KEY_VALUE: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        working-directory: apps/api
+        run: |
+          set -euo pipefail
+          if [ -z "$SUPABASE_SERVICE_ROLE_KEY_VALUE" ]; then
+            echo "::warning::SUPABASE_SERVICE_ROLE_KEY not set — skipping. The AUTH_AND_RLS.md §3.1 seams stay inert on demo: reviewer emails read null, the account-erasure auth.users delete is silently SKIPPED (GDPR), and vendor-claim resolution reports 'unavailable' (claim approval 503s)."
+            exit 0
+          fi
+          printf '%s' "$SUPABASE_SERVICE_ROLE_KEY_VALUE" \
+            | pnpm exec wrangler secret put SUPABASE_SERVICE_ROLE_KEY --env demo
 
       # AECI-262: push the Cloudflare Analytics token to the demo API Worker so the
       # hourly WAF firewall-event poll (scheduled.ts runWafMetricsJob) can read the

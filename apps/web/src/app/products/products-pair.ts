@@ -15,6 +15,7 @@ import { NotFound } from '../not-found/not-found';
 import { mechanismKindLabel } from '../search/mechanism-labels';
 import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
 import { MailingListSignup } from '../shared/mailing-list-signup/mailing-list-signup';
+import { VerifiedBadge } from '../shared/verified-badge/verified-badge';
 
 import { AgreementBadge } from './agreement-badge';
 import { ClaimProvenance } from './claim-provenance';
@@ -199,6 +200,7 @@ function writePairViewCookie(mode: PairViewMode): void {
     MailingListSignup,
     NotFound,
     RouterLink,
+    VerifiedBadge,
   ],
   template: `
     @let v = view();
@@ -293,7 +295,10 @@ function writePairViewCookie(mode: PairViewMode): void {
               <aec-logo-or-initial [name]="context.name" [src]="context.logo_url" size="lg" />
               <span class="font-display text-lg text-(--text-primary)">{{ context.name }}</span>
               @if (context.vendor) {
-                <span class="text-xs text-(--text-tertiary)">{{ context.vendor.name }}</span>
+                <span class="inline-flex items-center gap-1.5 text-xs text-(--text-tertiary)">
+                  {{ context.vendor.name }}
+                  <aec-verified-badge [verified]="context.vendor.verified" variant="compact" />
+                </span>
               }
               @if (context.rating_overall_avg !== null) {
                 <span
@@ -317,7 +322,10 @@ function writePairViewCookie(mode: PairViewMode): void {
               <aec-logo-or-initial [name]="other.name" [src]="other.logo_url" size="lg" />
               <span class="font-display text-lg text-(--text-primary)">{{ other.name }}</span>
               @if (other.vendor) {
-                <span class="text-xs text-(--text-tertiary)">{{ other.vendor.name }}</span>
+                <span class="inline-flex items-center gap-1.5 text-xs text-(--text-tertiary)">
+                  {{ other.vendor.name }}
+                  <aec-verified-badge [verified]="other.vendor.verified" variant="compact" />
+                </span>
               }
               @if (other.rating_overall_avg !== null) {
                 <span

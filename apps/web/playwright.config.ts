@@ -13,6 +13,9 @@ function loadDevVarsAuthEnv(): void {
     'SUPABASE_ANON_KEY',
     'SUPABASE_TEST_USER_EMAIL',
     'SUPABASE_TEST_USER_PASSWORD',
+    // AECI-522 — the vendor persona for `vendor-dashboard.spec.ts`.
+    'SUPABASE_VENDOR_TEST_USER_EMAIL',
+    'SUPABASE_VENDOR_TEST_USER_PASSWORD',
   ]);
   let text: string;
   try {

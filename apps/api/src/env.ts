@@ -71,11 +71,27 @@ export type Env = {
    */
   DB?: D1Database;
   /**
-   * Supabase service-role key (auth project only), used by the split-identity
-   * seams (ADR 0016 §3 / AECI-254): `auth.users` email reads (seam #2) and GDPR
-   * erasure of the `auth.users` row (seam #3) via the Supabase Admin API. Set as
-   * a Wrangler secret per env. Optional + fail-safe: absent → email reads degrade
-   * to `null` and erasure logs a warning for manual cleanup.
+   * Supabase service-role key (auth project only), used by every split-identity
+   * seam via the Supabase Admin API — the register is `docs/AUTH_AND_RLS.md` §3.1
+   * (ADR 0016 §3 / AECI-254): `auth.users` email reads (seam #2), GDPR erasure of
+   * the `auth.users` row (seam #3), and vendor-claimant identity resolution —
+   * email→user lookup (#4a) + account provisioning (#4b), AECI-527.
+   *
+   * Read in exactly ONE module, `lib/supabase-admin.ts` (the single-module
+   * invariant, §3.1) — a project-wide auth key with no scoped alternative, so keep
+   * it to one door.
+   *
+   * Provisioning (AECI-530, per ADR 0016 §6): a SINGLE shared, un-suffixed GH
+   * secret — one Supabase auth project backs every env (ADR 0017) — that CI pushes
+   * to THIS Worker on staging (`deploy.yml`), demo, and production
+   * (`promote-to-{demo,prod}.yml`), each a graceful warn-and-skip step. Never on
+   * the web Worker, and deliberately never on per-PR previews (see the note in
+   * `pr-preview.yml`), so local dev and previews run keyless by design.
+   *
+   * Optional + fail-safe: absent → email reads degrade to `null`, claim resolution
+   * reports `unavailable`, and the erasure `auth.users` delete is SKIPPED (the D1
+   * erasure still commits, but the auth row survives; the skip is currently
+   * unlogged — see the §8 note in `AUTH_AND_RLS.md`, tracked as AECI-531).
    */
   SUPABASE_SERVICE_ROLE_KEY?: string;
   /**
@@ -260,9 +276,12 @@ export type Env = {
    * (`${SUPABASE_URL}/auth/v1/.well-known/jwks.json`) and the expected `iss`
    * claim for user-JWT verification in `lib/user-auth.ts` — no DB round-trip,
    * no Supabase client on this Worker. Absent → `requireUserAuth()` rejects
-   * every request 401 (fail-closed). The anon key and service-role key are
-   * deliberately NOT bound here: the API Worker verifies tokens with public
-   * JWKS material only (AUTH_AND_RLS.md §4).
+   * every request 401 (fail-closed). The **anon key** is deliberately not bound
+   * here: the API Worker verifies tokens with public JWKS material only
+   * (AUTH_AND_RLS.md §4). The **service-role key** IS bound, separately, as
+   * `SUPABASE_SERVICE_ROLE_KEY` — but only for the Admin-API split-identity seams
+   * (AUTH_AND_RLS.md §3.1), never for token verification. This value is also the
+   * Admin-API base URL those seams build on.
    */
   SUPABASE_URL?: string;
   /**

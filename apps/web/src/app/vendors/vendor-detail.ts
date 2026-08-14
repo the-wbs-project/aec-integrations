@@ -12,6 +12,7 @@ import { RequestDrawer } from '../requests/request-drawer';
 import { RequestTrigger } from '../requests/request-trigger';
 import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
 import { MailingListSignup } from '../shared/mailing-list-signup/mailing-list-signup';
+import { VerifiedBadge } from '../shared/verified-badge/verified-badge';
 
 import { VendorProductRow } from './vendor-product-row';
 
@@ -67,6 +68,7 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
     RequestTrigger,
     RouterLink,
     VendorProductRow,
+    VerifiedBadge,
   ],
   template: `
     @let v = vendor();
@@ -114,6 +116,7 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
               >
                 {{ v.company_name }}
               </h1>
+              <aec-verified-badge [verified]="v.verified" />
             </div>
           </div>
 

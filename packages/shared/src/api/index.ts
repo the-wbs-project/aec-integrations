@@ -1,5 +1,6 @@
 export * from './account';
 export * from './admin';
+export * from './admin-claims';
 export * from './admin-requests';
 export * from './admin-reviewers';
 export * from './common';
@@ -14,6 +15,7 @@ export * from './requests';
 export * from './reviews';
 export * from './stats';
 export * from './taxonomy';
+export * from './vendor';
 export * from './vendors';
 export * from './version';
 export * from './webhooks';

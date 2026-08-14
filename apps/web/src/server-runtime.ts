@@ -45,9 +45,17 @@
  *
  * NON-CACHEABLE (cookies pass through unchanged, no edge cache, no s-maxage):
  *   /api/*       — forwarded raw to `env.API.fetch` (AECI-30 service binding);
- *                  Supabase session cookies MUST survive this path.
+ *                  Supabase session cookies MUST survive this path. This covers
+ *                  `/api/admin/*` and `/api/vendor/*` with no special case: the
+ *                  prefix is one byte-for-byte passthrough, and the API Worker's
+ *                  `requireAdmin()` / `requireVendor()` guards are the real
+ *                  enforcement point.
  *   /auth/*      — login / magic-link / OAuth callback all read session state.
  *   /account*    — user-specific.
+ *   /admin*      — admin-only; anon GETs bounce to login (AECI-203).
+ *   /vendor*     — the Stage 2 vendor portal; vendor-specific, anon GETs bounce
+ *                  to login (AECI-520). NOTE the singular prefix — the PUBLIC
+ *                  `/vendors/:slug` detail page is a different, cacheable route.
  *   /search      — query-string explosion, per §9.2 not cached.
  *   <unknown>    — fail closed (`private, no-store`). A new page is
  *                  non-cacheable until it's explicitly added to the matcher
@@ -194,6 +202,21 @@ export function isAccountPath(localePath: string): boolean {
  */
 export function isAdminPath(localePath: string): boolean {
   return localePath === '/admin' || localePath.startsWith('/admin/');
+}
+
+/**
+ * Matches the Stage 2 vendor-portal surface `/vendor` and everything under it
+ * (locale prefix already stripped by the caller). Same anon-gate role as
+ * `isAdminPath` — a logged-out visitor is bounced to login rather than shown a
+ * bare 404 (AECI-520).
+ *
+ * SINGULAR on purpose. `/vendors/:slug` is the PUBLIC vendor detail page and is
+ * cacheable (`ROUTE_CACHE_PATTERNS`); catching it here would gate a public page
+ * behind a session. The prefix check uses `'/vendor/'` with the trailing slash
+ * precisely so `/vendors` can never match.
+ */
+export function isVendorPath(localePath: string): boolean {
+  return localePath === '/vendor' || localePath.startsWith('/vendor/');
 }
 
 /**
@@ -1258,10 +1281,17 @@ export function createApp(options: {
     // SSR, the `/admin` resolver calls `GET /api/admin/summary`, and a 403 is
     // mapped to a 404 render (don't reveal the surface). GET-only so it can't
     // intercept the API Worker's earlier-registered `POST /admin/purge`.
+    // AECI-520 extends the same gate to the Stage 2 vendor portal `/vendor*`.
+    // The gate ships ahead of the surface it guards: there is no `/vendor` route
+    // in `app.routes.ts` yet (AECI-522 adds it), so an authenticated visitor
+    // currently falls through to the Angular wildcard 404. When that route lands
+    // it MUST carry the `/admin` resolver pattern — call `GET /api/vendor/me`
+    // and map a 403 to a 404 render — because this gate only stops ANONYMOUS
+    // visitors; an authenticated non-vendor reaches SSR either way.
     if (c.req.method === 'GET') {
       const url = new URL(c.req.url);
       const { path } = stripLocalePrefix(url.pathname);
-      if (isAdminPath(path) && !hasSessionCookie(c.req.raw)) {
+      if ((isAdminPath(path) || isVendorPath(path)) && !hasSessionCookie(c.req.raw)) {
         const returnPath = sanitizeReturnPath(url.pathname);
         const query = returnPath === '/' ? '' : `?return=${encodeURIComponent(returnPath)}`;
         return new Response(null, {

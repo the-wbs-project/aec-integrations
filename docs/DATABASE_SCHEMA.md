@@ -155,7 +155,7 @@ create table vendors (
   logo_url text,
 
   -- Operational
-  verified boolean not null default false, -- true after vendor claims (Stage 2+)
+  verified boolean not null default false, -- Stage 2 paid-entitlement bit; SOLE writer is the claim→account grant (PATCH /api/admin/claims/:id, AECI-519 / STAGE_2_VENDOR_PORTAL_SPEC §3). Promote dropped it (AECI-520); no un-verify writer yet.
   promotion_status text not null default 'pending' check (promotion_status in ('pending', 'ready', 'promoted', 'retracted', 'rejected')),
   admin_notes text,
 
@@ -497,6 +497,15 @@ create index product_extensions_host_idx on product_extensions(host_product_id);
 ## 7. User and content tables
 
 ### 7.1 `profiles`
+
+> **Stale on lifecycle — read this first.** Under [ADR 0016](./adr/0016-d1-over-supabase-postgres.md)
+> the authoritative `profiles` row lives in **D1**, so the triggers described below are
+> **vestigial** (`AUTH_AND_RLS.md` §8.1): they maintain the Supabase Postgres
+> `public.profiles` mirror, which the app never reads. The **primary** creator is
+> `POST /api/auth/profile/ensure` (split-identity seam #1, `AUTH_AND_RLS.md` §3.1), and
+> erasure deletes the D1 row in the Worker plus the `auth.users` row via the Admin API
+> (seam #3). The DDL below is Postgres notation; the source of truth is
+> `apps/api/src/db/schema.ts`.
 
 Extends `auth.users`. Lifecycle is kept in sync by two triggers on
 `auth.users` (not a cross-schema FK — see `docs/AUTH_AND_RLS.md` §8.1
@@ -867,15 +876,24 @@ Slugs are generated at insert time by application code, not at the database leve
 
 ---
 
-## 12. RLS policies
+## 12. Authorization (no RLS on app tables)
 
-Row-level security is enabled on every table. Policy definitions live in **`AUTH_AND_RLS.md`** — that document is the source of truth for who can read and write what.
+> **Updated for ADR 0016 (D1).** The application database is **Cloudflare D1 (SQLite)**, which
+> has **no row-level security and no PostgREST**. Authorization is enforced **in the API
+> Worker** — the 3-layer model collapsed to **Layer 1 only** for app tables: verify the
+> Supabase JWT → re-fetch `role` / `vendor_id` / `banned_at` from D1 → **scope every Drizzle
+> query** with its own ownership/visibility filter (vendor-portal reads/writes are
+> `WHERE vendor_id = :sessionVendorId`). There is **no DB backstop** if a handler forgets a
+> filter. **`AUTH_AND_RLS.md` is the source of truth** for who can read and write what (it also
+> retains the historical Supabase-Postgres GRANT/RLS design for context). The earlier "RLS is
+> enabled on every table" wording described that retired Postgres surface, not D1.
 
-High-level intent:
+High-level intent (now **Worker-enforced**, not RLS-enforced):
 - Public read on directory tables (products, vendors, integrations, taxonomy, approved reviews)
 - Authenticated insert on reviews
 - Owners update own pending reviews
 - Admin-only access to moderation, audit log, workflow, page_views, vendor_requests
+- Vendor-portal reads/writes scoped to the caller's `vendor_id` (`vendor_admin`; `AUTH_AND_RLS.md` §3.2 / §4.4)
 
 ---
 

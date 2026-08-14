@@ -85,6 +85,16 @@
 #                            shared un-suffixed (single "aeci" app on us5); pushed to
 #                            the prod web Worker so RUM reports Core Web Vitals
 #                            (AECI-326). Fail-open — absent → RUM no-ops.
+#   SUPABASE_SERVICE_ROLE_KEY
+#                            GoTrue Admin API key for the AUTH_AND_RLS.md §3.1
+#                            split-identity seams (AECI-530, reconciling CI with ADR
+#                            0016 §6). Single shared un-suffixed key — one Supabase
+#                            auth project backs every env (ADR 0017). Pushed to the
+#                            prod API Worker below; **API Worker only** (never the
+#                            web Worker) and never on per-PR previews. Recommended +
+#                            fail-open — absent → reviewer emails read null, the
+#                            account-erasure auth.users delete is silently skipped,
+#                            and vendor-claim resolution reports 'unavailable'.
 
 name: promote-to-prod
 
@@ -178,6 +188,14 @@ jobs:
           ALGOLIA_ADMIN_KEY: ${{ secrets.ALGOLIA_ADMIN_KEY }}
           ALGOLIA_SEARCH_KEY: ${{ secrets.ALGOLIA_SEARCH_KEY }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          # AECI-530: single shared (un-suffixed) GoTrue service-role key for the
+          # AUTH_AND_RLS.md §3.1 seams. Same must-be-mapped rule as the four below.
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          # Public Datadog RUM app id + client token, pushed to the prod WEB Worker
+          # further down. Named in RECOMMENDED_SECRETS, so they need the same
+          # mapping or require-secrets.sh permanently false-warns "not set".
+          DD_APPLICATION_ID: ${{ secrets.DD_APPLICATION_ID }}
+          DD_CLIENT_TOKEN: ${{ secrets.DD_CLIENT_TOKEN }}
           ANTHROPIC_API_KEY_PRODUCTION: ${{ secrets.ANTHROPIC_API_KEY_PRODUCTION }}
           # AECI-280: POSTHOG_KEY_PRODUCTION (per-env suffixed) is pushed to the web
           # Worker as POSTHOG_KEY by the step below — recommended/fail-open (absent →
@@ -220,8 +238,13 @@ jobs:
           # POSTHOG_KEY_PRODUCTION backs the web Worker's client analytics — recommended
           # (warn-and-skip; absent → PostHog no-ops/fail-open), never blocking a promote.
           # It also feeds the deferred trending PostHog join, so it is the one secret to
-          # set for the AECI-280 ~30d follow-up to have data.
-          RECOMMENDED_SECRETS: 'ADMIN_PURGE_TOKEN DATADOG_API_KEY DD_APPLICATION_ID DD_CLIENT_TOKEN CF_ZONE_ID SUPABASE_ANON_KEY ANTHROPIC_API_KEY_PRODUCTION RESEND_API_KEY INDEXNOW_KEY_PRODUCTION GOOGLE_INDEXING_SA_EMAIL_PRODUCTION GOOGLE_INDEXING_SA_PRIVATE_KEY_PRODUCTION CF_ANALYTICS_API_TOKEN POSTHOG_KEY_PRODUCTION'
+          # set for the AECI-280 ~30d follow-up to have data. AECI-530:
+          # SUPABASE_SERVICE_ROLE_KEY (single shared, un-suffixed) backs the
+          # AUTH_AND_RLS.md §3.1 split-identity seams on the API Worker — recommended,
+          # never REQUIRED, because every seam degrades rather than failing closed
+          # (reviewer emails null, the erasure auth.users delete skipped, vendor-claim
+          # resolution 'unavailable'). Prod therefore does NOT fail closed on it.
+          RECOMMENDED_SECRETS: 'ADMIN_PURGE_TOKEN DATADOG_API_KEY DD_APPLICATION_ID DD_CLIENT_TOKEN CF_ZONE_ID SUPABASE_ANON_KEY SUPABASE_SERVICE_ROLE_KEY ANTHROPIC_API_KEY_PRODUCTION RESEND_API_KEY INDEXNOW_KEY_PRODUCTION GOOGLE_INDEXING_SA_EMAIL_PRODUCTION GOOGLE_INDEXING_SA_PRIVATE_KEY_PRODUCTION CF_ANALYTICS_API_TOKEN POSTHOG_KEY_PRODUCTION'
         run: bash scripts/require-secrets.sh
 
       # -----------------------------------------------------------------------
@@ -471,6 +494,39 @@ jobs:
           fi
           printf '%s' "$RESEND_API_KEY_VALUE" \
             | pnpm exec wrangler secret put RESEND_API_KEY --env production
+
+      # AECI-530: push the Supabase GoTrue service-role key to the prod API Worker so
+      # the split-identity seams (lib/supabase-admin.ts — the register in
+      # AUTH_AND_RLS.md §3.1) actually run instead of degrading. Reconciles CI with
+      # ADR 0016 §6, which decided the key belongs on the API Worker once the
+      # `auth.users` couplings moved from privileged SQL to GoTrue Admin API calls.
+      #
+      # SINGLE shared (un-suffixed) key — one Supabase auth project backs every env
+      # (ADR 0017), so there is physically one key and there is no _PRODUCTION suffix
+      # (like RESEND_API_KEY / CF_ANALYTICS_API_TOKEN / SUPABASE_ANON_KEY).
+      #
+      # API WORKER ONLY. The web Worker verifies user JWTs with public JWKS material
+      # and must never carry this key (apps/web/src/supabase-bootstrap-inject.spec.ts
+      # is the standing regression guard). Per-PR previews deliberately do NOT get it
+      # — see the note in pr-preview.yml.
+      #
+      # Optional + FAIL-OPEN even on production — every seam degrades rather than
+      # throwing, so this is graceful warn-and-skip and NOT in
+      # REQUIRED_WORKER_SECRETS. Same idempotent deploy→secret order.
+      - name: Push SUPABASE_SERVICE_ROLE_KEY to API Worker (production)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          SUPABASE_SERVICE_ROLE_KEY_VALUE: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        working-directory: apps/api
+        run: |
+          set -euo pipefail
+          if [ -z "$SUPABASE_SERVICE_ROLE_KEY_VALUE" ]; then
+            echo "::warning::SUPABASE_SERVICE_ROLE_KEY not set — skipping push. The AUTH_AND_RLS.md §3.1 split-identity seams stay inert in production: reviewer emails read null in the moderation queue, the account-erasure auth.users delete is silently SKIPPED (GDPR — the D1 erasure commits but the auth row survives), and vendor-claim identity resolution reports 'unavailable' (claim approval 503s)."
+            exit 0
+          fi
+          printf '%s' "$SUPABASE_SERVICE_ROLE_KEY_VALUE" \
+            | pnpm exec wrangler secret put SUPABASE_SERVICE_ROLE_KEY --env production
 
       # AECI-262: push the Cloudflare Analytics token to the prod API Worker so the
       # hourly WAF firewall-event poll (scheduled.ts runWafMetricsJob) can read the

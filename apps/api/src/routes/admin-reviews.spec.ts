@@ -68,7 +68,7 @@ function listApp() {
   const a = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
   a.onError(errorHandler());
   a.use('*', async (c, next) => {
-    c.set('auth', { userId: ADMIN, email: undefined, role: 'admin' });
+    c.set('auth', { userId: ADMIN, email: undefined, role: 'admin', vendorId: null });
     await next();
   });
   a.get('/api/admin/reviews', createAdminReviewsListHandler(t.factory, emails));
@@ -78,7 +78,7 @@ function moderateApp() {
   const a = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
   a.onError(errorHandler());
   a.use('*', async (c, next) => {
-    c.set('auth', { userId: ADMIN, email: undefined, role: 'admin' });
+    c.set('auth', { userId: ADMIN, email: undefined, role: 'admin', vendorId: null });
     await next();
   });
   a.patch('/api/admin/reviews/:id', createModerateReviewHandler(t.factory, emails));

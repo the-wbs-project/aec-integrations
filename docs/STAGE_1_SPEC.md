@@ -567,6 +567,10 @@ Three indexes, each denormalized for zero-join search:
 }
 ```
 
+> Stage 2 adds a display-only `verified` boolean to this record for the search-card
+> verified-vendor badge (AECI-529) — not a searchable/facet/ranking field. See
+> `STAGE_2_VENDOR_PORTAL_SPEC.md` §8.2 and `SEARCH_RANKING.md` §3.2/§6.
+
 **`integrations` index** — record shape:
 ```json
 {

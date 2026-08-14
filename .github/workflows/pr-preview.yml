@@ -183,6 +183,31 @@ jobs:
             | pnpm exec wrangler secret put ANTHROPIC_API_KEY --name "${API_WORKER_NAME}"
 
       # ---------------------------------------------------------------------
+      # NO SUPABASE_SERVICE_ROLE_KEY PUSH HERE — DELIBERATE (AECI-530).
+      #
+      # deploy.yml (staging), promote-to-demo.yml, and promote-to-prod.yml all push
+      # the service-role key to their API Worker so the AUTH_AND_RLS.md §3.1
+      # split-identity seams work. Per-PR previews are the one tier that does NOT
+      # get it, and that is a decision, not an oversight — do not "fix" it:
+      #
+      #   - Previews are the most numerous, shortest-lived, and least-reviewed
+      #     Workers in the fleet (one per open PR, from any branch).
+      #   - The key is the PROJECT-WIDE GoTrue auth key, and under ADR 0017 a
+      #     SINGLE Supabase project backs every environment INCLUDING PRODUCTION.
+      #     GoTrue offers no scoped admin credential (no read-only, no per-endpoint
+      #     key), so it cannot be narrowed for previews.
+      #   - The seams are not all reads: #3 is `DELETE /auth/v1/admin/users/:id`
+      #     and #4b is `POST /auth/v1/admin/users` — destroy and create, against
+      #     the same auth users that back prod.
+      #
+      # Previews therefore keep today's degraded behaviour (reviewer emails null,
+      # the account-erasure auth.users delete skipped, vendor-claim resolution
+      # 'unavailable' → claim approval 503s). That is unchanged from before
+      # AECI-530, so it is not a regression. Cover those paths with unit tests
+      # against the injected seams, not with a live key on a preview Worker.
+      # ---------------------------------------------------------------------
+
+      # ---------------------------------------------------------------------
       # Step 7: Rewrite the SSR service binding to point at the per-PR API
       #   `apps/web/wrangler.jsonc` env.preview.services binds API to the
       #   static name `aeci-api-preview`. Wrangler 4 has no `--service`

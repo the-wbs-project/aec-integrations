@@ -65,6 +65,7 @@ The values below are quoted from `INDEX_SETTINGS` in `packages/shared/src/algoli
 - **Faceting:** `searchable(headquarters)`, `founded_year`, `product_count`, `integration_count`
 - **Custom ranking:** `desc(integration_count)`, then `desc(product_count)`
   - *Rationale:* a vendor whose catalog participates in more integrations ranks first; product count breaks the tie.
+- **`verified` (AECI-529)** is denormalized onto the vendor record for the search-card badge only. It is **display-only** — deliberately **not** a searchable attribute, facet, or custom-ranking signal, so the settings above are unchanged (no pay-for-placement). See §6 for its freshness behavior.
 
 ### 3.3 `integrations`
 
@@ -192,6 +193,8 @@ Two configured signals are **inert at launch** and should not be read as "tuned 
 - **The `integrations` index is sparse until [AECI-86](https://linear.app/aec-integrations/issue/AECI-86).** Integration seeding in `POST /api/promote` is currently disabled, so few integration records exist. `desc(mechanism_rank)` is correct but has little to order until AECI-86 re-enables seeding; the §5 secondary-tie-break gap is also low-impact until then.
 
 Neither caveat requires a settings change — the signals are deliberately in place ahead of the data so no re-index is needed when the data arrives.
+
+**Search freshness lags SSR by up to a nightly cycle (AECI-529).** Search/browse cards render from **Algolia records**, which are rebuilt only by the nightly watermark cron (`runDailySync`, `apps/api/src/lib/algolia-sync.ts`, 08:00 UTC) over rows whose `updated_at` moved. So a vendor content edit or a **verified-badge flip** reaches the search surfaces **≤24h** later, whereas the equivalent SSR detail page is **immediate** via the `vendor:{slug}` / `product:{slug}` Cache-Tag purge (`CACHE_STRATEGY.md` §5). This is an **accepted launch expectation** — UI copy must not promise instant search. The AECI-519 claim→grant batch stamps `vendors.updated_at` alongside the `verified` flip precisely so the next window re-indexes the vendor. An immediate by-id `indexEntity` hook (like the promote path's `syncPromoteTargets`) is a future option if faster search is wanted; it is out of scope for launch.
 
 ---
 

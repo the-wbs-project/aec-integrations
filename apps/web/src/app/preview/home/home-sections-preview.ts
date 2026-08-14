@@ -125,7 +125,7 @@ export class HomeSectionsPreview {
       name,
       logo_url: null,
       product_role: 'application',
-      vendor: { id: `v${n}`, slug: slug(vendor), name: vendor, logo_url: null },
+      vendor: { id: `v${n}`, slug: slug(vendor), name: vendor, logo_url: null, verified: false },
       primary_category: { id: `c${n}`, slug: slug(category), name: category },
       integration_count,
       review_count: 0,

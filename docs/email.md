@@ -40,7 +40,10 @@ decision record; no separate ADR.
   (`lib/supabase-admin.ts`, the GoTrue Admin API) — D1 has no `auth.users` (ADR
   0016). The submission email uses the verified `session.email` directly; the
   account-deletion email captures `session.email` **before** the `auth.users` row
-  is erased.
+  is erased. Note this lookup needs `SUPABASE_SERVICE_ROLE_KEY`, which CI pushes to
+  the API Worker on staging, demo and production (AECI-530). It still resolves to
+  `null` on **PR previews and local dev**, where the key is absent by design
+  (`AUTH_AND_RLS.md` §3.1).
 
 ## Template catalogue
 
@@ -54,6 +57,8 @@ decision record; no separate ADR.
 | `stuck-request-alert` | reconciliation sweep (`lib/admin-alert.ts` → `lib/reconciliation-sweep.ts`) | `ADMIN_ALERT_EMAIL` | §6.2 persistent-failure digest |
 | `landing-signup` | `POST /api/subscribe` on a fresh insert (`routes/landing-forms.ts`) | `ADMIN_ALERT_EMAIL` | Operator "new mailing-list signup" (AECI-247/277 — replaces the retired `apps/landing` Worker's own send). Not sent on the idempotent already-listed no-op. |
 | `landing-feedback` | `POST /api/feedback` (`routes/landing-forms.ts`) | `ADMIN_ALERT_EMAIL` | Operator "new feedback submitted" (AECI-247/277). |
+| `claim-approved` | `PATCH /api/admin/claims/:id` approve (`routes/admin-claims.ts`, AECI-528) | claimant (`submitter_email`) | Names the claimed vendor/product, lists what the account can now do, links to the `/vendor` dashboard when `PUBLIC_SITE_URL` set. Sign-in copy branches on the `invited` (just-provisioned) vs `linked` identity outcome. Verification framed as an account status, never ranking/placement. |
+| `claim-rejected` | `PATCH /api/admin/claims/:id` reject | claimant (`submitter_email`) | Neutral by design (§9 AC): names the vendor, states the claim wasn't approved, invites resubmission. The reviewer's decision `reason` is an **internal audit note** (recorded in `audit_log`, admin-visible) and is **never emailed** — so nothing a reviewer types can leak to the claimant. |
 
 Copy is en-US plain text + minimal HTML, built inline in `lib/email.ts` (emails are
 not i18n'd at launch — the CLAUDE.md i18n rule is for rendered `apps/web` templates).
@@ -98,6 +103,53 @@ configured **once**, on that project (ref `ktuhnlypztujpsseujzx`):
 
 `supabase/config.toml` is **local-only** (magic links land in Inbucket at
 `:54324` during `supabase start`); deployed SMTP lives in the dashboard.
+
+Custom SMTP is configured at the **project** level, so it carries *every*
+GoTrue-originated mail (magic link, confirm signup, recovery, invite) — not just magic
+links. Today magic link is the only one AECi actually triggers.
+
+### The vendor-claim account is provisioned WITHOUT a GoTrue email (AECI-527)
+
+When a vendor claim is approved for a claimant who has no account, seam #4b
+(`AUTH_AND_RLS.md` §3.1) creates the `auth.users` row with
+`POST /auth/v1/admin/users` + `email_confirm: true` — **silently**. No GoTrue invite
+email is sent. Onboarding is the `claim-approved` template above (§9 of
+`STAGE_2_VENDOR_PORTAL_SPEC.md` / AECI-528) plus the ordinary magic-link login, both
+of which we control and instrument.
+
+**Call site (AECI-519 / AECI-528).** The `claim-approved` / `claim-rejected` sends
+fire post-commit (`waitUntil`) from `PATCH /api/admin/claims/:id`
+(`routes/admin-claims.ts`) — approve and reject respectively, to the claim's
+`submitter_email`. AECI-519 shipped the send as an **injectable seam**
+(`SendClaimDecisionEmail`) defaulting to a no-op; **AECI-528 injects the real
+`lib/email.ts` `sendClaimDecisionEmail`** at the route registration (`index.ts`) and
+widened the seam to carry the claimed target's display name (`targetName`, resolved via
+`resolveRequestTargets`) + the `invited`/`linked` `identityOutcome` the approved
+template branches on. Fail-open like every send: absent `RESEND_API_KEY`/`EMAIL_FROM`
+→ `'skipped'`.
+
+**Why not `POST /auth/v1/invite`:** its email links to
+`/auth/v1/verify?type=invite&redirect_to=…`, which hands back the session in a URL
+**fragment**, and `apps/web`'s `/auth/callback` requires a PKCE `?code=` — so the link
+dead-ends. It would also emit **no** `aeci.email.send` metric (GoTrue sends it, not
+`lib/email.ts`), so a failure would be invisible. Reconsidering it means clearing all
+four of these first:
+
+1. **Customize the "Invite user" template** (Authentication → Emails → Invite user).
+   The Supabase default mentions neither AECi nor the vendor being claimed.
+2. **Allow-list the `redirect_to`.** Supabase only honours it if it matches the
+   project's Redirect-URLs list; otherwise it **silently** falls back to the Site URL
+   (see `environments.md`) — so a staging invite would land the claimant on
+   demo/prod.
+3. **One shared project ⇒ one template and one Site URL for every environment**
+   (ADR 0017). Editing the template edits production.
+4. **A landing page that consumes a fragment session** (or an `/auth/callback` that
+   accepts `token_hash`) — otherwise see the dead-end above.
+
+Also note **DMARC is `p=quarantine` on a young domain** (below): for an *invite* that
+is materially worse than for a receipt, because spam-filing blocks onboarding
+outright and there'd be no metric to notice. Locally, GoTrue mail lands in Inbucket at
+`:54324` during `supabase start`.
 
 ## Deliverability
 

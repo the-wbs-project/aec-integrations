@@ -7,6 +7,11 @@
  * 401, missing profile → 401, banned → 403 (FORBIDDEN / REVIEW_BANNED), non-admin
  * on an admin route → 403, uid+role threading, cookie-path extraction, and that
  * the DB is never touched before the JWT verifies (via a `dbFor` call counter).
+ *
+ * AECI-520 extends it with `requireVendor()` (Stage 2 vendor portal,
+ * `STAGE_2_VENDOR_PORTAL_SPEC.md` §4): the role × `vendor_id` × ban matrix,
+ * including the explicit "a site `admin` is NOT a vendor" cell (no impersonation
+ * at launch) and the half-granted `vendor_admin` with a null `vendor_id`.
  */
 
 import { ApiErrorCode } from '@aeci/shared';
@@ -21,7 +26,7 @@ import {
 } from 'jose';
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { profiles } from '../db/schema';
+import { profiles, vendors } from '../db/schema';
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
 import { makeTestDb, type TestDb } from '../test/d1';
@@ -30,6 +35,7 @@ import {
   extractSessionCookieToken,
   requireAdmin,
   requireAuth,
+  requireVendor,
   type AuthzOptions,
   type AuthzVariables,
 } from './authz';
@@ -81,15 +87,29 @@ beforeEach(async () => {
 });
 afterEach(() => t.dispose());
 
-type ProfileSeed = { role?: string; bannedAt?: string | null; banReason?: string | null };
+type ProfileSeed = {
+  role?: string;
+  vendorId?: string | null;
+  bannedAt?: string | null;
+  banReason?: string | null;
+};
 
 /** Seed one `profiles` row keyed by `id` (the verified token `sub`). */
 async function seedProfile(id: string, seed: ProfileSeed = {}): Promise<void> {
   await t.db.insert(profiles).values({ id, ...seed });
 }
 
+/** The vendor a granted `vendor_admin` seat points at (`profiles.vendor_id`
+ *  FKs `vendors.id`, and the harness runs with foreign keys ON). */
+const VENDOR_ID = '99999999-9999-4999-8999-999999999999';
+async function seedVendor(): Promise<void> {
+  await t.db.insert(vendors).values({ id: VENDOR_ID, slug: 'autodesk', companyName: 'Autodesk' });
+}
+
 const REVIEWER: ProfileSeed = { role: 'reviewer' };
 const ADMIN: ProfileSeed = { role: 'admin' };
+/** A fully granted vendor-portal seat (AECI-520). */
+const VENDOR_ADMIN: ProfileSeed = { role: 'vendor_admin', vendorId: VENDOR_ID };
 const BANNED: ProfileSeed = {
   role: 'reviewer',
   bannedAt: '2026-06-01T00:00:00.000Z',
@@ -125,6 +145,9 @@ function makeApp() {
   app.patch('/api/admin/reviews/:id', requireAdmin(options), (c) =>
     c.json({ auth: c.get('auth') }),
   );
+  // AECI-520 — the vendor-portal guard. Echoes the session so `vendorId`
+  // threading (what every `/api/vendor/*` handler scopes by) is observable.
+  app.get('/api/vendor/me', requireVendor(options), (c) => c.json({ auth: c.get('auth') }));
   return app;
 }
 
@@ -134,7 +157,7 @@ type CallResult = {
   status: number;
   body: {
     error?: { code: string; message?: string };
-    auth?: { userId: string; email?: string; role: string };
+    auth?: { userId: string; email?: string; role: string; vendorId: string | null };
     reviewerId?: string;
     clientSent?: unknown;
   };
@@ -218,7 +241,12 @@ describe('requireAuth', () => {
     const token = await mintToken({ sub: 'user-abc', email: 'a@example.com' });
     const { status, body } = await call(makeApp(), '/api/account', 'DELETE', bearer(token));
     expect(status).toBe(200);
-    expect(body.auth).toEqual({ userId: 'user-abc', email: 'a@example.com', role: 'reviewer' });
+    expect(body.auth).toEqual({
+      userId: 'user-abc',
+      email: 'a@example.com',
+      role: 'reviewer',
+      vendorId: null,
+    });
     expect(dbCalls).toBe(1);
   });
 
@@ -310,7 +338,99 @@ describe('requireAdmin', () => {
     const token = await mintToken({ sub: 'user-admin' });
     const { status, body } = await call(makeApp(), '/api/admin/reviews/r1', 'PATCH', bearer(token));
     expect(status).toBe(200);
-    expect(body.auth).toEqual({ userId: 'user-admin', email: undefined, role: 'admin' });
+    expect(body.auth).toEqual({
+      userId: 'user-admin',
+      email: undefined,
+      role: 'admin',
+      vendorId: null,
+    });
+  });
+});
+
+/**
+ * AECI-520 — the vendor-portal guard (`STAGE_2_VENDOR_PORTAL_SPEC.md` §4).
+ * The matrix is role × `vendor_id` × ban. Two cells are the ones worth being
+ * loud about:
+ *   - a site `admin` is REJECTED (no impersonation at launch — admins act
+ *     through `/api/admin/*` so the audit trail names the real actor);
+ *   - a `vendor_admin` with a NULL `vendor_id` is rejected, because there is
+ *     nothing to scope its queries by (a half-granted seat).
+ */
+describe('requireVendor', () => {
+  const VENDOR_PATH = '/api/vendor/me';
+
+  it('rejects an anonymous caller with 401', async () => {
+    const { status, body } = await call(makeApp(), VENDOR_PATH, 'GET');
+    expect(status).toBe(401);
+    expect(body.error?.code).toBe(ApiErrorCode.UNAUTHENTICATED);
+  });
+
+  it('rejects a verified token with no profiles row with 401', async () => {
+    const token = await mintToken({ sub: 'user-ghost' });
+    const { status } = await call(makeApp(), VENDOR_PATH, 'GET', bearer(token));
+    expect(status).toBe(401);
+  });
+
+  it('rejects a reviewer with 403 FORBIDDEN', async () => {
+    await seedProfile('user-reviewer', REVIEWER);
+    const token = await mintToken({ sub: 'user-reviewer' });
+    const { status, body } = await call(makeApp(), VENDOR_PATH, 'GET', bearer(token));
+    expect(status).toBe(403);
+    expect(body.error?.code).toBe(ApiErrorCode.FORBIDDEN);
+  });
+
+  it('rejects a site admin with 403 — no impersonation at launch', async () => {
+    await seedProfile('user-admin', ADMIN);
+    const token = await mintToken({ sub: 'user-admin' });
+    const { status, body } = await call(makeApp(), VENDOR_PATH, 'GET', bearer(token));
+    expect(status).toBe(403);
+    expect(body.error?.message).toBe('Vendor admin role required');
+  });
+
+  it('rejects a vendor_admin whose vendor_id is null with 403', async () => {
+    await seedProfile('user-halfgrant', { role: 'vendor_admin', vendorId: null });
+    const token = await mintToken({ sub: 'user-halfgrant' });
+    const { status, body } = await call(makeApp(), VENDOR_PATH, 'GET', bearer(token));
+    expect(status).toBe(403);
+    expect(body.error?.message).toBe('Vendor account is not linked to a vendor');
+  });
+
+  it('rejects a banned vendor_admin with 403 before the role grants access', async () => {
+    await seedVendor();
+    await seedProfile('user-banned-vendor', {
+      ...VENDOR_ADMIN,
+      bannedAt: '2026-07-01T00:00:00.000Z',
+      banReason: 'Portal abuse',
+    });
+    const token = await mintToken({ sub: 'user-banned-vendor' });
+    const { status, body } = await call(makeApp(), VENDOR_PATH, 'GET', bearer(token));
+    expect(status).toBe(403);
+    // The ban reason surfaces, which is only possible if the ban check ran
+    // BEFORE the role check — the §7 / AECI-524 gate ordering.
+    expect(body.error?.message).toBe('Portal abuse');
+  });
+
+  it('accepts a granted seat and threads vendorId onto the session', async () => {
+    await seedVendor();
+    await seedProfile('user-vendor', VENDOR_ADMIN);
+    const token = await mintToken({ sub: 'user-vendor', email: 'ops@autodesk.test' });
+    const { status, body } = await call(makeApp(), VENDOR_PATH, 'GET', bearer(token));
+    expect(status).toBe(200);
+    expect(body.auth).toEqual({
+      userId: 'user-vendor',
+      email: 'ops@autodesk.test',
+      role: 'vendor_admin',
+      vendorId: VENDOR_ID,
+    });
+  });
+
+  it('never touches the DB when the token fails verification', async () => {
+    await seedVendor();
+    await seedProfile('user-vendor', VENDOR_ADMIN);
+    dbCalls = 0;
+    const { status } = await call(makeApp(), VENDOR_PATH, 'GET', bearer('not-a-jwt'));
+    expect(status).toBe(401);
+    expect(dbCalls).toBe(0);
   });
 });
 
@@ -350,5 +470,13 @@ describe('auditActorType', () => {
     expect(auditActorType({ role: 'admin' })).toBe('admin');
     expect(auditActorType({ role: 'reviewer' })).toBe('user');
     expect(auditActorType({ role: 'vendor' })).toBe('user');
+  });
+
+  // AECI-520: deliberate, not an oversight. `audit_log_actor_type_check` is
+  // ('user','admin','system','workflow') and the Stage 2 vendor-portal epic
+  // ships no migration, so vendor writes are identified by actorId +
+  // `metadata.source = 'vendor-portal'` rather than a new actor_type.
+  it('maps vendor_admin → user (no new actor_type, no migration)', () => {
+    expect(auditActorType({ role: 'vendor_admin' })).toBe('user');
   });
 });
