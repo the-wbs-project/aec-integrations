@@ -166,6 +166,10 @@ const resolveUnavailable = (): Resolver =>
 const resolveError = (): Resolver =>
   vi.fn<Resolver>(async () => ({ outcome: 'error', stage: 'lookup', status: 500 }));
 
+/** Lookup-only outcome: the email owns no auth user and none was created. Only
+ *  returned when the handler resolves with `provision: false` (terminal claims). */
+const resolveNotFound = (): Resolver => vi.fn<Resolver>(async () => ({ outcome: 'not_found' }));
+
 /** Never invoked on the paths that must not resolve (reject / non-claim). */
 const resolveThrows = (): Resolver =>
   vi.fn<Resolver>(async () => {
@@ -301,13 +305,20 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
   it('provisions a seat for an invited claimant (no prior profile row)', async () => {
     await seedVendor();
     await seedRequest();
-    const { status, body } = await patchClaim(moderateApp(resolveInvited()), { action: 'approve' });
+    const resolve = resolveInvited();
+    const { status, body } = await patchClaim(moderateApp(resolve), { action: 'approve' });
 
     expect(status).toBe(200);
     expect(body.grant).toMatchObject({ identity_outcome: 'invited', seat_created: true });
     const seat = await profileOf(CLAIMANT_ID);
     expect(seat!.role).toBe('vendor_admin');
     expect(seat!.vendorId).toBe(VENDOR_ID);
+    // A fresh (non-terminal) claim resolves WITH provisioning — the invite path.
+    expect(resolve).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ provision: true }),
+    );
   });
 
   it('upgrades an existing profile without clobbering display_name / theme_preference (no-clobber)', async () => {
@@ -474,6 +485,29 @@ describe('PATCH /api/admin/claims/:id — conflicts', () => {
     expect(await t.db.select().from(auditLog)).toHaveLength(0);
   });
 
+  it('resolves a terminal claim LOOKUP-ONLY so a gone claimant 422s without an orphan create', async () => {
+    await seedVendor({ verified: true });
+    await seedRequest({ status: 'resolved' });
+    // The claimant's auth user was deleted (e.g. GDPR erasure). Previously the
+    // invite path would provision a fresh orphan auth user before 422-ing; the fix
+    // resolves terminal claims with `provision: false`, so resolution returns
+    // `not_found` and nothing is created.
+    const resolve = resolveNotFound();
+
+    const { status, body } = await patchClaim(moderateApp(resolve), { action: 'approve' });
+
+    expect(status).toBe(422);
+    expect(body.error.code).toBe(ApiErrorCode.INVALID_STATE_TRANSITION);
+    // The load-bearing guarantee against orphans: the handler asked to NOT provision.
+    expect(resolve).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ provision: false }),
+    );
+    expect(await t.db.select().from(auditLog)).toHaveLength(0);
+    expect(claimModerationActions()).toEqual([['action:approve', 'outcome:invalid_state']]);
+  });
+
   it('returns 422 for an already-rejected claim without resolving identity (no orphan create)', async () => {
     await seedVendor();
     // A rejected claim was never granted, so a re-approve must refuse BEFORE
@@ -552,6 +586,9 @@ describe('PATCH /api/admin/claims/:id — reject', () => {
       to: CLAIMANT_EMAIL,
       targetName: 'Autodesk, Inc.',
     });
+    // The internal `reason` is recorded in the audit metadata above but is NEVER
+    // handed to the claimant email — closes the reviewer-note leak (§9).
+    expect(email.mock.calls[0]![1]).not.toHaveProperty('reason');
     expect(claimModerationActions()).toEqual([['action:reject', 'outcome:ok']]);
   });
 

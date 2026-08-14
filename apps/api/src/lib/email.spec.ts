@@ -300,35 +300,24 @@ describe('sendClaimApprovedEmail', () => {
 });
 
 describe('sendClaimRejectedEmail', () => {
-  it('echoes the shared reason under a neutral subject', async () => {
+  it('sends a neutral rejection that never echoes an internal reviewer note', async () => {
+    // The email takes no `reason`: the reviewer's decision note is internal (audit
+    // only), so nothing they type can reach the claimant (§9).
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
     const outcome = await sendClaimRejectedEmail(fakeContext(), {
       to: 'owner@vendor.com',
       vendorName: 'Autodesk, Inc.',
-      reason: 'We could not confirm your association with this vendor.',
     });
 
     expect(outcome).toBe('sent');
     const body = lastBody(fetchSpy);
     expect(body.subject).toBe('Your claim for Autodesk, Inc. was not approved');
     const text = String(body.text);
-    expect(text).toContain('We could not confirm your association with this vendor.');
+    expect(text).toContain("weren't able to approve it");
     expect(text).toContain('submit a new claim');
     expect(sendTags()).toEqual([['outcome:sent', 'template:claim-rejected']]);
     const authored = text.replace('— The AEC Integrations team', '');
     expect(authored).not.toContain('—');
-  });
-
-  it('stays neutral when no reason is supplied', async () => {
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
-    await sendClaimRejectedEmail(fakeContext(), {
-      to: 'owner@vendor.com',
-      vendorName: 'Globex',
-      reason: null,
-    });
-    const text = String(lastBody(fetchSpy).text);
-    expect(text).toContain("weren't able to approve it");
-    expect(text).toContain('submit a new claim');
   });
 
   it('skips when the recipient is undefined', async () => {
@@ -337,7 +326,6 @@ describe('sendClaimRejectedEmail', () => {
       await sendClaimRejectedEmail(fakeContext(), {
         to: undefined,
         vendorName: 'Globex',
-        reason: 'x',
       }),
     ).toBe('skipped');
     expect(fetchSpy).not.toHaveBeenCalled();

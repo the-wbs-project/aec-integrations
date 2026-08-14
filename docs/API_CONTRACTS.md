@@ -1177,7 +1177,7 @@ export const ClaimEntitlementSchema = z.object({
 
 export const ModerateClaimSchema = z.object({
   action: z.enum(['approve', 'reject']),
-  reason: z.string().max(500).optional(),     // transition + audit; on reject also echoed to the claimant (claim-rejected email, AECI-528)
+  reason: z.string().max(500).optional(),     // internal transition + audit note only; never emailed to the claimant (the claim-rejected email is deliberately neutral, AECI-528)
   entitlement: ClaimEntitlementSchema.optional(), // approve only
 });
 

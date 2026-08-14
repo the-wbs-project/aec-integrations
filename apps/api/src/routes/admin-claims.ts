@@ -107,7 +107,6 @@ export type SendClaimDecisionEmail = (
     vendorSlug: string;
     targetName: string;
     identityOutcome?: 'linked' | 'invited';
-    reason: string | null;
   },
 ) => Promise<void>;
 
@@ -337,10 +336,8 @@ async function approveClaim(
   { existing, reason, entitlement, actorId, actorType }: ApproveArgs,
 ): Promise<Response> {
   // A `rejected` claim was never granted, so it can never be a valid re-grant or an
-  // idempotent no-op — refuse it up front, BEFORE `resolveIdentity`, whose `invited`
-  // branch would otherwise provision an orphan auth user we'd immediately 422 on.
-  // (`resolved` is handled after resolution: it may be the idempotent same-seat
-  // no-op, which needs the resolved profile to recognize — see the terminal gate.)
+  // idempotent no-op — refuse it up front, BEFORE `resolveIdentity`, whose provision
+  // branch would otherwise orphan an auth user we'd immediately 422 on.
   if (existing.status === 'rejected') {
     emitClaimModeration(c, 'approve', 'invalid_state');
     throw new ApiError(
@@ -352,16 +349,20 @@ async function approveClaim(
 
   const vendor = await resolveTargetVendor(db, existing);
 
-  // Resolve the claimant's auth-user id (or provision one). Never throws — every
-  // failure is an outcome the §2 contract maps to HTTP.
+  // A `resolved` claim is terminal too. Its only valid re-approve is the idempotent
+  // same-seat no-op, which needs an EXISTING linked account to recognize — so resolve
+  // it LOOKUP-ONLY (`provision: !terminal`). That way a resolved claim whose claimant
+  // is gone (e.g. GDPR-deleted) returns `not_found` → 422 WITHOUT provisioning an
+  // orphan `auth.users` row (§3).
+  const terminal = existing.status === 'resolved';
+
+  // Resolve the claimant's auth-user id (or provision one, unless terminal). Never
+  // throws — every failure is an outcome the §2 contract maps to HTTP.
   const resolution = await resolveIdentity(db, c.env, {
     email: existing.submitterEmail,
     vendorId: vendor.id,
+    provision: !terminal,
   });
-
-  // `rejected` was already refused above; `resolved` is the only terminal state
-  // that reaches here (it may be the idempotent same-seat re-grant).
-  const terminal = existing.status === 'resolved';
 
   switch (resolution.outcome) {
     case 'conflict':
@@ -384,6 +385,17 @@ async function approveClaim(
         503,
         ApiErrorCode.DEPENDENCY_FAILURE,
         'Claimant identity resolution is unavailable; the grant cannot proceed.',
+      );
+    case 'not_found':
+      // Terminal (`resolved`) claim whose claimant auth user no longer exists (e.g.
+      // GDPR-deleted): an invalid transition — and because we resolved lookup-only
+      // (`provision: false`), no orphan auth user was created. Non-terminal claims
+      // never reach this: they provision instead.
+      emitClaimModeration(c, 'approve', 'invalid_state');
+      throw new ApiError(
+        422,
+        ApiErrorCode.INVALID_STATE_TRANSITION,
+        `Claim is ${existing.status}; only open or in-review claims can be granted.`,
       );
   }
 
@@ -464,7 +476,6 @@ async function approveClaim(
       vendorSlug: vendor.slug,
       targetName,
       identityOutcome,
-      reason,
     }).catch((error) => {
       try {
         logToDatadog(c.executionCtx, c.env, c.req.raw, {
@@ -556,7 +567,6 @@ async function rejectClaim(
       vendorId: existing.targetType === 'vendor' ? existing.targetId : '',
       vendorSlug: '',
       targetName,
-      reason,
     }).catch((error) => {
       try {
         logToDatadog(c.executionCtx, c.env, c.req.raw, {

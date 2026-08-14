@@ -65,7 +65,9 @@ export class ClaimQueue {
   /** The claim + mode whose action form is open (one at a time). */
   protected readonly formOpenId = signal<string | null>(null);
   protected readonly formMode = signal<FormMode | null>(null);
-  /** The shared free-text field: approve → arrangement notes, reject → reason. */
+  /** The shared free-text field: approve → arrangement notes, reject → an INTERNAL
+   *  decision note (recorded in the audit log, never emailed — the claimant email
+   *  is neutral, §9). */
   protected readonly formText = signal('');
   /** Id + message of the claim whose last action failed (inline alert). */
   protected readonly failedActionId = signal<string | null>(null);
@@ -215,7 +217,7 @@ export class ClaimQueue {
     this.formOpenId.set(id);
   }
 
-  /** Open the inline reject form (optional reason) for a row. */
+  /** Open the inline reject form (optional internal note) for a row. */
   protected openReject(id: string): void {
     this.failedActionId.set(null);
     this.formText.set('');

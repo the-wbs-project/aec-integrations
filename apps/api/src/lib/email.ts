@@ -284,28 +284,27 @@ export function sendClaimApprovedEmail(
 }
 
 /**
- * §9 "Claim rejected" (`STAGE_2_VENDOR_PORTAL_SPEC.md` / AECI-528). Neutral, no
- * vendor mutation happened. `reason` is the claimant-facing decision reason (echoed
- * when present, like `review-rejected`); internal reviewer notes live elsewhere and
- * are never passed here. Recipient is the claim's `submitter_email`; absent → skip.
+ * §9 "Claim rejected" (`STAGE_2_VENDOR_PORTAL_SPEC.md` / AECI-528). Deliberately
+ * NEUTRAL (the §9 AC): the reviewer's decision `reason` is an INTERNAL audit note —
+ * recorded in the `audit_log` (admin-visible), never echoed to the claimant — so
+ * nothing a reviewer types can leak. The claimant is told only that the claim
+ * wasn't approved, and is invited to resubmit. Recipient is `submitter_email`;
+ * absent → skip.
  */
 export function sendClaimRejectedEmail(
   c: EmailContext,
-  opts: { to: string | undefined; vendorName: string; reason: string | null },
+  opts: { to: string | undefined; vendorName: string },
 ): Promise<EmailOutcome> {
   const name = opts.vendorName.trim() || 'this vendor';
-  const reason = opts.reason?.trim() ? opts.reason.trim() : null;
   const resubmit =
     "If you represent this vendor, you're welcome to submit a new claim with more detail.";
 
   const textParagraphs = [
     `Thank you for your claim for ${name}. After review, we weren't able to approve it.`,
-    ...(reason ? [reason] : []),
     resubmit,
   ];
   const htmlParagraphs = [
     `Thank you for your claim for <strong>${escapeHtml(name)}</strong>. After review, we weren't able to approve it.`,
-    ...(reason ? [`<em>${escapeHtml(reason)}</em>`] : []),
     resubmit,
   ];
   return sendTransactionalEmail(c, {
@@ -332,7 +331,6 @@ export async function sendClaimDecisionEmail(
     to: string;
     targetName: string;
     identityOutcome?: 'linked' | 'invited';
-    reason: string | null;
   },
 ): Promise<void> {
   if (input.decision === 'approved') {
@@ -342,10 +340,11 @@ export async function sendClaimDecisionEmail(
       invited: input.identityOutcome === 'invited',
     });
   } else {
+    // Neutral by design — the reviewer's `reason` is an internal audit note and is
+    // never passed to the claimant email (see `sendClaimRejectedEmail`).
     await sendClaimRejectedEmail(c, {
       to: input.to,
       vendorName: input.targetName,
-      reason: input.reason,
     });
   }
 }

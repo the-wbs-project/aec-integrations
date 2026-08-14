@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { AdminStatus } from '../admin/admin-status';
 import { AdminSummaryStore } from '../admin/admin-summary.store';
 import { AuthService } from '../auth/auth.service';
+import { VendorStatus } from '../vendor/vendor-status';
 
 import { UserMenu } from './user-menu';
 
@@ -34,6 +35,11 @@ describe('UserMenu trigger + badge', () => {
         { provide: AdminStatus, useValue: { isAdmin } },
         { provide: AdminSummaryStore, useValue: { pendingReviews } },
         { provide: AuthService, useValue: {} },
+        // The menu's "Vendor dashboard" item reads VendorStatus; stubbing it (as
+        // site-header stubs SessionStatus) severs the real VendorStatus →
+        // SessionStatus → AuthService probe chain, so the empty AuthService stub
+        // above never hits the afterNextRender `isConfigured()` call.
+        { provide: VendorStatus, useValue: { isVendor: signal(false) } },
       ],
     });
   });

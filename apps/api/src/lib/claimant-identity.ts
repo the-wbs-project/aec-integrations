@@ -17,7 +17,10 @@
  * queue uses `fetchAuthAccountsByEmail` for its signal instead). The resolution
  * order — lookup → create-if-absent → profile read → classify — guarantees a
  * create is never spent on a claim that a conflict then rejects, because a
- * conflict is only possible when an auth user already exists.
+ * conflict is only possible when an auth user already exists. Pass
+ * `provision: false` for a lookup-only resolution (no create) — used when
+ * re-approving a terminal `resolved` claim, where provisioning would orphan an
+ * `auth.users` row the caller is about to reject as an invalid transition.
  */
 
 import { eq } from 'drizzle-orm';
@@ -50,6 +53,14 @@ export interface ClaimantResolutionInput {
    * would silently never conflict.
    */
   vendorId: string;
+  /**
+   * Whether to PROVISION an account when no auth user owns the email (the §2
+   * invite path). Defaults to `true` (a fresh grant). Pass `false` to re-approve a
+   * terminal (`resolved`) claim: provisioning is never a valid outcome there, so a
+   * lookup-only resolution returns `not_found` instead of orphaning an
+   * `auth.users` row the caller immediately 422s.
+   */
+  provision?: boolean;
 }
 
 /**
@@ -84,6 +95,11 @@ export type ClaimantResolution =
    *  Resolution is IMPOSSIBLE here, not negative — the grant must refuse rather
    *  than half-grant. */
   | { outcome: 'unavailable' }
+  /** No auth user owns this email AND provisioning was not requested
+   *  (`input.provision === false`). Distinct from `unavailable` (creds absent):
+   *  here the lookup succeeded, the account simply does not exist and — crucially —
+   *  none was created. Only reachable for a terminal-claim re-approve. */
+  | { outcome: 'not_found' }
   /** GoTrue was reachable but errored. */
   | { outcome: 'error'; stage: 'lookup' | 'create'; status?: number; message?: string };
 
@@ -145,6 +161,9 @@ export async function resolveClaimantIdentity(
   let invited = false;
 
   if (!user) {
+    // Lookup-only mode (terminal-claim re-approve): never provision — that would
+    // orphan an `auth.users` row the caller is about to 422 as invalid (§3).
+    if (input.provision === false) return { outcome: 'not_found' };
     const created = await createUser(env, input.email);
     if (created.skipped) return { outcome: 'unavailable' };
 

@@ -364,7 +364,7 @@
         </form>
         }
 
-        <!-- Reject form: optional reason -->
+        <!-- Reject form: internal decision note (audit-only; the claimant email is neutral) -->
         @if (formOpenId() === r.id && formMode() === 'reject') {
         <form
           novalidate
@@ -376,8 +376,11 @@
             class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
             i18n="@@admin.claims.reject.label"
           >
-            Reason (optional)
+            Internal reason (optional)
           </label>
+          <p class="text-xs text-(--text-secondary)" i18n="@@admin.claims.reject.help">
+            Recorded in the audit log, not shared with the claimant. The rejection email is neutral.
+          </p>
           <textarea
             [id]="'claim-reason-' + r.id"
             rows="3"

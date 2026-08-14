@@ -38,8 +38,10 @@ export type ClaimEntitlement = z.infer<typeof ClaimEntitlementSchema>;
 /**
  * Body for `PATCH /api/admin/claims/:id`. `reason` is optional for both actions
  * (recorded in the workflow transition + audit metadata, not stored on the row —
- * `vendor_requests` has no reason column, matching `ModerateRequestSchema`).
- * `entitlement` is only meaningful on `approve`.
+ * `vendor_requests` has no reason column, matching `ModerateRequestSchema`). It is
+ * an INTERNAL decision note: admin-visible in the audit log and NEVER emailed to the
+ * claimant (the claim-rejected email is neutral by design, §9). `entitlement` is
+ * only meaningful on `approve`.
  */
 export const ModerateClaimSchema = z.object({
   action: z.enum(['approve', 'reject']),

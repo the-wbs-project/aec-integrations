@@ -178,6 +178,38 @@ describe('resolveClaimantIdentity', () => {
     expect(createUser).toHaveBeenCalledWith(ENV_WITH_CREDS, EMAIL);
   });
 
+  it('lookup-only (provision:false): no auth user → not_found, and NEVER creates', async () => {
+    // The terminal-claim re-approve path: provisioning here would orphan an
+    // auth.users row the grant handler immediately 422s (§3).
+    const createUser = vi.fn(createsUser);
+
+    const res = await resolveClaimantIdentity(
+      t.db,
+      ENV_WITH_CREDS,
+      { email: EMAIL, vendorId: VENDOR_ID, provision: false },
+      noUser,
+      createUser,
+    );
+
+    expect(res).toEqual({ outcome: 'not_found' });
+    expect(createUser).not.toHaveBeenCalled();
+  });
+
+  it('lookup-only (provision:false) still links an existing account', async () => {
+    const createUser = vi.fn(createsUser);
+
+    const res = await resolveClaimantIdentity(
+      t.db,
+      ENV_WITH_CREDS,
+      { email: EMAIL, vendorId: VENDOR_ID, provision: false },
+      foundUser,
+      createUser,
+    );
+
+    expect(res.outcome).toBe('linked');
+    expect(createUser).not.toHaveBeenCalled();
+  });
+
   it('surfaces bannedAt on the snapshot without treating it as a conflict', async () => {
     await seedProfile({ bannedAt: '2026-07-01T00:00:00.000Z', banReason: 'spam' });
 
