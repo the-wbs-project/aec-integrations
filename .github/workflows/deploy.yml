@@ -1,8 +1,15 @@
 # AEC Integrations — CI pipeline.
 #
 # Current posture (AECI-76 / sub-issue (a) of AECI-71):
-#   PR push        → lint → typecheck → unit → build         (no deploy)
-#   push to main   → lint → typecheck → unit → build → deploy-staging
+#   PR push (ANY base) → lint → typecheck → unit → build → e2e+axe   (no deploy)
+#   push to main       → …same… → deploy-staging
+#   push to stage-2 / admin-panel → …same… (no deploy — deploy-staging is
+#                       independently gated on refs/heads/main)
+#
+# The PR lane is deliberately BASE-BRANCH-AGNOSTIC. See the `on:` block below for
+# why (short version: `branches: [main]` on `pull_request` filters by BASE, which
+# silently exempted every PR into `stage-2` / `admin-panel` / an epic branch from
+# the whole suite under the ADR 0019 branch model).
 #
 # Promotion to production happens via the separate `promote-to-prod.yml`
 # workflow (AECI-78), triggered manually with explicit commit_sha + a
@@ -109,7 +116,21 @@ name: deploy
 
 on:
   pull_request:
-    branches: [main]
+    # NO `branches:` (base-branch) filter — DELIBERATE. `branches:` on
+    # `pull_request` filters by BASE branch, so pinning it to `main` made this
+    # entire suite invisible to any PR targeting a long-lived integration branch
+    # (`stage-2`, `admin-panel`) or an epic branch (`aeci-513`). Under the ADR
+    # 0019 post-launch branch model (CICD_PLAN §10) that is most of the work in
+    # flight: PR #521 — the 13k-line AECI-513 vendor-portal epic into `stage-2` —
+    # merged having run ONLY pr-preview. No lint, no unit tests, no build, no
+    # E2E. Running base-branch-agnostic matches what `pr-preview.yml` and
+    # `drift-check.yml` already do, and needs no branch list to maintain as epic
+    # branches come and go. This is safe because `deploy-staging` is
+    # independently gated on `push` + `refs/heads/main` (see its own `if:`), and
+    # the two preview-URL jobs are `if: false` — so a non-main PR adds only
+    # lint-and-types / unit-tests / build-web / e2e-and-integration and deploys
+    # nothing.
+    #
     # Skip the full CI suite for docs-only changes (markdown + docs/). A PR that
     # also touches code still runs — paths-ignore only skips when EVERY changed
     # file matches. `main` has no required status checks, so a skipped run can't
@@ -118,7 +139,15 @@ on:
       - '**/*.md'
       - 'docs/**'
   push:
-    branches: [main]
+    # `push` DOES keep a branch list: a post-merge run only makes sense for the
+    # branches that accumulate merges (the production line + the long-lived
+    # integration branches), and it catches what PR-time gating structurally
+    # cannot — a squash-merge whose result differs from any PR head (semantic
+    # conflicts between two PRs that merged in sequence). Feature/epic branches
+    # are already covered by their PR run; adding them here would only double-bill.
+    # Add a branch here when a new long-lived integration branch is opened, and
+    # remove it when that branch merges up and is retired.
+    branches: [main, stage-2, admin-panel]
     paths-ignore:
       - '**/*.md'
       - 'docs/**'

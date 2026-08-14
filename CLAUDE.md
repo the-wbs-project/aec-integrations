@@ -223,7 +223,7 @@ Commit any changes under `.agents/skills/`.
 - Branch naming: `aeci-{issue-number}-short-description` (use Linear's "Copy git branch name" action)
 - Commit messages: descriptive; reference issue ID if helpful
 - PR description includes `Closes AECI-{N}` for the primary issue; set the PR **base branch** to `main` or `stage-2` to match the work
-- Wait for CI to pass: lint, typecheck, unit tests, build, preview deploy, E2E, accessibility, Lighthouse
+- Wait for CI to pass: lint, typecheck, unit tests, build, preview deploy, E2E, accessibility, Lighthouse. **The PR suite is base-branch-agnostic** — it runs identically whether you target `main`, `stage-2`, or an epic branch (`deploy.yml` / `integration-db-tests.yml` carry no `branches:` filter on `pull_request`; Lighthouse stays push-to-`main`-only by design). `main` and `stage-2` are branch-protected on `Lint & typecheck` / `Unit tests` / `Build SSR Worker`, so a red one of those blocks the merge; E2E/a11y/Lighthouse still don't. **`admin-panel` has neither** — its PRs run no tests at all until the trigger fix is merged into that branch (`CICD_PLAN.md` §3.1/§8/§10).
 - Squash merge to the base branch (`main` or `stage-2`)
 - Linear auto-closes the issue on merge
 
