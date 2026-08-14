@@ -32,6 +32,7 @@ The site is currently in pre-launch. Production data lives in Airtable; Supabase
 | Review-app → Supabase promotion push (`POST /api/promote` payload/response, idempotency, integration rule) | `docs/REVIEW_APP_PROMOTE_API.md` |
 | Database schema and RLS hooks | `docs/DATABASE_SCHEMA.md` |
 | Migration workflow (generating SQL via drizzle-kit, applying via `wrangler d1 migrations apply`) | `docs/migrations.md` (being rewritten for D1; the Supabase-CLI workflow is retired for the app DB) |
+| Local dev tracing (agent-queryable OTel traces in `wrangler dev`: Local Explorer SQL endpoint, `spans`/`logs` schema, debugging recipes) | `docs/local-tracing.md` |
 | Drizzle/D1 data layer (client, schema, `db.batch()` audit/workflow builders) | `apps/api/src/db/` + `apps/api/src/lib/{audit,drizzle-helpers,recompute-counts}.ts` (ADR 0016) |
 | CI/CD, environments, deployment | `docs/CICD_PLAN.md` |
 | Environment topology, promotion model, operator runbook (tiers, PR-preview lifecycle, bootstrap) | `docs/environments.md` |
@@ -175,6 +176,24 @@ Many Conductor workspaces run in parallel. Naively they collide two ways: on **p
 The port override is plumbed through `AECI_WEB_PORT` / `AECI_API_PORT` (honored by each app's `dev:preview` and by `playwright.config.ts`); both default to `8788/8787`, so direct `pnpm dev:bound`, CI, and e2e are unchanged (each gets its own registry too). **When you (an agent) need to boot the app in a workspace, use `pnpm dev:agent`, not `pnpm dev:conductor` / `pnpm dev` / `pnpm dev:bound`** — leave the constant pair for the human.
 
 If launches start failing with the SIGTERM symptom, it's almost always **orphaned `workerd` processes** from a prior run that Conductor didn't clean up. Clear them: `lsof -nP -iTCP -sTCP:LISTEN | grep workerd` then `kill` the PIDs (or just re-run `dev:conductor`, which reclaims its own pair).
+
+#### Local tracing — debug a 500 with SQL instead of `console.log` (AECI-548)
+
+Wrangler (pinned `^4.123.0`) captures OpenTelemetry traces for every local Worker invocation — handler lifecycle, outbound `fetch()`, and **binding calls (D1, KV, R2, DO, Queues)** — with no SDK, no config, and no code change, and exposes them over a **read-only SQL endpoint**. So the debug loop for a local failure is *query the runtime*, not *add a log → rebuild → re-curl*. **`docs/local-tracing.md` is the source of truth** (schema, guardrails, recipes); the essentials:
+
+- **Derive the URL from the port your session actually bound — never hardcode `8787`.** `dev:agent` scans up from `8790/8789`; `8788/8787` belong to the human's `dev:conductor`, so querying `8787` from an agent workspace reads *someone else's* dev server. Both Workers print their own hint on boot (`The Local Explorer API is available at http://localhost:8790/cdn-cgi/local/explorer/api`), and `scripts/dev-launch.sh` prints the pair on its first line. If the banner scrolled away: `lsof -nP -iTCP -sTCP:LISTEN | grep workerd`.
+- **Two Workers ⇒ two trace stores, one per port.** `dev:bound` runs two separate `wrangler dev` processes, so a request crossing `env.API` produces **two traces with different `trace_id`s** — trace context does not propagate across the dev-registry hop. **All D1 spans live on the API store** (`:<API_PORT>`); the SSR store holds the browser-facing request, the WC-4 gateway→`Renderer` hop, and the outbound binding `fetch`. Correlate the halves on `url.full` + `start_ms` (recipe 6).
+- **Failures are NOT in `spans.outcome`/`spans.error`.** A request that 500s on a D1 batch still records `outcome = 'ok'` on every span; the message is in the attributes as `error.type`. `WHERE outcome <> 'ok'` returns zero rows and looks like "no failures". Filter on `json_extract(json(attributes), '$."error.type"')` / `'$."http.response.status_code"'` — and note `attributes` is JSONB whose keys contain dots, so the path segment must be quoted.
+- `db.batch()` spans carry every statement in `db.query.text` plus `db.operation.batch.size`, which makes the §26.1 audit-row-in-the-same-batch invariant directly checkable per request.
+- Opt out with `X_LOCAL_OBSERVABILITY=false` (measured cost is ≈2 ms/request; you almost certainly don't need to).
+
+```bash
+API_PORT=8789   # ← the port YOUR session printed, not a copied constant
+curl -sX POST "http://localhost:$API_PORT/cdn-cgi/local/explorer/api/local/observability/query" \
+  -H 'Content-Type: application/json' \
+  -d '{"sql":"SELECT service, name, outcome, duration_ms FROM spans WHERE parent_id IS NULL LIMIT 20"}'
+# → {"success":true,"result":{"columns":[...],"rows":[[...]]}}   rows are positional arrays
+```
 
 ### Version reporting (AECI-74)
 

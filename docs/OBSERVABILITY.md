@@ -23,6 +23,30 @@ The Worker-logs pipe's per-render `ssr.render` line is **gated** (AECI-103) so p
 traffic doesn't flood the logs intake — see "The `ssr.render` log is a gated smoke signal"
 below. The bounded render-volume signal is the `aeci.ssr.render` count metric.
 
+### Not a pipe: local dev tracing (AECI-548)
+
+`wrangler dev` captures OpenTelemetry traces for every **local** Worker invocation and serves
+them over a read-only SQL endpoint. **This is a separate thing from everything else in this
+document — do not conflate the two.**
+
+| | Local tracing | The three pipes above |
+|---|---|---|
+| Where | Inside the `wrangler dev` process | Deployed tiers |
+| Lifetime | Wiped when the dev server exits | 7–15 day retention |
+| Transport | **None** — never leaves the machine | HTTP intake, `ctx.waitUntil` |
+| Content | Every span of every local request | Curated `aeci.*` catalog + gated logs |
+| Configured by | Nothing — automatic | Wrangler vars + `DD_API_KEY` / `POSTHOG_KEY` |
+
+Consequences worth stating plainly: a local span **never** reaches Datadog or PostHog, so it
+can neither pollute a dashboard nor be used as evidence about deployed behaviour; and nothing
+in the metric catalog below has a local-dev equivalent. Full schema, guardrails, and the
+debugging recipes live in **`docs/local-tracing.md`**.
+
+The one place they touch: because the §26.5 Datadog forwards run through `ctx.waitUntil`, they
+appear in local traces as outbound `fetch` spans to `http-intake.logs.us5.datadoghq.com` and
+`api.us5.datadoghq.com`. That is a cheap way to confirm a forward actually fires without
+opening Datadog.
+
 ## Custom metric catalog (Phase 2 §14)
 
 > **⚠️ Front-of-Worker cache (WC-3 AECI-317 · WC-8 AECI-322).** Native Cloudflare Workers Cache serves cacheable HITs **without running the SSR Worker** (preview + staging; demo/production still gated). So the two SSR render metrics only ever record `cache_status:MISS`/`miss` (the Worker runs only on a native-cache miss) or `non_cacheable` — **there is no `cache_status:hit` series.** HIT-rate visibility lives on `Cf-Cache-Status` + the Cloudflare Workers observability dashboard (see "Front-of-Worker cache: HIT observability" below). **WC-8 (AECI-322) completed the rework:** the `cache hit rate < 70%` monitor + its dashboard widget were **retired** (their `cache_status:hit` numerator is now permanently ~0 — they would flatline / alert forever), and the crawler-`noindex` decision is now baked into the cached payload so a HIT can't leak an indexable non-prod page (`docs/CACHE_STRATEGY.md` §7.1).
