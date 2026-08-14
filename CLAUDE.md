@@ -12,9 +12,10 @@ The site is currently in pre-launch. Production data lives in Airtable; Supabase
 
 `docs/STAGE_1_SPEC.md` is the master spec and the contract — but it's 1,600+ lines. **Don't read it end-to-end; load only the section that governs your task.**
 
-1. For any AECI-* task, **invoke the `spec-anchor` skill.** It fetches the Linear issue, parses its `**Spec section:** §X.Y` line, loads just that section from `docs/STAGE_1_SPEC.md`, and follows the cross-references into the companion docs (`docs/API_CONTRACTS.md`, `docs/DATABASE_SCHEMA.md`, etc.). (The `§X.Y` convention is enforced by the team Linear issue templates — Linear has no custom-field feature on our plan.)
-2. If you're not working from an AECI issue, jump straight to the governing doc via the source-of-truth table below. The spec's first section ("Companion Documents") is the full index of what lives where.
-3. If the spec is ambiguous or wrong, raise it — don't guess
+1. For any AECI-* task, **invoke the `spec-anchor` skill.** It fetches the Linear issue, parses its `**Spec section:** §X.Y` line, loads just that section from the spec the line names — `docs/STAGE_1_SPEC.md` by default, but Stage 1.5, the phase specs, `docs/STAGE_2_VENDOR_PORTAL_SPEC.md` and `docs/ADMIN_PANEL_SPEC.md` are all common anchors now — and follows the cross-references into the companion docs (`docs/API_CONTRACTS.md`, `docs/DATABASE_SCHEMA.md`, etc.). (The `§X.Y` convention is enforced by the team Linear issue templates — Linear has no custom-field feature on our plan.)
+2. **Once you have a plan, run the same skill's plan check (step 4.5) before writing any code.** It reviews the plan against the section it just loaded and returns findings rated 🔴 CRITICAL / 🟡 MAJOR / 🔵 MINOR — the cheap moment to catch a spec contradiction, a missing contract element, or a governing doc the plan will make stale. Issues with no `§X.Y` anchor go through the skill's n/a ladder rather than being skipped (AECI-550).
+3. If you're not working from an AECI issue, jump straight to the governing doc via the source-of-truth table below. **This table is the complete index** — the spec's own §1a "Companion Documents" list is older and incomplete.
+4. If the spec is ambiguous or wrong, raise it — don't guess. The docs are stale in known places, so check the code before treating a doc/plan divergence as a defect.
 
 ## Documents that are source of truth
 
@@ -80,7 +81,7 @@ If your work touches a topic governed by one of these documents, that document i
 - **i18n:** `@angular/localize` (en-US only at launch; architecture supports more)
 - **Email:** Resend (transactional — `apps/api/src/lib/email.ts`, AECI-240) + Microsoft 365 (mailboxes). Supabase Auth magic links send over Resend custom SMTP. See `docs/email.md`. (Supersedes the former "Loops".)
 - **Workflow automation:** Cloudflare Worker for the form→Linear request pipeline (n8n **dropped** — Phase 2 §18.1 / `docs/STAGE_1_PHASE_6_SPEC.md`). No Slack (Linear native email + admin-email-on-failure).
-- **Theme:** light/dark with system preference detection (tokens defined in `docs/STAGE_1_SPEC.md` §2a)
+- **Theme:** light only in Stage 1 — no toggle, no system-preference detection (AECI-226; see "Light only (Stage 1)" below). The semantic tokens are defined in `docs/STAGE_1_SPEC.md` §2a and keep dark a token-block + toggle re-introduction in Stage 2.
 
 ## Constraints that aren't negotiable
 
@@ -215,9 +216,9 @@ CI wiring (resolving `$GITHUB_SHA` and the workflow timestamp) landed in AECI-71
 
 Shared Claude Code skills live in `.agents/skills/`, checked into the repo so every contributor (and CI agents) get them automatically.
 
-Four skills are checked in for the engineering build phase:
+The skills checked in for the engineering build phase:
 
-- **`spec-anchor`** — local skill that anchors AECI-* work to the relevant `docs/STAGE_1_SPEC.md` section (see "Where to start").
+- **`spec-anchor`** — local skill that does two jobs (see "Where to start"). **Anchor:** fetches the Linear issue, resolves its `**Spec section:** §X.Y` line, loads that section and its companion docs. **Check (step 4.5, AECI-550):** once a plan exists, reviews the plan against that contract before any code is written, rating findings 🔴 CRITICAL / 🟡 MAJOR / 🔵 MINOR. Advisory, not blocking. Two rules make it usable rather than noisy: a **precedence chain** (`CLAUDE.md` constraints → ADRs → superseding spec → companion doc → `STAGE_1_SPEC.md` last) and **verify-before-flag** — every finding must cite a doc *and* a code artifact, so a stale doc yields an advisory MINOR instead of a false blocker. Issues with no `§X.Y` anchor use the n/a ladder. It is the pre-implementation half of `docs/CODE_REVIEW_CHECKLIST.md`.
 - **`pbakaus/impeccable`** — design skill (single skill, 23 sub-commands: `craft`, `shape`, `teach`, `document`, `critique`, `audit`, `polish`, `bolder`, `quieter`, `distill`, `harden`, `onboard`, `animate`, `colorize`, `typeset`, `layout`, `delight`, `overdrive`, `clarify`, `adapt`, `optimize`, `extract`, `live`). Lives at `.agents/skills/impeccable/`. Refresh with `npx impeccable skills update` or reinstall via `npx -y impeccable skills install --force`. Reads `PRODUCT.md` and `DESIGN.md` at the repo root.
 - **`angular-developer`** — official Angular skill (`angular/skills`) that loads version-specific Angular best practices on demand (signals/reactivity, forms, DI, routing, SSR, ARIA, animations, styling, testing, CLI) from a bundled `references/` library. Auto-triggers when you create or modify Angular code in `apps/web/`. Pairs with the `angular-cli` MCP server (see "MCP usage rules"). Added in AECI-131.
 - **`angular-new-app`** — official Angular skill (`angular/skills`) for scaffolding a new Angular app with the CLI. Rarely needed in this established monorepo, but kept for parity with the upstream set.
