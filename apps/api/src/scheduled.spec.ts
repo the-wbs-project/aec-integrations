@@ -30,6 +30,22 @@ vi.mock('./lib/algolia-drift', () => ({
   // clean (empty) drift so the job runs without an Algolia round-trip.
   findAlgoliaIndexDrift: vi.fn(() => Promise.resolve([])),
 }));
+// The drift cron's remediation half (AECI-266) browses + deletes over Algolia's
+// REST API with the real `fetch` clients. Unmocked, every drift dispatch here
+// made a live outbound request against the fake `APP` app id — normally a fast
+// NXDOMAIN, but on a CI runner a single dropped DNS packet costs a 5s resolver
+// retry and the test blew the 5000ms timeout (main deploy 31933190326). The
+// sweep's own behaviour is covered by `lib/algolia-orphans.spec.ts`; here it only
+// has to complete, so stub it to a clean, network-free run.
+vi.mock('./lib/algolia-orphans', () => ({
+  DEFAULT_SAFETY_CAP: { maxDeletes: 50, maxFraction: 0.2, override: false },
+  createAlgoliaObjectIdClient: vi.fn(() => ({})),
+  createAlgoliaDeleteClient: vi.fn(() => ({})),
+  sweepAlgoliaOrphans: vi.fn(() =>
+    Promise.resolve({ entities: [], totalOrphans: 0, totalDeleted: 0 }),
+  ),
+  toOrphanSweepEntity: vi.fn(),
+}));
 vi.mock('./lib/home-stats', () => ({ runHomeStats: vi.fn() }));
 vi.mock('./lib/reconciliation-sweep', () => ({ runReconciliationSweep: vi.fn() }));
 // The WAF poll (AECI-262) reaches Cloudflare's GraphQL Analytics API; mock the
