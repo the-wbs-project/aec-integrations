@@ -12,6 +12,7 @@ import {
   productCategories,
   products,
   productVendors,
+  productVersions,
   taxonomyCategories,
   taxonomyDataObjects,
   vendors,
@@ -311,6 +312,133 @@ describe('claims / attestations spine (AECI-293)', () => {
     const seeded = (await t.db.select().from(taxonomyDataObjects)).map((row) => row.slug).sort();
     expect(seeded).toEqual(expected);
     expect(seeded).toHaveLength(20);
+    t.dispose();
+  });
+});
+
+/**
+ * Constraint coverage for Stage 2 migration 2 (AECI-607 / §8.2). These run
+ * against the REAL migration files, which is the point: `0008_slim_iron_lad.sql`
+ * carries a **hand-authored** body because `drizzle-kit generate` emitted the two
+ * `ALTER TABLE attestations ADD … REFERENCES product_versions(id)` statements
+ * with no `ON DELETE` clause at all, silently dropping the SET NULL. The
+ * "degrades the stamp" case below is the only thing that would catch a
+ * regeneration quietly reverting that.
+ */
+describe('product versions (AECI-607)', () => {
+  it('enforces label identity per product, but not across products', async () => {
+    const t = await makeTestDb();
+    await seedClaimPrereqs(t);
+    await t.db.insert(productVersions).values({
+      id: 'pv1',
+      productId: 'p1',
+      label: '2026.1',
+      sortKey: 20_260_000_100_000,
+    });
+
+    // Same label on the SAME product — rejected by product_versions_label_key.
+    await expect(
+      (async () =>
+        t.db
+          .insert(productVersions)
+          .values({ id: 'pv2', productId: 'p1', label: '2026.1', sortKey: 1 }))(),
+    ).rejects.toThrow();
+
+    // Same label on a DIFFERENT product — fine. Two products may both ship a 2026.1.
+    await t.db
+      .insert(productVersions)
+      .values({ id: 'pv3', productId: 'p2', label: '2026.1', sortKey: 20_260_000_100_000 });
+    expect(await t.db.select().from(productVersions)).toHaveLength(2);
+    t.dispose();
+  });
+
+  it('requires sort_key — ordering can never fall back to the label', async () => {
+    const t = await makeTestDb();
+    await seedClaimPrereqs(t);
+    // Raw SQL: the Drizzle types make the omission unrepresentable, and the
+    // NOT NULL is what has to hold at the DB layer.
+    expect(() =>
+      t.raw
+        .prepare(
+          `INSERT INTO product_versions (id, product_id, label, created_at, updated_at)
+           VALUES ('pv1', 'p1', '2026.1', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`,
+        )
+        .run(),
+    ).toThrow();
+    t.dispose();
+  });
+
+  it('cascades product delete to its versions', async () => {
+    const t = await makeTestDb();
+    await seedClaimPrereqs(t);
+    await t.db
+      .insert(productVersions)
+      .values({ id: 'pv1', productId: 'p1', label: '2026.1', sortKey: 1 });
+
+    await t.db.delete(products).where(eq(products.id, 'p1'));
+    expect(await t.db.select().from(productVersions)).toEqual([]);
+    t.dispose();
+  });
+
+  it('degrades an attestation version stamp to NULL on version delete, keeping the row', async () => {
+    const t = await makeTestDb();
+    await seedClaimPrereqs(t);
+    await t.db.insert(productVersions).values([
+      { id: 'pv1', productId: 'p1', label: '2026.1', sortKey: 20_260_000_100_000 },
+      { id: 'pv2', productId: 'p1', label: '2026.2', sortKey: 20_260_000_200_000 },
+    ]);
+    await t.db
+      .insert(claims)
+      .values({ id: 'c1', integrationId: 'i1', dataObjectId: 'd1', direction: 'a_to_b' });
+    await t.db.insert(attestations).values({
+      id: 'at1',
+      claimId: 'c1',
+      source: 'vendor_a',
+      introducedAt: '2026-01-15',
+      introducedVersionId: 'pv1',
+      deprecatedVersionId: 'pv2',
+    });
+
+    // ON DELETE SET NULL — neither cascade nor restrict. Deleting a version must
+    // not be rejected and must not erase the vendor's assertion: the attestation
+    // survives and falls back to the coarse ISO date stamps (§8.2). Deleting a
+    // version is not a back door to deleting an attestation.
+    await t.db.delete(productVersions).where(eq(productVersions.id, 'pv1'));
+
+    const [row] = await t.db.select().from(attestations).where(eq(attestations.id, 'at1'));
+    expect(row?.introducedVersionId).toBeNull();
+    expect(row?.introducedAt).toBe('2026-01-15');
+    // The untouched stamp still points at its version.
+    expect(row?.deprecatedVersionId).toBe('pv2');
+    t.dispose();
+  });
+
+  it('hydrates both version stamps through their disambiguated relations', async () => {
+    const t = await makeTestDb();
+    await seedClaimPrereqs(t);
+    await t.db.insert(productVersions).values([
+      { id: 'pv1', productId: 'p1', label: '2026.1', sortKey: 20_260_000_100_000 },
+      { id: 'pv2', productId: 'p1', label: '2026.2', sortKey: 20_260_000_200_000 },
+    ]);
+    await t.db
+      .insert(claims)
+      .values({ id: 'c1', integrationId: 'i1', dataObjectId: 'd1', direction: 'a_to_b' });
+    await t.db.insert(attestations).values({
+      id: 'at1',
+      claimId: 'c1',
+      source: 'vendor_a',
+      introducedVersionId: 'pv1',
+      deprecatedVersionId: 'pv2',
+    });
+
+    // Two FKs into one table: without the `relationName` disambiguation these
+    // two would collapse into the same relation.
+    const [row] = await t.db.query.attestations.findMany({
+      where: eq(attestations.id, 'at1'),
+      with: { introducedVersion: true, deprecatedVersion: true },
+    });
+    expect(row?.introducedVersion?.label).toBe('2026.1');
+    expect(row?.deprecatedVersion?.label).toBe('2026.2');
     t.dispose();
   });
 });

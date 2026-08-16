@@ -1530,7 +1530,7 @@ export const FeedbackSubmitSchema = z
 
 Stage 2 (AECI-520). All require `role === 'vendor_admin'` **and** a non-null `profiles.vendor_id`, enforced by the `requireVendor()` Worker middleware (`apps/api/src/lib/authz.ts`) — verifies the JWT, loads the D1 profile, and rejects in this order: missing token/profile `401`; `banned_at` set `403`; wrong role `403`; null `vendor_id` `403`. A site **`admin` is rejected too** — there is no impersonation at launch, admins act on vendor data through `/api/admin/*` so the audit trail names the real actor.
 
-Source of truth: `packages/shared/src/api/vendor.ts` (Zod), `apps/api/src/routes/vendor.ts` (handlers), `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.
+Source of truth: `packages/shared/src/api/vendor.ts` + `product-versions.ts` (Zod), `apps/api/src/routes/vendor.ts` + `vendor-product-versions.ts` (handlers), with the shared guard seam in `apps/api/src/routes/vendor-shared.ts`; `STAGE_2_VENDOR_PORTAL_SPEC.md` §4 and `STAGE_2_ATTESTATIONS_SPEC.md` §8.3.
 
 **Two invariants govern this whole surface.**
 
@@ -1629,6 +1629,68 @@ export const UpdateVendorProductResponseSchema = z.object({ product: VendorProdu
 **Taxonomy guard-rail:** a vendor may only **assign terms that already exist**. Minting a term is an AECi curation act, so an unknown slug is a `VALIDATION_FAILED` keyed to the field rather than a silent drop — and nothing is partially applied, because terms are resolved before the batch opens.
 
 Errors: `NOT_FOUND` (unknown id **or** a product owned by another vendor — deliberately indistinguishable), `VALIDATION_FAILED` (empty body, unknown taxonomy slug, malformed URL/slug), `MALFORMED_REQUEST`.
+
+#### Product versions — `/api/vendor/products/:id/versions`
+
+Stage 2 (AECI-607, `STAGE_2_ATTESTATIONS_SPEC.md` §8.3). A product's vendor-declared releases: the entity the version-diff timeline (AECI-303) selects on. Zod in `packages/shared/src/api/product-versions.ts`, handlers in `apps/api/src/routes/vendor-product-versions.ts`.
+
+| Method | Path | Gate | Success |
+|---|---|---|---|
+| `GET` | `/api/vendor/products/:id/versions` | ownership | `200 { versions }` |
+| `POST` | `/api/vendor/products/:id/versions` | ownership **+ verified** | `201 { version }` |
+| `PATCH` | `/api/vendor/products/:id/versions/:versionId` | ownership **+ verified** | `200 { version }` |
+| `DELETE` | `/api/vendor/products/:id/versions/:versionId` | ownership **+ verified** | `204` (no body) |
+
+**Two gates, and the order is load-bearing.** Ownership is proven first and a miss is a **`404`** (the §6.14 non-disclosure rule); only then is `vendors.verified` checked, and a miss there is a **`403`**. Reversed, an unverified caller probing another vendor's product would get a `403` — which still discloses nothing by itself, but the fixed order also keeps a *verified* non-owner on the 404 path. **`GET` is not verified-gated**: authoring is the Verified-vendor capability (`STAGE_2_ATTESTATIONS_SPEC.md` §1), so the dashboard renders a read-only tab and explains why rather than 403-ing a vendor out of its own data. The 403 copy points at the claim/verification flow and **never at ranking, placement, or search** — verification gates capability only.
+
+`:versionId` must belong to `:id`; a mismatch is a `404`, so a version id cannot be probed across products.
+
+```typescript
+export const ProductVersionSchema = z.object({
+  id: z.string().uuid(),
+  product_id: z.string().uuid(),
+  label: z.string().min(1),          // free text: '2026.1', 'v5.2', 'R2024 SP1'
+  released_at: z.string().nullable(), // YYYY-MM-DD
+  sunset_at: z.string().nullable(),
+  sort_key: z.number().int(),
+  created_at: z.string().datetime(),
+  updated_at: z.string().datetime(),
+});
+
+export const ListProductVersionsResponseSchema = z.object({
+  versions: z.array(ProductVersionSchema),   // ordered by sort_key; never paginated
+});
+
+export const CreateProductVersionSchema = z.object({
+  label: versionLabel,                        // trim, 1..60
+  released_at: isoDate.nullable().optional(), // /^\d{4}-\d{2}-\d{2}$/
+  sunset_at: isoDate.nullable().optional(),
+  sort_key: sortKey.optional(),               // omitted → derived from label
+});
+
+export const UpdateProductVersionSchema = z
+  .object({
+    label: versionLabel.optional(),
+    released_at: isoDate.nullable().optional(),
+    sunset_at: isoDate.nullable().optional(),
+    sort_key: sortKey.nullable().optional(),  // number sets it; null re-derives
+  })
+  .superRefine(/* at least one field must be present */);
+
+export const ProductVersionResponseSchema = z.object({ version: ProductVersionSchema });
+```
+
+**`sort_key` is the ordering, and the label never is.** Version labels do not sort lexically (`'2026.10' < '2026.9'`), so the list comes back ordered by `sort_key`, then `created_at`, then `id` — the tiebreak deliberately never falls back to the label. `deriveVersionSortKey` (`@aeci/shared/version-sort`) packs the first three numeric runs of the label into one integer on create; the optional `sort_key` is the vendor's override for labels that derive 0 (`'LTS'`, `'Fall release'`).
+
+**On `PATCH`, `sort_key` never re-derives itself.** Changing `label` alone leaves the key exactly where it was — a silent re-derive would discard a deliberate override the moment a vendor fixed a typo. Explicit `null` is the "recompute from the (new) label" instruction; a number sets it outright. This is the one field on the whole `/api/vendor/*` surface where `null` means *recompute* rather than *clear*.
+
+**Dates are date-only** (`YYYY-MM-DD`). A timezone-bearing instant is rejected, so a value the UI renders as a day cannot arrive as one.
+
+Writes go through one `db.batch([...])` carrying the mutation and its `audit_log` row (§26.1), with actions `product_version.created` / `.updated` / `.deleted`, `entity_type: 'product_version'`, and `metadata.source = 'vendor-portal'` plus `vendorId` / `productId`. Post-commit the write enqueues a **`product:{slug}`** purge and nothing else: the pair page embeds `product:{slug}` for both of its endpoints (`CACHE_STRATEGY.md` §2), so that one tag also drops every pair page the product appears on, while `index:products` is omitted because versions never render on the catalog. `products.updated_at` is deliberately **not** bumped — versions do not feed the Algolia record.
+
+**Promote does not ingest versions** at launch; this surface is the only writer (`STAGE_2_ATTESTATIONS_SPEC.md` §8.3 / §11).
+
+Errors: `NOT_FOUND` (unknown product/version, a product owned by another vendor, or a version on a different product — all deliberately indistinguishable), `FORBIDDEN` (owner, but not verified), `VALIDATION_FAILED` (empty body, a `label` already used on this product, a non-date stamp, an out-of-range `sort_key`), `MALFORMED_REQUEST`.
 
 ---
 

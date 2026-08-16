@@ -93,6 +93,7 @@ Tables grouped by domain:
 **Claims & attestations** (Stage 1.5 spine + Stage 2 provenance/authority):
 - `claims` — a data object flowing in a direction through one integration (mechanism) row, with its `origin` (AECi curation vs. vendor-created)
 - `attestations` — who affirms a claim: the AECi seed plus the two vendor slots, one live row per slot
+- `product_versions` — a product's vendor-declared releases, ordered by `sort_key`; the entity the version-diff timeline selects on — Stage 2
 
 **Join tables**:
 - `product_categories` — product ↔ category many-to-many
@@ -407,8 +408,10 @@ create table attestations (
   claim_id uuid not null references claims(id) on delete cascade,
   source text not null check (source in ('aeci', 'vendor_a', 'vendor_b')),
   asserted boolean not null default true,
-  introduced_at timestamptz,   -- version stamp (§3.3) — NOT retirement
-  deprecated_at timestamptz,   -- version stamp (§3.3) — NOT retirement
+  introduced_at timestamptz,   -- coarse version stamp (§3.3) — NOT retirement
+  deprecated_at timestamptz,   -- coarse version stamp (§3.3) — NOT retirement
+  introduced_version_id uuid references product_versions(id) on delete set null,
+  deprecated_version_id uuid references product_versions(id) on delete set null,
   retracted_at timestamptz,    -- supersession: the vendor withdrew or replaced this
   attested_by_vendor_id uuid references vendors(id) on delete set null,
   note text,
@@ -433,6 +436,35 @@ create index attestations_active_idx on attestations(claim_id) where retracted_a
 - **Who reads `retracted_at`.** Both claim-loading read configs — `integrationPairConfig` (the pair page) and `productDetailIntegrationConfig` (the product-detail direction column) — filter `retracted_at is null` via the shared `liveAttestationsWhere` in `apps/api/src/lib/drizzle-helpers.ts` (AECI-605). `computeAgreement` re-checks the column itself, so the shared engine stays safe for callers that assemble attestations another way. Nothing reads `deprecated_at` as a gate.
 - **Agreement is computed, never stored** (§3.4, ADR 0018; `packages/shared/src/agreement.ts`) — four states, `unverified | single_source | confirmed | conflict`.
 - **Ingest** replaces a claim's attestations to exactly match the promote payload, inside the same `db.batch([...])` as the rest of the transaction (§6.2, the §26.1 audit-in-tx invariant). AECI-604 scopes that replacement to `source = 'aeci'` so vendor rows survive a re-promote.
+- **The version FKs are the precise form of the date stamps, not a replacement** (migration 2, AECI-607 — §5a.3 below). `introduced_version_id` / `deprecated_version_id` point at a row on the **attesting side's own endpoint product** — a `vendor_a` attestation stamps versions of product A — which keeps versioning inside the same authority boundary as the slot rule. The FK cannot express that on its own; the write path enforces it through `resolveAttestationSlots`. `introduced_at` / `deprecated_at` stay as the **coarse fallback** for every claim carrying no version data, which today is all of them: promote does not ingest versions (`STAGE_2_ATTESTATIONS_SPEC.md` §8.3 / §11). `on delete set null` means removing a version degrades a stamp to "no version data" — it never deletes the vendor's assertion, and it is not a back door to erasing one.
+
+### 5a.3 `product_versions`
+
+A release of one product, as its vendor names it (Stage 2 migration 2, AECI-607; `STAGE_2_ATTESTATIONS_SPEC.md` §8). AECI-303's "source-version × target-version" diff selects on these rows; the dormant ISO date stamps could not stand in, because dates cannot answer *"what flowed between Procore 2026.1 and BIM 360 v5"*.
+
+```sql
+create table product_versions (
+  id uuid primary key default gen_random_uuid(),
+  product_id uuid not null references products(id) on delete cascade,
+  label text not null,          -- vendor-authored free text: '2026.1', 'v5.2', 'R2024 SP1'
+  released_at date,             -- nullable, and therefore never an ordering input
+  sunset_at date,
+  sort_key integer not null,    -- THE ordering; see below
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+-- Label identity within a product. Two products may both ship a 'v5.2'.
+create unique index product_versions_label_key on product_versions(product_id, label);
+-- The ordered read.
+create index product_versions_order_idx on product_versions(product_id, sort_key);
+```
+
+- **`sort_key` is not optional, and it is the only ordering.** Version labels do not sort lexically — `'2026.10' < '2026.9'` as strings, and `'v10' < 'v9'`. Every ordering, every before/after comparison in the version diff, and the "latest" default key off this integer, never off `label` and never off the nullable `released_at`. **The API must not expose an ordering derived from the label** (`STAGE_2_ATTESTATIONS_SPEC.md` §8.2).
+- **It is derived, not supplied.** `deriveVersionSortKey` (`@aeci/shared/version-sort`) packs the first three numeric runs of the label into one base-100000 integer — `2026.9` → `20_260_000_900_000`, `2026.10` → `20_260_001_000_000` — capped well under `Number.MAX_SAFE_INTEGER`. The write API derives on create and accepts an **explicit override**, because a digit-free label (`'LTS'`, `'Fall release'`) derives 0 and only the vendor knows where those belong.
+- **Ties are legal, so the read order is total.** The unique index is on `(product_id, label)`, not on `sort_key`, and overrides/clamping can collide. `ORDER BY sort_key, created_at, id` — the tiebreak deliberately never falls back to `label`, which would reintroduce exactly the lexical ordering the column exists to avoid. `compareProductVersions` mirrors it in TypeScript; the two must change together.
+- **Vendor-authored only at launch.** `/api/vendor/products/:id/versions` (CRUD) is the sole writer, gated on product ownership (miss → **404**) plus `vendors.verified` on the writes (`API_CONTRACTS.md` §6.14). **Promote does not ingest versions** — a deliberate deferral (`STAGE_2_ATTESTATIONS_SPEC.md` §8.3 / §11), not an oversight.
+- **Cascade/set-null.** Deleting a product removes its versions; deleting a version nulls the attestation stamps pointing at it (see §5a.2) rather than deleting the attestation.
 
 ---
 

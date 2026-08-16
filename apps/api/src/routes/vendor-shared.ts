@@ -1,0 +1,181 @@
+/**
+ * The pieces every `/api/vendor/*` handler needs, extracted so more than one
+ * route module can share them (AECI-607; `routes/vendor.ts` was the sole home
+ * until the version CRUD landed, and §5/AECI-301 adds four more endpoints).
+ *
+ * `routes/vendor.ts` keeps the full narrative of the surface's invariants in its
+ * header — read that first. The short version, because everything here exists to
+ * serve it: there is **no RLS on app tables** (ADR 0016), so `requireVendor()`
+ * plus a `vendor_id` filter in every query IS the authorization. `vendorId` comes
+ * from `c.get('auth')` and never from the request; the one client-supplied id on
+ * the surface is a product id, whose ownership is proven **before** anything else
+ * is read or written; and a miss is a **404, not a 403**.
+ */
+
+import { forwardAuditLog, type AuditLogForwarder } from '@aeci/shared/audit-log';
+import { and, eq } from 'drizzle-orm';
+import type { Context } from 'hono';
+import type { ZodType } from 'zod';
+
+import type { Db } from '../db/client';
+import { productVendors, products, vendors } from '../db/schema';
+import { logToDatadog } from '../datadog';
+import type { Env } from '../env';
+import { ApiError, notFoundError } from '../errors';
+import type { AuthzVariables } from '../lib/authz';
+
+export type VendorContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
+
+export type VendorRow = typeof vendors.$inferSelect;
+export type ProductRow = typeof products.$inferSelect;
+
+/** `metadata.source` on every audit row the vendor portal writes. Distinguishes a
+ *  vendor's self-service edit from the AECi-side `product.updated` /
+ *  `vendor.updated` that `POST /api/promote` and the admin surfaces emit — the
+ *  actor_type is `'user'` for both a reviewer and a vendor admin, so this tag is
+ *  what makes the audit trail legible. */
+export const AUDIT_SOURCE = 'vendor-portal';
+
+/** The session's vendor id. `requireVendor()` guarantees it is non-null, so a
+ *  miss here means the guard was not mounted — fail loudly rather than fall
+ *  back to something that would read another vendor's rows. */
+export function sessionVendorId(c: VendorContext): string {
+  const vendorId = c.get('auth').vendorId;
+  if (!vendorId) {
+    throw new ApiError(403, 'FORBIDDEN', 'Vendor account is not linked to a vendor');
+  }
+  return vendorId;
+}
+
+export function makeForwarder(c: VendorContext): AuditLogForwarder | undefined {
+  if (!c.env.DD_API_KEY) return undefined;
+  return (entry) => {
+    logToDatadog(c.executionCtx, c.env, c.req.raw, {
+      level: 'info',
+      message: `audit ${entry.action} ${entry.entityId ?? ''}`.trim(),
+      action: entry.action,
+      entity_type: entry.entityType ?? undefined,
+      entity_id: entry.entityId ?? undefined,
+      source: AUDIT_SOURCE,
+    });
+  };
+}
+
+export async function parseJsonBody<T>(c: VendorContext, schema: ZodType<T>): Promise<T> {
+  let raw: unknown;
+  try {
+    raw = await c.req.json();
+  } catch {
+    throw new ApiError(400, 'MALFORMED_REQUEST', 'Request body is not valid JSON');
+  }
+  return schema.parse(raw);
+}
+
+/**
+ * Enqueue the Cache-Tag purge for an edited entity (WC-5 / ADR 0020 §3). The SSR
+ * consumer issues the actual `ctx.cache.purge()`. Best-effort by design: no-ops
+ * without the queue binding (local / PR preview) and a `queue.send` rejection is
+ * logged and swallowed — a cache miss must never fail a committed edit.
+ */
+export async function purgeTags(c: VendorContext, tags: readonly string[]): Promise<void> {
+  const queue = c.env.CACHE_PURGE_QUEUE;
+  if (!queue || tags.length === 0) return;
+  try {
+    await queue.send({ tags: [...tags], source: 'vendor' });
+  } catch (error) {
+    logToDatadog(c.executionCtx, c.env, c.req.raw, {
+      level: 'warn',
+      message: `Cache purge enqueue failed for ${tags.join(',')}`,
+      outcome: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+/** The post-commit tail every vendor write shares: purge, then forward to
+ *  Datadog. Both best-effort, both outside the batch. */
+export function afterVendorWrite(
+  c: VendorContext,
+  tags: readonly string[],
+  entry: Parameters<typeof forwardAuditLog>[0],
+): void {
+  c.executionCtx.waitUntil(
+    Promise.all([purgeTags(c, tags), forwardAuditLog(entry, makeForwarder(c))]),
+  );
+}
+
+/** What `requireOwnedProduct` proves: the product row, whether the caller is its
+ *  primary vendor, and the caller's own vendor row (for the capability gate). */
+export interface OwnedProduct {
+  product: ProductRow;
+  isPrimary: boolean;
+  vendor: VendorRow;
+}
+
+/**
+ * Prove the session's vendor owns `productId`, and load what a write needs.
+ *
+ * **Runs in its own wave, before any other read or write on the request**, and a
+ * miss is a **404, not a 403** — a vendor must not be able to probe for the
+ * existence of another vendor's product. Folding this into a wider `Promise.all`
+ * would let a validation error (a 400 naming a bad slug, say) win the race and
+ * answer a request that should have been a flat 404.
+ *
+ * This is the PRODUCT-grain counterpart to `lib/attestation-authority.ts`'s
+ * integration-grain `resolveAttestationSlots`: same `product_vendors` source,
+ * same 404-never-403 property, different question. Neither re-derives the other.
+ *
+ * The caller's `vendors` row rides along because `assertVerifiedVendor` needs it
+ * and a second round-trip on the Worker for one boolean is not worth it. The
+ * three reads go in one wave and are then checked **in order** — ownership
+ * first, so a non-owner gets a 404 rather than learning it is merely unverified.
+ */
+export async function requireOwnedProduct(
+  db: Db,
+  vendorId: string,
+  productId: string,
+): Promise<OwnedProduct> {
+  const [ownership, product, vendor] = await Promise.all([
+    db.query.productVendors.findFirst({
+      where: and(eq(productVendors.productId, productId), eq(productVendors.vendorId, vendorId)),
+    }),
+    db.query.products.findFirst({ where: eq(products.id, productId) }),
+    db.query.vendors.findFirst({ where: eq(vendors.id, vendorId) }),
+  ]);
+  if (!ownership || !product) throw notFoundError('product', { id: productId });
+  // A granted seat whose vendor row has since been deleted. `GET /api/vendor/me`
+  // answers 404 for the same state; do the same here rather than 500.
+  if (!vendor) throw notFoundError('vendor', { id: vendorId });
+  return { product, isPrimary: ownership.isPrimary, vendor };
+}
+
+/**
+ * ⚠️ **PLACEHOLDER** — the `aeci-514`-local stand-in for
+ * `requireCapability('attestation.author')`.
+ *
+ * Attestation authoring, and the product-version model that exists only to stamp
+ * attestations, is a **Verified-vendor capability**
+ * (`STAGE_2_ATTESTATIONS_SPEC.md` §1; `STAGE_2_SPEC.md` §8.1(3)), with
+ * `vendors.verified` as the launch entitlement bit. AECI-610 has already shipped
+ * the real registry on the `aeci-515` branch — `@aeci/shared/entitlements`
+ * declares the `'attestation.author'` capability id — and AECI-611 adds the guard
+ * that loads a tier onto the session. Neither is reachable from this branch, so
+ * this is deliberately ONE function with ONE call site per handler: swapping it
+ * for `requireCapability` at the `aeci-514`/`aeci-515` → `stage-2` merge is a
+ * mechanical edit, not an audit.
+ *
+ * It **reads** `vendors.verified` and never writes it. On `aeci-515` an ESLint
+ * rule makes the entitlement-mirror module the only writer of that column;
+ * nothing here should give a future editor a reason to break that.
+ *
+ * The 403 copy points at the claim/verification flow and **never at ranking or
+ * placement** — verification gates capability only (no pay-for-placement).
+ */
+export function assertVerifiedVendor(vendor: Pick<VendorRow, 'verified'>): void {
+  if (!vendor.verified) {
+    throw new ApiError(
+      403,
+      'FORBIDDEN',
+      'This action requires a verified vendor account. Claim your company profile to get verified.',
+    );
+  }
+}
