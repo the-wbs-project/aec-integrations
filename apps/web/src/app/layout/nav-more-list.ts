@@ -14,8 +14,13 @@ import type { MoreMenuGroup } from './more-menu-links';
  * structurally identical, so one template covers both. A group heading is a
  * `<p>` wired to its `<ul>` via `aria-labelledby`, never a real heading: the
  * page already owns its heading outline and a nav-group label would break the
- * order for no navigational gain (same reasoning as `admin-shell.ts`). A group
- * with `heading: null` renders as a bare list.
+ * order for no navigational gain (same reasoning as `admin-shell.ts`).
+ *
+ * Items pin `font-normal` rather than inheriting. The desktop primary `<nav>`
+ * sets `font-medium` on the whole row (`site-header.ts`), so an unpinned item
+ * renders at 500 there and 400 in the mobile overlay — the exact drift this
+ * component exists to prevent — and at 500 it sits too close to the 600 overline
+ * above it for the two to read as different levels.
  *
  * Pure inputs only — no data fetching, no i18n ids (the caller supplies
  * localized labels), and no admin gating (the caller decides whether to pass the
@@ -28,12 +33,10 @@ import type { MoreMenuGroup } from './more-menu-links';
   template: `
     @for (group of groups(); track group.id) {
       <div class="mt-1 first:mt-0">
-        @if (group.heading) {
-          <p [id]="group.id" class="aec-overline px-3 pt-2 pb-1 text-(--text-secondary)">
-            {{ group.heading }}
-          </p>
-        }
-        <ul class="flex flex-col gap-0.5" [attr.aria-labelledby]="group.heading ? group.id : null">
+        <p [id]="group.id" class="aec-overline px-3 pt-2 pb-1 text-(--text-secondary)">
+          {{ group.heading }}
+        </p>
+        <ul class="flex flex-col gap-0.5" [attr.aria-labelledby]="group.id">
           @for (item of group.items; track item.path) {
             <li>
               <a
@@ -41,7 +44,7 @@ import type { MoreMenuGroup } from './more-menu-links';
                 routerLinkActive="text-(--accent-primary)"
                 ariaCurrentWhenActive="page"
                 (click)="navigate.emit()"
-                class="flex items-center justify-between gap-3 rounded-(--radius-sm) px-3 py-1.5 text-sm text-(--text-primary) no-underline transition-colors hover:bg-(--surface-sunken) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                class="flex items-center justify-between gap-3 rounded-(--radius-sm) px-3 py-1.5 text-sm font-normal text-(--text-primary) no-underline transition-colors hover:bg-(--surface-sunken) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
               >
                 <span>{{ item.label }}</span>
                 @if (item.badge && pendingCount() > 0) {
