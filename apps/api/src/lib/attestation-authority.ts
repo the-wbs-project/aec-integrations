@@ -42,21 +42,40 @@
  * occupy it, for notification recipients) — build it on `slotsForOwnership` here rather
  * than as a second implementation of the same table.
  *
+ * Three entry points, one grain apart, all folding into `loadAuthorities`'s join shape so
+ * the 404 property above holds at every grain:
+ *
+ *   - `resolveAttestationSlots(db, vendorId, integrationId)`   — one integration.
+ *   - `resolveAttestationSlotsForVendor(db, vendorId, opts?)`  — many, or the whole surface.
+ *   - `resolveClaimAuthority(db, vendorId, claimId)`           — one CLAIM (AECI-301).
+ *
+ * The claim-grain form is not sugar: composing "load the claim, then resolve its
+ * integration" would answer a *different* 404 for a claim that does not exist than for
+ * one belonging to another vendor, which is an existence oracle. See its doc comment.
+ *
  * The claim-provenance invariant lives here too, for the same reason: it is the other
  * half of "who may write what", and it is enforced in application code by deliberate
  * choice (§2.2 — a two-column D1 CHECK is possible, but the rule belongs in one place).
  */
 
+import { VENDOR_ATTESTATION_SLOTS, type VendorAttestationSlot } from '@aeci/shared';
 import { and, eq, inArray, or } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
-import { integrations, productVendors } from '../db/schema';
+import { claims, integrations, productVendors } from '../db/schema';
 import { ApiError, notFoundError } from '../errors';
 
-/** The two vendor-writable `attestations.source` values (`STAGE_1_5_SPEC.md` §3.3). */
-export const ATTESTATION_SLOTS = ['vendor_a', 'vendor_b'] as const;
+/**
+ * The two vendor-writable `attestations.source` values (`STAGE_1_5_SPEC.md` §3.3).
+ *
+ * Re-exported from the wire contract (`@aeci/shared`) rather than redeclared:
+ * AECI-301 puts the same tuple on the `GET /api/vendor/integrations` response as
+ * "which slot is yours", and two literal lists of the same two strings is exactly
+ * how the Worker and the contract drift.
+ */
+export const ATTESTATION_SLOTS = VENDOR_ATTESTATION_SLOTS;
 
-export type AttestationSlot = (typeof ATTESTATION_SLOTS)[number];
+export type AttestationSlot = VendorAttestationSlot;
 
 /** One integration a vendor may attest on, with the slots that vendor owns. */
 export interface AttestationAuthority {
@@ -179,6 +198,97 @@ export async function resolveAttestationSlotsForVendor(
   opts?: { integrationIds?: readonly string[] },
 ): Promise<Map<string, AttestationAuthority>> {
   return loadAuthorities(db, vendorId, opts?.integrationIds);
+}
+
+/** The claim a §5 write targets, plus the caller's authority over it. */
+export interface ClaimAuthority {
+  claim: {
+    id: string;
+    integrationId: string;
+    dataObjectId: string;
+    direction: string;
+    origin: string;
+    createdByVendorId: string | null;
+  };
+  authority: AttestationAuthority;
+}
+
+/**
+ * Resolve the caller's permitted slots on the integration behind ONE **claim** —
+ * the claim-grain entry point the `/api/vendor/claims/:claimId/attestation`
+ * handlers run first, in their own wave (AECI-301 / §5.2).
+ *
+ * **This exists to close an existence leak, not for convenience.** The obvious
+ * implementation — load the claim, then call `resolveAttestationSlots` on its
+ * `integration_id` — answers `notFoundError('claim', …)` for a claim that does
+ * not exist and `notFoundError('integration', …)` for one belonging to another
+ * vendor. Those are *distinguishable* 404s, so a vendor could walk claim ids and
+ * learn which ones are real. Folding both into a single join makes "no such
+ * claim" and "you own neither endpoint" the same empty result, exactly as §2.5
+ * did one grain up: the indistinguishability is structural, not a branch someone
+ * has to remember to write the same way twice.
+ *
+ * The §2.1 slot table is **not** re-derived here — `slotsForOwnership` is the one
+ * implementation, shared with `loadAuthorities`.
+ */
+export async function resolveClaimAuthority(
+  db: Db,
+  vendorId: string,
+  claimId: string,
+): Promise<ClaimAuthority> {
+  const rows = await db
+    .select({
+      id: claims.id,
+      integrationId: claims.integrationId,
+      dataObjectId: claims.dataObjectId,
+      direction: claims.direction,
+      origin: claims.origin,
+      createdByVendorId: claims.createdByVendorId,
+      sourceProductId: integrations.sourceProductId,
+      targetProductId: integrations.targetProductId,
+      ownedProductId: productVendors.productId,
+    })
+    .from(claims)
+    .innerJoin(integrations, eq(integrations.id, claims.integrationId))
+    // Same INNER JOIN + in-predicate vendor filter as `loadAuthorities`: a claim
+    // on an integration the caller does not touch produces no rows at all.
+    .innerJoin(
+      productVendors,
+      and(
+        eq(productVendors.vendorId, vendorId),
+        or(
+          eq(productVendors.productId, integrations.sourceProductId),
+          eq(productVendors.productId, integrations.targetProductId),
+        ),
+      ),
+    )
+    .where(eq(claims.id, claimId));
+
+  const first = rows[0];
+  if (!first) throw notFoundError('claim', { id: claimId });
+
+  // Owning BOTH endpoints yields two rows for the one claim — fold them, as
+  // `loadAuthorities` does.
+  const ownedProductIds = new Set(rows.map((row) => row.ownedProductId));
+  return {
+    claim: {
+      id: first.id,
+      integrationId: first.integrationId,
+      dataObjectId: first.dataObjectId,
+      direction: first.direction,
+      origin: first.origin,
+      createdByVendorId: first.createdByVendorId,
+    },
+    authority: {
+      integrationId: first.integrationId,
+      sourceProductId: first.sourceProductId,
+      targetProductId: first.targetProductId,
+      slots: slotsForOwnership(
+        ownedProductIds.has(first.sourceProductId),
+        ownedProductIds.has(first.targetProductId),
+      ),
+    },
+  };
 }
 
 // ───────────────────────────── Claim provenance (§2.2) ─────────────────────────────

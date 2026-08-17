@@ -83,7 +83,6 @@ import {
   productVendors,
   taxonomyAudiences,
   taxonomyCategories,
-  taxonomyDataObjects,
   taxonomyPhases,
   vendors,
 } from '../db/schema';
@@ -95,6 +94,11 @@ import { syncPromoteTargets } from '../lib/algolia-sync';
 import { emitAlgoliaSyncMetrics, type SyncMetricSink } from '../lib/algolia-sync-metrics';
 import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
 import { loadClaimedVendorIds } from '../lib/claimed-vendors';
+import {
+  loadDataObjectResolver,
+  safeSlugify,
+  type DataObjectResolver,
+} from '../lib/data-object-vocabulary';
 import { callGoogleIndexing } from '../lib/google-indexing';
 import { writeDb, type DbFactory } from '../lib/handler-utils';
 import { runHomeStats, type HomeStatsResult } from '../lib/home-stats';
@@ -121,21 +125,6 @@ function compact(obj: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(obj)) if (v !== undefined) out[k] = v;
   return out;
-}
-
-/**
- * Slugify for matching, never throwing. Usefulness resolution looks an input
- * `slug`/`name` up against existing terms; an input that maps to a reserved or
- * empty slug simply can't match anything, so we return `null` (→ unresolvable →
- * `skipped`) rather than 500-ing the whole promote the way the facet path's bare
- * `slugify` would.
- */
-function safeSlugify(value: string): string | null {
-  try {
-    return slugify(value);
-  } catch {
-    return null;
-  }
 }
 
 /** Generate a slug or throw a typed 400 for the two expected failure modes. */
@@ -1129,34 +1118,18 @@ export function createPromoteHandler(
 
     // ── Data-object resolver (find-only, for claims — §6.2) ───────────────────
     // Claims resolve their `dataObject` against the seeded, frozen
-    // `taxonomy_data_objects` vocabulary by slug OR alias (never find-or-create —
-    // an unmatched term lands in `skipped[]` with `kind: 'claim'`). Load once and
-    // only when a claim is actually present, mirroring the usefulness find-only
-    // path (`resolveUsefulnessFacet`). `safeSlugify` normalizes both the seeded
-    // keys and the incoming value so case/spacing don't matter.
+    // `taxonomy_data_objects` vocabulary by slug OR alias (never find-or-create).
+    // The matching rule lives in `lib/data-object-vocabulary.ts` because the
+    // vendor authoring API (AECI-301) needs the identical one; what differs is
+    // only the failure mode — a batch job lands a miss in `skipped[]` with
+    // `kind: 'claim'`, an interactive caller gets a 400.
+    //
+    // Loaded once, and only when a claim is actually present, mirroring the
+    // usefulness find-only path (`resolveUsefulnessFacet`).
     const anyClaims = payload.integrations.some((i) => i.claims.length > 0);
-    const dataObjectIdByKey = new Map<string, string>();
-    if (anyClaims) {
-      const doRows = await db
-        .select({
-          id: taxonomyDataObjects.id,
-          slug: taxonomyDataObjects.slug,
-          aliases: taxonomyDataObjects.aliases,
-        })
-        .from(taxonomyDataObjects);
-      const addKey = (value: string | null | undefined, id: string) => {
-        const key = value ? safeSlugify(value) : null;
-        if (key && !dataObjectIdByKey.has(key)) dataObjectIdByKey.set(key, id);
-      };
-      for (const row of doRows) {
-        addKey(row.slug, row.id);
-        for (const alias of row.aliases ?? []) addKey(alias, row.id);
-      }
-    }
-    const resolveDataObject = (value: string): string | undefined => {
-      const key = safeSlugify(value);
-      return key ? dataObjectIdByKey.get(key) : undefined;
-    };
+    const resolveDataObject: DataObjectResolver = anyClaims
+      ? await loadDataObjectResolver(db)
+      : () => undefined;
 
     // ── Integrations ──────────────────────────────────────────────────────────
     const integrationResults: PromoteIntegrationResult[] = [];
@@ -1295,8 +1268,8 @@ export function createPromoteHandler(
         stmts.push(db.delete(claims).where(eq(claims.integrationId, integrationId)));
         const seenClaims = new Set<string>();
         for (const claim of intg.claims) {
-          const dataObjectId = resolveDataObject(claim.dataObject);
-          if (!dataObjectId) {
+          const dataObject = resolveDataObject(claim.dataObject);
+          if (!dataObject) {
             skipped.push({
               ref: intg.ref,
               kind: 'claim',
@@ -1304,6 +1277,7 @@ export function createPromoteHandler(
             });
             continue;
           }
+          const dataObjectId = dataObject.id;
           // Collapse identity duplicates within the payload so the re-insert never
           // orphans an attestation on a claim the unique index would reject.
           const identity = `${dataObjectId}|${claim.direction}`;

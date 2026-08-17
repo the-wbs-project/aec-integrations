@@ -83,7 +83,9 @@ const vendorLinkColumns = {
   logoUrl: true,
   verified: true,
 } as const;
-const productLinkColumns = { id: true, name: true, slug: true, logoUrl: true } as const;
+/** Exported for `routes/vendor-attestations.ts` (AECI-301), whose hydration
+ *  embeds the same `ProductLink` shape. One column list, one mapper. */
+export const productLinkColumns = { id: true, name: true, slug: true, logoUrl: true } as const;
 const taxonomyLinkColumns = { id: true, name: true, slug: true } as const;
 const taxonomyLinkWithOrderColumns = { ...taxonomyLinkColumns, displayOrder: true } as const;
 
@@ -679,7 +681,7 @@ function toProductRole(raw: string, productId: string): ProductRole {
   throw new Error(`Data integrity: product ${productId} has unknown product_role "${raw}"`);
 }
 
-function toProductLink(raw: RawProductLink): ProductLink {
+export function toProductLink(raw: RawProductLink): ProductLink {
   return { id: raw.id, name: raw.name, slug: raw.slug, logo_url: raw.logoUrl };
 }
 function toVendorLink(raw: RawVendorLink): VendorLink {

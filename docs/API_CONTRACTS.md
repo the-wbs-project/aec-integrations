@@ -1530,11 +1530,11 @@ export const FeedbackSubmitSchema = z
 
 Stage 2 (AECI-520). All require `role === 'vendor_admin'` **and** a non-null `profiles.vendor_id`, enforced by the `requireVendor()` Worker middleware (`apps/api/src/lib/authz.ts`) — verifies the JWT, loads the D1 profile, and rejects in this order: missing token/profile `401`; `banned_at` set `403`; wrong role `403`; null `vendor_id` `403`. A site **`admin` is rejected too** — there is no impersonation at launch, admins act on vendor data through `/api/admin/*` so the audit trail names the real actor.
 
-Source of truth: `packages/shared/src/api/vendor.ts` + `product-versions.ts` (Zod), `apps/api/src/routes/vendor.ts` + `vendor-product-versions.ts` (handlers), with the shared guard seam in `apps/api/src/routes/vendor-shared.ts`; `STAGE_2_VENDOR_PORTAL_SPEC.md` §4 and `STAGE_2_ATTESTATIONS_SPEC.md` §8.3.
+Source of truth: `packages/shared/src/api/vendor.ts` + `product-versions.ts` + `vendor-attestations.ts` (Zod), `apps/api/src/routes/vendor.ts` + `vendor-product-versions.ts` + `vendor-attestations.ts` (handlers), with the shared guard seam in `apps/api/src/routes/vendor-shared.ts` and the two-slot authority seam in `apps/api/src/lib/attestation-authority.ts`; `STAGE_2_VENDOR_PORTAL_SPEC.md` §4 and `STAGE_2_ATTESTATIONS_SPEC.md` §5 / §8.3.
 
 **Two invariants govern this whole surface.**
 
-1. **Scoping.** There is no RLS on app tables (ADR 0016), so the guard plus a `WHERE vendor_id = <session vendor>` filter in every query *is* the authorization. No vendor id crosses the wire; the only client-supplied id (`PATCH /api/vendor/products/:id`) has its ownership proven against `product_vendors` **before** anything is read or written, and a miss returns **`404`, not `403`** — a non-owner must not learn the product exists.
+1. **Scoping.** There is no RLS on app tables (ADR 0016), so the guard plus a `WHERE vendor_id = <session vendor>` filter in every query *is* the authorization. No vendor id crosses the wire; every client-supplied id — the product on `PATCH /api/vendor/products/:id` and its versions, the integration or claim on the attestation routes — has its ownership proven against `product_vendors` **before** anything is read or written, and a miss returns **`404`, not `403`** — a non-owner must not learn the resource exists.
 2. **The allow-list is the guard-rail.** Zod strips unknown keys, so any column absent from an `Update*Schema` is unwritable by a vendor: `slug`, `name` / `company_name`, `verified`, `promotion_status`, `admin_notes`, `research_*`, `priority_*`, `score_*`, the VQS fields, `usefulness`, `source_url`, and every denormalized count/average stay AECi-owned. Adding a field there grants a write.
 
 Every editable field is `.nullable().optional()`: an **absent** key leaves the column untouched, an explicit **`null`** clears it. Taxonomy arrays are set-replacement — absent leaves the facet alone, `[]` clears it. URLs must be `http://` or `https://` (§7.1); a plain `.url()` would accept `javascript:`.
@@ -1691,6 +1691,96 @@ Writes go through one `db.batch([...])` carrying the mutation and its `audit_log
 **Promote does not ingest versions** at launch; this surface is the only writer (`STAGE_2_ATTESTATIONS_SPEC.md` §8.3 / §11).
 
 Errors: `NOT_FOUND` (unknown product/version, a product owned by another vendor, or a version on a different product — all deliberately indistinguishable), `FORBIDDEN` (owner, but not verified), `VALIDATION_FAILED` (empty body, a `label` already used on this product, a non-date stamp, an out-of-range `sort_key`), `MALFORMED_REQUEST`.
+
+#### Attestations — `/api/vendor/integrations` + `/api/vendor/claims`
+
+Stage 2 (AECI-301, `STAGE_2_ATTESTATIONS_SPEC.md` §5). The surface a Verified vendor writes its own integration claims through — the first code that can produce a `vendor_a` / `vendor_b` attestation, and therefore the first that can move a claim off `unverified`. Zod in `packages/shared/src/api/vendor-attestations.ts`, handlers in `apps/api/src/routes/vendor-attestations.ts`.
+
+> **⚠️ "Claim" means three different things in this document.** Here it is a **data-flow claim** — "this `data_object` flows in this `direction` through this integration" (`STAGE_1_5_SPEC.md` §3.1). It is **not** the public correction/claim *request* of §6.7, and **not** the vendor-account *claim* an admin grants in §6.10.
+
+| Method | Path | Gate | Success |
+|---|---|---|---|
+| `GET` | `/api/vendor/integrations` | authority | `200 { integrations }` |
+| `POST` | `/api/vendor/claims` | authority **+ verified** | `201 { claim }` |
+| `PUT` | `/api/vendor/claims/:claimId/attestation` | authority **+ verified** | `200 { claim }` |
+| `DELETE` | `/api/vendor/claims/:claimId/attestation` | authority **+ verified** | `204` (no body) |
+
+**Authority is the §6.14 ownership rule, one grain up.** `PATCH /api/vendor/products/:id` asks "do you own this product"; these ask "do you own an *endpoint* of this integration", because an integration has **two** vendor-writable slots — `vendor_a` for endpoint A (`integrations.source_product_id`), `vendor_b` for endpoint B. `resolveAttestationSlots` / `resolveClaimAuthority` (`apps/api/src/lib/attestation-authority.ts`) are the single implementation; no handler re-derives the table. A caller owning neither endpoint gets **`404`**, and it is indistinguishable from a resource that does not exist — collapsed into one join result rather than two branches that must be kept identical, so the endpoint cannot be walked as an existence oracle. See `AUTH_AND_RLS.md` §4.2a.
+
+**Nothing on the wire carries a slot or a vendor id.** Which slot the caller fills is derived from `product_vendors`; a `slot` key in a request body is stripped by Zod. On the READ it appears as `slots` — "which one is yours".
+
+**A vendor owning both endpoints writes both slots.** `product_vendors` is many-to-many, so one company can hold both. Every write fills every slot the caller owns, so its position cannot self-contradict and `DELETE` genuinely clears. It makes no difference to a reader: `confirmed` requires two **distinct** `attested_by_vendor_id` values, so one company is one voter and still renders `single_source`.
+
+**Direction is caller-relative on the wire, canonical in the DB.** The vendor sends `inbound` / `outbound` / `both` relative to its own product; `claims.direction` stores `a_to_b` / `b_to_a` / `both` relative to the integration row's own endpoints (`STAGE_1_5_SPEC.md` §3.2). `claimDirectionForContext` / `claimDirectionFromContext` (`@aeci/shared`) are the two halves. A caller owning both endpoints is framed from endpoint A.
+
+**`GET` is not verified-gated**, matching the product-version list: authoring is the Verified capability, reading your own surface is not, so the dashboard renders a read-only tab and explains what verification unlocks.
+
+```typescript
+export const VendorClaimSchema = z.object({
+  id: z.string().uuid(),
+  integration_id: z.string().uuid(),
+  data_object_slug: z.string(),
+  data_object_name: z.string(),
+  direction: ContextDirectionSchema,        // caller-relative: inbound|outbound|both
+  agreement: z.enum(AGREEMENT_STATES),      // computed + echoed, never sent
+  origin: ClaimOriginSchema,                // 'aeci' | 'vendor'
+  mine: z.array(VendorOwnAttestationSchema),        // 0..2 — one per owned slot
+  counterparty: CounterpartyAttestationSchema.nullable(),  // { asserted, note }
+});
+
+export const VendorIntegrationSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string().nullable(),
+  mechanism_kind: IntegrationMechanismKindSchema.nullable(),
+  mechanism_name: z.string().nullable(),
+  context_product: ProductLinkSchema,   // the caller's endpoint (A when it owns A)
+  other_product: ProductLinkSchema,
+  slots: z.array(VendorAttestationSlotSchema).min(1),   // 'vendor_a' | 'vendor_b'
+  claims: z.array(VendorClaimSchema),
+});
+
+export const ListVendorIntegrationsResponseSchema = z.object({
+  integrations: z.array(VendorIntegrationSchema),   // never paginated
+});
+
+export const CreateVendorClaimSchema = z.object({
+  integration_id: z.string().uuid(),
+  data_object: dataObjectRef,                 // trim, 1..100 — slug OR alias
+  direction: ContextDirectionSchema,
+  note: attestationNote.nullable().optional(), // trim, max 2000
+  introduced_version_id: versionId.nullable().optional(),
+  deprecated_version_id: versionId.nullable().optional(),
+});
+
+export const UpsertVendorAttestationSchema = z.object({
+  asserted: z.boolean(),                       // required — a PUT states a position
+  note: attestationNote.nullable().optional(),
+  introduced_version_id: versionId.nullable().optional(),
+  deprecated_version_id: versionId.nullable().optional(),
+});
+
+export const VendorClaimResponseSchema = z.object({ claim: VendorClaimSchema });
+```
+
+**`GET /api/vendor/integrations`** returns every integration touching a product the caller owns, with each claim's live attestations resolved into `mine` / `counterparty`, its computed `agreement`, and the slot(s) that are the caller's. Unpaginated — the set is bounded by the vendor's own catalog. Retracted attestations never appear (`retracted_at IS NULL`, the same filter the public pair page applies). Claims are ordered by the `data_object` vocabulary's `display_order`. A vendor whose products carry no integrations gets `200 { integrations: [] }`, not a 404.
+
+**`POST /api/vendor/claims`** creates the claim **and** the caller's affirming attestation in one batch. There is no `asserted` field — creating a claim *is* affirming it; recording a denial means `PUT` on a claim that already exists. `origin` is set to `'vendor'` with `created_by_vendor_id` (§2.2), never from the request.
+
+**`data_object` is find-only.** The slug or alias resolves against the frozen, closed `taxonomy_data_objects` vocabulary (`docs/DATA_OBJECT_VOCABULARY.md`) — a vendor cannot mint a term any more than promote can. Unlike promote, which lands a miss in `skipped[]` because it is a batch job, an unmatched term here is a **`VALIDATION_FAILED` naming the field**. Both callers share one matcher (`apps/api/src/lib/data-object-vocabulary.ts`).
+
+**A duplicate claim identity is a `400` carrying `details.claim_id`.** `claims_identity_key` is `(integration_id, data_object_id, direction)`, so the collision is narrow — claims anchor to the *mechanism row*, and two mechanisms moving the same data object between the same products are two independent claims. The existing id is returned so the UI can pivot to `PUT` rather than dead-ending.
+
+**`PUT` replaces; it does not patch.** Supersession is **retract-then-insert** (§2.1), never an `UPDATE` — the old row keeps its `id` and gains `retracted_at`, because AECI-303's version-diff timeline reads the append-only history. There is therefore no prior row to leave a field alone on: an omitted `note` or version stamp lands as `null`. The retract clears whatever holds a slot the caller owns (the partial unique index makes that last-write-wins); `DELETE` retracts only the caller's **own** rows, so withdrawing your position never withdraws someone else's.
+
+**`DELETE` with nothing of the caller's to retract is a `404`**, not an idempotent 204 — §26.1 wants no audit row without a state change.
+
+**Version stamps stay inside the attesting side's own endpoint** (`STAGE_2_ATTESTATIONS_SPEC.md` §8.2). A `introduced_version_id` / `deprecated_version_id` belonging to a product the caller does not own on this integration is a `VALIDATION_FAILED` naming the field, and an unknown id answers identically so the response cannot probe another product's release history. For a caller owning both endpoints, the stamp lands only on the slot whose endpoint owns that version.
+
+Writes go through one `db.batch([...])` carrying every mutation and its `audit_log` rows (§26.1), with actions `claim.created` / `attestation.created` / `attestation.retracted`, `entity_type` `claim` / `attestation`, and `metadata.source = 'vendor-portal'` plus `vendorId`, `claimId`, `integrationId` and the resolved `slot`. One audit row is emitted **per attestation row**, so a both-endpoints write produces two. Post-commit the write enqueues **`pair:{min}__{max}`** (via `pairCacheTag` — the identical tag the pair page emits, keep them in lockstep) plus **`product:{slug}`** for both endpoints, whose detail pages carry the claims-aware direction column. `index:products` is omitted: claims never render on the catalog.
+
+**No Algolia reindex.** Claims do not feed the index; vendor edits reach search on the nightly watermark sync (`STAGE_2_SPEC.md` §8.3(5)). Dashboard copy must not promise "live in search".
+
+Errors: `NOT_FOUND` (unknown claim/integration, or one whose endpoints the caller does not own — deliberately indistinguishable; also a `DELETE` with nothing to retract), `FORBIDDEN` (endpoint owner, but not verified — copy points at the claim/verification flow and never at ranking, placement, or search), `VALIDATION_FAILED` (unknown `data_object`, a duplicate claim identity, a version outside the caller's endpoint, a missing stance on `PUT`), `MALFORMED_REQUEST`.
 
 ---
 
