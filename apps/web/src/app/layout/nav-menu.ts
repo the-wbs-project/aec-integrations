@@ -373,6 +373,10 @@ export class NavMenu {
   }
 
   protected toggleSection(kind: TaxonomyKind | string): void {
+    // Opening "More" re-arms the admin probe (AECI-617): if the post-hydration
+    // probe failed, the retry lands at the moment the visitor asks for the menu
+    // rather than never. A no-op once resolved, and for anyone not signed in.
+    if (kind === this.MORE) void this.adminStatus.ensureProbed();
     const next = new Set(this.openSections());
     if (next.has(kind)) next.delete(kind);
     else next.add(kind);

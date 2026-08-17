@@ -31,7 +31,10 @@ describe('NavMoreTrigger', () => {
       providers: [
         provideZonelessChangeDetection(),
         provideRouter([]),
-        { provide: AdminStatus, useValue: { isAdmin } },
+        // `ensureProbed` is the AECI-617 retry seam the trigger calls on every
+        // open — stubbed as a resolved no-op so the disclosure specs stay
+        // focused on open/close behaviour.
+        { provide: AdminStatus, useValue: { isAdmin, ensureProbed: () => Promise.resolve() } },
         { provide: AdminSummaryStore, useValue: { pendingReviews } },
       ],
     });

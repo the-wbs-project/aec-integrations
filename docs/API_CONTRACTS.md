@@ -823,15 +823,32 @@ export interface AccountProfileResponse {
   user_id: string;
   email: string | null;
   display_name: string | null;
+  role: string;
+  pending_reviews: number | null;
 }
 ```
+
+`role` (AECI-259) is the caller's own `profiles.role`, re-read from D1 by
+`requireAuth()` on every request (AUTH_AND_RLS §4.5) — never a client claim. The
+web client reads it to decide whether to surface admin affordances.
+
+`pending_reviews` (AECI-617) is the moderation-queue count — the same aggregate
+`GET /api/admin/summary` serves — and is non-null **only** for `role === 'admin'`;
+a non-admin gets `null` and the `reviews` table is never counted. It rides along
+here so the header's "More" menu resolves "am I an admin, and how many reviews are
+waiting?" in ONE round trip. The former `/api/account` → `/api/admin/summary`
+chain paid two JWKS verifies and two `profiles` reads, and the second hop's
+latency was the visible lag before the Admin section appeared. `GET
+/api/admin/summary` is unchanged and remains the `/admin` SSR resolver's gate and
+the in-shell badge feed.
 
 Errors: `UNAUTHENTICATED`.
 
 #### `PATCH /api/account`
 
 Update the editable profile fields (today: `display_name`). Audited
-(`profile.updated`). Returns the updated `AccountProfileResponse`.
+(`profile.updated`). Returns the updated `AccountProfileResponse` — including
+`role` and the admin-only `pending_reviews`, on the same rules as `GET`.
 
 ```typescript
 export const UpdateAccountSchema = z.object({
@@ -990,6 +1007,8 @@ export type AdminSummaryResponse = z.infer<typeof AdminSummaryResponseSchema>;
 ```
 
 Source of truth: `packages/shared/src/api/admin.ts`. Implemented in `apps/api/src/routes/admin-summary.ts` (a Drizzle/D1 count of `reviews` where `status = 'pending'`). Read-only — no audit log.
+
+**Callers (AECI-617).** This endpoint serves the `/admin` SSR resolver (its 200/403 IS the gate) and the in-shell badge. It is **no longer** the header's badge feed: `AdminStatus` used to chain `GET /api/account` → here, paying a second JWKS verify and a second `profiles` read whose latency showed as lag before the "More" menu's Admin section appeared. The same count now rides on `GET /api/account` as `pending_reviews` (§6.8), so the header needs one round trip. Both surfaces seed the same client-side `AdminSummaryStore`, so the number stays consistent.
 
 #### `GET /api/admin/reviews`
 

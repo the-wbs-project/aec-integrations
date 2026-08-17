@@ -245,6 +245,11 @@ breakdowns, never a subscriber's address or a row that identifies one.
 - Skip the audit log for "small" updates
 - Reach the DB by any path other than the request-scoped Drizzle client over the `DB` binding (`getDb(env)`)
 - Return 200 on auth failures (always 401 or 403 with a stable error code)
+- **Cache `profiles.role` / `banned_at` anywhere on the server** — not in KV, not in a Worker global, not in a signed cookie claim (AECI-617)
+
+**Why the role re-fetch is not cacheable.** The per-request `profiles` read in `requireAuth()`/`requireAdmin()` looks like an obvious KV candidate — it is the same row on every call for a given user. It is not. The privileged D1 binding has **no RLS**, so this Worker is the only place authorization is actually decided (§4 preamble): a cached role means a **demoted admin keeps admin authority**, and a cached `banned_at` means a **banned user keeps writing**, both for the length of the TTL. KV is eventually consistent (propagation up to ~60s), so the staleness window can't even be bounded tightly. The read is a single indexed primary-key lookup on the Worker's own D1 binding — it is not the latency that matters.
+
+Where role *is* cached is the browser, for UI only: `AdminStatus` (`apps/web/src/app/admin/admin-status.ts`) keeps the last probed role in `sessionStorage` so the header's admin affordances paint without a round trip. That is a hint, not a grant — every destination behind it re-enters this layer (the `/admin` SSR redirect + resolver, `requireAdmin()` on `/api/admin/*`), so a forged or stale client-side role buys nothing.
 
 ---
 
