@@ -62,6 +62,7 @@ import {
   createVendorMeHandler,
   createVendorSeatsHandler,
 } from './routes/vendor';
+import { createListVendorNotificationsHandler } from './routes/vendor-notifications';
 import {
   createDeleteProductVersionHandler,
   createListProductVersionsHandler,
@@ -323,10 +324,21 @@ app.route('/', authAdmin);
 //   - POST   /api/vendor/products/:id/versions            — create (201).
 //   - PATCH  /api/vendor/products/:id/versions/:versionId — edit.
 //   - DELETE /api/vendor/products/:id/versions/:versionId — remove (204).
+//
+// Stage 2 / AECI-302 adds the in-portal notification list. It reads the same
+// `audit_log` `notification.sent` rows the §7 detector sweep writes — no separate
+// store (`STAGE_2_ATTESTATIONS_SPEC.md` §7.3) — scoped to the caller's vendor, and
+// not verified-gated (reading is not the capability).
+//   - GET   /api/vendor/notifications — the last 90 days of detector nudges.
 const authVendor = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
 authVendor.onError(errorHandler());
 authVendor.get('/api/vendor/me', requireVendor(), createVendorMeHandler());
 authVendor.get('/api/vendor/seats', requireVendor(), createVendorSeatsHandler());
+authVendor.get(
+  '/api/vendor/notifications',
+  requireVendor(),
+  createListVendorNotificationsHandler(),
+);
 authVendor.patch('/api/vendor/profile', requireVendor(), createUpdateVendorProfileHandler());
 // Registered BEFORE `/api/vendor/products/:id` so the more specific version
 // paths are not shadowed by the product PATCH's parameterised route.

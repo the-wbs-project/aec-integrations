@@ -339,6 +339,7 @@ await db.batch([
 | `PATCH /api/admin/claims/:id` (AECI-519) | Hard-required | `admin` | `vendor_claim.granted` / `.rejected` — grant links a `vendor_admin` seat + flips `vendors.verified` (the seat-revoke mechanic `vendor_claim.seat_revoked` has no endpoint — AECI-524 wired the ban gate only; revoke stays the separate un-grant action, AECI-519) |
 | `PATCH /api/admin/reviewers/:id` (AECI-218 / AECI-524) | Hard-required | `admin` | `reviewer.banned` / `vendor_admin.banned` / `.unbanned` — bans/unbans any non-admin `profiles` row (reviewer **or** `vendor_admin` seat); role-agnostic UPDATE, role-aware audit, per-seat, never touches `vendors.verified` |
 | `GET /api/vendor/me`, `/seats` | Hard-required | `vendor_admin` + non-null `vendor_id`, not banned | No (reads only) |
+| `GET /api/vendor/notifications` (AECI-302) | Hard-required | same — **no** `vendors.verified` gate (reading is not the gated capability) | No (reads only). Reads the §7.3 `audit_log` `notification.sent` ledger filtered on `json_extract(metadata,'$.vendorId') = <session vendor>`; AECi-ops rows store a null vendor and so can never match a caller |
 | `PATCH /api/vendor/profile` | Hard-required | same | `vendor.updated` (`metadata.source: 'vendor-portal'`) |
 | `PATCH /api/vendor/products/:id` | Hard-required | same **+ ownership** | `product.updated` (`metadata.source: 'vendor-portal'`) |
 | `GET /api/vendor/products/:id/versions` (AECI-607) | Hard-required | same **+ ownership** | No (reads only) |

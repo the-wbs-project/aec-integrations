@@ -56,6 +56,7 @@ import {
   createVendorMeHandler,
   createVendorSeatsHandler,
 } from './vendor';
+import { createListVendorNotificationsHandler } from './vendor-notifications';
 import {
   createDeleteProductVersionHandler,
   createListProductVersionsHandler,
@@ -155,6 +156,11 @@ function makeApp() {
     requireVendor(guard),
     createVendorSeatsHandler(t.factory, async () => new Map()),
   );
+  app.get(
+    '/api/vendor/notifications',
+    requireVendor(guard),
+    createListVendorNotificationsHandler(t.factory),
+  );
   app.patch(
     '/api/vendor/profile',
     requireVendor(guard),
@@ -218,6 +224,7 @@ async function call(path: string, method: string, sub?: string, body?: unknown):
 const ROUTES: ReadonlyArray<{ path: string; method: string; body?: unknown; ok?: number }> = [
   { path: '/api/vendor/me', method: 'GET' },
   { path: '/api/vendor/seats', method: 'GET' },
+  { path: '/api/vendor/notifications', method: 'GET' },
   { path: '/api/vendor/profile', method: 'PATCH', body: { description: 'edited' } },
   {
     path: `/api/vendor/products/${PRODUCT_A}`,
@@ -395,6 +402,33 @@ describe('/api/vendor/* — cross-vendor isolation', () => {
 
     const b = await call('/api/vendor/seats', 'GET', SEAT_B);
     expect(b.body.seats.map((s: { user_id: string }) => s.user_id)).toEqual([SEAT_B]);
+  });
+
+  it('GET /notifications returns only the caller’s own ledger rows, never an ops row', async () => {
+    const ledger = (vendorId: string | null, claimId: string) => ({
+      id: crypto.randomUUID(),
+      actorType: 'system' as const,
+      action: 'notification.sent',
+      entityType: 'claim',
+      entityId: claimId,
+      metadata: {
+        detector: 'silent-counterparty',
+        vendorId,
+        integrationId: uuid(700),
+        dataObject: { slug: 'rfis', name: 'RFIs' },
+        counterpartProduct: { slug: 'p-b', name: 'Product B' },
+        pairSlugs: ['p-a', 'p-b'],
+      },
+    });
+    await t.db
+      .insert(auditLog)
+      .values([ledger(VENDOR_A, uuid(701)), ledger(VENDOR_B, uuid(702)), ledger(null, uuid(703))]);
+
+    const a = await call('/api/vendor/notifications', 'GET', SEAT_A);
+    expect(a.body.notifications.map((n: { claim_id: string }) => n.claim_id)).toEqual([uuid(701)]);
+
+    const b = await call('/api/vendor/notifications', 'GET', SEAT_B);
+    expect(b.body.notifications.map((n: { claim_id: string }) => n.claim_id)).toEqual([uuid(702)]);
   });
 
   it('PATCH /profile edits only the caller’s own vendor', async () => {

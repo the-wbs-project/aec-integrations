@@ -346,6 +346,8 @@ jobs:
           create_queue aeci-stats-production
           create_queue aeci-reconcile-production
           create_queue aeci-data-quality-production
+          # AECI-302 (§7): the daily attestation detector sweep.
+          create_queue aeci-attestation-notify-production
           # WC-5 (AECI-319): cross-Worker cache-purge queue. Producer = API Worker;
           # consumer = SSR Worker (both deploy below), so it must exist first.
           create_queue aeci-cache-purge-production

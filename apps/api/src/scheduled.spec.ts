@@ -30,6 +30,9 @@ vi.mock('./lib/algolia-drift', () => ({
 }));
 vi.mock('./lib/home-stats', () => ({ runHomeStats: vi.fn() }));
 vi.mock('./lib/reconciliation-sweep', () => ({ runReconciliationSweep: vi.fn() }));
+// The §7 detector sweep (AECI-302) sends email and writes `audit_log`; mock it so
+// these tests assert orchestration only (its own suite covers the behaviour).
+vi.mock('./lib/attestation-notify', () => ({ runAttestationNotifySweep: vi.fn() }));
 // The WAF poll (AECI-262) reaches Cloudflare's GraphQL Analytics API; mock the
 // shared transport so the dispatch tests assert orchestration without a network call.
 vi.mock('@aeci/shared/cloudflare-analytics', () => ({ fetchWafFirewallEvents: vi.fn() }));
@@ -43,6 +46,7 @@ import { getDb } from './db/client';
 import { logToDatadog, submitCount, submitDistribution, submitGauge } from './datadog';
 import { reportAlgoliaDrift } from './lib/algolia-drift';
 import { runDailySync } from './lib/algolia-sync';
+import { runAttestationNotifySweep } from './lib/attestation-notify';
 import { runHomeStats } from './lib/home-stats';
 import { runReconciliationSweep } from './lib/reconciliation-sweep';
 import { normalizeJobMessage, queue, scheduled } from './scheduled';
@@ -55,6 +59,7 @@ const DRIFT_CRON = '0 9 * * *';
 const RECONCILE_CRON = '*/15 * * * *';
 const DATA_QUALITY_CRON = '0 4 * * *';
 const WAF_CRON = '0 * * * *';
+const ATTESTATION_NOTIFY_CRON = '0 10 * * *';
 
 const ctx = { waitUntil: vi.fn(), passThroughOnException: vi.fn() } as unknown as ExecutionContext;
 
@@ -97,6 +102,16 @@ beforeEach(async () => {
   vi.mocked(runDailySync).mockResolvedValue({ entities: [] } as never);
   // runHomeStatsJob reads `result.keys` after the call; default to a clean run.
   vi.mocked(runHomeStats).mockResolvedValue({ keys: [] } as never);
+  // runAttestationNotifyJob logs the sweep's counts; default to a clean sweep.
+  vi.mocked(runAttestationNotifySweep).mockResolvedValue({
+    detectors: [],
+    found: 0,
+    suppressed: 0,
+    capped: 0,
+    sent: 0,
+    failed: 0,
+    skipped: 0,
+  });
   t = await makeTestDb();
   vi.mocked(getDb).mockReturnValue(t.dbCtx);
 });
@@ -246,6 +261,32 @@ describe('scheduled (cron producer)', () => {
       'aeci.data_quality.email',
       1,
       ['outcome:skipped'],
+    );
+  });
+
+  it('enqueues the attestation-notify job onto its own queue (AECI-302)', async () => {
+    const send = vi.fn().mockResolvedValue(undefined);
+    const env = makeEnv({ ATTESTATION_NOTIFY_QUEUE: { send } as never });
+
+    await scheduled(cronController(ATTESTATION_NOTIFY_CRON), env, ctx);
+
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({ job: 'attestation_notify', trigger: 'cron' }),
+    );
+    expect(runAttestationNotifySweep).not.toHaveBeenCalled();
+  });
+
+  it('runs the attestation sweep inline when no ATTESTATION_NOTIFY_QUEUE binding is present', async () => {
+    await scheduled(cronController(ATTESTATION_NOTIFY_CRON), makeEnv(), ctx);
+
+    expect(runAttestationNotifySweep).toHaveBeenCalledTimes(1);
+    expect(submitCount).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.attestation.notify.job',
+      1,
+      ['trigger:cron', 'outcome:success'],
     );
   });
 
@@ -439,6 +480,48 @@ describe('queue (consumer)', () => {
     );
     expect(ack).toHaveBeenCalledTimes(1);
     expect(retry).not.toHaveBeenCalled();
+  });
+
+  it('ack()s an attestation-notify message and emits its run heartbeat (AECI-302)', async () => {
+    const { batch, ack, retry } = makeBatch(
+      'attestation_notify',
+      'aeci-attestation-notify-staging',
+    );
+
+    await queue(batch, makeEnv(), ctx);
+
+    expect(runAttestationNotifySweep).toHaveBeenCalledTimes(1);
+    expect(submitCount).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.attestation.notify.job',
+      1,
+      ['trigger:cron', 'outcome:success'],
+    );
+    expect(ack).toHaveBeenCalledTimes(1);
+    expect(retry).not.toHaveBeenCalled();
+  });
+
+  it('retry()s an attestation-notify message when the sweep throws — a lost sweep is a lost nudge', async () => {
+    vi.mocked(runAttestationNotifySweep).mockRejectedValueOnce(new Error('D1 down'));
+    const { batch, ack, retry } = makeBatch(
+      'attestation_notify',
+      'aeci-attestation-notify-staging',
+    );
+
+    await queue(batch, makeEnv(), ctx);
+
+    expect(submitCount).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.attestation.notify.job',
+      1,
+      ['trigger:cron', 'outcome:failed'],
+    );
+    expect(retry).toHaveBeenCalledTimes(1);
+    expect(ack).not.toHaveBeenCalled();
   });
 
   it('runs + ack()s a minimal { job } operator push (trigger/enqueuedAt implied)', async () => {
