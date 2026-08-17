@@ -30,6 +30,12 @@ type ResourceKind =
   | 'product_version'
   | 'vendor'
   | 'integration'
+  // A data-flow claim and the attestation on it (AECI-301). `claim` is the
+  // 404 the whole `/api/vendor/claims/*` surface answers with — including for a
+  // claim on an integration the caller owns neither endpoint of, which must be
+  // indistinguishable from a claim that does not exist.
+  | 'claim'
+  | 'attestation'
   | 'category'
   | 'audience'
   | 'phase'

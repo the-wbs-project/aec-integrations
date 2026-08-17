@@ -90,6 +90,32 @@ export function claimDirectionForContext(
 }
 
 /**
+ * The **inverse** of `claimDirectionForContext` — fold a caller-relative
+ * direction back into the canonical form stored on `claims.direction`
+ * (`STAGE_2_ATTESTATIONS_SPEC.md` §5.2).
+ *
+ * Every read path so far only needed the outward translation, because the DB was
+ * the only author. The vendor authoring API (AECI-301) is the first *writer*
+ * that speaks the context frame: its UI says "inbound"/"outbound" and the DB
+ * never does, so something has to translate at the API boundary. It lives here,
+ * beside its inverse, because this module is the single home for direction
+ * framing — the two surfaces drifted once already (`STAGE_1_5_SPEC.md` §7.1) and
+ * a second implementation somewhere in `routes/` is how that happens again.
+ *
+ * `contextIsSource` is whether the caller's frame is the integration's
+ * `source_product_id` (endpoint A). Exactly invertible: for every
+ * `(direction, contextIsSource)`,
+ * `claimDirectionFromContext(claimDirectionForContext(d, c), c) === d`.
+ */
+export function claimDirectionFromContext(
+  direction: ContextDirection,
+  contextIsSource: boolean,
+): ClaimDirection {
+  if (direction === 'both') return 'both';
+  return (direction === 'outbound') === contextIsSource ? 'a_to_b' : 'b_to_a';
+}
+
+/**
  * Aggregate a mechanism's `data_object` claim directions (each stored relative to
  * the row's source/target — §3.2) into ONE context-relative direction: any
  * `both` claim, or any pair of opposing flows across claims, reads `both`;

@@ -164,7 +164,13 @@ Verified against the tree at kickoff (paths are anchors, not guarantees — chec
   `apps/api/src/routes/vendor-shared.ts`** — `sessionVendorId`, `parseJsonBody`, `purgeTags`,
   `afterVendorWrite`, the audit source, plus `requireOwnedProduct()` (product-grain ownership,
   the sibling of §2.3's integration-grain `resolveAttestationSlots`) and `assertVerifiedVendor()`
-  (the §1 capability gate). **§5 imports them; it does not re-implement them.**
+  (the §1 capability gate). **§5 imports them; it does not re-implement them.** *(As built: it
+  did, and the only change it needed was an array overload on `afterVendorWrite`, because a
+  claim write emits more than one audit row — §5.4.)*
+- **`data_object` find-only resolution** — `loadDataObjectResolver` /`safeSlugify` in
+  **`apps/api/src/lib/data-object-vocabulary.ts`**, shared by promote and §5 (extracted from
+  `promote.ts` by AECI-301). §7's detectors should read the vocabulary through it too rather
+  than re-deriving the slug-or-alias match.
 - **Cache-Tag helpers** — `pairCacheTag(a, b)` / `sortedPairSlugs` (`apps/api/src/routes/promote-pair.ts`)
   and `cacheTagsForPromote` (`apps/api/src/routes/promote-cache-tags.ts`) already emit the exact
   `pair:{min}__{max}` tag the pair page sets. §5 purges through the same tag.
@@ -604,6 +610,118 @@ Shapes, Zod schemas and error codes go in `packages/shared/src/api/` and are doc
   follow-up read.
 - Retract-then-insert never violates the §2 partial unique index.
 
+### 5.4 As built (AECI-301 — 2026-08-17)
+
+Shipped as **API only** (the §6 dashboard tab is AECI-606) and with **no migration** — §2 and §8
+had already landed every column and index it needs. The handlers are
+`apps/api/src/routes/vendor-attestations.ts`, the wire contract is
+`packages/shared/src/api/vendor-attestations.ts`, and the surface is mounted on the existing
+`authVendor` sub-router in `apps/api/src/index.ts`. `docs/API_CONTRACTS.md` §6.14,
+`docs/AUTH_AND_RLS.md` §4.2a/§4.4 and `docs/CACHE_STRATEGY.md` §5(b2) are brought forward to match.
+
+Decisions taken at build that §5.1–§5.3 did not pre-specify:
+
+- **A vendor owning BOTH endpoints writes ALL the slots it owns.** `product_vendors` is
+  many-to-many, so one company can hold `vendor_a` *and* `vendor_b` on one integration, and §5 never
+  said which to write. Writing only `vendor_a` was the cheaper option and is wrong: it cannot
+  retract a pre-existing `vendor_b` row from the same company, so a claim could carry two live rows
+  from one vendor that disagree — exactly the self-contradiction §4.5 had to add a special case for
+  — and `DELETE` would leave half the position standing. Writing every owned slot changes nothing
+  for the reader (§4 dedupes voters by `attested_by_vendor_id`, so one company is one voter and
+  still renders `single_source`) and keeps the slot off the wire, which §2.1 requires. The
+  alternative of letting the request name its slot was rejected on that last point alone.
+- **`GET /api/vendor/integrations` is ownership-gated but NOT Verified-gated**, exactly as §8.4
+  settled for the version list. Authoring is the Verified capability; reading your own surface is
+  not, so the §6 tab renders read-only and explains what verification unlocks rather than 403-ing a
+  vendor out of its own data.
+- **The gate ORDER needed one adaptation, and it is load-bearing.** §8.3's rule — prove ownership
+  first, in its own wave, parse the body last — assumes the id is a path param. `POST
+  /api/vendor/claims` carries its `integration_id` in the **body**, so authority cannot be resolved
+  before the body is read. The order is: shape-only Zod parse (touches no DB, so a 400 from it is
+  existence-independent and leaks nothing) → authority alone in its wave, with only the caller's own
+  `vendors` row alongside → everything else. Folding vocabulary resolution or the duplicate check
+  into the authority wave is the precise mistake `createUpdateVendorProductHandler` warns about: a
+  400 naming a bad `data_object` would win the race and answer a request that should have been a
+  flat 404. A spec asserts a non-owner still gets 404 when the body is *also* invalid.
+- **The claim-grain 404 needed its own helper, to close a real existence leak.**
+  `resolveClaimAuthority(db, vendorId, claimId)` was added to `lib/attestation-authority.ts`. The
+  obvious composition — load the claim, then call `resolveAttestationSlots` on its `integration_id`
+  — answers `details.resource: 'claim'` for a claim that does not exist and `'integration'` for one
+  belonging to another vendor. Those are **distinguishable** 404s, so a vendor could walk claim ids
+  and learn which are real. One join collapses both into the same empty result, exactly as §2.5 did
+  one grain up; the indistinguishability is structural, not a branch someone has to remember to
+  write identically twice. It reuses `slotsForOwnership` — the §2.3 rule is not re-derived.
+- **`data_object` resolution was extracted rather than copied.** Promote's find-only slug-or-alias
+  matcher was a closure inside `promote.ts`, unimportable. It now lives in
+  `apps/api/src/lib/data-object-vocabulary.ts` (`loadDataObjectResolver` + `safeSlugify`) and
+  promote was refactored onto it — the matching rule is identical for both callers and only the
+  failure mode differs (`skipped[]` for a batch job, `400 VALIDATION_FAILED` for an interactive
+  one). The resolver returns the whole term, not just the id, so the vendor path echoes
+  `data_object_name` without re-reading the row it just matched. Every promote spec passes
+  unmodified.
+- **A duplicate claim identity is a `400` carrying `details.claim_id`.** `claims_identity_key` is
+  the guarantee; the pre-check exists so a vendor gets a field-keyed 400 instead of a constraint
+  violation surfacing as a 500 (the `assertLabelFree` discipline from §8.4). Returning the existing
+  id is what lets the §6 UI pivot to `PUT` instead of dead-ending. Note the collision is narrower
+  than it looks: claims anchor to the **mechanism row** (`STAGE_1_5_SPEC.md` §3.1 / ADR 0018), so
+  two mechanisms moving the same `data_object` between the same products are two independent claims.
+- **`claimDirectionFromContext` is a new shared pure function**, the exact inverse of the shipped
+  `claimDirectionForContext`, added to `packages/shared/src/integration-context.ts`. Every read path
+  so far only needed the outward translation because the DB was the only author; this is the first
+  *writer* that speaks the caller's frame. It lives beside its inverse because that module is the
+  single home for direction framing — the two surfaces drifted once already (`STAGE_1_5_SPEC.md`
+  §7.1). A round-trip property test pins them together in both frames.
+- **The retract `UPDATE` filters on slot, not on vendor id.** `attestations_slot_key` is unique per
+  `(claim, slot)` among live rows, so an incoming write must clear whatever holds a slot it owns —
+  including a row another vendor co-owning the product wrote (§2.1's data-quality case, which the
+  index deliberately makes last-write-wins). `DELETE` is the exception: it retracts only the
+  caller's OWN rows, because withdrawing your position must never silently withdraw someone else's.
+- **`DELETE` with nothing to retract is a 404, not an idempotent 204.** §26.1 wants no audit row
+  without a state change, and a 204 would claim one happened.
+- **One audit row per attestation row**, not one per request: `attestation.created` /
+  `attestation.retracted` each carry their own `entityId` and `metadata.slot`, which is what §7.3's
+  `audit_log`-as-ledger dedupe will read. `POST` therefore emits `claim.created` plus one
+  `attestation.created` per owned slot, all in the same batch. `afterVendorWrite` gained an array
+  overload so every row is forwarded to Datadog (§26.5), not just the headline one.
+- **`attestation.retracted` is a new action string** — it did not exist in the tree.
+  `errors.ts` gained `claim` and `attestation` resource kinds so the 404 envelope names the right
+  thing.
+- **Version stamps are enforced per slot.** §8.2's "the referenced version always belongs to the
+  attesting side's own endpoint product" cannot be expressed by the FK, so the handler checks it: a
+  version outside the caller's owned endpoints is a `400` naming the field, and an *unknown* id
+  answers identically so the response cannot be used to probe another product's release history. For
+  a both-slot caller the stamp lands only on the slot whose endpoint owns that version; the other
+  slot's stays null.
+- **The list endpoint queries by owned PRODUCT ids, not by integration ids.** The authority map
+  already holds the integration ids, but every one would become a bound parameter, and D1's
+  per-query ceiling is far below what a large vendor's surface would need. The owned-product list is
+  bounded by the vendor's own catalog (single digits, typically) and expresses the same set. The
+  authority map remains the authority — a row it does not know about is filtered out.
+- **The response is composed in memory, never re-read.** `PUT` builds the post-write attestation set
+  from the pre-read live rows minus the slots it superseded, plus what it wrote — the `vendor.ts`
+  discipline ("re-reading would only cost a round-trip — and could 404 a write that actually
+  succeeded"). `agreement` is recomputed and echoed so the dashboard never re-derives it.
+- **The counterparty view is keyed off vendor identity, not off the slot**, and is reduced to
+  `asserted` + `note`. Usually that is the other endpoint's vendor; it can also be a second vendor
+  holding the caller's own slot. Both are genuinely someone else's assertion, and hiding the second
+  would make the vendor's dashboard disagree with the public pair page. The AECi seed is never the
+  counterparty, and version stamps / `attested_by_vendor_id` are deliberately not exposed.
+
+**Test coverage:** `apps/api/src/routes/vendor-attestations.spec.ts` (50 cases — the four endpoints,
+both-endpoint slot writes, the agreement matrix end-to-end through real rows, retract-then-insert
+run three times against the real partial unique index, direction round-trip, find-only vocabulary,
+version-stamp authority, the purge tag set, and the §26.1 rollback proved by a ghost `actor_id` that
+makes `auditInsert` throw *inside* the batch); the four routes added to every cell of
+`vendor.authz-matrix.spec.ts` plus its own Verified-gate and cross-vendor 404 blocks (117 cases
+total); `resolveClaimAuthority` in `attestation-authority.spec.ts`; the round-trip property in
+`integration-context.spec.ts`; the extracted resolver in `data-object-vocabulary.spec.ts`; and the
+wire contract in `packages/shared/src/api/vendor-attestations.spec.ts`. Suites green at merge:
+`apps/api` 75 files / 1110 tests (was 72 / 926), `packages/shared` 26 / 390 (was 23 / 328). Every
+pre-existing spec passes **unmodified**.
+
+> **⚠️ Release gate, restated.** §4/AECI-605 is merged on `aeci-514`, so the §1.1 gate is discharged
+> *on this branch*. It is still the reason this must not be cherry-picked anywhere §4 is absent.
+
 ---
 
 ## 6. Vendor dashboard — Integrations tab (AECI-606)
@@ -985,18 +1103,22 @@ without touching this epic's code. Design checklist applies as in §4.3.
 
 Runs alongside; finishes what each sub-issue seeds (the AECI-525 pattern).
 
-- **`docs/AUTH_AND_RLS.md`** — add the `/api/vendor/claims*` rows to the §4.4 endpoint table
-  (auth + scope + audit), and document the §2.1 two-slot authority rule as the canonical extension
-  of the `vendor_id`-scoping invariant. *(The four `/api/vendor/products/:id/versions` rows and the
-  ownership-before-verified precedence landed with AECI-607 — §8.4.)*
-- **`docs/API_CONTRACTS.md`** — the §5 endpoint shapes, Zod schemas, error codes. *(§8.3's landed
-  with AECI-607, in the §6.14 "Product versions" subsection.)*
+- **`docs/AUTH_AND_RLS.md`** — ✅ **done by AECI-301**: the four `/api/vendor/claims*` rows are in
+  the §4.4 endpoint table, and §4.2a carries the two-slot authority rule plus the claim-grain 404
+  uniformity note. *(The four `/api/vendor/products/:id/versions` rows and the
+  ownership-before-verified precedence landed with AECI-607 — §8.4.)* Verify rather than re-add.
+- **`docs/API_CONTRACTS.md`** — ✅ **done by AECI-301**: the §5 endpoint shapes, Zod schemas and
+  error codes are the §6.14 "Attestations" subsection. *(§8.3's landed with AECI-607, in the §6.14
+  "Product versions" subsection.)* Verify rather than re-add.
 - **`docs/DATABASE_SCHEMA.md`** — both migrations (it trails `schema.ts`; bring it forward).
-  *(§5a.2's provenance/authority columns landed with AECI-603 and §5a.3 `product_versions` with
-  AECI-607; verify rather than re-add.)*
-- **`docs/REVIEW_APP_PROMOTE_API.md`** — the §3.3 replace-by-origin carve-out.
-- **`docs/CACHE_STRATEGY.md`** — the §5.2 purge tag set for attestation writes; the §9.2
-  `cacheKeyParams` addition. *(§5(b2) already carries the AECI-607 version-write tag.)*
+  *(§5a.2's provenance/authority columns landed with AECI-603, §5a.3 `product_versions` with
+  AECI-607, and AECI-301 added the writer/statement-order notes to §5a.1–§5a.2 and the
+  `attestation.retracted` action to §8.4; verify rather than re-add.)*
+- **`docs/REVIEW_APP_PROMOTE_API.md`** — the §3.3 replace-by-origin carve-out. **Still open** —
+  AECI-604's.
+- **`docs/CACHE_STRATEGY.md`** — ✅ the §5.2 attestation purge tag set landed with AECI-301 in
+  §5(b2), alongside the AECI-607 version-write tag. **Still open:** the §9.2 `cacheKeyParams`
+  addition (AECI-303's).
 - **`docs/email.md`** — the §7.2 template catalogue entries.
 - **`docs/OBSERVABILITY.md`** + **`docs/POST_LAUNCH_MONITORING.md`** — the §7.4 detector metrics
   and the launch-tunable thresholds.

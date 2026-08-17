@@ -18,7 +18,14 @@
 import { describe, expect, it, beforeEach, afterEach } from 'vitest';
 
 import type { Db } from '../db/client';
-import { integrations, productVendors, products, vendors } from '../db/schema';
+import {
+  claims,
+  integrations,
+  productVendors,
+  products,
+  taxonomyDataObjects,
+  vendors,
+} from '../db/schema';
 import { ApiError } from '../errors';
 import { makeTestDb, type TestDb } from '../test/d1';
 import {
@@ -26,6 +33,7 @@ import {
   claimProvenance,
   resolveAttestationSlots,
   resolveAttestationSlotsForVendor,
+  resolveClaimAuthority,
   slotsForOwnership,
   vendorsForIntegrationSlots,
 } from './attestation-authority';
@@ -68,6 +76,19 @@ beforeEach(async () => {
     { productId: 'p-tgt', vendorId: V_TARGET },
     { productId: 'p-own-a', vendorId: V_BOTH },
     { productId: 'p-own-b', vendorId: V_BOTH },
+  ]);
+  // Claims for the claim-grain entry point (AECI-301).
+  await t.db.insert(taxonomyDataObjects).values({ id: 'do-rfis', slug: 'rfis', name: 'RFIs' });
+  await t.db.insert(claims).values([
+    { id: 'c-main', integrationId: 'i-main', dataObjectId: 'do-rfis', direction: 'a_to_b' },
+    {
+      id: 'c-intra',
+      integrationId: 'i-intra',
+      dataObjectId: 'do-rfis',
+      direction: 'both',
+      origin: 'vendor',
+      createdByVendorId: V_BOTH,
+    },
   ]);
 });
 afterEach(() => t.dispose());
@@ -196,6 +217,71 @@ describe('resolveAttestationSlotsForVendor', () => {
       integrationIds: ['i-main', 'i-main', 'i-main'],
     });
     expect(map.size).toBe(1);
+  });
+});
+
+describe('resolveClaimAuthority', () => {
+  it('returns the claim and the caller’s slots in one hop', async () => {
+    const { claim, authority } = await resolveClaimAuthority(t.db, V_SOURCE, 'c-main');
+    expect(claim).toEqual({
+      id: 'c-main',
+      integrationId: 'i-main',
+      dataObjectId: 'do-rfis',
+      direction: 'a_to_b',
+      origin: 'aeci',
+      createdByVendorId: null,
+    });
+    expect(authority).toEqual({
+      integrationId: 'i-main',
+      sourceProductId: 'p-src',
+      targetProductId: 'p-tgt',
+      slots: ['vendor_a'],
+    });
+  });
+
+  it('gives the counterparty vendor_b on the same claim', async () => {
+    const { authority } = await resolveClaimAuthority(t.db, V_TARGET, 'c-main');
+    expect(authority.slots).toEqual(['vendor_b']);
+  });
+
+  it('folds the two join rows a both-endpoints owner produces into one authority', async () => {
+    const { claim, authority } = await resolveClaimAuthority(t.db, V_BOTH, 'c-intra');
+    expect(authority.slots).toEqual(['vendor_a', 'vendor_b']);
+    // …and the claim itself is returned once, not duplicated by the join.
+    expect(claim.id).toBe('c-intra');
+    expect(claim.origin).toBe('vendor');
+    expect(claim.createdByVendorId).toBe(V_BOTH);
+  });
+
+  it('404s on a claim whose integration the caller touches neither endpoint of', async () => {
+    const err = await rejection(resolveClaimAuthority(t.db, V_OUTSIDER, 'c-main'));
+    expect(err.status).toBe(404);
+    expect(err.code).toBe('NOT_FOUND');
+    expect(err.details).toEqual({ resource: 'claim', id: 'c-main' });
+  });
+
+  it('answers a nonexistent claim IDENTICALLY to another vendor’s claim', async () => {
+    // The whole reason this function exists instead of "load the claim, then call
+    // resolveAttestationSlots": that composition would answer resource `claim` for a
+    // ghost and resource `integration` for someone else's, turning the 404 into an
+    // existence oracle a vendor could walk. Everything but the echoed id must match.
+    const notOwned = await rejection(resolveClaimAuthority(t.db, V_OUTSIDER, 'c-main'));
+    const ghost = await rejection(resolveClaimAuthority(t.db, V_OUTSIDER, 'c-ghost'));
+    expect(ghost.status).toBe(notOwned.status);
+    expect(ghost.code).toBe(notOwned.code);
+    expect((ghost.details as { resource: string }).resource).toBe(
+      (notOwned.details as { resource: string }).resource,
+    );
+    expect(notOwned.message).toBe('claim not found: c-main');
+    expect(ghost.message).toBe('claim not found: c-ghost');
+  });
+
+  it('agrees with resolveAttestationSlots on the integration behind the claim', async () => {
+    // Both entry points must compute the §2.1 table identically — they share
+    // `slotsForOwnership`, and this pins that they keep sharing it.
+    const viaClaim = await resolveClaimAuthority(t.db, V_BOTH, 'c-intra');
+    const viaIntegration = await resolveAttestationSlots(t.db, V_BOTH, 'i-intra');
+    expect(viaClaim.authority).toEqual(viaIntegration);
   });
 });
 

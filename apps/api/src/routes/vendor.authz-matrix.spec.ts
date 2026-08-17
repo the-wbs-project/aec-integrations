@@ -29,6 +29,14 @@
  * require `vendors.verified` (`STAGE_2_ATTESTATIONS_SPEC.md` §1), and ownership
  * is evaluated first so a non-owner still gets a 404 rather than a 403 that
  * would confirm the product exists.
+ *
+ * AECI-301 adds the four attestation-authoring routes on the same terms, with the
+ * ownership question asked one grain up — at the INTEGRATION, via
+ * `lib/attestation-authority.ts` rather than `requireOwnedProduct`. Two properties
+ * are specific to it and are pinned below: a claim on an integration the caller
+ * touches neither endpoint of is a 404 **indistinguishable from a claim that does
+ * not exist**, and `GET /api/vendor/integrations` shows a vendor only its own
+ * attestable surface.
  */
 
 import { ApiErrorCode } from '@aeci/shared';
@@ -37,11 +45,15 @@ import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
+  attestations,
   auditLog,
+  claims,
+  integrations,
   productVendors,
   productVersions,
   products,
   profiles,
+  taxonomyDataObjects,
   vendors,
 } from '../db/schema';
 import type { Env } from '../env';
@@ -63,6 +75,12 @@ import {
   createProductVersionHandler,
   createUpdateProductVersionHandler,
 } from './vendor-product-versions';
+import {
+  createListVendorIntegrationsHandler,
+  createRetractVendorAttestationHandler,
+  createUpsertVendorAttestationHandler,
+  createVendorClaimHandler,
+} from './vendor-attestations';
 
 const SUPABASE_URL = 'https://test-project.supabase.co';
 const ENV = { ENV: 'preview', SUPABASE_URL } as Env;
@@ -77,6 +95,16 @@ const PRODUCT_B = uuid(11);
 const PRODUCT_UNVERIFIED = uuid(12);
 const VERSION_A = uuid(20); // a product_versions row on PRODUCT_A
 const VERSION_B = uuid(21); // …and one on PRODUCT_B
+
+// AECI-301 fixtures. INTEGRATION_AB is the one vendor A may attest on (it owns
+// endpoint A); INTEGRATION_BU touches neither of A's products.
+const INTEGRATION_AB = uuid(30);
+const INTEGRATION_BU = uuid(31);
+const DATA_OBJECT_RFIS = uuid(40);
+const DATA_OBJECT_SUBMITTALS = uuid(41);
+const CLAIM_AB = uuid(50); // on INTEGRATION_AB — A may attest
+const CLAIM_BU = uuid(51); // on INTEGRATION_BU — A may not
+const CLAIM_UNVERIFIED = uuid(52); // on INTEGRATION_BU — the unverified vendor's own
 
 const SEAT_A = uuid(100); // granted seat on vendor A
 const SEAT_B = uuid(101); // granted seat on vendor B
@@ -126,6 +154,43 @@ beforeEach(async () => {
     { id: VERSION_A, productId: PRODUCT_A, label: 'v1', sortKey: 100_000_000_000 },
     { id: VERSION_B, productId: PRODUCT_B, label: 'v1', sortKey: 100_000_000_000 },
   ]);
+  await t.db.insert(integrations).values([
+    { id: INTEGRATION_AB, sourceProductId: PRODUCT_A, targetProductId: PRODUCT_B },
+    { id: INTEGRATION_BU, sourceProductId: PRODUCT_B, targetProductId: PRODUCT_UNVERIFIED },
+  ]);
+  await t.db.insert(taxonomyDataObjects).values([
+    { id: DATA_OBJECT_RFIS, slug: 'rfis', name: 'RFIs' },
+    { id: DATA_OBJECT_SUBMITTALS, slug: 'submittals', name: 'Submittals' },
+  ]);
+  await t.db.insert(claims).values([
+    {
+      id: CLAIM_AB,
+      integrationId: INTEGRATION_AB,
+      dataObjectId: DATA_OBJECT_RFIS,
+      direction: 'a_to_b',
+    },
+    {
+      id: CLAIM_BU,
+      integrationId: INTEGRATION_BU,
+      dataObjectId: DATA_OBJECT_RFIS,
+      direction: 'a_to_b',
+    },
+    {
+      id: CLAIM_UNVERIFIED,
+      integrationId: INTEGRATION_BU,
+      dataObjectId: DATA_OBJECT_SUBMITTALS,
+      direction: 'b_to_a',
+    },
+  ]);
+  // A live attestation of vendor A's, so the granted-seat DELETE cell has
+  // something of its own to retract.
+  await t.db.insert(attestations).values({
+    id: uuid(60),
+    claimId: CLAIM_AB,
+    source: 'vendor_a',
+    asserted: true,
+    attestedByVendorId: VENDOR_A,
+  });
   await t.db.insert(profiles).values([
     { id: SEAT_A, role: 'vendor_admin', vendorId: VENDOR_A },
     { id: SEAT_B, role: 'vendor_admin', vendorId: VENDOR_B },
@@ -192,6 +257,23 @@ function makeApp() {
     requireVendor(guard),
     createUpdateVendorProductHandler(t.factory),
   );
+  // AECI-301 — no path overlap with the product routes, so ordering is free.
+  app.get(
+    '/api/vendor/integrations',
+    requireVendor(guard),
+    createListVendorIntegrationsHandler(t.factory),
+  );
+  app.post('/api/vendor/claims', requireVendor(guard), createVendorClaimHandler(t.factory));
+  app.put(
+    '/api/vendor/claims/:claimId/attestation',
+    requireVendor(guard),
+    createUpsertVendorAttestationHandler(t.factory),
+  );
+  app.delete(
+    '/api/vendor/claims/:claimId/attestation',
+    requireVendor(guard),
+    createRetractVendorAttestationHandler(t.factory),
+  );
   return app;
 }
 
@@ -245,6 +327,25 @@ const ROUTES: ReadonlyArray<{ path: string; method: string; body?: unknown; ok?:
   },
   {
     path: `/api/vendor/products/${PRODUCT_A}/versions/${VERSION_A}`,
+    method: 'DELETE',
+    ok: 204,
+  },
+  { path: '/api/vendor/integrations', method: 'GET' },
+  {
+    path: '/api/vendor/claims',
+    method: 'POST',
+    // `submittals` rather than `rfis`: the seeded CLAIM_AB already occupies
+    // (INTEGRATION_AB, rfis, a_to_b), and a duplicate identity is a 400.
+    body: { integration_id: INTEGRATION_AB, data_object: 'submittals', direction: 'outbound' },
+    ok: 201,
+  },
+  {
+    path: `/api/vendor/claims/${CLAIM_AB}/attestation`,
+    method: 'PUT',
+    body: { asserted: true },
+  },
+  {
+    path: `/api/vendor/claims/${CLAIM_AB}/attestation`,
     method: 'DELETE',
     ok: 204,
   },
@@ -368,6 +469,73 @@ describe('/api/vendor/products/:id/versions — the Verified capability gate (AE
     );
     expect(status).toBe(200);
     expect(body.versions).toEqual([]);
+  });
+});
+
+/** The attestation routes that WRITE, and are therefore Verified-gated (AECI-301).
+ *  `own` targets the unverified vendor's OWN surface; `foreign` targets vendor A's. */
+const ATTESTATION_WRITE_ROUTES: ReadonlyArray<{
+  label: string;
+  method: string;
+  own: { path: string; body?: unknown };
+  foreign: { path: string; body?: unknown };
+}> = [
+  {
+    label: 'POST /claims',
+    method: 'POST',
+    own: {
+      path: '/api/vendor/claims',
+      body: { integration_id: INTEGRATION_BU, data_object: 'rfis', direction: 'inbound' },
+    },
+    foreign: {
+      path: '/api/vendor/claims',
+      body: { integration_id: INTEGRATION_AB, data_object: 'rfis', direction: 'inbound' },
+    },
+  },
+  {
+    label: 'PUT /claims/:id/attestation',
+    method: 'PUT',
+    own: { path: `/api/vendor/claims/${CLAIM_UNVERIFIED}/attestation`, body: { asserted: true } },
+    foreign: { path: `/api/vendor/claims/${CLAIM_AB}/attestation`, body: { asserted: true } },
+  },
+  {
+    label: 'DELETE /claims/:id/attestation',
+    method: 'DELETE',
+    own: { path: `/api/vendor/claims/${CLAIM_UNVERIFIED}/attestation` },
+    foreign: { path: `/api/vendor/claims/${CLAIM_AB}/attestation` },
+  },
+];
+
+describe('/api/vendor/claims* — the Verified capability gate (AECI-301)', () => {
+  it.each(ATTESTATION_WRITE_ROUTES)(
+    '$label rejects an UNVERIFIED vendor on its OWN integration with 403',
+    async ({ method, own }) => {
+      const { status, body } = await call(own.path, method, SEAT_UNVERIFIED, own.body);
+      expect(status).toBe(403);
+      expect(body.error.code).toBe(ApiErrorCode.FORBIDDEN);
+      // Nothing written, and the claim set is untouched.
+      expect(await t.db.select().from(auditLog)).toHaveLength(0);
+      expect(await t.db.select().from(claims)).toHaveLength(3);
+    },
+  );
+
+  it.each(ATTESTATION_WRITE_ROUTES)(
+    '$label answers 404 — NOT 403 — when an unverified vendor targets another vendor’s integration',
+    async ({ method, foreign }) => {
+      // Authority is evaluated before the capability gate, so an unverified
+      // non-owner learns nothing about the integration's existence.
+      const { status, body } = await call(foreign.path, method, SEAT_UNVERIFIED, foreign.body);
+      expect(status).toBe(404);
+      expect(body.error.code).toBe(ApiErrorCode.NOT_FOUND);
+    },
+  );
+
+  it('lets an UNVERIFIED vendor READ its own attestable surface', async () => {
+    // Same split as the version list: authoring is gated, reading your own data
+    // is not, so the §6 tab renders read-only and explains what verification adds.
+    const { status, body } = await call('/api/vendor/integrations', 'GET', SEAT_UNVERIFIED);
+    expect(status).toBe(200);
+    expect(body.integrations.map((i: { id: string }) => i.id)).toEqual([INTEGRATION_BU]);
   });
 });
 
@@ -506,6 +674,58 @@ describe('/api/vendor/* — cross-vendor isolation', () => {
     expect(
       await t.db.select().from(productVersions).where(eq(productVersions.id, VERSION_B)),
     ).toHaveLength(1);
+  });
+
+  it('GET /integrations returns only the surface the caller can actually attest on', async () => {
+    const a = await call('/api/vendor/integrations', 'GET', SEAT_A);
+    expect(a.body.integrations.map((i: { id: string }) => i.id)).toEqual([INTEGRATION_AB]);
+    expect(a.body.integrations[0].slots).toEqual(['vendor_a']);
+
+    // B owns both PRODUCT_B endpoints across the two rows, and sees both.
+    const b = await call('/api/vendor/integrations', 'GET', SEAT_B);
+    expect(b.body.integrations.map((i: { id: string }) => i.id).sort()).toEqual(
+      [INTEGRATION_AB, INTEGRATION_BU].sort(),
+    );
+  });
+
+  it.each([
+    { label: 'PUT /claims/:id/attestation', method: 'PUT', body: { asserted: true } },
+    { label: 'DELETE /claims/:id/attestation', method: 'DELETE', body: undefined },
+  ])('$label on another vendor’s claim → 404, unmutated, unaudited', async ({ method, body }) => {
+    const { status, body: res } = await call(
+      `/api/vendor/claims/${CLAIM_BU}/attestation`,
+      method,
+      SEAT_A,
+      body,
+    );
+    expect(status).toBe(404);
+    expect(res.error.code).toBe(ApiErrorCode.NOT_FOUND);
+    expect(
+      await t.db.select().from(attestations).where(eq(attestations.claimId, CLAIM_BU)),
+    ).toHaveLength(0);
+    expect(await t.db.select().from(auditLog)).toHaveLength(0);
+  });
+
+  it('a claim id the caller cannot touch is indistinguishable from one that does not exist', async () => {
+    // Divergent 404s here would let a vendor walk claim ids and learn which are
+    // real. `resolveClaimAuthority` collapses both into one empty join result.
+    const foreign = await call(`/api/vendor/claims/${CLAIM_BU}/attestation`, 'DELETE', SEAT_A);
+    const ghost = await call(`/api/vendor/claims/${uuid(999)}/attestation`, 'DELETE', SEAT_A);
+    expect(ghost.status).toBe(foreign.status);
+    expect(ghost.body.error.code).toBe(foreign.body.error.code);
+    expect(ghost.body.error.details.resource).toBe(foreign.body.error.details.resource);
+    expect(Object.keys(ghost.body.error).sort()).toEqual(Object.keys(foreign.body.error).sort());
+  });
+
+  it('POST /claims on another vendor’s integration → 404, nothing created', async () => {
+    const { status } = await call('/api/vendor/claims', 'POST', SEAT_A, {
+      integration_id: INTEGRATION_BU,
+      data_object: 'rfis',
+      direction: 'outbound',
+    });
+    expect(status).toBe(404);
+    expect(await t.db.select().from(claims)).toHaveLength(3);
+    expect(await t.db.select().from(auditLog)).toHaveLength(0);
   });
 
   it('a second seat on the same vendor has the same access (multi-seat, flat)', async () => {

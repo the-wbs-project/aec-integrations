@@ -69,6 +69,12 @@ import {
   createProductVersionHandler,
   createUpdateProductVersionHandler,
 } from './routes/vendor-product-versions';
+import {
+  createListVendorIntegrationsHandler,
+  createRetractVendorAttestationHandler,
+  createUpsertVendorAttestationHandler,
+  createVendorClaimHandler,
+} from './routes/vendor-attestations';
 import { createVendorDetailHandler, createVendorsListHandler } from './routes/vendors';
 import { createVersionHandler } from './routes/version';
 import { queue, scheduled } from './scheduled';
@@ -330,6 +336,18 @@ app.route('/', authAdmin);
 // store (`STAGE_2_ATTESTATIONS_SPEC.md` §7.3) — scoped to the caller's vendor, and
 // not verified-gated (reading is not the capability).
 //   - GET   /api/vendor/notifications — the last 90 days of detector nudges.
+//
+// Stage 2 / AECI-301 adds the attestation authoring surface — the first code that
+// can write a `vendor_a`/`vendor_b` attestation, and therefore the first that can
+// move a claim off `unverified` (`STAGE_2_ATTESTATIONS_SPEC.md` §5). Same two
+// gates and the same order, but at INTEGRATION grain: which slot the caller may
+// fill comes from `lib/attestation-authority.ts` (product ownership, never the
+// request), a miss is a 404, and only then is `vendors.verified` checked. `GET`
+// is not Verified-gated, for the same reason the version list is not.
+//   - GET    /api/vendor/integrations                — the attestable surface.
+//   - POST   /api/vendor/claims                      — create a claim (201).
+//   - PUT    /api/vendor/claims/:claimId/attestation — assert or deny.
+//   - DELETE /api/vendor/claims/:claimId/attestation — retract (204).
 const authVendor = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
 authVendor.onError(errorHandler());
 authVendor.get('/api/vendor/me', requireVendor(), createVendorMeHandler());
@@ -363,6 +381,19 @@ authVendor.delete(
   createDeleteProductVersionHandler(),
 );
 authVendor.patch('/api/vendor/products/:id', requireVendor(), createUpdateVendorProductHandler());
+// AECI-301. No path overlap with the product routes above, so ordering is free.
+authVendor.get('/api/vendor/integrations', requireVendor(), createListVendorIntegrationsHandler());
+authVendor.post('/api/vendor/claims', requireVendor(), createVendorClaimHandler());
+authVendor.put(
+  '/api/vendor/claims/:claimId/attestation',
+  requireVendor(),
+  createUpsertVendorAttestationHandler(),
+);
+authVendor.delete(
+  '/api/vendor/claims/:claimId/attestation',
+  requireVendor(),
+  createRetractVendorAttestationHandler(),
+);
 app.route('/', authVendor);
 
 // Catch-alls throw so the root `onError` renders the canonical §3.3 envelope
