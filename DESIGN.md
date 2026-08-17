@@ -431,8 +431,33 @@ Native inputs driven by Signal Forms today (ADR 0009); richer controls use Angul
 
 ### Badges
 
-- **Verified** (`badge-verified`): Forest fill, surface-base text, `rounded.sm`, label typography. Reserved for vendor-verified integrations and other editorially-confirmed states.
+> **No verification iconography in Stage 1.** AECi verifies nothing today: production
+> holds zero vendor attestations and zero vendors with `verified = true`, and it stays
+> that way until the Stage 2 portal lets a vendor attest. So **no checkmark, shield,
+> tick, or "Verified" fill renders on any public surface** — a trust mark the data
+> cannot back is the one design error this brand cannot afford. Provenance is carried
+> by *text* (a maintainer name, and eventually a date), because text is falsifiable and
+> a checkmark is not. If you are reaching for a trust glyph, you want the maintenance
+> marker below. This is why `home-credibility-strip` uses a balance scale rather than
+> the shield-check it originally shipped with.
+
+What actually renders today:
+
+- **Maintenance marker** (`shared/maintenance-marker`): neutral chip — `border-default` /
+  `surface-raised` / `text-secondary`, decorative dot, no icon. Reads
+  `Maintained by AEC Integrations.` on product detail, vendor detail, and the pair page.
+  The date clause (`Reviewed <date>.`) and the `Vendor-maintained.` branch are built but
+  **dormant**: no column stores a real review timestamp yet, and wiring the input to
+  `updated_at` would make the date refresh itself on every bulk re-promote. AECI-616
+  supplies the real `last_reviewed_at`.
+- **Agreement pill** (`products/agreement-badge`): same neutral chip tokens. Renders
+  `Unverified · AECi` on every claim on every pair page — the honest posture, not a
+  warning. `Vendor-confirmed` / `Needs review` are defined for Stage 2 and unreachable.
 - **Pending** (`badge-pending`): surface-sunken fill, text-secondary text, 0.5px border-default. Indicates "submitted, not yet reviewed" — never confused with verified.
+
+**Deferred to Stage 2, not shipped:**
+
+- **Verified** (`badge-verified`): Forest fill, surface-base text, `rounded.sm`, label typography. Reserved for vendor-verified integrations and other editorially-confirmed states. **Do not build this until vendor attestations exist** (AECI-514) — until then there is nothing true for it to mark.
 
 ### Tags / Taxonomy chips
 
