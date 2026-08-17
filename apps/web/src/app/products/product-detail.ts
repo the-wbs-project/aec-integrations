@@ -15,6 +15,7 @@ import { ReviewCta } from '../reviews/review-cta';
 import { ReviewStars } from '../reviews/review-stars';
 import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
 import { MailingListSignup } from '../shared/mailing-list-signup/mailing-list-signup';
+import { MaintenanceMarker } from '../shared/maintenance-marker/maintenance-marker';
 import { SectionNav, type SectionNavItem } from '../shared/section-nav/section-nav';
 import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
 
@@ -74,6 +75,7 @@ import { RoleBadge } from './role-badge';
     ExternalLinkTracker,
     LogoOrInitial,
     MailingListSignup,
+    MaintenanceMarker,
     NotFound,
     ProductIntegrationRow,
     ProductPoweredHub,
@@ -145,6 +147,7 @@ import { RoleBadge } from './role-badge';
                   Product
                 </p>
                 <aec-role-badge [role]="p.product_role" />
+                <aec-maintenance-marker />
               </div>
               <h1
                 class="font-display text-3xl font-semibold leading-tight tracking-tight text-(--text-primary) break-words sm:text-4xl"

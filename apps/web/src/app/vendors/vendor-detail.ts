@@ -12,6 +12,7 @@ import { RequestDrawer } from '../requests/request-drawer';
 import { RequestTrigger } from '../requests/request-trigger';
 import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
 import { MailingListSignup } from '../shared/mailing-list-signup/mailing-list-signup';
+import { MaintenanceMarker } from '../shared/maintenance-marker/maintenance-marker';
 
 import { VendorProductRow } from './vendor-product-row';
 
@@ -62,6 +63,7 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
     ExternalLinkTracker,
     LogoOrInitial,
     MailingListSignup,
+    MaintenanceMarker,
     NotFound,
     RequestDrawer,
     RequestTrigger,
@@ -103,12 +105,15 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
               [priority]="true"
             />
             <div class="min-w-0 space-y-2">
-              <p
-                class="text-xs uppercase tracking-[0.14em] text-(--text-secondary)"
-                i18n="@@vendors.detail.eyebrow"
-              >
-                Vendor
-              </p>
+              <div class="flex flex-wrap items-center gap-2">
+                <p
+                  class="text-xs uppercase tracking-[0.14em] text-(--text-secondary)"
+                  i18n="@@vendors.detail.eyebrow"
+                >
+                  Vendor
+                </p>
+                <aec-maintenance-marker />
+              </div>
               <h1
                 class="font-display text-3xl font-semibold leading-tight tracking-tight text-(--text-primary) break-words sm:text-4xl"
               >
