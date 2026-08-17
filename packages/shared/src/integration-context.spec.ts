@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import type { ClaimDirection } from './api/promote';
+import { CLAIM_DIRECTIONS, type ClaimDirection } from './api/promote';
 import {
   attestorForContext,
   claimDirectionForContext,
+  claimDirectionFromContext,
   contextDirectionFromClaims,
   defaultIntegrationContext,
   effectiveContextDirection,
@@ -67,6 +68,45 @@ describe('claimDirectionForContext', () => {
   it('reads b_to_a as the mirror of a_to_b', () => {
     expect(claimDirectionForContext('b_to_a', true)).toBe('inbound');
     expect(claimDirectionForContext('b_to_a', false)).toBe('outbound');
+  });
+});
+
+describe('claimDirectionFromContext', () => {
+  it('folds both back to both regardless of which endpoint is the context', () => {
+    expect(claimDirectionFromContext('both', true)).toBe('both');
+    expect(claimDirectionFromContext('both', false)).toBe('both');
+  });
+
+  it('stores outbound as a_to_b from endpoint A and b_to_a from endpoint B', () => {
+    expect(claimDirectionFromContext('outbound', true)).toBe('a_to_b');
+    expect(claimDirectionFromContext('outbound', false)).toBe('b_to_a');
+  });
+
+  it('stores inbound as the mirror of outbound', () => {
+    expect(claimDirectionFromContext('inbound', true)).toBe('b_to_a');
+    expect(claimDirectionFromContext('inbound', false)).toBe('a_to_b');
+  });
+
+  // The property that matters for AECI-301: a vendor writes in its own frame and
+  // reads back the same thing. If these two ever disagree, a vendor authoring
+  // "outbound" would see "inbound" on its own dashboard, and the pair page would
+  // render the arrow backwards.
+  it('is the exact inverse of claimDirectionForContext, in both frames', () => {
+    for (const contextIsSource of [true, false]) {
+      for (const stored of CLAIM_DIRECTIONS) {
+        const framed = claimDirectionForContext(stored, contextIsSource);
+        expect(claimDirectionFromContext(framed, contextIsSource)).toBe(stored);
+      }
+    }
+  });
+
+  it('round-trips the other way too — framed → stored → framed', () => {
+    for (const contextIsSource of [true, false]) {
+      for (const framed of ['inbound', 'outbound', 'both'] as const) {
+        const stored = claimDirectionFromContext(framed, contextIsSource);
+        expect(claimDirectionForContext(stored, contextIsSource)).toBe(framed);
+      }
+    }
   });
 });
 

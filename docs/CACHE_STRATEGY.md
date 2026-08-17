@@ -167,10 +167,12 @@ Callers of `/admin/purge`:
 
 **(b) `POST /api/promote` + review moderation on the API Worker** — since WC-5, these **enqueue** onto `aeci-cache-purge-{env}` (producer binding `CACHE_PURGE_QUEUE`) after the write commits; the SSR consumer issues the `ctx.cache.purge()`. Best-effort, post-commit (`ctx.waitUntil`), a graceful no-op when the queue binding is unset (local dev, PR previews), and never fails the committed write (a `queue.send` rejection is logged and swallowed). The promote's entity/index/pair/taxonomy tags are derived by `cacheTagsForPromote` (`promote-cache-tags.ts`); review moderation enqueues `product:{slug}`; the **vendor-claim grant** (`PATCH /api/admin/claims/:id`, AECI-519) enqueues the vendor **and its products** — `{ tags: ['vendor:{slug}', 'product:{slug}'…, 'index:products'], source: 'moderation' }` — because it flips `vendors.verified` (unlike plain request-moderation, which purges nothing). One message per ≤1000-tag batch (`CACHE_PURGE_QUEUE_MAX_TAGS`, vs. the HTTP transport's 30). This supersedes the ADR-0010 direct HTTP purge (which is inert against Workers Cache); the message is async, so there is still no api→web service binding.
 
-**(b2) `PATCH /api/vendor/*` on the API Worker (Stage 2, AECI-520)** — the vendor
-portal's self-service edits use the same producer path with a distinct
-`source: 'vendor'`, so the `aeci.cache.purge{source}` metric separates
-vendor-initiated invalidation from AECi-initiated `moderation`.
+**(b2) the `/api/vendor/*` write surface on the API Worker (Stage 2, AECI-520 /
+607 / 301)** — the vendor portal's self-service edits use the same producer path
+with a distinct `source: 'vendor'`, so the `aeci.cache.purge{source}` metric
+separates vendor-initiated invalidation from AECi-initiated `moderation`. One
+helper enqueues for all of them (`purgeTags` / `afterVendorWrite` in
+`apps/api/src/routes/vendor-shared.ts`); only the tag set differs per write.
 
 - **Profile edit** → `vendor:{slug}`. One tag suffices by the §3 embedded-entity
   rule: a product detail page tags the vendor it displays, so every page showing
@@ -196,6 +198,20 @@ vendor-initiated invalidation from AECi-initiated `moderation`.
   consumer versions will ever have. And `index:products` is deliberately omitted:
   unlike a product edit, versions never appear on the `/products` catalog, so
   purging it would evict a 300s-TTL page for content that cannot have changed.
+- **Attestation write** (`POST /api/vendor/claims`, `PUT`/`DELETE
+  /api/vendor/claims/:claimId/attestation`, AECI-301) → **`pair:{min}__{max}`
+  plus `product:{sourceSlug}` and `product:{targetSlug}`**, three tags, all
+  required. The pair tag is emitted through `pairCacheTag()`
+  (`apps/api/src/routes/promote-pair.ts`) — the **identical** primitive the pair
+  page itself uses, and the same one `cacheTagsForPromote` calls, so the writer
+  and the reader can never drift on the `{min}__{max}` ordering. The pair page is
+  the primary surface a claim edit changes, but the two `product:{slug}` tags are
+  not redundant: the product-detail integrations table renders a claims-aware
+  `context_direction`, and since AECI-605 a claim every voting vendor **denies**
+  stops contributing its direction to that arrow — so a denial with no product
+  purge would leave the table pointing the wrong way for a full TTL.
+  `index:products` is omitted for the same reason as versions: claims never render
+  on the catalog.
 
 Same best-effort contract — no-op without the binding, `queue.send` rejection
 logged and swallowed, never fails the committed edit. Note the asymmetry with
@@ -205,7 +221,10 @@ product** write always stamps `products.updated_at` so that sync actually sees i
 including a taxonomy-only edit that touches no other column. A **version** write
 deliberately does not stamp it: versions do not feed the Algolia record, so
 bumping `updated_at` would drag the product through the nightly window for
-nothing. The same asymmetry governs the
+nothing. An **attestation** write does not stamp it either, and for a stronger
+reason — claims are not in the search index at all (`STAGE_1_5_SPEC.md` §9 defers
+per-pair records), so there is nothing for a sync to pick up. Dashboard copy must
+therefore not promise that attesting changes search. The same asymmetry governs the
 **verified-badge flip** (AECI-529): the §5(b) claim→grant stamps `vendors.updated_at`
 alongside `verified = true`, so the `vendors` index re-indexes the flip on the next
 nightly window while the grant's `vendor:{slug}` + `product:{slug}` purge repaints the

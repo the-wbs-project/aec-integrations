@@ -299,7 +299,8 @@ Three rules bind here:
 
 - **Authority derives from ownership, never from the request.** Nothing in the `/api/vendor/*` contract carries a slot or a vendor id, exactly as nothing in it carries a `vendor_id` today.
 - **404, not 403** — the non-disclosure rule (`apps/api/src/routes/vendor.ts` header). A vendor must not be able to probe for the existence of another vendor's integration, so "you own neither endpoint" and "no such integration" answer identically. The check runs **before** any other read or write, in its own wave: folding it into a `Promise.all` lets a validation error win the race and answer a request that should have been a flat 404.
-- **One implementation.** `resolveAttestationSlots()` / `resolveAttestationSlotsForVendor()` in `apps/api/src/lib/attestation-authority.ts` own the rule; no handler and no detector re-derives it inline. Full contract: `docs/STAGE_2_ATTESTATIONS_SPEC.md` §2.
+- **One implementation.** `resolveAttestationSlots()` / `resolveAttestationSlotsForVendor()` / `resolveClaimAuthority()` in `apps/api/src/lib/attestation-authority.ts` own the rule; no handler and no detector re-derives it inline. Full contract: `docs/STAGE_2_ATTESTATIONS_SPEC.md` §2.
+- **The 404 must also be uniform across grains** (AECI-301). `resolveClaimAuthority()` exists because the obvious composition — load the claim, then resolve its integration — answers `details.resource: 'claim'` for a claim that does not exist and `'integration'` for one belonging to another vendor. Distinguishable 404s are an existence oracle a vendor can walk. One join collapses both into the same empty result, so the property is structural rather than a branch that must be written identically twice.
 
 Two schema facts the rule has to survive: `product_vendors` is many-to-many, so one vendor can own both endpoints (it may write both slots, but §4 of that spec still renders the result one-sided, since `confirmed` needs two **distinct** `attested_by_vendor_id` values); and `profiles.vendor_id` is many-to-one, so two accounts can target the same slot — the `attestations_slot_key` partial unique index makes that explicitly last-write-wins rather than silently accumulating duplicate votes.
 
@@ -345,6 +346,10 @@ await db.batch([
 | `POST /api/vendor/products/:id/versions` (AECI-607) | Hard-required | same **+ ownership + `vendors.verified`** | `product_version.created` (`metadata.source: 'vendor-portal'`) |
 | `PATCH /api/vendor/products/:id/versions/:versionId` (AECI-607) | Hard-required | same **+ ownership + `vendors.verified`** (+ the version must belong to `:id`) | `product_version.updated` |
 | `DELETE /api/vendor/products/:id/versions/:versionId` (AECI-607) | Hard-required | same **+ ownership + `vendors.verified`** (+ the version must belong to `:id`) | `product_version.deleted` |
+| `GET /api/vendor/integrations` (AECI-301) | Hard-required | same **+ §4.2a endpoint authority** (the surface is filtered to it; never a 404) | No (reads only) |
+| `POST /api/vendor/claims` (AECI-301) | Hard-required | same **+ §4.2a endpoint authority + `vendors.verified`** | `claim.created` **and** `attestation.created` (one per owned slot), `metadata.source: 'vendor-portal'` |
+| `PUT /api/vendor/claims/:claimId/attestation` (AECI-301) | Hard-required | same **+ §4.2a endpoint authority + `vendors.verified`** | `attestation.retracted` (per superseded row) + `attestation.created` (per owned slot) |
+| `DELETE /api/vendor/claims/:claimId/attestation` (AECI-301) | Hard-required | same **+ §4.2a endpoint authority + `vendors.verified`** | `attestation.retracted` (per retracted row) |
 | `POST /api/webhooks/linear` | HMAC-verified | N/A | `workflow.transitioned` |
 
 **The `/api/vendor/*` rows carry two extra obligations** (AECI-520,
@@ -365,6 +370,16 @@ row filter RLS would have provided, and they are not optional:
    (`lib/attestation-authority.ts`), which enforces the same 404 posture for the
    two-slot attestation rule. Same "don't reveal the surface" posture as the
    `/admin` gate.
+
+   **`/api/vendor/claims*` (AECI-301) carries one adaptation of that rule.** The
+   version routes take their product id from the **path**, so they can prove
+   ownership before the body is even parsed. `POST /api/vendor/claims` takes its
+   `integration_id` from the **body**, so a shape-only Zod parse necessarily runs
+   first. That is safe — it touches no database, so a 400 from it is
+   existence-independent — but nothing else may join it: vocabulary resolution,
+   the duplicate-identity check and version-stamp validation all run *after* the
+   authority wave, or a `400` naming a bad `data_object` would answer a request
+   that should have been a flat `404`.
 
 **A third obligation applies to the version WRITES only** (AECI-607,
 `STAGE_2_ATTESTATIONS_SPEC.md` §1/§8.3): authoring is a **Verified-vendor

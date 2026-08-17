@@ -91,15 +91,26 @@ export async function purgeTags(c: VendorContext, tags: readonly string[]): Prom
   }
 }
 
-/** The post-commit tail every vendor write shares: purge, then forward to
- *  Datadog. Both best-effort, both outside the batch. */
+/**
+ * The post-commit tail every vendor write shares: purge, then forward to
+ * Datadog. Both best-effort, both outside the batch.
+ *
+ * `entries` takes an array as well as a single entry because a write may emit
+ * more than one `audit_log` row — AECI-301's `POST /api/vendor/claims` writes a
+ * `claim.created` plus one `attestation.created` per owned slot, and §26.5 wants
+ * every row forwarded, not just the headline one.
+ */
 export function afterVendorWrite(
   c: VendorContext,
   tags: readonly string[],
-  entry: Parameters<typeof forwardAuditLog>[0],
+  entries:
+    | Parameters<typeof forwardAuditLog>[0]
+    | ReadonlyArray<Parameters<typeof forwardAuditLog>[0]>,
 ): void {
+  const list = Array.isArray(entries) ? entries : [entries];
+  const forwarder = makeForwarder(c);
   c.executionCtx.waitUntil(
-    Promise.all([purgeTags(c, tags), forwardAuditLog(entry, makeForwarder(c))]),
+    Promise.all([purgeTags(c, tags), ...list.map((entry) => forwardAuditLog(entry, forwarder))]),
   );
 }
 
