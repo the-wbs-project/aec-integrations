@@ -23,6 +23,7 @@
  */
 
 import { slugify } from '@aeci/shared/slug';
+import { asc, sql } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import { taxonomyDataObjects } from '../db/schema';
@@ -101,4 +102,56 @@ export async function loadDataObjectResolver(db: Db): Promise<DataObjectResolver
     const key = safeSlugify(value);
     return key ? termByKey.get(key) : undefined;
   };
+}
+
+/** One vocabulary term as an enumeration, rather than as a matcher key. Shaped
+ *  to `DataObjectOption` on the wire (`@aeci/shared`) — no `id`, no
+ *  `display_order`, and deliberately no `aliases`; see that schema's doc comment
+ *  for why each is excluded. */
+export interface DataObjectListing {
+  slug: string;
+  name: string;
+  description: string | null;
+}
+
+/**
+ * The whole vocabulary as an ordered list, for `GET /api/vendor/data-objects`
+ * (AECI-606 / §6 — the dashboard offers the closed list rather than free text).
+ *
+ * This is a second export rather than a second reader of `taxonomy_data_objects`
+ * elsewhere: this module's job is to be the one place that knows the table, and
+ * keeping the enumeration here is what stops a future editor from adding
+ * `aliases` to a route's column list without seeing why they are withheld.
+ *
+ * `loadDataObjectResolver` cannot serve this. It returns a matcher closure over
+ * an alias-folded `Map` keyed by `safeSlugify` output, drops `description` and
+ * `display_order`, and applies a first-write-wins tie-break that is meaningless
+ * for an enumeration — an ordered term list is not recoverable from it.
+ *
+ * **Ordering must match `createListVendorIntegrationsHandler`'s claim sort**
+ * (`routes/vendor-attestations.ts`), which coerces a null `display_order` to
+ * `Number.MAX_SAFE_INTEGER` in JS — i.e. **NULLs last**. SQLite sorts NULLs
+ * *first* by default, so the `IS NULL` term below is load-bearing, not
+ * decorative: without it the picker's rows and the tab's lanes would disagree
+ * on any hand-inserted row. (All 20 seeded terms carry a `display_order`, which
+ * is exactly what would make the divergence invisible until it wasn't.)
+ *
+ * No memoisation. Twenty rows off one indexed table, and a module-level isolate
+ * cache would go stale across a re-seed with no invalidation path —
+ * `loadDataObjectResolver` already reads the full table per `POST
+ * /api/vendor/claims`, so this matches the posture beside it.
+ */
+export async function listDataObjectTerms(db: Db): Promise<DataObjectListing[]> {
+  return db
+    .select({
+      slug: taxonomyDataObjects.slug,
+      name: taxonomyDataObjects.name,
+      description: taxonomyDataObjects.description,
+    })
+    .from(taxonomyDataObjects)
+    .orderBy(
+      sql`${taxonomyDataObjects.displayOrder} IS NULL`,
+      asc(taxonomyDataObjects.displayOrder),
+      asc(taxonomyDataObjects.slug),
+    );
 }

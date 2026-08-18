@@ -106,6 +106,58 @@ export const ClaimOriginSchema = z.enum(CLAIM_ORIGINS);
 
 export type ClaimOrigin = z.infer<typeof ClaimOriginSchema>;
 
+/**
+ * One term of the closed `data_object` vocabulary, as the §6 dashboard's picker
+ * renders it (`GET /api/vendor/data-objects`, AECI-606).
+ *
+ * This is the closed list `dataObjectRef` above says the dashboard "should offer
+ * rather than a text input in the first place". The picker submits a canonical
+ * `slug`, so the free-text ref stays the wire type — the vocabulary still owns
+ * the matching — but a vendor never has to guess a term.
+ *
+ * **`aliases` is deliberately absent**, and that is the load-bearing exclusion.
+ * The picker sends a slug, which always resolves, so alias matching buys nothing
+ * here; shipping the aliases would invite a client-side match that has to
+ * reimplement `safeSlugify`'s normalization, and a second matcher is exactly the
+ * drift `lib/data-object-vocabulary.ts` was extracted from `promote.ts` to
+ * eliminate. They are also raw curation metadata ("ITB", "P6", "AP") — matching
+ * keys, not translatable copy.
+ *
+ * **`id` is absent** because nothing on this surface takes one (`data_object` on
+ * `CreateVendorClaimSchema` is a slug-or-alias string), and shipping it would
+ * offer a client a second, unvalidated identity path. **`display_order` is
+ * absent** because the array arrives ordered — a client re-sort is the one way
+ * the picker's order could drift from the claim lanes'. (`TaxonomyTermWithCount`
+ * on `./taxonomy.ts` does expose `display_order`; that facet is re-sorted by
+ * several surfaces, this one is not.)
+ *
+ * `description` rides along as the picker's disambiguating hint on a 20-term
+ * list; it is nullable because the column is.
+ */
+export const DataObjectOptionSchema = z.object({
+  slug: z.string(),
+  name: z.string(),
+  description: z.string().nullable(),
+});
+
+export type DataObjectOption = z.infer<typeof DataObjectOptionSchema>;
+
+/**
+ * `GET /api/vendor/data-objects` — the whole frozen vocabulary, ordered by
+ * `display_order` then `slug` (NULLs last), the **same** ordering
+ * `GET /api/vendor/integrations` applies to a claim list, so the picker's rows
+ * and the tab's lanes agree.
+ *
+ * Never paginated: a closed 20-term list. An unseeded vocabulary is an empty
+ * array, not an error — the dashboard degrades the "add a data flow" affordance
+ * rather than failing the whole tab.
+ */
+export const ListDataObjectsResponseSchema = z.object({
+  data_objects: z.array(DataObjectOptionSchema),
+});
+
+export type ListDataObjectsResponse = z.infer<typeof ListDataObjectsResponseSchema>;
+
 // ─── Entity shapes ───────────────────────────────────────────────────────────
 
 /**

@@ -421,6 +421,26 @@ Phase 8.3 (`docs/ADMIN_PANEL_SPEC.md`, epic AECI-572) turns the moderation area 
 
 - **Charts are hand-rolled SVG** (`admin/charts/`, spec §8 / §13 D3): `<aec-sparkline>` and `<aec-stacked-bar-chart>`, geometry from pure functions so they are SSR-safe, sized by `viewBox` rather than measurement, series in Forest and Clay-deep (distinct in hue **and** lightness). A chart is never the only representation of a number: the stacked bar carries a visible legend and a visually-hidden `<table>` of the full series, and a sparkline only ever accompanies a figure already rendered as text. An empty series renders nothing rather than a flat line implying a measured zero.
 
+### Vendor portal (Stage 2)
+
+The signed-in vendor's `/vendor` surface (`apps/web/src/app/vendor/`): the AECI-522 tabbed dashboard (Overview / Profile / Products / Integrations / Seats) plus the AECI-606 Integrations tab. Gated by `vendorMeResolver`, `noindex`, non-cacheable.
+
+**No new Mobbin anchor was picked, deliberately** — the same call the operator console made above (`ADMIN_PANEL_SPEC.md` §9.10), and recorded here because the Anchor-Site Rule's "record the anchor site with the surface" had never been satisfied for `/vendor`. The portal inherits the Phase 5/6 admin-queue and Phase 8.3 console vocabulary: bordered `--surface-raised` cards, border not shadow, the eyebrow-then-heading header, Forest figures, `tabular-nums`. It is an internal, signed-in surface reading the same catalog the public directory renders, so a second reference site would make AECi read as two products. One publication, one voice (Anchor-Site Rule). Token-only, i18n throughout, light-only.
+
+- **Integrations tab** (`<aec-vendor-integrations-section>`, `vendor/components/`) — one card per integration touching a product the vendor owns: their own product as the eyebrow, the counterpart as the `h3`, the mechanism beneath. Inside, a lane per `data_object` claim.
+
+- **Direction is always the vendor's own frame.** Lanes render "Sends to Procore" / "Receives from Procore" / "Syncs both ways" through `products/pair-direction-labels.ts` — the *same* `@@pair.direction.*` copy the public pair page uses, extracted by AECI-606 rather than restated. The stored `a_to_b`/`b_to_a` never reaches the browser.
+
+- **Agreement state reuses `<aec-agreement-badge>` verbatim.** The vendor's view of a claim must not disagree with the public page's view of the same claim, so the four states' copy and tone stay owned in one component — including the rule that `conflict` is the only red state and `single_source` never borrows `confirmed`'s treatment.
+
+- **A conflict shows both positions, and is not styled as an error.** The disclosure is a `--surface-sunken` / `--border-strong` two-column `<dl>`: your stance and note beside theirs. Two vendors describing a flow differently is a disagreement to resolve, not a defect in either product — red on this surface belongs to the badge alone.
+
+- **Affirm / Deny / Clear are plain buttons**, because they are commands that write on activation, not values you pick and submit (ADR 0010 governs the latter). The note field renders *inline and populated* rather than behind a collapsed disclosure, because `PUT` replaces the whole position: the UI must never look emptier than what a save will send. Aria is used where the ADR asks for it — the `data_object` combobox over the closed vocabulary, the direction listbox, and the version pickers, all via the shared `<aec-select>`.
+
+- **One polite live region per tab, many assertive ones.** Successful writes mutate a single persistent `role="status"` that names the subject; failures are lane-local `role="alert"` beside the control that failed.
+
+- **Copy carries the trust promise.** Nothing implies attesting affects ranking or placement; the only search reference is that search refreshes within a day; "Verified" is framed as an account status arranged with AEC Integrations, and the unverified state explains what verification unlocks rather than 403-ing a vendor out of their own data.
+
 ### Inputs / Fields
 
 Native inputs driven by Signal Forms today (ADR 0009); richer controls use Angular Aria per the provider note above (ADR 0010, Accepted) — `select`/`radio` are realised via combobox/listbox (Aria@22 ships neither), and these discrete-choice controls bridge into Signal Forms via `[(value)]`+`(valueChange)`, not `[formField]`. Styling binds to tokens.

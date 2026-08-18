@@ -12,6 +12,10 @@ Everything downstream seeds from it:
 - **AECI-290** — the Review-app (bamako) Airtable `data_objects` table is seeded from this list.
 - **"I8"** — the main app's D1 `taxonomy_data_objects` table + `apps/api/seed/data-objects.sql`
   are seeded from this list.
+- **AECI-606** — the vocabulary's first **wire surface**: `GET /api/vendor/data-objects` serves the
+  seeded rows to the vendor dashboard's `data_object` picker
+  (`STAGE_2_ATTESTATIONS_SPEC.md` §6). It carries `slug` / `name` / `description` only — see §3 for
+  why `aliases` stays server-side.
 
 ## 1. What a `data_object` is
 
@@ -42,6 +46,12 @@ The list is **closed and frozen**. This is a deliberate constraint, not an overs
   added: `issues` (Issues / Observations), `transmittals`, `materials-deliveries`,
   `safety-incidents`, and `forms` (Forms / Checklists) were considered and **deliberately excluded**
   from the Stage 1.5 freeze.
+- **Since AECI-606 the closure is visible to vendors as an exhaustive picker**, not only enforced
+  server-side on free text. A vendor whose flow the list cannot express has **no in-product escape
+  hatch** — the remedy is the vocabulary-change PR above, and the UI must never imply the vendor can
+  extend the list. Two consequences worth stating plainly: this raises the practical cost of the five
+  held-out terms, and `name` / `description` are now **user-facing copy** rather than only matching
+  metadata (they are still freely editable, but they are read by vendors).
 
 ## 3. How `aliases` is used
 
@@ -51,9 +61,17 @@ of synonyms the **seeding AI** and the **promote resolver** map onto a closed te
 the system still resolves to one canonical slug.
 
 Matching is case-insensitive; both the `name` and every `alias` resolve to the same `slug`. Aliases
-are **resolver metadata**, not necessarily a database column — whether the main D1
-`taxonomy_data_objects` table materialises an `aliases` column or keeps the map alongside the seeder
-is an I8 (D1 schema) decision; either way this file is the source of the mapping.
+are **resolver metadata**. The open I8 question here is settled: D1 **does** materialise an
+`aliases` column on `taxonomy_data_objects` (`apps/api/src/db/schema.ts`), read by the shared
+find-only matcher in `apps/api/src/lib/data-object-vocabulary.ts`.
+
+**Aliases are deliberately not on the wire** (AECI-606). The vendor picker submits a canonical
+`slug`, which always resolves, so a client never needs to match; shipping the aliases would invite a
+client-side match that has to reimplement `safeSlugify`'s normalisation, and a second matcher is
+precisely the drift that matcher was extracted from `promote.ts` to eliminate. They are also raw
+curation strings ("ITB", "P6", "AP") rather than translatable copy. Contrast `taxonomy_trades`, where
+aliases *are* dual-purpose (`TRADES_VOCABULARY.md` §"Aliases"); the difference is that only this
+vocabulary is rendered to vendors as a closed list.
 
 ## 4. The frozen vocabulary (20 terms)
 

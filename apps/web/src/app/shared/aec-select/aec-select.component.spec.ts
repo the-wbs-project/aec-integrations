@@ -1,5 +1,6 @@
 /**
- * AECI-577 — `AdminSelect`: the panel's discrete-choice filter control.
+ * `AecSelect`: the app's discrete-choice "select" control (AECI-577 as
+ * `AdminSelect`; promoted to `shared/` by AECI-606).
  *
  * A non-editable Angular Aria combobox whose listbox is deferred behind a
  * `cdkConnectedOverlay` (ADR 0010). Per the repo convention (see
@@ -16,27 +17,32 @@ import { provideZonelessChangeDetection } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { AdminSelect, type AdminSelectOption } from './admin-select';
+import { AecSelect, type AecSelectOption } from './aec-select';
 
-const OPTIONS: readonly AdminSelectOption[] = [
+const OPTIONS: readonly AecSelectOption[] = [
   { value: null, label: 'Any source' },
   { value: 'Google', label: 'Google' },
   { value: 'Direct', label: 'Direct' },
 ];
 
-function setup(value: string | null = null, options = OPTIONS) {
+function setup(
+  value: string | null = null,
+  options = OPTIONS,
+  extra: Record<string, unknown> = {},
+) {
   TestBed.configureTestingModule({ providers: [provideZonelessChangeDetection()] });
-  const fixture = TestBed.createComponent(AdminSelect);
+  const fixture = TestBed.createComponent(AecSelect);
   fixture.componentRef.setInput('label', 'Source');
   fixture.componentRef.setInput('options', options);
   fixture.componentRef.setInput('value', value);
+  for (const [key, val] of Object.entries(extra)) fixture.componentRef.setInput(key, val);
   fixture.detectChanges();
   return { fixture, el: fixture.nativeElement as HTMLElement };
 }
 
 const trigger = (el: HTMLElement) => el.querySelector('button') as HTMLButtonElement;
 
-describe('AdminSelect', () => {
+describe('AecSelect', () => {
   beforeEach(() => TestBed.resetTestingModule());
   // The deferred listbox renders into a body-level CDK overlay container under
   // jsdom (no Popover API); sweep any leak between tests.
@@ -44,7 +50,7 @@ describe('AdminSelect', () => {
 
   it('renders a labelled, closed Aria combobox trigger', () => {
     const { el } = setup();
-    const label = el.querySelector('[id^="admin-select-label-"]');
+    const label = el.querySelector('[id$="-label"]');
     expect(label?.textContent?.trim()).toBe('Source');
 
     const btn = trigger(el);
@@ -90,5 +96,57 @@ describe('AdminSelect', () => {
     const { el } = setup();
     expect(el.querySelector('[role="listbox"]')).toBeNull();
     expect(document.querySelector('ul[aria-label="Source"]')).toBeNull();
+  });
+
+  // ─── AECI-606 additions ────────────────────────────────────────────────────
+
+  it('shows the placeholder instead of a blank trigger when nothing matches', () => {
+    // A required field has no "Any …" row to fall back on, so a blank trigger
+    // would be an unlabelled control rather than a legible "not chosen yet".
+    const { el } = setup(null, [{ value: 'rfis', label: 'RFIs' }], {
+      placeholder: 'Choose a data object',
+    });
+    expect(trigger(el).textContent?.trim()).toBe('Choose a data object');
+  });
+
+  it('soft-disables the trigger — aria-disabled, still focusable', () => {
+    // Aria's default is `softDisabled`, so the native attribute is never set and
+    // the control stays in the tab order. Asserting the real contract here is
+    // what stops someone styling it with the `disabled:` variant, which would
+    // silently never match.
+    const btn = trigger(setup(null, [], { disabled: true }).el);
+    expect(btn.getAttribute('aria-disabled')).toBe('true');
+    expect(btn.hasAttribute('disabled')).toBe(false);
+    expect(btn.getAttribute('tabindex')).toBe('0');
+    expect(btn.className).toContain('aria-disabled:opacity-50');
+  });
+
+  it('derives stable ids from `idPrefix` rather than the module counter', () => {
+    // The vendor tab renders one of these per claim, so ids must survive a
+    // re-render and must not collide across instances.
+    const { el } = setup(null, OPTIONS, { idPrefix: 'vendor-claim-abc-introduced' });
+    const btn = trigger(el);
+    expect(btn.id).toBe('vendor-claim-abc-introduced-trigger');
+    expect(el.querySelector('[id$="-label"]')?.id).toBe('vendor-claim-abc-introduced-label');
+    expect(btn.getAttribute('aria-labelledby')).toBe(
+      'vendor-claim-abc-introduced-label vendor-claim-abc-introduced-trigger',
+    );
+  });
+
+  it('associates a described-by target when given one', () => {
+    const { el } = setup(null, OPTIONS, { describedBy: 'field-error' });
+    expect(trigger(el).getAttribute('aria-describedby')).toBe('field-error');
+  });
+
+  it('omits aria-describedby when there is nothing to point at', () => {
+    expect(trigger(setup().el).hasAttribute('aria-describedby')).toBe(false);
+  });
+
+  it('renders a full-width stacked field when asked, without changing the ARIA wiring', () => {
+    const { el } = setup('Google', OPTIONS, { layout: 'stacked' });
+    const btn = trigger(el);
+    expect(btn.className).toContain('w-full');
+    expect(btn.getAttribute('role')).toBe('combobox');
+    expect(btn.getAttribute('aria-expanded')).toBe('false');
   });
 });

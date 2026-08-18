@@ -501,6 +501,14 @@ Run axe on:
   authorized `afterNextRender` reads resolve, so an axe run on the unauthenticated
   route would only ever audit the loading state. That spec is the one place with a
   real minted session; it waits for the stat tiles before analyzing.
+- `/vendor` — the **Integrations tab**, in `vendor-dashboard.spec.ts` (AECI-606), for the
+  same reason and with the same shape: the tab authorizes server-side via
+  `vendorMeResolver`, and its cards, claim lanes, Aria pickers and live region do
+  not exist until `GET /api/vendor/integrations` lands. That spec mints the
+  `vendor_admin` persona and waits for the first integration card (or the empty
+  state) before analyzing. It is the most interactive vendor-facing surface, so
+  this is the run that covers the combobox/listbox wiring end to end — the unit
+  specs deliberately never open a CDK overlay (§4.3a).
 
 Run in the light theme (Stage 1 is light-only — AECI-226).
 
