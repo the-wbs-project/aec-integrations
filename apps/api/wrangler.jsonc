@@ -106,6 +106,22 @@
   // Workers Paid plan, and the CI CLOUDFLARE_API_TOKEN must carry the Queues edit
   // permission. See ADR 0013 and docs/environments.md.
   //
+  // AECI-563 / ADR 0021: `POST /api/promote` no longer commits inline. It validates,
+  // starts an instance of the `PROMOTE_WORKFLOW` Cloudflare Workflow (class
+  // `PromoteWorkflow`, re-exported from `src/index.ts` — wrangler resolves Workflow
+  // classes off the Worker's main module), and returns `202 { jobId }`; the ingest runs
+  // in the Workflow and `GET /api/promote/jobs/:id` serves the resulting IDs. The
+  // instance id IS the caller-supplied job id, which is what makes a replayed kick-off
+  // unable to commit twice. One Workflow per env (like the queues) so environments never
+  // share instances. Workflows are created by `wrangler deploy` — no `queues create`-style
+  // provisioning step — but they DO require the Workers Paid plan.
+  //   PROMOTE_KV — companion namespace, own per env: `promote:payload:{jobId}` (24h)
+  //                stages a bundle too large for the 1 MiB event-params cap, and
+  //                `promote:result:{jobId}` (90d) mirrors the committed ID map so it
+  //                outlives the 30-day instance retention. Absent → an oversize bundle
+  //                is rejected 413 and the IDs are only fetchable while the instance
+  //                lives. Keys + thresholds live in `src/lib/promote-jobs.ts`.
+  //
   // AECI-105 → WC-5 (AECI-319): the promote handler and review moderation invalidate
   // the SSR edge cache by ENQUEUEING onto the `aeci-cache-purge-{env}` queue (producer
   // binding CACHE_PURGE_QUEUE, added to each env's `queues.producers` below); the SSR
@@ -157,6 +173,21 @@
       "id": "331fc1cfc6e0421b985442ac934748fa",
       "preview_id": "331fc1cfc6e0421b985442ac934748fa",
     },
+    {
+      "binding": "PROMOTE_KV",
+      "id": "30d6ca5b9f9e444ea97362e9757b21c3",
+      "preview_id": "30d6ca5b9f9e444ea97362e9757b21c3",
+    },
+  ],
+  // AECI-563 / ADR 0021: the promote ingest Workflow. Base config mirrors preview (bare
+  // `wrangler dev`); per-env blocks below give each environment its own Workflow so
+  // instance ids — which ARE the caller-supplied job ids — never collide across tiers.
+  "workflows": [
+    {
+      "name": "aeci-promote-preview",
+      "binding": "PROMOTE_WORKFLOW",
+      "class_name": "PromoteWorkflow",
+    },
   ],
   // ADR 0016 / AECI-252: the application database is Cloudflare D1, bound as `DB`
   // and reached via the Drizzle client factory `getDb(env)` (`src/db/client.ts`).
@@ -200,6 +231,22 @@
           "binding": "TAXONOMY_KV",
           "id": "331fc1cfc6e0421b985442ac934748fa",
           "preview_id": "331fc1cfc6e0421b985442ac934748fa",
+        },
+        // AECI-563 / ADR 0021: promote job payload staging + result mirror.
+        {
+          "binding": "PROMOTE_KV",
+          "id": "30d6ca5b9f9e444ea97362e9757b21c3",
+          "preview_id": "30d6ca5b9f9e444ea97362e9757b21c3",
+        },
+      ],
+      // AECI-563 / ADR 0021. `pnpm dev:bound` runs the API Worker with `--env preview`,
+      // so this is the Workflow the bound local stack uses — served locally by
+      // `wrangler dev` regardless of account state.
+      "workflows": [
+        {
+          "name": "aeci-promote-preview",
+          "binding": "PROMOTE_WORKFLOW",
+          "class_name": "PromoteWorkflow",
         },
       ],
       // ADR 0016 / AECI-252. `pnpm dev:bound` runs the API Worker with
@@ -250,11 +297,28 @@
         // parseRecipients). Staging sends to Chris only.
         "DATA_QUALITY_EMAIL_FROM": "AECi Data Quality <support@thewbsproject.com>",
         "DATA_QUALITY_EMAIL_TO": "chrisw@thewbsproject.com",
+        // AECI-526: the daily operator analytics digest is PRODUCTION-ONLY — the cron
+        // still runs here (emits its liveness metric) but ANALYTICS_DIGEST_EMAIL_TO is
+        // intentionally unset, so the send fail-open skips (staging's D1 is synthetic
+        // test data; only prod's numbers are real). See the production block.
       },
       "kv_namespaces": [
         {
           "binding": "TAXONOMY_KV",
           "id": "dcc927dc53be4fdb9b7c5279e4803539",
+        },
+        // AECI-563 / ADR 0021: promote job payload staging + result mirror.
+        {
+          "binding": "PROMOTE_KV",
+          "id": "eee38f83e62f473d8d589e08b2a99c07",
+        },
+      ],
+      // AECI-563 / ADR 0021: the promote ingest Workflow (see the base-config note).
+      "workflows": [
+        {
+          "name": "aeci-promote-staging",
+          "binding": "PROMOTE_WORKFLOW",
+          "class_name": "PromoteWorkflow",
         },
       ],
       // ADR 0016 / AECI-252 + AECI-256. `database_id` is provisioned (AECI-256);
@@ -281,11 +345,28 @@
       // :00 — the WAF firewall-event poll (AECI-262 / §15.1, queue-less): reads the previous
       // clock hour of firewallEventsAdaptiveGroups via Cloudflare's GraphQL Analytics API and
       // emits aeci.waf.ratelimit.blocked (needs the CF_ANALYTICS_API_TOKEN secret; absent →
-      // skipped no-op). UTC is DST-unaware (accepted). Strings MUST match the constants in
-      // `src/scheduled.ts`.
+      // skipped no-op). "0 5 * * *" runs daily at 05:00 UTC (= 12:00 WIB, noon Jakarta) — the
+      // operator analytics digest (AECI-526, queue-less): the prior UTC day's page views, top
+      // products, new/total sign-ins + pending-moderation depth, emailed to ANALYTICS_DIGEST_EMAIL_TO.
+      // UTC is DST-unaware; WIB (UTC+7) has no DST, so noon Jakarta is fixed at 05:00 UTC
+      // year-round. "15 0 * * *" runs daily at 00:15 UTC — the metrics_daily snapshot
+      // (AECI-581 / ADMIN_PANEL_SPEC.md §7.1, queue-less): it captures the prior COMPLETE
+      // UTC day, so it sits first in the day rather than in the 04:00–09:00 batch —
+      // a snapshot mixes per-day flows with instantaneous stocks, and only a slot just
+      // after midnight lets both carry the same day label honestly. "0 3 * * *" runs
+      // daily at 03:00 UTC — the §7.4 retention prune (AECI-584 / ADMIN_PANEL_SPEC.md
+      // §7.4, queue-less): the system's ONLY scheduled DELETE. It removes page_views
+      // past 400 days and job_runs past 90 in bounded chunks, never touches
+      // metrics_daily, and refuses to run at all if the 00:15 snapshot has not
+      // captured every day inside its cut window — which is why it sits after that
+      // slot and an hour clear of the 04:00 batch. Strings MUST match the constants
+      // in `src/scheduled.ts` (asserted by `src/lib/cron-schedules.spec.ts`).
       "triggers": {
         "crons": [
+          "15 0 * * *",
+          "0 3 * * *",
           "0 4 * * *",
+          "0 5 * * *",
           "0 6 * * *",
           "0 7 * * *",
           "0 8 * * *",
@@ -375,11 +456,28 @@
         "ADMIN_ALERT_EMAIL": "chrisw@thewbsproject.com",
         "DATA_QUALITY_EMAIL_FROM": "AECi Data Quality <support@thewbsproject.com>",
         "DATA_QUALITY_EMAIL_TO": "chrisw@thewbsproject.com",
+        // AECI-526: the daily operator analytics digest is PRODUCTION-ONLY — the cron
+        // still runs here (emits its liveness metric) but ANALYTICS_DIGEST_EMAIL_TO is
+        // intentionally unset, so the send fail-open skips (demo's D1 is not real
+        // traffic; only prod's numbers are real). See the production block.
       },
       "kv_namespaces": [
         {
           "binding": "TAXONOMY_KV",
           "id": "b05173e9891e4b93948f55b62c4dac84",
+        },
+        // AECI-563 / ADR 0021: promote job payload staging + result mirror.
+        {
+          "binding": "PROMOTE_KV",
+          "id": "bda4c6f152384073861d5ff218e0d7da",
+        },
+      ],
+      // AECI-563 / ADR 0021: the promote ingest Workflow (see the base-config note).
+      "workflows": [
+        {
+          "name": "aeci-promote-demo",
+          "binding": "PROMOTE_WORKFLOW",
+          "class_name": "PromoteWorkflow",
         },
       ],
       // promote-to-demo CI applies migrations via
@@ -392,12 +490,18 @@
           "migrations_dir": "migrations",
         },
       ],
-      // Same seven crons as staging/production (see staging note — incl. the hourly
-      // "0 * * * *" WAF firewall-event poll, AECI-262). Dispatched by
-      // `controller.cron`. Strings MUST match the constants in `src/scheduled.ts`.
+      // Same ten crons as staging/production (see staging note — incl. the hourly
+      // "0 * * * *" WAF firewall-event poll, AECI-262, the daily "0 5 * * *"
+      // operator analytics digest, AECI-526, at 05:00 UTC = noon Jakarta, the
+      // daily "15 0 * * *" metrics_daily snapshot, AECI-581, and the daily
+      // "0 3 * * *" §7.4 retention prune, AECI-584). Dispatched
+      // by `controller.cron`. Strings MUST match the constants in `src/scheduled.ts`.
       "triggers": {
         "crons": [
+          "15 0 * * *",
+          "0 3 * * *",
           "0 4 * * *",
+          "0 5 * * *",
           "0 6 * * *",
           "0 7 * * *",
           "0 8 * * *",
@@ -484,8 +588,15 @@
         // vars (not secrets — only RESEND_API_KEY is). `_FROM` must be on a Resend-
         // verified domain (thewbsproject.com). `_TO` is comma-separated (read by
         // parseRecipients). TODO: append Bill's address alongside Chris?
-        "DATA_QUALITY_EMAIL_FROM": "AECi Data Quality <support@thewbsproject.com>",
+        "DATA_QUALITY_EMAIL_FROM": "AEC Integrations <notifications@aecintegrations.com>",
         "DATA_QUALITY_EMAIL_TO": "chrisw@thewbsproject.com",
+        // AECI-526: recipient(s) for the daily operator analytics digest (05:00 UTC
+        // = 12:00 WIB, noon Jakarta — page views, top products, new/total sign-ins,
+        // pending-moderation depth). Sender is the shared EMAIL_FROM (no separate _FROM). Comma-separated
+        // (parseRecipients). PRODUCTION-ONLY on purpose: staging/demo leave this unset
+        // so only prod's real numbers get emailed (the cron still runs in every env for
+        // liveness, but those sends fail-open skip).
+        "ANALYTICS_DIGEST_EMAIL_TO": "chrisw@thewbsproject.com",
         // PUBLIC_SITE_URL is the canonical launch domain — SHARED by transactional
         // email (absolute links in the approved/rejected emails, AECI-240) AND the
         // post-promote IndexNow submission (the origin its URLs are built against,
@@ -505,6 +616,19 @@
           "binding": "TAXONOMY_KV",
           "id": "35d63b5b3c4b492c9d4e6f2041d60136",
         },
+        // AECI-563 / ADR 0021: promote job payload staging + result mirror.
+        {
+          "binding": "PROMOTE_KV",
+          "id": "9f0ce48f3a6b46f98458907baec65bf3",
+        },
+      ],
+      // AECI-563 / ADR 0021: the promote ingest Workflow (see the base-config note).
+      "workflows": [
+        {
+          "name": "aeci-promote-production",
+          "binding": "PROMOTE_WORKFLOW",
+          "class_name": "PromoteWorkflow",
+        },
       ],
       // ADR 0016 / AECI-252 + AECI-256. `database_id` is provisioned (AECI-256);
       // promote-to-prod CI applies migrations via `wrangler d1 migrations apply
@@ -523,10 +647,19 @@
       // 08:00 UTC (= 03:00 EST) incremental Algolia sync (AECI-139); 09:00 UTC (= 04:00 EST)
       // index-drift reconciliation (AECI-140); "*/15 * * * *" every 15 min — request→Linear
       // reconciliation sweep (AECI-214 / Phase 6.7); "0 * * * *" every hour — WAF firewall-event
-      // poll (AECI-262 / §15.1, queue-less). Dispatched by `controller.cron`.
+      // poll (AECI-262 / §15.1, queue-less); "0 5 * * *" daily (= 12:00 WIB, noon Jakarta) — operator
+      // analytics digest (AECI-526, queue-less); "15 0 * * *" daily at 00:15 UTC — the
+      // metrics_daily snapshot of the prior complete UTC day (AECI-581 / §7.1, queue-less);
+      // "0 3 * * *" daily at 03:00 UTC — the §7.4 retention prune (AECI-584, queue-less),
+      // the only scheduled DELETE: page_views past 400 days, job_runs past 90, gated on
+      // the 00:15 snapshot having captured every day in the cut window.
+      // Dispatched by `controller.cron`.
       "triggers": {
         "crons": [
+          "15 0 * * *",
+          "0 3 * * *",
           "0 4 * * *",
+          "0 5 * * *",
           "0 6 * * *",
           "0 7 * * *",
           "0 8 * * *",

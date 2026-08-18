@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "cfdb60e1-e70e-4976-9b39-2090ca9e4594",
+  "id": "bf86c089-cd1b-4301-9c5c-74c9888bac55",
   "prevId": "4dbe6589-b9e2-43d7-8fa4-f6c341e299ee",
   "tables": {
     "attestations": {
@@ -800,6 +800,20 @@
           "notNull": false,
           "autoincrement": false
         },
+        "unsubscribe_token": {
+          "name": "unsubscribe_token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "unsubscribed_at": {
+          "name": "unsubscribed_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "text",
@@ -813,6 +827,13 @@
           "name": "mailing_list_email_key",
           "columns": [
             "email"
+          ],
+          "isUnique": true
+        },
+        "mailing_list_unsubscribe_token_key": {
+          "name": "mailing_list_unsubscribe_token_key",
+          "columns": [
+            "unsubscribe_token"
           ],
           "isUnique": true
         }
@@ -2497,219 +2518,6 @@
         "translations_entity_type_check": {
           "name": "translations_entity_type_check",
           "value": "\"entity_type\" IN ('product', 'vendor', 'category', 'audience', 'phase', 'integration')"
-        }
-      }
-    },
-    "vendor_entitlements": {
-      "name": "vendor_entitlements",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "vendor_id": {
-          "name": "vendor_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "tier": {
-          "name": "tier",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'verified'"
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'active'"
-        },
-        "period_start": {
-          "name": "period_start",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "period_end": {
-          "name": "period_end",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "payer": {
-          "name": "payer",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "amount": {
-          "name": "amount",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "terms": {
-          "name": "terms",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "arranged_by": {
-          "name": "arranged_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "invoice_ref": {
-          "name": "invoice_ref",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "notes": {
-          "name": "notes",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "granted_by": {
-          "name": "granted_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "granted_at": {
-          "name": "granted_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "ended_at": {
-          "name": "ended_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "expiry_notice_sent_at": {
-          "name": "expiry_notice_sent_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "source_request_id": {
-          "name": "source_request_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "vendor_entitlements_vendor_key": {
-          "name": "vendor_entitlements_vendor_key",
-          "columns": [
-            "vendor_id"
-          ],
-          "isUnique": true
-        },
-        "vendor_entitlements_status_idx": {
-          "name": "vendor_entitlements_status_idx",
-          "columns": [
-            "status"
-          ],
-          "isUnique": false
-        },
-        "vendor_entitlements_expiry_idx": {
-          "name": "vendor_entitlements_expiry_idx",
-          "columns": [
-            "period_end"
-          ],
-          "isUnique": false,
-          "where": "\"period_end\" IS NOT NULL AND \"status\" = 'active'"
-        }
-      },
-      "foreignKeys": {
-        "vendor_entitlements_vendor_id_vendors_id_fk": {
-          "name": "vendor_entitlements_vendor_id_vendors_id_fk",
-          "tableFrom": "vendor_entitlements",
-          "tableTo": "vendors",
-          "columnsFrom": [
-            "vendor_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "vendor_entitlements_granted_by_profiles_id_fk": {
-          "name": "vendor_entitlements_granted_by_profiles_id_fk",
-          "tableFrom": "vendor_entitlements",
-          "tableTo": "profiles",
-          "columnsFrom": [
-            "granted_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        },
-        "vendor_entitlements_source_request_id_vendor_requests_id_fk": {
-          "name": "vendor_entitlements_source_request_id_vendor_requests_id_fk",
-          "tableFrom": "vendor_entitlements",
-          "tableTo": "vendor_requests",
-          "columnsFrom": [
-            "source_request_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {
-        "vendor_entitlements_status_check": {
-          "name": "vendor_entitlements_status_check",
-          "value": "\"status\" IN ('pending', 'active', 'expired', 'revoked')"
         }
       }
     },

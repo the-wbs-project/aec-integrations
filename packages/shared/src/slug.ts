@@ -25,6 +25,8 @@ export const DEFAULT_RESERVED_SLUGS: readonly string[] = Object.freeze([
   // to `/audiences/:slug` (AECI-121), so the namespace is still occupied.
   'disciplines',
   'phases',
+  // Fourth taxonomy facet — `/trades` + `/trades/:slug` (AECI-538 / AECI-544).
+  'trades',
   'claim',
   'correction',
   '404',

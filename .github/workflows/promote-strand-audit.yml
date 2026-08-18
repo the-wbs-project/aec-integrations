@@ -1,0 +1,120 @@
+# AEC Integrations — promote strand audit (AECI-568 / AECI-593).
+#
+# Scheduled READ-ONLY cross-reference of production D1 against the AEC Integrations
+# Airtable curation base. Runs `scripts/ops/2026-08-promote-strand-audit/audit.mjs`,
+# which reports every row on either side without a valid counterpart link and exits
+# non-zero if any bucket is non-empty:
+#
+#   stranded           Airtable record looks promoted but holds no supabase_*_id
+#   stray              a D1 row no Airtable record points at
+#   dangling           an Airtable supabase_*_id whose D1 row is gone
+#   duplicatePointers  one D1 id claimed by >1 Airtable record
+#   pendingJobMarkers  a product still carrying promote_job_id (uncollected job —
+#                      also the liveness check for the AECI-570 reconcile sweep)
+#
+# WHY THIS IS SCHEDULED, not a PR check. The link between the two systems lives
+# only in Airtable's `supabase_*_id` columns — D1 stores no curation-tool key
+# (AECI-562 was rejected deliberately). So drift is created by *operator* actions
+# against live data, not by merging code, and the most durable source is one promote
+# cannot guard at all: **a curator deleting an Airtable record whose D1 row still
+# exists.** Promote has no delete semantics, so that always leaves a stray, and
+# nothing else will ever notice. AECI-593 was exactly that — two retracted Polycam
+# edges left live on production for four days. This job is how the next one gets
+# caught the next morning instead of at the next manual audit.
+#
+# The upstream *timeout* cause is fixed (AECI-563 async promote + AECI-567 job
+# ledger + AECI-570 hourly reconcile sweep), so a lost response can no longer strand
+# ids. This guards the residue that remains.
+#
+# PRODUCTION ONLY, deliberately. There is one curation base for all deploy tiers and
+# it holds *production* uuids, so comparing it against staging/demo/preview's seeded
+# catalogs reports near-total mismatch. The script itself warns when pointed
+# elsewhere; there is no matrix here on purpose.
+#
+# NEVER heals. The script has no --apply and no write path: it issues SELECTs and
+# GETs. Every bucket's repair is a deliberate, judgement-bearing operator action —
+# `stray` in particular is a curation decision, not a mechanical delete. The
+# recipes live in scripts/ops/2026-08-promote-strand-audit/README.md §Healing.
+#
+# Required secrets:
+#   CLOUDFLARE_API_TOKEN  Account → D1 → Read (CICD_PLAN §7.1); authenticates the
+#                         `wrangler d1 execute --remote` reads
+#   AIRTABLE_TOKEN        Airtable PAT scoped to `data.records:read` on base
+#                         appy81IdGJY6Fngf9. Until this is set the job SKIPS GREEN
+#                         with a warning rather than failing — the script hard-exits
+#                         2 without it, and a red-on-arrival cron trains people to
+#                         ignore the cron. Same pattern as browserstack.yml.
+
+name: promote-strand-audit
+
+on:
+  schedule:
+    # Daily at 09:00 UTC — an hour after reconcile-counts.yml so the two read-only
+    # prod-D1 drift guards don't contend, and the overnight promote window is done.
+    - cron: '0 9 * * *'
+  workflow_dispatch: {}
+
+concurrency:
+  group: promote-strand-audit
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '24'
+  PNPM_VERSION: '10.33.0'
+  # Opt JS-based actions onto Node 24 ahead of the 2026-06-02 default flip;
+  # mirrors the other workflows.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+jobs:
+  audit:
+    name: Strand audit (production)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install pnpm
+        run: npm install -g pnpm@${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+
+      # The script shells out to apps/api's local wrangler binary.
+      - run: pnpm install --frozen-lockfile
+
+      - name: Audit production D1 against Airtable
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          AIRTABLE_TOKEN: ${{ secrets.AIRTABLE_TOKEN }}
+        run: |
+          if [ -z "$AIRTABLE_TOKEN" ]; then
+            echo "::warning::AIRTABLE_TOKEN is not set — skipping the strand audit. Mint a read-only Airtable PAT (data.records:read on base appy81IdGJY6Fngf9) and add it under Settings → Secrets and variables → Actions to enable this guard."
+            exit 0
+          fi
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "::error::CLOUDFLARE_API_TOKEN secret is empty. Configure it under repo Settings → Secrets and variables → Actions."
+            exit 1
+          fi
+          # --out to RUNNER_TEMP, not the default path beside the script: the report
+          # holds production catalog content (which is why the ops dir gitignores
+          # report-*.json), and it is not uploaded as an artifact.
+          node scripts/ops/2026-08-promote-strand-audit/audit.mjs \
+            --env production \
+            --out "$RUNNER_TEMP/strand-audit.json"
+
+      - name: Explain the mismatch on failure
+        if: failure()
+        run: |
+          {
+            echo "::error::Promote strand audit found a D1 ↔ Airtable mismatch on production (or the job failed to run)."
+            echo "::error::Most likely cause: a curator deleted or edited an Airtable record whose D1 row is still live. Promote has no delete semantics, so that leaves a stray forever."
+            echo "::error::Read the per-bucket repair recipes before touching anything — 'stray' is a curation decision, not a mechanical delete:"
+            echo "::error::  scripts/ops/2026-08-promote-strand-audit/README.md  §Healing"
+            echo "::error::Re-run locally for the full per-bucket dump:"
+            echo "::error::  AIRTABLE_TOKEN=<pat> CLOUDFLARE_API_TOKEN=<token> node scripts/ops/2026-08-promote-strand-audit/audit.mjs"
+            echo "::error::Deleting a stray goes through the datatool prune with the tripped guards acknowledged by name (apps/datatool/README.md). Never override a guard without a recorded editorial ruling."
+          }

@@ -1,13 +1,18 @@
 /**
- * Resolver factory for the three taxonomy index routes — `/categories`,
- * `/audiences`, `/phases` (AECI-157). The flat list of every term in a facet
- * with product counts, rendered by the shared `TaxonomyIndexPage`.
+ * Resolver factory for the four taxonomy index routes — `/categories`,
+ * `/audiences`, `/phases` (AECI-157) and `/trades` (AECI-544). The flat list of
+ * every term in a facet with product counts, rendered by the shared
+ * `TaxonomyIndexPage`.
  *
- * The three routes are mechanically identical apart from the facet kind, so one
- * factory produces all three resolvers — the same one-factory pattern the browse
+ * The four routes are mechanically identical apart from the facet kind, so one
+ * factory produces all four resolvers — the same one-factory pattern the browse
  * resolvers (`taxonomy-browse.resolver.ts`) and the paginated index controller
  * use. AECI-61 originally shipped only `/categories` (audience / phase indexes
- * were deferred); this generalizes that resolver and lights up the other two.
+ * were deferred); this generalizes that resolver and lights up the others.
+ *
+ * The trades publication floor is NOT applied here — the resolver returns the
+ * API's full ungated list and `TaxonomyIndexPage` filters for display, so the
+ * TransferState payload stays a faithful copy of the API response.
  *
  * Server flow: fetch `GET /api/{segment}` via the service binding, set the index
  * meta, store in `TransferState`.
@@ -47,6 +52,8 @@ function metaName(kind: TaxonomyKind): string {
       return $localize`:@@audiences.index.metaName:Audiences`;
     case 'phase':
       return $localize`:@@phases.index.metaName:Phases`;
+    case 'trade':
+      return $localize`:@@trades.index.metaName:Trades`;
   }
 }
 
@@ -59,6 +66,8 @@ function metaDescription(kind: TaxonomyKind): string {
       return $localize`:@@audiences.index.metaDescription:Browse every AEC software audience on AEC Integrations, each with its live product count.`;
     case 'phase':
       return $localize`:@@phases.index.metaDescription:Browse every AEC project phase on AEC Integrations, each with its live product count.`;
+    case 'trade':
+      return $localize`:@@trades.index.metaDescription:Find software built for your trade (electrical, roofing, concrete and more) on AEC Integrations.`;
   }
 }
 
@@ -115,3 +124,4 @@ function createTaxonomyIndexResolver(kind: TaxonomyKind): ResolveFn<CategoriesLi
 export const categoriesIndexResolver = createTaxonomyIndexResolver('category');
 export const audiencesIndexResolver = createTaxonomyIndexResolver('audience');
 export const phasesIndexResolver = createTaxonomyIndexResolver('phase');
+export const tradesIndexResolver = createTaxonomyIndexResolver('trade');

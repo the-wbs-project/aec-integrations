@@ -38,7 +38,7 @@
  *   /products/:slug, /vendors/:slug,
  *     /integrations/:id                      → 15min edge / 0     browser  (§8.3)
  *   /categories/*, /audiences/*,
- *     /phases/*                             → 30min edge / 5min browser
+ *     /phases/*, /trades/*                  → 5min  edge / 0     browser
  *   /disciplines, /disciplines/:slug        → 301 → /audiences[/:slug] (AECI-121)
  *   /vendors, /integrations                 → 301 → /products (AECI-165)
  *   /about, /legal/*                        → 24hr edge / 1hr  browser
@@ -71,8 +71,13 @@
  * from cookie stripping (i.e. added to the non-cacheable list instead).
  */
 
-import { defaultIntegrationContext, LANDING_CF_HEADERS, PAGE_VIEW_CF_HEADERS } from '@aeci/shared';
-import type { IntegrationDetail } from '@aeci/shared';
+import {
+  defaultIntegrationContext,
+  isUntrackedRoute,
+  LANDING_CF_HEADERS,
+  PAGE_VIEW_CF_HEADERS,
+} from '@aeci/shared';
+import type { IntegrationDetail, PageViewPayload } from '@aeci/shared';
 import { isPublicSite } from '@aeci/shared/deploy-env';
 import { Hono } from 'hono';
 import type { Context } from 'hono';
@@ -345,13 +350,22 @@ type RoutePattern = {
 const RESILIENCE = { staleWhileRevalidate: 60, staleIfError: 86_400 } as const;
 
 /**
- * AECI-143 — the listing/browse routes (`/products` + the three taxonomy browse
- * pages) all read the same content-affecting query params: pagination
- * (`page`/`perPage`), `sort`, the `view` layout toggle (AECI-190), and the
- * faceted-filter ids (`category_id`/`audience_id`/`phase_id`). Shared so the four
- * routes stay in sync; a browse page's own dimension rides the path, so it only
- * ever sees the other two facet ids in its query — over-including all three is
- * harmless per the §4a rule.
+ * AECI-143 / AECI-544 — the listing/browse routes (`/products` + the four
+ * taxonomy browse pages) all read the same content-affecting query params:
+ * pagination (`page`/`perPage`), `sort`, and the faceted-filter ids
+ * (`category_id` / `audience_id` / `trade_id` / `phase_id`) the
+ * `aec-facet-sidebar` writes to the URL. One shared allowlist keeps the five
+ * routes in sync and forward-safe. Per
+ * CACHE_STRATEGY.md §4a this MUST be a superset of every URL param each
+ * component reads; over-including is explicitly harmless (e.g. a browse page
+ * carries its own `{kind}_id` on the path, not the query, but listing it here
+ * costs nothing), so the union is applied uniformly.
+ *
+ * AECI-190 — `/products` SSR-renders a different layout for `?view=table`
+ * (the dense table) vs. the card-grid default, so `view` is content-affecting
+ * and MUST be in the key or the two renders collapse onto one entry and serve
+ * wrong HTML. Only `/products` reads it; on the browse routes it's a harmless
+ * over-include per the §4a rule above.
  */
 const LISTING_CACHE_KEY_PARAMS: readonly string[] = [
   'page',
@@ -361,6 +375,10 @@ const LISTING_CACHE_KEY_PARAMS: readonly string[] = [
   'category_id',
   'audience_id',
   'phase_id',
+  // AECI-544 — the fourth facet. Under-including a content-affecting param is a
+  // correctness bug (§4a), so this must stay in step with `DIMENSIONS` in
+  // `facet-sidebar.ts` and the `passthroughParams` on both listing pages.
+  'trade_id',
 ];
 
 /**
@@ -379,6 +397,16 @@ const MULTI_VALUE_CACHE_KEY_PARAMS: ReadonlySet<string> = new Set([
 const ROUTE_CACHE_PATTERNS: readonly RoutePattern[] = [
   { match: (p) => p === '/', ttl: { edge: 900, browser: 300, ...RESILIENCE } },
   { match: (p) => p === '/about', ttl: { edge: 86_400, browser: 3_600 } },
+  // AECI-536 — /updates signup page: static + visitor-state-neutral, same static-
+  // page TTL as /about. No `cacheKeyParams`, so the whole query string (incl. UTM)
+  // is dropped from the cache key; UTM still survives in the real browser URL for
+  // `buildAttribution` at submit time (same as every other lead-capture surface).
+  { match: (p) => p === '/updates', ttl: { edge: 86_400, browser: 3_600 } },
+  // /roadmap — coming-soon placeholder behind the header "More" menu. Static and
+  // visitor-state-neutral like /about, so the same static-page TTL. It is
+  // `robots: noindex` (component-set) and absent from sitemap.xml; neither
+  // affects cacheability.
+  { match: (p) => p === '/roadmap', ttl: { edge: 86_400, browser: 3_600 } },
   {
     match: (p) => p === '/legal' || p.startsWith('/legal/'),
     ttl: { edge: 86_400, browser: 3_600 },
@@ -431,6 +459,18 @@ const ROUTE_CACHE_PATTERNS: readonly RoutePattern[] = [
   },
   {
     match: (p) => p === '/phases' || p.startsWith('/phases/'),
+    ttl: { edge: 300, browser: 0, ...RESILIENCE },
+    cacheKeyParams: LISTING_CACHE_KEY_PARAMS,
+  },
+  // AECI-544 — trades, the fourth facet. Cacheable on the same terms as its
+  // three siblings, published or not: the publication gate controls
+  // indexability, not cacheability (CACHE_STRATEGY.md §2). "Same terms" includes
+  // `...RESILIENCE`: this route was authored on `main` before WC-3 added the
+  // stale-* pair on the other browse routes, and the two met at the AECI-619
+  // reconciliation — leaving it off would make trades the one browse family with
+  // no stale-while-revalidate window.
+  {
+    match: (p) => p === '/trades' || p.startsWith('/trades/'),
     ttl: { edge: 300, browser: 0, ...RESILIENCE },
     cacheKeyParams: LISTING_CACHE_KEY_PARAMS,
   },
@@ -655,13 +695,15 @@ export type ResponseTransform = (
  * `page_views` (AECI-177). It is populated on the inbound eyeball request but
  * does NOT survive the `env.API` service binding, so we copy the needed fields
  * onto the trusted `PAGE_VIEW_CF_HEADERS` (`x-aeci-cf-*`) before forwarding.
- * Structural — we read only the four fields we forward, so no global CF typing
+ * Structural — we read only the five fields we forward, so no global CF typing
  * is required and a `.cf`-less request (Node tests, local dev) is a clean no-op.
  */
 interface CfLike {
   country?: string | null;
   colo?: string | null;
   asn?: number | null;
+  /** AS holder name (AECI-585) — the label the bare `asn` cannot supply. */
+  asOrganization?: string | null;
   botManagement?: { score?: number | null } | null;
 }
 
@@ -676,6 +718,9 @@ export function applyCfContextHeaders(headers: Headers, request: Request): void 
   if (cf.country) headers.set(PAGE_VIEW_CF_HEADERS.country, cf.country);
   if (cf.colo) headers.set(PAGE_VIEW_CF_HEADERS.colo, cf.colo);
   if (typeof cf.asn === 'number') headers.set(PAGE_VIEW_CF_HEADERS.asn, String(cf.asn));
+  if (cf.asOrganization) {
+    headers.set(PAGE_VIEW_CF_HEADERS.asOrganization, String(cf.asOrganization));
+  }
   const score = cf.botManagement?.score;
   if (typeof score === 'number') headers.set(PAGE_VIEW_CF_HEADERS.botScore, String(score));
 }
@@ -760,17 +805,39 @@ export function withForwardedLandingCf(request: Request): Request {
  *
  * Errors are swallowed — the page render must not fail because analytics did.
  * The payload shape is pinned in `@aeci/shared` (`PageViewPayloadSchema`).
- * `sourceRequest` is the inbound eyeball request: its `request.cf` and
- * `user-agent` are forwarded so the API Worker enriches this write the same way
- * it enriches the browser's proxied POST.
+ * `sourceRequest` is the inbound eyeball request: its `request.cf`,
+ * `user-agent`, and `Referer` are forwarded so the API Worker enriches this write
+ * (CF context, UA hash, bot classification, traffic source) the same way it
+ * enriches the browser's proxied POST.
  *
  * Under native Workers Cache (WC-3 / AECI-317) an edge HIT never runs the SSR
  * Worker, so this fires only when the Worker actually renders — a native-cache
  * MISS on a cacheable route, or a non-cacheable render. Edge HITs are therefore
  * not counted server-side; the browser `PageViewTracker` (canonical, above)
  * covers them. On a MISS the resolver may attach a richer payload (entity_type /
- * entity_id) via `AeciRequestContext.pageView`; otherwise the runtime falls back
+ * entity_id — including the four taxonomy facets, which AECI-585 taught the API
+ * to store) via `AeciRequestContext.pageView`; otherwise the runtime falls back
  * to the path-derived `{ route }`.
+ *
+ * (Pre-WC-3 this comment claimed cacheable routes fired on BOTH HIT and MISS —
+ * true of the hand-rolled `caches.default` layer, where the Worker ran either
+ * way. Native caching short-circuits ahead of the Worker, so it no longer is.)
+ *
+ * Operator-only routes are skipped (AECI-575 / ADMIN_PANEL_SPEC §9.6). Today that
+ * guard is unreachable for `/admin` and `/account`: both are absent from
+ * `ROUTE_CACHE_PATTERNS`, so they take the non-cacheable branch, which fires only
+ * when a resolver attached `ctx.pageView` — and no admin/account resolver does.
+ * It sits at this single choke point anyway so the invariant survives a future
+ * resolver that starts attaching one, rather than depending on that omission.
+ *
+ * AECI-585 stamps `path` (the concrete URL path) and `navigation: 'arrival'` HERE
+ * rather than at the three call sites, for two reasons. Every write through this
+ * function is by definition a full-document load, so `'arrival'` is a property of
+ * the function, not of its caller. And the concrete path is derivable from
+ * `sourceRequest` — which this already takes — so the resolver-attached payloads
+ * (which carry a route *pattern* like `/products/:slug`) gain the concrete path
+ * without a single resolver changing. Both overwrite whatever the caller passed:
+ * the request URL is the authority on where the visitor actually is.
  */
 function firePageView(
   execCtx: WaitUntilContext,
@@ -778,16 +845,27 @@ function firePageView(
   payload: NonNullable<AeciRequestContext['pageView']>,
   sourceRequest: Request,
 ): void {
+  if (isUntrackedRoute(payload.route)) return;
   const headers = new Headers({ 'content-type': 'application/json' });
   applyCfContextHeaders(headers, sourceRequest);
   const userAgent = sourceRequest.headers.get('user-agent');
   if (userAgent) headers.set('user-agent', userAgent);
+  // Forward the eyeball's `Referer` so the API can classify the traffic source
+  // (LinkedIn / Google / …). Only meaningful on full-document arrivals, which is
+  // exactly what fires this write. AECI-526.
+  const referer = sourceRequest.headers.get('referer');
+  if (referer) headers.set('referer', referer);
+  // Pathname only — never the query or hash. `page_views` stores a referrer HOST
+  // for the same reason (§9.7); a concrete path carrying `?token=…` would put the
+  // full URL back into the table the privacy rule keeps it out of.
+  const { path: concretePath } = stripLocalePrefix(new URL(sourceRequest.url).pathname);
+  const body: PageViewPayload = { ...payload, path: concretePath, navigation: 'arrival' };
   execCtx.waitUntil(
     env.API.fetch(
       new Request('https://api/api/page-views', {
         method: 'POST',
         headers,
-        body: JSON.stringify(payload),
+        body: JSON.stringify(body),
       }),
     )
       .then(() => undefined)

@@ -14,6 +14,7 @@ const PROFILE: AccountProfileResponse = {
   email: 'dana@example.com',
   display_name: 'Dana Reviewer',
   role: 'reviewer',
+  pending_reviews: null,
 };
 
 const REVIEWS: AccountReview[] = [

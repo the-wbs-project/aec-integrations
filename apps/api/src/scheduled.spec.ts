@@ -8,9 +8,11 @@
  * `retry()`s on an unexpected throw.
  */
 
+import { AdminDataQualityStatusSchema } from '@aeci/shared';
+import { asc } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { products, reviews } from './db/schema';
+import { auditLog, jobRuns, pageViews, products, reviews } from './db/schema';
 import type { ScheduledJob, ScheduledJobMessageInput, Env } from './env';
 import { makeTestDb, type TestDb } from './test/d1';
 
@@ -27,6 +29,22 @@ vi.mock('./lib/algolia-drift', () => ({
   // The data-quality job (AECI-241) reuses this for its drift check; default to a
   // clean (empty) drift so the job runs without an Algolia round-trip.
   findAlgoliaIndexDrift: vi.fn(() => Promise.resolve([])),
+}));
+// The drift cron's remediation half (AECI-266) browses + deletes over Algolia's
+// REST API with the real `fetch` clients. Unmocked, every drift dispatch here
+// made a live outbound request against the fake `APP` app id — normally a fast
+// NXDOMAIN, but on a CI runner a single dropped DNS packet costs a 5s resolver
+// retry and the test blew the 5000ms timeout (main deploy 31933190326). The
+// sweep's own behaviour is covered by `lib/algolia-orphans.spec.ts`; here it only
+// has to complete, so stub it to a clean, network-free run.
+vi.mock('./lib/algolia-orphans', () => ({
+  DEFAULT_SAFETY_CAP: { maxDeletes: 50, maxFraction: 0.2, override: false },
+  createAlgoliaObjectIdClient: vi.fn(() => ({})),
+  createAlgoliaDeleteClient: vi.fn(() => ({})),
+  sweepAlgoliaOrphans: vi.fn(() =>
+    Promise.resolve({ entities: [], totalOrphans: 0, totalDeleted: 0 }),
+  ),
+  toOrphanSweepEntity: vi.fn(),
 }));
 vi.mock('./lib/home-stats', () => ({ runHomeStats: vi.fn() }));
 vi.mock('./lib/reconciliation-sweep', () => ({ runReconciliationSweep: vi.fn() }));
@@ -55,6 +73,8 @@ const DRIFT_CRON = '0 9 * * *';
 const RECONCILE_CRON = '*/15 * * * *';
 const DATA_QUALITY_CRON = '0 4 * * *';
 const WAF_CRON = '0 * * * *';
+const ANALYTICS_CRON = '0 5 * * *';
+const RETENTION_CRON = '0 3 * * *';
 
 const ctx = { waitUntil: vi.fn(), passThroughOnException: vi.fn() } as unknown as ExecutionContext;
 
@@ -89,6 +109,9 @@ function makeBatchFromBody(body: ScheduledJobMessageInput, queueName: string) {
 function makeBatch(job: ScheduledJob, queueName: string) {
   return makeBatchFromBody({ job, trigger: 'cron', enqueuedAt: 'x' }, queueName);
 }
+
+/** Every §7.2 bookkeeping row written so far, oldest first (AECI-583). */
+const jobRunRows = () => t.db.select().from(jobRuns).orderBy(asc(jobRuns.id));
 
 let t: TestDb;
 beforeEach(async () => {
@@ -360,6 +383,35 @@ describe('scheduled (cron producer)', () => {
       expect.anything(),
     );
   });
+
+  it('runs the analytics digest inline on the 05:00 (noon Jakarta) cron (queue-less) and emits its email metric (AECI-526)', async () => {
+    // Seed a product + views so the real Drizzle aggregation runs against the harness.
+    await t.db.insert(products).values({ id: 'p1', slug: 'p1', name: 'P1' });
+    await t.db.insert(pageViews).values([
+      { path: '/products/p1', productId: 'p1', createdAt: '2026-07-23T10:00:00.000Z' },
+      { path: '/', createdAt: '2026-07-23T11:00:00.000Z' },
+    ]);
+
+    // Even with every queue bound, analytics has no producer → always inline; and with
+    // no RESEND_API_KEY / ANALYTICS_DIGEST_EMAIL_TO the fail-open send resolves 'skipped'.
+    const send = vi.fn().mockResolvedValue(undefined);
+    const env = makeEnv({
+      ALGOLIA_SYNC_QUEUE: { send } as never,
+      DATA_QUALITY_QUEUE: { send } as never,
+    });
+
+    await scheduled(cronController(ANALYTICS_CRON), env, ctx);
+
+    expect(send).not.toHaveBeenCalled();
+    expect(submitCount).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.analytics_digest.email',
+      1,
+      ['outcome:skipped'],
+    );
+  });
 });
 
 describe('normalizeJobMessage', () => {
@@ -501,5 +553,268 @@ describe('queue (consumer)', () => {
       expect.any(Number),
       ['trigger:cron'],
     );
+  });
+});
+
+/**
+ * §7.2 `job_runs` bookkeeping (AECI-583). The harness already points `getDb` at a
+ * real migrated in-memory D1, so these assert against real rows with no extra
+ * mocking.
+ */
+describe('job_runs bookkeeping (§7.2)', () => {
+  // Every cron, with the queue binding deliberately absent so `enqueueOrRun`
+  // falls through to an inline run and the row is written in this process.
+  const ALL_CRONS: ReadonlyArray<[string, string]> = [
+    [DATA_QUALITY_CRON, 'data-quality'],
+    [ANALYTICS_CRON, 'analytics-digest'],
+    [MODERATION_CRON, 'moderation-snapshot'],
+    [STATS_CRON, 'home-stats'],
+    [SYNC_CRON, 'algolia-sync'],
+    [DRIFT_CRON, 'algolia-drift'],
+    [RECONCILE_CRON, 'request-reconcile'],
+    [WAF_CRON, 'waf-poll'],
+    [RETENTION_CRON, 'retention-prune'],
+  ];
+
+  /**
+   * Every cron EXCEPT the §7.4 retention prune. ADR 0022 exempts derived and
+   * log-class cron writes from the §26.1 audit invariant — but explicitly NOT
+   * scheduled deletion, so `retention-prune` is carved out here and gets its own
+   * assertions below. Keeping the exception out of the table is deliberate: on an
+   * empty database the prune deletes nothing and would pass the exempt test for
+   * the wrong reason.
+   */
+  const AUDIT_EXEMPT_CRONS = ALL_CRONS.filter(([, job]) => job !== 'retention-prune');
+
+  beforeEach(() => {
+    // Defaults that let every job reach a normal completion.
+    vi.mocked(runReconciliationSweep).mockResolvedValue({
+      stuck: 0,
+      retried: 0,
+      cleared: 0,
+      stillFailing: 0,
+      persistent: 0,
+      alerted: false,
+    } as never);
+    vi.mocked(fetchWafFirewallEvents).mockResolvedValue({
+      ok: true,
+      groups: [],
+      truncated: false,
+    } as never);
+  });
+
+  it.each(ALL_CRONS)('%s writes exactly one completed row for %s', async (cron, job) => {
+    await scheduled(cronController(cron), makeEnv({ PUBLIC_SITE_URL: 'https://x.test' }), ctx);
+
+    const rows = await jobRunRows();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ job });
+    // Completed on exit: both fields set, whatever the outcome was.
+    expect(rows[0]?.finishedAt).toEqual(expect.any(String));
+    expect(rows[0]?.outcome).toEqual(expect.any(String));
+  });
+
+  it.each(AUDIT_EXEMPT_CRONS)('%s emits NO audit_log row (ADR 0022) for %s', async (cron) => {
+    await scheduled(cronController(cron), makeEnv({ PUBLIC_SITE_URL: 'https://x.test' }), ctx);
+
+    // The §13 D11 carve-out, asserted rather than commented: `job_runs` IS the
+    // observability record, so auditing it would be auditing the audit.
+    expect(await t.db.select().from(auditLog)).toHaveLength(0);
+  });
+
+  it('the retention prune is the ONE cron that DOES audit — the ADR 0022 exception', async () => {
+    // A `job_runs` row well past the 90-day window. `job_runs` rather than
+    // `page_views` because it carries no `metrics_daily` gate, so this test is
+    // about the audit obligation and nothing else.
+    const old = new Date(Date.now() - 200 * 24 * 60 * 60 * 1000).toISOString();
+    await t.db.insert(jobRuns).values({ job: 'home-stats', startedAt: old, outcome: 'ok' });
+
+    await scheduled(cronController(RETENTION_CRON), makeEnv(), ctx);
+
+    const audits = await t.db.select().from(auditLog);
+    expect(audits).toHaveLength(1);
+    expect(audits[0]).toMatchObject({
+      actorType: 'system',
+      action: 'retention.pruned',
+      entityType: 'retention',
+    });
+    expect((audits[0]?.metadata as { rowsDeleted: number }).rowsDeleted).toBe(1);
+    // The prune's own entry row was written moments ago, so it survives its own
+    // cutoff and is the only `job_runs` row left.
+    const rows = await jobRunRows();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ job: 'retention-prune', outcome: 'ok' });
+  });
+
+  it('a retention run that deletes nothing writes no audit row', async () => {
+    await scheduled(cronController(RETENTION_CRON), makeEnv(), ctx);
+
+    expect(await t.db.select().from(auditLog)).toHaveLength(0);
+    expect((await jobRunRows())[0]).toMatchObject({ job: 'retention-prune', outcome: 'ok' });
+  });
+
+  it('records a thrown job as failed AND still retry()s it — the reconcile contract', async () => {
+    vi.mocked(runReconciliationSweep).mockRejectedValue(new Error('boom'));
+    const { batch, ack, retry } = makeBatch('reconcile', 'aeci-reconcile-staging');
+
+    await queue(batch, makeEnv(), ctx);
+
+    expect(retry).toHaveBeenCalledTimes(1);
+    expect(ack).not.toHaveBeenCalled();
+
+    const [row] = await jobRunRows();
+    expect(row).toMatchObject({
+      job: 'request-reconcile',
+      outcome: 'failed',
+      detail: { job: 'request-reconcile', reason: 'boom' },
+    });
+    expect(row?.finishedAt).toEqual(expect.any(String));
+  });
+
+  it('leaves finished_at NULL while a run is still in flight', async () => {
+    // Hold the sweep open, inspect the row mid-run, then release. This is the
+    // deterministic stand-in for "the isolate was reclaimed and never came back".
+    let release!: () => void;
+    vi.mocked(runReconciliationSweep).mockReturnValue(
+      new Promise((resolve) => {
+        release = () => resolve({ stuck: 0 } as never);
+      }),
+    );
+
+    const pending = scheduled(cronController(RECONCILE_CRON), makeEnv(), ctx);
+    await vi.waitFor(async () => expect(await jobRunRows()).toHaveLength(1));
+
+    const [inFlight] = await jobRunRows();
+    expect(inFlight).toMatchObject({ job: 'request-reconcile', finishedAt: null, outcome: null });
+
+    release();
+    await pending;
+    expect((await jobRunRows())[0]?.outcome).toBe('ok');
+  });
+
+  it('distinguishes skipped from failed', async () => {
+    // No Cloudflare analytics token → a legitimate skip, not a problem.
+    await scheduled(cronController(WAF_CRON), makeEnv({ PUBLIC_SITE_URL: 'https://x.test' }), ctx);
+    expect((await jobRunRows())[0]).toMatchObject({
+      outcome: 'skipped',
+      detail: { job: 'waf-poll', reason: 'no_creds' },
+    });
+  });
+
+  it('records a transport failure as failed, not skipped', async () => {
+    vi.mocked(fetchWafFirewallEvents).mockResolvedValue({
+      ok: false,
+      message: 'bad token',
+    } as never);
+
+    await scheduled(
+      cronController(WAF_CRON),
+      makeEnv({
+        CF_ANALYTICS_API_TOKEN: 'tok',
+        CF_ZONE_ID: 'zone',
+        PUBLIC_SITE_URL: 'https://x.test',
+      }),
+      ctx,
+    );
+
+    expect((await jobRunRows())[0]).toMatchObject({
+      outcome: 'failed',
+      detail: { job: 'waf-poll', reason: 'bad token' },
+    });
+  });
+
+  it('records an Algolia sync with no credentials as skipped', async () => {
+    await scheduled(
+      cronController(SYNC_CRON),
+      makeEnv({ ALGOLIA_APP_ID: undefined, ALGOLIA_ADMIN_KEY: undefined }),
+      ctx,
+    );
+
+    expect((await jobRunRows())[0]).toMatchObject({
+      job: 'algolia-sync',
+      outcome: 'skipped',
+      detail: { job: 'algolia-sync', reason: 'no_creds' },
+    });
+  });
+
+  it('never claims more success than Datadog: a partly-failed sync is `failed`', async () => {
+    vi.mocked(runDailySync).mockResolvedValue({
+      cutoff: '2026-08-13T00:00:00.000Z',
+      entities: [
+        { entity: 'products', indexName: 'p', saved: 1, deleted: 0, transformErrors: 0, ok: true },
+        {
+          entity: 'vendors',
+          indexName: 'v',
+          saved: 0,
+          deleted: 0,
+          transformErrors: 0,
+          ok: false,
+          error: 'push failed',
+        },
+      ],
+    } as never);
+
+    await scheduled(cronController(SYNC_CRON), makeEnv(), ctx);
+
+    expect((await jobRunRows())[0]?.outcome).toBe('failed');
+  });
+
+  it('stores the whole data-quality result set, in the shape §5.6 renders', async () => {
+    await scheduled(cronController(DATA_QUALITY_CRON), makeEnv(), ctx);
+
+    const [row] = await jobRunRows();
+    const detail = row?.detail as { job: string; checks: unknown[] };
+    expect(detail.job).toBe('data-quality');
+    expect(detail.checks).toHaveLength(11);
+
+    // The round-trip AC: the stored payload must satisfy the SAME schema the
+    // §5.6 response is validated against. This fails the day one side is
+    // reshaped without the other.
+    expect(() =>
+      AdminDataQualityStatusSchema.parse({
+        source: 'job_runs',
+        computed_at: row?.finishedAt ?? null,
+        failing: 0,
+        checks: detail.checks,
+      }),
+    ).not.toThrow();
+  });
+
+  it('never lets a bookkeeping failure abort the job it records', async () => {
+    // The strongest form of "failure-isolated": take the table away entirely and
+    // assert every cron still completes and still emits its own metrics.
+    t.raw.prepare('DROP TABLE job_runs').run();
+
+    for (const [cron] of ALL_CRONS) {
+      await expect(
+        scheduled(cronController(cron), makeEnv({ PUBLIC_SITE_URL: 'https://x.test' }), ctx),
+      ).resolves.toBeUndefined();
+    }
+
+    // The jobs ran...
+    expect(runDailySync).toHaveBeenCalled();
+    expect(runHomeStats).toHaveBeenCalled();
+    // ...and the recorder's own failure is observable rather than silent.
+    expect(submitCount).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.job_runs.write',
+      1,
+      expect.arrayContaining(['phase:start', 'outcome:failed']),
+    );
+  });
+
+  it('writes no row at enqueue time — the row belongs to the execution', async () => {
+    const send = vi.fn().mockResolvedValue(undefined);
+
+    await scheduled(
+      cronController(SYNC_CRON),
+      makeEnv({ ALGOLIA_SYNC_QUEUE: { send } as never }),
+      ctx,
+    );
+
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(await jobRunRows()).toHaveLength(0);
   });
 });

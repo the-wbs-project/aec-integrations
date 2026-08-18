@@ -69,6 +69,18 @@ import { SearchAutocomplete } from '../search/search-autocomplete';
             />
           </div>
 
+          <!-- Secondary lead-capture link (AECI-536). A quiet text link, not a
+               button, so it stays subordinate to search (the single primary
+               affordance). SSR-rendered + static, so it reaches the cached HTML. -->
+          <p class="mt-4 text-sm">
+            <a
+              routerLink="/updates"
+              class="text-(--text-secondary) underline decoration-1 decoration-(--border-strong) underline-offset-4 hover:text-(--accent-primary) hover:decoration-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              i18n="@@home.hero.updatesLink"
+              >Get product updates</a
+            >
+          </p>
+
           @if (popularCategories().length > 0) {
             <p class="mt-5 flex flex-wrap items-baseline gap-x-4 gap-y-2 text-sm">
               <span class="text-(--text-secondary)" i18n="@@home.hero.popular.label">Popular:</span>

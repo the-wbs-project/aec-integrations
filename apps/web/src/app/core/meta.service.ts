@@ -230,19 +230,34 @@ export class MetaService {
   }
 
   /**
-   * Meta for a static, indexable content page with hand-authored copy — `/about`
-   * (AECI-238) and the future `/legal/*` pages (Phase 7.2). Like `setHomeMeta`
+   * Meta for a static content page with hand-authored copy — `/about`
+   * (AECI-238) and the `/legal/*` pages (Phase 7.2). Like `setHomeMeta`
    * but WITHOUT the WebSite/Organization JSON-LD: sets `<title>`, description, a
-   * self-referential canonical, and OG/Twitter tags (`og:type=website`). No
-   * `robots` tag — these are canonical, indexable content pages (contrast
-   * `setSearchMeta` / `setNotFoundMeta`, which noindex). The caller passes the
-   * full title (e.g. `"About · AEC Integrations"`), mirroring `setSearchMeta` /
-   * `setHomeMeta`. Set from the component constructor so it ships in the SSR HTML
-   * head AND refreshes on an in-app navigation onto the route.
+   * self-referential canonical, and OG/Twitter tags (`og:type=website`). The caller
+   * passes the full title (e.g. `"About · AEC Integrations"`), mirroring
+   * `setSearchMeta` / `setHomeMeta`. Set from the component constructor so it ships
+   * in the SSR HTML head AND refreshes on an in-app navigation onto the route.
+   *
+   * `noindex: true` adds a `robots: noindex` tag for transactional pages that must
+   * not be indexed — e.g. the tokenized `/unsubscribe` page (AECI-537), whose URL
+   * carries a per-subscriber token (contrast `/about` / `/legal`, which stay
+   * indexable). Default is indexable (no `robots` tag), matching `setHomeMeta`.
    */
-  setStaticPageMeta(input: { title: string; description: string; canonical: string }): void {
+  setStaticPageMeta(input: {
+    title: string;
+    description: string;
+    canonical: string;
+    noindex?: boolean;
+  }): void {
     this.title.setTitle(input.title);
     this.meta.updateTag({ name: 'description', content: input.description });
+
+    // Indexable by default; noindex only when the caller opts in (e.g. the
+    // tokenized `/unsubscribe` page). Clear the tag otherwise so a client nav off
+    // a noindexed page onto an indexable one (`/about`, `/legal/*`) doesn't carry
+    // the stale tag — same guard as `setEntityMeta`.
+    if (input.noindex) this.meta.updateTag({ name: 'robots', content: 'noindex' });
+    else this.meta.removeTag('name="robots"');
 
     const canonical = stripQueryParams(input.canonical);
     this.upsertCanonical(canonical);

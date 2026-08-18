@@ -9,6 +9,11 @@
  * truncated — and the rendered items are re-sorted by `orderFacetItems` after
  * each render. Every other facet (categories, audiences, …) is left on the
  * connector default untouched.
+ *
+ * `trades` (AECI-545) deliberately gets NO case here. Its `display_order` is
+ * alphabetical (`TRADES_VOCABULARY.md` §5), which encodes no meaning the way the
+ * phase lifecycle does — so count-desc, the connector default, is the more useful
+ * order and matches how categories/audiences already behave.
  */
 import type { RefinementItem } from '../shared/facets/refinement-item';
 

@@ -23,8 +23,14 @@ import { Component, computed, input } from '@angular/core';
  * Treatment per DESIGN.md: borders-not-shadows (a 1px `--border-default` band),
  * Forest (`--accent-primary`) on every figure, `--text-secondary` for labels
  * (never `--text-tertiary`, which fails AA). Sentence case, no em dashes. Light
- * theme only (Stage 1). i18n throughout; the Lucide shield glyph is `aria-hidden`
+ * theme only (Stage 1). i18n throughout; the Lucide scale glyph is `aria-hidden`
  * (the visible text carries the meaning). Anchor site: Faire (AECI-270).
+ *
+ * The glyph is a BALANCE SCALE, deliberately not a shield-check. A checkmark on a
+ * public surface reads as a verification/endorsement signal, and AECi verifies
+ * nothing today (zero vendor attestations until the Stage 2 portal). A scale
+ * carries the intended meaning here — impartiality — with no trust-badge
+ * connotation. Do not swap in a check, shield, or tick glyph.
  *
  * Contributing firms (AECI-284): the distinct count of firms among approved
  * reviews (`HomeStatsResponse.total_contributing_firms`), wired in as another
@@ -74,10 +80,11 @@ type CoverageMetric = { key: string; count: number; label: string };
             stroke-linejoin="round"
             aria-hidden="true"
           >
-            <path
-              d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"
-            />
-            <path d="m9 12 2 2 4-4" />
+            <path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z" />
+            <path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z" />
+            <path d="M7 21h10" />
+            <path d="M12 3v18" />
+            <path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2" />
           </svg>
           <span i18n="@@home.credibility.independence">Independent · no pay-for-placement</span>
         </p>

@@ -1,0 +1,533 @@
+<section aria-labelledby="admin-catalog-heading" class="space-y-10">
+  <div>
+    <h2
+      id="admin-catalog-heading"
+      class="text-lg font-bold text-(--text-primary)"
+      i18n="@@admin.catalog.heading"
+    >
+      Catalog coverage
+    </h2>
+    <p class="mt-2 max-w-prose text-sm text-(--text-secondary)" i18n="@@admin.catalog.intro">
+      A read-only view of what the catalog is missing. Counts are exact; each list shows a sample to
+      start from. Nothing here edits; corrections are made in the review app and arrive through a
+      promotion.
+    </p>
+  </div>
+
+  @if (loading()) {
+  <p class="text-sm text-(--text-secondary)" i18n="@@admin.catalog.loading">
+    Loading catalog coverage…
+  </p>
+  } @else if (loadFailed()) {
+  <div class="space-y-3">
+    <p
+      class="text-sm font-medium text-(--text-primary)"
+      role="alert"
+      i18n="@@admin.catalog.loadFailed"
+    >
+      We couldn't load catalog coverage. Your session may have expired.
+    </p>
+    <button
+      type="button"
+      (click)="retry()"
+      class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-raised) px-5 py-2.5 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      i18n="@@admin.catalog.retry"
+    >
+      Try again
+    </button>
+  </div>
+  } @else if (coverage(); as c) {
+  <!-- Response-level caveats: the degenerate funnel, the sparse trade facet,
+         the api-docs flag mismatch. Rendered once, at the top. -->
+  <aec-admin-notes [notes]="notes()" />
+
+  <!-- ─── Totals ──────────────────────────────────────────────────────── -->
+  <section aria-labelledby="admin-catalog-totals-heading">
+    <h3
+      id="admin-catalog-totals-heading"
+      class="text-base font-bold text-(--text-primary)"
+      i18n="@@admin.catalog.totals.heading"
+    >
+      Catalog totals
+    </h3>
+    <dl class="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+      <div class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-4">
+        <dt
+          class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+          i18n="@@admin.catalog.totals.products"
+        >
+          Products
+        </dt>
+        <dd class="mt-1 text-2xl font-bold text-(--text-primary)">{{ c.totals.products }}</dd>
+      </div>
+      <div class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-4">
+        <dt
+          class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+          i18n="@@admin.catalog.totals.integrations"
+        >
+          Integrations
+        </dt>
+        <dd class="mt-1 text-2xl font-bold text-(--text-primary)">{{ c.totals.integrations }}</dd>
+      </div>
+      <div class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-4">
+        <dt
+          class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+          i18n="@@admin.catalog.totals.vendors"
+        >
+          Vendors
+        </dt>
+        <dd class="mt-1 text-2xl font-bold text-(--text-primary)">{{ c.totals.vendors }}</dd>
+      </div>
+      <div class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-4">
+        <dt
+          class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+          i18n="@@admin.catalog.totals.claims"
+        >
+          Claims
+        </dt>
+        <dd class="mt-1 text-2xl font-bold text-(--text-primary)">{{ c.totals.claims }}</dd>
+      </div>
+      <div class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-4">
+        <dt
+          class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+          i18n="@@admin.catalog.totals.attestations"
+        >
+          Attestations
+        </dt>
+        <dd class="mt-1 text-2xl font-bold text-(--text-primary)">{{ c.totals.attestations }}</dd>
+      </div>
+    </dl>
+  </section>
+
+  <!-- ─── Additions over time ─────────────────────────────────────────── -->
+  <section aria-labelledby="admin-catalog-additions-heading">
+    <h3
+      id="admin-catalog-additions-heading"
+      class="text-base font-bold text-(--text-primary)"
+      i18n="@@admin.catalog.additions.heading"
+    >
+      Additions over the last 30 days
+    </h3>
+
+    <!-- THE APPROXIMATION BANNER (§5.5 / AECI-579 AC). Driven by the API's
+           `catalog_series_is_additions_only` note, never by hardcoded prose, so
+           it retires itself the day the daily snapshot (P2.1) makes exact totals
+           available. Do not remove: without it this table reads as a running
+           total, which §4 shows it is not. -->
+    <div class="mt-4">
+      <aec-admin-notes [notes]="additionsNotes()" />
+    </div>
+
+    @if (additionsLoading()) {
+    <p class="mt-4 text-sm text-(--text-secondary)" i18n="@@admin.catalog.additions.loading">
+      Loading additions…
+    </p>
+    } @else if (additionsFailed()) {
+    <div class="mt-4 space-y-3">
+      <p
+        class="text-sm font-medium text-(--text-primary)"
+        role="alert"
+        i18n="@@admin.catalog.additions.loadFailed"
+      >
+        We couldn't load the additions series.
+      </p>
+      <button
+        type="button"
+        (click)="retryAdditions()"
+        class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-raised) px-5 py-2.5 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        i18n="@@admin.catalog.additions.retry"
+      >
+        Try again
+      </button>
+    </div>
+    } @else if (additionsEmpty()) {
+    <p class="mt-4 text-sm text-(--text-secondary)" i18n="@@admin.catalog.additions.empty">
+      Nothing was added to the catalog in this window.
+    </p>
+    } @else {
+    <div class="mt-4 overflow-x-auto">
+      <table class="w-full min-w-[32rem] border-collapse text-sm">
+        <caption class="sr-only" i18n="@@admin.catalog.additions.caption">
+          Records added per day, by type, over the last 30 UTC days.
+        </caption>
+        <thead>
+          <tr class="border-b border-(--border-strong)">
+            <th
+              scope="col"
+              class="py-2 pe-4 text-start text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+              i18n="@@admin.catalog.additions.day"
+            >
+              Day (UTC)
+            </th>
+            @for (label of seriesLabels; track label) {
+            <th
+              scope="col"
+              class="py-2 ps-4 text-end text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+            >
+              {{ label }}
+            </th>
+            }
+          </tr>
+        </thead>
+        <tbody>
+          @for (row of additionsRows(); track row.day) {
+          <tr class="border-b border-(--border-default)">
+            <th scope="row" class="py-1.5 pe-4 text-start font-medium text-(--text-secondary)">
+              {{ row.day }}
+            </th>
+            @for (v of row.values; track $index) {
+            <td class="py-1.5 ps-4 text-end tabular-nums text-(--text-primary)">{{ v }}</td>
+            }
+          </tr>
+          }
+        </tbody>
+        <tfoot>
+          <tr class="border-t-2 border-(--border-strong)">
+            <th
+              scope="row"
+              class="py-2 pe-4 text-start font-bold text-(--text-primary)"
+              i18n="@@admin.catalog.additions.total"
+            >
+              Added in window
+            </th>
+            @for (t of seriesTotals(); track $index) {
+            <td class="py-2 ps-4 text-end font-bold tabular-nums text-(--text-primary)">{{ t }}</td>
+            }
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+    }
+  </section>
+
+  <!-- ─── Promotion funnel ────────────────────────────────────────────── -->
+  <section aria-labelledby="admin-catalog-funnel-heading">
+    <h3
+      id="admin-catalog-funnel-heading"
+      class="text-base font-bold text-(--text-primary)"
+      i18n="@@admin.catalog.funnel.heading"
+    >
+      Promotion status
+    </h3>
+
+    <table class="mt-4 w-full max-w-md border-collapse text-sm">
+      <caption class="sr-only" i18n="@@admin.catalog.funnel.caption">
+        Products by promotion status.
+      </caption>
+      <thead>
+        <tr class="border-b border-(--border-strong)">
+          <th
+            scope="col"
+            class="py-2 pe-4 text-start text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+            i18n="@@admin.catalog.funnel.stage"
+          >
+            Stage
+          </th>
+          <th
+            scope="col"
+            class="py-2 ps-4 text-end text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+            i18n="@@admin.catalog.funnel.products"
+          >
+            Products
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (stage of c.funnel.stages; track stage.status) {
+        <tr class="border-b border-(--border-default)">
+          <th scope="row" class="py-1.5 pe-4 text-start font-medium text-(--text-secondary)">
+            {{ promotionStatusLabel(stage.status) }}
+          </th>
+          <td class="py-1.5 ps-4 text-end tabular-nums text-(--text-primary)">{{ stage.count }}</td>
+        </tr>
+        }
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ─── Research status ─────────────────────────────────────────────── -->
+  <section aria-labelledby="admin-catalog-research-heading">
+    <h3
+      id="admin-catalog-research-heading"
+      class="text-base font-bold text-(--text-primary)"
+      i18n="@@admin.catalog.research.heading"
+    >
+      Research status
+    </h3>
+
+    <table class="mt-4 w-full max-w-md border-collapse text-sm">
+      <caption class="sr-only" i18n="@@admin.catalog.research.caption">
+        Products by research status.
+      </caption>
+      <thead>
+        <tr class="border-b border-(--border-strong)">
+          <th
+            scope="col"
+            class="py-2 pe-4 text-start text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+            i18n="@@admin.catalog.research.status"
+          >
+            Status
+          </th>
+          <th
+            scope="col"
+            class="py-2 ps-4 text-end text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+            i18n="@@admin.catalog.research.products"
+          >
+            Products
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (r of c.research_status; track r.status) {
+        <tr class="border-b border-(--border-default)">
+          <th scope="row" class="py-1.5 pe-4 text-start font-medium text-(--text-secondary)">
+            {{ researchStatusLabel(r.status) }}
+          </th>
+          <td class="py-1.5 ps-4 text-end tabular-nums text-(--text-primary)">{{ r.count }}</td>
+        </tr>
+        }
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ─── Coverage gaps ───────────────────────────────────────────────── -->
+  <section aria-labelledby="admin-catalog-gaps-heading">
+    <h3
+      id="admin-catalog-gaps-heading"
+      class="text-base font-bold text-(--text-primary)"
+      i18n="@@admin.catalog.gaps.heading"
+    >
+      Coverage gaps
+    </h3>
+    <p class="mt-2 max-w-prose text-sm text-(--text-secondary)" i18n="@@admin.catalog.gaps.intro">
+      Each count is exact. Where a gap covers the whole catalog, that is the real state of the data,
+      not an error.
+    </p>
+
+    <ul role="list" class="mt-4 grid gap-4 md:grid-cols-2">
+      @for (g of gaps(); track g.key) {
+      <li class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-5">
+        <div class="flex flex-wrap items-baseline justify-between gap-2">
+          <h4 class="text-sm font-bold text-(--text-primary)">{{ gapLabel(g.key) }}</h4>
+          <p class="text-sm tabular-nums text-(--text-secondary)">
+            <span class="text-base font-bold text-(--text-primary)">{{ g.total }}</span>
+            <span i18n="@@admin.catalog.gaps.of"> of {{ g.universe }}</span>
+          </p>
+        </div>
+
+        @if (g.total === 0) {
+        <p class="mt-3 text-xs text-(--text-secondary)" i18n="@@admin.catalog.gaps.clear">
+          Nothing missing.
+        </p>
+        } @else if (g.sample.length === 0) {
+        <p class="mt-3 text-xs text-(--text-secondary)" i18n="@@admin.catalog.gaps.countOnly">
+          Sample rows were not requested.
+        </p>
+        } @else {
+        <ul role="list" class="mt-3 space-y-1">
+          @for (p of g.sample; track p.id) {
+          <li class="text-sm">
+            <a
+              [routerLink]="['/products', p.slug]"
+              class="text-(--text-secondary) no-underline transition-colors hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              >{{ p.name }}</a
+            >
+          </li>
+          }
+        </ul>
+        @if (g.sample_truncated) {
+        <p class="mt-3 text-xs text-(--text-secondary)" i18n="@@admin.catalog.gaps.truncated">
+          Showing {{ g.sample.length }} of {{ g.total }}.
+        </p>
+        } }
+      </li>
+      }
+    </ul>
+  </section>
+
+  <!-- ─── Taxonomy usage ──────────────────────────────────────────────── -->
+  <section aria-labelledby="admin-catalog-taxonomy-heading">
+    <h3
+      id="admin-catalog-taxonomy-heading"
+      class="text-base font-bold text-(--text-primary)"
+      i18n="@@admin.catalog.taxonomy.heading"
+    >
+      Taxonomy usage
+    </h3>
+
+    <div class="mt-4 space-y-8">
+      @for (f of taxonomy(); track f.facet) {
+      <section [attr.aria-labelledby]="'admin-catalog-facet-' + f.facet">
+        <div class="flex flex-wrap items-baseline justify-between gap-2">
+          <h4
+            [id]="'admin-catalog-facet-' + f.facet"
+            class="text-sm font-bold text-(--text-primary)"
+          >
+            {{ facetLabel(f.facet) }}
+          </h4>
+          <p class="text-xs text-(--text-secondary)">
+            <span i18n="@@admin.catalog.taxonomy.used"
+              >{{ f.terms_used }} of {{ f.terms_total }} terms in use</span
+            >
+            @if (f.terms_published !== null && f.publish_floor !== null) {
+            <span i18n="@@admin.catalog.taxonomy.published"
+              >· {{ f.terms_published }} clear the {{ f.publish_floor }}-product publication
+              floor</span
+            >
+            }
+          </p>
+        </div>
+
+        <div class="mt-3 overflow-x-auto">
+          <table class="w-full min-w-[24rem] border-collapse text-sm">
+            <caption class="sr-only">
+              {{ facetLabel(f.facet) }}
+            </caption>
+            <thead>
+              <tr class="border-b border-(--border-strong)">
+                <th
+                  scope="col"
+                  class="py-2 pe-4 text-start text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+                  i18n="@@admin.catalog.taxonomy.term"
+                >
+                  Term
+                </th>
+                <th
+                  scope="col"
+                  class="py-2 ps-4 text-end text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+                >
+                  {{ facetCountLabel(f.counts_what) }}
+                </th>
+                @if (f.publish_floor !== null) {
+                <th
+                  scope="col"
+                  class="py-2 ps-4 text-end text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+                  i18n="@@admin.catalog.taxonomy.page"
+                >
+                  Page
+                </th>
+                }
+              </tr>
+            </thead>
+            <tbody>
+              @for (term of f.terms; track term.id) {
+              <tr class="border-b border-(--border-default)">
+                <th scope="row" class="py-1.5 pe-4 text-start font-medium text-(--text-secondary)">
+                  {{ term.name }}
+                </th>
+                <td class="py-1.5 ps-4 text-end tabular-nums text-(--text-primary)">
+                  {{ term.count }}
+                </td>
+                @if (f.publish_floor !== null) {
+                <td class="py-1.5 ps-4 text-end text-(--text-secondary)">
+                  {{ publicationLabel(term.published) }}
+                </td>
+                }
+              </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      </section>
+      }
+    </div>
+  </section>
+
+  <!-- ─── Claims and attestations ─────────────────────────────────────── -->
+  <section aria-labelledby="admin-catalog-claims-heading">
+    <h3
+      id="admin-catalog-claims-heading"
+      class="text-base font-bold text-(--text-primary)"
+      i18n="@@admin.catalog.claims.heading"
+    >
+      Claims and attestations
+    </h3>
+
+    @let cc = c.claim_coverage;
+    <dl class="mt-4 grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-4">
+        <dt
+          class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+          i18n="@@admin.catalog.claims.withClaims"
+        >
+          Integrations with claims
+        </dt>
+        <dd class="mt-1 text-2xl font-bold tabular-nums text-(--text-primary)">
+          {{ cc.integrations_with_claims }}<span
+            class="text-base font-medium text-(--text-secondary)"
+          >
+            / {{ cc.integrations_total }}</span
+          >
+        </dd>
+      </div>
+      <div class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-4">
+        <dt
+          class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+          i18n="@@admin.catalog.claims.withoutClaims"
+        >
+          Integrations with no claim
+        </dt>
+        <dd class="mt-1 text-2xl font-bold tabular-nums text-(--text-primary)">
+          {{ cc.integrations_without_claims }}
+        </dd>
+      </div>
+      <div class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-4">
+        <dt
+          class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+          i18n="@@admin.catalog.claims.attested"
+        >
+          Claims with an attestation
+        </dt>
+        <dd class="mt-1 text-2xl font-bold tabular-nums text-(--text-primary)">
+          {{ cc.claims_with_active_attestation }}<span
+            class="text-base font-medium text-(--text-secondary)"
+          >
+            / {{ cc.claims_total }}</span
+          >
+        </dd>
+      </div>
+      <div class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-4">
+        <dt
+          class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+          i18n="@@admin.catalog.claims.attestations"
+        >
+          Attestations
+        </dt>
+        <dd class="mt-1 text-2xl font-bold tabular-nums text-(--text-primary)">
+          {{ cc.attestations_total }}
+        </dd>
+      </div>
+    </dl>
+
+    @if (cc.integrations_without_claims_sample.length > 0) {
+    <h4
+      class="mt-6 text-sm font-bold text-(--text-primary)"
+      i18n="@@admin.catalog.claims.gapHeading"
+    >
+      Integrations with no claim
+    </h4>
+    <ul role="list" class="mt-2 space-y-1">
+      @for (i of cc.integrations_without_claims_sample; track i.id) {
+      <li class="text-sm">
+        <a
+          [routerLink]="[
+                  '/products',
+                  i.source_product.slug,
+                  'integrations',
+                  i.target_product.slug,
+                ]"
+          class="text-(--text-secondary) no-underline transition-colors hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          >{{ i.source_product.name }} → {{ i.target_product.name }}</a
+        >
+      </li>
+      }
+    </ul>
+    @if (cc.integrations_without_claims_sample_truncated) {
+    <p class="mt-3 text-xs text-(--text-secondary)" i18n="@@admin.catalog.claims.truncated">
+      Showing {{ cc.integrations_without_claims_sample.length }} of {{
+      cc.integrations_without_claims }}.
+    </p>
+    } }
+  </section>
+  }
+</section>
