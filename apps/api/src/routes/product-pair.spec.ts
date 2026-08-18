@@ -431,3 +431,76 @@ describe('GET /api/products/:slug/integrations/:otherSlug — agreement states (
     );
   });
 });
+
+// ─── The page-header maintenance marker (AECI-616 / §13) ─────────────────────
+//
+// A pair has N mechanisms but ONE header marker, so `computePairMaintenance` folds
+// them. The branch-scoped date is the part worth pinning: a global max would let an
+// AECi review date sit inside a sentence that reads "Vendor-maintained."
+
+describe('GET /api/products/:slug/integrations/:otherSlug — maintenance marker (AECI-616)', () => {
+  const AECI_DATE = '2026-02-01T00:00:00.000Z';
+  const OLD_VENDOR_DATE = '2026-01-01T00:00:00.000Z';
+  const NEW_AECI_DATE = '2026-07-01T00:00:00.000Z';
+
+  it('reports the unreviewed AECi baseline for a pair nobody has re-checked', async () => {
+    await seedProducts();
+    await integration(u(10), u(1), u(2));
+
+    const res = await get('/api/products/procore/integrations/revit');
+    const body = ProductPairResponseSchema.parse(await res.json());
+    expect(body.maintenance).toEqual({ maintained_by: 'aeci', last_reviewed_at: null });
+  });
+
+  it('is AECi-maintained with no date for an empty pair', async () => {
+    await seedProducts();
+
+    const res = await get('/api/products/procore/integrations/revit');
+    const body = ProductPairResponseSchema.parse(await res.json());
+    expect(body.maintenance).toEqual({ maintained_by: 'aeci', last_reviewed_at: null });
+  });
+
+  it('takes the MOST RECENT date across mechanisms in the same branch', async () => {
+    await seedProducts();
+    await integration(u(10), u(1), u(2), { lastReviewedAt: OLD_VENDOR_DATE });
+    await integration(u(11), u(1), u(2), { lastReviewedAt: NEW_AECI_DATE });
+    await integration(u(12), u(1), u(2)); // never reviewed — contributes nothing
+
+    const res = await get('/api/products/procore/integrations/revit');
+    const body = ProductPairResponseSchema.parse(await res.json());
+    expect(body.maintenance).toEqual({
+      maintained_by: 'aeci',
+      last_reviewed_at: NEW_AECI_DATE,
+    });
+  });
+
+  it('is vendor-maintained when ANY mechanism is, and dates it from the VENDOR mechanisms only', async () => {
+    await seedProducts();
+    // The vendor's mechanism was reviewed in January; AECi re-checked a different
+    // mechanism in July. The header says "Vendor-maintained", so the date must be
+    // the vendor's — attributing AECi's July review to the vendor would be a lie,
+    // and it is exactly what an unscoped max() would produce.
+    await integration(u(10), u(1), u(2), {
+      maintainedBy: 'vendor',
+      lastReviewedAt: OLD_VENDOR_DATE,
+    });
+    await integration(u(11), u(1), u(2), { lastReviewedAt: NEW_AECI_DATE });
+
+    const res = await get('/api/products/procore/integrations/revit');
+    const body = ProductPairResponseSchema.parse(await res.json());
+    expect(body.maintenance).toEqual({
+      maintained_by: 'vendor',
+      last_reviewed_at: OLD_VENDOR_DATE,
+    });
+  });
+
+  it('renders no date when the winning branch has none, even if the other branch does', async () => {
+    await seedProducts();
+    await integration(u(10), u(1), u(2), { maintainedBy: 'vendor' }); // vendor, unreviewed
+    await integration(u(11), u(1), u(2), { lastReviewedAt: AECI_DATE }); // aeci, reviewed
+
+    const res = await get('/api/products/procore/integrations/revit');
+    const body = ProductPairResponseSchema.parse(await res.json());
+    expect(body.maintenance).toEqual({ maintained_by: 'vendor', last_reviewed_at: null });
+  });
+});

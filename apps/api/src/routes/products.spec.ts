@@ -564,3 +564,27 @@ describe('GET /api/products/:slug', () => {
     expect(res.status).toBe(404);
   });
 });
+
+describe('GET /api/products/:slug — maintenance marker (AECI-616)', () => {
+  it('reports the unreviewed baseline: AECi attribution with no date', async () => {
+    await seedProduct(u(1), 'revit', 'Revit');
+
+    const body = ProductDetailSchema.parse(
+      await (await get(detailApp(), '/api/products/revit')).json(),
+    );
+    // `null` here is the honest reading, not missing data — nothing was backfilled
+    // from `created_at` / `updated_at` / `promoted_at`, deliberately.
+    expect(body.maintenance).toEqual({ maintained_by: 'aeci', last_reviewed_at: null });
+  });
+
+  it('surfaces a real review date without touching updated_at', async () => {
+    const reviewed = '2026-03-04T00:00:00.000Z';
+    await seedProduct(u(1), 'revit', 'Revit', { lastReviewedAt: reviewed });
+
+    const body = ProductDetailSchema.parse(
+      await (await get(detailApp(), '/api/products/revit')).json(),
+    );
+    expect(body.maintenance).toEqual({ maintained_by: 'aeci', last_reviewed_at: reviewed });
+    expect(body.updated_at).not.toBe(reviewed);
+  });
+});

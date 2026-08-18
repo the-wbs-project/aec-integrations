@@ -119,6 +119,9 @@ describe('resolveAttestationSlots', () => {
       integrationId: 'i-main',
       sourceProductId: 'p-src',
       targetProductId: 'p-tgt',
+      // Carried alongside the endpoint ids for the same reason (AECI-616): the §5
+      // write paths flip it and must not re-read the integration to do so.
+      maintainedBy: 'aeci',
       slots: ['vendor_a'],
     });
   });
@@ -235,6 +238,7 @@ describe('resolveClaimAuthority', () => {
       integrationId: 'i-main',
       sourceProductId: 'p-src',
       targetProductId: 'p-tgt',
+      maintainedBy: 'aeci',
       slots: ['vendor_a'],
     });
   });

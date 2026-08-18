@@ -67,6 +67,8 @@ function buildProduct(overrides: Partial<ProductDetail> = {}): ProductDetail {
     integrations_as_connector: [],
     related_products: [],
     reviews: [],
+    // The unreviewed baseline (AECI-616): bare attribution, no date.
+    maintenance: { maintained_by: 'aeci', last_reviewed_at: null },
     ...overrides,
   };
 }

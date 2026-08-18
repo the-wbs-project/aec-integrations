@@ -75,6 +75,8 @@ function pairFixture(overrides: Partial<ProductPairResponse> = {}): ProductPairR
       },
     ],
     sync_headline: { total: 0, confirmed: 0, single_source: 0 },
+    // The unreviewed baseline (AECI-616): bare attribution, no date.
+    maintenance: { maintained_by: 'aeci', last_reviewed_at: null },
     ...overrides,
   };
 }

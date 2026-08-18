@@ -55,6 +55,33 @@ const updatedAt = () =>
     .$defaultFn(() => new Date().toISOString())
     .$onUpdate(() => new Date().toISOString());
 
+/**
+ * The maintenance-marker pair (AECI-616 / `STAGE_2_ATTESTATIONS_SPEC.md` §13), on
+ * `vendors` / `products` / `integrations`.
+ *
+ * `last_reviewed_at` is when a human LAST ACTUALLY RE-CHECKED the record — a
+ * falsifiable claim the marker renders to readers. It is deliberately a **plain
+ * column**: no `$defaultFn`, and above all **no `$onUpdate`**, unlike `updatedAt()`
+ * directly above. It is written by exactly two paths — an explicit `lastReviewedAt`
+ * in the promote payload, and a vendor attestation — and by nothing else.
+ *
+ * Never source it from `updated_at`, `created_at`, or `promoted_at`, and never
+ * backfill it from them. `updated_at` restamps on ANY write and promote re-asserts
+ * `promotion_status` on every re-promote, so in production 60 products share one
+ * `updated_at` day and 40 share another: it is a bulk-sweep timestamp wearing a
+ * freshness costume, which is the exact failure the marker exists to expose.
+ */
+const lastReviewedAt = () => text('last_reviewed_at');
+
+/** Who is on the hook for the record's accuracy. `'vendor'` is reachable only via
+ *  a live vendor attestation (AECI-301); promote must never write this column, or a
+ *  routine Airtable push would silently un-vendor a record. */
+const maintainedBy = () => text('maintained_by').notNull().default('aeci');
+
+/** The CHECK companion to {@link maintainedBy}, so the three tables can't drift. */
+const maintainedByCheck = (table: 'vendors' | 'products' | 'integrations') =>
+  check(`${table}_maintained_by_check`, sql`"maintained_by" IN ('aeci', 'vendor')`);
+
 // ===========================================================================
 // Health check (proves the per-request DB path — retained from AECI-28)
 // ===========================================================================
@@ -105,11 +132,15 @@ export const vendors = sqliteTable(
     vqsTotal: real('vqs_total'),
     vqsComputedAt: text('vqs_computed_at'),
 
+    lastReviewedAt: lastReviewedAt(),
+    maintainedBy: maintainedBy(),
+
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
   (t) => [
     uniqueIndex('vendors_slug_key').on(t.slug),
+    maintainedByCheck('vendors'),
     index('vendors_company_name_idx').on(t.companyName),
     index('vendors_promotion_status_idx').on(t.promotionStatus),
     index('vendors_verified_idx').on(t.verified),
@@ -181,11 +212,15 @@ export const products = sqliteTable(
 
     adminNotes: text('admin_notes'),
 
+    lastReviewedAt: lastReviewedAt(),
+    maintainedBy: maintainedBy(),
+
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
   (t) => [
     uniqueIndex('products_slug_key').on(t.slug),
+    maintainedByCheck('products'),
     index('products_name_idx').on(t.name),
     index('products_promotion_status_idx').on(t.promotionStatus),
     index('products_research_status_idx').on(t.researchStatus),
@@ -241,10 +276,14 @@ export const integrations = sqliteTable(
     maturity: text('maturity'),
     notes: text('notes'),
 
+    lastReviewedAt: lastReviewedAt(),
+    maintainedBy: maintainedBy(),
+
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
   (t) => [
+    maintainedByCheck('integrations'),
     index('integrations_source_idx').on(t.sourceProductId),
     index('integrations_target_idx').on(t.targetProductId),
     index('integrations_mechanism_kind_idx').on(t.mechanismKind),

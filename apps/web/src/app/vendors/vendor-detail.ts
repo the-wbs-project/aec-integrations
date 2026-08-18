@@ -114,7 +114,10 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
                 >
                   Vendor
                 </p>
-                <aec-maintenance-marker />
+                <aec-maintenance-marker
+                  [maintainedBy]="v.maintenance.maintained_by"
+                  [reviewedAt]="v.maintenance.last_reviewed_at"
+                />
               </div>
               <h1
                 class="font-display text-3xl font-semibold leading-tight tracking-tight text-(--text-primary) break-words sm:text-4xl"

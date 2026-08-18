@@ -523,7 +523,13 @@ describe('POST /api/vendor/claims', () => {
   it('emits claim.created AND attestation.created in the SAME batch', async () => {
     const { body: res } = await sendJson('POST', '/api/vendor/claims', body());
     const rows = await auditRows();
-    expect(rows.map((r) => r.action).sort()).toEqual(['attestation.created', 'claim.created']);
+    expect(rows.map((r) => r.action).sort()).toEqual([
+      'attestation.created',
+      'claim.created',
+      // The maintenance-marker flip (AECI-616): a vendor-authored claim makes the
+      // integration vendor-maintained, audited in the same batch.
+      'integration.updated',
+    ]);
     for (const row of rows) {
       expect(row.actorId).toBe(SEAT_A);
       expect(row.actorType).toBe('user');
@@ -715,6 +721,9 @@ describe('PUT /api/vendor/claims/:claimId/attestation', () => {
     expect(added.map((r) => r.action).sort()).toEqual([
       'attestation.created',
       'attestation.retracted',
+      // The maintenance-marker flip (AECI-616) rides in the same batch: re-attesting
+      // re-stamps `integrations.last_reviewed_at`, which is a real state change.
+      'integration.updated',
     ]);
     expect(added.every((r) => (r.metadata as { source: string }).source === 'vendor-portal')).toBe(
       true,
@@ -878,5 +887,128 @@ describe('DELETE /api/vendor/claims/:claimId/attestation', () => {
     const { status } = await call(attestationUrl(uuid(49)), { method: 'DELETE' }, AUTH_UNVERIFIED);
     expect(status).toBe(403);
     expect(await liveAttestations(uuid(49))).toHaveLength(1);
+  });
+});
+
+// ─── The maintenance marker's vendor branch (AECI-616 / §13) ─────────────────
+//
+// `integrations.maintained_by` is what flips the pair-page header from
+// "Maintained by AEC Integrations." to "Vendor-maintained. Updated <date>." This
+// surface is its only writer of `'vendor'`.
+
+describe('maintenance marker — integrations.maintained_by (AECI-616)', () => {
+  const integrationRow = (id = I_MAIN) =>
+    t.db
+      .select()
+      .from(integrations)
+      .where(eq(integrations.id, id))
+      .then((rows) => rows[0]);
+
+  it('starts AECi-maintained with no review date', async () => {
+    const row = await integrationRow();
+    expect(row?.maintainedBy).toBe('aeci');
+    expect(row?.lastReviewedAt).toBeNull();
+  });
+
+  it('flips to vendor-maintained and stamps the date when a vendor attests', async () => {
+    const before = new Date().toISOString();
+    const { status } = await sendJson('PUT', attestationUrl(C_MAIN), { asserted: true });
+    expect(status).toBe(200);
+
+    const row = await integrationRow();
+    expect(row?.maintainedBy).toBe('vendor');
+    expect(String(row?.lastReviewedAt) >= before).toBe(true);
+  });
+
+  it('flips when a vendor CREATES a claim, not just when it attests to one', async () => {
+    const { status } = await sendJson('POST', '/api/vendor/claims', {
+      integration_id: I_MAIN,
+      data_object: 'submittals',
+      direction: 'outbound',
+    });
+    expect(status).toBe(201);
+
+    const row = await integrationRow();
+    expect(row?.maintainedBy).toBe('vendor');
+    expect(row?.lastReviewedAt).toEqual(expect.any(String));
+  });
+
+  it('re-attesting advances the date — a re-assertion IS a review', async () => {
+    await sendJson('PUT', attestationUrl(C_MAIN), { asserted: true });
+    const first = (await integrationRow())?.lastReviewedAt;
+
+    await new Promise((r) => setTimeout(r, 5));
+    await sendJson('PUT', attestationUrl(C_MAIN), { asserted: false, note: 'actually no' });
+    const second = (await integrationRow())?.lastReviewedAt;
+
+    expect(String(second) > String(first)).toBe(true);
+  });
+
+  it('hands the record back to AECi when the LAST live vendor attestation is retracted', async () => {
+    await sendJson('PUT', attestationUrl(C_MAIN), { asserted: true });
+    const reviewed = (await integrationRow())?.lastReviewedAt;
+    expect(reviewed).toEqual(expect.any(String));
+
+    const { status } = await call(attestationUrl(C_MAIN), { method: 'DELETE' });
+    expect(status).toBe(204);
+
+    const row = await integrationRow();
+    expect(row?.maintainedBy).toBe('aeci');
+    // The date SURVIVES. Withdrawing an assertion does not un-happen the review, and
+    // blanking it would make a record that HAS been checked read as one that never was.
+    expect(row?.lastReviewedAt).toBe(reviewed);
+  });
+
+  it('stays vendor-maintained while another live vendor attestation remains on the SAME integration', async () => {
+    // A second claim on I_MAIN. The retract path is claim-scoped; the marker is
+    // integration-scoped — losing one claim's attestation must not un-vendor an
+    // integration the vendor still speaks for elsewhere.
+    const C_SECOND = uuid(42);
+    await t.db.insert(claims).values({
+      id: C_SECOND,
+      integrationId: I_MAIN,
+      dataObjectId: DO_SUBMITTALS,
+      direction: 'a_to_b',
+    });
+    await sendJson('PUT', attestationUrl(C_MAIN), { asserted: true });
+    await sendJson('PUT', attestationUrl(C_SECOND), { asserted: true });
+
+    await call(attestationUrl(C_MAIN), { method: 'DELETE' });
+
+    expect((await integrationRow())?.maintainedBy).toBe('vendor');
+  });
+
+  it('stays vendor-maintained while the COUNTERPARTY still holds a live attestation', async () => {
+    await sendJson('PUT', attestationUrl(C_MAIN), { asserted: true });
+    await sendJson('PUT', attestationUrl(C_MAIN), { asserted: true }, AUTH_B);
+
+    await call(attestationUrl(C_MAIN), { method: 'DELETE' });
+
+    expect((await integrationRow())?.maintainedBy).toBe('vendor');
+  });
+
+  it('emits its audit row in the same batch, and none when the flip is a no-op', async () => {
+    await sendJson('PUT', attestationUrl(C_MAIN), { asserted: true });
+    await sendJson('PUT', attestationUrl(C_MAIN), { asserted: true }, AUTH_B);
+
+    // Vendor B still holds a slot, so this retraction changes no `maintained_by` —
+    // and must therefore write no audit row claiming it did (§26.1).
+    const before = (await auditRows()).length;
+    await call(attestationUrl(C_MAIN), { method: 'DELETE' });
+    const added = (await auditRows()).slice(before);
+    expect(added.filter((r) => r.entityType === 'integration')).toHaveLength(0);
+
+    // Vendor B withdraws too — now the flip is real, and it is audited. Scoped to
+    // the rows THIS call added: the two PUTs above each audited their own
+    // aeci→vendor flip, so an unscoped `find` would match the first of those.
+    const beforeFinal = (await auditRows()).length;
+    await call(attestationUrl(C_MAIN), { method: 'DELETE' }, AUTH_B);
+    const flip = (await auditRows())
+      .slice(beforeFinal)
+      .find((r) => r.entityType === 'integration' && r.action === 'integration.updated');
+    expect(flip?.entityId).toBe(I_MAIN);
+    expect(flip?.beforeState).toMatchObject({ maintained_by: 'vendor' });
+    expect(flip?.afterState).toMatchObject({ maintained_by: 'aeci' });
+    expect(flip?.metadata).toMatchObject({ reason: 'maintenance-marker' });
   });
 });

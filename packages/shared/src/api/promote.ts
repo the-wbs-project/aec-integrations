@@ -30,6 +30,28 @@ import { z } from 'zod';
  * Contract source of truth; no codegen (see `docs/API_CONTRACTS.md` §2).
  */
 
+/**
+ * The maintenance-marker review signal (AECI-616 / `STAGE_2_ATTESTATIONS_SPEC.md`
+ * §13), accepted on vendors, products, and integrations alike.
+ *
+ * **Absence is load-bearing.** Omit the field and the stored `last_reviewed_at` is
+ * left exactly as it was — that is what makes a plain re-promote (which re-asserts
+ * `promotion_status` on every push) leave the record's advertised freshness alone.
+ * Send it ONLY when a human actually re-checked the record. Send `null` to clear it.
+ *
+ * Deliberately stricter than the loose-string rule the rest of this contract follows
+ * (`introducedAt` / `deprecatedAt` / the URL-ish fields, which stay loose because
+ * over-strict validation would reject legitimate curated values). Here an unparseable
+ * value would render as *no date at all* — silently, and indistinguishably from "never
+ * reviewed" — so a 400 is strictly better than the lie.
+ */
+const ReviewSignalSchema = z
+  .string()
+  .refine((v) => Number.isFinite(Date.parse(v)), {
+    message: 'lastReviewedAt must be a parseable date (ISO-8601)',
+  })
+  .nullish();
+
 /** Enum vocabularies — kept in sync with the Postgres CHECK constraints. */
 export const PRODUCT_ROLES = ['application', 'connector', 'hybrid'] as const;
 export const RESEARCH_STATUSES = ['pending', 'in_progress', 'done', 'blocked'] as const;
@@ -124,6 +146,13 @@ export const PromoteVendorSchema = z.object({
    * — the server simply drops it.
    */
   verified: z.boolean().optional(),
+  /** See {@link ReviewSignalSchema}. Absent leaves the stored value untouched. */
+  lastReviewedAt: ReviewSignalSchema,
+  // `maintainedBy` is deliberately NOT accepted here, on any entity. It flips to
+  // `'vendor'` only via a live vendor attestation (AECI-301), and a routine
+  // Airtable push carrying `'aeci'` would silently un-vendor a record the vendor
+  // maintains — the same failure mode as `verified` above (AECI-520) and as the
+  // wholesale claim replacement AECI-604 removed.
 });
 
 export type PromoteVendor = z.infer<typeof PromoteVendorSchema>;
@@ -206,6 +235,10 @@ export const PromoteProductSchema = z.object({
   // products with trade-SPECIFIC value; horizontal platforms send none.
   trades: z.array(z.string().min(1)).default([]),
   extensionOf: z.array(EntityRefSchema).default([]),
+  /** See {@link ReviewSignalSchema}. Absent leaves the stored value untouched — so
+   *  a re-promote that changed a description does not re-advertise the record as
+   *  freshly reviewed. */
+  lastReviewedAt: ReviewSignalSchema,
 });
 
 export type PromoteProduct = z.infer<typeof PromoteProductSchema>;
@@ -276,6 +309,8 @@ export const PromoteIntegrationSchema = z.object({
   // the §5.1 withhold rule). Optional; defaults to []. An unresolved `dataObject`
   // lands in the response's `skipped[]` with `kind: 'claim'` (§5.1, §6.2).
   claims: z.array(PromoteClaimSchema).default([]),
+  /** See {@link ReviewSignalSchema}. Absent leaves the stored value untouched. */
+  lastReviewedAt: ReviewSignalSchema,
 });
 
 export type PromoteIntegration = z.infer<typeof PromoteIntegrationSchema>;

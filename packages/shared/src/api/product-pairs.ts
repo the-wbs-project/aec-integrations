@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import { AGREEMENT_STATES } from '../agreement';
-import { ProductLinkSchema, VendorLinkSchema } from './common';
+import { MaintenanceSchema, ProductLinkSchema, VendorLinkSchema } from './common';
 import { ContextDirectionSchema, IntegrationMechanismKindSchema } from './integrations';
 import { ProductListItemSchema } from './products';
 import { ATTESTATION_SOURCES } from './promote';
@@ -140,6 +140,17 @@ export const ProductPairResponseSchema = z.object({
   other_product: ProductListItemSchema,
   mechanisms: z.array(ProductPairMechanismSchema),
   sync_headline: SyncHeadlineSchema,
+  /**
+   * The page header's maintenance marker (AECI-616), aggregated across every
+   * mechanism on the pair by `computePairMaintenance` — a pair has N mechanisms but
+   * one header.
+   *
+   * Deliberately NOT per-mechanism on {@link ProductPairMechanismSchema}: the marker
+   * answers "who is on the hook for this page", which is a page-level question, and a
+   * chip on every mechanism card would compete with the per-claim agreement badge
+   * that already lives there.
+   */
+  maintenance: MaintenanceSchema.default({ maintained_by: 'aeci', last_reviewed_at: null }),
 });
 
 export type ProductPairResponse = z.infer<typeof ProductPairResponseSchema>;

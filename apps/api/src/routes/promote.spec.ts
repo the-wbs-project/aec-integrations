@@ -390,6 +390,142 @@ describe('runPromoteIngest', () => {
     ).toBeTruthy();
   });
 
+  // ── last_reviewed_at (AECI-616 / STAGE_2_ATTESTATIONS_SPEC.md §13) ──────────
+  // The whole feature rests on ABSENCE meaning "untouched". If a plain re-promote
+  // could advance this, the marker would re-advertise the entire catalog as freshly
+  // reviewed on every bulk push — the exact fake freshness it exists to expose, and
+  // the reason the date was withheld in Stage 1 rather than wired to `updated_at`.
+
+  it('leaves last_reviewed_at untouched on a re-promote that carries no review signal', async () => {
+    const vendX = uuid(2);
+    const prodX = uuid(3);
+    const intgX = uuid(4);
+    const reviewed = '2026-03-04T00:00:00.000Z';
+    await seedVendor(vendX, 'autodesk', 'Autodesk');
+    await seedProduct(prodX, 'revit', 'Revit', { lastReviewedAt: reviewed });
+    const otherX = uuid(5);
+    await seedProduct(otherX, 'procore', 'Procore');
+    await t.db
+      .insert(integrations)
+      .values({ id: intgX, sourceProductId: prodX, targetProductId: otherX });
+    await t.db
+      .update(integrations)
+      .set({ lastReviewedAt: reviewed })
+      .where(eq(integrations.id, intgX));
+    await t.db.update(vendors).set({ lastReviewedAt: reviewed }).where(eq(vendors.id, vendX));
+
+    // Mutate every entity twice without sending the signal — the update branch that
+    // would otherwise overwrite the stamp, exercised the way a real bulk push does.
+    for (const name of ['Revit 2025', 'Revit 2026']) {
+      const res = await promote({
+        vendors: [{ ref: 'v1', supabaseId: vendX, companyName: 'Autodesk Inc.' }],
+        product: { ref: 'p1', supabaseId: prodX, name },
+        integrations: [
+          {
+            ref: 'i1',
+            supabaseId: intgX,
+            name,
+            sourceProduct: { ref: 'p1' },
+            targetProduct: { supabaseId: otherX },
+          },
+        ],
+      });
+      expect(res.status).toBe(200);
+    }
+
+    const prod = await t.db.query.products.findFirst({ where: eq(products.id, prodX) });
+    const vend = await t.db.query.vendors.findFirst({ where: eq(vendors.id, vendX) });
+    const intg = await t.db.query.integrations.findFirst({ where: eq(integrations.id, intgX) });
+
+    // The rows genuinely changed…
+    expect(prod?.name).toBe('Revit 2026');
+    expect(intg?.name).toBe('Revit 2026');
+    // …and `updated_at` moved with them, which is precisely why it cannot be the
+    // marker's source. `last_reviewed_at` did not move.
+    expect(String(prod?.updatedAt) > reviewed).toBe(true);
+    expect(prod?.lastReviewedAt).toBe(reviewed);
+    expect(vend?.lastReviewedAt).toBe(reviewed);
+    expect(intg?.lastReviewedAt).toBe(reviewed);
+  });
+
+  it('advances last_reviewed_at on every entity when the review signal is present', async () => {
+    const vendX = uuid(2);
+    const prodX = uuid(3);
+    const otherX = uuid(5);
+    const intgX = uuid(4);
+    const stale = '2026-03-04T00:00:00.000Z';
+    const rechecked = '2026-08-18T10:00:00.000Z';
+    await seedVendor(vendX, 'autodesk', 'Autodesk');
+    await seedProduct(prodX, 'revit', 'Revit', { lastReviewedAt: stale });
+    await seedProduct(otherX, 'procore', 'Procore');
+    await t.db
+      .insert(integrations)
+      .values({ id: intgX, sourceProductId: prodX, targetProductId: otherX });
+
+    const res = await promote({
+      vendors: [
+        { ref: 'v1', supabaseId: vendX, companyName: 'Autodesk', lastReviewedAt: rechecked },
+      ],
+      product: { ref: 'p1', supabaseId: prodX, name: 'Revit', lastReviewedAt: rechecked },
+      integrations: [
+        {
+          ref: 'i1',
+          supabaseId: intgX,
+          sourceProduct: { ref: 'p1' },
+          targetProduct: { supabaseId: otherX },
+          lastReviewedAt: rechecked,
+        },
+      ],
+    });
+    expect(res.status).toBe(200);
+
+    expect(
+      (await t.db.query.products.findFirst({ where: eq(products.id, prodX) }))?.lastReviewedAt,
+    ).toBe(rechecked);
+    expect(
+      (await t.db.query.vendors.findFirst({ where: eq(vendors.id, vendX) }))?.lastReviewedAt,
+    ).toBe(rechecked);
+    expect(
+      (await t.db.query.integrations.findFirst({ where: eq(integrations.id, intgX) }))
+        ?.lastReviewedAt,
+    ).toBe(rechecked);
+  });
+
+  it('never writes maintained_by, so a re-promote cannot un-vendor a record', async () => {
+    const prodX = uuid(3);
+    const otherX = uuid(5);
+    const intgX = uuid(4);
+    await seedProduct(prodX, 'revit', 'Revit');
+    await seedProduct(otherX, 'procore', 'Procore');
+    await t.db
+      .insert(integrations)
+      .values({ id: intgX, sourceProductId: prodX, targetProductId: otherX });
+    // A vendor has taken the integration over (what AECI-301's write path does).
+    await t.db
+      .update(integrations)
+      .set({ maintainedBy: 'vendor' })
+      .where(eq(integrations.id, intgX));
+
+    const res = await promote({
+      vendors: [{ ref: 'v1', companyName: 'Autodesk' }],
+      product: { ref: 'p1', supabaseId: prodX, name: 'Revit 2026' },
+      integrations: [
+        {
+          ref: 'i1',
+          supabaseId: intgX,
+          name: 'Revit ↔ Procore',
+          sourceProduct: { ref: 'p1' },
+          targetProduct: { supabaseId: otherX },
+        },
+      ],
+    });
+    expect(res.status).toBe(200);
+
+    const intg = await t.db.query.integrations.findFirst({ where: eq(integrations.id, intgX) });
+    expect(intg?.name).toBe('Revit ↔ Procore'); // the push DID land…
+    expect(intg?.maintainedBy).toBe('vendor'); // …and left the vendor's ownership alone
+  });
+
   // AECI-568. A `supabaseId` pointing at a row that no longer exists (retracted,
   // pruned, deleted) used to take the update branch anyway: `UPDATE … WHERE id =
   // <gone>` writes nothing, yet the response said `operation: 'updated'` with an

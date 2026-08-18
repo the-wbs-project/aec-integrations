@@ -47,6 +47,7 @@ This doc is the contract for the AECI-514 sub-issues. Each opens with
 | §8 | AECI-607 | Product-version model (**migration 2**) |
 | §9 | AECI-303 | Version-diff timeline + per-product version selectors |
 | §10 | AECI-608 | Docs: attestation authz + API/schema contract sweep |
+| §13 | AECI-616 | Maintenance marker: real `last_reviewed_at` + vendor-maintained branch (**migration 3**) |
 
 **Build order.**
 
@@ -61,6 +62,8 @@ This doc is the contract for the AECI-514 sub-issues. Each opens with
 §8 product-version model (607) ──→ §9 version-diff UI (303)
 
 §10 docs sweep (608) — runs alongside
+
+§13 maintenance marker (616) ── needs §5's write path to light its vendor branch
 ```
 
 > **Release gate.** §4 changes what a *reader* sees. §5 is what first creates a vendor
@@ -89,6 +92,12 @@ they are safe to apply ahead of the code that reads them (`docs/migrations.md`: 
 | `attestations` | `+ retracted_at TEXT NULL` (supersession — **not** the version stamp, see below) |
 | index | `+ attestations_slot_key` — **partial unique** on `(claim_id, source)` `WHERE retracted_at IS NULL` |
 | index | `attestations_active_idx` predicate changes `deprecated_at IS NULL` → `retracted_at IS NULL` |
+
+**Migration 3 (§13)** — the maintenance marker: `last_reviewed_at` + `maintained_by` on `vendors`,
+`products`, and `integrations`. Shipped as `0018_chilly_joseph.sql`, additive, **hand-authored for
+the reason §2.5 documents** — see §13.4. Added after this section was written, which is why the
+"two deliberate migrations" heading above now undercounts; the *principle* it states (additive only,
+safe to apply ahead of the code that reads them) holds for all three.
 
 **Migration 2 (§8)** — the product-version model: a new `product_versions` table plus
 `attestations.introduced_version_id` / `deprecated_version_id`. **Shipped as `0008_slim_iron_lad.sql`
@@ -1265,3 +1274,169 @@ Runs alongside; finishes what each sub-issue seeds (the AECI-525 pattern).
 code (per the "update all documents" rule) and add an "As built" subsection under its anchor — the
 file/line references in §1.5 are anchors, not guarantees; verify them before editing the cited
 files.*
+
+---
+
+## 13. Maintenance marker — real `last_reviewed_at` + the vendor branch (AECI-616)
+
+> Numbered §13 rather than §11 because §11/§12 were already taken when this landed, and §1.1's
+> anchors are load-bearing (they are what the Linear issues cite). The issue's own
+> `**Spec section:** §2.4 (docs/STAGE_2_SPEC.md)` line predates this section; §2.4 defers the whole
+> pillar here, and this is where the contract lives.
+
+Stage 1 shipped the marker component to `main` as **attribution only** — `Maintained by AEC
+Integrations.` on product detail, vendor detail, and the pair page, mounted with no inputs at all.
+The component already contains both dormant branches (the `Reviewed <date>.` clause and the
+`Vendor-maintained.` branch, UTC-pinned). This issue is the **data + plumbing** that reaches them.
+
+### 13.1 Why the date was withheld, and why that reasoning is the spec
+
+The tempting source, `products.updated_at`, is unusable on two counts, and the reasoning generalises
+to `created_at` and `promoted_at`:
+
+1. It is declared `.$onUpdate(...)` in `schema.ts`, so **any** write restamps it.
+2. Promote re-asserts `promotion_status: 'promoted'` on every re-promote, and `product.updated`
+   outnumbers `product.created` roughly 2.7:1.
+
+Production settles it: as of 2026-08-17, **60 products share a single `updated_at` day, 40 share
+another, 26 a third.** That is a bulk-sweep timestamp, not a review timestamp. A date that refreshes
+itself without anyone re-checking the record is worse than no date, because readers believe it —
+and a marker whose entire purpose is to be a falsifiable claim cannot be built on one.
+
+Hence the two hard rules, which are constraints and not preferences:
+
+- **`last_reviewed_at` is a plain column.** No `$defaultFn`, and above all **no `$onUpdate`**.
+- **No backfill, ever.** Migration `0018` carries no backfill statement. Existing rows stay `NULL`
+  and render bare attribution. Seeding them from any existing timestamp would manufacture exactly
+  the fake freshness the feature exists to expose.
+
+### 13.2 Schema (migration 3)
+
+| Table | Change |
+|---|---|
+| `vendors` / `products` / `integrations` | `+ last_reviewed_at TEXT NULL` — plain, no `$onUpdate` |
+| `vendors` / `products` / `integrations` | `+ maintained_by TEXT NOT NULL DEFAULT 'aeci'` CHECK `IN ('aeci','vendor')` |
+
+`vendors` is included even though the issue named only `products` / `integrations`: the marker
+renders on vendor detail too, and the issue asks for the vendor read path to be threaded. Neither
+column is indexed — both are read with the row.
+
+### 13.3 Who writes what
+
+| Column | Written by | Never written by |
+|---|---|---|
+| `last_reviewed_at` | `lastReviewedAt` in the promote payload (`REVIEW_APP_PROMOTE_API.md` §3.6); a vendor attestation (§5) | anything else — no default, no trigger, no derivation |
+| `maintained_by` | the §5 vendor attestation path only | **promote** — the payload does not accept it |
+
+**Absence is the contract.** The promote projections run through `compact()`, which drops
+`undefined`, so omitting `lastReviewedAt` leaves the stored value untouched on both the insert and
+update branches. That is what makes a plain re-promote a no-op for the marker, and it is why the
+field is a caller-supplied timestamp rather than a server-side `now()`: a `now()` stamp would
+advance on replay, and Workflows are at-least-once.
+
+**`maintained_by` is excluded from promote deliberately**, for the reason AECI-520 excluded
+`verified` and AECI-604 stopped wholesale claim replacement: a routine Airtable push must not be
+able to take a record back off a vendor's name.
+
+### 13.4 The vendor branch
+
+`integrations.maintained_by` flips in `apps/api/src/routes/vendor-attestations.ts`, always inside
+the **same `db.batch`** as the attestation mutation, each flip carrying its own `integration.updated`
+audit row (§26.1):
+
+- **→ `'vendor'`**, unconditionally, on claim-create and attestation-upsert, together with
+  `last_reviewed_at = now`. Unconditional because even a repeat assertion IS a review — that is the
+  event the date records.
+- **→ `'aeci'`**, conditionally, on retract: only when no live vendor attestation survives **anywhere
+  on the integration**. The check is integration-grain, not claim-grain (`hasLiveVendorAttestation`),
+  because retracting one claim's attestation must not un-vendor an integration the vendor still
+  speaks for through nine others. Returning `null` when the flip is a no-op is what keeps the batch
+  from carrying an audit row for a state change that did not happen.
+- **`last_reviewed_at` is never cleared on retraction.** Withdrawing an assertion does not un-happen
+  the review; blanking the date would make a record that HAS been checked read as one that never was.
+
+`AttestationAuthority` carries `maintainedBy` alongside the two endpoint ids, for the same reason
+§2.5 gives for those: the write paths need it and must not pay a second D1 hop.
+
+### 13.5 Read path
+
+`MaintenanceSchema` (`packages/shared/src/api/common.ts`) is `{ maintained_by, last_reviewed_at }`,
+carried as a `maintenance` object on `ProductDetail`, `VendorDetail`, and `ProductPairResponse`.
+Both fields carry `.default(...)` for the **same reason `SyncHeadlineSchema.single_source` does**
+(§4.3): SSR and API deploy per-commit but not atomically.
+
+The pair page is the interesting one — N mechanisms, one header marker. `computePairMaintenance`
+(`drizzle-helpers.ts`) folds them:
+
+- `maintained_by` is `'vendor'` if **any** mechanism is. A page carrying even one vendor-authored
+  mechanism is no longer purely AECi's word.
+- the date is the max **within the winning branch only**. A global max would let an AECi mechanism
+  reviewed in July supply the date for a header reading `Vendor-maintained. Updated <date>.` —
+  attributing AECi's review to the vendor. Scoping keeps both halves of the sentence about the same
+  records.
+
+### 13.6 The marker and the agreement pill coexist
+
+They answer different questions at different grains and both render: the marker is a **page-header**
+attribution ("who is on the hook for this page"), the `Unverified · AECi` pill is **per claim**, on
+the mechanism cards ("do the two vendors agree about this one `data_object`"). `DESIGN.md` already
+keeps their shapes distinct — the marker and the pill are both `rounded.sm` chips, and the
+`rounded-full` pill is reserved for `aec-verified-badge`, which means a third thing again (an
+AECi-verified vendor *account*). Merging them would collapse three separate signals into one.
+
+### 13.7 Acceptance
+
+- [x] `last_reviewed_at` + `maintained_by` on `vendors` / `products` / `integrations`; neither uses
+      `$onUpdate`.
+- [x] A re-promote carrying no review signal leaves `last_reviewed_at` byte-stable while
+      `updated_at` moves (`promote.spec.ts`).
+- [x] A promote carrying the signal advances it on all three entities.
+- [x] Promote cannot write `maintained_by`.
+- [x] The marker renders a date only for records that have one.
+- [x] No migration backfills `last_reviewed_at` from any existing timestamp column.
+- [x] `DATABASE_SCHEMA.md`, `REVIEW_APP_PROMOTE_API.md`, `STAGE_2_SPEC.md` §2.4, `API_CONTRACTS.md`,
+      `DESIGN.md`, and `CLAUDE.md` updated.
+
+### 13.8 As built (AECI-616 — 2026-08-18)
+
+Shipped as **migration 3 of three**: `apps/api/migrations/0018_chilly_joseph.sql`. Decisions taken
+at build that this section did not pre-specify:
+
+- **The migration body is hand-authored, and the issue's own note was wrong about why it had to be.**
+  AECI-616 said a `check()` "triggers a drizzle-kit table recreate on D1… At 176 products / 515
+  integrations that is survivable." It is not. The generated SQL was inspected before applying, as
+  the issue advised, and it does three fatal things: its `INSERT…SELECT` reads `last_reviewed_at` /
+  `maintained_by` **from the pre-migration table**, where they do not exist; `DROP TABLE products`
+  fires `integrations.source_product_id`/`target_product_id` `ON DELETE CASCADE`, which would delete
+  **every integration in the database**; and `DROP TABLE vendors` likewise reaches
+  `claims.created_by_vendor_id` and `attestations.attested_by_vendor_id`. D1 does not honour the
+  `PRAGMA foreign_keys=OFF` guard drizzle-kit wraps the drop in. Replaced with six additive `ALTER`s
+  in the `0016` form; `db:generate` re-runs clean and drift-check passes.
+- **`vendors` got the columns too**, on the same reasoning as §13.2 — the issue's scope named only
+  two tables but asked for three read paths.
+- **The review signal is a caller-supplied timestamp, not a boolean.** A `reviewed: true` flag
+  stamping `now()` server-side would advance on a Workflow replay (at-least-once) and on any retry,
+  re-manufacturing the freshness this feature exists to prevent. The timestamp is idempotent: the
+  same payload written twice produces the same value.
+- **Validation is stricter here than the rest of the promote contract.** URL-ish and version-stamp
+  fields stay loose strings because over-strict validation would reject legitimate curated values.
+  This field gets a parseability `refine`, because an unparseable value renders as *no date* and is
+  then indistinguishable from "never reviewed" — a silent failure, which a 400 is strictly better
+  than.
+- **The audit row for a flip is `integration.updated`, not a new action.** `maintained_by` is
+  catalog state on an existing entity (ADR 0022), so it uses the existing vocabulary with
+  `metadata.reason = 'maintenance-marker'` to make the cause greppable.
+- **Two pre-existing specs were updated, not worked around.** `POST /api/vendor/claims` and the
+  supersede path both assert their batch's exact audit-action set; each now legitimately carries an
+  extra `integration.updated`. Cache invalidation needed no change — `attestationEditTags` already
+  purges the pair tag plus both `product:` tags.
+- **No `preserved[]` / `skipped[]` entry for the untouched timestamp.** Leaving `last_reviewed_at`
+  alone is the *normal* path for essentially every promote, not an exception worth reporting; a
+  receipt would fire on every push and mean nothing.
+
+**Test coverage:** `promote.spec.ts` (re-promote stability, advance-on-signal, promote-can't-write-
+`maintained_by`), `d1.spec.ts` (the three CHECKs against the real migration, the ADD-COLUMN default,
+and a no-`$onUpdate` regression), `vendor-attestations.spec.ts` (8 cases: both flip directions,
+integration-grain vs claim-grain, counterparty survival, the no-op-no-audit rule),
+`product-pair.spec.ts` (5 aggregate cases including the branch-scoped date), `products.spec.ts` /
+`vendors.spec.ts` (detail surfaces), and `packages/shared` (`lastReviewedAt` validation).

@@ -149,7 +149,10 @@ import { RoleBadge } from './role-badge';
                   Product
                 </p>
                 <aec-role-badge [role]="p.product_role" />
-                <aec-maintenance-marker />
+                <aec-maintenance-marker
+                  [maintainedBy]="p.maintenance.maintained_by"
+                  [reviewedAt]="p.maintenance.last_reviewed_at"
+                />
               </div>
               <h1
                 class="font-display text-3xl font-semibold leading-tight tracking-tight text-(--text-primary) break-words sm:text-4xl"

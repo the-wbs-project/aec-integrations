@@ -41,6 +41,7 @@ import type {
   IntegrationListItem,
   IntegrationMechanismKind,
   LinkRef,
+  Maintenance,
   PairClaimAttestation,
   ProductDetail,
   ProductIntegrationItem,
@@ -199,6 +200,10 @@ export const integrationPairConfig = {
     description: true,
     listingUrl: true,
     docsUrl: true,
+    // Feed the page header's maintenance marker (AECI-616). Not surfaced per
+    // mechanism — `computePairMaintenance` folds them into one header value.
+    lastReviewedAt: true,
+    maintainedBy: true,
   },
   with: {
     sourceProduct: { columns: productLinkColumns },
@@ -275,6 +280,9 @@ export const productDetailConfig = {
     apiDocsUrl: true,
     hasApiDocs: true,
     usefulness: true,
+    // Maintenance marker (AECI-616) — detail only; the marker never renders on a card.
+    lastReviewedAt: true,
+    maintainedBy: true,
   },
   with: {
     productVendors: {
@@ -403,6 +411,9 @@ export const vendorDetailConfig = {
     instagramUrl: true,
     youtubeUrl: true,
     githubOrg: true,
+    // Maintenance marker (AECI-616) — detail only.
+    lastReviewedAt: true,
+    maintainedBy: true,
   },
   extras: vendorListConfig.extras,
   with: {
@@ -558,6 +569,16 @@ export interface RawIntegrationPairRow {
   builtByVendor: RawVendorLink | null;
   poweredByProduct: RawProductLink | null;
   claims: RawPairClaimRow[];
+  // Folded into the page header by `computePairMaintenance`, not surfaced per
+  // mechanism (AECI-616).
+  maintainedBy: string;
+  lastReviewedAt: string | null;
+}
+
+/** The maintenance-marker columns every detail read selects (AECI-616). */
+export interface RawMaintenanceColumns {
+  maintainedBy: string;
+  lastReviewedAt: string | null;
 }
 
 export interface RawProductListRow {
@@ -575,7 +596,7 @@ export interface RawProductListRow {
   productVendors: Array<{ isPrimary: boolean; vendor: RawVendorLink }>;
   productCategories: Array<{ category: RawTaxonomyLinkWithOrder }>;
 }
-export interface RawProductDetailRow extends RawProductListRow {
+export interface RawProductDetailRow extends RawProductListRow, RawMaintenanceColumns {
   description: string | null;
   website: string | null;
   toolIntegrationsUrl: string | null;
@@ -648,7 +669,7 @@ export interface RawVendorListRow {
   productCount: number;
   integrationCount: number;
 }
-export interface RawVendorDetailRow extends RawVendorListRow {
+export interface RawVendorDetailRow extends RawVendorListRow, RawMaintenanceColumns {
   description: string | null;
   website: string | null;
   linkedinUrl: string | null;
@@ -889,6 +910,40 @@ export function toProductPairResponse(
     other_product: toProductListItem(otherProduct),
     mechanisms,
     sync_headline: computeSyncHeadline(mechanisms.flatMap((m) => m.claims)),
+    maintenance: computePairMaintenance(integrations),
+  };
+}
+
+/**
+ * Fold N mechanisms into the ONE maintenance marker the pair-page header renders
+ * (AECI-616 / §13).
+ *
+ * `maintained_by` is `'vendor'` when ANY mechanism is vendor-maintained: a page that
+ * carries even one vendor-authored mechanism is not purely AECi's word any more, and
+ * claiming otherwise understates who is on the hook.
+ *
+ * The date is then taken **only over the mechanisms in the winning branch**, which is
+ * the part that is easy to get wrong. A global `max()` would let an AECi mechanism
+ * reviewed last week supply the date for a header that reads `Vendor-maintained.
+ * Updated <date>.` — attributing AECi's review to the vendor. Scoping the max to the
+ * branch keeps the two halves of the sentence about the same records.
+ *
+ * An empty pair (or one where nothing has been reviewed) yields `null`, which renders
+ * bare attribution — correct, not missing.
+ */
+export function computePairMaintenance(
+  rows: readonly { maintainedBy: string; lastReviewedAt: string | null }[],
+): Maintenance {
+  const maintainedBy = rows.some((r) => r.maintainedBy === 'vendor') ? 'vendor' : 'aeci';
+  const dates = rows
+    .filter((r) => (r.maintainedBy === 'vendor' ? 'vendor' : 'aeci') === maintainedBy)
+    .map((r) => r.lastReviewedAt)
+    .filter((at): at is string => at !== null);
+  // ISO-8601 UTC strings sort lexicographically, which is why the column stores them
+  // that way; no Date parsing needed to find the newest.
+  return {
+    maintained_by: maintainedBy,
+    last_reviewed_at: dates.length ? dates.reduce((a, b) => (a > b ? a : b)) : null,
   };
 }
 
@@ -1214,6 +1269,24 @@ export function toProductDetail(
     integrations_as_connector: raw.poweredIntegrations.map(toIntegrationListItem),
     related_products: relatedProducts.map(toProductListItem),
     reviews: reviews.map(toPublicReview),
+    maintenance: toMaintenance(raw),
+  };
+}
+
+/**
+ * The maintenance marker's payload for one record (AECI-616 / §13).
+ *
+ * `maintained_by` is narrowed rather than cast: the DB CHECK constrains it, but the
+ * column is TEXT, and a row that somehow escaped the constraint should render AECi
+ * attribution — the conservative reading — instead of failing the response parse.
+ */
+export function toMaintenance(raw: {
+  maintainedBy: string;
+  lastReviewedAt: string | null;
+}): Maintenance {
+  return {
+    maintained_by: raw.maintainedBy === 'vendor' ? 'vendor' : 'aeci',
+    last_reviewed_at: raw.lastReviewedAt,
   };
 }
 
@@ -1245,6 +1318,7 @@ export function toVendorDetail(raw: RawVendorDetailRow): VendorDetail {
     instagram_url: raw.instagramUrl,
     youtube_url: raw.youtubeUrl,
     products: raw.productVendors.map((r) => toProductListItem(r.product)),
+    maintenance: toMaintenance(raw),
   };
 }
 
