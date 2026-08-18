@@ -45,8 +45,8 @@ importers:
         specifier: ^0.45.2
         version: 0.45.2(@cloudflare/workers-types@5.20260814.1)(@prisma/client@6.19.3(prisma@6.19.3(magicast@0.3.5)(typescript@5.9.3))(typescript@5.9.3))(@types/better-sqlite3@7.6.13)(@types/sql.js@1.4.11)(better-sqlite3@12.11.1)(prisma@6.19.3(magicast@0.3.5)(typescript@5.9.3))(sql.js@1.14.1)
       hono:
-        specifier: ^4.12.12
-        version: 4.12.18
+        specifier: ^4.13.0
+        version: 4.13.0
       jose:
         specifier: ^6.2.3
         version: 6.2.3
@@ -94,8 +94,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/shared
       hono:
-        specifier: ^4.12.12
-        version: 4.12.18
+        specifier: ^4.13.0
+        version: 4.13.0
       jose:
         specifier: ^6.2.3
         version: 6.2.3
@@ -176,8 +176,8 @@ importers:
         specifier: ^5.40.0
         version: 5.52.0
       hono:
-        specifier: ^4.12.12
-        version: 4.12.18
+        specifier: ^4.13.0
+        version: 4.13.0
       instantsearch.js:
         specifier: ^4.79.0
         version: 4.101.0(algoliasearch@5.52.0)
@@ -5177,8 +5177,8 @@ packages:
     resolution: {integrity: sha512-RqGs4wavGYJWE07t35JQccByczmNUXQT0E12ZYV1VKYu5UiAU9lsos/yBAcf840+zrUQQxgVduCR5/B8nNtibg==}
     hasBin: true
 
-  hono@4.12.18:
-    resolution: {integrity: sha512-RWzP96k/yv0PQfyXnWjs6zot20TqfpfsNXhOnev8d1InAxubW93L11/oNUc3tQqn2G0bSdAOBpX+2uDFHV7kdQ==}
+  hono@4.13.0:
+    resolution: {integrity: sha512-jhunvfHWxd7J5EFfSgH4xsYJzSe/lfqbUCxiyyeaQasUsXeEHXtzVid+7EOGByc5JnFa23SSFL3Y2RV/z1T+eQ==}
     engines: {node: '>=16.9.0'}
 
   hosted-git-info@9.0.3:
@@ -9144,9 +9144,9 @@ snapshots:
   '@harperfast/extended-iterable@1.0.3':
     optional: true
 
-  '@hono/node-server@1.19.14(hono@4.12.18)':
+  '@hono/node-server@1.19.14(hono@4.13.0)':
     dependencies:
-      hono: 4.12.18
+      hono: 4.13.0
 
   '@humanfs/core@0.19.2':
     dependencies:
@@ -9653,7 +9653,7 @@ snapshots:
 
   '@modelcontextprotocol/sdk@1.29.0(zod@4.4.2)':
     dependencies:
-      '@hono/node-server': 1.19.14(hono@4.12.18)
+      '@hono/node-server': 1.19.14(hono@4.13.0)
       ajv: 8.20.0
       ajv-formats: 3.0.1(ajv@8.20.0)
       content-type: 1.0.5
@@ -9663,7 +9663,7 @@ snapshots:
       eventsource-parser: 3.0.8
       express: 5.2.1
       express-rate-limit: 8.5.1(express@5.2.1)
-      hono: 4.12.18
+      hono: 4.13.0
       jose: 6.2.3
       json-schema-typed: 8.0.2
       pkce-challenge: 5.0.1
@@ -12714,7 +12714,7 @@ snapshots:
       mkdirp: 0.3.0
       nopt: 1.0.10
 
-  hono@4.12.18: {}
+  hono@4.13.0: {}
 
   hosted-git-info@9.0.3:
     dependencies:

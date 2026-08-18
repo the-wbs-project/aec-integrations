@@ -59,18 +59,21 @@ Rules:
   as idempotent `INSERT … ON CONFLICT(slug) DO UPDATE` with deterministic
   UUIDv5 ids. The Stage 1.5 `data_object` vocabulary follows the same pattern in
   `apps/api/seed/data-objects.sql` (AECI-293; source of truth
-  `docs/DATA_OBJECT_VOCABULARY.md`). The local catalog fixture is
+  `docs/DATA_OBJECT_VOCABULARY.md`), as does the `trade` vocabulary in
+  `apps/api/seed/trades.sql` (AECI-540; source of truth
+  `docs/TRADES_VOCABULARY.md`, whose §8 states the UUIDv5 namespace verbatim).
+  The local catalog fixture is
   `apps/api/seed/catalog.sql` (local-dev only; staging/prod re-promote from
   Airtable via `POST /api/promote`).
 - **Per-env apply** (staging/demo/production) is wired into CI in Phase 5
   (AECI-256): the deploy lanes (`deploy.yml`, `promote-to-demo.yml`,
   `promote-to-prod.yml`) run `scripts/d1-apply-migrations.sh <db> <env>`, which
   applies `wrangler d1 migrations apply aeci-app-<env> --env <env> --remote` and
-  reconciles the two reference-data seeds. The helper **retries each remote D1
+  reconciles the three reference-data seeds. The helper **retries each remote D1
   command** on a transient Cloudflare D1 API internal error (`[code: 7500]`) —
   a single such blip otherwise aborts the whole deploy (seen on promote-to-demo
   run 28671935011); retrying is safe because every command is idempotent
-  (`migrations apply` is a tracked no-op once applied; both seeds are UPSERTs on
+  (`migrations apply` is a tracked no-op once applied; all three seeds are UPSERTs on
   deterministic UUIDv5 ids).
 - **No RLS / GRANTs / triggers.** D1/SQLite has none; authorization is app-layer
   (ADR 0016 §4, `docs/AUTH_AND_RLS.md`), and `updated_at` is refreshed app-side
@@ -172,6 +175,18 @@ Each migration must leave the DB in a state the previously-deployed Worker code 
 
 `DROP TABLE`, `DROP COLUMN`, type-narrowing (`varchar(255)` → `varchar(64)`), `ADD COLUMN ... NOT NULL` without a backfill, and any change that loses data without a migration path — these require explicit approval in the issue **before** you write the SQL. Not in the PR. In the issue.
 
+### 3.3a Dropping a column on SQLite/D1 may force a table recreate
+
+SQLite refuses `ALTER TABLE … DROP COLUMN` when the column carries an **index** or appears in a **`FOREIGN KEY`** clause. drizzle-kit handles it by emitting a `__new_<table>` copy-and-rename instead of a `DROP COLUMN`, which on a large table is a full row copy — D1 bills rows *written*, and there is no undo.
+
+Three rules when you hit this, all learned from `migrations/0014_careful_absorbing_man.sql` (AECI-585, the first table recreate in this repo — every `ALTER` before it is an `ADD`):
+
+1. **Replace the pragma.** drizzle-kit wraps the swap in `PRAGMA foreign_keys=OFF` / `=ON`. That is **not** the lever D1 supports — [D1's migrations docs](https://developers.cloudflare.com/d1/reference/migrations/) specify `PRAGMA defer_foreign_keys = true`, which holds for the surrounding transaction and resets on commit (so it needs no matching re-enable). Regenerating the file reintroduces the wrong pragma; re-apply the edit and say so in a comment at the top of the migration.
+2. **Check the copy lists the PK explicitly.** For an `AUTOINCREMENT` PK, an implicit copy would reassign ids. Anything paginating on `(created_at, id)` then repeats or skips rows.
+3. **Verify against non-empty data, not just a fresh DB.** Apply to a seeded local D1 and assert the row count and `MAX(id)` before and after. A recreate that "applies cleanly" to an empty table proves nothing.
+
+Splitting the work into two migrations — one additive (`ADD COLUMN`s, trivially safe) and one destructive (the recreate) — also keeps drizzle-kit from prompting for add-vs-rename disambiguation, which needs a TTY it does not have under `pnpm`.
+
 ### 3.4 Idempotency where cheap
 
 Prefer `CREATE INDEX IF NOT EXISTS`, `DROP POLICY IF EXISTS ... CREATE POLICY ...`, `CREATE OR REPLACE FUNCTION`. Postgres migrations don't *have* to be idempotent (the migration system tracks what ran), but idempotent SQL is easier to recover from when something goes wrong mid-apply.
@@ -244,7 +259,7 @@ PR review verifies these are all aligned. CI applies the migration to staging at
 ## 7. What does not belong in a migration
 
 - **Seed data**: for the app DB, the local D1 seed SQL under `apps/api/seed/` (applied via `pnpm db:seed:local`). (`supabase/seed.sql` is now Supabase-Auth-project-local only.)
-- **Reference data** (applied to *all* environments): the taxonomy vocabulary lives in `apps/api/seed/taxonomy.sql` and the Stage 1.5 `data_object` vocabulary in `apps/api/seed/data-objects.sql` (both idempotent upserts), applied to D1 via `wrangler d1 execute` — locally via `pnpm db:seed:taxonomy:local` / `pnpm db:seed:data-objects:local`, in deploy/promote via `wrangler d1 execute … --file=seed/taxonomy.sql` and `… --file=seed/data-objects.sql`. See ADR 0008.
+- **Reference data** (applied to *all* environments): the taxonomy vocabulary lives in `apps/api/seed/taxonomy.sql`, the Stage 1.5 `data_object` vocabulary in `apps/api/seed/data-objects.sql`, and the `trade` vocabulary in `apps/api/seed/trades.sql` (all idempotent upserts), applied to D1 via `wrangler d1 execute` — locally via `pnpm db:seed:taxonomy:local` / `pnpm db:seed:data-objects:local` / `pnpm db:seed:trades:local`, in deploy/promote via the matching `wrangler d1 execute … --file=seed/<name>.sql` steps in `scripts/d1-apply-migrations.sh`. See ADR 0008.
 - **Curator-managed data**: vendors, products, integrations, reviews come in via `POST /api/promote` (`docs/DATABASE_SCHEMA.md` §13).
 - **One-off backfills**: write a script (`apps/api/scripts/<name>.ts`), run it explicitly per environment. Keep migrations declarative.
 - **RLS policies**: see §5.

@@ -1,5 +1,7 @@
 import type { CachePurgeMessage } from '@aeci/shared';
 
+import type { PromoteWorkflowParams } from './lib/promote-jobs';
+
 /**
  * Which scheduled job a queue message asks the consumer to run. `sync` / `drift`
  * are the Algolia jobs (AECI-139 / AECI-140); `stats` is the home-stats compute
@@ -16,7 +18,19 @@ import type { CachePurgeMessage } from '@aeci/shared';
  * (AECI-241 / Phase 7.6): ten read-only integrity checks + an email digest.
  * `waf` is the hourly WAF firewall-event poll (AECI-262 / §15.1): like
  * `moderation` it is queue-less (a cheap read-only Cloudflare GraphQL Analytics
- * read) and always runs inline.
+ * read) and always runs inline. `analytics` is the daily 05:00 UTC (noon Jakarta) operator
+ * analytics digest (AECI-526): like `moderation`/`waf` it is queue-less (a cheap
+ * read-only aggregation + one email) and always runs inline. `snapshot` is the
+ * daily 00:15 UTC `metrics_daily` capture (AECI-581 / `ADMIN_PANEL_SPEC.md`
+ * §7.1): it records the prior COMPLETE UTC day, and like `moderation`/`waf`/
+ * `analytics` it is queue-less — every metric is isolated in its own try/catch
+ * and any missed day is recoverable by re-running the backfill over that range,
+ * so queue-native retries would buy nothing. `retention` is the daily 03:00 UTC
+ * §7.4 retention prune (AECI-584): it deletes `page_views` past 400 days and
+ * `job_runs` past 90, never touches `metrics_daily`, and refuses to run at all
+ * if the 00:15 snapshot has not captured every day inside its cut window. Also
+ * queue-less — a skipped or partial run is simply re-attempted tomorrow, and a
+ * retry of a destructive job is the last thing worth automating.
  */
 export type ScheduledJob =
   | 'sync'
@@ -25,7 +39,10 @@ export type ScheduledJob =
   | 'moderation'
   | 'reconcile'
   | 'data_quality'
-  | 'waf';
+  | 'waf'
+  | 'analytics'
+  | 'snapshot'
+  | 'retention';
 
 /**
  * Body of a message on a scheduled-job queue. Producer: the cron `scheduled()`
@@ -135,6 +152,33 @@ export type Env = {
    * `lib/linear-webhook-auth.ts` against the `Linear-Signature` header.
    */
   LINEAR_WEBHOOK_SIGNING_SECRET?: string;
+  /**
+   * Cloudflare Workflow binding carrying the promote ingest (AECI-563 / ADR 0021).
+   * `POST /api/promote` creates an instance whose **id is the caller-supplied job
+   * id** — the kick-off idempotency key, since `create({ id })` throws on a
+   * duplicate — and `GET /api/promote/jobs/:id` reads its status/output back.
+   * One Workflow per environment (`aeci-promote-{preview,staging,demo,production}`),
+   * like the queues, so environments never share instances.
+   *
+   * Optional because some test/tooling contexts construct a partial Env without a
+   * binding. Absent → promote rejects `503 DEPENDENCY_FAILURE` (a configuration
+   * fault, not a caller error); the poll degrades to the KV result mirror.
+   */
+  PROMOTE_WORKFLOW?: Workflow<PromoteWorkflowParams>;
+  /**
+   * KV namespace backing the promote job protocol (AECI-563). Two key spaces, both
+   * defined in `lib/promote-jobs.ts`:
+   *   - `promote:payload:{jobId}` (24h) — a validated bundle too large to inline into
+   *     the Workflow event params, which the platform caps at 1 MiB. Staged here by
+   *     the kick-off and read back by the Workflow's first step.
+   *   - `promote:result:{jobId}` (90d) — the committed ID map, mirrored so it stays
+   *     fetchable after the Workflow instance ages out of its 30-day retention.
+   *
+   * Own namespace per environment. Optional + degrading: absent → an oversize bundle
+   * is rejected `413 PAYLOAD_TOO_LARGE` (rather than silently over-filling the params)
+   * and the IDs are only fetchable for the instance retention window.
+   */
+  PROMOTE_KV?: KVNamespace;
   /**
    * KV namespace for `GET /api/taxonomy` read-through caching (AECI-54).
    * Optional: handler falls back to a direct D1 read when the binding is
@@ -295,6 +339,57 @@ export type Env = {
    */
   PAGE_VIEWS_MIN_BOT_SCORE?: string;
   /**
+   * Retention-window overrides for the §7.4 pruning cron (AECI-584), in whole
+   * days. UNSET on every tier — the reviewed defaults live in `@aeci/shared`
+   * (`PAGE_VIEWS_RETENTION_DAYS` 400, `JOB_RUNS_RETENTION_DAYS` 90), and these
+   * exist so §13 D5's figure can be **shortened** on one tier without a deploy.
+   * Same declare-the-seam posture as `PAGE_VIEWS_MIN_BOT_SCORE` above.
+   *
+   * Parsed by `resolveRetentionDays` (`lib/retention-prune.ts`): must be a
+   * finite integer `>= MIN_RETENTION_DAYS` (30 — D1 Time Travel's horizon).
+   * Anything else is IGNORED and logged, not clamped: a typo'd `4` must fall
+   * back to the reviewed default rather than quietly becoming the shortest legal
+   * window, because the mistake it would cause is unrecoverable.
+   *
+   * Note these do NOT move `ADMIN_METRICS_MAX_DAYS` (a build-time constant), so
+   * a shortened window leaves the admin API's query cap wider than what is
+   * retained — which returns empty tails, not wrong numbers.
+   */
+  PAGE_VIEWS_RETENTION_DAYS?: string;
+  JOB_RUNS_RETENTION_DAYS?: string;
+  /**
+   * Internal-traffic ASN list for the admin panel's read-time filter (AECI-574 /
+   * `ADMIN_PANEL_SPEC.md` §13 **D10**). On 2026-08-10, 67 of the digest's 92
+   * "human" page views came from the operator's own ISP (AS23700, Jakarta); this
+   * is the coarse instrument for subtracting that. The precise ones are AECI-575
+   * (exclude `/admin/*` from `PageViewTracker`) and AECI-585 (capture
+   * `cf_as_organization` so the filter can label itself) — both shipped, though
+   * the holder name is null on every row written before AECI-585 deployed and is
+   * not backfillable.
+   *
+   * **QUERY-TIME ONLY — three binding constraints (D10):**
+   *   1. It is a `WHERE` clause evaluated at read time. It must NEVER touch
+   *      `is_bot`, NEVER run at ingest, and NEVER enter
+   *      `scripts/ops/backfill-page-view-bots.sql`. This is a different kind of
+   *      object from `DATACENTER_ASNS` (`lib/bot-classification.ts`), whose
+   *      membership doctrine is strict precisely because it writes a permanent,
+   *      unreviewable classification. A read-time filter is toggleable and
+   *      reversible, so that doctrine does not transfer — keep the two lists
+   *      separate concepts and do not merge them.
+   *   2. Show BOTH numbers, never substitute. Every count the panel returns
+   *      carries the unfiltered figure as its primary value.
+   *   3. Declare the seam, ship it UNSET. Do not hardcode an ASN.
+   *
+   * Format: comma / semicolon / whitespace-separated ASNs, with an optional `AS`
+   * prefix — `"AS23700, 4134"` and `"23700 4134"` are equivalent. Parsed
+   * leniently by `parseInternalAsns` (`lib/internal-asns.ts`), mirroring the
+   * `parseRecipients` splitter (`lib/email.ts`) — junk entries are dropped, not
+   * fatal. Absent (the default on every tier) → the filter is **unavailable**,
+   * `excluding_internal` is null everywhere, and the UI hides the toggle. Same
+   * declare-the-seam posture as `PAGE_VIEWS_MIN_BOT_SCORE` above.
+   */
+  ANALYTICS_INTERNAL_ASNS?: string;
+  /**
    * Anthropic API key for review toxicity scoring (AECI-258, supersedes the
    * AECI-198 / Phase 5.7 `PERSPECTIVE_API_KEY` — Google is sunsetting
    * Perspective). The Worker reads it at runtime to score review bodies via
@@ -359,4 +454,16 @@ export type Env = {
    */
   DATA_QUALITY_EMAIL_FROM?: string;
   DATA_QUALITY_EMAIL_TO?: string;
+  /**
+   * Recipient(s) for the daily operator analytics digest (AECI-526). A
+   * comma/whitespace-separated list parsed by `parseRecipients` (`lib/email.ts`);
+   * the sender is the shared `EMAIL_FROM` (no separate `_FROM` — one verified
+   * sender). Plain wrangler var. Set on **production only** — staging/demo run the
+   * cron (for liveness) but intentionally leave this unset, so only prod's real
+   * numbers are emailed; every other env (incl. local/preview) is `skipped`.
+   * Absent → the digest send is a `skipped` no-op, so the cron still runs and
+   * emits its outcome metric. See `scheduled.ts` `runAnalyticsDigestJob` +
+   * `docs/email.md`.
+   */
+  ANALYTICS_DIGEST_EMAIL_TO?: string;
 };

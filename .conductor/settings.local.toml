@@ -2,6 +2,7 @@
 file_include_globs = ".env*\n**/.dev.vars*"
 
 [environment_variables]
+AECI_MCP_TOKEN = "conductor-keychain"
 ALGOLIA_ADMIN_KEY = "conductor-keychain"
 ALGOLIA_APP_ID = "conductor-keychain"
 CLOUDFLARE_ACCOUNT_ID = "conductor-keychain"
@@ -19,7 +20,7 @@ general = "When starting a workspace from a Linear issue, assign that issue to c
 run_mode = "concurrent"
 setup = "pnpm install\npnpm run build:web"
 
-[tasks.Run]
+[scripts.run.Run]
 available_in = "local"
 command = "pnpm run dev"
 default = true

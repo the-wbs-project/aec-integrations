@@ -49,6 +49,17 @@ export const VENDOR_TAXONOMY_FIXTURE: TaxonomyResponse = {
     term('construction', 'Construction', 3, 22),
     term('operations', 'Operations', 4, 7),
   ],
+  // The fourth facet (AECI-538/544), which landed on `main` after these fixtures
+  // were written and arrives here with the AECI-619 reconciliation. Slugs are real
+  // entries from the governed closed vocabulary (`apps/api/seed/trades.sql`) — a
+  // fixture must not invent one, because the trade facet is find-only and an
+  // unseeded slug is exactly the state the vocabulary exists to prevent.
+  trades: [
+    term('concrete', 'Concrete', 1, 11),
+    term('electrical', 'Electrical', 2, 9),
+    term('hvac-mechanical', 'HVAC & Mechanical', 3, 8),
+    term('structural-steel', 'Structural Steel & Metals', 4, 5),
+  ],
 };
 
 const PRIMARY_PRODUCT: VendorProduct = {

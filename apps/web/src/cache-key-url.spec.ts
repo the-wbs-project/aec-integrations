@@ -176,13 +176,27 @@ describe('cacheKeyFor — index/browse routes keep only content-affecting params
   });
 
   it('keeps the cross-filter ids on a taxonomy browse page (AECI-143)', () => {
-    // A browse page's own dimension rides the path; the other two ride the query.
+    // A browse page's own dimension rides the path; the other three ride the query.
     expect(key('/categories/structural?audience_id=a&fbclid=y')).toBe(
       '/categories/structural?audience_id=a',
     );
     expect(key('/phases/preconstruction?category_id=c')).toBe(
       '/phases/preconstruction?category_id=c',
     );
+    // AECI-544 — `trade_id` is content-affecting on every listing route. These
+    // cases came over from `server.spec.ts` at the AECI-619 reconciliation, when
+    // the pre-WC-3 `cacheKeyUrl` suite they lived in was retired.
+    expect(key('/trades/electrical?category_id=c&fbclid=y')).toBe(
+      '/trades/electrical?category_id=c',
+    );
+    expect(key('/categories/structural?trade_id=t')).toBe('/categories/structural?trade_id=t');
+  });
+
+  it('keys distinct trade filters as distinct entries (AECI-544)', () => {
+    // Under-including `trade_id` would collapse these onto one entry and serve
+    // the wrong HTML (CACHE_STRATEGY.md §4a).
+    expect(key('/products?trade_id=a')).not.toBe(key('/products?trade_id=b'));
+    expect(key('/products')).not.toBe(key('/products?trade_id=a'));
   });
 });
 

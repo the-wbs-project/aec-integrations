@@ -92,5 +92,5 @@ export class HomeTrustPillars {
   ];
 
   /** Closing reinforcement (no competitor call-outs on the public site). */
-  protected readonly closing = $localize`:@@home.trust.closing:We earn revenue from vendors who want to be found, never from changing what you see.`;
+  protected readonly closing = $localize`:@@home.trust.closing:We will earn revenue from vendors who want to be found, never from changing what you see.`;
 }

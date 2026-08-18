@@ -65,7 +65,7 @@ export interface IndexPageScenario {
 function drainFacets(httpMock: HttpTestingController, s: IndexPageScenario): void {
   if (!s.facetsUrl) return;
   for (const req of httpMock.match((r) => r.url === s.facetsUrl)) {
-    req.flush({ categories: [], audiences: [], phases: [] });
+    req.flush({ categories: [], audiences: [], phases: [], trades: [] });
   }
 }
 

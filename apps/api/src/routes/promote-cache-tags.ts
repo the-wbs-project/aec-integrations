@@ -20,15 +20,32 @@
  *     the `/vendors` and `/integrations` index pages, so `index:vendors` /
  *     `index:integrations` are no longer emitted or purged.)
  *   - `taxonomy` invalidates every page whose HTML renders the full taxonomy
- *     term set (home, `/categories`, `/audiences`, `/phases`) — only relevant
- *     when the *set* of taxonomy terms changed, i.e. a term was newly created.
- *   - `sitemap` invalidates `sitemap.xml` (enumerates all entities) — only when a
- *     product or vendor was newly created.
+ *     term set (home, `/categories`, `/audiences`, `/phases`, `/trades`) — for the
+ *     first three facets only when the *set* of terms changed, i.e. a term was
+ *     newly created. Trades are the exception; see below.
+ *   - `trade:{slug}` (AECI-542) invalidates a trade browse page, and — unlike the
+ *     three sibling facets — ANY touched trade also pulls in `index:trades`,
+ *     `taxonomy`, and `sitemap`. The trade facet is **publication-gated**
+ *     (`TRADE_PUBLISH_MIN_PRODUCTS`, `STAGE_1_SPEC.md` §5.5a): the `/trades` index,
+ *     the facet sidebar, and the sitemap list *published* terms only, so a promote
+ *     that pushes a term across — or back under — the floor changes those surfaces
+ *     without creating or destroying any term. `CACHE_STRATEGY.md` §2 states this
+ *     requirement directly. Both the trades this promote SET and the ones it
+ *     REMOVED count: a removal crosses the floor downward, and the response echoes
+ *     only what was set, so the handler reads the product's prior trades and passes
+ *     them in as `removedTradeSlugs`.
+ *   - `sitemap` invalidates `sitemap.xml` (enumerates all entities) — when a
+ *     product or vendor was newly created, or any trade was touched (above).
  *   - `pair:{min}__{max}` (Stage 1.5, §6.2) invalidates the consolidated
  *     product-pair page for an integration, keyed by its two product slugs sorted
  *     alphabetically (`promote-pair.ts`). Emitted per integration result that
  *     carries `sourceSlug`/`targetSlug` (the claims ingest, AECI-297); the pair page
  *     (AECI-294) emits the identical tag, so purge and render stay in lockstep.
+ *   - `product:{poweredBySlug}` (Stage 1.5 Addendum B) invalidates the *connector*
+ *     product's detail page for an integration it powers. The connector is neither
+ *     endpoint, so no other rule reaches it, yet its "Integrations it powers"
+ *     hub view renders that edge. Emitted per integration result that carries
+ *     `poweredBySlug`.
  *   - **No `route:*` tags.** §3.3 reserves the coarse `route:detail|index|browse`
  *     tags for incident bulk-invalidation and explicitly forbids them on routine
  *     writes (they would nuke every detail/index/browse page site-wide).
@@ -46,6 +63,20 @@
  *     `promote.ts`, this deriver must also emit `integration:{id}` and re-purge
  *     the affected source/target `product:{slug}` (tie it to the `affectedProducts`
  *     set the commented integration block maintains).
+ *   - An integration whose powered-by product MOVES (re-pointed to a different
+ *     connector, or cleared) only purges the NEW connector — the response carries
+ *     the post-update `poweredBySlug`, not the pre-update one — so the previous
+ *     connector's page falls back to the TTL. Same bounded shape as the endpoint
+ *     move above; widen it here if connector re-pointing becomes common.
+ *   - A promote that REMOVES a category/audience/phase from a product doesn't purge
+ *     that term's browse page: the response echoes only the terms the product now
+ *     carries. Those pages fall back to their 5-minute browse TTL. Trades are
+ *     deliberately exempt (`removedTradeSlugs`, above) because their publication
+ *     gate makes a removal change the index and sitemap too, not just one page.
+ *   - `index:trades` and the `/trades*` `Cache-Tag` emitters shipped with the
+ *     browse pages in AECI-544, so every trade tag purged here now has a matching
+ *     emitter in `apps/web/src/server/cache-tags.ts`; `sitemap` gained its trade
+ *     URLs in AECI-546.
  */
 
 import type { PromoteResponse } from '@aeci/shared';
@@ -53,11 +84,40 @@ import type { PromoteResponse } from '@aeci/shared';
 import { pairCacheTag } from './promote-pair';
 
 /**
+ * Every trade slug this promote touched — the ones it SET (echoed on the
+ * response) union the ones it REMOVED (which the response cannot echo, so the
+ * handler reads the product's prior trades before the batch and passes them in).
+ * A removal counts because it can push a term back *under* the publication floor,
+ * which changes the `/trades` index and the sitemap just as a crossing upward does.
+ *
+ * Lives here, with the tag deriver, and is shared with `affectedUrlsForPromote`
+ * (`promote-indexnow-urls.ts`) — the URL counterpart to this module. The two must
+ * model the identical touched set: a trade URL we ping IndexNow about but never
+ * purge from the edge hands the crawler a stale page. Pure, and deliberately free
+ * of any DB import; the publication floor that narrows this set needs a
+ * `product_count` and lives in `promote-trade-publication.ts`.
+ */
+export function touchedTradeSlugs(
+  response: PromoteResponse,
+  removedTradeSlugs: readonly string[] = [],
+): string[] {
+  return [...new Set([...response.taxonomy.trades.map((t) => t.slug), ...removedTradeSlugs])];
+}
+
+/**
  * Returns the deduplicated set of cache tags to purge for a promote `response`,
  * or an empty array when nothing cacheable changed (e.g. an all-skipped push).
- * Pure — depends only on the response object the `$transaction` returned.
+ * Pure — depends only on its arguments.
+ *
+ * `opts.removedTradeSlugs` are trades the promote dropped from the product. They
+ * can't be derived from the response (which echoes only what was set), so the
+ * handler reads them pre-batch and passes them in — see the `trade:{slug}` rule
+ * in the module comment.
  */
-export function cacheTagsForPromote(response: PromoteResponse): string[] {
+export function cacheTagsForPromote(
+  response: PromoteResponse,
+  opts: { removedTradeSlugs?: string[] } = {},
+): string[] {
   const tags = new Set<string>();
 
   // Product detail + products index.
@@ -94,6 +154,18 @@ export function cacheTagsForPromote(response: PromoteResponse): string[] {
   // term was minted — a reused term is already in the nav.
   if (taxonomyCreated) tags.add('taxonomy');
 
+  // Trades (AECI-542) — their own block, NOT folded into the loop above, because
+  // the rule differs: trades can never be `created` (find-only), yet ANY touched
+  // trade still changes the publication-gated `/trades` index, facet sidebar, and
+  // sitemap. Removed trades count for the same reason (`CACHE_STRATEGY.md` §2).
+  const tradeSlugs = touchedTradeSlugs(response, opts.removedTradeSlugs);
+  for (const slug of tradeSlugs) tags.add(`trade:${slug}`);
+  if (tradeSlugs.length) {
+    tags.add('index:trades');
+    tags.add('taxonomy');
+    tags.add('sitemap');
+  }
+
   // Pair pages (Stage 1.5, §6.2 / §7.3): a promote that touches an integration —
   // or the claims riding on it — invalidates the consolidated product-pair page.
   // Tag it by both product slugs (`pair:{min}__{max}`) so either orientation
@@ -104,6 +176,11 @@ export function cacheTagsForPromote(response: PromoteResponse): string[] {
     if (integration.sourceSlug && integration.targetSlug) {
       tags.add(pairCacheTag(integration.sourceSlug, integration.targetSlug));
     }
+    // The connector product that POWERS the edge renders it in its own
+    // "Integrations it powers" hub view (Stage 1.5 Addendum B), so its detail
+    // page must repaint too. Absent for edges with no powered-by product (and on
+    // older responses) — guard.
+    if (integration.poweredBySlug) tags.add(`product:${integration.poweredBySlug}`);
   }
 
   return [...tags];

@@ -35,6 +35,7 @@ This directory holds the planning, architecture, and operational documentation f
 | [`RUNBOOKS.md`](./RUNBOOKS.md) | Active | Incident runbooks for Datadog alerts. (Realizes the formerly-planned `OPERATIONAL_RUNBOOKS.md`.) |
 | [`POST_LAUNCH_MONITORING.md`](./POST_LAUNCH_MONITORING.md) | Active | Post-launch daily/weekly monitoring runbook (AECI-279 / Phase 8.1): the operate-and-tune procedure over the shipped dashboards, monitors, and scheduled crons. |
 | [`POST_LAUNCH_HEALTH_REPORT.md`](./POST_LAUNCH_HEALTH_REPORT.md) | Log | Dated first-week/first-month health-report log fed by the monitoring runbook (AECI-279 / Phase 8.1). |
+| [`ADMIN_PANEL_SPEC.md`](./ADMIN_PANEL_SPEC.md) | Active (v1.0) | Operator console over the data AECi already collects (traffic, audience, catalog, moderation, system health) — the consent-independent read surface for `page_views` plus a screen for the two cron digests. Build contract: **Phase 8.3**, `main` line, epic AECI-572 integrating on the `admin-panel` branch. |
 | [`TESTING_STRATEGY.md`](./TESTING_STRATEGY.md) | Active | Testing tools (Vitest, Playwright, axe-core, Lighthouse CI), coverage targets, flaky test policy. |
 | [`UNIT_TESTING_GUIDE.md`](./UNIT_TESTING_GUIDE.md) | Active | Practitioner manual for writing unit tests. Scope, workflow, what to test, anti-patterns. |
 | [`CODE_REVIEW_CHECKLIST.md`](./CODE_REVIEW_CHECKLIST.md) | Active | Pre-merge review checklist for LLM and human reviewers. Severity model, output format. |
