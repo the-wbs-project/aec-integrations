@@ -47,8 +47,16 @@ export type StatsMetricSink = {
   distribution(metric: string, value: number, tags: string[]): void;
 };
 
-/** Roll a per-key outcome list up to the run-level `outcome` tag value. */
-function jobOutcome(result: HomeStatsResult): 'success' | 'partial' | 'failed' {
+/**
+ * Roll a per-key outcome list up to the run-level `outcome` tag value.
+ *
+ * Exported so the §7.2 `job_runs` row derives its outcome from the SAME function
+ * the Datadog tag does (AECI-583) rather than growing a second opinion of what a
+ * partial run is. `job_runs.outcome` has no `'partial'` member, so the caller
+ * collapses `partial → failed`: the panel must never claim more success than
+ * Datadog does for the same run.
+ */
+export function jobOutcome(result: HomeStatsResult): 'success' | 'partial' | 'failed' {
   const written = result.keys.filter((k) => k.status === 'written').length;
   const failed = result.keys.filter((k) => k.status === 'failed').length;
   // success: every key written/skipped cleanly; partial: some wrote, some failed;

@@ -30,12 +30,16 @@ import {
   FeedbackSubmitSchema,
   LANDING_CF_HEADERS,
   SubscribeSubmitSchema,
+  UnsubscribeSubmitSchema,
   type LandingSubmitResult,
+  type UnsubscribeResult,
 } from '@aeci/shared';
+import { and, eq, isNotNull, sql } from 'drizzle-orm';
 import type { Context } from 'hono';
 import type { ZodType } from 'zod';
 
 import { getDb } from '../db/client';
+import { submitCount } from '../datadog';
 import { feedback, mailingList } from '../db/schema';
 import type { Env } from '../env';
 import { ApiError } from '../errors';
@@ -171,7 +175,9 @@ export function createSubscribeHandler(
 
     // `ON CONFLICT DO NOTHING … RETURNING` on the `mailing_list_email_key` unique
     // index: a returned row means we created it; [] means the email was already
-    // on the list (idempotent no-op). Same pattern as `auth-profile.ts`.
+    // on the list (idempotent no-op). Same pattern as `auth-profile.ts`. New rows
+    // get an opaque unsubscribe token (AECI-537) used by the welcome-email link.
+    const newToken = crypto.randomUUID();
     const inserted = await db
       .insert(mailingList)
       .values({
@@ -187,19 +193,43 @@ export function createSubscribeHandler(
         utmMedium: payload.utm_medium ?? null,
         utmCampaign,
         referrer,
+        unsubscribeToken: newToken,
       })
       .onConflictDoNothing({ target: mailingList.email })
       .returning({ id: mailingList.id });
 
-    const created = inserted.length > 0;
+    // Token threaded into the welcome email below (the new row's, or — on a
+    // reactivation — the existing row's, so the link stays valid).
+    let welcomeToken: string | null = inserted.length > 0 ? newToken : null;
 
-    // Two fire-and-forget sends on a real insert only, never on the idempotent
-    // already-listed no-op (matches the landing Worker, which 409'd a dup before
-    // sending) so a re-subscribe neither re-alerts nor re-welcomes. Both fail-open
-    // on absent secrets (RESEND_API_KEY / recipient) and never affect the response:
+    // Soft-delete reactivation (AECI-537): if the email is already on the list
+    // AND currently unsubscribed, clear `unsubscribed_at` back to active and
+    // re-welcome. `isNotNull` guards it to opted-out rows only, so an already
+    // active email stays a no-op (`created:false` → "already on the list").
+    let reactivated = false;
+    if (inserted.length === 0) {
+      const revived = await db
+        .update(mailingList)
+        .set({ unsubscribedAt: null })
+        .where(and(eq(mailingList.email, payload.email), isNotNull(mailingList.unsubscribedAt)))
+        .returning({ token: mailingList.unsubscribeToken });
+      if (revived.length > 0) {
+        reactivated = true;
+        welcomeToken = revived[0].token;
+      }
+    }
+
+    const created = inserted.length > 0 || reactivated;
+
+    // Two fire-and-forget sends on a real insert or a reactivation, never on the
+    // idempotent already-active no-op (matches the landing Worker, which 409'd a
+    // dup before sending) so a still-subscribed re-subscribe neither re-alerts
+    // nor re-welcomes. Both fail-open on absent secrets (RESEND_API_KEY /
+    // recipient) and never affect the response:
     //   1. the operator "new signup" alert to ADMIN_ALERT_EMAIL (retires the
     //      `apps/landing` Worker's own Resend send, AECI-247/277);
-    //   2. the subscriber's welcome email — their first touch (AECI-327).
+    //   2. the subscriber's welcome email — their first touch (AECI-327), now
+    //      carrying the tokenized unsubscribe link (AECI-537).
     if (created) {
       c.executionCtx.waitUntil(
         sendLandingSignupNotification(c, {
@@ -213,9 +243,63 @@ export function createSubscribeHandler(
           referrer,
         }),
       );
-      c.executionCtx.waitUntil(sendMailingListWelcomeEmail(c, { to: payload.email }));
+      c.executionCtx.waitUntil(
+        sendMailingListWelcomeEmail(c, { to: payload.email, token: welcomeToken }),
+      );
     }
 
-    return json({ created } satisfies LandingSubmitResult, { status: created ? 201 : 200 });
+    // 201 only for a genuinely new row; a reactivation / no-op is 200.
+    return json({ created } satisfies LandingSubmitResult, {
+      status: inserted.length > 0 ? 201 : 200,
+    });
+  };
+}
+
+/**
+ * `POST /api/unsubscribe` (AECI-537) — soft-delete a mailing-list subscriber by
+ * their opaque `unsubscribe_token`. Two callers, one handler:
+ *   - the `/unsubscribe` page POSTs `{ token }` as JSON;
+ *   - the RFC 8058 one-click header POSTs a form body (`List-Unsubscribe=One-Click`)
+ *     to `…/api/unsubscribe?token=…` — we read the token from the query and ignore
+ *     the body.
+ * So the token is read from the query string first, then the JSON body. The write
+ * is an idempotent soft-delete (`unsubscribed_at = COALESCE(unsubscribed_at, now)`),
+ * keyed on the unique token index; a matched row → `{ ok: true }`, no match →
+ * `{ ok: false }` (invalid/expired link — tokens are unguessable, so no membership
+ * leak). Like subscribe/feedback this is write-once lead-capture: no `audit_log`
+ * row (§26.1 exemption), reached only over the service binding (no public ingress).
+ */
+export function createUnsubscribeHandler(
+  dbFor: DbFactory = getDb,
+): (c: Context<{ Bindings: Env }>) => Promise<Response> {
+  return async (c) => {
+    const queryToken = c.req.query('token');
+    const { token } = queryToken
+      ? UnsubscribeSubmitSchema.parse({ token: queryToken })
+      : await parseJsonBody(c, UnsubscribeSubmitSchema);
+
+    const { db } = writeDb(c, dbFor);
+    const isoNow = new Date().toISOString();
+
+    // Idempotent: set `unsubscribed_at` only if not already set, so a repeat
+    // opt-out preserves the original timestamp but still reports ok.
+    const updated = await db
+      .update(mailingList)
+      .set({ unsubscribedAt: sql`COALESCE(${mailingList.unsubscribedAt}, ${isoNow})` })
+      .where(eq(mailingList.unsubscribeToken, token))
+      .returning({ id: mailingList.id });
+
+    const ok = updated.length > 0;
+
+    // Best-effort lead-capture metric (no audit row). Never breaks the opt-out.
+    if (ok) {
+      try {
+        submitCount(c.executionCtx, c.env, c.req.raw, 'aeci.mailing_list.unsubscribe', 1);
+      } catch {
+        // Telemetry must never break a request.
+      }
+    }
+
+    return json({ ok } satisfies UnsubscribeResult, { status: 200 });
   };
 }

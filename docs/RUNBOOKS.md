@@ -111,9 +111,12 @@ it is fixed by the 08:00 incremental sync.
    `_vendors` / `_integrations` and the sign/magnitude (logged with the gauge). Negative =
    orphans (self-healing); positive = missing rows.
 2. Recent promotes? Drift right after a `POST /api/promote` is expected until a sync runs.
-3. Did the sweep heal it? For negative drift, check `aeci.algolia.orphans_removed` and the
-   `source:algolia-drift-cron` log `aeci.algolia.orphans_removed on <env>` for the same run; the
-   next day's `index_drift` should read 0.
+3. Did the sweep heal it? For negative drift, check **`/admin/system` → Search index → Orphan
+   sweep**, which since AECI-583 renders the last 09:00 run's per-index result — orphans found,
+   objects removed, and whether the safety cap refused a purge (the `--force` trigger below).
+   Before that the sweep reported only to Datadog: `aeci.algolia.orphans_removed` and the
+   `source:algolia-drift-cron` log `aeci.algolia.orphans_removed on <env>` for the same run, both
+   still emitted. The next day's `index_drift` should read 0.
 4. No-data variant: if the alert is "no data for 48h", the daily cron
    (`apps/api/src/scheduled.ts`) didn't report — check the staging/production API Worker's
    scheduled invocation in the Cloudflare dashboard / `wrangler tail`, and that
@@ -641,6 +644,12 @@ vendor/product candidates, a Brandfetch logo-404 sample, and the reused AECI-140
    **error** monitor pages, the **warn** monitor is informational (AECI-279). Pivot on the `check:` tag
    (or read the digest) to see the specific check and its count. The full offending rows are in the email and in
    the `source:data-quality-cron` logs (`aeci.data_quality.check <id> count=…`).
+
+   **Since AECI-583, start at `/admin/system` instead.** The run stores its whole result set in
+   `job_runs.detail`, and the page opens on it — same rows the email carried, no inbox needed, no
+   `?recompute=1` click, and stamped with the run's own time so you can tell a stale result from a fresh
+   one. "Run data-quality checks" re-runs the suite live once you have made a fix. The stored history
+   also makes "when did `broken_integration_refs` start failing" answerable, which it was not before.
 2. **A check errored (-1 / job failed)?** Read the `source:data-quality-cron` error logs
    (`aeci.data_quality.check <id>` with `reason`, or `aeci.data_quality.crashed` for a pre-run crash).
    A pre-run crash is usually a missing `DB` binding or a deploy regression — check `GET /api/version`.
@@ -656,6 +665,218 @@ vendor/product candidates, a Brandfetch logo-404 sample, and the reused AECI-140
 a pulled product's integration, dedupe a vendor, re-run the Algolia bulk sync for drift, etc.); the next
 daily run auto-detects the fix. A no-data/liveness failure is a Worker scheduling issue — escalate to
 whoever owns the API Worker's crons.
+
+## Cron runs missing or stuck in flight on `/admin/system`
+
+**Alerts:** none of its own — this is a *triage* entry for what you see on the panel. The paging
+signals remain the per-cron `… not running` / `… failed` monitors listed in
+`POST_LAUNCH_MONITORING.md` §1a.
+
+**Metrics:**
+- `aeci.job_runs.write{phase,job,outcome}` — the **recorder's** own health (AECI-583). `outcome:failed`
+  means a bookkeeping write failed; the job itself was unaffected.
+- Each cron's existing liveness heartbeat (see the table in `OBSERVABILITY.md`).
+
+**What it means:** Every cron writes a `job_runs` row on entry and completes it on exit
+(`DATABASE_SCHEMA.md` §9.4). `/admin/system` renders the newest row per job. Three states are worth
+telling apart, and the screen distinguishes them on purpose:
+
+| On screen | Means |
+|---|---|
+| **Unknown** | No row at all. Either the job has not run **since run recording shipped**, or it was added since. This is *not* the same as "not running" |
+| **Inferred** | No row, but a `stats_cache` side effect gives a plausible last-run time (`home-stats`, `algolia-sync` only). Proves the job **ran**, never that it **succeeded** |
+| **In flight** | A row with `started_at` and no `finished_at`. Either genuinely mid-run, or the isolate was reclaimed (CPU/wall-clock limit, eviction) and never completed it |
+
+**First checks**
+
+1. **Unknown, and the job should have run by now?** Check the Datadog heartbeat *first* — it is the
+   only thing that can distinguish "the cron never fired" from "the cron fired and the bookkeeping
+   write failed". If the heartbeat is present, look for `aeci.job_runs.write{outcome:failed}` and the
+   `source:job-runs` error log `aeci.job_runs.write_failed`.
+2. **In flight, and the stamp is older than the job's cadence?** (Quarter-hourly reconcile: >30 min.
+   A daily job: >6h.) The run was interrupted. Confirm against the job's own `*.crashed` log and the
+   Cloudflare invocation log. **Nothing self-heals a stale open row** — the next run simply writes a
+   newer one and supersedes it. Since AECI-584 the 03:00 retention prune does eventually remove it,
+   but only once it falls outside the 90-day `job_runs` window, so it is no help in the moment. A
+   stale open row is cosmetic; the *newest* row is what the screen reports.
+3. **A `*/15` job with several `failed` rows then an `ok`?** That is a queue retry working as
+   intended. Each attempt is its own row; the successful one supersedes by `started_at`.
+4. **All ten Unknown right after a deploy?** Expected for up to 24h on the daily jobs — they have
+   not run yet under the new deploy. The `cron_liveness_unavailable` note on the response says how
+   many, and the note clears itself as the rows arrive.
+
+**Repair:** nothing here is repaired by hand. A genuinely-not-firing cron is a Worker scheduling
+issue — escalate to whoever owns the API Worker's crons, exactly as for the individual cron runbooks
+above. A failing *recorder* (`aeci.job_runs.write{outcome:failed}`) degrades the panel only: the
+bookkeeping is failure-isolated by design, so the jobs keep running and Datadog keeps alerting. Treat
+it as a defect to file, not an incident to page on.
+
+## Metrics snapshot missing or incomplete
+
+**Alerts:** **none yet — this cron has no dedicated monitor.** That is a known gap
+(`PHASE_8_COMPLETION.md` §F5), and the worst one to have: the job is **queue-less**, so a failed run
+is never retried, and a missed day's *stock* metrics are **unrecoverable**. Today you find out from
+`/admin/system` (the `metrics-snapshot` row), from a hole in an admin chart, or — worst case —
+from the 03:00 retention prune skipping because of the gap. Until the monitor exists, the
+`aeci.metrics_snapshot.run` count is the liveness signal to build a no-data check on.
+
+**Metrics:**
+- `aeci.metrics_snapshot.run{outcome:ok|partial|failed}` — one per completed run; the always-emitted
+  series is the liveness signal. Note `partial` exists **here but not in `job_runs`**, which records
+  a partial run as `failed` (§7.2) — the metric is the finer-grained view.
+- `aeci.metrics_snapshot.metric{metric,outcome:written|failed}` — per-key, 19 keys per run. This is
+  what tells you *which* series is broken.
+- `aeci.metrics_snapshot.run.duration_ms` — run duration.
+- `aeci.metrics_snapshot.crashed` / `.enqueue_failed` — the handler threw, or dispatch failed.
+
+**What it means:** The daily **00:15 UTC** §7.1 snapshot (AECI-581 / Phase 8.3 P2.1,
+`apps/api/src/lib/metrics-snapshot.ts`) writes one `metrics_daily` row per `(day, metric)` for all
+19 `ADMIN_SNAPSHOT_METRIC_KEYS`, capturing the prior **complete** UTC day. It is the only writer.
+
+Three properties shape every response here:
+
+| Property | Consequence |
+|---|---|
+| **Flows are recoverable, stocks are not** | Flow metrics (page views, `*.created` events, new profiles) can be reconstructed from `page_views` + `audit_log`. **Stocks** (catalog totals, queue depths, subscriber counts) are an instantaneous sample — a day not sampled is **gone permanently**. §4: 827 `integration.created` events back 496 live rows, so a cumulative sum would be wrong, not approximate |
+| **Per-key isolation** | Each metric computes and writes in its own try/catch, outside any batch (mirroring `lib/home-stats.ts`). `runMetricsSnapshot` **never throws**. One failing producer is recorded; the other 18 still land. So `partial` is the expected shape of a problem, not `failed` |
+| **Zero-fill is load-bearing** | §7.4 forbids pruning a day the snapshot never captured, so a gap here **aborts the whole 03:00 retention run** — `job_runs` half included. A snapshot problem surfaces as a retention alert |
+
+Writes are idempotent per `(day, metric)`, which is what makes a missed day fixable: a re-run
+corrects rather than duplicates. **No `audit_log` row** — derived bookkeeping, exempt under ADR 0022
+/ §13 D11; forcing these writes into a batch to carry one would destroy the isolation above.
+
+**First checks**
+
+1. **`/admin/system` first.** The `metrics-snapshot` row gives last run, outcome and duration. The
+   Unknown / Inferred / In-flight triage above applies unchanged.
+2. **Which days are actually missing?** This is the same query the prune runs before it deletes:
+   ```bash
+   wrangler d1 execute aeci-app-production --env production --remote --command \
+     "select distinct substr(created_at,1,10) as day from page_views
+      where substr(created_at,1,10) not in (select day from metrics_daily)
+      order by day desc limit 30"
+   ```
+3. **`partial`, not `failed`?** Read `aeci.metrics_snapshot.metric{outcome:failed}` to find the
+   offending key. One broken producer does not need a full re-run — re-running is idempotent, so
+   just re-run the day.
+4. **Nothing at all since a deploy?** Check the cron is still scheduled: `"15 0 * * *"` must be in
+   `apps/api/wrangler.jsonc`'s `triggers.crons` for the tier (it is in `staging`, `demo` and
+   `production`; `preview` deliberately has none, so PR previews run no crons). Confirm against the
+   Worker's scheduled invocations and `wrangler tail`.
+
+**Repair:** re-run the affected range through the backfill. It is dry-run by default and refuses
+production without `--allow-production`:
+
+```bash
+pnpm --filter @aeci/api ops:backfill-metrics-daily -- --env production \
+  --from <first-missing-day> --to <last-missing-day> --apply --allow-production
+```
+
+Two things to know before you run it:
+
+- **It only restores flows.** Stocks for the missing days stay absent, permanently and by design —
+  the script does not pretend otherwise. Charts of stock series will keep their hole.
+- **It refuses a range containing unclassified page views** (`is_bot IS NULL`) unless `--force`.
+  Do not reach for `--force`: those rows read as human, and `metrics_daily` is the long memory, so
+  forcing would freeze the wrong human/bot split in permanently (the exact defect AECI-582 fixed).
+  Run the classifier on that tier first.
+
+Precedence protects you: a `measured` write always wins, and a `reconstructed` write applies only
+over an absent or already-`reconstructed` row — so a backfill can never overwrite what the cron
+genuinely measured.
+
+## Retention prune skipped, failed, or not running
+
+**Alerts:**
+- `AECi — Retention prune skipped (metrics_daily gap)` — a day inside the `page_views` cut window has no snapshot, so **nothing was deleted from either table**. **Informational / non-paging** — the failure direction is safe — but do not sit on it.
+- `AECi — Retention prune deleted an unexpected number of rows` — >5,000 rows in a day for one table. **Pages.**
+- `AECi — Retention prune failed (daily cron)` — the job threw; the batch is atomic, so nothing was deleted.
+- `AECi — Retention prune not running (no daily run)` — the cron stopped firing.
+
+**Metrics:**
+- `aeci.retention.prune{outcome:ok|skipped|failed}` — one heartbeat per completed run; the always-emitted series is the liveness signal. `reason:metrics_daily_gap` on a skip.
+- `aeci.retention.rows_deleted{table}` — rows removed per table, **emitted every run including zeros**.
+- `aeci.retention.prune.truncated{table}` — the per-table run budget (10,000 rows) stopped the run short.
+- `aeci.retention.prune.duration_ms` — run duration.
+
+**What it means:** The daily **03:00 UTC** §7.4 retention prune (AECI-584 / Phase 8.3 P3.2,
+`ADMIN_PANEL_SPEC.md` §7.4) deletes `page_views` older than **400 days** and `job_runs` older than
+**90**, in bounded chunks. It is the system's only scheduled `DELETE`, and the only cron that writes
+an `audit_log` row — exactly one `retention.pruned` summary row per run, in the same atomic batch as
+the deletes (the ADR 0022 exception).
+
+Two facts shape every response here. **Deletion is effectively permanent**: D1 Time Travel recovers
+only ~30 days. And **`metrics_daily` is the only thing that survives a `page_views` prune**, which is
+why the job verifies a `metrics_daily` row exists for *every* day inside its cut window before
+deleting anything, and refuses the whole run — the `job_runs` half included — if one is missing.
+
+`metrics_daily`, `audit_log`, `workflow_instances` and `workflow_transitions` are never touched
+(§26.6 / §7.4 rule 3), asserted by test rather than by comment.
+
+**First checks**
+
+1. **Skipped?** Read the `source:retention-prune-cron` log `aeci.retention.skipped` — it carries
+   `window_from`, `window_to`, `missing_count`, and the first ten `missing_days`. The fault is in the
+   **snapshot** pipeline, not here — work "Metrics snapshot missing or incomplete" above (note it
+   has no monitor of its own yet, so `/admin/system`'s `metrics-snapshot` row and
+   `aeci.metrics_snapshot.*` are the signals). Backfill the gap, then the prune resumes on its own
+   the next night:
+   ```bash
+   pnpm --filter @aeci/api ops:backfill-metrics-daily -- --env production \
+     --from <first-missing-day> --to <last-missing-day> --apply --allow-production
+   ```
+2. **Unexpected row count?** Check the two overrides on the production Worker first — both should be
+   **unset**; a `PAGE_VIEWS_RETENTION_DAYS` or `JOB_RUNS_RETENTION_DAYS` that someone shortened is
+   the most likely cause. Then read the run's audit row, which records the cutoff and per-table
+   counts:
+   ```bash
+   wrangler d1 execute aeci-app-production --env production --remote \
+     --command "select created_at, metadata from audit_log where action = 'retention.pruned' order by created_at desc limit 5"
+   ```
+   A catch-up after downtime looks identical to a runaway in the metric; the audit row's `cutoff` is
+   what tells them apart.
+3. **Failed?** `source:retention-prune-cron`, `aeci.retention.crashed`. The batch is atomic, so
+   nothing was deleted and nothing was logged — the next run re-probes from scratch.
+4. **No-data (not running)?** The cron is not firing. Check the production API Worker's scheduled
+   invocations in the Cloudflare dashboard, `wrangler tail`, and that `"0 3 * * *"` is still in
+   `apps/api/wrangler.jsonc`'s production `triggers.crons`. Nothing is lost while it is down — the
+   table just grows.
+5. **`truncated` for several consecutive days?** The per-table budget is holding it back. That is
+   fine for a catch-up (it will converge), and a real problem only if the window keeps shrinking.
+
+**Repair:** there is nothing to un-delete, which is the whole design. A skip needs the *snapshot*
+fixed, not the prune. A not-running cron is a Worker scheduling issue — escalate to whoever owns the
+API Worker's crons. If a window must be shortened urgently, set the env override rather than shipping
+a code change; values below **30 days** are ignored (D1 Time Travel's horizon) and logged as
+`aeci.retention.invalid_window_override`.
+
+### First production run — treat it as an operation, not a deploy
+
+At the shipped windows the prune deletes **nothing** until ~**2026-11-11** (`job_runs`) and
+~**2027-07** (`page_views`, whose data starts 2026-06-23). Before the first run that will actually
+remove rows — or immediately after shortening a window — dry-run the counts and record before/after
+on AECI-584.
+
+```bash
+# 1. What WOULD be deleted (both tables), at today's cutoffs.
+wrangler d1 execute aeci-app-production --env production --remote --command \
+  "select 'page_views' as t, count(*) from page_views where created_at < date('now','-400 day') || 'T00:00:00.000Z'
+   union all
+   select 'job_runs', count(*) from job_runs where started_at < date('now','-90 day') || 'T00:00:00.000Z'"
+
+# 2. Is every day in the page_views cut window captured? Zero rows = the prune will proceed.
+wrangler d1 execute aeci-app-production --env production --remote --command \
+  "select distinct substr(created_at,1,10) as day from page_views
+   where created_at < date('now','-400 day') || 'T00:00:00.000Z'
+     and substr(created_at,1,10) not in (select day from metrics_daily)
+   order by day"
+
+# 3. After the run: the single summary row it wrote.
+wrangler d1 execute aeci-app-production --env production --remote --command \
+  "select created_at, metadata from audit_log where action = 'retention.pruned' order by created_at desc limit 1"
+```
+
+If step 2 returns any rows, the prune will skip — backfill those days first (First checks 1).
 
 ## WAF rate-limit / challenge spike
 
@@ -697,3 +918,156 @@ flood tripping the rate-limit rules or a scraper run hitting the UA challenge �
 if a legitimate surface is being blocked (re-tune the rule) or if the volume suggests a targeted attack worth
 a manual Cloudflare block. The 500/15m threshold is a launch placeholder; re-tune in
 `observability/datadog/monitor-waf-ratelimit-spike.json` once baseline volume is known.
+
+---
+
+## Promote job errored or stuck
+
+**Signal:** `aeci.api.promote.job{outcome:errored}` (with a `code` tag), the
+`aeci.api.promote.job_failed` error log, or `aeci.api.promote.job.duration_ms` running long.
+There is **no monitor on this yet** — promote volume is a handful per day, so today the
+trigger is usually a curator reporting "the promote never finished". (AECI-563 / ADR 0021.)
+
+**What it means:** since AECI-563 `POST /api/promote` only *starts* the ingest. The commit runs
+in the `PROMOTE_WORKFLOW` Cloudflare Workflow, one instance per promote, whose **instance id is
+the review-app-supplied `promote_job_id`**. A failure never surfaces as an HTTP status to the
+caller — it lands as `{ status: 'errored', error: { code } }` on `GET /api/promote/jobs/:id` and
+as the log above. An `errored` job **wrote nothing**: the ingest is one atomic `db.batch`, so
+there is no partial state to clean up.
+
+**First checks**
+
+1. **Get the job id.** From the curator (the Airtable row's `promote_job_id`), or from the
+   `job_id` attribute on the `aeci.api.promote.job_failed` log
+   (`service:aeci-api source:review-app-promote`).
+2. **Read the job.** Either the API (`GET /api/promote/jobs/{jobId}` with the
+   `REVIEW_APP_TOKEN` bearer) or the Cloudflare dashboard → **Workers & Pages → Workflows →
+   `aeci-promote-<env>`** → the instance. The dashboard shows the per-step history, which the
+   API does not.
+3. **Which code?**
+   - `SLUG_CONFLICT` — two first-time promotes raced for the same slug. Benign and
+     caller-resolvable: re-push with a **new** job id and slug disambiguation (`-2`, `-3`) will
+     settle it.
+   - `VALIDATION_FAILED` — a product name that can't be turned into a slug (reserved or empty
+     after normalization). Needs the name fixed in Airtable.
+   - `INTERNAL_ERROR` — a real fault. Read the log's `reason` (D1 errors put the detail in the
+     `cause` chain) and the step history.
+4. **Stuck rather than failed?** A job sitting in `running` far longer than
+   `aeci.api.promote.job.duration_ms`'s normal range is usually a slow plan phase on a
+   heavily-integrated product (many sequential D1 reads) — not a hang. The commit step has a
+   10-minute timeout, after which the instance errors. A job stuck in `queued` means the
+   account is at its concurrent-instance ceiling, which our volume will not reach.
+5. **Was it even started?** A poll returning `404` means AECi has no record of the id: either
+   the kick-off never succeeded (check for a 4xx/5xx `source:review-app-promote` log with that
+   window's `trace_id`) or the job is past its retention (30 days for the instance, 90 for the
+   KV result mirror).
+
+**Repair**
+
+- **Normal path — let the review app re-push.** A new job id, same bundle. Because an `errored`
+  job wrote nothing, this is safe and is the expected remedy for every code above.
+  **One exception (AECI-571):** an `errored` job whose reason reads *"has already committed, but
+  its stored result is unreadable"* **did** write. Its rows are live. Do **not** re-push — recover
+  the ID map from the KV mirror (`promote:result:{jobId}`) or straight from D1
+  (`SELECT result FROM promote_jobs WHERE job_id = '…'`) and hand it to the write-back. This is
+  the only `errored` promote that ever committed, and it means the ledger row itself is corrupt;
+  escalate it.
+- **The IDs committed but the review app never collected them** (the exact class of damage this
+  design exists to prevent): poll the job id; a `complete` job still serves its full ID map, so
+  the write-back can be re-run. This is what the review-app reconcile sweep (AECI-570) automates.
+- **`restart()` no longer risks a duplicate (AECI-571), but is still not a retry.** If the commit
+  already succeeded, a restart replays it, trips the `promote_jobs` primary key, rolls back, and
+  returns the recorded ID map — which makes it the fastest way to recover an instance that is
+  wedged *after* a silently-successful commit. It is still **not** the remedy for a genuinely
+  failed commit: the step is deliberately non-retried (`NonRetryableError`), and a failure that
+  reproduces will simply fail again. Re-push with a new job id for that.
+- **`terminate()`** an instance only to clear a genuinely wedged job, and note that the id is then
+  permanently consumed for its retention window — the review app must use a new one.
+
+**Escalation:** repeated `INTERNAL_ERROR`s across different products point at the ingest itself
+(`apps/api/src/routes/promote.ts`) or at D1 — capture the job id, the `reason`, and the step
+history. Repeated `SLUG_CONFLICT`s with no concurrency suggest a slug-generation regression, not
+a race.
+
+**Duplicate safety (AECI-571).** Workflows guarantee a step runs *at least* once, so an engine
+crash between the `db.batch` committing and the step result being persisted replays the commit.
+That used to be able to duplicate a **created** row; it can't any more. The ingest writes a
+`promote_jobs` row keyed by the job id as the first statement of the promote's own batch, so a
+replayed batch trips the primary key, D1 rolls the whole batch back, and the recorded ID map is
+returned instead — same ids, same slug.
+
+- `sum:aeci.api.promote.replay` is non-zero **exactly when the window fired and was absorbed**.
+  This is informational, not actionable: the promote is correct. Capture the `job_id` from the
+  `aeci.api.promote.replay_detected` log if you want the step history, and note the `via` tag
+  (`pre-read` = the ordinary replay, `batch-conflict` = a replay that raced the original batch).
+- A duplicated product whose promote job reported `complete` exactly once is now a **bug**, not
+  the known gap. Capture the job id and the instance's step history and escalate.
+
+**Pruning the ledger.** `promote_jobs` grows by a handful of ~10 KB rows a day and has no
+automatic prune (deliberately — see `DATABASE_SCHEMA.md` §8.5). If it ever needs one:
+
+```sql
+DELETE FROM promote_jobs WHERE created_at < datetime('now', '-180 days');
+```
+
+**The floor is 90 days, hard.** Below that the guard expires before the `promote:result:{jobId}`
+KV mirror it backstops, leaving a window where a poll still serves IDs while a re-push of that
+job id would duplicate them.
+
+---
+
+## Promote strand audit is red
+
+**Signal:** the daily `promote-strand-audit` GitHub Action (09:00 UTC, `.github/workflows/promote-strand-audit.yml`)
+exits non-zero. There is no Datadog monitor — the workflow's own red is the alert. (AECI-568 / AECI-593.)
+
+**What it means:** production D1 and the Airtable curation base disagree about which rows exist.
+The only link between them is the `supabase_*_id` column Airtable holds — D1 stores no
+curation-tool key (AECI-562 was rejected deliberately) — so one broken pointer makes a live row
+permanently unreachable. Which bucket fired tells you which direction broke:
+
+| Bucket | Meaning |
+|---|---|
+| `stray` | A D1 row no Airtable record points at. **The common one.** |
+| `dangling` | An Airtable id whose D1 row is gone. |
+| `stranded` | An Airtable record that looks promoted but carries no id. |
+| `duplicatePointers` | One D1 id claimed by two Airtable records. |
+| `pendingJobMarkers` | An uncollected `promote_job_id` — also the liveness check for the AECI-570 hourly reconcile sweep. |
+
+**First checks**
+
+1. **Re-run locally for the full per-bucket dump** (the CI log prints the table; the id lists are
+   in the report file, which CI does not upload):
+   ```bash
+   AIRTABLE_TOKEN=<pat> CLOUDFLARE_API_TOKEN=<token> \
+     node scripts/ops/2026-08-promote-strand-audit/audit.mjs
+   ```
+2. **`stray`: was this an editorial retraction?** Read the affected product's Airtable
+   `research_notes` and `tool_integration_check_notes` *before* anything else. A curator who
+   deleted an integration on purpose normally records the ruling there — that is exactly what
+   AECI-593 turned out to be, and it flips the repair from "adopt" to "delete".
+3. **`pendingJobMarkers`: never clear the marker by hand.** It is the recovery handle; a
+   `complete` job still serves its full ID map. See "Promote job errored or stuck" above.
+
+**Repair**
+
+Every bucket's recipe lives in `scripts/ops/2026-08-promote-strand-audit/README.md` §Healing.
+The audit itself has no `--apply` and never writes. Two things worth repeating here:
+
+- **`stray` is a curation judgement, not a mechanical delete.** Adopt (recreate the Airtable
+  record carrying the existing uuid) or delete (datatool `POST /api/prune-integrations`). A
+  tripped guard means the row is *not* redundant residue — find the ruling rather than reaching
+  for the override. With a ruling, acknowledge exactly the guards the dry run reported plus an
+  `acknowledgeReason`; save `rollbackSql` first (`apps/datatool/README.md`).
+- **A prune does not recompute `stats_cache`.** After deleting integrations the home-page totals
+  read high until the next promote of any product runs `refreshHomeStatsAfterPromote`. Harmless
+  and self-healing; only chase it if no promote is expected soon.
+
+**Root cause, and why this job exists:** promote can create and update but **never delete**
+(`docs/REVIEW_APP_PROMOTE_API.md` §5.1). A curator deleting an Airtable record therefore always
+leaves a stray, and destroys the only pointer that could have found it. Nothing in the promote
+path can guard that, so this scheduled audit is the backstop.
+
+**Escalation:** a `stray` with no recorded ruling and no obvious curator action is a real unknown
+— do **not** delete to make the audit green. Capture the ids and the affected pair pages, and
+raise it with whoever owns the catalog.

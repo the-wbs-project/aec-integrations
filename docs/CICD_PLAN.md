@@ -262,7 +262,7 @@ Re-runs all PR checks against the merged code (in case of merge conflicts), then
 **Job: `deploy-staging`** — the actual step order in `deploy.yml`, verified 2026-08-14:
 1. All PR checks repeat (lint, types, tests, build) — via `needs:`
 2. `scripts/require-secrets.sh` preflight — refuse to deploy a half-provisioned staging
-3. Provision the staging queues (`aeci-algolia-sync-staging`, `aeci-algolia-drift-staging`, and the WC-5 `aeci-cache-purge-staging` purge queue); idempotent
+3. Provision the staging queues — the scheduled-job set (`aeci-algolia-sync-staging`, `aeci-algolia-drift-staging`, `aeci-stats-staging`, `aeci-reconcile-staging`, `aeci-data-quality-staging`, and the AECI-302 `aeci-attestation-notify-staging`) plus the WC-5 `aeci-cache-purge-staging` purge queue; idempotent
 4. Apply **Cloudflare D1** migrations — `scripts/d1-apply-migrations.sh aeci-app-staging staging`. *(Not Supabase: the app DB is D1 per ADR 0016 and the `supabase db push` path was decommissioned in AECI-278 — see §5.)*
 5. `wrangler deploy --env staging` for the API Worker, then push its runtime secrets (`REVIEW_APP_TOKEN`, Algolia, `ANTHROPIC_API_KEY`, `RESEND_API_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `CF_ANALYTICS_API_TOKEN` — the optional ones warn-and-skip)
 6. `wrangler deploy --env staging` for the SSR Worker, then push its public config (`SUPABASE_ANON_KEY`, Algolia public config, PostHog key, Datadog RUM credentials)
@@ -295,7 +295,7 @@ Triggered by Chris (workflow_dispatch with `commit_sha` + `confirm=PROMOTE` inpu
 4. `scripts/require-secrets.sh` — refuse to promote if a required prod secret is missing (before the approval gate, so nothing is deployed)
 
 **Job: `deploy-prod-workers`** (gated by GH Environment `production` — the single approval gate; blocks before any mutation)
-1. Provision the prod scheduled-job queues **and the WC-5 cross-Worker `aeci-cache-purge-production` queue** (idempotent; before both Worker deploys — its consumer is on the SSR Worker)
+1. Provision the prod scheduled-job queues — six as of AECI-302 (`aeci-{algolia-sync,algolia-drift,stats,reconcile,data-quality,attestation-notify}-production`) — **and the WC-5 cross-Worker `aeci-cache-purge-production` queue** (idempotent; before both Worker deploys — its consumer is on the SSR Worker)
 2. Apply the app DB migrations to **Cloudflare D1** + reconcile the D1 taxonomy seed via `scripts/d1-apply-migrations.sh aeci-app-production production` (wraps `wrangler d1 migrations apply … --remote` + the two `wrangler d1 execute … --file=seed/*.sql` reconciles, **retrying each on a transient Cloudflare D1 `[code: 7500]` internal error** — safe because all three are idempotent), then purge the taxonomy cache tags. This is the **only** data migration — the app DB is D1 (ADR 0016); the promote touches no Supabase Postgres (auth is the single shared project, ADR 0017, whose auth-only baseline is maintained out of band). No pg_dump → R2 snapshot, no `supabase db push`, no drift/RLS gate (mirrors `promote-to-demo.yml` — AECI-256/278)
 3. Deploy `apps/api` with `--env production --var COMMIT_SHA --var DEPLOYED_AT`, then push the Worker runtime secrets
 4. Deploy `apps/web` with `--env production --var COMMIT_SHA --var DEPLOYED_AT`, then push the Worker runtime secrets
@@ -303,7 +303,7 @@ Triggered by Chris (workflow_dispatch with `commit_sha` + `confirm=PROMOTE` inpu
 6. Poll both `prod.aecintegrations.com/api/version` (API Worker) and `/_version` (SSR Worker, AECI-92) until **both** return the promoted SHA **and** `/api/health` is `db:ok` (60s budget) via `scripts/verify-version.sh` + `scripts/verify-health.sh`; a smoke failure auto-rolls-back both Workers
 7. Write summary (commit, DEPLOYED_AT, actor)
 
-The **demo** tier is deployed by the light sibling [`promote-to-demo.yml`](../.github/workflows/promote-to-demo.yml): validate `confirm` → assert **staging** is at the SHA → (GH Environment `demo`) provision `aeci-*-demo` queues (the scheduled-job set + the WC-5 `aeci-cache-purge-demo` queue) → apply `aeci-app-demo` D1 migrations (`scripts/d1-apply-migrations.sh`, which retries a transient D1 `[code: 7500]` internal error) → deploy `aeci-{api,web}-demo` → push demo Worker secrets → smoke `demo.aecintegrations.com` → auto-rollback on smoke failure. The `demo` GH Environment has no required reviewer by default (add one to gate it). It touches no Postgres (demo shares the prod Supabase project, which production owns).
+The **demo** tier is deployed by the light sibling [`promote-to-demo.yml`](../.github/workflows/promote-to-demo.yml): validate `confirm` → assert **staging** is at the SHA → (GH Environment `demo`) provision `aeci-*-demo` queues (the six-queue scheduled-job set, incl. the AECI-302 `aeci-attestation-notify-demo`, + the WC-5 `aeci-cache-purge-demo` queue) → apply `aeci-app-demo` D1 migrations (`scripts/d1-apply-migrations.sh`, which retries a transient D1 `[code: 7500]` internal error) → deploy `aeci-{api,web}-demo` → push demo Worker secrets → smoke `demo.aecintegrations.com` → auto-rollback on smoke failure. The `demo` GH Environment has no required reviewer by default (add one to gate it). It touches no Postgres (demo shares the prod Supabase project, which production owns).
 
 Algolia index updates **are** wired (step 9 of `deploy-staging` above, and the equivalent in both promote workflows). **Slack was dropped from the project entirely**, not deferred — there is no Slack integration anywhere in `.github/workflows/` or `scripts/` (the only mention is a comment in `promote-to-prod.yml:890` recording that an alert-grade Datadog *event* replaced it on rollback). Release-tag automation remains unbuilt — see §3.4.
 
@@ -466,7 +466,9 @@ Stored in GitHub Settings → Secrets and Variables → Actions. Scoped per envi
 |---|---|---|
 | `CLOUDFLARE_API_TOKEN` | Wrangler auth + queue provisioning. Scope: the **Workers Scripts edit** `wrangler deploy` requires **and `Account → Queues → Edit`** (ADR 0013 + ADR 0020 §3 — the deploy provisions + binds the scheduled-job queues **and the WC-5 `aeci-cache-purge-{env}` cross-Worker purge queue**; without it `wrangler queues create` and the consumer-binding deploy fail). The former **`Zone.Cache Purge`** grant is no longer needed — the HTTP purge transport was retired in WC-10 (AECI-324) and native `ctx.cache.purge()` needs no token — so it can be dropped on the next rotation. Keep it as narrow as these need; issue a new token at the same scope and rotate rather than broadening reactively. | All |
 | `CLOUDFLARE_ACCOUNT_ID` | Account identifier | All |
-| `CLOUDFLARE_ZONE_ID` | Zone ID for `aecintegrations.com`; used by wrangler and (as the Worker's `CF_ZONE_ID`) by the AECI-262 WAF firewall-event analytics poll — paired with `CF_ANALYTICS_API_TOKEN` (see `docs/waf-rate-limits.md` §5). No longer backs cache purge: `/admin/purge` is native `ctx.cache.purge()` since WC-6 and the HTTP purge token was retired in WC-10. | staging, production |
+| `CF_ZONE_ID` | Zone ID for `aecintegrations.com` (single shared value — one zone). Pushed to the **API Worker only** by `deploy.yml` / `promote-to-demo.yml` / `promote-to-prod.yml`, as the zone the AECI-262 WAF firewall-event analytics poll queries — paired with `CF_ANALYTICS_API_TOKEN` (see `docs/waf-rate-limits.md` §5). It no longer backs cache purge: `/admin/purge` is native `ctx.cache.purge()` since WC-6 and the HTTP purge token was retired in WC-10. Graceful warn-and-skip. (Earlier drafts of this table called it `CLOUDFLARE_ZONE_ID`; the live secret name is `CF_ZONE_ID`.) | All |
+| `CF_PURGE_API_TOKEN` | **RETIRED (WC-10 / AECI-324).** Was the `Zone.Cache Purge`-scoped token behind the ADR 0010 HTTP purge. Native Workers Cache made a zone purge inert, so invalidation moved to the `aeci-cache-purge-{env}` Queue (WC-5) and in-process `ctx.cache.purge()` (WC-6). No workflow pushes it; delete it from the GH repo secrets and from each Worker. | — |
+| `ADMIN_PURGE_TOKEN` | Long-lived bearer the **caller** of `POST /admin/purge` presents (CI's post-seed taxonomy purge + manual incident purges). Single shared un-suffixed value; pushed to the **web Worker only** by the same three workflows, so the token CI presents and the token the Worker checks are the same secret by construction. Graceful warn-and-skip: absent → the endpoint 401s. | All |
 | `CF_ANALYTICS_API_TOKEN` | **Single shared** (un-suffixed, like `SUPABASE_ANON_KEY` — the token is zone-scoped and the zone is shared) Cloudflare token for the hourly WAF firewall-event poll (AECI-262 / §15.1): reads the zone's `firewallEventsAdaptiveGroups` over the GraphQL Analytics API and emits `aeci.waf.ratelimit.blocked`. Scope: **`Zone Analytics: Read` on `aecintegrations.com`** — a *different* scope than the `Zone.Cache Purge` purge token, so it is its own secret. Pushed to the API Worker as `CF_ANALYTICS_API_TOKEN` by `deploy.yml` (staging) / `promote-to-demo.yml` (demo) / `promote-to-prod.yml` (production), all **graceful warn-and-skip**. Reuses the env's `CF_ZONE_ID`. **Optional + fail-safe:** absent → the poll logs `outcome:skipped_no_creds` and no-ops. See `docs/waf-rate-limits.md` §5. | All |
 | `SUPABASE_ACCESS_TOKEN` — **orphaned** | Was for the Supabase CLI app-DB migrations; the Postgres `supabase db push` machinery was decommissioned (AECI-278). Only manual auth-baseline reconciliation uses the CLI now. | — |
 | `SUPABASE_DB_URL` / `DIRECT_URL` — **retired** | The Postgres app-DB `supabase db push` path is gone (AECI-278). No DB connection URL is needed — the app DB is Cloudflare D1, reached via the Worker's `DB` binding. | — |
@@ -485,6 +487,7 @@ Stored in GitHub Settings → Secrets and Variables → Actions. Scoped per envi
 | `LINEAR_WEBHOOK_SECRET` | Webhook signature verification | All |
 | `ANTHROPIC_API_KEY_STAGING` / `_PRODUCTION` | Anthropic key for review toxicity scoring (Claude Haiku, AECI-258); pushed to the API Worker as `ANTHROPIC_API_KEY`. **Optional + fail-open on every env** (prod included — warn-and-skip, NOT fail-closed): a missing key stores `toxicity_score=null` and the review still enters the moderation queue. Previews reuse the `_STAGING` value. Supersedes the sunsetting `PERSPECTIVE_API_KEY`. **GDPR:** confirm zero-data-retention (ZDR) is enabled on the Anthropic org before provisioning a real key — the Messages API has no per-request no-store control, so otherwise scored review bodies are retained ~30 days outside the §8 erasure boundary. | staging, production |
 | `BRANDFETCH_CLIENT_ID` | Logo CDN | All |
+| `AIRTABLE_TOKEN` | **Single shared, read-only** Airtable PAT scoped to `data.records:read` on the AEC Integrations curation base (`appy81IdGJY6Fngf9`). Consumed only by [`promote-strand-audit.yml`](../.github/workflows/promote-strand-audit.yml) (§11a) to cross-reference production D1 against the base. **Never pushed to a Worker** — no runtime code in this repo talks to Airtable; the curation base belongs to the review app. **Optional + skip-green:** absent → the audit job warns and exits 0, so the guard is simply inert rather than red. Read-only by design: the audit has no write path. | CI (promote-strand-audit.yml) |
 
 ### 7.2 Worker secrets
 
@@ -678,6 +681,18 @@ If the smoke check fails, the deployment is marked failed and:
   **`main → stage-2` regularly** (after every hotfix, at least weekly) to absorb fixes and keep
   drift small. When Stage 2 is ready, merge **`stage-2 → main`** via PR, promote through the
   tiers, then reset/retire the branch.
+- **`admin-panel` = a second, narrower epic integration branch** (2026-08-12, AECI-572 /
+  `ADMIN_PANEL_SPEC.md` §13 D1). The admin panel is **Phase 8.3 post-launch work on the `main`
+  line**, not Stage 2 — but its 14 sub-issues carry schema migrations (`metrics_daily`,
+  `job_runs`, `products.promoted_at`, three dropped `page_views` columns), and ADR 0019's
+  forward-only-migration reasoning applies to *any* migration on `main`, not only Stage 2 ones.
+  So the epic integrates on `admin-panel` and reaches `main` as **one squash merge** at the end.
+  Same discipline as `stage-2`: merge **`main → admin-panel` regularly** and reconcile the
+  Drizzle journal before the merge-up. The trade-off to know: **staging never exercises the
+  panel until that final merge** (staging auto-tracks `main`), so **per-PR preview Workers are
+  the verification surface** for the epic — the same posture `environments.md` describes for
+  Stage 2. Retire the branch on merge-up; this is time-boxed to the epic, not a standing third
+  line.
 - **Hotfix flow (unchanged)** — this *is* the "apply a fix to live prod" path:
   branch from `main` → PR to `main` → squash-merge → staging auto-deploys → `promote-to-demo`
   (SHA) → `promote-to-prod` (SHA). The promote buttons already take an **arbitrary** `commit_sha`
@@ -753,6 +768,20 @@ For very small PRs (e.g. doc-only changes), skip downstream jobs via `paths-igno
 > `enforce_admins: false` bypass to merge. See the §8 quirk note. The clean fix is job-level path
 > conditions (jobs always run and report a no-op green) rather than a workflow-level
 > `paths-ignore`.
+
+---
+
+## 11a. Scheduled data-integrity guards
+
+Two workflows run on a cron rather than on a PR, because the drift they catch is
+created by **operator actions against live data**, not by merging code. Both are
+strictly read-only against production and never repair anything — repair is a
+deliberate, reviewed human action.
+
+| Workflow | Cron (UTC) | What it checks | On red |
+|---|---|---|---|
+| [`reconcile-counts.yml`](../.github/workflows/reconcile-counts.yml) | `0 8 * * *` | Denormalized product aggregates (`integration_count`, `review_count`, `rating_*_avg`) against their source rows, on staging + production | A write path mutated rows without `recomputeProductCounts()` landing. Repair with `db:reconcile-counts -- --fix`. |
+| [`promote-strand-audit.yml`](../.github/workflows/promote-strand-audit.yml) | `0 9 * * *` | Production D1 against the Airtable curation base — rows on either side with no valid counterpart link (AECI-568/593). Production only: one curation base serves all tiers and holds production uuids. | Usually a curator deleted or edited an Airtable record whose D1 row is still live; promote has no delete semantics, so that strands the row forever. Recipes in `scripts/ops/2026-08-promote-strand-audit/README.md` §Healing. **Skips green until `AIRTABLE_TOKEN` is set.** |
 
 ---
 

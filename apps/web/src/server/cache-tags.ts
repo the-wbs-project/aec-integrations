@@ -117,6 +117,12 @@ export function cacheTagInputsForPath(path: string): CacheTagInputs | null {
   if (path === '/')
     return { route: 'index', entity: { type: 'index', slug: 'home' }, taxonomy: true };
   if (path === '/about') return { route: 'index' };
+  // AECI-536 — /updates is a static content page with no §2 entity, so it emits
+  // only the route-class tag (like /about), never an ad-hoc tag namespace.
+  if (path === '/updates') return { route: 'index' };
+  // /roadmap — the coming-soon placeholder behind the header "More" menu. Same
+  // shape as /updates: static content page with no §2 entity, route-class tag only.
+  if (path === '/roadmap') return { route: 'index' };
   if (path === '/legal' || path.startsWith('/legal/')) return { route: 'index' };
 
   let m: RegExpExecArray | null;
@@ -174,6 +180,17 @@ export function cacheTagInputsForPath(path: string): CacheTagInputs | null {
     return { route: 'index', entity: { type: 'index', slug: 'phases' }, taxonomy: true };
   if ((m = /^\/phases\/(.+)$/.exec(path)))
     return { route: 'browse', entity: { type: 'phase', slug: m[1]! } };
+
+  // `/trades` — the fourth facet's flat index (AECI-544), same shape as its
+  // siblings. `trade:{slug}` is emitted for EVERY trade, published or not: the
+  // publication gate controls indexability, not cacheability, so a term that
+  // crosses `TRADE_PUBLISH_MIN_PRODUCTS` is purgeable by the same tag it always
+  // had. A promote that touches any trade must also purge `index:trades`,
+  // `taxonomy`, and `sitemap` (CACHE_STRATEGY.md §2, AECI-542/546).
+  if (path === '/trades')
+    return { route: 'index', entity: { type: 'index', slug: 'trades' }, taxonomy: true };
+  const tradeMatch = path.match(/^\/trades\/(.+)$/);
+  if (tradeMatch) return { route: 'browse', entity: { type: 'trade', slug: tradeMatch[1]! } };
 
   return null;
 }

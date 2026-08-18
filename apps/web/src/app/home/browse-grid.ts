@@ -23,6 +23,16 @@ import { TaxonomyBadge, type TaxonomyKind } from '../shared/taxonomy-badge/taxon
  * keeping the `@@home.browse.*` ids co-located, the same pattern
  * `TaxonomyIndexPage` uses.
  */
+
+/**
+ * The facets the home page browses. Deliberately **excludes `trade`** (AECI-544):
+ * the home already carries the category + phase grids and the audience band, and
+ * a fourth grid dilutes the page. Trades stay reachable via the primary nav, the
+ * `/trades` index, and search. Narrowing the input type here — rather than
+ * adding unreachable `@@home.browse.trade.*` copy — keeps that exclusion an
+ * explicit, compiler-checked decision instead of dead i18n ids.
+ */
+export type HomeBrowseKind = Exclude<TaxonomyKind, 'trade'>;
 @Component({
   selector: 'app-browse-grid',
   imports: [RouterLink, TaxonomyBadge],
@@ -62,7 +72,7 @@ import { TaxonomyBadge, type TaxonomyKind } from '../shared/taxonomy-badge/taxon
   `,
 })
 export class BrowseGrid {
-  readonly kind = input.required<TaxonomyKind>();
+  readonly kind = input.required<HomeBrowseKind>();
   /** Already ranked + sliced to the top-N by the home page (`topByCount`). */
   readonly terms = input.required<readonly TaxonomyTermWithCount[]>();
 

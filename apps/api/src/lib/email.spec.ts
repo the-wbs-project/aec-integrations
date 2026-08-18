@@ -20,6 +20,10 @@ import type { Env } from '../env';
 import {
   parseRecipients,
   sendAccountDeletionEmail,
+  sendAttestationOpenConflictEmail,
+  sendAttestationOpsAlertEmail,
+  sendAttestationSilentCounterpartyEmail,
+  sendAttestationStaleVersionEmail,
   sendClaimApprovedEmail,
   sendClaimRejectedEmail,
   sendEmail,
@@ -346,11 +350,11 @@ describe('sendAccountDeletionEmail', () => {
 });
 
 describe('sendMailingListWelcomeEmail', () => {
-  it('welcomes the subscriber and links to the directory when PUBLIC_SITE_URL is set', async () => {
+  it('welcomes the subscriber, links the directory, and carries the tokenized one-click unsubscribe (AECI-537)', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
     const outcome = await sendMailingListWelcomeEmail(
       fakeContext({ PUBLIC_SITE_URL: 'https://aecintegrations.com' }),
-      { to: 'sub@example.com' },
+      { to: 'sub@example.com', token: 'tok-123' },
     );
 
     expect(outcome).toBe('sent');
@@ -360,12 +364,16 @@ describe('sendMailingListWelcomeEmail', () => {
     expect(String(body.text)).toContain('directory and review platform');
     expect(String(body.text)).toContain('https://aecintegrations.com/products');
     expect(String(body.html)).toContain('https://aecintegrations.com/products');
-    // List-Unsubscribe header (deliverability) derived from the EMAIL_FROM domain,
-    // plus a matching in-body opt-out line.
-    expect((body.headers as Record<string, string>)['List-Unsubscribe']).toBe(
-      '<mailto:unsubscribe@aecintegrations.com?subject=unsubscribe>',
+    // In-body opt-out now links the /unsubscribe page (token in the query).
+    expect(String(body.text)).toContain('https://aecintegrations.com/unsubscribe?token=tok-123');
+    expect(String(body.html)).toContain('https://aecintegrations.com/unsubscribe?token=tok-123');
+    // RFC 8058 one-click: https target (through the SSR passthrough) + the mailto
+    // as a secondary value, plus the List-Unsubscribe-Post header.
+    const headers = body.headers as Record<string, string>;
+    expect(headers['List-Unsubscribe']).toBe(
+      '<https://aecintegrations.com/api/unsubscribe?token=tok-123>, <mailto:unsubscribe@aecintegrations.com?subject=unsubscribe>',
     );
-    expect(String(body.text)).toContain('unsubscribe@aecintegrations.com');
+    expect(headers['List-Unsubscribe-Post']).toBe('List-Unsubscribe=One-Click');
     // Voice guard: the authored copy is em-dash-free (the only em dash in the body
     // is the shared house signature `— The AEC Integrations team`, appended by
     // `toText`/`toHtml` for every template).
@@ -373,10 +381,33 @@ describe('sendMailingListWelcomeEmail', () => {
     expect(authoredCopy).not.toContain('—');
   });
 
-  it('omits the link (no dead host) when PUBLIC_SITE_URL is absent', async () => {
+  it('falls back to the mailto opt-out when there is no token (mailto-only List-Unsubscribe, no one-click)', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
-    await sendMailingListWelcomeEmail(fakeContext(), { to: 'sub@example.com' });
-    expect(String(lastBody(fetchSpy).text)).not.toContain('/products');
+    await sendMailingListWelcomeEmail(
+      fakeContext({ PUBLIC_SITE_URL: 'https://aecintegrations.com' }),
+      {
+        to: 'sub@example.com',
+      },
+    );
+
+    const body = lastBody(fetchSpy);
+    const headers = body.headers as Record<string, string>;
+    expect(headers['List-Unsubscribe']).toBe(
+      '<mailto:unsubscribe@aecintegrations.com?subject=unsubscribe>',
+    );
+    expect(headers['List-Unsubscribe-Post']).toBeUndefined();
+    expect(String(body.text)).toContain('unsubscribe@aecintegrations.com');
+    expect(String(body.text)).not.toContain('/unsubscribe?token=');
+  });
+
+  it('omits the directory + page links (no dead host) when PUBLIC_SITE_URL is absent', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendMailingListWelcomeEmail(fakeContext(), { to: 'sub@example.com', token: 'tok-123' });
+    const body = lastBody(fetchSpy);
+    expect(String(body.text)).not.toContain('/products');
+    // Without a host there is no page/one-click link; it degrades to the mailto.
+    expect(String(body.text)).not.toContain('/unsubscribe');
+    expect((body.headers as Record<string, string>)['List-Unsubscribe-Post']).toBeUndefined();
   });
 
   it('skips when the subscriber email is undefined', async () => {
@@ -528,5 +559,117 @@ describe('parseRecipients', () => {
   it('returns [] for undefined/empty', () => {
     expect(parseRecipients(undefined)).toEqual([]);
     expect(parseRecipients('   ')).toEqual([]);
+  });
+});
+
+// ─── Attestation detector nudges (§7.2 — AECI-302) ────────────────────────────
+
+describe('attestation nudge templates', () => {
+  const SUBJECT = {
+    to: 'ops@vendor.test',
+    dataObject: 'RFIs',
+    product: 'Revit',
+    counterpart: 'Procore',
+    mechanismName: 'Procore Connector',
+    pairSlugs: ['revit', 'procore'] as const,
+  };
+
+  it('sends the silent-counterparty nudge under its own template id', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    const c = fakeContext({ PUBLIC_SITE_URL: 'https://www.aecintegrations.com' });
+
+    expect(await sendAttestationSilentCounterpartyEmail(c, SUBJECT)).toBe('sent');
+    expect(sendTags()).toEqual([['outcome:sent', 'template:attestation-silent-counterparty']]);
+
+    const body = lastBody(fetchSpy);
+    expect(body.to).toBe('ops@vendor.test');
+    expect(body.subject).toContain('RFIs');
+    // The canonical pair URL: alphabetically-first slug is the context.
+    expect(String(body.text)).toContain(
+      'https://www.aecintegrations.com/products/procore/integrations/revit',
+    );
+    // The §8.1(4) promise, stated in the copy rather than merely implied.
+    expect(String(body.text)).toContain('reported by one vendor only');
+  });
+
+  it('omits the links entirely when PUBLIC_SITE_URL is unset', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+
+    await sendAttestationSilentCounterpartyEmail(fakeContext(), SUBJECT);
+
+    const text = String(lastBody(fetchSpy).text);
+    expect(text).not.toContain('http');
+    expect(text).not.toContain('undefined');
+  });
+
+  it('drops the mechanism clause when the row has no mechanism name', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+
+    await sendAttestationOpenConflictEmail(fakeContext(), { ...SUBJECT, mechanismName: null });
+
+    expect(String(lastBody(fetchSpy).text)).not.toContain('through');
+  });
+
+  it('sends the open-conflict nudge without blaming either side', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+
+    expect(await sendAttestationOpenConflictEmail(fakeContext(), SUBJECT)).toBe('sent');
+    expect(sendTags()).toEqual([['outcome:sent', 'template:attestation-open-conflict']]);
+    expect(String(lastBody(fetchSpy).text)).toContain('rather than picking a side');
+  });
+
+  it('offers withdraw as an equal option on the stale-version nudge', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+
+    expect(await sendAttestationStaleVersionEmail(fakeContext(), SUBJECT)).toBe('sent');
+    expect(sendTags()).toEqual([['outcome:sent', 'template:attestation-stale-version']]);
+    expect(String(lastBody(fetchSpy).text)).toContain('withdraw it');
+  });
+
+  it('never implies attesting affects ranking or placement', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+
+    for (const send of [
+      sendAttestationSilentCounterpartyEmail,
+      sendAttestationOpenConflictEmail,
+      sendAttestationStaleVersionEmail,
+    ]) {
+      await send(fakeContext({ PUBLIC_SITE_URL: 'https://www.aecintegrations.com' }), SUBJECT);
+      const text = String(lastBody(fetchSpy).text).toLowerCase();
+      expect(text).not.toContain('ranking');
+      expect(text).not.toContain('placement');
+      expect(text).not.toContain('search results');
+    }
+  });
+
+  it('renders the ops alert in the operator format, naming the detector', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    const c = fakeContext({ PUBLIC_SITE_URL: 'https://www.aecintegrations.com' });
+
+    expect(
+      await sendAttestationOpsAlertEmail(c, {
+        to: 'ops@aecintegrations.com',
+        detector: 'aeci-denied',
+        dataObject: 'RFIs',
+        productA: 'Revit',
+        productB: 'Procore',
+        mechanismName: null,
+        claimId: 'claim-1',
+        integrationId: 'intg-1',
+        pairSlugs: ['revit', 'procore'],
+      }),
+    ).toBe('sent');
+    expect(sendTags()).toEqual([['outcome:sent', 'template:attestation-ops-alert']]);
+
+    const body = lastBody(fetchSpy);
+    expect(body.subject).toContain('[AECi]');
+    expect(String(body.text)).toContain('Detector: aeci-denied');
+    expect(String(body.text)).toContain('Claim: claim-1');
+    expect(String(body.text)).toContain('Mechanism: (unnamed)');
+  });
+
+  it('skips every nudge when the transport is unconfigured', async () => {
+    const c = fakeContext({ RESEND_API_KEY: undefined });
+    expect(await sendAttestationSilentCounterpartyEmail(c, SUBJECT)).toBe('skipped');
   });
 });

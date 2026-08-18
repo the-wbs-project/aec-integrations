@@ -65,6 +65,14 @@ Priorities in order:
 - Helper functions (`buildCacheTags`, `cacheKeyFor`, audit-log row builders)
 - Score calculations and aggregations
 - Business rules (review duplicate detection, ban enforcement)
+- **Chart geometry** (AECI-576 / `ADMIN_PANEL_SPEC.md` §8, §11) — scales, path strings, bar
+  layout, and the degenerate cases (empty, single-point, all-zero, non-finite input). This is a
+  category rather than a one-off: the admin console's charts are hand-rolled SVG with **no
+  charting dependency**, so their maths is ours to test. It only stays testable because §8
+  requires the geometry to be a pure function of `(values, box)` with no DOM measurement — which
+  is also what makes the charts SSR-safe. `apps/web/src/app/admin/charts/chart-geometry.spec.ts`
+  is the reference: plain Vitest, no TestBed, no `*.component.spec.ts` suffix. If a chart's maths
+  needs a mounted component to test, the maths is in the wrong file.
 
 **Sometimes:**
 - Service classes if they have meaningful logic beyond delegation
@@ -165,6 +173,36 @@ Component tests render a single Angular component in isolation, with mocked depe
 
 - Pure presentational components with no logic
 - Components fully covered by E2E tests where rendering is the main concern
+
+### 4.3a The two runners in `apps/web`, and which one owns a file
+
+`apps/web` has **two Vitest runners**, split by filename, and putting a spec in the
+wrong one makes it silently not run:
+
+| Runner | Config | Picks up | Environment |
+|---|---|---|---|
+| plain Vitest | `apps/web/vitest.config.ts` | `src/**/*.spec.ts`, **excluding** `*.component.spec.ts` | `node`, no Angular |
+| `ng test` | `apps/web/angular.json` → `test` target | `src/**/*.component.spec.ts` | Angular build pipeline |
+
+`pnpm --filter @aeci/web test:unit` runs both in sequence.
+
+The split is by capability, not by location: anything needing Angular DI must be
+named `*.component.spec.ts`, and anything that does **not** import from
+`@angular/*` should not be, because the plain runner is an order of magnitude
+faster.
+
+**The admin chart primitives are the worked example** (AECI-578,
+`apps/web/src/app/admin/charts/`, `ADMIN_PANEL_SPEC.md` §8/§11). `geometry.ts`,
+`format.ts`, `axis.ts` and `chart-types.ts` are **Angular-free by rule**, so
+`geometry.spec.ts` and `format.spec.ts` run in the plain runner — which is what
+makes §11's "pure-function unit tests … no rendering involved" cheap enough to be
+exhaustive (scales, ticks, paths, stacking, arcs, plus the empty / single-point /
+all-zero / dominant-outlier cases, and the UTC↔WIB boundary tests). The chart
+*components* are `*.component.spec.ts` and run under `ng test`.
+
+That import discipline is load-bearing rather than stylistic: add an `@angular/*`
+import to `geometry.ts` and its spec stops running, with no error. If you touch
+those modules, check both runners report the file.
 
 ### 4.4 Pattern
 
@@ -280,6 +318,15 @@ API Worker handlers are factories that take the Drizzle client through a `getDb`
 
 **Atomicity constraint:** D1 has **no interactive transactions** — atomic multi-statement writes are `db.batch([...])`. So the "open a transaction, run the test, rollback" isolation pattern does not apply; reset/reseed the local D1 between suites instead.
 
+**The harness is better-sqlite3, and its LIMITS are not D1's (AECI-580).** `apps/api/src/test/d1.ts` runs a real SQLite, which is why it is so much more faithful than mocking — but it is a *differently compiled* SQLite. Compile-time limits diverge, and the divergence is invisible: a query the harness executes happily can fail at runtime on D1.
+
+The known case, found the hard way: **D1 sets `SQLITE_MAX_COMPOUND_SELECT` to 5**, against the stock 500 that better-sqlite3 ships. `GET /api/admin/system` built one `UNION ALL` of `COUNT(*)` per table (~28 terms) to count rows in a single round trip. Every unit test passed; the first real request returned `500` with `D1_ERROR: too many terms in compound SELECT`. It is now chunked at 5, with a spec that asserts the **query shape** (no emitted statement exceeds 5 terms) rather than the result — because the result-level assertion is exactly the one the harness cannot fail on.
+
+Two habits follow:
+
+1. **Hand-built SQL is where this bites.** ORM-generated queries stay inside ordinary shapes; a hand-rolled `sql.raw(...)` that scales with table count, column count, or row count can cross a limit the harness will never enforce. `SQLITE_MAX_VARIABLE_NUMBER` and the 100 KB statement-length cap are the same class of hazard.
+2. **Exercise a new hand-built query against a real local D1 once**, via `pnpm dev:agent` + `curl`, before calling it verified. A green suite is necessary, not sufficient. Where a limit is discovered, encode it as a shape assertion so the next person inherits the guard rather than the bug.
+
 **Audit + cache assertions.** Tests that exercise a write path should assert both the `db.batch([...])` call shape (mutation + the `auditInsert(...)` row in the same batch) and the typed cache-purge message sent after commit. Queue-consumer tests separately assert delegation into the cached `Renderer` entrypoint, including ack on success/no-cache/noop and retry on purge failure. See `CODE_REVIEW_CHECKLIST.md` "Tests" — these assertions are a documented review requirement.
 
 ### 6.4 Edge-cache integration layer (complementary to Miniflare)
@@ -340,6 +387,10 @@ Critical user journeys:
 Anything that crosses multiple components or pages is a candidate for E2E.
 
 **Phase 3.12 implementation (AECI-145).** The "search → results → faceted filter → result click" journey is covered on the **API-backed listing path** (`apps/web/e2e/facets.spec.ts`): the AECI-143 facet sidebar on `/products` (facet click → `{kind}_id` + `page=1` in the URL, checkbox state, grid refresh, Clear-filters reset), the locked-kind sidebar on `/categories/:slug` (hides its own dimension), and the deterministic refine → product-card click → detail `<h1>` chain. This is the CI-runnable embodiment of the journey because **`/search` itself degrades in CI** — `dev:bound` boots without Algolia, so the InstantSearch results never render. The live `/search` box → hits → click → detail flow therefore lives in a **self-skipping block** in `search.spec.ts`, guarded on the `window.__AECI_ALGOLIA__` bootstrap (runs locally/preview with search creds, skips in CI). **Cache-key correctness** ("distinct facets → distinct cache entries") is proven by a unit test on the exported `cacheKeyFor()` (`cache-key-url.spec.ts`; it replaced `cacheKeyUrl()`, which WC-3 / AECI-317 removed with the manual `caches.default` pipeline and WC-4 / AECI-318 restored behind the gateway entrypoint) — HIT/MISS is unobservable on localhost (Miniflare ≠ Cloudflare edge) — with `facets.spec.ts` asserting the complement at the wire: distinct facet URLs are independently cacheable yet share one `Cache-Tag` (facets live in the key, not the tag).
+
+`cache-key-url.spec.ts` is the same proof for every later content-affecting param, and AECI-303 added the product-PAIR page's two version selectors to it. Two of those cases are worth knowing about because they guard against a *plausible* future change rather than a typo: one asserts that swapping the two values yields a **different** key (the pair is ordered), and one asserts a comma inside a version label survives verbatim — together they fail any attempt to add `context_version`/`other_version` to `MULTI_VALUE_CACHE_KEY_PARAMS` "for consistency", which would corrupt a legitimate `R2024,SP1` label rather than merely fragment the cache.
+
+**The product-PAIR page's own e2e** (`apps/web/e2e/products-pair.spec.ts`, AECI-303) follows the `search.spec.ts` self-skipping shape for the same reason: the §9 selectors only render for a pair with version-stamped attestations, and no environment has one (promote does not ingest versions; the only writer is the Verified-vendor API). The default-path cases run everywhere; the interaction block probes for a non-null `version_diff` and skips when there is none. `pnpm --filter @aeci/api db:seed:version-diff:local` is the reproducible local input that makes it run, and is deliberately **not** part of `db:seed:local` so every other pair page keeps showing the launch-reality default. The pair page also gained its first row in `phase2-a11y.spec.ts` — it had none, which is how the design checklist's axe step went unenforced in CI for the surface that owns the claim lanes.
 
 ### 7.3 What not to test in E2E
 
@@ -449,8 +500,28 @@ Run axe on:
 - Login page
 - Review submission form
 - Legal pages
+- `/admin/traffic` — **in `authed-console.spec.ts`, not a public spec** (AECI-578). The
+  admin surface authorizes server-side, and the charts do not exist until the
+  authorized `afterNextRender` reads resolve, so an axe run on the unauthenticated
+  route would only ever audit the loading state. That spec is the one place with a
+  real minted session; it waits for the stat tiles before analyzing.
+- `/vendor` — the **Integrations tab**, in `vendor-dashboard.spec.ts` (AECI-606), for the
+  same reason and with the same shape: the tab authorizes server-side via
+  `vendorMeResolver`, and its cards, claim lanes, Aria pickers and live region do
+  not exist until `GET /api/vendor/integrations` lands. That spec mints the
+  `vendor_admin` persona and waits for the first integration card (or the empty
+  state) before analyzing. It is the most interactive vendor-facing surface, so
+  this is the run that covers the combobox/listbox wiring end to end — the unit
+  specs deliberately never open a CDK overlay (§4.3a).
 
 Run in the light theme (Stage 1 is light-only — AECI-226).
+
+**Charts need an assertion axe cannot make.** `role="img"` renders its subtree
+presentational, so a data table nested *inside* a chart's `role="img"` element is
+invisible to a screen reader while remaining perfectly valid markup — axe reports
+nothing. `chart-a11y.component.spec.ts` asserts the placement (and each chart's
+table contents against its series) for every chart type, which is the half of the
+§8 accessibility rule the automated pass structurally cannot cover.
 
 **Phase 2 implementation (AECI-65).** `apps/web/e2e/phase2-a11y.spec.ts` runs axe against every live Phase 2 page type — product/vendor/integration index+detail, category/audience/phase browse, the three flat taxonomy indexes (`/categories`, `/audiences`, `/phases`), and the 404 — in the **light theme** (13 URLs; the dark pass was removed in AECI-226), plus the open state of the AECI-155 taxonomy flyout nav. Detail pages run against committed fixtures (`apps/api/seed/phase2-fixtures.sql`, seeded into the local D1 by `dev:bound`); they self-skip if the fixtures aren't seeded so the suite never wedges CI. Both the header (incl. the new flyout nav) and the **footer** are in scope: the footer's former `.exclude('aec-site-footer')` carve-out covered dark-theme contrast debt only, and AECI-226 removed it after verifying the footer is WCAG-AA clean in the (now sole) light theme.
 

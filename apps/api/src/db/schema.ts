@@ -18,6 +18,10 @@
 // - RLS/GRANTs do NOT translate to D1 — authorization is app-layer (ADR 0016 §4,
 //   AECI-254). This file carries data shape + integrity constraints only.
 
+// Type-only, so it is erased before drizzle-kit's esbuild pass ever sees it and
+// cannot create a runtime cycle: `lib/job-runs.ts` imports the `jobRuns` table
+// value from here, never the reverse.
+import type { AdminCronJob } from '@aeci/shared';
 import { relations, sql } from 'drizzle-orm';
 import {
   check,
@@ -50,6 +54,33 @@ const updatedAt = () =>
     .notNull()
     .$defaultFn(() => new Date().toISOString())
     .$onUpdate(() => new Date().toISOString());
+
+/**
+ * The maintenance-marker pair (AECI-616 / `STAGE_2_ATTESTATIONS_SPEC.md` §13), on
+ * `vendors` / `products` / `integrations`.
+ *
+ * `last_reviewed_at` is when a human LAST ACTUALLY RE-CHECKED the record — a
+ * falsifiable claim the marker renders to readers. It is deliberately a **plain
+ * column**: no `$defaultFn`, and above all **no `$onUpdate`**, unlike `updatedAt()`
+ * directly above. It is written by exactly two paths — an explicit `lastReviewedAt`
+ * in the promote payload, and a vendor attestation — and by nothing else.
+ *
+ * Never source it from `updated_at`, `created_at`, or `promoted_at`, and never
+ * backfill it from them. `updated_at` restamps on ANY write and promote re-asserts
+ * `promotion_status` on every re-promote, so in production 60 products share one
+ * `updated_at` day and 40 share another: it is a bulk-sweep timestamp wearing a
+ * freshness costume, which is the exact failure the marker exists to expose.
+ */
+const lastReviewedAt = () => text('last_reviewed_at');
+
+/** Who is on the hook for the record's accuracy. `'vendor'` is reachable only via
+ *  a live vendor attestation (AECI-301); promote must never write this column, or a
+ *  routine Airtable push would silently un-vendor a record. */
+const maintainedBy = () => text('maintained_by').notNull().default('aeci');
+
+/** The CHECK companion to {@link maintainedBy}, so the three tables can't drift. */
+const maintainedByCheck = (table: 'vendors' | 'products' | 'integrations') =>
+  check(`${table}_maintained_by_check`, sql`"maintained_by" IN ('aeci', 'vendor')`);
 
 // ===========================================================================
 // Health check (proves the per-request DB path — retained from AECI-28)
@@ -101,11 +132,15 @@ export const vendors = sqliteTable(
     vqsTotal: real('vqs_total'),
     vqsComputedAt: text('vqs_computed_at'),
 
+    lastReviewedAt: lastReviewedAt(),
+    maintainedBy: maintainedBy(),
+
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
   (t) => [
     uniqueIndex('vendors_slug_key').on(t.slug),
+    maintainedByCheck('vendors'),
     index('vendors_company_name_idx').on(t.companyName),
     index('vendors_promotion_status_idx').on(t.promotionStatus),
     index('vendors_verified_idx').on(t.verified),
@@ -147,6 +182,23 @@ export const products = sqliteTable(
     researchNotes: text('research_notes'),
     promotionStatus: text('promotion_status').notNull().default('pending'),
 
+    /**
+     * First-promote timestamp, ISO-8601 (AECI-581 / `ADMIN_PANEL_SPEC.md` §13 D6).
+     * **Set-once**, via `COALESCE("promoted_at", ?)` in `routes/promote.ts`'s update
+     * branch — promote re-asserts `promotion_status='promoted'` on update too, so a
+     * naive `promotedAt: now` there would mean *last* promoted and buy nothing over
+     * `updated_at`.
+     *
+     * Nullable and unset for rows created before the column existed until
+     * `scripts/ops/backfill-products-promoted-at.sql` runs on that tier; that
+     * backfill is `:= created_at` and is **exact**, because promote is D1's only
+     * INSERT path into `products` and retraction is a hard delete (§4's correction).
+     * Which is also why the column buys nothing *today* — it is future-proofing
+     * against a Tier-1 retract endpoint introducing a real un-promote → re-promote
+     * cycle, after which `created_at` stops tracking go-live irrecoverably.
+     */
+    promotedAt: text('promoted_at'),
+
     priorityTier: text('priority_tier'),
     priorityScore: real('priority_score'),
     scoreComputedAt: text('score_computed_at'),
@@ -160,11 +212,15 @@ export const products = sqliteTable(
 
     adminNotes: text('admin_notes'),
 
+    lastReviewedAt: lastReviewedAt(),
+    maintainedBy: maintainedBy(),
+
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
   (t) => [
     uniqueIndex('products_slug_key').on(t.slug),
+    maintainedByCheck('products'),
     index('products_name_idx').on(t.name),
     index('products_promotion_status_idx').on(t.promotionStatus),
     index('products_research_status_idx').on(t.researchStatus),
@@ -220,10 +276,14 @@ export const integrations = sqliteTable(
     maturity: text('maturity'),
     notes: text('notes'),
 
+    lastReviewedAt: lastReviewedAt(),
+    maintainedBy: maintainedBy(),
+
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
   (t) => [
+    maintainedByCheck('integrations'),
     index('integrations_source_idx').on(t.sourceProductId),
     index('integrations_target_idx').on(t.targetProductId),
     index('integrations_mechanism_kind_idx').on(t.mechanismKind),
@@ -289,6 +349,33 @@ export const taxonomyPhases = sqliteTable(
   (t) => [uniqueIndex('taxonomy_phases_slug_key').on(t.slug)],
 );
 
+// `trade` controlled vocabulary — the FOURTH taxonomy facet (STAGE_1_SPEC.md §5.5a,
+// AECI-538/540): "what work does the company sell?". Mirrors `taxonomyPhases` and adds
+// `aliases` exactly as `taxonomyDataObjects` does. Two deliberate divergences from its
+// three sibling facets, both from docs/TRADES_VOCABULARY.md:
+//   - `description` is NOT NULL — `/trades/:slug` ships as an SEO landing page, so copy
+//     is part of the contract, not a later addition (the siblings seed it NULL, ADR 0008).
+//   - `aliases` is dual-purpose (§4): the promote resolver matches an incoming trade
+//     find-only by slug → name → alias (AECI-542, never find-or-create), AND AECI-545
+//     flattens them into a searchable-only `trade_aliases` Algolia attribute so
+//     "blacktop"/"glazier" reach the right products. It never drives ranking.
+// Closed 34-term list; seeded from `apps/api/seed/trades.sql` (UUIDv5-by-slug,
+// idempotent upsert, never deletes).
+export const taxonomyTrades = sqliteTable(
+  'taxonomy_trades',
+  {
+    id: uuidPk(),
+    slug: text('slug').notNull(),
+    name: text('name').notNull(),
+    description: text('description').notNull(),
+    displayOrder: integer('display_order'),
+    aliases: text('aliases', { mode: 'json' }).$type<string[]>(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [uniqueIndex('taxonomy_trades_slug_key').on(t.slug)],
+);
+
 // `data_object` controlled vocabulary (Stage 1.5 — STAGE_1_5_SPEC.md §6.1). Mirrors
 // `taxonomyCategories` and adds `aliases`: resolver metadata (JSON array of alternate
 // names) the promote ingest matches a claim's `dataObject` against, find-only by slug
@@ -310,7 +397,59 @@ export const taxonomyDataObjects = sqliteTable(
 );
 
 // ===========================================================================
-// Claims & attestations (Stage 1.5 — STAGE_1_5_SPEC.md §3 / §6.1)
+// Product versions (Stage 2 migration 2 — STAGE_2_ATTESTATIONS_SPEC.md §8 /
+// AECI-607). Declared BEFORE `attestations` because that table's version-stamp
+// FKs reference it.
+// ===========================================================================
+
+// A release of one product, as the vendor names it. The entity AECI-303's
+// "source-version × target-version" diff needs and that the dormant
+// `attestations.introduced_at` / `deprecated_at` ISO dates cannot stand in for:
+// dates cannot answer "what flowed between Procore 2026.1 and BIM 360 v5".
+//
+// `sort_key` is the load-bearing column and it is NOT optional (§8.2). Version
+// labels do not sort lexically — `'2026.10' < '2026.9'` as strings, and
+// `'v10' < 'v9'` — so every ordering, every before/after comparison in §9, and
+// the "latest" default key off this INTEGER, never off `label` and never off the
+// nullable `released_at`. `@aeci/shared/version-sort` owns the derivation
+// (`deriveVersionSortKey`) and the comparator; the write API derives on create
+// and accepts an explicit override for labels the packer cannot read.
+//
+// **Authority (§8.2).** A version stamped by an attestation always belongs to the
+// ATTESTING SIDE'S OWN endpoint product — a `vendor_a` attestation stamps
+// versions of product A. That keeps versioning inside the same boundary as §2.1,
+// so no vendor can assert anything about the counterparty's release history. The
+// FK alone cannot express it; the §5 write path enforces it through
+// `resolveAttestationSlots` (`lib/attestation-authority.ts`).
+//
+// Vendor-authored only at launch: promote does not ingest versions (§8.3 / §11).
+export const productVersions = sqliteTable(
+  'product_versions',
+  {
+    id: uuidPk(),
+    productId: text('product_id')
+      .notNull()
+      .references(() => products.id, { onDelete: 'cascade' }),
+    label: text('label').notNull(),
+    releasedAt: text('released_at'),
+    sunsetAt: text('sunset_at'),
+    sortKey: integer('sort_key').notNull(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    // Label identity within a product. Two products may both ship a `v5.2`.
+    uniqueIndex('product_versions_label_key').on(t.productId, t.label),
+    // The ordered read (§8.2). Product-id lookups ride the leftmost prefix of
+    // either index; this one also serves the ORDER BY.
+    index('product_versions_order_idx').on(t.productId, t.sortKey),
+  ],
+);
+
+// ===========================================================================
+// Claims & attestations (Stage 1.5 — STAGE_1_5_SPEC.md §3 / §6.1;
+// provenance + authority added by Stage 2 migration 1 —
+// STAGE_2_ATTESTATIONS_SPEC.md §2 / AECI-603)
 // ===========================================================================
 
 // A claim asserts a `data_object` flows in a `direction` through one integration
@@ -318,6 +457,15 @@ export const taxonomyDataObjects = sqliteTable(
 // is stored relative to the row's own endpoints (A = source_product, B = target_product,
 // §3.2). The unique `(integration_id, data_object_id, direction)` index is the claim's
 // immutable identity AND the promote-ingest upsert target (§6.2).
+//
+// `origin` + `created_by_vendor_id` are the Stage 2 provenance pair
+// (STAGE_2_ATTESTATIONS_SPEC.md §2.2). They exist for WRITE ARBITRATION — promote
+// replaces AECi curation without touching vendor-created rows (§3) — and for the AECi
+// ops view. Provenance is deliberately NOT a reader-facing trust badge: a
+// vendor-created claim renders through the same agreement states as an AECi-seeded one.
+// The biconditional `origin = 'vendor' ⟺ created_by_vendor_id IS NOT NULL` is a
+// two-column invariant enforced in ONE place in application code
+// (`lib/attestation-authority.ts`), not by a DB CHECK.
 export const claims = sqliteTable(
   'claims',
   {
@@ -329,6 +477,12 @@ export const claims = sqliteTable(
       .notNull()
       .references(() => taxonomyDataObjects.id, { onDelete: 'restrict' }),
     direction: text('direction').notNull(),
+    origin: text('origin').notNull().default('aeci'),
+    // SET NULL, not cascade: losing the vendor row must not silently delete the claim.
+    // The claim survives as an orphan for AECi to re-curate.
+    createdByVendorId: text('created_by_vendor_id').references(() => vendors.id, {
+      onDelete: 'set null',
+    }),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -338,14 +492,34 @@ export const claims = sqliteTable(
     // the leftmost prefix of `claims_identity_key`, so no separate integration index.
     index('claims_data_object_idx').on(t.dataObjectId),
     check('claims_direction_check', sql`"direction" IN ('a_to_b', 'b_to_a', 'both')`),
+    check('claims_origin_check', sql`"origin" IN ('aeci', 'vendor')`),
   ],
 );
 
-// An attestation records who affirms a claim (§3.3). In Stage 1.5 only `source: 'aeci'`
-// is ever written; `vendor_a`/`vendor_b` and the `introduced_at`/`deprecated_at` version
-// stamps are additive-and-dormant — present in the schema/contract, written by no 1.5
-// code path (reserved for the Stage 2 portal + timeline). Agreement is computed from the
+// An attestation records who affirms a claim (§3.3). Agreement is computed from the
 // attestation set, never stored (§3.4, `packages/shared/src/agreement.ts`).
+//
+// `vendor_a` / `vendor_b` stopped being dormant with the Stage 2 attestations epic
+// (AECI-514): which slot a caller may write is derived from product ownership in
+// `product_vendors`, never from the request — `lib/attestation-authority.ts` is the
+// single implementation of that rule (STAGE_2_ATTESTATIONS_SPEC.md §2.1).
+// `attested_by_vendor_id` records WHICH vendor identity filled the slot, because
+// `confirmed` requires two DISTINCT identities (§4) — one company owning both endpoints
+// of an integration must never render as bilateral agreement.
+//
+// Two lifecycle columns that are easy to conflate and must not be:
+//   - `introduced_at` / `deprecated_at` are VERSION STAMPS (§3.3) — "this flow existed
+//     from v4 until v6". They say nothing about whether the attestation still stands.
+//   - `retracted_at` is SUPERSESSION — the vendor withdrew or replaced its assertion.
+// Supersession is retract-then-insert, never UPDATE, so the history stays append-only
+// for the §9 timeline. Only `retracted_at` may gate the read path.
+//
+// `introduced_version_id` / `deprecated_version_id` (Stage 2 migration 2, §8.2) are the
+// PRECISE form of those version stamps, and they sit ALONGSIDE the ISO dates rather than
+// replacing them: the dates stay the coarse fallback for claims carrying no version data,
+// which is every claim promote has ever written. The referenced version must belong to the
+// attesting side's own endpoint product — see the `productVersions` header.
+
 export const attestations = sqliteTable(
   'attestations',
   {
@@ -357,16 +531,39 @@ export const attestations = sqliteTable(
     asserted: integer('asserted', { mode: 'boolean' }).notNull().default(true),
     introducedAt: text('introduced_at'),
     deprecatedAt: text('deprecated_at'),
+    // SET NULL, not cascade: deleting a version must degrade the stamp to "no
+    // version data" (the row falls back to the ISO dates), never delete the
+    // vendor's assertion.
+    introducedVersionId: text('introduced_version_id').references(() => productVersions.id, {
+      onDelete: 'set null',
+    }),
+    deprecatedVersionId: text('deprecated_version_id').references(() => productVersions.id, {
+      onDelete: 'set null',
+    }),
+    retractedAt: text('retracted_at'),
+    // SET NULL rather than cascade — see the claims note; the historical assertion
+    // survives for the §9 timeline even if the vendor row goes away.
+    attestedByVendorId: text('attested_by_vendor_id').references(() => vendors.id, {
+      onDelete: 'set null',
+    }),
     note: text('note'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
   (t) => [
-    // Active attestations for a claim (the §8 read). Partial on the dormant version
-    // stamp so Stage 2 can retire an attestation without deleting its history.
+    // One LIVE attestation per slot (§2.1). Partial so retract-then-insert works: any
+    // number of retracted rows may share a slot, exactly one non-retracted row may.
+    // This is what makes last-write-wins explicit when two accounts on the same vendor
+    // target the same slot, instead of silently accumulating duplicate votes.
+    uniqueIndex('attestations_slot_key')
+      .on(t.claimId, t.source)
+      .where(sql`"retracted_at" IS NULL`),
+    // Live attestations for a claim (the §8 read). Predicated on `retracted_at`, NOT on
+    // the `deprecated_at` version stamp — a vendor recording that a flow was deprecated
+    // in v6 must not make the attestation vanish from the read path (AECI-303 reads it).
     index('attestations_active_idx')
       .on(t.claimId)
-      .where(sql`"deprecated_at" IS NULL`),
+      .where(sql`"retracted_at" IS NULL`),
     check('attestations_source_check', sql`"source" IN ('aeci', 'vendor_a', 'vendor_b')`),
   ],
 );
@@ -423,6 +620,29 @@ export const productPhases = sqliteTable(
   (t) => [
     primaryKey({ columns: [t.productId, t.phaseId] }),
     index('product_phases_phase_idx').on(t.phaseId),
+  ],
+);
+
+// Product ↔ trade join (AECI-538/540). Clone of `productPhases`. SPARSE BY DESIGN —
+// a product is tagged only when it has trade-SPECIFIC value (trade-specific features,
+// cost databases, templates, takeoff logic, or integrations). Horizontal platforms
+// (Procore, Autodesk Build, Bluebeam) carry ZERO rows here, and most of the catalog
+// will: TRADES_VOCABULARY.md §1.1 is the load-bearing constraint of the whole facet.
+// Rows are written ONLY by the promote flow (AECI-542), never by the taxonomy seed.
+export const productTrades = sqliteTable(
+  'product_trades',
+  {
+    productId: text('product_id')
+      .notNull()
+      .references(() => products.id, { onDelete: 'cascade' }),
+    tradeId: text('trade_id')
+      .notNull()
+      .references(() => taxonomyTrades.id, { onDelete: 'cascade' }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.productId, t.tradeId] }),
+    index('product_trades_trade_idx').on(t.tradeId),
   ],
 );
 
@@ -718,6 +938,51 @@ export const auditLog = sqliteTable(
   ],
 );
 
+/**
+ * Exactly-once guard for the async promote ingest (AECI-571 / ADR 0021).
+ *
+ * Cloudflare Workflows guarantee a step runs *at least* once: if the engine dies in
+ * the window between the ingest's `db.batch` committing and the step result being
+ * persisted, the step callback re-executes on resume. The plan phase then mints fresh
+ * `crypto.randomUUID()`s and re-derives the slug against the row it just committed, so
+ * an unguarded replay lands a *created* product twice — as `revit` AND `revit-2`.
+ *
+ * The guard is this primary key, not application logic. `runPromoteIngest` pushes the
+ * INSERT as the FIRST statement of the same atomic `db.batch` as the promote's writes,
+ * so a replayed batch trips the PK and D1 rolls the WHOLE batch back — the duplicate is
+ * impossible rather than detected afterwards. `result` then lets the replay return an
+ * identical `PromoteIngestResult` (same ids, same slug), so the job still completes and
+ * the post-commit hooks — which never fired for the lost attempt, being dispatched from
+ * `run()` *after* the step — fire exactly once.
+ *
+ * Internal bookkeeping, NOT a curation-tool key: `job_id` is AECi's own promote job id
+ * (= the Workflow instance id), so the AECI-562 ruling that no Airtable record id
+ * belongs in this schema is untouched.
+ *
+ * Deliberately has NO foreign keys: a cascade delete would silently drop the guard and
+ * re-open the window. For the same reason, deleting a row is a safety regression rather
+ * than housekeeping — any future prune floor must be >= 90 days, the TTL of the KV
+ * result mirror this row backstops (`PROMOTE_RESULT_TTL_SECONDS`).
+ */
+export const promoteJobs = sqliteTable(
+  'promote_jobs',
+  {
+    /** The caller-supplied promote job id, which is also the Workflow instance id.
+     *  Deliberately not `uuidPk()`: the value is always supplied, never generated here
+     *  (`PromoteJobIdSchema` — 8-100 chars of `[A-Za-z0-9_-]`). */
+    jobId: text('job_id').primaryKey(),
+    /** The committed `PromoteJobLedger` envelope (`routes/promote.ts`) — the ID map plus
+     *  everything the post-commit hooks read, minus the per-session D1 bookmark. Typed
+     *  `unknown` here, like `stats_cache.value`, so this module stays a leaf: narrowing
+     *  belongs to the ingest that owns the envelope. */
+    result: text('result', { mode: 'json' }).$type<unknown>().notNull(),
+    createdAt: createdAt(),
+  },
+  // The write path is served by the PK; this indexes the only sane ops query on the
+  // table (time-windowed) and makes a future range-delete prune cheap.
+  (t) => [index('promote_jobs_created_at_idx').on(t.createdAt)],
+);
+
 // ===========================================================================
 // Analytics and caching (§9)
 // ===========================================================================
@@ -726,11 +991,44 @@ export const pageViews = sqliteTable(
   'page_views',
   {
     id: integer('id').primaryKey({ autoIncrement: true }),
+
+    // `path` is the route the WRITER named: the pattern (`/products/:slug`) when it
+    // knows one (an SSR resolver attached `ctx.pageView`), the concrete path
+    // otherwise (the browser tracker, an SSR cache HIT). `concrete_path` is always
+    // the real URL path — locale-stripped, no query or hash — so a taxonomy row can
+    // say WHICH term was viewed even when nothing joins (AECI-585 / §7.3). The two
+    // are stored side by side rather than one replacing the other: grouping "top
+    // pages" wants the pattern, naming a row wants the concrete path.
     path: text('path').notNull(),
+    concretePath: text('concrete_path'),
+
     productId: text('product_id').references(() => products.id),
     vendorId: text('vendor_id').references(() => vendors.id),
-    userId: text('user_id').references(() => profiles.id),
-    sessionId: text('session_id'),
+
+    // Which taxonomy term a facet browse page showed (AECI-585 / §7.3). The SSR
+    // resolvers have always sent `entity_type: 'category'|'audience'|'phase'|'trade'`
+    // plus the term id; ingest used to drop them, so ~600 rows could say a taxonomy
+    // page was viewed but not which one.
+    //
+    // Two columns for four facets, and deliberately NOT a foreign key: SQLite cannot
+    // point one column at four tables, and a hard FK would block ever deleting a term
+    // (`lib/retract-product.ts` already has to delete `page_views` rows for exactly
+    // that reason on products). Integrity comes from the ingest-time existence check
+    // in `routes/page-views.ts` instead — an unknown id stores as null, never as a
+    // lie. No CHECK on `taxonomy_kind` for the same reason the write is swallowed on
+    // error: this is a log table, and a constraint violation would silently drop the
+    // row. The value comes from a closed server-side map.
+    taxonomyKind: text('taxonomy_kind'),
+    taxonomyId: text('taxonomy_id'),
+
+    // How the visitor got here (AECI-585 / §7.3): `'arrival'` = full-document load
+    // (the SSR Worker's `firePageView`), `'spa'` = in-app navigation (the browser
+    // `PageViewTracker`). Null = unknown — every row written before this shipped, and
+    // any POST that omits it. NEVER inferred: the same-origin `Referer` on an SPA hop
+    // classifies as `Direct`, which is precisely the conflation this column exists to
+    // undo, so guessing would recreate the bug in a new column.
+    navigation: text('navigation'),
+
     referrer: text('referrer'),
 
     // Campaign attribution (AECI-243 / §11.2). Populated only when a visitor
@@ -742,12 +1040,44 @@ export const pageViews = sqliteTable(
     cfCountry: text('cf_country'),
     cfColo: text('cf_colo'),
     cfAsn: integer('cf_asn'),
+    // The AS *holder name* beside the number (AECI-585 / §13 D10), mirroring
+    // `mailing_list.as_organization`. An ASN cannot label itself, so without this the
+    // internal-traffic filter reads "excluding AS23700" and the bot classifier's
+    // weekly audit is a list of bare numbers. `POST_LAUNCH_MONITORING.md` §3b names
+    // holder-name capture as the durable fix for the bot/human split — "not a longer
+    // list". READ-side signal only: it never feeds `is_bot` at ingest.
+    cfAsOrganization: text('cf_as_organization'),
     cfBotScore: integer('cf_bot_score'),
 
     userAgentHash: text('user_agent_hash'),
     locale: text('locale'),
 
-    profileRole: text('profile_role'),
+    // Traffic classification (AECI-526 follow-up). Set at ingest from the raw UA +
+    // ASN (`lib/bot-classification.ts`) so the daily digest can report human-only
+    // metrics and a crawler breakdown grouped by `bot_name`. Nullable: rows written
+    // before the column existed read as human (`is_bot IS NOT 1`) until the one-time
+    // ASN backfill (`scripts/ops/backfill-page-view-bots.sql`) classifies them.
+    isBot: integer('is_bot', { mode: 'boolean' }),
+    botName: text('bot_name'),
+
+    // Traffic source (AECI-526 follow-up). Derived at ingest from the eyeball's
+    // `Referer` (`lib/referrer-classification.ts`) so the digest can break arrivals
+    // down by LinkedIn / Twitter/X / Google / other search engines / Direct / Other.
+    // `referrer` (declared above) now stores the external referrer host (privacy: host
+    // only, no path/query); `referrer_source` is the coarse label the digest groups on.
+    // Null on rows captured before this shipped — not backfillable (the header was
+    // never stored) — so those are excluded from the digest's Traffic-sources table.
+    referrerSource: text('referrer_source'),
+
+    // NOTE: `user_id`, `session_id` and `profile_role` were dropped by AECI-585
+    // (§13 D7). All three were declared at init and never written by any code path,
+    // and the decision was to drop rather than fill: there is no client-side session
+    // id anywhere in `apps/web`, and minting one would create a durable first-party
+    // identifier — exactly what makes this table's write defensible as
+    // consent-independent today. `user_id` is reachable on the browser POST but never
+    // on the SSR arrival path, so it would have been right half the time. `page_views`
+    // now holds no user linkage at all, which is also the strongest form of the GDPR
+    // erasure story (`AUTH_AND_RLS.md` §12). Do not reintroduce them.
 
     createdAt: createdAt(),
   },
@@ -757,9 +1087,11 @@ export const pageViews = sqliteTable(
     index('page_views_product_idx')
       .on(t.productId, t.createdAt)
       .where(sql`"product_id" IS NOT NULL`),
-    index('page_views_user_idx')
-      .on(t.userId, t.createdAt)
-      .where(sql`"user_id" IS NOT NULL`),
+    // Serves the digest's human/bot split + crawler grouping over a day window.
+    index('page_views_bot_idx').on(t.isBot, t.createdAt),
+    // No index on the AECI-585 columns: nothing groups or filters on them yet, and
+    // `page_views` is the hottest write path in the app (D1 bills rows written,
+    // indexes included). Add one with the read that needs it, not before.
   ],
 );
 
@@ -770,6 +1102,136 @@ export const statsCache = sqliteTable('stats_cache', {
     .notNull()
     .$defaultFn(() => new Date().toISOString()),
 });
+
+/**
+ * The admin panel's long memory (AECI-581 / `ADMIN_PANEL_SPEC.md` §7.1). One row
+ * per (UTC day, metric): a narrow key-value shape mirroring `stats_cache`'s key
+ * convention, so adding a metric never needs a migration.
+ *
+ * It exists because nothing else in D1 can answer "how many did we have on July
+ * 3rd" (§4). `stats_cache` is overwritten by the 07:00 cron, so no history
+ * survives; `audit_log` records genuine *additions* but not net totals — 827
+ * `integration.created` events back 496 live rows, because the 2026-07-25 reset
+ * removed rows without per-row audit. Written daily by the `snapshot` cron
+ * (`lib/metrics-snapshot.ts`), which captures the prior COMPLETE UTC day.
+ *
+ * Three properties are load-bearing:
+ *
+ * **`source` is stored, not inferred.** §7.1 proposed marking a backfilled row
+ * through its `computed_at`; that mislabels a legitimate late re-run of a missed
+ * day, whose sources are still intact. The column yields one precedence rule the
+ * cron and the backfill both obey: a `measured` write always wins, a
+ * `reconstructed` write applies only over an absent or `reconstructed` row.
+ *
+ * **No `audit_log` row.** Derived bookkeeping, exempt from the §26.1
+ * audit-in-batch invariant under ADR 0022 / §13 D11. Writes go per key, OUTSIDE
+ * any batch, so one failing metric never aborts the others.
+ *
+ * **Retention is indefinite** (§7.4 / §13 D5). P3.2's pruning cron must never
+ * touch this table, and must never prune raw `page_views` for a day it has not
+ * captured.
+ */
+export const metricsDaily = sqliteTable(
+  'metrics_daily',
+  {
+    /** `YYYY-MM-DD`, UTC. Text, so it sorts lexically = chronologically and can be
+     *  compared directly against `substr(created_at, 1, 10)` elsewhere. */
+    day: text('day').notNull(),
+    /** One of `ADMIN_SNAPSHOT_METRIC_KEYS` (`@aeci/shared`). Deliberately NOT a
+     *  CHECK constraint: the whole point of the key-value shape is that a new
+     *  metric costs no migration, and a SQLite CHECK change forces a table rebuild. */
+    metric: text('metric').notNull(),
+    /** REAL so a future ratio/average metric needs no migration. Every metric in
+     *  the vocabulary today is a count, so readers round. */
+    value: real('value').notNull(),
+    /** `measured` | `reconstructed` — see the docblock above. */
+    source: text('source').notNull().default('measured'),
+    computedAt: text('computed_at')
+      .notNull()
+      .$defaultFn(() => new Date().toISOString()),
+  },
+  (t) => [
+    // Leading `day` serves P3.2's "is this day captured?" probe.
+    primaryKey({ columns: [t.day, t.metric] }),
+    // The read pattern of GET /api/admin/metrics/timeseries: one metric, day range.
+    index('metrics_daily_metric_day_idx').on(t.metric, t.day),
+    check('metrics_daily_source_check', sql`"source" IN ('measured', 'reconstructed')`),
+  ],
+);
+
+// ===========================================================================
+// Cron bookkeeping (ADMIN_PANEL_SPEC.md §7.2)
+//
+// Derived, log-class, cron-written, and **exempt from the §26.1 audit-in-batch
+// invariant under ADR 0022** — `job_runs` IS the observability record, so an
+// `audit_log` row about it would be auditing the audit. Written per row,
+// OUTSIDE any `db.batch`, each inside its own try/catch (`lib/job-runs.ts`),
+// exactly as `stats_cache` is (`lib/home-stats.ts` `upsertStat`): a bookkeeping
+// write must never abort the job it records.
+// ===========================================================================
+
+/**
+ * One row per execution of one of the ten `scheduled.ts` cron jobs (§7.2).
+ * The row is inserted on ENTRY and completed on EXIT, so a run the isolate never
+ * came back from (CPU/wall-clock limit, eviction) stays durably visible as
+ * `finished_at IS NULL` rather than vanishing — that unfinished row is the
+ * signal, and it is lost if the row is only written on success.
+ */
+export const jobRuns = sqliteTable(
+  'job_runs',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+
+    /**
+     * An `AdminCronJob` id (`packages/shared/src/api/admin-panel.ts`) — the same
+     * vocabulary `CRON_SCHEDULES` keys on and `GET /api/admin/system` renders,
+     * NOT the internal `ScheduledJob` union `scheduled.ts` dispatches on
+     * (`ADMIN_CRON_JOB` in `lib/cron-schedules.ts` is the mapping).
+     *
+     * Deliberately CHECK-free, following `audit_log.action`: the vocabulary grows
+     * every time a cron is added and SQLite cannot ALTER a CHECK, so a ninth cron
+     * would need a table-recreate migration. The `Record<ScheduledJob, …>` map and
+     * the Zod enum are the enforcement; this column is the storage.
+     */
+    job: text('job').notNull().$type<AdminCronJob>(),
+
+    startedAt: text('started_at').notNull(),
+
+    /** Null while the run is in flight — and PERMANENTLY null if the isolate was
+     *  reclaimed mid-run. See the table doc above. */
+    finishedAt: text('finished_at'),
+
+    /**
+     * Null while in flight; one of the three terminal values after.
+     *
+     * There is deliberately **no `'running'` member**: in-flight is already
+     * representable as `finished_at IS NULL AND outcome IS NULL`, and a second
+     * encoding of the same state would let the two disagree. It also assigns
+     * straight into `AdminCronRunSchema.last_outcome` with no translation.
+     *
+     * NULL passes the CHECK below — SQLite satisfies a CHECK when the expression
+     * is true *or* NULL, and `NULL IN (…)` is NULL. Same construction as
+     * `vendors.public_private`.
+     */
+    outcome: text('outcome').$type<'ok' | 'failed' | 'skipped'>(),
+
+    /** Per-job payload: the data-quality run's full `DataQualityCheckResult[]`,
+     *  the 09:00 run's drift + orphan-sweep result, the reconcile counts. Typed
+     *  `unknown` at the schema layer (as `stats_cache.value` and
+     *  `audit_log.metadata` are) because every reader crosses a process boundary
+     *  and must parse rather than assume; `JobRunDetail` in `lib/job-runs.ts` is
+     *  the writer's shape and the typed accessors there are the readers'. */
+    detail: text('detail', { mode: 'json' }).$type<unknown>(),
+  },
+  (t) => [
+    // §7.2's `INDEX (job, started_at)`. Serves the read side's "newest run per
+    // job" as an equality seek + descending scan of one job's slice
+    // (`SEARCH … USING INDEX (job=?)` + LIMIT 1, ten rows read regardless of
+    // table size — one per cron) and the §7.4 prune's cutoff scan.
+    index('job_runs_job_started_at_idx').on(t.job, t.startedAt),
+    check('job_runs_outcome_check', sql`"outcome" IN ('ok', 'failed', 'skipped')`),
+  ],
+);
 
 // ===========================================================================
 // Future-ready (§10)
@@ -796,6 +1258,11 @@ export const translations = sqliteTable(
       t.field,
     ),
     index('translations_lookup_idx').on(t.entityType, t.entityId, t.locale),
+    // NOTE (AECI-540): 'trade' is deliberately NOT in this list. The trade facet is
+    // resolve-only at promote time, so no runtime path writes a translation for one,
+    // and this table has no writer at all today (en-US only at launch — §7a). Adding a
+    // value to a SQLite CHECK forces a full table rebuild, so it is deferred to
+    // whichever issue actually wires i18n for taxonomy terms — add 'trade' there.
     check(
       'translations_entity_type_check',
       sql`"entity_type" IN ('product', 'vendor', 'category', 'audience', 'phase', 'integration')`,
@@ -812,19 +1279,26 @@ export const translations = sqliteTable(
 // spec; modeled here because they share the D1 database (ADR 0016).
 // ===========================================================================
 
-export const feedback = sqliteTable('feedback', {
-  id: integer('id').primaryKey({ autoIncrement: true }),
-  features: text('features'),
-  tools: text('tools'),
-  email: text('email'),
-  subscribed: integer('subscribed', { mode: 'boolean' }).notNull().default(false),
-  country: text('country'),
-  city: text('city'),
-  region: text('region'),
-  timezone: text('timezone'),
-  referrer: text('referrer'),
-  createdAt: createdAt(),
-});
+export const feedback = sqliteTable(
+  'feedback',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    features: text('features'),
+    tools: text('tools'),
+    email: text('email'),
+    subscribed: integer('subscribed', { mode: 'boolean' }).notNull().default(false),
+    country: text('country'),
+    city: text('city'),
+    region: text('region'),
+    timezone: text('timezone'),
+    referrer: text('referrer'),
+    createdAt: createdAt(),
+  },
+  // AECI-586: this table's first index, added with its first read surface
+  // (`GET /api/admin/feedback`), which orders the whole inbox by `created_at`.
+  // `page_views` and `audit_log` have carried the equivalent since 0000.
+  (t) => [index('feedback_created_at_idx').on(t.createdAt)],
+);
 
 export const mailingList = sqliteTable(
   'mailing_list',
@@ -842,9 +1316,28 @@ export const mailingList = sqliteTable(
     utmMedium: text('utm_medium'),
     utmCampaign: text('utm_campaign'),
     referrer: text('referrer'),
+    // Opaque per-subscriber unsubscribe token (AECI-537). Set on insert
+    // (`crypto.randomUUID()`); backfilled for pre-existing rows via the 0006
+    // migration. Powers the `/unsubscribe?token=…` page link + the RFC 8058
+    // one-click `List-Unsubscribe-Post` header on the welcome email.
+    unsubscribeToken: text('unsubscribe_token'),
+    // Soft-delete / suppression (AECI-537). Null = active subscriber; an
+    // ISO-8601 timestamp = opted out (never re-emailed). A resubscribe clears
+    // this back to null (`createSubscribeHandler` reactivation path).
+    unsubscribedAt: text('unsubscribed_at'),
     createdAt: createdAt(),
   },
-  (t) => [uniqueIndex('mailing_list_email_key').on(t.email)],
+  (t) => [
+    uniqueIndex('mailing_list_email_key').on(t.email),
+    uniqueIndex('mailing_list_unsubscribe_token_key').on(t.unsubscribeToken),
+    // AECI-586: the §5.4 Audience section buckets signups by day on `created_at`
+    // and churn by day on `unsubscribed_at`, and computes the active population
+    // at a window boundary from both. Without these every one of those is a full
+    // scan — the two lead-capture tables were the only ones in the schema with no
+    // `created_at` index at all.
+    index('mailing_list_created_at_idx').on(t.createdAt),
+    index('mailing_list_unsubscribed_at_idx').on(t.unsubscribedAt),
+  ],
 );
 
 // ===========================================================================
@@ -858,6 +1351,10 @@ export const mailingList = sqliteTable(
 export const vendorsRelations = relations(vendors, ({ many }) => ({
   productVendors: many(productVendors),
   builtIntegrations: many(integrations, { relationName: 'IntegrationBuiltByVendor' }),
+  // Stage 2 provenance/authority back-relations (AECI-603). Named because a vendor is
+  // reachable from two different tables here, same as the built-by disambiguation above.
+  createdClaims: many(claims, { relationName: 'ClaimCreatedByVendor' }),
+  attestationsMade: many(attestations, { relationName: 'AttestationAttestedByVendor' }),
 }));
 
 export const productsRelations = relations(products, ({ many }) => ({
@@ -865,9 +1362,17 @@ export const productsRelations = relations(products, ({ many }) => ({
   productCategories: many(productCategories),
   productAudiences: many(productAudiences),
   productPhases: many(productPhases),
+  productTrades: many(productTrades),
   reviews: many(reviews),
   sourceIntegrations: many(integrations, { relationName: 'IntegrationSource' }),
   targetIntegrations: many(integrations, { relationName: 'IntegrationTarget' }),
+  // Stage 2 §8 — the product's declared releases. Order with `sort_key`, never
+  // by insertion or by label.
+  versions: many(productVersions),
+  // Integrations this product POWERS as the connector/mechanism (Stage 1.5
+  // Addendum B) — the inverse of `integrations.poweredByProduct`, so the
+  // product detail query can hydrate a connector's edges.
+  poweredIntegrations: many(integrations, { relationName: 'IntegrationPoweredByProduct' }),
 }));
 
 export const integrationsRelations = relations(integrations, ({ one, many }) => ({
@@ -905,6 +1410,9 @@ export const taxonomyAudiencesRelations = relations(taxonomyAudiences, ({ many }
 export const taxonomyPhasesRelations = relations(taxonomyPhases, ({ many }) => ({
   productPhases: many(productPhases),
 }));
+export const taxonomyTradesRelations = relations(taxonomyTrades, ({ many }) => ({
+  productTrades: many(productTrades),
+}));
 
 export const taxonomyDataObjectsRelations = relations(taxonomyDataObjects, ({ many }) => ({
   claims: many(claims),
@@ -918,10 +1426,40 @@ export const claimsRelations = relations(claims, ({ one, many }) => ({
     fields: [claims.dataObjectId],
     references: [taxonomyDataObjects.id],
   }),
+  createdByVendor: one(vendors, {
+    fields: [claims.createdByVendorId],
+    references: [vendors.id],
+    relationName: 'ClaimCreatedByVendor',
+  }),
   attestations: many(attestations),
 }));
 export const attestationsRelations = relations(attestations, ({ one }) => ({
   claim: one(claims, { fields: [attestations.claimId], references: [claims.id] }),
+  attestedByVendor: one(vendors, {
+    fields: [attestations.attestedByVendorId],
+    references: [vendors.id],
+    relationName: 'AttestationAttestedByVendor',
+  }),
+  // Two FKs into the SAME table, so both sides need an explicit `relationName`
+  // to disambiguate — the pattern `IntegrationSource`/`IntegrationTarget`
+  // already uses. Without it Drizzle cannot tell which relation a
+  // `productVersions` back-reference belongs to.
+  introducedVersion: one(productVersions, {
+    fields: [attestations.introducedVersionId],
+    references: [productVersions.id],
+    relationName: 'AttestationIntroducedVersion',
+  }),
+  deprecatedVersion: one(productVersions, {
+    fields: [attestations.deprecatedVersionId],
+    references: [productVersions.id],
+    relationName: 'AttestationDeprecatedVersion',
+  }),
+}));
+
+export const productVersionsRelations = relations(productVersions, ({ one, many }) => ({
+  product: one(products, { fields: [productVersions.productId], references: [products.id] }),
+  introducedAttestations: many(attestations, { relationName: 'AttestationIntroducedVersion' }),
+  deprecatedAttestations: many(attestations, { relationName: 'AttestationDeprecatedVersion' }),
 }));
 
 export const productCategoriesRelations = relations(productCategories, ({ one }) => ({
@@ -943,6 +1481,13 @@ export const productPhasesRelations = relations(productPhases, ({ one }) => ({
   phase: one(taxonomyPhases, {
     fields: [productPhases.phaseId],
     references: [taxonomyPhases.id],
+  }),
+}));
+export const productTradesRelations = relations(productTrades, ({ one }) => ({
+  product: one(products, { fields: [productTrades.productId], references: [products.id] }),
+  trade: one(taxonomyTrades, {
+    fields: [productTrades.tradeId],
+    references: [taxonomyTrades.id],
   }),
 }));
 
@@ -988,12 +1533,15 @@ export const schema = {
   taxonomyCategories,
   taxonomyAudiences,
   taxonomyPhases,
+  taxonomyTrades,
   taxonomyDataObjects,
+  productVersions,
   claims,
   attestations,
   productCategories,
   productAudiences,
   productPhases,
+  productTrades,
   productVendors,
   productExtensions,
   profiles,
@@ -1002,8 +1550,10 @@ export const schema = {
   workflowInstances,
   workflowTransitions,
   auditLog,
+  promoteJobs,
   pageViews,
   statsCache,
+  jobRuns,
   translations,
   feedback,
   mailingList,
@@ -1014,12 +1564,15 @@ export const schema = {
   taxonomyCategoriesRelations,
   taxonomyAudiencesRelations,
   taxonomyPhasesRelations,
+  taxonomyTradesRelations,
   taxonomyDataObjectsRelations,
   claimsRelations,
   attestationsRelations,
+  productVersionsRelations,
   productCategoriesRelations,
   productAudiencesRelations,
   productPhasesRelations,
+  productTradesRelations,
   productVendorsRelations,
   reviewsRelations,
   workflowInstancesRelations,

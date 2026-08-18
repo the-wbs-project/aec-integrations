@@ -12,14 +12,27 @@ Everything downstream seeds from it:
 - **AECI-290** — the Review-app (bamako) Airtable `data_objects` table is seeded from this list.
 - **"I8"** — the main app's D1 `taxonomy_data_objects` table + `apps/api/seed/data-objects.sql`
   are seeded from this list.
+- **AECI-606** — the vocabulary's first **wire surface**: `GET /api/vendor/data-objects` serves the
+  seeded rows to the vendor dashboard's `data_object` picker
+  (`STAGE_2_ATTESTATIONS_SPEC.md` §6). It carries `slug` / `name` / `description` only — see §3 for
+  why `aliases` stays server-side.
 
 ## 1. What a `data_object` is
 
 A `data_object` is the **noun that flows between two integrated AEC products** — the *what* of an
 integration. When Product A syncs with Product B, it is some `data_object` (RFIs, Budgets, Models…)
 that moves. In the Stage 1.5 model a claim's identity is the triple **`integration` + `data_object`
-+ `direction`**, so this vocabulary is load-bearing: claim identity, the sync headline, and (later)
-cross-grain detection all key off these terms.
++ `direction`**, so this vocabulary is load-bearing: claim identity, the sync headline, and the
+Stage 2 attestation detectors all key off these terms.
+
+> **Correction (AECI-608, 2026-08-18).** This sentence used to name "(later) cross-grain detection"
+> as the third consumer. That detector was **dropped at build** (AECI-302 —
+> `STAGE_2_ATTESTATIONS_SPEC.md` §7.1 / §11) and no longer belongs in a list of things this
+> vocabulary feeds. It was never defined anywhere in this repo, and the only definition proposed —
+> contradictory directions for one `data_object` across different mechanism rows on the same
+> product pair — describes legitimate data rather than a fault, since two mechanisms genuinely can
+> move the same object in opposite directions. Reviving it needs a definition with a
+> false-positive floor, not just a query.
 
 It mirrors the existing taxonomy vocabularies (`taxonomy_categories`, `taxonomy_audiences`,
 `taxonomy_phases`) in shape — `slug` / `name` / `description` / `display_order` — and adds one new
@@ -42,6 +55,12 @@ The list is **closed and frozen**. This is a deliberate constraint, not an overs
   added: `issues` (Issues / Observations), `transmittals`, `materials-deliveries`,
   `safety-incidents`, and `forms` (Forms / Checklists) were considered and **deliberately excluded**
   from the Stage 1.5 freeze.
+- **Since AECI-606 the closure is visible to vendors as an exhaustive picker**, not only enforced
+  server-side on free text. A vendor whose flow the list cannot express has **no in-product escape
+  hatch** — the remedy is the vocabulary-change PR above, and the UI must never imply the vendor can
+  extend the list. Two consequences worth stating plainly: this raises the practical cost of the five
+  held-out terms, and `name` / `description` are now **user-facing copy** rather than only matching
+  metadata (they are still freely editable, but they are read by vendors).
 
 ## 3. How `aliases` is used
 
@@ -51,9 +70,17 @@ of synonyms the **seeding AI** and the **promote resolver** map onto a closed te
 the system still resolves to one canonical slug.
 
 Matching is case-insensitive; both the `name` and every `alias` resolve to the same `slug`. Aliases
-are **resolver metadata**, not necessarily a database column — whether the main D1
-`taxonomy_data_objects` table materialises an `aliases` column or keeps the map alongside the seeder
-is an I8 (D1 schema) decision; either way this file is the source of the mapping.
+are **resolver metadata**. The open I8 question here is settled: D1 **does** materialise an
+`aliases` column on `taxonomy_data_objects` (`apps/api/src/db/schema.ts`), read by the shared
+find-only matcher in `apps/api/src/lib/data-object-vocabulary.ts`.
+
+**Aliases are deliberately not on the wire** (AECI-606). The vendor picker submits a canonical
+`slug`, which always resolves, so a client never needs to match; shipping the aliases would invite a
+client-side match that has to reimplement `safeSlugify`'s normalisation, and a second matcher is
+precisely the drift that matcher was extracted from `promote.ts` to eliminate. They are also raw
+curation strings ("ITB", "P6", "AP") rather than translatable copy. Contrast `taxonomy_trades`, where
+aliases *are* dual-purpose (`TRADES_VOCABULARY.md` §"Aliases"); the difference is that only this
+vocabulary is rendered to vendors as a closed list.
 
 ## 4. The frozen vocabulary (20 terms)
 

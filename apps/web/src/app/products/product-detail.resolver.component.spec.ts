@@ -52,11 +52,15 @@ function buildProduct(overrides: Partial<ProductDetail> = {}): ProductDetail {
     categories: [],
     audiences: [],
     phases: [],
+    trades: [],
     usefulness: null,
     integrations_as_source: [],
     integrations_as_target: [],
+    integrations_as_connector: [],
     related_products: [],
     reviews: [],
+    // The unreviewed baseline (AECI-616): bare attribution, no date.
+    maintenance: { maintained_by: 'aeci', last_reviewed_at: null },
     ...overrides,
   };
 }
@@ -100,6 +104,21 @@ registerDetailResolverSuite<ProductDetail>({
           updated_at: '2024-01-01T00:00:00.000Z',
         },
       ],
+      // Powered edge (this product is the connector) — bare IntegrationListItem,
+      // no `context_direction`. Both endpoints render, so both get tagged.
+      integrations_as_connector: [
+        {
+          id: 'int-c',
+          name: 'D ↔ E',
+          mechanism_kind: 'iPaaS',
+          mechanism_name: null,
+          direction: null,
+          source: { id: 's3', name: 'D', slug: 'd', logo_url: null },
+          target: { id: 't3', name: 'E', slug: 'e', logo_url: null },
+          created_at: '2024-01-01T00:00:00.000Z',
+          updated_at: '2024-01-01T00:00:00.000Z',
+        },
+      ],
     }),
   expectedMeta: {
     entity: 'product',
@@ -112,12 +131,17 @@ registerDetailResolverSuite<ProductDetail>({
   // Vendor tag + integration tag + partner product tag for each shown
   // integration (both source and target lists). Partner product tags are
   // required per CACHE_STRATEGY.md §3 so edits to those products purge this page.
+  // Powered edges (Addendum B) tag BOTH endpoints — this product is the
+  // connector, so neither endpoint is "self".
   expectedEmbedded: [
     { type: 'vendor', slug: 'procore' },
     { type: 'integration', id: 'int-a' },
     { type: 'product', slug: 'b' }, // target of integrations_as_source[0]
     { type: 'integration', id: 'int-b' },
     { type: 'product', slug: 'c' }, // source of integrations_as_target[0]
+    { type: 'integration', id: 'int-c' },
+    { type: 'product', slug: 'd' }, // source of integrations_as_connector[0]
+    { type: 'product', slug: 'e' }, // target of integrations_as_connector[0]
   ],
   expectedPageView: {
     route: '/products/:slug',

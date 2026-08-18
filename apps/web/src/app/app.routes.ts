@@ -1,5 +1,7 @@
 import { Routes } from '@angular/router';
 
+import { CONTEXT_VERSION_PARAM, OTHER_VERSION_PARAM } from '@aeci/shared/version-diff';
+
 import { adminSummaryResolver } from './admin/admin-summary.resolver';
 import { homeBrowseResolver } from './home/home-browse.resolver';
 import { homeStatsResolver } from './home/home-stats.resolver';
@@ -11,11 +13,13 @@ import {
   categoryBrowseResolver,
   audienceBrowseResolver,
   phaseBrowseResolver,
+  tradeBrowseResolver,
 } from './taxonomy/taxonomy-browse.resolver';
 import {
   categoriesIndexResolver,
   audiencesIndexResolver,
   phasesIndexResolver,
+  tradesIndexResolver,
 } from './taxonomy/taxonomy-index.resolver';
 import { vendorMeResolver } from './vendor/vendor-me.resolver';
 import { vendorDetailResolver } from './vendors/vendor-detail.resolver';
@@ -92,6 +96,20 @@ export const routes: Routes = [
     path: 'products/:contextSlug/integrations/:otherSlug',
     loadComponent: () => import('./products/products-pair').then((m) => m.ProductsPairPage),
     resolve: { pair: productsPairResolver },
+    // AECI-303 (§9) — the version selectors are QUERY params, and Angular's default
+    // `paramsChange` policy "does not include query parameters" (its own typedoc).
+    // Without an opt-in, changing a selector rewrites the URL and refetches nothing,
+    // so the controls look dead until a reload.
+    //
+    // The PREDICATE form, not `paramsOrQueryParamsChange`: that would also re-run the
+    // resolver on every `?view=` Basic/Detailed toggle, turning a client-side
+    // disclosure into an API round trip. This fires only when a version selector
+    // actually moves; path-param changes still re-run resolvers under the built-in
+    // rule, so this predicate is consulted only when the route is otherwise unchanged.
+    runGuardsAndResolvers: (from, to) =>
+      from.queryParamMap.get(CONTEXT_VERSION_PARAM) !==
+        to.queryParamMap.get(CONTEXT_VERSION_PARAM) ||
+      from.queryParamMap.get(OTHER_VERSION_PARAM) !== to.queryParamMap.get(OTHER_VERSION_PARAM),
   },
   {
     path: 'products/:slug',
@@ -121,10 +139,11 @@ export const routes: Routes = [
     loadComponent: () => import('./vendors/vendor-detail').then((m) => m.VendorDetailPage),
     resolve: { vendor: vendorDetailResolver },
   },
-  // AECI-61 / AECI-157 — Phase 2.15 taxonomy index + browse pages. Both the
-  // three flat indexes and the three `:slug` browse pages each share one
+  // AECI-61 / AECI-157 / AECI-544 — Phase 2.15 taxonomy index + browse pages.
+  // Both the four flat indexes and the four `:slug` browse pages each share one
   // component + one resolver factory, keyed by the static `data.kind`. AECI-157
-  // lit up the `/audiences` + `/phases` indexes (originally deferred to Phase 3).
+  // lit up the `/audiences` + `/phases` indexes (originally deferred to Phase 3);
+  // AECI-544 added `/trades`, the fourth facet (STAGE_1_SPEC.md §5.5a).
   // Resolvers run SSR-side; hydration reads from TransferState.
   {
     path: 'categories',
@@ -164,6 +183,24 @@ export const routes: Routes = [
     loadComponent: () => import('./taxonomy/taxonomy-browse').then((m) => m.TaxonomyBrowsePage),
     data: { kind: 'phase' },
     resolve: { term: phaseBrowseResolver },
+  },
+  // Trades (AECI-544 / AECI-546). The index applies the
+  // `TRADE_PUBLISH_MIN_PRODUCTS` floor to the terms it lists — though the index
+  // page itself is always indexable. A sub-floor TERM page still resolves 200, so
+  // its URL is stable across the gate; what it loses is indexability (`noindex`
+  // via `applyBrowseMeta`) and its sitemap entry.
+  {
+    path: 'trades',
+    pathMatch: 'full',
+    loadComponent: () => import('./taxonomy/taxonomy-index').then((m) => m.TaxonomyIndexPage),
+    data: { kind: 'trade' },
+    resolve: { terms: tradesIndexResolver },
+  },
+  {
+    path: 'trades/:slug',
+    loadComponent: () => import('./taxonomy/taxonomy-browse').then((m) => m.TaxonomyBrowsePage),
+    data: { kind: 'trade' },
+    resolve: { term: tradeBrowseResolver },
   },
   // AECI-294 (Stage 1.5) retired the standalone `/integrations/:id` detail route.
   // Integrations are now consolidated onto the product-PAIR page
@@ -220,14 +257,30 @@ export const routes: Routes = [
   // `requireAdmin()`): a 401/403 → 404 render (don't reveal the surface); a 200 →
   // the shell + pending-count badge. A logged-out visitor is bounced to login by
   // the worker-level `isAdminPath` gate before SSR. `AdminShell` is the layout
-  // (gate + nav + badge + <router-outlet/>); the children render in the outlet,
-  // and `/admin` redirects to the review queue.
+  // (gate + nav + badge + <router-outlet/>); the children render in the outlet.
+  //
+  // AECI-576 / Phase 8.3 P1.2 — the admin area became the operator console
+  // (`docs/ADMIN_PANEL_SPEC.md` §5), so `/admin` now redirects to the Overview
+  // rather than to the review queue. The three Operations queues are unchanged.
+  // AECI-577 / P1.3 added `activity` (§5.2); AECI-578 / P1.4 added `traffic`
+  // (§5.3); AECI-579 / P1.5 added `catalog` (§5.5); AECI-580 / P1.6 added
+  // `system` (§5.6); AECI-586 / P5.1 added `audience` (§5.4), which completes
+  // the §5 information architecture — every route it names now exists.
   {
     path: 'admin',
     loadComponent: () => import('./admin/admin-shell').then((m) => m.AdminShell),
     resolve: { summary: adminSummaryResolver },
     children: [
-      { path: '', pathMatch: 'full', redirectTo: 'reviews' },
+      { path: '', pathMatch: 'full', redirectTo: 'overview' },
+      {
+        path: 'overview',
+        loadComponent: () => import('./admin/overview/overview').then((m) => m.AdminOverview),
+      },
+      // AECI-577 / Phase 8.3 P1.3 — the §5.2 Activity feed, under Insights.
+      {
+        path: 'activity',
+        loadComponent: () => import('./admin/activity/activity-feed').then((m) => m.ActivityFeed),
+      },
       {
         path: 'reviews',
         loadComponent: () => import('./admin/reviews/review-queue').then((m) => m.ReviewQueue),
@@ -245,6 +298,37 @@ export const routes: Routes = [
       {
         path: 'reviewers',
         loadComponent: () => import('./admin/reviewers/reviewer-bans').then((m) => m.ReviewerBans),
+      },
+      // AECI-578 — Phase 8.3 P1.4, the §5.3 Traffic section. Renders the two
+      // AECI-574 read endpoints; inherits the parent's gate and non-cacheable
+      // branch, so nothing route-level changes here.
+      {
+        path: 'traffic',
+        loadComponent: () => import('./admin/traffic/traffic').then((m) => m.AdminTraffic),
+      },
+      // AECI-586 — Phase 8.3 P5.1, the §5.4 Audience section. Same gate, same
+      // client-side fetch. It reads `GET /api/admin/audience` (subscribers,
+      // churn, UTM, geography) and `GET /api/admin/feedback` — the first read
+      // surface the `feedback` table has ever had.
+      {
+        path: 'audience',
+        loadComponent: () => import('./admin/audience/audience').then((m) => m.AdminAudience),
+      },
+      // AECI-579 / Phase 8.3 P1.5 — the operator console's catalog section
+      // (`ADMIN_PANEL_SPEC.md` §5.5). No resolver of its own: the parent's
+      // `adminSummaryResolver` is the gate, and the screen fetches its own data
+      // client-side in `afterNextRender`, like the moderation queues.
+      {
+        path: 'catalog',
+        loadComponent: () =>
+          import('./admin/catalog/catalog-coverage').then((m) => m.CatalogCoverage),
+      },
+      // AECI-580 — Phase 8.3 P1.6, the §5.6 System status screen. Same layout,
+      // same gate; it reads `GET /api/admin/system` client-side (plus the SSR
+      // Worker's own `/_version`, so a stale SSR deploy is visible).
+      {
+        path: 'system',
+        loadComponent: () => import('./admin/system/system-status').then((m) => m.SystemStatus),
       },
     ],
   },
@@ -275,9 +359,36 @@ export const routes: Routes = [
     path: 'about',
     loadComponent: () => import('./about/about').then((m) => m.AboutPage),
   },
+  // AECI-536 — focused first-party mailing-list signup page for external links
+  // (LinkedIn etc.). Static + indexable + CACHEABLE (24h edge / 1h browser,
+  // `Cache-Tag: route:index`) like /about — pre-wired in `ROUTE_CACHE_PATTERNS`
+  // + `cacheTagInputsForPath`. Meta set in the component constructor. No resolver
+  // (the signup POSTs to the non-cached `/api/subscribe` only on a user action).
+  {
+    path: 'updates',
+    loadComponent: () => import('./updates/updates').then((m) => m.UpdatesPage),
+  },
+  // The header "More" menu's roadmap entry — a coming-soon placeholder. Static +
+  // CACHEABLE on the same static-page TTL as /about and /updates, but NOINDEX
+  // (thin placeholder content) and deliberately absent from `sitemap.xml`.
+  {
+    path: 'roadmap',
+    loadComponent: () => import('./roadmap/roadmap').then((m) => m.RoadmapPage),
+  },
   {
     path: 'contact',
     loadComponent: () => import('./contact/contact').then((m) => m.ContactPage),
+  },
+  // AECI-537 — mailing-list opt-out, the destination for the welcome email's
+  // tokenized `/unsubscribe?token=…` link. Deliberately NOT cacheable and NOT
+  // indexed: the URL carries a per-subscriber token, so it is absent from
+  // `ROUTE_CACHE_PATTERNS` + `cacheTagInputsForPath` (fail-closed `private,
+  // no-store`) and the component sets `robots: noindex`. RenderMode.Server (the
+  // `**` default). No resolver — the opt-out POSTs to `/api/unsubscribe` only on
+  // the confirm click (a GET must never mutate). Not linked from site nav.
+  {
+    path: 'unsubscribe',
+    loadComponent: () => import('./unsubscribe/unsubscribe').then((m) => m.UnsubscribePage),
   },
   // AECI-237 — Phase 7.2 legal pages. Four counsel-tracked documents
   // (`STAGE_1_SPEC.md` §13/§27) rendered from Markdown (`src/content/legal/`) by

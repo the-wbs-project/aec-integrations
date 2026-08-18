@@ -30,6 +30,11 @@
  * on the nightly watermark sync (≤24h) while SSR refreshes immediately via the
  * purge (`STAGE_2_VENDOR_PORTAL_SPEC.md` §8.2 / `STAGE_2_SPEC.md` §8.3(5)). The
  * dashboard copy must not promise "live in search".
+ *
+ * The mechanics above (`sessionVendorId`, `purgeTags`, the audit source, and the
+ * `requireOwnedProduct` ownership proof) live in `./vendor-shared.ts` so the
+ * version CRUD (AECI-607) and the attestation authoring API (AECI-301) share ONE
+ * implementation of each rule rather than three that must be kept in agreement.
  */
 
 import {
@@ -49,14 +54,8 @@ import {
   type VendorRequestSummary,
   type VendorSeat,
 } from '@aeci/shared';
-import {
-  forwardAuditLog,
-  type AuditLogEntry,
-  type AuditLogForwarder,
-} from '@aeci/shared/audit-log';
+import { type AuditLogEntry } from '@aeci/shared/audit-log';
 import { and, asc, count, eq, inArray, or } from 'drizzle-orm';
-import type { Context } from 'hono';
-import type { ZodType } from 'zod';
 
 import { getDb, type Db } from '../db/client';
 import {
@@ -72,17 +71,24 @@ import {
   vendorRequests,
   vendors,
 } from '../db/schema';
-import { logToDatadog } from '../datadog';
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
 import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
-import { auditActorType, type AuthzVariables } from '../lib/authz';
+import { auditActorType } from '../lib/authz';
 import { VENDOR_ADMIN_ROLE } from '../lib/claimed-vendors';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import { fetchAuthUserEmails } from '../lib/supabase-admin';
-
-type VendorContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
+import {
+  AUDIT_SOURCE,
+  afterVendorWrite,
+  parseJsonBody,
+  requireOwnedProduct,
+  sessionVendorId,
+  type ProductRow,
+  type VendorContext,
+  type VendorRow,
+} from './vendor-shared';
 
 /** Injected seat-email seam. Default hits the GoTrue Admin API; returns an empty
  *  map (→ `email: null`) when the service-role key is absent. */
@@ -90,13 +96,6 @@ export type FetchSeatEmails = (
   env: Env,
   userIds: readonly string[],
 ) => Promise<Map<string, string>>;
-
-/** `metadata.source` on every audit row this module writes. Distinguishes a
- *  vendor's self-service edit from the AECi-side `product.updated` /
- *  `vendor.updated` that `POST /api/promote` and the admin surfaces emit — the
- *  actor_type is `'user'` for both a reviewer and a vendor admin, so this tag is
- *  what makes the audit trail legible. */
-const AUDIT_SOURCE = 'vendor-portal';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -108,61 +107,6 @@ const AUDIT_SOURCE = 'vendor-portal';
  */
 function seatsOf(vendorId: string) {
   return and(eq(profiles.vendorId, vendorId), eq(profiles.role, VENDOR_ADMIN_ROLE));
-}
-
-/** The session's vendor id. `requireVendor()` guarantees it is non-null, so a
- *  miss here means the guard was not mounted — fail loudly rather than fall
- *  back to something that would read another vendor's rows. */
-function sessionVendorId(c: VendorContext): string {
-  const vendorId = c.get('auth').vendorId;
-  if (!vendorId) {
-    throw new ApiError(403, 'FORBIDDEN', 'Vendor account is not linked to a vendor');
-  }
-  return vendorId;
-}
-
-function makeForwarder(c: VendorContext): AuditLogForwarder | undefined {
-  if (!c.env.DD_API_KEY) return undefined;
-  return (entry) => {
-    logToDatadog(c.executionCtx, c.env, c.req.raw, {
-      level: 'info',
-      message: `audit ${entry.action} ${entry.entityId ?? ''}`.trim(),
-      action: entry.action,
-      entity_type: entry.entityType ?? undefined,
-      entity_id: entry.entityId ?? undefined,
-      source: AUDIT_SOURCE,
-    });
-  };
-}
-
-async function parseJsonBody<T>(c: VendorContext, schema: ZodType<T>): Promise<T> {
-  let raw: unknown;
-  try {
-    raw = await c.req.json();
-  } catch {
-    throw new ApiError(400, 'MALFORMED_REQUEST', 'Request body is not valid JSON');
-  }
-  return schema.parse(raw);
-}
-
-/**
- * Enqueue the Cache-Tag purge for an edited entity (WC-5 / ADR 0020 §3). The SSR
- * consumer issues the actual `ctx.cache.purge()`. Best-effort by design: no-ops
- * without the queue binding (local / PR preview) and a `queue.send` rejection is
- * logged and swallowed — a cache miss must never fail a committed edit.
- */
-async function purgeTags(c: VendorContext, tags: readonly string[]): Promise<void> {
-  const queue = c.env.CACHE_PURGE_QUEUE;
-  if (!queue || tags.length === 0) return;
-  try {
-    await queue.send({ tags: [...tags], source: 'vendor' });
-  } catch (error) {
-    logToDatadog(c.executionCtx, c.env, c.req.raw, {
-      level: 'warn',
-      message: `Cache purge enqueue failed for ${tags.join(',')}`,
-      outcome: error instanceof Error ? error.message : String(error),
-    });
-  }
 }
 
 /**
@@ -203,9 +147,6 @@ function productEditTags(slug: string, before: TaxonomySlugs, after: TaxonomySlu
 }
 
 // ─── Row → wire mappers ──────────────────────────────────────────────────────
-
-type VendorRow = typeof vendors.$inferSelect;
-type ProductRow = typeof products.$inferSelect;
 
 function toVendorAccount(row: VendorRow): VendorAccount {
   return {
@@ -583,15 +524,10 @@ export function createUpdateVendorProfileHandler(
     // only cost a round-trip — and could 404 a write that actually succeeded.
     const after = { ...before, ...writeColumns } as VendorRow;
 
-    c.executionCtx.waitUntil(
-      Promise.all([
-        // `vendor:{slug}` is enough here: a product detail page embeds its
-        // vendor and therefore carries this tag (`CACHE_STRATEGY.md` §3 rule 2),
-        // so every page showing the vendor repaints.
-        purgeTags(c, [`vendor:${after.slug}`]),
-        forwardAuditLog(auditEntry, makeForwarder(c)),
-      ]),
-    );
+    // `vendor:{slug}` is enough here: a product detail page embeds its vendor and
+    // therefore carries this tag (`CACHE_STRATEGY.md` §3 rule 2), so every page
+    // showing the vendor repaints.
+    afterVendorWrite(c, [`vendor:${after.slug}`], auditEntry);
 
     const body: UpdateVendorProfileResponse = { vendor: toVendorAccount(after) };
     validateResponseInDev(c.env, () => UpdateVendorProfileResponseSchema.parse(body));
@@ -630,13 +566,7 @@ export function createUpdateVendorProductHandler(
     // before any other query runs: folding it into the wave below would let a
     // rejected term lookup (400 VALIDATION_FAILED, naming the bad slug) win the
     // `Promise.all` race and answer a request that should have been a flat 404.
-    const [ownership, before] = await Promise.all([
-      db.query.productVendors.findFirst({
-        where: and(eq(productVendors.productId, productId), eq(productVendors.vendorId, vendorId)),
-      }),
-      db.query.products.findFirst({ where: eq(products.id, productId) }),
-    ]);
-    if (!ownership || !before) throw notFoundError('product', { id: productId });
+    const { product: before, isPrimary } = await requireOwnedProduct(db, vendorId, productId);
 
     // Now that the caller is known to own the row, the rest goes in one wave.
     // Term resolution happens BEFORE the batch opens, so an unknown slug is a
@@ -706,15 +636,10 @@ export function createUpdateVendorProductHandler(
     // if the row vanished between the batch and the read.
     const after = { ...before, ...writeColumns } as ProductRow;
 
-    c.executionCtx.waitUntil(
-      Promise.all([
-        purgeTags(c, productEditTags(after.slug, beforeTaxonomy, afterTaxonomy)),
-        forwardAuditLog(auditEntry, makeForwarder(c)),
-      ]),
-    );
+    afterVendorWrite(c, productEditTags(after.slug, beforeTaxonomy, afterTaxonomy), auditEntry);
 
     const body: UpdateVendorProductResponse = {
-      product: toVendorProduct(after, ownership.isPrimary, afterTaxonomy),
+      product: toVendorProduct(after, isPrimary, afterTaxonomy),
     };
     validateResponseInDev(c.env, () => UpdateVendorProductResponseSchema.parse(body));
     return json(body);

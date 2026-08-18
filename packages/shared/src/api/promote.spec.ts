@@ -4,6 +4,7 @@ import {
   EntityRefSchema,
   PromoteAttestationSchema,
   PromoteClaimSchema,
+  PromoteJobIdSchema,
   PromotePayloadSchema,
 } from './promote';
 
@@ -34,6 +35,28 @@ describe('PromotePayloadSchema', () => {
     expect(parsed.product?.categories).toEqual([]);
     expect(parsed.vendors).toEqual([]);
     expect(parsed.integrations).toEqual([]);
+  });
+
+  // AECI-542: `trades` is additive and OPTIONAL — the API side deploys before the
+  // review app starts sending it, so a payload written against the pre-trades
+  // contract must keep parsing unchanged.
+  it('defaults trades to [] for a product that omits the key (backwards compat)', () => {
+    const parsed = PromotePayloadSchema.parse(minimal);
+    expect(parsed.product?.trades).toEqual([]);
+  });
+
+  it('preserves trades (slugs, names, or aliases) through a parse round-trip', () => {
+    const parsed = PromotePayloadSchema.parse({
+      product: { ref: 'p1', name: 'Revit', trades: ['electrical', 'HVAC', 'Mechanical'] },
+    });
+    expect(parsed.product?.trades).toEqual(['electrical', 'HVAC', 'Mechanical']);
+  });
+
+  it('rejects an empty-string trade', () => {
+    expect(
+      PromotePayloadSchema.safeParse({ product: { ref: 'p1', name: 'Revit', trades: [''] } })
+        .success,
+    ).toBe(false);
   });
 
   it('accepts a vendor-only push (no product)', () => {
@@ -237,5 +260,107 @@ describe('PromotePayloadSchema — claims[] round-trip', () => {
       ],
     };
     expect(PromotePayloadSchema.safeParse(bad).success).toBe(false);
+  });
+});
+
+describe('PromoteJobIdSchema (AECI-563)', () => {
+  it('accepts the shapes a caller realistically supplies', () => {
+    for (const id of ['job-abc123', 'recAbC123XyZ', 'a'.repeat(100), 'A_b-9'.repeat(2)]) {
+      expect(PromoteJobIdSchema.safeParse(id).success).toBe(true);
+    }
+  });
+
+  it('rejects an id the Workflows platform would refuse', () => {
+    // Instance ids cap at 100 characters, and the charset excludes anything that would
+    // need escaping in a path segment (the poll URL is `/api/promote/jobs/:id`).
+    expect(PromoteJobIdSchema.safeParse('a'.repeat(101)).success).toBe(false);
+    expect(PromoteJobIdSchema.safeParse('job/with/slashes').success).toBe(false);
+    expect(PromoteJobIdSchema.safeParse('job with spaces').success).toBe(false);
+    expect(PromoteJobIdSchema.safeParse('job:colon').success).toBe(false);
+  });
+
+  it('rejects an id short enough to be a caller bug', () => {
+    // A 1–2 character id is almost certainly a loop index or a truthiness accident, and
+    // would silently fold two different products' promotes onto one Workflow instance.
+    expect(PromoteJobIdSchema.safeParse('1').success).toBe(false);
+    expect(PromoteJobIdSchema.safeParse('abc').success).toBe(false);
+    expect(PromoteJobIdSchema.safeParse('12345678').success).toBe(true);
+  });
+});
+
+describe('PromotePayloadSchema — jobId (AECI-563)', () => {
+  const minimal = { product: { ref: 'p1', name: 'Revit' } };
+
+  it('is optional, so a caller that omits it still validates', () => {
+    const parsed = PromotePayloadSchema.parse(minimal);
+    expect(parsed.jobId).toBeUndefined();
+  });
+
+  it('round-trips a supplied id (the kick-off idempotency key)', () => {
+    const parsed = PromotePayloadSchema.parse({ ...minimal, jobId: 'job-abc123' });
+    expect(parsed.jobId).toBe('job-abc123');
+  });
+
+  it('rejects an invalid id rather than silently generating one', () => {
+    const result = PromotePayloadSchema.safeParse({ ...minimal, jobId: 'no' });
+    expect(result.success).toBe(false);
+  });
+
+  it('still rejects a payload that carries nothing but a jobId', () => {
+    expect(PromotePayloadSchema.safeParse({ jobId: 'job-abc123' }).success).toBe(false);
+  });
+});
+
+describe('PromotePayloadSchema — lastReviewedAt (AECI-616)', () => {
+  const parse = (product: Record<string, unknown>) =>
+    PromotePayloadSchema.safeParse({ product: { ref: 'p1', name: 'Revit', ...product } });
+
+  it('is optional, and stays undefined so the ingest leaves the column alone', () => {
+    // `undefined` is what `compact()` drops in `productEditableData` — this is the
+    // mechanism behind "a re-promote with no review signal changes nothing".
+    const parsed = PromotePayloadSchema.parse({ product: { ref: 'p1', name: 'Revit' } });
+    expect(parsed.product?.lastReviewedAt).toBeUndefined();
+  });
+
+  it('accepts an ISO timestamp', () => {
+    const result = parse({ lastReviewedAt: '2026-08-18T10:00:00.000Z' });
+    expect(result.success).toBe(true);
+  });
+
+  it('accepts null, which clears the stored value', () => {
+    const result = parse({ lastReviewedAt: null });
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects an unparseable date rather than storing a value that renders as no date', () => {
+    // Deliberately stricter than the contract's usual loose-string rule: garbage here
+    // would be indistinguishable from "never reviewed" once rendered.
+    expect(parse({ lastReviewedAt: 'last tuesday' }).success).toBe(false);
+    expect(parse({ lastReviewedAt: '' }).success).toBe(false);
+  });
+
+  it('is accepted on vendors and integrations too', () => {
+    const result = PromotePayloadSchema.safeParse({
+      vendors: [{ ref: 'v1', companyName: 'Autodesk', lastReviewedAt: '2026-08-18T10:00:00.000Z' }],
+      product: { ref: 'p1', name: 'Revit' },
+      integrations: [
+        {
+          ref: 'i1',
+          sourceProduct: { ref: 'p1' },
+          targetProduct: { supabaseId: '00000000-0000-4000-8000-000000000001' },
+          lastReviewedAt: '2026-08-18T10:00:00.000Z',
+        },
+      ],
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('does not accept maintainedBy — that column is the vendor path’s alone', () => {
+    // Zod strips unknown keys rather than failing, so the assertion is that the value
+    // never reaches the parsed payload the ingest projects from.
+    const parsed = PromotePayloadSchema.parse({
+      product: { ref: 'p1', name: 'Revit', maintainedBy: 'aeci' },
+    });
+    expect(parsed.product).not.toHaveProperty('maintainedBy');
   });
 });

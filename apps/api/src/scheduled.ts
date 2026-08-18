@@ -15,6 +15,12 @@
  * `--test-scheduled` tick is never silently dropped.
  *
  * Cron triggers (`wrangler.jsonc`), staging + production:
+ * 03:00 UTC — daily §7.4 retention prune (`./lib/retention-prune`, AECI-584 /
+ * Phase 8.3 P3.2): delete `page_views` older than 400 days and `job_runs` older
+ * than 90, in bounded chunks, committing every chunk together with ONE summary
+ * `audit_log` row (the ADR 0022 exception — the only cron here that audits).
+ * Runs after the 00:15 snapshot, and *verifies* rather than assumes it landed:
+ * a day inside the cut window with no `metrics_daily` row aborts the whole run.
  * 04:00 UTC — daily §23.1 data-quality suite (`./lib/data-quality`, AECI-241 /
  * Phase 7.6): ten read-only integrity checks (orphan products/vendors, stale
  * `ready` products, broken integration refs, anonymized-review integrity, stale
@@ -44,6 +50,16 @@
  * `open`/`linear_issue_id=null` (their §6.4 on-submit issue creation failed), and
  * on a persistent failure raise the §6.2 admin alert. A tight backstop, not a
  * daily batch.
+ * 10:00 UTC (= 05:00 EST) — daily §7 attestation detector sweep
+ * (`./lib/attestation-detectors` + `./lib/attestation-notify`, AECI-302 /
+ * `STAGE_2_ATTESTATIONS_SPEC.md` §7): four detectors over the claim/attestation
+ * spine (silent counterparty, open conflict, stale version, AECi-seeded claim
+ * denied) → nudge emails to the vendors' seats and per-finding ops alerts to
+ * `ADMIN_ALERT_EMAIL`, deduped against an `audit_log` ledger so a daily sweep
+ * cannot re-nag daily. Deliberately last of the daily jobs, so a nudge describes
+ * the state the site is actually serving. Unlike the read-only gauges this one
+ * RETHROWS on an unexpected failure, so the queue retries — a sweep that never
+ * ran is a nudge nobody is ever told about.
  * Every hour at :00 (`WAF_CRON`) — WAF firewall-event poll (`./lib/waf-metrics` +
  * `@aeci/shared/cloudflare-analytics`, AECI-262 / §15.1): read the previous clock
  * hour of `firewallEventsAdaptiveGroups` from Cloudflare's GraphQL Analytics API
@@ -59,21 +75,20 @@
  * derive the `host` tag, which falls back to the worker slug).
  */
 
-import type { AlgoliaEnv } from '@aeci/shared/algolia';
 import { fetchWafFirewallEvents } from '@aeci/shared/cloudflare-analytics';
 import { and, asc, count, eq, inArray } from 'drizzle-orm';
 
 import { getDb } from './db/client';
 import { integrations, products, reviews, vendors } from './db/schema';
 import { logToDatadog, submitCount, submitDistribution, submitGauge } from './datadog';
+import { forwardAuditLog, type AuditLogForwarder } from '@aeci/shared/audit-log';
 import type { ScheduledJob, ScheduledJobMessage, ScheduledJobMessageInput, Env } from './env';
 import {
   createAlgoliaCounter,
-  findAlgoliaIndexDrift,
   reportAlgoliaDrift,
   type AlgoliaIndexDrift,
-  type DriftCount,
 } from './lib/algolia-drift';
+import { algoliaEnvFor, createDriftRunner, drizzleDriftCounter } from './lib/algolia-drift-deps';
 import { runDailySync } from './lib/algolia-sync';
 import {
   createAlgoliaDeleteClient,
@@ -83,18 +98,65 @@ import {
   type EntityOrphanResult,
   type PromotedIdProvider,
 } from './lib/algolia-orphans';
+import { runAttestationNotifySweep } from './lib/attestation-notify';
+import {
+  NOTIFY_DURATION_METRIC,
+  NOTIFY_JOB_METRIC,
+  type AttestationNotifyMetricSink,
+} from './lib/attestation-notify-metrics';
+import {
+  buildAnalyticsDigest,
+  collectAnalyticsMetrics,
+  dailyWindows,
+} from './lib/analytics-digest';
+import {
+  ADMIN_CRON_JOB,
+  ALGOLIA_DRIFT_CRON,
+  ALGOLIA_SYNC_CRON,
+  ANALYTICS_CRON,
+  ATTESTATION_NOTIFY_CRON,
+  DATA_QUALITY_CRON,
+  MODERATION_CRON,
+  RECONCILE_CRON,
+  RETENTION_CRON,
+  SNAPSHOT_CRON,
+  STATS_CRON,
+  WAF_CRON,
+} from './lib/cron-schedules';
 import { hasErrors, runDataQualityChecks, type DataQualityCheckResult } from './lib/data-quality';
 import { buildDataQualityDigest } from './lib/data-quality-email';
 import { parseRecipients, sendEmail } from './lib/email';
 import { emitAlgoliaSyncMetrics, type SyncMetricSink } from './lib/algolia-sync-metrics';
 import { runHomeStats, type HomeStatsResult } from './lib/home-stats';
-import { emitHomeStatsMetrics } from './lib/home-stats-metrics';
+import { emitHomeStatsMetrics, jobOutcome } from './lib/home-stats-metrics';
+import { shiftDay } from './lib/admin-analytics';
+import {
+  emitMetricsSnapshotMetrics,
+  runMetricsSnapshot,
+  type MetricsSnapshotResult,
+  type SnapshotMetricSink,
+} from './lib/metrics-snapshot';
+import {
+  toOrphanSweepEntity,
+  withJobRun,
+  type DriftReportDetail,
+  type JobRunReport,
+  type JobRunSink,
+  type OrphanSweepDetail,
+} from './lib/job-runs';
 import {
   emitModerationQueueMetrics,
   oldestPendingAgeHours,
   type ModerationMetricSink,
 } from './lib/moderation-metrics';
 import { runReconciliationSweep } from './lib/reconciliation-sweep';
+import {
+  emitRetentionPruneMetrics,
+  resolveRetentionWindows,
+  runRetentionPrune,
+  RETENTION_RUN_METRIC,
+  type RetentionMetricSink,
+} from './lib/retention-prune';
 import { emitWafEventMetrics, previousHourWindow } from './lib/waf-metrics';
 
 /**
@@ -110,54 +172,59 @@ function cronDb(env: Env) {
   return getDb(env, { constraint: 'first-primary' });
 }
 
-/** Cron expression for the daily incremental Algolia sync (`wrangler.jsonc`).
- *  08:00 UTC = 03:00 EST (US-East, our launch customer base). Cloudflare cron
- *  is UTC-only / DST-unaware, so this is 04:00 EDT in summer — both dead-of-night
- *  in the US, deliberately accepted (no per-season retune). MUST stay byte-equal
- *  to the `triggers.crons` entry in `wrangler.jsonc` or `controller.cron` won't
- *  match the `switch` below. */
-const ALGOLIA_SYNC_CRON = '0 8 * * *';
+/**
+ * D1 client for the §7.2 `job_runs` bookkeeping row (AECI-583).
+ *
+ * Unlike every other `cronDb` caller this one must NOT fail loud: `getDb` throws
+ * when the `DB` binding is absent, and a bookkeeping row is not worth taking down
+ * a job that needs no database at all (the WAF poll; both Algolia halves of the
+ * drift job). A `null` here degrades to "no row" and the job runs uninstrumented.
+ */
+function jobRunDb(env: Env) {
+  try {
+    return cronDb(env).db;
+  } catch {
+    return null;
+  }
+}
 
-/** Cron expression for the daily index-drift check (`wrangler.jsonc`).
- *  09:00 UTC = 04:00 EST — kept one hour after the sync so reconciliation reads
- *  a settled index. MUST stay byte-equal to `wrangler.jsonc` (see sync note). */
-const ALGOLIA_DRIFT_CRON = '0 9 * * *';
+/**
+ * Datadog sink for the bookkeeping writes themselves. Emitted on success too:
+ * without an always-on series, a silently-broken writer is indistinguishable from
+ * "no crons ran", which is exactly the confusion §5.6 exists to remove. A failure
+ * here means the admin panel's cron liveness under-reports — the JOB is
+ * unaffected. See docs/OBSERVABILITY.md.
+ */
+function jobRunSink(ctx: ExecutionContext, env: Env): JobRunSink {
+  const req = cronRequest('/cron/job-runs');
+  return (event) => {
+    submitCount(ctx, env, req, JOB_RUN_WRITE_METRIC, 1, [
+      `phase:${event.phase}`,
+      `job:${event.job}`,
+      `outcome:${event.outcome}`,
+    ]);
+    if (event.outcome === 'failed') {
+      logToDatadog(ctx, env, req, {
+        level: 'error',
+        message: 'aeci.job_runs.write_failed',
+        source: 'job-runs',
+        job: event.job,
+        phase: event.phase,
+        reason: event.reason,
+      });
+    }
+  };
+}
 
-/** Cron expression for the daily home-stats compute (`wrangler.jsonc`, AECI-178).
- *  07:00 UTC = 02:00 EST — one hour before the Algolia sync, so the `home.*`
- *  `stats_cache` rows are fresh at the start of the US morning. MUST stay
- *  byte-equal to `wrangler.jsonc` (see sync note). */
-const STATS_CRON = '0 7 * * *';
-
-/** Cron expression for the daily moderation-queue health snapshot (`wrangler.jsonc`,
- *  AECI-206). 06:00 UTC (= 01:00 EST) — one hour before the home-stats cron, in the
- *  same dead-of-night daily window. A cheap read-only gauge (no queue / ADR 0013
- *  consumer — `queueForJob` returns `undefined`, so it always runs inline). MUST
- *  stay byte-equal to the `triggers.crons` entry in `wrangler.jsonc`. */
-const MODERATION_CRON = '0 6 * * *';
-
-/** Cron expression for the request→Linear reconciliation sweep (`wrangler.jsonc`,
- *  AECI-214 / Phase 6.7). **Every 15 minutes** — unlike the daily batch jobs, this
- *  is a tight backstop: a request whose §6.4 on-submit issue creation failed is
- *  retried within ~15 min. Queue-backed (ADR 0013) so it gets native retries. MUST
- *  stay byte-equal to the `triggers.crons` entry in `wrangler.jsonc`. */
-const RECONCILE_CRON = '*/15 * * * *';
-
-/** Cron expression for the daily §23.1 data-quality job (`wrangler.jsonc`,
- *  AECI-241 / Phase 7.6). 04:00 UTC — the §23.1 slot, two hours ahead of the
- *  06:00 moderation snapshot, in the same dead-of-night daily window. Runs the
- *  ten checks and emails the digest when they finish (~04:30 UTC). MUST stay
- *  byte-equal to the `triggers.crons` entry in `wrangler.jsonc`. */
-const DATA_QUALITY_CRON = '0 4 * * *';
-
-/** Cron expression for the WAF firewall-event poll (`wrangler.jsonc`, AECI-262 /
- *  §15.1). **Every hour** at minute 0 — it reads the *previous clock hour* of
- *  `firewallEventsAdaptiveGroups` from Cloudflare's GraphQL Analytics API and
- *  emits the `aeci.waf.ratelimit.blocked` count, so the hourly cadence matches the
- *  one-hour query window (no overlap / gaps). Queue-less like `moderation` (a
- *  cheap read-only poll). MUST stay byte-equal to the `triggers.crons` entry in
- *  `wrangler.jsonc`. */
-const WAF_CRON = '0 * * * *';
+// The eleven cron expressions now live in `./lib/cron-schedules` — hoisted there
+// by AECI-580 (the snapshot cron joined them in AECI-581, the retention prune in
+// AECI-584, and the §7 attestation sweep at the AECI-619 reconciliation) so
+// `GET /api/admin/system`'s liveness rows read the SAME literals this dispatcher
+// `switch`es on rather than a second copy that could drift. Each one MUST still
+// stay byte-equal to its `triggers.crons` entry in `wrangler.jsonc`, or
+// `controller.cron` won't match the `switch` below; see that file for the per-job
+// scheduling rationale (including why `SNAPSHOT_CRON` runs at 00:15, the first
+// slot of the day, and why `ATTESTATION_NOTIFY_CRON` runs last at 10:00).
 
 /** The gauge a Datadog monitor alerts on (see docs/OBSERVABILITY.md). */
 const DRIFT_METRIC = 'aeci.algolia.index_drift';
@@ -178,71 +245,26 @@ const DQ_DURATION_METRIC = 'aeci.data_quality.job.duration_ms';
 const DQ_CHECK_METRIC = 'aeci.data_quality.check';
 const DQ_EMAIL_METRIC = 'aeci.data_quality.email';
 
+/** Metric for the daily analytics digest (AECI-526). One count per run tagged
+ *  `outcome:sent|skipped|failed`; the always-emitted count doubles as the cron
+ *  liveness signal (see docs/OBSERVABILITY.md). */
+const ANALYTICS_EMAIL_METRIC = 'aeci.analytics_digest.email';
+
 /** Per-run heartbeat for the WAF firewall-event poll (AECI-262). One count per
  *  run with `outcome:ok|failed|skipped_no_creds` — the always-emitted `outcome:ok`
  *  series doubles as the cron-liveness signal (see docs/OBSERVABILITY.md). */
 const WAF_POLL_METRIC = 'aeci.waf.poll';
+
+/** Outcome of a §7.2 `job_runs` bookkeeping write (AECI-583), tagged
+ *  `phase:start|finish`, `job:<AdminCronJob>`, `outcome:ok|failed`. This measures
+ *  the RECORDER, not the job — see docs/OBSERVABILITY.md. */
+const JOB_RUN_WRITE_METRIC = 'aeci.job_runs.write';
 
 /** Synthetic request so the Datadog helpers can derive a `host` tag (the cron
  *  has no incoming Request; `hostnameFromRequest` uses the URL host or falls
  *  back to the worker slug). */
 function cronRequest(path: string): Request {
   return new Request(`https://aeci-api${path}`);
-}
-
-/** Map the Worker `ENV` var to the Algolia env (unset → `development`, which
- *  folds onto the preview index set — same convention as `/api/version`). */
-function algoliaEnvFor(env: Env): AlgoliaEnv {
-  return env.ENV ?? 'development';
-}
-
-/** A Drizzle-backed `DriftCount` (the index-drift check's injected count
- *  surface). Counts promoted products/vendors and integrations whose BOTH
- *  endpoints are promoted — the same membership filter `algolia-sync` indexes on.
- *  algolia-drift stays ORM-agnostic; only this adapter knows about D1. */
-function drizzleDriftCounter(env: Env): DriftCount {
-  const { db } = cronDb(env);
-  return {
-    product: {
-      count: async ({ where }) =>
-        (
-          await db
-            .select({ value: count() })
-            .from(products)
-            .where(eq(products.promotionStatus, where.promotionStatus))
-        )[0]?.value ?? 0,
-    },
-    vendor: {
-      count: async ({ where }) =>
-        (
-          await db
-            .select({ value: count() })
-            .from(vendors)
-            .where(eq(vendors.promotionStatus, where.promotionStatus))
-        )[0]?.value ?? 0,
-    },
-    integration: {
-      count: async ({ where }) => {
-        const promoted = db
-          .select({ id: products.id })
-          .from(products)
-          .where(eq(products.promotionStatus, where.sourceProduct.promotionStatus));
-        return (
-          (
-            await db
-              .select({ value: count() })
-              .from(integrations)
-              .where(
-                and(
-                  inArray(integrations.sourceProductId, promoted),
-                  inArray(integrations.targetProductId, promoted),
-                ),
-              )
-          )[0]?.value ?? 0
-        );
-      },
-    },
-  };
 }
 
 /** A Drizzle-backed `PromotedIdProvider` (the orphan sweep's injected
@@ -291,15 +313,21 @@ function drizzlePromotedIds(env: Env): PromotedIdProvider {
 }
 
 /** Adapt the shared Datadog submitters into the pure metrics modules' sink, so
- *  `emitAlgoliaSyncMetrics` / `emitHomeStatsMetrics` / `emitModerationQueueMetrics`
+ *  `emitAlgoliaSyncMetrics` / `emitHomeStatsMetrics` / `emitModerationQueueMetrics` /
+ *  `emitMetricsSnapshotMetrics` / `emitRetentionPruneMetrics` / `emitDetectorMetrics`
  *  stay free of `ctx`/`env`/`Request` plumbing. The count + distribution + gauge
- *  shape satisfies `SyncMetricSink` / `StatsMetricSink` (count + distribution) and
- *  `ModerationMetricSink` (gauge) alike. */
+ *  shape satisfies `SyncMetricSink` / `StatsMetricSink` / `SnapshotMetricSink` /
+ *  `RetentionMetricSink` (count + distribution), `ModerationMetricSink` (gauge) and
+ *  `AttestationNotifyMetricSink` (count + gauge) alike. */
 function metricSink(
   ctx: ExecutionContext,
   env: Env,
   req: Request,
-): SyncMetricSink & ModerationMetricSink {
+): SyncMetricSink &
+  ModerationMetricSink &
+  SnapshotMetricSink &
+  RetentionMetricSink &
+  AttestationNotifyMetricSink {
   return {
     count: (metric, value, tags) => submitCount(ctx, env, req, metric, value, tags),
     distribution: (metric, value, tags) => submitDistribution(ctx, env, req, metric, value, tags),
@@ -307,7 +335,7 @@ function metricSink(
   };
 }
 
-async function runAlgoliaSync(env: Env, ctx: ExecutionContext): Promise<void> {
+async function runAlgoliaSync(env: Env, ctx: ExecutionContext): Promise<JobRunReport> {
   const req = cronRequest('/cron/algolia-sync');
   const creds = { appId: env.ALGOLIA_APP_ID, apiKey: env.ALGOLIA_ADMIN_KEY };
 
@@ -324,7 +352,7 @@ async function runAlgoliaSync(env: Env, ctx: ExecutionContext): Promise<void> {
       message: 'aeci.algolia.sync.skipped_no_creds',
       source: 'algolia-sync-cron',
     });
-    return;
+    return { outcome: 'skipped', detail: { job: 'algolia-sync', reason: 'no_creds' } };
   }
 
   const { db } = cronDb(env);
@@ -350,12 +378,20 @@ async function runAlgoliaSync(env: Env, ctx: ExecutionContext): Promise<void> {
       source: 'algolia-sync-cron',
       reason: error instanceof Error ? error.message : String(error),
     });
-    return;
+    return {
+      outcome: 'failed',
+      detail: {
+        job: 'algolia-sync',
+        reason: error instanceof Error ? error.message : String(error),
+      },
+    };
   }
+
+  const durationMs = Date.now() - started;
 
   // Per-entity outcome + records counts and the run-level duration distribution
   // (AECI-141). Shared with the promote hook so the two writers can't drift.
-  emitAlgoliaSyncMetrics(metricSink(ctx, env, req), 'cron', result.entities, Date.now() - started);
+  emitAlgoliaSyncMetrics(metricSink(ctx, env, req), 'cron', result.entities, durationMs);
 
   for (const entity of result.entities) {
     logToDatadog(ctx, env, req, {
@@ -369,9 +405,23 @@ async function runAlgoliaSync(env: Env, ctx: ExecutionContext): Promise<void> {
       ...(entity.ok ? {} : { reason: entity.error }),
     });
   }
+
+  // `runDailySync` swallows per-entity push failures, so a run where an entity
+  // errored still returns normally. Record it as `failed` — `emitAlgoliaSyncMetrics`
+  // already tagged that entity `outcome:failed`, and the panel must never claim
+  // more success than Datadog does for the same run.
+  return {
+    outcome: result.entities.every((e) => e.ok) ? 'ok' : 'failed',
+    detail: {
+      job: 'algolia-sync',
+      durationMs,
+      cutoff: result.cutoff,
+      entities: result.entities,
+    },
+  };
 }
 
-async function runAlgoliaDrift(env: Env, ctx: ExecutionContext): Promise<void> {
+async function runAlgoliaDrift(env: Env, ctx: ExecutionContext): Promise<JobRunReport> {
   const req = cronRequest('/cron/algolia-drift');
 
   // Defensive no-op: production deploys are gated on these secrets
@@ -382,25 +432,35 @@ async function runAlgoliaDrift(env: Env, ctx: ExecutionContext): Promise<void> {
       message: 'aeci.algolia.index_drift.skipped_no_creds',
       source: 'algolia-drift-cron',
     });
-    return;
+    return { outcome: 'skipped', detail: { job: 'algolia-drift', reason: 'no_creds' } };
   }
 
-  const driftCounter = drizzleDriftCounter(env);
+  const driftCounter = drizzleDriftCounter(cronDb(env).db);
   const algolia = createAlgoliaCounter(env.ALGOLIA_APP_ID, env.ALGOLIA_ADMIN_KEY);
   const ddEnv = algoliaEnvFor(env);
 
+  // The two halves are recorded independently so a `failed` headline can still
+  // say WHICH half failed (§5.6 renders both).
+  // Assigned on every path out of each try/catch below.
+  let report: DriftReportDetail;
+  let sweep: OrphanSweepDetail;
+
   try {
+    const measured: AlgoliaIndexDrift[] = [];
     await reportAlgoliaDrift(
       {
         db: driftCounter,
         algolia,
         // Gauge per entity, always (0 when clean) so a no-data monitor can tell
-        // "ran clean" from "didn't run".
-        emitGauge: (row: AlgoliaIndexDrift) =>
+        // "ran clean" from "didn't run". The same per-entity rows are collected
+        // for the §7.2 `detail` payload — one measurement, two recording surfaces.
+        emitGauge: (row: AlgoliaIndexDrift) => {
+          measured.push(row);
           submitGauge(ctx, env, req, DRIFT_METRIC, row.drift, [
             `entity:${row.entity}`,
             `index:${row.indexName}`,
-          ]),
+          ]);
+        },
         onDrift: (drifted: AlgoliaIndexDrift[]) =>
           logToDatadog(ctx, env, req, {
             level: 'error',
@@ -415,6 +475,7 @@ async function runAlgoliaDrift(env: Env, ctx: ExecutionContext): Promise<void> {
       },
       { env: ddEnv },
     );
+    report = { ran: true, drifted: measured };
   } catch (error) {
     // The Algolia count (fetch) or the D1 counts can throw; log loudly,
     // never rethrow (a thrown cron just shows as a failed invocation with no
@@ -425,6 +486,7 @@ async function runAlgoliaDrift(env: Env, ctx: ExecutionContext): Promise<void> {
       source: 'algolia-drift-cron',
       reason: error instanceof Error ? error.message : String(error),
     });
+    report = { ran: false, reason: error instanceof Error ? error.message : String(error) };
   }
 
   // Remediation half (AECI-266): the report above MEASURES; this sweep HEALS the
@@ -437,7 +499,7 @@ async function runAlgoliaDrift(env: Env, ctx: ExecutionContext): Promise<void> {
   // refuses an unexpectedly large purge (e.g. an empty/misconfigured D1 read).
   // Independent try/catch so a drift-report failure doesn't block the heal.
   try {
-    const sweep = await sweepAlgoliaOrphans(
+    const swept = await sweepAlgoliaOrphans(
       {
         ids: drizzlePromotedIds(env),
         browse: createAlgoliaObjectIdClient(env.ALGOLIA_APP_ID, env.ALGOLIA_ADMIN_KEY),
@@ -461,20 +523,31 @@ async function runAlgoliaDrift(env: Env, ctx: ExecutionContext): Promise<void> {
       { env: ddEnv, apply: true, safetyCap: DEFAULT_SAFETY_CAP },
     );
 
-    const capped = sweep.entities.filter((e) => e.skippedBySafetyCap);
-    const failed = sweep.entities.filter((e) => !e.ok);
-    if (sweep.totalDeleted > 0 || capped.length > 0 || failed.length > 0) {
+    const capped = swept.entities.filter((e) => e.skippedBySafetyCap);
+    const failed = swept.entities.filter((e) => !e.ok);
+    if (swept.totalDeleted > 0 || capped.length > 0 || failed.length > 0) {
       logToDatadog(ctx, env, req, {
         level: capped.length > 0 || failed.length > 0 ? 'warn' : 'info',
-        message: `aeci.algolia.orphans_removed on ${ddEnv}: removed ${sweep.totalDeleted} orphan object(s)${
+        message: `aeci.algolia.orphans_removed on ${ddEnv}: removed ${swept.totalDeleted} orphan object(s)${
           capped.length > 0
             ? `; ${capped.length} index(es) refused by safety cap (re-run the CLI with --force)`
             : ''
         }${failed.length > 0 ? `; ${failed.length} index(es) errored` : ''}`,
         source: 'algolia-drift-cron',
-        sweep: sweep.entities,
+        sweep: swept.entities,
       });
     }
+
+    // `orphanIds` is dropped — an unbounded id list the log above already carries.
+    // The counts are what §5.6 renders (AECI-583); until this shipped the sweep's
+    // result reached Datadog and nowhere else.
+    sweep = {
+      ran: true,
+      ok: failed.length === 0,
+      totalOrphans: swept.totalOrphans,
+      totalDeleted: swept.totalDeleted,
+      entities: swept.entities.map(toOrphanSweepEntity),
+    };
   } catch (error) {
     logToDatadog(ctx, env, req, {
       level: 'error',
@@ -482,10 +555,21 @@ async function runAlgoliaDrift(env: Env, ctx: ExecutionContext): Promise<void> {
       source: 'algolia-drift-cron',
       reason: error instanceof Error ? error.message : String(error),
     });
+    sweep = { ran: false, reason: error instanceof Error ? error.message : String(error) };
   }
+
+  // Since AECI-266 the heal is half this job's contract and the report is its
+  // primary measurement, so EITHER half failing is a failed run. Reporting `ok`
+  // when the drift gauge never emitted would be the "reports fine because it has
+  // no data" failure the whole §5.6 nullable design exists to prevent; `detail`
+  // keeps the halves apart so the screen can say which one broke.
+  return {
+    outcome: report.ran && sweep.ran && sweep.ok ? 'ok' : 'failed',
+    detail: { job: 'algolia-drift', report, sweep },
+  };
 }
 
-async function runHomeStatsJob(env: Env, ctx: ExecutionContext): Promise<void> {
+async function runHomeStatsJob(env: Env, ctx: ExecutionContext): Promise<JobRunReport> {
   const req = cronRequest('/cron/stats');
   const { db } = cronDb(env);
 
@@ -505,7 +589,10 @@ async function runHomeStatsJob(env: Env, ctx: ExecutionContext): Promise<void> {
       source: 'stats-cron',
       reason: error instanceof Error ? error.message : String(error),
     });
-    return;
+    return {
+      outcome: 'failed',
+      detail: { job: 'home-stats', reason: error instanceof Error ? error.message : String(error) },
+    };
   }
 
   const written = result.keys.filter((k) => k.status === 'written').length;
@@ -526,7 +613,8 @@ async function runHomeStatsJob(env: Env, ctx: ExecutionContext): Promise<void> {
   // Job-level + per-key outcome/duration metrics (AECI-180 / 4.5) — the dashboard
   // and the failure + freshness monitors query these. The shared emitter derives
   // the run `outcome` from the per-key statuses so it can't drift from the log.
-  emitHomeStatsMetrics(metricSink(ctx, env, req), 'cron', result, Date.now() - started);
+  const durationMs = Date.now() - started;
+  emitHomeStatsMetrics(metricSink(ctx, env, req), 'cron', result, durationMs);
   logToDatadog(ctx, env, req, {
     level: failed > 0 ? 'warn' : 'info',
     message: `aeci.stats.computed keys_written=${written} keys_failed=${failed} keys_skipped=${skipped}`,
@@ -535,13 +623,211 @@ async function runHomeStatsJob(env: Env, ctx: ExecutionContext): Promise<void> {
     keys_failed: failed,
     keys_skipped: skipped,
   });
+
+  // Derived from the SAME `jobOutcome` the Datadog tag uses, so `job_runs` and the
+  // metric cannot grow separate opinions of what a partial run is. §7.2's vocabulary
+  // has no `partial`, so it collapses to `failed`: a run that failed to write a
+  // `home.*` key must not show the operator a green tick.
+  return {
+    outcome: jobOutcome(result) === 'success' ? 'ok' : 'failed',
+    detail: { job: 'home-stats', durationMs, written, failed, skipped, keys: result.keys },
+  };
+}
+
+/** Capture the prior COMPLETE UTC day into `metrics_daily` (AECI-581 / §7.1) —
+ *  the admin panel's long memory, because §4 shows neither `stats_cache` (which
+ *  is overwritten) nor `audit_log` (additions, not net totals) can answer "how
+ *  many did we have on this date". `runMetricsSnapshot` is per-metric
+ *  best-effort and never throws on a compute/write failure, so reaching the catch
+ *  here is a pre-compute crash (e.g. a missing DB binding): log loudly, count an
+ *  outright failure, never rethrow. */
+async function runMetricsSnapshotJob(env: Env, ctx: ExecutionContext): Promise<JobRunReport> {
+  const req = cronRequest('/cron/metrics-snapshot');
+  const { db } = cronDb(env);
+  // The prior complete UTC day. Running at 00:15 means "yesterday" is closed and
+  // the stock sample is only minutes past its end.
+  const day = shiftDay(new Date().toISOString().slice(0, 10), -1);
+
+  const started = Date.now();
+  let result: MetricsSnapshotResult;
+  try {
+    result = await runMetricsSnapshot(db, day, new Date());
+  } catch (error) {
+    submitCount(ctx, env, req, 'aeci.metrics_snapshot.run', 1, ['trigger:cron', 'outcome:failed']);
+    logToDatadog(ctx, env, req, {
+      level: 'error',
+      message: 'aeci.metrics_snapshot.crashed',
+      source: 'metrics-snapshot-cron',
+      day,
+      reason: error instanceof Error ? error.message : String(error),
+    });
+    return {
+      outcome: 'failed',
+      detail: {
+        job: 'metrics-snapshot',
+        reason: error instanceof Error ? error.message : String(error),
+      },
+    };
+  }
+
+  const written = result.metrics.filter((m) => m.status === 'written').length;
+  const failed = result.metrics.filter((m) => m.status === 'failed');
+
+  for (const m of failed) {
+    logToDatadog(ctx, env, req, {
+      level: 'error',
+      message: `aeci.metrics_snapshot.metric ${m.metric} status=failed`,
+      source: 'metrics-snapshot-cron',
+      day,
+      metric: m.metric,
+      reason: m.error,
+    });
+  }
+
+  const durationMs = Date.now() - started;
+  emitMetricsSnapshotMetrics(metricSink(ctx, env, req), result, durationMs);
+  logToDatadog(ctx, env, req, {
+    level: failed.length > 0 ? 'warn' : 'info',
+    message: `aeci.metrics_snapshot.captured day=${day} metrics_written=${written} metrics_failed=${failed.length}`,
+    source: 'metrics-snapshot-cron',
+    day,
+    metrics_written: written,
+    metrics_failed: failed.length,
+  });
+
+  // §7.2 (AECI-583). Any failed metric collapses `partial → failed`, in step with
+  // the per-metric `outcome:failed` Datadog tag: the panel must not claim more
+  // success than Datadog does for the same run.
+  return {
+    outcome: failed.length === 0 ? 'ok' : 'failed',
+    detail: {
+      job: 'metrics-snapshot',
+      day,
+      durationMs,
+      written,
+      failed: failed.length,
+      metrics: result.metrics,
+    },
+  };
+}
+
+/**
+ * The §7.4 retention prune (AECI-584 / Phase 8.3 P3.2) — the system's only
+ * scheduled `DELETE`.
+ *
+ * Everything load-bearing lives in `./lib/retention-prune`; this is the shell
+ * that supplies `env`, the clock, the Datadog sink, and the §26.5 forward. Three
+ * things about it are specific to a destructive job:
+ *
+ *   - **`runRetentionPrune` is allowed to throw.** Unlike the snapshot job (per
+ *     metric best-effort) a D1 failure here must NOT be swallowed into a
+ *     partial-success story: the batch is atomic, so a throw means nothing was
+ *     deleted, and `outcome: 'failed'` is the honest record.
+ *   - **The audit forward is post-commit and fire-and-forget** (§26.5). The row
+ *     itself already committed inside the batch with the deletes; this is only
+ *     the Datadog copy. `routes/*.ts` build their forwarder from a Hono
+ *     `Context` — a cron has none, so it binds the synthetic request instead.
+ *   - **A skip is loud.** `outcome: 'skipped'` with the missing days, an
+ *     `error`-level log, and `aeci.retention.prune{outcome:skipped}` — the
+ *     monitor that catches "the long memory stopped being written".
+ */
+async function runRetentionPruneJob(env: Env, ctx: ExecutionContext): Promise<JobRunReport> {
+  const req = cronRequest('/cron/retention-prune');
+  const { db } = cronDb(env);
+
+  const windows = resolveRetentionWindows(env, (table, reason) => {
+    // An override we refused. Loud, because the operator who set it believes a
+    // different window is in force than the one about to run.
+    logToDatadog(ctx, env, req, {
+      level: 'warn',
+      message: 'aeci.retention.invalid_window_override',
+      source: 'retention-prune-cron',
+      table,
+      reason,
+    });
+  });
+
+  const started = Date.now();
+  let result: Awaited<ReturnType<typeof runRetentionPrune>>;
+  try {
+    result = await runRetentionPrune(db, new Date(), windows);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    submitCount(ctx, env, req, RETENTION_RUN_METRIC, 1, ['trigger:cron', 'outcome:failed']);
+    logToDatadog(ctx, env, req, {
+      level: 'error',
+      message: 'aeci.retention.crashed',
+      source: 'retention-prune-cron',
+      reason,
+    });
+    return { outcome: 'failed', detail: { job: 'retention-prune', reason } };
+  }
+
+  const durationMs = Date.now() - started;
+  emitRetentionPruneMetrics(metricSink(ctx, env, req), result, durationMs);
+
+  if (result.status === 'skipped') {
+    logToDatadog(ctx, env, req, {
+      level: 'error',
+      message: `aeci.retention.skipped reason=${result.reason} missing_days=${result.missingCount}`,
+      source: 'retention-prune-cron',
+      reason: result.reason,
+      window_from: result.window.fromDay,
+      window_to: result.window.toDay,
+      missing_days: result.missingDays.join(','),
+      missing_count: result.missingCount,
+    });
+    return {
+      outcome: 'skipped',
+      detail: {
+        job: 'retention-prune',
+        reason: result.reason,
+        window: result.window,
+        missingCount: result.missingCount,
+        missingDays: result.missingDays,
+      },
+    };
+  }
+
+  const truncated = result.tables.filter((t) => t.truncated);
+  logToDatadog(ctx, env, req, {
+    level: truncated.length > 0 ? 'warn' : 'info',
+    message: `aeci.retention.pruned rows_deleted=${result.rowsDeleted}`,
+    source: 'retention-prune-cron',
+    rows_deleted: result.rowsDeleted,
+    tables: result.tables.map((t) => `${t.table}=${t.rowsDeleted}`).join(','),
+    truncated: truncated.map((t) => t.table).join(','),
+  });
+
+  if (result.auditEntry) {
+    const entry = result.auditEntry;
+    const forward: AuditLogForwarder = (e) => {
+      logToDatadog(ctx, env, req, {
+        level: 'info',
+        message: `audit ${e.action}`,
+        source: 'audit_log',
+        audit: e,
+      });
+    };
+    ctx.waitUntil(forwardAuditLog(entry, forward));
+  }
+
+  return {
+    outcome: 'ok',
+    detail: {
+      job: 'retention-prune',
+      durationMs,
+      rowsDeleted: result.rowsDeleted,
+      tables: result.tables,
+    },
+  };
 }
 
 /** Snapshot the pending-review moderation queue and emit its health gauges
  *  (AECI-206 / Phase 5.15): depth + oldest-pending age. Report-only — like the
  *  index-drift check it never mutates; the alert is the Datadog "moderation
  *  backlog" monitor. Two cheap indexed reads, so it runs inline (no queue). */
-async function runModerationQueueMetrics(env: Env, ctx: ExecutionContext): Promise<void> {
+async function runModerationQueueMetrics(env: Env, ctx: ExecutionContext): Promise<JobRunReport> {
   const req = cronRequest('/cron/moderation-queue');
   const { db } = cronDb(env);
 
@@ -570,6 +856,14 @@ async function runModerationQueueMetrics(env: Env, ctx: ExecutionContext): Promi
       message: `aeci.moderation.queue depth=${pendingCount} oldest_age_hours=${ageHours.toFixed(2)}`,
       source: 'moderation-cron',
     });
+    return {
+      outcome: 'ok',
+      detail: {
+        job: 'moderation-snapshot',
+        pendingCount,
+        oldestPendingAgeHours: ageHours,
+      },
+    };
   } catch (error) {
     // Mirror the drift/stats crash path: log loudly, never throw (a failed cron
     // must not tear down the invocation).
@@ -579,6 +873,13 @@ async function runModerationQueueMetrics(env: Env, ctx: ExecutionContext): Promi
       source: 'moderation-cron',
       reason: error instanceof Error ? error.message : String(error),
     });
+    return {
+      outcome: 'failed',
+      detail: {
+        job: 'moderation-snapshot',
+        reason: error instanceof Error ? error.message : String(error),
+      },
+    };
   }
 }
 
@@ -586,10 +887,15 @@ async function runModerationQueueMetrics(env: Env, ctx: ExecutionContext): Promi
  *  `vendor_requests` stuck `open`/`linear_issue_id=null` and alert on persistent
  *  failures. The sweep's unexpected read failures propagate so the queue re-runs
  *  it (idempotent via `createLinearIssueForRequest`). */
-async function runReconcileJob(env: Env, ctx: ExecutionContext): Promise<void> {
+async function runReconcileJob(env: Env, ctx: ExecutionContext): Promise<JobRunReport> {
   const req = cronRequest('/cron/reconcile');
   const { db } = cronDb(env);
-  await runReconciliationSweep({ env, executionCtx: ctx, req: { raw: req } }, db);
+  // No try/catch, deliberately: an unexpected read failure propagates so the queue
+  // consumer `retry()`s. `withJobRun` records that throw as `outcome:'failed'` and
+  // rethrows it, so the retry behaviour is unchanged and each attempt is its own
+  // row (a successful retry supersedes by `started_at`).
+  const result = await runReconciliationSweep({ env, executionCtx: ctx, req: { raw: req } }, db);
+  return { outcome: 'ok', detail: { job: 'request-reconcile', ...result } };
 }
 
 /** Run the daily §23.1 data-quality suite (AECI-241 / Phase 7.6): ten read-only
@@ -600,23 +906,15 @@ async function runReconcileJob(env: Env, ctx: ExecutionContext): Promise<void> {
  *  `RESEND_API_KEY`/recipients logs `outcome:skipped`, the Datadog monitors are
  *  the delivery backstop. Errors per check are captured, not thrown (the suite is
  *  best-effort), so reaching the catch is a pre-run crash. */
-async function runDataQualityJob(env: Env, ctx: ExecutionContext): Promise<void> {
+async function runDataQualityJob(env: Env, ctx: ExecutionContext): Promise<JobRunReport> {
   const req = cronRequest('/cron/data-quality');
   const started = Date.now();
   const { db } = cronDb(env);
 
   // Reuse the AECI-140 drift count when Algolia creds are present (same posture as
-  // runAlgoliaDrift); absent → the drift check skips rather than erroring.
-  const appId = env.ALGOLIA_APP_ID;
-  const adminKey = env.ALGOLIA_ADMIN_KEY;
-  const runDrift =
-    appId && adminKey
-      ? () =>
-          findAlgoliaIndexDrift(
-            { db: drizzleDriftCounter(env), algolia: createAlgoliaCounter(appId, adminKey) },
-            { env: algoliaEnvFor(env) },
-          )
-      : undefined;
+  // runAlgoliaDrift); absent → the drift check skips rather than erroring. Shared
+  // with `GET /api/admin/overview?recompute=1` (AECI-574) via `algolia-drift-deps`.
+  const runDrift = createDriftRunner(env, db);
 
   let results: DataQualityCheckResult[];
   try {
@@ -631,7 +929,13 @@ async function runDataQualityJob(env: Env, ctx: ExecutionContext): Promise<void>
       source: 'data-quality-cron',
       reason: error instanceof Error ? error.message : String(error),
     });
-    return;
+    return {
+      outcome: 'failed',
+      detail: {
+        job: 'data-quality',
+        reason: error instanceof Error ? error.message : String(error),
+      },
+    };
   }
 
   // Per-check gauge — always emitted (0 when clean) so a monitor can break down by
@@ -652,8 +956,9 @@ async function runDataQualityJob(env: Env, ctx: ExecutionContext): Promise<void>
   }
 
   const outcome = hasErrors(results) ? 'failed' : 'success';
+  const durationMs = Date.now() - started;
   submitCount(ctx, env, req, DQ_JOB_METRIC, 1, ['trigger:cron', `outcome:${outcome}`]);
-  submitDistribution(ctx, env, req, DQ_DURATION_METRIC, Date.now() - started, ['trigger:cron']);
+  submitDistribution(ctx, env, req, DQ_DURATION_METRIC, durationMs, ['trigger:cron']);
 
   // Build + send the digest (always — a clean run still emails so silence means
   // the cron failed). Fail-open: a missing transport returns 'skipped'.
@@ -675,6 +980,155 @@ async function runDataQualityJob(env: Env, ctx: ExecutionContext): Promise<void>
     message: `aeci.data_quality.email outcome=${emailOutcome} recipients=${recipients.length}: ${digest.subject}`,
     source: 'data-quality-cron',
   });
+
+  // The whole result set, stored verbatim (§7.2). `DataQualityCheckResult` is
+  // field-for-field `AdminDataQualityCheckSchema`, so §5.6 renders exactly what
+  // the digest above reported — the round-trip is a parse, not an adapter. This
+  // is what turns the ten checks from a daily email into a queryable history.
+  // `outcome` reuses the same `hasErrors` expression as DQ_JOB_METRIC above.
+  return {
+    outcome: outcome === 'failed' ? 'failed' : 'ok',
+    detail: { job: 'data-quality', durationMs, checks: results, email: emailOutcome },
+  };
+}
+
+/** Build + email the daily operator analytics digest (AECI-526): the prior *complete*
+ *  UTC day's page views, top products, new + total users, and the live
+ *  pending-moderation depth (with day-over-day deltas). Report-only reads — no audit
+ *  row, no mutation. The Resend transport is fail-open: an absent `RESEND_API_KEY` /
+ *  `EMAIL_FROM` / `ANALYTICS_DIGEST_EMAIL_TO` yields `outcome:skipped` (the expected
+ *  local/preview state), and the `aeci.analytics_digest.email` metric is the delivery
+ *  signal. Queue-less (like `moderation`/`waf`), so it always runs inline. Never throws:
+ *  a read/format crash is logged and counted `outcome:failed` (so the metric still
+ *  fires as a liveness heartbeat), never rethrown — a failed cron must not tear down
+ *  the invocation. */
+async function runAnalyticsDigestJob(env: Env, ctx: ExecutionContext): Promise<JobRunReport> {
+  const req = cronRequest('/cron/analytics-digest');
+  try {
+    const { db } = cronDb(env);
+    const window = dailyWindows(new Date());
+    const metrics = await collectAnalyticsMetrics(db, window);
+    const digest = buildAnalyticsDigest(metrics, {
+      env: env.ENV ?? 'development',
+      dayLabel: window.dayLabel,
+      generatedAt: new Date(),
+    });
+    const recipients = parseRecipients(env.ANALYTICS_DIGEST_EMAIL_TO);
+    const outcome = await sendEmail(env, {
+      // Shares the transactional sender (`EMAIL_FROM`) — one verified Resend sender,
+      // no separate `_FROM` var. Absent → `sendEmail` skips (fail-open).
+      from: env.EMAIL_FROM ?? '',
+      to: recipients,
+      subject: digest.subject,
+      text: digest.text,
+      html: digest.html,
+    });
+    submitCount(ctx, env, req, ANALYTICS_EMAIL_METRIC, 1, [`outcome:${outcome}`]);
+    logToDatadog(ctx, env, req, {
+      level: outcome === 'failed' ? 'error' : 'info',
+      message: `aeci.analytics_digest.email outcome=${outcome} recipients=${recipients.length}: ${digest.subject}`,
+      source: 'analytics-digest-cron',
+    });
+    // 1:1 with `ANALYTICS_EMAIL_METRIC` above — no second opinion. On production
+    // all three secrets are set, so a `skipped` row there is a real
+    // misconfiguration the operator should see as not-ok; on local/preview it is
+    // the expected state.
+    return {
+      outcome: outcome === 'sent' ? 'ok' : outcome === 'skipped' ? 'skipped' : 'failed',
+      detail: {
+        job: 'analytics-digest',
+        dayLabel: window.dayLabel,
+        email: outcome,
+        recipients: recipients.length,
+        // A projection, not the whole `AnalyticsMetrics`: `botActivity` is every
+        // crawler active in the day (unbounded) and the rendered digest is large
+        // and re-derivable.
+        metrics: {
+          pageViewsHuman: metrics.pageViews.day,
+          pageViewsBot: metrics.botPageViews.day,
+          newUsers: metrics.newUsers.day,
+          totalUsers: metrics.totalUsers,
+          pendingModeration: metrics.pendingModeration,
+        },
+      },
+    };
+  } catch (error) {
+    submitCount(ctx, env, req, ANALYTICS_EMAIL_METRIC, 1, ['outcome:failed']);
+    logToDatadog(ctx, env, req, {
+      level: 'error',
+      message: 'aeci.analytics_digest.crashed',
+      source: 'analytics-digest-cron',
+      reason: error instanceof Error ? error.message : String(error),
+    });
+    return {
+      outcome: 'failed',
+      detail: {
+        job: 'analytics-digest',
+        reason: error instanceof Error ? error.message : String(error),
+      },
+    };
+  }
+}
+
+/** Run the daily §7 attestation detector sweep (AECI-302): four detectors over the
+ *  claim/attestation spine → vendor nudges + AECi ops alerts via Resend → an
+ *  `audit_log` suppression ledger. The sweep owns its own fail-open behaviour (a
+ *  Resend outage is an `outcome:failed` count, never a throw) and emits the
+ *  per-detector gauge through the injected sink — including the zero case, which
+ *  is this job's cron-liveness signal while no vendor has attested yet. Only an
+ *  unexpected read failure reaches the catch here; the queue then retries, which
+ *  is safe because the ledger makes an already-delivered nudge idempotent. */
+async function runAttestationNotifyJob(env: Env, ctx: ExecutionContext): Promise<JobRunReport> {
+  const req = cronRequest('/cron/attestation-notify');
+  const started = Date.now();
+  const { db } = cronDb(env);
+
+  try {
+    const result = await runAttestationNotifySweep(
+      { env, executionCtx: ctx, req: { raw: req } },
+      db,
+      {
+        metrics: metricSink(ctx, env, req),
+      },
+    );
+    submitCount(ctx, env, req, NOTIFY_JOB_METRIC, 1, ['trigger:cron', 'outcome:success']);
+    submitDistribution(ctx, env, req, NOTIFY_DURATION_METRIC, Date.now() - started, [
+      'trigger:cron',
+    ]);
+    logToDatadog(ctx, env, req, {
+      level: result.failed > 0 ? 'warn' : 'info',
+      message: `aeci.attestation.notify found=${result.found} sent=${result.sent} suppressed=${result.suppressed} failed=${result.failed} skipped=${result.skipped} capped=${result.capped}`,
+      source: 'attestation-notify-cron',
+    });
+    // §7.2 liveness (AECI-583): the sweep became a first-class cron at the
+    // AECI-619 reconciliation, so it records a `job_runs` row like the other ten.
+    // A run with per-send failures is `ok` with the counts in `detail`, not
+    // `failed` — the sweep is fail-open by design and a Resend hiccup on one nudge
+    // is not a failed sweep. Only the catch below is a failure.
+    return {
+      outcome: 'ok',
+      detail: {
+        job: 'attestation-notify',
+        found: result.found,
+        sent: result.sent,
+        suppressed: result.suppressed,
+        failed: result.failed,
+        skipped: result.skipped,
+        capped: result.capped,
+      },
+    };
+  } catch (error) {
+    submitCount(ctx, env, req, NOTIFY_JOB_METRIC, 1, ['trigger:cron', 'outcome:failed']);
+    logToDatadog(ctx, env, req, {
+      level: 'error',
+      message: 'aeci.attestation.notify.crashed',
+      source: 'attestation-notify-cron',
+      reason: error instanceof Error ? error.message : String(error),
+    });
+    // Rethrow so the queue consumer retries: unlike the read-only gauges, a sweep
+    // that never ran means nudges nobody will ever be told about.
+    throw error;
+  }
 }
 
 /** The host portion of a URL, or `undefined` if it's missing/unparseable. The
@@ -697,7 +1151,7 @@ function hostFromUrl(url: string | undefined): string | undefined {
  *  re-polls the next window). The query is scoped to this env's own host
  *  (`PUBLIC_SITE_URL`) because all envs share one Cloudflare zone, so an
  *  unscoped query would count the same zone-wide events under each `env:` tag. */
-async function runWafMetricsJob(env: Env, ctx: ExecutionContext): Promise<void> {
+async function runWafMetricsJob(env: Env, ctx: ExecutionContext): Promise<JobRunReport> {
   const req = cronRequest('/cron/waf-metrics');
   const host = hostFromUrl(env.PUBLIC_SITE_URL);
   const creds = { apiToken: env.CF_ANALYTICS_API_TOKEN, zoneId: env.CF_ZONE_ID };
@@ -711,7 +1165,7 @@ async function runWafMetricsJob(env: Env, ctx: ExecutionContext): Promise<void> 
       message: 'aeci.waf.poll.skipped_no_creds',
       source: 'waf-metrics-cron',
     });
-    return;
+    return { outcome: 'skipped', detail: { job: 'waf-poll', reason: 'no_creds' } };
   }
 
   const window = { ...previousHourWindow(new Date()), host };
@@ -727,7 +1181,7 @@ async function runWafMetricsJob(env: Env, ctx: ExecutionContext): Promise<void> 
       window_start: window.startIso,
       window_end: window.endIso,
     });
-    return;
+    return { outcome: 'failed', detail: { job: 'waf-poll', reason: outcome.message } };
   }
 
   // One count per mitigation group (the always-emitted `outcome:ok` heartbeat
@@ -749,6 +1203,20 @@ async function runWafMetricsJob(env: Env, ctx: ExecutionContext): Promise<void> 
     window_end: window.endIso,
     truncated: outcome.truncated,
   });
+
+  // The group COUNT, not the group array: that is bounded only by
+  // `WAF_EVENTS_GROUP_LIMIT`, and Datadog already carries the per-rule breakdown
+  // (`aeci.waf.ratelimit.blocked`).
+  return {
+    outcome: 'ok',
+    detail: {
+      job: 'waf-poll',
+      window: { startIso: window.startIso, endIso: window.endIso, host },
+      groups: outcome.groups.length,
+      events,
+      truncated: outcome.truncated,
+    },
+  };
 }
 
 /** The producer queue binding for a job (absent on local/preview → inline run). */
@@ -764,6 +1232,8 @@ function queueForJob(env: Env, job: ScheduledJob): Queue<ScheduledJobMessage> | 
       return env.RECONCILE_QUEUE;
     case 'data_quality':
       return env.DATA_QUALITY_QUEUE;
+    case 'attestation_notify':
+      return env.ATTESTATION_NOTIFY_QUEUE;
     case 'moderation':
       // Queue-less by design: a cheap read-only gauge needs no retry/queue, so it
       // always runs inline (AECI-206). No `MODERATION_QUEUE` binding exists.
@@ -772,6 +1242,26 @@ function queueForJob(env: Env, job: ScheduledJob): Queue<ScheduledJobMessage> | 
       // Queue-less like `moderation` (AECI-262): a single read-only Cloudflare
       // GraphQL read needs no retry — the next hour re-polls the next window. No
       // `WAF_QUEUE` binding exists, so it always runs inline.
+      return undefined;
+    case 'analytics':
+      // Queue-less like `moderation`/`waf` (AECI-526): a cheap read-only aggregation
+      // + one fail-open email needs no retry — the next day re-runs. No
+      // `ANALYTICS_QUEUE` binding exists, so it always runs inline.
+      return undefined;
+    case 'retention':
+      // Queue-less, and for a stronger reason than the others (AECI-584): this
+      // is the only DESTRUCTIVE job, and queue-native retries are precisely what
+      // it must not have. A run that was skipped, truncated, or died mid-batch is
+      // re-attempted tomorrow by the cron, from a re-probed cutoff — never
+      // replayed against state it may already have changed. No `RETENTION_QUEUE`
+      // binding exists.
+      return undefined;
+    case 'snapshot':
+      // Queue-less like `moderation`/`waf`/`analytics` (AECI-581): every metric is
+      // already isolated in its own try/catch, and a missed day is recoverable by
+      // re-running `ops:backfill-metrics-daily` over that range — the same
+      // idempotent `(day, metric)` upsert — so queue-native retries buy nothing.
+      // No `SNAPSHOT_QUEUE` binding exists, so it always runs inline.
       return undefined;
   }
 }
@@ -812,6 +1302,40 @@ function enqueueFailureLog(job: ScheduledJob): { path: string; message: string; 
       path: '/cron/waf-metrics',
       message: 'aeci.waf.poll.enqueue_failed',
       source: 'waf-metrics-cron',
+    };
+  }
+  if (job === 'attestation_notify') {
+    return {
+      path: '/cron/attestation-notify',
+      message: 'aeci.attestation.notify.enqueue_failed',
+      source: 'attestation-notify-cron',
+    };
+  }
+  if (job === 'analytics') {
+    // Unreachable in practice (analytics is queue-less, so `queue.send` is never
+    // called) — kept so the mapping is total over `ScheduledJob`.
+    return {
+      path: '/cron/analytics-digest',
+      message: 'aeci.analytics_digest.enqueue_failed',
+      source: 'analytics-digest-cron',
+    };
+  }
+  if (job === 'snapshot') {
+    // Unreachable in practice (snapshot is queue-less, so `queue.send` is never
+    // called) — kept so the mapping is total over `ScheduledJob`.
+    return {
+      path: '/cron/metrics-snapshot',
+      message: 'aeci.metrics_snapshot.enqueue_failed',
+      source: 'metrics-snapshot-cron',
+    };
+  }
+  if (job === 'retention') {
+    // Unreachable in practice (retention is queue-less, so `queue.send` is never
+    // called) — kept so the mapping is total over `ScheduledJob`.
+    return {
+      path: '/cron/retention-prune',
+      message: 'aeci.retention.enqueue_failed',
+      source: 'retention-prune-cron',
     };
   }
   return {
@@ -856,32 +1380,65 @@ async function enqueueOrRun(env: Env, ctx: ExecutionContext, job: ScheduledJob):
   await runScheduledJob(env, ctx, job);
 }
 
-/** Dispatch a job kind to its implementation. Shared by the inline fallback and
- *  the queue consumer so both paths stay identical. */
-async function runScheduledJob(env: Env, ctx: ExecutionContext, job: ScheduledJob): Promise<void> {
+/** Dispatch a job kind to its implementation. Every impl returns a
+ *  {@link JobRunReport} rather than `void`, because the impls swallow their own
+ *  operational errors — a wrapper that only watched for a throw would record `ok`
+ *  for a run that failed. `Promise<JobRunReport>` also makes the type checker
+ *  enumerate every exit path in all ten, which is what makes "each of the ten
+ *  writes a row, on every path" verifiable rather than a review checklist. */
+async function dispatchScheduledJob(
+  env: Env,
+  ctx: ExecutionContext,
+  job: ScheduledJob,
+): Promise<JobRunReport> {
   switch (job) {
     case 'sync':
-      await runAlgoliaSync(env, ctx);
-      return;
+      return runAlgoliaSync(env, ctx);
     case 'drift':
-      await runAlgoliaDrift(env, ctx);
-      return;
+      return runAlgoliaDrift(env, ctx);
     case 'stats':
-      await runHomeStatsJob(env, ctx);
-      return;
+      return runHomeStatsJob(env, ctx);
     case 'moderation':
-      await runModerationQueueMetrics(env, ctx);
-      return;
+      return runModerationQueueMetrics(env, ctx);
     case 'reconcile':
-      await runReconcileJob(env, ctx);
-      return;
+      return runReconcileJob(env, ctx);
     case 'data_quality':
-      await runDataQualityJob(env, ctx);
-      return;
+      return runDataQualityJob(env, ctx);
     case 'waf':
-      await runWafMetricsJob(env, ctx);
-      return;
+      return runWafMetricsJob(env, ctx);
+    case 'attestation_notify':
+      return runAttestationNotifyJob(env, ctx);
+    case 'analytics':
+      return runAnalyticsDigestJob(env, ctx);
+    case 'snapshot':
+      return runMetricsSnapshotJob(env, ctx);
+    case 'retention':
+      return runRetentionPruneJob(env, ctx);
   }
+}
+
+/**
+ * Run a job under §7.2 `job_runs` bookkeeping (AECI-583). Shared by the inline
+ * fallback and the queue consumer so both paths stay identical — and it keeps its
+ * name, signature and throw-on-failure semantics, so the consumer's ack/retry is
+ * preserved by construction.
+ *
+ * The row is written on ENTRY and completed on EXIT, so a run the isolate never
+ * came back from leaves `finished_at NULL`. `withJobRun` owns the ordering, the
+ * failure isolation, and the rethrow; see `lib/job-runs.ts`. **No `audit_log`
+ * row** — ADR 0022.
+ *
+ * Note what is deliberately NOT instrumented: the *enqueue*. On staging/prod
+ * `enqueueOrRun` returns as soon as `queue.send` resolves, and the row belongs to
+ * the execution, which is the consumer's. So there is a real window where the
+ * cron fired and no row exists yet; the read side must not read that as "didn't
+ * run", which is why an absent row stays `unknown`/`derived` rather than failing.
+ */
+async function runScheduledJob(env: Env, ctx: ExecutionContext, job: ScheduledJob): Promise<void> {
+  await withJobRun(
+    { db: jobRunDb(env), job: ADMIN_CRON_JOB[job], sink: jobRunSink(ctx, env) },
+    () => dispatchScheduledJob(env, ctx, job),
+  );
 }
 
 /**
@@ -894,6 +1451,12 @@ export const scheduled: ExportedHandlerScheduledHandler<Env> = async (controller
   switch (controller.cron) {
     case STATS_CRON:
       await enqueueOrRun(env, ctx, 'stats');
+      return;
+    case SNAPSHOT_CRON:
+      await enqueueOrRun(env, ctx, 'snapshot');
+      return;
+    case RETENTION_CRON:
+      await enqueueOrRun(env, ctx, 'retention');
       return;
     case ALGOLIA_SYNC_CRON:
       await enqueueOrRun(env, ctx, 'sync');
@@ -912,6 +1475,12 @@ export const scheduled: ExportedHandlerScheduledHandler<Env> = async (controller
       return;
     case WAF_CRON:
       await enqueueOrRun(env, ctx, 'waf');
+      return;
+    case ATTESTATION_NOTIFY_CRON:
+      await enqueueOrRun(env, ctx, 'attestation_notify');
+      return;
+    case ANALYTICS_CRON:
+      await enqueueOrRun(env, ctx, 'analytics');
       return;
     default:
       // A trigger fired with no matching case — surface it rather than silently

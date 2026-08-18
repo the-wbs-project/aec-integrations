@@ -27,7 +27,7 @@ const tax = (slug: string, operation: 'created' | 'reused') => ({
   slug,
   operation,
 });
-const emptyTaxonomy = { categories: [], audiences: [], phases: [] };
+const emptyTaxonomy = { categories: [], audiences: [], phases: [], trades: [] };
 
 describe('affectedUrlsForPromote', () => {
   it('created product + vendor + mixed taxonomy → detail, index, browse, home + nav', () => {
@@ -39,8 +39,10 @@ describe('affectedUrlsForPromote', () => {
         categories: [tax('bim', 'reused')],
         audiences: [tax('architecture', 'created')],
         phases: [],
+        trades: [],
       },
       skipped: [],
+      preserved: [],
     };
     expect(new Set(affectedUrlsForPromote(response, BASE))).toEqual(
       new Set([
@@ -63,8 +65,9 @@ describe('affectedUrlsForPromote', () => {
       vendors: [entity('autodesk', 'updated')],
       product: entity('revit', 'updated'),
       integrations: [],
-      taxonomy: { categories: [tax('bim', 'reused')], audiences: [], phases: [] },
+      taxonomy: { categories: [tax('bim', 'reused')], audiences: [], phases: [], trades: [] },
       skipped: [],
+      preserved: [],
     };
     expect(new Set(affectedUrlsForPromote(response, BASE))).toEqual(
       new Set([
@@ -83,6 +86,7 @@ describe('affectedUrlsForPromote', () => {
       integrations: [integration('11111111-2222-4333-8444-555555555555', 'created')],
       taxonomy: emptyTaxonomy,
       skipped: [],
+      preserved: [],
     };
     const urls = affectedUrlsForPromote(response, BASE);
     expect(urls).toEqual([]);
@@ -105,6 +109,7 @@ describe('affectedUrlsForPromote', () => {
       ],
       taxonomy: emptyTaxonomy,
       skipped: [],
+      preserved: [],
     };
     const urls = affectedUrlsForPromote(response, BASE);
     // Pair context = alphabetically-first slug; the retired /integrations/{id}
@@ -118,8 +123,9 @@ describe('affectedUrlsForPromote', () => {
       vendors: [],
       product: entity('revit', 'updated'),
       integrations: [],
-      taxonomy: { categories: [], audiences: [], phases: [tax('design', 'created')] },
+      taxonomy: { categories: [], audiences: [], phases: [tax('design', 'created')], trades: [] },
       skipped: [],
+      preserved: [],
     };
     expect(new Set(affectedUrlsForPromote(response, BASE))).toEqual(
       new Set([
@@ -134,6 +140,88 @@ describe('affectedUrlsForPromote', () => {
     );
   });
 
+  // ── Trades: the publication gate (AECI-546) ────────────────────────────────
+  // AECI-542 excluded trade URLs outright and deferred the call here. The rule
+  // now: PUBLISHED term URLs are submitted, sub-floor ones never are, and the
+  // `/trades` index is submitted on any touch at all.
+  describe('trades', () => {
+    const withTrades = (trades: string[]): PromoteResponse => ({
+      vendors: [],
+      product: entity('revit', 'updated'),
+      integrations: [],
+      taxonomy: {
+        categories: [],
+        audiences: [],
+        phases: [],
+        trades: trades.map((slug) => tax(slug, 'reused')),
+      },
+      skipped: [],
+      preserved: [],
+    });
+
+    // The floor is the caller's to resolve; without it we must submit nothing
+    // rather than guess, because a sub-floor page is `noindex`.
+    it('omits every trade URL when the caller resolved no publication data', () => {
+      const urls = affectedUrlsForPromote(withTrades(['electrical']), BASE);
+      expect(urls).toEqual([`${BASE}/products/revit`, `${BASE}/products`, `${BASE}/trades`]);
+      expect(urls.some((u) => u.startsWith(`${BASE}/trades/`))).toBe(false);
+    });
+
+    it('submits published trade terms and withholds sub-floor ones', () => {
+      const urls = affectedUrlsForPromote(withTrades(['electrical', 'plumbing']), BASE, {
+        publishedTradeSlugs: ['electrical'],
+      });
+      expect(urls).toContain(`${BASE}/trades/electrical`);
+      expect(urls).not.toContain(`${BASE}/trades/plumbing`);
+    });
+
+    // The index renders live per-term counts and gains/loses a tile on a floor
+    // crossing, so ANY touch repaints it — unlike the sibling facets, whose index
+    // pages are submitted only on a term creation.
+    it('submits the /trades index for a touched but unpublished trade', () => {
+      const urls = affectedUrlsForPromote(withTrades(['plumbing']), BASE, {
+        publishedTradeSlugs: [],
+      });
+      expect(urls).toContain(`${BASE}/trades`);
+    });
+
+    // A removal isn't echoed on the response, but it can push a term back under
+    // the floor — which changes the index just as a crossing upward does.
+    it('submits the /trades index when the promote only REMOVED trades', () => {
+      const urls = affectedUrlsForPromote(withTrades([]), BASE, {
+        removedTradeSlugs: ['plumbing'],
+      });
+      expect(urls).toContain(`${BASE}/trades`);
+    });
+
+    // A removed term that still clears the floor is a real content change on its
+    // own page, so it is submitted even though the response never echoed it.
+    it('submits a removed trade that is still published', () => {
+      const urls = affectedUrlsForPromote(withTrades([]), BASE, {
+        publishedTradeSlugs: ['electrical'],
+        removedTradeSlugs: ['electrical'],
+      });
+      expect(urls).toContain(`${BASE}/trades/electrical`);
+    });
+
+    it('leaves /trades out entirely when no trade was touched', () => {
+      const urls = affectedUrlsForPromote(withTrades([]), BASE);
+      expect(urls.some((u) => u.includes('/trades'))).toBe(false);
+    });
+
+    // Trades are find-only, so `operation: 'created'` can never fire for them —
+    // home and the sibling index pages must not be dragged in by a trade touch.
+    it('never adds home or the sibling taxonomy indexes', () => {
+      const urls = affectedUrlsForPromote(withTrades(['electrical']), BASE, {
+        publishedTradeSlugs: ['electrical'],
+      });
+      expect(urls).not.toContain(`${BASE}/`);
+      expect(urls).not.toContain(`${BASE}/categories`);
+      expect(urls).not.toContain(`${BASE}/audiences`);
+      expect(urls).not.toContain(`${BASE}/phases`);
+    });
+  });
+
   it('vendor-only create → vendor detail only (no sitemap URL)', () => {
     const response: PromoteResponse = {
       vendors: [entity('autodesk', 'created')],
@@ -141,6 +229,7 @@ describe('affectedUrlsForPromote', () => {
       integrations: [],
       taxonomy: emptyTaxonomy,
       skipped: [],
+      preserved: [],
     };
     expect(affectedUrlsForPromote(response, BASE)).toEqual([`${BASE}/vendors/autodesk`]);
   });
@@ -152,6 +241,7 @@ describe('affectedUrlsForPromote', () => {
       integrations: [],
       taxonomy: emptyTaxonomy,
       skipped: [],
+      preserved: [],
     };
     expect(affectedUrlsForPromote(response, BASE)).toEqual([]);
   });
@@ -163,6 +253,7 @@ describe('affectedUrlsForPromote', () => {
       integrations: [],
       taxonomy: emptyTaxonomy,
       skipped: [],
+      preserved: [],
     };
     const urls = affectedUrlsForPromote(response, `${BASE}/`);
     expect(urls).toContain(`${BASE}/products/revit`);

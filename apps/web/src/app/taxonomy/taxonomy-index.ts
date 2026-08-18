@@ -3,18 +3,23 @@ import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { map } from 'rxjs';
 
-import type { CategoriesListResponse, TaxonomyTermWithCount } from '@aeci/shared';
+import {
+  type CategoriesListResponse,
+  type TaxonomyTermWithCount,
+  isPublishedTrade,
+} from '@aeci/shared';
 
 import { KIND_PATH_SEGMENT } from '../core/api/taxonomy';
 import { MailingListSignup } from '../shared/mailing-list-signup/mailing-list-signup';
 import type { TaxonomyKind } from '../shared/taxonomy-badge/taxonomy-badge';
 
 /**
- * AECI-157 — shared flat index for `/categories`, `/audiences`, and `/phases`.
- * One component drives all three routes; the facet `kind` arrives via static
- * `route.data` and the resolved list via `route.data['terms']` (populated by the
- * matching `*IndexResolver`). Generalizes the original AECI-61 `/categories`
- * page so the three facets share one template, mirroring `TaxonomyBrowsePage`.
+ * AECI-157 / AECI-544 — shared flat index for `/categories`, `/audiences`,
+ * `/phases`, and `/trades`. One component drives all four routes; the facet
+ * `kind` arrives via static `route.data` and the resolved list via
+ * `route.data['terms']` (populated by the matching `*IndexResolver`).
+ * Generalizes the original AECI-61 `/categories` page so the four facets share
+ * one template, mirroring `TaxonomyBrowsePage`.
  *
  * Every term renders as an editorial card linking to its `/{segment}/:slug`
  * browse page. Not a sortable table (cf. `/products`) — the taxonomy is small
@@ -111,9 +116,20 @@ export class TaxonomyIndexPage {
     initialValue: (this.route.snapshot.data['terms'] ?? null) as CategoriesListResponse | null,
   });
 
-  protected readonly terms = computed<ReadonlyArray<TaxonomyTermWithCount>>(
-    () => this.response()?.data ?? [],
-  );
+  /**
+   * Terms to render. Trades are the one facet with a **publication floor**
+   * (`TRADE_PUBLISH_MIN_PRODUCTS`, TRADES_VOCABULARY.md §6): the vocabulary is a
+   * closed 34-term list seeded up front, so without the floor this grid would
+   * ship dozens of "0 products" cards as SEO junk. The API returns every term
+   * with its real count and each surface applies the floor — omitting sub-floor
+   * terms entirely rather than greying them out, since a card that can't be
+   * usefully clicked is noise. Their `/trades/:slug` URLs still resolve, so a
+   * term crossing the floor becomes listed with no redirect.
+   */
+  protected readonly terms = computed<ReadonlyArray<TaxonomyTermWithCount>>(() => {
+    const all = this.response()?.data ?? [];
+    return this.kind() === 'trade' ? all.filter(isPublishedTrade) : all;
+  });
 
   /** Facet-specific page title (also the breadcrumb current label). */
   protected readonly title = computed(() => {
@@ -124,6 +140,8 @@ export class TaxonomyIndexPage {
         return $localize`:@@audiences.index.title:Audiences`;
       case 'phase':
         return $localize`:@@phases.index.title:Phases`;
+      case 'trade':
+        return $localize`:@@trades.index.title:Trades`;
     }
   });
 
@@ -135,6 +153,8 @@ export class TaxonomyIndexPage {
         return $localize`:@@audiences.index.lede:Browse AEC software by audience: the disciplines and roles each tool serves.`;
       case 'phase':
         return $localize`:@@phases.index.lede:Browse AEC software by project phase, from design through closeout.`;
+      case 'trade':
+        return $localize`:@@trades.index.lede:Browse software built for the work your company actually sells. Only tools with trade-specific value are listed; horizontal platforms aren't.`;
     }
   });
 
@@ -146,6 +166,10 @@ export class TaxonomyIndexPage {
         return $localize`:@@audiences.index.empty:No audiences yet. Check back soon.`;
       case 'phase':
         return $localize`:@@phases.index.empty:No phases yet. Check back soon.`;
+      // Sub-floor terms are omitted, so an all-thin catalog renders empty. Say
+      // why rather than implying the vocabulary itself is missing.
+      case 'trade':
+        return $localize`:@@trades.index.empty:No trades have enough tagged products to list yet. Check back soon.`;
     }
   });
 

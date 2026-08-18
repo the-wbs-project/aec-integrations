@@ -1,56 +1,92 @@
+import { HttpClient } from '@angular/common/http';
 import { Component, afterNextRender, computed, inject, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { map } from 'rxjs';
 
 import type {
+  ClaimTimeline,
   ContextDirection,
+  ProductLink,
   ProductPairClaim,
   ProductPairMechanism,
   ProductPairResponse,
+  VendorLink,
 } from '@aeci/shared';
+import { CONTEXT_VERSION_PARAM, OTHER_VERSION_PARAM } from '@aeci/shared/version-diff';
 
 import { ExternalLinkTracker } from '../analytics/external-link-tracker';
+import { fetchPairTimeline } from '../core/api/product-pairs';
 import { NotFound } from '../not-found/not-found';
 import { mechanismKindLabel } from '../search/mechanism-labels';
 import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
 import { MailingListSignup } from '../shared/mailing-list-signup/mailing-list-signup';
+import { MaintenanceMarker } from '../shared/maintenance-marker/maintenance-marker';
 import { VerifiedBadge } from '../shared/verified-badge/verified-badge';
 
 import { AgreementBadge } from './agreement-badge';
 import { ClaimProvenance } from './claim-provenance';
+import {
+  DIRECTION_ORDER,
+  directionAria,
+  directionGlyph,
+  directionHeading,
+} from './pair-direction-labels';
+import { PairVersionSelect } from './pair-version-select';
 
-/** Decorative glyph for a context-relative direction (always paired with text + aria). */
-function directionGlyph(direction: ContextDirection): string {
-  return direction === 'outbound' ? '→' : direction === 'inbound' ? '←' : '⇄';
+/** The two vendor names a pair page can attribute an attestation to, keyed by
+ *  the context-relative `attestor` the API resolves (§4.3). Either may be `null`
+ *  — `ProductListItem.vendor` is nullable. */
+interface PairVendorNames {
+  readonly context: string | null;
+  readonly other: string | null;
 }
 
-/** Visible heading for a mechanism's direction, relative to the context product. */
-function directionHeading(direction: ContextDirection, otherName: string): string {
-  switch (direction) {
-    case 'outbound':
-      return $localize`:@@pair.direction.outbound:Sends to ${otherName}:other:`;
-    case 'inbound':
-      return $localize`:@@pair.direction.inbound:Receives from ${otherName}:other:`;
-    case 'both':
-      return $localize`:@@pair.direction.both:Syncs both ways`;
-  }
+/** A claim row with its attribution resolved once, so the template never has to
+ *  reach back into the response. */
+interface ClaimRow {
+  readonly claim: ProductPairClaim;
+  /** The vendor named on a `single_source` badge; `null` for every other state
+   *  (and when the affirming side has no vendor record). */
+  readonly attributedTo: string | null;
+  /**
+   * AECI-303 (§9.1) diff presentation, all resolved here so the template holds no
+   * conditionals. `diffLabel` is `null` for `unchanged` — the overwhelming majority
+   * state — and a marker on every row would double the row's badge load and break
+   * the "renders identically to today" guarantee.
+   */
+  readonly diffGlyph: string | null;
+  readonly diffLabel: string | null;
+  readonly rowClass: string;
+  readonly nameClass: string;
 }
 
-/** Screen-reader label for a direction (the glyph is `aria-hidden`). */
-function directionAria(direction: ContextDirection, otherName: string): string {
-  switch (direction) {
-    case 'outbound':
-      return $localize`:@@pair.direction.outbound.aria:Outbound to ${otherName}:other:`;
-    case 'inbound':
-      return $localize`:@@pair.direction.inbound.aria:Inbound from ${otherName}:other:`;
-    case 'both':
-      return $localize`:@@pair.direction.both.aria:Bidirectional`;
-  }
-}
-
-/** The order the three direction lanes render in within a mechanism (§8). */
-const DIRECTION_ORDER = ['outbound', 'inbound', 'both'] as const;
+/**
+ * The tonal vocabulary for the diff markers (`DESIGN.md` §5). Borders, not fills,
+ * and no new colours:
+ *
+ *   - `added` takes the Forest **start rule**. Not `--accent-primary-soft`: that wash
+ *     belongs to the agreement chip's `confirmed` state, and a wash inches from a
+ *     neutral chip would read as "confirmed" by proximity. A single vertical mark is
+ *     unmistakably structural rather than a badge, and doubles as a scannable gutter
+ *     down the lane.
+ *   - `removed` takes a neutral strong rule plus a strikethrough and a step down to
+ *     `--text-secondary`. **Never `--status-error`**: `conflict` is the only red in
+ *     the system, and a second red on the same row would collapse "vendors disagree"
+ *     into "no longer supported".
+ *   - Clay is excluded on both counts — `added` is not a warning, and the
+ *     Clay-Restriction Rule caps that hue at ≤5% of a screen, which a per-row marker
+ *     blows instantly.
+ *
+ * `--text-secondary` only, never `--text-tertiary`: these rows sit on
+ * `--surface-base` inside a `--surface-raised` lane, and the tertiary token's own
+ * comment forbids it on sunken/muted surfaces. Logical `border-s-2` keeps the mark
+ * on the correct edge under RTL.
+ */
+const DIFF_ADDED_ROW = 'border-s-2 border-s-(--accent-primary)';
+const DIFF_REMOVED_ROW = 'border-s-2 border-s-(--border-strong)';
+const DIFF_NAME_DEFAULT = 'text-(--text-primary)';
+const DIFF_NAME_REMOVED = 'text-(--text-secondary) line-through';
 
 /** One direction lane of a mechanism's claims — heading/glyph/aria resolved,
  *  empty lanes dropped. Mirrors the AECI-289 prototype's `renderedGroups`. */
@@ -59,20 +95,85 @@ interface ClaimGroup {
   readonly heading: string;
   readonly glyph: string;
   readonly aria: string;
-  readonly claims: readonly ProductPairClaim[];
+  readonly rows: readonly ClaimRow[];
+}
+
+/**
+ * Name the vendor a `single_source` claim is attributed to: the side whose live
+ * attestation affirms, mapped through the API's context-relative `attestor`
+ * (§4.3). Only meaningful for `single_source` — `confirmed` needs no name (both
+ * vendors agree) and `conflict` names both in the provenance popover instead.
+ */
+function attributedVendorName(claim: ProductPairClaim, vendors: PairVendorNames): string | null {
+  if (claim.agreement !== 'single_source') return null;
+  const affirming = claim.attestations.find((a) => a.attestor !== 'aeci' && a.asserted);
+  if (!affirming) return null;
+  return affirming.attestor === 'context' ? vendors.context : vendors.other;
 }
 
 /** Group a mechanism's claims by context-relative direction, in canonical order,
  *  dropping empty lanes. Reuses the file's direction copy helpers so the Layer-A
  *  mechanism arrow and the Layer-B lanes can't drift. */
-function buildClaimGroups(claims: readonly ProductPairClaim[], otherName: string): ClaimGroup[] {
+function buildClaimGroups(
+  claims: readonly ProductPairClaim[],
+  otherName: string,
+  vendors: PairVendorNames,
+  selectedVersions: { context: string | null; other: string | null } | null,
+): ClaimGroup[] {
   return DIRECTION_ORDER.map((direction) => ({
     direction,
     heading: directionHeading(direction, otherName),
     glyph: directionGlyph(direction),
     aria: directionAria(direction, otherName),
-    claims: claims.filter((c) => c.direction === direction),
-  })).filter((g) => g.claims.length > 0);
+    rows: claims
+      .filter((c) => c.direction === direction)
+      .map((claim) => buildClaimRow(claim, vendors, selectedVersions)),
+  })).filter((g) => g.rows.length > 0);
+}
+
+/** Resolve one claim row's attribution and diff presentation (§9.1). */
+function buildClaimRow(
+  claim: ProductPairClaim,
+  vendors: PairVendorNames,
+  selectedVersions: { context: string | null; other: string | null } | null,
+): ClaimRow {
+  const base = { claim, attributedTo: attributedVendorName(claim, vendors) };
+  // The version the marker names: whichever side's release the reader is looking at.
+  // Both selectors move independently, so name the pair rather than guessing a side.
+  const at = selectedVersions
+    ? [selectedVersions.context, selectedVersions.other].filter((l): l is string => l !== null)
+    : [];
+  const version = at.join(' · ');
+  if (claim.version_status === 'added') {
+    return {
+      ...base,
+      diffGlyph: '+',
+      diffLabel: version
+        ? $localize`:@@pair.version.added:New in ${version}:version:`
+        : $localize`:@@pair.version.added.bare:New in this version`,
+      rowClass: DIFF_ADDED_ROW,
+      nameClass: DIFF_NAME_DEFAULT,
+    };
+  }
+  if (claim.version_status === 'removed') {
+    return {
+      ...base,
+      diffGlyph: '−',
+      diffLabel: version
+        ? $localize`:@@pair.version.removed:Removed in ${version}:version:`
+        : $localize`:@@pair.version.removed.bare:Removed in this version`,
+      rowClass: DIFF_REMOVED_ROW,
+      nameClass: DIFF_NAME_REMOVED,
+    };
+  }
+  // `unchanged`, and the no-diff-applies case: render exactly as before AECI-303.
+  return {
+    ...base,
+    diffGlyph: null,
+    diffLabel: null,
+    rowClass: '',
+    nameClass: DIFF_NAME_DEFAULT,
+  };
 }
 
 /** Sync-headline breadth line (§3.5), pluralised. */
@@ -82,10 +183,18 @@ function syncHeadlineText(total: number): string {
     : $localize`:@@pair.dataflow.headline.other:${total}:count: data objects sync`;
 }
 
-/** The muted verification ratio (§3.5) — never a hero trust stat; `confirmed`
- *  is always 0 in Stage 1.5. */
-function confirmedRatioText(confirmed: number, total: number): string {
-  return $localize`:@@pair.dataflow.ratio:${confirmed}:confirmed: of ${total}:total: vendor-confirmed`;
+/**
+ * The muted verification ratio (§3.5, widened by §4.3) — never a hero trust
+ * stat. Two clauses, because bilateral and one-sided verification must not be
+ * added together: folding a lone vendor's affirmation into the "vendor-confirmed"
+ * figure is exactly the overstatement `STAGE_2_SPEC.md` §8.1(4) forbids. The
+ * second clause is omitted entirely at zero rather than rendered as "0".
+ */
+function confirmedRatioText(confirmed: number, total: number, singleSource: number): string {
+  const bilateral = $localize`:@@pair.dataflow.ratio:${confirmed}:confirmed: of ${total}:total: vendor-confirmed`;
+  if (singleSource === 0) return bilateral;
+  const oneSided = $localize`:@@pair.dataflow.ratio.singleSource:${singleSource}:count: confirmed by one vendor only`;
+  return `${bilateral} · ${oneSided}`;
 }
 
 /** One mechanism with its direction copy resolved against the `other` product. */
@@ -103,6 +212,11 @@ interface MechanismView {
   /** Data-object claim lanes (§8). Empty when the mechanism has no claims yet. */
   readonly claimGroups: readonly ClaimGroup[];
   readonly hasClaims: boolean;
+  /** Stage 1 §4.4 "Built by (vendor) / Powered by (product)" — rendered as a
+   *  linked byline so a via-connector mechanism (e.g. "via Agave ERP Sync")
+   *  navigates to the connector's own pages instead of being dead text. */
+  readonly builtByVendor: VendorLink | null;
+  readonly poweredByProduct: ProductLink | null;
 }
 
 interface PairView {
@@ -112,6 +226,12 @@ interface PairView {
   readonly syncTotal: number;
   readonly syncHeadline: string;
   readonly confirmedRatio: string;
+  /** True while no vendor has said anything about any claim on this pair — the
+   *  Stage 1.5 posture, and the only time the "vendor confirmation arrives with
+   *  the portal" subline is still true. */
+  readonly awaitingVendors: boolean;
+  /** The two vendor names attestations are attributed to (§4.3). */
+  readonly vendorNames: PairVendorNames;
   /** True when some mechanism carries a Layer-B claim lane or a Layer-A direction
    *  arrow — i.e. there is detail for the Basic view to hide. Gates the toggle so
    *  a pair with nothing to collapse doesn't show a no-op control. */
@@ -198,7 +318,9 @@ function writePairViewCookie(mode: PairViewMode): void {
     ExternalLinkTracker,
     LogoOrInitial,
     MailingListSignup,
+    MaintenanceMarker,
     NotFound,
+    PairVersionSelect,
     RouterLink,
     VerifiedBadge,
   ],
@@ -238,12 +360,23 @@ function writePairViewCookie(mode: PairViewMode): void {
 
           <header class="mb-8 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
             <div class="space-y-3">
-              <p
-                class="text-xs uppercase tracking-[0.14em] text-(--text-secondary)"
-                i18n="@@pair.eyebrow"
-              >
-                Integration
-              </p>
+              <div class="flex flex-wrap items-center gap-2">
+                <p
+                  class="text-xs uppercase tracking-[0.14em] text-(--text-secondary)"
+                  i18n="@@pair.eyebrow"
+                >
+                  Integration
+                </p>
+                <!-- One header marker for the whole pair; computePairMaintenance
+                     folds the N mechanisms server-side (AECI-616). Distinct from the
+                     per-claim agreement badge on the mechanism cards below: this says
+                     who is on the hook for the page, that says whether the two vendors
+                     agree about one data object. -->
+                <aec-maintenance-marker
+                  [maintainedBy]="v.pair.maintenance.maintained_by"
+                  [reviewedAt]="v.pair.maintenance.last_reviewed_at"
+                />
+              </div>
               <h1
                 class="font-display text-3xl font-semibold leading-tight tracking-tight text-(--text-primary) sm:text-4xl"
                 i18n="@@pair.heading"
@@ -341,6 +474,41 @@ function writePairViewCookie(mode: PairViewMode): void {
                 </span>
               }
             </a>
+
+            <!-- AECI-303 (§9.1): the two version selectors, as a SECOND grid row so
+                 each sits under its own product column, which is what lets the
+                 label be the product's own name instead of disambiguating copy.
+                 A second row rather than nesting inside the cells above is
+                 required, not stylistic: those cells are anchors with routerLink,
+                 and an interactive combobox inside an anchor is invalid HTML that
+                 would navigate on click. It also keeps the two logos aligned when
+                 only one side has a selector. Renders nothing at all when the diff
+                 does not apply: the whole suppression rule is a null versionView. -->
+            @if (versionView(); as vv) {
+              <div class="flex justify-center">
+                @if (vv.contextOptions.length > 1) {
+                  <aec-pair-version-select
+                    side="context"
+                    [label]="versionLabelFor(context.name)"
+                    [options]="vv.contextOptions"
+                    [value]="vv.selectedContext"
+                    (changed)="setVersion('context', $event)"
+                  />
+                }
+              </div>
+              <span aria-hidden="true"></span>
+              <div class="flex justify-center">
+                @if (vv.otherOptions.length > 1) {
+                  <aec-pair-version-select
+                    side="other"
+                    [label]="versionLabelFor(other.name)"
+                    [options]="vv.otherOptions"
+                    [value]="vv.selectedOther"
+                    (changed)="setVersion('other', $event)"
+                  />
+                }
+              </div>
+            }
           </div>
 
           <!-- Data-flow band (§3.5). Leads with the sync headline once claims are
@@ -353,9 +521,13 @@ function writePairViewCookie(mode: PairViewMode): void {
               <p class="font-display text-2xl leading-tight text-(--text-primary)">
                 {{ v.syncHeadline }}
               </p>
-              <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@pair.dataflow.subline">
-                Unverified. Vendor confirmation arrives with the vendor portal.
-              </p>
+              <!-- Only honest while no vendor has spoken; once attestations
+                   exist the ratio line below carries the posture. -->
+              @if (v.awaitingVendors) {
+                <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@pair.dataflow.subline">
+                  Unverified. Vendor confirmation arrives with the vendor portal.
+                </p>
+              }
               <!-- text-secondary (not tertiary): tertiary fails AA contrast on the Bone band. -->
               <p class="mt-2 text-xs tabular-nums text-(--text-secondary)">
                 {{ v.confirmedRatio }}
@@ -372,6 +544,35 @@ function writePairViewCookie(mode: PairViewMode): void {
                 vendor portal.
               </p>
             }
+
+            <!-- AECI-303 (§9.1): what the selected version pair changed. Lives in the
+                 band because the band already owns "what syncs"; the per-row markers
+                 below say which flows. Only rendered when there IS a previous pair
+                 to compare against; the earliest pair is a baseline, not a diff. -->
+            @if (versionView(); as vv) {
+              @if (vv.previousSummary) {
+                <p class="mt-4 text-xs text-(--text-secondary)">
+                  <span>{{ vv.previousSummary }}</span>
+                  @if (vv.changeSummary) {
+                    <span class="tabular-nums"> · {{ vv.changeSummary }}</span>
+                  }
+                </p>
+              }
+              <!-- The reader's way home from a deep-linked historical URL. Without
+                   it a shared non-default link is a dead end. -->
+              @if (!vv.isDefault) {
+                <button
+                  type="button"
+                  (click)="showLatest()"
+                  class="mt-3 rounded-(--radius-sm) text-xs font-medium text-(--accent-primary)
+                    underline underline-offset-2 focus-visible:outline-2
+                    focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                  i18n="@@pair.version.showLatest"
+                >
+                  Show the latest versions
+                </button>
+              }
+            }
           </div>
 
           <!-- Per-mechanism cards with the context-relative direction arrow. -->
@@ -381,16 +582,64 @@ function writePairViewCookie(mode: PairViewMode): void {
                 class="space-y-4 rounded-(--radius-xl) border border-(--border-default) bg-(--surface-base) p-6"
               >
                 <header class="flex flex-wrap items-center gap-3">
-                  @if (m.kindLabel) {
-                    <span
-                      class="inline-flex items-center rounded-(--radius-sm) border border-(--border-default) bg-(--surface-raised) px-3 py-1 text-[0.8125rem] font-bold tracking-[0.01em] text-(--text-secondary)"
-                      >{{ m.kindLabel }}</span
-                    >
-                  }
                   @if (m.name) {
+                    @if (m.kindLabel) {
+                      <span
+                        class="inline-flex items-center rounded-(--radius-sm) border border-(--border-default) bg-(--surface-raised) px-3 py-1 text-[0.8125rem] font-bold tracking-[0.01em] text-(--text-secondary)"
+                        >{{ m.kindLabel }}</span
+                      >
+                    }
                     <h2 class="font-display text-xl text-(--text-primary)">{{ m.name }}</h2>
+                  } @else {
+                    <!-- No mechanism name: promote the kind label to the card
+                         heading so the Layer-B lane h3s below never skip from the
+                         page h1 straight to h3. Falls back to a generic title when
+                         the kind enum is also absent/unknown (kindLabel === ''). -->
+                    <h2
+                      class="inline-flex items-center rounded-(--radius-sm) border border-(--border-default) bg-(--surface-raised) px-3 py-1 text-[0.8125rem] font-bold tracking-[0.01em] text-(--text-secondary)"
+                    >
+                      @if (m.kindLabel) {
+                        {{ m.kindLabel }}
+                      } @else {
+                        <ng-container i18n="@@pair.mechanism.untitled">Integration</ng-container>
+                      }
+                    </h2>
                   }
                 </header>
+
+                <!-- Linked provenance byline (Stage 1 §4.4: "Built by" / "Powered
+                     by"). Mechanism identity, not detail, so it renders in Basic too.
+                     Until the connector FK is backfilled, via-connector rows fall
+                     back to the vendor-only "Built by" segment. -->
+                @if (m.builtByVendor || m.poweredByProduct) {
+                  <p
+                    class="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-(--text-secondary)"
+                  >
+                    @if (m.builtByVendor; as bv) {
+                      <span>
+                        <ng-container i18n="@@pair.mechanism.builtBy">Built by</ng-container>
+                        <a
+                          [routerLink]="['/vendors', bv.slug]"
+                          class="text-(--accent-primary) underline underline-offset-2"
+                          >{{ bv.name }}</a
+                        >
+                      </span>
+                    }
+                    @if (m.builtByVendor && m.poweredByProduct) {
+                      <span aria-hidden="true" class="text-(--text-tertiary)">·</span>
+                    }
+                    @if (m.poweredByProduct; as pb) {
+                      <span>
+                        <ng-container i18n="@@pair.mechanism.poweredBy">Powered by</ng-container>
+                        <a
+                          [routerLink]="['/products', pb.slug]"
+                          class="text-(--accent-primary) underline underline-offset-2"
+                          >{{ pb.name }}</a
+                        >
+                      </span>
+                    }
+                  </p>
+                }
 
                 <!-- Layer-A mechanism arrow: a Detailed-view detail, shown only when
                      this mechanism has no claims. When claims exist the per-lane
@@ -431,16 +680,50 @@ function writePairViewCookie(mode: PairViewMode): void {
                         <h3 class="aec-overline text-(--text-secondary)">{{ g.heading }}</h3>
                       </div>
                       <ul class="mt-3 grid gap-2 sm:grid-cols-2">
-                        @for (c of g.claims; track c.data_object_slug + '|' + c.direction) {
+                        @for (
+                          r of g.rows;
+                          track r.claim.data_object_slug + '|' + r.claim.direction
+                        ) {
+                          <!-- AECI-303 (§9.1): the diff marker sits at the row START,
+                               never in the right-hand cluster. Separation by POSITION
+                               is what keeps it from competing with the agreement
+                               badge: left = what changed in this version, right = who
+                               agrees about it. Two questions, two zones. -->
                           <li
                             class="flex items-center justify-between gap-3 rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2"
+                            [class]="r.rowClass"
                           >
-                            <span class="text-sm text-(--text-primary)">{{
-                              c.data_object_name
-                            }}</span>
+                            <span class="flex min-w-0 flex-col gap-0.5">
+                              <span class="text-sm" [class]="r.nameClass">{{
+                                r.claim.data_object_name
+                              }}</span>
+                              @if (r.diffLabel) {
+                                <span class="flex items-center gap-1">
+                                  <!-- Glyph AND text AND (for removed) a decoration
+                                       change: never colour-only (WCAG 1.4.1). -->
+                                  <span
+                                    aria-hidden="true"
+                                    class="text-xs text-(--text-secondary)"
+                                    >{{ r.diffGlyph }}</span
+                                  >
+                                  <span class="aec-overline text-(--text-secondary)">{{
+                                    r.diffLabel
+                                  }}</span>
+                                </span>
+                              }
+                            </span>
                             <span class="flex items-center gap-2">
-                              <aec-agreement-badge [agreement]="c.agreement" />
-                              <aec-claim-provenance [claim]="c" />
+                              <aec-agreement-badge
+                                [agreement]="r.claim.agreement"
+                                [attributedTo]="r.attributedTo"
+                              />
+                              <aec-claim-provenance
+                                [claim]="r.claim"
+                                [contextVendorName]="v.vendorNames.context"
+                                [otherVendorName]="v.vendorNames.other"
+                                [timeline]="timelineFor(r.claim.id)"
+                                (historyRequested)="loadTimeline()"
+                              />
                             </span>
                           </li>
                         }
@@ -498,6 +781,7 @@ function writePairViewCookie(mode: PairViewMode): void {
 export class ProductsPairPage {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
+  private readonly http = inject(HttpClient);
 
   protected readonly breadcrumbAria = $localize`:@@pair.breadcrumb.aria:Breadcrumb`;
 
@@ -561,21 +845,36 @@ export class ProductsPairPage {
     const pair = this.pair();
     if (!pair) return null;
     const otherName = pair.other_product.name;
-    const { total, confirmed } = pair.sync_headline;
-    const mechanisms = pair.mechanisms.map((m) => this.toMechanismView(m, otherName));
+    const { total, confirmed, single_source: singleSource } = pair.sync_headline;
+    const vendorNames: PairVendorNames = {
+      context: pair.context_product.vendor?.name ?? null,
+      other: pair.other_product.vendor?.name ?? null,
+    };
+    const mechanisms = pair.mechanisms.map((m) => this.toMechanismView(m, otherName, vendorNames));
     return {
       pair,
       mechanisms,
       syncTotal: total,
       syncHeadline: syncHeadlineText(total),
-      confirmedRatio: confirmedRatioText(confirmed, total),
+      confirmedRatio: confirmedRatioText(confirmed, total, singleSource),
+      // Keyed off the presence of a vendor attestation, not off the agreement
+      // state: a claim every vendor *denied* is still `unverified`, but a vendor
+      // has spoken, so "confirmation arrives with the portal" is no longer true.
+      awaitingVendors: pair.mechanisms.every((m) =>
+        m.claims.every((c) => c.attestations.every((a) => a.attestor === 'aeci')),
+      ),
+      vendorNames,
       hasDetail: mechanisms.some(
         (m) => m.claimGroups.length > 0 || (m.direction !== null && !m.hasClaims),
       ),
     };
   });
 
-  private toMechanismView(m: ProductPairMechanism, otherName: string): MechanismView {
+  private toMechanismView(
+    m: ProductPairMechanism,
+    otherName: string,
+    vendorNames: PairVendorNames,
+  ): MechanismView {
     return {
       id: m.id,
       kindLabel: mechanismKindLabel(m.mechanism_kind),
@@ -587,8 +886,15 @@ export class ProductsPairPage {
       glyph: m.direction ? directionGlyph(m.direction) : '',
       directionLabel: m.direction ? directionHeading(m.direction, otherName) : '',
       directionAria: m.direction ? directionAria(m.direction, otherName) : '',
-      claimGroups: buildClaimGroups(m.claims, otherName),
+      claimGroups: buildClaimGroups(
+        m.claims,
+        otherName,
+        vendorNames,
+        this.pair()?.version_diff?.selected ?? null,
+      ),
       hasClaims: m.claims.length > 0,
+      builtByVendor: m.built_by_vendor,
+      poweredByProduct: m.powered_by_product,
     };
   }
 
@@ -596,4 +902,136 @@ export class ProductsPairPage {
     const avg = product.rating_overall_avg?.toFixed(1) ?? '';
     return $localize`:@@pair.rating.aria:${product.name}:name: rated ${avg}:rating: out of 5 from ${product.review_count}:count: reviews`;
   }
+
+  // ── AECI-303 (§9): the version selectors + the diff summary ────────────────
+
+  /**
+   * The selectors' view-model, or `null` when the §9 diff does not apply.
+   *
+   * The null is the WHOLE suppression rule and it is the API's decision, not a
+   * browser derivation: `version_diff` is null unless a release exists AND a live
+   * attestation on the pair is version-stamped. That makes "latest × latest renders
+   * identically to today for claims with no version data" structural — at launch no
+   * pair has releases, so no selector chrome exists to get wrong.
+   *
+   * A side with fewer than two releases still renders no selector (see the template):
+   * a one-option combobox is the no-op control `hasDetail` already exists to
+   * suppress, and a *disabled* control is worse than none.
+   */
+  protected readonly versionView = computed(() => {
+    const diff = this.pair()?.version_diff;
+    if (!diff) return null;
+    const toOptions = (versions: readonly { label: string; released_at: string | null }[]) =>
+      versions.map((v) => ({ label: v.label, releasedAt: v.released_at }));
+    return {
+      contextOptions: toOptions(diff.context_versions),
+      otherOptions: toOptions(diff.other_versions),
+      // What the server RESOLVED, never the raw query param — a stale label
+      // degrades to latest and the control must show what is actually rendered.
+      selectedContext: diff.selected.context,
+      selectedOther: diff.selected.other,
+      isDefault: diff.is_default,
+      previousSummary: previousPairSummary(diff.previous),
+      changeSummary: changeCountsSummary(diff.counts),
+    };
+  });
+
+  protected versionLabelFor(productName: string): string {
+    return $localize`:@@pair.version.label:${productName}:product: version`;
+  }
+
+  /**
+   * Write a selector change to the URL, which re-runs the resolver and refetches.
+   *
+   * Mirrors `setView` minus the cookie — deliberately. `aeci_pair_view` works because
+   * Basic/Detailed is a global, product-independent preference; a remembered `2026.1`
+   * is meaningless on a different pair, §9.3's invariant is that the reader lands on
+   * the LATEST view, and the cookie's cache-safety proof (written on click, read only
+   * post-hydration) would mean a content change plus a robots-tag flip *after* the
+   * crawler read the head.
+   */
+  protected setVersion(side: 'context' | 'other', label: string): void {
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: {
+        [side === 'context' ? CONTEXT_VERSION_PARAM : OTHER_VERSION_PARAM]: label,
+      },
+      queryParamsHandling: 'merge',
+    });
+  }
+
+  /** Clear both selectors — the way home from a deep-linked historical URL. */
+  protected showLatest(): void {
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { [CONTEXT_VERSION_PARAM]: null, [OTHER_VERSION_PARAM]: null },
+      queryParamsHandling: 'merge',
+    });
+  }
+
+  // ── AECI-303 (§9.1): the lazy per-claim history ────────────────────────────
+
+  /**
+   * Per-claim attestation history, keyed by claim id. Fetched **once, from the
+   * browser only, on the first provenance-popover open** — never during SSR.
+   *
+   * That is not laziness for its own sake: history is the gateable depth (§9.3), and
+   * the pair page is stored in a shared, URL-keyed edge cache, so baking it into the
+   * SSR payload would break §9.1a the moment AECI-304 makes the gate
+   * visitor-dependent. `/api/*` responses are `private, no-store`, which is a legal
+   * home for content that may vary per reader. It is also the only unbounded payload
+   * in the system — the append-only log grows forever.
+   */
+  private readonly timelines = signal<ReadonlyMap<string, ClaimTimeline> | null>(null);
+  private timelineRequested = false;
+
+  protected timelineFor(claimId: string | undefined): ClaimTimeline | null {
+    if (!claimId) return null;
+    return this.timelines()?.get(claimId) ?? null;
+  }
+
+  /**
+   * Fetch the pair's histories on the first popover open. One request serves every
+   * popover on the page, which is why the endpoint is pair-scoped rather than
+   * claim-scoped.
+   *
+   * Called from a click handler, never an `effect()` — the popover it feeds is a
+   * `BrnPopover`, and opening one from a reactive context throws NG0602.
+   */
+  protected loadTimeline(): void {
+    if (this.timelineRequested) return;
+    const pair = this.pair();
+    if (!pair) return;
+    this.timelineRequested = true;
+    void fetchPairTimeline(this.http, pair.context_product.slug, pair.other_product.slug).then(
+      (response) => {
+        if (!response) return;
+        this.timelines.set(new Map(response.claims.map((c) => [c.claim_id, c])));
+      },
+    );
+  }
+}
+
+/** "Changes from 2026.9 · v4" — the pair the diff is measured against (§9.1).
+ *  `null` at the earliest pair, which is a baseline rather than a diff. */
+function previousPairSummary(
+  previous: { context: string | null; other: string | null } | null,
+): string | null {
+  if (!previous) return null;
+  const labels = [previous.context, previous.other].filter((l): l is string => l !== null);
+  if (labels.length === 0) return null;
+  const from = labels.join(' · ');
+  return $localize`:@@pair.version.changesFrom:Changes from ${from}:from:`;
+}
+
+/** "2 added · 1 removed", omitting a zero clause rather than rendering "0". */
+function changeCountsSummary(counts: { added: number; removed: number }): string | null {
+  const parts: string[] = [];
+  if (counts.added > 0) {
+    parts.push($localize`:@@pair.version.addedCount:${counts.added}:count: added`);
+  }
+  if (counts.removed > 0) {
+    parts.push($localize`:@@pair.version.removedCount:${counts.removed}:count: removed`);
+  }
+  return parts.length ? parts.join(' · ') : null;
 }

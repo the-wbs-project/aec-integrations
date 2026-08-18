@@ -22,6 +22,14 @@ AECi serves three audience tiers. The product is built for all three but speaks 
 
 A directory and review platform for software integrations in the Architecture, Engineering, and Construction industry, built around dual-vendor-verified integration reviews, AEC-native taxonomy, and trust-first positioning (no pay-for-placement). Dual reviews separate product quality from onboarding experience, which is information G2 and Capterra mash together and lose. Success at Stage 1 launch: AEC buyers find AECi when searching for a category, trust what they read, and start sending the link to colleagues instead of forwarding G2 PDFs.
 
+> **This section is the destination, not the current state.** "Dual-vendor-verified" is the
+> Stage 2 target. Today the catalog is **entirely AECi-curated**: production holds zero
+> vendor attestations and zero verified vendors, every claim renders **"Unverified · AECi"**,
+> and every record carries **"Maintained by AEC Integrations"**. Public copy must describe
+> what ships, not this paragraph — an `/about` line claiming integration details were
+> "verified with the vendors involved" was live and false until 2026-08-17. See DESIGN.md
+> §Badges ("No verification iconography in Stage 1") and AECI-616.
+
 ## Brand Personality
 
 **Trustworthy. AEC-native. Opinionated.**

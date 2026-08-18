@@ -1,6 +1,23 @@
+import { fileURLToPath } from 'node:url';
+
 import { defineConfig } from 'vitest/config';
 
+const cloudflareWorkersStub = fileURLToPath(
+  new URL('./src/test/cloudflare-workers-stub.ts', import.meta.url),
+);
+
 export default defineConfig({
+  // The unit lane runs in plain Node, which cannot resolve the `cloudflare:*` built-in
+  // module specifiers. `workflows/promote-workflow.ts` needs `WorkflowEntrypoint` +
+  // `NonRetryableError` at runtime, and `src/index.ts` re-exports the Workflow class — so
+  // every spec that touches either (including `ssr-binding.spec.ts`) needs this alias.
+  // See `src/test/cloudflare-workers-stub.ts`.
+  resolve: {
+    alias: {
+      'cloudflare:workers': cloudflareWorkersStub,
+      'cloudflare:workflows': cloudflareWorkersStub,
+    },
+  },
   test: {
     environment: 'node',
     include: ['src/**/*.spec.ts'],

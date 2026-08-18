@@ -432,8 +432,8 @@ Secrets are stored in three places:
 | `DATADOG_API_KEY` | ❌ | ❌ | ✅ | Used by `promote-to-prod.yml` (AECI-78) to POST deploy markers to Datadog `/api/v1/events` per CICD_PLAN §9.1. |
 | `RESEND_API_KEY` | ✅ on staging API Worker | ✅ on prod API Worker | — | Transactional email (AECI-240). **Single shared (un-suffixed) key** — one Resend account/key spans every env (like `SUPABASE_ANON_KEY`); `deploy.yml` (staging), `promote-to-demo.yml`, and `promote-to-prod.yml` all push this same secret to the Worker as `RESEND_API_KEY`. Graceful warn-and-skip; absent → sends `'skipped'`. See `docs/email.md`. |
 | Datadog `DD_*` (per `apps/web/wrangler.jsonc` header) | ✅ per env | ✅ per env | — | RUM + Logs intake. |
-| `ADMIN_PURGE_TOKEN` | ✅ per env | ✅ per env | — | Gates `POST /admin/purge` (native `ctx.cache.purge()` since WC-6; AECI-56). |
-| `CF_ZONE_ID` | ✅ per env | ✅ per env | — | Zone id for the AECI-262 WAF firewall-event poll (paired with `CF_ANALYTICS_API_TOKEN`). Was also the old cache-purge zone; the `CF_PURGE_API_TOKEN` purge token was retired in WC-10 (AECI-324). |
+| `ADMIN_PURGE_TOKEN` | ✅ on **web Worker** (CI-pushed) | ✅ on **web Worker** (CI-pushed) | ✅ un-suffixed `ADMIN_PURGE_TOKEN` (one shared value, every env) | Gates `POST /admin/purge` — native `ctx.cache.purge()` in-process since WC-6 (AECI-56 / AECI-320). Bearer the **caller** presents (CI's taxonomy purge + manual incident purges). **CI-pushed since 2026-08-12** by `deploy.yml` (staging), `promote-to-demo.yml`, `promote-to-prod.yml` — the same GH secret CI presents is the one placed on the Worker, so the two can't drift. Optional + fail-open (warn-and-skip): absent → the endpoint 401s and cache invalidation degrades to TTL self-heal. **Never on the API Worker.** |
+| `CF_ZONE_ID` | ✅ on **API Worker** (CI-pushed) | ✅ on **API Worker** (CI-pushed) | ✅ un-suffixed (single zone) | Zone id for the AECI-262 WAF firewall-event poll (paired with `CF_ANALYTICS_API_TOKEN`). **CI-pushed since 2026-08-12** by the same three workflows. It was also the old cache-purge zone; that use is gone — `CF_PURGE_API_TOKEN` was retired in WC-10 (AECI-324) and the web Worker no longer needs a zone id at all. Optional + fail-open: absent → the WAF poll reports `skipped_no_creds`. |
 | `ALGOLIA_APP_ID` | ✅ per env (both Workers) | ✅ per env (both Workers) | ✅ (shared, one value) | Algolia app id (AECI-134). Single value, all envs. |
 | `ALGOLIA_SEARCH_KEY` (query-only) | ✅ on web Worker (CI-pushed) | ✅ on web Worker (CI-pushed) | ✅ **single shared** un-suffixed `ALGOLIA_SEARCH_KEY` (one value for every env — staging/production/demo, and the `lighthouse.yml` preview `/search` measurement, AECI-188). The former `_STAGING`/`_PRODUCTION`/`_PREVIEW`/`_DEMO` secrets are retired. | Search-only key, client-exposed. **Must be scoped to cover every env's indexes it serves** (`staging_*`/`production_*`/`demo_*`/`preview_*`) — it's now one shared value, so a key scoped to a single env breaks the others. CI-pushed to the web Worker alongside `ALGOLIA_APP_ID` by `deploy.yml` (staging — recommended/warn-and-skip), `promote-to-prod.yml` (production — required/fail-closed), `promote-to-demo.yml` (demo). **Never on the API Worker.** |
 | `ALGOLIA_ADMIN_KEY` (management) | ✅ on API Worker | ✅ on API Worker | ✅ **single shared** un-suffixed `ALGOLIA_ADMIN_KEY` (one value, all envs). The former `_STAGING`/`_PRODUCTION` secrets are retired. | Management key (search + index-mutation) — sync from 3.5. One Algolia app spans all envs and the admin key reaches every index (`--env` is only an index-name prefix). **Never on the web Worker / never client-exposed.** |
@@ -445,6 +445,50 @@ Secrets are stored in three places:
 | `POSTHOG_KEY` (publishable project key) | ✅ on **web Worker only** (CI-pushed) | ✅ on **web Worker only** (CI-pushed) | ✅ as `POSTHOG_KEY_STAGING` / `_PRODUCTION` (previews reuse `_STAGING`) | AECI-239 / Phase 7.4. Client-exposed project API key for the browser product-analytics layer; stored as a secret only to keep it out of git (like `ALGOLIA_SEARCH_KEY`). CI-pushed to the web Worker by `deploy.yml` (staging), `promote-to-prod.yml` (production), `pr-preview.yml` (per-PR). **Optional + fail-open on every env — warn-and-skip:** absent → no `window.__AECI_POSTHOG__` and analytics no-ops. Also gated client-side by the consent banner + DNT. **Never on the API Worker.** |
 | `POSTHOG_HOST` (ingestion host) | ✅ per env (web Worker, wrangler `var`) | ✅ per env (web Worker, wrangler `var`) | — (public `var` in `wrangler.jsonc`, not a GH secret) | AECI-239. `https://us.i.posthog.com` (US Cloud). The static CSP `connect-src` is pinned to the US hosts, so a non-US host needs a matching CSP change. Defaulted in code when unset. |
 | `SUPABASE_SERVICE_ROLE_KEY` (GoTrue Admin API) | ✅ on **API Worker only** (CI-pushed) | ✅ on **API Worker only** (CI-pushed) | ✅ as the un-suffixed `SUPABASE_SERVICE_ROLE_KEY` — a **single shared key**, one value for every env (ADR 0017); demo pushes the same secret | AECI-530 / ADR 0016 §6. Runtime key for the **split-identity seams** — the register is `AUTH_AND_RLS.md` §3.1: `auth.users` email reads (#2), GDPR erasure of the `auth.users` row (#3), and vendor-claimant lookup + provisioning (#4a/#4b). Read in exactly **one** module, `apps/api/src/lib/supabase-admin.ts` (the single-module invariant). CI-pushed to the API Worker by `deploy.yml` (staging), `promote-to-demo.yml` (demo), `promote-to-prod.yml` (production). **Optional + fail-open on every env (prod included) — warn-and-skip,** so it is **never** in `REQUIRED_WORKER_SECRETS`; absent → reviewer emails read `null`, the erasure `auth.users` delete is silently **skipped** (GDPR — the D1 erasure still commits, the auth row survives), and vendor-claim resolution reports `unavailable` (claim approval 503s). **Never on the web Worker** (it verifies user JWTs with public JWKS material — `apps/web/src/supabase-bootstrap-inject.spec.ts` is the standing regression guard), and **deliberately never on per-PR previews** (see `pr-preview.yml`). **Not involved in sign-in** — auth uses `SUPABASE_URL` + the anon key (rows above). ⚠️ **Accepted risk:** this is the *project-wide* auth key and under ADR 0017 one project backs every env including production, so holding it allows enumerating every user, minting a session for any address (including `admin`), and deleting identities. GoTrue offers **no scoped admin credential**, so narrowing is unavailable; the levers are the ones above plus rotation (`CICD_PLAN.md` §7.4). One consequence to know: a `DELETE /api/account` on **staging or demo** now really deletes the shared `auth.users` row that also backs production. The `integration-db-tests` job is unrelated — it mints its own key from a local `supabase start` stack (`supabase status -o env`), never this secret. |
+
+#### Declared-but-unset knobs (the "seam" vars)
+
+Two API-Worker vars are **deliberately shipped unset on every tier**. They are not
+secrets and not GH-managed; they exist so a policy can be turned on later without
+a code change, and their absence *is* the current policy. Set either with a plain
+`wrangler` `var` (or a `--var` on deploy) only when you actually want the
+behaviour.
+
+| Var | Tiers | Unset behaviour (today, everywhere) | Set behaviour |
+| --- | --- | --- | --- |
+| `PAGE_VIEWS_MIN_BOT_SCORE` | API Worker | Every page view is captured. Inert in practice anyway — CF **Pro** exposes no bot score, so `cf_bot_score` is null on every row. | Drops captured views below the integer floor (`STAGE_1_SPEC.md` §14.2 sampling policy, deferred until launch traffic is visible). |
+| `ANALYTICS_INTERNAL_ASNS` | API Worker | The admin panel's internal-traffic filter is **unavailable**: every figure is reported unfiltered, `excluding_internal` is null, and the UI hides the toggle. | The panel additionally reports each traffic figure with those ASNs excluded — **alongside** the unfiltered number, never instead of it. |
+
+`ANALYTICS_INTERNAL_ASNS` (AECI-574 / `ADMIN_PANEL_SPEC.md` §13 **D10**) is a
+comma/semicolon/whitespace-separated ASN list, `AS` prefix optional —
+`ANALYTICS_INTERNAL_ASNS="AS23700, 4134"`. Its purpose is the operator's own ISP:
+on 2026-08-10, 67 of the digest's 92 "human" page views came from AS23700
+(Jakarta). Three constraints are binding and a review checks all three:
+
+1. **Query-time only.** It is a `WHERE` clause at read time
+   (`apps/api/src/lib/internal-asns.ts`). It never touches `is_bot`, never runs at
+   ingest, and never enters `scripts/ops/backfill-page-view-bots.sql`. That is
+   what distinguishes it from `DATACENTER_ASNS`, which writes a permanent
+   classification and therefore carries a much stricter membership doctrine. Keep
+   them separate; do not merge the lists.
+2. **Show both numbers, never substitute.** On the aggregate endpoints that is
+   `AdminCount.total` (always unfiltered) plus `excluding_internal`. On the §5.2
+   Activity feed (AECI-577), which returns *rows*, the toggle filters the row list
+   while `window_total` / `window_visitors` are computed **both ways regardless of
+   the toggle** — otherwise switching it on would leave a smaller number with
+   nothing to compare it against, which is the substitution this constraint
+   forbids. `/admin/activity` therefore reads "1,204 views · 312 excluding
+   internal traffic" whether the toggle is on or off.
+3. **Ship it unset. Do not hardcode an ASN.** With the var absent the toggle is
+   not rendered at all on `/admin/activity` — a permanently-disabled control is
+   worse than no control. Prefer the precise instruments
+   first — AECI-575 (exclude `/admin/*` from `PageViewTracker`) and AECI-585
+   (`cf_as_organization` at ingest, so the filter can label itself). Both have
+   shipped; the holder name is captured from AECI-585's production deploy forward
+   and is null on every earlier row.
+
+Because it is a plain `var`, `scripts/require-secrets.sh` and
+`verify-worker-secrets.sh` do not check it, and its absence never fails a deploy.
 
 All Worker secrets are pushed per environment: `wrangler secret put REVIEW_APP_TOKEN --env staging` (and the same for `--env production`).
 
@@ -461,11 +505,11 @@ All Worker secrets are pushed per environment: `wrangler secret put REVIEW_APP_T
 | Tier | Staging (`deploy.yml`) | Production (`promote-to-prod.yml`) | Effect if missing |
 | --- | --- | --- | --- |
 | **Required (fail)** | `REVIEW_APP_TOKEN`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET` | + `ALGOLIA_APP_ID`, `ALGOLIA_ADMIN_KEY`, `ALGOLIA_SEARCH_KEY` (the prod promote no longer requires `DIRECT_URL_PRODUCTION` / `SUPABASE_ACCESS_TOKEN` / R2 keys — it touches no Postgres, AECI-256) | Deploy/promote refused |
-| **Recommended (warn)** | `ADMIN_PURGE_TOKEN`, `DATADOG_API_KEY`, `SUPABASE_SERVICE_ROLE_KEY` | `ADMIN_PURGE_TOKEN`, `DATADOG_API_KEY`, `CF_ZONE_ID`, `SUPABASE_SERVICE_ROLE_KEY` | Degraded only (observability / WAF poll / the `AUTH_AND_RLS.md` §3.1 split-identity seams); deploy proceeds |
+| **Recommended (warn)** | `ADMIN_PURGE_TOKEN`, `DATADOG_API_KEY`, `DD_APPLICATION_ID`, `DD_CLIENT_TOKEN`, `SUPABASE_SERVICE_ROLE_KEY` | `ADMIN_PURGE_TOKEN`, `DATADOG_API_KEY`, `DD_APPLICATION_ID`, `DD_CLIENT_TOKEN`, `CF_ZONE_ID`, `SUPABASE_SERVICE_ROLE_KEY` | Degraded only (observability / WAF poll / the `AUTH_AND_RLS.md` §3.1 split-identity seams); deploy proceeds |
 
 To make a recommended secret blocking, move its name from `RECOMMENDED_SECRETS` to `REQUIRED_SECRETS` in the relevant workflow's preflight step (and, if it's a Worker runtime secret, add a push step + the postflight `REQUIRED_WORKER_SECRETS` list).
 
-> **The preflight `env:` mapping is load-bearing.** `require-secrets.sh` checks the **value** of each named environment variable (`${!name:-}`), so a name listed in `REQUIRED_SECRETS`/`RECOMMENDED_SECRETS` **without** a matching `NAME: ${{ secrets.NAME }}` line in the step's `env:` block always reads empty — a required name would fail the deploy spuriously, and a recommended one warns "not set" forever even though the GH secret exists. Add the name in **both** places. (AECI-530 fixed two long-standing instances of this: `DD_APPLICATION_ID` / `DD_CLIENT_TOKEN` were named but never mapped in all three deploy/promote workflows.)
+> **Every name in `RECOMMENDED_SECRETS` / `REQUIRED_SECRETS` must ALSO be mapped in the preflight step's `env:` block.** `require-secrets.sh` checks the **value** of an environment variable, not the existence of a GitHub secret — a name that is listed but not mapped always reads empty and warns `not set` on every single run, even when the secret exists. `DD_APPLICATION_ID` / `DD_CLIENT_TOKEN` did exactly that from AECI-326 until 2026-08-12: they warned on every staging deploy and every demo/prod promote while being pushed to the web Workers successfully by the very same jobs. If you add a name to either list, add the `NAME: ${{ secrets.NAME }}` line with it.
 
 ## GitHub Environments
 
@@ -548,6 +592,35 @@ The two daily Algolia jobs run as cron → enqueue → consume (ADR 0013). The f
 
 **Cross-Worker cache-purge queue (WC-5 / AECI-319 / ADR 0020 §3).** `aeci-cache-purge-{staging,demo,production}` is provisioned by the **same** idempotent `create_queue` step (in `deploy.yml` / `promote-to-demo.yml` / `promote-to-prod.yml`, before the SSR deploy) and needs the same two prerequisites above. It differs from the ADR-0013 job queues in that its **producers** are the API Worker (`CACHE_PURGE_QUEUE`, enqueued on promote/moderation) **and** — since WC-7 (AECI-321) — the manual-deploy `apps/datatool` Worker (per-tier producer bindings `CACHE_PURGE_QUEUE_{STAGING,DEMO,PRODUCTION}`, enqueued after a copy/seed/reindex with `{ purgeEverything: true, source: 'datatool' }`), while its **consumer** is the **SSR Worker** (`apps/web/wrangler.jsonc` `queues.consumers`, which issues `ctx.cache.purge()`) — so the queue must exist before the SSR deploy, not only the API deploy (and before a datatool deploy). No queue on preview/local (the producers no-op gracefully). Retire it, like the job queues, only after removing all bindings.
 
+### 2b. Promote Workflow + `PROMOTE_KV` (AECI-563 / ADR 0021)
+
+`POST /api/promote` returns `202 { jobId }` and commits inside a Cloudflare **Workflow**, one per environment (`aeci-promote-{preview,staging,demo,production}`, binding `PROMOTE_WORKFLOW`, class `PromoteWorkflow`).
+
+- [ ] **No provisioning step needed for the Workflow itself** — unlike Queues, `wrangler deploy` creates/updates it from the `workflows` block in `apps/api/wrangler.jsonc`. It does require the **Workers Paid plan** (already satisfied for Queues) and the CI `CLOUDFLARE_API_TOKEN`'s existing **Workers Scripts: Edit** permission.
+- [x] **`PROMOTE_KV` — all four namespaces provisioned 2026-08-12** and their ids are in `apps/api/wrangler.jsonc`, in the base block **and in each of the four env blocks**. The per-env entries are load-bearing: wrangler **replaces** (does not merge) the top-level `kv_namespaces` for an env, so an env block without its own `PROMOTE_KV` entry simply has no such binding. Two key spaces (see `apps/api/src/lib/promote-jobs.ts`): `promote:payload:{jobId}` (24h) stages a bundle too large for the 1 MiB Workflow event-params cap, and `promote:result:{jobId}` (90d) mirrors the committed ID map so it outlives the 30-day instance retention.
+
+  | Namespace | Id |
+  |---|---|
+  | `aeci-api-promote-preview` | `30d6ca5b9f9e444ea97362e9757b21c3` |
+  | `aeci-api-promote-staging` | `eee38f83e62f473d8d589e08b2a99c07` |
+  | `aeci-api-promote-demo` | `bda4c6f152384073861d5ff218e0d7da` |
+  | `aeci-api-promote-production` | `9f0ce48f3a6b46f98458907baec65bf3` |
+
+  To recreate from scratch (KV ids must be literal in the config at deploy time, so this can never be a CI step), from `apps/api`:
+  ```bash
+  for e in preview staging demo production; do
+    pnpm exec wrangler kv namespace create "aeci-api-promote-$e"
+  done
+  # then paste each id into the base block AND that env's block:
+  #   { "binding": "PROMOTE_KV", "id": "<id>" }
+  ```
+  **Verify with `wrangler deploy --env <env> --dry-run`** and confirm `env.PROMOTE_KV` appears in the binding table for all four envs — the binding name must be `PROMOTE_KV` (what the code reads), not the namespace title.
+- [ ] **If the binding is ever absent it degrades gracefully** rather than failing closed: normal promotes (every real bundle) work unchanged; an oversize bundle is rejected `413 PAYLOAD_TOO_LARGE`; and the IDs are fetchable only for the instance retention window rather than the 90-day tail.
+- [ ] **CLI gotcha:** because the preview entries carry both `id` and `preview_id` (mirroring `TAXONOMY_KV`), `wrangler kv key …` against them needs an explicit `--preview false` (or `--preview`) or it errors with "has both an `id` and a `preview_id` configured".
+- [x] **Release ordering (cleared 2026-08-13):** the hard cutover meant a review app on the old synchronous `200` contract would break on every promote. Ordering was respected — the review app's AECI-567 (async kick-off/poll/collect) merged 2026-08-12, and prod was promoted to the async API afterwards. Keep the rule in mind for any future promote-contract change: **the review app ships first, then `promote-to-prod`.**
+
+Operating a stuck or failed job: `docs/RUNBOOKS.md` → "Promote job errored or stuck".
+
 ### 3. Cloudflare Access
 
 Already provisioned per `docs/access.md` §1. Re-verify after bootstrapping the staging hostname:
@@ -591,7 +664,10 @@ cd apps/api
 # deploy yet:
 # wrangler secret put SUPABASE_SERVICE_ROLE_KEY --env staging
 wrangler secret put DD_API_KEY --env staging
-wrangler secret put ADMIN_PURGE_TOKEN --env staging
+# CF_ZONE_ID is CI-pushed (see the note below) — this is a bootstrap fallback only.
+# The API Worker does NOT take ADMIN_PURGE_TOKEN: that bearer gates the SSR Worker's
+# own /admin/purge, which purges in-process (WC-6). There is no CF_PURGE_API_TOKEN
+# anywhere — WC-10 retired it.
 wrangler secret put CF_ZONE_ID --env staging              # WAF poll zone (AECI-262)
 wrangler secret put CF_ANALYTICS_API_TOKEN --env staging  # WAF poll token (AECI-262)
 # …plus any others the Worker reads at runtime
@@ -600,11 +676,24 @@ wrangler secret put CF_ANALYTICS_API_TOKEN --env staging  # WAF poll token (AECI
 ```bash
 cd apps/web
 wrangler secret put DD_API_KEY --env staging
+# DD_APPLICATION_ID / DD_CLIENT_TOKEN / ADMIN_PURGE_TOKEN / CF_PURGE_API_TOKEN /
+# CF_ZONE_ID are all CI-pushed (see the note below) — bootstrap fallbacks only.
 wrangler secret put DD_APPLICATION_ID --env staging
 wrangler secret put DD_CLIENT_TOKEN --env staging
 wrangler secret put ADMIN_PURGE_TOKEN --env staging
+wrangler secret put CF_PURGE_API_TOKEN --env staging
+wrangler secret put CF_ZONE_ID --env staging
 # …
 ```
+
+> **Most of this list is now CI-pushed and only needs the GH secret.** Every deploy/promote
+> (`deploy.yml`, `promote-to-demo.yml`, `promote-to-prod.yml`) idempotently pushes
+> `REVIEW_APP_TOKEN`, the Algolia keys, `SUPABASE_ANON_KEY`, `ANTHROPIC_API_KEY`, `RESEND_API_KEY`,
+> `POSTHOG_KEY`, `DD_APPLICATION_ID`/`DD_CLIENT_TOKEN`, `CF_ANALYTICS_API_TOKEN`, and — since
+> **2026-08-12** — the cache-purge trio (`ADMIN_PURGE_TOKEN` on web; `CF_PURGE_API_TOKEN` +
+> `CF_ZONE_ID` on both Workers). Set the GH secret and the next deploy wires the Worker. The manual
+> `wrangler secret put` matters only to bootstrap a Worker before its first CI deploy, or to
+> unblock without waiting for one.
 
 ### 6b. Algolia indexes + keys (AECI-134)
 
@@ -652,7 +741,7 @@ These steps must land before the first successful `promote-to-prod.yml` run. Non
 - [ ] ~~**R2 snapshot bucket / lifecycle / access keys.**~~ **Retired (AECI-256).** The prod promote no longer `pg_dump`s prod to R2 — the app DB is Cloudflare D1 with 30-day time-travel for rollback. The `aeci-prod-snapshots` bucket and the `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_ENDPOINT` GH secrets are no longer required by any workflow; delete them once any retained dumps age out.
 - [ ] **`DIRECT_URL_PRODUCTION` — orphaned (AECI-278).** The prod promote touches no Postgres, and `refresh-staging.yml` was gutted (no more `pg_dump`), so no workflow consumes it. Skip it. (The service-role key is a separate concern — since AECI-530 CI pushes the shared un-suffixed `SUPABASE_SERVICE_ROLE_KEY` to the **API Worker** on staging/demo/production; see the service-role row in §Secrets.)
 - [ ] **Datadog deploy-marker secret.** `gh secret set DATADOG_API_KEY --body "<key>"` (already exists for Worker runtime intake; CI needs its own copy to POST to `/api/v1/events`).
-- [ ] **Production Worker secrets.** Run the same `wrangler secret put …` list from §6 against `--env production` from `apps/api/` and `apps/web/`. There is **no** `DATABASE_URL` / `DIRECT_URL` to push — the app DB is Cloudflare D1 (ADR 0016), reached via the `DB` binding (Prisma fully removed, AECI-278). `REVIEW_APP_TOKEN` is pushed automatically by `promote-to-prod.yml` on every promote (the manual put is a bootstrap fallback). The other secrets (`DD_*`, `ADMIN_PURGE_TOKEN`, `CF_ZONE_ID`, `CF_ANALYTICS_API_TOKEN`, …) are still manual. (`RESEND_API_KEY` is **not** manual — `promote-to-prod.yml` pushes it from the shared, un-suffixed `RESEND_API_KEY` GH secret, graceful; AECI-240.) (The service-role key is **not** manual either — since AECI-530 `promote-to-prod.yml` pushes the shared un-suffixed `SUPABASE_SERVICE_ROLE_KEY` to the **API Worker** (never the web Worker); see the service-role row in §Secrets.)
+- [ ] **Production Worker secrets.** Run the same `wrangler secret put …` list from §6 against `--env production` from `apps/api/` and `apps/web/`. There is **no** `DATABASE_URL` / `DIRECT_URL` to push — the app DB is Cloudflare D1 (ADR 0016), reached via the `DB` binding (Prisma fully removed, AECI-278). `REVIEW_APP_TOKEN` is pushed automatically by `promote-to-prod.yml` on every promote (the manual put is a bootstrap fallback), as are `DD_APPLICATION_ID`/`DD_CLIENT_TOKEN` and — since 2026-08-12 — `ADMIN_PURGE_TOKEN` (web Worker) + `CF_ZONE_ID` (API Worker; `CF_PURGE_API_TOKEN` was retired in WC-10). Set the GH secret; the promote wires the Worker. (`RESEND_API_KEY` is **not** manual — `promote-to-prod.yml` pushes it from the shared, un-suffixed `RESEND_API_KEY` GH secret, graceful; AECI-240.) (The service-role key is **not** manual either — since AECI-530 `promote-to-prod.yml` pushes the shared un-suffixed `SUPABASE_SERVICE_ROLE_KEY` to the **API Worker** (never the web Worker); see the service-role row in §Secrets.)
 - [ ] **Algolia production indexes + keys (AECI-134).** With the root creds exported (as in §6b), `node scripts/algolia/provision.mjs --env production`. Then:
   ```bash
   gh secret set ALGOLIA_SEARCH_KEY --body "<printed search key>"   # single shared key (covers production_* + the other envs' indexes)

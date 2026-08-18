@@ -34,6 +34,7 @@ function buildTaxonomy(): TaxonomyResponse {
     categories: [term('bim-authoring', 'BIM Authoring', 12)],
     audiences: [term('architecture', 'Architecture', 8)],
     phases: [term('design', 'Design', 5)],
+    trades: [term('electrical', 'Electrical', 3)],
   };
 }
 

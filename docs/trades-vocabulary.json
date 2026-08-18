@@ -1,0 +1,515 @@
+{
+  "_comment": "Generated mirror of docs/TRADES_VOCABULARY.md — edit the doc table, not this file. ids are derived as UUIDv5(slug) by consumers (see trades.sql), so they are not stored here.",
+  "vocabulary": "trade",
+  "stage": "pre-Stage-2 (AECI-538)",
+  "closed": true,
+  "terms": [
+    {
+      "slug": "concrete",
+      "name": "Concrete",
+      "description": "Cast-in-place concrete: formwork, placing, finishing, and flatwork.",
+      "display_order": 10,
+      "aliases": [
+        "Cast-in-Place",
+        "Cast in Place Concrete",
+        "Formwork",
+        "Flatwork",
+        "Poured Concrete",
+        "Concrete Contracting",
+        "Tilt-Up"
+      ]
+    },
+    {
+      "slug": "crane-rigging",
+      "name": "Crane & Rigging",
+      "description": "Crane operations, lift planning, hoisting, and heavy rigging.",
+      "display_order": 20,
+      "aliases": [
+        "Crane",
+        "Cranes",
+        "Rigging",
+        "Lift Planning",
+        "Hoisting",
+        "Heavy Haul",
+        "Crane & Hoisting"
+      ]
+    },
+    {
+      "slug": "deep-foundations",
+      "name": "Deep Foundations & Piling",
+      "description": "Piles, drilled shafts, caissons, ground improvement, and earth retention.",
+      "display_order": 30,
+      "aliases": [
+        "Piling",
+        "Piles",
+        "Pile Driving",
+        "Drilled Shafts",
+        "Caissons",
+        "Earth Retention",
+        "Shoring & Piling",
+        "Ground Improvement"
+      ]
+    },
+    {
+      "slug": "demolition",
+      "name": "Demolition",
+      "description": "Structural and selective interior demolition, including deconstruction.",
+      "display_order": 40,
+      "aliases": [
+        "Demo",
+        "Selective Demolition",
+        "Interior Demolition",
+        "Deconstruction",
+        "Wrecking"
+      ]
+    },
+    {
+      "slug": "doors-frames-hardware",
+      "name": "Doors, Frames & Hardware",
+      "description": "Door and frame supply, finish hardware scheduling, and openings installation.",
+      "display_order": 50,
+      "aliases": [
+        "Doors & Hardware",
+        "Door Hardware",
+        "Finish Hardware",
+        "Openings",
+        "Hollow Metal",
+        "DHI"
+      ]
+    },
+    {
+      "slug": "drywall-interior-framing",
+      "name": "Drywall & Interior Framing",
+      "description": "Metal stud framing, gypsum board, taping, finishing, and acoustical ceilings.",
+      "display_order": 60,
+      "aliases": [
+        "Drywall",
+        "Gypsum",
+        "Interior Framing",
+        "Metal Stud Framing",
+        "Taping",
+        "Wall & Ceiling",
+        "Acoustical Ceilings",
+        "ACT"
+      ]
+    },
+    {
+      "slug": "earthwork-excavation",
+      "name": "Earthwork & Excavation",
+      "description": "Excavation, grading, mass haul, and soil work on the site.",
+      "display_order": 70,
+      "aliases": [
+        "Excavation",
+        "Grading",
+        "Earthmoving",
+        "Dirt Work",
+        "Mass Haul",
+        "Site Grading",
+        "Excavating"
+      ]
+    },
+    {
+      "slug": "electrical",
+      "name": "Electrical",
+      "description": "Power distribution, lighting, and electrical systems installation.",
+      "display_order": 80,
+      "aliases": [
+        "Electric",
+        "Electrical Contracting",
+        "Electrician",
+        "Power",
+        "Lighting Installation",
+        "Electrical Trade"
+      ]
+    },
+    {
+      "slug": "elevators-conveying",
+      "name": "Elevators & Conveying",
+      "description": "Elevators, escalators, lifts, and other vertical transportation systems.",
+      "display_order": 90,
+      "aliases": [
+        "Elevator",
+        "Elevators",
+        "Vertical Transportation",
+        "Escalators",
+        "Lifts",
+        "Conveying Systems"
+      ]
+    },
+    {
+      "slug": "environmental-abatement",
+      "name": "Environmental & Abatement",
+      "description": "Asbestos, lead, and mold abatement plus environmental remediation.",
+      "display_order": 100,
+      "aliases": [
+        "Abatement",
+        "Asbestos Abatement",
+        "Asbestos",
+        "Lead Abatement",
+        "Mold Remediation",
+        "Remediation",
+        "Hazmat",
+        "Environmental"
+      ]
+    },
+    {
+      "slug": "fire-protection",
+      "name": "Fire Protection",
+      "description": "Fire sprinkler, standpipe, and suppression system design and installation.",
+      "display_order": 110,
+      "aliases": [
+        "Fire Sprinkler",
+        "Sprinkler",
+        "Sprinklers",
+        "Fire Suppression",
+        "Suppression",
+        "Fire Life Safety",
+        "Fire Protection Contracting"
+      ]
+    },
+    {
+      "slug": "fireproofing-firestopping",
+      "name": "Fireproofing & Firestopping",
+      "description": "Applied fireproofing and through-penetration firestopping.",
+      "display_order": 120,
+      "aliases": [
+        "Fireproofing",
+        "Firestopping",
+        "Spray Fireproofing",
+        "Intumescent",
+        "Penetration Firestop"
+      ]
+    },
+    {
+      "slug": "flooring",
+      "name": "Flooring",
+      "description": "Resilient, carpet, wood, and polished-concrete floor covering.",
+      "display_order": 130,
+      "aliases": [
+        "Floor Covering",
+        "Floorcovering",
+        "Carpet",
+        "Resilient Flooring",
+        "Hardwood",
+        "Polished Concrete",
+        "Flooring Contracting"
+      ]
+    },
+    {
+      "slug": "framing-carpentry",
+      "name": "Framing & Carpentry",
+      "description": "Wood and light-gauge structural framing plus rough and finish carpentry.",
+      "display_order": 140,
+      "aliases": [
+        "Carpentry",
+        "Wood Framing",
+        "Light Gauge Steel Framing",
+        "LGS",
+        "Rough Carpentry",
+        "Finish Carpentry",
+        "Trusses",
+        "Framing"
+      ]
+    },
+    {
+      "slug": "glazing-curtain-wall",
+      "name": "Glazing & Curtain Wall",
+      "description": "Glass, storefront, curtain wall, and window-wall fabrication and installation.",
+      "display_order": 150,
+      "aliases": [
+        "Glass",
+        "Glazing",
+        "Glazier",
+        "Curtain Wall",
+        "Storefront",
+        "Window Wall",
+        "Fenestration",
+        "Glass & Glazing"
+      ]
+    },
+    {
+      "slug": "hvac-mechanical",
+      "name": "HVAC & Mechanical",
+      "description": "Heating, ventilation, air conditioning, hydronics, and process piping.",
+      "display_order": 160,
+      "aliases": [
+        "HVAC",
+        "Mechanical",
+        "Mechanical Contracting",
+        "Air Conditioning",
+        "Heating & Cooling",
+        "Hydronics",
+        "Process Piping",
+        "Mechanical Trade"
+      ]
+    },
+    {
+      "slug": "insulation",
+      "name": "Insulation",
+      "description": "Building-envelope and mechanical insulation, including spray foam.",
+      "display_order": 170,
+      "aliases": [
+        "Mechanical Insulation",
+        "Thermal Insulation",
+        "Building Insulation",
+        "Spray Foam",
+        "Pipe Insulation"
+      ]
+    },
+    {
+      "slug": "landscaping-irrigation",
+      "name": "Landscaping & Irrigation",
+      "description": "Planting, hardscape, irrigation, and grounds maintenance.",
+      "display_order": 180,
+      "aliases": [
+        "Landscape",
+        "Landscaping",
+        "Irrigation",
+        "Hardscape",
+        "Grounds Maintenance",
+        "Green Industry",
+        "Lawn Care"
+      ]
+    },
+    {
+      "slug": "low-voltage-security",
+      "name": "Low Voltage & Security",
+      "description": "Structured cabling, access control, surveillance, AV, and building networks.",
+      "display_order": 190,
+      "aliases": [
+        "Low Voltage",
+        "Security Systems",
+        "Access Control",
+        "Surveillance",
+        "AV",
+        "Audio Visual",
+        "Structured Cabling",
+        "Systems Integration",
+        "Alarm",
+        "Fire Alarm"
+      ]
+    },
+    {
+      "slug": "masonry",
+      "name": "Masonry",
+      "description": "Brick, block, stone, and cast-stone construction.",
+      "display_order": 200,
+      "aliases": [
+        "Brick",
+        "Bricklaying",
+        "Block",
+        "CMU",
+        "Stone",
+        "Cast Stone",
+        "Masonry Contracting"
+      ]
+    },
+    {
+      "slug": "millwork-casework",
+      "name": "Millwork & Casework",
+      "description": "Architectural woodwork, casework, cabinetry, and countertops.",
+      "display_order": 210,
+      "aliases": [
+        "Millwork",
+        "Casework",
+        "Cabinetry",
+        "Cabinets",
+        "Architectural Woodwork",
+        "Cabinet Shop",
+        "Countertops",
+        "AWI"
+      ]
+    },
+    {
+      "slug": "painting-coatings",
+      "name": "Painting & Coatings",
+      "description": "Architectural painting, industrial coatings, and wall covering.",
+      "display_order": 220,
+      "aliases": [
+        "Painting",
+        "Painter",
+        "Coatings",
+        "Industrial Coatings",
+        "Wallcovering",
+        "Wall Covering",
+        "Painting & Decorating"
+      ]
+    },
+    {
+      "slug": "paving-asphalt",
+      "name": "Paving & Asphalt",
+      "description": "Asphalt and concrete paving, striping, sealcoating, and pavement maintenance.",
+      "display_order": 230,
+      "aliases": [
+        "Paving",
+        "Asphalt",
+        "Pavement",
+        "Blacktop",
+        "Striping",
+        "Sealcoating",
+        "Pavement Maintenance",
+        "Asphalt Paving"
+      ]
+    },
+    {
+      "slug": "plumbing",
+      "name": "Plumbing",
+      "description": "Domestic water, sanitary, medical gas, and fuel-gas piping systems.",
+      "display_order": 240,
+      "aliases": [
+        "Plumber",
+        "Plumbing Contracting",
+        "Sanitary",
+        "Domestic Water",
+        "Med Gas",
+        "Medical Gas",
+        "Plumbing Trade"
+      ]
+    },
+    {
+      "slug": "precast-concrete",
+      "name": "Precast Concrete",
+      "description": "Plant-cast structural and architectural precast, including erection.",
+      "display_order": 250,
+      "aliases": [
+        "Precast",
+        "Architectural Precast",
+        "Structural Precast",
+        "Hollowcore",
+        "Double Tee"
+      ]
+    },
+    {
+      "slug": "rebar-reinforcing",
+      "name": "Rebar & Reinforcing Steel",
+      "description": "Reinforcing steel detailing, fabrication, and placement, including post-tensioning.",
+      "display_order": 260,
+      "aliases": [
+        "Rebar",
+        "Reinforcing Steel",
+        "Reinforcement",
+        "Rebar Detailing",
+        "Post-Tensioning",
+        "PT",
+        "Rod Busting"
+      ]
+    },
+    {
+      "slug": "restoration-waterproofing",
+      "name": "Restoration & Waterproofing",
+      "description": "Building-envelope restoration, waterproofing, sealants, and caulking.",
+      "display_order": 270,
+      "aliases": [
+        "Waterproofing",
+        "Sealants",
+        "Caulking",
+        "Building Envelope",
+        "Facade Restoration",
+        "Tuckpointing",
+        "Concrete Restoration"
+      ]
+    },
+    {
+      "slug": "roofing",
+      "name": "Roofing",
+      "description": "Low-slope and steep-slope roof systems, repair, and replacement.",
+      "display_order": 280,
+      "aliases": [
+        "Roofer",
+        "Roof",
+        "Roofing Contracting",
+        "Commercial Roofing",
+        "Residential Roofing",
+        "Re-Roofing",
+        "Roof Replacement",
+        "Sheet Roofing"
+      ]
+    },
+    {
+      "slug": "scaffolding-access",
+      "name": "Scaffolding & Access",
+      "description": "Scaffold, shoring, swing stage, and temporary access systems.",
+      "display_order": 290,
+      "aliases": [
+        "Scaffold",
+        "Scaffolding",
+        "Shoring",
+        "Swing Stage",
+        "Suspended Access",
+        "Access Equipment",
+        "Formwork & Shoring"
+      ]
+    },
+    {
+      "slug": "sheet-metal",
+      "name": "Sheet Metal",
+      "description": "Duct fabrication and installation plus architectural sheet metal.",
+      "display_order": 300,
+      "aliases": [
+        "Ductwork",
+        "Duct",
+        "Duct Fabrication",
+        "HVAC Sheet Metal",
+        "Architectural Sheet Metal",
+        "Fab Shop",
+        "SMACNA"
+      ]
+    },
+    {
+      "slug": "sitework-utilities",
+      "name": "Sitework & Underground Utilities",
+      "description": "Wet and dry underground utilities, storm, sewer, and site infrastructure.",
+      "display_order": 310,
+      "aliases": [
+        "Underground Utilities",
+        "Utilities",
+        "Site Utilities",
+        "Wet Utilities",
+        "Dry Utilities",
+        "Storm Drain",
+        "Sewer",
+        "Underground"
+      ]
+    },
+    {
+      "slug": "solar-renewables",
+      "name": "Solar & Renewables",
+      "description": "Solar PV, battery storage, EV charging, and renewable-energy installation.",
+      "display_order": 320,
+      "aliases": [
+        "Solar",
+        "PV",
+        "Photovoltaic",
+        "Solar Installation",
+        "Renewable Energy",
+        "Battery Storage",
+        "Energy Storage",
+        "EV Charging"
+      ]
+    },
+    {
+      "slug": "structural-steel",
+      "name": "Structural Steel & Metals",
+      "description": "Structural steel detailing, fabrication, erection, and miscellaneous metals.",
+      "display_order": 330,
+      "aliases": [
+        "Structural Steel",
+        "Steel",
+        "Steel Erection",
+        "Steel Fabrication",
+        "Ironworker",
+        "Misc Metals",
+        "Miscellaneous Metals",
+        "Ornamental Metals",
+        "Metal Fabrication"
+      ]
+    },
+    {
+      "slug": "tile-stone",
+      "name": "Tile & Stone",
+      "description": "Ceramic tile, natural stone, and terrazzo setting.",
+      "display_order": 340,
+      "aliases": ["Tile", "Tile Setting", "Ceramic Tile", "Stone Setting", "Terrazzo", "Tilework"]
+    }
+  ]
+}

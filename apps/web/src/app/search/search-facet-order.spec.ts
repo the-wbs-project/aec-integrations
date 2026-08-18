@@ -39,6 +39,18 @@ describe('orderFacetItems', () => {
     expect(out).not.toBe(input);
   });
 
+  it('passes trades through on the connector default, count-desc (AECI-545)', () => {
+    // Deliberate: the trade vocabulary's display_order is alphabetical, which
+    // carries no meaning, and with 34 terms under REFINEMENT_LIST_LIMIT an
+    // alphabetical sort would truncate the list around "E" and hide Roofing,
+    // Plumbing, Steel… Count order is the useful one. This pins that decision
+    // against a future "helpful" alphabetical sort.
+    const input = [item('Roofing', 9), item('Concrete', 4)];
+    const out = orderFacetItems('trades', input);
+    expect(out.map((i) => i.value)).toEqual(['Roofing', 'Concrete']);
+    expect(out).not.toBe(input);
+  });
+
   it('does not mutate the phases input', () => {
     const input = [item('Design'), item('Concept & Planning')];
     orderFacetItems('phases', input);

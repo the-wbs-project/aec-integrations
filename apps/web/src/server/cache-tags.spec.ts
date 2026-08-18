@@ -125,6 +125,9 @@ describe('cacheTagInputsForPath', () => {
     // alongside `taxonomy`.
     ['/', { route: 'index', entity: { type: 'index', slug: 'home' }, taxonomy: true }],
     ['/about', { route: 'index' }],
+    // /updates + /roadmap are static content pages with no §2 entity — route tag only.
+    ['/updates', { route: 'index' }],
+    ['/roadmap', { route: 'index' }],
     ['/legal', { route: 'index' }],
     ['/legal/privacy', { route: 'index' }],
     ['/products', { route: 'index', entity: { type: 'index', slug: 'products' } }],
@@ -176,6 +179,11 @@ describe('cacheTagInputsForPath', () => {
       '/phases/preconstruction',
       { route: 'browse', entity: { type: 'phase', slug: 'preconstruction' } },
     ],
+    ['/trades', { route: 'index', entity: { type: 'index', slug: 'trades' }, taxonomy: true }],
+    ['/trades/electrical', { route: 'browse', entity: { type: 'trade', slug: 'electrical' } }],
+    // AECI-544 — a sub-floor trade is still cacheable and purgeable by tag; the
+    // publication gate controls indexability, not cacheability.
+    ['/trades/roofing', { route: 'browse', entity: { type: 'trade', slug: 'roofing' } }],
   ])('maps %s to the expected inputs', (path, expected) => {
     expect(cacheTagInputsForPath(path)).toEqual(expected);
   });
@@ -204,6 +212,8 @@ describe('cacheTagInputsForPath', () => {
     const paths = [
       '/',
       '/about',
+      '/updates',
+      '/roadmap',
       '/legal/terms',
       '/products',
       '/products/procore',
@@ -215,6 +225,8 @@ describe('cacheTagInputsForPath', () => {
       '/audiences/architecture',
       '/phases',
       '/phases/preconstruction',
+      '/trades',
+      '/trades/electrical',
     ];
     for (const p of paths) {
       const inputs = cacheTagInputsForPath(p);
