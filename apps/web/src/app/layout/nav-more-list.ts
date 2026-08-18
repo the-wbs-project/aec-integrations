@@ -16,6 +16,18 @@ import type { MoreMenuGroup } from './more-menu-links';
  * page already owns its heading outline and a nav-group label would break the
  * order for no navigational gain (same reasoning as `admin-shell.ts`).
  *
+ * Grouping is carried by **vertical rhythm, not indentation**. Items sit on the
+ * same left rail as their overline (`px-3` on both) and are separated by ~12px,
+ * while a group boundary opens to ~26px — a >2:1 ratio, so proximity alone says
+ * where one group ends. The admin sidebar (`admin/admin-shell.ts`) renders this
+ * same data on the same principle (`space-y-6` between groups vs `space-y-1`
+ * within), and the two must not drift. Indenting the links instead was
+ * considered and rejected: the admin column stacks a section title over an
+ * overline over its items, so an item indent would give that column three left
+ * rails against the public column's two and the halves would stop aligning
+ * row-for-row across the divider — and an indent reads as tree depth, which
+ * these non-clickable eyebrow labels do not have.
+ *
  * Items pin `font-normal` rather than inheriting. The desktop primary `<nav>`
  * sets `font-medium` on the whole row (`site-header.ts`), so an unpinned item
  * renders at 500 there and 400 in the mobile overlay — the exact drift this
@@ -32,11 +44,11 @@ import type { MoreMenuGroup } from './more-menu-links';
   imports: [RouterLink, RouterLinkActive],
   template: `
     @for (group of groups(); track group.id) {
-      <div class="mt-1 first:mt-0">
-        <p [id]="group.id" class="aec-overline px-3 pt-2 pb-1 text-(--text-secondary)">
+      <div class="mt-5 first:mt-0">
+        <p [id]="group.id" class="aec-overline px-3 pb-1.5 text-(--text-secondary)">
           {{ group.heading }}
         </p>
-        <ul class="flex flex-col gap-0.5" [attr.aria-labelledby]="group.id">
+        <ul class="flex flex-col" [attr.aria-labelledby]="group.id">
           @for (item of group.items; track item.path) {
             <li>
               <a
