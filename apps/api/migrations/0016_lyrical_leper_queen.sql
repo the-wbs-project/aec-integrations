@@ -31,7 +31,7 @@
 --      spec requires.
 --
 -- The statements below are the additive equivalent and match
--- `meta/0006_snapshot.json`, so `db:generate` stays a no-op and drift-check passes.
+-- `meta/0016_snapshot.json`, so `db:generate` stays a no-op and drift-check passes.
 -- (SQLite applies a NOT NULL column default to existing rows on ADD COLUMN, so every
 -- claim in D1 today backfills to `origin = 'aeci'` — correct: all of them came from
 -- promote. Verified against SQLite 3.51, including that the ALTER-added FK's

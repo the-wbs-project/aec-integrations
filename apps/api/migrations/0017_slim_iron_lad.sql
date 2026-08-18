@@ -16,7 +16,7 @@
 -- of degrading the stamp to "no version data". The `CREATE TABLE` + indexes above are
 -- untouched generator output: `CREATE TABLE` does emit the full FK clause.
 --
--- The body still matches `meta/0008_snapshot.json`, so `db:generate` stays a no-op
+-- The body still matches `meta/0017_snapshot.json`, so `db:generate` stays a no-op
 -- and the CI drift gate passes — drizzle-kit diffs `schema.ts` against the snapshot,
 -- never against the database. Statement order matters: `product_versions` must exist
 -- before the `attestations` FKs point at it.
