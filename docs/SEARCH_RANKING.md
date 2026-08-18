@@ -127,7 +127,11 @@ shape are recorded here now (per AECI-298) to keep the decision in one place.
 - **Index name.** Follows the existing `indexNamesFor(env)` convention (`packages/shared/src/algolia.ts`):
   **`{prefix}_pairs`** (e.g. `staging_pairs`, `production_pairs`).
 - **Future record shape (Stage 2 — illustrative, not yet built).** Derived from the pair-page read model
-  `{ context_product, other_product, mechanisms[], sync_headline }` (`STAGE_1_5_SPEC.md` §7.1/§8):
+  `{ context_product, other_product, mechanisms[], sync_headline, maintenance, version_diff }`
+  (`STAGE_1_5_SPEC.md` §7.1/§8; `maintenance` added by AECI-616, `version_diff` by AECI-303). Note
+  that a per-pair record would be a **latest-version** projection: the §9 version selectors are URL
+  params on the read, and attestation state still does not reach search
+  (`STAGE_2_ATTESTATIONS_SPEC.md` §11):
 
   | Field | Type | Purpose |
   |---|---|---|

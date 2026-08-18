@@ -37,12 +37,15 @@ import type {
   AdminVendorRequest,
   AdminVendorSeat,
   ClaimDirection,
+  ClaimTimeline,
+  ClaimTimelineEntry,
   IntegrationDetail,
   IntegrationListItem,
   IntegrationMechanismKind,
   LinkRef,
   Maintenance,
   PairClaimAttestation,
+  PairVersionDiff,
   ProductDetail,
   ProductIntegrationItem,
   ProductLink,
@@ -60,7 +63,13 @@ import type {
   VendorLink,
   VendorListItem,
 } from '@aeci/shared';
-import { and, eq, inArray, isNull, like, sql, type SQL } from 'drizzle-orm';
+import {
+  claimVersionStatus,
+  isClaimPresentAt,
+  type ClaimVersionWindow,
+  type VersionPairSelection,
+} from '@aeci/shared/version-diff';
+import { and, asc, eq, inArray, isNull, like, sql, type SQL } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import {
@@ -71,8 +80,31 @@ import {
   products,
   productTrades,
   productVendors,
+  productVersions,
   vendors,
 } from '../db/schema';
+
+// ---------------------------------------------------------------------------
+// Shared read orderings
+// ---------------------------------------------------------------------------
+
+/**
+ * The ordered `product_versions` read (§8.2). `sort_key` first; `created_at` then
+ * `id` break a tie, which is possible because the unique index is on
+ * `(product_id, label)`, not on `sort_key`, and every digit-free label derives 0.
+ * The tiebreak deliberately does NOT fall back to `label` — that would
+ * reintroduce exactly the lexical ordering the column exists to avoid.
+ *
+ * Mirrors `compareProductVersions` (`@aeci/shared/version-sort`) — **change both
+ * together.** Lives here rather than beside either reader because there are now
+ * two: `routes/vendor-product-versions.ts` (the authoring list, AECI-607) and the
+ * product-PAIR read (the §9 selectors, AECI-303). One `ORDER BY`, one comment.
+ */
+export const VERSION_ORDER = [
+  asc(productVersions.sortKey),
+  asc(productVersions.createdAt),
+  asc(productVersions.id),
+];
 
 // ---------------------------------------------------------------------------
 // Leaf column sets (reused by several parents)
@@ -219,6 +251,14 @@ export const integrationPairConfig = {
     // vote nor render. `attestedByVendorId` feeds the §4.2 distinct-identity
     // dedupe and is dropped by the mapper; `note` + the version stamps are the
     // provenance popover's payload.
+    //
+    // The two `*VersionId` FKs are AECI-303's presence input (§9.1). Only the ids
+    // are selected — NOT the related `product_versions` rows: the pair handler
+    // already loads both endpoints' full version lists for the selectors, so
+    // `resolveVersionSelection` resolves each id against that map. Hydrating the
+    // relations here would mean two more joins on the heaviest read in the system
+    // (and both would need their disambiguated `relationName`, since two FKs point
+    // at one table) for data already in hand.
     claims: {
       columns: { id: true, direction: true },
       with: {
@@ -232,8 +272,53 @@ export const integrationPairConfig = {
             note: true,
             introducedAt: true,
             deprecatedAt: true,
+            introducedVersionId: true,
+            deprecatedVersionId: true,
           },
           where: liveAttestationsWhere,
+        },
+      },
+    },
+  },
+} as const;
+
+/**
+ * Per-claim **history** hydration for the pair timeline read
+ * (`GET …/integrations/:otherSlug/timeline`, AECI-303 / §9.1).
+ *
+ * ⚠️ **This is the ONE read in the system that deliberately omits
+ * `liveAttestationsWhere`.** Retracted rows are the point: §2.1's supersession is
+ * retract-then-insert, so the append-only history *is* the retracted rows plus the
+ * live one. Consequences, both load-bearing:
+ *
+ *   - **Never call `computeAgreement` (or `isClaimRefuted`, or `computeSyncHeadline`)
+ *     on this config's output.** Those engines re-check `retractedAt` themselves, so
+ *     they would not be *wrong* — but routing history through them is how a
+ *     withdrawn assertion finds its way back into a vote, which is the exact hazard
+ *     §2.5 handed to §4. Agreement comes from `integrationPairConfig`; this config
+ *     feeds the timeline mapper and nothing else.
+ *   - It carries no products, vendors, or mechanism columns — only what one history
+ *     row renders. The payload is unbounded in principle (the log grows forever),
+ *     so it stays as narrow as possible.
+ */
+export const integrationTimelineConfig = {
+  columns: { id: true },
+  with: {
+    sourceProduct: { columns: { id: true } },
+    claims: {
+      columns: { id: true },
+      with: {
+        attestations: {
+          columns: {
+            id: true,
+            source: true,
+            asserted: true,
+            note: true,
+            retractedAt: true,
+            createdAt: true,
+            introducedVersionId: true,
+            deprecatedVersionId: true,
+          },
         },
       },
     },
@@ -546,6 +631,55 @@ export interface RawClaimAttestationRow extends RawAgreementVoteRow {
   note: string | null;
   introducedAt: string | null;
   deprecatedAt: string | null;
+  // AECI-303 (§9.1): the PRECISE version stamps. Resolved against the pair's
+  // loaded `product_versions` map, not via a relation — see `integrationPairConfig`.
+  introducedVersionId: string | null;
+  deprecatedVersionId: string | null;
+}
+
+/** One append-only history row for the timeline read (`integrationTimelineConfig`). */
+export interface RawTimelineAttestationRow {
+  id: string;
+  source: string;
+  asserted: boolean;
+  note: string | null;
+  retractedAt: string | null;
+  createdAt: string;
+  introducedVersionId: string | null;
+  deprecatedVersionId: string | null;
+}
+
+export interface RawTimelineIntegrationRow {
+  id: string;
+  sourceProduct: { id: string };
+  claims: { id: string; attestations: RawTimelineAttestationRow[] }[];
+}
+
+/**
+ * What the §9 mappers need to resolve one pair read's version diff.
+ *
+ * Implemented by `resolveVersionSelection` (`./pair-version-diff`), which owns the
+ * label lookup, the stamp-id → side resolution, and the **single**
+ * `canViewVersionDiff` consult on the API. Declared here because the mappers are
+ * the consumer and this is their contract; the dependency runs
+ * `pair-version-diff → drizzle-helpers`, never back.
+ *
+ * Passing `undefined` to the mappers is not a degraded mode — it is the ordinary
+ * path for every pair whose diff does not apply, and it must produce output
+ * identical to the pre-AECI-303 shape.
+ */
+export interface PairVersionResolver {
+  /** The wire payload for `ProductPairResponse.version_diff`. */
+  readonly diff: PairVersionDiff;
+  readonly selected: VersionPairSelection;
+  readonly previous: VersionPairSelection | null;
+  /** The 0, 1, or 2 windows one attestation's stamps contribute. */
+  claimWindows(attestation: {
+    introducedVersionId: string | null;
+    deprecatedVersionId: string | null;
+  }): ClaimVersionWindow[];
+  /** A stamped version's label, or `undefined` when unstamped or unresolvable. */
+  versionLabel(versionId: string | null): string | undefined;
 }
 
 export interface RawPairClaimRow {
@@ -824,8 +958,15 @@ export function toIntegrationDetail(raw: RawIntegrationDetailRow): IntegrationDe
 function toPairClaimAttestation(
   raw: RawClaimAttestationRow,
   contextIsSource: boolean,
+  versions?: PairVersionResolver,
 ): PairClaimAttestation {
   const source = raw.source as PairClaimAttestation['source'];
+  // Version LABELS, and only when they resolve. `versions` undefined (the diff
+  // does not apply to this pair) or an unresolvable id both leave the keys ABSENT
+  // rather than `null` — the one spelling of "no stamp", which is what keeps an
+  // unstamped attestation serialising byte-for-byte as it did before AECI-303.
+  const introducedVersion = versions?.versionLabel(raw.introducedVersionId);
+  const deprecatedVersion = versions?.versionLabel(raw.deprecatedVersionId);
   return {
     source,
     attestor: attestorForContext(source, contextIsSource),
@@ -833,24 +974,54 @@ function toPairClaimAttestation(
     note: raw.note,
     introduced_at: raw.introducedAt,
     deprecated_at: raw.deprecatedAt,
+    ...(introducedVersion === undefined ? {} : { introduced_version: introducedVersion }),
+    ...(deprecatedVersion === undefined ? {} : { deprecated_version: deprecatedVersion }),
   };
 }
 
-/** One `data_object` claim on a mechanism (§8), with its stored direction
- *  translated to the context product's frame (§3.2) and its agreement computed
- *  from the attestation set (§3.4 / §4.2 — never stored, ADR 0018).
- *  `contextIsSource` is whether the page's context product is the integration's
- *  endpoint A. */
-function toProductPairClaim(raw: RawPairClaimRow, contextIsSource: boolean): ProductPairClaim {
-  return {
+/**
+ * One `data_object` claim on a mechanism (§8), with its stored direction
+ * translated to the context product's frame (§3.2) and its agreement computed
+ * from the attestation set (§3.4 / §4.2 — never stored, ADR 0018).
+ * `contextIsSource` is whether the page's context product is the integration's
+ * endpoint A.
+ *
+ * Returns **`null` when the claim must be dropped** from the response: it is
+ * present at neither the selected version pair nor the previous one, so it belongs
+ * to an earlier era (AECI-303 / §9.1). Without that drop, a pair with a long
+ * release history would render every flow it ever had. With `versions` undefined
+ * nothing is ever dropped — the pre-AECI-303 behaviour.
+ */
+function toProductPairClaim(
+  raw: RawPairClaimRow,
+  contextIsSource: boolean,
+  versions?: PairVersionResolver,
+): ProductPairClaim | null {
+  const base = {
+    id: raw.id,
     data_object_slug: raw.dataObject.slug,
     data_object_name: raw.dataObject.name,
     direction: claimDirectionForContext(
       coerceClaimDirection(raw.direction, raw.id),
       contextIsSource,
     ),
+    // Agreement is computed from the LIVE attestations only and is deliberately
+    // independent of the version selection: §8.1(4) makes the latest conflict /
+    // single-source state free and full-fidelity, and a claim that renders at all
+    // renders its real agreement.
     agreement: computeAgreement(raw.attestations),
-    attestations: raw.attestations.map((a) => toPairClaimAttestation(a, contextIsSource)),
+    attestations: raw.attestations.map((a) => toPairClaimAttestation(a, contextIsSource, versions)),
+  };
+  if (!versions) return base;
+
+  const windows = raw.attestations.flatMap((a) => versions.claimWindows(a));
+  const presentNow = isClaimPresentAt(windows, versions.selected);
+  const presentBefore = versions.previous !== null && isClaimPresentAt(windows, versions.previous);
+  if (!presentNow && !presentBefore) return null;
+
+  return {
+    ...base,
+    version_status: claimVersionStatus(windows, versions.selected, versions.previous),
   };
 }
 
@@ -871,6 +1042,7 @@ function compareClaims(a: RawPairClaimRow, b: RawPairClaimRow): number {
 function toProductPairMechanism(
   raw: RawIntegrationPairRow,
   contextProductId: string,
+  versions?: PairVersionResolver,
 ): ProductPairMechanism {
   const contextIsSource = raw.sourceProduct.id === contextProductId;
   return {
@@ -883,9 +1055,12 @@ function toProductPairMechanism(
     docs_url: raw.docsUrl,
     built_by_vendor: raw.builtByVendor ? toVendorLink(raw.builtByVendor) : null,
     powered_by_product: raw.poweredByProduct ? toProductLink(raw.poweredByProduct) : null,
+    // Sort FIRST, then drop: ordering stays this mapper's job and is independent
+    // of the version selection, so walking the selectors never reshuffles the lanes.
     claims: [...raw.claims]
       .sort(compareClaims)
-      .map((claim) => toProductPairClaim(claim, contextIsSource)),
+      .map((claim) => toProductPairClaim(claim, contextIsSource, versions))
+      .filter((claim): claim is ProductPairClaim => claim !== null),
   };
 }
 
@@ -903,14 +1078,90 @@ export function toProductPairResponse(
   contextProduct: RawProductListRow,
   otherProduct: RawProductListRow,
   integrations: RawIntegrationPairRow[],
+  versions?: PairVersionResolver,
 ): ProductPairResponse {
-  const mechanisms = integrations.map((row) => toProductPairMechanism(row, contextProduct.id));
+  const mechanisms = integrations.map((row) =>
+    toProductPairMechanism(row, contextProduct.id, versions),
+  );
+  const claims = mechanisms.flatMap((m) => m.claims);
   return {
     context_product: toProductListItem(contextProduct),
     other_product: toProductListItem(otherProduct),
     mechanisms,
-    sync_headline: computeSyncHeadline(mechanisms.flatMap((m) => m.claims)),
+    // `removed` claims still render (struck through) but must not be counted:
+    // "N data objects sync" may not include a flow that has stopped
+    // (AECI-303 / §9.1). Filtered HERE, at the single call site, rather than inside
+    // `computeSyncHeadline` — the shared engine stays a pure function of
+    // `{ agreement }` and owes the diff contract nothing.
+    sync_headline: computeSyncHeadline(claims.filter((c) => c.version_status !== 'removed')),
     maintenance: computePairMaintenance(integrations),
+    version_diff: versions ? { ...versions.diff, counts: countVersionStatuses(claims) } : null,
+  };
+}
+
+/** The data-flow band's "2 added · 1 removed" line. */
+function countVersionStatuses(claims: readonly ProductPairClaim[]): PairVersionDiff['counts'] {
+  let added = 0;
+  let removed = 0;
+  for (const claim of claims) {
+    if (claim.version_status === 'added') added += 1;
+    else if (claim.version_status === 'removed') removed += 1;
+  }
+  return { added, removed };
+}
+
+/**
+ * Assemble the per-claim histories for the pair timeline read (AECI-303 / §9.1).
+ *
+ * Reads `integrationTimelineConfig`'s output, which — uniquely — includes
+ * **retracted** rows. Entries are ordered oldest-first by `created_at` then `id`,
+ * a total order so the render is stable regardless of D1 row order. Claims with no
+ * attestations at all are omitted: an empty history is nothing to show, and the
+ * browser's "does this claim have a history affordance?" test is the absence of an
+ * entry for its id.
+ *
+ * `contextProductId` frames each row's slot context-relatively via
+ * `attestorForContext`, exactly as the live pair read does, so the two surfaces
+ * cannot disagree about which party is "context".
+ */
+export function toPairTimelines(
+  integrations: readonly RawTimelineIntegrationRow[],
+  contextProductId: string,
+  versions: Pick<PairVersionResolver, 'versionLabel'>,
+): ClaimTimeline[] {
+  const timelines: ClaimTimeline[] = [];
+  for (const integration of integrations) {
+    const contextIsSource = integration.sourceProduct.id === contextProductId;
+    for (const claim of integration.claims) {
+      if (claim.attestations.length === 0) continue;
+      const entries = [...claim.attestations]
+        .sort((a, b) => {
+          if (a.createdAt !== b.createdAt) return a.createdAt < b.createdAt ? -1 : 1;
+          return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+        })
+        .map((row) => toClaimTimelineEntry(row, contextIsSource, versions));
+      timelines.push({ claim_id: claim.id, entries });
+    }
+  }
+  return timelines;
+}
+
+function toClaimTimelineEntry(
+  raw: RawTimelineAttestationRow,
+  contextIsSource: boolean,
+  versions: Pick<PairVersionResolver, 'versionLabel'>,
+): ClaimTimelineEntry {
+  const source = raw.source as PairClaimAttestation['source'];
+  const introducedVersion = versions.versionLabel(raw.introducedVersionId);
+  const deprecatedVersion = versions.versionLabel(raw.deprecatedVersionId);
+  return {
+    attestor: attestorForContext(source, contextIsSource),
+    asserted: raw.asserted,
+    note: raw.note,
+    ...(introducedVersion === undefined ? {} : { introduced_version: introducedVersion }),
+    ...(deprecatedVersion === undefined ? {} : { deprecated_version: deprecatedVersion }),
+    created_at: raw.createdAt,
+    retracted_at: raw.retractedAt,
   };
 }
 

@@ -1,9 +1,11 @@
+import { HttpClient } from '@angular/common/http';
 import { Component, afterNextRender, computed, inject, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { map } from 'rxjs';
 
 import type {
+  ClaimTimeline,
   ContextDirection,
   ProductLink,
   ProductPairClaim,
@@ -11,8 +13,10 @@ import type {
   ProductPairResponse,
   VendorLink,
 } from '@aeci/shared';
+import { CONTEXT_VERSION_PARAM, OTHER_VERSION_PARAM } from '@aeci/shared/version-diff';
 
 import { ExternalLinkTracker } from '../analytics/external-link-tracker';
+import { fetchPairTimeline } from '../core/api/product-pairs';
 import { NotFound } from '../not-found/not-found';
 import { mechanismKindLabel } from '../search/mechanism-labels';
 import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
@@ -28,6 +32,7 @@ import {
   directionGlyph,
   directionHeading,
 } from './pair-direction-labels';
+import { PairVersionSelect } from './pair-version-select';
 
 /** The two vendor names a pair page can attribute an attestation to, keyed by
  *  the context-relative `attestor` the API resolves (§4.3). Either may be `null`
@@ -44,7 +49,44 @@ interface ClaimRow {
   /** The vendor named on a `single_source` badge; `null` for every other state
    *  (and when the affirming side has no vendor record). */
   readonly attributedTo: string | null;
+  /**
+   * AECI-303 (§9.1) diff presentation, all resolved here so the template holds no
+   * conditionals. `diffLabel` is `null` for `unchanged` — the overwhelming majority
+   * state — and a marker on every row would double the row's badge load and break
+   * the "renders identically to today" guarantee.
+   */
+  readonly diffGlyph: string | null;
+  readonly diffLabel: string | null;
+  readonly rowClass: string;
+  readonly nameClass: string;
 }
+
+/**
+ * The tonal vocabulary for the diff markers (`DESIGN.md` §5). Borders, not fills,
+ * and no new colours:
+ *
+ *   - `added` takes the Forest **start rule**. Not `--accent-primary-soft`: that wash
+ *     belongs to the agreement chip's `confirmed` state, and a wash inches from a
+ *     neutral chip would read as "confirmed" by proximity. A single vertical mark is
+ *     unmistakably structural rather than a badge, and doubles as a scannable gutter
+ *     down the lane.
+ *   - `removed` takes a neutral strong rule plus a strikethrough and a step down to
+ *     `--text-secondary`. **Never `--status-error`**: `conflict` is the only red in
+ *     the system, and a second red on the same row would collapse "vendors disagree"
+ *     into "no longer supported".
+ *   - Clay is excluded on both counts — `added` is not a warning, and the
+ *     Clay-Restriction Rule caps that hue at ≤5% of a screen, which a per-row marker
+ *     blows instantly.
+ *
+ * `--text-secondary` only, never `--text-tertiary`: these rows sit on
+ * `--surface-base` inside a `--surface-raised` lane, and the tertiary token's own
+ * comment forbids it on sunken/muted surfaces. Logical `border-s-2` keeps the mark
+ * on the correct edge under RTL.
+ */
+const DIFF_ADDED_ROW = 'border-s-2 border-s-(--accent-primary)';
+const DIFF_REMOVED_ROW = 'border-s-2 border-s-(--border-strong)';
+const DIFF_NAME_DEFAULT = 'text-(--text-primary)';
+const DIFF_NAME_REMOVED = 'text-(--text-secondary) line-through';
 
 /** One direction lane of a mechanism's claims — heading/glyph/aria resolved,
  *  empty lanes dropped. Mirrors the AECI-289 prototype's `renderedGroups`. */
@@ -76,6 +118,7 @@ function buildClaimGroups(
   claims: readonly ProductPairClaim[],
   otherName: string,
   vendors: PairVendorNames,
+  selectedVersions: { context: string | null; other: string | null } | null,
 ): ClaimGroup[] {
   return DIRECTION_ORDER.map((direction) => ({
     direction,
@@ -84,8 +127,53 @@ function buildClaimGroups(
     aria: directionAria(direction, otherName),
     rows: claims
       .filter((c) => c.direction === direction)
-      .map((claim) => ({ claim, attributedTo: attributedVendorName(claim, vendors) })),
+      .map((claim) => buildClaimRow(claim, vendors, selectedVersions)),
   })).filter((g) => g.rows.length > 0);
+}
+
+/** Resolve one claim row's attribution and diff presentation (§9.1). */
+function buildClaimRow(
+  claim: ProductPairClaim,
+  vendors: PairVendorNames,
+  selectedVersions: { context: string | null; other: string | null } | null,
+): ClaimRow {
+  const base = { claim, attributedTo: attributedVendorName(claim, vendors) };
+  // The version the marker names: whichever side's release the reader is looking at.
+  // Both selectors move independently, so name the pair rather than guessing a side.
+  const at = selectedVersions
+    ? [selectedVersions.context, selectedVersions.other].filter((l): l is string => l !== null)
+    : [];
+  const version = at.join(' · ');
+  if (claim.version_status === 'added') {
+    return {
+      ...base,
+      diffGlyph: '+',
+      diffLabel: version
+        ? $localize`:@@pair.version.added:New in ${version}:version:`
+        : $localize`:@@pair.version.added.bare:New in this version`,
+      rowClass: DIFF_ADDED_ROW,
+      nameClass: DIFF_NAME_DEFAULT,
+    };
+  }
+  if (claim.version_status === 'removed') {
+    return {
+      ...base,
+      diffGlyph: '−',
+      diffLabel: version
+        ? $localize`:@@pair.version.removed:Removed in ${version}:version:`
+        : $localize`:@@pair.version.removed.bare:Removed in this version`,
+      rowClass: DIFF_REMOVED_ROW,
+      nameClass: DIFF_NAME_REMOVED,
+    };
+  }
+  // `unchanged`, and the no-diff-applies case: render exactly as before AECI-303.
+  return {
+    ...base,
+    diffGlyph: null,
+    diffLabel: null,
+    rowClass: '',
+    nameClass: DIFF_NAME_DEFAULT,
+  };
 }
 
 /** Sync-headline breadth line (§3.5), pluralised. */
@@ -232,6 +320,7 @@ function writePairViewCookie(mode: PairViewMode): void {
     MailingListSignup,
     MaintenanceMarker,
     NotFound,
+    PairVersionSelect,
     RouterLink,
     VerifiedBadge,
   ],
@@ -385,6 +474,41 @@ function writePairViewCookie(mode: PairViewMode): void {
                 </span>
               }
             </a>
+
+            <!-- AECI-303 (§9.1): the two version selectors, as a SECOND grid row so
+                 each sits under its own product column, which is what lets the
+                 label be the product's own name instead of disambiguating copy.
+                 A second row rather than nesting inside the cells above is
+                 required, not stylistic: those cells are anchors with routerLink,
+                 and an interactive combobox inside an anchor is invalid HTML that
+                 would navigate on click. It also keeps the two logos aligned when
+                 only one side has a selector. Renders nothing at all when the diff
+                 does not apply: the whole suppression rule is a null versionView. -->
+            @if (versionView(); as vv) {
+              <div class="flex justify-center">
+                @if (vv.contextOptions.length > 1) {
+                  <aec-pair-version-select
+                    side="context"
+                    [label]="versionLabelFor(context.name)"
+                    [options]="vv.contextOptions"
+                    [value]="vv.selectedContext"
+                    (changed)="setVersion('context', $event)"
+                  />
+                }
+              </div>
+              <span aria-hidden="true"></span>
+              <div class="flex justify-center">
+                @if (vv.otherOptions.length > 1) {
+                  <aec-pair-version-select
+                    side="other"
+                    [label]="versionLabelFor(other.name)"
+                    [options]="vv.otherOptions"
+                    [value]="vv.selectedOther"
+                    (changed)="setVersion('other', $event)"
+                  />
+                }
+              </div>
+            }
           </div>
 
           <!-- Data-flow band (§3.5). Leads with the sync headline once claims are
@@ -419,6 +543,35 @@ function writePairViewCookie(mode: PairViewMode): void {
                 We’re cataloguing what each integration syncs. Vendor confirmation arrives with the
                 vendor portal.
               </p>
+            }
+
+            <!-- AECI-303 (§9.1): what the selected version pair changed. Lives in the
+                 band because the band already owns "what syncs"; the per-row markers
+                 below say which flows. Only rendered when there IS a previous pair
+                 to compare against; the earliest pair is a baseline, not a diff. -->
+            @if (versionView(); as vv) {
+              @if (vv.previousSummary) {
+                <p class="mt-4 text-xs text-(--text-secondary)">
+                  <span>{{ vv.previousSummary }}</span>
+                  @if (vv.changeSummary) {
+                    <span class="tabular-nums"> · {{ vv.changeSummary }}</span>
+                  }
+                </p>
+              }
+              <!-- The reader's way home from a deep-linked historical URL. Without
+                   it a shared non-default link is a dead end. -->
+              @if (!vv.isDefault) {
+                <button
+                  type="button"
+                  (click)="showLatest()"
+                  class="mt-3 rounded-(--radius-sm) text-xs font-medium text-(--accent-primary)
+                    underline underline-offset-2 focus-visible:outline-2
+                    focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                  i18n="@@pair.version.showLatest"
+                >
+                  Show the latest versions
+                </button>
+              }
             }
           </div>
 
@@ -517,12 +670,34 @@ function writePairViewCookie(mode: PairViewMode): void {
                           r of g.rows;
                           track r.claim.data_object_slug + '|' + r.claim.direction
                         ) {
+                          <!-- AECI-303 (§9.1): the diff marker sits at the row START,
+                               never in the right-hand cluster. Separation by POSITION
+                               is what keeps it from competing with the agreement
+                               badge: left = what changed in this version, right = who
+                               agrees about it. Two questions, two zones. -->
                           <li
                             class="flex items-center justify-between gap-3 rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2"
+                            [class]="r.rowClass"
                           >
-                            <span class="text-sm text-(--text-primary)">{{
-                              r.claim.data_object_name
-                            }}</span>
+                            <span class="flex min-w-0 flex-col gap-0.5">
+                              <span class="text-sm" [class]="r.nameClass">{{
+                                r.claim.data_object_name
+                              }}</span>
+                              @if (r.diffLabel) {
+                                <span class="flex items-center gap-1">
+                                  <!-- Glyph AND text AND (for removed) a decoration
+                                       change: never colour-only (WCAG 1.4.1). -->
+                                  <span
+                                    aria-hidden="true"
+                                    class="text-xs text-(--text-secondary)"
+                                    >{{ r.diffGlyph }}</span
+                                  >
+                                  <span class="aec-overline text-(--text-secondary)">{{
+                                    r.diffLabel
+                                  }}</span>
+                                </span>
+                              }
+                            </span>
                             <span class="flex items-center gap-2">
                               <aec-agreement-badge
                                 [agreement]="r.claim.agreement"
@@ -532,6 +707,8 @@ function writePairViewCookie(mode: PairViewMode): void {
                                 [claim]="r.claim"
                                 [contextVendorName]="v.vendorNames.context"
                                 [otherVendorName]="v.vendorNames.other"
+                                [timeline]="timelineFor(r.claim.id)"
+                                (historyRequested)="loadTimeline()"
                               />
                             </span>
                           </li>
@@ -590,6 +767,7 @@ function writePairViewCookie(mode: PairViewMode): void {
 export class ProductsPairPage {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
+  private readonly http = inject(HttpClient);
 
   protected readonly breadcrumbAria = $localize`:@@pair.breadcrumb.aria:Breadcrumb`;
 
@@ -694,7 +872,12 @@ export class ProductsPairPage {
       glyph: m.direction ? directionGlyph(m.direction) : '',
       directionLabel: m.direction ? directionHeading(m.direction, otherName) : '',
       directionAria: m.direction ? directionAria(m.direction, otherName) : '',
-      claimGroups: buildClaimGroups(m.claims, otherName, vendorNames),
+      claimGroups: buildClaimGroups(
+        m.claims,
+        otherName,
+        vendorNames,
+        this.pair()?.version_diff?.selected ?? null,
+      ),
       hasClaims: m.claims.length > 0,
       builtByVendor: m.built_by_vendor,
       poweredByProduct: m.powered_by_product,
@@ -705,4 +888,136 @@ export class ProductsPairPage {
     const avg = product.rating_overall_avg?.toFixed(1) ?? '';
     return $localize`:@@pair.rating.aria:${product.name}:name: rated ${avg}:rating: out of 5 from ${product.review_count}:count: reviews`;
   }
+
+  // ── AECI-303 (§9): the version selectors + the diff summary ────────────────
+
+  /**
+   * The selectors' view-model, or `null` when the §9 diff does not apply.
+   *
+   * The null is the WHOLE suppression rule and it is the API's decision, not a
+   * browser derivation: `version_diff` is null unless a release exists AND a live
+   * attestation on the pair is version-stamped. That makes "latest × latest renders
+   * identically to today for claims with no version data" structural — at launch no
+   * pair has releases, so no selector chrome exists to get wrong.
+   *
+   * A side with fewer than two releases still renders no selector (see the template):
+   * a one-option combobox is the no-op control `hasDetail` already exists to
+   * suppress, and a *disabled* control is worse than none.
+   */
+  protected readonly versionView = computed(() => {
+    const diff = this.pair()?.version_diff;
+    if (!diff) return null;
+    const toOptions = (versions: readonly { label: string; released_at: string | null }[]) =>
+      versions.map((v) => ({ label: v.label, releasedAt: v.released_at }));
+    return {
+      contextOptions: toOptions(diff.context_versions),
+      otherOptions: toOptions(diff.other_versions),
+      // What the server RESOLVED, never the raw query param — a stale label
+      // degrades to latest and the control must show what is actually rendered.
+      selectedContext: diff.selected.context,
+      selectedOther: diff.selected.other,
+      isDefault: diff.is_default,
+      previousSummary: previousPairSummary(diff.previous),
+      changeSummary: changeCountsSummary(diff.counts),
+    };
+  });
+
+  protected versionLabelFor(productName: string): string {
+    return $localize`:@@pair.version.label:${productName}:product: version`;
+  }
+
+  /**
+   * Write a selector change to the URL, which re-runs the resolver and refetches.
+   *
+   * Mirrors `setView` minus the cookie — deliberately. `aeci_pair_view` works because
+   * Basic/Detailed is a global, product-independent preference; a remembered `2026.1`
+   * is meaningless on a different pair, §9.3's invariant is that the reader lands on
+   * the LATEST view, and the cookie's cache-safety proof (written on click, read only
+   * post-hydration) would mean a content change plus a robots-tag flip *after* the
+   * crawler read the head.
+   */
+  protected setVersion(side: 'context' | 'other', label: string): void {
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: {
+        [side === 'context' ? CONTEXT_VERSION_PARAM : OTHER_VERSION_PARAM]: label,
+      },
+      queryParamsHandling: 'merge',
+    });
+  }
+
+  /** Clear both selectors — the way home from a deep-linked historical URL. */
+  protected showLatest(): void {
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { [CONTEXT_VERSION_PARAM]: null, [OTHER_VERSION_PARAM]: null },
+      queryParamsHandling: 'merge',
+    });
+  }
+
+  // ── AECI-303 (§9.1): the lazy per-claim history ────────────────────────────
+
+  /**
+   * Per-claim attestation history, keyed by claim id. Fetched **once, from the
+   * browser only, on the first provenance-popover open** — never during SSR.
+   *
+   * That is not laziness for its own sake: history is the gateable depth (§9.3), and
+   * the pair page is stored in a shared, URL-keyed edge cache, so baking it into the
+   * SSR payload would break §9.1a the moment AECI-304 makes the gate
+   * visitor-dependent. `/api/*` responses are `private, no-store`, which is a legal
+   * home for content that may vary per reader. It is also the only unbounded payload
+   * in the system — the append-only log grows forever.
+   */
+  private readonly timelines = signal<ReadonlyMap<string, ClaimTimeline> | null>(null);
+  private timelineRequested = false;
+
+  protected timelineFor(claimId: string | undefined): ClaimTimeline | null {
+    if (!claimId) return null;
+    return this.timelines()?.get(claimId) ?? null;
+  }
+
+  /**
+   * Fetch the pair's histories on the first popover open. One request serves every
+   * popover on the page, which is why the endpoint is pair-scoped rather than
+   * claim-scoped.
+   *
+   * Called from a click handler, never an `effect()` — the popover it feeds is a
+   * `BrnPopover`, and opening one from a reactive context throws NG0602.
+   */
+  protected loadTimeline(): void {
+    if (this.timelineRequested) return;
+    const pair = this.pair();
+    if (!pair) return;
+    this.timelineRequested = true;
+    void fetchPairTimeline(this.http, pair.context_product.slug, pair.other_product.slug).then(
+      (response) => {
+        if (!response) return;
+        this.timelines.set(new Map(response.claims.map((c) => [c.claim_id, c])));
+      },
+    );
+  }
+}
+
+/** "Changes from 2026.9 · v4" — the pair the diff is measured against (§9.1).
+ *  `null` at the earliest pair, which is a baseline rather than a diff. */
+function previousPairSummary(
+  previous: { context: string | null; other: string | null } | null,
+): string | null {
+  if (!previous) return null;
+  const labels = [previous.context, previous.other].filter((l): l is string => l !== null);
+  if (labels.length === 0) return null;
+  const from = labels.join(' · ');
+  return $localize`:@@pair.version.changesFrom:Changes from ${from}:from:`;
+}
+
+/** "2 added · 1 removed", omitting a zero clause rather than rendering "0". */
+function changeCountsSummary(counts: { added: number; removed: number }): string | null {
+  const parts: string[] = [];
+  if (counts.added > 0) {
+    parts.push($localize`:@@pair.version.addedCount:${counts.added}:count: added`);
+  }
+  if (counts.removed > 0) {
+    parts.push($localize`:@@pair.version.removedCount:${counts.removed}:count: removed`);
+  }
+  return parts.length ? parts.join(' · ') : null;
 }

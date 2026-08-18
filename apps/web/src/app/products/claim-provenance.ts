@@ -1,7 +1,16 @@
-import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
+import { formatDate } from '@angular/common';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  inject,
+  input,
+  LOCALE_ID,
+  output,
+} from '@angular/core';
 import { BrnPopover, BrnPopoverContent, BrnPopoverTrigger } from '@spartan-ng/brain/popover';
 
-import type { PairClaimAttestation, ProductPairClaim } from '@aeci/shared';
+import type { ClaimTimeline, PairClaimAttestation, ProductPairClaim } from '@aeci/shared';
 
 /** One rendered provenance line: who spoke, what they said, and any note. */
 interface ProvenanceEntry {
@@ -47,6 +56,7 @@ interface ProvenanceEntry {
         hover:text-(--text-secondary) focus-visible:outline-2 focus-visible:outline-offset-2
         focus-visible:outline-(--accent-primary)"
       [attr.aria-label]="ariaLabel()"
+      (click)="historyRequested.emit()"
     >
       <span aria-hidden="true" class="text-xs font-semibold">i</span>
     </button>
@@ -83,6 +93,57 @@ interface ProvenanceEntry {
           </ul>
 
           <p class="text-xs leading-relaxed text-(--text-tertiary)">{{ closing() }}</p>
+
+          <!-- AECI-303 (§9.1): the append-only history, rendered ONLY once the lazy
+               fetch has landed entries for this claim. Absent otherwise, so a claim
+               with no version data leaves this popover byte-identical to before. -->
+          @if (historyEntries().length > 0) {
+            <div class="space-y-2 border-t border-(--border-default) pt-3">
+              <h3
+                class="text-xs font-semibold tracking-[0.14em] text-(--text-tertiary) uppercase"
+                i18n="@@pair.claim.history.title"
+              >
+                History
+              </h3>
+              <!-- <ol>: the order is meaningful (oldest first). Capped + scrollable
+                   because the log is unbounded in principle. -->
+              <ol class="max-h-[16rem] list-none space-y-2 overflow-y-auto">
+                @for (h of historyEntries(); track h.key) {
+                  <li class="space-y-0.5">
+                    <p class="text-sm text-(--text-primary)">
+                      {{ h.who }}
+                      <span
+                        class="font-normal"
+                        [class]="h.affirms ? 'text-(--text-secondary)' : 'text-(--status-error)'"
+                        >{{ h.stance }}</span
+                      >
+                    </p>
+                    @if (h.versionSpan) {
+                      <p class="text-xs text-(--text-secondary)">{{ h.versionSpan }}</p>
+                    }
+                    <!-- The note is the substance of a position, so it belongs in
+                         the history too. It duplicates the Provenance section above
+                         for the ONE live row, which is honest rather than redundant:
+                         that row is both the current state and the latest entry. -->
+                    @if (h.note) {
+                      <p class="text-xs leading-relaxed text-(--text-secondary)">{{ h.note }}</p>
+                    }
+                    <p class="text-xs text-(--text-tertiary)">
+                      <time [attr.datetime]="h.isoDate" [attr.title]="h.exactUtc">{{
+                        h.date
+                      }}</time>
+                      @if (h.superseded) {
+                        <span> · {{ h.superseded }}</span>
+                      }
+                    </p>
+                  </li>
+                }
+              </ol>
+              @if (hiddenHistoryCount() > 0) {
+                <p class="text-xs text-(--text-tertiary)">{{ hiddenHistoryLabel() }}</p>
+              }
+            </div>
+          }
         </div>
       </ng-template>
     </brn-popover>
@@ -97,6 +158,21 @@ export class ClaimProvenance {
   readonly contextVendorName = input<string | null>(null);
   /** The other product's vendor name, for attributing an `other` attestor. */
   readonly otherVendorName = input<string | null>(null);
+
+  /**
+   * This claim's append-only history (AECI-303 / §9.1), or `null` until the parent's
+   * lazy fetch lands. `null` renders no History section at all, so a claim with no
+   * version data — and every claim before the first popover open — keeps the exact
+   * DOM this component had before AECI-303.
+   */
+  readonly timeline = input<ClaimTimeline | null>(null);
+
+  /**
+   * Fired on trigger click so the parent can fetch the pair's histories once.
+   * A click, never an `effect()`: this trigger opens a `BrnPopover`, and Spartan's
+   * `open()` calls `effect()` internally, which throws NG0602 from a reactive context.
+   */
+  readonly historyRequested = output<void>();
 
   /** Resolve one attestation's attributor into display copy. */
   private who(attestor: PairClaimAttestation['attestor']): string {
@@ -151,8 +227,96 @@ export class ClaimProvenance {
     return null;
   }
 
-  protected readonly ariaLabel = computed<string>(
-    () =>
-      $localize`:@@pair.claim.provenance.aria:Provenance for ${this.claim().data_object_name}:name:`,
+  /** Widens only when a history exists, so the default string is unchanged. */
+  protected readonly ariaLabel = computed<string>(() => {
+    const name = this.claim().data_object_name;
+    return this.historyEntries().length > 0
+      ? $localize`:@@pair.claim.provenance.aria.withHistory:Provenance and history for ${name}:name:`
+      : $localize`:@@pair.claim.provenance.aria:Provenance for ${name}:name:`;
+  });
+
+  // ── AECI-303 (§9.1): the append-only history ───────────────────────────────
+
+  /**
+   * How many entries render before the "+N earlier" line. The popover is
+   * `w-[min(90vw,20rem)]` and the attestation log is unbounded in principle, so a cap
+   * is not cosmetic.
+   */
+  private static readonly MAX_HISTORY_ENTRIES = 8;
+
+  private readonly locale = inject(LOCALE_ID);
+
+  /**
+   * The most recent `MAX_HISTORY_ENTRIES`, oldest-first within that window (the API
+   * already orders the whole log oldest-first, so this takes the tail and keeps it).
+   */
+  protected readonly historyEntries = computed<HistoryEntry[]>(() => {
+    const entries = this.timeline()?.entries ?? [];
+    const window = entries.slice(-ClaimProvenance.MAX_HISTORY_ENTRIES);
+    return window.map((e, index) => ({
+      key: `${e.created_at}|${index}`,
+      who: this.who(e.attestor),
+      stance: e.asserted
+        ? $localize`:@@pair.claim.provenance.stance.affirms:asserts this flow`
+        : $localize`:@@pair.claim.provenance.stance.denies:disputes this flow`,
+      affirms: e.asserted,
+      note: e.note,
+      versionSpan: versionSpanText(e.introduced_version, e.deprecated_version),
+      isoDate: e.created_at,
+      date: formatUtcDate(e.created_at, this.locale),
+      exactUtc: e.created_at,
+      superseded: e.retracted_at ? $localize`:@@pair.claim.history.superseded:superseded` : null,
+    }));
+  });
+
+  protected readonly hiddenHistoryCount = computed(() =>
+    Math.max(0, (this.timeline()?.entries.length ?? 0) - ClaimProvenance.MAX_HISTORY_ENTRIES),
   );
+
+  protected readonly hiddenHistoryLabel = computed(() => {
+    const count = this.hiddenHistoryCount();
+    return $localize`:@@pair.claim.history.more:${count}:count: earlier entries`;
+  });
+}
+
+/** One rendered history line. */
+interface HistoryEntry {
+  readonly key: string;
+  readonly who: string;
+  readonly stance: string;
+  readonly affirms: boolean;
+  readonly note: string | null;
+  readonly versionSpan: string | null;
+  readonly isoDate: string;
+  readonly date: string;
+  readonly exactUtc: string;
+  readonly superseded: string | null;
+}
+
+/**
+ * "2026.1 → 2026.4", or one bound alone. The version **label** is the primary token
+ * and the date below is secondary, because the ordering axis is the version, never
+ * the nullable `released_at` (§8.2).
+ */
+function versionSpanText(introduced?: string, deprecated?: string): string | null {
+  if (introduced && deprecated) {
+    return $localize`:@@pair.claim.history.span:${introduced}:from: → ${deprecated}:to:`;
+  }
+  if (introduced) return $localize`:@@pair.claim.history.since:Since ${introduced}:from:`;
+  if (deprecated) return $localize`:@@pair.claim.history.until:Until ${deprecated}:to:`;
+  return null;
+}
+
+/**
+ * Format a timestamp **pinned to UTC**, per the `maintenance-marker` precedent.
+ *
+ * Not a style choice: the SSR Worker runs in UTC and the browser does not, so
+ * zone-local formatting drifts between the two renders — and for a date-only stamp
+ * (`2026-01-15`, which `Date` parses as UTC midnight) ambient-zone formatting shows
+ * **January 14** to every reader in the Americas.
+ */
+function formatUtcDate(value: string, locale: string): string {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return formatDate(parsed, 'MMMM d, y', locale, 'UTC');
 }

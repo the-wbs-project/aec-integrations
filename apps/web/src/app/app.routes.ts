@@ -1,5 +1,7 @@
 import { Routes } from '@angular/router';
 
+import { CONTEXT_VERSION_PARAM, OTHER_VERSION_PARAM } from '@aeci/shared/version-diff';
+
 import { adminSummaryResolver } from './admin/admin-summary.resolver';
 import { homeBrowseResolver } from './home/home-browse.resolver';
 import { homeStatsResolver } from './home/home-stats.resolver';
@@ -94,6 +96,20 @@ export const routes: Routes = [
     path: 'products/:contextSlug/integrations/:otherSlug',
     loadComponent: () => import('./products/products-pair').then((m) => m.ProductsPairPage),
     resolve: { pair: productsPairResolver },
+    // AECI-303 (§9) — the version selectors are QUERY params, and Angular's default
+    // `paramsChange` policy "does not include query parameters" (its own typedoc).
+    // Without an opt-in, changing a selector rewrites the URL and refetches nothing,
+    // so the controls look dead until a reload.
+    //
+    // The PREDICATE form, not `paramsOrQueryParamsChange`: that would also re-run the
+    // resolver on every `?view=` Basic/Detailed toggle, turning a client-side
+    // disclosure into an API round trip. This fires only when a version selector
+    // actually moves; path-param changes still re-run resolvers under the built-in
+    // rule, so this predicate is consulted only when the route is otherwise unchanged.
+    runGuardsAndResolvers: (from, to) =>
+      from.queryParamMap.get(CONTEXT_VERSION_PARAM) !==
+        to.queryParamMap.get(CONTEXT_VERSION_PARAM) ||
+      from.queryParamMap.get(OTHER_VERSION_PARAM) !== to.queryParamMap.get(OTHER_VERSION_PARAM),
   },
   {
     path: 'products/:slug',

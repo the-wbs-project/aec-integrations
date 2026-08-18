@@ -28,8 +28,10 @@
  * Never by `label` (`'2026.10' < '2026.9'` as strings) and never by the nullable
  * `released_at`. `sort_key` is the ordering, `@aeci/shared/version-sort` derives
  * it from the label on create, and the vendor can override it for labels the
- * derivation cannot read. The SQL `ORDER BY` here and `compareProductVersions`
- * there must stay in lockstep.
+ * derivation cannot read. The SQL `ORDER BY` is `VERSION_ORDER`
+ * (`../lib/drizzle-helpers`) — shared with the product-PAIR read that feeds
+ * AECI-303's selectors — and it must stay in lockstep with
+ * `compareProductVersions`.
  *
  * ── WRITE MECHANICS ─────────────────────────────────────────────────────────
  * One `db.batch([...])` per write carrying the mutation and its `audit_log` row
@@ -49,7 +51,7 @@ import {
 } from '@aeci/shared';
 import { type AuditLogEntry } from '@aeci/shared/audit-log';
 import { deriveVersionSortKey } from '@aeci/shared/version-sort';
-import { and, asc, eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 
 import { getDb, type Db } from '../db/client';
 import { productVersions } from '../db/schema';
@@ -57,6 +59,7 @@ import { ApiError, notFoundError } from '../errors';
 import { json, noContent } from '../http';
 import { auditInsert, type BatchTuple } from '../lib/audit';
 import { auditActorType } from '../lib/authz';
+import { VERSION_ORDER } from '../lib/drizzle-helpers';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import {
   AUDIT_SOURCE,
@@ -69,20 +72,6 @@ import {
 } from './vendor-shared';
 
 type ProductVersionRow = typeof productVersions.$inferSelect;
-
-/**
- * The ordered read (§8.2). `sort_key` first; `created_at` then `id` break a tie,
- * which is possible because the unique index is on `(product_id, label)`, not on
- * `sort_key`, and every digit-free label derives 0. The tiebreak deliberately
- * does NOT fall back to `label` — that would reintroduce exactly the lexical
- * ordering the column exists to avoid. Mirrors `compareProductVersions`
- * (`@aeci/shared/version-sort`); change both together.
- */
-const VERSION_ORDER = [
-  asc(productVersions.sortKey),
-  asc(productVersions.createdAt),
-  asc(productVersions.id),
-];
 
 function toProductVersion(row: ProductVersionRow): ProductVersion {
   return {

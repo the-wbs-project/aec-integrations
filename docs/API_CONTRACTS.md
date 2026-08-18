@@ -570,6 +570,17 @@ export type IntegrationDetail = z.infer<typeof IntegrationDetailSchema>;
 
 The **product-PAIR read**. Consolidates every integration between two products into one context-oriented view (Stage 1.5 §7–§8). `:slug` is the **context** product; `:otherSlug` the other. Query resolves the unordered pair (matches integrations in either source/target orientation). Layer B (AECI-300) hydrates each mechanism's `data_object` claims + attestations and fills the `sync_headline`.
 
+**Query params (AECI-303 / `STAGE_2_ATTESTATIONS_SPEC.md` §9):**
+
+| Param | Value | Default |
+|---|---|---|
+| `context_version` | a `product_versions.label` of the **context** product | latest |
+| `other_version` | a `product_versions.label` of the **other** product | latest |
+
+Labels, not ids — unique per product via `product_versions_label_key`, so a natural key, and the point of the feature is a link somebody sends a colleague. Exposing labels also lets the response omit both `id` and `sort_key`, which is what structurally stops the browser re-deriving an ordering (§8.2).
+
+**An unknown, renamed, over-long (>60 char) or empty label DEGRADES to latest — it never 404s.** The pair exists; only the selection is stale, and a 404 would render the NotFound shell for a valid page. What the server actually resolved comes back in `version_diff.selected`, so the UI shows what was served rather than what the URL asked for. Matching is exact and **case-sensitive** (the unique index carries no `NOCASE` collation, so a case-insensitive match could be ambiguous — and ambiguity here silently shows a different diff).
+
 ```typescript
 // packages/shared/src/api/product-pairs.ts
 // ContextDirectionSchema is defined in `./integrations` (shared with the
@@ -591,18 +602,31 @@ export const PairClaimAttestationSchema = z.object({
   attestor: z.enum(['aeci', 'context', 'other']),     // the slot, framed context-relative (§4.3)
   asserted: z.boolean(),
   note: z.string().nullable(),
-  introduced_at: z.string().nullable(),               // version stamps (Stage 2) — NOT retraction
+  introduced_at: z.string().nullable(),               // coarse ISO date stamps — NOT retraction
   deprecated_at: z.string().nullable(),
+  // AECI-303: the PRECISE stamps, as the vendor's own release LABEL — the same value
+  // the selectors put in the URL. `.optional()` and OMITTED when there is no stamp,
+  // deliberately asymmetric with the nullable dates above: absent is the one spelling
+  // of "unstamped", so a promote-written attestation serialises exactly as before.
+  introduced_version: z.string().optional(),
+  deprecated_version: z.string().optional(),
 });
 
 // One data_object claim on a mechanism (Layer B — §8). `direction` is already
 // translated to the context product's frame (§3.2); `agreement` is computed.
 export const ProductPairClaimSchema = z.object({
+  // AECI-303: the join key for the per-claim timeline read below. `.optional()` so a
+  // new SSR Worker against an older API hides the affordance rather than requesting
+  // a timeline it cannot match up.
+  id: z.string().uuid().optional(),
   data_object_slug: z.string(),
   data_object_name: z.string(),
   direction: ContextDirectionSchema,
   agreement: AgreementStateSchema,
   attestations: z.array(PairClaimAttestationSchema),
+  // AECI-303: added / removed / unchanged for the selected version pair. ABSENT when
+  // no comparison applies — every claim on every pair whose `version_diff` is null.
+  version_status: z.enum(['added', 'removed', 'unchanged']).optional(),
 });
 
 export const ProductPairMechanismSchema = z.object({
@@ -638,6 +662,37 @@ export const ProductPairResponseSchema = z.object({
   // attributed to a vendor. Same `.default(...)` deploy-skew reasoning as
   // `single_source` above.
   maintenance: MaintenanceSchema.default({ maintained_by: 'aeci', last_reviewed_at: null }),
+  // AECI-303 (§9): the two version selectors, or NULL when the diff does not apply.
+  version_diff: PairVersionDiffSchema.nullable().default(null),
+});
+
+// AECI-303 — the selectors' state. `null` on the response above is the WHOLE
+// browser-side suppression rule: no selectors, no markers, no summary.
+export const PairVersionSchema = z.object({
+  label: z.string(),
+  released_at: z.string().nullable(),   // display only — NEVER an ordering input (§8.2)
+});
+
+export const PairVersionDiffSchema = z.object({
+  // Ascending by `compareProductVersions` (the API's `VERSION_ORDER` is the same rule
+  // in SQL), so "latest" is always the LAST element and the browser never re-derives it.
+  context_versions: z.array(PairVersionSchema).default([]),
+  other_versions: z.array(PairVersionSchema).default([]),
+  // What the server RESOLVED (labels), which is not always what the URL asked for.
+  selected: z.object({ context: z.string().nullable(), other: z.string().nullable() }),
+  // The pair the diff is measured against — each side stepped back ONE release,
+  // independently. `null` when neither side has a predecessor (the earliest pair),
+  // where every present claim reads `unchanged`.
+  previous: z.object({ context: z.string().nullable(), other: z.string().nullable() })
+    .nullable().default(null),
+  // Is the RESOLVED selection latest × latest? Drives the pair resolver's `noindex`,
+  // so it is about the resolution and not the request: a degraded label serves
+  // canonical content and stays indexable.
+  is_default: z.boolean(),
+  counts: z.object({ added: z.number().int().min(0), removed: z.number().int().min(0) })
+    .default({ added: 0, removed: 0 }),
+  // §9.3's entitlement seam as DATA, not a code branch (`STAGE_2_SPEC.md` §2.2).
+  diff_access: z.enum(['full', 'latest_only']).default('full'),
 });
 
 // packages/shared/src/api/common.ts — shared by ProductDetail, VendorDetail, and the
@@ -653,9 +708,42 @@ export type ProductPairResponse = z.infer<typeof ProductPairResponseSchema>;
 - **`direction`** (mechanism) is the integration row's stored `one-way`/`bidirectional` translated to the **context product's** frame: `one-way` → `outbound` when the context product is the integration's `source`, else `inbound`; `bidirectional` → `both`; `null` → `null` (§3.2, applied at the mechanism level).
 - **`claims[]`** (Layer B — §8) are the `data_object` flows on each mechanism. `direction` is the **claim-level** stored `a_to_b`/`b_to_a`/`both` translated to the context frame (§3.2 — distinct from the mechanism translation), and `agreement` is `computeAgreement(attestations)` (§3.4, `packages/shared/src/agreement.ts`) — always `unverified` in 1.5. Ordered by the `data_object`'s `display_order`. A `data_object` moving through two mechanisms is **two claims** (§3.1), never de-duplicated.
 - **`attestations[]`** carry only **live** rows: the read config filters `retracted_at IS NULL` (`liveAttestationsWhere`, `apps/api/src/lib/drizzle-helpers.ts`), so a withdrawn assertion neither votes nor renders. `deprecated_at` is a *version stamp* and never gates the read. `attestor` is the slot translated to the page's frame by `attestorForContext` (`vendor_a` = endpoint A = the integration's `source_product`): the browser attributes a `single_source` claim by looking the name up on `context_product.vendor` / `other_product.vendor`. The raw `attested_by_vendor_id` is **not** exposed — it feeds the §4.2 distinct-identity dedupe server-side only.
-- **`sync_headline`** = `computeSyncHeadline` over every claim on the pair (§3.5): `total` is the distinct claim count; `confirmed` (two distinct vendors) and `single_source` (one vendor, counterparty silent) are both `0` in Stage 1.5 and are **never summed**. `{ total: 0, confirmed: 0, single_source: 0 }` for an unseeded/empty pair.
-- **Errors / status:** `NOT_FOUND` when either slug is unknown **or the two slugs are equal**. A valid-but-unconnected pair (both products exist, no integration between them) is a **200** with `mechanisms: []`.
-- SSR caching (pair page): detail TTL, `Cache-Tag: route:detail,pair:{min}__{max},product:{slug}×2` (see `CACHE_STRATEGY.md`).
+- **`sync_headline`** = `computeSyncHeadline` over every claim on the pair (§3.5): `total` is the distinct claim count; `confirmed` (two distinct vendors) and `single_source` (one vendor, counterparty silent) are both `0` in Stage 1.5 and are **never summed**. `{ total: 0, confirmed: 0, single_source: 0 }` for an unseeded/empty pair. **Claims whose `version_status` is `removed` are excluded from all three counts** (AECI-303): they still render, struck through, but "N data objects sync" must not count a flow that has stopped. Filtered at the single `computeSyncHeadline` call site in `toProductPairResponse`, not inside the shared engine.
+- **`version_diff`** (AECI-303 / §9) is **non-`null` only when a pair has BOTH at least one product release AND at least one live version-stamped attestation.** Both facts are server-side only, which is why the decision is not left to the browser: that one null is the entire suppression rule, and it makes "latest × latest renders identically to today for claims with no version data" structural rather than a rendering discipline. Promote does not ingest versions (§11) and the only writer is the Verified-vendor API, so today this is `null` for the whole catalog.
+- **Presence and the diff apply UNIFORMLY, including at latest × latest.** A claim is present at (vA, vB) when, for each attesting side, `introduced_version <= selected` and (`deprecated_version` is null **or** `selected < deprecated_version`); **a claim with no version stamps is always present.** A claim present at neither the selected nor the previous pair is **dropped from the response entirely** — otherwise a pair with a long release history would render every flow it ever had. Ordering and every comparison key off `sort_key` through `compareProductVersions` (`@aeci/shared/version-diff`), never the label and never the nullable `released_at`; `sort_key` is packed per-product, so comparing it *across* the two products is meaningless.
+- **Errors / status:** `NOT_FOUND` when either slug is unknown **or the two slugs are equal**. A valid-but-unconnected pair (both products exist, no integration between them) is a **200** with `mechanisms: []`. A bad `context_version` / `other_version` is **not** an error — see the degrade rule above.
+- SSR caching (pair page): detail TTL, `Cache-Tag: route:detail,pair:{min}__{max},product:{slug}×2` (see `CACHE_STRATEGY.md`). The selector params are in the route's `cacheKeyParams` (`CACHE_STRATEGY.md` §4a), and a non-default selection is `noindex` with the canonical pointing at the default pair URL (§7.2).
+
+#### `GET /api/products/:slug/integrations/:otherSlug/timeline` (Stage 2 · AECI-303)
+
+The pair's **per-claim attestation history** (§9.1), read off the append-only rows: §2.1's supersession is retract-then-insert, never an in-place `UPDATE`, precisely so this read has something to show.
+
+```typescript
+// packages/shared/src/api/product-pairs.ts
+export const ClaimTimelineEntrySchema = z.object({
+  attestor: z.enum(['aeci', 'context', 'other']),   // framed context-relative, as on the pair read
+  asserted: z.boolean(),
+  note: z.string().nullable(),
+  introduced_version: z.string().optional(),        // version labels, omitted when unstamped
+  deprecated_version: z.string().optional(),
+  created_at: z.string(),                           // the append-only ordering key (oldest first)
+  retracted_at: z.string().nullable(),              // non-null = SUPERSEDED — what makes this history
+});
+
+export const PairTimelineResponseSchema = z.object({
+  claims: z.array(z.object({
+    claim_id: z.string().uuid(),                    // joins to ProductPairClaim.id
+    entries: z.array(ClaimTimelineEntrySchema),
+  })).default([]),
+  diff_access: z.enum(['full', 'latest_only']).default('full'),
+});
+```
+
+- **This is the ONE read in the system that returns retracted rows.** Every other read applies `liveAttestationsWhere`, so a withdrawn assertion neither votes nor renders as current. Its read config (`integrationTimelineConfig`) is deliberately separate for that reason, and `computeAgreement` must never be called on its output.
+- **Pair-scoped, not claim-scoped**, so one browser fetch serves every provenance popover on the page. Entries are ordered `created_at` then `id` (a total order, so the render is stable regardless of D1 row order). A claim with no attestations is omitted — the browser's "does this claim have a history?" test is the absence of an entry for its id.
+- **Why it is a separate, lazy endpoint rather than inline on the pair response.** History is the gateable depth (§9.3), and the pair page is stored in a shared, URL-keyed edge cache — baking gated content into it would break §9.1a the moment AECI-304 makes the gate visitor-dependent. `/api/*` responses are `private, no-store`, which is a legal home for content that may vary per reader. It is also the only unbounded payload in the system, since the append-only log grows forever. Fetched from the browser on the first popover open; **never during SSR**.
+- Gated ⇒ `{ claims: [], diff_access: 'latest_only' }`. The latest state is already rendered in full on the free page, so withholding *history* is exactly what `STAGE_2_SPEC.md` §8.1(4) permits and no more.
+- **Errors / status:** identical to the pair read — `NOT_FOUND` on an unknown slug or two equal slugs; a valid-but-unconnected pair is a 200 with `claims: []`. No new error codes.
 
 ### 6.4 Taxonomy
 
@@ -2747,6 +2835,8 @@ Errors: `NOT_FOUND` (unknown id **or** a product owned by another vendor — del
 #### Product versions — `/api/vendor/products/:id/versions`
 
 Stage 2 (AECI-607, `STAGE_2_ATTESTATIONS_SPEC.md` §8.3). A product's vendor-declared releases: the entity the version-diff timeline (AECI-303) selects on. Zod in `packages/shared/src/api/product-versions.ts`, handlers in `apps/api/src/routes/vendor-product-versions.ts`.
+
+**These four endpoints are the only WRITE surface, and the only place `ProductVersion` (with its `id` and `sort_key`) is exposed.** AECI-303's public read is the **pair response** — `version_diff.context_versions` / `other_versions` on `GET /api/products/:slug/integrations/:otherSlug` (§6.3) — carrying `PairVersion` (`label` + `released_at` only). There is deliberately **no** public `GET /api/products/:slug/versions`: the selectors are unconditionally part of the pair page, so a second fetch would be pure cost, and withholding `sort_key` from the browser is what structurally stops it re-deriving an ordering the label cannot express (§8.2). The shared `VERSION_ORDER` (`apps/api/src/lib/drizzle-helpers.ts`) is the one SQL `ORDER BY` behind both reads.
 
 | Method | Path | Gate | Success |
 |---|---|---|---|

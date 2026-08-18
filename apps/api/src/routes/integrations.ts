@@ -17,16 +17,18 @@ import {
   IntegrationDetailSchema,
   IntegrationsListQuerySchema,
   IntegrationsListResponseSchema,
+  PairTimelineResponseSchema,
   ProductPairResponseSchema,
   type IntegrationDetail,
   type IntegrationsListResponse,
+  type PairTimelineResponse,
   type ProductPairResponse,
 } from '@aeci/shared';
 import { and, count, eq, inArray, like, or, type SQL } from 'drizzle-orm';
 import type { Context } from 'hono';
 
 import { getDb } from '../db/client';
-import { integrations, products } from '../db/schema';
+import { integrations, products, productVersions } from '../db/schema';
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
@@ -34,12 +36,21 @@ import {
   integrationDetailConfig,
   integrationListConfig,
   integrationPairConfig,
+  integrationTimelineConfig,
   productListConfig,
   toIntegrationDetail,
   toIntegrationListItem,
+  toPairTimelines,
   toProductPairResponse,
+  VERSION_ORDER,
 } from '../lib/drizzle-helpers';
 import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
+import {
+  CONTEXT_VERSION_PARAM,
+  OTHER_VERSION_PARAM,
+  resolveDiffAccess,
+  resolveVersionSelection,
+} from '../lib/pair-version-diff';
 import { resolveIntegrationOrderBy } from '../lib/sort';
 
 export function createIntegrationsListHandler(
@@ -135,6 +146,16 @@ export function createIntegrationDetailHandler(
  * mechanisms, with each mechanism's direction translated into the context
  * product's frame. 404 when either slug is missing/unknown or the two are equal;
  * a valid-but-unconnected pair is a 200 with `mechanisms: []`.
+ *
+ * **AECI-303 (§9)** adds the two version selectors:
+ * `?context_version=<label>&other_version=<label>`, defaulting to latest × latest.
+ * Selection resolves in `resolveVersionSelection`, which also makes the single API
+ * consult of the `canViewVersionDiff` seam. An unknown/renamed/over-long label
+ * **degrades to latest and never 404s** — the pair exists, only the selection is
+ * stale, and the resolved values are echoed in `version_diff.selected` so the UI
+ * shows what was actually served. `version_diff` is `null` (and the response is the
+ * pre-AECI-303 shape) whenever the diff does not apply, which is the ordinary case
+ * for the whole catalog today.
  */
 export function createProductPairHandler(
   dbFor: DbFactory = getDb,
@@ -163,25 +184,157 @@ export function createProductPairHandler(
     if (!contextProduct) throw notFoundError('product', { slug: contextSlug });
     if (!otherProduct) throw notFoundError('product', { slug: otherSlug });
 
-    const rows = await db.query.integrations.findMany({
-      ...integrationPairConfig,
-      where: or(
-        and(
-          eq(integrations.sourceProductId, contextProduct.id),
-          eq(integrations.targetProductId, otherProduct.id),
+    // Both reads depend only on the two product ids, so they share one wave — the
+    // versions read adds a subrequest, never a round-trip of depth.
+    const [rows, versionRows] = await Promise.all([
+      db.query.integrations.findMany({
+        ...integrationPairConfig,
+        where: or(
+          and(
+            eq(integrations.sourceProductId, contextProduct.id),
+            eq(integrations.targetProductId, otherProduct.id),
+          ),
+          and(
+            eq(integrations.sourceProductId, otherProduct.id),
+            eq(integrations.targetProductId, contextProduct.id),
+          ),
         ),
-        and(
-          eq(integrations.sourceProductId, otherProduct.id),
-          eq(integrations.targetProductId, contextProduct.id),
+        orderBy: resolveIntegrationOrderBy('name'),
+      }),
+      db.query.productVersions.findMany({
+        columns: {
+          id: true,
+          productId: true,
+          label: true,
+          releasedAt: true,
+          sortKey: true,
+          createdAt: true,
+        },
+        where: inArray(productVersions.productId, [contextProduct.id, otherProduct.id]),
+        orderBy: VERSION_ORDER,
+      }),
+    ]);
+
+    // Whether ANY live attestation on this pair is version-stamped. Both products
+    // can have releases while nothing on this pair varies by them, and selectors
+    // that cannot change anything are worse than none — so this decides, with the
+    // claims in hand, whether §9 applies at all.
+    const hasVersionStamps = rows.some((row) =>
+      row.claims.some((claim) =>
+        claim.attestations.some(
+          (a) => a.introducedVersionId !== null || a.deprecatedVersionId !== null,
         ),
       ),
-      orderBy: resolveIntegrationOrderBy('name'),
+    );
+
+    const versions = resolveVersionSelection({
+      versionRows,
+      contextProductId: contextProduct.id,
+      otherProductId: otherProduct.id,
+      contextParam: c.req.query(CONTEXT_VERSION_PARAM),
+      otherParam: c.req.query(OTHER_VERSION_PARAM),
+      // Anonymous until AECI-304 loads a tier onto the session; accepted and
+      // ignored by the seam today.
+      viewerTier: null,
+      hasVersionStamps,
     });
 
-    const body: ProductPairResponse = toProductPairResponse(contextProduct, otherProduct, rows);
+    const body: ProductPairResponse = toProductPairResponse(
+      contextProduct,
+      otherProduct,
+      rows,
+      versions ?? undefined,
+    );
 
     validateResponseInDev(c.env, () => {
       ProductPairResponseSchema.parse(body);
+    });
+
+    return json(body);
+  };
+}
+
+/**
+ * `GET /api/products/:slug/integrations/:otherSlug/timeline` — the per-claim
+ * attestation **history** for a pair (AECI-303 / §9.1).
+ *
+ * Pair-scoped rather than claim-scoped so one browser fetch serves every provenance
+ * popover on the page. Deliberately a **separate, lazy** read rather than inline on
+ * the pair response, for one decisive reason: history is the gateable depth (§9.3),
+ * and the pair page is stored in a shared, URL-keyed edge cache — baking gated
+ * content into it would break `STAGE_1_SPEC.md` §9.1a the moment AECI-304 makes the
+ * gate visitor-dependent. `/api/*` responses are `private, no-store`, which is a
+ * legal home for content that may vary per reader. It is also the only unbounded
+ * payload in the system, since the append-only log grows forever.
+ *
+ * 404 rules mirror the pair read exactly (unknown slug, equal slugs), so a reader
+ * who can see the pair can ask for its history and no more.
+ */
+export function createPairTimelineHandler(
+  dbFor: DbFactory = getDb,
+): (c: Context<{ Bindings: Env }>) => Promise<Response> {
+  return async (c) => {
+    const contextSlug = c.req.param('slug');
+    const otherSlug = c.req.param('otherSlug');
+    if (!contextSlug || !otherSlug) {
+      throw new ApiError(400, 'VALIDATION_FAILED', 'Missing product slug', { field: 'slug' });
+    }
+    if (contextSlug === otherSlug) {
+      throw notFoundError('product', { slug: otherSlug });
+    }
+
+    const { db } = dbFor(c.env);
+    const [contextProduct, otherProduct] = await Promise.all([
+      db.query.products.findFirst({ columns: { id: true }, where: eq(products.slug, contextSlug) }),
+      db.query.products.findFirst({ columns: { id: true }, where: eq(products.slug, otherSlug) }),
+    ]);
+    if (!contextProduct) throw notFoundError('product', { slug: contextSlug });
+    if (!otherProduct) throw notFoundError('product', { slug: otherSlug });
+
+    // The timeline IS history, so `historical` is unconditionally true. Routed
+    // through `resolveDiffAccess` rather than calling `canViewVersionDiff` directly,
+    // which is what keeps the seam at exactly two consult sites repo-wide (§9.3).
+    const access = resolveDiffAccess(true, null);
+    if (access === 'latest_only') {
+      const gated: PairTimelineResponse = { claims: [], diff_access: access };
+      validateResponseInDev(c.env, () => {
+        PairTimelineResponseSchema.parse(gated);
+      });
+      return json(gated);
+    }
+
+    const [rows, versionRows] = await Promise.all([
+      db.query.integrations.findMany({
+        ...integrationTimelineConfig,
+        where: or(
+          and(
+            eq(integrations.sourceProductId, contextProduct.id),
+            eq(integrations.targetProductId, otherProduct.id),
+          ),
+          and(
+            eq(integrations.sourceProductId, otherProduct.id),
+            eq(integrations.targetProductId, contextProduct.id),
+          ),
+        ),
+      }),
+      db.query.productVersions.findMany({
+        columns: { id: true, label: true },
+        where: inArray(productVersions.productId, [contextProduct.id, otherProduct.id]),
+      }),
+    ]);
+
+    // Only the label lookup is needed here — presence and ordering are the pair
+    // read's job, and a history row is rendered, never compared.
+    const labelById = new Map(versionRows.map((row) => [row.id, row.label]));
+    const body: PairTimelineResponse = {
+      claims: toPairTimelines(rows, contextProduct.id, {
+        versionLabel: (versionId) => (versionId === null ? undefined : labelById.get(versionId)),
+      }),
+      diff_access: access,
+    };
+
+    validateResponseInDev(c.env, () => {
+      PairTimelineResponseSchema.parse(body);
     });
 
     return json(body);

@@ -21,6 +21,7 @@
     "db:seed:catalog:local": "wrangler d1 execute aeci-app-preview --local --file=seed/catalog.sql",
     "db:seed:fixtures:local": "wrangler d1 execute aeci-app-preview --local --file=seed/phase2-fixtures.sql",
     "db:seed:auth:local": "wrangler d1 execute aeci-app-preview --local --file=seed/auth-fixtures.sql",
+    "db:seed:version-diff:local": "wrangler d1 execute aeci-app-preview --local --file=seed/version-diff-fixtures.sql",
     "db:seed:local": "pnpm db:seed:taxonomy:local && pnpm db:seed:data-objects:local && pnpm db:seed:trades:local && pnpm db:seed:catalog:local && pnpm db:seed:fixtures:local && pnpm db:seed:auth:local",
     "db:setup:local": "pnpm db:migrate:local && pnpm db:seed:local",
     "db:seed-reviews": "tsx scripts/seed-reviews.ts",
