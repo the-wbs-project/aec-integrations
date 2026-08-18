@@ -91,7 +91,7 @@ export type AdminWindow = z.infer<typeof AdminWindowSchema>;
  * | `trade_facet_sparse_by_design` | products carry no `trade` tag and that is not by itself a defect: `TRADES_VOCABULARY.md` §1.1 tags a product only when it has trade-SPECIFIC value, so horizontal platforms correctly carry zero rows |
  * | `api_docs_flag_inconsistent` | N products have `has_api_docs = 1` but no `api_docs_url` — the flag and the artifact disagree |
  * | `series_partly_reconstructed` | some days in the window come from the P2.1 backfill rather than a same-day snapshot, and are approximate (§4); `params.reconstructed_days` counts them and `params.reconstructed_through` is the last such day |
- * | `cron_liveness_unavailable` | N of the ten crons have no `job_runs` row yet — they have not run since run recording shipped, or were added since. Datadog's no-data monitors stay the authority for "a job stopped firing" |
+ * | `cron_liveness_unavailable` | N of the eleven crons have no `job_runs` row yet — they have not run since run recording shipped, or were added since. Datadog's no-data monitors stay the authority for "a job stopped firing" |
  * | `orphan_sweep_not_persisted` | **No longer emitted (AECI-583)** — the sweep's result IS persisted now, in the 09:00 drift run's `job_runs.detail`. Retained because removing a code is a breaking change, and so an older cached response still renders |
  * | `stored_result_unreadable` | a stored `job_runs.detail` could not be parsed, so the item is omitted rather than partially reported. `params.job` names which cron's payload |
  * | `utm_attribution_incomplete` | `params.missing` of `params.total` signups in the window carry no `utm_source` — the unattributed bucket is real signups, not missing rows. The direct analogue of `referrer_source_incomplete`, and like it, derived from the window rather than from a date |
@@ -301,7 +301,7 @@ export const AdminDataQualityCheckSchema = z.object({
 export type AdminDataQualityCheck = z.infer<typeof AdminDataQualityCheckSchema>;
 
 /**
- * The eleven checks. `failing` counts checks with findings OR an error — a skipped
+ * The ten checks. `failing` counts checks with findings OR an error — a skipped
  * check (no creds) is not a failure.
  *
  * Since AECI-583 these are served **from storage by default**: the 04:00 cron
@@ -714,11 +714,14 @@ export type AdminTrafficBreakdownResponse = z.infer<typeof AdminTrafficBreakdown
  */
 
 /**
- * The ten cron jobs in `apps/api/src/scheduled.ts`, as a closed vocabulary.
+ * The eleven cron jobs in `apps/api/src/scheduled.ts`, as a closed vocabulary.
  * These are the ids `job_runs.job` carries (§7.2), so AECI-583 persists against
  * these strings rather than inventing a second naming. `metrics-snapshot` is the
  * ninth, added with the §7.1 snapshot cron (AECI-581); `retention-prune` is the
- * tenth, added with the §7.4 pruning cron (AECI-584).
+ * tenth, added with the §7.4 pruning cron (AECI-584); `attestation-notify` is the
+ * eleventh, the Stage 2 §7 detector sweep (AECI-302), which met this vocabulary at
+ * the AECI-619 reconciliation — it is queue-backed and writes D1, so it belongs on
+ * the System screen's liveness table like every other cron.
  */
 export const AdminCronJobSchema = z.enum([
   'metrics-snapshot', // 15 0 * * *
@@ -731,6 +734,7 @@ export const AdminCronJobSchema = z.enum([
   'algolia-drift', // 0 9 * * *
   'request-reconcile', // */15 * * * *
   'waf-poll', // 0 * * * *
+  'attestation-notify', // 0 10 * * *
 ]);
 export type AdminCronJob = z.infer<typeof AdminCronJobSchema>;
 
@@ -1141,7 +1145,10 @@ export type AdminIntegrationRef = z.infer<typeof AdminIntegrationRefSchema>;
  * The Stage 1.5 claim/attestation spine (§5.5). 915 claims backed by 915
  * attestations in the §14.2 census — the interesting numbers are the zeros:
  * integrations carrying no claim at all, and claims carrying no ACTIVE
- * attestation (`deprecated_at IS NULL`, matching `attestations_active_idx`).
+ * attestation (`retracted_at IS NULL`, matching `attestations_active_idx`, whose
+ * predicate moved onto that column in AECI-603). Not `deprecated_at` — that is a
+ * version stamp (`STAGE_1_5_SPEC.md` §3.3), so a vendor recording which release
+ * deprecated a flow must not drop their live assertion out of the count.
  */
 export const AdminClaimCoverageSchema = z.object({
   integrations_total: z.number().int().nonnegative(),

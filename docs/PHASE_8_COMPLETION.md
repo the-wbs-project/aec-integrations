@@ -87,7 +87,7 @@ the whole epic.
 | §9.6 | AECI-575 | `/admin/*` + `/account` excluded from `PageViewTracker` — write side **and** retroactive read filter (D12) |
 | P1.1–P1.6 | AECI-574, 576, 577, 578, 579, 580 | The read API (8 `GET` endpoints) + the shell restructure, Overview, Activity, Traffic, Catalog and System screens; hand-rolled SVG chart primitives (D3, no new client dependency) |
 | P2.1–P2.2 | AECI-581, 582 | `metrics_daily` + the 00:15 snapshot cron + historical backfill, `products.promoted_at` (D6); the production page-view bot backfill |
-| P3.1–P3.2 | AECI-583, 584 | `job_runs` + all ten crons instrumented + DQ results persisted; the 03:00 retention prune (400d / 90d / indefinite, D5) |
+| P3.1–P3.2 | AECI-583, 584 | `job_runs` + all ten crons **then existing** instrumented (AECI-302 later added an eleventh, `attestation-notify`) + DQ results persisted; the 03:00 retention prune (400d / 90d / indefinite, D5) |
 | P4.1 | AECI-585 | Page-view ingest fixes; the three dead columns dropped (D7) — the repo's first table-recreate migration |
 | P5.1 | AECI-586 | Audience section (mailing list, churn, UTM, geography) + the feedback inbox |
 | §12 | AECI-587 | This docs closeout |

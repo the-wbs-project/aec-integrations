@@ -285,6 +285,28 @@ if (requiredRole === 'admin' && profile.role !== 'admin') {
 
 The D1 binding is privileged (no RLS), so this re-fetch of `profiles.role` + `bannedAt` is the authorization source of truth — never trust client claims (§4.5).
 
+#### 4.2a Attestation authority — the two-slot extension of `vendor_id` scoping (AECI-603)
+
+`requireVendor()` proves *which* vendor the caller is; it scopes nothing. Every `/api/vendor/*` handler must still filter by `c.get('auth').vendorId` — that filter is what stands in for the RLS row policy this stack does not have.
+
+Integration attestations are the one place that filter is not a single equality, because an integration has **two** vendor-writable slots. `attestations.source` reserves `vendor_a` / `vendor_b` for the integration's endpoint-A / endpoint-B vendors, where **A = `integrations.source_product_id`** and **B = `target_product_id`**, and ownership lives in `product_vendors`:
+
+| `product_vendors` row exists for… | May attest |
+|---|---|
+| the integration's `source_product_id` | `vendor_a` |
+| the integration's `target_product_id` | `vendor_b` |
+| **both** endpoints | **both** slots |
+| neither | **404**, not 403 |
+
+Three rules bind here:
+
+- **Authority derives from ownership, never from the request.** Nothing in the `/api/vendor/*` contract carries a slot or a vendor id, exactly as nothing in it carries a `vendor_id` today.
+- **404, not 403** — the non-disclosure rule (`apps/api/src/routes/vendor.ts` header). A vendor must not be able to probe for the existence of another vendor's integration, so "you own neither endpoint" and "no such integration" answer identically. The check runs **before** any other read or write, in its own wave: folding it into a `Promise.all` lets a validation error win the race and answer a request that should have been a flat 404.
+- **One implementation.** `resolveAttestationSlots()` / `resolveAttestationSlotsForVendor()` / `resolveClaimAuthority()` in `apps/api/src/lib/attestation-authority.ts` own the rule; no handler and no detector re-derives it inline. Full contract: `docs/STAGE_2_ATTESTATIONS_SPEC.md` §2.
+- **The 404 must also be uniform across grains** (AECI-301). `resolveClaimAuthority()` exists because the obvious composition — load the claim, then resolve its integration — answers `details.resource: 'claim'` for a claim that does not exist and `'integration'` for one belonging to another vendor. Distinguishable 404s are an existence oracle a vendor can walk. One join collapses both into the same empty result, so the property is structural rather than a branch that must be written identically twice.
+
+Two schema facts the rule has to survive: `product_vendors` is many-to-many, so one vendor can own both endpoints (it may write both slots, but §4 of that spec still renders the result one-sided, since `confirmed` needs two **distinct** `attested_by_vendor_id` values); and `profiles.vendor_id` is many-to-one, so two accounts can target the same slot — the `attestations_slot_key` partial unique index makes that explicitly last-write-wins rather than silently accumulating duplicate votes.
+
 ### 4.3 Audit log inside the same batch
 
 Every state-changing write goes into the **same** atomic `db.batch([...])` as its audit log entry. D1 has no interactive transactions, so the mutation and the `auditInsert(...)` statement commit or roll back as one unit (`apps/api/src/lib/audit.ts`; see `DATABASE_SCHEMA.md` §18).
@@ -312,6 +334,8 @@ await db.batch([
 |---|---|---|---|
 | `GET /api/products`, `/vendors`, `/integrations`, `/taxonomy/*`, `/stats/home` | None | None | None |
 | `GET /api/products/:slug/reviews` | None | None | None |
+| `GET /api/products/:slug/integrations/:otherSlug` (AECI-294) | None | None | None — the product-PAIR read. Its `?context_version=` / `?other_version=` selectors (AECI-303 / §9) are **not** an authz surface: a bad label degrades to latest rather than erroring, and the reader's diff depth is decided by the `canViewVersionDiff` seam, which clamps the response rather than rejecting it. |
+| `GET /api/products/:slug/integrations/:otherSlug/timeline` (AECI-303) | None | None | None — the pair's per-claim attestation **history**. Public like the pair read itself: a reader who can see a pair can see how its claims got there. The only content control is the same seam, which answers `{ claims: [], diff_access: 'latest_only' }` when gated — never a 403, because the free latest view must survive a shared historical link (`STAGE_2_SPEC.md` §8.1(4)). |
 | `POST /api/reviews` | Hard-required | `reviewer`, not banned | `review.submitted` |
 | `DELETE /api/account` | Hard-required | Active user | `account.deleted` |
 | `POST /api/requests/claim`, `/correction` | None (anon form) | None | `claim/correction.submitted` |
@@ -321,8 +345,18 @@ await db.batch([
 | `PATCH /api/admin/claims/:id` (AECI-519) | Hard-required | `admin` | `vendor_claim.granted` / `.rejected` — grant links a `vendor_admin` seat + flips `vendors.verified` (the seat-revoke mechanic `vendor_claim.seat_revoked` has no endpoint — AECI-524 wired the ban gate only; revoke stays the separate un-grant action, AECI-519) |
 | `PATCH /api/admin/reviewers/:id` (AECI-218 / AECI-524) | Hard-required | `admin` | `reviewer.banned` / `vendor_admin.banned` / `.unbanned` — bans/unbans any non-admin `profiles` row (reviewer **or** `vendor_admin` seat); role-agnostic UPDATE, role-aware audit, per-seat, never touches `vendors.verified` |
 | `GET /api/vendor/me`, `/seats` | Hard-required | `vendor_admin` + non-null `vendor_id`, not banned | No (reads only) |
+| `GET /api/vendor/notifications` (AECI-302) | Hard-required | same — **no** `vendors.verified` gate (reading is not the gated capability) | No (reads only). Reads the §7.3 `audit_log` `notification.sent` ledger filtered on `json_extract(metadata,'$.vendorId') = <session vendor>`; AECi-ops rows store a null vendor and so can never match a caller |
 | `PATCH /api/vendor/profile` | Hard-required | same | `vendor.updated` (`metadata.source: 'vendor-portal'`) |
 | `PATCH /api/vendor/products/:id` | Hard-required | same **+ ownership** | `product.updated` (`metadata.source: 'vendor-portal'`) |
+| `GET /api/vendor/products/:id/versions` (AECI-607) | Hard-required | same **+ ownership** | No (reads only) |
+| `POST /api/vendor/products/:id/versions` (AECI-607) | Hard-required | same **+ ownership + `vendors.verified`** | `product_version.created` (`metadata.source: 'vendor-portal'`) |
+| `PATCH /api/vendor/products/:id/versions/:versionId` (AECI-607) | Hard-required | same **+ ownership + `vendors.verified`** (+ the version must belong to `:id`) | `product_version.updated` |
+| `DELETE /api/vendor/products/:id/versions/:versionId` (AECI-607) | Hard-required | same **+ ownership + `vendors.verified`** (+ the version must belong to `:id`) | `product_version.deleted` |
+| `GET /api/vendor/integrations` (AECI-301) | Hard-required | same **+ §4.2a endpoint authority** (the surface is filtered to it; never a 404) | No (reads only) |
+| `GET /api/vendor/data-objects` (AECI-606) | Hard-required | same, and **nothing else** — no ownership/authority check and no `vendors.verified` gate. The response is identical for every caller: a closed, AECi-curated vocabulary holds no vendor-owned rows. See the obligation-1 carve-out below | No (reads only) |
+| `POST /api/vendor/claims` (AECI-301) | Hard-required | same **+ §4.2a endpoint authority + `vendors.verified`** | `claim.created` **and** `attestation.created` (one per owned slot), `metadata.source: 'vendor-portal'` |
+| `PUT /api/vendor/claims/:claimId/attestation` (AECI-301) | Hard-required | same **+ §4.2a endpoint authority + `vendors.verified`** | `attestation.retracted` (per superseded row) + `attestation.created` (per owned slot) |
+| `DELETE /api/vendor/claims/:claimId/attestation` (AECI-301) | Hard-required | same **+ §4.2a endpoint authority + `vendors.verified`** | `attestation.retracted` (per retracted row) |
 | `POST /api/webhooks/linear` | HMAC-verified | N/A | `workflow.transitioned` |
 
 **Admin panel reads (AECI-574 / Phase 8.3, extended by AECI-577, AECI-579,
@@ -386,11 +420,57 @@ row filter RLS would have provided, and they are not optional:
    is calling. Every read and write must additionally filter on
    `c.get('auth').vendorId`. No `/api/vendor/*` contract carries a vendor id, so
    the Worker never has a client-supplied one to be tempted by.
+
+   **One documented exception, and only one:** `GET /api/vendor/data-objects`
+   (AECI-606) serves the frozen, closed `taxonomy_data_objects` curation
+   vocabulary, which has no `vendor_id` column and no vendor-owned rows — the
+   filter would be **vacuous, not omitted**, and every caller gets a
+   byte-identical body by construction. `vendor.authz-matrix.spec.ts` asserts
+   that sameness across two seats, so a later "restore the missing scope filter"
+   edit fails loudly rather than reading as a fix. Any new route that reads a
+   vendor-partitioned table still needs its filter; this exception does not
+   generalise, and the reason it is safe is the *table*, not the route.
 2. **Ownership before writing a client-supplied id.** `PATCH
-   /api/vendor/products/:id` proves the product belongs to the session's vendor
-   (a `product_vendors` read) *before* anything is written, and a miss returns
-   **`404`, not `403`** — a non-owner must not learn the product exists. Same
-   "don't reveal the surface" posture as the `/admin` gate.
+   /api/vendor/products/:id` and every `/products/:id/versions` route prove the
+   product belongs to the session's vendor (a `product_vendors` read) *before*
+   anything is written, and a miss returns **`404`, not `403`** — a non-owner
+   must not learn the product exists. One implementation, `requireOwnedProduct()`
+   in `apps/api/src/routes/vendor-shared.ts`; it is the **product-grain**
+   counterpart to the integration-grain `resolveAttestationSlots()`
+   (`lib/attestation-authority.ts`), which enforces the same 404 posture for the
+   two-slot attestation rule. Same "don't reveal the surface" posture as the
+   `/admin` gate.
+
+   **`/api/vendor/claims*` (AECI-301) carries one adaptation of that rule.** The
+   version routes take their product id from the **path**, so they can prove
+   ownership before the body is even parsed. `POST /api/vendor/claims` takes its
+   `integration_id` from the **body**, so a shape-only Zod parse necessarily runs
+   first. That is safe — it touches no database, so a 400 from it is
+   existence-independent — but nothing else may join it: vocabulary resolution,
+   the duplicate-identity check and version-stamp validation all run *after* the
+   authority wave, or a `400` naming a bad `data_object` would answer a request
+   that should have been a flat `404`.
+
+**A third obligation applies to the version WRITES only** (AECI-607,
+`STAGE_2_ATTESTATIONS_SPEC.md` §1/§8.3): authoring is a **Verified-vendor
+capability**, so `POST` / `PATCH` / `DELETE` additionally require
+`vendors.verified` and answer **`403`** without it. Two details that are easy to
+get backwards:
+
+- **Ownership (404) is evaluated before verification (403).** Reversed, the
+  ordering would start leaking on the day a *verified* non-owner probes a
+  product. `requireOwnedProduct()` loads the ownership row, the product and the
+  caller's `vendors` row in one wave and then checks them in that fixed order.
+- **`GET` is not gated.** Reading your own product's versions is not the
+  capability; authoring is. Gating the read would 403 a vendor out of its own
+  data instead of letting the dashboard render a read-only tab that explains what
+  verification unlocks. The 403 copy points at the claim/verification flow and
+  **never at ranking, placement, or search** — no pay-for-placement.
+- The check lives in `assertVerifiedVendor()` (`routes/vendor-shared.ts`), a
+  deliberate **one-function stand-in** for the capability registry AECI-610/611
+  is landing on the Paid Tiers branch (`@aeci/shared/entitlements` already
+  declares the `attestation.author` id). It **reads** `vendors.verified` and
+  never writes it.
 
 Two rejection cells are deliberate and easy to get wrong:
 
@@ -406,8 +486,12 @@ its other seats keep working. Ban and revoke are per-seat and never touch
 `vendors.verified`.
 
 Vendor writes use `actor_type: 'user'` (a `vendor_admin` is not an `admin`, and
-the `audit_log_actor_type_check` CHECK has no `vendor` value — the Stage 2 portal
-ships no migration). `metadata.source = 'vendor-portal'` is what distinguishes a
+the `audit_log_actor_type_check` CHECK has no `vendor` value). That started as a
+consequence of AECI-513 shipping no migration, but it **outlived that reason and
+is now the rule**: AECI-514 shipped three migrations and still did not add a
+`vendor` actor type, because the distinction that matters is
+`metadata.source`, not a fourth enum value. Widening the CHECK would split every
+existing actor-type query for no gain. `metadata.source = 'vendor-portal'` is what distinguishes a
 vendor's self-service edit from the AECi-side `vendor.updated` / `product.updated`
 that `POST /api/promote` emits.
 
@@ -612,7 +696,7 @@ and no `apps/api/src/prisma.ts`:
 
 1. User confirms Delete in `/account` → `DELETE /api/account`.
 2. **D1 erasure — one atomic `db.batch([...])`** (`apps/api/src/routes/account.ts`):
-   in order, null all seven inbound references above, write the `account.deleted`
+   in order, null all six inbound references above, write the `account.deleted`
    audit row, then delete the `profiles` row. All commit or roll back as a unit.
 3. The `account.deleted` audit row has **`actorId = null`** — the profile is deleted
    in the same batch and `audit_log.actor_id` is `NO ACTION`, so a non-null actor

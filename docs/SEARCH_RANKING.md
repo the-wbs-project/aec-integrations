@@ -44,6 +44,30 @@ The preview gap matters in practice: `lighthouse.yml` measures `/search` against
 
 **Full reindex** (needed only when records must be rebuilt, e.g. after a new record field or a D1 copy) goes through the Access-gated datatool Worker (`apps/datatool`, "Reindex now" + env select) or `reindexEnv(db, fetch, creds, env, ['products'])`. Note it CLEARS the index before repopulating, so the target returns zero hits for the duration — run it off-peak. The nightly incremental sync cannot substitute: it selects on a `products.updated_at` watermark and so only carries rows that were actually touched.
 
+### 1.1 How settings actually reach an index
+
+One command applies every index's settings for one environment:
+
+```bash
+pnpm algolia:apply-settings --env <preview|staging|demo|production>
+# → scripts/algolia/apply-settings.mjs → applyIndexSettings(client, env)
+```
+
+It is idempotent, prints no secrets, and per run issues **7 `setSettings` calls** — the three primaries plus the four sort replicas, which re-receive `searchableAttributes` / `attributesForFaceting` / `customRanking` verbatim and differ only in `ranking` (§5a). That is why a new facet needs no separate replica step: the `/search` facet rail keeps working under every sort automatically.
+
+| Environment | How settings are applied |
+|---|---|
+| `staging` | CI — `.github/workflows/deploy.yml` ("Update Algolia staging index settings") |
+| `demo` | CI — `.github/workflows/promote-to-demo.yml` |
+| `production` | CI — `.github/workflows/promote-to-prod.yml` |
+| **`preview`** | **No CI step — an operator must run the command by hand.** |
+
+The preview gap matters in practice: `lighthouse.yml` measures `/search` against the **preview** indexes, so a settings change that lands in code but not on preview is invisible there until someone runs the command. It degrades gracefully rather than erroring (Algolia returns no values for an unconfigured facet attribute, and the widget renders nothing), so it is a hygiene step, not a release blocker.
+
+> **One Algolia application spans every environment** — `--env` only selects the index-name *prefix*, and an admin key reaches every index (`CICD_PLAN.md`). Check the flag before running the command locally.
+
+**Full reindex** (needed only when records must be rebuilt, e.g. after a new record field or a D1 copy) goes through the Access-gated datatool Worker (`apps/datatool`, "Reindex now" + env select) or `reindexEnv(db, fetch, creds, env, ['products'])`. Note it CLEARS the index before repopulating, so the target returns zero hits for the duration — run it off-peak. The nightly incremental sync cannot substitute: it selects on a `products.updated_at` watermark and so only carries rows that were actually touched.
+
 **Ranking is purely algorithmic.** Per the CLAUDE.md non-negotiable, there is no pay-for-placement: paid vendor tiers affect profile richness, never ranking position. No ranking signal in this document may be a function of payment.
 
 **And it is asserted, not merely documented (AECI-610).** The entitlement vocabulary (`packages/shared/src/entitlements.ts`) and the ranking vocabulary defined here are both pure data in the same package, so `packages/shared/src/entitlements.spec.ts` proves they are **disjoint sets**: no capability id appears in the union of every entity's `searchableAttributes ∪ attributesForFaceting ∪ customRanking`, and none of `verified` / `tier` / `entitlement` / `status` / `paid` / `plan` appears in it either. That test plus the per-entity `customRanking` freezes in `algolia.spec.ts` are the two halves of the firewall. Both are **invariant tests** (`STAGE_2_PAID_TIERS_SPEC.md` §10) — a ranking change that trips one is not a test to update, it is a decision to reopen.
@@ -129,7 +153,11 @@ shape are recorded here now (per AECI-298) to keep the decision in one place.
 - **Index name.** Follows the existing `indexNamesFor(env)` convention (`packages/shared/src/algolia.ts`):
   **`{prefix}_pairs`** (e.g. `staging_pairs`, `production_pairs`).
 - **Future record shape (Stage 2 — illustrative, not yet built).** Derived from the pair-page read model
-  `{ context_product, other_product, mechanisms[], sync_headline }` (`STAGE_1_5_SPEC.md` §7.1/§8):
+  `{ context_product, other_product, mechanisms[], sync_headline, maintenance, version_diff }`
+  (`STAGE_1_5_SPEC.md` §7.1/§8; `maintenance` added by AECI-616, `version_diff` by AECI-303). Note
+  that a per-pair record would be a **latest-version** projection: the §9 version selectors are URL
+  params on the read, and attestation state still does not reach search
+  (`STAGE_2_ATTESTATIONS_SPEC.md` §11):
 
   | Field | Type | Purpose |
   |---|---|---|

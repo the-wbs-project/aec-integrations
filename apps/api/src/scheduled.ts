@@ -50,6 +50,16 @@
  * `open`/`linear_issue_id=null` (their §6.4 on-submit issue creation failed), and
  * on a persistent failure raise the §6.2 admin alert. A tight backstop, not a
  * daily batch.
+ * 10:00 UTC (= 05:00 EST) — daily §7 attestation detector sweep
+ * (`./lib/attestation-detectors` + `./lib/attestation-notify`, AECI-302 /
+ * `STAGE_2_ATTESTATIONS_SPEC.md` §7): four detectors over the claim/attestation
+ * spine (silent counterparty, open conflict, stale version, AECi-seeded claim
+ * denied) → nudge emails to the vendors' seats and per-finding ops alerts to
+ * `ADMIN_ALERT_EMAIL`, deduped against an `audit_log` ledger so a daily sweep
+ * cannot re-nag daily. Deliberately last of the daily jobs, so a nudge describes
+ * the state the site is actually serving. Unlike the read-only gauges this one
+ * RETHROWS on an unexpected failure, so the queue retries — a sweep that never
+ * ran is a nudge nobody is ever told about.
  * Every hour at :00 (`WAF_CRON`) — WAF firewall-event poll (`./lib/waf-metrics` +
  * `@aeci/shared/cloudflare-analytics`, AECI-262 / §15.1): read the previous clock
  * hour of `firewallEventsAdaptiveGroups` from Cloudflare's GraphQL Analytics API
@@ -88,6 +98,12 @@ import {
   type EntityOrphanResult,
   type PromotedIdProvider,
 } from './lib/algolia-orphans';
+import { runAttestationNotifySweep } from './lib/attestation-notify';
+import {
+  NOTIFY_DURATION_METRIC,
+  NOTIFY_JOB_METRIC,
+  type AttestationNotifyMetricSink,
+} from './lib/attestation-notify-metrics';
 import {
   buildAnalyticsDigest,
   collectAnalyticsMetrics,
@@ -98,6 +114,7 @@ import {
   ALGOLIA_DRIFT_CRON,
   ALGOLIA_SYNC_CRON,
   ANALYTICS_CRON,
+  ATTESTATION_NOTIFY_CRON,
   DATA_QUALITY_CRON,
   MODERATION_CRON,
   RECONCILE_CRON,
@@ -199,13 +216,15 @@ function jobRunSink(ctx: ExecutionContext, env: Env): JobRunSink {
   };
 }
 
-// The ten cron expressions now live in `./lib/cron-schedules` — hoisted there
-// by AECI-580 (the snapshot cron joined them in AECI-581) so `GET /api/admin/system`'s
-// liveness rows read the SAME literals this dispatcher `switch`es on rather than a
-// second copy that could drift. Each one MUST still stay byte-equal to its
-// `triggers.crons` entry in `wrangler.jsonc`, or `controller.cron` won't match the
-// `switch` below; see that file for the per-job scheduling rationale (including why
-// `SNAPSHOT_CRON` runs at 00:15, the first slot of the day).
+// The eleven cron expressions now live in `./lib/cron-schedules` — hoisted there
+// by AECI-580 (the snapshot cron joined them in AECI-581, the retention prune in
+// AECI-584, and the §7 attestation sweep at the AECI-619 reconciliation) so
+// `GET /api/admin/system`'s liveness rows read the SAME literals this dispatcher
+// `switch`es on rather than a second copy that could drift. Each one MUST still
+// stay byte-equal to its `triggers.crons` entry in `wrangler.jsonc`, or
+// `controller.cron` won't match the `switch` below; see that file for the per-job
+// scheduling rationale (including why `SNAPSHOT_CRON` runs at 00:15, the first
+// slot of the day, and why `ATTESTATION_NOTIFY_CRON` runs last at 10:00).
 
 /** The gauge a Datadog monitor alerts on (see docs/OBSERVABILITY.md). */
 const DRIFT_METRIC = 'aeci.algolia.index_drift';
@@ -294,17 +313,21 @@ function drizzlePromotedIds(env: Env): PromotedIdProvider {
 }
 
 /** Adapt the shared Datadog submitters into the pure metrics modules' sink, so
- *  `emitAlgoliaSyncMetrics` / `emitHomeStatsMetrics` / `emitModerationQueueMetrics`
- *  / `emitMetricsSnapshotMetrics` / `emitRetentionPruneMetrics` stay free of
- *  `ctx`/`env`/`Request` plumbing. The count + distribution + gauge shape
- *  satisfies `SyncMetricSink` / `StatsMetricSink` / `SnapshotMetricSink` /
- *  `RetentionMetricSink` (count + distribution) and `ModerationMetricSink`
- *  (gauge) alike. */
+ *  `emitAlgoliaSyncMetrics` / `emitHomeStatsMetrics` / `emitModerationQueueMetrics` /
+ *  `emitMetricsSnapshotMetrics` / `emitRetentionPruneMetrics` / `emitDetectorMetrics`
+ *  stay free of `ctx`/`env`/`Request` plumbing. The count + distribution + gauge
+ *  shape satisfies `SyncMetricSink` / `StatsMetricSink` / `SnapshotMetricSink` /
+ *  `RetentionMetricSink` (count + distribution), `ModerationMetricSink` (gauge) and
+ *  `AttestationNotifyMetricSink` (count + gauge) alike. */
 function metricSink(
   ctx: ExecutionContext,
   env: Env,
   req: Request,
-): SyncMetricSink & ModerationMetricSink & SnapshotMetricSink & RetentionMetricSink {
+): SyncMetricSink &
+  ModerationMetricSink &
+  SnapshotMetricSink &
+  RetentionMetricSink &
+  AttestationNotifyMetricSink {
   return {
     count: (metric, value, tags) => submitCount(ctx, env, req, metric, value, tags),
     distribution: (metric, value, tags) => submitDistribution(ctx, env, req, metric, value, tags),
@@ -1047,6 +1070,67 @@ async function runAnalyticsDigestJob(env: Env, ctx: ExecutionContext): Promise<J
   }
 }
 
+/** Run the daily §7 attestation detector sweep (AECI-302): four detectors over the
+ *  claim/attestation spine → vendor nudges + AECi ops alerts via Resend → an
+ *  `audit_log` suppression ledger. The sweep owns its own fail-open behaviour (a
+ *  Resend outage is an `outcome:failed` count, never a throw) and emits the
+ *  per-detector gauge through the injected sink — including the zero case, which
+ *  is this job's cron-liveness signal while no vendor has attested yet. Only an
+ *  unexpected read failure reaches the catch here; the queue then retries, which
+ *  is safe because the ledger makes an already-delivered nudge idempotent. */
+async function runAttestationNotifyJob(env: Env, ctx: ExecutionContext): Promise<JobRunReport> {
+  const req = cronRequest('/cron/attestation-notify');
+  const started = Date.now();
+  const { db } = cronDb(env);
+
+  try {
+    const result = await runAttestationNotifySweep(
+      { env, executionCtx: ctx, req: { raw: req } },
+      db,
+      {
+        metrics: metricSink(ctx, env, req),
+      },
+    );
+    submitCount(ctx, env, req, NOTIFY_JOB_METRIC, 1, ['trigger:cron', 'outcome:success']);
+    submitDistribution(ctx, env, req, NOTIFY_DURATION_METRIC, Date.now() - started, [
+      'trigger:cron',
+    ]);
+    logToDatadog(ctx, env, req, {
+      level: result.failed > 0 ? 'warn' : 'info',
+      message: `aeci.attestation.notify found=${result.found} sent=${result.sent} suppressed=${result.suppressed} failed=${result.failed} skipped=${result.skipped} capped=${result.capped}`,
+      source: 'attestation-notify-cron',
+    });
+    // §7.2 liveness (AECI-583): the sweep became a first-class cron at the
+    // AECI-619 reconciliation, so it records a `job_runs` row like the other ten.
+    // A run with per-send failures is `ok` with the counts in `detail`, not
+    // `failed` — the sweep is fail-open by design and a Resend hiccup on one nudge
+    // is not a failed sweep. Only the catch below is a failure.
+    return {
+      outcome: 'ok',
+      detail: {
+        job: 'attestation-notify',
+        found: result.found,
+        sent: result.sent,
+        suppressed: result.suppressed,
+        failed: result.failed,
+        skipped: result.skipped,
+        capped: result.capped,
+      },
+    };
+  } catch (error) {
+    submitCount(ctx, env, req, NOTIFY_JOB_METRIC, 1, ['trigger:cron', 'outcome:failed']);
+    logToDatadog(ctx, env, req, {
+      level: 'error',
+      message: 'aeci.attestation.notify.crashed',
+      source: 'attestation-notify-cron',
+      reason: error instanceof Error ? error.message : String(error),
+    });
+    // Rethrow so the queue consumer retries: unlike the read-only gauges, a sweep
+    // that never ran means nudges nobody will ever be told about.
+    throw error;
+  }
+}
+
 /** The host portion of a URL, or `undefined` if it's missing/unparseable. The
  *  WAF poll scopes its query to the env's own host so a shared zone isn't
  *  triple-counted across `env:` tags. */
@@ -1148,6 +1232,8 @@ function queueForJob(env: Env, job: ScheduledJob): Queue<ScheduledJobMessage> | 
       return env.RECONCILE_QUEUE;
     case 'data_quality':
       return env.DATA_QUALITY_QUEUE;
+    case 'attestation_notify':
+      return env.ATTESTATION_NOTIFY_QUEUE;
     case 'moderation':
       // Queue-less by design: a cheap read-only gauge needs no retry/queue, so it
       // always runs inline (AECI-206). No `MODERATION_QUEUE` binding exists.
@@ -1216,6 +1302,13 @@ function enqueueFailureLog(job: ScheduledJob): { path: string; message: string; 
       path: '/cron/waf-metrics',
       message: 'aeci.waf.poll.enqueue_failed',
       source: 'waf-metrics-cron',
+    };
+  }
+  if (job === 'attestation_notify') {
+    return {
+      path: '/cron/attestation-notify',
+      message: 'aeci.attestation.notify.enqueue_failed',
+      source: 'attestation-notify-cron',
     };
   }
   if (job === 'analytics') {
@@ -1313,6 +1406,8 @@ async function dispatchScheduledJob(
       return runDataQualityJob(env, ctx);
     case 'waf':
       return runWafMetricsJob(env, ctx);
+    case 'attestation_notify':
+      return runAttestationNotifyJob(env, ctx);
     case 'analytics':
       return runAnalyticsDigestJob(env, ctx);
     case 'snapshot':
@@ -1380,6 +1475,9 @@ export const scheduled: ExportedHandlerScheduledHandler<Env> = async (controller
       return;
     case WAF_CRON:
       await enqueueOrRun(env, ctx, 'waf');
+      return;
+    case ATTESTATION_NOTIFY_CRON:
+      await enqueueOrRun(env, ctx, 'attestation_notify');
       return;
     case ANALYTICS_CRON:
       await enqueueOrRun(env, ctx, 'analytics');

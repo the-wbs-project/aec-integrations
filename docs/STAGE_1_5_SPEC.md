@@ -32,7 +32,7 @@ Everything in Stage 1.5 is **AECi-seeded and read-only to the public**. The divi
 |---|---|
 | Pair page + 301 consolidation (§7) | Vendor attestation authoring (AECI-301) |
 | Claim model + AECi attestations (§3) | Conflict UI + notification pipeline (AECI-302) |
-| `data_object` closed vocabulary (§2) | Version-diff timeline using `introduced_at`/`deprecated_at` (AECI-303) |
+| `data_object` closed vocabulary (§2) | Version-diff timeline (AECI-303) — **shipped**, over the `product_versions` FKs rather than these date stamps |
 | `computeAgreement` (vendor-vs-vendor; AECi-never-red) (§3.4) | Paywalled integration depth (AECI-304) |
 | Read-only claim rendering — everything shows **"Unverified"** (§8) | Per-pair Algolia records + integrations search tab (§9) |
 
@@ -123,7 +123,7 @@ The **integration row is the anchor** (ADR 0018). Consequences:
 
 - A pair of products connected by **two mechanisms** (e.g. a native connector and a Zapier app) that both move RFIs yields **two claims** — one per integration row. The pair page (§8) groups them under the pair but they remain distinct rows.
 - Consolidation onto the pair page needs **no `integrations`-table migration**: there is no unique pair index today (`apps/api/src/db/schema.ts` integrations table — only non-unique `source`/`target` indexes and a distinct-endpoints check), and Stage 1.5 adds none. The pair page is a *query-time* grouping (§7), not a stored entity.
-- The unique index `(integration_id, data_object_id, direction)` (§6.1) makes promote ingest an idempotent upsert (§6.2).
+- The unique index `(integration_id, data_object_id, direction)` (§6.1) makes promote ingest an idempotent upsert (§6.2). *(Intended from the start; actually true only since AECI-604 — the 1.5 ingest shipped as delete-and-reinsert. See the §6.2 note.)*
 
 ### 3.2 Direction encoding — stored vs context-relative
 
@@ -157,11 +157,13 @@ An **attestation** records *who asserts a claim*. Attestations hang off a claim 
 |---|---|---|
 | `source` | `'aeci' \| 'vendor_a' \| 'vendor_b'` | who attests. `vendor_a` / `vendor_b` map to the integration's endpoint-A / endpoint-B vendors. **In Stage 1.5 only `aeci` is ever written.** |
 | `asserted` | boolean | `true` = this source affirms the claim; `false` = denies it. AECi seeds `true`. |
-| `introduced_at` | date \| null | **dormant in 1.5** — version stamp for the Stage 2 timeline (AECI-303). |
+| `introduced_at` | date \| null | **dormant in 1.5** — a coarse version stamp. AECI-303 ships the §9 diff over the PRECISE `introduced_version_id`/`deprecated_version_id` FKs (Stage 2 migration 2) instead; these dates remain the fallback for the claims promote writes, and a claim with neither is **always present** at every selection. |
 | `deprecated_at` | date \| null | **dormant in 1.5** — version stamp. |
 | `note` | string \| null | optional provenance/source note. |
 
 `vendor_a` / `vendor_b` and the version stamps are **additive and dormant**: present in schema and contract, written by no 1.5 code path.
+
+> **Stage 2 update (AECI-603, 2026-08-14).** `vendor_a` / `vendor_b` are no longer dormant, and the table above is no longer the whole row. Migration 1 of the AECI-514 epic added **`attested_by_vendor_id`** (which vendor identity filled the slot — `confirmed` requires two *distinct* ones) and **`retracted_at`** (supersession, which is **not** what `introduced_at`/`deprecated_at` mean — those stay version stamps exactly as defined above). Which slot a caller may write derives from product ownership in `product_vendors`, never from the request. See `docs/STAGE_2_ATTESTATIONS_SPEC.md` §2 and `docs/DATABASE_SCHEMA.md` §5a.2.
 
 ### 3.4 Computed agreement — `computeAgreement` and the AECi-never-red rule
 
@@ -176,10 +178,11 @@ It lives at **`packages/shared/src/agreement.ts`** (AECI-300) so the API, SSR, a
 Rules:
 
 - **Only vendor attestations vote.** Agreement is a *vendor-vs-vendor* signal: it asks whether the two vendors of a pair agree about a data flow. **The AECi attestation is excluded from the vote** — it is the baseline/seed, not a party to the disagreement.
-- **AECi-never-red.** Because AECi never votes, an AECi-only claim can **never** produce a `conflict` state. The conflict (red) state requires `vendor_a` and `vendor_b` to disagree — impossible until the Stage 2 portal exists.
+- **AECi-never-red.** Because AECi never votes, an AECi-only claim can **never** produce a `conflict` state. The conflict (red) state requires two distinct vendors to disagree — impossible until the Stage 2 portal exists.
+- **Distinct vendor identities** *(added by AECI-605 — `STAGE_2_ATTESTATIONS_SPEC.md` §4)*. Votes are deduped by `attestations.attested_by_vendor_id`, and **`confirmed` requires two of them**. `product_vendors` is many-to-many, so one company can own *both* endpoints of an integration and fill both attestation slots; without the dedupe it could affirm both and manufacture "Vendor-confirmed" on its own intra-portfolio integrations. A single vendor affirming alone resolves **`single_source`**, never `confirmed`. Retracted attestations (`retracted_at IS NOT NULL`) do not vote — note that `deprecated_at` is a *version stamp* (§3.3), not retraction, and never gates the read.
 - **Stage 1.5 reality.** With only an `aeci` attestation present, every claim resolves to an **"Unverified"** state and renders as such (§8). The agreement engine ships fully but, by construction, only ever returns the unverified branch in 1.5.
 
-`AgreementState` is enumerated in `agreement.ts`; the 1.5-reachable value is the unverified one. The conflict/confirmed branches are implemented and unit-tested against synthetic vendor attestations so Stage 2 inherits a proven function.
+`AgreementState` is enumerated in `agreement.ts` as `unverified | single_source | confirmed | conflict` (ascending verification); the 1.5-reachable value is the unverified one. The other three branches are implemented and unit-tested against synthetic vendor attestations so Stage 2 inherits a proven function. The full outcome matrix lives in `STAGE_2_ATTESTATIONS_SPEC.md` §4.2, and the render contract for each state in §4.3.
 
 ### 3.5 The `confirmed / total` sync headline
 
@@ -187,8 +190,11 @@ The pair page leads its data-flow section with a headline of the form **"N data 
 
 - **`total`** — the number of distinct claims on the pair (all directions, all mechanisms).
 - **`confirmed`** — claims whose computed agreement is vendor-confirmed.
+- **`single_source`** *(added by AECI-605 — `STAGE_2_ATTESTATIONS_SPEC.md` §4.3)* — claims exactly one vendor affirms with the counterparty silent.
 
-In Stage 1.5 **`confirmed = 0`** for every pair (no vendor attestations), so the headline communicates breadth ("12 data objects sync") with an honest **"Unverified"** posture, never a fake trust signal. The ratio becomes meaningful in Stage 2.
+`single_source` is reported as its **own clause**, never added into `confirmed` — folding a one-sided assertion into the bilateral figure is the overstatement `STAGE_2_SPEC.md` §8.1(4) forbids. The rendered line reads e.g. "3 of 12 vendor-confirmed · 4 confirmed by one vendor only", and the second clause is omitted entirely at zero rather than rendered as "0".
+
+In Stage 1.5 **both counts are 0** for every pair (no vendor attestations), so the headline communicates breadth ("12 data objects sync") with an honest **"Unverified"** posture, never a fake trust signal. The ratio becomes meaningful in Stage 2.
 
 ---
 
@@ -273,6 +279,17 @@ Extend the existing plan-then-batch promote flow (`apps/api/src/routes/promote.t
 - **Resolve** each claim's `dataObject` **find-only** by slug (then alias) against the seeded `taxonomy_data_objects`. A miss → `skipped[]` `{ kind: 'claim', … }`; **never a 500** (§2, §5.1).
 - **Upsert** each claim by the identity unique index `(integration_id, data_object_id, direction)` (§6.1) — re-promote is idempotent.
 - **Replace** the claim's attestations to exactly match the payload (same merge-by-replacement semantics promote already uses for join sets — `REVIEW_APP_PROMOTE_API.md` §5).
+
+> **Superseded in part by AECI-604 (`STAGE_2_ATTESTATIONS_SPEC.md` §3), 2026-08-18.** As
+> shipped, AECI-297 implemented the first bullet as a wholesale delete-and-reinsert rather
+> than a true upsert, and the second bullet replaced **all** attestations. Both became wrong
+> once vendors could author claims and attestations (AECI-301): the cascade through
+> `attestations.claim_id ON DELETE CASCADE` destroyed vendor rows, and the re-insert churned
+> every claim id. Promote now merges **by origin** — an identity match re-uses the row, only
+> `origin = 'aeci'` claims are deleted, only `source = 'aeci'` attestations are replaced, and
+> a dropped claim a vendor attests is converted rather than deleted. The atomicity and audit
+> bullet below is unchanged. See §3 of the attestations spec and `REVIEW_APP_PROMOTE_API.md`
+> §5.2.
 - **Audit + atomicity.** Claim/attestation writes go in the **same `db.batch([...])`** as the rest of the promote transaction and emit their `audit_log` row in that batch (the §26.1 invariant of `STAGE_1_SPEC.md`). Edge-cache purge for affected pair pages reuses the existing promote→purge path (`affectedUrlsForPromote`; ADR 0010) extended with the pair URLs (§7).
 
 ---
@@ -307,7 +324,7 @@ The pair page is **Layer A**: it ships first, needs **no** claim data, and deliv
 
 - **`computeAgreement`** — `packages/shared/src/agreement.ts` (pure; vendor-vs-vendor; AECi excluded → never `conflict` — §3.4), unit-tested against synthetic vendor attestations so the Stage 2 branches are proven now.
 - **Data-flow section.** For the pair, list each claim as a **`data_object` + direction** row, with the direction shown **context-relative** to the page's context product (`outbound` / `inbound` / `both` — §3.2). Group by integration (mechanism) so a pair connected by two connectors reads clearly.
-- **"Unverified" pills.** Every claim shows an **"Unverified"** state in 1.5 (§3.4). The pill styling and copy must read as *"not yet vendor-confirmed"*, not as a warning/defect.
+- **"Unverified" pills.** Every claim shows an **"Unverified"** state in 1.5 (§3.4). The pill styling and copy must read as *"not yet vendor-confirmed"*, not as a warning/defect. *(AECI-605 added the other three states to the same `AgreementBadge`; their tone and copy are specified in `STAGE_2_ATTESTATIONS_SPEC.md` §4.3/§4.5. `unverified` is unchanged and still the only 1.5-reachable one.)*
 - **Sync headline.** Lead with the `confirmed / total` headline (§3.5) — in 1.5, `confirmed = 0`, so it communicates breadth honestly.
 - API: a pair-page read (extend the integrations read path / a `GET /api/claims` for a pair) returns claims with context-relative direction already translated (§3.2) and the computed agreement state — the browser does not re-derive identity.
 - **Basic / Detailed disclosure toggle.** The consolidated page carries a lot of per-mechanism detail; a segmented **Basic / Detailed** control in the header lets readers collapse it. **Detailed** (the default) is the full page above. **Basic** ("Overview") keeps the rail, the sync headline, and each mechanism's kind/name + description + external links, and hides the granular data transfers — the Layer-B `data_object` claim lanes **and** the standalone Layer-A direction arrow. State is a **content-affecting URL param** `?view=basic|detailed` (absent ⇒ `detailed`), so the page stays deep-linkable, SSR-correct, and visitor-state-neutral; it is **added to the pair route's `cacheKeyParams`** (`CACHE_STRATEGY.md` §4a), mirroring `/products ?view=table` (AECI-190). The default (param-absent) URL renders the full claim set, so the crawler-indexed page and the canonical are unaffected. The toggle is suppressed when no mechanism has a claim lane or a direction arrow (nothing to collapse).
@@ -327,14 +344,21 @@ Follow-through after the pair page lands.
 
 ## 10. Out of scope / Stage 2 carve-outs
 
-Recorded so the boundary is explicit (see §1.1). These are **placeholders in the Linear "Stage 2 Planning" state**, not 1.5 work:
+Recorded so the boundary is explicit (see §1.1). These were **placeholders** when 1.5 shipped; three of them have now **shipped** under the AECI-514 epic, specified in **`docs/STAGE_2_ATTESTATIONS_SPEC.md`** (kickoff 2026-08-14, swept closed by AECI-608 2026-08-18):
 
-- **AECI-301** — vendor attestation authoring (the portal seam that makes `vendor_a`/`vendor_b` attestations real).
-- **AECI-302** — conflict UI + notification pipeline (activates the red/`conflict` branch of `computeAgreement`).
-- **AECI-303** — version-diff timeline using the dormant `introduced_at`/`deprecated_at` stamps.
-- **AECI-304** — paywalled integration depth.
+- **AECI-301** — vendor attestation authoring (the portal seam that makes `vendor_a`/`vendor_b` attestations real). ✅ **Shipped** (`STAGE_2_ATTESTATIONS_SPEC.md` §5 + §5.4 as-built): four `/api/vendor/*` endpoints, authority derived from `product_vendors` ownership and never from the request. This is what makes the dormant sources real — every attestation in D1 before it was `source='aeci'`.
+- **AECI-302** — conflict UI + notification pipeline (activates the red/`conflict` branch of `computeAgreement`). ✅ **Shipped** (§4 surfacing + §7 pipeline, §7.5 as-built): email-only (Resend), four cron-driven detectors deduped through an `audit_log` ledger rather than a notifications table. **Four detectors** (`silent-counterparty`, `open-conflict`, `stale-version`, `aeci-denied`); the `cross-grain` detector `STAGE_2_SPEC.md` §2.4 also listed was **dropped at build** (§7.1 / §11) because its only proposed definition described legitimate data — two mechanisms genuinely can move the same `data_object` in opposite directions.
+- **AECI-303** — version-diff timeline. ✅ **Shipped** (`STAGE_2_ATTESTATIONS_SPEC.md` §9 + §9.4 as-built): over the `product_versions` FKs from §8, not the dormant `introduced_at`/`deprecated_at` dates, which could not express "source-version × target-version". Also fixed a pre-existing TransferState orientation bug on the pair resolver that §11.2 (AECI-340) would have surfaced.
+- **AECI-304** — paywalled integration depth. Stays under the Paid Tiers epic (AECI-515); AECI-514 ships the entitlement **seam** only (§9.3).
 
-The Stage 1.5 schema and contract are forward-compatible with all four (dormant fields, computed-not-stored agreement) — no migration is required to light them up beyond the portal itself.
+The Stage 1.5 schema and contract are forward-compatible with all four in the sense that matters — the dormant `vendor_a`/`vendor_b` sources and the computed-not-stored agreement need no change.
+
+> **Two corrections from the AECI-514 kickoff**, recorded here because they touch §3's definitions:
+>
+> 1. **`introduced_at`/`deprecated_at` are version *stamps*, per §3.3 — not attestation retirement.** ✅ **Resolved by AECI-603** (2026-08-14; migration `0016`). As shipped in 1.5, `attestations_active_idx` was partial on `deprecated_at IS NULL` with a comment describing it as retirement. §3.3's definition won (AECI-303 depends on it): supersession got its own `retracted_at` column and the index predicate moved onto it, with the shared `liveAttestationsWhere` (`apps/api/src/lib/drizzle-helpers.ts`) as the one definition every read applies. *(AECI-608 found one read that had kept the old predicate — the admin panel's claim-coverage count — and corrected it. Nothing reads `deprecated_at` as a gate now.)*
+> 2. **`computeAgreement` needs a `single_source` state.** ✅ **Resolved by AECI-605** (2026-08-14; `STAGE_2_ATTESTATIONS_SPEC.md` §4.5). As originally shipped (§3.4), a *single* vendor affirming with the counterparty silent resolved to `confirmed`. That branch was unreachable in 1.5, so the gap was latent — but it would have rendered one-sided assertion as agreement, which `STAGE_2_SPEC.md` §8.1(4) forbids. `confirmed` is now narrowed to **two distinct vendor identities** and §3.4 above reflects the shipped rule.
+>
+> Also: "no migration is required to light them up" was **too strong**. It holds for the agreement engine and the attestation sources; it does not hold for vendor-created claims or for real per-product version selectors, which need a version entity that §6.1 never defined. AECI-514 shipped **three** additive migrations (`STAGE_2_ATTESTATIONS_SPEC.md` §1.2): `0016` claim provenance + attestation authority, `0017` the product-version model, and `0018` the maintenance marker's `last_reviewed_at` / `maintained_by` (AECI-616, scoped in after kickoff).
 
 ---
 

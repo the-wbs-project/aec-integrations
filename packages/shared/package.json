@@ -84,6 +84,14 @@
     "./seed-reviews": {
       "types": "./src/seed-reviews/index.ts",
       "default": "./src/seed-reviews/index.ts"
+    },
+    "./version-sort": {
+      "types": "./src/version-sort.ts",
+      "default": "./src/version-sort.ts"
+    },
+    "./version-diff": {
+      "types": "./src/version-diff.ts",
+      "default": "./src/version-diff.ts"
     }
   },
   "scripts": {

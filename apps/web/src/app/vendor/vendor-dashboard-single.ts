@@ -2,6 +2,7 @@ import { Component, input } from '@angular/core';
 
 import type { VendorMeResponse } from '@aeci/shared';
 
+import { VendorIntegrationsSection } from './components/vendor-integrations-section';
 import { VendorProfileForm } from './components/vendor-profile-form';
 import { VendorProductsSection } from './components/vendor-products-section';
 import { VendorRequestStatus } from './components/vendor-request-status';
@@ -24,6 +25,7 @@ import { VendorVerifiedStatus } from './components/vendor-verified-status';
     VendorRequestStatus,
     VendorProfileForm,
     VendorProductsSection,
+    VendorIntegrationsSection,
     VendorSeatRoster,
   ],
   template: `
@@ -78,6 +80,22 @@ import { VendorVerifiedStatus } from './components/vendor-verified-status';
           </h2>
           <div class="mt-4">
             <aec-vendor-products-section [products]="m.products" />
+          </div>
+        </section>
+
+        <section aria-labelledby="vendor-integrations-heading">
+          <h2
+            id="vendor-integrations-heading"
+            class="font-display text-xl font-semibold text-(--text-primary)"
+            i18n="@@vendor.section.integrations"
+          >
+            Integrations
+          </h2>
+          <div class="mt-4">
+            <aec-vendor-integrations-section
+              [verified]="m.vendor.verified"
+              [vendorName]="m.vendor.company_name"
+            />
           </div>
         </section>
 

@@ -49,6 +49,7 @@ import { createHealthHandler } from './routes/health';
 import {
   createIntegrationDetailHandler,
   createIntegrationsListHandler,
+  createPairTimelineHandler,
   createProductPairHandler,
 } from './routes/integrations';
 import {
@@ -76,6 +77,20 @@ import {
   createVendorMeHandler,
   createVendorSeatsHandler,
 } from './routes/vendor';
+import { createListVendorNotificationsHandler } from './routes/vendor-notifications';
+import {
+  createDeleteProductVersionHandler,
+  createListProductVersionsHandler,
+  createProductVersionHandler,
+  createUpdateProductVersionHandler,
+} from './routes/vendor-product-versions';
+import {
+  createListVendorIntegrationsHandler,
+  createRetractVendorAttestationHandler,
+  createUpsertVendorAttestationHandler,
+  createVendorClaimHandler,
+} from './routes/vendor-attestations';
+import { createListDataObjectsHandler } from './routes/vendor-data-objects';
 import { createVendorDetailHandler, createVendorsListHandler } from './routes/vendors';
 import { createVersionHandler } from './routes/version';
 import { queue, scheduled } from './scheduled';
@@ -127,6 +142,11 @@ phase28.get('/api/products/:slug/reviews', createProductReviewsListHandler());
 // AECI-294 — product-PAIR read (Stage 1.5 §7). `:slug` is the context product;
 // reuses the `:slug` param name (Hono forbids differing names at one position).
 phase28.get('/api/products/:slug/integrations/:otherSlug', createProductPairHandler());
+// AECI-303 — the pair's per-claim attestation HISTORY (§9.1). Registered after the
+// pair read; the longer literal path makes matching order unambiguous either way.
+// Lazy and browser-fetched on demand, never by SSR: history is the gateable depth,
+// so it must not land in the pair page's shared edge-cache entry.
+phase28.get('/api/products/:slug/integrations/:otherSlug/timeline', createPairTimelineHandler());
 
 phase28.get('/api/vendors', createVendorsListHandler());
 phase28.get('/api/vendors/:slug', createVendorDetailHandler());
@@ -404,12 +424,92 @@ app.route('/', authAdmin);
 //   - GET   /api/vendor/seats        — the vendor's seat roster (read-only).
 //   - PATCH /api/vendor/profile      — edit the caller's own vendor row.
 //   - PATCH /api/vendor/products/:id — edit an owned product (cross-vendor → 404).
+//
+// Stage 2 / AECI-607 adds the product-version CRUD on the same sub-router. Two
+// gates, in this order: ownership → 404 (as above), then `vendors.verified` → 403
+// on the WRITES only — authoring is a Verified-vendor capability
+// (`STAGE_2_ATTESTATIONS_SPEC.md` §1), while the list stays readable so the
+// dashboard can render a read-only tab instead of 403-ing a vendor out of its
+// own data.
+//   - GET    /api/vendor/products/:id/versions            — ordered by sort_key.
+//   - POST   /api/vendor/products/:id/versions            — create (201).
+//   - PATCH  /api/vendor/products/:id/versions/:versionId — edit.
+//   - DELETE /api/vendor/products/:id/versions/:versionId — remove (204).
+//
+// Stage 2 / AECI-302 adds the in-portal notification list. It reads the same
+// `audit_log` `notification.sent` rows the §7 detector sweep writes — no separate
+// store (`STAGE_2_ATTESTATIONS_SPEC.md` §7.3) — scoped to the caller's vendor, and
+// not verified-gated (reading is not the capability).
+//   - GET   /api/vendor/notifications — the last 90 days of detector nudges.
+//
+// Stage 2 / AECI-301 adds the attestation authoring surface — the first code that
+// can write a `vendor_a`/`vendor_b` attestation, and therefore the first that can
+// move a claim off `unverified` (`STAGE_2_ATTESTATIONS_SPEC.md` §5). Same two
+// gates and the same order, but at INTEGRATION grain: which slot the caller may
+// fill comes from `lib/attestation-authority.ts` (product ownership, never the
+// request), a miss is a 404, and only then is `vendors.verified` checked. `GET`
+// is not Verified-gated, for the same reason the version list is not.
+//   - GET    /api/vendor/integrations                — the attestable surface.
+//   - POST   /api/vendor/claims                      — create a claim (201).
+//   - PUT    /api/vendor/claims/:claimId/attestation — assert or deny.
+//   - DELETE /api/vendor/claims/:claimId/attestation — retract (204).
+//
+// Stage 2 / AECI-606 adds the vocabulary the §6 picker offers, so a vendor never
+// has to guess a find-only `data_object` term. It is the ONE route on this
+// sub-router with neither an ownership check nor a `vendor_id` filter — the
+// vocabulary is AECi-curated and holds no vendor-owned rows, so the filter would
+// be vacuous rather than omitted (`docs/AUTH_AND_RLS.md` §4.4). Not
+// verified-gated either, for the same reason the two lists above are not.
+//   - GET   /api/vendor/data-objects — the closed `data_object` vocabulary.
 const authVendor = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
 authVendor.onError(errorHandler());
 authVendor.get('/api/vendor/me', requireVendor(), createVendorMeHandler());
 authVendor.get('/api/vendor/seats', requireVendor(), createVendorSeatsHandler());
+authVendor.get(
+  '/api/vendor/notifications',
+  requireVendor(),
+  createListVendorNotificationsHandler(),
+);
 authVendor.patch('/api/vendor/profile', requireVendor(), createUpdateVendorProfileHandler());
+// Registered BEFORE `/api/vendor/products/:id` so the more specific version
+// paths are not shadowed by the product PATCH's parameterised route.
+authVendor.get(
+  '/api/vendor/products/:id/versions',
+  requireVendor(),
+  createListProductVersionsHandler(),
+);
+authVendor.post(
+  '/api/vendor/products/:id/versions',
+  requireVendor(),
+  createProductVersionHandler(),
+);
+authVendor.patch(
+  '/api/vendor/products/:id/versions/:versionId',
+  requireVendor(),
+  createUpdateProductVersionHandler(),
+);
+authVendor.delete(
+  '/api/vendor/products/:id/versions/:versionId',
+  requireVendor(),
+  createDeleteProductVersionHandler(),
+);
 authVendor.patch('/api/vendor/products/:id', requireVendor(), createUpdateVendorProductHandler());
+// AECI-301. No path overlap with the product routes above, so ordering is free.
+authVendor.get('/api/vendor/integrations', requireVendor(), createListVendorIntegrationsHandler());
+authVendor.post('/api/vendor/claims', requireVendor(), createVendorClaimHandler());
+authVendor.put(
+  '/api/vendor/claims/:claimId/attestation',
+  requireVendor(),
+  createUpsertVendorAttestationHandler(),
+);
+authVendor.delete(
+  '/api/vendor/claims/:claimId/attestation',
+  requireVendor(),
+  createRetractVendorAttestationHandler(),
+);
+// AECI-606. Guard only — no authority resolution and no verified gate; see the
+// route module's header for why that is the contract rather than an omission.
+authVendor.get('/api/vendor/data-objects', requireVendor(), createListDataObjectsHandler());
 app.route('/', authVendor);
 
 // Catch-alls throw so the root `onError` renders the canonical §3.3 envelope

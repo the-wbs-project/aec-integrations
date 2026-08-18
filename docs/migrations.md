@@ -189,18 +189,6 @@ workflow above, run once per migration being renumbered. AECI-619 did exactly th
 5. Restore the full `schema.ts` and repeat for the second migration.
 6. Re-run `db:generate` and confirm it reports "No schema changes" with nothing unstaged.
 
-**With only ONE migration to renumber, steps 3 and 5 drop out** — `schema.ts` is already at exactly
-the state that migration ends on, so the merged union needs no reverse-apply. AECI-622 (`aeci-515`,
-`0006_easy_sandman` → `0018`) was this shape: reset `meta/`, delete the old pair, `db:generate`, then
-rename the generated `NNNN_*.sql` + `meta/NNNN_snapshot.json` and set the journal entry's `idx` +
-`tag`. Compare the regenerated SQL against the original body before discarding either — if they are
-byte-identical, the body was plain generator output and there is nothing to hand-restore.
-
-**A gap in the sequence is fine.** AECI-622 landed on `0018` while its own journal ended at `0015`,
-because `0016`/`0017` were reserved for `aeci-514`. Wrangler tracks applied *names*, drizzle-kit
-reads `_journal.json`, and the test harness sorts filenames — none of them require contiguity. The
-generator will still propose the next contiguous index, so the rename is manual.
-
 **Renumber before the migration is applied anywhere remote**; once a tier has recorded the old
 filename, renaming it makes the migration re-run.
 
@@ -235,13 +223,17 @@ AECI-619, `main`'s `0010`–`0015` touched `promote_jobs` / `metrics_daily` / `j
 
 ##### Reserved numbers
 
-`0016`–`0018` are spent. `aeci-514` (Attestations) took `0016_lyrical_leper_queen` /
-`0017_slim_iron_lad` in AECI-619; `aeci-515` (Paid Tiers) took `0018_easy_sandman`
-(`vendor_entitlements`, AECI-609) in AECI-622, renumbered off the `0006_easy_sandman` that collided
-with `main`'s `0006_crazy_lockheed.sql`. **The next epic branch to reconcile starts at `0019`** —
-and because `aeci-514` and `aeci-515` have not yet met on `stage-2`, both of their journals end
-short of the full set. Whichever lands second regenerates against the other's chain, not against
-its own.
+**Settled — nothing is reserved.** `aeci-515` (Paid Tiers) generated `vendor_entitlements`
+(AECI-609) as `0006_easy_sandman.sql`, colliding with `main`'s `0006_crazy_lockheed.sql`. AECI-622
+first renumbered it to `0018`, which **also** collided once the AECI-514 epic landed (`0016`/`0017`
+plus `0018_chilly_joseph`). It is now **`0019_easy_sandman.sql`**, renumbered at the
+`stage-2 → aeci-515` merge by the regenerate-the-snapshot procedure above.
+
+That is twice this line went stale while being read as authoritative, which is the point worth
+keeping: **check `apps/api/migrations/` rather than trusting a number written in prose.** The
+regenerated body was verified byte-identical to the hand-authored original and emitted no
+destructive statements — the check that matters, given the generator has previously re-emitted
+`DROP TABLE claims` when a snapshot chain was renamed rather than regenerated.
 
 ### Read replication (D1 Sessions API — AECI-250)
 

@@ -66,6 +66,7 @@ import {
   type EntityRef,
   type PromoteEntityResult,
   type PromoteIntegrationResult,
+  type PromotePreserved,
   type PromoteResponse,
   type PromoteSkipped,
   type PromoteTaxonomyResult,
@@ -87,8 +88,6 @@ import { type SQLiteColumn } from 'drizzle-orm/sqlite-core';
 
 import { getDb, type Db, type DbContext } from '../db/client';
 import {
-  attestations,
-  claims,
   integrations,
   productAudiences,
   productCategories,
@@ -100,7 +99,6 @@ import {
   promoteJobs,
   taxonomyAudiences,
   taxonomyCategories,
-  taxonomyDataObjects,
   taxonomyPhases,
   taxonomyTrades,
   vendors,
@@ -112,7 +110,13 @@ import { syncPromoteTargets } from '../lib/algolia-sync';
 import { emitAlgoliaSyncMetrics, type SyncMetricSink } from '../lib/algolia-sync-metrics';
 import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
 import { loadClaimedVendorIds } from '../lib/claimed-vendors';
+import {
+  loadDataObjectResolver,
+  safeSlugify,
+  type DataObjectResolver,
+} from '../lib/data-object-vocabulary';
 import { callGoogleIndexing } from '../lib/google-indexing';
+import { planClaimIngest, type ClaimIngestItem } from '../lib/promote-claims';
 import { type DbFactory } from '../lib/handler-utils';
 import { runHomeStats, type HomeStatsResult } from '../lib/home-stats';
 import { emitHomeStatsMetrics, type StatsMetricSink } from '../lib/home-stats-metrics';
@@ -128,21 +132,6 @@ function compact(obj: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(obj)) if (v !== undefined) out[k] = v;
   return out;
-}
-
-/**
- * Slugify for matching, never throwing. Usefulness resolution looks an input
- * `slug`/`name` up against existing terms; an input that maps to a reserved or
- * empty slug simply can't match anything, so we return `null` (→ unresolvable →
- * `skipped`) rather than 500-ing the whole promote the way the facet path's bare
- * `slugify` would.
- */
-function safeSlugify(value: string): string | null {
-  try {
-    return slugify(value);
-  } catch {
-    return null;
-  }
 }
 
 /** Generate a slug or throw a typed 400 for the two expected failure modes. */
@@ -241,6 +230,13 @@ function vendorEditableData(v: PromoteVendor): Record<string, unknown> {
     phoneNumber: v.phoneNumber,
     contactEmail: v.contactEmail,
     logoUrl: v.logoUrl,
+    // Absent → `compact()` drops it → the stored timestamp is untouched. That IS
+    // the "no review happened" signal (AECI-616); see `ReviewSignalSchema`.
+    lastReviewedAt: v.lastReviewedAt,
+    // `maintainedBy` is deliberately NOT here either, for the same reason as
+    // `verified` below: it is owned by the vendor attestation path, and a routine
+    // push must not be able to flip a vendor-maintained record back to 'aeci'.
+    //
     // `verified` is deliberately NOT here (AECI-520). It is an entitlement the
     // vendor-claim grant owns, not curation content — the payload field is still
     // accepted and ignored (`REVIEW_APP_PROMOTE_API.md` §3.2). It used to be
@@ -267,6 +263,11 @@ function productEditableData(p: PromoteProduct): Record<string, unknown> {
     searchVolumeMonthly: p.searchVolumeMonthly,
     redditMentions24mo: p.redditMentions24mo,
     adminNotes: p.adminNotes,
+    // AECI-616. Absent → untouched (see `vendorEditableData`). Deliberately NOT
+    // given the set-once `COALESCE` guard `promotedAt` gets in the update branch
+    // below: that column records the FIRST promote, this one is meant to advance
+    // every time a human actually re-checks the record.
+    lastReviewedAt: p.lastReviewedAt,
   });
 }
 
@@ -285,6 +286,8 @@ function integrationEditableData(intg: PromoteIntegration): Record<string, unkno
     pricingModel: intg.pricingModel,
     maturity: intg.maturity,
     notes: intg.notes,
+    // AECI-616. Absent → untouched (see `vendorEditableData`).
+    lastReviewedAt: intg.lastReviewedAt,
   });
 }
 
@@ -1168,6 +1171,10 @@ export async function runPromoteIngest(
   const auditEntries: AuditLogEntry[] = [];
   const audit = (entry: AuditLogEntry) => auditEntries.push({ ...entry, metadata: AUDIT_META });
   const skipped: PromoteSkipped[] = [];
+  // The inverse of `skipped`: existing vendor-owned claims/attestations this promote
+  // deliberately left alive (AECI-604). Never an error — it is the operator's receipt
+  // that replace-by-origin worked.
+  const preserved: PromotePreserved[] = [];
   // Ids the caller supplied that resolve to nothing — each one falls back to a create
   // below, and is reported post-commit so the dead pointer is visible (AECI-568).
   const staleSupabaseIds: PromoteStaleId[] = [];
@@ -1743,34 +1750,18 @@ export async function runPromoteIngest(
 
   // ── Data-object resolver (find-only, for claims — §6.2) ───────────────────
   // Claims resolve their `dataObject` against the seeded, frozen
-  // `taxonomy_data_objects` vocabulary by slug OR alias (never find-or-create —
-  // an unmatched term lands in `skipped[]` with `kind: 'claim'`). Load once and
-  // only when a claim is actually present, mirroring the usefulness find-only
-  // path (`resolveUsefulnessFacet`). `safeSlugify` normalizes both the seeded
-  // keys and the incoming value so case/spacing don't matter.
+  // `taxonomy_data_objects` vocabulary by slug OR alias (never find-or-create).
+  // The matching rule lives in `lib/data-object-vocabulary.ts` because the vendor
+  // authoring API (AECI-301) needs the identical one; what differs is only the
+  // failure mode — a batch job lands a miss in `skipped[]` with `kind: 'claim'`,
+  // an interactive caller gets a 400.
+  //
+  // Loaded once, and only when a claim is actually present, mirroring the
+  // usefulness find-only path (`resolveUsefulnessFacet`).
   const anyClaims = payload.integrations.some((i) => i.claims.length > 0);
-  const dataObjectIdByKey = new Map<string, string>();
-  if (anyClaims) {
-    const doRows = await db
-      .select({
-        id: taxonomyDataObjects.id,
-        slug: taxonomyDataObjects.slug,
-        aliases: taxonomyDataObjects.aliases,
-      })
-      .from(taxonomyDataObjects);
-    const addKey = (value: string | null | undefined, id: string) => {
-      const key = value ? safeSlugify(value) : null;
-      if (key && !dataObjectIdByKey.has(key)) dataObjectIdByKey.set(key, id);
-    };
-    for (const row of doRows) {
-      addKey(row.slug, row.id);
-      for (const alias of row.aliases ?? []) addKey(alias, row.id);
-    }
-  }
-  const resolveDataObject = (value: string): string | undefined => {
-    const key = safeSlugify(value);
-    return key ? dataObjectIdByKey.get(key) : undefined;
-  };
+  const resolveDataObject: DataObjectResolver = anyClaims
+    ? await loadDataObjectResolver(db)
+    : () => undefined;
 
   // ── Integrations ──────────────────────────────────────────────────────────
   const integrationResults: PromoteIntegrationResult[] = [];
@@ -1787,6 +1778,9 @@ export async function runPromoteIngest(
   }> = [];
   const affectedProducts = new Set<string>();
   if (productId) affectedProducts.add(productId);
+  // Claim work, collected per resolved integration and planned in one pass after
+  // the loop (AECI-604 — see the `planClaimIngest` call below).
+  const claimIngestItems: ClaimIngestItem[] = [];
 
   // An integration touching THIS payload's blocked product is skipped too
   // (AECI-520).
@@ -1899,75 +1893,40 @@ export async function runPromoteIngest(
     integrationResults.push(result);
     integrationEndpoints.push({ result, sourceId, targetId, poweredById: poweredByProductId });
 
-    // ── Claims (replace-by-integration — §6.2) ──────────────────────────────
-    // Claims attach to THIS mechanism row and are replaced to exactly match the
-    // payload (same merge-by-replacement semantics as the product-join sets
-    // above): clear the integration's existing claims — their attestations
-    // cascade via the `attestations.claim_id ON DELETE CASCADE` FK — then
-    // re-insert. Runs for every resolved integration that is an update (so an
-    // empty `claims[]` clears prior claims) or that carries claims (a fresh
-    // integration's delete is a harmless no-op). Statement order stays FK-safe:
-    // integration → delete claims → claims → attestations → audits (last).
-    // Keyed off the resolved `operation`, not off `intg.supabaseId`: a stale id took
-    // the create branch above, so `integrationId` is brand new and there is nothing to
-    // clear (AECI-568).
+    // ── Claims (replace-by-ORIGIN — §6.2, reworked by AECI-604) ─────────────
+    // Deferred to a single `planClaimIngest` call after this loop so the whole
+    // payload's existing claims load in ONE read instead of one per integration.
+    // Queued for every resolved integration that is an update (so an empty
+    // `claims[]` still retires AECi's prior curation) or that carries claims.
+    // `isNewIntegration` is keyed off the resolved `operation`, not off
+    // `intg.supabaseId`: a stale id took the create branch above, so `integrationId`
+    // is brand new and nothing can pre-exist on it (AECI-568).
     if (result.operation === 'updated' || intg.claims.length) {
-      stmts.push(db.delete(claims).where(eq(claims.integrationId, integrationId)));
-      const seenClaims = new Set<string>();
-      for (const claim of intg.claims) {
-        const dataObjectId = resolveDataObject(claim.dataObject);
-        if (!dataObjectId) {
-          skipped.push({
-            ref: intg.ref,
-            kind: 'claim',
-            reason: `dataObject "${claim.dataObject}" did not resolve to the seeded vocabulary`,
-          });
-          continue;
-        }
-        // Collapse identity duplicates within the payload so the re-insert never
-        // orphans an attestation on a claim the unique index would reject.
-        const identity = `${dataObjectId}|${claim.direction}`;
-        if (seenClaims.has(identity)) continue;
-        seenClaims.add(identity);
-
-        const claimId = crypto.randomUUID();
-        stmts.push(
-          db
-            .insert(claims)
-            .values({ id: claimId, integrationId, dataObjectId, direction: claim.direction }),
-        );
-        audit({
-          actorType: 'system',
-          action: 'claim.created',
-          entityType: 'claim',
-          entityId: claimId,
-        });
-        for (const att of claim.attestations) {
-          const attestationId = crypto.randomUUID();
-          stmts.push(
-            db.insert(attestations).values({
-              id: attestationId,
-              claimId,
-              source: att.source,
-              asserted: att.asserted,
-              introducedAt: att.introducedAt ?? null,
-              deprecatedAt: att.deprecatedAt ?? null,
-              note: att.note ?? null,
-            }),
-          );
-          audit({
-            actorType: 'system',
-            action: 'attestation.created',
-            entityType: 'attestation',
-            entityId: attestationId,
-          });
-        }
-      }
+      claimIngestItems.push({
+        integrationId,
+        ref: intg.ref,
+        claims: intg.claims,
+        isNewIntegration: result.operation !== 'updated',
+      });
     }
 
     affectedProducts.add(sourceId);
     affectedProducts.add(targetId);
   }
+
+  // ── Claim ingest (AECI-604 / STAGE_2_ATTESTATIONS_SPEC.md §3) ──────────────
+  // Claims are merged BY ORIGIN, not replaced wholesale: a claim whose identity
+  // triple survives keeps its id (and therefore its vendor attestations), only
+  // `origin = 'aeci'` claims the payload dropped are deleted, only `source =
+  // 'aeci'` attestations are replaced, and an AECi claim a vendor still attests is
+  // converted to vendor origin rather than deleted. `lib/promote-claims.ts` owns
+  // the rule; this call site only splices the plan in. Runs after the integration
+  // loop, so every claim statement still follows its integration's INSERT/UPDATE.
+  const claimPlan = await planClaimIngest(db, resolveDataObject, claimIngestItems);
+  stmts.push(...claimPlan.statements);
+  for (const entry of claimPlan.audits) audit(entry);
+  skipped.push(...claimPlan.skipped);
+  preserved.push(...claimPlan.preserved);
 
   // ── Backfill integration result slugs (§6.2 → pair cache tag + pair URLs) ──
   // The pair derivers need both endpoint slugs. Seed the map with the in-payload
@@ -2018,6 +1977,7 @@ export async function runPromoteIngest(
       trades: trades.results,
     },
     skipped,
+    preserved,
   };
 
   // `wrote` means "this promote changed CATALOG state". Two things must stay out of

@@ -388,7 +388,10 @@ export const IntegrationListItemSchema = z.object({
 // `effectiveContextDirection` prefers the aggregate of the mechanism's claim
 // directions (the same signal the pair page surfaces) and falls back to the
 // stored `direction`, both framed to this product; `null` (em-dash) only when
-// there is neither. Precomputed server-side so the product-detail table can never
+// there is neither. **Refuted claims are excluded** — once every vendor that
+// voted denies a flow it stops steering the arrow (STAGE_2_ATTESTATIONS_SPEC.md
+// §4.3 / AECI-605); a `conflict` claim still counts, since disputed is not
+// withdrawn. Precomputed server-side so the product-detail table can never
 // contradict the pair page. Only this embed carries it — the bare
 // `IntegrationListItem` used by `/api/integrations` and the home rail has no
 // single context product. `ContextDirectionSchema` = `['outbound','inbound','both']`.
@@ -568,6 +571,17 @@ export type IntegrationDetail = z.infer<typeof IntegrationDetailSchema>;
 
 The **product-PAIR read**. Consolidates every integration between two products into one context-oriented view (Stage 1.5 §7–§8). `:slug` is the **context** product; `:otherSlug` the other. Query resolves the unordered pair (matches integrations in either source/target orientation). Layer B (AECI-300) hydrates each mechanism's `data_object` claims + attestations and fills the `sync_headline`.
 
+**Query params (AECI-303 / `STAGE_2_ATTESTATIONS_SPEC.md` §9):**
+
+| Param | Value | Default |
+|---|---|---|
+| `context_version` | a `product_versions.label` of the **context** product | latest |
+| `other_version` | a `product_versions.label` of the **other** product | latest |
+
+Labels, not ids — unique per product via `product_versions_label_key`, so a natural key, and the point of the feature is a link somebody sends a colleague. Exposing labels also lets the response omit both `id` and `sort_key`, which is what structurally stops the browser re-deriving an ordering (§8.2).
+
+**An unknown, renamed, over-long (>60 char) or empty label DEGRADES to latest — it never 404s.** The pair exists; only the selection is stale, and a 404 would render the NotFound shell for a valid page. What the server actually resolved comes back in `version_diff.selected`, so the UI shows what was served rather than what the URL asked for. Matching is exact and **case-sensitive** (the unique index carries no `NOCASE` collation, so a case-insensitive match could be ambiguous — and ambiguity here silently shows a different diff).
+
 ```typescript
 // packages/shared/src/api/product-pairs.ts
 // ContextDirectionSchema is defined in `./integrations` (shared with the
@@ -576,25 +590,44 @@ The **product-PAIR read**. Consolidates every integration between two products i
 
 // The claim's computed agreement (§3.4 — computeAgreement, never stored). Only
 // `unverified` is reachable in Stage 1.5 (AECi-only attestations, AECi-never-red).
-export const AgreementStateSchema = z.enum(['unverified', 'confirmed', 'conflict']);
+// `confirmed` requires TWO DISTINCT vendor identities; one vendor affirming alone
+// is `single_source` (STAGE_2_ATTESTATIONS_SPEC.md §4.2 — AECI-605).
+export const AgreementStateSchema = z.enum([
+  'unverified', 'single_source', 'confirmed', 'conflict',
+]);
 
-// One attestation behind a claim (§3.3), for the AECi-annotated provenance (§8).
+// One LIVE attestation behind a claim (§3.3), for the annotated provenance (§8).
+// Retracted rows are filtered out by the read path, so they never appear here.
 export const PairClaimAttestationSchema = z.object({
   source: z.enum(['aeci', 'vendor_a', 'vendor_b']),   // only `aeci` written in 1.5
+  attestor: z.enum(['aeci', 'context', 'other']),     // the slot, framed context-relative (§4.3)
   asserted: z.boolean(),
   note: z.string().nullable(),
-  introduced_at: z.string().nullable(),               // dormant version stamps (Stage 2)
+  introduced_at: z.string().nullable(),               // coarse ISO date stamps — NOT retraction
   deprecated_at: z.string().nullable(),
+  // AECI-303: the PRECISE stamps, as the vendor's own release LABEL — the same value
+  // the selectors put in the URL. `.optional()` and OMITTED when there is no stamp,
+  // deliberately asymmetric with the nullable dates above: absent is the one spelling
+  // of "unstamped", so a promote-written attestation serialises exactly as before.
+  introduced_version: z.string().optional(),
+  deprecated_version: z.string().optional(),
 });
 
 // One data_object claim on a mechanism (Layer B — §8). `direction` is already
 // translated to the context product's frame (§3.2); `agreement` is computed.
 export const ProductPairClaimSchema = z.object({
+  // AECI-303: the join key for the per-claim timeline read below. `.optional()` so a
+  // new SSR Worker against an older API hides the affordance rather than requesting
+  // a timeline it cannot match up.
+  id: z.string().uuid().optional(),
   data_object_slug: z.string(),
   data_object_name: z.string(),
   direction: ContextDirectionSchema,
   agreement: AgreementStateSchema,
   attestations: z.array(PairClaimAttestationSchema),
+  // AECI-303: added / removed / unchanged for the selected version pair. ABSENT when
+  // no comparison applies — every claim on every pair whose `version_diff` is null.
+  version_status: z.enum(['added', 'removed', 'unchanged']).optional(),
 });
 
 export const ProductPairMechanismSchema = z.object({
@@ -612,7 +645,11 @@ export const ProductPairMechanismSchema = z.object({
 
 export const SyncHeadlineSchema = z.object({
   total: z.number().int().min(0),      // distinct claims on the pair (all mechanisms/directions)
-  confirmed: z.number().int().min(0),  // vendor-confirmed — always 0 in Stage 1.5
+  confirmed: z.number().int().min(0),  // TWO distinct vendors affirm — always 0 in Stage 1.5
+  // Exactly one vendor affirms, counterparty silent. Reported separately, never
+  // folded into `confirmed` (§8.1(4)). `.default(0)` so an SSR Worker running this
+  // schema still parses a response from an API Worker that predates the field.
+  single_source: z.number().int().min(0).default(0),
 });
 
 export const ProductPairResponseSchema = z.object({
@@ -620,15 +657,94 @@ export const ProductPairResponseSchema = z.object({
   other_product: ProductListItemSchema,
   mechanisms: z.array(ProductPairMechanismSchema),
   sync_headline: SyncHeadlineSchema,
+  // The page-header maintenance marker (AECI-616), folded across all mechanisms by
+  // `computePairMaintenance`. `maintained_by` is 'vendor' if ANY mechanism is; the
+  // date is the max WITHIN that branch only, so an AECi review date is never
+  // attributed to a vendor. Same `.default(...)` deploy-skew reasoning as
+  // `single_source` above.
+  maintenance: MaintenanceSchema.default({ maintained_by: 'aeci', last_reviewed_at: null }),
+  // AECI-303 (§9): the two version selectors, or NULL when the diff does not apply.
+  version_diff: PairVersionDiffSchema.nullable().default(null),
+});
+
+// AECI-303 — the selectors' state. `null` on the response above is the WHOLE
+// browser-side suppression rule: no selectors, no markers, no summary.
+export const PairVersionSchema = z.object({
+  label: z.string(),
+  released_at: z.string().nullable(),   // display only — NEVER an ordering input (§8.2)
+});
+
+export const PairVersionDiffSchema = z.object({
+  // Ascending by `compareProductVersions` (the API's `VERSION_ORDER` is the same rule
+  // in SQL), so "latest" is always the LAST element and the browser never re-derives it.
+  context_versions: z.array(PairVersionSchema).default([]),
+  other_versions: z.array(PairVersionSchema).default([]),
+  // What the server RESOLVED (labels), which is not always what the URL asked for.
+  selected: z.object({ context: z.string().nullable(), other: z.string().nullable() }),
+  // The pair the diff is measured against — each side stepped back ONE release,
+  // independently. `null` when neither side has a predecessor (the earliest pair),
+  // where every present claim reads `unchanged`.
+  previous: z.object({ context: z.string().nullable(), other: z.string().nullable() })
+    .nullable().default(null),
+  // Is the RESOLVED selection latest × latest? Drives the pair resolver's `noindex`,
+  // so it is about the resolution and not the request: a degraded label serves
+  // canonical content and stays indexable.
+  is_default: z.boolean(),
+  counts: z.object({ added: z.number().int().min(0), removed: z.number().int().min(0) })
+    .default({ added: 0, removed: 0 }),
+  // §9.3's entitlement seam as DATA, not a code branch (`STAGE_2_SPEC.md` §2.2).
+  diff_access: z.enum(['full', 'latest_only']).default('full'),
+});
+
+// packages/shared/src/api/common.ts — shared by ProductDetail, VendorDetail, and the
+// pair response. `last_reviewed_at` is null for almost every record: nothing was
+// backfilled, and bare attribution is the honest default (AECI-616 / §13).
+export const MaintenanceSchema = z.object({
+  maintained_by: z.enum(['aeci', 'vendor']).default('aeci'),
+  last_reviewed_at: z.string().nullable().default(null),
 });
 export type ProductPairResponse = z.infer<typeof ProductPairResponseSchema>;
 ```
 
 - **`direction`** (mechanism) is the integration row's stored `one-way`/`bidirectional` translated to the **context product's** frame: `one-way` → `outbound` when the context product is the integration's `source`, else `inbound`; `bidirectional` → `both`; `null` → `null` (§3.2, applied at the mechanism level).
 - **`claims[]`** (Layer B — §8) are the `data_object` flows on each mechanism. `direction` is the **claim-level** stored `a_to_b`/`b_to_a`/`both` translated to the context frame (§3.2 — distinct from the mechanism translation), and `agreement` is `computeAgreement(attestations)` (§3.4, `packages/shared/src/agreement.ts`) — always `unverified` in 1.5. Ordered by the `data_object`'s `display_order`. A `data_object` moving through two mechanisms is **two claims** (§3.1), never de-duplicated.
-- **`sync_headline`** = `computeSyncHeadline` over every claim on the pair (§3.5): `total` is the distinct claim count, `confirmed` is always `0` in Stage 1.5. `{ total: 0, confirmed: 0 }` for an unseeded/empty pair.
-- **Errors / status:** `NOT_FOUND` when either slug is unknown **or the two slugs are equal**. A valid-but-unconnected pair (both products exist, no integration between them) is a **200** with `mechanisms: []`.
-- SSR caching (pair page): detail TTL, `Cache-Tag: route:detail,pair:{min}__{max},product:{slug}×2` (see `CACHE_STRATEGY.md`).
+- **`attestations[]`** carry only **live** rows: the read config filters `retracted_at IS NULL` (`liveAttestationsWhere`, `apps/api/src/lib/drizzle-helpers.ts`), so a withdrawn assertion neither votes nor renders. `deprecated_at` is a *version stamp* and never gates the read. `attestor` is the slot translated to the page's frame by `attestorForContext` (`vendor_a` = endpoint A = the integration's `source_product`): the browser attributes a `single_source` claim by looking the name up on `context_product.vendor` / `other_product.vendor`. The raw `attested_by_vendor_id` is **not** exposed — it feeds the §4.2 distinct-identity dedupe server-side only.
+- **`sync_headline`** = `computeSyncHeadline` over every claim on the pair (§3.5): `total` is the distinct claim count; `confirmed` (two distinct vendors) and `single_source` (one vendor, counterparty silent) are both `0` in Stage 1.5 and are **never summed**. `{ total: 0, confirmed: 0, single_source: 0 }` for an unseeded/empty pair. **Claims whose `version_status` is `removed` are excluded from all three counts** (AECI-303): they still render, struck through, but "N data objects sync" must not count a flow that has stopped. Filtered at the single `computeSyncHeadline` call site in `toProductPairResponse`, not inside the shared engine.
+- **`version_diff`** (AECI-303 / §9) is **non-`null` only when a pair has BOTH at least one product release AND at least one live version-stamped attestation.** Both facts are server-side only, which is why the decision is not left to the browser: that one null is the entire suppression rule, and it makes "latest × latest renders identically to today for claims with no version data" structural rather than a rendering discipline. Promote does not ingest versions (§11) and the only writer is the Verified-vendor API, so today this is `null` for the whole catalog.
+- **Presence and the diff apply UNIFORMLY, including at latest × latest.** A claim is present at (vA, vB) when, for each attesting side, `introduced_version <= selected` and (`deprecated_version` is null **or** `selected < deprecated_version`); **a claim with no version stamps is always present.** A claim present at neither the selected nor the previous pair is **dropped from the response entirely** — otherwise a pair with a long release history would render every flow it ever had. Ordering and every comparison key off `sort_key` through `compareProductVersions` (`@aeci/shared/version-diff`), never the label and never the nullable `released_at`; `sort_key` is packed per-product, so comparing it *across* the two products is meaningless.
+- **Errors / status:** `NOT_FOUND` when either slug is unknown **or the two slugs are equal**. A valid-but-unconnected pair (both products exist, no integration between them) is a **200** with `mechanisms: []`. A bad `context_version` / `other_version` is **not** an error — see the degrade rule above.
+- SSR caching (pair page): detail TTL, `Cache-Tag: route:detail,pair:{min}__{max},product:{slug}×2` (see `CACHE_STRATEGY.md`). The selector params are in the route's `cacheKeyParams` (`CACHE_STRATEGY.md` §4a), and a non-default selection is `noindex` with the canonical pointing at the default pair URL (§7.2).
+
+#### `GET /api/products/:slug/integrations/:otherSlug/timeline` (Stage 2 · AECI-303)
+
+The pair's **per-claim attestation history** (§9.1), read off the append-only rows: §2.1's supersession is retract-then-insert, never an in-place `UPDATE`, precisely so this read has something to show.
+
+```typescript
+// packages/shared/src/api/product-pairs.ts
+export const ClaimTimelineEntrySchema = z.object({
+  attestor: z.enum(['aeci', 'context', 'other']),   // framed context-relative, as on the pair read
+  asserted: z.boolean(),
+  note: z.string().nullable(),
+  introduced_version: z.string().optional(),        // version labels, omitted when unstamped
+  deprecated_version: z.string().optional(),
+  created_at: z.string(),                           // the append-only ordering key (oldest first)
+  retracted_at: z.string().nullable(),              // non-null = SUPERSEDED — what makes this history
+});
+
+export const PairTimelineResponseSchema = z.object({
+  claims: z.array(z.object({
+    claim_id: z.string().uuid(),                    // joins to ProductPairClaim.id
+    entries: z.array(ClaimTimelineEntrySchema),
+  })).default([]),
+  diff_access: z.enum(['full', 'latest_only']).default('full'),
+});
+```
+
+- **This is the ONE read in the system that returns retracted rows.** Every other read applies `liveAttestationsWhere`, so a withdrawn assertion neither votes nor renders as current. Its read config (`integrationTimelineConfig`) is deliberately separate for that reason, and `computeAgreement` must never be called on its output.
+- **Pair-scoped, not claim-scoped**, so one browser fetch serves every provenance popover on the page. Entries are ordered `created_at` then `id` (a total order, so the render is stable regardless of D1 row order). A claim with no attestations is omitted — the browser's "does this claim have a history?" test is the absence of an entry for its id.
+- **Why it is a separate, lazy endpoint rather than inline on the pair response.** History is the gateable depth (§9.3), and the pair page is stored in a shared, URL-keyed edge cache — baking gated content into it would break §9.1a the moment AECI-304 makes the gate visitor-dependent. `/api/*` responses are `private, no-store`, which is a legal home for content that may vary per reader. It is also the only unbounded payload in the system, since the append-only log grows forever. Fetched from the browser on the first popover open; **never during SSR**.
+- Gated ⇒ `{ claims: [], diff_access: 'latest_only' }`. The latest state is already rendered in full on the free page, so withholding *history* is exactly what `STAGE_2_SPEC.md` §8.1(4) permits and no more.
+- **Errors / status:** identical to the pair read — `NOT_FOUND` on an unknown slug or two equal slugs; a valid-but-unconnected pair is a 200 with `claims: []`. No new error codes.
 
 ### 6.4 Taxonomy
 
@@ -778,6 +894,8 @@ export type ProductReviewsResponse = PaginatedResponse<PublicReview>;
 ```
 
 Errors: `NOT_FOUND` (unknown product slug — distinct from a known product with zero approved reviews, which is an empty page). API response is `Cache-Control: private, no-store` like its `GET /api/products/:slug` sibling; edge-cacheability + the `product:<slug>` Cache-Tag are an SSR-layer concern (the public product page bakes page 1 in), and review approval/rejection (Phase 5.13) purges that tag.
+
+**Maintenance marker (AECI-616 / `STAGE_2_ATTESTATIONS_SPEC.md` §13).** `GET /api/products/:slug` and `GET /api/vendors/:slug` both carry a `maintenance: { maintained_by, last_reviewed_at }` object (the `MaintenanceSchema` above), feeding the `aec-maintenance-marker` chip in each page header. Detail-only — the marker never renders on a card, so `ProductListItem` / `VendorListItem` do not carry it. `last_reviewed_at` is `null` on almost every record and that renders bare attribution with no date; it is **never** derived from `updated_at` / `created_at` / `promoted_at`, and no migration backfills it.
 
 **`ProductDetail` reviews embed (§5.4–§5.5).** `GET /api/products/:slug` additionally carries:
 
@@ -1686,7 +1804,7 @@ export const AdminSystemResponseSchema = z.object({
   recomputed: z.boolean(),
   notes: z.array(AdminNoteSchema),
   version: AdminVersionStatusSchema,            // the API Worker's — see below
-  crons: z.array(AdminCronRunSchema),           // ALWAYS all ten
+  crons: z.array(AdminCronRunSchema),           // ALWAYS all eleven
   data_quality: AdminDataQualityStatusSchema.nullable(),   // null unless ?recompute=1
   algolia: z.object({
     watermark: AdminAlgoliaWatermarkSchema.nullable(),     // null = the sync never ran
@@ -1969,8 +2087,14 @@ the same as `false`.
 ##### Claim coverage
 
 Counts for integrations with/without at least one claim and claims with/without an
-**active** attestation (`deprecated_at IS NULL`, matching `attestations_active_idx`),
-plus a capped sample of claimless integrations. Sample rows carry both endpoints
+**active** attestation — `retracted_at IS NULL`, the shared `liveAttestationsWhere`,
+matching `attestations_active_idx` (whose predicate moved onto that column in
+AECI-603). Deliberately **not** `deprecated_at`: that is a *version stamp*
+(`STAGE_1_5_SPEC.md` §3.3), so gating on it would drop a vendor's live assertion from
+coverage the moment they recorded which release deprecated the flow. Corrected in
+AECI-608 — the read had kept the pre-migration predicate, inert only while every
+attestation in D1 was still `source='aeci'`. Plus a capped sample of claimless
+integrations. Sample rows carry both endpoints
 (`integrations.name` is nullable) so the consumer can build the pair URL
 `/products/:sourceSlug/integrations/:targetSlug`.
 
@@ -2395,6 +2519,11 @@ export interface PromoteResponse {
     kind: 'integration' | 'extension' | 'usefulness' | 'claim' | 'trade' | 'vendor' | 'product';
     reason: string;
   }[];
+  // AECI-604: the inverse of `skipped` — existing vendor-owned claims/attestations
+  // this promote deliberately left alive. `ref` is the enclosing integration's;
+  // entries are aggregated per (ref, kind, reason). Always present, `[]` for the
+  // ordinary promote of an unclaimed product. Never an error condition.
+  preserved: { ref: string; kind: 'claim' | 'attestation'; reason: string; count: number }[];
 }
 ```
 
@@ -2454,12 +2583,39 @@ carry a nested `claims[]` of data-object assertions (`STAGE_1_5_SPEC.md` §5/§6
 claim rides with its integration (same withhold rule), and its `dataObject` resolves
 **find-only** (slug or alias) against the seeded `data_object` vocabulary — an
 unmatched value lands in `skipped[]` with `kind: 'claim'`, never a 500. The ingest
-upserts by the identity `(integration_id, data_object_id, direction)` via
-replace-by-integration (an integration's claims are cleared and re-inserted to match
-the payload exactly, attestations cascading), emits `claim.*` / `attestation.*`
-audit rows in the same `db.batch`, and populates each integration result's
-`sourceSlug`/`targetSlug` so the promote derivers can purge the `pair:{min}__{max}`
-tag and ping the canonical pair URL without a DB read.
+matches by the identity `(integration_id, data_object_id, direction)` — the
+`claims_identity_key` index — emits `claim.*` / `attestation.*` audit rows in the same
+`db.batch`, and populates each integration result's `sourceSlug`/`targetSlug` so the
+promote derivers can purge the `pair:{min}__{max}` tag and ping the canonical pair URL
+without a DB read.
+
+**Replace-by-ORIGIN, since AECI-604** (`STAGE_2_ATTESTATIONS_SPEC.md` §3;
+`apps/api/src/lib/promote-claims.ts` owns the rule). The former replace-by-integration
+— clear the integration's claims, re-insert to match the payload, attestations
+cascading through `attestations.claim_id ON DELETE CASCADE` — destroyed vendor
+attestations the moment AECI-301 shipped, and churned every claim id on every promote.
+Now: an identity match **reuses** the row (id stable, vendor attestations intact); only
+`origin = 'aeci'` claims the payload dropped are deleted (`claim.deleted`); only
+`source = 'aeci'` attestations are replaced; and a dropped AECi claim a vendor still
+attests is **converted** to `origin = 'vendor'` with `created_by_vendor_id` set
+(`claim.converted`) rather than deleted. Promote may write only `source: 'aeci'` — a
+`vendor_a`/`vendor_b` in a payload lands in `skipped[]` with `kind: 'claim'`, because
+inserting it would collide on the `attestations_slot_key` partial unique index and roll
+back the whole batch. What survived is reported in `preserved[]`.
+
+**Trades (AECI-542):** the product may carry an optional `trades[]` of trade slugs,
+names, **or aliases** (`STAGE_1_SPEC.md` §5.5a, `docs/TRADES_VOCABULARY.md`). Unlike
+`categories` / `audiences` / `phases`, which are find-**or-create**d by canonical slug,
+a trade resolves **find-only** against the seeded closed vocabulary by `slug` → `name`
+→ `alias`, case-insensitively. An unmatched value is dropped and reported in `skipped[]`
+with `kind: 'trade'` and `ref` = the product's `ref` — never auto-created (a typo minting
+`paving-contractors` alongside `paving-asphalt` would split a trade page's products
+across two permanent URLs), and never a 500. `product_trades` is a full-replace join set
+written in the same `db.batch` as the product mutation and its `audit_log` row; because
+no term is ever created, no `trade.*` audit row exists and every echoed result is
+`operation: 'reused'`. The key is **optional** — omitting it (or sending `[]`) clears the
+product's trades, like every other join set. Trades are sparse by design: only products
+with trade-*specific* value carry them.
 
 **Trades (AECI-542):** the product may carry an optional `trades[]` of trade slugs,
 names, **or aliases** (`STAGE_1_SPEC.md` §5.5a, `docs/TRADES_VOCABULARY.md`). Unlike
@@ -2565,16 +2721,16 @@ export const UnsubscribeSubmitSchema = z.object({ token: z.string().trim().min(1
 
 Stage 2 (AECI-520). All require `role === 'vendor_admin'` **and** a non-null `profiles.vendor_id`, enforced by the `requireVendor()` Worker middleware (`apps/api/src/lib/authz.ts`) — verifies the JWT, loads the D1 profile, and rejects in this order: missing token/profile `401`; `banned_at` set `403`; wrong role `403`; null `vendor_id` `403`. A site **`admin` is rejected too** — there is no impersonation at launch, admins act on vendor data through `/api/admin/*` so the audit trail names the real actor.
 
-Source of truth: `packages/shared/src/api/vendor.ts` (Zod), `apps/api/src/routes/vendor.ts` (handlers), `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.
+Source of truth: `packages/shared/src/api/vendor.ts` + `product-versions.ts` + `vendor-attestations.ts` + `vendor-notifications.ts` (Zod), `apps/api/src/routes/vendor.ts` + `vendor-product-versions.ts` + `vendor-attestations.ts` + `vendor-notifications.ts` + `vendor-data-objects.ts` (handlers), with the shared guard seam in `apps/api/src/routes/vendor-shared.ts` and the two-slot authority seam in `apps/api/src/lib/attestation-authority.ts`; `STAGE_2_VENDOR_PORTAL_SPEC.md` §4 and `STAGE_2_ATTESTATIONS_SPEC.md` §5 / §7.2 / §8.3.
 
 **Two invariants govern this whole surface.**
 
-1. **Scoping.** There is no RLS on app tables (ADR 0016), so the guard plus a `WHERE vendor_id = <session vendor>` filter in every query *is* the authorization. No vendor id crosses the wire; the only client-supplied id (`PATCH /api/vendor/products/:id`) has its ownership proven against `product_vendors` **before** anything is read or written, and a miss returns **`404`, not `403`** — a non-owner must not learn the product exists.
+1. **Scoping.** There is no RLS on app tables (ADR 0016), so the guard plus a `WHERE vendor_id = <session vendor>` filter in every query *is* the authorization. No vendor id crosses the wire; every client-supplied id — the product on `PATCH /api/vendor/products/:id` and its versions, the integration or claim on the attestation routes — has its ownership proven against `product_vendors` **before** anything is read or written, and a miss returns **`404`, not `403`** — a non-owner must not learn the resource exists.
 2. **The allow-list is the guard-rail.** Zod strips unknown keys, so any column absent from an `Update*Schema` is unwritable by a vendor: `slug`, `name` / `company_name`, `verified`, `promotion_status`, `admin_notes`, `research_*`, `priority_*`, `score_*`, the VQS fields, `usefulness`, `source_url`, and every denormalized count/average stay AECi-owned. Adding a field there grants a write.
 
 Every editable field is `.nullable().optional()`: an **absent** key leaves the column untouched, an explicit **`null`** clears it. Taxonomy arrays are set-replacement — absent leaves the facet alone, `[]` clears it. URLs must be `http://` or `https://` (§7.1); a plain `.url()` would accept `javascript:`.
 
-Writes go through one `db.batch([...])` carrying the `UPDATE`, any taxonomy join rewrite, and the `audit_log` row (§26.1). Audit rows use `action: 'vendor.updated'` / `'product.updated'` with `actor_type: 'user'` (a `vendor_admin` maps to `user` — the `audit_log_actor_type_check` CHECK has no `vendor` value and this epic ships no migration) and are distinguished by `metadata.source = 'vendor-portal'`. Post-commit, the write enqueues a `vendor:{slug}` / `product:{slug}` Cache-Tag purge with `source: 'vendor'`.
+Writes go through one `db.batch([...])` carrying the `UPDATE`, any taxonomy join rewrite, and the `audit_log` row (§26.1). Audit rows use `action: 'vendor.updated'` / `'product.updated'` with `actor_type: 'user'` (a `vendor_admin` maps to `user` — the `audit_log_actor_type_check` CHECK has no `vendor` value, and it stays that way deliberately rather than because a migration was unavailable; see `AUTH_AND_RLS.md` §4.4) and are distinguished by `metadata.source = 'vendor-portal'`. Post-commit, the write enqueues a `vendor:{slug}` / `product:{slug}` Cache-Tag purge with `source: 'vendor'`.
 
 **Search freshness.** Vendor edits do **not** trigger a per-write Algolia reindex. They reach search on the nightly watermark sync (≤24h) while SSR repaints immediately via the purge (`STAGE_2_SPEC.md` §8.3(5)). Dashboard copy must not promise "live in search".
 
@@ -2610,6 +2766,38 @@ export const VendorSeatSchema = z.object({
 });
 export const ListVendorSeatsResponseSchema = z.object({ seats: z.array(VendorSeatSchema) });
 ```
+
+#### `GET /api/vendor/notifications`
+
+The in-portal notification list (AECI-302 / `STAGE_2_ATTESTATIONS_SPEC.md` §7.2) — the daily §7 detector sweep's nudges to this vendor. **Not verified-gated**: `vendors.verified` gates authoring, not reading, so an unverified vendor sees its own (probably empty) list rather than a `403` it cannot act on — the same reasoning as the version list.
+
+**There is no notifications table.** The sweep records every successful send in `audit_log` (`action: 'notification.sent'`, `entity_type: 'claim'`, `entity_id: <claim id>`) as its anti-nag suppression ledger, and this endpoint reads those same rows (§7.3 — "no separate store"). Two consequences for consumers:
+
+1. **Every field is a snapshot taken at send time**, not a live read. Nothing is re-joined, which is what makes the list cheap — and what keeps a year-old notification legible after the claim it names has been re-curated or deleted.
+2. **Ops-routed rows are invisible here.** The `aeci-denied` correction signal and the ops half of `open-conflict` are written with `metadata.vendorId = null`, which can never equal a caller's vendor id. The isolation is structural, not a clause a handler must remember.
+
+Window and shape: the last **90 days** (deliberately wider than the 30-day suppression window, so a vendor can see the nudge currently suppressing a repeat), newest first, capped at **50** rows. No pagination contract at launch.
+
+```typescript
+export const VendorNotificationSchema = z.object({
+  id: z.string().uuid(),                   // the audit_log row id — a stable list key
+  detector: z.enum(ATTESTATION_DETECTORS), // silent-counterparty | open-conflict
+                                           // | stale-version | aeci-denied
+  claim_id: z.string().uuid(),
+  integration_id: z.string().uuid(),
+  data_object: NotificationProductRefSchema.nullable(),        // { slug, name }
+  counterpart_product: NotificationProductRefSchema.nullable(),
+  pair_path: z.string().nullable(),        // /products/{context}/integrations/{other}
+  created_at: z.string(),
+});
+export const ListVendorNotificationsResponseSchema = z.object({
+  notifications: z.array(VendorNotificationSchema),
+});
+```
+
+`pair_path` is rebuilt from the stored slugs through the same alphabetical rule the pair route canonicalises to (`orderedPairSlugs`), so it always matches the indexable URL. A row whose stored snapshot cannot be read (a future detector id, a later schema) is **skipped rather than surfaced or thrown** — these rows outlive the code that wrote them.
+
+Errors: none beyond the guard's. An empty ledger is `200 { "notifications": [] }`.
 
 #### `PATCH /api/vendor/profile`
 
@@ -2664,6 +2852,181 @@ export const UpdateVendorProductResponseSchema = z.object({ product: VendorProdu
 **Taxonomy guard-rail:** a vendor may only **assign terms that already exist**. Minting a term is an AECi curation act, so an unknown slug is a `VALIDATION_FAILED` keyed to the field rather than a silent drop — and nothing is partially applied, because terms are resolved before the batch opens.
 
 Errors: `NOT_FOUND` (unknown id **or** a product owned by another vendor — deliberately indistinguishable), `VALIDATION_FAILED` (empty body, unknown taxonomy slug, malformed URL/slug), `MALFORMED_REQUEST`.
+
+#### Product versions — `/api/vendor/products/:id/versions`
+
+Stage 2 (AECI-607, `STAGE_2_ATTESTATIONS_SPEC.md` §8.3). A product's vendor-declared releases: the entity the version-diff timeline (AECI-303) selects on. Zod in `packages/shared/src/api/product-versions.ts`, handlers in `apps/api/src/routes/vendor-product-versions.ts`.
+
+**These four endpoints are the only WRITE surface, and the only place `ProductVersion` (with its `id` and `sort_key`) is exposed.** AECI-303's public read is the **pair response** — `version_diff.context_versions` / `other_versions` on `GET /api/products/:slug/integrations/:otherSlug` (§6.3) — carrying `PairVersion` (`label` + `released_at` only). There is deliberately **no** public `GET /api/products/:slug/versions`: the selectors are unconditionally part of the pair page, so a second fetch would be pure cost, and withholding `sort_key` from the browser is what structurally stops it re-deriving an ordering the label cannot express (§8.2). The shared `VERSION_ORDER` (`apps/api/src/lib/drizzle-helpers.ts`) is the one SQL `ORDER BY` behind both reads.
+
+| Method | Path | Gate | Success |
+|---|---|---|---|
+| `GET` | `/api/vendor/products/:id/versions` | ownership | `200 { versions }` |
+| `POST` | `/api/vendor/products/:id/versions` | ownership **+ verified** | `201 { version }` |
+| `PATCH` | `/api/vendor/products/:id/versions/:versionId` | ownership **+ verified** | `200 { version }` |
+| `DELETE` | `/api/vendor/products/:id/versions/:versionId` | ownership **+ verified** | `204` (no body) |
+
+**Two gates, and the order is load-bearing.** Ownership is proven first and a miss is a **`404`** (the §6.14 non-disclosure rule); only then is `vendors.verified` checked, and a miss there is a **`403`**. Reversed, an unverified caller probing another vendor's product would get a `403` — which still discloses nothing by itself, but the fixed order also keeps a *verified* non-owner on the 404 path. **`GET` is not verified-gated**: authoring is the Verified-vendor capability (`STAGE_2_ATTESTATIONS_SPEC.md` §1), so the dashboard renders a read-only tab and explains why rather than 403-ing a vendor out of its own data. The 403 copy points at the claim/verification flow and **never at ranking, placement, or search** — verification gates capability only.
+
+`:versionId` must belong to `:id`; a mismatch is a `404`, so a version id cannot be probed across products.
+
+```typescript
+export const ProductVersionSchema = z.object({
+  id: z.string().uuid(),
+  product_id: z.string().uuid(),
+  label: z.string().min(1),          // free text: '2026.1', 'v5.2', 'R2024 SP1'
+  released_at: z.string().nullable(), // YYYY-MM-DD
+  sunset_at: z.string().nullable(),
+  sort_key: z.number().int(),
+  created_at: z.string().datetime(),
+  updated_at: z.string().datetime(),
+});
+
+export const ListProductVersionsResponseSchema = z.object({
+  versions: z.array(ProductVersionSchema),   // ordered by sort_key; never paginated
+});
+
+export const CreateProductVersionSchema = z.object({
+  label: versionLabel,                        // trim, 1..60
+  released_at: isoDate.nullable().optional(), // /^\d{4}-\d{2}-\d{2}$/
+  sunset_at: isoDate.nullable().optional(),
+  sort_key: sortKey.optional(),               // omitted → derived from label
+});
+
+export const UpdateProductVersionSchema = z
+  .object({
+    label: versionLabel.optional(),
+    released_at: isoDate.nullable().optional(),
+    sunset_at: isoDate.nullable().optional(),
+    sort_key: sortKey.nullable().optional(),  // number sets it; null re-derives
+  })
+  .superRefine(/* at least one field must be present */);
+
+export const ProductVersionResponseSchema = z.object({ version: ProductVersionSchema });
+```
+
+**`sort_key` is the ordering, and the label never is.** Version labels do not sort lexically (`'2026.10' < '2026.9'`), so the list comes back ordered by `sort_key`, then `created_at`, then `id` — the tiebreak deliberately never falls back to the label. `deriveVersionSortKey` (`@aeci/shared/version-sort`) packs the first three numeric runs of the label into one integer on create; the optional `sort_key` is the vendor's override for labels that derive 0 (`'LTS'`, `'Fall release'`).
+
+**On `PATCH`, `sort_key` never re-derives itself.** Changing `label` alone leaves the key exactly where it was — a silent re-derive would discard a deliberate override the moment a vendor fixed a typo. Explicit `null` is the "recompute from the (new) label" instruction; a number sets it outright. This is the one field on the whole `/api/vendor/*` surface where `null` means *recompute* rather than *clear*.
+
+**Dates are date-only** (`YYYY-MM-DD`). A timezone-bearing instant is rejected, so a value the UI renders as a day cannot arrive as one.
+
+Writes go through one `db.batch([...])` carrying the mutation and its `audit_log` row (§26.1), with actions `product_version.created` / `.updated` / `.deleted`, `entity_type: 'product_version'`, and `metadata.source = 'vendor-portal'` plus `vendorId` / `productId`. Post-commit the write enqueues a **`product:{slug}`** purge and nothing else: the pair page embeds `product:{slug}` for both of its endpoints (`CACHE_STRATEGY.md` §2), so that one tag also drops every pair page the product appears on, while `index:products` is omitted because versions never render on the catalog. `products.updated_at` is deliberately **not** bumped — versions do not feed the Algolia record.
+
+**Promote does not ingest versions** at launch; this surface is the only writer (`STAGE_2_ATTESTATIONS_SPEC.md` §8.3 / §11).
+
+Errors: `NOT_FOUND` (unknown product/version, a product owned by another vendor, or a version on a different product — all deliberately indistinguishable), `FORBIDDEN` (owner, but not verified), `VALIDATION_FAILED` (empty body, a `label` already used on this product, a non-date stamp, an out-of-range `sort_key`), `MALFORMED_REQUEST`.
+
+#### Attestations — `/api/vendor/integrations` + `/api/vendor/claims` + `/api/vendor/data-objects`
+
+Stage 2 (AECI-301, `STAGE_2_ATTESTATIONS_SPEC.md` §5). The surface a Verified vendor writes its own integration claims through — the first code that can produce a `vendor_a` / `vendor_b` attestation, and therefore the first that can move a claim off `unverified`. Zod in `packages/shared/src/api/vendor-attestations.ts`, handlers in `apps/api/src/routes/vendor-attestations.ts`.
+
+> **⚠️ "Claim" means three different things in this document.** Here it is a **data-flow claim** — "this `data_object` flows in this `direction` through this integration" (`STAGE_1_5_SPEC.md` §3.1). It is **not** the public correction/claim *request* of §6.7, and **not** the vendor-account *claim* an admin grants in §6.10.
+
+| Method | Path | Gate | Success |
+|---|---|---|---|
+| `GET` | `/api/vendor/integrations` | authority | `200 { integrations }` |
+| `POST` | `/api/vendor/claims` | authority **+ verified** | `201 { claim }` |
+| `PUT` | `/api/vendor/claims/:claimId/attestation` | authority **+ verified** | `200 { claim }` |
+| `DELETE` | `/api/vendor/claims/:claimId/attestation` | authority **+ verified** | `204` (no body) |
+| `GET` | `/api/vendor/data-objects` | guard only — **no authority, no verified** | `200 { data_objects }` |
+
+**Authority is the §6.14 ownership rule, one grain up.** `PATCH /api/vendor/products/:id` asks "do you own this product"; these ask "do you own an *endpoint* of this integration", because an integration has **two** vendor-writable slots — `vendor_a` for endpoint A (`integrations.source_product_id`), `vendor_b` for endpoint B. `resolveAttestationSlots` / `resolveClaimAuthority` (`apps/api/src/lib/attestation-authority.ts`) are the single implementation; no handler re-derives the table. A caller owning neither endpoint gets **`404`**, and it is indistinguishable from a resource that does not exist — collapsed into one join result rather than two branches that must be kept identical, so the endpoint cannot be walked as an existence oracle. See `AUTH_AND_RLS.md` §4.2a.
+
+**Nothing on the wire carries a slot or a vendor id.** Which slot the caller fills is derived from `product_vendors`; a `slot` key in a request body is stripped by Zod. On the READ it appears as `slots` — "which one is yours".
+
+**A vendor owning both endpoints writes both slots.** `product_vendors` is many-to-many, so one company can hold both. Every write fills every slot the caller owns, so its position cannot self-contradict and `DELETE` genuinely clears. It makes no difference to a reader: `confirmed` requires two **distinct** `attested_by_vendor_id` values, so one company is one voter and still renders `single_source`.
+
+**Direction is caller-relative on the wire, canonical in the DB.** The vendor sends `inbound` / `outbound` / `both` relative to its own product; `claims.direction` stores `a_to_b` / `b_to_a` / `both` relative to the integration row's own endpoints (`STAGE_1_5_SPEC.md` §3.2). `claimDirectionForContext` / `claimDirectionFromContext` (`@aeci/shared`) are the two halves. A caller owning both endpoints is framed from endpoint A.
+
+**`GET` is not verified-gated**, matching the product-version list: authoring is the Verified capability, reading your own surface is not, so the dashboard renders a read-only tab and explains what verification unlocks.
+
+```typescript
+export const VendorClaimSchema = z.object({
+  id: z.string().uuid(),
+  integration_id: z.string().uuid(),
+  data_object_slug: z.string(),
+  data_object_name: z.string(),
+  direction: ContextDirectionSchema,        // caller-relative: inbound|outbound|both
+  agreement: z.enum(AGREEMENT_STATES),      // computed + echoed, never sent
+  origin: ClaimOriginSchema,                // 'aeci' | 'vendor'
+  mine: z.array(VendorOwnAttestationSchema),        // 0..2 — one per owned slot
+  counterparty: CounterpartyAttestationSchema.nullable(),  // { asserted, note }
+});
+
+export const VendorIntegrationSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string().nullable(),
+  mechanism_kind: IntegrationMechanismKindSchema.nullable(),
+  mechanism_name: z.string().nullable(),
+  context_product: ProductLinkSchema,   // the caller's endpoint (A when it owns A)
+  other_product: ProductLinkSchema,
+  slots: z.array(VendorAttestationSlotSchema).min(1),   // 'vendor_a' | 'vendor_b'
+  claims: z.array(VendorClaimSchema),
+});
+
+export const ListVendorIntegrationsResponseSchema = z.object({
+  integrations: z.array(VendorIntegrationSchema),   // never paginated
+});
+
+export const CreateVendorClaimSchema = z.object({
+  integration_id: z.string().uuid(),
+  data_object: dataObjectRef,                 // trim, 1..100 — slug OR alias
+  direction: ContextDirectionSchema,
+  note: attestationNote.nullable().optional(), // trim, max 2000
+  introduced_version_id: versionId.nullable().optional(),
+  deprecated_version_id: versionId.nullable().optional(),
+});
+
+export const UpsertVendorAttestationSchema = z.object({
+  asserted: z.boolean(),                       // required — a PUT states a position
+  note: attestationNote.nullable().optional(),
+  introduced_version_id: versionId.nullable().optional(),
+  deprecated_version_id: versionId.nullable().optional(),
+});
+
+export const VendorClaimResponseSchema = z.object({ claim: VendorClaimSchema });
+
+// GET /api/vendor/data-objects (AECI-606) — the closed picker vocabulary.
+// No `aliases` (resolver metadata; a client-side matcher would drift from
+// `lib/data-object-vocabulary.ts`), no `id` (nothing on the surface takes one),
+// no `display_order` (the array arrives ordered).
+export const DataObjectOptionSchema = z.object({
+  slug: z.string(),
+  name: z.string(),
+  description: z.string().nullable(),
+});
+
+export const ListDataObjectsResponseSchema = z.object({
+  data_objects: z.array(DataObjectOptionSchema),
+});
+```
+
+**`GET /api/vendor/integrations`** returns every integration touching a product the caller owns, with each claim's live attestations resolved into `mine` / `counterparty`, its computed `agreement`, and the slot(s) that are the caller's. Unpaginated — the set is bounded by the vendor's own catalog. Retracted attestations never appear (`retracted_at IS NULL`, the same filter the public pair page applies). Claims are ordered by the `data_object` vocabulary's `display_order`. A vendor whose products carry no integrations gets `200 { integrations: [] }`, not a 404.
+
+**`POST /api/vendor/claims`** creates the claim **and** the caller's affirming attestation in one batch. There is no `asserted` field — creating a claim *is* affirming it; recording a denial means `PUT` on a claim that already exists. `origin` is set to `'vendor'` with `created_by_vendor_id` (§2.2), never from the request.
+
+**`data_object` is find-only.** The slug or alias resolves against the frozen, closed `taxonomy_data_objects` vocabulary (`docs/DATA_OBJECT_VOCABULARY.md`) — a vendor cannot mint a term any more than promote can. Unlike promote, which lands a miss in `skipped[]` because it is a batch job, an unmatched term here is a **`VALIDATION_FAILED` naming the field**. Both callers share one matcher (`apps/api/src/lib/data-object-vocabulary.ts`).
+
+**`GET /api/vendor/data-objects`** (AECI-606) serves that closed vocabulary to the dashboard, so the §6 picker offers the list rather than a text input and a vendor never submits a term the resolver will reject. Ordered by `display_order` then `slug`, **NULLs last** — the same ordering the claim lists use, so the picker's rows and the tab's lanes agree. Never paginated: a frozen 20-term list.
+
+It is the **one `/api/vendor/*` route with no `vendor_id` filter**, and that is a contract rather than an omission: `taxonomy_data_objects` is AECi-curated, has no `vendor_id` column and no vendor-owned rows, so the filter would be *vacuous*. Every caller gets a byte-identical body by construction, and a spec pins that sameness so a later "restore the missing scope filter" edit fails loudly instead of reading as a fix. `AUTH_AND_RLS.md` §4.4 carries the matching carve-out. Not verified-gated either — 403-ing the vocabulary would leave the read-only tab unable to label its own claims.
+
+**`aliases` is deliberately absent from the wire.** The picker submits a canonical slug, which always resolves, so alias matching buys nothing here; shipping them would invite a client-side match that reimplements `safeSlugify`, and a second matcher is the drift `lib/data-object-vocabulary.ts` was extracted to eliminate. They are resolver metadata ("ITB", "P6", "AP"), not translatable copy. `id` is absent because nothing on the surface takes one, and `display_order` because the array arrives ordered. An unseeded vocabulary is `200 { data_objects: [] }`, never a 500 — the dashboard degrades the add affordance rather than losing the tab. *Errors: none beyond the guard's.*
+
+**A duplicate claim identity is a `400` carrying `details.claim_id`.** `claims_identity_key` is `(integration_id, data_object_id, direction)`, so the collision is narrow — claims anchor to the *mechanism row*, and two mechanisms moving the same data object between the same products are two independent claims. The existing id is returned so the UI can pivot to `PUT` rather than dead-ending.
+
+**`PUT` replaces; it does not patch.** Supersession is **retract-then-insert** (§2.1), never an `UPDATE` — the old row keeps its `id` and gains `retracted_at`, because AECI-303's version-diff timeline reads the append-only history. There is therefore no prior row to leave a field alone on: an omitted `note` or version stamp lands as `null`. The retract clears whatever holds a slot the caller owns (the partial unique index makes that last-write-wins); `DELETE` retracts only the caller's **own** rows, so withdrawing your position never withdraws someone else's.
+
+**`DELETE` with nothing of the caller's to retract is a `404`**, not an idempotent 204 — §26.1 wants no audit row without a state change.
+
+**Version stamps stay inside the attesting side's own endpoint** (`STAGE_2_ATTESTATIONS_SPEC.md` §8.2). A `introduced_version_id` / `deprecated_version_id` belonging to a product the caller does not own on this integration is a `VALIDATION_FAILED` naming the field, and an unknown id answers identically so the response cannot probe another product's release history. For a caller owning both endpoints, the stamp lands only on the slot whose endpoint owns that version.
+
+Writes go through one `db.batch([...])` carrying every mutation and its `audit_log` rows (§26.1), with actions `claim.created` / `attestation.created` / `attestation.retracted`, `entity_type` `claim` / `attestation`, and `metadata.source = 'vendor-portal'` plus `vendorId`, `claimId`, `integrationId` and the resolved `slot`. One audit row is emitted **per attestation row**, so a both-endpoints write produces two. Post-commit the write enqueues **`pair:{min}__{max}`** (via `pairCacheTag` — the identical tag the pair page emits, keep them in lockstep) plus **`product:{slug}`** for both endpoints, whose detail pages carry the claims-aware direction column. `index:products` is omitted: claims never render on the catalog.
+
+**No Algolia reindex.** Claims do not feed the index; vendor edits reach search on the nightly watermark sync (`STAGE_2_SPEC.md` §8.3(5)). Dashboard copy must not promise "live in search".
+
+Errors: `NOT_FOUND` (unknown claim/integration, or one whose endpoints the caller does not own — deliberately indistinguishable; also a `DELETE` with nothing to retract), `FORBIDDEN` (endpoint owner, but not verified — copy points at the claim/verification flow and never at ranking, placement, or search), `VALIDATION_FAILED` (unknown `data_object`, a duplicate claim identity, a version outside the caller's endpoint, a missing stance on `PUT`), `MALFORMED_REQUEST`.
 
 ---
 

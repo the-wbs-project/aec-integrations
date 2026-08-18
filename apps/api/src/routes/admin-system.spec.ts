@@ -100,10 +100,10 @@ const cron = (body: AdminSystemResponse, job: string) =>
   body.crons.find((r) => r.job === job) ?? expect.fail(`no cron row for ${job}`);
 
 describe('GET /api/admin/system — cron liveness never reports a passing state', () => {
-  it('returns all ten crons as `unknown` on an empty database', async () => {
+  it('returns all eleven crons as `unknown` on an empty database', async () => {
     const body = await system();
 
-    expect(body.crons).toHaveLength(10);
+    expect(body.crons).toHaveLength(11);
     expect(body.crons.map((r) => r.job)).toEqual([
       'metrics-snapshot',
       'retention-prune',
@@ -113,6 +113,7 @@ describe('GET /api/admin/system — cron liveness never reports a passing state'
       'home-stats',
       'algolia-sync',
       'algolia-drift',
+      'attestation-notify',
       'request-reconcile',
       'waf-poll',
     ]);
@@ -149,10 +150,10 @@ describe('GET /api/admin/system — cron liveness never reports a passing state'
     const note = body.notes.find((n) => n.code === 'cron_liveness_unavailable');
     expect(note).toBeDefined();
     expect(note?.severity).toBe('warn');
-    expect(note?.params).toEqual({ unknown: 10, total: 10 });
+    expect(note?.params).toEqual({ unknown: 11, total: 11 });
   });
 
-  it('derives home-stats + algolia-sync from D1 once their artifacts exist, and leaves the other eight unknown', async () => {
+  it('derives home-stats + algolia-sync from D1 once their artifacts exist, and leaves the other nine unknown', async () => {
     await t.db.insert(statsCache).values([
       { key: 'home.total_products', value: 3, computedAt: '2026-08-13T01:00:00.000Z' },
       { key: 'home.total_vendors', value: 2, computedAt: '2026-08-13T01:05:00.000Z' },
@@ -188,12 +189,13 @@ describe('GET /api/admin/system — cron liveness never reports a passing state'
       'analytics-digest',
       'moderation-snapshot',
       'algolia-drift',
+      'attestation-notify',
       'request-reconcile',
       'waf-poll',
     ]);
     expect(body.notes.find((n) => n.code === 'cron_liveness_unavailable')?.params).toEqual({
-      unknown: 8,
-      total: 10,
+      unknown: 9,
+      total: 11,
     });
   });
 
@@ -678,6 +680,7 @@ describe('GET /api/admin/system — cron liveness from job_runs (§7.2 / AECI-58
       'home-stats',
       'algolia-sync',
       'algolia-drift',
+      'attestation-notify',
       'request-reconcile',
       'waf-poll',
     ]) {

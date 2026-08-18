@@ -60,10 +60,10 @@ healthy day — the point is to catch a regression before a monitor's sustained-
 > defaults to the wrong one — select **`aeci`** (us5). CWV live under RUM → Optimize Vitals, not the
 > Phase-2 dashboard (that tracks SSR `aeci.page.render.duration_ms`, not field CWV).
 
-### 1a. The 10 scheduled crons (row 6 detail)
+### 1a. The 11 scheduled crons (row 6 detail)
 
 Each cron emits an always-on heartbeat; the "not running" monitor's no-data is the liveness signal.
-A green board here means all ten fired on schedule. Since AECI-583 each run **also** writes a
+A green board here means all eleven fired on schedule. Since AECI-583 each run **also** writes a
 `job_runs` row that `/admin/system` renders (see the split below).
 
 > **Read the record off `/admin/system`; read absence off Datadog.** AECI-583 landed the `job_runs`
@@ -88,6 +88,7 @@ A green board here means all ten fired on schedule. Since AECI-583 each run **al
 | `0 7 * * *` | Home-stats compute | `home-stats` | stats-compute-failed / stats-not-running |
 | `0 8 * * *` | Algolia incremental sync | `algolia-sync` | sync-failed / sync-not-running |
 | `0 9 * * *` | Algolia drift + orphan sweep | `algolia-drift` | index-drift / orphan-sweep-capped |
+| `0 10 * * *` | §7 attestation detector sweep + nudge email (AECI-302) — four detectors over the claim/attestation spine, deduped through an `audit_log` ledger | `attestation-notify` | none yet — read `aeci.attestation.detector` (a per-detector gauge, always emitted incl. 0) and `aeci.attestation.notify.job{outcome}`. **The zero series is the liveness signal**: the detectors match nothing until vendors start attesting, so "0 findings" is the healthy steady state and no-data is the failure |
 | `*/15 * * * *` | Request→Linear reconciliation sweep | `request-reconcile` | reconcile-stuck / reconcile-no-data |
 | `0 * * * *` | WAF firewall-event poll | `waf-poll` | waf-ratelimit-spike / **waf-poll-not-running** (AECI-279) |
 
@@ -258,6 +259,26 @@ result. It changes nothing about the audit's doctrine: the name is a **read-side
 the same "a false positive silently deletes a real visitor" rule. Two limits to keep in mind — it is null on
 every row written before the deploy and is not backfillable, and matching *on* the holder name is still
 unbuilt: this is the capture, not the classifier.
+
+### Attestation detector tunables (AECI-302 / `STAGE_2_ATTESTATIONS_SPEC.md` §7.1)
+
+Like the home-stats knobs, these are **compute constants** in the API Worker, not monitor
+thresholds — change the constant and ship via a normal deploy/promote. They govern the daily
+`0 10 * * *` sweep that emails vendors about one-sided, conflicting or stale attestations.
+
+**Read them against adoption, not against the calendar.** Every detector keys off a *vendor's*
+attestation, and nothing in D1 has one yet (promote only ever writes `source='aeci'`), so all four
+fire on **zero rows** until the vendor portal is genuinely in use. Do not tighten anything on the
+evidence of a quiet first month.
+
+| Constant | File | Current | Retune signal |
+|---|---|---|---|
+| `SILENT_COUNTERPARTY_DAYS` | `lib/attestation-detectors.ts` | 14 | How long a claim may sit `single_source` before the silent side is nudged. Lower if vendors are responsive and the lag is the bottleneck; raise if nudges land before vendors have plausibly seen the portal. |
+| `OPEN_CONFLICT_DAYS` | `lib/attestation-detectors.ts` | 7 | An unresolved `conflict` past this nudges both disputants **and** raises AECi ops. Tightest of the three by design (lowest volume, highest signal). Raise only if ops finds it noisy. |
+| `STALE_VERSION_MONTHS` | `lib/attestation-detectors.ts` | 12 | Age at which a stampless vendor attestation is asked to re-confirm. **Do not lower without thinking about the corpus**: nothing carries version stamps, so this effectively schedules a re-confirm ask for *every* vendor attestation N months after it was made. 12 = annual cadence. |
+| `NOTIFICATION_SUPPRESSION_DAYS` | `lib/attestation-notify.ts` | 30 | The anti-nag control: how long a delivered notification blocks a repeat of the same (claim, detector, recipient). The single most important knob if vendors report feeling chased. |
+| `NOTIFY_BATCH_CAP` | `lib/attestation-notify.ts` | 200 | Sends per run. A first-adoption backstop, not a design limit — the next daily sweep continues the backlog, and a capped run logs the dropped count to Datadog (`aeci.attestation.notify.capped`, a **warn log** — there is no metric). Raise if that log recurs. |
+| `NOTIFICATION_HISTORY_DAYS` / `NOTIFICATION_PAGE_SIZE` | `routes/vendor-notifications.ts` | 90 / 50 | The in-portal list's window and cap. The window is deliberately longer than the suppression window so a vendor can see the nudge currently suppressing a repeat. |
 
 ---
 

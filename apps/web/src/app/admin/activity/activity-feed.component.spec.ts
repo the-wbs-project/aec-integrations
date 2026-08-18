@@ -25,7 +25,7 @@ import type {
   AdminTrafficBreakdownResponse,
 } from '@aeci/shared';
 
-import { AdminSelect } from '../admin-select';
+import { AecSelect } from '../../shared/aec-select/aec-select';
 import { ActivityFeed } from './activity-feed';
 import { AdminPageViewsApi } from './admin-page-views-api';
 
@@ -294,7 +294,7 @@ describe('ActivityFeed', () => {
 
     it('round-trips a source chosen in the select', async () => {
       const { fixture, api } = await setup(makeApiMock(makeResponse([makeRow({ id: 1 })])));
-      const select = fixture.debugElement.queryAll(By.directive(AdminSelect))[0];
+      const select = fixture.debugElement.queryAll(By.directive(AecSelect))[0];
       select.componentInstance.changed.emit('Google');
       await drain(fixture);
       expect(lastQuery(api)).toMatchObject({ source: 'Google' });

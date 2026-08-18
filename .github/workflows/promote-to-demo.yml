@@ -265,6 +265,8 @@ jobs:
           create_queue aeci-stats-demo
           create_queue aeci-reconcile-demo
           create_queue aeci-data-quality-demo
+          # AECI-302 (§7): the daily attestation detector sweep.
+          create_queue aeci-attestation-notify-demo
           # WC-5 (AECI-319): cross-Worker cache-purge queue. Producer = API Worker;
           # consumer = SSR Worker (both deploy below), so it must exist first.
           create_queue aeci-cache-purge-demo
@@ -420,9 +422,9 @@ jobs:
       # account. Warn-and-skip.
       - name: Push WAF poll zone id to API Worker (demo)
         env:
-          CLOUDFLARE_API_TOKEN: ${{{{ secrets.CLOUDFLARE_API_TOKEN }}}}
-          CLOUDFLARE_ACCOUNT_ID: ${{{{ secrets.CLOUDFLARE_ACCOUNT_ID }}}}
-          CF_ZONE_ID_VALUE: ${{{{ secrets.CF_ZONE_ID }}}}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CF_ZONE_ID_VALUE: ${{ secrets.CF_ZONE_ID }}
         working-directory: apps/api
         run: |
           set -euo pipefail
@@ -524,9 +526,9 @@ jobs:
       # Warn-and-skip (fail-open; purge degrades to TTL self-heal).
       - name: Push cache-purge credentials to web Worker (demo)
         env:
-          CLOUDFLARE_API_TOKEN: ${{{{ secrets.CLOUDFLARE_API_TOKEN }}}}
-          CLOUDFLARE_ACCOUNT_ID: ${{{{ secrets.CLOUDFLARE_ACCOUNT_ID }}}}
-          ADMIN_PURGE_TOKEN_VALUE: ${{{{ secrets.ADMIN_PURGE_TOKEN }}}}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          ADMIN_PURGE_TOKEN_VALUE: ${{ secrets.ADMIN_PURGE_TOKEN }}
         working-directory: apps/web
         run: |
           set -euo pipefail

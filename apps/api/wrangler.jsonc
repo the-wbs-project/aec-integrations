@@ -97,11 +97,13 @@
   // consumer runs it (ADR 0013: cron→queue→consumer). Cron triggers AND the queue
   // producer/consumer bindings are registered ONLY on staging + production (see
   // each env's `triggers` + `queues` blocks) — NOT on the base config or preview,
-  // so ephemeral PR-preview Workers carry no queues and run no daily jobs. The eight
-  // queues (`aeci-algolia-{sync,drift}-{staging,production}` for AECI-139/140,
-  // `aeci-stats-{staging,production}` for the AECI-178 home-stats job, and
-  // `aeci-reconcile-{staging,production}` for the AECI-214 request→Linear
-  // reconciliation sweep) are provisioned by an idempotent `wrangler queues create`
+  // so ephemeral PR-preview Workers carry no queues and run no daily jobs. The
+  // scheduled-job queues (`aeci-algolia-{sync,drift}-{env}` for AECI-139/140,
+  // `aeci-stats-{env}` for the AECI-178 home-stats job, `aeci-reconcile-{env}` for the
+  // AECI-214 request→Linear reconciliation sweep, `aeci-data-quality-{env}` for the
+  // AECI-241 §23.1 suite, and `aeci-attestation-notify-{env}` for the AECI-302 §7
+  // attestation detector sweep — six per env across staging/demo/production) are
+  // provisioned by an idempotent `wrangler queues create`
   // step in deploy.yml / promote-to-prod.yml before the Worker deploy. PREREQS:
   // Workers Paid plan, and the CI CLOUDFLARE_API_TOKEN must carry the Queues edit
   // permission. See ADR 0013 and docs/environments.md.
@@ -359,8 +361,12 @@
       // past 400 days and job_runs past 90 in bounded chunks, never touches
       // metrics_daily, and refuses to run at all if the 00:15 snapshot has not
       // captured every day inside its cut window — which is why it sits after that
-      // slot and an hour clear of the 04:00 batch. Strings MUST match the constants
-      // in `src/scheduled.ts` (asserted by `src/lib/cron-schedules.spec.ts`).
+      // slot and an hour clear of the 04:00 batch. "0 10 * * *" is the daily §7
+      // attestation detector sweep (AECI-302): four detectors over the
+      // claim/attestation spine → vendor nudge + AECi ops email, deduped via an
+      // audit_log ledger. Last of the daily jobs on purpose — it reads a spine the
+      // earlier batch may have moved. Strings MUST match the constants in
+      // `src/lib/cron-schedules.ts` (asserted by `src/lib/cron-schedules.spec.ts`).
       "triggers": {
         "crons": [
           "15 0 * * *",
@@ -371,6 +377,7 @@
           "0 7 * * *",
           "0 8 * * *",
           "0 9 * * *",
+          "0 10 * * *",
           "*/15 * * * *",
           "0 * * * *",
         ],
@@ -389,6 +396,7 @@
           { "queue": "aeci-stats-staging", "binding": "STATS_QUEUE" },
           { "queue": "aeci-reconcile-staging", "binding": "RECONCILE_QUEUE" },
           { "queue": "aeci-data-quality-staging", "binding": "DATA_QUALITY_QUEUE" },
+          { "queue": "aeci-attestation-notify-staging", "binding": "ATTESTATION_NOTIFY_QUEUE" },
           // WC-5 (AECI-319): cross-Worker cache-purge. Producer only — the SSR Worker
           // consumes `aeci-cache-purge-staging` (apps/web/wrangler.jsonc).
           { "queue": "aeci-cache-purge-staging", "binding": "CACHE_PURGE_QUEUE" },
@@ -420,6 +428,12 @@
           },
           {
             "queue": "aeci-data-quality-staging",
+            "max_batch_size": 1,
+            "max_retries": 3,
+            "max_concurrency": 1,
+          },
+          {
+            "queue": "aeci-attestation-notify-staging",
             "max_batch_size": 1,
             "max_retries": 3,
             "max_concurrency": 1,
@@ -490,12 +504,13 @@
           "migrations_dir": "migrations",
         },
       ],
-      // Same ten crons as staging/production (see staging note — incl. the hourly
+      // Same eleven crons as staging/production (see staging note — incl. the hourly
       // "0 * * * *" WAF firewall-event poll, AECI-262, the daily "0 5 * * *"
       // operator analytics digest, AECI-526, at 05:00 UTC = noon Jakarta, the
-      // daily "15 0 * * *" metrics_daily snapshot, AECI-581, and the daily
-      // "0 3 * * *" §7.4 retention prune, AECI-584). Dispatched
-      // by `controller.cron`. Strings MUST match the constants in `src/scheduled.ts`.
+      // daily "15 0 * * *" metrics_daily snapshot, AECI-581, the daily
+      // "0 3 * * *" §7.4 retention prune, AECI-584, and the daily "0 10 * * *"
+      // §7 attestation detector sweep, AECI-302). Dispatched by `controller.cron`.
+      // Strings MUST match the constants in `src/lib/cron-schedules.ts`.
       "triggers": {
         "crons": [
           "15 0 * * *",
@@ -506,6 +521,7 @@
           "0 7 * * *",
           "0 8 * * *",
           "0 9 * * *",
+          "0 10 * * *",
           "*/15 * * * *",
           "0 * * * *",
         ],
@@ -518,6 +534,7 @@
           { "queue": "aeci-stats-demo", "binding": "STATS_QUEUE" },
           { "queue": "aeci-reconcile-demo", "binding": "RECONCILE_QUEUE" },
           { "queue": "aeci-data-quality-demo", "binding": "DATA_QUALITY_QUEUE" },
+          { "queue": "aeci-attestation-notify-demo", "binding": "ATTESTATION_NOTIFY_QUEUE" },
           // WC-5 (AECI-319): cross-Worker cache-purge. Producer only — the SSR Worker
           // consumes `aeci-cache-purge-demo` (apps/web/wrangler.jsonc).
           { "queue": "aeci-cache-purge-demo", "binding": "CACHE_PURGE_QUEUE" },
@@ -549,6 +566,12 @@
           },
           {
             "queue": "aeci-data-quality-demo",
+            "max_batch_size": 1,
+            "max_retries": 3,
+            "max_concurrency": 1,
+          },
+          {
+            "queue": "aeci-attestation-notify-demo",
             "max_batch_size": 1,
             "max_retries": 3,
             "max_concurrency": 1,
@@ -645,7 +668,8 @@
       // email digest (AECI-241 / Phase 7.6); 06:00 UTC (= 01:00 EST) moderation-queue
       // health snapshot (AECI-206); 07:00 UTC (= 02:00 EST) home-stats compute (AECI-178);
       // 08:00 UTC (= 03:00 EST) incremental Algolia sync (AECI-139); 09:00 UTC (= 04:00 EST)
-      // index-drift reconciliation (AECI-140); "*/15 * * * *" every 15 min — request→Linear
+      // index-drift reconciliation (AECI-140); 10:00 UTC (= 05:00 EST) §7 attestation
+      // detector sweep (AECI-302); "*/15 * * * *" every 15 min — request→Linear
       // reconciliation sweep (AECI-214 / Phase 6.7); "0 * * * *" every hour — WAF firewall-event
       // poll (AECI-262 / §15.1, queue-less); "0 5 * * *" daily (= 12:00 WIB, noon Jakarta) — operator
       // analytics digest (AECI-526, queue-less); "15 0 * * *" daily at 00:15 UTC — the
@@ -664,6 +688,7 @@
           "0 7 * * *",
           "0 8 * * *",
           "0 9 * * *",
+          "0 10 * * *",
           "*/15 * * * *",
           "0 * * * *",
         ],
@@ -676,6 +701,7 @@
           { "queue": "aeci-stats-production", "binding": "STATS_QUEUE" },
           { "queue": "aeci-reconcile-production", "binding": "RECONCILE_QUEUE" },
           { "queue": "aeci-data-quality-production", "binding": "DATA_QUALITY_QUEUE" },
+          { "queue": "aeci-attestation-notify-production", "binding": "ATTESTATION_NOTIFY_QUEUE" },
           // WC-5 (AECI-319): cross-Worker cache-purge. Producer only — the SSR Worker
           // consumes `aeci-cache-purge-production` (apps/web/wrangler.jsonc).
           { "queue": "aeci-cache-purge-production", "binding": "CACHE_PURGE_QUEUE" },
@@ -707,6 +733,12 @@
           },
           {
             "queue": "aeci-data-quality-production",
+            "max_batch_size": 1,
+            "max_retries": 3,
+            "max_concurrency": 1,
+          },
+          {
+            "queue": "aeci-attestation-notify-production",
             "max_batch_size": 1,
             "max_retries": 3,
             "max_concurrency": 1,

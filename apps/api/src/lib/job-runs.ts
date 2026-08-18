@@ -234,6 +234,20 @@ export type JobRunDetail =
       window: { fromDay: string; toDay: string };
       missingCount: number;
       missingDays: string[];
+    }
+  /** The Stage 2 §7 detector sweep (AECI-302), which became a first-class cron at
+   *  the AECI-619 reconciliation. `failed` counts per-nudge send failures and does
+   *  NOT make the run `failed` — the sweep is fail-open, and a Resend hiccup on one
+   *  recipient is not a failed sweep. `capped` non-zero means `NOTIFY_BATCH_CAP`
+   *  stopped the run short and the next day continues the backlog. */
+  | {
+      job: 'attestation-notify';
+      found: number;
+      sent: number;
+      suppressed: number;
+      failed: number;
+      skipped: number;
+      capped: number;
     };
 
 /** The per-table half of the retention prune's detail. Mirrors `PrunedTable`
@@ -247,7 +261,7 @@ export interface RetentionPrunedTableDetail {
 
 /**
  * Defensive ceiling on the serialized payload. Nothing today comes close — the
- * data-quality set is the largest at ~6-8 KB (eleven checks × `SAMPLE_LIMIT` 10
+ * data-quality set is the largest at ~6-8 KB (ten checks × `SAMPLE_LIMIT` 10
  * sample lines) — but `detail` is the one field a future job could make
  * unbounded, and a 1 MB row is a D1 failure rather than a large row.
  */

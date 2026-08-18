@@ -214,7 +214,8 @@ A neutral surface palette with three brand accents (Forest, Clay, Bone) and two 
 
 ### Status
 
-- **Error** (`#B3261E` / `oklch(50.13% 0.1783 28.70)`): form/validation error text and icons (6.54:1 on white). Always paired with an inline message or icon — color is never the sole signal. Success states use Forest; warning states use Clay deep. No additional status hues exist.
+- **Error** (`#B3261E` / `oklch(50.13% 0.1783 28.70)`): form/validation error text and icons, **and the `conflict` agreement badge** (6.54:1 on white). Always paired with an inline message or icon — color is never the sole signal. Success states use Forest; warning states use Clay deep. No additional status hues exist.
+  - **The scope widened in AECI-605** from form/validation only. `conflict` — two vendors describing the same data flow differently — is the **one non-form state permitted to be red**, and the only red state in the agreement set (`STAGE_2_ATTESTATIONS_SPEC.md` §4.3). It is red because it is genuinely actionable for the reader, not because anything is broken: the copy names the disagreement ("Vendors disagree") rather than faulting either product. It carries an `✕` glyph alongside the hue so it survives greyscale and colour-vision deficiency. Do not extend Error to any further state without a spec decision — `unverified` and `single_source` are deliberately neutral, and making an unconfirmed claim look like a defect is the failure mode this system is built to avoid.
 
 ### Dark theme — deferred to Stage 2 (not shipped in Stage 1)
 
@@ -420,6 +421,26 @@ Phase 8.3 (`docs/ADMIN_PANEL_SPEC.md`, epic AECI-572) turns the moderation area 
 
 - **Charts are hand-rolled SVG** (`admin/charts/`, spec §8 / §13 D3): `<aec-sparkline>` and `<aec-stacked-bar-chart>`, geometry from pure functions so they are SSR-safe, sized by `viewBox` rather than measurement, series in Forest and Clay-deep (distinct in hue **and** lightness). A chart is never the only representation of a number: the stacked bar carries a visible legend and a visually-hidden `<table>` of the full series, and a sparkline only ever accompanies a figure already rendered as text. An empty series renders nothing rather than a flat line implying a measured zero.
 
+### Vendor portal (Stage 2)
+
+The signed-in vendor's `/vendor` surface (`apps/web/src/app/vendor/`): the AECI-522 tabbed dashboard (Overview / Profile / Products / Integrations / Seats) plus the AECI-606 Integrations tab. Gated by `vendorMeResolver`, `noindex`, non-cacheable.
+
+**No new Mobbin anchor was picked, deliberately** — the same call the operator console made above (`ADMIN_PANEL_SPEC.md` §9.10), and recorded here because the Anchor-Site Rule's "record the anchor site with the surface" had never been satisfied for `/vendor`. The portal inherits the Phase 5/6 admin-queue and Phase 8.3 console vocabulary: bordered `--surface-raised` cards, border not shadow, the eyebrow-then-heading header, Forest figures, `tabular-nums`. It is an internal, signed-in surface reading the same catalog the public directory renders, so a second reference site would make AECi read as two products. One publication, one voice (Anchor-Site Rule). Token-only, i18n throughout, light-only.
+
+- **Integrations tab** (`<aec-vendor-integrations-section>`, `vendor/components/`) — one card per integration touching a product the vendor owns: their own product as the eyebrow, the counterpart as the `h3`, the mechanism beneath. Inside, a lane per `data_object` claim.
+
+- **Direction is always the vendor's own frame.** Lanes render "Sends to Procore" / "Receives from Procore" / "Syncs both ways" through `products/pair-direction-labels.ts` — the *same* `@@pair.direction.*` copy the public pair page uses, extracted by AECI-606 rather than restated. The stored `a_to_b`/`b_to_a` never reaches the browser.
+
+- **Agreement state reuses `<aec-agreement-badge>` verbatim.** The vendor's view of a claim must not disagree with the public page's view of the same claim, so the four states' copy and tone stay owned in one component — including the rule that `conflict` is the only red state and `single_source` never borrows `confirmed`'s treatment.
+
+- **A conflict shows both positions, and is not styled as an error.** The disclosure is a `--surface-sunken` / `--border-strong` two-column `<dl>`: your stance and note beside theirs. Two vendors describing a flow differently is a disagreement to resolve, not a defect in either product — red on this surface belongs to the badge alone.
+
+- **Affirm / Deny / Clear are plain buttons**, because they are commands that write on activation, not values you pick and submit (ADR 0010 governs the latter). The note field renders *inline and populated* rather than behind a collapsed disclosure, because `PUT` replaces the whole position: the UI must never look emptier than what a save will send. Aria is used where the ADR asks for it — the `data_object` combobox over the closed vocabulary, the direction listbox, and the version pickers, all via the shared `<aec-select>`.
+
+- **One polite live region per tab, many assertive ones.** Successful writes mutate a single persistent `role="status"` that names the subject; failures are lane-local `role="alert"` beside the control that failed.
+
+- **Copy carries the trust promise.** Nothing implies attesting affects ranking or placement; the only search reference is that search refreshes within a day; "Verified" is framed as an account status arranged with AEC Integrations, and the unverified state explains what verification unlocks rather than 403-ing a vendor out of their own data.
+
 ### Inputs / Fields
 
 Native inputs driven by Signal Forms today (ADR 0009); richer controls use Angular Aria per the provider note above (ADR 0010, Accepted) — `select`/`radio` are realised via combobox/listbox (Aria@22 ships neither), and these discrete-choice controls bridge into Signal Forms via `[(value)]`+`(valueChange)`, not `[formField]`. Styling binds to tokens.
@@ -444,17 +465,52 @@ Native inputs driven by Signal Forms today (ADR 0009); richer controls use Angul
 What actually renders today:
 
 - **Maintenance marker** (`shared/maintenance-marker`): neutral chip — `border-default` /
-  `surface-raised` / `text-secondary`, decorative dot, no icon. Reads
-  `Maintained by AEC Integrations.` on product detail, vendor detail, and the pair page.
-  The date clause (`Reviewed <date>.`) and the `Vendor-maintained.` branch are built but
-  **dormant**: no column stores a real review timestamp yet, and wiring the input to
-  `updated_at` would make the date refresh itself on every bulk re-promote. AECI-616
-  supplies the real `last_reviewed_at`.
+  `surface-raised` / `text-secondary`, decorative dot, no icon. On product detail, vendor
+  detail, and the pair page. It is a **label, not a sentence, so it carries no terminal
+  period**, and the date clause is joined with a middot. Four readings, all **live** since
+  AECI-616: `Maintained by AEC Integrations` · `Maintained by AEC Integrations · Reviewed
+  <date>` · `Vendor-maintained` · `Vendor-maintained · Updated <date>`. The date renders only
+  when `last_reviewed_at` is set, and it is `null` on almost every record because **nothing
+  was backfilled** — bare attribution is the honest default, not missing data. Never wire the
+  date to `updated_at`: it is `$onUpdate` and promote restamps it, so the date would refresh
+  itself on every bulk re-promote (60 production products share one `updated_at` day). The
+  vendor branch is driven by real vendor attestations. Dates are formatted in **UTC**, not the
+  ambient zone — SSR runs UTC and the browser does not, so a zone-local format would trip a
+  hydration mismatch either side of midnight.
+  - It **coexists** with the agreement pill below rather than replacing it, deliberately: the
+    marker is page-header attribution ("who is on the hook for this page"), the pill is
+    per-claim state on the mechanism cards ("do the two vendors agree about this one data
+    object"). Three distinct signals share this page — marker, agreement chip, and the
+    `rounded-full` verified-vendor pill — and collapsing any two would lose information.
 - **Agreement pill** (`products/agreement-badge`): same neutral chip tokens. Renders
   `Unverified · AECi` on every claim on every pair page — the honest posture, not a
   warning. `Vendor-confirmed` / `Needs review` are defined for Stage 2 and unreachable.
 - **Pending** (`badge-pending`): surface-sunken fill, text-secondary text, 0.5px border-default. Indicates "submitted, not yet reviewed" — never confused with verified.
 - **Verified vendor** (`aec-verified-badge`, AECI-523): the trust-surface indicator for an **AECi-verified vendor _account_** (`vendors.verified`). A quiet editorial **pill** — Forest-soft wash (`--accent-primary-soft`) + Forest text + 0.5px Forest border + a shield-check glyph (Forest text on Forest-soft = 10.80:1). This is the badge the **pill shape is reserved for** (see Tags / taxonomy chips below): the `rounded-full` pill and the shield glyph keep it distinct from the `rounded.sm` integration `badge-verified` above and from the rating anatomy (gold stars). Two variants — `full` (icon + "Verified vendor" label) and `compact` (icon-only, accessible name via `aria-label`, for dense contexts like the product-pair rail). Renders **only when verified** — the public "Unverified" baseline is the badge's absence, never a label (the explicit "Unverified" readout is a vendor-dashboard concept). It is a **trust** signal, never a paid-placement or ranking signal (no pay-for-placement), and never an endorsement of product quality.
+- **Agreement badge** (`aec-agreement-badge`, AECI-300 / AECI-605): the per-claim state on the product-pair page's data-flow lanes — whether the two vendors agree that a `data_object` flows between their products. A `rounded.sm` **chip**, deliberately *not* the pill: the pill belongs to `aec-verified-badge`, which means an AECi-verified vendor *account*, and the two must never be read as the same signal. Four states, and the tonal ladder between them is the point:
+
+  | State | Treatment | Label |
+  |---|---|---|
+  | `unverified` | `border-default` / `surface-raised` / `text-secondary`, tertiary dot | "Unverified · AECi" |
+  | `single_source` | the **same neutral chip**, `text-secondary` dot | "Confirmed by {vendor}" |
+  | `confirmed` | Forest-soft wash + Forest text + Forest border (10.80:1) | "Both vendors confirmed" |
+  | `conflict` | `--status-error` text + border on `surface-base`, `✕` glyph | "Vendors disagree" |
+
+  Three rules hold this together. **`single_source` shares the neutral chip with `unverified` on purpose** — one vendor affirming while the counterparty stays silent must never borrow the affirmative Forest treatment, so the only difference is a slightly stronger dot; the badge names the vendor and its `aria-label` states the other's silence outright. **`confirmed` is the only badge that earns the wash**, and only for two *distinct* vendors. **`conflict` is the only red**, and it reports a difference between vendors, not a defect in either product. Colour is never the sole signal (WCAG 1.4.1): every state carries a distinct visible label and accessible name, and the dot/glyph is `aria-hidden`.
+
+- **Version diff markers** (AECI-303, `STAGE_2_ATTESTATIONS_SPEC.md` §9): on the product-pair page's claim rows, what the selected product-version pair *changed*. Deliberately **not badges** — a rule and a label, not a chip:
+
+  | State | Treatment | Label |
+  |---|---|---|
+  | `unchanged` | **nothing** | — |
+  | `added` | `border-s-2` Forest **start rule**, `+` glyph, `.aec-overline` in `text-secondary` | "New in {version}" |
+  | `removed` | `border-s-2` `border-strong` start rule, `−` glyph, name steps to `text-secondary` + `line-through` | "Removed in {version}" |
+
+  Four rules, each of which rules something else out. **Position carries the separation:** the marker sits at the row's *start*, the agreement badge at its *end* — left is what changed in this version, right is who agrees about it. Two questions, two zones, no competition. **`added` gets the rule, not a wash:** `--accent-primary-soft` is the `confirmed` chip's, and a wash inches from a neutral chip reads as "confirmed" by proximity; a single vertical mark is unmistakably structural, and doubles as a scannable gutter down the lane (borders-not-shadows, and the same spirit as the Score Display's range marker). **`removed` is never `--status-error`:** `conflict` is the only red, and a second red on the same row would collapse "vendors disagree" into "no longer supported". Clay is excluded on both counts — `added` is not a warning, and the Clay-Restriction Rule caps that hue at ≤5% of a screen, which a per-row marker blows instantly. And **`unchanged` renders nothing**, which is both the overwhelming majority state and what keeps the default latest × latest view byte-identical to a pair page with no version data at all.
+
+  `text-secondary` only, never `text-tertiary`: these rows sit on `surface-base` inside a `surface-raised` lane, and the tertiary token is forbidden on sunken/muted surfaces. Logical `border-s-*` keeps the mark on the correct edge under RTL. Every state carries a glyph **and** a visible text label (WCAG 1.4.1), and `removed` adds a decoration change on top.
+
+  **No Mobbin anchor was picked for this surface, deliberately** — the same call the AECI-605 agreement badge recorded. The pair page has three shipped layers and a settled chip/token vocabulary; the diff markers inherit it rather than importing a second site's visual language onto the page that is most editorial. This is the standing precedent for anchorless surfaces (see the Phase 8.3 operator console: "One publication, one voice").
 
 **Deferred to Stage 2, not shipped:**
 

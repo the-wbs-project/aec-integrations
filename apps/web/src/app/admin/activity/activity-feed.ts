@@ -13,7 +13,7 @@ import {
 
 import { AdminNotes } from '../admin-notes';
 import { AdminPaginator } from '../admin-paginator';
-import { AdminSelect, type AdminSelectOption } from '../admin-select';
+import { AecSelect, type AecSelectOption } from '../../shared/aec-select/aec-select';
 import { AdminPageViewsApi } from './admin-page-views-api';
 
 /** Rows per page. Larger than the shared `perPage` default of 24 because this is
@@ -93,7 +93,7 @@ const NO_FILTER: AdminInternalFilter = { available: false, applied: false, asns:
  */
 @Component({
   selector: 'aec-activity-feed',
-  imports: [RouterLink, AdminNotes, AdminPaginator, AdminSelect],
+  imports: [RouterLink, AdminNotes, AdminPaginator, AecSelect],
   templateUrl: './activity-feed.html',
 })
 export class ActivityFeed {
@@ -134,17 +134,17 @@ export class ActivityFeed {
       { key: 'all', label: $localize`:@@admin.activity.filter.traffic.all:All` },
     ];
 
-  private readonly anySource: AdminSelectOption = {
+  private readonly anySource: AecSelectOption = {
     value: null,
     label: $localize`:@@admin.activity.filter.source.any:Any source`,
   };
-  private readonly anyCountry: AdminSelectOption = {
+  private readonly anyCountry: AecSelectOption = {
     value: null,
     label: $localize`:@@admin.activity.filter.country.any:Any country`,
   };
 
-  protected readonly sourceOptions = signal<readonly AdminSelectOption[]>([this.anySource]);
-  protected readonly countryOptions = signal<readonly AdminSelectOption[]>([this.anyCountry]);
+  protected readonly sourceOptions = signal<readonly AecSelectOption[]>([this.anySource]);
+  protected readonly countryOptions = signal<readonly AecSelectOption[]>([this.anyCountry]);
 
   protected readonly sourceLabel = $localize`:@@admin.activity.filter.source.label:Source`;
   protected readonly countryLabel = $localize`:@@admin.activity.filter.country.label:Country`;
@@ -237,7 +237,7 @@ export class ActivityFeed {
 
   /** A breakdown group as a select option. The API's `label` is an untranslated
    *  operator fallback, so a null key gets the UI's own localized string. */
-  private toOption(row: AdminBreakdownRow): AdminSelectOption {
+  private toOption(row: AdminBreakdownRow): AecSelectOption {
     return row.key === null
       ? {
           value: ADMIN_PAGE_VIEW_NULL_FILTER,

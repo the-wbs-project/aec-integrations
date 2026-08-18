@@ -248,6 +248,7 @@ Every vendor in this array becomes a vendor **of the product** (a
 | `foundedYear` | int \| null | — | |
 | `publicPrivate` | `"public"` \| `"private"` \| null | — | |
 | `verified` | boolean | — | **Accepted and ignored (AECI-520).** `vendors.verified` is the paid vendor-portal entitlement bit: it is set when AECi approves a vendor claim and cleared only by a deliberate entitlement action, so a routine push must not move it (previously a push carrying `verified: false` could silently un-verify a paying vendor). Still accepted so your existing build keeps validating; send it or don't, the server drops it. A newly created vendor is always `verified: false`. |
+| `lastReviewedAt` | ISO-8601 string \| null | — | **The review signal (AECI-616).** Send it ONLY when a human actually re-checked this record; it becomes the date in the public "Reviewed <date>." maintenance marker. **Omitting it leaves the stored value untouched** — that is the point, so a routine re-push never re-advertises the record as freshly reviewed. `null` clears it. Rejected with a 400 if unparseable (stricter than the other free-form fields here, because a garbage value would render as *no date* and be indistinguishable from "never reviewed"). See §3.6. |
 
 ### 3.3 `product` (optional, singular)
 
@@ -265,6 +266,7 @@ Omit it entirely for a vendor-only / integration-only push (§3.5). When present
 | `trades` | string[] | — | Trade names, slugs, **or aliases**. **Resolve-only — never find-or-created.** See **`trades` resolution** below. |
 | `usefulness` | `{ audiences: UsefulnessGroup[]; phases: UsefulnessGroup[] }` \| null | — | Per-audience / per-phase narrative value. `UsefulnessGroup = { slug \| name, points: string[] }` (≥ 1 point). See **`usefulness` resolution** below. |
 | `extensionOf` | `{ supabaseId }[]` | — | Host products this product extends. **Must use `supabaseId`** (hosts are promoted separately). |
+| `lastReviewedAt` | ISO-8601 string \| null | — | **The review signal (AECI-616).** Send ONLY when a human actually re-checked this record. **Omitting it leaves the stored value untouched.** See §3.6. |
 | `description`, `website`, `toolIntegrationsUrl`, `apiDocsUrl`, `toolIntegrationCheckNotes`, `logoUrl`, `researchNotes`, `adminNotes` | string \| null | — | |
 | `hasApiDocs` | boolean | — | |
 | `researchStatus` | `"pending"` \| `"in_progress"` \| `"done"` \| `"blocked"` \| null | — | |
@@ -302,6 +304,7 @@ endpoints**. The other endpoint must already be promoted (reference it by
 | `direction` | `"one-way"` \| `"bidirectional"` \| null | — | |
 | `mechanismName`, `description`, `listingUrl`, `docsUrl`, `website`, `mechanismUrl`, `pricingModel`, `maturity`, `notes` | string \| null | — | |
 | `claims` | `Claim[]` | — | Data-object claims carried by this integration. Defaults to `[]`. See **`claims` shape & resolution** below. |
+| `lastReviewedAt` | ISO-8601 string \| null | — | **The review signal (AECI-616).** Send ONLY when a human actually re-checked this record. **Omitting it leaves the stored value untouched.** See §3.6. |
 
 Direction is meaningful: `sourceProduct → targetProduct`.
 
@@ -321,7 +324,7 @@ Each `Attestation`:
 
 | Field | Type | Required | Notes |
 |---|---|---|---|
-| `source` | `"aeci"` \| `"vendor_a"` \| `"vendor_b"` | ✅ | Who attests. **In Stage 1.5, send only `"aeci"`** — `vendor_a` / `vendor_b` are accepted by the contract but produced by no current path (they're reserved for the Stage 2 vendor portal). |
+| `source` | `"aeci"` \| `"vendor_a"` \| `"vendor_b"` | ✅ | Who attests. **Send only `"aeci"`.** The enum still carries `vendor_a` / `vendor_b` because the column does, but those slots are now live and are derived from product ownership in the vendor portal — they are not settable from a payload. Since AECI-604 a non-`aeci` source is **dropped and reported in `skipped[]`** (`kind: "claim"`) rather than written. |
 | `asserted` | boolean | ✅ | `true` = this source affirms the claim; `false` = denies it. AECi seeds `true`. |
 | `introducedAt`, `deprecatedAt` | ISO date string \| null | — | **Dormant in Stage 1.5** — version stamps accepted for forward-compatibility but unused. |
 | `note` | string \| null | — | Optional provenance / source note. |
@@ -336,6 +339,10 @@ term is not auto-created** — the claim is dropped and reported in `skipped[]` 
 send a claim only on an integration you are actually promoting (both endpoints resolve).
 If you omit an integration because its far endpoint isn't promoted yet, omit its claims
 too — they migrate when that integration does.
+
+**`claims[]` replaces AECi curation only, not the whole claim set** — vendors author
+claims and attestations of their own, and those survive a re-push. Read §5.2 before
+relying on omission to remove a claim.
 
 ### 3.5 Vendor-only (or integration-only) push
 
@@ -366,6 +373,40 @@ integration-only push (send only `integrations[]`) — but note that without a
 > the usual flow is: vendors are created the first time their product is promoted,
 > and this vendor-only form is for **editing** an already-promoted vendor.
 
+### 3.6 `lastReviewedAt` — the review signal (AECI-616)
+
+Accepted on `vendors[]`, `product`, and `integrations[]`. It is the only way the
+public **maintenance marker** gets a date:
+
+> Maintained by AEC Integrations. **Reviewed March 4, 2026.**
+
+**The contract is that absence means "untouched."** Omit the field and the stored
+`last_reviewed_at` keeps whatever it had; send an ISO-8601 timestamp and it advances;
+send `null` and it clears. Nothing else in the promote path writes it.
+
+**Why it isn't derived server-side.** The obvious implementation — stamp `now()` on
+every promote — is exactly what this design refuses. AECi's own `updated_at` already
+does that, and it is useless as a freshness signal precisely because of it: promote
+re-asserts `promotion_status='promoted'` on every re-push, so production has 60
+products sharing one `updated_at` day and 40 sharing another. A date that refreshes
+itself without anyone re-checking the record is worse than no date, because readers
+believe it.
+
+**So this field carries an obligation.** Send it when a curator genuinely re-verified
+the record — not on every sync, and not as a default in your push builder. If it ends
+up stamped on every push it becomes `updated_at` with extra steps, and the marker goes
+back to lying. There is no server-side check that can catch that; the discipline lives
+on your side.
+
+Nothing is backfilled: every record promoted before this field existed reads
+`last_reviewed_at: null` and renders bare attribution with no date, until a real review
+supplies one.
+
+**`maintainedBy` is not accepted.** The `'vendor'` value is set only by a vendor's own
+attestation in the vendor portal, and cleared when they retract it. If the payload
+carried it, a routine push would silently take a record back off a vendor's name — the
+same failure `verified` had before AECI-520 (§4a).
+
 ---
 
 ## 4. Response
@@ -384,7 +425,8 @@ what `GET /api/promote/jobs/{jobId}` returns in `result` once `status` is
     "product": { /* … */ },
     "integrations": [ /* … */ ],
     "taxonomy": { /* … */ },
-    "skipped": [ /* … */ ]
+    "skipped": [ /* … */ ],
+    "preserved": [ /* … */ ]
   }
 }
 ```
@@ -408,6 +450,9 @@ The `result` object in full:
   },
   "skipped": [
     { "ref": "i7", "kind": "integration", "reason": "source or target product is not promoted yet" }
+  ],
+  "preserved": [
+    { "ref": "i1", "kind": "claim", "reason": "vendor-origin claim left untouched (not AECi-curated)", "count": 2 }
   ]
 }
 ```
@@ -439,6 +484,13 @@ The `result` object in full:
   error: re-push after promoting the other product, after the referenced taxonomy
   term exists, or with a recognized `dataObject` / trade value.
 - Two `skipped[]` kinds mean something different from all the others — see §4a.
+- **`preserved[]` is the opposite signal and needs no action from you.** It lists
+  claims and attestations that were **not** in your payload and survived anyway,
+  because a vendor owns them (§5.2). It is a receipt, not a problem: an entry means
+  coexistence worked. Entries are `{ ref, kind: "claim" | "attestation", reason,
+  count }`, aggregated per reason, with `ref` set to the enclosing integration's
+  `ref`. For the ordinary promote of an unclaimed product it is always `[]`.
+  Log it if you want operator visibility; never treat it as an error.
 
 ---
 
@@ -518,6 +570,8 @@ the same product twice as two different attempts.
 - **Re-pushing is safe** (same `supabaseId` → same row). The one hazard is a
   **lost ID mapping**: without `supabaseId`, AECi has no way to know the row
   already exists and will create a duplicate. Persist the IDs durably.
+- **`claims[]` is the one exception to "replaced to exactly match what you send"** —
+  it replaces **AECi curation only**. See §5.2.
 
 ### 5.1 Promote has NO delete semantics — deleting in Airtable does not retract
 
@@ -525,8 +579,10 @@ This is the sharpest edge in the whole contract, and it is not a bug you can ret
 past. **A promote can create and update rows. It can never delete one.**
 
 The only exception is *within* an entity you push: a product's join sets (categories,
-trades, …) and an integration's `claims[]` are replaced wholesale to match your
-payload. Entities themselves — products, vendors, integrations — are never removed.
+trades, …) are replaced wholesale to match your payload, and an integration's
+`claims[]` replaces **AECi's own curation** on it (§5.2 — vendor-authored claims and
+attestations survive). Entities themselves — products, vendors, integrations — are
+never removed.
 
 So if a curator **deletes an `Integrations` record from the base**, or simply stops
 sending it, the live D1 row does not go anywhere. It stays on the public pair page and
@@ -555,6 +611,42 @@ production D1 against the base daily and fails on any stray. AECI-593 is the wor
 example: two Polycam edges were editorially retracted on 2026-08-09 and sat live on
 production until the audit found them. Repair recipes:
 `scripts/ops/2026-08-promote-strand-audit/README.md` §Healing.
+
+### 5.2 `claims[]` replaces AECi curation only (AECI-604)
+
+**Since Stage 2, a claim absent from your payload is no longer a guaranteed delete.**
+This is the one place where "join sets are replaced to exactly match what you send"
+stops being the whole truth, and it is deliberate.
+
+Vendors can now author their own claims and attest to existing ones through the vendor
+portal. The review app has never had any way to see those rows — it only ever emits
+`source: "aeci"` attestations — so a replace-everything ingest would silently delete a
+vendor's assertions on every re-push of a claimed product. Instead, promote merges **by
+origin**:
+
+| What you send | What AECi does |
+|---|---|
+| A claim whose `(dataObject, direction)` already exists on that integration | **Reuses the existing row**, keeping its id and every vendor attestation on it. Only the `aeci` attestation is rewritten. |
+| A new `(dataObject, direction)` | Creates it, `origin = "aeci"`. |
+| You omit a claim AECi created and nobody else attests | Deleted, as before. |
+| You omit a claim a **vendor has attested** | **Converted, not deleted** — it becomes `origin = "vendor"` and keeps the vendor's attestation. AECi has withdrawn its curation; the vendor's assertion stands on its own and renders as one-sided on the pair page. |
+| A claim a **vendor created** (you never sent it, and never will) | Never touched, under any payload — including an empty `claims[]`. |
+
+Three consequences for the review app:
+
+- **You are no longer the sole author of an integration's claim set.** Re-curation is
+  still safe and still does what you mean; it just cannot assume it owns every row. If
+  the pair page shows a claim your base has no record of, that is expected — a vendor
+  put it there.
+- **Only `source: "aeci"` is yours to write.** Sending `vendor_a` / `vendor_b` in an
+  `attestations[]` is rejected per-claim into `skipped[]` (`kind: "claim"`) rather than
+  written; those slots are derived from product ownership and are not settable from a
+  payload.
+- **Claim ids are now stable.** A claim whose identity triple doesn't change keeps its
+  id across re-promotes, so anything you store keyed on a claim id stays valid.
+
+Whatever survived is reported in `preserved[]` (§4), so a re-promote of a claimed
+product shows explicitly which rows were kept rather than leaving you to infer it.
 
 ---
 
@@ -934,7 +1026,9 @@ window, so reusing the first promote's id would just hand you back that job's ol
 - [ ] Persist every returned `id` against your record, durably.
 - [ ] Only include integrations whose far endpoint is already promoted (reference it by `supabaseId`); inspect `result.skipped[]`.
 - [ ] Send `trades[]` only for products with **trade-specific value** (§3.3) — most products send none, and horizontal platforms send an empty array. Values may be slugs, names, or aliases; they resolve find-only, an unrecognized value comes back in `skipped[]` as `kind: "trade"` (never a term you just invented), and omitting the key **clears** the product's trades.
-- [ ] Nest each integration's data-object `claims[]` under it (`dataObject` slug/name, `direction` `a_to_b`/`b_to_a`/`both` relative to source→target, `attestations[]` with `source: "aeci"`); a claim rides with its integration and an unrecognized `dataObject` comes back in `skipped[]` as `kind: "claim"`.
+- [ ] Nest each integration's data-object `claims[]` under it (`dataObject` slug/name, `direction` `a_to_b`/`b_to_a`/`both` relative to source→target, `attestations[]` with `source: "aeci"` — **only** `aeci`); a claim rides with its integration and an unrecognized `dataObject`, or a vendor-owned attestation source, comes back in `skipped[]` as `kind: "claim"`.
+- [ ] Understand that `claims[]` replaces **AECi curation only** (§5.2): omitting a claim a vendor has attested converts it rather than deleting it, and a vendor-authored claim is never removed. Don't treat `preserved[]` as an error.
 - [ ] Handle `skipped[]` kinds `"vendor"` / `"product"` (§4a): show the curator that the entity is **vendor-claimed and not writable from here** — don't retry, and don't treat `product: null` as "no product sent" without checking.
 - [ ] Don't rely on `verified` — it is accepted and ignored (§3.2).
+- [ ] **Send `lastReviewedAt` only on a genuine re-check, never as a default in your push builder** (§3.6). It becomes a public "Reviewed &lt;date&gt;." claim; stamping it on every sync turns it into `updated_at` with extra steps and makes the marker lie. Omitting it is always safe — the stored value is left alone. `maintainedBy` is not accepted at all.
 - [ ] On a synchronous 4xx, surface `error.message` / `error.field` to the curator; on 5xx, retry (same `jobId`) then escalate `trace_id`. On `status: "errored"`, surface `error.code` / `error.message` and retry with a new `jobId` (§6).

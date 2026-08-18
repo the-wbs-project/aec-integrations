@@ -388,6 +388,10 @@ Anything that crosses multiple components or pages is a candidate for E2E.
 
 **Phase 3.12 implementation (AECI-145).** The "search → results → faceted filter → result click" journey is covered on the **API-backed listing path** (`apps/web/e2e/facets.spec.ts`): the AECI-143 facet sidebar on `/products` (facet click → `{kind}_id` + `page=1` in the URL, checkbox state, grid refresh, Clear-filters reset), the locked-kind sidebar on `/categories/:slug` (hides its own dimension), and the deterministic refine → product-card click → detail `<h1>` chain. This is the CI-runnable embodiment of the journey because **`/search` itself degrades in CI** — `dev:bound` boots without Algolia, so the InstantSearch results never render. The live `/search` box → hits → click → detail flow therefore lives in a **self-skipping block** in `search.spec.ts`, guarded on the `window.__AECI_ALGOLIA__` bootstrap (runs locally/preview with search creds, skips in CI). **Cache-key correctness** ("distinct facets → distinct cache entries") is proven by a unit test on the exported `cacheKeyFor()` (`cache-key-url.spec.ts`; it replaced `cacheKeyUrl()`, which WC-3 / AECI-317 removed with the manual `caches.default` pipeline and WC-4 / AECI-318 restored behind the gateway entrypoint) — HIT/MISS is unobservable on localhost (Miniflare ≠ Cloudflare edge) — with `facets.spec.ts` asserting the complement at the wire: distinct facet URLs are independently cacheable yet share one `Cache-Tag` (facets live in the key, not the tag).
 
+`cache-key-url.spec.ts` is the same proof for every later content-affecting param, and AECI-303 added the product-PAIR page's two version selectors to it. Two of those cases are worth knowing about because they guard against a *plausible* future change rather than a typo: one asserts that swapping the two values yields a **different** key (the pair is ordered), and one asserts a comma inside a version label survives verbatim — together they fail any attempt to add `context_version`/`other_version` to `MULTI_VALUE_CACHE_KEY_PARAMS` "for consistency", which would corrupt a legitimate `R2024,SP1` label rather than merely fragment the cache.
+
+**The product-PAIR page's own e2e** (`apps/web/e2e/products-pair.spec.ts`, AECI-303) follows the `search.spec.ts` self-skipping shape for the same reason: the §9 selectors only render for a pair with version-stamped attestations, and no environment has one (promote does not ingest versions; the only writer is the Verified-vendor API). The default-path cases run everywhere; the interaction block probes for a non-null `version_diff` and skips when there is none. `pnpm --filter @aeci/api db:seed:version-diff:local` is the reproducible local input that makes it run, and is deliberately **not** part of `db:seed:local` so every other pair page keeps showing the launch-reality default. The pair page also gained its first row in `phase2-a11y.spec.ts` — it had none, which is how the design checklist's axe step went unenforced in CI for the surface that owns the claim lanes.
+
 ### 7.3 What not to test in E2E
 
 - Things already covered by unit/component tests
@@ -501,6 +505,14 @@ Run axe on:
   authorized `afterNextRender` reads resolve, so an axe run on the unauthenticated
   route would only ever audit the loading state. That spec is the one place with a
   real minted session; it waits for the stat tiles before analyzing.
+- `/vendor` — the **Integrations tab**, in `vendor-dashboard.spec.ts` (AECI-606), for the
+  same reason and with the same shape: the tab authorizes server-side via
+  `vendorMeResolver`, and its cards, claim lanes, Aria pickers and live region do
+  not exist until `GET /api/vendor/integrations` lands. That spec mints the
+  `vendor_admin` persona and waits for the first integration card (or the empty
+  state) before analyzing. It is the most interactive vendor-facing surface, so
+  this is the run that covers the combobox/listbox wiring end to end — the unit
+  specs deliberately never open a CDK overlay (§4.3a).
 
 Run in the light theme (Stage 1 is light-only — AECI-226).
 

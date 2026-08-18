@@ -15,9 +15,14 @@ import type { PromoteWorkflowParams } from './lib/promote-jobs';
  * a `ScheduledJobMessage`. Unlike the daily jobs, `reconcile` runs every 15
  * minutes (see `RECONCILE_CRON` in `scheduled.ts`) — a tight backstop, not a
  * daily batch. `data_quality` is the daily 04:00 UTC §23.1 data-quality suite
- * (AECI-241 / Phase 7.6): eleven read-only integrity checks + an email digest.
+ * (AECI-241 / Phase 7.6): ten read-only integrity checks + an email digest.
  * `waf` is the hourly WAF firewall-event poll (AECI-262 / §15.1): like
  * `moderation` it is queue-less (a cheap read-only Cloudflare GraphQL Analytics
+ * read) and always runs inline. `attestation_notify` is the daily 10:00 UTC §7
+ * attestation detector sweep (AECI-302 / `STAGE_2_ATTESTATIONS_SPEC.md` §7):
+ * four detectors over the claim/attestation spine, vendor nudge + AECi ops email
+ * via Resend, and an `audit_log` suppression ledger. Queue-backed, unlike the
+ * read-only gauges — it sends mail and writes D1, so it wants native retries.
  * read) and always runs inline. `analytics` is the daily 05:00 UTC (noon Jakarta) operator
  * analytics digest (AECI-526): like `moderation`/`waf` it is queue-less (a cheap
  * read-only aggregation + one email) and always runs inline. `snapshot` is the
@@ -40,6 +45,7 @@ export type ScheduledJob =
   | 'reconcile'
   | 'data_quality'
   | 'waf'
+  | 'attestation_notify'
   | 'analytics'
   | 'snapshot'
   | 'retention';
@@ -302,6 +308,15 @@ export type Env = {
    * cron runs the job inline (`enqueueOrRun`).
    */
   DATA_QUALITY_QUEUE?: Queue<ScheduledJobMessage>;
+  /**
+   * Queue carrying the daily §7 attestation detector sweep (AECI-302 /
+   * `STAGE_2_ATTESTATIONS_SPEC.md` §7.4). Queue-backed rather than inline like the
+   * read-only gauges because the job sends email and writes `audit_log`, so it
+   * benefits from the consumer's native retries. Same producer/consumer split as
+   * the others; absent on local/preview → the cron runs the job inline
+   * (`enqueueOrRun`).
+   */
+  ATTESTATION_NOTIFY_QUEUE?: Queue<ScheduledJobMessage>;
   /**
    * Cloudflare Queue **producer** binding for cross-Worker cache-purge (WC-5 /
    * AECI-319 / ADR 0020 §3). The post-promote purge (`purgeAfterPromote`, the ordered

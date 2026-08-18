@@ -1,5 +1,5 @@
 /**
- * The ten cron expressions the API Worker is triggered on, in one place.
+ * The eleven cron expressions the API Worker is triggered on, in one place.
  *
  * They used to live as module-private constants in `scheduled.ts`, which was fine
  * while `scheduled.ts` was the only reader. `GET /api/admin/system` (AECI-580 /
@@ -45,7 +45,7 @@ export const RETENTION_CRON = '0 3 * * *';
 
 /** Daily §23.1 data-quality suite (AECI-241 / Phase 7.6). 04:00 UTC — the §23.1
  *  slot, two hours ahead of the 06:00 moderation snapshot, in the same
- *  dead-of-night daily window. Runs the eleven checks and emails the digest when
+ *  dead-of-night daily window. Runs the ten checks and emails the digest when
  *  they finish (~04:30 UTC). */
 export const DATA_QUALITY_CRON = '0 4 * * *';
 
@@ -89,6 +89,14 @@ export const RECONCILE_CRON = '*/15 * * * *';
  *  query window (no overlap / gaps). Queue-less like `moderation`. */
 export const WAF_CRON = '0 * * * *';
 
+/** Daily Stage 2 §7 attestation detector sweep (AECI-302 /
+ *  `STAGE_2_ATTESTATIONS_SPEC.md` §7). **10:00 UTC** — last of the daily jobs on
+ *  purpose: it reads the claim/attestation spine that the earlier batch may have
+ *  moved, and it is the only daily job that emails vendors rather than operators.
+ *  Queue-backed, unlike the read-only gauges — it sends mail and writes
+ *  `audit_log`, so it wants the consumer's native retries. */
+export const ATTESTATION_NOTIFY_CRON = '0 10 * * *';
+
 /**
  * Every cron, in schedule order, keyed by the `AdminCronJob` id. `Record<…>` so
  * adding a member to the shared enum without adding a schedule here is a type
@@ -105,6 +113,7 @@ export const CRON_SCHEDULES: Record<AdminCronJob, string> = {
   'algolia-drift': ALGOLIA_DRIFT_CRON,
   'request-reconcile': RECONCILE_CRON,
   'waf-poll': WAF_CRON,
+  'attestation-notify': ATTESTATION_NOTIFY_CRON,
 };
 
 /**
@@ -128,6 +137,7 @@ export const ADMIN_CRON_JOB: Record<ScheduledJob, AdminCronJob> = {
   drift: 'algolia-drift',
   reconcile: 'request-reconcile',
   waf: 'waf-poll',
+  attestation_notify: 'attestation-notify',
 };
 
 /** Display/iteration order for the System screen — chronological through the UTC
@@ -141,6 +151,7 @@ export const CRON_JOBS: readonly AdminCronJob[] = [
   'home-stats',
   'algolia-sync',
   'algolia-drift',
+  'attestation-notify',
   'request-reconcile',
   'waf-poll',
 ];

@@ -419,16 +419,27 @@ const ROUTE_CACHE_PATTERNS: readonly RoutePattern[] = [
   // product pattern, so ordering here isn't load-bearing). The pair page
   // SSR-renders a different layout for `?view=basic` (the Overview: sync headline
   // + descriptions, no claim lanes) vs. the `detailed` default, so `view` is
-  // content-affecting and MUST stay in the key — hence `cacheKeyParams: ['view']`
-  // (same rationale as AECI-190's `/products ?view=table`). WC-4 (AECI-318)
-  // restored the utm-strip + per-route allowlist normalization the pre-WC-3
-  // `cacheKeyUrl` applied; it now feeds `cf.cacheKey` on the gateway's loopback
-  // to `Renderer` (see `cacheKeyFor`). The pair route reads only `view`, so the
-  // listing union isn't reused here.
+  // content-affecting and MUST stay in the key (same rationale as AECI-190's
+  // `/products ?view=table`). WC-4 (AECI-318) restored the utm-strip + per-route
+  // allowlist normalization the pre-WC-3 `cacheKeyUrl` applied; it now feeds
+  // `cf.cacheKey` on the gateway's loopback to `Renderer` (see `cacheKeyFor`).
+  //
+  // AECI-303 (§9.2) adds the two version selectors. They are ALSO
+  // content-affecting: `?context_version=` / `?other_version=` change which claims
+  // render and what each one's added/removed/unchanged marker says, and the
+  // resolver flips the page to `noindex` for a non-default selection — a decision
+  // WC-8 bakes into the stored payload, so omitting them here would serve one
+  // visitor's version selection (and its robots tag) to everyone. The listing
+  // union isn't reused: this route reads exactly these three params.
+  //
+  // Deliberately NOT in `MULTI_VALUE_CACHE_KEY_PARAMS`. These are single-valued
+  // version LABELS, not comma-separated sets, and `sortCsv` would rewrite a
+  // legitimate comma-bearing label (`R2024,SP1`) into a different string — turning
+  // a valid selection into one that no longer matches any row.
   {
     match: (p) => /^\/products\/[^/]+\/integrations\/[^/]+$/.test(p),
     ttl: { edge: 900, browser: 0, ...RESILIENCE },
-    cacheKeyParams: ['view'],
+    cacheKeyParams: ['view', 'context_version', 'other_version'],
   },
   { match: (p) => /^\/products\/[^/]+$/.test(p), ttl: { edge: 900, browser: 0, ...RESILIENCE } },
   { match: (p) => /^\/vendors\/[^/]+$/.test(p), ttl: { edge: 900, browser: 0, ...RESILIENCE } },

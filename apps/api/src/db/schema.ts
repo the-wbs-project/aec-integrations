@@ -55,6 +55,33 @@ const updatedAt = () =>
     .$defaultFn(() => new Date().toISOString())
     .$onUpdate(() => new Date().toISOString());
 
+/**
+ * The maintenance-marker pair (AECI-616 / `STAGE_2_ATTESTATIONS_SPEC.md` §13), on
+ * `vendors` / `products` / `integrations`.
+ *
+ * `last_reviewed_at` is when a human LAST ACTUALLY RE-CHECKED the record — a
+ * falsifiable claim the marker renders to readers. It is deliberately a **plain
+ * column**: no `$defaultFn`, and above all **no `$onUpdate`**, unlike `updatedAt()`
+ * directly above. It is written by exactly two paths — an explicit `lastReviewedAt`
+ * in the promote payload, and a vendor attestation — and by nothing else.
+ *
+ * Never source it from `updated_at`, `created_at`, or `promoted_at`, and never
+ * backfill it from them. `updated_at` restamps on ANY write and promote re-asserts
+ * `promotion_status` on every re-promote, so in production 60 products share one
+ * `updated_at` day and 40 share another: it is a bulk-sweep timestamp wearing a
+ * freshness costume, which is the exact failure the marker exists to expose.
+ */
+const lastReviewedAt = () => text('last_reviewed_at');
+
+/** Who is on the hook for the record's accuracy. `'vendor'` is reachable only via
+ *  a live vendor attestation (AECI-301); promote must never write this column, or a
+ *  routine Airtable push would silently un-vendor a record. */
+const maintainedBy = () => text('maintained_by').notNull().default('aeci');
+
+/** The CHECK companion to {@link maintainedBy}, so the three tables can't drift. */
+const maintainedByCheck = (table: 'vendors' | 'products' | 'integrations') =>
+  check(`${table}_maintained_by_check`, sql`"maintained_by" IN ('aeci', 'vendor')`);
+
 // ===========================================================================
 // Health check (proves the per-request DB path — retained from AECI-28)
 // ===========================================================================
@@ -105,11 +132,15 @@ export const vendors = sqliteTable(
     vqsTotal: real('vqs_total'),
     vqsComputedAt: text('vqs_computed_at'),
 
+    lastReviewedAt: lastReviewedAt(),
+    maintainedBy: maintainedBy(),
+
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
   (t) => [
     uniqueIndex('vendors_slug_key').on(t.slug),
+    maintainedByCheck('vendors'),
     index('vendors_company_name_idx').on(t.companyName),
     index('vendors_promotion_status_idx').on(t.promotionStatus),
     index('vendors_verified_idx').on(t.verified),
@@ -181,11 +212,15 @@ export const products = sqliteTable(
 
     adminNotes: text('admin_notes'),
 
+    lastReviewedAt: lastReviewedAt(),
+    maintainedBy: maintainedBy(),
+
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
   (t) => [
     uniqueIndex('products_slug_key').on(t.slug),
+    maintainedByCheck('products'),
     index('products_name_idx').on(t.name),
     index('products_promotion_status_idx').on(t.promotionStatus),
     index('products_research_status_idx').on(t.researchStatus),
@@ -241,10 +276,14 @@ export const integrations = sqliteTable(
     maturity: text('maturity'),
     notes: text('notes'),
 
+    lastReviewedAt: lastReviewedAt(),
+    maintainedBy: maintainedBy(),
+
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
   (t) => [
+    maintainedByCheck('integrations'),
     index('integrations_source_idx').on(t.sourceProductId),
     index('integrations_target_idx').on(t.targetProductId),
     index('integrations_mechanism_kind_idx').on(t.mechanismKind),
@@ -358,7 +397,59 @@ export const taxonomyDataObjects = sqliteTable(
 );
 
 // ===========================================================================
-// Claims & attestations (Stage 1.5 — STAGE_1_5_SPEC.md §3 / §6.1)
+// Product versions (Stage 2 migration 2 — STAGE_2_ATTESTATIONS_SPEC.md §8 /
+// AECI-607). Declared BEFORE `attestations` because that table's version-stamp
+// FKs reference it.
+// ===========================================================================
+
+// A release of one product, as the vendor names it. The entity AECI-303's
+// "source-version × target-version" diff needs and that the dormant
+// `attestations.introduced_at` / `deprecated_at` ISO dates cannot stand in for:
+// dates cannot answer "what flowed between Procore 2026.1 and BIM 360 v5".
+//
+// `sort_key` is the load-bearing column and it is NOT optional (§8.2). Version
+// labels do not sort lexically — `'2026.10' < '2026.9'` as strings, and
+// `'v10' < 'v9'` — so every ordering, every before/after comparison in §9, and
+// the "latest" default key off this INTEGER, never off `label` and never off the
+// nullable `released_at`. `@aeci/shared/version-sort` owns the derivation
+// (`deriveVersionSortKey`) and the comparator; the write API derives on create
+// and accepts an explicit override for labels the packer cannot read.
+//
+// **Authority (§8.2).** A version stamped by an attestation always belongs to the
+// ATTESTING SIDE'S OWN endpoint product — a `vendor_a` attestation stamps
+// versions of product A. That keeps versioning inside the same boundary as §2.1,
+// so no vendor can assert anything about the counterparty's release history. The
+// FK alone cannot express it; the §5 write path enforces it through
+// `resolveAttestationSlots` (`lib/attestation-authority.ts`).
+//
+// Vendor-authored only at launch: promote does not ingest versions (§8.3 / §11).
+export const productVersions = sqliteTable(
+  'product_versions',
+  {
+    id: uuidPk(),
+    productId: text('product_id')
+      .notNull()
+      .references(() => products.id, { onDelete: 'cascade' }),
+    label: text('label').notNull(),
+    releasedAt: text('released_at'),
+    sunsetAt: text('sunset_at'),
+    sortKey: integer('sort_key').notNull(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    // Label identity within a product. Two products may both ship a `v5.2`.
+    uniqueIndex('product_versions_label_key').on(t.productId, t.label),
+    // The ordered read (§8.2). Product-id lookups ride the leftmost prefix of
+    // either index; this one also serves the ORDER BY.
+    index('product_versions_order_idx').on(t.productId, t.sortKey),
+  ],
+);
+
+// ===========================================================================
+// Claims & attestations (Stage 1.5 — STAGE_1_5_SPEC.md §3 / §6.1;
+// provenance + authority added by Stage 2 migration 1 —
+// STAGE_2_ATTESTATIONS_SPEC.md §2 / AECI-603)
 // ===========================================================================
 
 // A claim asserts a `data_object` flows in a `direction` through one integration
@@ -366,6 +457,15 @@ export const taxonomyDataObjects = sqliteTable(
 // is stored relative to the row's own endpoints (A = source_product, B = target_product,
 // §3.2). The unique `(integration_id, data_object_id, direction)` index is the claim's
 // immutable identity AND the promote-ingest upsert target (§6.2).
+//
+// `origin` + `created_by_vendor_id` are the Stage 2 provenance pair
+// (STAGE_2_ATTESTATIONS_SPEC.md §2.2). They exist for WRITE ARBITRATION — promote
+// replaces AECi curation without touching vendor-created rows (§3) — and for the AECi
+// ops view. Provenance is deliberately NOT a reader-facing trust badge: a
+// vendor-created claim renders through the same agreement states as an AECi-seeded one.
+// The biconditional `origin = 'vendor' ⟺ created_by_vendor_id IS NOT NULL` is a
+// two-column invariant enforced in ONE place in application code
+// (`lib/attestation-authority.ts`), not by a DB CHECK.
 export const claims = sqliteTable(
   'claims',
   {
@@ -377,6 +477,12 @@ export const claims = sqliteTable(
       .notNull()
       .references(() => taxonomyDataObjects.id, { onDelete: 'restrict' }),
     direction: text('direction').notNull(),
+    origin: text('origin').notNull().default('aeci'),
+    // SET NULL, not cascade: losing the vendor row must not silently delete the claim.
+    // The claim survives as an orphan for AECi to re-curate.
+    createdByVendorId: text('created_by_vendor_id').references(() => vendors.id, {
+      onDelete: 'set null',
+    }),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -386,14 +492,34 @@ export const claims = sqliteTable(
     // the leftmost prefix of `claims_identity_key`, so no separate integration index.
     index('claims_data_object_idx').on(t.dataObjectId),
     check('claims_direction_check', sql`"direction" IN ('a_to_b', 'b_to_a', 'both')`),
+    check('claims_origin_check', sql`"origin" IN ('aeci', 'vendor')`),
   ],
 );
 
-// An attestation records who affirms a claim (§3.3). In Stage 1.5 only `source: 'aeci'`
-// is ever written; `vendor_a`/`vendor_b` and the `introduced_at`/`deprecated_at` version
-// stamps are additive-and-dormant — present in the schema/contract, written by no 1.5
-// code path (reserved for the Stage 2 portal + timeline). Agreement is computed from the
+// An attestation records who affirms a claim (§3.3). Agreement is computed from the
 // attestation set, never stored (§3.4, `packages/shared/src/agreement.ts`).
+//
+// `vendor_a` / `vendor_b` stopped being dormant with the Stage 2 attestations epic
+// (AECI-514): which slot a caller may write is derived from product ownership in
+// `product_vendors`, never from the request — `lib/attestation-authority.ts` is the
+// single implementation of that rule (STAGE_2_ATTESTATIONS_SPEC.md §2.1).
+// `attested_by_vendor_id` records WHICH vendor identity filled the slot, because
+// `confirmed` requires two DISTINCT identities (§4) — one company owning both endpoints
+// of an integration must never render as bilateral agreement.
+//
+// Two lifecycle columns that are easy to conflate and must not be:
+//   - `introduced_at` / `deprecated_at` are VERSION STAMPS (§3.3) — "this flow existed
+//     from v4 until v6". They say nothing about whether the attestation still stands.
+//   - `retracted_at` is SUPERSESSION — the vendor withdrew or replaced its assertion.
+// Supersession is retract-then-insert, never UPDATE, so the history stays append-only
+// for the §9 timeline. Only `retracted_at` may gate the read path.
+//
+// `introduced_version_id` / `deprecated_version_id` (Stage 2 migration 2, §8.2) are the
+// PRECISE form of those version stamps, and they sit ALONGSIDE the ISO dates rather than
+// replacing them: the dates stay the coarse fallback for claims carrying no version data,
+// which is every claim promote has ever written. The referenced version must belong to the
+// attesting side's own endpoint product — see the `productVersions` header.
+
 export const attestations = sqliteTable(
   'attestations',
   {
@@ -405,16 +531,39 @@ export const attestations = sqliteTable(
     asserted: integer('asserted', { mode: 'boolean' }).notNull().default(true),
     introducedAt: text('introduced_at'),
     deprecatedAt: text('deprecated_at'),
+    // SET NULL, not cascade: deleting a version must degrade the stamp to "no
+    // version data" (the row falls back to the ISO dates), never delete the
+    // vendor's assertion.
+    introducedVersionId: text('introduced_version_id').references(() => productVersions.id, {
+      onDelete: 'set null',
+    }),
+    deprecatedVersionId: text('deprecated_version_id').references(() => productVersions.id, {
+      onDelete: 'set null',
+    }),
+    retractedAt: text('retracted_at'),
+    // SET NULL rather than cascade — see the claims note; the historical assertion
+    // survives for the §9 timeline even if the vendor row goes away.
+    attestedByVendorId: text('attested_by_vendor_id').references(() => vendors.id, {
+      onDelete: 'set null',
+    }),
     note: text('note'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
   (t) => [
-    // Active attestations for a claim (the §8 read). Partial on the dormant version
-    // stamp so Stage 2 can retire an attestation without deleting its history.
+    // One LIVE attestation per slot (§2.1). Partial so retract-then-insert works: any
+    // number of retracted rows may share a slot, exactly one non-retracted row may.
+    // This is what makes last-write-wins explicit when two accounts on the same vendor
+    // target the same slot, instead of silently accumulating duplicate votes.
+    uniqueIndex('attestations_slot_key')
+      .on(t.claimId, t.source)
+      .where(sql`"retracted_at" IS NULL`),
+    // Live attestations for a claim (the §8 read). Predicated on `retracted_at`, NOT on
+    // the `deprecated_at` version stamp — a vendor recording that a flow was deprecated
+    // in v6 must not make the attestation vanish from the read path (AECI-303 reads it).
     index('attestations_active_idx')
       .on(t.claimId)
-      .where(sql`"deprecated_at" IS NULL`),
+      .where(sql`"retracted_at" IS NULL`),
     check('attestations_source_check', sql`"source" IN ('aeci', 'vendor_a', 'vendor_b')`),
   ],
 );
@@ -1310,6 +1459,10 @@ export const mailingList = sqliteTable(
 export const vendorsRelations = relations(vendors, ({ many }) => ({
   productVendors: many(productVendors),
   builtIntegrations: many(integrations, { relationName: 'IntegrationBuiltByVendor' }),
+  // Stage 2 provenance/authority back-relations (AECI-603). Named because a vendor is
+  // reachable from two different tables here, same as the built-by disambiguation above.
+  createdClaims: many(claims, { relationName: 'ClaimCreatedByVendor' }),
+  attestationsMade: many(attestations, { relationName: 'AttestationAttestedByVendor' }),
 }));
 
 export const productsRelations = relations(products, ({ many }) => ({
@@ -1321,6 +1474,9 @@ export const productsRelations = relations(products, ({ many }) => ({
   reviews: many(reviews),
   sourceIntegrations: many(integrations, { relationName: 'IntegrationSource' }),
   targetIntegrations: many(integrations, { relationName: 'IntegrationTarget' }),
+  // Stage 2 §8 — the product's declared releases. Order with `sort_key`, never
+  // by insertion or by label.
+  versions: many(productVersions),
   // Integrations this product POWERS as the connector/mechanism (Stage 1.5
   // Addendum B) — the inverse of `integrations.poweredByProduct`, so the
   // product detail query can hydrate a connector's edges.
@@ -1378,10 +1534,40 @@ export const claimsRelations = relations(claims, ({ one, many }) => ({
     fields: [claims.dataObjectId],
     references: [taxonomyDataObjects.id],
   }),
+  createdByVendor: one(vendors, {
+    fields: [claims.createdByVendorId],
+    references: [vendors.id],
+    relationName: 'ClaimCreatedByVendor',
+  }),
   attestations: many(attestations),
 }));
 export const attestationsRelations = relations(attestations, ({ one }) => ({
   claim: one(claims, { fields: [attestations.claimId], references: [claims.id] }),
+  attestedByVendor: one(vendors, {
+    fields: [attestations.attestedByVendorId],
+    references: [vendors.id],
+    relationName: 'AttestationAttestedByVendor',
+  }),
+  // Two FKs into the SAME table, so both sides need an explicit `relationName`
+  // to disambiguate — the pattern `IntegrationSource`/`IntegrationTarget`
+  // already uses. Without it Drizzle cannot tell which relation a
+  // `productVersions` back-reference belongs to.
+  introducedVersion: one(productVersions, {
+    fields: [attestations.introducedVersionId],
+    references: [productVersions.id],
+    relationName: 'AttestationIntroducedVersion',
+  }),
+  deprecatedVersion: one(productVersions, {
+    fields: [attestations.deprecatedVersionId],
+    references: [productVersions.id],
+    relationName: 'AttestationDeprecatedVersion',
+  }),
+}));
+
+export const productVersionsRelations = relations(productVersions, ({ one, many }) => ({
+  product: one(products, { fields: [productVersions.productId], references: [products.id] }),
+  introducedAttestations: many(attestations, { relationName: 'AttestationIntroducedVersion' }),
+  deprecatedAttestations: many(attestations, { relationName: 'AttestationDeprecatedVersion' }),
 }));
 
 export const productCategoriesRelations = relations(productCategories, ({ one }) => ({
@@ -1457,6 +1643,7 @@ export const schema = {
   taxonomyPhases,
   taxonomyTrades,
   taxonomyDataObjects,
+  productVersions,
   claims,
   attestations,
   productCategories,
@@ -1500,6 +1687,7 @@ export const schema = {
   taxonomyDataObjectsRelations,
   claimsRelations,
   attestationsRelations,
+  productVersionsRelations,
   productCategoriesRelations,
   productAudiencesRelations,
   productPhasesRelations,

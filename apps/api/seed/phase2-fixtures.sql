@@ -124,3 +124,28 @@ ON CONFLICT DO NOTHING;
 INSERT INTO "integrations" ("id","name","source_product_id","target_product_id","mechanism_kind","mechanism_name","direction","built_by_vendor_id","description","listing_url","docs_url","created_at","updated_at") VALUES
   ('00000000-0000-4000-8000-000000000065','Fixture Procore ↔ Acme Connector','00000000-0000-4000-8000-000000000062','00000000-0000-4000-8000-000000000063','native','Native integration','bidirectional','00000000-0000-4000-8000-000000000061','Fixture integration used by the AECI-65 axe + Lighthouse CI harness. A native, bidirectional integration between two fixture products with a built-by vendor, mechanism, and description, so the integration detail page renders a realistic amount of content.','https://example.com/fixture-integration/listing','https://example.com/fixture-integration/docs', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 ON CONFLICT ("id") DO NOTHING;
+
+-- ---------------------------------------------------------------------------
+-- AECI-606 — one AECi-seeded claim on the fixture integration, so the vendor
+-- dashboard's Integrations tab has a real lane to render and `vendor-dashboard.spec.ts`
+-- has something to affirm/clear against.
+--
+-- Without this the tab is correct but empty: `phase2-fixtures.sql` seeds integration
+-- `...065` (source = the vendor persona's owned product `...062`), and promote has never
+-- run locally, so `claims` is empty in every fresh D1. The e2e round-trip would then have
+-- nothing to PUT against.
+--
+-- Direction `a_to_b` is relative to the integration row's own endpoints; the vendor owns
+-- endpoint A, so the tab frames it as OUTBOUND. `data_object_id` is the deterministic
+-- UUIDv5 for `rfis` from `data-objects.sql`, which runs earlier in `db:seed:local`.
+-- The `aeci` attestation is what promote would have written: it leaves the claim on
+-- `unverified` (an AECi seed is not a vendor voter), so a vendor affirming it moves it to
+-- `single_source` — the state change the e2e asserts.
+-- ---------------------------------------------------------------------------
+INSERT INTO "claims" ("id","integration_id","data_object_id","direction","origin","created_at","updated_at") VALUES
+  ('00000000-0000-4000-8000-000000000066','00000000-0000-4000-8000-000000000065','2d14be8b-4d2a-55f9-8d45-c1092a5302af','a_to_b','aeci', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+ON CONFLICT ("id") DO NOTHING;
+
+INSERT INTO "attestations" ("id","claim_id","source","asserted","created_at","updated_at") VALUES
+  ('00000000-0000-4000-8000-000000000067','00000000-0000-4000-8000-000000000066','aeci',1, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+ON CONFLICT ("id") DO NOTHING;

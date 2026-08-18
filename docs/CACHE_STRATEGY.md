@@ -128,7 +128,7 @@ The per-route allowlist lives on each `ROUTE_CACHE_PATTERNS` entry as `cacheKeyP
 | `/products` (index) | `page`, `perPage`, `sort`, `category_id`, `audience_id`, `phase_id`, `trade_id` |
 | Browse (`/categories\|audiences\|phases\|trades/:slug`) | `page`, `perPage`, `sort`, `category_id`, `audience_id`, `phase_id`, `trade_id` |
 | Detail (`/products/:slug`, `/vendors/:slug`) | none — strip all |
-| Product-PAIR page (`/products/:context/integrations/:other`) | `view` — the Basic/Detailed disclosure toggle SSR-renders different content (Basic drops the claim lanes), so `?view=basic` and the `detailed` default MUST get distinct keys. Same rationale as `/products ?view=table` (AECI-190). The companion `aeci_pair_view` cookie (remembers the reader's choice) is **NOT** a cache-key input and is **NOT** in `VISITOR_STATE_COOKIES` — it is read only post-hydration in the browser, never by SSR (see §6.1). |
+| Product-PAIR page (`/products/:context/integrations/:other`) | `view`, `context_version`, `other_version`. **`view`** — the Basic/Detailed disclosure toggle SSR-renders different content (Basic drops the claim lanes), so `?view=basic` and the `detailed` default MUST get distinct keys. Same rationale as `/products ?view=table` (AECI-190). The companion `aeci_pair_view` cookie (remembers the reader's choice) is **NOT** a cache-key input and is **NOT** in `VISITOR_STATE_COOKIES` — it is read only post-hydration in the browser, never by SSR (see §6.1). **The two version selectors** (AECI-303 / `STAGE_2_ATTESTATIONS_SPEC.md` §9.2) carry a version **label** each and change which claims render plus every added/removed/unchanged marker — and the pair resolver marks a non-default selection `noindex`, a decision baked into the stored payload (§7.2). Under-including them would serve one visitor's version selection *and its robots tag* to everyone. There is no cookie counterpart: a remembered version is meaningless on a different pair, and "latest × latest is the default" must track newly-published releases. |
 | Taxonomy index (`/categories`, `/audiences`, `/phases`, `/trades`) | inherits the listing allowlist (combined `match`); these pages read none of it — harmless over-include |
 | Home (`/`), `/about`, `/updates`, `/roadmap`, `/legal/*` | none — strip all |
 
@@ -137,6 +137,8 @@ The listing/browse rows share one `LISTING_CACHE_KEY_PARAMS` const in `server-ru
 **Maintenance rule (load-bearing).** The allowlist must be a **superset** of every query param the page component reads from the URL. Under-including is a correctness bug, not just a perf one: it collapses two distinct renders onto one key and serves the wrong HTML. So when a Phase 3+ change adds a content-affecting query param to an index/browse page (a new facet, `search`, a filter), add it to that route's `cacheKeyParams` in the same change — AECI-143 did exactly this when it added the facet sidebar. Over-including is merely wasteful (a harmless extra entry), so when in doubt, include. `perPage` is listed today for forward-safety even though the index components currently hardcode the default and don't read it from the URL.
 
 **Value-level normalization for multi-select facets (AECI-223 / WC-4).** The taxonomy facets are **multi-select** — each dimension accepts a comma-separated id list in a single `{kind}_id` param (`category_id=a,b`), matched as `OR within the dimension, AND across dimensions`. Two selections in different click orders (`a,b` vs `b,a`) are the same filter but would otherwise be **distinct cache keys** (and break SSR↔client HTTP-transfer-cache parity). Two layers enforce the invariant: (1) the **producer** `aec-facet-sidebar` emits the ids **sorted** before writing the param (`facet-sidebar.ts` `onRefine`), keeping the browser URL + transfer-cache key stable; and (2) **WC-4 hardened `cacheKeyFor`** to also split/sort/rejoin the multi-value facet params (the `MULTI_VALUE_CACHE_KEY_PARAMS` set), so even a raw/hand-typed/bot `?category_id=b,a` collapses onto the same edge entry — the cache-key layer no longer depends solely on the producer. (The old `cacheKeyUrl` sorted param *names* only, never value bytes; the value sort is the WC-4 addition.) The allowlist is unchanged (the param names already covered single-select). Any future writer of a list-valued cache-key param should add it to `MULTI_VALUE_CACHE_KEY_PARAMS`.
+
+**And the inverse rule, because the set is not a free "consistency" win.** A param whose value is a single opaque string must stay OUT of `MULTI_VALUE_CACHE_KEY_PARAMS` — `sortCsv` splits on commas and rejoins, so it would silently rewrite a legitimate comma-bearing value. AECI-303's `context_version` / `other_version` are the live example: version labels are vendor-authored free text, so `R2024,SP1` is a valid label that the CSV sort would turn into a string matching no row. `apps/web/src/cache-key-url.spec.ts` pins this with a comma-bearing-label case; the test exists specifically to fail a future "add these for consistency" change.
 
 **Query-dependent redirects must be edge-excluded (WC-4).** The gateway applies the normalized `cf.cacheKey` to **every** GET, and `cacheKeyFor` strips the whole query for any path not in `ROUTE_CACHE_PATTERNS`. A standalone 301 whose `Location` embeds the request query — the `/disciplines/* → /audiences/*` redirect (`audienceRedirect`) and the apex→`www` canonical flip both preserve `${url.search}` — therefore **cannot** be stored in the shared edge cache: two distinct-query links would normalize to the same key and the first-warmed `Location` would be served to all of them. These redirects use `Cache-Control: private, max-age=3600` (browser-cacheable, since the browser keys on the full URL, but never edge-stored) instead of the `public`/`s-maxage` TTL the SSR routes use, and carry **no `Cache-Tag`** (there is nothing edge-stored to purge). Rule for any new standalone redirect: if its `Location` depends on the query string, make it `private` (edge-excluded); if it redirects to a canonical path and drops the query (like `/vendors → /products`), it may stay `public`/edge-cacheable.
 
@@ -171,10 +173,12 @@ Callers of `/admin/purge`:
 
 **(b) `POST /api/promote` + review moderation on the API Worker** — since WC-5, these **enqueue** onto `aeci-cache-purge-{env}` (producer binding `CACHE_PURGE_QUEUE`) after the write commits — for promote, from `dispatchPromoteHooks` *after* the Workflow commit step resolves rather than from the request (AECI-563 / ADR 0021), so a step replay cannot double-enqueue; the SSR consumer issues the `ctx.cache.purge()`. Best-effort, post-commit (`ctx.waitUntil`), a graceful no-op when the queue binding is unset (local dev, PR previews), and never fails the committed write (a `queue.send` rejection is logged and swallowed). The promote's entity/index/pair/taxonomy tags are derived by `cacheTagsForPromote` (`promote-cache-tags.ts`); review moderation enqueues `product:{slug}`; the **vendor-claim grant** (`PATCH /api/admin/claims/:id`, AECI-519) enqueues the vendor **and its products** — `{ tags: ['vendor:{slug}', 'product:{slug}'…, 'index:products'], source: 'moderation' }` — because it flips `vendors.verified` (unlike plain request-moderation, which purges nothing). One message per ≤1000-tag batch (`CACHE_PURGE_QUEUE_MAX_TAGS`, vs. the HTTP transport's 30). This supersedes the ADR-0010 direct HTTP purge (which is inert against Workers Cache); the message is async, so there is still no api→web service binding.
 
-**(b2) `PATCH /api/vendor/*` on the API Worker (Stage 2, AECI-520)** — the vendor
-portal's self-service edits use the same producer path with a distinct
-`source: 'vendor'`, so the `aeci.cache.purge{source}` metric separates
-vendor-initiated invalidation from AECi-initiated `moderation`.
+**(b2) the `/api/vendor/*` write surface on the API Worker (Stage 2, AECI-520 /
+607 / 301)** — the vendor portal's self-service edits use the same producer path
+with a distinct `source: 'vendor'`, so the `aeci.cache.purge{source}` metric
+separates vendor-initiated invalidation from AECi-initiated `moderation`. One
+helper enqueues for all of them (`purgeTags` / `afterVendorWrite` in
+`apps/api/src/routes/vendor-shared.ts`); only the tag set differs per write.
 
 - **Profile edit** → `vendor:{slug}`. One tag suffices by the §3 embedded-entity
   rule: a product detail page tags the vendor it displays, so every page showing
@@ -191,13 +195,48 @@ vendor-initiated invalidation from AECi-initiated `moderation`.
   reason (`promote-cache-tags.ts`). The `taxonomy` tag is deliberately **not**
   emitted: that one is for a change to the term *set*, and a vendor can only
   assign existing terms, never mint one.
+- **Product-version write** (`POST`/`PATCH`/`DELETE
+  /api/vendor/products/:id/versions`, AECI-607) → **`product:{slug}` alone**, and
+  that is the complete set for two reasons worth stating so nobody "fixes" it
+  later. The pair page embeds `product:{slug}` for **both** of its endpoints
+  (§3 rule 2), so this one tag also drops every pair page the product appears on
+  — which is where AECI-303's version selectors **now** render, and the only
+  reader-facing consumer versions will ever have. That still holds after AECI-303:
+  the selectors are URL params on the pair route, and a tag purge is key-independent,
+  so one `product:{slug}` invalidates *every* cached version selection of every pair
+  the product appears on. The new `…/integrations/:otherSlug/timeline` read needs no
+  tag of its own — it is `private, no-store` and never edge-stored, which is exactly
+  why the gateable history lives there rather than in the pair page's shared entry
+  (§7.2). And `index:products` is deliberately omitted:
+  unlike a product edit, versions never appear on the `/products` catalog, so
+  purging it would evict a 300s-TTL page for content that cannot have changed.
+- **Attestation write** (`POST /api/vendor/claims`, `PUT`/`DELETE
+  /api/vendor/claims/:claimId/attestation`, AECI-301) → **`pair:{min}__{max}`
+  plus `product:{sourceSlug}` and `product:{targetSlug}`**, three tags, all
+  required. The pair tag is emitted through `pairCacheTag()`
+  (`apps/api/src/routes/promote-pair.ts`) — the **identical** primitive the pair
+  page itself uses, and the same one `cacheTagsForPromote` calls, so the writer
+  and the reader can never drift on the `{min}__{max}` ordering. The pair page is
+  the primary surface a claim edit changes, but the two `product:{slug}` tags are
+  not redundant: the product-detail integrations table renders a claims-aware
+  `context_direction`, and since AECI-605 a claim every voting vendor **denies**
+  stops contributing its direction to that arrow — so a denial with no product
+  purge would leave the table pointing the wrong way for a full TTL.
+  `index:products` is omitted for the same reason as versions: claims never render
+  on the catalog.
 
 Same best-effort contract — no-op without the binding, `queue.send` rejection
 logged and swallowed, never fails the committed edit. Note the asymmetry with
 search: the purge makes SSR immediate, while Algolia only catches up on the
-nightly watermark sync (≤24h — `STAGE_2_SPEC.md` §8.3(5)); a vendor write always
-stamps `products.updated_at` so that sync actually sees it, including a
-taxonomy-only edit that touches no other column. The same asymmetry governs the
+nightly watermark sync (≤24h — `STAGE_2_SPEC.md` §8.3(5)); a vendor **profile or
+product** write always stamps `products.updated_at` so that sync actually sees it,
+including a taxonomy-only edit that touches no other column. A **version** write
+deliberately does not stamp it: versions do not feed the Algolia record, so
+bumping `updated_at` would drag the product through the nightly window for
+nothing. An **attestation** write does not stamp it either, and for a stronger
+reason — claims are not in the search index at all (`STAGE_1_5_SPEC.md` §9 defers
+per-pair records), so there is nothing for a sync to pick up. Dashboard copy must
+therefore not promise that attesting changes search. The same asymmetry governs the
 **verified-badge flip** (AECI-529): the §5(b) claim→grant stamps `vendors.updated_at`
 alongside `verified = true`, so the `vendors` index re-indexes the flip on the next
 nightly window while the grant's `vendor:{slug}` + `product:{slug}` purge repaints the
@@ -292,6 +331,8 @@ Indexing is **fail-closed and environment-gated**, independent of the SEO header
 
 The layers compose rather than conflict. Pre-launch, §7.1's blanket header dominates and the per-page tags are inert; at launch `ALLOW_INDEXING=true` lifts the blanket and the per-page tags become the operative policy. Cache-safety is not a concern for this layer: the tag is a property of the page's data, identical for every visitor, so it lives inside the cached HTML by design.
 
+**One qualification, added by AECI-303.** "A property of the page's data" now includes *URL-derived* data — the pair page's version selection decides its own `noindex`. That is still identical for every visitor **of that URL**, and it is cache-safe only because the deciding params are in the route's `cacheKeyParams` (§4a). A per-page `noindex` that depended on anything *not* in the cache key — a cookie, a session, an entitlement — would poison the shared entry. That is the constraint AECI-304 inherits when it makes `canViewVersionDiff` visitor-dependent.
+
 Pages that emit `noindex` today, and how:
 
 | Page | Condition | Set by |
@@ -300,7 +341,7 @@ Pages that emit `noindex` today, and how:
 | `/search` | always — filtered results aren't canonical content | `MetaService.setSearchMeta` |
 | `/unsubscribe` | always — tokenized, transactional (AECI-537) | `setStaticPageMeta({ noindex: true })` |
 | `/roadmap` | always (for now) — coming-soon placeholder, thin content; paired with sitemap exclusion | `setStaticPageMeta({ noindex: true })` |
-| Product-pair page | no integrations between the two products | `setEntityMeta({ noindex })` — `products-pair.resolver.ts` |
+| Product-pair page | no integrations between the two products, **or** a non-default version selection (AECI-303 / §9.2 — every (vA × vB) combination would otherwise be an indexable near-duplicate) | `setEntityMeta({ noindex })` — `products-pair.resolver.ts` |
 | `/trades/:slug` | `product_count < TRADE_PUBLISH_MIN_PRODUCTS` (AECI-546) | `setEntityMeta({ noindex })` — `taxonomy-browse.resolver.ts` → `applyBrowseMeta` |
 | `/auth/login`, `/account`, `/admin/*`, `/products/:slug/review`, the claim/correction request forms | always — authenticated or transactional | the component itself, calling Angular's `Meta.updateTag` directly rather than going through `MetaService` |
 

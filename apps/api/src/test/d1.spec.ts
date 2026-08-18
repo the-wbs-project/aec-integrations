@@ -14,6 +14,7 @@ import {
   products,
   productTrades,
   productVendors,
+  productVersions,
   taxonomyCategories,
   taxonomyDataObjects,
   taxonomyTrades,
@@ -106,6 +107,84 @@ async function seedClaimPrereqs(t: Awaited<ReturnType<typeof makeTestDb>>) {
   return { integrationId: 'i1', dataObjectId: 'd1' };
 }
 
+// The harness applies the REAL migration files, so this exercises the hand-authored
+// `ALTER … ADD … CHECK` bodies in 0018 rather than a Drizzle-side approximation of them.
+describe('maintenance marker columns (AECI-616)', () => {
+  const seeds = [
+    { table: 'vendors', row: { id: 'v1', slug: 'autodesk', companyName: 'Autodesk' } },
+    { table: 'products', row: { id: 'p1', slug: 'revit', name: 'Revit' } },
+  ] as const;
+
+  it('defaults maintained_by to aeci and leaves last_reviewed_at NULL on insert', async () => {
+    const t = await makeTestDb();
+    await t.db.insert(vendors).values(seeds[0].row);
+    await t.db.insert(products).values(seeds[1].row);
+    await t.db.insert(products).values({ id: 'p2', slug: 'navisworks', name: 'Navisworks' });
+    await t.db
+      .insert(integrations)
+      .values({ id: 'i1', sourceProductId: 'p1', targetProductId: 'p2' });
+
+    // The unreviewed baseline: attribution with no date. NOTHING is backfilled from
+    // `created_at` / `updated_at` / `promoted_at` — that is the point of the column.
+    const rows = [
+      (await t.db.select().from(vendors).where(eq(vendors.id, 'v1')))[0],
+      (await t.db.select().from(products).where(eq(products.id, 'p1')))[0],
+      (await t.db.select().from(integrations).where(eq(integrations.id, 'i1')))[0],
+    ];
+    for (const row of rows) {
+      expect(row?.maintainedBy).toBe('aeci');
+      expect(row?.lastReviewedAt).toBeNull();
+    }
+    t.dispose();
+  });
+
+  it('rejects an out-of-vocabulary maintained_by on all three tables', async () => {
+    const t = await makeTestDb();
+    await t.db.insert(products).values({ id: 'p2', slug: 'navisworks', name: 'Navisworks' });
+
+    await expect(
+      (async () => t.db.insert(vendors).values({ ...seeds[0].row, maintainedBy: 'partner' }))(),
+    ).rejects.toThrow();
+    await expect(
+      (async () => t.db.insert(products).values({ ...seeds[1].row, maintainedBy: 'partner' }))(),
+    ).rejects.toThrow();
+    await t.db.insert(products).values(seeds[1].row);
+    await expect(
+      (async () =>
+        t.db.insert(integrations).values({
+          id: 'i1',
+          sourceProductId: 'p1',
+          targetProductId: 'p2',
+          maintainedBy: 'partner',
+        }))(),
+    ).rejects.toThrow();
+    t.dispose();
+  });
+
+  it('does not restamp last_reviewed_at on an unrelated write (no $onUpdate)', async () => {
+    const t = await makeTestDb();
+    const reviewed = '2026-03-04T00:00:00.000Z';
+    // `updated_at` is pinned to a fixed past value rather than left at insert time:
+    // `$onUpdate` stamps `Date.now()`, so an insert and update landing in the same
+    // millisecond would produce identical strings and make the contrast below flaky.
+    const staleUpdatedAt = '2020-01-01T00:00:00.000Z';
+    await t.db
+      .insert(products)
+      .values({ ...seeds[1].row, lastReviewedAt: reviewed, updatedAt: staleUpdatedAt });
+
+    // `updated_at` IS declared `$onUpdate`, so this write moves it. If
+    // `last_reviewed_at` moved too, the marker would advertise a review that never
+    // happened — which is the entire failure mode AECI-616 exists to prevent.
+    await t.db.update(products).set({ name: 'Revit 2026' }).where(eq(products.id, 'p1'));
+    const after = (await t.db.select().from(products).where(eq(products.id, 'p1')))[0];
+
+    expect(after?.name).toBe('Revit 2026');
+    expect(String(after?.updatedAt) > staleUpdatedAt).toBe(true);
+    expect(after?.lastReviewedAt).toBe(reviewed);
+    t.dispose();
+  });
+});
+
 describe('claims / attestations spine (AECI-293)', () => {
   it('hydrates claim → dataObject + attestations, and defaults asserted=true', async () => {
     const t = await makeTestDb();
@@ -191,6 +270,115 @@ describe('claims / attestations spine (AECI-293)', () => {
     t.dispose();
   });
 
+  it('defaults claims.origin to aeci and rejects an out-of-vocabulary origin (AECI-603)', async () => {
+    const t = await makeTestDb();
+    await seedClaimPrereqs(t);
+    // Every claim in D1 today came from promote, so the default IS the backfill.
+    await t.db
+      .insert(claims)
+      .values({ id: 'c1', integrationId: 'i1', dataObjectId: 'd1', direction: 'a_to_b' });
+    const [row] = await t.db.select().from(claims).where(eq(claims.id, 'c1'));
+    expect(row?.origin).toBe('aeci');
+    expect(row?.createdByVendorId).toBeNull();
+
+    await expect(
+      (async () =>
+        t.db.insert(claims).values({
+          id: 'cx',
+          integrationId: 'i1',
+          dataObjectId: 'd1',
+          direction: 'both',
+          origin: 'partner',
+        }))(),
+    ).rejects.toThrow();
+    t.dispose();
+  });
+
+  it('allows one LIVE attestation per (claim, source) and permits retract-then-insert (AECI-603)', async () => {
+    const t = await makeTestDb();
+    await seedClaimPrereqs(t);
+    await t.db
+      .insert(claims)
+      .values({ id: 'c1', integrationId: 'i1', dataObjectId: 'd1', direction: 'a_to_b' });
+    await t.db.insert(attestations).values({ id: 'at1', claimId: 'c1', source: 'vendor_a' });
+
+    // Second live row in the same slot → the partial unique index rejects. This is what
+    // makes two accounts on one vendor last-write-wins instead of stacking votes.
+    await expect(
+      (async () =>
+        t.db.insert(attestations).values({ id: 'at2', claimId: 'c1', source: 'vendor_a' }))(),
+    ).rejects.toThrow();
+    // The OTHER slot on the same claim is unaffected.
+    await t.db.insert(attestations).values({ id: 'at3', claimId: 'c1', source: 'vendor_b' });
+
+    // Supersession is retract-then-insert, never UPDATE — history stays append-only for
+    // the §9 timeline, and any number of retracted rows may share a slot.
+    await t.db
+      .update(attestations)
+      .set({ retractedAt: '2026-08-14T00:00:00.000Z' })
+      .where(eq(attestations.id, 'at1'));
+    await t.db.insert(attestations).values({ id: 'at4', claimId: 'c1', source: 'vendor_a' });
+    await t.db
+      .update(attestations)
+      .set({ retractedAt: '2026-08-15T00:00:00.000Z' })
+      .where(eq(attestations.id, 'at4'));
+    await t.db.insert(attestations).values({ id: 'at5', claimId: 'c1', source: 'vendor_a' });
+    expect((await t.db.select().from(attestations)).length).toBe(4);
+    t.dispose();
+  });
+
+  it('does NOT gate the slot index on the deprecated_at version stamp (AECI-603)', async () => {
+    const t = await makeTestDb();
+    await seedClaimPrereqs(t);
+    await t.db
+      .insert(claims)
+      .values({ id: 'c1', integrationId: 'i1', dataObjectId: 'd1', direction: 'a_to_b' });
+    // `deprecated_at` says "this flow existed until v6" (STAGE_1_5_SPEC.md §3.3) — it is
+    // a version stamp, not retirement. Stamping it must NOT free the slot, or AECI-303's
+    // timeline would lose the row the moment a vendor recorded a deprecation.
+    await t.db.insert(attestations).values({
+      id: 'at1',
+      claimId: 'c1',
+      source: 'vendor_a',
+      deprecatedAt: '2026-01-01T00:00:00.000Z',
+    });
+    await expect(
+      (async () =>
+        t.db.insert(attestations).values({ id: 'at2', claimId: 'c1', source: 'vendor_a' }))(),
+    ).rejects.toThrow();
+    t.dispose();
+  });
+
+  it('nulls the vendor provenance FKs on vendor delete rather than losing the row (AECI-603)', async () => {
+    const t = await makeTestDb();
+    await seedClaimPrereqs(t);
+    await t.db.insert(vendors).values({ id: 'v1', slug: 'acme', companyName: 'Acme' });
+    await t.db.insert(claims).values({
+      id: 'c1',
+      integrationId: 'i1',
+      dataObjectId: 'd1',
+      direction: 'a_to_b',
+      origin: 'vendor',
+      createdByVendorId: 'v1',
+    });
+    await t.db.insert(attestations).values({
+      id: 'at1',
+      claimId: 'c1',
+      source: 'vendor_a',
+      attestedByVendorId: 'v1',
+    });
+
+    // ON DELETE SET NULL, not cascade: losing the vendor row must not delete the claim
+    // or erase its historical assertion. AECi re-curates the orphan.
+    await t.db.delete(vendors).where(eq(vendors.id, 'v1'));
+    const [claim] = await t.db.select().from(claims).where(eq(claims.id, 'c1'));
+    const [attestation] = await t.db.select().from(attestations).where(eq(attestations.id, 'at1'));
+    expect(claim?.createdByVendorId).toBeNull();
+    expect(claim?.origin).toBe('vendor');
+    expect(attestation?.attestedByVendorId).toBeNull();
+    t.dispose();
+  });
+
   it('seed/data-objects.sql materialises exactly the 20-term vocabulary from the JSON mirror', async () => {
     const t = await makeTestDb();
     // Applying the real seed also proves it is valid against the migrated schema.
@@ -205,6 +393,133 @@ describe('claims / attestations spine (AECI-293)', () => {
     const seeded = (await t.db.select().from(taxonomyDataObjects)).map((row) => row.slug).sort();
     expect(seeded).toEqual(expected);
     expect(seeded).toHaveLength(20);
+    t.dispose();
+  });
+});
+
+/**
+ * Constraint coverage for Stage 2 migration 2 (AECI-607 / §8.2). These run
+ * against the REAL migration files, which is the point: `0017_slim_iron_lad.sql`
+ * carries a **hand-authored** body because `drizzle-kit generate` emitted the two
+ * `ALTER TABLE attestations ADD … REFERENCES product_versions(id)` statements
+ * with no `ON DELETE` clause at all, silently dropping the SET NULL. The
+ * "degrades the stamp" case below is the only thing that would catch a
+ * regeneration quietly reverting that.
+ */
+describe('product versions (AECI-607)', () => {
+  it('enforces label identity per product, but not across products', async () => {
+    const t = await makeTestDb();
+    await seedClaimPrereqs(t);
+    await t.db.insert(productVersions).values({
+      id: 'pv1',
+      productId: 'p1',
+      label: '2026.1',
+      sortKey: 20_260_000_100_000,
+    });
+
+    // Same label on the SAME product — rejected by product_versions_label_key.
+    await expect(
+      (async () =>
+        t.db
+          .insert(productVersions)
+          .values({ id: 'pv2', productId: 'p1', label: '2026.1', sortKey: 1 }))(),
+    ).rejects.toThrow();
+
+    // Same label on a DIFFERENT product — fine. Two products may both ship a 2026.1.
+    await t.db
+      .insert(productVersions)
+      .values({ id: 'pv3', productId: 'p2', label: '2026.1', sortKey: 20_260_000_100_000 });
+    expect(await t.db.select().from(productVersions)).toHaveLength(2);
+    t.dispose();
+  });
+
+  it('requires sort_key — ordering can never fall back to the label', async () => {
+    const t = await makeTestDb();
+    await seedClaimPrereqs(t);
+    // Raw SQL: the Drizzle types make the omission unrepresentable, and the
+    // NOT NULL is what has to hold at the DB layer.
+    expect(() =>
+      t.raw
+        .prepare(
+          `INSERT INTO product_versions (id, product_id, label, created_at, updated_at)
+           VALUES ('pv1', 'p1', '2026.1', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`,
+        )
+        .run(),
+    ).toThrow();
+    t.dispose();
+  });
+
+  it('cascades product delete to its versions', async () => {
+    const t = await makeTestDb();
+    await seedClaimPrereqs(t);
+    await t.db
+      .insert(productVersions)
+      .values({ id: 'pv1', productId: 'p1', label: '2026.1', sortKey: 1 });
+
+    await t.db.delete(products).where(eq(products.id, 'p1'));
+    expect(await t.db.select().from(productVersions)).toEqual([]);
+    t.dispose();
+  });
+
+  it('degrades an attestation version stamp to NULL on version delete, keeping the row', async () => {
+    const t = await makeTestDb();
+    await seedClaimPrereqs(t);
+    await t.db.insert(productVersions).values([
+      { id: 'pv1', productId: 'p1', label: '2026.1', sortKey: 20_260_000_100_000 },
+      { id: 'pv2', productId: 'p1', label: '2026.2', sortKey: 20_260_000_200_000 },
+    ]);
+    await t.db
+      .insert(claims)
+      .values({ id: 'c1', integrationId: 'i1', dataObjectId: 'd1', direction: 'a_to_b' });
+    await t.db.insert(attestations).values({
+      id: 'at1',
+      claimId: 'c1',
+      source: 'vendor_a',
+      introducedAt: '2026-01-15',
+      introducedVersionId: 'pv1',
+      deprecatedVersionId: 'pv2',
+    });
+
+    // ON DELETE SET NULL — neither cascade nor restrict. Deleting a version must
+    // not be rejected and must not erase the vendor's assertion: the attestation
+    // survives and falls back to the coarse ISO date stamps (§8.2). Deleting a
+    // version is not a back door to deleting an attestation.
+    await t.db.delete(productVersions).where(eq(productVersions.id, 'pv1'));
+
+    const [row] = await t.db.select().from(attestations).where(eq(attestations.id, 'at1'));
+    expect(row?.introducedVersionId).toBeNull();
+    expect(row?.introducedAt).toBe('2026-01-15');
+    // The untouched stamp still points at its version.
+    expect(row?.deprecatedVersionId).toBe('pv2');
+    t.dispose();
+  });
+
+  it('hydrates both version stamps through their disambiguated relations', async () => {
+    const t = await makeTestDb();
+    await seedClaimPrereqs(t);
+    await t.db.insert(productVersions).values([
+      { id: 'pv1', productId: 'p1', label: '2026.1', sortKey: 20_260_000_100_000 },
+      { id: 'pv2', productId: 'p1', label: '2026.2', sortKey: 20_260_000_200_000 },
+    ]);
+    await t.db
+      .insert(claims)
+      .values({ id: 'c1', integrationId: 'i1', dataObjectId: 'd1', direction: 'a_to_b' });
+    await t.db.insert(attestations).values({
+      id: 'at1',
+      claimId: 'c1',
+      source: 'vendor_a',
+      introducedVersionId: 'pv1',
+      deprecatedVersionId: 'pv2',
+    });
+
+    // Two FKs into one table: without the `relationName` disambiguation these
+    // two would collapse into the same relation.
+    const [row] = await t.db.query.attestations.findMany({
+      where: eq(attestations.id, 'at1'),
+      with: { introducedVersion: true, deprecatedVersion: true },
+    });
+    expect(row?.introducedVersion?.label).toBe('2026.1');
+    expect(row?.deprecatedVersion?.label).toBe('2026.2');
     t.dispose();
   });
 });
