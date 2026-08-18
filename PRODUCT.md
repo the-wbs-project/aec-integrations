@@ -25,7 +25,7 @@ A directory and review platform for software integrations in the Architecture, E
 > **This section is the destination, not the current state.** "Dual-vendor-verified" is the
 > Stage 2 target. Today the catalog is **entirely AECi-curated**: production holds zero
 > vendor attestations and zero verified vendors, every claim renders **"Unverified · AECi"**,
-> and every record carries **"Maintained by AEC Integrations."** Public copy must describe
+> and every record carries **"Maintained by AEC Integrations"**. Public copy must describe
 > what ships, not this paragraph — an `/about` line claiming integration details were
 > "verified with the vendors involved" was live and false until 2026-08-17. See DESIGN.md
 > §Badges ("No verification iconography in Stage 1") and AECI-616.

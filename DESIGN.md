@@ -466,11 +466,12 @@ What actually renders today:
 
 - **Maintenance marker** (`shared/maintenance-marker`): neutral chip — `border-default` /
   `surface-raised` / `text-secondary`, decorative dot, no icon. On product detail, vendor
-  detail, and the pair page. Four readings, all **live** since AECI-616:
-  `Maintained by AEC Integrations.` · `Maintained by AEC Integrations. Reviewed <date>.` ·
-  `Vendor-maintained.` · `Vendor-maintained. Updated <date>.` The date renders only when
-  `last_reviewed_at` is set, and it is `null` on almost every record because **nothing was
-  backfilled** — bare attribution is the honest default, not missing data. Never wire the
+  detail, and the pair page. It is a **label, not a sentence, so it carries no terminal
+  period**, and the date clause is joined with a middot. Four readings, all **live** since
+  AECI-616: `Maintained by AEC Integrations` · `Maintained by AEC Integrations · Reviewed
+  <date>` · `Vendor-maintained` · `Vendor-maintained · Updated <date>`. The date renders only
+  when `last_reviewed_at` is set, and it is `null` on almost every record because **nothing
+  was backfilled** — bare attribution is the honest default, not missing data. Never wire the
   date to `updated_at`: it is `$onUpdate` and promote restamps it, so the date would refresh
   itself on every bulk re-promote (60 production products share one `updated_at` day). The
   vendor branch is driven by real vendor attestations. Dates are formatted in **UTC**, not the
