@@ -37,6 +37,14 @@
  * touches neither endpoint of is a 404 **indistinguishable from a claim that does
  * not exist**, and `GET /api/vendor/integrations` shows a vendor only its own
  * attestable surface.
+ *
+ * AECI-606 adds `GET /api/vendor/data-objects`, the surface's FIRST route with no
+ * ownership question at all — the `data_object` vocabulary is AECi-curated and
+ * holds no vendor-owned rows, so there is nothing to scope. It still takes every
+ * guard cell above. What differs is the isolation cell: for every other route the
+ * assertion is that two vendors see DIFFERENT data, and here it is that they see
+ * the SAME data, deliberately. That inversion is why the cell is written out
+ * rather than left to the generic sweep.
  */
 
 import { ApiErrorCode } from '@aeci/shared';
@@ -81,6 +89,7 @@ import {
   createUpsertVendorAttestationHandler,
   createVendorClaimHandler,
 } from './vendor-attestations';
+import { createListDataObjectsHandler } from './vendor-data-objects';
 
 const SUPABASE_URL = 'https://test-project.supabase.co';
 const ENV = { ENV: 'preview', SUPABASE_URL } as Env;
@@ -159,8 +168,11 @@ beforeEach(async () => {
     { id: INTEGRATION_BU, sourceProductId: PRODUCT_B, targetProductId: PRODUCT_UNVERIFIED },
   ]);
   await t.db.insert(taxonomyDataObjects).values([
-    { id: DATA_OBJECT_RFIS, slug: 'rfis', name: 'RFIs' },
-    { id: DATA_OBJECT_SUBMITTALS, slug: 'submittals', name: 'Submittals' },
+    // `displayOrder` inverts the alphabetical order on purpose, so the
+    // AECI-606 vocabulary cell below proves the endpoint actually orders by it
+    // rather than happening to agree with the slug sort.
+    { id: DATA_OBJECT_RFIS, slug: 'rfis', name: 'RFIs', displayOrder: 110 },
+    { id: DATA_OBJECT_SUBMITTALS, slug: 'submittals', name: 'Submittals', displayOrder: 20 },
   ]);
   await t.db.insert(claims).values([
     {
@@ -274,6 +286,12 @@ function makeApp() {
     requireVendor(guard),
     createRetractVendorAttestationHandler(t.factory),
   );
+  // AECI-606 — guard only; no authority resolution, no verified gate.
+  app.get(
+    '/api/vendor/data-objects',
+    requireVendor(guard),
+    createListDataObjectsHandler(t.factory),
+  );
   return app;
 }
 
@@ -349,6 +367,7 @@ const ROUTES: ReadonlyArray<{ path: string; method: string; body?: unknown; ok?:
     method: 'DELETE',
     ok: 204,
   },
+  { path: '/api/vendor/data-objects', method: 'GET' },
 ];
 
 /** The version routes that WRITE, and are therefore Verified-gated. */
@@ -536,6 +555,14 @@ describe('/api/vendor/claims* — the Verified capability gate (AECI-301)', () =
     const { status, body } = await call('/api/vendor/integrations', 'GET', SEAT_UNVERIFIED);
     expect(status).toBe(200);
     expect(body.integrations.map((i: { id: string }) => i.id)).toEqual([INTEGRATION_BU]);
+  });
+
+  it('lets an UNVERIFIED vendor READ the data_object vocabulary (AECI-606)', async () => {
+    // 403-ing the vocabulary would leave the read-only tab unable to label its
+    // own claims. Reading is not the gated capability on any of these three.
+    const { status, body } = await call('/api/vendor/data-objects', 'GET', SEAT_UNVERIFIED);
+    expect(status).toBe(200);
+    expect(Array.isArray(body.data_objects)).toBe(true);
   });
 });
 
@@ -735,5 +762,24 @@ describe('/api/vendor/* — cross-vendor isolation', () => {
     expect(status).toBe(200);
     expect(body.vendor.slug).toBe('autodesk');
     expect(body.seat_count).toBe(3);
+  });
+
+  it('GET /data-objects returns the SAME vocabulary to every vendor — the one route with no scope', async () => {
+    // The inversion of every other cell in this block, and deliberate: the
+    // vocabulary is AECi-curated and has no `vendor_id` column, so a scoping
+    // filter would be vacuous rather than missing. Pinning the sameness means a
+    // later "restore the scope filter" edit fails here instead of reading as a
+    // fix (`docs/AUTH_AND_RLS.md` §4.4 carries the matching carve-out).
+    const a = await call('/api/vendor/data-objects', 'GET', SEAT_A);
+    const b = await call('/api/vendor/data-objects', 'GET', SEAT_B);
+
+    expect(a.status).toBe(200);
+    expect(b.status).toBe(200);
+    expect(b.body).toEqual(a.body);
+    // Ordered by display_order, not by slug — see the seed above.
+    expect(a.body.data_objects.map((d: { slug: string }) => d.slug)).toEqual([
+      'submittals',
+      'rfis',
+    ]);
   });
 });

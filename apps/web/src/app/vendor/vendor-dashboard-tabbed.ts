@@ -2,13 +2,14 @@ import { Component, computed, input, signal } from '@angular/core';
 
 import type { VendorMeResponse } from '@aeci/shared';
 
+import { VendorIntegrationsSection } from './components/vendor-integrations-section';
 import { VendorProfileForm } from './components/vendor-profile-form';
 import { VendorProductsSection } from './components/vendor-products-section';
 import { VendorRequestStatus } from './components/vendor-request-status';
 import { VendorSeatRoster } from './components/vendor-seat-roster';
 import { VendorVerifiedStatus } from './components/vendor-verified-status';
 
-type Tab = 'overview' | 'profile' | 'products' | 'seats';
+type Tab = 'overview' | 'profile' | 'products' | 'integrations' | 'seats';
 
 /**
  * Concept A — the tabbed vendor dashboard (AECI-522): a side-nav (Overview /
@@ -28,6 +29,7 @@ type Tab = 'overview' | 'profile' | 'products' | 'seats';
     VendorRequestStatus,
     VendorProfileForm,
     VendorProductsSection,
+    VendorIntegrationsSection,
     VendorSeatRoster,
   ],
   template: `
@@ -157,6 +159,22 @@ type Tab = 'overview' | 'profile' | 'products' | 'seats';
                 </div>
               </div>
             }
+            @case ('integrations') {
+              <div>
+                <h2
+                  class="font-display text-xl font-semibold text-(--text-primary)"
+                  i18n="@@vendor.section.integrations"
+                >
+                  Integrations
+                </h2>
+                <div class="mt-4">
+                  <aec-vendor-integrations-section
+                    [verified]="m.vendor.verified"
+                    [vendorName]="m.vendor.company_name"
+                  />
+                </div>
+              </div>
+            }
             @case ('seats') {
               <div>
                 <h2 class="font-display text-xl font-semibold text-(--text-primary)">
@@ -188,6 +206,7 @@ export class VendorDashboardTabbed {
     { key: 'overview', label: $localize`:@@vendor.tab.overview:Overview` },
     { key: 'profile', label: $localize`:@@vendor.tab.profile:Profile` },
     { key: 'products', label: $localize`:@@vendor.tab.products:Products` },
+    { key: 'integrations', label: $localize`:@@vendor.tab.integrations:Integrations` },
     { key: 'seats', label: $localize`:@@vendor.tab.seats:Seats` },
   ];
 

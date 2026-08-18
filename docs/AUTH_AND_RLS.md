@@ -350,6 +350,7 @@ await db.batch([
 | `PATCH /api/vendor/products/:id/versions/:versionId` (AECI-607) | Hard-required | same **+ ownership + `vendors.verified`** (+ the version must belong to `:id`) | `product_version.updated` |
 | `DELETE /api/vendor/products/:id/versions/:versionId` (AECI-607) | Hard-required | same **+ ownership + `vendors.verified`** (+ the version must belong to `:id`) | `product_version.deleted` |
 | `GET /api/vendor/integrations` (AECI-301) | Hard-required | same **+ §4.2a endpoint authority** (the surface is filtered to it; never a 404) | No (reads only) |
+| `GET /api/vendor/data-objects` (AECI-606) | Hard-required | same, and **nothing else** — no ownership/authority check and no `vendors.verified` gate. The response is identical for every caller: a closed, AECi-curated vocabulary holds no vendor-owned rows. See the obligation-1 carve-out below | No (reads only) |
 | `POST /api/vendor/claims` (AECI-301) | Hard-required | same **+ §4.2a endpoint authority + `vendors.verified`** | `claim.created` **and** `attestation.created` (one per owned slot), `metadata.source: 'vendor-portal'` |
 | `PUT /api/vendor/claims/:claimId/attestation` (AECI-301) | Hard-required | same **+ §4.2a endpoint authority + `vendors.verified`** | `attestation.retracted` (per superseded row) + `attestation.created` (per owned slot) |
 | `DELETE /api/vendor/claims/:claimId/attestation` (AECI-301) | Hard-required | same **+ §4.2a endpoint authority + `vendors.verified`** | `attestation.retracted` (per retracted row) |
@@ -416,6 +417,16 @@ row filter RLS would have provided, and they are not optional:
    is calling. Every read and write must additionally filter on
    `c.get('auth').vendorId`. No `/api/vendor/*` contract carries a vendor id, so
    the Worker never has a client-supplied one to be tempted by.
+
+   **One documented exception, and only one:** `GET /api/vendor/data-objects`
+   (AECI-606) serves the frozen, closed `taxonomy_data_objects` curation
+   vocabulary, which has no `vendor_id` column and no vendor-owned rows — the
+   filter would be **vacuous, not omitted**, and every caller gets a
+   byte-identical body by construction. `vendor.authz-matrix.spec.ts` asserts
+   that sameness across two seats, so a later "restore the missing scope filter"
+   edit fails loudly rather than reading as a fix. Any new route that reads a
+   vendor-partitioned table still needs its filter; this exception does not
+   generalise, and the reason it is safe is the *table*, not the route.
 2. **Ownership before writing a client-supplied id.** `PATCH
    /api/vendor/products/:id` and every `/products/:id/versions` route prove the
    product belongs to the session's vendor (a `product_vendors` read) *before*

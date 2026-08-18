@@ -26,39 +26,13 @@ import { VerifiedBadge } from '../shared/verified-badge/verified-badge';
 
 import { AgreementBadge } from './agreement-badge';
 import { ClaimProvenance } from './claim-provenance';
+import {
+  DIRECTION_ORDER,
+  directionAria,
+  directionGlyph,
+  directionHeading,
+} from './pair-direction-labels';
 import { PairVersionSelect } from './pair-version-select';
-
-/** Decorative glyph for a context-relative direction (always paired with text + aria). */
-function directionGlyph(direction: ContextDirection): string {
-  return direction === 'outbound' ? '→' : direction === 'inbound' ? '←' : '⇄';
-}
-
-/** Visible heading for a mechanism's direction, relative to the context product. */
-function directionHeading(direction: ContextDirection, otherName: string): string {
-  switch (direction) {
-    case 'outbound':
-      return $localize`:@@pair.direction.outbound:Sends to ${otherName}:other:`;
-    case 'inbound':
-      return $localize`:@@pair.direction.inbound:Receives from ${otherName}:other:`;
-    case 'both':
-      return $localize`:@@pair.direction.both:Syncs both ways`;
-  }
-}
-
-/** Screen-reader label for a direction (the glyph is `aria-hidden`). */
-function directionAria(direction: ContextDirection, otherName: string): string {
-  switch (direction) {
-    case 'outbound':
-      return $localize`:@@pair.direction.outbound.aria:Outbound to ${otherName}:other:`;
-    case 'inbound':
-      return $localize`:@@pair.direction.inbound.aria:Inbound from ${otherName}:other:`;
-    case 'both':
-      return $localize`:@@pair.direction.both.aria:Bidirectional`;
-  }
-}
-
-/** The order the three direction lanes render in within a mechanism (§8). */
-const DIRECTION_ORDER = ['outbound', 'inbound', 'both'] as const;
 
 /** The two vendor names a pair page can attribute an attestation to, keyed by
  *  the context-relative `attestor` the API resolves (§4.3). Either may be `null`

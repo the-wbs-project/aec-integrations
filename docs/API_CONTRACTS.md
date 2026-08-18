@@ -2700,7 +2700,7 @@ export const UnsubscribeSubmitSchema = z.object({ token: z.string().trim().min(1
 
 Stage 2 (AECI-520). All require `role === 'vendor_admin'` **and** a non-null `profiles.vendor_id`, enforced by the `requireVendor()` Worker middleware (`apps/api/src/lib/authz.ts`) — verifies the JWT, loads the D1 profile, and rejects in this order: missing token/profile `401`; `banned_at` set `403`; wrong role `403`; null `vendor_id` `403`. A site **`admin` is rejected too** — there is no impersonation at launch, admins act on vendor data through `/api/admin/*` so the audit trail names the real actor.
 
-Source of truth: `packages/shared/src/api/vendor.ts` + `product-versions.ts` + `vendor-attestations.ts` + `vendor-notifications.ts` (Zod), `apps/api/src/routes/vendor.ts` + `vendor-product-versions.ts` + `vendor-attestations.ts` + `vendor-notifications.ts` (handlers), with the shared guard seam in `apps/api/src/routes/vendor-shared.ts` and the two-slot authority seam in `apps/api/src/lib/attestation-authority.ts`; `STAGE_2_VENDOR_PORTAL_SPEC.md` §4 and `STAGE_2_ATTESTATIONS_SPEC.md` §5 / §7.2 / §8.3.
+Source of truth: `packages/shared/src/api/vendor.ts` + `product-versions.ts` + `vendor-attestations.ts` + `vendor-notifications.ts` (Zod), `apps/api/src/routes/vendor.ts` + `vendor-product-versions.ts` + `vendor-attestations.ts` + `vendor-notifications.ts` + `vendor-data-objects.ts` (handlers), with the shared guard seam in `apps/api/src/routes/vendor-shared.ts` and the two-slot authority seam in `apps/api/src/lib/attestation-authority.ts`; `STAGE_2_VENDOR_PORTAL_SPEC.md` §4 and `STAGE_2_ATTESTATIONS_SPEC.md` §5 / §7.2 / §8.3.
 
 **Two invariants govern this whole surface.**
 
@@ -2896,7 +2896,7 @@ Writes go through one `db.batch([...])` carrying the mutation and its `audit_log
 
 Errors: `NOT_FOUND` (unknown product/version, a product owned by another vendor, or a version on a different product — all deliberately indistinguishable), `FORBIDDEN` (owner, but not verified), `VALIDATION_FAILED` (empty body, a `label` already used on this product, a non-date stamp, an out-of-range `sort_key`), `MALFORMED_REQUEST`.
 
-#### Attestations — `/api/vendor/integrations` + `/api/vendor/claims`
+#### Attestations — `/api/vendor/integrations` + `/api/vendor/claims` + `/api/vendor/data-objects`
 
 Stage 2 (AECI-301, `STAGE_2_ATTESTATIONS_SPEC.md` §5). The surface a Verified vendor writes its own integration claims through — the first code that can produce a `vendor_a` / `vendor_b` attestation, and therefore the first that can move a claim off `unverified`. Zod in `packages/shared/src/api/vendor-attestations.ts`, handlers in `apps/api/src/routes/vendor-attestations.ts`.
 
@@ -2908,6 +2908,7 @@ Stage 2 (AECI-301, `STAGE_2_ATTESTATIONS_SPEC.md` §5). The surface a Verified v
 | `POST` | `/api/vendor/claims` | authority **+ verified** | `201 { claim }` |
 | `PUT` | `/api/vendor/claims/:claimId/attestation` | authority **+ verified** | `200 { claim }` |
 | `DELETE` | `/api/vendor/claims/:claimId/attestation` | authority **+ verified** | `204` (no body) |
+| `GET` | `/api/vendor/data-objects` | guard only — **no authority, no verified** | `200 { data_objects }` |
 
 **Authority is the §6.14 ownership rule, one grain up.** `PATCH /api/vendor/products/:id` asks "do you own this product"; these ask "do you own an *endpoint* of this integration", because an integration has **two** vendor-writable slots — `vendor_a` for endpoint A (`integrations.source_product_id`), `vendor_b` for endpoint B. `resolveAttestationSlots` / `resolveClaimAuthority` (`apps/api/src/lib/attestation-authority.ts`) are the single implementation; no handler re-derives the table. A caller owning neither endpoint gets **`404`**, and it is indistinguishable from a resource that does not exist — collapsed into one join result rather than two branches that must be kept identical, so the endpoint cannot be walked as an existence oracle. See `AUTH_AND_RLS.md` §4.2a.
 
@@ -2964,6 +2965,20 @@ export const UpsertVendorAttestationSchema = z.object({
 });
 
 export const VendorClaimResponseSchema = z.object({ claim: VendorClaimSchema });
+
+// GET /api/vendor/data-objects (AECI-606) — the closed picker vocabulary.
+// No `aliases` (resolver metadata; a client-side matcher would drift from
+// `lib/data-object-vocabulary.ts`), no `id` (nothing on the surface takes one),
+// no `display_order` (the array arrives ordered).
+export const DataObjectOptionSchema = z.object({
+  slug: z.string(),
+  name: z.string(),
+  description: z.string().nullable(),
+});
+
+export const ListDataObjectsResponseSchema = z.object({
+  data_objects: z.array(DataObjectOptionSchema),
+});
 ```
 
 **`GET /api/vendor/integrations`** returns every integration touching a product the caller owns, with each claim's live attestations resolved into `mine` / `counterparty`, its computed `agreement`, and the slot(s) that are the caller's. Unpaginated — the set is bounded by the vendor's own catalog. Retracted attestations never appear (`retracted_at IS NULL`, the same filter the public pair page applies). Claims are ordered by the `data_object` vocabulary's `display_order`. A vendor whose products carry no integrations gets `200 { integrations: [] }`, not a 404.
@@ -2971,6 +2986,12 @@ export const VendorClaimResponseSchema = z.object({ claim: VendorClaimSchema });
 **`POST /api/vendor/claims`** creates the claim **and** the caller's affirming attestation in one batch. There is no `asserted` field — creating a claim *is* affirming it; recording a denial means `PUT` on a claim that already exists. `origin` is set to `'vendor'` with `created_by_vendor_id` (§2.2), never from the request.
 
 **`data_object` is find-only.** The slug or alias resolves against the frozen, closed `taxonomy_data_objects` vocabulary (`docs/DATA_OBJECT_VOCABULARY.md`) — a vendor cannot mint a term any more than promote can. Unlike promote, which lands a miss in `skipped[]` because it is a batch job, an unmatched term here is a **`VALIDATION_FAILED` naming the field**. Both callers share one matcher (`apps/api/src/lib/data-object-vocabulary.ts`).
+
+**`GET /api/vendor/data-objects`** (AECI-606) serves that closed vocabulary to the dashboard, so the §6 picker offers the list rather than a text input and a vendor never submits a term the resolver will reject. Ordered by `display_order` then `slug`, **NULLs last** — the same ordering the claim lists use, so the picker's rows and the tab's lanes agree. Never paginated: a frozen 20-term list.
+
+It is the **one `/api/vendor/*` route with no `vendor_id` filter**, and that is a contract rather than an omission: `taxonomy_data_objects` is AECi-curated, has no `vendor_id` column and no vendor-owned rows, so the filter would be *vacuous*. Every caller gets a byte-identical body by construction, and a spec pins that sameness so a later "restore the missing scope filter" edit fails loudly instead of reading as a fix. `AUTH_AND_RLS.md` §4.4 carries the matching carve-out. Not verified-gated either — 403-ing the vocabulary would leave the read-only tab unable to label its own claims.
+
+**`aliases` is deliberately absent from the wire.** The picker submits a canonical slug, which always resolves, so alias matching buys nothing here; shipping them would invite a client-side match that reimplements `safeSlugify`, and a second matcher is the drift `lib/data-object-vocabulary.ts` was extracted to eliminate. They are resolver metadata ("ITB", "P6", "AP"), not translatable copy. `id` is absent because nothing on the surface takes one, and `display_order` because the array arrives ordered. An unseeded vocabulary is `200 { data_objects: [] }`, never a 500 — the dashboard degrades the add affordance rather than losing the tab. *Errors: none beyond the guard's.*
 
 **A duplicate claim identity is a `400` carrying `details.claim_id`.** `claims_identity_key` is `(integration_id, data_object_id, direction)`, so the collision is narrow — claims anchor to the *mechanism row*, and two mechanisms moving the same data object between the same products are two independent claims. The existing id is returned so the UI can pivot to `PUT` rather than dead-ending.
 

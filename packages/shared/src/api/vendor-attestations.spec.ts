@@ -12,6 +12,8 @@ import { describe, expect, it } from 'vitest';
 
 import {
   CreateVendorClaimSchema,
+  DataObjectOptionSchema,
+  ListDataObjectsResponseSchema,
   ListVendorIntegrationsResponseSchema,
   UpsertVendorAttestationSchema,
   VendorAttestationSlotSchema,
@@ -235,5 +237,58 @@ describe('UpsertVendorAttestationSchema', () => {
 describe('VendorClaimResponseSchema', () => {
   it('wraps the POST and PUT echo, agreement included', () => {
     expect(VendorClaimResponseSchema.parse({ claim: CLAIM }).claim.agreement).toBe('single_source');
+  });
+});
+
+describe('DataObjectOptionSchema', () => {
+  const OPTION = { slug: 'rfis', name: 'RFIs', description: 'Requests for information.' };
+
+  it('parses a picker option', () => {
+    expect(DataObjectOptionSchema.parse(OPTION)).toEqual(OPTION);
+  });
+
+  it('accepts a null description', () => {
+    expect(DataObjectOptionSchema.parse({ ...OPTION, description: null }).description).toBeNull();
+  });
+
+  it('strips `aliases` — the exclusion is contractual, not just a handler column list', () => {
+    // A client-side alias match would have to reimplement `safeSlugify`, and a
+    // second matcher is the drift `lib/data-object-vocabulary.ts` exists to
+    // prevent. Enforcing it here means a handler that starts selecting the
+    // column still cannot put it on the wire.
+    const parsed = DataObjectOptionSchema.parse({ ...OPTION, aliases: ['RFI', 'Request'] });
+
+    expect(parsed).not.toHaveProperty('aliases');
+    expect(parsed).toEqual(OPTION);
+  });
+
+  it('strips `id` and `display_order`', () => {
+    const parsed = DataObjectOptionSchema.parse({
+      ...OPTION,
+      id: '00000000-0000-4000-8000-000000000001',
+      display_order: 110,
+    });
+
+    expect(parsed).not.toHaveProperty('id');
+    expect(parsed).not.toHaveProperty('display_order');
+  });
+
+  it('requires slug and name', () => {
+    expect(DataObjectOptionSchema.safeParse({ name: 'RFIs', description: null }).success).toBe(
+      false,
+    );
+    expect(DataObjectOptionSchema.safeParse({ slug: 'rfis', description: null }).success).toBe(
+      false,
+    );
+  });
+});
+
+describe('ListDataObjectsResponseSchema', () => {
+  it('parses an empty vocabulary — an unseeded table is a 200, not an error', () => {
+    expect(ListDataObjectsResponseSchema.parse({ data_objects: [] })).toEqual({ data_objects: [] });
+  });
+
+  it('rejects a bare array — the envelope key is part of the contract', () => {
+    expect(ListDataObjectsResponseSchema.safeParse([]).success).toBe(false);
   });
 });
