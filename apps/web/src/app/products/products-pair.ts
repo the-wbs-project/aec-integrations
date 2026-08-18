@@ -17,6 +17,7 @@ import { NotFound } from '../not-found/not-found';
 import { mechanismKindLabel } from '../search/mechanism-labels';
 import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
 import { MailingListSignup } from '../shared/mailing-list-signup/mailing-list-signup';
+import { MaintenanceMarker } from '../shared/maintenance-marker/maintenance-marker';
 
 import { AgreementBadge } from './agreement-badge';
 import { ClaimProvenance } from './claim-provenance';
@@ -204,6 +205,7 @@ function writePairViewCookie(mode: PairViewMode): void {
     ExternalLinkTracker,
     LogoOrInitial,
     MailingListSignup,
+    MaintenanceMarker,
     NotFound,
     RouterLink,
   ],
@@ -243,12 +245,15 @@ function writePairViewCookie(mode: PairViewMode): void {
 
           <header class="mb-8 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
             <div class="space-y-3">
-              <p
-                class="text-xs uppercase tracking-[0.14em] text-(--text-secondary)"
-                i18n="@@pair.eyebrow"
-              >
-                Integration
-              </p>
+              <div class="flex flex-wrap items-center gap-2">
+                <p
+                  class="text-xs uppercase tracking-[0.14em] text-(--text-secondary)"
+                  i18n="@@pair.eyebrow"
+                >
+                  Integration
+                </p>
+                <aec-maintenance-marker />
+              </div>
               <h1
                 class="font-display text-3xl font-semibold leading-tight tracking-tight text-(--text-primary) sm:text-4xl"
                 i18n="@@pair.heading"
