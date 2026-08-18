@@ -35,6 +35,7 @@ import {
   resolveAttestationSlotsForVendor,
   resolveClaimAuthority,
   slotsForOwnership,
+  vendorsForIntegrationSlots,
 } from './attestation-authority';
 
 const V_SOURCE = '11111111-1111-4111-8111-111111111111';
@@ -331,5 +332,60 @@ describe('assertClaimProvenance', () => {
     expect(err).toBeInstanceOf(ApiError);
     expect(err?.status).toBe(500);
     expect(err?.code).toBe('INTERNAL_ERROR');
+  });
+});
+
+// ─── The inverse lookup (§7 / AECI-302) ──────────────────────────────────────
+
+describe('vendorsForIntegrationSlots', () => {
+  it('returns nothing for an empty scope, without querying', async () => {
+    expect(await vendorsForIntegrationSlots(t.db as Db, [])).toEqual(new Map());
+  });
+
+  it('maps each slot to the vendors that own that endpoint', async () => {
+    const map = await vendorsForIntegrationSlots(t.db as Db, ['i-main']);
+    expect(map.get('i-main')?.slots).toEqual({
+      // p-src is co-owned, so the A slot has two vendors — the m2m case the
+      // detectors must nudge in full rather than picking one.
+      vendor_a: [V_SOURCE, V_CO_OWNER].sort(),
+      vendor_b: [V_TARGET],
+    });
+  });
+
+  it('puts a both-endpoints vendor in BOTH slots (the §2.1 intra-portfolio case)', async () => {
+    const map = await vendorsForIntegrationSlots(t.db as Db, ['i-intra']);
+    expect(map.get('i-intra')?.slots).toEqual({ vendor_a: [V_BOTH], vendor_b: [V_BOTH] });
+  });
+
+  it('leaves a slot empty when nobody has claimed that product', async () => {
+    await t.db.insert(products).values({ id: 'p-orphan', slug: 'orphan', name: 'Orphan' });
+    await t.db
+      .insert(integrations)
+      .values({ id: 'i-orphan', sourceProductId: 'p-src', targetProductId: 'p-orphan' });
+
+    const map = await vendorsForIntegrationSlots(t.db as Db, ['i-orphan']);
+    // An unclaimed endpoint has nobody to nudge — an empty slot, not an error, and
+    // never a 404: this runs from a cron with no caller to disclose anything to.
+    expect(map.get('i-orphan')?.slots.vendor_b).toEqual([]);
+  });
+
+  it('is the mirror of resolveAttestationSlotsForVendor', async () => {
+    const forward = await resolveAttestationSlotsForVendor(t.db as Db, V_SOURCE);
+    const inverse = await vendorsForIntegrationSlots(t.db as Db, [...forward.keys()]);
+
+    for (const [integrationId, authority] of forward) {
+      for (const slot of authority.slots) {
+        expect(inverse.get(integrationId)?.slots[slot]).toContain(V_SOURCE);
+      }
+    }
+  });
+
+  it('carries both endpoint product ids, like the forward resolver', async () => {
+    const entry = (await vendorsForIntegrationSlots(t.db as Db, ['i-main'])).get('i-main');
+    expect(entry).toMatchObject({
+      integrationId: 'i-main',
+      sourceProductId: 'p-src',
+      targetProductId: 'p-tgt',
+    });
   });
 });

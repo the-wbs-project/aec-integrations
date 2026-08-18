@@ -125,8 +125,13 @@ export const integrationListConfig = {
  * `computeAgreement` re-checks `retractedAt` itself, so the shared engine is
  * safe for callers that assemble attestations another way. This is the
  * belt — that is the braces.
+ *
+ * Exported for the §7 detector sweep (AECI-302), which builds its own read
+ * config rather than paying for the pair page's render payload but must apply
+ * the identical predicate — one definition, not a second `isNull(...)` literal
+ * that could drift from this comment.
  */
-const liveAttestationsWhere = isNull(attestations.retractedAt);
+export const liveAttestationsWhere = isNull(attestations.retractedAt);
 
 /**
  * Product-detail embed of an integration (`ProductDetail.integrations_as_*`).

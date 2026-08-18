@@ -762,16 +762,22 @@ Run as one daily sweep. Each yields `(claim, recipient vendor, detector kind)`.
 | **stale-version** | an attestation is older than N months with no version stamps, or its `deprecated_version` has passed — nudge the attesting vendor to re-confirm |
 | **aeci-denied** | a vendor **denies** an AECi-seeded claim — this is a correction signal to **AECi**, not a vendor nudge; route it to the ops surface, since a denial-only claim renders `unverified` (§4.2) and would otherwise be invisible |
 
-> **⚠️ `cross-grain` needs a definition or it gets dropped.** `STAGE_2_SPEC.md` §2.4 lists
-> "cross-grain" as a fourth detector and `docs/DATA_OBJECT_VOCABULARY.md` §1 says cross-grain
-> detection "keys off these terms" — but **no doc in this repo defines it**, and the external
-> concept doc that AECI-302 cites (§4.5/§7) is not in the tree. **Proposed definition:** because
-> claims anchor to the *mechanism* row (`STAGE_1_5_SPEC.md` §3.1, ADR 0018), the same
-> `data_object` between the same product **pair** can be claimed with contradictory directions
-> through different mechanisms — the native connector says `a_to_b`, the Zapier app says `b_to_a`
-> — so the *pair-level* picture is inconsistent while no individual claim is in `conflict`.
-> Cross-grain detects that. **The sub-issue must either adopt this definition or drop the
-> detector; it must not ship an undefined one.**
+> **✅ `cross-grain` is DROPPED (resolved at build, AECI-302, 2026-08-17).** The callout below is
+> kept because the reasoning is the decision. `STAGE_2_SPEC.md` §2.4 listed "cross-grain" as a
+> fourth detector and `docs/DATA_OBJECT_VOCABULARY.md` §1 says cross-grain detection "keys off
+> these terms" — but **no doc in this repo defined it**, and the external concept doc AECI-302
+> cited (§4.5/§7) is not in the tree. The **proposed definition** was: because claims anchor to
+> the *mechanism* row (`STAGE_1_5_SPEC.md` §3.1, ADR 0018), the same `data_object` between the
+> same product **pair** can be claimed with contradictory directions through different mechanisms
+> — the native connector says `a_to_b`, the Zapier app says `b_to_a` — so the *pair-level* picture
+> is inconsistent while no individual claim is in `conflict`.
+>
+> **Why it was dropped rather than adopted:** that definition fires on legitimate data. Two
+> mechanisms genuinely can move the same object in opposite directions — a native connector that
+> pushes and a Zapier app that pulls is a true description of both, not a contradiction, and the
+> pair page renders them as the separate mechanism lanes they are. The detector therefore has no
+> false-positive floor, and a detector operators learn to ignore is worse than none. Recorded in
+> §11 as an explicit deferral, not silently omitted. **Nothing undefined shipped** (the §7 AC).
 
 Thresholds (`N`) are launch-tunable constants, documented in `docs/POST_LAUNCH_MONITORING.md`
 alongside the other tunables.
@@ -806,6 +812,120 @@ moderation, 07:00 stats, 08:00 Algolia sync, 09:00 drift, `*/15` reconciliation,
 re-check against `main`, which has added crons since `stage-2` forked (§1.4). Emit a Datadog
 metric per detector per run (`docs/OBSERVABILITY.md`), including the zero case, so the cron's
 liveness is observable.
+
+### 7.5 As built (AECI-302 — 2026-08-17)
+
+**No migration** (the ledger is `audit_log`, as §7.3 designed), and `0007` stays reserved for the
+`aeci-514` / `aeci-515` collision. Decisions taken at build that §7.1–§7.4 did not pre-specify:
+
+- **Thresholds: silent-counterparty 14d, open-conflict 7d, stale-version 12mo, suppression 30d.**
+  Exported constants in `apps/api/src/lib/attestation-detectors.ts` /
+  `attestation-notify.ts`, documented in `docs/POST_LAUNCH_MONITORING.md` §3. `open-conflict` is
+  the tightest because it is the lowest-volume, highest-signal state; `stale-version` is annual
+  because **nothing in D1 carries version stamps** (AECI-607 shipped the columns, no backfill), so
+  a 6-month N would turn the entire vendor corpus into re-confirm mail six months after the portal
+  opens.
+- **`cross-grain` dropped** — see the §7.1 callout for the reasoning, §11 for the deferral.
+- **The sweep is near-free until vendors actually attest.** Every detector keys off a vendor's
+  word, so the shared read pre-filters to claims carrying ≥1 live non-`aeci` attestation:
+  `claim_id IN (SELECT claim_id FROM attestations WHERE retracted_at IS NULL AND source <> 'aeci')`.
+  That is **zero rows** in every environment today (promote has only ever written `source='aeci'`;
+  prod holds 951 claims / 951 attestations), so the job's cost scales with adoption rather than
+  with catalog size. It is an `IN (SELECT …)` and not a fetch-ids-then-`inArray` round trip
+  because **D1 caps bound parameters per query** — an id list would break silently once adoption
+  outgrew the cap.
+- **Where each detector measures age from, and why the two directions differ.**
+  `silent-counterparty` measures from the **oldest** live affirmation (how long the claim has
+  actually been one-sided; using the newest would let the *affirming* vendor's re-confirmation
+  reset a clock the silent side never touched). `open-conflict` measures from the **newest** live
+  vendor vote — the moment the disagreement came into being. **Both** of `stale-version`'s
+  clauses (aged-and-stampless, and deprecation-has-passed) are restricted to **affirmations**: the
+  re-confirm email describes the flow as one the vendor recorded, so chasing a denial would invert
+  its position, and a denial of a flow that ended needs no re-confirming regardless. The
+  deprecation clause additionally carries **no** age threshold — "the version this ended in is
+  gone" is a fact, not a duration. Either way the vendor's remedy (retract or extend) removes the
+  row from the detector, so it terminates rather than nagging forever.
+- **`open-conflict` notifies the *attesting* vendors, not the slot occupants.** `conflict` means
+  two identities took opposing positions and those identities are on the rows; a co-owner of the
+  same product who never voted is not party to the dispute. An orphaned vote
+  (`attested_by_vendor_id` nulled by `ON DELETE SET NULL`) has nobody to notify and is skipped —
+  the ops finding still fires, which is precisely why §7.1 pairs the two.
+- **`silent-counterparty` is silent in two cases, both correct.** One company owning both
+  endpoints affirms both slots → §4.5 collapses it to one voter, so the state *is* `single_source`
+  but there is no silent slot and nobody to nudge. And a silent product with no `product_vendors`
+  row has no seat to email — that is AECi's outreach problem, not a nudge.
+- **`aeci-denied` uses `isClaimRefuted`, not an `unverified` check**, and excludes
+  `origin = 'vendor'` claims: a vendor denying a claim it created itself is a self-correction the
+  §5 retract path handles, not an error in AECi's curation.
+- **The inverse slot→vendors lookup landed where §2.5 asked for it.**
+  `vendorsForIntegrationSlots(db, integrationIds)` in `apps/api/src/lib/attestation-authority.ts`
+  — a different query from the forward resolver (it has no vendor to filter on) but folded through
+  the same `slotsForOwnership`, so the §2.1 table still has one implementation. The 404
+  non-disclosure rule does not apply: a cron has no caller to disclose anything to, so an unowned
+  endpoint is an empty slot rather than an error.
+- **`liveAttestationsWhere` is now exported** from `lib/drizzle-helpers.ts` rather than restated —
+  the detector read builds its own config (it does not want the pair page's render payload) but
+  must apply the identical `retracted_at IS NULL` predicate.
+- **Per-item ops emails, and a FOURTH template id.** §7.2 named three vendor ids; AECi-facing mail
+  needs its own because the id *is* the `template:` metric tag and the `docs/email.md` catalogue
+  key, and an ops alert is a different message to a different audience. So:
+  `attestation-silent-counterparty`, `attestation-open-conflict`, `attestation-stale-version`
+  (vendor prose, with the pair + portal links) plus **`attestation-ops-alert`** (operator
+  `opsText`/`opsTable` format, naming the detector, one email per finding to `ADMIN_ALERT_EMAIL`).
+- **The ledger metadata carries more than `{ detector, vendorId }`** — also `integrationId`,
+  `dataObject`, `counterpartProduct` and `pairSlugs`. This is what makes §7.2's "gives the
+  in-portal list its backing query for free" literally true: `GET /api/vendor/notifications`
+  renders from the snapshot with **zero joins**, and a year-old notification stays legible after
+  the claim it names has been re-curated or deleted.
+- **A ledger row is written only after a successful send**, in `db.batch` chunks of 25. Chunked so
+  a batch failure costs at most 25 suppressions (which re-send tomorrow) instead of the run's; and
+  written *after*, never on attempt, because writing on attempt silently consumes a nudge — the
+  failure nobody notices for a month. A missing `SUPABASE_SERVICE_ROLE_KEY` (so no resolvable seat
+  address) is therefore `skipped` **with no ledger row**, not a silent success on a preview.
+- **Banned seats are excluded** — `role='vendor_admin' AND vendor_id=? AND banned_at IS NULL`.
+  Deliberately unlike `seatsOf` in `routes/vendor.ts`, which keeps banned seats on the roster so
+  co-admins can see a colleague is locked out; a banned seat fails every `/api/vendor/*` call and
+  so cannot act on a nudge.
+- **`NOTIFY_BATCH_CAP = 200` sends per run**, ordered most-signal-first (open-conflict →
+  aeci-denied → silent-counterparty → stale-version) so the cap drops the least urgent work, and
+  **logging the dropped count** to Datadog — no silent truncation. Suppression is applied *before*
+  the cap so a suppressed backlog cannot starve findings that need sending.
+- **Cron slot `0 10 * * *`** (10:00 UTC = 05:00 EST), last of the daily jobs so a nudge describes
+  the state the site is serving. Verified free on this branch **and** on `main` (which has added
+  00:15, 03:00 and 05:00 since `stage-2` forked). Queue-backed —
+  `aeci-attestation-notify-{staging,demo,production}` + the `ATTESTATION_NOTIFY_QUEUE` binding,
+  provisioned by the three deploy workflows — unlike the queue-less read-only gauges, because this
+  job sends mail and writes D1. It is also the one job that **rethrows** on an unexpected failure,
+  so the consumer retries: a sweep that never ran is a nudge nobody is ever told about, and the
+  ledger makes the re-run idempotent for everything already delivered.
+- **`GET /api/vendor/notifications` is the codebase's first production read of `audit_log`.**
+  Everything else only ever wrote to it. `audit_log_action_idx (action, created_at)` carries the
+  scan over a 90-day window (deliberately longer than the 30-day suppression window, so a vendor
+  can see the nudge currently suppressing a repeat), capped at 50 rows; the vendor filter is a
+  `json_extract` on unindexed `metadata`, which is a considered trade — indexing JSON needs a
+  migration and a generated column, and the window already bounds the predicate. Not
+  verified-gated (reading is not the capability). Ops rows store `vendorId: null`, so they can
+  never match a caller — the isolation is structural, not a clause someone must remember. The
+  mapper is tolerant: an unreadable snapshot is skipped, because these rows outlive the code that
+  wrote them.
+- **⚠️ Merge hazard for `stage-2` / `main`.** `main` carries
+  `apps/api/src/lib/cron-schedules.ts` — a `CRON_SCHEDULES` / `ADMIN_CRON_JOB` registry with a
+  spec that asserts **byte-equality against `wrangler.jsonc`**. That file does not exist on
+  `aeci-514`. When this epic reaches `main`, the new cron must be registered there too (all three
+  records plus the display-order array) or that spec fails.
+
+**Test coverage:** `apps/api/src/lib/attestation-detectors.spec.ts` (27 — every detector with its
+zero-result case, both threshold boundaries, the both-endpoints and orphaned-vote cases, the
+aged-and-stampless denial carve-out, and the `origin='vendor'` carve-out),
+`attestation-notify.spec.ts` (18 — the suppression window incl.
+per-recipient and per-detector scoping, the Resend-outage and missing-key fail-open paths asserting
+**no** ledger row, banned-seat exclusion, ops routing, the cap, and the always-emitted per-detector
+gauge), `routes/vendor-notifications.spec.ts` (9 — shape, ordering, window, page cap, cross-vendor
+and ops isolation, unreadable-snapshot degradation), plus the new endpoint added to
+`routes/vendor.authz-matrix.spec.ts` (85), the inverse lookup in `lib/attestation-authority.spec.ts`
+(25), the four templates in `lib/email.spec.ts` (39), and the cron/queue/ack/retry cells in
+`scheduled.spec.ts` (27). Suites green: `apps/api` 76 files / 1084 tests, `packages/shared` 25 /
+360.
 
 ---
 
@@ -1010,6 +1130,12 @@ Runs alongside; finishes what each sub-issue seeds (the AECI-525 pattern).
 
 - **Real-time notification delivery** — AECI-516; transport still open (`STAGE_2_SPEC.md` §8.2).
   §7 ships email + in-portal only.
+- **The `cross-grain` detector** — **dropped at build** (AECI-302; see the §7.1 callout).
+  `STAGE_2_SPEC.md` §2.4 and `DATA_OBJECT_VOCABULARY.md` §1 both reference it, and neither defines
+  it. The only definition ever proposed — contradictory directions for one `data_object` across
+  different mechanism rows on the same product pair — describes legitimate data, since two
+  mechanisms genuinely can move the same object in opposite directions. Reviving it needs a
+  definition with a false-positive floor, not just a query.
 - **Paywall *enforcement*** — AECI-304 under the Paid Tiers epic (AECI-515). §9.3 ships the seam,
   not the gate.
 - **Promote ingest of version stamps / `product_versions`** — §8.3; vendor-authored only at launch.

@@ -38,9 +38,10 @@
  *     vendor last-write-wins on a slot instead of stacking duplicate votes.
  *
  * Every §5 write path and every §7 detector resolves through this module; nothing
- * re-derives the rule inline. AECI-302 needs the *inverse* lookup (slot → which vendors
- * occupy it, for notification recipients) — build it on `slotsForOwnership` here rather
- * than as a second implementation of the same table.
+ * re-derives the rule inline. That includes the *inverse* lookup §7 needs (slot → which
+ * vendors occupy it, for notification recipients): `vendorsForIntegrationSlots`
+ * (AECI-302) is a different query — it has no vendor to filter on — but it folds its
+ * rows through the same `slotsForOwnership`, so the §2.1 table has one implementation.
  *
  * Three entry points, one grain apart, all folding into `loadAuthorities`'s join shape so
  * the 404 property above holds at every grain:
@@ -199,6 +200,86 @@ export async function resolveAttestationSlotsForVendor(
 ): Promise<Map<string, AttestationAuthority>> {
   return loadAuthorities(db, vendorId, opts?.integrationIds);
 }
+
+// ─────────────────────── The inverse lookup: slot → vendors (§7) ───────────────────────
+
+/** Which vendors occupy each slot of one integration. Either slot may be empty — an
+ *  unclaimed product simply has no `product_vendors` row, and that *is* the signal
+ *  `silent-counterparty` reads (nobody to nudge). Vendor ids are sorted so a caller's
+ *  output is deterministic. */
+export interface IntegrationSlotVendors {
+  integrationId: string;
+  sourceProductId: string;
+  targetProductId: string;
+  slots: Readonly<Record<AttestationSlot, readonly string[]>>;
+}
+
+/**
+ * The §7 detector sweep's inverse of {@link resolveAttestationSlotsForVendor}: given
+ * integrations, which vendors sit in `vendor_a` / `vendor_b`?
+ *
+ * The two directions cannot share a query — this one has no vendor to filter on, which
+ * is the whole point — but they **must** share the §2.1 ownership table, so both fold
+ * their rows through `slotsForOwnership`. The 404 non-disclosure rule does not apply
+ * here: this runs from a cron with no caller to disclose anything to, so an unowned
+ * endpoint is an empty slot rather than an error.
+ */
+export async function vendorsForIntegrationSlots(
+  db: Db,
+  integrationIds: readonly string[],
+): Promise<Map<string, IntegrationSlotVendors>> {
+  const scope = [...new Set(integrationIds)];
+  // Same short-circuit as `loadAuthorities`: `inArray` with `[]` emits degenerate SQL.
+  if (scope.length === 0) return new Map();
+
+  const rows = await db
+    .select({
+      integrationId: integrations.id,
+      sourceProductId: integrations.sourceProductId,
+      targetProductId: integrations.targetProductId,
+      ownedProductId: productVendors.productId,
+      vendorId: productVendors.vendorId,
+    })
+    .from(integrations)
+    .innerJoin(
+      productVendors,
+      or(
+        eq(productVendors.productId, integrations.sourceProductId),
+        eq(productVendors.productId, integrations.targetProductId),
+      ),
+    )
+    .where(inArray(integrations.id, scope));
+
+  const acc = new Map<string, { row: (typeof rows)[number]; a: Set<string>; b: Set<string> }>();
+  for (const row of rows) {
+    let entry = acc.get(row.integrationId);
+    if (!entry) {
+      entry = { row, a: new Set(), b: new Set() };
+      acc.set(row.integrationId, entry);
+    }
+    // One ownership row at a time — a vendor owning BOTH endpoints arrives as two rows
+    // and lands in both slots, which is exactly §2.1's both-endpoints case.
+    for (const slot of slotsForOwnership(
+      row.ownedProductId === row.sourceProductId,
+      row.ownedProductId === row.targetProductId,
+    )) {
+      (slot === 'vendor_a' ? entry.a : entry.b).add(row.vendorId);
+    }
+  }
+
+  const out = new Map<string, IntegrationSlotVendors>();
+  for (const [integrationId, { row, a, b }] of acc) {
+    out.set(integrationId, {
+      integrationId,
+      sourceProductId: row.sourceProductId,
+      targetProductId: row.targetProductId,
+      slots: { vendor_a: [...a].sort(), vendor_b: [...b].sort() },
+    });
+  }
+  return out;
+}
+
+// ─────────────────────── Claim-grain authority: one CLAIM (§5.2) ───────────────────────
 
 /** The claim a §5 write targets, plus the caller's authority over it. */
 export interface ClaimAuthority {

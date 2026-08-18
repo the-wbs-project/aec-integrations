@@ -44,6 +44,16 @@
  * `open`/`linear_issue_id=null` (their §6.4 on-submit issue creation failed), and
  * on a persistent failure raise the §6.2 admin alert. A tight backstop, not a
  * daily batch.
+ * 10:00 UTC (= 05:00 EST) — daily §7 attestation detector sweep
+ * (`./lib/attestation-detectors` + `./lib/attestation-notify`, AECI-302 /
+ * `STAGE_2_ATTESTATIONS_SPEC.md` §7): four detectors over the claim/attestation
+ * spine (silent counterparty, open conflict, stale version, AECi-seeded claim
+ * denied) → nudge emails to the vendors' seats and per-finding ops alerts to
+ * `ADMIN_ALERT_EMAIL`, deduped against an `audit_log` ledger so a daily sweep
+ * cannot re-nag daily. Deliberately last of the daily jobs, so a nudge describes
+ * the state the site is actually serving. Unlike the read-only gauges this one
+ * RETHROWS on an unexpected failure, so the queue retries — a sweep that never
+ * ran is a nudge nobody is ever told about.
  * Every hour at :00 (`WAF_CRON`) — WAF firewall-event poll (`./lib/waf-metrics` +
  * `@aeci/shared/cloudflare-analytics`, AECI-262 / §15.1): read the previous clock
  * hour of `firewallEventsAdaptiveGroups` from Cloudflare's GraphQL Analytics API
@@ -83,6 +93,12 @@ import {
   type EntityOrphanResult,
   type PromotedIdProvider,
 } from './lib/algolia-orphans';
+import { runAttestationNotifySweep } from './lib/attestation-notify';
+import {
+  NOTIFY_DURATION_METRIC,
+  NOTIFY_JOB_METRIC,
+  type AttestationNotifyMetricSink,
+} from './lib/attestation-notify-metrics';
 import { hasErrors, runDataQualityChecks, type DataQualityCheckResult } from './lib/data-quality';
 import { buildDataQualityDigest } from './lib/data-quality-email';
 import { parseRecipients, sendEmail } from './lib/email';
@@ -158,6 +174,18 @@ const DATA_QUALITY_CRON = '0 4 * * *';
  *  cheap read-only poll). MUST stay byte-equal to the `triggers.crons` entry in
  *  `wrangler.jsonc`. */
 const WAF_CRON = '0 * * * *';
+
+/** Cron expression for the daily §7 attestation detector sweep (`wrangler.jsonc`,
+ *  AECI-302 / `STAGE_2_ATTESTATIONS_SPEC.md` §7.4). 10:00 UTC = 05:00 EST — after
+ *  every other daily job has settled, so a nudge describes the state the site is
+ *  actually serving. The slot was picked against BOTH this branch's triggers
+ *  (04:00, 06:00, 07:00, 08:00, 09:00, the every-15-minutes reconcile, and the
+ *  hourly WAF poll) and `main`'s, which has added 00:15, 03:00 and 05:00 since
+ *  `stage-2` forked (§1.4) — 10:00 is free on both. It co-fires with
+ *  the hourly WAF poll, exactly as 04:00 and 06:00 already do: Cloudflare passes
+ *  the literal cron string, so the `switch` below still discriminates. MUST stay
+ *  byte-equal to the `triggers.crons` entry in `wrangler.jsonc`. */
+const ATTESTATION_NOTIFY_CRON = '0 10 * * *';
 
 /** The gauge a Datadog monitor alerts on (see docs/OBSERVABILITY.md). */
 const DRIFT_METRIC = 'aeci.algolia.index_drift';
@@ -291,15 +319,16 @@ function drizzlePromotedIds(env: Env): PromotedIdProvider {
 }
 
 /** Adapt the shared Datadog submitters into the pure metrics modules' sink, so
- *  `emitAlgoliaSyncMetrics` / `emitHomeStatsMetrics` / `emitModerationQueueMetrics`
- *  stay free of `ctx`/`env`/`Request` plumbing. The count + distribution + gauge
- *  shape satisfies `SyncMetricSink` / `StatsMetricSink` (count + distribution) and
- *  `ModerationMetricSink` (gauge) alike. */
+ *  `emitAlgoliaSyncMetrics` / `emitHomeStatsMetrics` / `emitModerationQueueMetrics` /
+ *  `emitDetectorMetrics` stay free of `ctx`/`env`/`Request` plumbing. The count +
+ *  distribution + gauge shape satisfies `SyncMetricSink` / `StatsMetricSink` (count
+ *  + distribution), `ModerationMetricSink` (gauge) and
+ *  `AttestationNotifyMetricSink` (count + gauge) alike. */
 function metricSink(
   ctx: ExecutionContext,
   env: Env,
   req: Request,
-): SyncMetricSink & ModerationMetricSink {
+): SyncMetricSink & ModerationMetricSink & AttestationNotifyMetricSink {
   return {
     count: (metric, value, tags) => submitCount(ctx, env, req, metric, value, tags),
     distribution: (metric, value, tags) => submitDistribution(ctx, env, req, metric, value, tags),
@@ -677,6 +706,50 @@ async function runDataQualityJob(env: Env, ctx: ExecutionContext): Promise<void>
   });
 }
 
+/** Run the daily §7 attestation detector sweep (AECI-302): four detectors over the
+ *  claim/attestation spine → vendor nudges + AECi ops alerts via Resend → an
+ *  `audit_log` suppression ledger. The sweep owns its own fail-open behaviour (a
+ *  Resend outage is an `outcome:failed` count, never a throw) and emits the
+ *  per-detector gauge through the injected sink — including the zero case, which
+ *  is this job's cron-liveness signal while no vendor has attested yet. Only an
+ *  unexpected read failure reaches the catch here; the queue then retries, which
+ *  is safe because the ledger makes an already-delivered nudge idempotent. */
+async function runAttestationNotifyJob(env: Env, ctx: ExecutionContext): Promise<void> {
+  const req = cronRequest('/cron/attestation-notify');
+  const started = Date.now();
+  const { db } = cronDb(env);
+
+  try {
+    const result = await runAttestationNotifySweep(
+      { env, executionCtx: ctx, req: { raw: req } },
+      db,
+      {
+        metrics: metricSink(ctx, env, req),
+      },
+    );
+    submitCount(ctx, env, req, NOTIFY_JOB_METRIC, 1, ['trigger:cron', 'outcome:success']);
+    submitDistribution(ctx, env, req, NOTIFY_DURATION_METRIC, Date.now() - started, [
+      'trigger:cron',
+    ]);
+    logToDatadog(ctx, env, req, {
+      level: result.failed > 0 ? 'warn' : 'info',
+      message: `aeci.attestation.notify found=${result.found} sent=${result.sent} suppressed=${result.suppressed} failed=${result.failed} skipped=${result.skipped} capped=${result.capped}`,
+      source: 'attestation-notify-cron',
+    });
+  } catch (error) {
+    submitCount(ctx, env, req, NOTIFY_JOB_METRIC, 1, ['trigger:cron', 'outcome:failed']);
+    logToDatadog(ctx, env, req, {
+      level: 'error',
+      message: 'aeci.attestation.notify.crashed',
+      source: 'attestation-notify-cron',
+      reason: error instanceof Error ? error.message : String(error),
+    });
+    // Rethrow so the queue consumer retries: unlike the read-only gauges, a sweep
+    // that never ran means nudges nobody will ever be told about.
+    throw error;
+  }
+}
+
 /** The host portion of a URL, or `undefined` if it's missing/unparseable. The
  *  WAF poll scopes its query to the env's own host so a shared zone isn't
  *  triple-counted across `env:` tags. */
@@ -764,6 +837,8 @@ function queueForJob(env: Env, job: ScheduledJob): Queue<ScheduledJobMessage> | 
       return env.RECONCILE_QUEUE;
     case 'data_quality':
       return env.DATA_QUALITY_QUEUE;
+    case 'attestation_notify':
+      return env.ATTESTATION_NOTIFY_QUEUE;
     case 'moderation':
       // Queue-less by design: a cheap read-only gauge needs no retry/queue, so it
       // always runs inline (AECI-206). No `MODERATION_QUEUE` binding exists.
@@ -812,6 +887,13 @@ function enqueueFailureLog(job: ScheduledJob): { path: string; message: string; 
       path: '/cron/waf-metrics',
       message: 'aeci.waf.poll.enqueue_failed',
       source: 'waf-metrics-cron',
+    };
+  }
+  if (job === 'attestation_notify') {
+    return {
+      path: '/cron/attestation-notify',
+      message: 'aeci.attestation.notify.enqueue_failed',
+      source: 'attestation-notify-cron',
     };
   }
   return {
@@ -881,6 +963,9 @@ async function runScheduledJob(env: Env, ctx: ExecutionContext, job: ScheduledJo
     case 'waf':
       await runWafMetricsJob(env, ctx);
       return;
+    case 'attestation_notify':
+      await runAttestationNotifyJob(env, ctx);
+      return;
   }
 }
 
@@ -912,6 +997,9 @@ export const scheduled: ExportedHandlerScheduledHandler<Env> = async (controller
       return;
     case WAF_CRON:
       await enqueueOrRun(env, ctx, 'waf');
+      return;
+    case ATTESTATION_NOTIFY_CRON:
+      await enqueueOrRun(env, ctx, 'attestation_notify');
       return;
     default:
       // A trigger fired with no matching case — surface it rather than silently

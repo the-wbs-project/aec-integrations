@@ -1530,7 +1530,7 @@ export const FeedbackSubmitSchema = z
 
 Stage 2 (AECI-520). All require `role === 'vendor_admin'` **and** a non-null `profiles.vendor_id`, enforced by the `requireVendor()` Worker middleware (`apps/api/src/lib/authz.ts`) — verifies the JWT, loads the D1 profile, and rejects in this order: missing token/profile `401`; `banned_at` set `403`; wrong role `403`; null `vendor_id` `403`. A site **`admin` is rejected too** — there is no impersonation at launch, admins act on vendor data through `/api/admin/*` so the audit trail names the real actor.
 
-Source of truth: `packages/shared/src/api/vendor.ts` + `product-versions.ts` + `vendor-attestations.ts` (Zod), `apps/api/src/routes/vendor.ts` + `vendor-product-versions.ts` + `vendor-attestations.ts` (handlers), with the shared guard seam in `apps/api/src/routes/vendor-shared.ts` and the two-slot authority seam in `apps/api/src/lib/attestation-authority.ts`; `STAGE_2_VENDOR_PORTAL_SPEC.md` §4 and `STAGE_2_ATTESTATIONS_SPEC.md` §5 / §8.3.
+Source of truth: `packages/shared/src/api/vendor.ts` + `product-versions.ts` + `vendor-attestations.ts` + `vendor-notifications.ts` (Zod), `apps/api/src/routes/vendor.ts` + `vendor-product-versions.ts` + `vendor-attestations.ts` + `vendor-notifications.ts` (handlers), with the shared guard seam in `apps/api/src/routes/vendor-shared.ts` and the two-slot authority seam in `apps/api/src/lib/attestation-authority.ts`; `STAGE_2_VENDOR_PORTAL_SPEC.md` §4 and `STAGE_2_ATTESTATIONS_SPEC.md` §5 / §7.2 / §8.3.
 
 **Two invariants govern this whole surface.**
 
@@ -1575,6 +1575,38 @@ export const VendorSeatSchema = z.object({
 });
 export const ListVendorSeatsResponseSchema = z.object({ seats: z.array(VendorSeatSchema) });
 ```
+
+#### `GET /api/vendor/notifications`
+
+The in-portal notification list (AECI-302 / `STAGE_2_ATTESTATIONS_SPEC.md` §7.2) — the daily §7 detector sweep's nudges to this vendor. **Not verified-gated**: `vendors.verified` gates authoring, not reading, so an unverified vendor sees its own (probably empty) list rather than a `403` it cannot act on — the same reasoning as the version list.
+
+**There is no notifications table.** The sweep records every successful send in `audit_log` (`action: 'notification.sent'`, `entity_type: 'claim'`, `entity_id: <claim id>`) as its anti-nag suppression ledger, and this endpoint reads those same rows (§7.3 — "no separate store"). Two consequences for consumers:
+
+1. **Every field is a snapshot taken at send time**, not a live read. Nothing is re-joined, which is what makes the list cheap — and what keeps a year-old notification legible after the claim it names has been re-curated or deleted.
+2. **Ops-routed rows are invisible here.** The `aeci-denied` correction signal and the ops half of `open-conflict` are written with `metadata.vendorId = null`, which can never equal a caller's vendor id. The isolation is structural, not a clause a handler must remember.
+
+Window and shape: the last **90 days** (deliberately wider than the 30-day suppression window, so a vendor can see the nudge currently suppressing a repeat), newest first, capped at **50** rows. No pagination contract at launch.
+
+```typescript
+export const VendorNotificationSchema = z.object({
+  id: z.string().uuid(),                   // the audit_log row id — a stable list key
+  detector: z.enum(ATTESTATION_DETECTORS), // silent-counterparty | open-conflict
+                                           // | stale-version | aeci-denied
+  claim_id: z.string().uuid(),
+  integration_id: z.string().uuid(),
+  data_object: NotificationProductRefSchema.nullable(),        // { slug, name }
+  counterpart_product: NotificationProductRefSchema.nullable(),
+  pair_path: z.string().nullable(),        // /products/{context}/integrations/{other}
+  created_at: z.string(),
+});
+export const ListVendorNotificationsResponseSchema = z.object({
+  notifications: z.array(VendorNotificationSchema),
+});
+```
+
+`pair_path` is rebuilt from the stored slugs through the same alphabetical rule the pair route canonicalises to (`orderedPairSlugs`), so it always matches the indexable URL. A row whose stored snapshot cannot be read (a future detector id, a later schema) is **skipped rather than surfaced or thrown** — these rows outlive the code that wrote them.
+
+Errors: none beyond the guard's. An empty ledger is `200 { "notifications": [] }`.
 
 #### `PATCH /api/vendor/profile`
 
