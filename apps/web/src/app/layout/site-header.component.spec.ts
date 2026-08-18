@@ -35,7 +35,10 @@ describe('SiteHeader auth affordance', () => {
         // The signed-in affordance is now `<aec-user-menu>`; stub its deps so the
         // header spec stays focused on which affordance renders (the menu's own
         // behaviour is covered by user-menu.component.spec.ts).
-        { provide: AdminStatus, useValue: { isAdmin: signal(false) } },
+        {
+          provide: AdminStatus,
+          useValue: { isAdmin: signal(false), ensureProbed: () => Promise.resolve() },
+        },
         { provide: AdminSummaryStore, useValue: { pendingReviews: signal<number | null>(null) } },
         { provide: AuthService, useValue: {} },
       ],
@@ -68,5 +71,37 @@ describe('SiteHeader auth affordance', () => {
     expect(trigger?.getAttribute('aria-label')).toBe('Account menu');
     expect(trigger?.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true');
     expect(el.querySelector('a[href="/auth/login"]')).toBeNull();
+  });
+
+  /**
+   * The row is width-budgeted (DESIGN.md §Navigation): four taxonomy flyouts
+   * plus the overflow menu is what fits at `lg`. Pin the item set and its order
+   * so a new top-level entry can't slip in without the re-measure that rule
+   * requires — and so Updates stays where it moved to, inside "More".
+   */
+  it('renders exactly the six primary destinations plus the More overflow menu', () => {
+    const el = render().nativeElement as HTMLElement;
+    const nav = el.querySelector('nav[aria-label="Primary"]')!;
+
+    const topLevel = Array.from(nav.children).map((child) =>
+      child.tagName === 'A'
+        ? child.textContent?.trim()
+        : (child.querySelector('a, button')?.textContent?.trim() ?? child.tagName.toLowerCase()),
+    );
+    expect(topLevel).toEqual([
+      'Home',
+      'Products',
+      'Categories',
+      'Trades',
+      'Audiences',
+      'Phases',
+      'More',
+    ]);
+
+    expect(nav.querySelector('aec-nav-more-trigger')).not.toBeNull();
+    // Updates is no longer a top-level link — it lives inside the More panel,
+    // which renders server-side (hidden, not unmounted) so it stays crawlable.
+    expect(nav.querySelector(':scope > a[href="/updates"]')).toBeNull();
+    expect(nav.querySelector('aec-nav-more-trigger a[href="/updates"]')).not.toBeNull();
   });
 });

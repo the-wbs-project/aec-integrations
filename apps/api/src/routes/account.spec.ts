@@ -29,6 +29,7 @@ vi.mock('../lib/email', () => ({
 
 const u = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const USER = u(900);
+const ADMIN_USER = u(901);
 
 let t: TestDb;
 beforeEach(async () => {
@@ -38,18 +39,36 @@ beforeEach(async () => {
 afterEach(() => t.dispose());
 
 type Handler = Parameters<typeof appFor>[0];
-function appFor(handler: (c: never) => Promise<Response>, method: 'get' | 'patch' | 'delete') {
+function appFor(
+  handler: (c: never) => Promise<Response>,
+  method: 'get' | 'patch' | 'delete',
+  role: 'reviewer' | 'admin' = 'reviewer',
+) {
   const a = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
   a.onError(errorHandler());
   a.use('*', async (c, next) => {
-    c.set('auth', { userId: USER, email: 'me@example.com', role: 'reviewer', vendorId: null });
+    // Stands in for `requireAuth()`, which re-reads the role from D1 every
+    // request (`lib/authz.ts` / AUTH_AND_RLS §4.5) — so `session.role` here is
+    // the same DB-derived value the handler gates `pending_reviews` on.
+    // `vendorId` is part of the same DB-derived session since AECI-520.
+    c.set(
+      'auth',
+      role === 'admin'
+        ? { userId: ADMIN_USER, email: 'root@example.com', role: 'admin', vendorId: null }
+        : { userId: USER, email: 'me@example.com', role: 'reviewer', vendorId: null },
+    );
     await next();
   });
   a.on(method.toUpperCase(), '/api/account', handler as never);
   return a;
 }
-const run = (handler: Handler, method: 'get' | 'patch' | 'delete', body?: unknown) =>
-  appFor(handler, method).request(
+const runAs = (
+  handler: Handler,
+  method: 'get' | 'patch' | 'delete',
+  role: 'reviewer' | 'admin',
+  body?: unknown,
+) =>
+  appFor(handler, method, role).request(
     '/api/account',
     {
       method: method.toUpperCase(),
@@ -60,6 +79,30 @@ const run = (handler: Handler, method: 'get' | 'patch' | 'delete', body?: unknow
     TEST_ENV,
     fakeExecutionContext(),
   );
+const run = (handler: Handler, method: 'get' | 'patch' | 'delete', body?: unknown) =>
+  runAs(handler, method, 'reviewer', body);
+
+/** Seed `n` pending reviews (plus the reviewer + one product each — `reviews` is
+ *  UNIQUE on `(product_id, reviewer_id)`) so the admin badge count has something
+ *  to count. */
+async function seedPendingReviews(n: number): Promise<void> {
+  await t.db.insert(profiles).values({ id: USER, displayName: 'Ada' });
+  for (let i = 0; i < n; i++) {
+    await t.db
+      .insert(products)
+      .values({ id: u(1 + i), slug: `p${i}`, name: `P${i}`, promotionStatus: 'promoted' });
+    await t.db.insert(reviews).values({
+      id: u(20 + i),
+      productId: u(1 + i),
+      reviewerId: USER,
+      ratingOverall: 4,
+      ratingOnboarding: 4,
+      title: `T${i}`,
+      body: 'B',
+      status: 'pending',
+    });
+  }
+}
 
 describe('GET /api/account', () => {
   it('returns the session identity + display_name', async () => {
@@ -71,7 +114,27 @@ describe('GET /api/account', () => {
       email: 'me@example.com',
       display_name: 'Ada',
       role: 'reviewer',
+      // Non-admin → null, and the reviews table is never counted (AECI-617).
+      pending_reviews: null,
     });
+  });
+
+  // AECI-617: the badge count rides along with the role so the header's admin
+  // probe resolves both in one round trip instead of chaining
+  // `GET /api/admin/summary`.
+  it('returns the pending-review count for an admin', async () => {
+    await t.db.insert(profiles).values({ id: ADMIN_USER, displayName: 'Root', role: 'admin' });
+    await seedPendingReviews(2);
+
+    const res = await runAs(createGetAccountHandler(t.factory), 'get', 'admin');
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ role: 'admin', pending_reviews: 2 });
+  });
+
+  it('returns 0 pending reviews for an admin with an empty queue', async () => {
+    await t.db.insert(profiles).values({ id: ADMIN_USER, displayName: 'Root', role: 'admin' });
+    const res = await runAs(createGetAccountHandler(t.factory), 'get', 'admin');
+    expect(await res.json()).toMatchObject({ role: 'admin', pending_reviews: 0 });
   });
 });
 

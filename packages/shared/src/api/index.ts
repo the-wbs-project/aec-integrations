@@ -2,6 +2,7 @@ export * from './account';
 export * from './admin';
 export * from './admin-claims';
 export * from './admin-entitlements';
+export * from './admin-panel';
 export * from './admin-requests';
 export * from './admin-reviewers';
 export * from './common';

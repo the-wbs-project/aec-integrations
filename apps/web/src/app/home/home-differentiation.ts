@@ -101,5 +101,5 @@ export class HomeDifferentiation {
 
   /** Closing reinforcement — the absorbed operator promise (no competitor
    *  call-outs on the public site). Same statement as the About trust band. */
-  protected readonly closing = $localize`:@@home.different.closing:We earn revenue from vendors who want to be found, never from changing what you see.`;
+  protected readonly closing = $localize`:@@home.different.closing:We will earn revenue from vendors who want to be found, never from changing what you see.`;
 }

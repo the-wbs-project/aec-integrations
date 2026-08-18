@@ -1,11 +1,17 @@
 /**
  * Phase 2.8 taxonomy list endpoints — Drizzle/D1 (ADR 0016 / AECI-253).
  *
- *   GET /api/categories | /api/audiences | /api/phases
+ *   GET /api/categories | /api/audiences | /api/phases | /api/trades
  *
- * All three return `{ data: TaxonomyTermWithCount[] }` (`CategoriesListResponseSchema`).
+ * All four return `{ data: TaxonomyTermWithCount[] }` (`CategoriesListResponseSchema`).
  * Not paginated (the taxonomy is small by design, §3.1). Per-slug detail goes
  * through `createTaxonomyDetailHandler`; the aggregate tree is `createTaxonomyHandler`.
+ *
+ * `/api/trades` (§5.5a / AECI-541) is **not publication-gated**: every term ships
+ * with its `product_count`, sub-`TRADE_PUBLISH_MIN_PRODUCTS` terms included, and
+ * the consumer applies the floor (`API_CONTRACTS.md` §6.4 / `TRADES_VOCABULARY.md`
+ * §6). Gating here would split the vocabulary into two response shapes and make
+ * the floor un-tunable without an API deploy.
  */
 
 import { CategoriesListResponseSchema, type CategoriesListResponse } from '@aeci/shared';
@@ -13,7 +19,12 @@ import { asc } from 'drizzle-orm';
 import type { Context } from 'hono';
 
 import { getDb } from '../db/client';
-import { taxonomyAudiences, taxonomyCategories, taxonomyPhases } from '../db/schema';
+import {
+  taxonomyAudiences,
+  taxonomyCategories,
+  taxonomyPhases,
+  taxonomyTrades,
+} from '../db/schema';
 import type { Env } from '../env';
 import { json } from '../http';
 import {
@@ -21,12 +32,13 @@ import {
   categoryTermConfig,
   phaseTermConfig,
   toTaxonomyTermWithCount,
+  tradeTermConfig,
   type RawTaxonomyTermRow,
 } from '../lib/drizzle-helpers';
 import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
 
-/** The three facet list endpoints, keyed by URL path segment. */
-export type TaxonomyListKind = 'categories' | 'audiences' | 'phases';
+/** The four facet list endpoints, keyed by URL path segment. */
+export type TaxonomyListKind = 'categories' | 'audiences' | 'phases' | 'trades';
 
 export function createTaxonomyListHandler(
   kind: TaxonomyListKind,
@@ -53,6 +65,12 @@ export function createTaxonomyListHandler(
         rows = await db.query.taxonomyPhases.findMany({
           ...phaseTermConfig,
           orderBy: [asc(taxonomyPhases.displayOrder), asc(taxonomyPhases.name)],
+        });
+        break;
+      case 'trades':
+        rows = await db.query.taxonomyTrades.findMany({
+          ...tradeTermConfig,
+          orderBy: [asc(taxonomyTrades.displayOrder), asc(taxonomyTrades.name)],
         });
         break;
     }

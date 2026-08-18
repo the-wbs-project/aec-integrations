@@ -86,6 +86,34 @@ describe('MailingListSignup', () => {
     expect(error?.getAttribute('role')).toBe('alert');
   });
 
+  it('does NOT show the email error when an empty field is touched (focus then blur, no text)', async () => {
+    const { fixture, el } = setup();
+    const input = el.querySelector('#mailing-list-email') as HTMLInputElement;
+    // Focus then blur without typing — marks the field touched but it holds no text.
+    input.dispatchEvent(new Event('focus'));
+    input.dispatchEvent(new Event('blur'));
+    await settle();
+    fixture.detectChanges();
+
+    expect(el.querySelector('#mailing-list-email-error')).toBeNull();
+    // aria-invalid must not be asserted on an empty field either.
+    expect(input.getAttribute('aria-invalid')).toBeNull();
+  });
+
+  it('hides the email error again if an invalid value is cleared back to empty', async () => {
+    const { fixture, el } = setup();
+    typeEmail(fixture, 'nope');
+    await settle();
+    fixture.detectChanges();
+    expect(el.querySelector('#mailing-list-email-error')).not.toBeNull();
+
+    // Clear the field — the touched-but-empty box should stop nagging.
+    typeEmail(fixture, '');
+    await settle();
+    fixture.detectChanges();
+    expect(el.querySelector('#mailing-list-email-error')).toBeNull();
+  });
+
   it('POSTs /api/subscribe with the email + UTM + referrer from the live page, then confirms', async () => {
     window.history.replaceState(
       {},

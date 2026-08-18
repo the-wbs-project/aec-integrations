@@ -37,6 +37,7 @@ describe('TaxonomyBadge', () => {
     ['category', 'project-management', '/categories/project-management'],
     ['audience', 'structural', '/audiences/structural'],
     ['phase', 'preconstruction', '/phases/preconstruction'],
+    ['trade', 'electrical', '/trades/electrical'],
   ] as const)('renders a link to the %s browse page', (kind, slug, expectedHref) => {
     const root = renderHost({ kind, slug, name: 'irrelevant' });
     const link = root.querySelector('a');

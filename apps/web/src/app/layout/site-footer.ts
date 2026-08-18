@@ -74,7 +74,10 @@ import { BrandLogo } from './brand-logo';
                 >
                   <!-- Tight i18n wrap so the source matches taxonomy-nav-copy.ts's
                        $localize (shared @@app.nav.* id): avoids a duplicate-id
-                       collision in extraction (mirrors the AECI-67 fix). -->
+                       collision in extraction (mirrors the AECI-67 fix). The
+                       Legal + Company links below carry the same wrap for the
+                       same reason: the header's "More" menu renders them from
+                       more-menu-links.ts under these same @@app.footer.* ids. -->
                   <ng-container i18n="@@app.nav.categories">Categories</ng-container>
                 </a>
               </li>
@@ -87,6 +90,11 @@ import { BrandLogo } from './brand-logo';
                 </a>
               </li>
               <li>
+                <a routerLink="/trades" class="text-(--text-secondary) hover:text-(--text-primary)">
+                  <ng-container i18n="@@app.nav.trades">Trades</ng-container>
+                </a>
+              </li>
+              <li>
                 <a routerLink="/phases" class="text-(--text-secondary) hover:text-(--text-primary)">
                   <ng-container i18n="@@app.nav.phases">Phases</ng-container>
                 </a>
@@ -94,48 +102,41 @@ import { BrandLogo } from './brand-logo';
             </ul>
           </nav>
           <nav class="text-sm" i18n-aria-label="@@app.footer.legal.aria" aria-label="Legal">
-            <p
-              class="mb-3 text-xs uppercase tracking-wide text-(--text-secondary)"
-              i18n="@@app.footer.legal.eyebrow"
-            >
-              Legal
+            <p class="mb-3 text-xs uppercase tracking-wide text-(--text-secondary)">
+              <ng-container i18n="@@app.footer.legal.eyebrow">Legal</ng-container>
             </p>
             <ul class="space-y-2">
               <li>
                 <a
                   routerLink="/legal/terms"
                   class="text-(--text-secondary) hover:text-(--text-primary)"
-                  i18n="@@app.footer.legal.terms"
+                  ><ng-container i18n="@@app.footer.legal.terms">Terms</ng-container></a
                 >
-                  Terms
-                </a>
               </li>
               <li>
                 <a
                   routerLink="/legal/privacy"
                   class="text-(--text-secondary) hover:text-(--text-primary)"
-                  i18n="@@app.footer.legal.privacy"
+                  ><ng-container i18n="@@app.footer.legal.privacy">Privacy</ng-container></a
                 >
-                  Privacy
-                </a>
               </li>
               <li>
                 <a
                   routerLink="/legal/review-guidelines"
                   class="text-(--text-secondary) hover:text-(--text-primary)"
-                  i18n="@@app.footer.legal.reviewGuidelines"
+                  ><ng-container i18n="@@app.footer.legal.reviewGuidelines"
+                    >Review guidelines</ng-container
+                  ></a
                 >
-                  Review guidelines
-                </a>
               </li>
               <li>
                 <a
                   routerLink="/legal/listing-accuracy"
                   class="text-(--text-secondary) hover:text-(--text-primary)"
-                  i18n="@@app.footer.legal.listingAccuracy"
+                  ><ng-container i18n="@@app.footer.legal.listingAccuracy"
+                    >Listing accuracy</ng-container
+                  ></a
                 >
-                  Listing accuracy
-                </a>
               </li>
             </ul>
           </nav>
@@ -148,22 +149,14 @@ import { BrandLogo } from './brand-logo';
             </p>
             <ul class="space-y-2">
               <li>
-                <a
-                  routerLink="/about"
-                  class="text-(--text-secondary) hover:text-(--text-primary)"
-                  i18n="@@app.footer.about"
+                <a routerLink="/about" class="text-(--text-secondary) hover:text-(--text-primary)"
+                  ><ng-container i18n="@@app.footer.about">About</ng-container></a
                 >
-                  About
-                </a>
               </li>
               <li>
-                <a
-                  routerLink="/contact"
-                  class="text-(--text-secondary) hover:text-(--text-primary)"
-                  i18n="@@app.footer.contact"
+                <a routerLink="/contact" class="text-(--text-secondary) hover:text-(--text-primary)"
+                  ><ng-container i18n="@@app.footer.contact">Contact</ng-container></a
                 >
-                  Contact
-                </a>
               </li>
             </ul>
           </nav>

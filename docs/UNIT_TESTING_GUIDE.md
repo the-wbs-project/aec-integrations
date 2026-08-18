@@ -215,6 +215,10 @@ Changes to the SSR consumer or `/admin/purge` must also assert the native bounda
 
 **Mock once at the top of the test file or `describe` block, not inside each `it`.** Repeated setup means a missing `beforeEach`.
 
+**A unit test makes zero real outbound requests — including the ones you didn't write.** Mocking the obvious boundary module isn't enough when the code under test reaches the network through a *second* helper. `scheduled.spec.ts` mocked `lib/algolia-drift` but not `lib/algolia-orphans`, so every drift-cron dispatch quietly `fetch`ed `https://APP-dsn.algolia.net/…` with the fake app id. On a dev machine that's a fast NXDOMAIN; on a CI runner one dropped DNS packet costs a 5s resolver retry and the test blew Vitest's 5000ms timeout — a red `main` from an unrelated merge (deploy run 31933190326). Trace every network-touching import of the module under test, not just the one the test is about, and stub the ones the test doesn't assert on (their own specs cover them).
+
+To find these, run the suite with a temporary `setupFiles` that wraps `globalThis.fetch` and logs each URL. Anything it prints is either a boundary you forgot to mock or a test that belongs in the integration lane.
+
 ---
 
 ## Test data

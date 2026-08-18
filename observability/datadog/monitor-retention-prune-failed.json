@@ -1,0 +1,14 @@
+{
+  "name": "AECi — Retention prune failed (daily cron)",
+  "type": "query alert",
+  "query": "sum(last_1d):sum:aeci.retention.prune{outcome:failed,env:production}.as_count() > 0",
+  "message": "The daily 03:00 UTC §7.4 retention prune (AECI-584) threw. Unlike the snapshot cron, this job does not degrade to partial success: its deletes and the single `retention.pruned` audit row commit in ONE atomic `db.batch`, so a throw means nothing was deleted and nothing was logged — the database is exactly as it was.\n\nRead the `source:retention-prune-cron` log `aeci.retention.crashed` for the reason. Common causes are a missing/failing `DB` binding and a D1 write error. No manual repair is needed for the data; the next night's run re-probes its cutoffs from scratch. If it fails repeatedly the table keeps growing, so treat a sustained failure as a real defect rather than transient.\n\nNote: this monitor deliberately does NOT use notify_no_data — `outcome:failed` is absent on a healthy run, so no-data here would be a constant false alarm. Cron liveness is the companion monitor 'AECi — Retention prune not running'.\n\nRunbook: https://github.com/the-wbs-project/aec-integrations/blob/main/docs/RUNBOOKS.md#retention-prune-skipped-failed-or-not-running\n\n@NOTIFICATION_CHANNEL_TBD",
+  "tags": ["app:aeci", "service:aeci-api", "phase:8", "managed-by:aeci-584"],
+  "options": {
+    "thresholds": { "critical": 0 },
+    "notify_no_data": false,
+    "renotify_interval": 0,
+    "include_tags": true,
+    "evaluation_delay": 300
+  }
+}

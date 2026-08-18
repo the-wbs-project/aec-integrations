@@ -109,8 +109,12 @@ async function linkCategory(productId: string, categoryId: string): Promise<void
   await t.db.insert(productCategories).values({ productId, categoryId });
 }
 
-async function seedPageView(productId: string | null, createdAt: string): Promise<void> {
-  await t.db.insert(pageViews).values({ path: '/x', productId, createdAt });
+async function seedPageView(
+  productId: string | null,
+  createdAt: string,
+  isBot?: boolean,
+): Promise<void> {
+  await t.db.insert(pageViews).values({ path: '/x', productId, createdAt, isBot });
 }
 
 async function seedVendor(id: string): Promise<void> {
@@ -390,6 +394,33 @@ describe('computeTrendingProducts', () => {
   it('returns [] when there are no page views (does not throw)', async () => {
     await seedProduct({ id: U.p1 });
     await expect(computeTrendingProducts(t.db, NOW)).resolves.toEqual([]);
+  });
+
+  // AECI-582. Crawlers out-view humans by an order of magnitude, so without this the
+  // card ranks products by how hard they are being scraped. Bot views must not count
+  // toward the floor either — otherwise one crawler promotes a product nobody read.
+  it('ignores bot views entirely — they neither rank nor clear the floor', async () => {
+    await seedProduct({ id: U.p1, slug: 'a', name: 'A' });
+    await seedProduct({ id: U.p2, slug: 'b', name: 'B' });
+    // p-1: 3 human views → trends. p-2: 9 bot views + 1 human → must not trend.
+    await seedPageView(U.p1, within7d, false);
+    await seedPageView(U.p1, within7d, false);
+    await seedPageView(U.p1, within7d, false);
+    for (let i = 0; i < 9; i++) await seedPageView(U.p2, within7d, true);
+    await seedPageView(U.p2, within7d, false);
+    const result = await computeTrendingProducts(t.db, NOW);
+    expect(result.map((r) => r.id)).toEqual([U.p1]);
+  });
+
+  // The digest's NULL-safe `is_bot IS NOT 1`: rows captured before the classifier
+  // existed still count, so the card did not go blank the day the filter landed.
+  it('still counts unclassified (null is_bot) views as human', async () => {
+    await seedProduct({ id: U.p1, slug: 'a', name: 'A' });
+    await seedPageView(U.p1, within7d); // is_bot null
+    await seedPageView(U.p1, within7d);
+    await seedPageView(U.p1, within7d);
+    const result = await computeTrendingProducts(t.db, NOW);
+    expect(result.map((r) => r.id)).toEqual([U.p1]);
   });
 });
 

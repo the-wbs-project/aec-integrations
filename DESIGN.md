@@ -258,6 +258,11 @@ The dark palette was removed from the active design system in **AECI-226**: Stag
 
 **The Serif-Floor Rule.** Source Serif 4 never renders below 1.125rem / 18px. Anything smaller is by definition a label, overline, or caption — Atkinson territory. (The global `h1,h2,h3` serif rule in `styles.css` makes small serif easy to leak; the `.aec-overline` class on small headings is the standing fix — AECI-230.)
 
+**The Unlayered-Heading Rule.** The `h1, h2, h3` block in `styles.css` (family, weight, **and size**) sits **outside any `@layer`**, and unlayered declarations beat every layered one regardless of specificity. Tailwind v4 ships its utilities in `@layer utilities`, so **a `text-*` utility written directly on an `h1`/`h2`/`h3` is silently dead** — the element keeps the global size (h1 `clamp(1.75rem…2.5rem)`, h2 1.5rem, h3 1.25rem) and the author's intent never renders. Two consequences:
+
+- **To size a heading, put the `text-*` utility on an inner `<span>`**, not on the heading element. The span inherits the display face from the heading and takes its own size. (`product-powered-hub.ts` does this for its card titles.)
+- **Don't "fix" it by moving the block into `@layer base` without an audit.** Doing so silently resizes every heading that currently carries a losing `text-*` utility — at the time of writing that is ~9 surfaces, including all three `/search` hit cards (`text-base` → would drop 1.25rem → 1rem, which the Serif-Floor Rule then forbids), `browse-grid`, `products-pair` mechanism titles, `home-how-it-works`, `admin-shell`, and both taxonomy `h1`s. The block being unlayered is a bug, but unwinding it is its own scoped piece of work with per-surface decisions, not a drive-by.
+
 **The Two-Family Rule.** Source Serif 4 for display, headline, title. Atkinson Hyperlegible Next for body, label, overline, and caption. No third typeface enters the system. Monospace appears only when rendering literal code (in `<code>` and `<pre>`) and uses the system monospace stack — it is not a brand face.
 
 **The Reflex-Reject Rule.** This system explicitly does not use, and will reject any proposal to introduce: Inter, DM Sans, Plus Jakarta Sans, Geist, Mona Sans, Space Grotesk, IBM Plex Sans, Outfit, Roboto, Open Sans, Arial, Fraunces, Newsreader, Lora, Crimson, Crimson Pro, Crimson Text, Playfair Display, Cormorant, Cormorant Garamond, DM Serif Display, DM Serif Text, Instrument Sans, Instrument Serif, Syne. The chosen pair (Source Serif 4 + Atkinson Hyperlegible) is the answer; the reflex list is the question that has already been refused.
@@ -405,6 +410,16 @@ Phase 6 extends the admin area with **vendor-request moderation** (`/admin/reque
 
 - **Repeat-offender prompt + ban dialog** (in `<aec-review-queue>`, `admin/reviews/review-queue.ts`) — when an admin rejects a review and that pushes the reviewer past the rejection threshold, the `PATCH /api/admin/reviews/:id` response carries a `repeat_offender` payload that raises a dismissible prompt. Confirming opens a **Spartan ban dialog** (`BrnDialog`) with a required reason; the dialog is driven **imperatively** from the event handler (`openBan()`), never from an `effect()` (a `BrnDialog.open()` inside an effect throws NG0602). Banning calls `PATCH /api/admin/reviewers/:id` `{action:'ban', reason}`.
 
+### Operator console (Phase 8.3)
+
+Phase 8.3 (`docs/ADMIN_PANEL_SPEC.md`, epic AECI-572) turns the moderation area into the **operator console**: `<aec-admin-shell>`'s `h1` becomes "Admin", its nav groups into **Insights / Catalog / Operations**, and `/admin` opens on the Overview. **No new Mobbin anchor was picked, deliberately** (spec §9.10): the console inherits the Phase 5/6 admin queues' visual language and the home stats cards' card vocabulary — bordered `--surface-raised`, border not shadow, Forest figures, `tabular-nums`, Bone/Clay-deep for anything cautionary. One publication, one voice (Anchor-Site Rule). Token-only, i18n throughout, light-only.
+
+- **Overview** (`<aec-admin-overview>`, `admin/overview/`) — the `/admin/overview` child route and the 05:00 analytics digest as a live page. Four `<aec-stat-tile>`s plus a catalog-totals card, a 30-day human-vs-bot chart, ranked top-sources / top-products lists, and a five-item status strip. A **Recompute** button re-reads the bundle with `?recompute=1` to fill the two network-dependent status items, announcing via a polite live region.
+
+- **Resolution honesty is a visual rule here, not just a data one.** Every tile's caption states the window it covers, and the unique-visitors definition renders *next to the number* rather than in a tooltip. The response's caveats render through `<aec-admin-notes>` — a Note/Caveat chip plus localized prose keyed off the API's machine-readable `code`, placed above every figure it qualifies. Unmeasured values read "Not measured", never `0`.
+
+- **Charts are hand-rolled SVG** (`admin/charts/`, spec §8 / §13 D3): `<aec-sparkline>` and `<aec-stacked-bar-chart>`, geometry from pure functions so they are SSR-safe, sized by `viewBox` rather than measurement, series in Forest and Clay-deep (distinct in hue **and** lightness). A chart is never the only representation of a number: the stacked bar carries a visible legend and a visually-hidden `<table>` of the full series, and a sparkline only ever accompanies a figure already rendered as text. An empty series renders nothing rather than a flat line implying a measured zero.
+
 ### Inputs / Fields
 
 Native inputs driven by Signal Forms today (ADR 0009); richer controls use Angular Aria per the provider note above (ADR 0010, Accepted) — `select`/`radio` are realised via combobox/listbox (Aria@22 ships neither), and these discrete-choice controls bridge into Signal Forms via `[(value)]`+`(valueChange)`, not `[formField]`. Styling binds to tokens.
@@ -416,9 +431,34 @@ Native inputs driven by Signal Forms today (ADR 0009); richer controls use Angul
 
 ### Badges
 
-- **Verified** (`badge-verified`): Forest fill, surface-base text, `rounded.sm`, label typography. Reserved for vendor-verified integrations and other editorially-confirmed states.
+> **No verification iconography in Stage 1.** AECi verifies nothing today: production
+> holds zero vendor attestations and zero vendors with `verified = true`, and it stays
+> that way until the Stage 2 portal lets a vendor attest. So **no checkmark, shield,
+> tick, or "Verified" fill renders on any public surface** — a trust mark the data
+> cannot back is the one design error this brand cannot afford. Provenance is carried
+> by *text* (a maintainer name, and eventually a date), because text is falsifiable and
+> a checkmark is not. If you are reaching for a trust glyph, you want the maintenance
+> marker below. This is why `home-credibility-strip` uses a balance scale rather than
+> the shield-check it originally shipped with.
+
+What actually renders today:
+
+- **Maintenance marker** (`shared/maintenance-marker`): neutral chip — `border-default` /
+  `surface-raised` / `text-secondary`, decorative dot, no icon. Reads
+  `Maintained by AEC Integrations.` on product detail, vendor detail, and the pair page.
+  The date clause (`Reviewed <date>.`) and the `Vendor-maintained.` branch are built but
+  **dormant**: no column stores a real review timestamp yet, and wiring the input to
+  `updated_at` would make the date refresh itself on every bulk re-promote. AECI-616
+  supplies the real `last_reviewed_at`.
+- **Agreement pill** (`products/agreement-badge`): same neutral chip tokens. Renders
+  `Unverified · AECi` on every claim on every pair page — the honest posture, not a
+  warning. `Vendor-confirmed` / `Needs review` are defined for Stage 2 and unreachable.
 - **Pending** (`badge-pending`): surface-sunken fill, text-secondary text, 0.5px border-default. Indicates "submitted, not yet reviewed" — never confused with verified.
 - **Verified vendor** (`aec-verified-badge`, AECI-523): the trust-surface indicator for an **AECi-verified vendor _account_** (`vendors.verified`). A quiet editorial **pill** — Forest-soft wash (`--accent-primary-soft`) + Forest text + 0.5px Forest border + a shield-check glyph (Forest text on Forest-soft = 10.80:1). This is the badge the **pill shape is reserved for** (see Tags / taxonomy chips below): the `rounded-full` pill and the shield glyph keep it distinct from the `rounded.sm` integration `badge-verified` above and from the rating anatomy (gold stars). Two variants — `full` (icon + "Verified vendor" label) and `compact` (icon-only, accessible name via `aria-label`, for dense contexts like the product-pair rail). Renders **only when verified** — the public "Unverified" baseline is the badge's absence, never a label (the explicit "Unverified" readout is a vendor-dashboard concept). It is a **trust** signal, never a paid-placement or ranking signal (no pay-for-placement), and never an endorsement of product quality.
+
+**Deferred to Stage 2, not shipped:**
+
+- **Verified** (`badge-verified`): Forest fill, surface-base text, `rounded.sm`, label typography. Reserved for vendor-verified integrations and other editorially-confirmed states. **Do not build this until vendor attestations exist** (AECI-514) — until then there is nothing true for it to mark.
 
 ### Tags / Taxonomy chips
 
@@ -436,12 +476,81 @@ The signature data component for review scores. Source Serif 4 numerals (headlin
 - **Label below:** Atkinson Hyperlegible label scale, text-secondary color.
 - **Range marker** (optional, sparse): a single vertical mark on a 1-10 axis with no fill, no gradient, no animation — visible at a glance, not a chart.
 
+### Data visualization — operator console only (AECI-578)
+
+The admin panel (`/admin/*`, `docs/ADMIN_PANEL_SPEC.md` §8) is the one surface in
+AECi that plots multi-series data. Its primitives live in
+`apps/web/src/app/admin/charts/` and are hand-rolled SVG + HTML — there is no
+charting dependency and none is to be added (§13 D3). The method comes from the
+`dataviz` skill: pick the form, then assign colour by the job it does, then
+validate the palette with a script rather than by eye.
+
+**The series palette is scoped, and it is not a brand colour.** Eight categorical
+hues are declared under `.aec-charts` in `apps/web/src/styles.css`, deliberately
+**outside `@theme inline`** so they never become Tailwind colour utilities and
+cannot drift onto a public surface. They encode *data-series identity* on an
+operator screen. **Forest remains the sole brand primary** under the
+Forest-Anchor Rule above; nothing here is a second primary, and none of these
+hues may appear outside `/admin`.
+
+| Slot | Hue | Light | Reserved for |
+|---|---|---|---|
+| 1 | blue | `#2a78d6` | human page views |
+| 2 | orange | `#eb6834` | bot page views |
+| 3 | aqua | `#1baf7a` | — |
+| 4 | yellow | `#eda100` | — |
+| 5 | magenta | `#e87ba4` | — |
+| 6 | green | `#008300` | — |
+| 7 | violet | `#4a3aa7` | — |
+| 8 | red | `#e34948` | — |
+
+Adopted verbatim from the `dataviz` skill's validated reference palette rather
+than derived from the AECi hues, because the brand system has exactly one
+meaning-bearing hue (Forest) plus Clay deep and Error red — not a categorical
+set, and a hand-derived one would need its own validation pass. Verified as a set
+with the skill's `validate_palette.js`: lightness band PASS, chroma floor PASS,
+CVD separation PASS (worst adjacent ΔE 9.1), normal-vision floor PASS (worst
+adjacent ΔE 19.6).
+
+Rules that ride with it:
+
+- **Colour follows the entity, never its rank.** Slots are declared as part of a
+  series' identity, not assigned by array index — a filter that changes the series
+  count must not repaint the survivors. Human is always slot 1, bot always slot 2.
+- **The relief rule.** Slots 3, 4 and 5 measure below 3:1 against the light
+  surface (2.74 / 2.11 / 2.62). Any chart reaching slot 3 must ship **visible**
+  value labels. The visually-hidden data table does *not* discharge this — the
+  reader who needs the relief can see the chart.
+- **Eight is the ceiling.** A ninth generated hue is indistinguishable under CVD.
+  Past eight, fold the tail into `--chart-other` or facet.
+- **Text never wears the data colour.** Values, labels, legends and axis text use
+  `--text-primary` / `--text-secondary`; a coloured mark beside the text carries
+  identity.
+- **Marks:** 2px lines with round caps; area fills at ~10% opacity; ≤24px bars
+  with a 4px rounded data end and a square baseline; a **2px surface gap** between
+  every pair of touching fills, columns and stacked segments alike; hairline solid
+  gridlines in `--chart-grid`. White does the separating — never a stroke around a
+  mark.
+- **Never a dual axis**, never a truncated bar baseline, never a rainbow ramp.
+- **Legend for ≥2 series, none for one** (the title already names a lone series).
+- **Light only.** The skill's dark column is recorded there for the Stage 2 dark
+  reintroduction; Stage 1 ships no `dark:` variant.
+- **Responsive via `viewBox`, never a JS resize handler.** Axis labels are HTML
+  positioned by percentage over the SVG, because `viewBox` scaling would shrink
+  SVG text to unreadable sizes in a narrow column.
+
 ### Navigation
 
 - **Style:** Atkinson Hyperlegible label scale, sentence case, text-primary color, transparent background.
 - **Default → hover:** color shifts to `accent-primary`. No underline-on-hover for top-level nav (reserved for inline body links).
 - **Active route:** color = `accent-primary`, paired with a 2px bottom border in `accent-primary` for primary nav. Border on the *element*, not as a side stripe (forbidden — see Do's and Don'ts).
-- **Mobile:** collapses into a CDK-overlay dropdown with focus trap. No hamburger-as-mystery — the toggle is labeled.
+- **The row:** `Home · Products · Categories▾ · Trades▾ · Audiences▾ · Phases▾ · More▾`. The four taxonomy facets are the directory's spine and lead; `More▾` is the overflow menu and always sits last.
+- **Mobile:** collapses into a CDK-overlay dropdown with focus trap. No hamburger-as-mystery — the toggle is labeled. It carries the same seven entries, with the facets and `More` as tap-to-expand disclosures.
+- **All five dropdowns behave identically** — hover opens, mouseleave closes, the trigger button toggles for keyboard, Escape closes and returns focus, and focus leaving the host closes. That contract is a shared base (`layout/nav-disclosure.ts`); a new nav dropdown extends it rather than reimplementing it. A row where one dropdown opens on hover and its neighbour only on click reads as a bug.
+- **Handover breakpoint:** the inline primary nav appears at `lg` and up; below that the hamburger carries it (`aec-nav-menu` is `lg:hidden`). Moved up from `md` when Trades became the fourth taxonomy flyout (AECI-544): seven items plus the wordmark and sign-in CTA no longer fit a 768px header, and clipping nav items out of the viewport is worse than deferring to a labeled overlay that already lists every facet. The header search input appears at `xl`. Adding a further top-level nav item needs a re-measure, not just an insert.
+- **Dropdown panel type hierarchy — three levels, and a panel item pins its own weight.** Inside any nav dropdown: a **column title** is 600, sentence case, 14px, `text-primary`; a **group label** is the overline (600, uppercase, 12px, `text-secondary`); a **destination** is **400**, 14px, `text-primary`. Panel destinations set `font-normal` explicitly rather than inheriting — the primary row carries `font-medium`, so an unpinned item renders at 500 inside the flyout and 400 inside the mobile overlay (the same component, two weights), and at 500 it sits too close to the 600 label above it for a reader to tell a header from a link. Pin the weight at the list component; never let the row's weight reach a panel.
+
+**The Overflow Rule.** The primary row is width-budgeted and closed. A new *secondary* destination goes into `More▾`, not into the row — the row is reserved for the directory's primary surfaces. `More▾` holds a **General** group (the forward-looking and company pages — Updates, Roadmap, About, Contact), a **Legal** group, and — for an admin only — the complete `/admin` section, grouped exactly as the admin sidebar groups it (one shared array, `admin/admin-nav.ts`). **Every group in the panel carries its overline**, the lead group included: an unlabelled first group reads as orphan items floating above the first header, not as a section. Admin navigation belongs with site navigation; the account menu is for the *person* (Account, Sign out), not for operator surfaces. The panel is one column for a visitor and two for an admin so a seventeen-entry menu still fits a 768px-tall viewport, and it is `end`-anchored because it is the last item in the row. Its "Admin" column title is a **label**, not an overline — the groups beneath it are overlines, and two stacked overlines read as one flat level. Promoting something *out* of `More▾` into the row is a deliberate decision that requires re-measuring at 1024px.
 
 ### Layout shells
 

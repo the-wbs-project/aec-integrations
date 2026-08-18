@@ -24,7 +24,12 @@ import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 
-import type { FeedbackSubmit, LandingSubmitResult, SubscribeSubmit } from '@aeci/shared';
+import type {
+  FeedbackSubmit,
+  LandingSubmitResult,
+  SubscribeSubmit,
+  UnsubscribeResult,
+} from '@aeci/shared';
 
 /**
  * UTM + referrer attribution the island carries in the request body. Geo fields
@@ -92,5 +97,14 @@ export class LandingApi {
   /** Free-text product/tool feedback. Always returns `created: true`. */
   submitFeedback(input: FeedbackSubmit): Promise<LandingSubmitResult> {
     return firstValueFrom(this.http.post<LandingSubmitResult>('/api/feedback', input));
+  }
+
+  /**
+   * Mailing-list opt-out by the tokenized link from the welcome email (AECI-537).
+   * `ok: true` = the token matched a subscriber who is now suppressed (idempotent);
+   * `ok: false` = the token matched no one (invalid/expired link).
+   */
+  unsubscribe(token: string): Promise<UnsubscribeResult> {
+    return firstValueFrom(this.http.post<UnsubscribeResult>('/api/unsubscribe', { token }));
   }
 }

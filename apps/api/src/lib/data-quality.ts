@@ -14,8 +14,13 @@
  * `error` result rather than aborting the run.
  *
  * Two checks are interpreted against D1 reality (documented inline):
- *   - #2 "ready >30d" keys off `updated_at` — there is no `promoted_at` column, so
- *     an edit resets the clock (accepted Stage-1 proxy).
+ *   - #2 "ready >30d" is **structurally dead** — nothing in this repo ever writes
+ *     `promotion_status = 'ready'` to D1 (it is the review app's lifecycle stage,
+ *     not ours), so the check can only ever return zero rows. It is unreachable,
+ *     not an approximation. Replacing it with a promotion-status invariant guard
+ *     is AECI-592. Note `products.promoted_at` DOES now exist (AECI-581, migration
+ *     `0011`) — the older note here claiming otherwise was wrong — but adding the
+ *     column does not revive the check, which is why §13 D6 withdrew that claim.
  *   - #3 "broken integration refs" — the `source/target_product_id` FKs are
  *     enforced with `ON DELETE CASCADE`, so a *dangling* row is impossible; the
  *     real defect is an integration still pointing at a product that was pulled
@@ -124,7 +129,10 @@ export async function checkProductsWithoutVendor(db: Db): Promise<CheckFinding> 
 }
 
 /** #2 — products stuck `promotion_status='ready'` longer than {@link READY_STALE_DAYS}.
- *  Keyed off `updated_at` (no `promoted_at` column; an edit resets the clock). */
+ *  Keyed off `updated_at`, so an edit resets the clock — but that is moot: **no code
+ *  path writes `'ready'` to D1**, so this returns zero rows always. Unreachable, not
+ *  a proxy (AECI-592 replaces it). `products.promoted_at` exists as of AECI-581 and
+ *  is not the fix. Left as-is deliberately; changing the query is AECI-592's call. */
 export async function checkStaleReadyProducts(db: Db, now: Date): Promise<CheckFinding> {
   const cutoff = new Date(now.getTime() - READY_STALE_DAYS * DAY_MS).toISOString();
   const rows = await db
