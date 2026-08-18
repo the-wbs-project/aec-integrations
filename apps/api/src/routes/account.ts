@@ -6,6 +6,15 @@
  * is the token `sub` — the id of both the `profiles` row (D1) and the `auth.users`
  * row (Supabase).
  *
+ * ── `pending_reviews` on the read shapes (AECI-617) ─────────────────────────────
+ * `GET`/`PATCH` return the moderation-queue count for `role === 'admin'` (`null`
+ * otherwise) so the header's admin probe (`apps/web/.../admin/admin-status.ts`)
+ * gets role + badge count in one round trip rather than chaining
+ * `GET /api/admin/summary`. That second hop repeated the JWKS verify and the
+ * `profiles` read, and its latency was the visible lag before the "More" menu's
+ * Admin section appeared. `routes/admin-summary.ts` is unchanged — it stays the
+ * `/admin` SSR resolver's gate and the in-shell badge feed.
+ *
  * ── Erasure (DELETE), split across the identity seam ────────────────────────────
  * `profiles(id)` has seven inbound FKs; six are NO ACTION, so they must be nulled
  * before the profile delete. Under D1 that erasure is ONE atomic `db.batch([...])`
@@ -27,11 +36,11 @@ import {
   type AuditLogEntry,
   type AuditLogForwarder,
 } from '@aeci/shared/audit-log';
-import { eq } from 'drizzle-orm';
+import { count, eq } from 'drizzle-orm';
 import type { Context } from 'hono';
 import type { ZodType } from 'zod';
 
-import { getDb } from '../db/client';
+import { getDb, type DbContext } from '../db/client';
 import {
   auditLog,
   profiles,
@@ -95,9 +104,30 @@ export function createGetAccountHandler(
       email: session.email ?? null,
       display_name: profile?.displayName ?? null,
       role: session.role,
+      pending_reviews: await pendingReviewsForSession(db, session.role),
     };
     return json(body);
   };
+}
+
+/**
+ * The moderation-queue count for the header badge (AECI-617) — the same
+ * aggregate `routes/admin-summary.ts` serves, folded into the account read so
+ * `AdminStatus` resolves role + count in ONE round trip. Returns `null` for a
+ * non-admin without touching the table, so the extra column costs a reviewer
+ * nothing and leaks no moderation state.
+ *
+ * `session.role` is the DB-refetched role from `requireAuth()` (`lib/authz.ts`
+ * re-reads it every request per `AUTH_AND_RLS.md` §4.5), NOT a client claim — so
+ * gating on it here is as trustworthy as the `requireAdmin()` gate itself.
+ */
+async function pendingReviewsForSession(db: DbContext['db'], role: string): Promise<number | null> {
+  if (role !== 'admin') return null;
+  const rows = await db
+    .select({ value: count() })
+    .from(reviews)
+    .where(eq(reviews.status, 'pending'));
+  return rows[0]?.value ?? 0;
 }
 
 // ─── PATCH /api/account ────────────────────────────────────────────────────────
@@ -139,6 +169,7 @@ export function createUpdateAccountHandler(
       email: session.email ?? null,
       display_name: payload.display_name,
       role: session.role,
+      pending_reviews: await pendingReviewsForSession(db, session.role),
     };
     return json(body);
   };

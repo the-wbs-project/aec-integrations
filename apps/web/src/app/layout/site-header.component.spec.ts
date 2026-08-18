@@ -35,7 +35,10 @@ describe('SiteHeader auth affordance', () => {
         // The signed-in affordance is now `<aec-user-menu>`; stub its deps so the
         // header spec stays focused on which affordance renders (the menu's own
         // behaviour is covered by user-menu.component.spec.ts).
-        { provide: AdminStatus, useValue: { isAdmin: signal(false) } },
+        {
+          provide: AdminStatus,
+          useValue: { isAdmin: signal(false), ensureProbed: () => Promise.resolve() },
+        },
         { provide: AdminSummaryStore, useValue: { pendingReviews: signal<number | null>(null) } },
         { provide: AuthService, useValue: {} },
       ],

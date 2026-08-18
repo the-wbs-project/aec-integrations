@@ -135,4 +135,22 @@ export class NavMoreTrigger extends NavDisclosure {
   protected readonly badgeText = computed(() =>
     this.pending() > 9 ? '9+' : String(this.pending()),
   );
+
+  /**
+   * Both entry points into the panel — hover (`open()`, via the inherited host
+   * listener) and click/keyboard (`toggle()`) — re-arm the admin probe first
+   * (AECI-617). If the post-hydration probe failed, the retry then lands at the
+   * exact moment the visitor asks to see the menu, instead of never. A no-op
+   * once the probe has resolved, and a no-op for anyone not signed in, so an
+   * anonymous visitor hovering "More" still fires no request.
+   */
+  protected override open(): void {
+    void this.adminStatus.ensureProbed();
+    super.open();
+  }
+
+  protected override toggle(): void {
+    void this.adminStatus.ensureProbed();
+    super.toggle();
+  }
 }
