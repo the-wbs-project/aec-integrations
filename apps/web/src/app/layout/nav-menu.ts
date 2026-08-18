@@ -211,7 +211,7 @@ import { facetNavLabel, facetViewAllLabel } from './taxonomy-nav-copy';
                   <!-- Section title, not an overline: the groups beneath it are
                        overlines (see nav-more-trigger.ts). -->
                   <p
-                    class="mt-2 border-t border-(--border-default) px-3 pt-3 pb-1 text-sm font-semibold text-(--text-primary)"
+                    class="mt-4 border-t border-(--border-default) px-3 pt-4 pb-2.5 text-sm font-semibold text-(--text-primary)"
                     i18n="@@admin.shell.eyebrow"
                   >
                     Admin

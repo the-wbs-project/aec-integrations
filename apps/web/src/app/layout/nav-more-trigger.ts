@@ -88,9 +88,14 @@ import { NavMoreList } from './nav-more-list';
           <div class="border-s border-(--border-default) ps-2">
             <!-- Column title, deliberately NOT an overline: the groups beneath it
                  are overlines, and two stacked overlines read as one flat level.
-                 Sentence-case label per the Sentence-Case Rule. -->
+                 Sentence-case label per the Sentence-Case Rule.
+
+                 No top padding, so this sits on the same top edge as the public
+                 column's first overline; pb-2.5 gives the first group beneath it
+                 less air than a group boundary (~26px) but more than an overline
+                 gives its own items (~12px), which is the level it sits at. -->
             <p
-              class="px-3 pt-2 pb-1 text-sm font-semibold text-(--text-primary)"
+              class="px-3 pb-2.5 text-sm font-semibold text-(--text-primary)"
               i18n="@@admin.shell.eyebrow"
             >
               Admin
