@@ -73,14 +73,15 @@ This doc is the contract for the AECI-514 sub-issues. Each opens with
 > engine's non-`unverified` branches have been unit-tested against synthetic vendor attestations
 > since AECI-300.
 
-### 1.2 Schema deltas — **two deliberate migrations**
+### 1.2 Schema deltas — **three deliberate migrations**
 
 `STAGE_2_SPEC.md` §2.4 claimed this epic needs **no migration**. That was true of the *agreement
 engine* (computed-not-stored) and remains true of the `vendor_a`/`vendor_b` sources. It is **not**
-true of the epic as scoped at kickoff: two decisions (§1.3(1) and §1.3(3)) each require schema.
-§2.4 has been corrected. Both migrations are **additive** — no column is dropped or retyped, so
-they are safe to apply ahead of the code that reads them (`docs/migrations.md`: edit
-`apps/api/src/db/schema.ts` → `pnpm db:generate` → `wrangler d1 migrations apply`).
+true of the epic as scoped at kickoff: two decisions (§1.3(1) and §1.3(3)) each require schema, and
+§13 (AECI-616, added after kickoff) requires a third. §2.4 has been corrected. All three migrations
+are **additive** — no column is dropped or retyped, so they are safe to apply ahead of the code that
+reads them (`docs/migrations.md`: edit `apps/api/src/db/schema.ts` → `pnpm db:generate` →
+`wrangler d1 migrations apply`).
 
 **Migration 1 (§2)** — claim provenance + attestation authority:
 
@@ -93,16 +94,15 @@ they are safe to apply ahead of the code that reads them (`docs/migrations.md`: 
 | index | `+ attestations_slot_key` — **partial unique** on `(claim_id, source)` `WHERE retracted_at IS NULL` |
 | index | `attestations_active_idx` predicate changes `deprecated_at IS NULL` → `retracted_at IS NULL` |
 
-**Migration 3 (§13)** — the maintenance marker: `last_reviewed_at` + `maintained_by` on `vendors`,
-`products`, and `integrations`. Shipped as `0018_chilly_joseph.sql`, additive, **hand-authored for
-the reason §2.5 documents** — see §13.4. Added after this section was written, which is why the
-"two deliberate migrations" heading above now undercounts; the *principle* it states (additive only,
-safe to apply ahead of the code that reads them) holds for all three.
-
 **Migration 2 (§8)** — the product-version model: a new `product_versions` table plus
 `attestations.introduced_version_id` / `deprecated_version_id`. **Shipped as `0008_slim_iron_lad.sql`
 and renumbered to `0017_slim_iron_lad.sql` by AECI-619** (see §1.4), and the two `ALTER`s are
 hand-authored for the reason §2.5 documents; see §8.4.
+
+**Migration 3 (§13)** — the maintenance marker: `last_reviewed_at` + `maintained_by` on `vendors`,
+`products`, and `integrations`. Shipped as `0018_chilly_joseph.sql`, additive, **hand-authored for
+the reason §2.5 documents** — see §13.4. Scoped in after this section was originally written
+(AECI-616 postdates kickoff), which is why several docs briefly said "two"; AECI-608 swept that.
 
 > **⚠️ `deprecated_at` is a version stamp, not a retraction — the shipped schema comment says
 > otherwise.** `STAGE_1_5_SPEC.md` §3.3 defines `introduced_at`/`deprecated_at` as **version
@@ -175,17 +175,22 @@ first-class 11th cron (`AdminCronJob` / `CRON_SCHEDULES`), so it appears on `/ad
 
 ### 1.5 What already exists — reuse, don't rebuild
 
-Verified against the tree at kickoff (paths are anchors, not guarantees — check before editing):
+Verified against the tree at kickoff and **re-verified at close (AECI-608)** — every path below
+still resolves, and the line numbers are refreshed to the epic's merge state. They are anchors, not
+guarantees: check before editing.
 
 - **Schema hooks** — `attestations.source` CHECK already allows `'aeci' | 'vendor_a' | 'vendor_b'`;
-  `introduced_at` / `deprecated_at` columns present. `apps/api/src/db/schema.ts` (`claims` ~:321,
-  `attestations` ~:349).
+  `introduced_at` / `deprecated_at` columns present. `apps/api/src/db/schema.ts` (`claims` ~:469,
+  `attestations` ~:523, and — added by §8 — `productVersions` ~:426). *(Kickoff cited ~:321 / ~:349;
+  the shift is `main`'s tables arriving via the AECI-619 reconciliation, not a move.)*
 - **Agreement engine** — `computeAgreement` / `computeSyncHeadline`, pure and unit-tested
   including the currently-unreachable `confirmed`/`conflict` branches.
   `packages/shared/src/agreement.ts`.
 - **Pair read path, end to end** — `integrationPairConfig` → `toProductPairClaim` →
-  `computeAgreement` → `toProductPairResponse`. `apps/api/src/lib/drizzle-helpers.ts` (~:149,
-  ~:705-787). Wire contract: `packages/shared/src/api/product-pairs.ts`.
+  `computeAgreement` → `toProductPairResponse`. `apps/api/src/lib/drizzle-helpers.ts`
+  (`integrationPairConfig` ~:225, `toProductPairClaim` ~:995, `toProductPairResponse` ~:1077, and
+  the shared `liveAttestationsWhere` §4 extracted at ~:168). Wire contract:
+  `packages/shared/src/api/product-pairs.ts`.
 - **Pair page render** — direction lanes + per-claim badge + provenance disclosure.
   `apps/web/src/app/products/products-pair.ts`, `agreement-badge.ts`, `claim-provenance.ts`.
   The badge **already carries `confirmed` / `conflict` copy** behind deliberately neutral styling.
@@ -1525,21 +1530,90 @@ Runs alongside; finishes what each sub-issue seeds (the AECI-525 pattern).
   its "shared by both" clause are extended for the new tab.
 - **`docs/TESTING_STRATEGY.md`** — ✅ **done by AECI-606**: §8.2's axe list gains the vendor
   dashboard, with the same authorized-session caveat `/admin/traffic` carries.
-- **`docs/DATABASE_SCHEMA.md`** — both migrations (it trails `schema.ts`; bring it forward).
-  *(§5a.2's provenance/authority columns landed with AECI-603, §5a.3 `product_versions` with
-  AECI-607, and AECI-301 added the writer/statement-order notes to §5a.1–§5a.2 and the
-  `attestation.retracted` action to §8.4; verify rather than re-add.)*
-- **`docs/REVIEW_APP_PROMOTE_API.md`** — the §3.3 replace-by-origin carve-out. **Still open** —
-  AECI-604's.
+- **The §13 surfaces** — ✅ **done by AECI-616**, and listed here because §10 predates that section
+  entirely (§13 was scoped in after kickoff): `DATABASE_SCHEMA.md` §4.1/§4.2/§4.3 for the
+  `last_reviewed_at` + `maintained_by` columns and the three rules governing them,
+  `REVIEW_APP_PROMOTE_API.md` §3.6 for the `lastReviewedAt` promote signal (absence = untouched),
+  and `API_CONTRACTS.md` §6 for the `maintenance` object on the two detail responses.
+- **`docs/DATABASE_SCHEMA.md`** — all **three** migrations (it trails `schema.ts`; bring it
+  forward). *(§5a.2's provenance/authority columns landed with AECI-603, §5a.3 `product_versions`
+  with AECI-607, §4.1/§4.2/§4.3's `last_reviewed_at` + `maintained_by` with AECI-616, and AECI-301
+  added the writer/statement-order notes to §5a.1–§5a.2 and the `attestation.retracted` action to
+  §8.4; verify rather than re-add.)* **AECI-608 closed the residue**: §8.4's consolidated
+  action/`entity_type` lists were the one place enumerating every action, and they still named only
+  `attestation.retracted` from this epic.
+- **`docs/REVIEW_APP_PROMOTE_API.md`** — ✅ **done by AECI-604**: the replace-by-origin carve-out
+  is **§5.2** ("`claims[]` replaces AECi curation only"), not the §3.3 this list originally
+  guessed — §3.3 is the `product` request-body section. §3.6 additionally carries AECI-616's
+  `lastReviewedAt` signal, and §4's `skipped[]` gained the `vendor-origin claim left untouched`
+  reason. Verify rather than re-add.
 - **`docs/CACHE_STRATEGY.md`** — ✅ **done.** The §5.2 attestation purge tag set landed with
   AECI-301 in §5(b2), alongside the AECI-607 version-write tag; the §9.2 `cacheKeyParams`
   addition landed with AECI-303 (the §4a pair row now carries `context_version` /
   `other_version`, plus the inverse `MULTI_VALUE_CACHE_KEY_PARAMS` rule and the §7.2
   URL-derived-`noindex` qualification). Verify rather than re-add.
-- **`docs/email.md`** — the §7.2 template catalogue entries.
-- **`docs/OBSERVABILITY.md`** + **`docs/POST_LAUNCH_MONITORING.md`** — the §7.4 detector metrics
-  and the launch-tunable thresholds.
+- **`docs/email.md`** — ✅ **done by AECI-302**: §7.2's catalogue carries all four `attestation-*`
+  template rows, and §9's `ADMIN_ALERT_EMAIL` row records that an unset address resolves those
+  findings `skipped` (retried next sweep, no ledger row). Verify rather than re-add.
+- **`docs/OBSERVABILITY.md`** + **`docs/POST_LAUNCH_MONITORING.md`** — ✅ **done by AECI-302** for
+  the §7.4 detector metrics (§4's four `aeci.attestation.*` rows) and the launch-tunable thresholds
+  (`POST_LAUNCH_MONITORING.md` §"Attestation detector tunables", every default matching its
+  constant). **AECI-608 closed the residue**: the sweep became this system's **eleventh** cron, and
+  `OBSERVABILITY.md`'s cron ↔ `job_runs` reconciliation table had no row for it — directly under a
+  paragraph asserting "every cron emits both" as a reviewer-checkable invariant — while
+  `POST_LAUNCH_MONITORING.md`'s `0 10 * * *` row was a cell short of its four-column table, so its
+  monitor text rendered in the `job_runs.job` column. `ADMIN_PANEL_SPEC.md` said "ten crons" in
+  four places; those too.
 - **`docs/STAGE_1_5_SPEC.md`** §10 — mark the carve-outs activated, pointing at this doc.
+  **AECI-608**: AECI-303 was marked shipped by its own issue; AECI-301 and AECI-302 were not, and
+  the §3.3 `retracted_at` correction still read as future tense after `0016` landed it.
+- **`docs/STAGE_2_SPEC.md`** §2.4 + **`docs/STAGE_1_SPEC.md`** §16 — **AECI-608**, outside the
+  issue's original list. §2.4's bullet list still read AECI-301/302/303 as future work, and
+  `STAGE_1_SPEC.md` carried the last unqualified "vendor attestations light up … with no migration".
+  The acceptance criterion is worded doc-wide, so scope followed it rather than the list.
+
+### 10.1 As built (AECI-608 — 2026-08-18)
+
+**The sweep was mostly a verification, and that is the finding.** The AECI-525 pattern held: every
+doc in the list above except `DATABASE_SCHEMA.md` §8.4 had already been brought forward by the
+sub-issue that made it stale. `AUTH_AND_RLS.md` §4.4 carries all thirteen `/api/vendor/*` rows;
+`API_CONTRACTS.md` §6.14 carries the attestation, version and `data-objects` shapes;
+`CACHE_STRATEGY.md`, `email.md`, `OBSERVABILITY.md`'s metric catalogue and
+`POST_LAUNCH_MONITORING.md`'s tunables all match their constants. Those were re-read against the
+files they cite and left untouched. **Proving that is the deliverable**, and it is worth stating
+plainly so the next epic's sweep budgets for verification rather than rewriting.
+
+Four things it did change, and one of them was not a doc:
+
+1. **A live code defect** — `apps/api/src/lib/admin-catalog.ts` computed the admin panel's
+   `claims_with_active_attestation` as `deprecated_at IS NULL`: the exact conflation §1.2's ⚠️
+   callout forbids, left behind when `0016` moved `attestations_active_idx` onto `retracted_at`.
+   Inert while every attestation in D1 was `source='aeci'` — wrong the first time a vendor either
+   retracts (coverage over-counts) or stamps the release that deprecated a flow (under-counts).
+   Swapped onto the shared `liveAttestationsWhere`, with a regression test for the *inverse* case
+   (deprecated-but-not-retracted still counts) that fails under the old predicate. **This is what
+   makes `DATABASE_SCHEMA.md` §5a.2's flat claim "Nothing reads `deprecated_at` as a gate" true** —
+   it was false when written, by one call site. Documenting the deviation instead would have meant
+   weakening a correct invariant in a second doc, which is the wrong direction.
+2. **§8.4's consolidated audit lists.** They named only `attestation.retracted` from this epic and
+   were missing `product_version.created`/`.updated`/`.deleted` (§8), `claim.converted` (§3) and
+   `notification.sent` (§7.3), plus the `product_version` `entity_type`. Each action *was*
+   documented in its topical home — `API_CONTRACTS.md`, `AUTH_AND_RLS.md`, here — so the gap was
+   narrower than "undocumented": §8.4 is the one place that enumerates them all, and a consolidated
+   list that silently omits four is worse than no list.
+3. **The eleventh cron.** §7's sweep became a first-class `AdminCronJob` (§1.4), which made four
+   "ten crons" claims in `ADMIN_PANEL_SPEC.md` wrong and left two tables in a state their own prose
+   contradicted — see the `OBSERVABILITY.md` bullet above. Neither was caught by review because
+   neither doc is on this epic's scope list; the epic still made them stale.
+4. **This doc.** §1.2's heading said "two deliberate migrations" against three shipped, §1.5's line
+   anchors had drifted by ~150 lines (the AECI-619 reconciliation inserting `main`'s tables, not
+   anything moving), and §10 above listed the promote carve-out as "still open" pointing at a §3.3
+   that was never where it landed.
+
+**The one generalizable lesson.** Three of the four items are *cross-doc* staleness — a doc nobody
+on the issue thought to open. The sub-issue pattern reliably updates the doc a change is *about*;
+it does not catch the doc that merely *counts* things (`ten crons`, `two migrations`) or the
+consolidated list that enumerates them. Grep for the artifact across `**/*.md`, not for the topic.
 
 ---
 
@@ -1547,12 +1621,15 @@ Runs alongside; finishes what each sub-issue seeds (the AECI-525 pattern).
 
 - **Real-time notification delivery** — AECI-516; transport still open (`STAGE_2_SPEC.md` §8.2).
   §7 ships email + in-portal only.
-- **The `cross-grain` detector** — **dropped at build** (AECI-302; see the §7.1 callout).
-  `STAGE_2_SPEC.md` §2.4 and `DATA_OBJECT_VOCABULARY.md` §1 both reference it, and neither defines
-  it. The only definition ever proposed — contradictory directions for one `data_object` across
-  different mechanism rows on the same product pair — describes legitimate data, since two
-  mechanisms genuinely can move the same object in opposite directions. Reviving it needs a
-  definition with a false-positive floor, not just a query.
+- **The `cross-grain` detector** — **dropped at build** (AECI-302; see the §7.1 callout). The only
+  definition ever proposed — contradictory directions for one `data_object` across different
+  mechanism rows on the same product pair — describes legitimate data, since two mechanisms
+  genuinely can move the same object in opposite directions. Reviving it needs a definition with a
+  false-positive floor, not just a query. *(AECI-608: the two docs that referenced it without
+  defining it now record the drop — `STAGE_2_SPEC.md` §2.4 names it as the dropped fifth detector,
+  and `DATA_OBJECT_VOCABULARY.md` §1 no longer lists it as a consumer of the vocabulary. This
+  bullet previously said both "reference it", which stopped being the useful statement once the
+  decision was final.)*
 - **Paywall *enforcement*** — AECI-304 under the Paid Tiers epic (AECI-515). §9.3 ships the seam,
   not the gate.
 - **Promote ingest of version stamps / `product_versions`** — §8.3; vendor-authored only at launch.

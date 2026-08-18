@@ -22,8 +22,17 @@ Everything downstream seeds from it:
 A `data_object` is the **noun that flows between two integrated AEC products** — the *what* of an
 integration. When Product A syncs with Product B, it is some `data_object` (RFIs, Budgets, Models…)
 that moves. In the Stage 1.5 model a claim's identity is the triple **`integration` + `data_object`
-+ `direction`**, so this vocabulary is load-bearing: claim identity, the sync headline, and (later)
-cross-grain detection all key off these terms.
++ `direction`**, so this vocabulary is load-bearing: claim identity, the sync headline, and the
+Stage 2 attestation detectors all key off these terms.
+
+> **Correction (AECI-608, 2026-08-18).** This sentence used to name "(later) cross-grain detection"
+> as the third consumer. That detector was **dropped at build** (AECI-302 —
+> `STAGE_2_ATTESTATIONS_SPEC.md` §7.1 / §11) and no longer belongs in a list of things this
+> vocabulary feeds. It was never defined anywhere in this repo, and the only definition proposed —
+> contradictory directions for one `data_object` across different mechanism rows on the same
+> product pair — describes legitimate data rather than a fault, since two mechanisms genuinely can
+> move the same object in opposite directions. Reviving it needs a definition with a
+> false-positive floor, not just a query.
 
 It mirrors the existing taxonomy vocabularies (`taxonomy_categories`, `taxonomy_audiences`,
 `taxonomy_phases`) in shape — `slug` / `name` / `description` / `display_order` — and adds one new

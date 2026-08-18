@@ -527,13 +527,13 @@ describe('GET /api/admin/catalog/coverage — claim + attestation coverage', () 
     ]);
     await t.db.insert(attestations).values([
       { id: u(44000), claimId: u(43100), source: 'aeci' },
-      // Deprecated: history, not coverage. Nothing writes this in Stage 1.5, but
-      // the predicate has to be right before Stage 2 starts writing it.
+      // Retracted: withdrawn, so not coverage. `retracted_at` is the ONLY thing
+      // that ends an attestation (AECI-603) — see the sibling case below.
       {
         id: u(44001),
         claimId: u(43101),
         source: 'aeci',
-        deprecatedAt: '2026-08-01T00:00:00.000Z',
+        retractedAt: '2026-08-01T00:00:00.000Z',
       },
     ]);
 
@@ -542,6 +542,35 @@ describe('GET /api/admin/catalog/coverage — claim + attestation coverage', () 
     expect(c.attestations_total).toBe(2);
     expect(c.claims_with_active_attestation).toBe(1);
     expect(c.claims_without_active_attestation).toBe(1);
+  });
+
+  // The inverse of the case above, and the reason it exists: until AECI-608 this
+  // read gated on `deprecated_at`, so a vendor recording which release deprecated
+  // a flow silently dropped their live assertion out of the coverage count.
+  // `deprecated_at` is a version stamp (`STAGE_1_5_SPEC.md` §3.3), not retirement.
+  it('counts a deprecated-but-not-retracted attestation as ACTIVE coverage', async () => {
+    await t.db.insert(claims).values([
+      {
+        id: u(43150),
+        integrationId: WITH_CLAIMS,
+        dataObjectId: DATA_OBJECT,
+        direction: 'a_to_b',
+      },
+    ]);
+    await t.db.insert(attestations).values([
+      {
+        id: u(44050),
+        claimId: u(43150),
+        source: 'aeci',
+        introducedAt: '2024-01-01T00:00:00.000Z',
+        deprecatedAt: '2026-08-01T00:00:00.000Z',
+      },
+    ]);
+
+    const c = (await coverage()).claim_coverage;
+    expect(c.claims_total).toBe(1);
+    expect(c.claims_with_active_attestation).toBe(1);
+    expect(c.claims_without_active_attestation).toBe(0);
   });
 
   it('reports the fully-covered spine (915/915 in production) with no gap', async () => {
