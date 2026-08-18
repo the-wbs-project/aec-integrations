@@ -459,6 +459,31 @@ export interface PromoteSkipped {
 }
 
 /**
+ * An EXISTING row this promote deliberately left alive (AECI-604 /
+ * `STAGE_2_ATTESTATIONS_SPEC.md` §3.3).
+ *
+ * Deliberately a separate array from {@link PromoteSkipped} rather than more
+ * `kind`s on it, because the two carry opposite signals. `skipped` is "something
+ * you sent was not written" — the review app is told to inspect it and act
+ * (`REVIEW_APP_PROMOTE_API.md` §4). `preserved` is "something you did NOT send
+ * survived anyway", which is never actionable for the caller and never an error:
+ * it is the operator's receipt that replace-by-origin worked. Folding them
+ * together would make every claimed product's re-promote look like it had
+ * problems.
+ *
+ * `ref` is the enclosing **integration**'s `ref`, matching how `kind: 'claim'`
+ * entries in `skipped` are addressed — claims have no `ref` of their own.
+ * Entries are aggregated per `(ref, kind, reason)` with a `count`, so a mechanism
+ * retaining nine vendor claims reports one row saying nine, not nine rows.
+ */
+export interface PromotePreserved {
+  ref: string;
+  kind: 'claim' | 'attestation';
+  reason: string;
+  count: number;
+}
+
+/**
  * The ID map the review app persists. `product` is `null` for a vendor-only or
  * integration-only push (no `product` was sent) — and, since AECI-520, also when
  * the product was BLOCKED because a claimed vendor owns it; the two are told
@@ -477,6 +502,10 @@ export interface PromoteSkipped {
  * vocabulary (`kind: 'claim'`), and trades that failed find-only resolution
  * against the seeded `trade` vocabulary (`kind: 'trade'`) — surfaced rather than
  * silently dropped.
+ *
+ * `preserved` is the mirror image, added by AECI-604: rows that were NOT in the
+ * payload and were kept anyway because a vendor owns them. See
+ * {@link PromotePreserved}.
  */
 export interface PromoteResponse {
   vendors: PromoteEntityResult[];
@@ -495,6 +524,12 @@ export interface PromoteResponse {
     trades: PromoteTaxonomyResult[];
   };
   skipped: PromoteSkipped[];
+  /**
+   * Existing claims/attestations this promote left alive because they are
+   * vendor-owned (AECI-604). Always present; empty for the ordinary promote of
+   * an unclaimed product, which is still the overwhelming majority.
+   */
+  preserved: PromotePreserved[];
 }
 
 // ─── Async job protocol (AECI-563) ───────────────────────────────────────────

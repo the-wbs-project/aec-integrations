@@ -42,6 +42,7 @@ describe('affectedUrlsForPromote', () => {
         trades: [],
       },
       skipped: [],
+      preserved: [],
     };
     expect(new Set(affectedUrlsForPromote(response, BASE))).toEqual(
       new Set([
@@ -66,6 +67,7 @@ describe('affectedUrlsForPromote', () => {
       integrations: [],
       taxonomy: { categories: [tax('bim', 'reused')], audiences: [], phases: [], trades: [] },
       skipped: [],
+      preserved: [],
     };
     expect(new Set(affectedUrlsForPromote(response, BASE))).toEqual(
       new Set([
@@ -84,6 +86,7 @@ describe('affectedUrlsForPromote', () => {
       integrations: [integration('11111111-2222-4333-8444-555555555555', 'created')],
       taxonomy: emptyTaxonomy,
       skipped: [],
+      preserved: [],
     };
     const urls = affectedUrlsForPromote(response, BASE);
     expect(urls).toEqual([]);
@@ -106,6 +109,7 @@ describe('affectedUrlsForPromote', () => {
       ],
       taxonomy: emptyTaxonomy,
       skipped: [],
+      preserved: [],
     };
     const urls = affectedUrlsForPromote(response, BASE);
     // Pair context = alphabetically-first slug; the retired /integrations/{id}
@@ -121,6 +125,7 @@ describe('affectedUrlsForPromote', () => {
       integrations: [],
       taxonomy: { categories: [], audiences: [], phases: [tax('design', 'created')], trades: [] },
       skipped: [],
+      preserved: [],
     };
     expect(new Set(affectedUrlsForPromote(response, BASE))).toEqual(
       new Set([
@@ -151,6 +156,7 @@ describe('affectedUrlsForPromote', () => {
         trades: trades.map((slug) => tax(slug, 'reused')),
       },
       skipped: [],
+      preserved: [],
     });
 
     // The floor is the caller's to resolve; without it we must submit nothing
@@ -223,6 +229,7 @@ describe('affectedUrlsForPromote', () => {
       integrations: [],
       taxonomy: emptyTaxonomy,
       skipped: [],
+      preserved: [],
     };
     expect(affectedUrlsForPromote(response, BASE)).toEqual([`${BASE}/vendors/autodesk`]);
   });
@@ -234,6 +241,7 @@ describe('affectedUrlsForPromote', () => {
       integrations: [],
       taxonomy: emptyTaxonomy,
       skipped: [],
+      preserved: [],
     };
     expect(affectedUrlsForPromote(response, BASE)).toEqual([]);
   });
@@ -245,6 +253,7 @@ describe('affectedUrlsForPromote', () => {
       integrations: [],
       taxonomy: emptyTaxonomy,
       skipped: [],
+      preserved: [],
     };
     const urls = affectedUrlsForPromote(response, `${BASE}/`);
     expect(urls).toContain(`${BASE}/products/revit`);

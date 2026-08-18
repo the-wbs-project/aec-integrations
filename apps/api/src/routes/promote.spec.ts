@@ -39,6 +39,12 @@ import type { Env } from '../env';
 import { ApiError, errorHandler } from '../errors';
 import { json } from '../http';
 import type { DbFactory } from '../lib/handler-utils';
+import {
+  PRESERVED_CONVERTED_CLAIM,
+  PRESERVED_UNCONVERTED_CLAIM,
+  PRESERVED_VENDOR_ATTESTATIONS,
+  PRESERVED_VENDOR_CLAIM,
+} from '../lib/promote-claims';
 import { makeTestDb, recordingFactory, type TestDb } from '../test/d1';
 import { fakeExecutionContext } from '../test/helpers';
 import {
@@ -1653,13 +1659,310 @@ describe('runPromoteIngest — claims ingest (AECI-297)', () => {
           supabaseId: intgId,
           sourceProduct: { supabaseId: srcId },
           targetProduct: { supabaseId: tgtId },
-          // no claims → replace-by-integration clears the prior set
+          // no claims → replace-by-origin retires AECi's prior curation
         },
       ],
     });
 
     expect(res.status).toBe(200);
     expect(await t.db.select().from(claims)).toHaveLength(0);
+  });
+});
+
+describe('runPromoteIngest — replace-by-origin claim coexistence (AECI-604)', () => {
+  const SRC = uuid(3);
+  const TGT = uuid(1);
+  const INTG = uuid(2);
+  const VENDOR = uuid(50);
+  const RFIS = uuid(20);
+  const MODELS = uuid(21);
+
+  /** Source + target products, one integration, two vocabulary terms, one vendor. */
+  async function seedPair() {
+    await seedProduct(SRC, 'revit', 'Revit');
+    await seedProduct(TGT, 'navisworks', 'Navisworks');
+    await seedDataObject(RFIS, 'rfis', 'RFIs');
+    await seedDataObject(MODELS, 'models', 'Models');
+    await seedVendor(VENDOR, 'autodesk', 'Autodesk');
+    await t.db
+      .insert(integrations)
+      .values({ id: INTG, sourceProductId: SRC, targetProductId: TGT });
+  }
+
+  /** A claim already on the integration, with the given provenance. */
+  const seedClaim = (
+    id: string,
+    dataObjectId: string,
+    direction: string,
+    origin: 'aeci' | 'vendor' = 'aeci',
+    createdByVendorId: string | null = null,
+  ) =>
+    t.db
+      .insert(claims)
+      .values({ id, integrationId: INTG, dataObjectId, direction, origin, createdByVendorId });
+
+  const seedAttestation = (
+    id: string,
+    claimId: string,
+    source: 'aeci' | 'vendor_a' | 'vendor_b',
+    attestedByVendorId: string | null = null,
+  ) =>
+    t.db.insert(attestations).values({ id, claimId, source, asserted: true, attestedByVendorId });
+
+  /** The payload shape these tests re-push, parameterised by which claims it asserts. */
+  const bundle = (claimList: unknown[]) => ({
+    integrations: [
+      {
+        ref: 'i1',
+        supabaseId: INTG,
+        sourceProduct: { supabaseId: SRC },
+        targetProduct: { supabaseId: TGT },
+        claims: claimList,
+      },
+    ],
+  });
+
+  const aeciClaim = (dataObject: string, direction: string) => ({
+    dataObject,
+    direction,
+    attestations: [{ source: 'aeci', asserted: true }],
+  });
+
+  type PreservedBody = {
+    preserved: { ref: string; kind: string; reason: string; count: number }[];
+  };
+
+  it('keeps every claim id stable across a re-promote of an unchanged payload', async () => {
+    // The headline regression. The old ingest deleted and re-inserted with fresh
+    // UUIDs, so every claim id churned on every promote even when nothing about the
+    // claim moved — taking its attestations with it.
+    await seedPair();
+    const body = bundle([aeciClaim('rfis', 'a_to_b'), aeciClaim('models', 'both')]);
+
+    expect((await promote(body)).status).toBe(200);
+    const before = (await t.db.select().from(claims)).map((c) => c.id).sort();
+    expect(before).toHaveLength(2);
+
+    expect((await promote(body)).status).toBe(200);
+    const after = (await t.db.select().from(claims)).map((c) => c.id).sort();
+
+    expect(after).toEqual(before);
+  });
+
+  it('converts a dropped AECi claim that a vendor still attests, instead of deleting it', async () => {
+    await seedPair();
+    await seedClaim(uuid(30), RFIS, 'a_to_b');
+    await seedAttestation(uuid(40), uuid(30), 'aeci');
+    await seedAttestation(uuid(41), uuid(30), 'vendor_a', VENDOR);
+
+    // The payload drops rfis entirely and curates models instead.
+    const res = await promote(bundle([aeciClaim('models', 'both')]));
+    expect(res.status).toBe(200);
+
+    // The claim survives, with its id, now owned by the vendor.
+    const rfiClaim = (await t.db.select().from(claims)).find((c) => c.id === uuid(30));
+    expect(rfiClaim).toMatchObject({ origin: 'vendor', createdByVendorId: VENDOR });
+
+    // The vendor's assertion survives; AECi's is gone.
+    const attRows = await t.db
+      .select()
+      .from(attestations)
+      .where(eq(attestations.claimId, uuid(30)));
+    expect(attRows).toHaveLength(1);
+    expect(attRows[0]).toMatchObject({ id: uuid(41), source: 'vendor_a' });
+
+    expect(await auditActions()).toEqual(expect.arrayContaining(['claim.converted']));
+    const b = (await res.json()) as PreservedBody;
+    expect(b.preserved).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ ref: 'i1', kind: 'claim', reason: PRESERVED_CONVERTED_CLAIM }),
+        expect.objectContaining({ ref: 'i1', kind: 'attestation', count: 1 }),
+      ]),
+    );
+  });
+
+  it('deletes a dropped AECi claim nobody else attests, and audits the delete', async () => {
+    // The other half of the rule: coexistence must not become "promote can never
+    // retire anything". With no vendor voice on the claim, AECi still owns it.
+    await seedPair();
+    await seedClaim(uuid(30), RFIS, 'a_to_b');
+    await seedAttestation(uuid(40), uuid(30), 'aeci');
+
+    const res = await promote(bundle([aeciClaim('models', 'both')]));
+    expect(res.status).toBe(200);
+
+    const remaining = await t.db.select().from(claims);
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0]!.dataObjectId).toBe(MODELS);
+    // The wholesale delete this replaced emitted no audit row at all (§26.1 gap).
+    expect(await auditActions()).toEqual(expect.arrayContaining(['claim.deleted']));
+  });
+
+  it('never deletes a vendor-origin claim, even when the payload sends no claims at all', async () => {
+    await seedPair();
+    await seedClaim(uuid(31), MODELS, 'both', 'vendor', VENDOR);
+    await seedAttestation(uuid(42), uuid(31), 'vendor_b', VENDOR);
+    // An AECi claim alongside it, to prove the empty payload still retires AECi's own.
+    await seedClaim(uuid(30), RFIS, 'a_to_b');
+
+    const res = await promote(bundle([]));
+    expect(res.status).toBe(200);
+
+    const remaining = await t.db.select().from(claims);
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0]).toMatchObject({ id: uuid(31), origin: 'vendor' });
+    expect(await t.db.select().from(attestations)).toHaveLength(1);
+
+    const b = (await res.json()) as PreservedBody;
+    expect(b.preserved).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: 'claim', reason: PRESERVED_VENDOR_CLAIM, count: 1 }),
+      ]),
+    );
+  });
+
+  it('replaces only the AECi attestation on a claim the payload re-asserts', async () => {
+    // The claim stays, so its vendor attestation must too — only AECi's own row is
+    // rewritten. This is the case the ON DELETE CASCADE used to destroy.
+    await seedPair();
+    await seedClaim(uuid(30), RFIS, 'a_to_b');
+    await seedAttestation(uuid(40), uuid(30), 'aeci');
+    await seedAttestation(uuid(41), uuid(30), 'vendor_a', VENDOR);
+
+    const res = await promote(bundle([aeciClaim('rfis', 'a_to_b')]));
+    expect(res.status).toBe(200);
+
+    const claimRows = await t.db.select().from(claims);
+    expect(claimRows).toHaveLength(1);
+    expect(claimRows[0]).toMatchObject({ id: uuid(30), origin: 'aeci' });
+
+    const attRows = await t.db
+      .select()
+      .from(attestations)
+      .where(eq(attestations.claimId, uuid(30)));
+    // The vendor row is untouched; the aeci row was replaced (new id, same slot).
+    const vendorRow = attRows.find((a) => a.source === 'vendor_a');
+    const aeciRow = attRows.find((a) => a.source === 'aeci');
+    expect(vendorRow).toMatchObject({ id: uuid(41), attestedByVendorId: VENDOR });
+    expect(aeciRow).toBeDefined();
+    expect(aeciRow!.id).not.toBe(uuid(40));
+
+    const b = (await res.json()) as PreservedBody;
+    expect(b.preserved).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: 'attestation', reason: PRESERVED_VENDOR_ATTESTATIONS }),
+      ]),
+    );
+  });
+
+  it('skips a vendor-owned attestation source in the payload rather than failing the batch', async () => {
+    // `PromoteAttestationSchema` permits vendor_a/vendor_b, and a live vendor row
+    // already occupies that slot — inserting would trip `attestations_slot_key` and
+    // roll back the WHOLE promote. Reported like an unresolved dataObject instead.
+    await seedPair();
+    await seedClaim(uuid(30), RFIS, 'a_to_b');
+    await seedAttestation(uuid(41), uuid(30), 'vendor_a', VENDOR);
+
+    const res = await promote(
+      bundle([
+        {
+          dataObject: 'rfis',
+          direction: 'a_to_b',
+          attestations: [
+            { source: 'vendor_a', asserted: false },
+            { source: 'aeci', asserted: true },
+          ],
+        },
+      ]),
+    );
+
+    expect(res.status).toBe(200);
+    const b = (await res.json()) as { skipped: { ref: string; kind: string; reason: string }[] };
+    expect(b.skipped).toEqual([
+      expect.objectContaining({
+        ref: 'i1',
+        kind: 'claim',
+        reason: expect.stringContaining('vendor-owned'),
+      }),
+    ]);
+
+    // The vendor's own row is intact and was NOT overwritten by the payload's.
+    const attRows = await t.db
+      .select()
+      .from(attestations)
+      .where(eq(attestations.claimId, uuid(30)));
+    expect(attRows.filter((a) => a.source === 'vendor_a')).toEqual([
+      expect.objectContaining({ id: uuid(41), asserted: true }),
+    ]);
+    expect(attRows.filter((a) => a.source === 'aeci')).toHaveLength(1);
+  });
+
+  it('degrades rather than 500s when the attesting vendor of a dropped claim is unknown', async () => {
+    // `attested_by_vendor_id` is ON DELETE SET NULL, so it can be null. Converting
+    // then would write origin='vendor' with a null vendor — the §2.2 biconditional
+    // `assertClaimProvenance` raises a 500 on. Keep the row instead and retry later.
+    await seedPair();
+    await seedClaim(uuid(30), RFIS, 'a_to_b');
+    await seedAttestation(uuid(40), uuid(30), 'aeci');
+    await seedAttestation(uuid(41), uuid(30), 'vendor_a', null);
+
+    const res = await promote(bundle([aeciClaim('models', 'both')]));
+    expect(res.status).toBe(200);
+
+    const rfiClaim = (await t.db.select().from(claims)).find((c) => c.id === uuid(30));
+    // Not converted — provenance invariant intact — but not destroyed either.
+    expect(rfiClaim).toMatchObject({ origin: 'aeci', createdByVendorId: null });
+    const attRows = await t.db
+      .select()
+      .from(attestations)
+      .where(eq(attestations.claimId, uuid(30)));
+    expect(attRows).toEqual([expect.objectContaining({ id: uuid(41), source: 'vendor_a' })]);
+
+    const b = (await res.json()) as PreservedBody;
+    expect(b.preserved).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: 'claim', reason: PRESERVED_UNCONVERTED_CLAIM }),
+      ]),
+    );
+  });
+
+  it('curates onto an existing vendor-origin claim without seizing its provenance', async () => {
+    // AECi asserting the same identity a vendor created reuses the row — provenance
+    // records who CREATED it, and that is still the vendor. Seizing it would also
+    // strip the rule-2 protection on the next promote.
+    await seedPair();
+    await seedClaim(uuid(31), MODELS, 'both', 'vendor', VENDOR);
+    await seedAttestation(uuid(42), uuid(31), 'vendor_b', VENDOR);
+
+    const res = await promote(bundle([aeciClaim('models', 'both')]));
+    expect(res.status).toBe(200);
+
+    const claimRows = await t.db.select().from(claims);
+    expect(claimRows).toHaveLength(1);
+    expect(claimRows[0]).toMatchObject({
+      id: uuid(31),
+      origin: 'vendor',
+      createdByVendorId: VENDOR,
+    });
+
+    // Both voices now sit on the one claim.
+    const attRows = await t.db
+      .select()
+      .from(attestations)
+      .where(eq(attestations.claimId, uuid(31)));
+    expect(attRows.map((a) => a.source).sort()).toEqual(['aeci', 'vendor_b']);
+  });
+
+  it('reports nothing in preserved[] for an ordinary promote of an unclaimed product', async () => {
+    // The common case must stay quiet — `preserved[]` is a signal, not a log.
+    await seedPair();
+    await seedClaim(uuid(30), RFIS, 'a_to_b');
+    await seedAttestation(uuid(40), uuid(30), 'aeci');
+
+    const res = await promote(bundle([aeciClaim('rfis', 'a_to_b')]));
+    expect(res.status).toBe(200);
+    const b = (await res.json()) as PreservedBody;
+    expect(b.preserved).toEqual([]);
   });
 });
 
@@ -2085,6 +2388,7 @@ describe('cacheTagsForPromote (AECI-105)', () => {
         trades: [],
       },
       skipped: [],
+      preserved: [],
     };
     expect(new Set(cacheTagsForPromote(response))).toEqual(
       new Set([
@@ -2106,6 +2410,7 @@ describe('cacheTagsForPromote (AECI-105)', () => {
       integrations: [],
       taxonomy: { categories: [tax('bim', 'reused')], audiences: [], phases: [], trades: [] },
       skipped: [],
+      preserved: [],
     };
     expect(new Set(cacheTagsForPromote(response))).toEqual(
       new Set(['product:revit', 'index:products', 'vendor:autodesk', 'category:bim']),
@@ -2119,6 +2424,7 @@ describe('cacheTagsForPromote (AECI-105)', () => {
       integrations: [],
       taxonomy: emptyTaxonomy,
       skipped: [],
+      preserved: [],
     };
     expect(cacheTagsForPromote(response).sort()).toEqual(['vendor:autodesk']);
   });
@@ -2130,6 +2436,7 @@ describe('cacheTagsForPromote (AECI-105)', () => {
       integrations: [],
       taxonomy: emptyTaxonomy,
       skipped: [],
+      preserved: [],
     };
     expect(new Set(cacheTagsForPromote(response))).toEqual(new Set(['vendor:autodesk', 'sitemap']));
   });
@@ -2141,6 +2448,7 @@ describe('cacheTagsForPromote (AECI-105)', () => {
       integrations: [],
       taxonomy: { categories: [], audiences: [], phases: [tax('design', 'created')], trades: [] },
       skipped: [],
+      preserved: [],
     };
     expect(new Set(cacheTagsForPromote(response))).toEqual(
       new Set(['product:revit', 'index:products', 'phase:design', 'taxonomy']),
@@ -2154,6 +2462,7 @@ describe('cacheTagsForPromote (AECI-105)', () => {
       integrations: [],
       taxonomy: emptyTaxonomy,
       skipped: [],
+      preserved: [],
     };
     expect(cacheTagsForPromote(response)).toEqual([]);
   });
@@ -2174,6 +2483,7 @@ describe('cacheTagsForPromote (AECI-105)', () => {
       ],
       taxonomy: emptyTaxonomy,
       skipped: [],
+      preserved: [],
     };
     expect(new Set(cacheTagsForPromote(response))).toEqual(
       new Set(['pair:navisworks__revit', 'product:agave-erp-sync']),
@@ -2195,6 +2505,7 @@ describe('cacheTagsForPromote (AECI-105)', () => {
       ],
       taxonomy: emptyTaxonomy,
       skipped: [],
+      preserved: [],
     };
     expect(cacheTagsForPromote(response)).toEqual(['pair:navisworks__revit']);
   });
@@ -2206,6 +2517,7 @@ describe('cacheTagsForPromote (AECI-105)', () => {
       integrations: [],
       taxonomy: { categories: [tax('bim', 'created')], audiences: [], phases: [], trades: [] },
       skipped: [],
+      preserved: [],
     };
     expect(cacheTagsForPromote(response).some((tag) => tag.startsWith('route:'))).toBe(false);
   });
@@ -2225,6 +2537,7 @@ describe('cacheTagsForPromote (AECI-105)', () => {
         trades: [tax('electrical', 'reused')],
       },
       skipped: [],
+      preserved: [],
     };
     expect(new Set(cacheTagsForPromote(response))).toEqual(
       new Set([
@@ -2245,6 +2558,7 @@ describe('cacheTagsForPromote (AECI-105)', () => {
       integrations: [],
       taxonomy: emptyTaxonomy,
       skipped: [],
+      preserved: [],
     };
     expect(new Set(cacheTagsForPromote(response, { removedTradeSlugs: ['roofing'] }))).toEqual(
       new Set([
@@ -2265,6 +2579,7 @@ describe('cacheTagsForPromote (AECI-105)', () => {
       integrations: [],
       taxonomy: emptyTaxonomy,
       skipped: [],
+      preserved: [],
     };
     expect(new Set(cacheTagsForPromote(response))).toEqual(
       new Set(['product:revit', 'index:products']),
@@ -2290,6 +2605,7 @@ describe('touchedTradeSlugs', () => {
       trades: trades.map((slug) => ({ id: `id-${slug}`, slug, operation: 'reused' as const })),
     },
     skipped: [],
+    preserved: [],
   });
 
   it('unions the SET trades with the REMOVED ones', () => {

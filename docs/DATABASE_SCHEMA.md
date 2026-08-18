@@ -1125,7 +1125,7 @@ readable through the timeseries endpoint today (the stocks await §5.4/§5.5):
 | `catalog.products_created` | flow | `audit_log` `product.created` live; **`products.created_at`** when backfilled | measured (§4's exception / D6 — exact, and better than the audit log) |
 | `catalog.integrations_created` | flow | `audit_log` `integration.created` | **reconstructed** |
 | `catalog.vendors_created` | flow | `audit_log` `vendor.created` | **reconstructed** |
-| `catalog.claims_created` | flow | `audit_log` `claim.created` | **reconstructed** |
+| `catalog.claims_created` | flow | `audit_log` `claim.created` | **reconstructed** — and **inflated before 2026-08-18**: promote re-created the claim spine on every push, so pre-AECI-604 counts are re-assertions, not additions. From that date `claim.created` fires only on a genuinely new identity triple, and `claim.deleted` / `claim.converted` (AECI-604) make net movement derivable. |
 | `accounts.sign_ins_new` | flow | `profiles.created_at` | measured |
 | `catalog.products_promoted` | stock | `products` where `promotion_status='promoted'` | not backfilled |
 | `catalog.vendors_promoted` | stock | `vendors` where `promotion_status='promoted'` | not backfilled |

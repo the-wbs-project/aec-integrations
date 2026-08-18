@@ -2408,6 +2408,11 @@ export interface PromoteResponse {
     kind: 'integration' | 'extension' | 'usefulness' | 'claim' | 'trade' | 'vendor' | 'product';
     reason: string;
   }[];
+  // AECI-604: the inverse of `skipped` — existing vendor-owned claims/attestations
+  // this promote deliberately left alive. `ref` is the enclosing integration's;
+  // entries are aggregated per (ref, kind, reason). Always present, `[]` for the
+  // ordinary promote of an unclaimed product. Never an error condition.
+  preserved: { ref: string; kind: 'claim' | 'attestation'; reason: string; count: number }[];
 }
 ```
 
@@ -2467,12 +2472,25 @@ carry a nested `claims[]` of data-object assertions (`STAGE_1_5_SPEC.md` §5/§6
 claim rides with its integration (same withhold rule), and its `dataObject` resolves
 **find-only** (slug or alias) against the seeded `data_object` vocabulary — an
 unmatched value lands in `skipped[]` with `kind: 'claim'`, never a 500. The ingest
-upserts by the identity `(integration_id, data_object_id, direction)` via
-replace-by-integration (an integration's claims are cleared and re-inserted to match
-the payload exactly, attestations cascading), emits `claim.*` / `attestation.*`
-audit rows in the same `db.batch`, and populates each integration result's
-`sourceSlug`/`targetSlug` so the promote derivers can purge the `pair:{min}__{max}`
-tag and ping the canonical pair URL without a DB read.
+matches by the identity `(integration_id, data_object_id, direction)` — the
+`claims_identity_key` index — emits `claim.*` / `attestation.*` audit rows in the same
+`db.batch`, and populates each integration result's `sourceSlug`/`targetSlug` so the
+promote derivers can purge the `pair:{min}__{max}` tag and ping the canonical pair URL
+without a DB read.
+
+**Replace-by-ORIGIN, since AECI-604** (`STAGE_2_ATTESTATIONS_SPEC.md` §3;
+`apps/api/src/lib/promote-claims.ts` owns the rule). The former replace-by-integration
+— clear the integration's claims, re-insert to match the payload, attestations
+cascading through `attestations.claim_id ON DELETE CASCADE` — destroyed vendor
+attestations the moment AECI-301 shipped, and churned every claim id on every promote.
+Now: an identity match **reuses** the row (id stable, vendor attestations intact); only
+`origin = 'aeci'` claims the payload dropped are deleted (`claim.deleted`); only
+`source = 'aeci'` attestations are replaced; and a dropped AECi claim a vendor still
+attests is **converted** to `origin = 'vendor'` with `created_by_vendor_id` set
+(`claim.converted`) rather than deleted. Promote may write only `source: 'aeci'` — a
+`vendor_a`/`vendor_b` in a payload lands in `skipped[]` with `kind: 'claim'`, because
+inserting it would collide on the `attestations_slot_key` partial unique index and roll
+back the whole batch. What survived is reported in `preserved[]`.
 
 **Trades (AECI-542):** the product may carry an optional `trades[]` of trade slugs,
 names, **or aliases** (`STAGE_1_SPEC.md` §5.5a, `docs/TRADES_VOCABULARY.md`). Unlike
