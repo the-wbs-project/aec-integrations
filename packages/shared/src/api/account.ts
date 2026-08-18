@@ -41,12 +41,22 @@ export type UpdateAccountInput = z.infer<typeof UpdateAccountSchema>;
  *  (from the session JWT); `display_name` is null when unset. `role` is the
  *  caller's own `profiles.role` (e.g. `'admin'` / `'reviewer'`), re-fetched from
  *  the verified session on every request — the web client reads it to decide
- *  whether to surface admin affordances (AECI-259). */
+ *  whether to surface admin affordances (AECI-259).
+ *
+ *  `pending_reviews` (AECI-617) is the moderation-queue count for the header's
+ *  "More" menu badge, and is non-null ONLY for `role === 'admin'` — it is the
+ *  same aggregate `GET /api/admin/summary` serves. It rides along here so the
+ *  header resolves "am I an admin, and how many reviews are waiting?" in ONE
+ *  round trip instead of two; the second hop cost a redundant JWKS verify plus a
+ *  second `profiles` read, and its latency was the visible delay before the
+ *  Admin section appeared. A non-admin gets `null` and never touches the
+ *  admin-gated endpoint. */
 export interface AccountProfileResponse {
   user_id: string;
   email: string | null;
   display_name: string | null;
   role: string;
+  pending_reviews: number | null;
 }
 
 // ─── Delete (GDPR erasure) ──────────────────────────────────────────────────

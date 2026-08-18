@@ -1,12 +1,12 @@
 -- AECI-607 — Stage 2 migration 2: the product-version model.
 -- Contract: docs/STAGE_2_ATTESTATIONS_SPEC.md §1.2 / §8. Purely additive.
 --
--- ⚠️ NUMBERED 0008, NOT 0007 — the gap is deliberate. `origin/aeci-514` (this epic)
--- and `origin/aeci-515` (Paid Tiers) each independently generated a DIFFERENT
--- `0006_*.sql` — `0006_lyrical_leper_queen` here, `0006_easy_sandman`
--- (`vendor_entitlements`, AECI-609) there. They collide when both epics merge to
--- `stage-2`, and whichever merges second has to renumber. Leaving 0007 free gives
--- that reconciliation somewhere to land without touching this file.
+-- ⚠️ RENUMBERED 0008 → 0017 by AECI-619. It shipped as 0008 (leaving 0007 free)
+-- precisely so this reconciliation had somewhere to land; in the event `main` had
+-- reached 0015, so both of this epic's migrations moved to the end of the chain
+-- instead. `meta/0017_snapshot.json` was REGENERATED against the merged schema,
+-- not renamed — see the note in 0016_lyrical_leper_queen.sql. `aeci-515` still
+-- holds a 0006 and takes 0018+ when it reconciles.
 --
 -- ⚠️ THE `ALTER` STATEMENTS ARE HAND-AUTHORED. `drizzle-kit generate` emitted them
 -- as bare `REFERENCES product_versions(id)` with **no `ON DELETE` clause**, silently

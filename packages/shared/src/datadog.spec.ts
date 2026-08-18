@@ -145,6 +145,20 @@ describe('createDatadogClient — logToDatadog', () => {
     await expect(Promise.all(promises)).resolves.not.toThrow();
     expect(warn).toHaveBeenCalled();
   });
+
+  it('warns (without throwing) when the intake rejects with a non-2xx — e.g. a bad DD_API_KEY', async () => {
+    // The fetch RESOLVES on a 403; the throw-only path would swallow it silently.
+    // The `res.ok` check must surface it so a rejected key is visible in CF logs.
+    fetchSpy.mockResolvedValueOnce(new Response('{"errors":["Forbidden"]}', { status: 403 }));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const { ctx, promises } = makeCtx();
+    client.logToDatadog(ctx as never, makeEnv(), makeRequest(), { message: 'x' });
+    await expect(Promise.all(promises)).resolves.not.toThrow();
+    expect(warn).toHaveBeenCalledWith(
+      'logToDatadog: intake rejected 403',
+      expect.stringContaining('Forbidden'),
+    );
+  });
 });
 
 describe('createDatadogClient — submitDistribution', () => {
@@ -261,6 +275,15 @@ describe('createDatadogClient — submitCount', () => {
     client.submitCount(ctx as never, makeEnv(), makeRequest(), 'aeci.metric', 1);
     await expect(Promise.all(promises)).resolves.not.toThrow();
     expect(warn).toHaveBeenCalled();
+  });
+
+  it('warns when the metrics intake rejects with a non-2xx (silent metric drop otherwise)', async () => {
+    fetchSpy.mockResolvedValueOnce(new Response('{"status":"error"}', { status: 403 }));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const { ctx, promises } = makeCtx();
+    client.submitCount(ctx as never, makeEnv(), makeRequest(), 'aeci.metric', 1);
+    await expect(Promise.all(promises)).resolves.not.toThrow();
+    expect(warn).toHaveBeenCalledWith('submitMetric: intake rejected 403', expect.any(String));
   });
 });
 

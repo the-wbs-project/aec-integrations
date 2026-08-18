@@ -9,6 +9,11 @@
  * `products`, applies `buildProductsWhere(query, dim)` (every active filter EXCEPT
  * that dimension's own clause), and groups by term. Terms are listed in editorial
  * order to match the flat list endpoints; a term with no matching product counts 0.
+ *
+ * `trades` (§5.5a / AECI-541) is the fourth dimension and behaves identically —
+ * including the zero-count listing, which is the common case there: the facet is
+ * sparse by design (`TRADES_VOCABULARY.md` §1.1). No publication gate is applied
+ * here; the sidebar decides what to render.
  */
 
 import {
@@ -25,9 +30,11 @@ import {
   productCategories,
   productPhases,
   products,
+  productTrades,
   taxonomyAudiences,
   taxonomyCategories,
   taxonomyPhases,
+  taxonomyTrades,
 } from '../db/schema';
 import type { Env } from '../env';
 import { json } from '../http';
@@ -57,7 +64,16 @@ export function createProductFacetsHandler(
 
     const { db } = dbFor(c.env);
 
-    const [catTerms, catCounts, audTerms, audCounts, phaseTerms, phaseCounts] = await Promise.all([
+    const [
+      catTerms,
+      catCounts,
+      audTerms,
+      audCounts,
+      phaseTerms,
+      phaseCounts,
+      tradeTerms,
+      tradeCounts,
+    ] = await Promise.all([
       db
         .select({
           id: taxonomyCategories.id,
@@ -106,12 +122,29 @@ export function createProductFacetsHandler(
         .innerJoin(products, eq(products.id, productPhases.productId))
         .where(buildProductsWhere(db, query, 'phase'))
         .groupBy(productPhases.phaseId),
+      db
+        .select({
+          id: taxonomyTrades.id,
+          slug: taxonomyTrades.slug,
+          name: taxonomyTrades.name,
+          description: taxonomyTrades.description,
+          displayOrder: taxonomyTrades.displayOrder,
+        })
+        .from(taxonomyTrades)
+        .orderBy(asc(taxonomyTrades.displayOrder), asc(taxonomyTrades.name)),
+      db
+        .select({ termId: productTrades.tradeId, value: count() })
+        .from(productTrades)
+        .innerJoin(products, eq(products.id, productTrades.productId))
+        .where(buildProductsWhere(db, query, 'trade'))
+        .groupBy(productTrades.tradeId),
     ]);
 
     const body: ProductFacetsResponse = {
       categories: withCounts(catTerms, catCounts),
       audiences: withCounts(audTerms, audCounts),
       phases: withCounts(phaseTerms, phaseCounts),
+      trades: withCounts(tradeTerms, tradeCounts),
     };
 
     validateResponseInDev(c.env, () => {

@@ -19,6 +19,8 @@ function product(overrides: Partial<AlgoliaProductRecord> = {}): AlgoliaProductR
     categories: [],
     audiences: [],
     phases: [],
+    trades: [],
+    trade_aliases: [],
     integration_count: 0,
     review_count: 0,
     rating_overall_avg: null,

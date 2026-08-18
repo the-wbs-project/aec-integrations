@@ -54,6 +54,10 @@ test.describe('global 404 — wildcard path', () => {
       'href',
       /\/categories$/,
     );
+    await expect(directory.getByRole('link', { name: /Trades/ })).toHaveAttribute(
+      'href',
+      /\/trades$/,
+    );
     await expect(page.getByRole('link', { name: 'Go home' })).toHaveAttribute('href', '/');
   });
 

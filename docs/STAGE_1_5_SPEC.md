@@ -63,6 +63,8 @@ Every Stage 1.5 issue opens with `**Spec section:** §X.Y (docs/STAGE_1_5_SPEC.m
 | §11.4 | AECI-342 | "Meaningful no" pair pages — scoring / template / tiered indexing |
 | §11.5 | AECI-343 | Per-pair "report a missing integration" CTA |
 | §11.6 | AECI-344 | GSC measurement loop — gate + quarterly tier review |
+| §12 | — | Addendum B — connector-role product detail: powered integrations (`integrations_as_connector` + hub view) |
+| §12.7 | — | Catalog-scope note under both populated integration lists |
 
 Prototypes (AECI-289) gate §7/§8 — build the production pair page and claim rendering **against the approved I3 prototype**. The §11 rows are **post-launch Addendum A** work (project "Pair-Page Search Intent (pSEO)"), not part of the original 1.5 critical path.
 
@@ -405,3 +407,191 @@ The searcher whose true answer is *no* currently gets nothing from us; a good "n
 - Demand-chosen canonical (rejected — §11.1(3)).
 - Per-visitor reframing of one URL (rejected — §11.1(6)).
 - Per-pair Algolia records (still deferred to Stage 2 per §9).
+
+---
+
+## 12. Addendum B — Connector-role product detail: powered integrations (2026-08-04)
+
+**Status:** Shipped. **Extends** §7.5 / the product-detail contract of §3.1 — §7.1's product-detail
+framing is endpoint-only and never specified what a **connector-role** product's own page shows.
+Nothing in §3–§11 is superseded.
+
+**The defect this closes.** `/products/agave-erp-sync` — a `product_role: 'connector'` whose entire
+purpose is linking PM platforms to ~14 ERPs — rendered **"Integrations (0) — No integrations
+recorded yet."** The product-detail pipeline surfaces only edges where the product is a **source or
+target endpoint**; edges where it is the **mechanism** (`integrations.powered_by_product_id`) were
+unreachable end to end: no inverse Drizzle relation, no API field, no UI section. The page asserted
+the exact opposite of the truth about the most-connected class of product in the catalog.
+
+### 12.1 Why the data model did not change
+
+The obvious "industry standard" fix is to model the connector as an **endpoint** — hub-and-spoke
+edges (`agave ↔ procore`, `agave ↔ acumatica`) instead of a pair edge carrying a `powered_by`
+pointer. Rejected, deliberately:
+
+- **Pair-level truth.** The user-facing question is *"does Procore integrate with Acumatica?"* The
+  pair edge answers it directly; hub-spoke edges only imply it transitively and can never express
+  what actually syncs **between the two endpoints**.
+- **Claims anchoring.** `claims` / `attestations` (§3) hang off the pair edge and are asserted about
+  the two endpoints' `data_object` flow. A hub-spoke edge has no coherent claim subject.
+- So the model was already right; it was simply **never surfaced**. Addendum B is a read/presentation
+  change plus one relation — **no migration**.
+
+### 12.2 Contract: `ProductDetail.integrations_as_connector`
+
+- **Field:** `integrations_as_connector: IntegrationListItem[]` on `ProductDetailSchema`
+  (`packages/shared/src/api/products.ts`), beside `integrations_as_source` / `_as_target`.
+- **Row shape is the bare `IntegrationListItem`, deliberately** — *not*
+  `ProductIntegrationItem`. `context_direction` (§3.2) is meaningless here: the page product is
+  **neither endpoint**, so there is no context frame to translate a direction into. The row's
+  `direction` remains between `source` and `target`.
+- **Hydration:** `products` gains the inverse relation
+  `poweredIntegrations: many(integrations, { relationName: 'IntegrationPoweredByProduct' })`
+  (`apps/api/src/db/schema.ts`). Relations file only — the FK column and its partial index already
+  existed, so **no migration**. `productDetailConfig.with` reuses the plain `integrationListConfig`
+  (no claims join — the pair page owns claim depth).
+- **The API stays a flat edge list.** Grouping is a presentation concern (§12.3), so no shape churn
+  if the presentation changes.
+
+### 12.3 Presentation: the grouped hub view
+
+`apps/web/src/app/products/product-powered-hub.ts` (+ the pure heuristic in
+`powered-hub-grouping.ts`), rendered from `product-detail.ts` as `id="powered-integrations"`,
+between `#integrations` and `#reviews`, with a matching "Integrations it powers" section-nav entry
+(label identical to the section heading minus the count).
+
+- **Edges collapse to distinct PAIRS first.** Two products can be joined by several rows —
+  different mechanism kinds, or (in live data today) plain duplicates. One pair renders one row.
+  Each pair is normalized to the canonical `orderedPairSlugs` orientation (`a` = alphabetically
+  -first slug, matching `defaultIntegrationContext`), so the arbitrary stored source/target
+  orientation never leaks into the UI. Per pair we keep the distinct `mechanism_kind` set (in enum
+  order) and a merged direction; two opposing one-ways merge to a round trip.
+- **The hub is decided per PRODUCT, not per edge.** Source/target orientation on a powered edge is
+  arbitrary — it records how the row was authored, not a hub/spoke truth — so the hub is derived.
+  Deriving it per *edge* (the original heuristic: file each edge under its more frequent endpoint)
+  is locally correct and globally incoherent: given `ACC↔QuickBooks` and `QuickBooks↔Roofr`, ACC
+  wins the first and QuickBooks wins the second, so **QuickBooks renders as a partner row AND as a
+  hub heading in the same section** — it reads as a data error. Deciding once per product makes
+  that impossible. Greedy, highest-degree-first, ties on slug (alphabetical): count each product's
+  unclaimed pairs while **skipping products already spent as a partner** (that exclusion is what
+  enforces the invariant); the winner becomes a hub if it clears **`MIN_PAIRS_FOR_HUB` = 2** and
+  claims every unclaimed pair it touches. Groups sort by partner count desc then hub name;
+  partners sort by name.
+- **Pairs that clear no hub are rendered flat**, in a trailing card, as whole `A → B` rows — rather
+  than forced under a one-partner heading (all chrome, no content). When there are no hub cards at
+  all, that card is titled "Connections"; below hub cards it is "Other connections".
+- **Presentation: cards with rows, not a fragment heading over chips.** The first cut rendered
+  "Connects {hub} with" + name-only chips. That heading was a sentence fragment — screen readers
+  announced a trailing preposition, and a string split around a list can't hold word order under
+  translation — and the chips carried none of the mechanism/direction detail the sibling endpoint
+  table shows for the same edges (they also sat at 1.03:1 on `--surface-base`, visually absent).
+  Now: one bordered card per hub, header = logo + hub name as a plain **noun-phrase** heading
+  (linked to the hub product) + the group size; body = full-width partner rows carrying logo,
+  partner name, **hub-relative direction** (`integrationDirectionForContext`, mirrored when the hub
+  is endpoint B — the same `→ Outbound / ← Inbound / ⇄ Both` vocabulary the endpoint table frames
+  relative to *its* page product), the mechanism badge, and a chevron. Below `md` the direction and
+  mechanism columns fold and the mechanism becomes a muted sublabel — the same breakpoint behaviour
+  as `ProductIntegrationRow`. One link per row (the pair page), so no stretched-link overlay: the
+  partner's own product page is one hop further, from the pair page.
+- **A full compatibility-matrix page archetype** (platforms × ERPs grid) was considered and is
+  noted as a possible **Stage 2** evolution; the hub view is the Stage 1.5 answer.
+- **Render condition:** `product_role !== 'application' || integrations_as_connector.length > 0`.
+  Connector/hybrid always show the section (empty state included — "none recorded yet" is
+  information, and Agave's own edges are un-backfilled today); an application shows it only when
+  it actually powers edges, a data-driven safety net for a mis-roled product.
+- **Empty state** mirrors the endpoint one, with connector wording and the same `aecRequestTrigger`
+  suggest-a-correction link (`@@products.detail.body.powers.empty`). The **populated** branch
+  carries the catalog-scope note of §12.7.
+- **Heading: "Integrations it powers (N)"** (`@@products.detail.body.powers.heading`). A noun
+  phrase, parallel to the endpoint "Integrations (N)" heading directly above it, because on a
+  connector page **both sections can be populated at once** — NetSuite Connector by Appficiency
+  carries its own endpoint integration *and* powered edges — so the two headings must be tellable
+  apart. The former "Powers these integrations" failed at that: verb-first (breaking the
+  `About` / `How teams use it` / `Integrations` / `Reviews` heading grammar), "these" pointed
+  forward at nothing, and "powers" is vendor marketing voice rather than the neutral catalog voice
+  PRODUCT.md asks for. The pronoun in "it powers" does the disambiguating work "these" was not.
+  (Renaming the *sibling* endpoint heading to "Direct integrations (N)" on connector/hybrid pages
+  was considered as a matching pair and is **not** adopted — the pronoun carries it alone.)
+- **N counts distinct pairs** — i.e. the rows actually rendered — not raw edges and not groups.
+  Counting edges made the heading lie: live data carries duplicate rows for one pair (that same
+  NetSuite connector: 4 edges, 2 pairs) and several mechanisms between one pair collapse to a
+  single row, so a reader counting rows found fewer than the heading promised. `product-detail.ts`
+  owns the `groupPoweredIntegrations()` call and passes the result down as `[view]`, so the count
+  and the rendered rows are provably the same set.
+- **`RoleBadge` in the hero**, beside the "Product" eyebrow. It self-hides for `application`, so
+  only connectors/hybrids are flagged. The endpoint "Integrations (0)" section is left as-is — for
+  a pure connector that number is factually correct. (Its *populated* branch does gain the §12.7
+  scope note.)
+- **Pair page (Stage 1 §4.4).** The mechanism card's "Built by {vendor} · Powered by {product}"
+  byline is now **linked** (it rendered as plain text), so a via-connector mechanism navigates to
+  the connector's own page — the return path into this surface.
+
+### 12.4 Cache-tag composition
+
+- **SSR (resolver, `product-detail.resolver.ts`):** each powered edge contributes
+  `integration:{id}` **plus both** endpoint `product:{slug}` tags — this product is the connector,
+  so neither endpoint is "self" and both are rendered (hub heading + chip).
+- **Promote (`promote-cache-tags.ts`):** `PromoteIntegrationResult` gains optional
+  `poweredBySlug`, and the deriver emits `product:{poweredBySlug}`. Without it, a promote touching
+  an Agave-powered edge left `/products/agave-erp-sync` stale until TTL — the connector is neither
+  endpoint, so no other rule reached it. **Bounded gap:** a re-pointed powered product purges only
+  the new connector (the response carries the post-update slug), same shape as the existing
+  endpoint-move gap.
+
+### 12.5 Open decision — count semantics
+
+`integration_count` remains **endpoint-only** (`recompute-counts.ts`), so a connector's browse card
+still reads "0 integrations" while its page lists ~13, and connectors rank low on a signal they
+should dominate. Three options — (A) keep endpoint-only, (B) count powered edges too, (C) a separate
+`powered_integration_count` — are recorded with pros/cons in the implementation plan.
+**Recommendation: B, as its own follow-up after the data backfill**, so the numbers change once and
+the Algolia products reindex (custom ranking + numeric facet buckets + sort replica, see
+`docs/SEARCH_RANKING.md`) happens once. `affectedProducts` in `promote.ts` is deliberately
+**unchanged** here.
+
+### 12.6 Known data state
+
+At time of writing only **5 of 421** prod integrations carry `powered_by_product_id`; all ~13 Agave
+edges have it NULL, with "via Agave ERP Sync" living only in free-text `mechanism_name`. The code
+path is complete; Agave's hub view fills in when the FK is backfilled in **Airtable + re-promote**
+(the durable path — no D1 stopgap). Separately tracked follow-ups: 22 exact-duplicate integration
+rows; connector discovery in search/browse (`product_role` on Algolia records, a Connectors facet,
+`RoleBadge` on search cards).
+
+### 12.7 Catalog-scope note on both integration lists (2026-08-05)
+
+**Status:** Shipped. Applies to **both** product-detail integration sections, so it also amends the
+endpoint-table presentation inherited from §7.5 / Stage 1 §3.1.
+
+**The asymmetry it closes.** An `integrations` row only exists once **both** endpoints are promoted
+products (product-driven promotion, `docs/REVIEW_APP_PROMOTE_API.md`), so every list on the page is
+bounded by the directory rather than by the vendor's real partner set. The **empty** branch of each
+section already hedges that ("Vendor data is curated; if you know of one, suggest a correction");
+the **populated** branch did not, and it is the branch that renders an authoritative count in an
+`<h2>`. The miss is worst on a connector, whose entire value proposition is breadth:
+"Integrations it powers (4)" for a product marketing ~14 ERP connections understates the vendor in
+the page's loudest element. That is the mirror image of the defect §12 opened with, and on a
+directory that refuses pay-for-placement an understatement is as much a trust failure as an
+overstatement.
+
+- **One line per section, on the populated branch only.** `text-xs text-(--text-secondary)`, below
+  the list, no callout box, no icon, never repeated per card or per hub.
+  - `#integrations` (`@@products.detail.body.integrations.scope`): "Only partners listed on AECi
+    appear here. If one is missing, suggest a correction."
+  - `#powered-integrations` (`@@products.detail.body.powers.scope`): "Only integrations between
+    products listed on AECi appear here. If one is missing, suggest a correction."
+- **Both sections carry it, deliberately.** The boundary is identical for the two lists; caveating
+  only the powered one would imply the endpoint table is complete.
+- **Scope, not apology.** It states the boundary and ends in the same `aecRequestTrigger`
+  suggest-a-correction link the empty states use, so the caveat is a contribution loop rather than
+  a dead disclaimer. The heading count is deliberately **not** reworded, tooltipped, or asterisked.
+- **Not repeated on the empty branch** — "No integrations recorded yet. Vendor data is curated…"
+  already says it.
+- **`ProductPoweredHub` gains `host: { class: 'block' }`.** A custom element is `display: inline`
+  by default, so the section's `space-y-4` margin was landing on an inline box and being dropped.
+  Invisible while the hub was the section's last child; the note directly below it made the missing
+  16px obvious.
+- **Coverage:** `product-detail.component.spec.ts` asserts both notes render on the populated
+  branch (each linking the correction drawer) and that neither renders on an empty list. The
+  connector page was re-run through the Phase 2 axe (WCAG AA) sweep with both notes present: zero
+  violations.

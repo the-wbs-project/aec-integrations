@@ -3,6 +3,7 @@ import {
   CategoryDetailSchema,
   AudienceDetailSchema,
   PhaseDetailSchema,
+  TradeDetailSchema,
 } from '@aeci/shared';
 import { Hono } from 'hono';
 
@@ -31,7 +32,15 @@ import {
   createBanReviewerHandler,
   createBannedReviewersListHandler,
 } from './routes/admin-reviewers';
+import { createAdminAudienceHandler } from './routes/admin-audience';
+import { createAdminCatalogCoverageHandler } from './routes/admin-catalog';
+import { createAdminFeedbackHandler } from './routes/admin-feedback';
+import { createAdminOverviewHandler } from './routes/admin-overview';
+import { createAdminTimeseriesHandler } from './routes/admin-metrics';
+import { createAdminPageViewsHandler } from './routes/admin-page-views';
+import { createAdminTrafficBreakdownHandler } from './routes/admin-traffic';
 import { createAdminSummaryHandler } from './routes/admin-summary';
+import { createAdminSystemHandler } from './routes/admin-system';
 import { createEnsureProfileHandler } from './routes/auth-profile';
 import { createAuthWhoamiHandler } from './routes/auth-whoami';
 import { bookmarkMiddleware } from './bookmark-middleware';
@@ -42,13 +51,18 @@ import {
   createIntegrationsListHandler,
   createProductPairHandler,
 } from './routes/integrations';
-import { createFeedbackHandler, createSubscribeHandler } from './routes/landing-forms';
+import {
+  createFeedbackHandler,
+  createSubscribeHandler,
+  createUnsubscribeHandler,
+} from './routes/landing-forms';
 import { createPageViewsHandler } from './routes/page-views';
 import { createProductFacetsHandler } from './routes/product-facets';
 import { createAdminReviewsListHandler, createModerateReviewHandler } from './routes/admin-reviews';
 import { createProductReviewsListHandler } from './routes/product-reviews';
 import { createProductDetailHandler, createProductsListHandler } from './routes/products';
-import { createPromoteHandler } from './routes/promote';
+import { createPromoteJobHandler } from './routes/promote-jobs';
+import { createPromoteKickoffHandler } from './routes/promote-kickoff';
 import { createClaimSubmitHandler, createCorrectionSubmitHandler } from './routes/requests';
 import { createSubmitReviewHandler } from './routes/reviews';
 import { createStatsHomeHandler } from './routes/stats';
@@ -157,6 +171,16 @@ phase28.get(
     schema: PhaseDetailSchema,
   }),
 );
+// AECI-541 — the fourth facet (§5.5a). Ungated: sub-`TRADE_PUBLISH_MIN_PRODUCTS`
+// terms are listed and resolve, and each surface applies the floor itself.
+phase28.get('/api/trades', createTaxonomyListHandler('trades'));
+phase28.get(
+  '/api/trades/:slug',
+  createTaxonomyDetailHandler({
+    resource: 'trade',
+    schema: TradeDetailSchema,
+  }),
+);
 
 phase28.get('/api/taxonomy', createTaxonomyHandler());
 
@@ -182,6 +206,11 @@ phase28.post('/api/requests/claim', createClaimSubmitHandler());
 // route — no new public ingress.
 phase28.post('/api/feedback', createFeedbackHandler());
 phase28.post('/api/subscribe', createSubscribeHandler());
+// Mailing-list opt-out (AECI-537). Token-keyed soft-delete; serves both the
+// `/unsubscribe` page (JSON body) and the welcome email's RFC 8058 one-click
+// header (`?token=` query). No public ingress — reached via the SSR `/api/*`
+// passthrough (byte-for-byte; no geo forwarding needed).
+phase28.post('/api/unsubscribe', createUnsubscribeHandler());
 
 // Inbound Linear webhook (AECI-212 / Phase 6.5) — the Linear → Site half of the
 // moderation sync. Public URL; auth is the `Linear-Signature` HMAC verified
@@ -191,13 +220,29 @@ phase28.post('/api/subscribe', createSubscribeHandler());
 // service binding like every other route. See `routes/webhooks.ts`.
 phase28.post('/api/webhooks/linear', createLinearWebhookHandler());
 
-// Review-app push endpoint (promotion). Bearer-auth middleware runs first so an
-// unauthenticated request never reaches the DB; both it and the handler throw
-// `ApiError`/`ZodError`, which `errorHandler()` renders as the canonical
-// envelope. See `docs/REVIEW_APP_PROMOTE_API.md`.
-phase28.post('/api/promote', requireReviewAppAuth(), createPromoteHandler());
-
 app.route('/', phase28);
+
+// Review-app promotion endpoints — kick-off + poll (AECI-563 / ADR 0021). Own
+// sub-router so its `onError` opts into `logClientErrors`: every rejected promote
+// (400 malformed/validation, 401 bad token, 413 oversize, 503 misconfigured, 500
+// fault) emits a detailed Datadog log under `source:review-app-promote` with the
+// same `trace_id` the caller gets, so the review app's operator can diagnose a
+// failed push from Datadog alone (docs/REVIEW_APP_PROMOTE_API.md §6) rather than
+// the HTTP response body. Registered before the `/api/*` 404 catch-all (below) so
+// they match; reached only over the service binding like every other route.
+//
+//   - POST /api/promote          — validate, start the promote Workflow, 202 { jobId }.
+//   - GET  /api/promote/jobs/:id — status + the committed ID map.
+//
+// The commit no longer happens on the request: a client that walks away can no
+// longer strand a committed promote's IDs (AECI-561). A failure inside the Workflow
+// therefore never reaches this `onError` — the Workflow logs it itself, so §6.1's
+// "every rejection is in Datadog" still holds for `SLUG_CONFLICT` / `INTERNAL_ERROR`.
+const reviewPromote = new Hono<{ Bindings: Env }>();
+reviewPromote.onError(errorHandler({ logClientErrors: true, source: 'review-app-promote' }));
+reviewPromote.post('/api/promote', requireReviewAppAuth(), createPromoteKickoffHandler());
+reviewPromote.get('/api/promote/jobs/:id', requireReviewAppAuth(), createPromoteJobHandler());
+app.route('/', reviewPromote);
 
 // AECI-193 auth-spike sub-router. Own router because `requireUserAuth()`
 // extends `Variables` (`c.get('user')`), which the `phase28` type doesn't
@@ -274,6 +319,48 @@ app.route('/', authAccount);
 //     rather than a plain resolve. The `/admin/claims` LIST is AECI-521.
 //   - GET   /api/admin/reviewers    (6.11) — paginated currently-banned reviewers.
 //   - PATCH /api/admin/reviewers/:id(6.11) — ban/unban a reviewer.
+//
+// Phase 8.3 (AECI-574 P1.1, AECI-577 P1.3) adds the admin panel's READ endpoints
+// to the same router — no new gate, `requireAdmin()` stays the single enforcement
+// point (`ADMIN_PANEL_SPEC.md` §6/§9.1). All are `GET`, write nothing (no
+// `audit_log` row — reads emit none), and are non-cacheable by construction
+// (`json()` sets `private, no-store`; `/admin/*` is absent from
+// `ROUTE_CACHE_PATTERNS` in the SSR Worker, §9.2):
+//   - GET /api/admin/overview           — the §5.1 bundle; `?day=` picks a UTC
+//     day (default: the digest's prior complete day), `?recompute=1` additionally
+//     runs the ten data-quality checks + the Algolia drift count (§13 D8 — still
+//     a pure read: writes nothing, sends nothing).
+//   - GET /api/admin/metrics/timeseries — one metric, day-bucketed, live
+//     aggregation (P2.1 swaps in `metrics_daily` behind the same contract).
+//   - GET /api/admin/traffic/breakdown  — grouped counts by
+//     source|country|path|product|bot.
+//   - GET /api/admin/page-views         — the §5.2 Activity feed: individual
+//     visits, newest first, paginated + filtered, `entity`-hydrated. Every
+//     `page_views` read here inherits §13 D12's `/admin/*` + `/account` exclusion
+//     as a floor beneath the caller's filters.
+// Phase 8.3 P1.5 (AECI-579) adds the catalog readout on the same terms:
+//   - GET /api/admin/catalog/coverage   — the §5.5 gap lists, promotion funnel,
+//     taxonomy usage, and claim/attestation coverage. Exact counts + capped
+//     samples; `?sample=0` returns counts only. The catalog TIME SERIES stays on
+//     `/api/admin/metrics/timeseries` (`catalog.*`), not here.
+// Phase 8.3 P1.6 (AECI-580) adds the System bundle on the same terms:
+//   - GET /api/admin/system             — the §5.6 bundle: API-Worker version,
+//     one liveness row per cron, read from `job_runs` since AECI-583 (§7.2);
+//     rows still read `unknown` when a job has no recorded run yet, which is
+//     NOT the same as "not running" — Datadog no-data monitors own absence.
+//     Plus the Algolia watermark, D1 size + per-table row counts,
+//     and — behind the same `?recompute=1` flag, sharing `/overview`'s
+//     implementation — the ten data-quality checks and the drift count.
+// Phase 8.3 P5.1 (AECI-586) adds the Audience pair on the same terms:
+//   - GET /api/admin/audience           — the §5.4 bundle: lifetime subscriber
+//     stocks, the day-bucketed growth/churn series, UTM + signup geography, and
+//     the feedback counts. Derived LIVE from `mailing_list`, not from
+//     `metrics_daily`: `unsubscribed_at` is a soft delete and no row is ever
+//     removed, so the population on a past day is exactly recoverable — the
+//     property §4 shows the catalog stocks lack.
+//   - GET /api/admin/feedback           — the feedback inbox, paginated. The FIRST
+//     read surface that table has ever had; until now an operator email was the
+//     only way anyone saw a submission.
 const authAdmin = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
 authAdmin.onError(errorHandler());
 authAdmin.get('/api/admin/summary', requireAdmin(), createAdminSummaryHandler());
@@ -304,6 +391,17 @@ authAdmin.patch(
 );
 authAdmin.get('/api/admin/reviewers', requireAdmin(), createBannedReviewersListHandler());
 authAdmin.patch('/api/admin/reviewers/:id', requireAdmin(), createBanReviewerHandler());
+// Admin panel reads (AECI-574, AECI-577, AECI-579, AECI-580, AECI-586).
+// Registered after the moderation routes; no path collides with
+// `/api/admin/re*` or `/api/admin/summary`.
+authAdmin.get('/api/admin/overview', requireAdmin(), createAdminOverviewHandler());
+authAdmin.get('/api/admin/metrics/timeseries', requireAdmin(), createAdminTimeseriesHandler());
+authAdmin.get('/api/admin/traffic/breakdown', requireAdmin(), createAdminTrafficBreakdownHandler());
+authAdmin.get('/api/admin/page-views', requireAdmin(), createAdminPageViewsHandler());
+authAdmin.get('/api/admin/catalog/coverage', requireAdmin(), createAdminCatalogCoverageHandler());
+authAdmin.get('/api/admin/system', requireAdmin(), createAdminSystemHandler());
+authAdmin.get('/api/admin/audience', requireAdmin(), createAdminAudienceHandler());
+authAdmin.get('/api/admin/feedback', requireAdmin(), createAdminFeedbackHandler());
 app.route('/', authAdmin);
 
 // Stage 2 vendor-portal sub-router (AECI-520, `STAGE_2_VENDOR_PORTAL_SPEC.md` §4).
@@ -418,3 +516,8 @@ export default {
   scheduled,
   queue,
 };
+
+// The promote ingest Workflow (AECI-563 / ADR 0021). Wrangler resolves a Workflow's
+// `class_name` off the Worker's MAIN module, so the class must be re-exported here —
+// the `workflows` binding block in `wrangler.jsonc` alone is not enough.
+export { PromoteWorkflow } from './workflows/promote-workflow';

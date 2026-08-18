@@ -1,9 +1,9 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type APIRequestContext } from '@playwright/test';
 
-// AECI-61 / Phase 2.15 — taxonomy browse pages: /categories/:slug,
-// /audiences/:slug, /phases/:slug. The three routes share one component +
-// resolver, so the spec parametrizes over the kinds. For each it verifies SSR
+// AECI-61 / Phase 2.15 / AECI-544 — taxonomy browse pages: /categories/:slug,
+// /audiences/:slug, /phases/:slug, /trades/:slug. The four routes share one
+// component + resolver, so the spec parametrizes over the kinds. For each it verifies SSR
 // render (title "{name} tools — AEC Integrations", canonical, breadcrumb,
 // product table), the §4 browse cache headers/tags (route:browse + {type}:{slug}
 // + embedded product: tags), product-row navigation, accessibility, and a real
@@ -13,16 +13,28 @@ import { expect, test, type APIRequestContext } from '@playwright/test';
 // SSR Worker service binding), so the spec stays seed-agnostic: render/nav
 // assertions skip when a kind has no seeded terms; the 404 path needs no data.
 
-type Kind = { kind: string; segment: string; listKey: 'categories' | 'audiences' | 'phases' };
+type Kind = {
+  kind: string;
+  segment: string;
+  listKey: 'categories' | 'audiences' | 'phases' | 'trades';
+};
 
 const KINDS: Kind[] = [
   { kind: 'category', segment: 'categories', listKey: 'categories' },
   { kind: 'audience', segment: 'audiences', listKey: 'audiences' },
   { kind: 'phase', segment: 'phases', listKey: 'phases' },
+  { kind: 'trade', segment: 'trades', listKey: 'trades' },
 ];
 
 type Term = { slug: string; name: string; product_count: number };
 
+/**
+ * A term to exercise the page with. Prefers one that actually carries products
+ * so the products-table assertions have something to bite on — load-bearing for
+ * trades, whose closed 34-term vocabulary is seeded ahead of the tagging, so the
+ * first term is usually empty and renders the "nothing tagged yet" panel instead
+ * of a table (AECI-544). Falls back to the first term when none has products.
+ */
 async function firstTerm(
   request: APIRequestContext,
   listKey: Kind['listKey'],
@@ -30,7 +42,19 @@ async function firstTerm(
   const res = await request.get('/api/taxonomy');
   if (!res.ok()) return null;
   const body = (await res.json()) as Record<string, Term[]>;
-  return body[listKey]?.[0] ?? null;
+  const terms = body[listKey] ?? [];
+  return terms.find((t) => t.product_count > 0) ?? terms[0] ?? null;
+}
+
+/** A term with NO products, for the empty-state assertions. `null` if none. */
+async function emptyTerm(
+  request: APIRequestContext,
+  listKey: Kind['listKey'],
+): Promise<Term | null> {
+  const res = await request.get('/api/taxonomy');
+  if (!res.ok()) return null;
+  const body = (await res.json()) as Record<string, Term[]>;
+  return (body[listKey] ?? []).find((t) => t.product_count === 0) ?? null;
 }
 
 for (const { kind, segment, listKey } of KINDS) {
@@ -58,6 +82,27 @@ for (const { kind, segment, listKey } of KINDS) {
       );
       expect(html, 'breadcrumb must mention Home').toMatch(/Home/);
       expect(html, 'products table must render').toMatch(/<table[^>]+aria-label[^>]*>/);
+    });
+
+    test('a term with no products renders the empty panel, not an empty table', async ({
+      page,
+      request,
+    }) => {
+      // AECI-544 — "No products match these filters" is a lie when no filter is
+      // applied, and filter chrome over an empty set is noise. Most reachable on
+      // trades; the assertion is kind-agnostic.
+      const term = await emptyTerm(request, listKey);
+      test.skip(term === null, `no empty ${kind} term seeded in this environment`);
+
+      await page.goto(`/${segment}/${term!.slug}`);
+      await expect(page.locator('app-root')).toBeAttached();
+
+      await expect(page.getByText(`No products are tagged ${term!.name} yet.`)).toBeVisible();
+      await expect(page.locator('#main table')).toHaveCount(0);
+      await expect(page.locator('aec-facet-sidebar')).toHaveCount(0);
+      await expect(
+        page.locator('#main').getByRole('link', { name: 'Browse all products' }),
+      ).toBeVisible();
     });
 
     test('emits §4 browse cache headers — s-maxage=300, max-age=0, route:browse + entity tag', async ({

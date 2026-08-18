@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "b4f69c01-6957-4f01-a6ad-e3fcb5bfa4d5",
+  "id": "bf86c089-cd1b-4301-9c5c-74c9888bac55",
   "prevId": "4dbe6589-b9e2-43d7-8fa4-f6c341e299ee",
   "tables": {
     "attestations": {
@@ -50,20 +50,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "retracted_at": {
-          "name": "retracted_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "attested_by_vendor_id": {
-          "name": "attested_by_vendor_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "note": {
           "name": "note",
           "type": "text",
@@ -87,22 +73,13 @@
         }
       },
       "indexes": {
-        "attestations_slot_key": {
-          "name": "attestations_slot_key",
-          "columns": [
-            "claim_id",
-            "source"
-          ],
-          "isUnique": true,
-          "where": "\"retracted_at\" IS NULL"
-        },
         "attestations_active_idx": {
           "name": "attestations_active_idx",
           "columns": [
             "claim_id"
           ],
           "isUnique": false,
-          "where": "\"retracted_at\" IS NULL"
+          "where": "\"deprecated_at\" IS NULL"
         }
       },
       "foreignKeys": {
@@ -117,19 +94,6 @@
             "id"
           ],
           "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "attestations_attested_by_vendor_id_vendors_id_fk": {
-          "name": "attestations_attested_by_vendor_id_vendors_id_fk",
-          "tableFrom": "attestations",
-          "tableTo": "vendors",
-          "columnsFrom": [
-            "attested_by_vendor_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },
@@ -306,21 +270,6 @@
           "notNull": true,
           "autoincrement": false
         },
-        "origin": {
-          "name": "origin",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'aeci'"
-        },
-        "created_by_vendor_id": {
-          "name": "created_by_vendor_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "text",
@@ -380,19 +329,6 @@
           ],
           "onDelete": "restrict",
           "onUpdate": "no action"
-        },
-        "claims_created_by_vendor_id_vendors_id_fk": {
-          "name": "claims_created_by_vendor_id_vendors_id_fk",
-          "tableFrom": "claims",
-          "tableTo": "vendors",
-          "columnsFrom": [
-            "created_by_vendor_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -401,10 +337,6 @@
         "claims_direction_check": {
           "name": "claims_direction_check",
           "value": "\"direction\" IN ('a_to_b', 'b_to_a', 'both')"
-        },
-        "claims_origin_check": {
-          "name": "claims_origin_check",
-          "value": "\"origin\" IN ('aeci', 'vendor')"
         }
       }
     },
@@ -868,6 +800,20 @@
           "notNull": false,
           "autoincrement": false
         },
+        "unsubscribe_token": {
+          "name": "unsubscribe_token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "unsubscribed_at": {
+          "name": "unsubscribed_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "text",
@@ -881,6 +827,13 @@
           "name": "mailing_list_email_key",
           "columns": [
             "email"
+          ],
+          "isUnique": true
+        },
+        "mailing_list_unsubscribe_token_key": {
+          "name": "mailing_list_unsubscribe_token_key",
+          "columns": [
+            "unsubscribe_token"
           ],
           "isUnique": true
         }

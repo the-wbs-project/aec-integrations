@@ -17,6 +17,8 @@ export function facetNavLabel(kind: TaxonomyKind): string {
       return $localize`:@@app.nav.audiences:Audiences`;
     case 'phase':
       return $localize`:@@app.nav.phases:Phases`;
+    case 'trade':
+      return $localize`:@@app.nav.trades:Trades`;
   }
 }
 
@@ -29,5 +31,7 @@ export function facetViewAllLabel(kind: TaxonomyKind): string {
       return $localize`:@@app.nav.flyout.viewAll.audiences:View all audiences`;
     case 'phase':
       return $localize`:@@app.nav.flyout.viewAll.phases:View all phases`;
+    case 'trade':
+      return $localize`:@@app.nav.flyout.viewAll.trades:View all trades`;
   }
 }

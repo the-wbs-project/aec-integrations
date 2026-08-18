@@ -80,6 +80,141 @@
   --radius: 0.5rem;
 }
 
+/* ─── Data-series palette — operator console ONLY (AECI-578, ADMIN_PANEL_SPEC §8)
+ *
+ * The light column of the `dataviz` skill's validated reference palette, adopted
+ * verbatim. Validated as a set, not chosen by eye:
+ *
+ *   node <dataviz-skill>/scripts/validate_palette.js "<the eight hexes>" --mode light
+ *   → lightness band PASS · chroma floor PASS · CVD separation PASS (worst
+ *     adjacent ΔE 9.1, #eda100↔#1baf7a protan) · normal-vision floor PASS
+ *     (worst adjacent ΔE 19.6) · contrast WARN on slots 3/4/5 (see the relief
+ *     rule below).
+ *
+ * This is NOT a brand accent and NOT a second primary. Forest (--accent-primary)
+ * remains the sole brand primary under DESIGN.md's Forest-Anchor Rule; these
+ * hues encode *data series identity* on the admin console and must never appear
+ * on a public surface. That is why the block is scoped to `.aec-charts` and
+ * deliberately kept OUT of `@theme inline` — exposing them as Tailwind color
+ * utilities (`bg-chart-series-1`) would put them one autocomplete away from the
+ * public site. Opt in per surface by putting `class="aec-charts"` on the page
+ * root. Custom properties inherit through Angular's emulated encapsulation, so
+ * nested chart components resolve them without re-declaring anything.
+ *
+ * Slot assignment is FIXED and follows the entity, never its rank — a filter
+ * that changes the series count must not repaint the survivors. Slots 1 and 2
+ * are spoken for: human and bot.
+ *
+ * THE RELIEF RULE. Slots 3 (aqua, 2.74:1), 4 (yellow, 2.11:1) and 5 (magenta,
+ * 2.62:1) sit below 3:1 against the light surface. Any chart that reaches slot 3
+ * must ship VISIBLE value labels — the visually-hidden table every chart carries
+ * for screen readers does NOT discharge this, because the reader who needs the
+ * relief here can see the chart fine.
+ *
+ * Light only (Stage 1, AECI-226). The skill's dark column is recorded in
+ * DESIGN.md against the Stage 2 dark reintroduction; no `dark:` variant ships. */
+.aec-charts {
+  --chart-series-1: #2a78d6; /* blue    — human page views */
+  --chart-series-2: #eb6834; /* orange  — bot page views */
+  --chart-series-3: #1baf7a; /* aqua    — relief required */
+  --chart-series-4: #eda100; /* yellow  — relief required */
+  --chart-series-5: #e87ba4; /* magenta — relief required */
+  --chart-series-6: #008300; /* green */
+  --chart-series-7: #4a3aa7; /* violet */
+  --chart-series-8: #e34948; /* red */
+  /* The folded tail. Never a generated 9th hue — past the token ceiling a series
+     folds into "Other", facets into small multiples, or becomes a table. */
+  --chart-other: var(--text-tertiary);
+  /* Gridlines / axes: one step off the surface, hairline, solid, recessive. */
+  --chart-grid: var(--border-default);
+  /* The 2px separator between touching marks and the ring on overlapping dots.
+     White doing the separating — never a stroke, which adds ink that isn't data. */
+  --chart-surface: var(--surface-raised);
+}
+
+/* SVG presentation attributes do NOT accept `var()` — only the CSS `fill` /
+   `stroke` properties do. So marks wear a class rather than `fill="var(…)"`. */
+.aec-charts .chart-fill-1 {
+  fill: var(--chart-series-1);
+}
+.aec-charts .chart-fill-2 {
+  fill: var(--chart-series-2);
+}
+.aec-charts .chart-fill-3 {
+  fill: var(--chart-series-3);
+}
+.aec-charts .chart-fill-4 {
+  fill: var(--chart-series-4);
+}
+.aec-charts .chart-fill-5 {
+  fill: var(--chart-series-5);
+}
+.aec-charts .chart-fill-6 {
+  fill: var(--chart-series-6);
+}
+.aec-charts .chart-fill-7 {
+  fill: var(--chart-series-7);
+}
+.aec-charts .chart-fill-8 {
+  fill: var(--chart-series-8);
+}
+.aec-charts .chart-fill-other {
+  fill: var(--chart-other);
+}
+.aec-charts .chart-stroke-1 {
+  stroke: var(--chart-series-1);
+}
+.aec-charts .chart-stroke-2 {
+  stroke: var(--chart-series-2);
+}
+.aec-charts .chart-stroke-3 {
+  stroke: var(--chart-series-3);
+}
+.aec-charts .chart-stroke-4 {
+  stroke: var(--chart-series-4);
+}
+.aec-charts .chart-stroke-5 {
+  stroke: var(--chart-series-5);
+}
+.aec-charts .chart-stroke-6 {
+  stroke: var(--chart-series-6);
+}
+.aec-charts .chart-stroke-7 {
+  stroke: var(--chart-series-7);
+}
+.aec-charts .chart-stroke-8 {
+  stroke: var(--chart-series-8);
+}
+/* Swatches in a legend / table key are HTML, not SVG, so they take a background
+   rather than a fill. Same slot numbering. */
+.aec-charts .chart-swatch-1 {
+  background-color: var(--chart-series-1);
+}
+.aec-charts .chart-swatch-2 {
+  background-color: var(--chart-series-2);
+}
+.aec-charts .chart-swatch-3 {
+  background-color: var(--chart-series-3);
+}
+.aec-charts .chart-swatch-4 {
+  background-color: var(--chart-series-4);
+}
+.aec-charts .chart-swatch-5 {
+  background-color: var(--chart-series-5);
+}
+.aec-charts .chart-swatch-6 {
+  background-color: var(--chart-series-6);
+}
+.aec-charts .chart-swatch-7 {
+  background-color: var(--chart-series-7);
+}
+.aec-charts .chart-swatch-8 {
+  background-color: var(--chart-series-8);
+}
+.aec-charts .chart-swatch-other {
+  background-color: var(--chart-other);
+}
+
 @theme inline {
   --color-surface-base: var(--surface-base);
   --color-surface-raised: var(--surface-raised);

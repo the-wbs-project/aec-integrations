@@ -172,10 +172,10 @@ jobs:
     name: Lint & typecheck
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install pnpm
         run: npm install -g pnpm@${{ env.PNPM_VERSION }}
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'pnpm'
@@ -187,10 +187,10 @@ jobs:
     name: Unit tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install pnpm
         run: npm install -g pnpm@${{ env.PNPM_VERSION }}
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'pnpm'
@@ -206,7 +206,7 @@ jobs:
         run: pnpm -r --if-present run test:coverage
       - name: Upload coverage report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: coverage
           path: |
@@ -221,16 +221,16 @@ jobs:
     runs-on: ubuntu-latest
     needs: [lint-and-types, unit-tests]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install pnpm
         run: npm install -g pnpm@${{ env.PNPM_VERSION }}
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'pnpm'
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @aeci/web build
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: web-dist
           path: apps/web/dist
@@ -248,10 +248,10 @@ jobs:
     needs: [build-web]
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install pnpm
         run: npm install -g pnpm@${{ env.PNPM_VERSION }}
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'pnpm'
@@ -259,12 +259,12 @@ jobs:
       # Reuse build-web's bundle instead of rebuilding. `apps/web` dev:preview is
       # `wrangler dev` over the prebuilt `dist/` (it does NOT build), so the
       # downloaded artifact is exactly what dev:bound serves on :8788.
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           name: web-dist
           path: apps/web/dist
       # Cache Playwright browsers so subsequent runs skip the ~150MB download.
-      - uses: actions/cache@v4
+      - uses: actions/cache@v5
         id: playwright-cache
         with:
           path: ~/.cache/ms-playwright
@@ -355,7 +355,7 @@ jobs:
         run: HOST=http://localhost:8788 ./apps/web/scripts/run-extra-tests.sh
       - name: Upload Playwright report
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: playwright-report
           path: apps/web/playwright-report
@@ -367,7 +367,7 @@ jobs:
       # when the crawler fails (a page type went unreachable / a link 404'd).
       - name: Upload internal-link-graph report
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: internal-link-graph-report
           path: apps/web/e2e/internal-link-graph-report.md
@@ -386,10 +386,10 @@ jobs:
     needs: [build-web]
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install pnpm
         run: npm install -g pnpm@${{ env.PNPM_VERSION }}
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'pnpm'
@@ -411,7 +411,7 @@ jobs:
     needs: [build-web]
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - run: HOST="${PREVIEW_URL}" ./apps/web/scripts/run-extra-tests.sh
         env:
           PREVIEW_URL: ${{ vars.PREVIEW_URL }}
@@ -431,7 +431,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # THE RULE (do not deploy to an environment if the variables it needs are
       # missing): fail BEFORE any deploy if a required staging secret is absent,
@@ -448,6 +448,17 @@ jobs:
           CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
           ADMIN_PURGE_TOKEN: ${{ secrets.ADMIN_PURGE_TOKEN }}
           DATADOG_API_KEY: ${{ secrets.DATADOG_API_KEY }}
+          # Un-suffixed RUM pair (one shared "aeci" app on us5), pushed to the web
+          # Worker below. Must be MAPPED here, not just named in
+          # RECOMMENDED_SECRETS — require-secrets.sh checks the VALUE, so an
+          # unmapped name false-warns "not set" on every deploy.
+          DD_APPLICATION_ID: ${{ secrets.DD_APPLICATION_ID }}
+          DD_CLIENT_TOKEN: ${{ secrets.DD_CLIENT_TOKEN }}
+          # Cache invalidation is queue + in-process since ADR 0020 (WC-5/WC-6),
+          # and WC-10 (AECI-324) retired the zone HTTP purge transport — so there
+          # is no CF_PURGE_API_TOKEN here. CF_ZONE_ID survives on its own merit:
+          # it is the GraphQL `zoneTag` for the AECI-262 WAF firewall-event poll.
+          CF_ZONE_ID: ${{ secrets.CF_ZONE_ID }}
           # Algolia (AECI-137): recommended-but-optional. When unset the
           # "Update Algolia staging index settings" step below skips cleanly
           # (search degraded, not broken) — so staging stays green pre-provision.
@@ -465,11 +476,6 @@ jobs:
           # false-warns "not set".
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           CF_ANALYTICS_API_TOKEN: ${{ secrets.CF_ANALYTICS_API_TOKEN }}
-          # Public Datadog RUM app id + client token, pushed to the staging WEB
-          # Worker further down. Named in RECOMMENDED_SECRETS, so they need the
-          # same mapping or require-secrets.sh permanently false-warns "not set".
-          DD_APPLICATION_ID: ${{ secrets.DD_APPLICATION_ID }}
-          DD_CLIENT_TOKEN: ${{ secrets.DD_CLIENT_TOKEN }}
           ENV_LABEL: staging
           REQUIRED_SECRETS: 'REVIEW_APP_TOKEN CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID CF_ACCESS_CLIENT_ID CF_ACCESS_CLIENT_SECRET'
           # AECI-193 / ADR 0017: SUPABASE_ANON_KEY is the SINGLE shared auth
@@ -492,17 +498,20 @@ jobs:
           # AECI-530: SUPABASE_SERVICE_ROLE_KEY (single shared, un-suffixed) backs the
           # AUTH_AND_RLS.md §3.1 split-identity seams on the API Worker — recommended,
           # never REQUIRED, because every seam degrades rather than failing closed.
-          RECOMMENDED_SECRETS: 'ADMIN_PURGE_TOKEN DATADOG_API_KEY DD_APPLICATION_ID DD_CLIENT_TOKEN ALGOLIA_APP_ID ALGOLIA_ADMIN_KEY ALGOLIA_SEARCH_KEY SUPABASE_ANON_KEY SUPABASE_SERVICE_ROLE_KEY ANTHROPIC_API_KEY_STAGING RESEND_API_KEY CF_ANALYTICS_API_TOKEN'
+          # CF_PURGE_API_TOKEN is deliberately ABSENT: WC-10 (AECI-324) retired the
+          # zone HTTP purge transport. CF_ZONE_ID stays — it is still the GraphQL
+          # `zoneTag` for the AECI-262 WAF firewall-event poll (`env.ts`).
+          RECOMMENDED_SECRETS: 'ADMIN_PURGE_TOKEN DATADOG_API_KEY DD_APPLICATION_ID DD_CLIENT_TOKEN CF_ZONE_ID ALGOLIA_APP_ID ALGOLIA_ADMIN_KEY ALGOLIA_SEARCH_KEY SUPABASE_ANON_KEY SUPABASE_SERVICE_ROLE_KEY ANTHROPIC_API_KEY_STAGING RESEND_API_KEY CF_ANALYTICS_API_TOKEN'
         run: bash scripts/require-secrets.sh
 
       - name: Install pnpm
         run: npm install -g pnpm@${{ env.PNPM_VERSION }}
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'pnpm'
       - run: pnpm install --frozen-lockfile
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           name: web-dist
           path: apps/web/dist
@@ -725,6 +734,27 @@ jobs:
           printf '%s' "$CF_ANALYTICS_API_TOKEN_VALUE" \
             | pnpm exec wrangler secret put CF_ANALYTICS_API_TOKEN --env staging
 
+      # CF_ZONE_ID is the zone the AECI-262 WAF firewall-event poll queries. It
+      # used to be pushed alongside CF_PURGE_API_TOKEN for the ADR 0010 zone
+      # purge; WC-10 (AECI-324) retired that transport (promote now enqueues onto
+      # `aeci-cache-purge-{env}`), so the zone id is pushed on its own account.
+      # Warn-and-skip (fail-open) — NOT in REQUIRED_WORKER_SECRETS. Same
+      # idempotent deploy→secret order.
+      - name: Push WAF poll zone id to API Worker (staging)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CF_ZONE_ID_VALUE: ${{ secrets.CF_ZONE_ID }}
+        working-directory: apps/api
+        run: |
+          set -euo pipefail
+          if [ -z "$CF_ZONE_ID_VALUE" ]; then
+            echo "::warning::CF_ZONE_ID not set — skipping push. The WAF→Datadog poll no-ops on staging (outcome:skipped_no_creds, AECI-262)."
+            exit 0
+          fi
+          printf '%s' "$CF_ZONE_ID_VALUE" \
+            | pnpm exec wrangler secret put CF_ZONE_ID --env staging
+
       - name: Deploy SSR
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -830,6 +860,30 @@ jobs:
             | pnpm exec wrangler secret put DD_APPLICATION_ID --env staging
           printf '%s' "$DD_CLIENT_TOKEN_VALUE" \
             | pnpm exec wrangler secret put DD_CLIENT_TOKEN --env staging
+
+      # AECI-56 / docs/CACHE_STRATEGY.md §5: the ONE credential that makes
+      # `POST /admin/purge` work on the SSR Worker — the caller's bearer
+      # (ADMIN_PURGE_TOKEN). WC-6 (AECI-320) moved the handler onto in-process
+      # `ctx.cache.purge()` inside the Renderer entrypoint, so it no longer holds
+      # Cloudflare API creds at all (CF_PURGE_API_TOKEN retired in WC-10, and the
+      # SSR Worker never needed CF_ZONE_ID for anything else). Pushing from CI
+      # keeps the Worker's bearer identical to the GH secret that CI and the
+      # incident runbook present. Warn-and-skip (fail-open) — purge degrades to
+      # TTL self-heal, so NOT in REQUIRED_WORKER_SECRETS.
+      - name: Push cache-purge credentials to web Worker (staging)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          ADMIN_PURGE_TOKEN_VALUE: ${{ secrets.ADMIN_PURGE_TOKEN }}
+        working-directory: apps/web
+        run: |
+          set -euo pipefail
+          if [ -z "$ADMIN_PURGE_TOKEN_VALUE" ]; then
+            echo "::warning::ADMIN_PURGE_TOKEN not set — skipping push. POST /admin/purge stays 401 (fail-closed) on staging; cache invalidation falls back to TTL."
+            exit 0
+          fi
+          printf '%s' "$ADMIN_PURGE_TOKEN_VALUE" \
+            | pnpm exec wrangler secret put ADMIN_PURGE_TOKEN --env staging
 
       # Postflight enforcement of THE RULE at the Worker level: assert the staging
       # API Worker actually carries its required runtime secrets after the pushes

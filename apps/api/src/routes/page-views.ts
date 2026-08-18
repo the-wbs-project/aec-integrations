@@ -4,8 +4,18 @@ import type { Context } from 'hono';
 
 import { getDb } from '../db/client';
 import type { Db } from '../db/client';
-import { pageViews, products, vendors } from '../db/schema';
+import {
+  pageViews,
+  products,
+  taxonomyAudiences,
+  taxonomyCategories,
+  taxonomyPhases,
+  taxonomyTrades,
+  vendors,
+} from '../db/schema';
 import { logToDatadog, submitCount } from '../datadog';
+import { classifyTraffic } from '../lib/bot-classification';
+import { classifyReferrer } from '../lib/referrer-classification';
 import type { Env } from '../env';
 import { ApiError } from '../errors';
 import { noContent } from '../http';
@@ -16,8 +26,15 @@ import type { DbFactory } from '../lib/handler-utils';
  *
  * Fire-and-forget page-view capture: validate the body, return 204 immediately,
  * insert one `page_views` row via `ctx.waitUntil()` (never blocks the response).
- * Enrichment (cf_*, hashed user agent, resolved product/vendor) is unchanged.
+ * Enrichment (cf_*, hashed user agent, resolved entity) happens here.
  * No audit row — `page_views` is a read-analytics log, not a domain state change.
+ *
+ * AECI-585 (`ADMIN_PANEL_SPEC.md` §7.3) widened what a row records at write time,
+ * which is the only time any of it is recoverable: the taxonomy term behind a facet
+ * browse page, the concrete path beside the route pattern, whether the visit was an
+ * arrival or an in-app hop, and the AS holder name beside the ASN. Rows written
+ * before it carry null in all four and cannot be backfilled — nothing in the stored
+ * row implies them.
  */
 
 /** Structural view of a directly-present `request.cf` (local dev / direct test). */
@@ -25,6 +42,7 @@ interface CfLike {
   country?: string | null;
   colo?: string | null;
   asn?: number | null;
+  asOrganization?: string | null;
   botManagement?: { score?: number | null } | null;
 }
 
@@ -32,6 +50,7 @@ type CfContext = {
   country: string | null;
   colo: string | null;
   asn: number | null;
+  asOrganization: string | null;
   botScore: number | null;
 };
 
@@ -50,9 +69,19 @@ function readCfContext(req: Request): CfContext {
   const country = h.get(PAGE_VIEW_CF_HEADERS.country) ?? cf?.country ?? null;
   const colo = h.get(PAGE_VIEW_CF_HEADERS.colo) ?? cf?.colo ?? null;
   const asn = intOrNull(h.get(PAGE_VIEW_CF_HEADERS.asn)) ?? cf?.asn ?? null;
+  // The AS holder NAME beside the number (AECI-585 / §13 D10). Read-side signal
+  // only — it never feeds `classifyTraffic` below, because `DATACENTER_ASNS` writes
+  // a permanent `is_bot` verdict and its membership doctrine is deliberately strict.
+  const asOrganization = h.get(PAGE_VIEW_CF_HEADERS.asOrganization) ?? cf?.asOrganization ?? null;
   const botScore =
     intOrNull(h.get(PAGE_VIEW_CF_HEADERS.botScore)) ?? cf?.botManagement?.score ?? null;
-  return { country: country || null, colo: colo || null, asn, botScore };
+  return {
+    country: country || null,
+    colo: colo || null,
+    asn,
+    asOrganization: asOrganization || null,
+    botScore,
+  };
 }
 
 async function sha256Hex(input: string): Promise<string> {
@@ -66,31 +95,92 @@ function localeFromRoute(_route: string): string {
   return DEFAULT_LOCALE;
 }
 
-/** Map `(entity_type, entity_id)` onto product_id / vendor_id, confirming the row
- *  exists (cheap PK lookup) so a stale/spoofed id is stored as null. */
-async function resolveEntity(
-  db: Db,
-  payload: PageViewPayload,
-): Promise<{ productId: string | null; vendorId: string | null }> {
+/** The site's own hostnames — a `Referer` from any of these is same-origin in-app
+ *  navigation, not an external traffic source. Derived from `PUBLIC_SITE_URL` plus the
+ *  known apex + workers.dev preview suffix. */
+function selfHosts(env: Env): string[] {
+  const hosts = ['aecintegrations.com', 'aec-integrations.workers.dev'];
+  try {
+    if (env.PUBLIC_SITE_URL) hosts.push(new URL(env.PUBLIC_SITE_URL).hostname.toLowerCase());
+  } catch {
+    // Malformed PUBLIC_SITE_URL — fall back to the hardcoded self-hosts.
+  }
+  return hosts;
+}
+
+/**
+ * The four taxonomy facets, mapped to the table that owns their terms. Same shape
+ * as `lib/admin-catalog.ts`'s `facetUsage` map, and the same closed set the SSR
+ * taxonomy resolver sends as `entity_type` — `trade` included, which is the fourth
+ * facet (`TRADES_VOCABULARY.md` / §5.5a) and the one most easily forgotten.
+ */
+const TAXONOMY_TABLES = {
+  category: taxonomyCategories,
+  audience: taxonomyAudiences,
+  phase: taxonomyPhases,
+  trade: taxonomyTrades,
+} as const;
+
+type TaxonomyKind = keyof typeof TAXONOMY_TABLES;
+
+function isTaxonomyKind(value: string): value is TaxonomyKind {
+  return value in TAXONOMY_TABLES;
+}
+
+interface ResolvedEntity {
+  productId: string | null;
+  vendorId: string | null;
+  taxonomyKind: string | null;
+  taxonomyId: string | null;
+}
+
+const NO_ENTITY: ResolvedEntity = {
+  productId: null,
+  vendorId: null,
+  taxonomyKind: null,
+  taxonomyId: null,
+};
+
+/**
+ * Map `(entity_type, entity_id)` onto the row's entity columns, confirming the
+ * referenced row exists (cheap PK lookup) so a stale/spoofed id is stored as null.
+ *
+ * Products and vendors land in their FK columns. The four taxonomy facets land in
+ * `taxonomy_kind` + `taxonomy_id` (AECI-585 / §7.3) — the SSR resolvers have always
+ * sent them and this function used to drop them on the floor, which is why ~600
+ * taxonomy rows can say a facet page was viewed but not which term. Those two
+ * columns carry no FK (SQLite cannot point one column at four tables), so the
+ * existence check below IS the integrity guarantee, exactly as it is for the
+ * product and vendor branches.
+ */
+async function resolveEntity(db: Db, payload: PageViewPayload): Promise<ResolvedEntity> {
   const { entity_type: entityType, entity_id: entityId } = payload;
   if (!entityType || !entityId || !UUID_RE.test(entityId)) {
-    return { productId: null, vendorId: null };
+    return NO_ENTITY;
   }
   if (entityType === 'product') {
     const row = await db.query.products.findFirst({
       columns: { id: true },
       where: eq(products.id, entityId),
     });
-    return { productId: row ? row.id : null, vendorId: null };
+    return { ...NO_ENTITY, productId: row ? row.id : null };
   }
   if (entityType === 'vendor') {
     const row = await db.query.vendors.findFirst({
       columns: { id: true },
       where: eq(vendors.id, entityId),
     });
-    return { productId: null, vendorId: row ? row.id : null };
+    return { ...NO_ENTITY, vendorId: row ? row.id : null };
   }
-  return { productId: null, vendorId: null };
+  if (isTaxonomyKind(entityType)) {
+    const table = TAXONOMY_TABLES[entityType];
+    const [row] = await db.select({ id: table.id }).from(table).where(eq(table.id, entityId));
+    // `taxonomy_kind` is stored only alongside a CONFIRMED id. A kind with a dangling
+    // id would read as "some category was viewed" and quietly inflate every per-facet
+    // count with rows that can never be attributed to a term.
+    return row ? { ...NO_ENTITY, taxonomyKind: entityType, taxonomyId: row.id } : NO_ENTITY;
+  }
+  return NO_ENTITY;
 }
 
 function botScoreSampledOut(env: Env, botScore: number | null): boolean {
@@ -113,29 +203,56 @@ async function capturePageView(
 
     const ua = req.headers.get('user-agent');
     const userAgentHash = ua ? await sha256Hex(ua) : null;
+    // Classify human vs. bot NOW, while the raw UA is still available (only its hash
+    // is persisted). ASN unmasks headless scrapers that spoof a browser UA. AECI-526.
+    const { isBot, botName } = classifyTraffic(ua, cf.asn);
+    // Traffic source from the forwarded eyeball `Referer` (SSR `firePageView`). Store
+    // the host only (privacy) + a coarse source label the digest groups on. AECI-526.
+    const { source: referrerSource, host: referrerHost } = classifyReferrer(
+      req.headers.get('referer'),
+      selfHosts(c.env),
+    );
 
     // Fire-and-forget analytics (runs in `waitUntil`, never read back, returns
     // 204 regardless) — stays on the `'first-unconstrained'` read default; a
     // primary anchor would spend a round-trip for no benefit. (AECI-250)
     const { db } = dbFor(c.env);
-    const { productId, vendorId } = await resolveEntity(db, payload);
+    const { productId, vendorId, taxonomyKind, taxonomyId } = await resolveEntity(db, payload);
 
     await db.insert(pageViews).values({
       path: payload.route,
+      // The concrete URL path, falling back to `route` (AECI-585 / §7.3). Only a
+      // writer that sends a route PATTERN owes an explicit `path`; for the browser
+      // tracker and the SSR cache-HIT synthesis, `route` already IS the concrete
+      // path, so the fallback is the right answer rather than a degraded one.
+      concretePath: payload.path ?? payload.route,
       productId,
       vendorId,
+      taxonomyKind,
+      taxonomyId,
+      // Never inferred — an omitted flag stays null rather than being guessed into
+      // the bucket this column exists to disambiguate.
+      navigation: payload.navigation ?? null,
       cfCountry: cf.country,
       cfColo: cf.colo,
       cfAsn: cf.asn,
+      cfAsOrganization: cf.asOrganization,
       cfBotScore: cf.botScore,
       userAgentHash,
       locale: localeFromRoute(payload.route),
+      isBot,
+      botName,
+      referrer: referrerHost,
+      referrerSource,
       // Campaign attribution (AECI-243 / §11.2) — set only on tagged arrivals
       // (e.g. the waitlist welcome banner); null for ordinary views.
       refSource: payload.ref_source ?? null,
       refToken: payload.ref_token ?? null,
     });
-    submitCount(c.executionCtx, c.env, req, 'aeci.pageviews.write', 1, ['outcome:ok']);
+    submitCount(c.executionCtx, c.env, req, 'aeci.pageviews.write', 1, [
+      'outcome:ok',
+      `bot:${isBot}`,
+    ]);
   } catch (error) {
     submitCount(c.executionCtx, c.env, req, 'aeci.pageviews.write', 1, ['outcome:failed']);
     logToDatadog(c.executionCtx, c.env, req, {

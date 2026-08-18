@@ -79,9 +79,11 @@ node scripts/algolia/provision.mjs --env staging --rotate
 
 # Index settings (`apply-settings.mjs`)
 
-Applies the per-index settings as code (AECI-137 / Phase 3.2) — `searchableAttributes`, `attributesForFaceting`, and `customRanking` per `STAGE_1_SPEC.md` §7.2/§7.3 — to one environment's three indexes. The settings themselves live in `packages/shared/src/algolia.ts` (`indexSettingsFor()`), and the apply loop is the shared `applyIndexSettings()` that the sync pipeline (3.5/3.6) calls too — one definition, every caller.
+Applies the per-index settings as code (AECI-137 / Phase 3.2) — `searchableAttributes`, `attributesForFaceting`, and `customRanking` per `STAGE_1_SPEC.md` §7.2/§7.3 — to one environment's three indexes (plus their four sort replicas). The settings themselves live in `packages/shared/src/algolia.ts` (`indexSettingsFor()`), and the apply loop is the shared `applyIndexSettings()` — one definition, every caller. (The record sync pipeline pushes *objects*, not settings; this script is the only settings path.)
 
-This is the script the CI "update Algolia indexes" step (CICD §3.2) runs on every staging/prod deploy. It **prints no secrets** and is safe in CI.
+This is the script the CI "update Algolia indexes" step (CICD §3.2) runs on every staging/demo/prod deploy. It **prints no secrets** and is safe in CI.
+
+> **`preview` is not covered by any workflow** — it is operator-run only (`pnpm algolia:apply-settings --env preview`). Worth remembering because the Lighthouse job measures `/search` against the preview indexes, so a new facet won't appear there until someone runs it. Full per-environment table: `docs/SEARCH_RANKING.md` §1.1.
 
 ## Run
 

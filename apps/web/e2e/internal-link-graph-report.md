@@ -12,8 +12,16 @@ hydration — keyed by pathname (query/hash stripped), following only **internal
 links. Paths are shown as **patterns**, not concrete slugs, so the snapshot
 stays seed-stable and PR diffs stay meaningful.
 
-- **Environment crawled:** `http://localhost:8788`
-- **Seed totals (API):** products 3, vendors 2, integrations 1; taxonomy — categories 32, audiences-with-products 3, phases-with-products 4
+To keep cost independent of catalog size (AECI-64), the hydrated browser crawl
+visits at most **5 pages per type** — enough to prove
+reachability (BFS reaches each type's min-depth instance first) and console
+health, both of which are *per-type* contracts. Every other discovered internal
+link is then status-checked by a **parallel HTTP sweep** (no hydration needed to
+read a status code), so the no-404 / no-5xx gates still cover every discovered
+link while the browser work stays O(page types), not O(catalog).
+
+- **Environment crawled:** `http://localhost:8790`
+- **Seed totals (API):** products 10, vendors 7, integrations 4; taxonomy — categories 32, audiences-with-products 9, phases-with-products 4, published-trades 1
 
 ## Structural index page types
 
@@ -25,6 +33,7 @@ Always asserted reachable ≤ 3.
 | /categories (flat list) | `/categories` | ✓ | 1 | / → /categories |
 | /audiences (flat list) | `/audiences` | ✓ | 1 | / → /audiences |
 | /phases (flat list) | `/phases` | ✓ | 1 | / → /phases |
+| /trades (flat list) | `/trades` | ✓ | 1 | / → /trades |
 
 ## Entity & browse page types
 
@@ -37,11 +46,12 @@ the tightest constraint.
 | Page type | URL pattern | Data | Reachable | Min depth | Shortest path (patterns) |
 |---|---|---|---|---|---|
 | product detail | `/products/:slug` | yes | ✓ | 2 | / → /products → /products/:slug |
-| vendor detail | `/vendors/:slug` | yes | ✓ | 2 | / → /products → /vendors/:slug |
-| integration detail | `/integrations/:id` | yes | ✓ | 3 | / → /products → /products/:slug → /integrations/:id |
+| vendor detail | `/vendors/:slug` | yes | ✓ | 2 | / → /categories/:slug → /vendors/:slug |
+| product pair (integration) | `/products/:contextSlug/integrations/:otherSlug` | yes | ✓ | 3 | / → /products → /products/:slug → /products/:contextSlug/integrations/:otherSlug |
 | category browse | `/categories/:slug` | yes | ✓ | 1 | / → /categories/:slug |
 | discipline browse (audience) | `/audiences/:slug` | yes | ✓ | 1 | / → /audiences/:slug |
 | phase browse | `/phases/:slug` | yes | ✓ | 1 | / → /phases/:slug |
+| trade browse | `/trades/:slug` | yes | ✓ | 1 | / → /trades/:slug |
 
 ## Known-pending links (intentional 404 placeholders)
 
@@ -49,23 +59,20 @@ Forward-reference links shipped ahead of their page (allowlisted in the spec;
 they do **not** fail the no-404 gate). Remove the allowlist entry in
 `internal-link-graph.spec.ts` when the page lands so the link becomes enforced.
 
-- `/auth/login` ← linked from `/`
-- `/contact` ← linked from `/`
-- `/legal/listing-accuracy` ← linked from `/`
-- `/legal/privacy` ← linked from `/`
-- `/legal/review-guidelines` ← linked from `/`
-- `/legal/terms` ← linked from `/`
+_none_
 
 ## Crawl totals
 
 | Metric | Count |
 |---|---|
-| Distinct internal pages reached (2xx) | 89 |
-| Distinct internal pages discovered (incl. 404 / 5xx / redirect) | 95 |
+| Distinct internal pages reached (2xx) | 124 |
+| Distinct internal pages discovered (incl. 404 / 5xx / redirect) | 129 |
+| — hydrated in browser (bounded ≤ 5/type: reachability + console) | 42 |
+| — status-verified via parallel HTTP sweep (no-404 / no-5xx) | 87 |
 | Unexpected internal 404s | 0 |
 | Internal 5xx / navigation failures | 0 |
-| Redirects (recorded, not followed) | 0 |
-| Distinct external links seen (recorded, never counted toward reach) | 6 |
+| Redirects (recorded, not followed) | 5 |
+| Distinct external links seen (recorded, never counted toward reach) | 16 |
 
 ## Console health (AECI-162)
 

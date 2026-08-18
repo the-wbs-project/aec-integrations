@@ -162,9 +162,15 @@ export type EntityKind =
   | 'category'
   | 'audience'
   | 'phase'
+  | 'trade'
   | 'index';
 
-const BROWSE_META_KINDS: ReadonlySet<EntityKind> = new Set(['category', 'audience', 'phase']);
+const BROWSE_META_KINDS: ReadonlySet<EntityKind> = new Set([
+  'category',
+  'audience',
+  'phase',
+  'trade',
+]);
 
 const WEBSITE_META_KINDS: ReadonlySet<EntityKind> = new Set([...BROWSE_META_KINDS, 'index']);
 

@@ -15,11 +15,21 @@
  *
  * `<lastmod>` is emitted for products / vendors / integration PAIRS from their
  * `updated_at` (a pair uses the newest `updated_at` across its integrations —
- * AECI-294). Taxonomy terms (categories / audiences / phases) expose no
+ * AECI-294). Taxonomy terms (categories / audiences / phases / trades) expose no
  * `updated_at` anywhere in the API, so those entries carry no `<lastmod>` —
  * the field is optional in the sitemap protocol (AECI-63 decision).
+ *
+ * **Trades are the one count-gated facet** (AECI-546). A `/trades/:slug` term is
+ * listed only once it clears `TRADE_PUBLISH_MIN_PRODUCTS` — a sub-floor page
+ * renders `noindex`, and advertising a noindex'd URL in the sitemap is the
+ * contradiction the publication gate exists to prevent. The gate lives here (and
+ * in the browse resolver's meta), NOT in the API: `GET /api/taxonomy` returns
+ * every term with its `product_count` and each surface applies the floor
+ * (`TRADES_VOCABULARY.md` §6). The three sibling facets are ungated — their
+ * vocabularies are curated to match the catalog rather than seeded closed, so a
+ * zero-product category is a data problem, not an expected steady state.
  */
-import { defaultIntegrationContext } from '@aeci/shared';
+import { defaultIntegrationContext, isPublishedTrade } from '@aeci/shared';
 import type {
   IntegrationListItem,
   PaginatedResponse,
@@ -121,13 +131,20 @@ export async function resolveSitemapEntries(
   const entries: SitemapEntry[] = [
     // Index pages. AECI-165 removed the `/vendors` and `/integrations` index
     // pages (they now 301-redirect to `/products`), so they are no longer listed
-    // here — only their `:slug` / `:id` DETAIL URLs (added below) remain. The
-    // three taxonomy indexes (/categories, /audiences, /phases) all exist since
-    // AECI-157.
+    // here — only their `:slug` / `:id` DETAIL URLs (added below) remain. Three
+    // taxonomy indexes (/categories, /audiences, /phases) exist since AECI-157;
+    // /trades joined them in AECI-544.
+    //
+    // `/trades` is listed UNCONDITIONALLY, unlike the trade term pages below.
+    // The publication floor gates individual terms, not the navigational index
+    // that lists them — the index is the surface a crawler needs in order to
+    // discover terms as they cross the floor, and it stays a real page (with the
+    // facet's copy and its published grid) even while that grid is short.
     { loc: `${base}/products`, changefreq: 'daily', priority: 0.8 },
     { loc: `${base}/categories`, changefreq: 'weekly', priority: 0.6 },
     { loc: `${base}/audiences`, changefreq: 'weekly', priority: 0.6 },
     { loc: `${base}/phases`, changefreq: 'weekly', priority: 0.6 },
+    { loc: `${base}/trades`, changefreq: 'weekly', priority: 0.6 },
     // Static legal pages (AECI-237). Indexable, rarely change — low priority,
     // yearly changefreq. Their canonicals are self-referential against the same
     // serving origin, so sitemap `<loc>` ⇄ page canonical stay consistent.
@@ -200,6 +217,17 @@ export async function resolveSitemapEntries(
   }
   for (const phase of taxonomy.phases) {
     entries.push({ loc: `${base}/phases/${phase.slug}`, changefreq: 'weekly', priority: 0.5 });
+  }
+  // Trades — the publication gate (AECI-546 / `TRADES_VOCABULARY.md` §6). A term
+  // below `TRADE_PUBLISH_MIN_PRODUCTS` still resolves 200 at its permanent slug,
+  // but renders `noindex` and is withheld here; it self-heals into the sitemap on
+  // the next fetch once a promote pushes it over the floor, with no redirect and
+  // no URL churn. The 34-term vocabulary is seeded closed and tagging is sparse by
+  // design, so most terms start empty — without this gate the sitemap would
+  // advertise a page of thin stubs.
+  for (const trade of taxonomy.trades) {
+    if (!isPublishedTrade(trade)) continue;
+    entries.push({ loc: `${base}/trades/${trade.slug}`, changefreq: 'weekly', priority: 0.5 });
   }
 
   if (entries.length > SITEMAP_MAX_URLS) {

@@ -81,6 +81,27 @@ export const LandingSubmitResultSchema = z.object({ created: z.boolean() });
 export type LandingSubmitResult = z.infer<typeof LandingSubmitResultSchema>;
 
 /**
+ * Wire body for `POST /api/unsubscribe` (AECI-537). The `token` is the opaque
+ * per-subscriber `mailing_list.unsubscribe_token` embedded in the welcome
+ * email's `/unsubscribe?token=…` link. The endpoint also accepts the token as a
+ * `?token=` query param (that path serves the RFC 8058 one-click POST from mail
+ * clients, whose form body we ignore); the browser page POSTs it as JSON here.
+ */
+export const UnsubscribeSubmitSchema = z.object({
+  token: z.string().trim().min(1).max(100),
+});
+export type UnsubscribeSubmit = z.infer<typeof UnsubscribeSubmitSchema>;
+
+/**
+ * Response for `POST /api/unsubscribe`. `ok: true` = the token matched a
+ * subscriber who is now suppressed (idempotent — already-unsubscribed also
+ * returns true). `ok: false` = the token matched no one (an invalid or expired
+ * link). Tokens are unguessable, so returning `false` leaks no membership.
+ */
+export const UnsubscribeResultSchema = z.object({ ok: z.boolean() });
+export type UnsubscribeResult = z.infer<typeof UnsubscribeResultSchema>;
+
+/**
  * HTTP header names the SSR Worker uses to forward trusted Cloudflare geo
  * context to the API Worker for the unified-home closing-CTA island (AECI-275).
  *

@@ -1,0 +1,4 @@
+# Operator run artifacts: a full page_views export plus before/after censuses.
+# They hold production traffic data (paths, ASNs, UA hashes) and are per-run — the
+# run itself is recorded in README.md and docs/POST_LAUNCH_HEALTH_REPORT.md instead.
+backups/

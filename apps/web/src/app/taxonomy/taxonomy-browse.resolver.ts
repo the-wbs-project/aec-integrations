@@ -1,14 +1,21 @@
 /**
- * Resolver factory for the three taxonomy browse routes — `/categories/:slug`,
- * `/audiences/:slug`, `/phases/:slug`. Phase 2 Spec §3.1 / §7 / §9 / §10.
+ * Resolver factory for the four taxonomy browse routes — `/categories/:slug`,
+ * `/audiences/:slug`, `/phases/:slug`, `/trades/:slug`. Phase 2 Spec §3.1 / §7 /
+ * §9 / §10; trades per STAGE_1_SPEC.md §5.5a (AECI-544).
  *
- * The three routes are mechanically identical apart from the taxonomy kind, so
- * one factory produces all three resolvers (AECI-61 ships them together to keep
- * a single resolver/test/i18n pattern from drifting into three copies).
+ * The four routes are mechanically identical apart from the taxonomy kind, so
+ * one factory produces all four resolvers (AECI-61 ships them together to keep
+ * a single resolver/test/i18n pattern from drifting into four copies).
+ *
+ * A trade below the publication floor resolves normally here — its URL is stable
+ * across the gate, so crossing the floor needs no redirect. What it does NOT get
+ * is indexability: `applyBrowseMeta` sets `noindex` on a sub-floor trade
+ * (AECI-546), matching its exclusion from the sitemap. The other three facets are
+ * never gated.
  *
  * Server flow (RenderMode.Server):
- *   1. Fetch `GET /api/{categories|audiences|phases}/:slug` via the service
- *      binding using `AeciRequestContext.api`.
+ *   1. Fetch `GET /api/{categories|audiences|phases|trades}/:slug` via the
+ *      service binding using `AeciRequestContext.api`.
  *   2. On `NOT_FOUND` → set `RESPONSE_INIT.status = 404` (SSR runtime emits a
  *      real HTTP 404 + `NOT_FOUND_TTL`), set noindex meta, return `null` so the
  *      page renders the inline NotFound panel.
@@ -36,6 +43,8 @@ import {
 } from '@angular/core';
 import { ResolveFn } from '@angular/router';
 
+import { isPublishedTrade } from '@aeci/shared';
+
 import type { AeciRequestContext } from '../../server/request-context';
 import { httpGetOrNull } from '../core/api/http-get-or-null';
 import {
@@ -60,7 +69,11 @@ function termStateKey(kind: TaxonomyKind, slug: string) {
 /**
  * Browse-page head metadata for a resolved term. Shared by the server and
  * client branches so the `entity: kind` → `"{name} tools — AEC Integrations"`
- * title stays single-source.
+ * title stays single-source — and so the trade publication gate below can't
+ * apply on SSR but be dropped on a client navigation.
+ *
+ * `product_count` rides on the detail response (`TaxonomyTermWithCountSchema`),
+ * so the gate costs no extra fetch.
  */
 function applyBrowseMeta(
   meta: MetaService,
@@ -73,6 +86,15 @@ function applyBrowseMeta(
     name: term.name,
     description: term.description,
     canonical,
+    // AECI-546 / `TRADES_VOCABULARY.md` §6 — the publication gate's indexability
+    // half. A sub-floor trade page renders normally (its URL is permanent) but
+    // must not be indexed, mirroring its exclusion from the sitemap. `MetaService`
+    // emits a bare `noindex`; `follow` is the crawler default, which is what we
+    // want here — the product links out of a thin trade page still carry weight.
+    // Trades are the ONLY count-gated facet: a zero-product category or phase
+    // stays indexable, because those vocabularies are curated against the catalog
+    // rather than seeded closed.
+    noindex: kind === 'trade' && !isPublishedTrade(term),
   });
 }
 
@@ -148,3 +170,4 @@ function createTaxonomyBrowseResolver(kind: TaxonomyKind): ResolveFn<TaxonomyTer
 export const categoryBrowseResolver = createTaxonomyBrowseResolver('category');
 export const audienceBrowseResolver = createTaxonomyBrowseResolver('audience');
 export const phaseBrowseResolver = createTaxonomyBrowseResolver('phase');
+export const tradeBrowseResolver = createTaxonomyBrowseResolver('trade');

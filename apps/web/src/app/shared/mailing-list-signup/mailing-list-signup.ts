@@ -176,10 +176,18 @@ export class MailingListSignup {
   /** A completed signup flips the button to a confirmed, non-interactive state. */
   protected readonly subscribed = computed(() => this.status() === 'subscribed');
 
-  /** Show the inline email error once the field has been touched (blur/submit). */
-  protected readonly emailErrorShown = computed(
-    () => this.form.email().touched() && Boolean(this.form.email().getError('standardSchema')),
-  );
+  /** Show the inline email error once the field has been touched (blur/submit) —
+   *  but only when it actually holds text. Blurring an empty field (clicked in,
+   *  clicked away without typing) marks it touched and technically-invalid, yet
+   *  nagging "enter a valid email" on an empty box is noise, not help. */
+  protected readonly emailErrorShown = computed(() => {
+    const email = this.form.email();
+    return (
+      email.touched() &&
+      email.value().trim().length > 0 &&
+      Boolean(email.getError('standardSchema'))
+    );
+  });
 
   protected readonly submitDisabled = computed(
     () => this.form().invalid() || this.form().submitting(),

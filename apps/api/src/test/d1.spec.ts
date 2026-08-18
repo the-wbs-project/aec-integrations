@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -11,15 +12,17 @@ import {
   integrations,
   productCategories,
   products,
+  productTrades,
   productVendors,
   productVersions,
   taxonomyCategories,
   taxonomyDataObjects,
+  taxonomyTrades,
   vendors,
 } from '../db/schema';
 import { auditInsert } from '../lib/audit';
 import { productListConfig } from '../lib/drizzle-helpers';
-import { makeTestDb } from './d1';
+import { makeTestDb, type TestDb } from './d1';
 
 describe('in-memory D1 harness (AECI-253)', () => {
   it('applies the migration: tables exist and start empty', async () => {
@@ -318,7 +321,7 @@ describe('claims / attestations spine (AECI-293)', () => {
 
 /**
  * Constraint coverage for Stage 2 migration 2 (AECI-607 / §8.2). These run
- * against the REAL migration files, which is the point: `0008_slim_iron_lad.sql`
+ * against the REAL migration files, which is the point: `0017_slim_iron_lad.sql`
  * carries a **hand-authored** body because `drizzle-kit generate` emitted the two
  * `ALTER TABLE attestations ADD … REFERENCES product_versions(id)` statements
  * with no `ON DELETE` clause at all, silently dropping the SET NULL. The
@@ -439,6 +442,121 @@ describe('product versions (AECI-607)', () => {
     });
     expect(row?.introducedVersion?.label).toBe('2026.1');
     expect(row?.deprecatedVersion?.label).toBe('2026.2');
+    t.dispose();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Trades facet (AECI-538 / AECI-540)
+// ---------------------------------------------------------------------------
+
+/** Apply a real reference-data seed file to the harness DB (multi-statement SQL). */
+function applySeedFile(t: TestDb, file: string): void {
+  const runSql = t.raw.exec.bind(t.raw);
+  runSql(readFileSync(join(process.cwd(), 'seed', file), 'utf8'));
+}
+
+/**
+ * RFC 9562 §5.5 UUIDv5 (SHA-1, name-based). The executable reference for the id
+ * convention documented in the `seed/trades.sql` header: a term's id is
+ * `uuidv5(slug, TRADE_NAMESPACE)`, and the namespace itself is
+ * `uuidv5('https://aecintegrations.com/vocabulary/trade', URL_NS)` — the same
+ * construction `seed/data-objects.sql` uses, one vocabulary path along.
+ */
+function uuidv5(name: string, namespace: string): string {
+  const ns = Buffer.from(namespace.replace(/-/g, ''), 'hex');
+  const digest = createHash('sha1').update(ns).update(Buffer.from(name, 'utf8')).digest();
+  const b = Buffer.from(digest.subarray(0, 16));
+  b[6] = (b[6]! & 0x0f) | 0x50; // version 5
+  b[8] = (b[8]! & 0x3f) | 0x80; // RFC 4122 variant
+  const hex = b.toString('hex');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+const URL_NAMESPACE = '6ba7b811-9dad-11d1-80b4-00c04fd430c8';
+const TRADE_NAMESPACE = uuidv5('https://aecintegrations.com/vocabulary/trade', URL_NAMESPACE);
+
+interface TradeTerm {
+  slug: string;
+  name: string;
+  description: string;
+  display_order: number;
+  aliases: string[];
+}
+
+describe('taxonomy_trades / product_trades (AECI-540)', () => {
+  it('derives the namespace pinned in the seed header', () => {
+    // Pinned literally so a bad refactor of `uuidv5()` cannot silently re-mint every id.
+    expect(TRADE_NAMESPACE).toBe('af0d33bc-5814-524f-9c6c-cac49b84d5f0');
+  });
+
+  it('seed/trades.sql materialises the 34-term vocabulary verbatim from the JSON mirror', async () => {
+    const t = await makeTestDb();
+    // Applying the real seed also proves it is valid against the migrated schema.
+    applySeedFile(t, 'trades.sql');
+
+    const vocab = JSON.parse(
+      readFileSync(join(process.cwd(), '..', '..', 'docs', 'trades-vocabulary.json'), 'utf8'),
+    ) as { terms: TradeTerm[] };
+    expect(vocab.terms).toHaveLength(34);
+
+    const seeded = await t.db.select().from(taxonomyTrades);
+    expect(seeded).toHaveLength(34);
+
+    // Every field round-trips, not just the slug: `description` is part of the contract
+    // (SEO landing copy) and `aliases` drives find-only promote resolution + Algolia
+    // recall, so drift in either is a real defect rather than a cosmetic one.
+    const bySlug = new Map(seeded.map((row) => [row.slug, row]));
+    for (const term of vocab.terms) {
+      const row = bySlug.get(term.slug);
+      expect(row, `missing seeded trade: ${term.slug}`).toBeDefined();
+      expect(row!.id).toBe(uuidv5(term.slug, TRADE_NAMESPACE));
+      expect(row!.name).toBe(term.name);
+      expect(row!.description).toBe(term.description);
+      expect(row!.displayOrder).toBe(term.display_order);
+      expect(row!.aliases).toEqual(term.aliases);
+    }
+    t.dispose();
+  });
+
+  it('re-applying the seed is idempotent (upsert on slug — never duplicates, never deletes)', async () => {
+    const t = await makeTestDb();
+    applySeedFile(t, 'trades.sql');
+    const first = await t.db.select().from(taxonomyTrades);
+    applySeedFile(t, 'trades.sql');
+    const second = await t.db.select().from(taxonomyTrades);
+
+    expect(second).toHaveLength(first.length);
+    expect(second.map((r) => r.id).sort()).toEqual(first.map((r) => r.id).sort());
+    t.dispose();
+  });
+
+  it('hydrates product → trade and cascades the taxonomy FK', async () => {
+    const t = await makeTestDb();
+    await t.db
+      .insert(products)
+      .values({ id: 'p1', slug: 'revit', name: 'Revit', promotionStatus: 'promoted' });
+    await t.db.insert(taxonomyTrades).values({
+      id: 't1',
+      slug: 'electrical',
+      name: 'Electrical',
+      description: 'Power distribution, lighting, and electrical systems installation.',
+      displayOrder: 80,
+      aliases: ['Electric', 'Electrician'],
+    });
+    await t.db.insert(productTrades).values({ productId: 'p1', tradeId: 't1' });
+
+    const [row] = await t.db.query.products.findMany({
+      where: eq(products.id, 'p1'),
+      with: { productTrades: { with: { trade: true } } },
+    });
+    expect(row?.productTrades[0]?.trade.slug).toBe('electrical');
+    expect(row?.productTrades[0]?.trade.aliases).toEqual(['Electric', 'Electrician']);
+
+    // Deleting a term cascades its join rows away — which is precisely why the seed
+    // is upsert-only and never deletes (TRADES_VOCABULARY.md §3).
+    await t.db.delete(taxonomyTrades).where(eq(taxonomyTrades.id, 't1'));
+    expect((await t.db.select().from(productTrades)).length).toBe(0);
     t.dispose();
   });
 });
