@@ -107,6 +107,84 @@ async function seedClaimPrereqs(t: Awaited<ReturnType<typeof makeTestDb>>) {
   return { integrationId: 'i1', dataObjectId: 'd1' };
 }
 
+// The harness applies the REAL migration files, so this exercises the hand-authored
+// `ALTER … ADD … CHECK` bodies in 0018 rather than a Drizzle-side approximation of them.
+describe('maintenance marker columns (AECI-616)', () => {
+  const seeds = [
+    { table: 'vendors', row: { id: 'v1', slug: 'autodesk', companyName: 'Autodesk' } },
+    { table: 'products', row: { id: 'p1', slug: 'revit', name: 'Revit' } },
+  ] as const;
+
+  it('defaults maintained_by to aeci and leaves last_reviewed_at NULL on insert', async () => {
+    const t = await makeTestDb();
+    await t.db.insert(vendors).values(seeds[0].row);
+    await t.db.insert(products).values(seeds[1].row);
+    await t.db.insert(products).values({ id: 'p2', slug: 'navisworks', name: 'Navisworks' });
+    await t.db
+      .insert(integrations)
+      .values({ id: 'i1', sourceProductId: 'p1', targetProductId: 'p2' });
+
+    // The unreviewed baseline: attribution with no date. NOTHING is backfilled from
+    // `created_at` / `updated_at` / `promoted_at` — that is the point of the column.
+    const rows = [
+      (await t.db.select().from(vendors).where(eq(vendors.id, 'v1')))[0],
+      (await t.db.select().from(products).where(eq(products.id, 'p1')))[0],
+      (await t.db.select().from(integrations).where(eq(integrations.id, 'i1')))[0],
+    ];
+    for (const row of rows) {
+      expect(row?.maintainedBy).toBe('aeci');
+      expect(row?.lastReviewedAt).toBeNull();
+    }
+    t.dispose();
+  });
+
+  it('rejects an out-of-vocabulary maintained_by on all three tables', async () => {
+    const t = await makeTestDb();
+    await t.db.insert(products).values({ id: 'p2', slug: 'navisworks', name: 'Navisworks' });
+
+    await expect(
+      (async () => t.db.insert(vendors).values({ ...seeds[0].row, maintainedBy: 'partner' }))(),
+    ).rejects.toThrow();
+    await expect(
+      (async () => t.db.insert(products).values({ ...seeds[1].row, maintainedBy: 'partner' }))(),
+    ).rejects.toThrow();
+    await t.db.insert(products).values(seeds[1].row);
+    await expect(
+      (async () =>
+        t.db.insert(integrations).values({
+          id: 'i1',
+          sourceProductId: 'p1',
+          targetProductId: 'p2',
+          maintainedBy: 'partner',
+        }))(),
+    ).rejects.toThrow();
+    t.dispose();
+  });
+
+  it('does not restamp last_reviewed_at on an unrelated write (no $onUpdate)', async () => {
+    const t = await makeTestDb();
+    const reviewed = '2026-03-04T00:00:00.000Z';
+    // `updated_at` is pinned to a fixed past value rather than left at insert time:
+    // `$onUpdate` stamps `Date.now()`, so an insert and update landing in the same
+    // millisecond would produce identical strings and make the contrast below flaky.
+    const staleUpdatedAt = '2020-01-01T00:00:00.000Z';
+    await t.db
+      .insert(products)
+      .values({ ...seeds[1].row, lastReviewedAt: reviewed, updatedAt: staleUpdatedAt });
+
+    // `updated_at` IS declared `$onUpdate`, so this write moves it. If
+    // `last_reviewed_at` moved too, the marker would advertise a review that never
+    // happened — which is the entire failure mode AECI-616 exists to prevent.
+    await t.db.update(products).set({ name: 'Revit 2026' }).where(eq(products.id, 'p1'));
+    const after = (await t.db.select().from(products).where(eq(products.id, 'p1')))[0];
+
+    expect(after?.name).toBe('Revit 2026');
+    expect(String(after?.updatedAt) > staleUpdatedAt).toBe(true);
+    expect(after?.lastReviewedAt).toBe(reviewed);
+    t.dispose();
+  });
+});
+
 describe('claims / attestations spine (AECI-293)', () => {
   it('hydrates claim → dataObject + attestations, and defaults asserted=true', async () => {
     const t = await makeTestDb();

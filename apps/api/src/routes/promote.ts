@@ -230,6 +230,13 @@ function vendorEditableData(v: PromoteVendor): Record<string, unknown> {
     phoneNumber: v.phoneNumber,
     contactEmail: v.contactEmail,
     logoUrl: v.logoUrl,
+    // Absent → `compact()` drops it → the stored timestamp is untouched. That IS
+    // the "no review happened" signal (AECI-616); see `ReviewSignalSchema`.
+    lastReviewedAt: v.lastReviewedAt,
+    // `maintainedBy` is deliberately NOT here either, for the same reason as
+    // `verified` below: it is owned by the vendor attestation path, and a routine
+    // push must not be able to flip a vendor-maintained record back to 'aeci'.
+    //
     // `verified` is deliberately NOT here (AECI-520). It is an entitlement the
     // vendor-claim grant owns, not curation content — the payload field is still
     // accepted and ignored (`REVIEW_APP_PROMOTE_API.md` §3.2). It used to be
@@ -256,6 +263,11 @@ function productEditableData(p: PromoteProduct): Record<string, unknown> {
     searchVolumeMonthly: p.searchVolumeMonthly,
     redditMentions24mo: p.redditMentions24mo,
     adminNotes: p.adminNotes,
+    // AECI-616. Absent → untouched (see `vendorEditableData`). Deliberately NOT
+    // given the set-once `COALESCE` guard `promotedAt` gets in the update branch
+    // below: that column records the FIRST promote, this one is meant to advance
+    // every time a human actually re-checks the record.
+    lastReviewedAt: p.lastReviewedAt,
   });
 }
 
@@ -274,6 +286,8 @@ function integrationEditableData(intg: PromoteIntegration): Record<string, unkno
     pricingModel: intg.pricingModel,
     maturity: intg.maturity,
     notes: intg.notes,
+    // AECI-616. Absent → untouched (see `vendorEditableData`).
+    lastReviewedAt: intg.lastReviewedAt,
   });
 }
 

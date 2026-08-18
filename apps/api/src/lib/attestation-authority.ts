@@ -85,6 +85,13 @@ export interface AttestationAuthority {
   sourceProductId: string;
   /** Endpoint B — `integrations.target_product_id`. Maps to the `vendor_b` slot. */
   targetProductId: string;
+  /**
+   * The integration's CURRENT `maintained_by` (AECI-616). Carried here rather than
+   * re-read, for the same reason the two endpoint ids are: the §5 write paths flip
+   * it as a side effect of attesting, and they must not pay a second D1 hop to learn
+   * whether the flip is a no-op.
+   */
+  maintainedBy: string;
   /** Never empty: an entry only exists when the vendor owns at least one endpoint. */
   slots: readonly AttestationSlot[];
 }
@@ -126,6 +133,7 @@ async function loadAuthorities(
       integrationId: integrations.id,
       sourceProductId: integrations.sourceProductId,
       targetProductId: integrations.targetProductId,
+      maintainedBy: integrations.maintainedBy,
       ownedProductId: productVendors.productId,
     })
     .from(integrations)
@@ -158,6 +166,7 @@ async function loadAuthorities(
       integrationId,
       sourceProductId: row.sourceProductId,
       targetProductId: row.targetProductId,
+      maintainedBy: row.maintainedBy,
       slots: slotsForOwnership(
         productIds.has(row.sourceProductId),
         productIds.has(row.targetProductId),
@@ -327,6 +336,7 @@ export async function resolveClaimAuthority(
       createdByVendorId: claims.createdByVendorId,
       sourceProductId: integrations.sourceProductId,
       targetProductId: integrations.targetProductId,
+      maintainedBy: integrations.maintainedBy,
       ownedProductId: productVendors.productId,
     })
     .from(claims)
@@ -364,6 +374,7 @@ export async function resolveClaimAuthority(
       integrationId: first.integrationId,
       sourceProductId: first.sourceProductId,
       targetProductId: first.targetProductId,
+      maintainedBy: first.maintainedBy,
       slots: slotsForOwnership(
         ownedProductIds.has(first.sourceProductId),
         ownedProductIds.has(first.targetProductId),

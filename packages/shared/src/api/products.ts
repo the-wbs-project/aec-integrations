@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 import {
   LinkRefSchema,
+  MaintenanceSchema,
   paginatedResponseSchema,
   PageQuerySchema,
   uuidList,
@@ -130,6 +131,11 @@ export const ProductDetailSchema = ProductListItemSchema.extend({
   // (§5.5) nulls `rating_overall_avg` / `rating_onboarding_avg` (inherited) when
   // `review_count < 5` — a single-review average is statistically misleading.
   reviews: z.array(PublicReviewSchema),
+  // The maintenance marker's inputs (AECI-616). Detail-only — the marker renders in
+  // the page header, never on a card, so `ProductListItem` deliberately doesn't carry
+  // them. `last_reviewed_at` is `null` for almost every product; that renders bare
+  // attribution, which is correct rather than missing.
+  maintenance: MaintenanceSchema.default({ maintained_by: 'aeci', last_reviewed_at: null }),
 });
 
 export type ProductDetail = z.infer<typeof ProductDetailSchema>;

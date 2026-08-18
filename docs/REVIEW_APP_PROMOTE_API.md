@@ -248,6 +248,7 @@ Every vendor in this array becomes a vendor **of the product** (a
 | `foundedYear` | int \| null | — | |
 | `publicPrivate` | `"public"` \| `"private"` \| null | — | |
 | `verified` | boolean | — | **Accepted and ignored (AECI-520).** `vendors.verified` is the paid vendor-portal entitlement bit: it is set when AECi approves a vendor claim and cleared only by a deliberate entitlement action, so a routine push must not move it (previously a push carrying `verified: false` could silently un-verify a paying vendor). Still accepted so your existing build keeps validating; send it or don't, the server drops it. A newly created vendor is always `verified: false`. |
+| `lastReviewedAt` | ISO-8601 string \| null | — | **The review signal (AECI-616).** Send it ONLY when a human actually re-checked this record; it becomes the date in the public "Reviewed <date>." maintenance marker. **Omitting it leaves the stored value untouched** — that is the point, so a routine re-push never re-advertises the record as freshly reviewed. `null` clears it. Rejected with a 400 if unparseable (stricter than the other free-form fields here, because a garbage value would render as *no date* and be indistinguishable from "never reviewed"). See §3.6. |
 
 ### 3.3 `product` (optional, singular)
 
@@ -265,6 +266,7 @@ Omit it entirely for a vendor-only / integration-only push (§3.5). When present
 | `trades` | string[] | — | Trade names, slugs, **or aliases**. **Resolve-only — never find-or-created.** See **`trades` resolution** below. |
 | `usefulness` | `{ audiences: UsefulnessGroup[]; phases: UsefulnessGroup[] }` \| null | — | Per-audience / per-phase narrative value. `UsefulnessGroup = { slug \| name, points: string[] }` (≥ 1 point). See **`usefulness` resolution** below. |
 | `extensionOf` | `{ supabaseId }[]` | — | Host products this product extends. **Must use `supabaseId`** (hosts are promoted separately). |
+| `lastReviewedAt` | ISO-8601 string \| null | — | **The review signal (AECI-616).** Send ONLY when a human actually re-checked this record. **Omitting it leaves the stored value untouched.** See §3.6. |
 | `description`, `website`, `toolIntegrationsUrl`, `apiDocsUrl`, `toolIntegrationCheckNotes`, `logoUrl`, `researchNotes`, `adminNotes` | string \| null | — | |
 | `hasApiDocs` | boolean | — | |
 | `researchStatus` | `"pending"` \| `"in_progress"` \| `"done"` \| `"blocked"` \| null | — | |
@@ -302,6 +304,7 @@ endpoints**. The other endpoint must already be promoted (reference it by
 | `direction` | `"one-way"` \| `"bidirectional"` \| null | — | |
 | `mechanismName`, `description`, `listingUrl`, `docsUrl`, `website`, `mechanismUrl`, `pricingModel`, `maturity`, `notes` | string \| null | — | |
 | `claims` | `Claim[]` | — | Data-object claims carried by this integration. Defaults to `[]`. See **`claims` shape & resolution** below. |
+| `lastReviewedAt` | ISO-8601 string \| null | — | **The review signal (AECI-616).** Send ONLY when a human actually re-checked this record. **Omitting it leaves the stored value untouched.** See §3.6. |
 
 Direction is meaningful: `sourceProduct → targetProduct`.
 
@@ -369,6 +372,40 @@ integration-only push (send only `integrations[]`) — but note that without a
 > Creating a brand-new vendor with no product is allowed (omit `supabaseId`), but
 > the usual flow is: vendors are created the first time their product is promoted,
 > and this vendor-only form is for **editing** an already-promoted vendor.
+
+### 3.6 `lastReviewedAt` — the review signal (AECI-616)
+
+Accepted on `vendors[]`, `product`, and `integrations[]`. It is the only way the
+public **maintenance marker** gets a date:
+
+> Maintained by AEC Integrations. **Reviewed March 4, 2026.**
+
+**The contract is that absence means "untouched."** Omit the field and the stored
+`last_reviewed_at` keeps whatever it had; send an ISO-8601 timestamp and it advances;
+send `null` and it clears. Nothing else in the promote path writes it.
+
+**Why it isn't derived server-side.** The obvious implementation — stamp `now()` on
+every promote — is exactly what this design refuses. AECi's own `updated_at` already
+does that, and it is useless as a freshness signal precisely because of it: promote
+re-asserts `promotion_status='promoted'` on every re-push, so production has 60
+products sharing one `updated_at` day and 40 sharing another. A date that refreshes
+itself without anyone re-checking the record is worse than no date, because readers
+believe it.
+
+**So this field carries an obligation.** Send it when a curator genuinely re-verified
+the record — not on every sync, and not as a default in your push builder. If it ends
+up stamped on every push it becomes `updated_at` with extra steps, and the marker goes
+back to lying. There is no server-side check that can catch that; the discipline lives
+on your side.
+
+Nothing is backfilled: every record promoted before this field existed reads
+`last_reviewed_at: null` and renders bare attribution with no date, until a real review
+supplies one.
+
+**`maintainedBy` is not accepted.** The `'vendor'` value is set only by a vendor's own
+attestation in the vendor portal, and cleared when they retract it. If the payload
+carried it, a routine push would silently take a record back off a vendor's name — the
+same failure `verified` had before AECI-520 (§4a).
 
 ---
 
@@ -993,4 +1030,5 @@ window, so reusing the first promote's id would just hand you back that job's ol
 - [ ] Understand that `claims[]` replaces **AECi curation only** (§5.2): omitting a claim a vendor has attested converts it rather than deleting it, and a vendor-authored claim is never removed. Don't treat `preserved[]` as an error.
 - [ ] Handle `skipped[]` kinds `"vendor"` / `"product"` (§4a): show the curator that the entity is **vendor-claimed and not writable from here** — don't retry, and don't treat `product: null` as "no product sent" without checking.
 - [ ] Don't rely on `verified` — it is accepted and ignored (§3.2).
+- [ ] **Send `lastReviewedAt` only on a genuine re-check, never as a default in your push builder** (§3.6). It becomes a public "Reviewed &lt;date&gt;." claim; stamping it on every sync turns it into `updated_at` with extra steps and makes the marker lie. Omitting it is always safe — the stored value is left alone. `maintainedBy` is not accepted at all.
 - [ ] On a synchronous 4xx, surface `error.message` / `error.field` to the curator; on 5xx, retry (same `jobId`) then escalate `trace_id`. On `status: "errored"`, surface `error.code` / `error.message` and retry with a new `jobId` (§6).

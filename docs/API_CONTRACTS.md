@@ -632,6 +632,20 @@ export const ProductPairResponseSchema = z.object({
   other_product: ProductListItemSchema,
   mechanisms: z.array(ProductPairMechanismSchema),
   sync_headline: SyncHeadlineSchema,
+  // The page-header maintenance marker (AECI-616), folded across all mechanisms by
+  // `computePairMaintenance`. `maintained_by` is 'vendor' if ANY mechanism is; the
+  // date is the max WITHIN that branch only, so an AECi review date is never
+  // attributed to a vendor. Same `.default(...)` deploy-skew reasoning as
+  // `single_source` above.
+  maintenance: MaintenanceSchema.default({ maintained_by: 'aeci', last_reviewed_at: null }),
+});
+
+// packages/shared/src/api/common.ts — shared by ProductDetail, VendorDetail, and the
+// pair response. `last_reviewed_at` is null for almost every record: nothing was
+// backfilled, and bare attribution is the honest default (AECI-616 / §13).
+export const MaintenanceSchema = z.object({
+  maintained_by: z.enum(['aeci', 'vendor']).default('aeci'),
+  last_reviewed_at: z.string().nullable().default(null),
 });
 export type ProductPairResponse = z.infer<typeof ProductPairResponseSchema>;
 ```
@@ -791,6 +805,8 @@ export type ProductReviewsResponse = PaginatedResponse<PublicReview>;
 ```
 
 Errors: `NOT_FOUND` (unknown product slug — distinct from a known product with zero approved reviews, which is an empty page). API response is `Cache-Control: private, no-store` like its `GET /api/products/:slug` sibling; edge-cacheability + the `product:<slug>` Cache-Tag are an SSR-layer concern (the public product page bakes page 1 in), and review approval/rejection (Phase 5.13) purges that tag.
+
+**Maintenance marker (AECI-616 / `STAGE_2_ATTESTATIONS_SPEC.md` §13).** `GET /api/products/:slug` and `GET /api/vendors/:slug` both carry a `maintenance: { maintained_by, last_reviewed_at }` object (the `MaintenanceSchema` above), feeding the `aec-maintenance-marker` chip in each page header. Detail-only — the marker never renders on a card, so `ProductListItem` / `VendorListItem` do not carry it. `last_reviewed_at` is `null` on almost every record and that renders bare attribution with no date; it is **never** derived from `updated_at` / `created_at` / `promoted_at`, and no migration backfills it.
 
 **`ProductDetail` reviews embed (§5.4–§5.5).** `GET /api/products/:slug` additionally carries:
 

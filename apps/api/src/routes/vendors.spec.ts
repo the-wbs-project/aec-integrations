@@ -103,3 +103,25 @@ describe('GET /api/vendors/:slug', () => {
     expect((await get(detailApp(), '/api/vendors/nope')).status).toBe(404);
   });
 });
+
+describe('GET /api/vendors/:slug — maintenance marker (AECI-616)', () => {
+  it('reports the unreviewed baseline: AECi attribution with no date', async () => {
+    await seedVendor(u(1), 'autodesk', 'Autodesk');
+
+    const res = await get(detailApp(), '/api/vendors/autodesk');
+    const detail = VendorDetailSchema.parse(await res.json());
+    expect(detail.maintenance).toEqual({ maintained_by: 'aeci', last_reviewed_at: null });
+  });
+
+  it('surfaces a real review date, distinct from the verified ACCOUNT bit', async () => {
+    const reviewed = '2026-03-04T00:00:00.000Z';
+    await seedVendor(u(1), 'autodesk', 'Autodesk', { lastReviewedAt: reviewed, verified: false });
+
+    const res = await get(detailApp(), '/api/vendors/autodesk');
+    const detail = VendorDetailSchema.parse(await res.json());
+    // Two different signals on one page: `verified` is an AECi-verified vendor
+    // ACCOUNT, `maintenance` is who maintains the catalog record.
+    expect(detail.verified).toBe(false);
+    expect(detail.maintenance).toEqual({ maintained_by: 'aeci', last_reviewed_at: reviewed });
+  });
+});

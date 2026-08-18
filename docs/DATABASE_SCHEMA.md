@@ -178,6 +178,12 @@ create table vendors (
   vqs_total numeric(4,2),
   vqs_computed_at timestamptz,
 
+  -- Maintenance marker (AECI-616). `last_reviewed_at` is a PLAIN column — never
+  -- `$onUpdate`, never backfilled from created_at/updated_at/promoted_at.
+  last_reviewed_at text,
+  maintained_by text not null default 'aeci'
+    check (maintained_by in ('aeci', 'vendor')),
+
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -244,6 +250,12 @@ create table products (
   -- Operational
   admin_notes text,
 
+  -- Maintenance marker (AECI-616). `last_reviewed_at` is a PLAIN column — never
+  -- `$onUpdate`, never backfilled from created_at/updated_at/promoted_at.
+  last_reviewed_at text,
+  maintained_by text not null default 'aeci'
+    check (maintained_by in ('aeci', 'vendor')),
+
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -260,6 +272,14 @@ create index products_updated_at_idx on products(updated_at desc);
 `promoted_at` (AECI-581 / `ADMIN_PANEL_SPEC.md` §13 D6) is the **first**-promote timestamp, and the "first" is the whole point. `POST /api/promote` re-asserts `promotion_status='promoted'` on its **update** branch too, and `product.updated` outnumbers `product.created` roughly 2.7:1 — so a naive `promoted_at = now` there would mean *last* promoted and buy nothing over `updated_at`. It is therefore set **once**, via `COALESCE("promoted_at", ?)` inside the existing promote batch (`apps/api/src/routes/promote.ts`), which preserves an existing value and fills only a NULL with no extra read.
 
 It buys nothing *today*, and that is expected: `products.created_at` already answers the same question exactly, because promote is D1's only INSERT path into `products` and retraction is a hard delete (`ADMIN_PANEL_SPEC.md` §4's correction — the "a row sits at `'ready'` before going live" claim describes the **review app's** lifecycle, not AECi's). The column is future-proofing: the moment a Tier-1 retract endpoint introduces a real un-promote → re-promote cycle, `created_at` stops tracking go-live and the history cannot be reconstructed retroactively. Backfilled `:= created_at` — **exact**, no approximation — by `scripts/ops/backfill-products-promoted-at.sql`, run once per environment. Not indexed: nothing filters or sorts on it yet.
+
+`last_reviewed_at` / `maintained_by` (AECI-616 / `STAGE_2_ATTESTATIONS_SPEC.md` §13) feed the **maintenance marker** — the `Maintained by AEC Integrations. Reviewed <date>.` chip on product detail, vendor detail, and the pair page. They exist on `vendors`, `products`, and `integrations` alike. Three rules, all load-bearing:
+
+1. **`last_reviewed_at` is a plain column.** It is deliberately NOT `.$onUpdate(...)` (unlike `updated_at`) and has no default. It is written by exactly two paths: an explicit `lastReviewedAt` in the promote payload (`REVIEW_APP_PROMOTE_API.md` §3.2/§3.3/§3.4), and a vendor attestation (`STAGE_2_ATTESTATIONS_SPEC.md` §5). **Omitting the promote field leaves it untouched** — that absence is the "no review happened" signal, and it is what stops a bulk re-promote re-advertising the whole catalog as freshly checked.
+2. **Never source it from `updated_at`, `created_at`, or `promoted_at`, and never backfill it.** `updated_at` restamps on any write and promote re-asserts `promotion_status` on every push, so in production 60 products share a single `updated_at` day and 40 share another: it is a bulk-sweep timestamp, not a review timestamp. Migration `0018` adds the column with **no backfill statement**, permanently — every pre-existing row stays `NULL` and renders bare attribution with no date, which is the honest reading rather than missing data.
+3. **`maintained_by` is not accepted by promote.** It flips to `'vendor'` only via a live vendor attestation and back to `'aeci'` when the last one is retracted (`apps/api/src/routes/vendor-attestations.ts`). Accepting it on the promote payload would let a routine Airtable push silently un-vendor a record — the same failure `vendors.verified` had before AECI-520.
+
+Neither column is indexed: both are read with the row and never filtered or sorted on.
 
 `usefulness` is a nullable `jsonb` column holding narrative "how teams use it" value, grouped by audience and by project phase. Its stored shape mirrors the public `ProductUsefulness` contract (`API_CONTRACTS.md` §5.1) — `{ audiences: [{ slug, name, points[] }], phases: [{ slug, name, points[] }] }` — where each `slug` references a `taxonomy_audiences` / `taxonomy_phases` slug. It is `null` when the source has no usefulness for either facet; otherwise either facet array may be empty. The column is written by promote (`REVIEW_APP_PROMOTE_API.md` §3.3), which resolves each group to an existing taxonomy term and stores the canonical `{ slug, name }` denormalized — so a later taxonomy rename leaves already-promoted labels stale until the product is re-promoted. Not indexed: it is read with the row, never filtered on.
 
@@ -294,6 +314,12 @@ create table integrations (
   pricing_model text,
   maturity text,
   notes text,
+
+  -- Maintenance marker (AECI-616). `last_reviewed_at` is a PLAIN column — never
+  -- `$onUpdate`, never backfilled from created_at/updated_at/promoted_at.
+  last_reviewed_at text,
+  maintained_by text not null default 'aeci'
+    check (maintained_by in ('aeci', 'vendor')),
 
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()

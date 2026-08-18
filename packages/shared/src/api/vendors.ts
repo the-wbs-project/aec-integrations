@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { paginatedResponseSchema, PageQuerySchema } from './common';
+import { MaintenanceSchema, paginatedResponseSchema, PageQuerySchema } from './common';
 import { ProductListItemSchema } from './products';
 
 /**
@@ -59,6 +59,10 @@ export const VendorDetailSchema = VendorListItemSchema.extend({
   instagram_url: z.string().url().nullable(),
   youtube_url: z.string().url().nullable(),
   products: z.array(ProductListItemSchema),
+  // The maintenance marker's inputs (AECI-616) — see `MaintenanceSchema`. Distinct
+  // from `verified` (inherited from `VendorListItem`): that is an AECi-verified vendor
+  // ACCOUNT, this is who maintains the catalog record.
+  maintenance: MaintenanceSchema.default({ maintained_by: 'aeci', last_reviewed_at: null }),
 });
 
 export type VendorDetail = z.infer<typeof VendorDetailSchema>;

@@ -101,7 +101,7 @@ import {
   type VendorOwnAttestation,
 } from '@aeci/shared';
 import { type AuditLogEntry } from '@aeci/shared/audit-log';
-import { and, eq, inArray, isNull, or } from 'drizzle-orm';
+import { and, eq, inArray, isNull, notInArray, or } from 'drizzle-orm';
 
 import { getDb, type Db } from '../db/client';
 import {
@@ -116,6 +116,7 @@ import {
 import { ApiError, notFoundError } from '../errors';
 import { json, noContent } from '../http';
 import {
+  ATTESTATION_SLOTS,
   resolveAttestationSlots,
   resolveAttestationSlotsForVendor,
   resolveClaimAuthority,
@@ -494,6 +495,136 @@ function attestationAudit(
   };
 }
 
+// ─── The maintenance marker's vendor branch (AECI-616 / §13) ─────────────────
+//
+// `integrations.maintained_by` is what makes the pair page's header read
+// `Vendor-maintained.` instead of `Maintained by AEC Integrations.`, and
+// `last_reviewed_at` is the date beside it. This surface is the ONLY writer of the
+// `'vendor'` value — promote deliberately does not accept the column, so a routine
+// Airtable push can never flip a record back (the AECI-520 / AECI-604 lesson).
+//
+// Both directions ride in the SAME `db.batch` as the attestation mutation (§26.1),
+// each with its own `audit_log` row. They are pushed AFTER the attestation
+// statements, because the retract direction's guard depends on the retraction
+// having already applied — see `hasLiveVendorAttestation`.
+
+/** The two vendor-authored `attestations.source` values, as a live-row filter. */
+const liveVendorAttestationWhere = and(
+  inArray(attestations.source, [...ATTESTATION_SLOTS]),
+  liveAttestationsWhere,
+);
+
+/**
+ * Does the integration still carry a live VENDOR attestation once `excludeIds` are
+ * gone? Called pre-batch with the ids this request is about to retract, because a
+ * pre-batch read cannot see a write the batch has not made yet — subtracting them
+ * by hand is what makes the answer describe the post-commit world.
+ *
+ * Integration-grain on purpose: `liveAttestationsFor` is claim-grain, and one
+ * integration carries many claims. Retracting a vendor's last attestation on ONE
+ * claim must not un-vendor an integration where they still hold nine others.
+ */
+async function hasLiveVendorAttestation(
+  db: Db,
+  integrationId: string,
+  excludeIds: readonly string[],
+): Promise<boolean> {
+  const rows = await db
+    .select({ id: attestations.id })
+    .from(attestations)
+    .innerJoin(claims, eq(claims.id, attestations.claimId))
+    .where(
+      and(
+        eq(claims.integrationId, integrationId),
+        liveVendorAttestationWhere,
+        excludeIds.length ? notInArray(attestations.id, [...excludeIds]) : undefined,
+      ),
+    )
+    .limit(1);
+  return rows.length > 0;
+}
+
+/**
+ * Flip the integration to vendor-maintained and stamp the review date.
+ *
+ * Unconditional, and therefore always a real state change worth an audit row: even
+ * when the integration is already `'vendor'`, the vendor just re-asserted something
+ * about it, and that IS the review `last_reviewed_at` records.
+ */
+function vendorMaintainedFlip(
+  c: VendorContext,
+  db: Db,
+  authority: AttestationAuthority,
+  now: string,
+  context: { vendorId: string; claimId: string },
+): { stmt: BatchStmt; audit: AuditLogEntry } {
+  return {
+    stmt: db
+      .update(integrations)
+      .set({ maintainedBy: 'vendor', lastReviewedAt: now })
+      .where(eq(integrations.id, authority.integrationId)),
+    audit: maintenanceAudit(c, authority, context, {
+      beforeState: { maintained_by: authority.maintainedBy },
+      afterState: { maintained_by: 'vendor', last_reviewed_at: now },
+    }),
+  };
+}
+
+/**
+ * Hand the integration back to AECi once the last live vendor attestation is gone.
+ *
+ * `last_reviewed_at` is deliberately NOT cleared. The vendor's review genuinely
+ * happened; retracting an assertion does not un-happen it, and blanking the date
+ * would make a record that HAS been checked render as one that never has.
+ *
+ * Returns `null` when a live vendor attestation remains, so the batch carries no
+ * no-op `UPDATE` and — more importantly — no audit row claiming a state change that
+ * did not occur (§26.1).
+ */
+function aeciMaintainedFlip(
+  c: VendorContext,
+  db: Db,
+  authority: AttestationAuthority,
+  stillVendorMaintained: boolean,
+  context: { vendorId: string; claimId: string },
+): { stmt: BatchStmt; audit: AuditLogEntry } | null {
+  if (stillVendorMaintained || authority.maintainedBy === 'aeci') return null;
+  return {
+    stmt: db
+      .update(integrations)
+      .set({ maintainedBy: 'aeci' })
+      .where(eq(integrations.id, authority.integrationId)),
+    audit: maintenanceAudit(c, authority, context, {
+      beforeState: { maintained_by: authority.maintainedBy },
+      afterState: { maintained_by: 'aeci' },
+    }),
+  };
+}
+
+function maintenanceAudit(
+  c: VendorContext,
+  authority: AttestationAuthority,
+  context: { vendorId: string; claimId: string },
+  state: { beforeState?: unknown; afterState?: unknown },
+): AuditLogEntry {
+  const session = c.get('auth');
+  return {
+    actorId: session.userId,
+    actorType: auditActorType(session),
+    action: 'integration.updated',
+    entityType: 'integration',
+    entityId: authority.integrationId,
+    ...state,
+    metadata: {
+      source: AUDIT_SOURCE,
+      vendorId: context.vendorId,
+      claimId: context.claimId,
+      integrationId: authority.integrationId,
+      reason: 'maintenance-marker',
+    },
+  };
+}
+
 /** The audit `afterState` for a written attestation — the vendor's position, not
  *  the row's system columns. */
 function attestationState(row: AttestationRow | RawAttestation): Record<string, unknown> {
@@ -726,17 +857,25 @@ export function createVendorClaimHandler(
       ),
     );
 
+    // A vendor-authored claim always makes the integration vendor-maintained
+    // (AECI-616) — this is the strongest possible form of the signal: the vendor
+    // did not merely confirm AECi's curation, they wrote the row.
+    const maintenance = vendorMaintainedFlip(c, db, authority, now, { vendorId, claimId });
+
     const stmts: BatchStmt[] = [
       db.insert(claims).values(claimRow),
       db.insert(attestations).values(attestationRows),
+      maintenance.stmt,
       auditInsert(db, claimAudit),
       ...attestationAudits.map((entry) => auditInsert(db, entry)),
+      auditInsert(db, maintenance.audit),
     ];
     await db.batch(stmts as BatchTuple);
 
     afterVendorWrite(c, attestationEditTags(endpoints.sourceSlug, endpoints.targetSlug), [
       claimAudit,
       ...attestationAudits,
+      maintenance.audit,
     ]);
 
     const live: RawAttestation[] = attestationRows.map((row) => ({
@@ -843,6 +982,12 @@ export function createUpsertVendorAttestationHandler(
       );
     }
     stmts.push(db.insert(attestations).values(attestationRows));
+    // An upsert always leaves a live vendor attestation behind (`attestationRows` is
+    // never empty — `authority.slots` cannot be), so this direction is unconditional
+    // and the retract-side guard never applies here (AECI-616).
+    const maintenance = vendorMaintainedFlip(c, db, authority, now, { vendorId, claimId });
+    stmts.push(maintenance.stmt);
+    audits.push(maintenance.audit);
     stmts.push(...audits.map((entry) => auditInsert(db, entry)));
     await db.batch(stmts as BatchTuple);
 
@@ -919,6 +1064,23 @@ export function createRetractVendorAttestationHandler(
       ),
     );
 
+    // Does ANY live vendor attestation survive this retraction, anywhere on the
+    // integration? Read pre-batch and subtract the rows about to be retracted — the
+    // same read-then-decide shape `liveBefore` above uses. If none survives, the
+    // record goes back to AECi's name; `last_reviewed_at` stays (AECI-616 / §13).
+    const maintenance = aeciMaintainedFlip(
+      c,
+      db,
+      authority,
+      await hasLiveVendorAttestation(
+        db,
+        authority.integrationId,
+        superseded.map((row) => row.id),
+      ),
+      { vendorId, claimId },
+    );
+    if (maintenance) audits.push(maintenance.audit);
+
     // The row survives — `retracted_at` is set, never deleted — because §9's
     // version-diff timeline reads the append-only attestation history.
     const stmts: BatchStmt[] = [
@@ -935,6 +1097,8 @@ export function createRetractVendorAttestationHandler(
             liveAttestationsWhere,
           ),
         ),
+      // After the retract, so a reader of the batch sees the two in causal order.
+      ...(maintenance ? [maintenance.stmt] : []),
       ...audits.map((entry) => auditInsert(db, entry)),
     ];
     await db.batch(stmts as BatchTuple);

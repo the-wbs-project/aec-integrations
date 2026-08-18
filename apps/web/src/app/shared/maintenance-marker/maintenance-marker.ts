@@ -17,12 +17,18 @@ export type MaintainedBy = 'aeci' | 'vendor';
  * `products/agreement-badge.ts` (`--border-default` / `--surface-raised` /
  * `--text-secondary`), no status hue, decorative dot.
  *
- * ## The date is deliberately absent in Stage 1
+ * ## Where the date comes from — and what it must never come from
  *
- * `reviewedAt` is `null` on every surface today and the date clause does not
- * render. That is correct, not an oversight: **no column currently stores a real
- * review timestamp.** The tempting substitute, `products.updated_at`, is
- * unusable for this purpose on two counts:
+ * Both inputs are fed by the `maintenance` object on `ProductDetail`,
+ * `VendorDetail`, and `ProductPairResponse`, backed by the `last_reviewed_at` /
+ * `maintained_by` columns added in AECI-616 (`STAGE_2_ATTESTATIONS_SPEC.md` §13).
+ * `last_reviewed_at` is written by exactly two paths — an explicit
+ * `lastReviewedAt` in the promote payload, and a vendor attestation.
+ *
+ * **`reviewedAt` is still `null` for the overwhelming majority of records, and the
+ * bare attribution that produces is correct rather than missing data.** Nothing was
+ * backfilled, deliberately. The tempting substitute, `products.updated_at`, is
+ * unusable on two counts:
  *
  *   1. it is declared `.$onUpdate(...)` (`apps/api/src/db/schema.ts`), so ANY
  *      write restamps it; and
@@ -32,14 +38,14 @@ export type MaintainedBy = 'aeci' | 'vendor';
  *      60 products share a single `updated_at` day, 40 share another.
  *
  * A date that refreshes itself without anyone re-checking the record is exactly
- * the failure this marker exists to prevent, so it stays unset until a dedicated
- * `last_reviewed_at` lands, written ONLY by an explicit review action. Do not
- * wire this input to `updated_at`, `created_at`, or `promoted_at`, and do not
- * backfill it from them.
+ * the failure this marker exists to prevent. **Do not wire this input to
+ * `updated_at`, `created_at`, or `promoted_at`, and do not backfill from them** —
+ * that constraint outlived the Stage 1 workaround and still binds.
  *
- * The `vendor` branch and the date clause are both defined here so Stage 2 is a
- * data change rather than a component change (the same seam `AgreementBadge`
- * keeps for its `confirmed`/`conflict` states). Neither is reachable in Stage 1.
+ * The `vendor` branch is reached when a vendor holds a live attestation on the
+ * record; it reverts to `aeci` when their last one is retracted, and the date
+ * survives that (the review happened; withdrawing an assertion does not un-happen
+ * it).
  */
 @Component({
   selector: 'aec-maintenance-marker',
@@ -55,13 +61,14 @@ export type MaintainedBy = 'aeci' | 'vendor';
   `,
 })
 export class MaintenanceMarker {
-  /** Who maintains the record. Only `aeci` is reachable in Stage 1. */
+  /** Who maintains the record. `vendor` requires a live vendor attestation. */
   readonly maintainedBy = input<MaintainedBy>('aeci');
 
   /**
    * ISO-8601 timestamp of the last REAL review of this record, or `null` when
-   * the record has never been reviewed since the marker shipped. Always `null`
-   * in Stage 1 (see the class doc) so the date clause does not render.
+   * the record has never been reviewed since the marker shipped — which is still
+   * the common case, since nothing was backfilled (see the class doc). `null`
+   * renders bare attribution with no date clause.
    */
   readonly reviewedAt = input<string | null>(null);
 

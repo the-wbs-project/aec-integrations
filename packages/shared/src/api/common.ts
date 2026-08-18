@@ -64,6 +64,32 @@ export const ProductLinkSchema = LinkRefSchema.extend({
 
 export type ProductLink = z.infer<typeof ProductLinkSchema>;
 
+/** Who is on the hook for a record's accuracy (`*.maintained_by`). */
+export const MAINTAINED_BY = ['aeci', 'vendor'] as const;
+
+/**
+ * The maintenance marker's payload (AECI-616 / `STAGE_2_ATTESTATIONS_SPEC.md` §13),
+ * carried by every detail surface that renders `aec-maintenance-marker`: product
+ * detail, vendor detail, and the product-PAIR page.
+ *
+ * `last_reviewed_at` is when a human LAST ACTUALLY RE-CHECKED the record, and it is
+ * `null` for the overwhelming majority of rows — nothing was backfilled, deliberately,
+ * because seeding it from `updated_at` / `created_at` / `promoted_at` would manufacture
+ * the fake freshness the marker exists to expose. `null` renders bare attribution with
+ * no date, which is the honest reading, not missing data.
+ *
+ * Both fields carry defaults for the **same reason `SyncHeadlineSchema.single_source`
+ * does**: the SSR and API Workers deploy per-commit but not atomically, so an SSR
+ * Worker running this schema has to parse a response from an API Worker that predates
+ * the fields.
+ */
+export const MaintenanceSchema = z.object({
+  maintained_by: z.enum(MAINTAINED_BY).default('aeci'),
+  last_reviewed_at: z.string().nullable().default(null),
+});
+
+export type Maintenance = z.infer<typeof MaintenanceSchema>;
+
 /**
  * Page-based pagination query — every list endpoint accepts these as query
  * params. Replaces the AECI-40 offset/limit primitive per Phase 2 Spec §7.3.

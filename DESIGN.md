@@ -445,12 +445,22 @@ Native inputs driven by Signal Forms today (ADR 0009); richer controls use Angul
 What actually renders today:
 
 - **Maintenance marker** (`shared/maintenance-marker`): neutral chip — `border-default` /
-  `surface-raised` / `text-secondary`, decorative dot, no icon. Reads
-  `Maintained by AEC Integrations.` on product detail, vendor detail, and the pair page.
-  The date clause (`Reviewed <date>.`) and the `Vendor-maintained.` branch are built but
-  **dormant**: no column stores a real review timestamp yet, and wiring the input to
-  `updated_at` would make the date refresh itself on every bulk re-promote. AECI-616
-  supplies the real `last_reviewed_at`.
+  `surface-raised` / `text-secondary`, decorative dot, no icon. On product detail, vendor
+  detail, and the pair page. Four readings, all **live** since AECI-616:
+  `Maintained by AEC Integrations.` · `Maintained by AEC Integrations. Reviewed <date>.` ·
+  `Vendor-maintained.` · `Vendor-maintained. Updated <date>.` The date renders only when
+  `last_reviewed_at` is set, and it is `null` on almost every record because **nothing was
+  backfilled** — bare attribution is the honest default, not missing data. Never wire the
+  date to `updated_at`: it is `$onUpdate` and promote restamps it, so the date would refresh
+  itself on every bulk re-promote (60 production products share one `updated_at` day). The
+  vendor branch is driven by real vendor attestations. Dates are formatted in **UTC**, not the
+  ambient zone — SSR runs UTC and the browser does not, so a zone-local format would trip a
+  hydration mismatch either side of midnight.
+  - It **coexists** with the agreement pill below rather than replacing it, deliberately: the
+    marker is page-header attribution ("who is on the hook for this page"), the pill is
+    per-claim state on the mechanism cards ("do the two vendors agree about this one data
+    object"). Three distinct signals share this page — marker, agreement chip, and the
+    `rounded-full` verified-vendor pill — and collapsing any two would lose information.
 - **Agreement pill** (`products/agreement-badge`): same neutral chip tokens. Renders
   `Unverified · AECi` on every claim on every pair page — the honest posture, not a
   warning. `Vendor-confirmed` / `Needs review` are defined for Stage 2 and unreachable.

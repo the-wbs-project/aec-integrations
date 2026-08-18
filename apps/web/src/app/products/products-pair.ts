@@ -304,7 +304,15 @@ function writePairViewCookie(mode: PairViewMode): void {
                 >
                   Integration
                 </p>
-                <aec-maintenance-marker />
+                <!-- One header marker for the whole pair; computePairMaintenance
+                     folds the N mechanisms server-side (AECI-616). Distinct from the
+                     per-claim agreement badge on the mechanism cards below: this says
+                     who is on the hook for the page, that says whether the two vendors
+                     agree about one data object. -->
+                <aec-maintenance-marker
+                  [maintainedBy]="v.pair.maintenance.maintained_by"
+                  [reviewedAt]="v.pair.maintenance.last_reviewed_at"
+                />
               </div>
               <h1
                 class="font-display text-3xl font-semibold leading-tight tracking-tight text-(--text-primary) sm:text-4xl"
