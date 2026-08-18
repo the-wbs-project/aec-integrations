@@ -89,6 +89,7 @@ import {
   createUpsertVendorAttestationHandler,
   createVendorClaimHandler,
 } from './routes/vendor-attestations';
+import { createListDataObjectsHandler } from './routes/vendor-data-objects';
 import { createVendorDetailHandler, createVendorsListHandler } from './routes/vendors';
 import { createVersionHandler } from './routes/version';
 import { queue, scheduled } from './scheduled';
@@ -446,6 +447,14 @@ app.route('/', authAdmin);
 //   - POST   /api/vendor/claims                      — create a claim (201).
 //   - PUT    /api/vendor/claims/:claimId/attestation — assert or deny.
 //   - DELETE /api/vendor/claims/:claimId/attestation — retract (204).
+//
+// Stage 2 / AECI-606 adds the vocabulary the §6 picker offers, so a vendor never
+// has to guess a find-only `data_object` term. It is the ONE route on this
+// sub-router with neither an ownership check nor a `vendor_id` filter — the
+// vocabulary is AECi-curated and holds no vendor-owned rows, so the filter would
+// be vacuous rather than omitted (`docs/AUTH_AND_RLS.md` §4.4). Not
+// verified-gated either, for the same reason the two lists above are not.
+//   - GET   /api/vendor/data-objects — the closed `data_object` vocabulary.
 const authVendor = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
 authVendor.onError(errorHandler());
 authVendor.get('/api/vendor/me', requireVendor(), createVendorMeHandler());
@@ -492,6 +501,9 @@ authVendor.delete(
   requireVendor(),
   createRetractVendorAttestationHandler(),
 );
+// AECI-606. Guard only — no authority resolution and no verified gate; see the
+// route module's header for why that is the contract rather than an omission.
+authVendor.get('/api/vendor/data-objects', requireVendor(), createListDataObjectsHandler());
 app.route('/', authVendor);
 
 // Catch-alls throw so the root `onError` renders the canonical §3.3 envelope

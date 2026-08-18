@@ -224,8 +224,10 @@ AECI-619, `main`'s `0010`–`0015` touched `promote_jobs` / `metrics_daily` / `j
 ##### Reserved numbers
 
 `aeci-515` (Paid Tiers) still holds `0006_easy_sandman.sql` (`vendor_entitlements`, AECI-609),
-which collides with `main`'s `0006_crazy_lockheed.sql`. **It takes `0018`+ when it reconciles** —
-`0016`/`0017` are spent.
+which collides with `main`'s `0006_crazy_lockheed.sql`. **It takes the next free number when it
+reconciles** — check `apps/api/migrations/` rather than trusting a number written here, because this
+line has gone stale once already (`0016`/`0017` were spent by the AECI-514 epic, then `0018` by
+AECI-616).
 
 ### Read replication (D1 Sessions API — AECI-250)
 

@@ -673,6 +673,11 @@ row, `waitUntil(purge + Datadog forward)`.
 | `POST` | `/api/vendor/claims` | Create a claim (`origin='vendor'`) **and** the caller's affirming attestation, in one batch |
 | `PUT` | `/api/vendor/claims/:claimId/attestation` | Assert or deny — upsert the caller's slot (retract-then-insert, §2.1) |
 | `DELETE` | `/api/vendor/claims/:claimId/attestation` | Retract the caller's attestation (sets `retracted_at`; the row survives for §9's timeline) |
+| `GET` | `/api/vendor/data-objects` | The closed `data_object` vocabulary the §6 picker offers — **added by AECI-606**, see §6.1 |
+
+The last row shipped with §6/AECI-606, not with AECI-301; §5.4 remains an accurate record of what
+AECI-301 built. It lives in this table because §5.1 is the epic's only inventory of the
+`/api/vendor/*` attestation surface.
 
 Shapes, Zod schemas and error codes go in `packages/shared/src/api/` and are documented in
 `docs/API_CONTRACTS.md` (new subsection alongside the AECI-520 `/api/vendor/*` section).
@@ -845,6 +850,121 @@ pre-existing spec passes **unmodified**.
   ranking or placement; "Verified" framed as an account status.
 - Design checklist as in §4.3 — same anchor site as the rest of the vendor dashboard, light theme
   only, axe clean, all strings `$localize`d.
+
+### 6.1 As built (AECI-606 — 2026-08-18)
+
+**No migration** — §2 and §8 had already landed every column. One **new endpoint**, because §6 as
+written could not be built: it requires the picker to "offer the closed list rather than free
+text", and nothing served `taxonomy_data_objects` to a browser. `GET /api/taxonomy` carries only
+the four product facets, and the one surface exposing the vocabulary
+(`/api/admin/catalog/coverage`) is admin-gated.
+
+Decisions taken at build that §6 did not pre-specify:
+
+- **`GET /api/vendor/data-objects` is its own module** (`apps/api/src/routes/vendor-data-objects.ts`),
+  not a fifth handler in `vendor-attestations.ts`. That file's first rule is "AUTHORITY IS DERIVED,
+  NEVER SENT" and every handler in it resolves `product_vendors` before reading anything; this one
+  resolves nothing. Sitting it among four handlers that all prove ownership is how a reviewer comes
+  to assume a check that is not there. `vendor-notifications.ts` is the one-read-endpoint-per-module
+  precedent.
+- **It is the surface's only route with no `vendor_id` filter, and that is a contract rather than an
+  omission.** The vocabulary is AECi-curated, has no `vendor_id` column and no vendor-owned rows, so
+  the filter would be *vacuous*. `docs/AUTH_AND_RLS.md` §4.4 obligation 1 states the scoping rule as
+  an absolute, so it now carries an explicit carve-out naming this route — without it the next
+  reviewer either flags the handler as a bug or cites it as precedent somewhere it matters. A spec
+  asserts two seats get byte-identical bodies, so a later "restore the missing filter" edit fails
+  loudly instead of reading as a fix.
+- **Not Verified-gated**, following `GET /api/vendor/integrations` and `/notifications`: 403-ing the
+  vocabulary would leave the read-only tab unable to label its own claims. `assertVerifiedVendor` is
+  deliberately not imported there, keeping its call sites at one-per-authoring-handler.
+- **`aliases` is off the wire, and it is the load-bearing exclusion.** The picker submits a
+  canonical slug, which always resolves, so alias matching buys nothing; shipping them would invite
+  a client-side match that reimplements `safeSlugify`, and a second matcher is exactly the drift
+  `lib/data-object-vocabulary.ts` was extracted from `promote.ts` to eliminate. They are also raw
+  curation metadata ("ITB", "P6", "AP"), not translatable copy. `id` is off the wire because nothing
+  takes one, and `display_order` because the array arrives ordered.
+- **The ordering is NULLs-last, matching the claim sort.** `createListVendorIntegrationsHandler`
+  coerces a null `display_order` to `MAX_SAFE_INTEGER` in JS; SQLite sorts NULLs *first*. Without
+  the explicit `IS NULL` term the picker's rows and the tab's lanes would disagree on any
+  hand-inserted row — invisible today, since all 20 seeded terms carry an order, which is what would
+  make it expensive later. Pinned by a test in both the route and lib specs.
+- **An unseeded vocabulary is `200 { data_objects: [] }`, never a 500** — a fresh local D1 without
+  `seed/data-objects.sql` would otherwise take the whole tab down. The UI degrades the
+  "add a data flow" affordance instead. **No audit row** (a pure read), no `Cache-Tag`, no purge.
+- **The tab's data-loading lives in the SECTION, not the dashboard shell.** §6's "presentational,
+  payload as an input" holds for `vendor-dashboard-tabbed.ts`, which still takes only `me`; the rule
+  lands one level down exactly as it already does for `vendor-seat-roster.ts` and
+  `vendor-products-section.ts` — the child injects `VendorApi`, and the preview shadows `VendorApi`
+  through DI. So the same component runs verbatim on both surfaces with no conditional code, and the
+  heavier read stays off every other tab's SSR path. `@switch` also means it only fires when a
+  vendor opens the tab.
+- **`DELETE` triggers a targeted re-read; the claim is never reconstructed locally.** A `204` echoes
+  nothing, and `counterparty` is a *lossy* reduction of every other voter — with a third vendor in
+  play, dropping the caller's own row can leave a genuine `conflict` that a local guess renders as
+  `single_source`. `POST`/`PUT` reconcile from their echo, so only the retract path re-reads.
+- **The PUT-replaces-not-patches hazard is closed in the type system.** `VendorAttestationPosition`
+  (`vendor-api.ts`) makes every field required — the inverse of `UpsertVendorAttestationSchema`'s
+  `.nullable().optional()` — so an incomplete body is a compile error rather than silent data loss.
+  It is a live hazard because every neighbouring write on this dashboard is a PATCH of
+  only-changed-fields. Three more layers back it up: one `position()` builder, a note field that
+  renders inline and populated (never a collapsed empty disclosure), and a named regression test.
+- **The owns-both divergence warning covers `note` and `asserted` only.** Version stamps
+  legitimately differ across slots — §8.2 lands a stamp on the one slot whose endpoint owns that
+  version — so treating that as divergence would fire on every stamped both-endpoints claim.
+- **Affirm / Deny / Clear are plain buttons, not an Aria listbox.** ADR 0010 governs discrete-choice
+  *form controls*; these are commands that fire a write on activation, map to two different HTTP
+  verbs, and Clear is a withdrawal rather than a third value. Aria is used where §6 asks for it: the
+  `data_object` combobox, the direction listbox, and the version pickers.
+- **The add form is hand-rolled signals validated against the shared `CreateVendorClaimSchema`**,
+  matching its two siblings in `vendor/` rather than Signal Forms. Signal Forms does not materialise
+  a field seeded `undefined`, which is the shape of both required choices here (there is no valid
+  "nothing chosen yet" member of `ContextDirection`). One Zod schema still owns validity either way.
+- **`admin/admin-select.ts` was promoted to `shared/aec-select/aec-select.ts`** (`AecSelect`) rather
+  than copied, gaining `placeholder` / `disabled` / `idPrefix` / `layout` / `describedBy`, all
+  additive. Note Aria **soft-disables**: the trigger keeps `tabindex="0"` and carries
+  `aria-disabled="true"` without ever taking the native attribute, so the obvious `disabled:`
+  Tailwind variant silently never fires — style off `aria-disabled:`.
+- **`products-pair.ts`'s direction copy was lifted to `products/pair-direction-labels.ts`** with the
+  `@@pair.direction.*` ids unchanged, so the vendor's frame and the public pair page cannot drift
+  into two wordings and the tab's highest-traffic copy adds no new translation units.
+- **Per-instance ids derive from entity ids** (`vendor-claim-{id}-*`, `vendor-integration-{id}-*`),
+  never a module counter — the tab renders one control set per claim.
+- **One polite live region for the whole tab, many assertive ones.** Success mutates a single
+  persistent `role="status"` at the section (which can name the subject, "RFIs · position saved");
+  failures are lane-local `role="alert"` beside the control that failed. Never both for one event.
+- **§7.2's in-portal notification list now has its first UI consumer**, rendered as a **collapsed**
+  disclosure. These rows are a 90-day archive of what was *emailed*, not live state, so rendered
+  prominently a stale "Vendors disagree" nudge would sit above a lane whose badge reads `confirmed`.
+  The ops-only `aeci-denied` detector is filtered defensively even though its ledger rows carry
+  `vendorId: null` and can never match a caller.
+- **No new Mobbin anchor was picked, deliberately** — the same call `ADMIN_PANEL_SPEC.md` §9.10 made
+  for the operator console. The tab inherits the vendor dashboard's own language (bordered
+  `--surface-raised` cards, eyebrow-then-heading headers, the `vendor-profile-form.ts` field
+  classes) and reuses `products/agreement-badge.ts` verbatim so the vendor's view of a claim cannot
+  disagree with the public pair page's. One publication, one voice. The `/vendor` surface had no
+  `DESIGN.md` section at all, so this PR adds one and retro-records the AECI-522 anchor decision.
+- **Copy discipline as §6 requires it**, and asserted by spec rather than by review: no wording
+  implies ranking or placement, the only search reference is "search refreshes within a day"
+  (`STAGE_2_SPEC.md` §8.3(5)), and "Verified" is framed as an account status arranged with AEC
+  Integrations. The conflict disclosure uses `--surface-sunken`/`--border-strong`, **not**
+  `--status-error`: red on this surface belongs to the agreement badge alone.
+
+**Test coverage:** `apps/api/src/routes/vendor-data-objects.spec.ts` (8 — the exact key set, both
+ordering rules incl. NULLs-last, the empty vocabulary, the deliberate cross-vendor *sameness*, an
+unverified caller, and the response-schema contract); `lib/data-object-vocabulary.spec.ts` +4 for
+`listDataObjectTerms`; the route added to every cell of `vendor.authz-matrix.spec.ts` plus its own
+unverified-read and sameness cases (134 total, was 117); `packages/shared/src/api/vendor-attestations.spec.ts`
++8 for the two new schemas, incl. the positive assertion that `aliases`/`id`/`display_order` are
+*stripped*. On the web side, five new `*.component.spec.ts` files (92 vendor cases): the
+PUT-replaces regression, the duplicate-400 pivot **and its negative** (a `data_object` error with no
+`claim_id` must not pivot), the unverified read-only state driven by `me.vendor.verified` rather
+than an error, the vendor-frame direction cases including the `vendor_b`-only integration and a
+no-`a_to_b` assertion, the collapsed-combobox-only Aria convention, and the notification list's four
+states. `apps/web/e2e/vendor-dashboard.spec.ts` gains the tab's live axe pass and an
+affirm→assert→clear round-trip against the real endpoints, backed by a claim seeded into
+`apps/api/seed/phase2-fixtures.sql` (every environment had zero claims, so the tab rendered
+correctly but empty). Suites green: `apps/api` 104 files / 1825 tests, `packages/shared` 26 / 458,
+`apps/web` 134 component files / 1146 tests + 43 / 741 under plain vitest.
 
 ---
 
@@ -1212,10 +1332,23 @@ Runs alongside; finishes what each sub-issue seeds (the AECI-525 pattern).
 - **`docs/AUTH_AND_RLS.md`** — ✅ **done by AECI-301**: the four `/api/vendor/claims*` rows are in
   the §4.4 endpoint table, and §4.2a carries the two-slot authority rule plus the claim-grain 404
   uniformity note. *(The four `/api/vendor/products/:id/versions` rows and the
-  ownership-before-verified precedence landed with AECI-607 — §8.4.)* Verify rather than re-add.
+  ownership-before-verified precedence landed with AECI-607 — §8.4; AECI-606 added the
+  `/api/vendor/data-objects` row **and** the obligation-1 carve-out naming it as the one route with
+  no `vendor_id` filter — §6.1.)* Verify rather than re-add.
 - **`docs/API_CONTRACTS.md`** — ✅ **done by AECI-301**: the §5 endpoint shapes, Zod schemas and
   error codes are the §6.14 "Attestations" subsection. *(§8.3's landed with AECI-607, in the §6.14
-  "Product versions" subsection.)* Verify rather than re-add.
+  "Product versions" subsection; AECI-606 extended §6.14 with the `data-objects` route, its schemas
+  and the source-of-truth handler list.)* Verify rather than re-add.
+- **`DESIGN.md`** — ✅ **done by AECI-606**: the vendor portal had no §5 Components subsection at
+  all, so the Anchor-Site Rule's own "record the anchor site with the surface" had never been
+  satisfied for `/vendor`. §6.1 adds one, retro-recording the AECI-522 decision.
+- **`docs/DATA_OBJECT_VOCABULARY.md`** — ✅ **done by AECI-606**: the vocabulary gained its first
+  wire surface, so §1's consumer list, §2's governance note (it is now an exhaustive vendor-facing
+  picker) and §3's settled `aliases` hedge are brought forward.
+- **`docs/STAGE_2_VENDOR_PORTAL_SPEC.md`** — ✅ **done by AECI-606**: §6.1's component inventory and
+  its "shared by both" clause are extended for the new tab.
+- **`docs/TESTING_STRATEGY.md`** — ✅ **done by AECI-606**: §8.2's axe list gains the vendor
+  dashboard, with the same authorized-session caveat `/admin/traffic` carries.
 - **`docs/DATABASE_SCHEMA.md`** — both migrations (it trails `schema.ts`; bring it forward).
   *(§5a.2's provenance/authority columns landed with AECI-603, §5a.3 `product_versions` with
   AECI-607, and AECI-301 added the writer/statement-order notes to §5a.1–§5a.2 and the

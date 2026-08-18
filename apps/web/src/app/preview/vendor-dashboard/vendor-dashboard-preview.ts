@@ -127,6 +127,13 @@ export class VendorDashboardPreview {
   constructor() {
     // Keep the fixture-backed fake pointed at whichever fixture is on screen, so
     // the seat roster + product saves operate on matching data.
+    //
+    // Both fixtures get the SAME integrations surface, deliberately. `GET
+    // /api/vendor/integrations` is ownership-gated but not Verified-gated, so an
+    // unverified vendor really does see its full attestable surface — and the
+    // read-only rendering of it is the thing this toggle exists to review. (The
+    // empty-surface state has no verification dimension and is covered by
+    // `vendor-integrations-section.component.spec.ts` instead.)
     effect(() => this.previewApi.setFixture(this.activeMe(), this.activeSeats()));
   }
 

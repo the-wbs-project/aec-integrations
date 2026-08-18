@@ -14,7 +14,7 @@ import { beforeEach, afterEach, describe, expect, it } from 'vitest';
 
 import { taxonomyDataObjects } from '../db/schema';
 import { makeTestDb, type TestDb } from '../test/d1';
-import { loadDataObjectResolver, safeSlugify } from './data-object-vocabulary';
+import { listDataObjectTerms, loadDataObjectResolver, safeSlugify } from './data-object-vocabulary';
 
 const uuid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 
@@ -101,5 +101,54 @@ describe('loadDataObjectResolver', () => {
     await t.db.delete(taxonomyDataObjects);
     const resolve = await loadDataObjectResolver(t.db);
     expect(resolve('rfis')).toBeUndefined();
+  });
+});
+
+describe('listDataObjectTerms', () => {
+  it('projects only the columns the picker renders', async () => {
+    const terms = await listDataObjectTerms(t.db);
+
+    // No `id`, no `display_order`, and above all no `aliases` — the seeded rows
+    // above all carry aliases, so this is an exclusion, not an absence.
+    expect(Object.keys(terms[0]).sort()).toEqual(['description', 'name', 'slug']);
+  });
+
+  it('orders by display_order, then slug as the tie-break', async () => {
+    await t.db
+      .update(taxonomyDataObjects)
+      .set({ displayOrder: 110 })
+      .where(eq(taxonomyDataObjects.id, RFIS));
+    await t.db
+      .update(taxonomyDataObjects)
+      .set({ displayOrder: 20 })
+      .where(eq(taxonomyDataObjects.id, SUBMITTALS));
+    await t.db
+      .update(taxonomyDataObjects)
+      .set({ displayOrder: 20 })
+      .where(eq(taxonomyDataObjects.id, COST));
+
+    const terms = await listDataObjectTerms(t.db);
+
+    expect(terms.map((term) => term.slug)).toEqual(['cost-items', 'submittals', 'rfis']);
+  });
+
+  it('sorts a null display_order LAST', async () => {
+    // The whole reason the `IS NULL` term exists: SQLite would otherwise put
+    // these first, while the claim ordering in `routes/vendor-attestations.ts`
+    // coerces null to MAX_SAFE_INTEGER and puts them last.
+    await t.db
+      .update(taxonomyDataObjects)
+      .set({ displayOrder: 110 })
+      .where(eq(taxonomyDataObjects.id, RFIS));
+
+    const terms = await listDataObjectTerms(t.db);
+
+    expect(terms.map((term) => term.slug)).toEqual(['rfis', 'cost-items', 'submittals']);
+  });
+
+  it('returns an empty list for an empty vocabulary', async () => {
+    await t.db.delete(taxonomyDataObjects);
+
+    expect(await listDataObjectTerms(t.db)).toEqual([]);
   });
 });
