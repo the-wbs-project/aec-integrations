@@ -25,7 +25,7 @@ describe('MaintenanceMarker', () => {
   // The Stage 1 default and the only reachable state today: AECi maintains every
   // record and no real review timestamp exists yet, so no date clause renders.
   it('attributes the record to AECi with no date by default', () => {
-    expect(render()).toBe('Maintained by AEC Integrations.');
+    expect(render()).toBe('Maintained by AEC Integrations');
   });
 
   // The load-bearing guarantee. A date must never appear unless something
@@ -37,7 +37,7 @@ describe('MaintenanceMarker', () => {
 
   it('appends the review date when one is supplied', () => {
     expect(render('aeci', '2026-08-17T03:25:47.160Z')).toBe(
-      'Maintained by AEC Integrations. Reviewed August 17, 2026.',
+      'Maintained by AEC Integrations · Reviewed August 17, 2026',
     );
   });
 
@@ -52,14 +52,14 @@ describe('MaintenanceMarker', () => {
   // Stage 2 seam: unreachable until a vendor can attest, but defined so the
   // portal work is a data change rather than a component change.
   it('renders the vendor branch when maintained by a vendor', () => {
-    expect(render('vendor')).toBe('Vendor-maintained.');
+    expect(render('vendor')).toBe('Vendor-maintained');
     expect(render('vendor', '2026-08-17T03:25:47.160Z')).toBe(
-      'Vendor-maintained. Updated August 17, 2026.',
+      'Vendor-maintained · Updated August 17, 2026',
     );
   });
 
   it('drops an unparseable timestamp rather than rendering "Invalid Date"', () => {
-    expect(render('aeci', 'not-a-date')).toBe('Maintained by AEC Integrations.');
+    expect(render('aeci', 'not-a-date')).toBe('Maintained by AEC Integrations');
   });
 
   // No checkmark, shield, or tick: the marker is attribution, not endorsement.
