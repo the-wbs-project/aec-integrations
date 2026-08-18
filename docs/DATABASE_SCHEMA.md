@@ -876,8 +876,8 @@ create table audit_log (
   actor_id text references profiles(id),
   actor_type text not null check (actor_type in ('user', 'admin', 'system', 'workflow')),
 
-  action text not null, -- e.g. 'review.approved', 'product.updated'; Stage 1.5 promote ingest (AECI-297) adds 'data_object.created', 'claim.*', 'attestation.*'; the retention prune (§7.4) adds 'retention.pruned'; Stage 2 vendor authoring (AECI-301) adds 'attestation.retracted' — supersession, one row per retracted attestation, tagged metadata.source = 'vendor-portal'
-  entity_type text, -- unconstrained (no CHECK): 'review' | 'product' | 'vendor' | 'integration' | 'data_object' | 'claim' | 'attestation' | 'correction' | 'retention'
+  action text not null, -- e.g. 'review.approved', 'product.updated'; Stage 1.5 promote ingest (AECI-297) adds 'data_object.created', 'claim.*', 'attestation.*'; the retention prune (§7.4) adds 'retention.pruned'; the AECI-514 additions are listed below
+  entity_type text, -- unconstrained (no CHECK): 'review' | 'product' | 'vendor' | 'integration' | 'data_object' | 'claim' | 'attestation' | 'product_version' | 'correction' | 'retention'
   entity_id text,
 
   before_state text, -- JSON (Drizzle `{ mode: 'json' }`)
@@ -901,6 +901,17 @@ create index audit_log_created_at_idx on audit_log(created_at);
 > document still carry the Postgres-baseline notation** — a pre-existing residue of the ADR 0016
 > migration, tracked separately; `apps/api/src/db/schema.ts` and `apps/api/migrations/` remain the
 > executable truth for every table.
+
+**Actions the AECI-514 attestations epic added** (`STAGE_2_ATTESTATIONS_SPEC.md`). Listed together
+because `action` carries no CHECK — this comment block is the only enumeration, so an omission here
+is invisible rather than a constraint violation:
+
+| Action | `entity_type` | Written by | Notes |
+|---|---|---|---|
+| `attestation.retracted` | `attestation` | AECI-301 — `routes/vendor-attestations.ts` | Supersession, one row per retracted attestation. Pairs with the existing `attestation.created`, which a PUT re-emits for each owned slot. `metadata.source = 'vendor-portal'`. |
+| `claim.converted` | `claim` | AECI-604 — `lib/promote-claims.ts` | The **only** action that changes provenance rather than creating or deleting: AECi withdraws curation from a claim a vendor has attested, so `origin` flips `aeci` → `vendor` instead of the row being dropped. Carries `before_state`/`after_state`; the wholesale delete it replaced emitted nothing at all. |
+| `product_version.created` / `.updated` / `.deleted` | `product_version` | AECI-607 — `routes/vendor-product-versions.ts` | `metadata.source = 'vendor-portal'` plus `vendorId` / `productId`. The `entity_type` is the only new value this epic introduced. |
+| `notification.sent` | **`claim`** | AECI-302 — `lib/attestation-notify.ts` | Note the `entity_type`: this is the §7.3 anti-nag **dedupe ledger**, deliberately keyed to the claim it concerns rather than to a notification entity, because decision §1.3(6) ships no notifications table. `GET /api/vendor/notifications` reads these same rows. Written only after a *successful* send, so a failed or skipped one is retried by the next sweep. |
 
 ---
 
@@ -1189,12 +1200,12 @@ for a stock: an uncaptured day would report zero subscribers rather than unknown
 
 ### 9.4 `job_runs`
 
-One row per execution of one of the ten `scheduled.ts` cron jobs (AECI-583; `ADMIN_PANEL_SPEC.md` §7.2). Before it existed a cron's outcome lived **only** as a Datadog metric, so nothing in D1 could answer "did the 08:00 Algolia sync run today", and the ten data-quality findings lived **only** in the 04:00 email — computed, sent, discarded.
+One row per execution of one of the eleven `scheduled.ts` cron jobs (AECI-583; `ADMIN_PANEL_SPEC.md` §7.2 — the eleventh is the 10:00 attestation detector sweep, AECI-302). Before it existed a cron's outcome lived **only** as a Datadog metric, so nothing in D1 could answer "did the 08:00 Algolia sync run today", and the ten data-quality findings lived **only** in the 04:00 email — computed, sent, discarded.
 
 ```sql
 create table job_runs (
   id bigserial primary key,
-  job text not null,                -- one of the ten AdminCronJob ids (packages/shared/src/api/admin-panel.ts)
+  job text not null,                -- one of the eleven AdminCronJob ids (packages/shared/src/api/admin-panel.ts)
   started_at timestamptz not null,  -- written on ENTRY: the row exists before the job finishes
   finished_at timestamptz,          -- null = in flight, or the isolate never came back
   outcome text,                     -- 'ok' | 'failed' | 'skipped'; null while finished_at is null

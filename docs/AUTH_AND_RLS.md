@@ -483,8 +483,12 @@ its other seats keep working. Ban and revoke are per-seat and never touch
 `vendors.verified`.
 
 Vendor writes use `actor_type: 'user'` (a `vendor_admin` is not an `admin`, and
-the `audit_log_actor_type_check` CHECK has no `vendor` value — the Stage 2 portal
-ships no migration). `metadata.source = 'vendor-portal'` is what distinguishes a
+the `audit_log_actor_type_check` CHECK has no `vendor` value). That started as a
+consequence of AECI-513 shipping no migration, but it **outlived that reason and
+is now the rule**: AECI-514 shipped three migrations and still did not add a
+`vendor` actor type, because the distinction that matters is
+`metadata.source`, not a fourth enum value. Widening the CHECK would split every
+existing actor-type query for no gain. `metadata.source = 'vendor-portal'` is what distinguishes a
 vendor's self-service edit from the AECi-side `vendor.updated` / `product.updated`
 that `POST /api/promote` emits.
 

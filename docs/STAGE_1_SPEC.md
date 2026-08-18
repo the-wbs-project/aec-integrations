@@ -1248,11 +1248,11 @@ Design decisions in Stage 1 that enable Stage 2 without rework:
 - ⚠️ **Not RLS (ADR 0016):** §18 predates the D1/Drizzle migration. Vendor-scoped authorization is the **3-layer Worker model** (`docs/AUTH_AND_RLS.md`), not Postgres RLS — there is no RLS on app tables. See `STAGE_2_SPEC.md` §4.1.
 
 **Stage 1.5 integration spine (claims/attestations) is Stage-2-ready** (`STAGE_1_5_SPEC.md`, ADR 0018):
-- Agreement is **computed-not-stored** (`computeAgreement`), so vendor attestations light up the confirmed/`conflict` states with no migration — the function and its branches already exist and are unit-tested.
-- Attestation `source` already enumerates `vendor_a` / `vendor_b` (dormant in 1.5); the `introduced_at` / `deprecated_at` version stamps ship dormant for the Stage 2 version-diff timeline.
-- The Stage 2 integration carve-outs are tracked as **AECI-301** (vendor attestation authoring), **AECI-302** (conflict UI + notification pipeline), **AECI-303** (version-diff timeline), **AECI-304** (paywalled integration depth).
+- Agreement is **computed-not-stored** (`computeAgreement`), so vendor attestations light up the confirmed/`conflict` states with no migration — the function and its branches already exist and are unit-tested. ⚠️ **Scoped narrower than it reads (AECI-514, 2026-08):** this holds for the *engine* and for the `vendor_a`/`vendor_b` sources, and both shipped exactly as promised. It does **not** hold for the epic around them — vendor-*created* claims and a real per-product version entity each needed schema, and the maintenance marker a third. AECI-514 shipped **three** additive migrations (`STAGE_2_ATTESTATIONS_SPEC.md` §1.2). Do not plan against the blanket promise.
+- Attestation `source` already enumerates `vendor_a` / `vendor_b` (~~dormant in 1.5~~ — **live since AECI-603**); the `introduced_at` / `deprecated_at` version stamps ship dormant for the Stage 2 version-diff timeline. ⚠️ The timeline was ultimately built over the `product_versions` FKs migration 2 added, not these date stamps, which cannot express "source-version × target-version" (`STAGE_2_ATTESTATIONS_SPEC.md` §8.1). They remain the coarse fallback, and they are **version stamps, never attestation retirement** — retraction is `retracted_at`, a separate column.
+- The Stage 2 integration carve-outs are tracked as **AECI-301** (vendor attestation authoring), **AECI-302** (conflict UI + notification pipeline), **AECI-303** (version-diff timeline), **AECI-304** (paywalled integration depth). The first three **shipped** under the AECI-514 epic (2026-08-17/18); AECI-304 stays under Paid Tiers (AECI-515) — AECI-514 shipped the entitlement seam, not the gate.
 
-No schema migrations required for Stage 2 vendor portal — only new endpoints and new UI.
+No schema migrations required for the Stage 2 **vendor portal** — only new endpoints and new UI. (That verified claim is AECI-513's and still holds; it never covered the attestations epic above.)
 
 ---
 

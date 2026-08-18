@@ -344,10 +344,10 @@ Follow-through after the pair page lands.
 
 ## 10. Out of scope / Stage 2 carve-outs
 
-Recorded so the boundary is explicit (see §1.1). These were **placeholders** when 1.5 shipped; three of them are now **active Stage 2 work** under the AECI-514 epic, specified in **`docs/STAGE_2_ATTESTATIONS_SPEC.md`** (kickoff 2026-08-14):
+Recorded so the boundary is explicit (see §1.1). These were **placeholders** when 1.5 shipped; three of them have now **shipped** under the AECI-514 epic, specified in **`docs/STAGE_2_ATTESTATIONS_SPEC.md`** (kickoff 2026-08-14, swept closed by AECI-608 2026-08-18):
 
-- **AECI-301** — vendor attestation authoring (the portal seam that makes `vendor_a`/`vendor_b` attestations real). → `STAGE_2_ATTESTATIONS_SPEC.md` §5.
-- **AECI-302** — conflict UI + notification pipeline (activates the red/`conflict` branch of `computeAgreement`). → §4 (surfacing) + §7 (notifications).
+- **AECI-301** — vendor attestation authoring (the portal seam that makes `vendor_a`/`vendor_b` attestations real). ✅ **Shipped** (`STAGE_2_ATTESTATIONS_SPEC.md` §5 + §5.4 as-built): four `/api/vendor/*` endpoints, authority derived from `product_vendors` ownership and never from the request. This is what makes the dormant sources real — every attestation in D1 before it was `source='aeci'`.
+- **AECI-302** — conflict UI + notification pipeline (activates the red/`conflict` branch of `computeAgreement`). ✅ **Shipped** (§4 surfacing + §7 pipeline, §7.5 as-built): email-only (Resend), four cron-driven detectors deduped through an `audit_log` ledger rather than a notifications table. **Four detectors** (`silent-counterparty`, `open-conflict`, `stale-version`, `aeci-denied`); the `cross-grain` detector `STAGE_2_SPEC.md` §2.4 also listed was **dropped at build** (§7.1 / §11) because its only proposed definition described legitimate data — two mechanisms genuinely can move the same `data_object` in opposite directions.
 - **AECI-303** — version-diff timeline. ✅ **Shipped** (`STAGE_2_ATTESTATIONS_SPEC.md` §9 + §9.4 as-built): over the `product_versions` FKs from §8, not the dormant `introduced_at`/`deprecated_at` dates, which could not express "source-version × target-version". Also fixed a pre-existing TransferState orientation bug on the pair resolver that §11.2 (AECI-340) would have surfaced.
 - **AECI-304** — paywalled integration depth. Stays under the Paid Tiers epic (AECI-515); AECI-514 ships the entitlement **seam** only (§9.3).
 
@@ -355,10 +355,10 @@ The Stage 1.5 schema and contract are forward-compatible with all four in the se
 
 > **Two corrections from the AECI-514 kickoff**, recorded here because they touch §3's definitions:
 >
-> 1. **`introduced_at`/`deprecated_at` are version *stamps*, per §3.3 — not attestation retirement.** The shipped `attestations_active_idx` in `schema.ts` is partial on `deprecated_at IS NULL` with a comment describing it as retirement. §3.3's definition wins (AECI-303 depends on it); supersession moves to a new `retracted_at` column and the index predicate follows it.
+> 1. **`introduced_at`/`deprecated_at` are version *stamps*, per §3.3 — not attestation retirement.** ✅ **Resolved by AECI-603** (2026-08-14; migration `0016`). As shipped in 1.5, `attestations_active_idx` was partial on `deprecated_at IS NULL` with a comment describing it as retirement. §3.3's definition won (AECI-303 depends on it): supersession got its own `retracted_at` column and the index predicate moved onto it, with the shared `liveAttestationsWhere` (`apps/api/src/lib/drizzle-helpers.ts`) as the one definition every read applies. *(AECI-608 found one read that had kept the old predicate — the admin panel's claim-coverage count — and corrected it. Nothing reads `deprecated_at` as a gate now.)*
 > 2. **`computeAgreement` needs a `single_source` state.** ✅ **Resolved by AECI-605** (2026-08-14; `STAGE_2_ATTESTATIONS_SPEC.md` §4.5). As originally shipped (§3.4), a *single* vendor affirming with the counterparty silent resolved to `confirmed`. That branch was unreachable in 1.5, so the gap was latent — but it would have rendered one-sided assertion as agreement, which `STAGE_2_SPEC.md` §8.1(4) forbids. `confirmed` is now narrowed to **two distinct vendor identities** and §3.4 above reflects the shipped rule.
 >
-> Also: "no migration is required to light them up" was **too strong**. It holds for the agreement engine and the attestation sources; it does not hold for vendor-created claims or for real per-product version selectors, which need a version entity that §6.1 never defined. AECI-514 ships two additive migrations (`STAGE_2_ATTESTATIONS_SPEC.md` §1.2).
+> Also: "no migration is required to light them up" was **too strong**. It holds for the agreement engine and the attestation sources; it does not hold for vendor-created claims or for real per-product version selectors, which need a version entity that §6.1 never defined. AECI-514 shipped **three** additive migrations (`STAGE_2_ATTESTATIONS_SPEC.md` §1.2): `0016` claim provenance + attestation authority, `0017` the product-version model, and `0018` the maintenance marker's `last_reviewed_at` / `maintained_by` (AECI-616, scoped in after kickoff).
 
 ---
 

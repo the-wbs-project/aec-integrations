@@ -91,7 +91,7 @@ export type AdminWindow = z.infer<typeof AdminWindowSchema>;
  * | `trade_facet_sparse_by_design` | products carry no `trade` tag and that is not by itself a defect: `TRADES_VOCABULARY.md` §1.1 tags a product only when it has trade-SPECIFIC value, so horizontal platforms correctly carry zero rows |
  * | `api_docs_flag_inconsistent` | N products have `has_api_docs = 1` but no `api_docs_url` — the flag and the artifact disagree |
  * | `series_partly_reconstructed` | some days in the window come from the P2.1 backfill rather than a same-day snapshot, and are approximate (§4); `params.reconstructed_days` counts them and `params.reconstructed_through` is the last such day |
- * | `cron_liveness_unavailable` | N of the ten crons have no `job_runs` row yet — they have not run since run recording shipped, or were added since. Datadog's no-data monitors stay the authority for "a job stopped firing" |
+ * | `cron_liveness_unavailable` | N of the eleven crons have no `job_runs` row yet — they have not run since run recording shipped, or were added since. Datadog's no-data monitors stay the authority for "a job stopped firing" |
  * | `orphan_sweep_not_persisted` | **No longer emitted (AECI-583)** — the sweep's result IS persisted now, in the 09:00 drift run's `job_runs.detail`. Retained because removing a code is a breaking change, and so an older cached response still renders |
  * | `stored_result_unreadable` | a stored `job_runs.detail` could not be parsed, so the item is omitted rather than partially reported. `params.job` names which cron's payload |
  * | `utm_attribution_incomplete` | `params.missing` of `params.total` signups in the window carry no `utm_source` — the unattributed bucket is real signups, not missing rows. The direct analogue of `referrer_source_incomplete`, and like it, derived from the window rather than from a date |
@@ -1145,7 +1145,10 @@ export type AdminIntegrationRef = z.infer<typeof AdminIntegrationRefSchema>;
  * The Stage 1.5 claim/attestation spine (§5.5). 915 claims backed by 915
  * attestations in the §14.2 census — the interesting numbers are the zeros:
  * integrations carrying no claim at all, and claims carrying no ACTIVE
- * attestation (`deprecated_at IS NULL`, matching `attestations_active_idx`).
+ * attestation (`retracted_at IS NULL`, matching `attestations_active_idx`, whose
+ * predicate moved onto that column in AECI-603). Not `deprecated_at` — that is a
+ * version stamp (`STAGE_1_5_SPEC.md` §3.3), so a vendor recording which release
+ * deprecated a flow must not drop their live assertion out of the count.
  */
 export const AdminClaimCoverageSchema = z.object({
   integrations_total: z.number().int().nonnegative(),

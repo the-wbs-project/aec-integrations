@@ -157,6 +157,7 @@ no matching heartbeat, or a heartbeat with no row, is a bug in the instrumentati
 | 07:00 home stats | `home-stats` | `aeci.stats.compute` (`outcome:success\|partial\|failed`) |
 | 08:00 Algolia sync | `algolia-sync` | `aeci.algolia.sync` (`trigger:cron`) |
 | 09:00 index drift | `algolia-drift` | `aeci.algolia.index_drift` (gauge; no per-run heartbeat) |
+| 10:00 attestation detector sweep | `attestation-notify` | `aeci.attestation.notify.job` (`outcome:success\|failed`) — plus the per-detector `aeci.attestation.detector` gauge, which is emitted for every detector on **every** run including zeros. That zero series is the real liveness signal until vendors start attesting: the detectors match nothing while every attestation in D1 is `source='aeci'`, so "0 findings" is the healthy steady state and no-data is the failure. Added by AECI-302; this row by AECI-608 |
 | `*/15` request reconcile | `request-reconcile` | `aeci.linear.reconcile.stuck` (gauge) |
 | hourly WAF poll | `waf-poll` | `aeci.waf.poll` (`outcome:ok`) |
 

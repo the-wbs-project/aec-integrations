@@ -1803,7 +1803,7 @@ export const AdminSystemResponseSchema = z.object({
   recomputed: z.boolean(),
   notes: z.array(AdminNoteSchema),
   version: AdminVersionStatusSchema,            // the API Worker's — see below
-  crons: z.array(AdminCronRunSchema),           // ALWAYS all ten
+  crons: z.array(AdminCronRunSchema),           // ALWAYS all eleven
   data_quality: AdminDataQualityStatusSchema.nullable(),   // null unless ?recompute=1
   algolia: z.object({
     watermark: AdminAlgoliaWatermarkSchema.nullable(),     // null = the sync never ran
@@ -2086,8 +2086,14 @@ the same as `false`.
 ##### Claim coverage
 
 Counts for integrations with/without at least one claim and claims with/without an
-**active** attestation (`deprecated_at IS NULL`, matching `attestations_active_idx`),
-plus a capped sample of claimless integrations. Sample rows carry both endpoints
+**active** attestation — `retracted_at IS NULL`, the shared `liveAttestationsWhere`,
+matching `attestations_active_idx` (whose predicate moved onto that column in
+AECI-603). Deliberately **not** `deprecated_at`: that is a *version stamp*
+(`STAGE_1_5_SPEC.md` §3.3), so gating on it would drop a vendor's live assertion from
+coverage the moment they recorded which release deprecated the flow. Corrected in
+AECI-608 — the read had kept the pre-migration predicate, inert only while every
+attestation in D1 was still `source='aeci'`. Plus a capped sample of claimless
+integrations. Sample rows carry both endpoints
 (`integrations.name` is nullable) so the consumer can build the pair URL
 `/products/:sourceSlug/integrations/:targetSlug`.
 
@@ -2709,7 +2715,7 @@ Source of truth: `packages/shared/src/api/vendor.ts` + `product-versions.ts` + `
 
 Every editable field is `.nullable().optional()`: an **absent** key leaves the column untouched, an explicit **`null`** clears it. Taxonomy arrays are set-replacement — absent leaves the facet alone, `[]` clears it. URLs must be `http://` or `https://` (§7.1); a plain `.url()` would accept `javascript:`.
 
-Writes go through one `db.batch([...])` carrying the `UPDATE`, any taxonomy join rewrite, and the `audit_log` row (§26.1). Audit rows use `action: 'vendor.updated'` / `'product.updated'` with `actor_type: 'user'` (a `vendor_admin` maps to `user` — the `audit_log_actor_type_check` CHECK has no `vendor` value and this epic ships no migration) and are distinguished by `metadata.source = 'vendor-portal'`. Post-commit, the write enqueues a `vendor:{slug}` / `product:{slug}` Cache-Tag purge with `source: 'vendor'`.
+Writes go through one `db.batch([...])` carrying the `UPDATE`, any taxonomy join rewrite, and the `audit_log` row (§26.1). Audit rows use `action: 'vendor.updated'` / `'product.updated'` with `actor_type: 'user'` (a `vendor_admin` maps to `user` — the `audit_log_actor_type_check` CHECK has no `vendor` value, and it stays that way deliberately rather than because a migration was unavailable; see `AUTH_AND_RLS.md` §4.4) and are distinguished by `metadata.source = 'vendor-portal'`. Post-commit, the write enqueues a `vendor:{slug}` / `product:{slug}` Cache-Tag purge with `source: 'vendor'`.
 
 **Search freshness.** Vendor edits do **not** trigger a per-write Algolia reindex. They reach search on the nightly watermark sync (≤24h) while SSR repaints immediately via the purge (`STAGE_2_SPEC.md` §8.3(5)). Dashboard copy must not promise "live in search".
 
