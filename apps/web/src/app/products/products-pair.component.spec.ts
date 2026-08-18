@@ -242,6 +242,20 @@ describe('ProductsPairPage', () => {
     expect(el.textContent).toContain('1 data object syncs');
   });
 
+  it('keeps a mechanism-card h2 when the mechanism is unnamed but has claims (no h1→h3 skip)', () => {
+    const pair = buildPairWithClaims([claim('models', 'Models', 'outbound')]);
+    const { el } = setup({
+      ...pair,
+      mechanisms: [{ ...pair.mechanisms[0]!, mechanism_name: null }],
+    });
+    // Detailed view (the default) renders the Layer-B lane <h3>s. Without a card
+    // <h2> the hierarchy would jump page <h1> → lane <h3>. The kind label is
+    // promoted into the heading as the fallback.
+    const cardHeadings = Array.from(el.querySelectorAll('h2')).map((h) => h.textContent?.trim());
+    expect(cardHeadings.some((t) => t?.includes('Marketplace app'))).toBe(true);
+    expect(el.querySelector('h3.aec-overline')).toBeTruthy();
+  });
+
   it('shows the empty-mechanisms message when the pair has no integrations', () => {
     const { el } = setup(buildPair({ mechanisms: [] }));
     expect(el.textContent).toContain('don’t have any integrations documented');

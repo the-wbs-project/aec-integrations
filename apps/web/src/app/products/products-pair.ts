@@ -582,14 +582,28 @@ function writePairViewCookie(mode: PairViewMode): void {
                 class="space-y-4 rounded-(--radius-xl) border border-(--border-default) bg-(--surface-base) p-6"
               >
                 <header class="flex flex-wrap items-center gap-3">
-                  @if (m.kindLabel) {
-                    <span
-                      class="inline-flex items-center rounded-(--radius-sm) border border-(--border-default) bg-(--surface-raised) px-3 py-1 text-[0.8125rem] font-bold tracking-[0.01em] text-(--text-secondary)"
-                      >{{ m.kindLabel }}</span
-                    >
-                  }
                   @if (m.name) {
+                    @if (m.kindLabel) {
+                      <span
+                        class="inline-flex items-center rounded-(--radius-sm) border border-(--border-default) bg-(--surface-raised) px-3 py-1 text-[0.8125rem] font-bold tracking-[0.01em] text-(--text-secondary)"
+                        >{{ m.kindLabel }}</span
+                      >
+                    }
                     <h2 class="font-display text-xl text-(--text-primary)">{{ m.name }}</h2>
+                  } @else {
+                    <!-- No mechanism name: promote the kind label to the card
+                         heading so the Layer-B lane h3s below never skip from the
+                         page h1 straight to h3. Falls back to a generic title when
+                         the kind enum is also absent/unknown (kindLabel === ''). -->
+                    <h2
+                      class="inline-flex items-center rounded-(--radius-sm) border border-(--border-default) bg-(--surface-raised) px-3 py-1 text-[0.8125rem] font-bold tracking-[0.01em] text-(--text-secondary)"
+                    >
+                      @if (m.kindLabel) {
+                        {{ m.kindLabel }}
+                      } @else {
+                        <ng-container i18n="@@pair.mechanism.untitled">Integration</ng-container>
+                      }
+                    </h2>
                   }
                 </header>
 
