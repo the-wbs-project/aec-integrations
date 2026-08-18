@@ -107,6 +107,9 @@ function buildPair(overrides: Partial<ProductPairResponse> = {}): ProductPairRes
     sync_headline: { total: 0, confirmed: 0, single_source: 0 },
     // The unreviewed baseline (AECI-616): bare attribution, no date.
     maintenance: { maintained_by: 'aeci', last_reviewed_at: null },
+    // AECI-303: `null` = the §9 diff does not apply, which is the whole browser-side
+    // suppression rule — no selectors, no markers, no history affordance.
+    version_diff: null,
     ...overrides,
   };
 }
@@ -566,5 +569,199 @@ describe('ProductsPairPage', () => {
       // The click applies immediately via the in-memory mirror (no round-trip).
       expect(el.querySelectorAll('aec-agreement-badge')).toHaveLength(0);
     });
+  });
+});
+
+// ─── The version selectors + diff markers (AECI-303 / §9) ────────────────────
+//
+// The first case is the acceptance criterion: with `version_diff: null` the page
+// must render exactly as it did before AECI-303. Everything else only fires once
+// a vendor has authored releases AND stamped an attestation, which is no pair in
+// the catalog today.
+
+const versionDiff = (
+  overrides: Partial<NonNullable<ProductPairResponse['version_diff']>> = {},
+) => ({
+  context_versions: [
+    { label: '2026.1', released_at: null },
+    { label: '2026.9', released_at: null },
+    { label: '2026.10', released_at: null },
+  ],
+  other_versions: [
+    { label: 'v4', released_at: null },
+    { label: 'v5', released_at: null },
+  ],
+  selected: { context: '2026.10', other: 'v5' },
+  previous: { context: '2026.9', other: 'v4' },
+  is_default: true,
+  counts: { added: 0, removed: 0 },
+  diff_access: 'full' as const,
+  ...overrides,
+});
+
+describe('ProductsPairPage — version selectors (AECI-303)', () => {
+  beforeEach(() => clearViewCookie());
+
+  it('renders NO version chrome when the diff does not apply', async () => {
+    // The AC, asserted directly: latest × latest renders identically to today for
+    // claims with no version data.
+    const { fixture, el } = setup(buildPairWithClaims([claim('rfis', 'RFIs', 'outbound')]));
+    await hydrate(fixture);
+
+    expect(el.querySelectorAll('aec-pair-version-select')).toHaveLength(0);
+    expect(el.textContent).not.toContain('Show the latest versions');
+    expect(el.textContent).not.toContain('New in');
+    expect(el.textContent).not.toContain('Removed in');
+    // …and the pre-existing claim furniture is untouched.
+    expect(el.querySelectorAll('aec-agreement-badge')).toHaveLength(1);
+    expect(el.querySelectorAll('aec-claim-provenance')).toHaveLength(1);
+  });
+
+  it('renders one selector per side, each labelled with its own product', async () => {
+    const pair = buildPairWithClaims([claim('rfis', 'RFIs', 'outbound')]);
+    const { fixture, el } = setup({ ...pair, version_diff: versionDiff() });
+    await hydrate(fixture);
+
+    const selects = el.querySelectorAll('aec-pair-version-select');
+    expect(selects).toHaveLength(2);
+    // The label is the product's own name, which is what the rail placement buys —
+    // no "Version A" / "Source version" disambiguation needed.
+    expect(el.textContent).toContain('Procore version');
+    expect(el.textContent).toContain('Revit version');
+  });
+
+  it('omits a selector for a side with fewer than two releases', async () => {
+    // A one-option combobox is a no-op control; a DISABLED one is worse than none.
+    const pair = buildPairWithClaims([claim('rfis', 'RFIs', 'outbound')]);
+    const { fixture, el } = setup({
+      ...pair,
+      version_diff: versionDiff({
+        other_versions: [{ label: 'v5', released_at: null }],
+      }),
+    });
+    await hydrate(fixture);
+
+    expect(el.querySelectorAll('aec-pair-version-select')).toHaveLength(1);
+    expect(el.textContent).toContain('Procore version');
+    expect(el.textContent).not.toContain('Revit version');
+  });
+
+  it('renders the added marker with a glyph AND a text label, not colour alone', async () => {
+    const added: ProductPairClaim = {
+      ...claim('rfis', 'RFIs', 'outbound'),
+      version_status: 'added',
+    };
+    const { fixture, el } = setup({
+      ...buildPairWithClaims([added]),
+      version_diff: versionDiff({ counts: { added: 1, removed: 0 } }),
+    });
+    await hydrate(fixture);
+
+    // WCAG 1.4.1: the state is carried by text, not only by the border colour.
+    expect(el.textContent).toContain('New in 2026.10 · v5');
+    expect(el.textContent).toContain('+');
+    expect(el.textContent).toContain('1 added');
+  });
+
+  it('renders the removed marker and strikes the name through', async () => {
+    const removed: ProductPairClaim = {
+      ...claim('rfis', 'RFIs', 'outbound'),
+      version_status: 'removed',
+    };
+    const { fixture, el } = setup({
+      ...buildPairWithClaims([removed]),
+      version_diff: versionDiff({ counts: { added: 0, removed: 1 } }),
+    });
+    await hydrate(fixture);
+
+    expect(el.textContent).toContain('Removed in 2026.10 · v5');
+    expect(el.querySelector('.line-through')).not.toBeNull();
+    expect(el.textContent).toContain('1 removed');
+  });
+
+  it('renders no marker for an unchanged claim — the majority state stays quiet', async () => {
+    const unchanged: ProductPairClaim = {
+      ...claim('rfis', 'RFIs', 'outbound'),
+      version_status: 'unchanged',
+    };
+    const { fixture, el } = setup({
+      ...buildPairWithClaims([unchanged]),
+      version_diff: versionDiff(),
+    });
+    await hydrate(fixture);
+
+    expect(el.textContent).not.toContain('New in');
+    expect(el.textContent).not.toContain('Removed in');
+    expect(el.querySelector('.line-through')).toBeNull();
+  });
+
+  it('names the pair the diff is measured against', async () => {
+    const { fixture, el } = setup({
+      ...buildPairWithClaims([claim('rfis', 'RFIs', 'outbound')]),
+      version_diff: versionDiff(),
+    });
+    await hydrate(fixture);
+
+    expect(el.textContent).toContain('Changes from 2026.9 · v4');
+  });
+
+  it('omits the summary at the earliest pair — a baseline, not a diff', async () => {
+    const { fixture, el } = setup({
+      ...buildPairWithClaims([claim('rfis', 'RFIs', 'outbound')]),
+      version_diff: versionDiff({ previous: null }),
+    });
+    await hydrate(fixture);
+
+    expect(el.textContent).not.toContain('Changes from');
+  });
+
+  it('writes the chosen label to the URL, MERGING so ?view= survives', async () => {
+    const pair = buildPairWithClaims([claim('rfis', 'RFIs', 'outbound')]);
+    const { fixture } = setup(
+      { ...pair, version_diff: versionDiff({ is_default: false }) },
+      { view: 'detailed' },
+    );
+    await hydrate(fixture);
+    const navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+
+    const page = fixture.componentInstance as unknown as {
+      setVersion: (side: 'context' | 'other', label: string) => void;
+    };
+    page.setVersion('context', '2026.1');
+
+    expect(navigate).toHaveBeenCalledWith(
+      [],
+      expect.objectContaining({
+        queryParams: { context_version: '2026.1' },
+        queryParamsHandling: 'merge',
+      }),
+    );
+  });
+
+  it('offers "Show latest" only on a non-default selection, and clears BOTH params', async () => {
+    const pair = buildPairWithClaims([claim('rfis', 'RFIs', 'outbound')]);
+    const onDefault = setup({ ...pair, version_diff: versionDiff({ is_default: true }) });
+    await hydrate(onDefault.fixture);
+    // Without a selection there is nowhere to go home to.
+    expect(onDefault.el.textContent).not.toContain('Show the latest versions');
+
+    TestBed.resetTestingModule();
+    const historical = setup({ ...pair, version_diff: versionDiff({ is_default: false }) });
+    await hydrate(historical.fixture);
+    expect(historical.el.textContent).toContain('Show the latest versions');
+
+    const navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+    const button = [...historical.el.querySelectorAll('button')].find((b) =>
+      b.textContent?.includes('Show the latest versions'),
+    ) as HTMLButtonElement;
+    button.click();
+
+    expect(navigate).toHaveBeenCalledWith(
+      [],
+      expect.objectContaining({
+        queryParams: { context_version: null, other_version: null },
+        queryParamsHandling: 'merge',
+      }),
+    );
   });
 });

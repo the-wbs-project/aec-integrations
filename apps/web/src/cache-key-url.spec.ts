@@ -84,8 +84,69 @@ describe('cacheKeyFor — ?view= forks the product-PAIR key (mirrors AECI-190)',
     expect(key(`${pair}?view=basic&utm_source=g&fbclid=z`)).toBe(`${pair}?view=basic`);
   });
 
-  it('strips other query params on the pair route (only view is allowlisted)', () => {
+  it('strips other query params on the pair route (page/sort are not allowlisted)', () => {
     expect(key(`${pair}?page=2&sort=name`)).toBe(pair);
+  });
+});
+
+describe('cacheKeyFor — the version selectors fork the product-PAIR key (AECI-303 §9.2)', () => {
+  // The two selectors are content-affecting URL params: they change which claims
+  // render, what each added/removed/unchanged marker says, AND whether the
+  // resolver marks the page `noindex` — which WC-8 bakes into the stored payload.
+  // Under-including them would serve one visitor's version selection, and its
+  // robots tag, to everyone.
+  const pair = '/products/autodesk-revit/integrations/procore';
+
+  it('forks the key for a context-product version vs. the latest default', () => {
+    expect(key(`${pair}?context_version=2026.1`)).not.toBe(key(pair));
+  });
+
+  it('forks the key for an other-product version vs. the latest default', () => {
+    expect(key(`${pair}?other_version=v5.2`)).not.toBe(key(pair));
+  });
+
+  it('forks on WHICH side the version is for, not just the value', () => {
+    // The same label on opposite axes is a different selection: 2026.1 of the
+    // context product against latest, vs. latest against 2026.1 of the other.
+    expect(key(`${pair}?context_version=2026.1`)).not.toBe(key(`${pair}?other_version=2026.1`));
+  });
+
+  it('keeps the pair ORDERED — swapping the two values is a different selection', () => {
+    // This is the test that catches a future "let's add these to
+    // MULTI_VALUE_CACHE_KEY_PARAMS for consistency" change: any cross-name value
+    // normalization would collapse these two distinct diffs onto one entry.
+    expect(key(`${pair}?context_version=a&other_version=b`)).not.toBe(
+      key(`${pair}?context_version=b&other_version=a`),
+    );
+  });
+
+  it('forks the key for each distinct version pair', () => {
+    expect(key(`${pair}?context_version=2026.1&other_version=v5`)).not.toBe(
+      key(`${pair}?context_version=2026.9&other_version=v5`),
+    );
+  });
+
+  it('canonicalizes param order across all three allowlisted params', () => {
+    expect(key(`${pair}?view=basic&context_version=x&other_version=y`)).toBe(
+      key(`${pair}?other_version=y&context_version=x&view=basic`),
+    );
+  });
+
+  it('keeps the version params while still stripping tracking params', () => {
+    expect(key(`${pair}?context_version=2026.1&utm_source=g&fbclid=z`)).toBe(
+      `${pair}?context_version=2026.1`,
+    );
+  });
+
+  it('preserves a comma inside a version label (NOT a multi-value CSV param)', () => {
+    // Version labels are vendor-authored free text and may legally contain a
+    // comma. `sortCsv` would rewrite `R2024,SP1` — pinning this stops the params
+    // being added to MULTI_VALUE_CACHE_KEY_PARAMS, which would corrupt the
+    // selection rather than merely fragment the cache.
+    expect(key(`${pair}?context_version=R2024,SP1`)).toContain('R2024%2CSP1');
+    expect(key(`${pair}?context_version=SP1,R2024`)).not.toBe(
+      key(`${pair}?context_version=R2024,SP1`),
+    );
   });
 });
 

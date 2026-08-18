@@ -34,9 +34,16 @@
  *
  * No zod and no `./api/*` import, and deliberately **not** re-exported from the
  * root `src/index.ts` barrel (which carries zod via `export * from './api'`) — the
- * same rule `entitlements.ts` and `algolia.ts` follow, because the §9 pair-page
- * selectors will import this from a lazy Angular route. Reach it as
+ * same rule `entitlements.ts` and `algolia.ts` follow. Reach it as
  * `@aeci/shared/version-sort`.
+ *
+ * (An earlier version of this note said the §9 pair-page selectors would import
+ * `compareProductVersions` from a lazy Angular route. As built they do **not**:
+ * AECI-303's selector params carry version *labels* and the API sends each product's
+ * releases already ordered, so no ordering primitive reaches the browser at all —
+ * which is the point, since `PairVersion` deliberately omits `sort_key`. The subpath
+ * rationale still holds for `version-diff.ts`, whose `canViewVersionDiff` seam IS
+ * imported by the pair resolver.)
  */
 
 /** How many numeric runs of the label are packed into the key. */

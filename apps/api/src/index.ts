@@ -49,6 +49,7 @@ import { createHealthHandler } from './routes/health';
 import {
   createIntegrationDetailHandler,
   createIntegrationsListHandler,
+  createPairTimelineHandler,
   createProductPairHandler,
 } from './routes/integrations';
 import {
@@ -140,6 +141,11 @@ phase28.get('/api/products/:slug/reviews', createProductReviewsListHandler());
 // AECI-294 — product-PAIR read (Stage 1.5 §7). `:slug` is the context product;
 // reuses the `:slug` param name (Hono forbids differing names at one position).
 phase28.get('/api/products/:slug/integrations/:otherSlug', createProductPairHandler());
+// AECI-303 — the pair's per-claim attestation HISTORY (§9.1). Registered after the
+// pair read; the longer literal path makes matching order unambiguous either way.
+// Lazy and browser-fetched on demand, never by SSR: history is the gateable depth,
+// so it must not land in the pair page's shared edge-cache entry.
+phase28.get('/api/products/:slug/integrations/:otherSlug/timeline', createPairTimelineHandler());
 
 phase28.get('/api/vendors', createVendorsListHandler());
 phase28.get('/api/vendors/:slug', createVendorDetailHandler());

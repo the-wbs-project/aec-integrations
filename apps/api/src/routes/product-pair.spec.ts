@@ -12,6 +12,7 @@ import {
   claims,
   integrations,
   products,
+  productVersions,
   taxonomyDataObjects,
   vendors,
 } from '../db/schema';
@@ -83,6 +84,24 @@ interface SeedAttestation {
   by?: string;
   /** Supersession (AECI-603). A retracted row must neither vote nor render. */
   retractedAt?: string;
+  /** The PRECISE version stamps (AECI-303 / §8.2) — `product_versions` ids. */
+  introducedVersion?: string;
+  deprecatedVersion?: string;
+}
+
+/**
+ * Seed one release of one product (AECI-607). `sortKey` is passed explicitly rather
+ * than derived so a test can build a tie or an out-of-label order on purpose; the
+ * defaults below use the same relative order the real derivation produces.
+ */
+async function version(
+  id: string,
+  productId: string,
+  label: string,
+  sortKey: number,
+  extra: Partial<typeof productVersions.$inferInsert> = {},
+) {
+  await t.db.insert(productVersions).values({ id, productId, label, sortKey, ...extra });
 }
 
 /** Seed a claim on an integration. Defaults to the Stage 1.5 reality: a single
@@ -104,6 +123,8 @@ async function claim(
       note: a.note ?? null,
       attestedByVendorId: a.by ?? null,
       retractedAt: a.retractedAt ?? null,
+      introducedVersionId: a.introducedVersion ?? null,
+      deprecatedVersionId: a.deprecatedVersion ?? null,
     });
   }
 }
@@ -502,5 +523,329 @@ describe('GET /api/products/:slug/integrations/:otherSlug — maintenance marker
     const res = await get('/api/products/procore/integrations/revit');
     const body = ProductPairResponseSchema.parse(await res.json());
     expect(body.maintenance).toEqual({ maintained_by: 'vendor', last_reviewed_at: null });
+  });
+});
+
+// ─── The version selectors + diff (AECI-303 / §9) ────────────────────────────
+//
+// The invariant every case here orbits: `version_diff` is `null` — and the response
+// is the pre-AECI-303 shape — unless BOTH a release exists AND a live attestation
+// carries a version stamp. That null is the browser's entire suppression rule, so
+// it is what makes "latest × latest renders identically to today" structural.
+
+describe('GET /api/products/:slug/integrations/:otherSlug — version diff (AECI-303)', () => {
+  // Procore's releases. `2026.9` before `2026.10` — the case a lexical sort gets
+  // wrong, kept here so the pair read inherits the AECI-607 guarantee.
+  const P1 = u(700); // 2026.1
+  const P9 = u(701); // 2026.9
+  const P10 = u(702); // 2026.10
+  // Revit's releases. A different label scheme on purpose: `sort_key` is
+  // per-product and comparing across the two would be meaningless.
+  const R4 = u(710); // v4
+  const R5 = u(711); // v5
+
+  async function seedVersions() {
+    await version(P1, u(1), '2026.1', 20_260_000_100_000);
+    await version(P9, u(1), '2026.9', 20_260_000_900_000);
+    await version(P10, u(1), '2026.10', 20_260_001_000_000);
+    await version(R4, u(2), 'v4', 40_000_000_000, { releasedAt: '2026-01-15' });
+    await version(R5, u(2), 'v5', 50_000_000_000);
+  }
+
+  /** One stamped claim on one mechanism, plus an unstamped sibling. */
+  async function seedStampedPair(atts: SeedAttestation[]) {
+    await seedProducts();
+    await seedVersions();
+    await integration(u(10), u(1), u(2));
+    await dataObject(u(20), 'rfis', 'RFIs', 1);
+    await dataObject(u(21), 'submittals', 'Submittals', 2);
+    await claim(u(30), u(10), u(20), 'a_to_b', atts);
+    // The Stage 1.5 baseline: unstamped, so it must be present at every selection.
+    await claim(u(31), u(10), u(21), 'a_to_b');
+  }
+
+  it('is null when neither product has a release — the whole catalog today', async () => {
+    await seedProducts();
+    await integration(u(10), u(1), u(2));
+    await dataObject(u(20), 'rfis', 'RFIs', 1);
+    await claim(u(30), u(10), u(20), 'a_to_b');
+
+    const res = await get('/api/products/procore/integrations/revit');
+    const raw = (await res.json()) as Record<string, unknown>;
+    expect(raw['version_diff']).toBeNull();
+    // …and no claim carries a version_status, so the claim rows are byte-identical
+    // to the pre-AECI-303 shape.
+    const body = ProductPairResponseSchema.parse(raw);
+    expect(body.mechanisms[0]!.claims[0]!.version_status).toBeUndefined();
+  });
+
+  it('is null when releases exist but NO attestation is stamped — no dead selectors', async () => {
+    await seedProducts();
+    await seedVersions();
+    await integration(u(10), u(1), u(2));
+    await dataObject(u(20), 'rfis', 'RFIs', 1);
+    await claim(u(30), u(10), u(20), 'a_to_b'); // unstamped AECi seed
+
+    const res = await get('/api/products/procore/integrations/revit');
+    const body = ProductPairResponseSchema.parse(await res.json());
+    expect(body.version_diff).toBeNull();
+  });
+
+  it('defaults to latest × latest and lists both products ascending', async () => {
+    await seedStampedPair([{ source: 'aeci', asserted: true, introducedVersion: P1 }]);
+
+    const res = await get('/api/products/procore/integrations/revit');
+    const body = ProductPairResponseSchema.parse(await res.json());
+    const diff = body.version_diff!;
+    expect(diff.context_versions.map((v) => v.label)).toEqual(['2026.1', '2026.9', '2026.10']);
+    expect(diff.other_versions.map((v) => v.label)).toEqual(['v4', 'v5']);
+    expect(diff.selected).toEqual({ context: '2026.10', other: 'v5' });
+    expect(diff.is_default).toBe(true);
+    expect(diff.diff_access).toBe('full');
+    // Each side steps back one release, independently.
+    expect(diff.previous).toEqual({ context: '2026.9', other: 'v4' });
+  });
+
+  it('surfaces released_at for display but never an id or sort_key', async () => {
+    await seedStampedPair([{ source: 'aeci', asserted: true, introducedVersion: P1 }]);
+
+    const res = await get('/api/products/procore/integrations/revit');
+    const raw = (await res.json()) as {
+      version_diff: { other_versions: Record<string, unknown>[] };
+    };
+    const v4 = raw.version_diff.other_versions[0]!;
+    expect(v4).toEqual({ label: 'v4', released_at: '2026-01-15' });
+  });
+
+  it('honours an explicit label and marks the selection non-default', async () => {
+    await seedStampedPair([{ source: 'aeci', asserted: true, introducedVersion: P1 }]);
+
+    const res = await get('/api/products/procore/integrations/revit?context_version=2026.9');
+    const body = ProductPairResponseSchema.parse(await res.json());
+    expect(body.version_diff!.selected).toEqual({ context: '2026.9', other: 'v5' });
+    expect(body.version_diff!.is_default).toBe(false);
+    expect(body.version_diff!.previous).toEqual({ context: '2026.1', other: 'v4' });
+  });
+
+  it('degrades an unknown label to latest and reports is_default — never a 404', async () => {
+    await seedStampedPair([{ source: 'aeci', asserted: true, introducedVersion: P1 }]);
+
+    // The pair exists; only the selection is stale (a renamed or hand-typed label).
+    // A 404 here would render the NotFound shell for a valid page.
+    const res = await get('/api/products/procore/integrations/revit?context_version=nope');
+    expect(res.status).toBe(200);
+    const body = ProductPairResponseSchema.parse(await res.json());
+    expect(body.version_diff!.selected.context).toBe('2026.10');
+    // is_default follows the RESOLVED selection, which is what the resolver's
+    // noindex reads — a degraded URL serves canonical content and stays indexable.
+    expect(body.version_diff!.is_default).toBe(true);
+  });
+
+  it('degrades an over-long label to latest', async () => {
+    await seedStampedPair([{ source: 'aeci', asserted: true, introducedVersion: P1 }]);
+
+    const res = await get(
+      `/api/products/procore/integrations/revit?context_version=${'x'.repeat(200)}`,
+    );
+    const body = ProductPairResponseSchema.parse(await res.json());
+    expect(body.version_diff!.selected.context).toBe('2026.10');
+  });
+
+  it('selects 2026.10 as latest, not 2026.9 — the lexical trap', async () => {
+    await seedStampedPair([{ source: 'aeci', asserted: true, introducedVersion: P1 }]);
+
+    const res = await get('/api/products/procore/integrations/revit');
+    const body = ProductPairResponseSchema.parse(await res.json());
+    expect(body.version_diff!.selected.context).toBe('2026.10');
+  });
+
+  it('exposes the version stamps as labels on the attestation', async () => {
+    await seedStampedPair([
+      { source: 'aeci', asserted: true, introducedVersion: P1, deprecatedVersion: P10 },
+    ]);
+
+    const res = await get('/api/products/procore/integrations/revit?context_version=2026.9');
+    const body = ProductPairResponseSchema.parse(await res.json());
+    const claimRow = body.mechanisms[0]!.claims.find((c) => c.data_object_slug === 'rfis')!;
+    expect(claimRow.attestations[0]!.introduced_version).toBe('2026.1');
+    expect(claimRow.attestations[0]!.deprecated_version).toBe('2026.10');
+    // The unstamped sibling omits the keys entirely rather than sending null.
+    const sibling = body.mechanisms[0]!.claims.find((c) => c.data_object_slug === 'submittals')!;
+    expect(sibling.attestations[0]).not.toHaveProperty('introduced_version');
+  });
+
+  it('keeps an UNSTAMPED claim present at every selection', async () => {
+    await seedStampedPair([{ source: 'aeci', asserted: true, introducedVersion: P10 }]);
+
+    for (const query of ['', '?context_version=2026.1', '?context_version=2026.9']) {
+      const res = await get(`/api/products/procore/integrations/revit${query}`);
+      const body = ProductPairResponseSchema.parse(await res.json());
+      const slugs = body.mechanisms[0]!.claims.map((c) => c.data_object_slug);
+      expect(slugs).toContain('submittals');
+    }
+  });
+
+  it('marks a claim introduced in the selected version as `added`', async () => {
+    await seedStampedPair([{ source: 'aeci', asserted: true, introducedVersion: P10 }]);
+
+    const res = await get('/api/products/procore/integrations/revit');
+    const body = ProductPairResponseSchema.parse(await res.json());
+    const claimRow = body.mechanisms[0]!.claims.find((c) => c.data_object_slug === 'rfis')!;
+    expect(claimRow.version_status).toBe('added');
+    expect(body.version_diff!.counts).toEqual({ added: 1, removed: 0 });
+  });
+
+  it('renders a `removed` claim but EXCLUDES it from sync_headline', async () => {
+    // Deprecated in 2026.10 (the latest), so gone from it but present in 2026.9.
+    await seedStampedPair([{ source: 'aeci', asserted: true, deprecatedVersion: P10 }]);
+
+    const res = await get('/api/products/procore/integrations/revit');
+    const body = ProductPairResponseSchema.parse(await res.json());
+    const claimRow = body.mechanisms[0]!.claims.find((c) => c.data_object_slug === 'rfis')!;
+    expect(claimRow.version_status).toBe('removed');
+    expect(body.version_diff!.counts).toEqual({ added: 0, removed: 1 });
+    // Two claims render, but "N data objects sync" counts only the one that does.
+    expect(body.mechanisms[0]!.claims).toHaveLength(2);
+    expect(body.sync_headline.total).toBe(1);
+  });
+
+  it('DROPS a claim absent at both the selected and the previous pair', async () => {
+    // Deprecated in 2026.9: absent at the 2026.10 selection AND at the 2026.9
+    // previous pair, so it belongs to an earlier era. Without the drop, a long
+    // release history renders every flow the pair ever had.
+    await seedStampedPair([{ source: 'aeci', asserted: true, deprecatedVersion: P9 }]);
+
+    const res = await get('/api/products/procore/integrations/revit');
+    const body = ProductPairResponseSchema.parse(await res.json());
+    expect(body.mechanisms[0]!.claims.map((c) => c.data_object_slug)).toEqual(['submittals']);
+    // …and it returns when the reader walks back to a version where it existed.
+    const older = await get('/api/products/procore/integrations/revit?context_version=2026.1');
+    const olderBody = ProductPairResponseSchema.parse(await older.json());
+    expect(olderBody.mechanisms[0]!.claims.map((c) => c.data_object_slug)).toContain('rfis');
+  });
+
+  it('conjoins the two sides — the OTHER product can exclude a claim on its own', async () => {
+    await seedProducts();
+    await seedVersions();
+    await seedVendors();
+    await integration(u(10), u(1), u(2));
+    await dataObject(u(20), 'rfis', 'RFIs', 1);
+    // vendor_a stamps Procore 2026.1 (long present); vendor_b stamps Revit v5.
+    // Present only where BOTH sides admit the selection, so the Revit axis alone
+    // decides — which is what "for each attesting side" means.
+    await claim(u(30), u(10), u(20), 'a_to_b', [
+      { source: 'vendor_a', asserted: true, by: ACME, introducedVersion: P1 },
+      { source: 'vendor_b', asserted: true, by: GLOBEX, introducedVersion: R5 },
+    ]);
+
+    // At latest × latest the Revit side has just introduced it: `added`.
+    const atLatest = ProductPairResponseSchema.parse(
+      await (await get('/api/products/procore/integrations/revit')).json(),
+    );
+    expect(atLatest.mechanisms[0]!.claims.map((c) => c.version_status)).toEqual(['added']);
+
+    // Pin the Revit selector to v4 — before vendor_b introduced it. Absent at v4
+    // AND at v4's own previous (there is none, so v4 is held), so it drops.
+    const atV4 = ProductPairResponseSchema.parse(
+      await (await get('/api/products/procore/integrations/revit?other_version=v4')).json(),
+    );
+    expect(atV4.mechanisms[0]!.claims).toHaveLength(0);
+  });
+
+  it('reports `removed` when the OTHER side deprecated the flow', async () => {
+    await seedProducts();
+    await seedVersions();
+    await seedVendors();
+    await integration(u(10), u(1), u(2));
+    await dataObject(u(20), 'rfis', 'RFIs', 1);
+    // Deprecated in Revit v5 (the latest), so present at v4 and gone at v5.
+    await claim(u(30), u(10), u(20), 'a_to_b', [
+      { source: 'vendor_b', asserted: true, by: GLOBEX, deprecatedVersion: R5 },
+    ]);
+
+    const res = await get('/api/products/procore/integrations/revit');
+    const body = ProductPairResponseSchema.parse(await res.json());
+    expect(body.mechanisms[0]!.claims.map((c) => c.version_status)).toEqual(['removed']);
+    expect(body.version_diff!.counts).toEqual({ added: 0, removed: 1 });
+    // The free, default view now reports zero syncing flows — correct, and the
+    // point of applying presence uniformly rather than only to historical picks.
+    expect(body.sync_headline.total).toBe(0);
+  });
+
+  it('resolves a stamp against the product it belongs to, whatever the orientation', async () => {
+    // The same pair from the other URL. `vendor_a` is still Procore's slot, so the
+    // Procore stamp must still be evaluated against the Procore selector — which is
+    // now the `other_version` axis.
+    await seedProducts();
+    await seedVersions();
+    await seedVendors();
+    await integration(u(10), u(1), u(2));
+    await dataObject(u(20), 'rfis', 'RFIs', 1);
+    await claim(u(30), u(10), u(20), 'a_to_b', [
+      { source: 'vendor_a', asserted: true, by: ACME, introducedVersion: P10 },
+    ]);
+
+    // From revit: Procore is the OTHER product, so its axis is other_version.
+    const fromRevit = ProductPairResponseSchema.parse(
+      await (await get('/api/products/revit/integrations/procore?other_version=2026.9')).json(),
+    );
+    expect(fromRevit.mechanisms[0]!.claims).toHaveLength(0);
+    // From procore: the same exclusion, on the context axis.
+    const fromProcore = ProductPairResponseSchema.parse(
+      await (await get('/api/products/procore/integrations/revit?context_version=2026.9')).json(),
+    );
+    expect(fromProcore.mechanisms[0]!.claims).toHaveLength(0);
+  });
+
+  it('treats a claim whose stamped version was DELETED as always present', async () => {
+    // `ON DELETE SET NULL` degrades the stamp rather than deleting the assertion
+    // (§8.2), which lands the claim back on the "no version data" baseline.
+    await seedStampedPair([{ source: 'aeci', asserted: true, introducedVersion: P10 }]);
+    await t.raw.prepare('DELETE FROM product_versions WHERE id = ?').run(P10);
+
+    const res = await get('/api/products/procore/integrations/revit?context_version=2026.1');
+    const body = ProductPairResponseSchema.parse(await res.json());
+    // Present, and — with no stamps left anywhere on the pair — the diff no longer
+    // applies at all.
+    expect(body.mechanisms[0]!.claims.map((c) => c.data_object_slug)).toContain('rfis');
+    expect(body.version_diff).toBeNull();
+  });
+
+  it('has no previous pair at the earliest selection, so everything is `unchanged`', async () => {
+    await seedStampedPair([{ source: 'aeci', asserted: true, introducedVersion: P1 }]);
+
+    const res = await get(
+      '/api/products/procore/integrations/revit?context_version=2026.1&other_version=v4',
+    );
+    const body = ProductPairResponseSchema.parse(await res.json());
+    expect(body.version_diff!.previous).toBeNull();
+    for (const claimRow of body.mechanisms[0]!.claims) {
+      expect(claimRow.version_status).toBe('unchanged');
+    }
+  });
+
+  it('exposes the claim id so the timeline read can join on it', async () => {
+    await seedStampedPair([{ source: 'aeci', asserted: true, introducedVersion: P1 }]);
+
+    const res = await get('/api/products/procore/integrations/revit');
+    const body = ProductPairResponseSchema.parse(await res.json());
+    expect(body.mechanisms[0]!.claims.map((c) => c.id)).toEqual(
+      expect.arrayContaining([u(30), u(31)]),
+    );
+  });
+
+  it('orders claims by display_order regardless of the version selection', async () => {
+    // Ordering is the mapper's job and independent of the diff, so walking the
+    // selectors never reshuffles a lane.
+    await seedStampedPair([{ source: 'aeci', asserted: true, introducedVersion: P1 }]);
+
+    for (const query of ['', '?context_version=2026.9']) {
+      const res = await get(`/api/products/procore/integrations/revit${query}`);
+      const body = ProductPairResponseSchema.parse(await res.json());
+      expect(body.mechanisms[0]!.claims.map((c) => c.data_object_slug)).toEqual([
+        'rfis',
+        'submittals',
+      ]);
+    }
   });
 });

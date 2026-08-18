@@ -331,6 +331,8 @@ await db.batch([
 |---|---|---|---|
 | `GET /api/products`, `/vendors`, `/integrations`, `/taxonomy/*`, `/stats/home` | None | None | None |
 | `GET /api/products/:slug/reviews` | None | None | None |
+| `GET /api/products/:slug/integrations/:otherSlug` (AECI-294) | None | None | None — the product-PAIR read. Its `?context_version=` / `?other_version=` selectors (AECI-303 / §9) are **not** an authz surface: a bad label degrades to latest rather than erroring, and the reader's diff depth is decided by the `canViewVersionDiff` seam, which clamps the response rather than rejecting it. |
+| `GET /api/products/:slug/integrations/:otherSlug/timeline` (AECI-303) | None | None | None — the pair's per-claim attestation **history**. Public like the pair read itself: a reader who can see a pair can see how its claims got there. The only content control is the same seam, which answers `{ claims: [], diff_access: 'latest_only' }` when gated — never a 403, because the free latest view must survive a shared historical link (`STAGE_2_SPEC.md` §8.1(4)). |
 | `POST /api/reviews` | Hard-required | `reviewer`, not banned | `review.submitted` |
 | `DELETE /api/account` | Hard-required | Active user | `account.deleted` |
 | `POST /api/requests/claim`, `/correction` | None (anon form) | None | `claim/correction.submitted` |

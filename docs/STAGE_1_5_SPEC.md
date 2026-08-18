@@ -32,7 +32,7 @@ Everything in Stage 1.5 is **AECi-seeded and read-only to the public**. The divi
 |---|---|
 | Pair page + 301 consolidation (§7) | Vendor attestation authoring (AECI-301) |
 | Claim model + AECi attestations (§3) | Conflict UI + notification pipeline (AECI-302) |
-| `data_object` closed vocabulary (§2) | Version-diff timeline using `introduced_at`/`deprecated_at` (AECI-303) |
+| `data_object` closed vocabulary (§2) | Version-diff timeline (AECI-303) — **shipped**, over the `product_versions` FKs rather than these date stamps |
 | `computeAgreement` (vendor-vs-vendor; AECi-never-red) (§3.4) | Paywalled integration depth (AECI-304) |
 | Read-only claim rendering — everything shows **"Unverified"** (§8) | Per-pair Algolia records + integrations search tab (§9) |
 
@@ -157,7 +157,7 @@ An **attestation** records *who asserts a claim*. Attestations hang off a claim 
 |---|---|---|
 | `source` | `'aeci' \| 'vendor_a' \| 'vendor_b'` | who attests. `vendor_a` / `vendor_b` map to the integration's endpoint-A / endpoint-B vendors. **In Stage 1.5 only `aeci` is ever written.** |
 | `asserted` | boolean | `true` = this source affirms the claim; `false` = denies it. AECi seeds `true`. |
-| `introduced_at` | date \| null | **dormant in 1.5** — version stamp for the Stage 2 timeline (AECI-303). |
+| `introduced_at` | date \| null | **dormant in 1.5** — a coarse version stamp. AECI-303 ships the §9 diff over the PRECISE `introduced_version_id`/`deprecated_version_id` FKs (Stage 2 migration 2) instead; these dates remain the fallback for the claims promote writes, and a claim with neither is **always present** at every selection. |
 | `deprecated_at` | date \| null | **dormant in 1.5** — version stamp. |
 | `note` | string \| null | optional provenance/source note. |
 
@@ -348,7 +348,7 @@ Recorded so the boundary is explicit (see §1.1). These were **placeholders** wh
 
 - **AECI-301** — vendor attestation authoring (the portal seam that makes `vendor_a`/`vendor_b` attestations real). → `STAGE_2_ATTESTATIONS_SPEC.md` §5.
 - **AECI-302** — conflict UI + notification pipeline (activates the red/`conflict` branch of `computeAgreement`). → §4 (surfacing) + §7 (notifications).
-- **AECI-303** — version-diff timeline using the dormant `introduced_at`/`deprecated_at` stamps. → §8 (version model) + §9 (the diff).
+- **AECI-303** — version-diff timeline. ✅ **Shipped** (`STAGE_2_ATTESTATIONS_SPEC.md` §9 + §9.4 as-built): over the `product_versions` FKs from §8, not the dormant `introduced_at`/`deprecated_at` dates, which could not express "source-version × target-version". Also fixed a pre-existing TransferState orientation bug on the pair resolver that §11.2 (AECI-340) would have surfaced.
 - **AECI-304** — paywalled integration depth. Stays under the Paid Tiers epic (AECI-515); AECI-514 ships the entitlement **seam** only (§9.3).
 
 The Stage 1.5 schema and contract are forward-compatible with all four in the sense that matters — the dormant `vendor_a`/`vendor_b` sources and the computed-not-stored agreement need no change.

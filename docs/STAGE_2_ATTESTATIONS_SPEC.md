@@ -1203,6 +1203,182 @@ Implement it as **one seam**, `canViewVersionDiff(...)`, consulted in the pair r
 the Paid Tiers epic (AECI-515) lands the entitlement engine; AECI-304 then swaps the implementation
 without touching this epic's code. Design checklist applies as in §4.3.
 
+### 9.4 As built (AECI-303 — 2026-08-18)
+
+**No migration.** Every column already existed: `product_versions` and the two attestation FKs
+landed with §8/AECI-607. The work is a pure read + render layer, plus one new public endpoint.
+
+Shipped as the pure rule module `packages/shared/src/version-diff.ts` (reached as
+`@aeci/shared/version-diff`), the row-shaped glue `apps/api/src/lib/pair-version-diff.ts`, the wire
+additions in `packages/shared/src/api/product-pairs.ts`, the widened pair read + the new timeline
+handler in `apps/api/src/routes/integrations.ts`, and on the web the selector component
+`apps/web/src/app/products/pair-version-select.ts` plus changes to `products-pair.ts`,
+`products-pair.resolver.ts`, `claim-provenance.ts`, `app.routes.ts` and `server-runtime.ts`.
+`docs/API_CONTRACTS.md` §6.3/§6.14, `docs/CACHE_STRATEGY.md` §4a/§7.2, `docs/AUTH_AND_RLS.md` §4.4,
+`docs/DATABASE_SCHEMA.md` and `docs/STAGE_1_5_SPEC.md` are brought forward to match.
+
+Decisions taken at build that §9.1–§9.3 did not pre-specify:
+
+- **The params carry a version LABEL, not an id** — `?context_version=2026.1&other_version=v5`.
+  Labels are unique per product (`product_versions_label_key`), so they are a natural key, and the
+  whole value of the feature is a link somebody sends a colleague. It also let the wire drop both
+  `id` **and** `sort_key`: the browser has nothing to compare because the API resolved everything,
+  and withholding `sort_key` is what structurally stops it re-deriving the ordering §8.2 forbids.
+  Accepted cost: a rename rots an old link. It degrades to latest, and §9.2 keeps such URLs out of
+  the index anyway. Names live in `@aeci/shared/version-diff` because **four** places across three
+  packages must agree on the spelling — including the SSR Worker's `cacheKeyParams`, which cannot
+  import them (it is the Worker entry) and so carries a literal, asserted in `cache-key-url.spec.ts`.
+- **A bad label degrades to latest; it never 404s.** Unknown, renamed, empty, or over-60-char all
+  resolve to latest, and `version_diff.selected` echoes what was actually used. A 404 would render
+  the NotFound shell for a page that exists. Matching is exact and **case-sensitive** — the unique
+  index has no `NOCASE` collation, so a case-insensitive match could be ambiguous, and ambiguity
+  here silently shows a different diff.
+- **"The previous version pair" steps each side back ONE release, independently** (§9.1 leaves it
+  undefined). A side with no predecessor holds its current version; `null` when *neither* can step
+  back, and then every present claim reads `unchanged` — the earliest pair is a baseline, not a wave
+  of additions. Two rejected alternatives, both worth naming because both look reasonable:
+  *step only the context side* breaks orientation symmetry (the same pair from its two URLs would
+  compute different diffs from identical data), and *merge the two timelines and step back the
+  globally-newer version* requires comparing `sort_key` **across products**, which is meaningless
+  arithmetic that looks like it works — the key is packed from each product's own labels
+  (Procore `2026.1` → 20_260_000_100_000, Revit `v5.2` → 50_000_200_000). A third option, walking
+  back until the claim set actually differs so the diff is never a no-op, is nicer UX but O(|A|×|B|)
+  and makes "added" mean "added at some unspecified earlier point"; noted, not built.
+- **Presence compares through `compareProductVersions`, not raw `sort_key`.** §9.1 words the rule in
+  terms of `sort_key <= sort_key`, which is the same thing whenever keys are distinct. The
+  comparator is used anyway because ties are legal (the unique index is on `(product_id, label)`,
+  and every digit-free label derives 0) and §8.4 records that the `created_at`/`id` tiebreak exists
+  *precisely* so §9's previous-pair has a total order. One comparator, not two that agree by luck.
+- **A claim present at NEITHER the selected nor the previous pair is dropped from the response.**
+  The rule §9.1 omits, and without it a pair with a long release history renders every flow it ever
+  had. `removed` claims (absent now, present before) DO render, struck through — and are excluded
+  from `sync_headline`, because "N data objects sync" must not count a flow that has stopped. That
+  filter sits at the single `computeSyncHeadline` call site rather than inside the shared engine,
+  which stays a pure function of `{ agreement }` and owes the diff contract nothing.
+- **The diff applies uniformly, INCLUDING at latest × latest** (confirmed with the PO). Once a vendor
+  stamps a deprecation, that flow stops rendering as live on the free, indexable view and stops
+  counting in the headline. §8.1(4) demands the latest view be *full-fidelity*, and rendering a flow
+  the vendor says is gone is the opposite of fidelity. The alternative — diff only on non-default
+  selections — would make the default the one place presence is not enforced.
+- **`version_diff` is `null` unless a release exists AND a live attestation is stamped**, and that
+  single null is the entire browser-side suppression rule: no selectors, no markers, no summary, no
+  history affordance. Both facts are server-side only, which is what turns "renders identically to
+  today" from a rendering discipline into a structural guarantee. A side with fewer than two
+  releases additionally renders no selector — a one-option combobox is the no-op control `hasDetail`
+  already exists to suppress, and a *disabled* control is worse than none.
+- **`noindex` follows the RESPONSE, not the request** (`version_diff.is_default === false`). A stale
+  or garbage label degrades to latest, so the page *serves* canonical content and marking it
+  `noindex` would describe a page nobody is being shown; the already-query-stripped canonical
+  dedupes the URL. More importantly it keeps `applyResolvedMeta` a pure function of the payload,
+  which both resolver branches already call with nothing else — making SSR/client divergence
+  **structurally** impossible rather than test-enforced. That is strictly stronger than the
+  `taxonomy-browse.resolver.ts` precedent it follows, which has to keep `kind` in scope. The
+  canonical itself needed no code: it was already orientation-normalised and query-stripped.
+- **The route needs an explicit `runGuardsAndResolvers`, and it must be the PREDICATE form.**
+  Angular's default policy is `paramsChange`, which its own typedoc says "does not include query
+  parameters" — so copying the `?view` pattern verbatim gives selectors that rewrite the URL and
+  refetch *nothing*, dead until a reload. `paramsOrQueryParamsChange` would fix that and regress
+  `?view` into an API round trip on every Basic/Detailed toggle. The predicate fires only when a
+  version selector moves. Both halves are pinned in `products-pair.spec.ts`.
+- **A pre-existing TransferState orientation bug was fixed here** (in scope by the PO's call, since
+  AECI-303 touches the same line). The key was `orientation-independent` (`{min}__{max}`) and the
+  resolver's comment described the shared slot as a feature — but the payload is
+  orientation-**dependent** (`context_product`/`other_product`, the context-relative `direction`,
+  `attestor`), `TransferState.get()` never deletes, nothing clears the store after hydration, and
+  only ONE of a pair's two URLs is SSR'd per document. So the shared slot could only ever produce a
+  **false** hit, reachable in two clicks: SSR from revit, rail-link to `/products/procore`, then
+  into the procore-context pair — path params changed, the resolver re-ran, `hasKey` was still true,
+  and the page rendered the two products swapped relative to its URL. The key now carries every axis
+  the payload depends on: `contextSlug|otherSlug` **in URL order**, plus the selection. Both
+  regressions have their own test. `STAGE_1_5_SPEC.md` §11.2 (AECI-340, dual-orientation indexing)
+  is the issue that would have surfaced this loudly; it inherits the fix.
+- **The timeline is a separate, lazy, browser-only endpoint** — `GET
+  …/integrations/:otherSlug/timeline` — not inline on the pair response. The decisive argument is
+  the cache, not payload size: history is the gateable depth, and the pair page lands in a shared,
+  URL-keyed 900s edge entry, so baking it in would break `STAGE_1_SPEC.md` §9.1a the moment AECI-304
+  makes the gate visitor-dependent. An `/api/*` response is `private, no-store`, a legal home for
+  per-reader content. It is also the only unbounded payload in the system. Pair-scoped rather than
+  claim-scoped so one fetch serves every popover, which is why `ProductPairClaim` gained an
+  `id` — exposing nothing new in kind, since `ProductPairMechanism.id` is already a UUID on the wire
+  and AECI-604 guarantees claim ids survive a re-promote.
+- **`integrationTimelineConfig` is the ONE read in the system that omits
+  `liveAttestationsWhere`.** Retracted rows are the point. Its doc comment says so loudly and
+  forbids calling `computeAgreement` on its output — routing history through the vote engine is
+  exactly how a withdrawn assertion finds its way back into a tally, the hazard §2.5 handed to §4.
+- **The seam clamps; it never 403s.** A 403 would make the gate a control-flow branch (§2.2 forbids
+  that) and the SSR resolver treats a non-200 as the NotFound shell — so a shared historical link
+  would cost the reader the **free** latest view, inverting §8.1(4). Gated ⇒ 200, selection clamped
+  to latest, `previous: null`, no `version_status`, `diff_access: 'latest_only'`. The web renders a
+  locked state from that one enum.
+- **The seam lives in `version-diff.ts`, NOT `entitlements.ts`.** That path is already taken on
+  `origin/aeci-515` by AECI-610, whose `CAPABILITIES` list already declares
+  `'integration.version_diff'` — a same-path file would be a merge conflict at the `stage-2`
+  reconciliation. The `!historical → 'full'` early return **is** §8.1(4) written as a labelled line
+  of code; AECI-304 must replace only the line below it. Taking `historical` as an input, rather
+  than asking the seam a bare entitlement question, is what makes the invariant
+  unremovable-by-accident. `aeci-515` also adds a file-scoped `no-restricted-imports` for its
+  zod-free domain modules; **`version-diff.ts` should be added to that rule at the merge.**
+- **AC5's "exactly two places" needed a wrapper.** Two API handlers need the access answer (the pair
+  read, whose `historical` depends on the selection, and the timeline read, which is always
+  history), so a direct call in each would make three. `resolveDiffAccess` in
+  `lib/pair-version-diff.ts` is the sole `canViewVersionDiff` importer in `apps/api`; the web pair
+  resolver is the other. The `assertVerifiedVendor` precedent — "ONE function with ONE call site per
+  handler" — is a looser rule that would not have satisfied the literal AC.
+- **⚠️ The cache constraint AECI-304 inherits.** Today's clamp is edge-cache-safe *only because the
+  seam returns a constant.* The moment it depends on a cookie or session, a gated pair selection can
+  no longer live in the shared, URL-keyed entry (§9.1a) — so AECI-304 must either keep the pair-page
+  gate URL-derived, mark gated selections `Cache-Control: private` (the query-dependent-redirect
+  carve-out in `CACHE_STRATEGY.md` §4a is the precedent), or move the gated portion to a
+  post-hydration fetch. Recorded in the seam's doc comment, in `CACHE_STRATEGY.md` §7.2, and here.
+- **⚠️ Whose entitlement is this, actually? Unresolved, and AECI-304's to answer.**
+  `aeci-515`'s `entitlements.ts` puts `'integration.version_diff'` in the **vendor** tier ladder,
+  while §9.3 puts the seam in the **public reader** path, and §8.1(4) says "vendors pay, always…
+  viewer-pays tooling is possible far later, out of scope now". Those cannot both describe the same
+  gate. `viewerTier: string | null` is deliberately weak so either reading works without a
+  signature change.
+- **The selector is the first SSR-rendered Angular Aria combobox in the repo**, and that forced one
+  divergence from `admin-select.ts`: **static ids derived from the side, never a module counter.**
+  Both existing instances carry `let nextId = 0`, justified in their own comments by being
+  browser-only; module state persists per Worker isolate, so a counter would emit ids that differ
+  between the server render and the client and break `aria-labelledby` after hydration. Verified
+  live: two separate SSR requests emit identical `pair-version-trigger-{context,other}`, the listbox
+  is **not** in the SSR payload (it lives inside `[cdkConnectedOverlayOpen]`), and the page hydrates
+  with zero console errors. A shared `choice-select` extraction covering all three call sites is a
+  real consolidation signal but needs its own issue.
+- **No cookie counterpart to `aeci_pair_view`.** That cookie works because Basic/Detailed is a
+  global, product-independent preference. A remembered `2026.1` is meaningless on another pair,
+  §9.3's invariant is that a reader lands on the LATEST view, "latest × latest is the default" must
+  track newly-published releases, and the cookie's cache-safety proof (written on click, read only
+  post-hydration) would mean a **content** change plus a robots-tag flip *after* the crawler read
+  the head.
+- **Diff markers sit at the row START, never in the right-hand cluster.** Separation by position is
+  what stops them competing with the agreement badge: left = what changed in this version, right =
+  who agrees about it. `added` takes a Forest **start rule** (not the `--accent-primary-soft` wash,
+  which is the `confirmed` chip's and would read as "confirmed" by proximity); `removed` takes a
+  neutral strong rule plus a strikethrough and a step to `--text-secondary` — **never**
+  `--status-error`, since `conflict` is the only red and a second one would collapse "vendors
+  disagree" into "no longer supported". Clay is excluded on both counts. `unchanged` renders
+  nothing, which is both the majority state and what keeps the default view byte-identical. Each
+  state carries a glyph **and** a visible text label, so nothing is colour-only (WCAG 1.4.1).
+- **No Mobbin anchor was picked, deliberately** — the same call §6's as-built recorded and the
+  standing precedent for anchorless surfaces (`DESIGN.md` §"Named Rules"; the Phase 8.3 admin
+  console). The pair page has three shipped layers and a settled chip/token vocabulary, which this
+  surface inherits. **The Linear AC's phrase "the pair page's existing Mobbin anchor site" is not
+  satisfiable as written** and should be amended to name the inherited vocabulary instead.
+- **History dates are UTC-pinned**, per the `maintenance-marker` precedent. The stamps are date-only
+  (`2026-01-15`, which `Date` parses as UTC midnight), so ambient-zone formatting would render
+  **January 14** for every reader in the Americas *and* drift from the UTC SSR render. The version
+  **label** is the primary token in each entry and the date a secondary clause, because the ordering
+  axis is the version, never the nullable `released_at`.
+- **The pair page had no row in the axe sweep at all** (`apps/web/e2e/phase2-a11y.spec.ts`), which is
+  how the design checklist's axe step went unenforced in CI for the surface that owns the claim
+  lanes. Added — and it passes, as does a dedicated `products-pair.spec.ts`. That file's interaction
+  block is **self-skipping** on whether any pair has a stamped attestation (the `search.spec.ts`
+  shape), because no environment has one; `apps/api/seed/version-diff-fixtures.sql` +
+  `pnpm --filter @aeci/api db:seed:version-diff:local` is the reproducible local input that makes it
+  run. It is deliberately NOT part of `db:seed:local` — every other pair page should keep showing
+  the launch-reality default so a regression there stays visible.
+
 ---
 
 ## 10. Docs: attestation authz + API/schema contract sweep (AECI-608)
@@ -1222,9 +1398,11 @@ Runs alongside; finishes what each sub-issue seeds (the AECI-525 pattern).
   `attestation.retracted` action to §8.4; verify rather than re-add.)*
 - **`docs/REVIEW_APP_PROMOTE_API.md`** — the §3.3 replace-by-origin carve-out. **Still open** —
   AECI-604's.
-- **`docs/CACHE_STRATEGY.md`** — ✅ the §5.2 attestation purge tag set landed with AECI-301 in
-  §5(b2), alongside the AECI-607 version-write tag. **Still open:** the §9.2 `cacheKeyParams`
-  addition (AECI-303's).
+- **`docs/CACHE_STRATEGY.md`** — ✅ **done.** The §5.2 attestation purge tag set landed with
+  AECI-301 in §5(b2), alongside the AECI-607 version-write tag; the §9.2 `cacheKeyParams`
+  addition landed with AECI-303 (the §4a pair row now carries `context_version` /
+  `other_version`, plus the inverse `MULTI_VALUE_CACHE_KEY_PARAMS` rule and the §7.2
+  URL-derived-`noindex` qualification). Verify rather than re-add.
 - **`docs/email.md`** — the §7.2 template catalogue entries.
 - **`docs/OBSERVABILITY.md`** + **`docs/POST_LAUNCH_MONITORING.md`** — the §7.4 detector metrics
   and the launch-tunable thresholds.

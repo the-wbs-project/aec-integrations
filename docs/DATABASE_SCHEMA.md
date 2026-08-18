@@ -504,12 +504,14 @@ create unique index attestations_slot_key on attestations(claim_id, source) wher
 
 -- Live attestations for a claim. Predicated on `retracted_at`, NOT on the `deprecated_at`
 -- version stamp — a vendor recording that a flow was deprecated in v6 must not make the
--- attestation vanish from the read path (AECI-303's timeline reads it).
+-- attestation vanish from the read path (AECI-303's timeline reads it, and its own read
+-- config is the ONE in the system that omits the predicate entirely).
 create index attestations_active_idx on attestations(claim_id) where retracted_at is null;
 ```
 
 - **Two lifecycle columns that must not be conflated.** `introduced_at` / `deprecated_at` are **version stamps** ("this flow existed from v4 until v6", §3.3); `retracted_at` is **supersession** (the vendor withdrew or replaced its assertion). Only `retracted_at` may gate a read. Migration 1 moved `attestations_active_idx` off `deprecated_at` for exactly this reason — the original predicate and its comment were wrong (`STAGE_2_ATTESTATIONS_SPEC.md` §1.2).
 - **Supersession is retract-then-insert, never `update`** — both statements in the same `db.batch` as the audit row, so history stays append-only for the version-diff timeline (§9). The retract statement must come **first** in the batch: SQLite evaluates `attestations_slot_key` per statement, so an insert placed ahead of it collides with the very row it is superseding and fails the whole batch.
+- **Two reads, and they differ by exactly this predicate** (AECI-303 shipped the second). `integrationPairConfig` applies `liveAttestationsWhere` and feeds the pair page's agreement + presence; `integrationTimelineConfig` **omits it** and feeds `GET …/integrations/:otherSlug/timeline`, where the retracted rows *are* the history. Both live in `apps/api/src/lib/drizzle-helpers.ts`. Never call `computeAgreement` on the timeline config's output — routing history through the vote engine is how a withdrawn assertion finds its way back into a tally.
 - **The only writers.** `POST /api/promote` writes `source = 'aeci'` rows; `apps/api/src/routes/vendor-attestations.ts` (AECI-301) is the sole writer of `vendor_a` / `vendor_b`, `attested_by_vendor_id` and `retracted_at`. A write fills **every slot the caller owns**, so a vendor holding both endpoints of one integration writes two rows — which still tallies as one voter (next bullet).
 - **`vendor_a` / `vendor_b` are no longer dormant** (Stage 2, AECI-514). Which slot a caller may write derives from product ownership in `product_vendors` — `vendor_a` = the `source_product_id` owner, `vendor_b` = the `target_product_id` owner — and never from the request. `apps/api/src/lib/attestation-authority.ts` is the single implementation; a vendor owning neither endpoint gets a **404, not a 403**.
 - **`attested_by_vendor_id` records which identity filled the slot**, because `confirmed` requires **two distinct** identities: one company owning both endpoints of an integration can affirm both slots and must still render as one-sided (`STAGE_2_ATTESTATIONS_SPEC.md` §4). Deleting the vendor nulls the column and keeps the historical assertion — and because that leaves a **live row with no identity**, `computeAgreement` folds every null-identity vote into a single voter bucket so orphans can never add up to `confirmed`.
@@ -521,6 +523,8 @@ create index attestations_active_idx on attestations(claim_id) where retracted_a
 ### 5a.3 `product_versions`
 
 A release of one product, as its vendor names it (Stage 2 migration 2, AECI-607; `STAGE_2_ATTESTATIONS_SPEC.md` §8). AECI-303's "source-version × target-version" diff selects on these rows; the dormant ISO date stamps could not stand in, because dates cannot answer *"what flowed between Procore 2026.1 and BIM 360 v5"*.
+
+AECI-303 now reads them through the shared `VERSION_ORDER` (`apps/api/src/lib/drizzle-helpers.ts`), which is the SQL mirror of `compareProductVersions` and the only `order by` either reader uses — the vendor authoring list and the pair read. `sort_key` is packed **per product** from that product's own labels, so comparing it *across* two products is meaningless arithmetic that looks like it works; the §9 diff steps each side's selector independently for exactly that reason.
 
 ```sql
 create table product_versions (
