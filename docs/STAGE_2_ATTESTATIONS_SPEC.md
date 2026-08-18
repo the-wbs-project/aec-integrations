@@ -433,7 +433,76 @@ integration → claim upserts → claim deletes → attestation deletes → atte
 - Re-promoting an unchanged payload leaves every claim id stable (assert on ids before/after).
 - Existing promote specs stay green; the claims-ingest specs gain the origin-scoped cases.
 - **Rebase note:** this sub-issue must be written against the post-`main`-merge `promote.ts`
-  (§1.4) — the file was restructured by AECI-563 / AECI-571 / AECI-568 on `main`.
+  (§1.4) — the file was restructured by AECI-563 / AECI-571 / AECI-568 on `main`. *(Discharged:
+  AECI-619 landed first; this was built on `promote.ts` @ `f2c9249e`.)*
+
+### 3.5 As built (AECI-604 — 2026-08-18)
+
+The rule lives in a new module, **`apps/api/src/lib/promote-claims.ts`**, exporting one function:
+`planClaimIngest(db, resolveDataObject, items)` → `{ statements, audits, skipped, preserved }`.
+It executes nothing — `runPromoteIngest` splices the statements into the same atomic
+`db.batch([...])` that already carries the integration writes and their audit rows, so the §26.1
+invariant is unchanged. The call site is eight lines. Decisions taken at build that §3.2 did not
+pre-specify:
+
+- **The upsert needs a pre-read; `ON CONFLICT` alone cannot do it.** §3.2(1) says to use
+  `claims_identity_key` as the `ON CONFLICT` target, and the insert does — but D1 has no
+  interactive transactions and `db.batch` cannot feed one statement's result into the next, so the
+  surviving claim's **id** has to be known before the batch is built or the attestation inserts
+  have nothing to point at. One batched read up front (`inArray` over the integration ids,
+  chunked) is what actually delivers id stability; the `onConflictDoUpdate` is a race guard behind
+  it. Integrations this promote *created* are excluded from the read, so a first-time promote pays
+  nothing.
+- **An identity match emits no claim statement at all** — not even an `UPDATE`. The claim row's
+  content *is* its identity; there is no other editable column, so an update would move
+  `updated_at` and nothing else while adding an audit row per claim per promote. Production
+  carries ~950 claims, so that churn is the thing §3.1 was complaining about, one level down.
+- **Promote may write only `source: 'aeci'`, enforced at ingest.** `PromoteAttestationSchema`
+  permits `vendor_a`/`vendor_b` and always has. Inserting one now collides with a live vendor row
+  on the `attestations_slot_key` partial unique index and rolls back the **entire** promote, so a
+  non-`aeci` source is dropped into `skipped[]` (`kind: 'claim'`) instead — the same
+  degrade-and-report shape the unresolved-`dataObject` path already uses. Tightening the Zod enum
+  was rejected: a 400 on the whole bundle for a field bamako never sends is a harsher contract
+  change than a per-claim skip.
+- **A payload claim matching a vendor-created claim does not seize it.** The row is re-used and
+  `origin`/`created_by_vendor_id` are left alone — provenance records who *created* the claim, and
+  that is still the vendor. Seizing it would also strip the §3.2(2) protection on the next promote.
+- **The conversion has a null-vendor branch.** `attestations.attested_by_vendor_id` is
+  `ON DELETE SET NULL`, so the attesting vendor can be unknown; converting then would write
+  `origin='vendor'` with a null `created_by_vendor_id`, which `assertClaimProvenance` (§2.5) raises
+  a **500** on. Instead the `aeci` attestation is dropped, the row stays `origin='aeci'`, and a
+  later promote retries — reported as its own `preserved[]` reason. Unreachable while §5 is the
+  only vendor writer (it always stamps the vendor); it exists so a data anomaly degrades instead of
+  becoming an outage. `vendor_a` is preferred over `vendor_b` purely for determinism.
+- **`preserved[]` is a new top-level array, not more `skipped[]` kinds** (§3.3 left the shape
+  open). The two carry opposite signals: `REVIEW_APP_PROMOTE_API.md` §4 tells the review app to
+  inspect `skipped[]` and act, whereas `preserved[]` is never actionable — it is the operator's
+  receipt. Folding them together would make every claimed product's re-promote look like it had
+  problems. Entries are `{ ref, kind: 'claim' | 'attestation', reason, count }` aggregated per
+  `(ref, kind, reason)`, `ref` being the enclosing integration's. `PromoteJobLedger.response`
+  stores the whole response, so it survives an AECI-571 replay with no ledger change.
+- **Two new audit actions, closing a real §26.1 gap.** `claim.deleted` (with `beforeState`) and
+  `claim.converted` (with `before`/`afterState`). The wholesale delete this replaces emitted **no**
+  audit row for the rows it destroyed — every one of those 951 production claims could have
+  vanished unlogged. `DATABASE_SCHEMA.md`'s action catalogue already reads `'claim.*'`, so no
+  catalogue edit was needed; `ADMIN_PANEL_SPEC.md` and the `catalog.claims_created` metric row did
+  need one, because both cited the claim-spine churn as the reason catalog counts are
+  unreconstructable.
+- **Duplicate `supabaseId` across two payload entries is handled explicitly.** The old
+  delete-then-reinsert absorbed it (each delete cleared the previous insert, last entry winning);
+  an id-reusing planner would instead emit two inserts for one identity and fail the batch. Items
+  are de-duplicated by `integrationId`, last wins, matching the previous net effect.
+- **Residual race, accepted and documented.** Two concurrent promotes of the same integration can
+  interleave between the pre-read and the batch; the loser's attestation insert references a claim
+  id that never landed, the FK rejects it, and D1 rolls back — a retryable 500, the same posture as
+  the existing `409 SLUG_CONFLICT`. Closing it needs a transaction D1 does not offer.
+
+**Tests.** Nine cases in `runPromoteIngest — replace-by-origin claim coexistence (AECI-604)`
+(`apps/api/src/routes/promote.spec.ts`), against the real-migration D1 harness so the cascade, the
+FK and both unique indexes are genuinely exercised. Eight were confirmed by mutation testing —
+breaking identity matching, the vendor-attestation check, and the `origin='vendor'` guard each
+failed the expected subset. Every pre-existing promote spec passes unmodified; the only edits to
+old tests were `preserved: []` added to 23 hand-built `PromoteResponse` fixtures.
 
 ---
 

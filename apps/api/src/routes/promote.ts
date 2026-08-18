@@ -66,6 +66,7 @@ import {
   type EntityRef,
   type PromoteEntityResult,
   type PromoteIntegrationResult,
+  type PromotePreserved,
   type PromoteResponse,
   type PromoteSkipped,
   type PromoteTaxonomyResult,
@@ -87,8 +88,6 @@ import { type SQLiteColumn } from 'drizzle-orm/sqlite-core';
 
 import { getDb, type Db, type DbContext } from '../db/client';
 import {
-  attestations,
-  claims,
   integrations,
   productAudiences,
   productCategories,
@@ -117,6 +116,7 @@ import {
   type DataObjectResolver,
 } from '../lib/data-object-vocabulary';
 import { callGoogleIndexing } from '../lib/google-indexing';
+import { planClaimIngest, type ClaimIngestItem } from '../lib/promote-claims';
 import { type DbFactory } from '../lib/handler-utils';
 import { runHomeStats, type HomeStatsResult } from '../lib/home-stats';
 import { emitHomeStatsMetrics, type StatsMetricSink } from '../lib/home-stats-metrics';
@@ -1157,6 +1157,10 @@ export async function runPromoteIngest(
   const auditEntries: AuditLogEntry[] = [];
   const audit = (entry: AuditLogEntry) => auditEntries.push({ ...entry, metadata: AUDIT_META });
   const skipped: PromoteSkipped[] = [];
+  // The inverse of `skipped`: existing vendor-owned claims/attestations this promote
+  // deliberately left alive (AECI-604). Never an error — it is the operator's receipt
+  // that replace-by-origin worked.
+  const preserved: PromotePreserved[] = [];
   // Ids the caller supplied that resolve to nothing — each one falls back to a create
   // below, and is reported post-commit so the dead pointer is visible (AECI-568).
   const staleSupabaseIds: PromoteStaleId[] = [];
@@ -1760,6 +1764,9 @@ export async function runPromoteIngest(
   }> = [];
   const affectedProducts = new Set<string>();
   if (productId) affectedProducts.add(productId);
+  // Claim work, collected per resolved integration and planned in one pass after
+  // the loop (AECI-604 — see the `planClaimIngest` call below).
+  const claimIngestItems: ClaimIngestItem[] = [];
 
   // An integration touching THIS payload's blocked product is skipped too
   // (AECI-520).
@@ -1872,86 +1879,40 @@ export async function runPromoteIngest(
     integrationResults.push(result);
     integrationEndpoints.push({ result, sourceId, targetId, poweredById: poweredByProductId });
 
-    // ── Claims (replace-by-integration — §6.2) ──────────────────────────────
-    // Claims attach to THIS mechanism row and are replaced to exactly match the
-    // payload (same merge-by-replacement semantics as the product-join sets
-    // above): clear the integration's existing claims — their attestations
-    // cascade via the `attestations.claim_id ON DELETE CASCADE` FK — then
-    // re-insert. Runs for every resolved integration that is an update (so an
-    // empty `claims[]` clears prior claims) or that carries claims (a fresh
-    // integration's delete is a harmless no-op). Statement order stays FK-safe:
-    // integration → delete claims → claims → attestations → audits (last).
-    // Keyed off the resolved `operation`, not off `intg.supabaseId`: a stale id took
-    // the create branch above, so `integrationId` is brand new and there is nothing to
-    // clear (AECI-568).
+    // ── Claims (replace-by-ORIGIN — §6.2, reworked by AECI-604) ─────────────
+    // Deferred to a single `planClaimIngest` call after this loop so the whole
+    // payload's existing claims load in ONE read instead of one per integration.
+    // Queued for every resolved integration that is an update (so an empty
+    // `claims[]` still retires AECi's prior curation) or that carries claims.
+    // `isNewIntegration` is keyed off the resolved `operation`, not off
+    // `intg.supabaseId`: a stale id took the create branch above, so `integrationId`
+    // is brand new and nothing can pre-exist on it (AECI-568).
     if (result.operation === 'updated' || intg.claims.length) {
-      stmts.push(db.delete(claims).where(eq(claims.integrationId, integrationId)));
-      const seenClaims = new Set<string>();
-      for (const claim of intg.claims) {
-        const dataObject = resolveDataObject(claim.dataObject);
-        if (!dataObject) {
-          skipped.push({
-            ref: intg.ref,
-            kind: 'claim',
-            reason: `dataObject "${claim.dataObject}" did not resolve to the seeded vocabulary`,
-          });
-          continue;
-        }
-        const dataObjectId = dataObject.id;
-        // Collapse identity duplicates within the payload so the re-insert never
-        // orphans an attestation on a claim the unique index would reject.
-        const identity = `${dataObjectId}|${claim.direction}`;
-        if (seenClaims.has(identity)) continue;
-        seenClaims.add(identity);
-
-        const claimId = crypto.randomUUID();
-        stmts.push(
-          db
-            .insert(claims)
-            .values({ id: claimId, integrationId, dataObjectId, direction: claim.direction }),
-        );
-        audit({
-          actorType: 'system',
-          action: 'claim.created',
-          entityType: 'claim',
-          entityId: claimId,
-        });
-        // Same defence one level down, for the same reason: `attestations_slot_key`
-        // (AECI-603) is unique on `(claim_id, source)` among non-retracted rows, so a
-        // payload repeating a source on one claim would fail the WHOLE batch rather
-        // than just duplicating a vote. First occurrence wins, matching the claim
-        // dedupe above. Real payloads have never done this — demo and production both
-        // sit at a clean 1 attestation per claim — but the ingest must not be one
-        // malformed bundle away from a 500.
-        const seenSources = new Set<string>();
-        for (const att of claim.attestations) {
-          if (seenSources.has(att.source)) continue;
-          seenSources.add(att.source);
-          const attestationId = crypto.randomUUID();
-          stmts.push(
-            db.insert(attestations).values({
-              id: attestationId,
-              claimId,
-              source: att.source,
-              asserted: att.asserted,
-              introducedAt: att.introducedAt ?? null,
-              deprecatedAt: att.deprecatedAt ?? null,
-              note: att.note ?? null,
-            }),
-          );
-          audit({
-            actorType: 'system',
-            action: 'attestation.created',
-            entityType: 'attestation',
-            entityId: attestationId,
-          });
-        }
-      }
+      claimIngestItems.push({
+        integrationId,
+        ref: intg.ref,
+        claims: intg.claims,
+        isNewIntegration: result.operation !== 'updated',
+      });
     }
 
     affectedProducts.add(sourceId);
     affectedProducts.add(targetId);
   }
+
+  // ── Claim ingest (AECI-604 / STAGE_2_ATTESTATIONS_SPEC.md §3) ──────────────
+  // Claims are merged BY ORIGIN, not replaced wholesale: a claim whose identity
+  // triple survives keeps its id (and therefore its vendor attestations), only
+  // `origin = 'aeci'` claims the payload dropped are deleted, only `source =
+  // 'aeci'` attestations are replaced, and an AECi claim a vendor still attests is
+  // converted to vendor origin rather than deleted. `lib/promote-claims.ts` owns
+  // the rule; this call site only splices the plan in. Runs after the integration
+  // loop, so every claim statement still follows its integration's INSERT/UPDATE.
+  const claimPlan = await planClaimIngest(db, resolveDataObject, claimIngestItems);
+  stmts.push(...claimPlan.statements);
+  for (const entry of claimPlan.audits) audit(entry);
+  skipped.push(...claimPlan.skipped);
+  preserved.push(...claimPlan.preserved);
 
   // ── Backfill integration result slugs (§6.2 → pair cache tag + pair URLs) ──
   // The pair derivers need both endpoint slugs. Seed the map with the in-payload
@@ -2002,6 +1963,7 @@ export async function runPromoteIngest(
       trades: trades.results,
     },
     skipped,
+    preserved,
   };
 
   // `wrote` means "this promote changed CATALOG state". Two things must stay out of

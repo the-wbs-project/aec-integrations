@@ -123,7 +123,7 @@ The **integration row is the anchor** (ADR 0018). Consequences:
 
 - A pair of products connected by **two mechanisms** (e.g. a native connector and a Zapier app) that both move RFIs yields **two claims** — one per integration row. The pair page (§8) groups them under the pair but they remain distinct rows.
 - Consolidation onto the pair page needs **no `integrations`-table migration**: there is no unique pair index today (`apps/api/src/db/schema.ts` integrations table — only non-unique `source`/`target` indexes and a distinct-endpoints check), and Stage 1.5 adds none. The pair page is a *query-time* grouping (§7), not a stored entity.
-- The unique index `(integration_id, data_object_id, direction)` (§6.1) makes promote ingest an idempotent upsert (§6.2).
+- The unique index `(integration_id, data_object_id, direction)` (§6.1) makes promote ingest an idempotent upsert (§6.2). *(Intended from the start; actually true only since AECI-604 — the 1.5 ingest shipped as delete-and-reinsert. See the §6.2 note.)*
 
 ### 3.2 Direction encoding — stored vs context-relative
 
@@ -279,6 +279,17 @@ Extend the existing plan-then-batch promote flow (`apps/api/src/routes/promote.t
 - **Resolve** each claim's `dataObject` **find-only** by slug (then alias) against the seeded `taxonomy_data_objects`. A miss → `skipped[]` `{ kind: 'claim', … }`; **never a 500** (§2, §5.1).
 - **Upsert** each claim by the identity unique index `(integration_id, data_object_id, direction)` (§6.1) — re-promote is idempotent.
 - **Replace** the claim's attestations to exactly match the payload (same merge-by-replacement semantics promote already uses for join sets — `REVIEW_APP_PROMOTE_API.md` §5).
+
+> **Superseded in part by AECI-604 (`STAGE_2_ATTESTATIONS_SPEC.md` §3), 2026-08-18.** As
+> shipped, AECI-297 implemented the first bullet as a wholesale delete-and-reinsert rather
+> than a true upsert, and the second bullet replaced **all** attestations. Both became wrong
+> once vendors could author claims and attestations (AECI-301): the cascade through
+> `attestations.claim_id ON DELETE CASCADE` destroyed vendor rows, and the re-insert churned
+> every claim id. Promote now merges **by origin** — an identity match re-uses the row, only
+> `origin = 'aeci'` claims are deleted, only `source = 'aeci'` attestations are replaced, and
+> a dropped claim a vendor attests is converted rather than deleted. The atomicity and audit
+> bullet below is unchanged. See §3 of the attestations spec and `REVIEW_APP_PROMOTE_API.md`
+> §5.2.
 - **Audit + atomicity.** Claim/attestation writes go in the **same `db.batch([...])`** as the rest of the promote transaction and emit their `audit_log` row in that batch (the §26.1 invariant of `STAGE_1_SPEC.md`). Edge-cache purge for affected pair pages reuses the existing promote→purge path (`affectedUrlsForPromote`; ADR 0010) extended with the pair URLs (§7).
 
 ---
