@@ -445,8 +445,9 @@ What actually renders today:
 
 - **Maintenance marker** (`shared/maintenance-marker`): neutral chip — `border-default` /
   `surface-raised` / `text-secondary`, decorative dot, no icon. Reads
-  `Maintained by AEC Integrations.` on product detail, vendor detail, and the pair page.
-  The date clause (`Reviewed <date>.`) and the `Vendor-maintained.` branch are built but
+  `Maintained by AEC Integrations` on product detail, vendor detail, and the pair page.
+  It is a label, not a sentence, so it carries no terminal period. The date clause
+  (`· Reviewed <date>`) and the `Vendor-maintained` branch are built but
   **dormant**: no column stores a real review timestamp yet, and wiring the input to
   `updated_at` would make the date refresh itself on every bulk re-promote. AECI-616
   supplies the real `last_reviewed_at`.

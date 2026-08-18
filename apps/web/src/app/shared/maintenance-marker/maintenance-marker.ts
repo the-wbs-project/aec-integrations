@@ -84,11 +84,11 @@ export class MaintenanceMarker {
     const date = this.formattedDate();
     if (this.maintainedBy() === 'vendor') {
       return date === null
-        ? $localize`:@@maintenance.vendor:Vendor-maintained.`
-        : $localize`:@@maintenance.vendor.dated:Vendor-maintained. Updated ${date}:DATE:.`;
+        ? $localize`:@@maintenance.vendor:Vendor-maintained`
+        : $localize`:@@maintenance.vendor.dated:Vendor-maintained · Updated ${date}:DATE:`;
     }
     return date === null
-      ? $localize`:@@maintenance.aeci:Maintained by AEC Integrations.`
-      : $localize`:@@maintenance.aeci.dated:Maintained by AEC Integrations. Reviewed ${date}:DATE:.`;
+      ? $localize`:@@maintenance.aeci:Maintained by AEC Integrations`
+      : $localize`:@@maintenance.aeci.dated:Maintained by AEC Integrations · Reviewed ${date}:DATE:`;
   });
 }
