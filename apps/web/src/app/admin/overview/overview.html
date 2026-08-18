@@ -1,0 +1,231 @@
+<section aria-labelledby="admin-overview-heading">
+  <div class="flex flex-wrap items-end justify-between gap-4">
+    <div>
+      <h2
+        id="admin-overview-heading"
+        class="text-lg font-bold text-(--text-primary)"
+        i18n="@@admin.overview.heading"
+      >
+        Overview
+      </h2>
+      @if (overview(); as o) {
+      <p class="mt-1 text-xs text-(--text-secondary)">
+        <ng-container i18n="@@admin.overview.window"
+          >Reporting UTC day {{ windowDay() }}</ng-container
+        >
+        ·
+        <ng-container i18n="@@admin.overview.generatedAt"
+          >generated {{ o.generated_at | date: 'medium' : 'UTC' }} UTC</ng-container
+        >
+      </p>
+      }
+    </div>
+
+    <button
+      type="button"
+      (click)="recompute()"
+      [disabled]="recomputing() || loading() || overview() === null"
+      class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-raised) px-5 py-2 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+    >
+      @if (recomputing()) {
+      <span i18n="@@admin.overview.recomputing">Recomputing…</span>
+      } @else {
+      <span i18n="@@admin.overview.recompute">Recompute</span>
+      }
+    </button>
+  </div>
+
+  <!-- A failed recompute keeps the figures already on screen and says so here,
+       rather than replacing a good response with a full-page error. -->
+  @if (recomputeFailed()) {
+  <p
+    class="mt-3 text-sm font-medium text-(--accent-secondary-deep)"
+    role="alert"
+    i18n="@@admin.overview.recomputeFailed"
+  >
+    Recompute failed. The figures below are unchanged; try again.
+  </p>
+  }
+
+  <!-- Recompute changes numbers in place with no focus change, so announce it. -->
+  <p class="sr-only" role="status" aria-live="polite">{{ liveMessage() }}</p>
+
+  @if (loading()) {
+  <p class="mt-8 text-sm text-(--text-secondary)" i18n="@@admin.overview.loading">
+    Loading the overview…
+  </p>
+  } @else if (loadFailed()) {
+  <div class="mt-8 space-y-3">
+    <p
+      class="text-sm font-medium text-(--text-primary)"
+      role="alert"
+      i18n="@@admin.overview.loadFailed"
+    >
+      We couldn't load the overview. Your session may have expired.
+    </p>
+    <button
+      type="button"
+      (click)="retry()"
+      class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-raised) px-5 py-2.5 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      i18n="@@admin.overview.retry"
+    >
+      Try again
+    </button>
+  </div>
+  } @else if (overview(); as o) {
+  <!-- The honesty envelope, before any number it qualifies (§1.1). -->
+  <div class="mt-6">
+    <aec-admin-notes [notes]="o.notes" />
+  </div>
+
+  <!-- Stat tiles ------------------------------------------------------- -->
+  <div class="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+    <aec-stat-tile
+      i18n-label="@@admin.overview.tile.pageViews"
+      label="Human page views"
+      [value]="o.traffic.page_views_human.total"
+      [caption]="dayCaption()"
+      [deltas]="pageViewDeltas()"
+      [sparklineValues]="humanSeries()"
+      [sparklineLabel]="pageViewsSparklineLabel"
+    />
+
+    <aec-stat-tile
+      i18n-label="@@admin.overview.tile.visitors"
+      label="Unique visitors"
+      [value]="o.traffic.unique_visitors.total"
+      [caption]="visitorsCaption()"
+      [sparklineValues]="uniqueVisitorSeries()"
+      [sparklineLabel]="visitorsSparklineLabel"
+    />
+
+    <aec-stat-tile
+      i18n-label="@@admin.overview.tile.signIns"
+      label="New sign-ins"
+      [value]="o.audience.new_sign_ins.current"
+      [caption]="dayCaption()"
+      [deltas]="signInDeltas()"
+      [sparklineValues]="signInSeries()"
+      [sparklineLabel]="signInsSparklineLabel"
+    />
+
+    <aec-stat-tile
+      i18n-label="@@admin.overview.tile.subscribers"
+      label="Active subscribers"
+      [value]="o.audience.active_subscribers"
+      [caption]="snapshotCaption"
+    />
+  </div>
+
+  <!-- Catalog totals: five snapshot counts, so a single-figure tile would
+         have to hide four of them. Same card vocabulary, own layout. -->
+  <div
+    class="mt-4 rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) p-5"
+  >
+    <h3 class="text-sm font-bold text-(--text-primary)" i18n="@@admin.overview.catalog.heading">
+      Catalog totals
+    </h3>
+    <dl class="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-5">
+      <div>
+        <dt class="text-xs text-(--text-secondary)" i18n="@@admin.overview.catalog.products">
+          Products
+        </dt>
+        <dd class="font-display text-2xl font-semibold tabular-nums text-(--accent-primary)">
+          {{ o.catalog.products }}
+        </dd>
+      </div>
+      <div>
+        <dt class="text-xs text-(--text-secondary)" i18n="@@admin.overview.catalog.integrations">
+          Integrations
+        </dt>
+        <dd class="font-display text-2xl font-semibold tabular-nums text-(--accent-primary)">
+          {{ o.catalog.integrations }}
+        </dd>
+      </div>
+      <div>
+        <dt class="text-xs text-(--text-secondary)" i18n="@@admin.overview.catalog.vendors">
+          Vendors
+        </dt>
+        <dd class="font-display text-2xl font-semibold tabular-nums text-(--accent-primary)">
+          {{ o.catalog.vendors }}
+        </dd>
+      </div>
+      <div>
+        <dt class="text-xs text-(--text-secondary)" i18n="@@admin.overview.catalog.claims">
+          Claims
+        </dt>
+        <dd class="font-display text-2xl font-semibold tabular-nums text-(--accent-primary)">
+          {{ o.catalog.claims }}
+        </dd>
+      </div>
+      <div>
+        <dt class="text-xs text-(--text-secondary)" i18n="@@admin.overview.catalog.attestations">
+          Attestations
+        </dt>
+        <dd class="font-display text-2xl font-semibold tabular-nums text-(--accent-primary)">
+          {{ o.catalog.attestations }}
+        </dd>
+      </div>
+    </dl>
+    <p class="mt-3 text-xs text-(--text-secondary)">{{ snapshotCaption }}</p>
+  </div>
+
+  <!-- 30-day traffic --------------------------------------------------- -->
+  <section class="mt-8" aria-labelledby="admin-overview-traffic-heading">
+    <h3
+      id="admin-overview-traffic-heading"
+      class="text-sm font-bold text-(--text-primary)"
+      i18n="@@admin.overview.traffic.heading"
+    >
+      Page views over the last 30 days
+    </h3>
+    <div class="mt-3">
+      <aec-stacked-bar-chart
+        [points]="trafficPoints()"
+        [seriesLabels]="trafficSeriesLabels"
+        [label]="trafficChartLabel"
+        [emptyLabel]="trafficChartEmpty"
+      />
+    </div>
+  </section>
+
+  <!-- Top sources + top products --------------------------------------- -->
+  <div class="mt-8 grid gap-8 lg:grid-cols-2">
+    <section aria-labelledby="admin-overview-sources-heading">
+      <h3
+        id="admin-overview-sources-heading"
+        class="text-sm font-bold text-(--text-primary)"
+        i18n="@@admin.overview.sources.heading"
+      >
+        Top traffic sources
+      </h3>
+      <p class="mb-3 mt-1 text-xs text-(--text-secondary)">{{ dayCaption() }}</p>
+      <aec-ranked-bar-list [rows]="sourceRows()" [emptyLabel]="sourcesEmpty" />
+    </section>
+
+    <section aria-labelledby="admin-overview-products-heading">
+      <h3
+        id="admin-overview-products-heading"
+        class="text-sm font-bold text-(--text-primary)"
+        i18n="@@admin.overview.products.heading"
+      >
+        Top viewed products
+      </h3>
+      <p class="mb-3 mt-1 text-xs text-(--text-secondary)">{{ dayCaption() }}</p>
+      <aec-ranked-bar-list [rows]="productRows()" [emptyLabel]="productsEmpty" />
+    </section>
+  </div>
+
+  <!-- Status strip ------------------------------------------------------ -->
+  <section class="mt-8" aria-labelledby="admin-overview-status-heading">
+    <h3
+      id="admin-overview-status-heading"
+      class="mb-3 text-sm font-bold text-(--text-primary)"
+      i18n="@@admin.overview.status.heading"
+    >
+      System status
+    </h3>
+    <aec-status-strip [status]="o.status" [ssrVersion]="ssrVersion()" />
+  </section>
+  }
+</section>

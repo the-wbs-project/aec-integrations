@@ -33,8 +33,9 @@ Native Workers Cache is **zoneless**: no zone-level cache configuration touches 
 | `category:{slug}` | Category browse page |
 | `audience:{slug}` | Audience browse page |
 | `phase:{slug}` | Project phase browse page |
-| `taxonomy` | Any page whose cached HTML renders the full taxonomy term set — home (`/`) and the flat taxonomy index pages (`/categories`, `/audiences`, `/phases`). The primary-nav flyouts read the term set client-side from `/api/taxonomy`, so they do **not** bake it into page HTML and don't carry this tag. |
-| `index:products` / `index:categories` / `index:audiences` / `index:phases` | The respective index pages. (AECI-165 removed the `/vendors` and `/integrations` index pages — they 301-redirect to `/products` — so `index:vendors` / `index:integrations` are no longer emitted.) |
+| `trade:{slug}` | Trade browse page (`/trades/:slug`, AECI-538). Emitted for **every** trade, published or not — the publication gate (`STAGE_1_SPEC.md` §5.5a) controls indexability, not cacheability, and an unpublished page still renders and still needs purging when its product set changes. **Purge caveat:** because the `/trades` index and the primary-nav flyout list *published* terms only (the facet sidebar is exempt — its counts are scoped, see `TRADES_VOCABULARY.md` §6), a promote that pushes a term across (or back under) the `TRADE_PUBLISH_MIN_PRODUCTS` floor changes those surfaces too — so a promote touching any trade must purge `index:trades`, `taxonomy`, and `sitemap` alongside `trade:{slug}` (AECI-542/546). "Touching" includes a **removal**: re-promoting a product without a trade it previously carried can push that term back under the floor, and the promote response echoes only the trades that were *set* — so `promote.ts` reads the product's prior trades before the batch and passes them to `cacheTagsForPromote` as `removedTradeSlugs`. (The three sibling facets have no equivalent read: without a publication gate, a removal only staleness-affects that one browse page, which the 5-minute TTL covers.) |
+| `taxonomy` | Any page whose cached HTML renders the full taxonomy term set — home (`/`) and the flat taxonomy index pages (`/categories`, `/audiences`, `/phases`, `/trades`). The primary-nav flyouts read the term set client-side from `/api/taxonomy`, so they do **not** bake it into page HTML and don't carry this tag. |
+| `index:products` / `index:categories` / `index:audiences` / `index:phases` / `index:trades` | The respective index pages. (AECI-165 removed the `/vendors` and `/integrations` index pages — they 301-redirect to `/products` — so `index:vendors` / `index:integrations` are no longer emitted.) |
 | `index:home` | The home page (`/`). Its credibility strip + stats cards render the `home.*` `stats_cache` counts, which are refreshed on every successful promote (AECI-305) — so a promote purges `index:home` to repaint them. Distinct from `taxonomy` (which the home page also carries but only fires on a term-set change) and from `route:index` (incident-only, §3.3). |
 | `sitemap` | `sitemap.xml` |
 | `route:detail` / `route:index` / `route:browse` | Coarse-grained tags for bulk invalidation in incidents |
@@ -55,6 +56,7 @@ Codified so callers don't re-derive the rules per surface:
 1. **Entity tag + route-class tag are mandatory.** Every cacheable response sets at least one entity-specific tag (e.g. `product:procore`) and exactly one route-class tag (`route:detail` | `route:index` | `route:browse`). A response that doesn't fit either category isn't cacheable — see §4.
 2. **Embedded entities also tag.** Any entity rendered in the response — even transitively — contributes a tag. A product detail page embeds its vendor → also `vendor:{vendor-slug}`. The product-PAIR page embeds both products → also `product:{context-slug}` and `product:{other-slug}` (plus each mechanism's `built_by` vendor / `powered_by` product, pushed by the resolver), and carries its own `pair:{min}__{max}` tag — so both a product edit and a claims-only promote (AECI-297) repaint it. A browse page lists every product matching the facet → tag each: `product:{slug-1}, product:{slug-2}, …`. A page that renders the taxonomy nav also carries `taxonomy`. This is what makes purge-by-tag exhaustive — editing a vendor invalidates every product page that displays it, with no URL bookkeeping.
 3. **Coarse tags for incident response.** `route:detail` / `route:index` / `route:browse` exist for bulk invalidation when something goes wrong at the route-class layer (e.g. a layout change that needs to repaint every detail page). Don't use them for routine writes.
+4. **A connector's product page tags its powered edges — and a promote purges it** (Stage 1.5 Addendum B, `STAGE_1_5_SPEC.md` §12.4). A `product_role: 'connector'` detail page renders the integrations it **powers** (`integrations.powered_by_product_id`), where it is the mechanism rather than an endpoint. Two halves, both required: **(a)** the resolver pushes `integration:{id}` plus **both** endpoint `product:{slug}` tags per powered edge — this product is neither endpoint, so both are genuinely embedded; **(b)** the promote ingest emits **`product:{poweredBySlug}`** from each integration result that names a powered-by product (`promote-cache-tags.ts`, fed by `PromoteIntegrationResult.poweredBySlug`). Rule (b) exists because no other rule reaches the connector: it is not the promoted product, not an endpoint, and not the pair. Without it a promote touching an Agave-powered edge leaves `/products/agave-erp-sync` stale until TTL. **Bounded gap:** re-pointing an edge to a different connector purges only the **new** one — the response carries the post-update slug — the same shape as the existing endpoint-move gap.
 
 ### Cache-Tag header construction helper
 
@@ -69,7 +71,7 @@ buildCacheTags(opts: {
 }): string;
 ```
 
-`entity.type` is the tag prefix (`product`, `vendor`, `pair`, `integration`, `category`, `audience`, `phase`, or `index` for index pages); `slug` or `id` is the suffix (slug for slug-keyed entities — the pair page passes the composite `{min}__{max}` as its `slug` — id for `integration:<id>`). `taxonomy: true` appends the global `taxonomy` tag — set on routes whose HTML renders the full taxonomy term set (home `/` and the flat `/categories`, `/audiences`, `/phases` index pages). Static pages with no §2 vocabulary entry (`/about`, `/legal/*`) pass `entity` as `undefined`, yielding just the route-class tag.
+`entity.type` is the tag prefix (`product`, `vendor`, `pair`, `integration`, `category`, `audience`, `phase`, `trade`, or `index` for index pages); `slug` or `id` is the suffix (slug for slug-keyed entities — the pair page passes the composite `{min}__{max}` as its `slug` — id for `integration:<id>`). `taxonomy: true` appends the global `taxonomy` tag — set on routes whose HTML renders the full taxonomy term set (home `/` and the flat `/categories`, `/audiences`, `/phases`, `/trades` index pages). Static pages with no §2 vocabulary entry (`/about`, `/updates`, `/roadmap`, `/legal/*`) pass `entity` as `undefined`, yielding just the route-class tag.
 
 The companion helper `cacheTagInputsForPath(localeStrippedPath)` (same module) returns the helper's input shape for every cacheable URL the SSR Worker handles, mirroring `ROUTE_CACHE_PATTERNS` in `server-runtime.ts`. Adding a new cacheable URL means extending both that table and `cacheTagInputsForPath` in the same change — and its per-route content-param allowlist (`cacheKeyParams`, restored in WC-4; see §4a). Callers never construct `Cache-Tag` strings by hand.
 
@@ -82,7 +84,7 @@ The companion helper `cacheTagInputsForPath(localeStrippedPath)` (same module) r
 | Route class | `max-age` (browser) | `s-maxage` (edge) |
 |---|---|---|
 | Detail pages | 0 | 900 (15 min) |
-| Browse pages (category / audience / phase) | 0 | 300 (5 min) |
+| Browse pages (category / audience / phase / trade) | 0 | 300 (5 min) |
 | Index pages | 0 | 300 (5 min) |
 | `/api/taxonomy` fetch (nav flyouts) | 0 | not edge-cached — `private, no-store` (see below); KV read-through, 5 min, in the API Worker |
 | `sitemap.xml` | 0 | 3600 |
@@ -95,7 +97,9 @@ The companion helper `cacheTagInputsForPath(localeStrippedPath)` (same module) r
 
 Per [AECI-43](https://linear.app/aec-integrations/issue/AECI-43), API responses themselves remain `Cache-Control: private, no-store`. Only SSR HTML is edge-cached.
 
-Non-cacheable routes (`/api/*`, `/auth/*`, `/account*`, `/search`) are excluded from the cacheable branch in the SSR Worker entry — they emit `Cache-Control: private, no-store` and never reach the tag/TTL machinery. See `STAGE_1_SPEC.md` §9.1 and [AECI-35](https://linear.app/aec-integrations/issue/AECI-35) for the route classifier.
+Non-cacheable routes (`/api/*`, `/auth/*`, `/account*`, `/admin*`, `/search`) are excluded from the cacheable branch in the SSR Worker entry — they emit `Cache-Control: private, no-store` and never reach the tag/TTL machinery. See `STAGE_1_SPEC.md` §9.1 and [AECI-35](https://linear.app/aec-integrations/issue/AECI-35) for the route classifier.
+
+**`/admin/*` is deliberately uncacheable, and that must stay true.** The operator console renders one admin's view of the site, and the edge cache is keyed by URL — so a single cacheable `/admin` response would serve that view to the next visitor who happened to hit the path. `ADMIN_PANEL_SPEC.md` §9.2 makes "absent from `ROUTE_CACHE_PATTERNS`" a standing requirement rather than a current fact, and `apps/web/src/server.spec.ts` asserts `isCacheableRoute` returns `false` for `/admin`, its children, and their locale-prefixed forms. The panel's own API responses carry the same posture from the other side: `json()` in the API Worker defaults every response to `private, no-store`, and the `/api/admin/*` reads set no `Cache-Tag`. Do not add an `/admin` entry to `ROUTE_CACHE_PATTERNS` or to `cacheTagInputsForPath`.
 
 **Exception — 404 responses on non-cacheable paths (AECI-62):** if the Angular SSR renderer returns HTTP 404 on a non-cacheable path (e.g. an unknown URL caught by the `**` wildcard route), the Worker applies `NOT_FOUND_TTL` (`max-age=0, s-maxage=60`) and `Cache-Tag: route:404` instead of `private, no-store`. The 404 content is session-neutral (no user-specific data), so edge caching is safe and prevents a flood of unknown URLs from melting the SSR Worker. The `route:404` tag provides the same bulk-purge handle as on cacheable routes. All other non-cacheable responses (2xx, 3xx, 5xx) continue to emit `private, no-store`.
 
@@ -121,14 +125,14 @@ The per-route allowlist lives on each `ROUTE_CACHE_PATTERNS` entry as `cacheKeyP
 
 | Route | `cacheKeyParams` (kept in the key) |
 |---|---|
-| `/products` (index) | `page`, `perPage`, `sort`, `category_id`, `audience_id`, `phase_id` |
-| Browse (`/categories\|audiences\|phases/:slug`) | `page`, `perPage`, `sort`, `category_id`, `audience_id`, `phase_id` |
+| `/products` (index) | `page`, `perPage`, `sort`, `category_id`, `audience_id`, `phase_id`, `trade_id` |
+| Browse (`/categories\|audiences\|phases\|trades/:slug`) | `page`, `perPage`, `sort`, `category_id`, `audience_id`, `phase_id`, `trade_id` |
 | Detail (`/products/:slug`, `/vendors/:slug`) | none — strip all |
 | Product-PAIR page (`/products/:context/integrations/:other`) | `view` — the Basic/Detailed disclosure toggle SSR-renders different content (Basic drops the claim lanes), so `?view=basic` and the `detailed` default MUST get distinct keys. Same rationale as `/products ?view=table` (AECI-190). The companion `aeci_pair_view` cookie (remembers the reader's choice) is **NOT** a cache-key input and is **NOT** in `VISITOR_STATE_COOKIES` — it is read only post-hydration in the browser, never by SSR (see §6.1). |
-| Taxonomy index (`/categories`, `/audiences`, `/phases`) | inherits the listing allowlist (combined `match`); these pages read none of it — harmless over-include |
-| Home (`/`), `/about`, `/legal/*` | none — strip all |
+| Taxonomy index (`/categories`, `/audiences`, `/phases`, `/trades`) | inherits the listing allowlist (combined `match`); these pages read none of it — harmless over-include |
+| Home (`/`), `/about`, `/updates`, `/roadmap`, `/legal/*` | none — strip all |
 
-The listing/browse rows share one `LISTING_CACHE_KEY_PARAMS` const in `server-runtime.ts` (AECI-143): `/products` and the three `:slug` browse pages all read `page` / `sort` and the taxonomy facet ids the `aec-facet-sidebar` writes to the URL (`category_id` / `audience_id` / `phase_id`). On a browse page the page's own dimension rides the path (`/categories/:slug`), so only the *other* two facet ids ever appear in its query — but listing all three keeps the const uniform (over-including is harmless).
+The listing/browse rows share one `LISTING_CACHE_KEY_PARAMS` const in `server-runtime.ts` (AECI-143): `/products` and the four `:slug` browse pages all read `page` / `sort` and the taxonomy facet ids the `aec-facet-sidebar` writes to the URL (`category_id` / `audience_id` / `phase_id` / `trade_id`). On a browse page the page's own dimension rides the path (`/categories/:slug`), so only the *other* three facet ids ever appear in its query — but listing all four keeps the const uniform (over-including is harmless).
 
 **Maintenance rule (load-bearing).** The allowlist must be a **superset** of every query param the page component reads from the URL. Under-including is a correctness bug, not just a perf one: it collapses two distinct renders onto one key and serves the wrong HTML. So when a Phase 3+ change adds a content-affecting query param to an index/browse page (a new facet, `search`, a filter), add it to that route's `cacheKeyParams` in the same change — AECI-143 did exactly this when it added the facet sidebar. Over-including is merely wasteful (a harmless extra entry), so when in doubt, include. `perPage` is listed today for forward-safety even though the index components currently hardcode the default and don't read it from the URL.
 
@@ -165,7 +169,7 @@ Callers of `/admin/purge`:
 - CI (`promote-to-prod.yml` purges `taxonomy` + `route:browse` after the reference-data seed) — inherits the native backend automatically (it only checks the HTTP status)
 - Future admin tooling (Phase 6) — direct call from admin Workers, not n8n
 
-**(b) `POST /api/promote` + review moderation on the API Worker** — since WC-5, these **enqueue** onto `aeci-cache-purge-{env}` (producer binding `CACHE_PURGE_QUEUE`) after the write commits; the SSR consumer issues the `ctx.cache.purge()`. Best-effort, post-commit (`ctx.waitUntil`), a graceful no-op when the queue binding is unset (local dev, PR previews), and never fails the committed write (a `queue.send` rejection is logged and swallowed). The promote's entity/index/pair/taxonomy tags are derived by `cacheTagsForPromote` (`promote-cache-tags.ts`); review moderation enqueues `product:{slug}`; the **vendor-claim grant** (`PATCH /api/admin/claims/:id`, AECI-519) enqueues the vendor **and its products** — `{ tags: ['vendor:{slug}', 'product:{slug}'…, 'index:products'], source: 'moderation' }` — because it flips `vendors.verified` (unlike plain request-moderation, which purges nothing). One message per ≤1000-tag batch (`CACHE_PURGE_QUEUE_MAX_TAGS`, vs. the HTTP transport's 30). This supersedes the ADR-0010 direct HTTP purge (which is inert against Workers Cache); the message is async, so there is still no api→web service binding.
+**(b) `POST /api/promote` + review moderation on the API Worker** — since WC-5, these **enqueue** onto `aeci-cache-purge-{env}` (producer binding `CACHE_PURGE_QUEUE`) after the write commits — for promote, from `dispatchPromoteHooks` *after* the Workflow commit step resolves rather than from the request (AECI-563 / ADR 0021), so a step replay cannot double-enqueue; the SSR consumer issues the `ctx.cache.purge()`. Best-effort, post-commit (`ctx.waitUntil`), a graceful no-op when the queue binding is unset (local dev, PR previews), and never fails the committed write (a `queue.send` rejection is logged and swallowed). The promote's entity/index/pair/taxonomy tags are derived by `cacheTagsForPromote` (`promote-cache-tags.ts`); review moderation enqueues `product:{slug}`; the **vendor-claim grant** (`PATCH /api/admin/claims/:id`, AECI-519) enqueues the vendor **and its products** — `{ tags: ['vendor:{slug}', 'product:{slug}'…, 'index:products'], source: 'moderation' }` — because it flips `vendors.verified` (unlike plain request-moderation, which purges nothing). One message per ≤1000-tag batch (`CACHE_PURGE_QUEUE_MAX_TAGS`, vs. the HTTP transport's 30). This supersedes the ADR-0010 direct HTTP purge (which is inert against Workers Cache); the message is async, so there is still no api→web service binding.
 
 **(b2) the `/api/vendor/*` write surface on the API Worker (Stage 2, AECI-520 /
 607 / 301)** — the vendor portal's self-service edits use the same producer path
@@ -244,6 +248,22 @@ Implementation of the endpoint shape, rate-limit handling, and Datadog wiring la
 
 **Cloudflare API token scoping:** every purge surface now presents **no** CF token — promote/moderation go through the queue, `/admin/purge` uses native `ctx.cache.purge()`, and the `retract-product` CLI prints the `POST /admin/purge` command for an operator to run. The zone `Zone.Cache Purge` token `CF_PURGE_API_TOKEN` was retired on both Workers in WC-10 ([AECI-324](https://linear.app/aec-integrations/issue/AECI-324)); `CF_ZONE_ID` is retained solely for the AECI-262 WAF firewall-event poll.
 
+### 5a. Provisioning (how the three secrets get onto the Workers)
+
+Purge needs three values, and *all three* are pushed by CI on every deploy/promote (`deploy.yml` → staging, `promote-to-demo.yml` → demo, `promote-to-prod.yml` → production). Set the GitHub Actions secret; the next deploy wires the Worker.
+
+| Secret | Where it lands | What it does | Absent ⇒ |
+| --- | --- | --- | --- |
+| `ADMIN_PURGE_TOKEN` | web Worker | bearer the **caller** of `POST /admin/purge` presents | endpoint returns **401** for every request |
+| `CF_PURGE_API_TOKEN` | web **and** API Worker | the token the handler/ingest uses to call Cloudflare | web: `/admin/purge` authenticates then returns **502**; API: promote purge is a silent no-op |
+| `CF_ZONE_ID` | web **and** API Worker | the zone purge targets (also the zone the AECI-262 WAF poll queries) | same as above, plus the WAF poll reports `skipped_no_creds` |
+
+All three are **recommended, not required** (`RECOMMENDED_SECRETS`, warn-and-skip): a missing purge credential degrades invalidation to TTL self-heal (≤5 min browse, ≤1 hr nav) — it never blocks a release.
+
+**Ordering matters in CI.** `promote-to-prod.yml`'s taxonomy purge step runs *after* the SSR deploy and *after* the cache-purge secret push, because `POST /admin/purge` authenticates against the Worker's `ADMIN_PURGE_TOKEN`. It used to run right after the D1 migration — before any secret push — which 401'd deterministically. Keep it last.
+
+> **History (2026-08-12).** These were documented as manual `wrangler secret put` steps and had never actually been placed on **any** deployed tier, so `POST /admin/purge` 401'd on staging, demo, and production, and the API Worker's post-promote purge silently no-op'd everywhere. `wrangler secret list` is the check: run it per env from `apps/web` and `apps/api` and expect the names above.
+
 ---
 
 ## 6. Cookie / cache hygiene
@@ -296,6 +316,30 @@ Indexing is **fail-closed and environment-gated**, independent of the SEO header
 - **Why a header, not just `robots.txt` or `<meta robots>`.** `X-Robots-Tag` is the authoritative directive: it covers redirects, 404s, and non-HTML responses that can't carry a `<meta>` tag, and it governs URLs discovered via external links. For a compliant crawler to honor it the page must be crawlable, so `robots.txt` deliberately does **not** `Disallow: /` — blocking the crawl would stop the crawler from ever seeing the `noindex` and (per Google's docs) leave externally-linked URLs eligible to appear as URL-only results. robots.txt's only job in the blocked state is to withhold the sitemap.
 - **Cache-safe — baked pre-cache (WC-8 / AECI-322).** The header is stamped by egress middleware inside the cached SSR `Renderer` entrypoint, so it lands *before* the platform stores the response. Under native Workers Cache a HIT skips the Worker entirely, so the `noindex` decision is **baked once, on the MISS render that populates the cache, and served verbatim on every subsequent HIT** (no per-HIT re-stamp runs, and none is needed). The bake is env-neutral because each env is its own Worker + cache with its own `ALLOW_INDEXING`, so a non-indexable env's cache only ever stores `noindex` payloads. `applySeoHeaders` (the `Vary`/`Link`/CSP set, §7) is likewise applied pre-store — via `withCacheHeaders` on the MISS render — so the whole SEO/robots header set is baked together onto the stored payload. The response is rebuilt (not header-mutated) because a response's headers may be immutable. _(Pre-WC-3 the stamp ran after a hand-rolled `caches.default` put and re-ran on each HIT; WC-3 removed that manual pipeline, and WC-8/WC-9 verify the pre-store bake — see the "cacheable 200 bakes noindex + CSP + Vary" regression test in `apps/web/src/server.spec.ts`, and the deployed MISS-to-HIT check in `apps/web/e2e/edge-cache.spec.ts`.)_
 - **Do not key off `ENV`.** `production` is the pre-launch demo. The gate is a dedicated var so the indexable env is an explicit, deliberate choice. At public launch, set `ALLOW_INDEXING=true` on that one env (`apps/web/wrangler.jsonc` `vars`); the helper is `indexingAllowed()` in `apps/web/src/server/robots-policy.ts`.
+
+### 7.2 Per-page indexability (`<meta name="robots">`)
+
+§7.1 is an **environment** switch: all-or-nothing, and it cannot say "this one page". Per-page indexability is a separate, **app-side** layer — Angular's `Meta` service via `MetaService.setEntityMeta({ noindex })` / `setStaticPageMeta({ noindex })` in `apps/web/src/app/core/meta.service.ts`. It is recorded here because the two are routinely confused: `apps/web/src/server/seo-headers.ts` sets **no** robots directive at all (only `Vary`, `Link`, and the CSP above), so a per-page `noindex` never comes from the SEO-header path.
+
+The layers compose rather than conflict. Pre-launch, §7.1's blanket header dominates and the per-page tags are inert; at launch `ALLOW_INDEXING=true` lifts the blanket and the per-page tags become the operative policy. Cache-safety is not a concern for this layer: the tag is a property of the page's data, identical for every visitor, so it lives inside the cached HTML by design.
+
+Pages that emit `noindex` today, and how:
+
+| Page | Condition | Set by |
+|---|---|---|
+| Any 404 | always | `MetaService.setNotFoundMeta` |
+| `/search` | always — filtered results aren't canonical content | `MetaService.setSearchMeta` |
+| `/unsubscribe` | always — tokenized, transactional (AECI-537) | `setStaticPageMeta({ noindex: true })` |
+| `/roadmap` | always (for now) — coming-soon placeholder, thin content; paired with sitemap exclusion | `setStaticPageMeta({ noindex: true })` |
+| Product-pair page | no integrations between the two products | `setEntityMeta({ noindex })` — `products-pair.resolver.ts` |
+| `/trades/:slug` | `product_count < TRADE_PUBLISH_MIN_PRODUCTS` (AECI-546) | `setEntityMeta({ noindex })` — `taxonomy-browse.resolver.ts` → `applyBrowseMeta` |
+| `/auth/login`, `/account`, `/admin/*`, `/products/:slug/review`, the claim/correction request forms | always — authenticated or transactional | the component itself, calling Angular's `Meta.updateTag` directly rather than going through `MetaService` |
+
+Two things worth noting about that last row: those pages are all non-cacheable, so the direct `Meta.updateTag` call carries no cache risk — but it also means `grep 'noindex'` over `MetaService` alone under-reports the set. `/contact`, `/about`, `/updates`, and `/legal/*` are static **and indexable**; they use `setStaticPageMeta` without the flag. `/roadmap` is the one static page that is cacheable **and** noindexed — a coming-soon placeholder is thin content, so it opts in to the flag and stays out of `sitemap.xml`; indexability and cacheability are independent axes.
+
+The trade case is the only **count-gated** one, and it is deliberately paired with sitemap exclusion — the two must agree, or the sitemap advertises a page that tells the crawler to go away. The `/trades` index page and the three sibling taxonomy facets are never gated. Full policy: `TRADES_VOCABULARY.md` §6.
+
+The directive emitted is a bare `noindex`, not `noindex, nofollow` (§7.1's env-wide value): a `noindex`ed page's outbound links should still be followed. This differs from §7.1 on purpose — a pre-launch site wants nothing crawled onward, whereas a thin-but-real page's links to products are worth following.
 
 ---
 

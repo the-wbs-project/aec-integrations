@@ -59,18 +59,21 @@ Rules:
   as idempotent `INSERT … ON CONFLICT(slug) DO UPDATE` with deterministic
   UUIDv5 ids. The Stage 1.5 `data_object` vocabulary follows the same pattern in
   `apps/api/seed/data-objects.sql` (AECI-293; source of truth
-  `docs/DATA_OBJECT_VOCABULARY.md`). The local catalog fixture is
+  `docs/DATA_OBJECT_VOCABULARY.md`), as does the `trade` vocabulary in
+  `apps/api/seed/trades.sql` (AECI-540; source of truth
+  `docs/TRADES_VOCABULARY.md`, whose §8 states the UUIDv5 namespace verbatim).
+  The local catalog fixture is
   `apps/api/seed/catalog.sql` (local-dev only; staging/prod re-promote from
   Airtable via `POST /api/promote`).
 - **Per-env apply** (staging/demo/production) is wired into CI in Phase 5
   (AECI-256): the deploy lanes (`deploy.yml`, `promote-to-demo.yml`,
   `promote-to-prod.yml`) run `scripts/d1-apply-migrations.sh <db> <env>`, which
   applies `wrangler d1 migrations apply aeci-app-<env> --env <env> --remote` and
-  reconciles the two reference-data seeds. The helper **retries each remote D1
+  reconciles the three reference-data seeds. The helper **retries each remote D1
   command** on a transient Cloudflare D1 API internal error (`[code: 7500]`) —
   a single such blip otherwise aborts the whole deploy (seen on promote-to-demo
   run 28671935011); retrying is safe because every command is idempotent
-  (`migrations apply` is a tracked no-op once applied; both seeds are UPSERTs on
+  (`migrations apply` is a tracked no-op once applied; all three seeds are UPSERTs on
   deterministic UUIDv5 ids).
 - **No RLS / GRANTs / triggers.** D1/SQLite has none; authorization is app-layer
   (ADR 0016 §4, `docs/AUTH_AND_RLS.md`), and `updated_at` is refreshed app-side
@@ -134,7 +137,7 @@ This does not break the drift gate: drizzle-kit diffs `schema.ts` against
 `meta/NNNN_snapshot.json`, never the database, so leaving the generated snapshot untouched keeps
 `db:generate` a no-op. **Verify by re-running it and confirming `git status --porcelain` is clean**,
 and leave a header comment in the migration saying it is hand-authored and why
-(`0006_lyrical_leper_queen.sql` and `0008_slim_iron_lad.sql` are the references).
+(`0016_lyrical_leper_queen.sql` and `0017_slim_iron_lad.sql` are the references).
 `0003_gray_eternity.sql` is the lighter precedent — a hand-appended backfill after the generated
 statement.
 
@@ -154,9 +157,75 @@ AECI-607 shipped as `0008` to leave `0007` free for exactly that reconciliation.
 applies unapplied migrations in filename order (gaps are irrelevant; it tracks applied names in
 `d1_migrations`), the test harness sorts `*.sql`, and drizzle-kit reads `_journal.json` rather than
 the file sequence, so `db:generate` still reports "No schema changes". Keep `_journal.json` in
-drizzle's exact format — no trailing newline; it is `.prettierignore`d for that reason. **Renumber
-before the migration is applied anywhere remote**; once a tier has recorded the old filename,
-renaming it makes the migration re-run.
+drizzle's exact format — no trailing newline; it is `.prettierignore`d for that reason.
+
+##### ⚠️ The three-rename recipe only holds for a SAME-GENERATION collision
+
+It assumes both migrations were generated against the **same** parent snapshot — two branches both
+sitting at `0006` off a shared `0005`. Then the snapshot content is already correct and only its
+*name* is wrong.
+
+**Across a multi-migration gap it is wrong, and silently so.** A drizzle snapshot is the FULL schema
+state after its migration, so an epic's `0006_snapshot.json` describes "`0005` + this epic's change"
+— it knows nothing about the ten migrations the other branch added meanwhile. Rename it to `0016`
+and the newest snapshot in the chain is missing half the schema; the next `db:generate` diffs
+`schema.ts` against it, decides every one of those tables is new, and `drift-check.yml` fails. The
+files also *collide by name* (`meta/0006_snapshot.json` exists on both sides), so this shows up as a
+real git conflict rather than a clean rename.
+
+**What to do instead — regenerate the snapshot, keep the body.** This is the §0 hand-authored-body
+workflow above, run once per migration being renumbered. AECI-619 did exactly this for
+`0006`→`0016` and `0008`→`0017`:
+
+1. Resolve `schema.ts` to the merged union, and stash a copy.
+2. Delete the epic's `NNNN_*.sql` + `meta/NNNN_snapshot.json`; take the other branch's `meta/`
+   (snapshots + `_journal.json`) wholesale.
+3. Edit `schema.ts` down to the state *after the first* renumbered migration only (reverse-apply the
+   later migration's schema commit: `git show <sha> -- apps/api/src/db/schema.ts | git apply -R`).
+4. `pnpm --filter @aeci/api db:generate`. **Keep its `meta/` snapshot and journal entry; discard the
+   SQL body it wrote** and drop the original hand-authored body in its place. Rename the file to
+   preserve the original slug and set the journal entry's `tag` to match, so as-built notes and
+   `d1_migrations` stay legible.
+5. Restore the full `schema.ts` and repeat for the second migration.
+6. Re-run `db:generate` and confirm it reports "No schema changes" with nothing unstaged.
+
+**Renumber before the migration is applied anywhere remote**; once a tier has recorded the old
+filename, renaming it makes the migration re-run.
+
+##### Repairing a tier that already recorded the old filename
+
+If you are past that point (AECI-619 was — remote `aeci-app-preview` had applied
+`0006_lyrical_leper_queen.sql` on 2026-08-14), do **not** let `migrations apply` re-run the renamed
+file: the `ALTER`s would hit existing columns and error. Rename the ledger rows instead, then apply:
+
+```bash
+cd apps/api
+# 1. Point the recorded names at the new filenames. Same migration, same applied_at.
+npx wrangler d1 execute aeci-app-preview --env preview --remote --command \
+  "UPDATE d1_migrations SET name='0016_lyrical_leper_queen.sql' WHERE name='0006_lyrical_leper_queen.sql'"
+npx wrangler d1 execute aeci-app-preview --env preview --remote --command \
+  "UPDATE d1_migrations SET name='0017_slim_iron_lad.sql' WHERE name='0008_slim_iron_lad.sql'"
+
+# 2. Now only genuinely-unapplied migrations run.
+npx wrangler d1 migrations apply aeci-app-preview --env preview --remote
+
+# 3. Confirm the ledger matches the files on disk.
+npx wrangler d1 execute aeci-app-preview --env preview --remote --command \
+  "SELECT name FROM d1_migrations ORDER BY id"
+```
+
+Wrangler compares recorded **names** against the `*.sql` filenames, so ordering in `d1_migrations`
+is cosmetic — a migration applied out of sequence (the epic's, before the other branch's back-fill)
+is fine as long as the two sets do not touch the same objects. Check that before you apply: for
+AECI-619, `main`'s `0010`–`0015` touched `promote_jobs` / `metrics_daily` / `job_runs` /
+`page_views` / `products.promoted_at` / `feedback` / `mailing_list` and never `claims` or
+`attestations`, so the inversion was inert.
+
+##### Reserved numbers
+
+`aeci-515` (Paid Tiers) still holds `0006_easy_sandman.sql` (`vendor_entitlements`, AECI-609),
+which collides with `main`'s `0006_crazy_lockheed.sql`. **It takes `0018`+ when it reconciles** —
+`0016`/`0017` are spent.
 
 ### Read replication (D1 Sessions API — AECI-250)
 
@@ -248,6 +317,18 @@ Each migration must leave the DB in a state the previously-deployed Worker code 
 
 `DROP TABLE`, `DROP COLUMN`, type-narrowing (`varchar(255)` → `varchar(64)`), `ADD COLUMN ... NOT NULL` without a backfill, and any change that loses data without a migration path — these require explicit approval in the issue **before** you write the SQL. Not in the PR. In the issue.
 
+### 3.3a Dropping a column on SQLite/D1 may force a table recreate
+
+SQLite refuses `ALTER TABLE … DROP COLUMN` when the column carries an **index** or appears in a **`FOREIGN KEY`** clause. drizzle-kit handles it by emitting a `__new_<table>` copy-and-rename instead of a `DROP COLUMN`, which on a large table is a full row copy — D1 bills rows *written*, and there is no undo.
+
+Three rules when you hit this, all learned from `migrations/0014_careful_absorbing_man.sql` (AECI-585, the first table recreate in this repo — every `ALTER` before it is an `ADD`):
+
+1. **Replace the pragma.** drizzle-kit wraps the swap in `PRAGMA foreign_keys=OFF` / `=ON`. That is **not** the lever D1 supports — [D1's migrations docs](https://developers.cloudflare.com/d1/reference/migrations/) specify `PRAGMA defer_foreign_keys = true`, which holds for the surrounding transaction and resets on commit (so it needs no matching re-enable). Regenerating the file reintroduces the wrong pragma; re-apply the edit and say so in a comment at the top of the migration.
+2. **Check the copy lists the PK explicitly.** For an `AUTOINCREMENT` PK, an implicit copy would reassign ids. Anything paginating on `(created_at, id)` then repeats or skips rows.
+3. **Verify against non-empty data, not just a fresh DB.** Apply to a seeded local D1 and assert the row count and `MAX(id)` before and after. A recreate that "applies cleanly" to an empty table proves nothing.
+
+Splitting the work into two migrations — one additive (`ADD COLUMN`s, trivially safe) and one destructive (the recreate) — also keeps drizzle-kit from prompting for add-vs-rename disambiguation, which needs a TTY it does not have under `pnpm`.
+
 ### 3.4 Idempotency where cheap
 
 Prefer `CREATE INDEX IF NOT EXISTS`, `DROP POLICY IF EXISTS ... CREATE POLICY ...`, `CREATE OR REPLACE FUNCTION`. Postgres migrations don't *have* to be idempotent (the migration system tracks what ran), but idempotent SQL is easier to recover from when something goes wrong mid-apply.
@@ -320,7 +401,7 @@ PR review verifies these are all aligned. CI applies the migration to staging at
 ## 7. What does not belong in a migration
 
 - **Seed data**: for the app DB, the local D1 seed SQL under `apps/api/seed/` (applied via `pnpm db:seed:local`). (`supabase/seed.sql` is now Supabase-Auth-project-local only.)
-- **Reference data** (applied to *all* environments): the taxonomy vocabulary lives in `apps/api/seed/taxonomy.sql` and the Stage 1.5 `data_object` vocabulary in `apps/api/seed/data-objects.sql` (both idempotent upserts), applied to D1 via `wrangler d1 execute` — locally via `pnpm db:seed:taxonomy:local` / `pnpm db:seed:data-objects:local`, in deploy/promote via `wrangler d1 execute … --file=seed/taxonomy.sql` and `… --file=seed/data-objects.sql`. See ADR 0008.
+- **Reference data** (applied to *all* environments): the taxonomy vocabulary lives in `apps/api/seed/taxonomy.sql`, the Stage 1.5 `data_object` vocabulary in `apps/api/seed/data-objects.sql`, and the `trade` vocabulary in `apps/api/seed/trades.sql` (all idempotent upserts), applied to D1 via `wrangler d1 execute` — locally via `pnpm db:seed:taxonomy:local` / `pnpm db:seed:data-objects:local` / `pnpm db:seed:trades:local`, in deploy/promote via the matching `wrangler d1 execute … --file=seed/<name>.sql` steps in `scripts/d1-apply-migrations.sh`. See ADR 0008.
 - **Curator-managed data**: vendors, products, integrations, reviews come in via `POST /api/promote` (`docs/DATABASE_SCHEMA.md` §13).
 - **One-off backfills**: write a script (`apps/api/scripts/<name>.ts`), run it explicitly per environment. Keep migrations declarative.
 - **RLS policies**: see §5.

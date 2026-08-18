@@ -7,6 +7,7 @@ import {
   PhaseDetailSchema,
   TaxonomyResponseSchema,
   TaxonomyTermWithCountSchema,
+  TradeDetailSchema,
 } from './taxonomy';
 
 const uuid = (n: number) => `${String(n).padStart(8, '0')}-0000-4000-8000-000000000000`;
@@ -64,12 +65,18 @@ describe('TaxonomyTermWithCountSchema', () => {
   });
 });
 
-describe('CategoryDetailSchema / AudienceDetailSchema / PhaseDetailSchema', () => {
+describe('CategoryDetailSchema / AudienceDetailSchema / PhaseDetailSchema / TradeDetailSchema', () => {
   it('parse with an empty products array', () => {
     const detail = { ...validTerm, products: [] };
     expect(CategoryDetailSchema.parse(detail).products).toEqual([]);
     expect(AudienceDetailSchema.parse(detail).products).toEqual([]);
     expect(PhaseDetailSchema.parse(detail).products).toEqual([]);
+    expect(TradeDetailSchema.parse(detail).products).toEqual([]);
+  });
+
+  it('TradeDetailSchema accepts a sub-publication-floor term (the API is ungated)', () => {
+    const parsed = TradeDetailSchema.parse({ ...validTerm, product_count: 0, products: [] });
+    expect(parsed.product_count).toBe(0);
   });
 
   it('parse with hydrated products', () => {
@@ -84,15 +91,17 @@ describe('CategoryDetailSchema / AudienceDetailSchema / PhaseDetailSchema', () =
 });
 
 describe('TaxonomyResponseSchema', () => {
-  it('parses categories, audiences, and phases together', () => {
+  it('parses all four facets together', () => {
     const parsed = TaxonomyResponseSchema.parse({
       categories: [validTerm],
       audiences: [validTerm],
       phases: [validTerm],
+      trades: [validTerm],
     });
     expect(parsed.categories).toHaveLength(1);
     expect(parsed.audiences).toHaveLength(1);
     expect(parsed.phases).toHaveLength(1);
+    expect(parsed.trades).toHaveLength(1);
   });
 
   it('rejects when a list is missing', () => {
@@ -101,6 +110,28 @@ describe('TaxonomyResponseSchema', () => {
       audiences: [],
     });
     expect(result.success).toBe(false);
+  });
+
+  it('rejects when only trades is missing (the fourth facet is required)', () => {
+    const result = TaxonomyResponseSchema.safeParse({
+      categories: [],
+      audiences: [],
+      phases: [],
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('accepts trade terms below the publication floor with their real count', () => {
+    const parsed = TaxonomyResponseSchema.parse({
+      categories: [],
+      audiences: [],
+      phases: [],
+      trades: [
+        { ...validTerm, slug: 'paving-asphalt', name: 'Paving & Asphalt', product_count: 0 },
+        { ...validTerm, slug: 'glazing', name: 'Glazing', product_count: 2 },
+      ],
+    });
+    expect(parsed.trades.map((t) => t.product_count)).toEqual([0, 2]);
   });
 });
 

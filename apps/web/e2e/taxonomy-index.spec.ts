@@ -1,9 +1,12 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
 
-// AECI-61 / AECI-157 — the three taxonomy flat-index pages (`/categories`,
-// `/audiences`, `/phases`): every term with its product count, rendered as an
-// editorial card grid. One generalized `TaxonomyIndexPage` serves all three.
+import { TRADE_PUBLISH_MIN_PRODUCTS } from '@aeci/shared';
+
+// AECI-61 / AECI-157 / AECI-544 — the four taxonomy flat-index pages
+// (`/categories`, `/audiences`, `/phases`, `/trades`): every term with its
+// product count, rendered as an editorial card grid. One generalized
+// `TaxonomyIndexPage` serves all four.
 // Verifies SSR render (title, canonical, breadcrumb), the §4 cache headers/tags,
 // accessibility, and that a card navigates to its `/{segment}/:slug` browse page.
 //
@@ -11,16 +14,29 @@ import { expect, test } from '@playwright/test';
 // assertions only run when at least one term is seeded for that facet.
 
 interface Facet {
-  segment: 'categories' | 'audiences' | 'phases';
+  segment: 'categories' | 'audiences' | 'phases' | 'trades';
   title: string;
   /** Key into `GET /api/taxonomy`. */
-  apiKey: 'categories' | 'audiences' | 'phases';
+  apiKey: 'categories' | 'audiences' | 'phases' | 'trades';
+  /**
+   * Minimum `product_count` for a term to be LISTED on the index. Only trades
+   * have a publication floor (`TRADE_PUBLISH_MIN_PRODUCTS`,
+   * TRADES_VOCABULARY.md §6) — the API returns every term ungated and the page
+   * filters, so the expected card count is the filtered count, not the raw one.
+   */
+  publishFloor: number;
 }
 
 const FACETS: Facet[] = [
-  { segment: 'categories', title: 'Categories', apiKey: 'categories' },
-  { segment: 'audiences', title: 'Audiences', apiKey: 'audiences' },
-  { segment: 'phases', title: 'Phases', apiKey: 'phases' },
+  { segment: 'categories', title: 'Categories', apiKey: 'categories', publishFloor: 0 },
+  { segment: 'audiences', title: 'Audiences', apiKey: 'audiences', publishFloor: 0 },
+  { segment: 'phases', title: 'Phases', apiKey: 'phases', publishFloor: 0 },
+  {
+    segment: 'trades',
+    title: 'Trades',
+    apiKey: 'trades',
+    publishFloor: TRADE_PUBLISH_MIN_PRODUCTS,
+  },
 ];
 
 for (const facet of FACETS) {
@@ -69,10 +85,12 @@ for (const facet of FACETS) {
     test('lists every term with a product count', async ({ page, request }) => {
       const taxonomy = (await (await request.get('/api/taxonomy')).json()) as Record<
         string,
-        Array<{ slug: string }>
+        Array<{ slug: string; product_count: number }>
       >;
-      const terms = taxonomy[facet.apiKey] ?? [];
-      test.skip(terms.length === 0, `no ${facet.segment} seeded in this environment`);
+      const terms = (taxonomy[facet.apiKey] ?? []).filter(
+        (t) => t.product_count >= facet.publishFloor,
+      );
+      test.skip(terms.length === 0, `no listable ${facet.segment} seeded in this environment`);
 
       await page.goto(path);
       await expect(page.locator('app-root')).toBeAttached();

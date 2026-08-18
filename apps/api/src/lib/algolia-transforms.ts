@@ -21,10 +21,11 @@
  */
 
 import { mechanismRank } from '@aeci/shared/algolia';
-import type {
-  AlgoliaIntegrationRecord,
-  AlgoliaProductRecord,
-  AlgoliaVendorRecord,
+import {
+  type AlgoliaIntegrationRecord,
+  type AlgoliaProductRecord,
+  type AlgoliaVendorRecord,
+  flattenTradeAliases,
 } from '@aeci/shared/algolia-records';
 import { sql } from 'drizzle-orm';
 
@@ -50,6 +51,9 @@ const vendorLinkColumns = {
   verified: true,
 } as const;
 const taxonomyNameColumns = { name: true } as const;
+/** Trades need MORE than the name (AECI-545): `aliases` feeds the searchable-only
+ *  `trade_aliases` record attribute, so `taxonomyNameColumns` is insufficient. */
+const tradeRecordColumns = { name: true, aliases: true } as const;
 
 // ---------------------------------------------------------------------------
 // Query configs (spread into db.query.<table>.findMany)
@@ -58,9 +62,18 @@ const taxonomyNameColumns = { name: true } as const;
 /**
  * `AlgoliaProductRecord` hydration. `productVendors` carries `isPrimary` + the
  * vendor link so `pickPrimaryVendor` resolves the primary; categories/audiences/
- * phases pull every linked term's NAME (the record is multi-valued). Includes the
- * incremental-sync signals (`promotionStatus`, `updatedAt`) that
- * `buildFromStatusRows` + the watermark window read.
+ * phases/trades pull every linked term's NAME (the record is multi-valued), and
+ * trades additionally pull `aliases` for the searchable-only `trade_aliases`
+ * attribute (AECI-545). Includes the incremental-sync signals
+ * (`promotionStatus`, `updatedAt`) that `buildFromStatusRows` + the watermark
+ * window read.
+ *
+ * Freshness note for trades: the nightly window is keyed on `products.updated_at`,
+ * and `product_trades` rows are written only by the promote flow (AECI-542),
+ * which touches the product row — so a re-promote carries its trade tags into the
+ * index on the next sync. A bulk backfill that writes the join table WITHOUT
+ * bumping `products.updated_at` would be invisible to the incremental sync and
+ * needs a forced full reindex (`apps/datatool/src/algolia-reindex.ts`).
  */
 export const algoliaProductConfig = {
   columns: {
@@ -84,6 +97,7 @@ export const algoliaProductConfig = {
     productCategories: { columns: {}, with: { category: { columns: taxonomyNameColumns } } },
     productAudiences: { columns: {}, with: { audience: { columns: taxonomyNameColumns } } },
     productPhases: { columns: {}, with: { phase: { columns: taxonomyNameColumns } } },
+    productTrades: { columns: {}, with: { trade: { columns: tradeRecordColumns } } },
   },
 } as const;
 
@@ -165,6 +179,7 @@ export interface RawAlgoliaProductRow {
   productCategories: Array<{ category: { name: string } }>;
   productAudiences: Array<{ audience: { name: string } }>;
   productPhases: Array<{ phase: { name: string } }>;
+  productTrades: Array<{ trade: { name: string; aliases: string[] | null } }>;
 }
 
 export interface RawAlgoliaVendorRow {
@@ -199,6 +214,7 @@ export interface RawAlgoliaIntegrationRow {
 
 export function toAlgoliaProduct(row: RawAlgoliaProductRow): AlgoliaProductRecord {
   const vendor = pickPrimaryVendor(row.productVendors);
+  const tradeNames = row.productTrades.map((r) => r.trade.name);
   return {
     objectID: row.id,
     name: row.name,
@@ -209,6 +225,11 @@ export function toAlgoliaProduct(row: RawAlgoliaProductRow): AlgoliaProductRecor
     categories: row.productCategories.map((r) => r.category.name),
     audiences: row.productAudiences.map((r) => r.audience.name),
     phases: row.productPhases.map((r) => r.phase.name),
+    trades: tradeNames,
+    trade_aliases: flattenTradeAliases(
+      tradeNames,
+      row.productTrades.map((r) => r.trade.aliases),
+    ),
     integration_count: row.integrationCount,
     review_count: row.reviewCount,
     rating_overall_avg: row.ratingOverallAvg,

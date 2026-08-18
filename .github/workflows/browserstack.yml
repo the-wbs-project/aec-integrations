@@ -113,12 +113,12 @@ jobs:
       # Check out the repo at the deployed SHA so the curated spec subset matches
       # what is live on staging (under workflow_run the workflow file itself comes
       # from main, but the checked-out tree should be the measured commit).
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
       - name: Install pnpm
         run: npm install -g pnpm@${{ env.PNPM_VERSION }}
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'pnpm'
@@ -140,7 +140,7 @@ jobs:
         run: pnpm run test:e2e:browserstack
       - name: Upload BrowserStack Playwright report
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: browserstack-report
           path: |

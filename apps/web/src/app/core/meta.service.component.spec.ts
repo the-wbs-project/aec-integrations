@@ -202,3 +202,53 @@ describe('MetaService.setHomeMeta', () => {
     ).toHaveLength(1);
   });
 });
+
+describe('MetaService.setStaticPageMeta', () => {
+  beforeEach(() => {
+    TestBed.resetTestingModule();
+    const head = document.head;
+    for (const el of head.querySelectorAll(
+      'meta[name="description"], meta[name="robots"], meta[property^="og:"], meta[name^="twitter:"], link[rel="canonical"], script[data-aeci-jsonld]',
+    )) {
+      el.remove();
+    }
+    document.title = '';
+  });
+
+  it('adds a noindex robots tag when noindex is opted in (e.g. /unsubscribe)', () => {
+    const { service, doc } = setup();
+
+    service.setStaticPageMeta({
+      title: 'Unsubscribe · AEC Integrations',
+      description: 'Unsubscribe from the AEC Integrations mailing list.',
+      canonical: 'https://aecintegrations.com/unsubscribe',
+      noindex: true,
+    });
+
+    const robots = doc.head.querySelector('meta[name="robots"]') as HTMLMetaElement | null;
+    expect(robots?.getAttribute('content')).toBe('noindex');
+  });
+
+  it('removes a stale robots tag when noindex is absent, so an in-app nav off a noindexed page onto /about does not leave the page noindexed', () => {
+    const { service, doc } = setup();
+
+    // Simulate landing on a noindexed static page first (e.g. /unsubscribe)…
+    service.setStaticPageMeta({
+      title: 'Unsubscribe · AEC Integrations',
+      description: 'Unsubscribe from the AEC Integrations mailing list.',
+      canonical: 'https://aecintegrations.com/unsubscribe',
+      noindex: true,
+    });
+    expect(doc.head.querySelector('meta[name="robots"]')).not.toBeNull();
+
+    // …then an in-app (SPA) navigation onto an indexable static page (/about),
+    // which sets its meta without noindex. The stale robots tag must be cleared.
+    service.setStaticPageMeta({
+      title: 'About · AEC Integrations',
+      description: 'About AEC Integrations.',
+      canonical: 'https://aecintegrations.com/about',
+    });
+
+    expect(doc.head.querySelector('meta[name="robots"]')).toBeNull();
+  });
+});

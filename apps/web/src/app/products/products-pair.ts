@@ -5,9 +5,11 @@ import { map } from 'rxjs';
 
 import type {
   ContextDirection,
+  ProductLink,
   ProductPairClaim,
   ProductPairMechanism,
   ProductPairResponse,
+  VendorLink,
 } from '@aeci/shared';
 
 import { ExternalLinkTracker } from '../analytics/external-link-tracker';
@@ -15,6 +17,7 @@ import { NotFound } from '../not-found/not-found';
 import { mechanismKindLabel } from '../search/mechanism-labels';
 import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
 import { MailingListSignup } from '../shared/mailing-list-signup/mailing-list-signup';
+import { MaintenanceMarker } from '../shared/maintenance-marker/maintenance-marker';
 import { VerifiedBadge } from '../shared/verified-badge/verified-badge';
 
 import { AgreementBadge } from './agreement-badge';
@@ -147,6 +150,11 @@ interface MechanismView {
   /** Data-object claim lanes (§8). Empty when the mechanism has no claims yet. */
   readonly claimGroups: readonly ClaimGroup[];
   readonly hasClaims: boolean;
+  /** Stage 1 §4.4 "Built by (vendor) / Powered by (product)" — rendered as a
+   *  linked byline so a via-connector mechanism (e.g. "via Agave ERP Sync")
+   *  navigates to the connector's own pages instead of being dead text. */
+  readonly builtByVendor: VendorLink | null;
+  readonly poweredByProduct: ProductLink | null;
 }
 
 interface PairView {
@@ -248,6 +256,7 @@ function writePairViewCookie(mode: PairViewMode): void {
     ExternalLinkTracker,
     LogoOrInitial,
     MailingListSignup,
+    MaintenanceMarker,
     NotFound,
     RouterLink,
     VerifiedBadge,
@@ -288,12 +297,15 @@ function writePairViewCookie(mode: PairViewMode): void {
 
           <header class="mb-8 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
             <div class="space-y-3">
-              <p
-                class="text-xs uppercase tracking-[0.14em] text-(--text-secondary)"
-                i18n="@@pair.eyebrow"
-              >
-                Integration
-              </p>
+              <div class="flex flex-wrap items-center gap-2">
+                <p
+                  class="text-xs uppercase tracking-[0.14em] text-(--text-secondary)"
+                  i18n="@@pair.eyebrow"
+                >
+                  Integration
+                </p>
+                <aec-maintenance-marker />
+              </div>
               <h1
                 class="font-display text-3xl font-semibold leading-tight tracking-tight text-(--text-primary) sm:text-4xl"
                 i18n="@@pair.heading"
@@ -445,6 +457,40 @@ function writePairViewCookie(mode: PairViewMode): void {
                     <h2 class="font-display text-xl text-(--text-primary)">{{ m.name }}</h2>
                   }
                 </header>
+
+                <!-- Linked provenance byline (Stage 1 §4.4: "Built by" / "Powered
+                     by"). Mechanism identity, not detail, so it renders in Basic too.
+                     Until the connector FK is backfilled, via-connector rows fall
+                     back to the vendor-only "Built by" segment. -->
+                @if (m.builtByVendor || m.poweredByProduct) {
+                  <p
+                    class="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-(--text-secondary)"
+                  >
+                    @if (m.builtByVendor; as bv) {
+                      <span>
+                        <ng-container i18n="@@pair.mechanism.builtBy">Built by</ng-container>
+                        <a
+                          [routerLink]="['/vendors', bv.slug]"
+                          class="text-(--accent-primary) underline underline-offset-2"
+                          >{{ bv.name }}</a
+                        >
+                      </span>
+                    }
+                    @if (m.builtByVendor && m.poweredByProduct) {
+                      <span aria-hidden="true" class="text-(--text-tertiary)">·</span>
+                    }
+                    @if (m.poweredByProduct; as pb) {
+                      <span>
+                        <ng-container i18n="@@pair.mechanism.poweredBy">Powered by</ng-container>
+                        <a
+                          [routerLink]="['/products', pb.slug]"
+                          class="text-(--accent-primary) underline underline-offset-2"
+                          >{{ pb.name }}</a
+                        >
+                      </span>
+                    }
+                  </p>
+                }
 
                 <!-- Layer-A mechanism arrow: a Detailed-view detail, shown only when
                      this mechanism has no claims. When claims exist the per-lane
@@ -668,6 +714,8 @@ export class ProductsPairPage {
       directionAria: m.direction ? directionAria(m.direction, otherName) : '',
       claimGroups: buildClaimGroups(m.claims, otherName, vendorNames),
       hasClaims: m.claims.length > 0,
+      builtByVendor: m.built_by_vendor,
+      poweredByProduct: m.powered_by_product,
     };
   }
 

@@ -15,13 +15,17 @@ import { ReviewCta } from '../reviews/review-cta';
 import { ReviewStars } from '../reviews/review-stars';
 import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
 import { MailingListSignup } from '../shared/mailing-list-signup/mailing-list-signup';
+import { MaintenanceMarker } from '../shared/maintenance-marker/maintenance-marker';
 import { SectionNav, type SectionNavItem } from '../shared/section-nav/section-nav';
 import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
 import { VerifiedBadge } from '../shared/verified-badge/verified-badge';
 
+import { groupPoweredIntegrations } from './powered-hub-grouping';
 import { ProductIntegrationRow } from './product-integration-row';
+import { ProductPoweredHub } from './product-powered-hub';
 import { ProductReviews } from './product-reviews';
 import { ProductUsefulnessSection } from './product-usefulness';
+import { RoleBadge } from './role-badge';
 
 /**
  * AECI-57 — Product detail page at `/products/:slug`.
@@ -51,8 +55,17 @@ import { ProductUsefulnessSection } from './product-usefulness';
  * product linked separately on top — AECI-294 retired the standalone
  * `/integrations/:id` detail route the original AC named.
  *
+ * Powered-integrations section (Stage 1.5 Addendum B): a *second*, distinct
+ * integrations surface for connector-role products. The table above lists edges
+ * this product TERMINATES; `#powered-integrations` lists edges it POWERS
+ * (`integrations.powered_by_product_id`), where it is the mechanism and neither
+ * endpoint — so a pure connector's endpoint table is legitimately empty while
+ * its real value sits here. Rendered as a grouped hub view
+ * (`aec-product-powered-hub`), not a table.
+ *
  * Cache discipline: tags are written by the SSR runtime (vendor + each
- * integration shown), and the page-view payload was queued by the resolver.
+ * integration shown, both endpoints of each powered edge), and the page-view
+ * payload was queued by the resolver.
  * Nothing here triggers HTTP — hydration reads the resolved data out of
  * `route.data`.
  */
@@ -63,14 +76,17 @@ import { ProductUsefulnessSection } from './product-usefulness';
     ExternalLinkTracker,
     LogoOrInitial,
     MailingListSignup,
+    MaintenanceMarker,
     NotFound,
     ProductIntegrationRow,
+    ProductPoweredHub,
     ProductReviews,
     ProductUsefulnessSection,
     RequestDrawer,
     RequestTrigger,
     ReviewCta,
     ReviewStars,
+    RoleBadge,
     RouterLink,
     SectionNav,
     TaxonomyBadge,
@@ -121,12 +137,20 @@ import { ProductUsefulnessSection } from './product-usefulness';
               [priority]="true"
             />
             <div class="min-w-0 space-y-2">
-              <p
-                class="text-xs uppercase tracking-[0.14em] text-(--text-secondary)"
-                i18n="@@products.detail.eyebrow"
-              >
-                Product
-              </p>
+              <!-- Eyebrow + role chip. The role badge renders nothing for the
+                   default "application" role, so most products keep the bare
+                   eyebrow; a connector / hybrid is flagged where the visitor
+                   first looks (Stage 1.5 Addendum B). -->
+              <div class="flex flex-wrap items-center gap-2">
+                <p
+                  class="text-xs uppercase tracking-[0.14em] text-(--text-secondary)"
+                  i18n="@@products.detail.eyebrow"
+                >
+                  Product
+                </p>
+                <aec-role-badge [role]="p.product_role" />
+                <aec-maintenance-marker />
+              </div>
               <h1
                 class="font-display text-3xl font-semibold leading-tight tracking-tight text-(--text-primary) break-words sm:text-4xl"
               >
@@ -267,6 +291,31 @@ import { ProductUsefulnessSection } from './product-usefulness';
               <div class="flex flex-wrap gap-2">
                 @for (d of p.audiences; track d.slug) {
                   <aec-taxonomy-badge kind="audience" [slug]="d.slug" [name]="d.name" />
+                }
+              </div>
+            </section>
+          }
+
+          <!--
+            Trades (AECI-544). Sparse by design: a product is tagged only when
+            it has trade-specific value, so horizontal platforms render nothing
+            here and the length guard is the common path. Never gated on the
+            publication floor, because the tag is true even when the trade page
+            isn't promoted yet (TRADES_VOCABULARY.md §6). Sits between Audiences
+            and Project phases to match the facet sidebar's dimension order.
+          -->
+          @if (p.trades.length > 0) {
+            <section aria-labelledby="trades-label" class="space-y-3">
+              <h2
+                id="trades-label"
+                class="aec-overline text-(--text-secondary)"
+                i18n="@@products.detail.metadata.trades"
+              >
+                Trades
+              </h2>
+              <div class="flex flex-wrap gap-2">
+                @for (tr of p.trades; track tr.slug) {
+                  <aec-taxonomy-badge kind="trade" [slug]="tr.slug" [name]="tr.name" />
                 }
               </div>
             </section>
@@ -495,8 +544,102 @@ import { ProductUsefulnessSection } from './product-usefulness';
                   </tbody>
                 </table>
               </div>
+
+              <!-- Catalog-scope note. An integration row only exists once BOTH
+                   endpoints are promoted products, so this table is bounded by
+                   the directory, not by the vendor's real partner list: a
+                   product with hundreds of marketplace partners can render a
+                   dozen. The empty state already hedges ("Vendor data is
+                   curated"); without this line the POPULATED state makes a bare
+                   confident count, which is the one people screenshot. Scope,
+                   not apology: it states the boundary and offers the fix. -->
+              <p
+                class="text-xs text-(--text-secondary)"
+                i18n="@@products.detail.body.integrations.scope"
+              >
+                Only partners listed on AECi appear here. If one is missing,
+                <a
+                  aecRequestTrigger
+                  [entity]="'product'"
+                  [kind]="'correction'"
+                  [slug]="p.slug"
+                  [href]="'/products/' + p.slug + '/correction'"
+                  class="text-(--accent-primary) underline underline-offset-2"
+                  >suggest a correction</a
+                >.
+              </p>
             }
           </section>
+
+          <!-- Powered ("this product IS the connector") integrations, per Stage
+               1.5 Addendum B. Distinct from the endpoint table above: these edges
+               name this product in powered_by_product_id, so it appears in
+               neither endpoint bucket and the table above is legitimately empty
+               for a pure connector. Always rendered for connector / hybrid roles
+               (empty state included, so the page never reads as "integrates with
+               nothing"); for an application only when data exists, a safety net
+               for a mis-roled product that still powers edges. -->
+          @if (showPowered()) {
+            <section
+              id="powered-integrations"
+              aria-labelledby="powered-integrations-title"
+              class="scroll-mt-20 space-y-4"
+            >
+              <h2
+                id="powered-integrations-title"
+                class="font-display text-2xl font-semibold text-(--text-primary)"
+              >
+                {{ poweredHeading() }}
+              </h2>
+
+              @if (p.integrations_as_connector.length === 0) {
+                <p
+                  class="rounded-(--radius-lg) border border-dashed border-(--border-default)
+                    bg-(--surface-sunken) p-6 text-sm text-(--text-secondary)"
+                  i18n="@@products.detail.body.powers.empty"
+                >
+                  No integrations are recorded as running on this connector yet. Vendor data is
+                  curated; if you know of one,
+                  <a
+                    aecRequestTrigger
+                    [entity]="'product'"
+                    [kind]="'correction'"
+                    [slug]="p.slug"
+                    [href]="'/products/' + p.slug + '/correction'"
+                    class="text-(--accent-primary) underline underline-offset-2"
+                    >suggest a correction</a
+                  >.
+                </p>
+              } @else {
+                <aec-product-powered-hub [view]="poweredView()" />
+
+                <!-- Same boundary as the endpoint table above, and it bites
+                     harder here: a connector's whole value proposition is
+                     breadth, so "Integrations it powers (4)" for a product that
+                     markets ~14 ERP connections understates the vendor in an
+                     h2. That is the mirror of the defect Addendum B closed, and
+                     an understatement is as much a trust failure as an
+                     overstatement on a directory that refuses pay-for-placement.
+                     Both sections carry the note, deliberately: caveating one
+                     would imply the other is complete. -->
+                <p
+                  class="text-xs text-(--text-secondary)"
+                  i18n="@@products.detail.body.powers.scope"
+                >
+                  Only integrations between products listed on AECi appear here. If one is missing,
+                  <a
+                    aecRequestTrigger
+                    [entity]="'product'"
+                    [kind]="'correction'"
+                    [slug]="p.slug"
+                    [href]="'/products/' + p.slug + '/correction'"
+                    class="text-(--accent-primary) underline underline-offset-2"
+                    >suggest a correction</a
+                  >.
+                </p>
+              }
+            </section>
+          }
 
           <section id="reviews" aria-labelledby="reviews-title" class="scroll-mt-20">
             <aec-product-reviews
@@ -605,6 +748,55 @@ export class ProductDetailPage {
   });
 
   /**
+   * Whether the "Integrations it powers" section renders (Stage 1.5
+   * Addendum B). Connector / hybrid products always show it — their whole value
+   * proposition is the edges they power, so an empty state there is information
+   * ("none recorded yet"), not clutter. Applications show it only when they
+   * actually power edges, which is a data-driven safety net for a product whose
+   * `product_role` hasn't caught up with its data.
+   */
+  protected readonly showPowered = computed(() => {
+    const p = this.product();
+    if (!p) return false;
+    return p.product_role !== 'application' || p.integrations_as_connector.length > 0;
+  });
+
+  /**
+   * The Addendum B hub view, computed HERE rather than inside
+   * `ProductPoweredHub` so the heading count and the rendered rows are
+   * provably the same set (see `poweredHeading`).
+   */
+  protected readonly poweredView = computed(() =>
+    groupPoweredIntegrations(this.product()?.integrations_as_connector ?? []),
+  );
+
+  /**
+   * "Integrations it powers (N)".
+   *
+   * The copy is a noun phrase, parallel to the endpoint "Integrations (N)"
+   * heading directly above it, because on a connector page **both sections can
+   * be populated at once** — live data has a connector carrying its own
+   * endpoint integrations *and* powered edges (NetSuite Connector by
+   * Appficiency), so the two headings have to be told apart. The former
+   * "Powers these integrations" failed at that: verb-first (breaking the
+   * `About` / `How teams use it` / `Integrations` / `Reviews` heading grammar),
+   * "these" pointed forward at nothing, and "powers" is vendor marketing voice
+   * rather than the neutral catalog voice PRODUCT.md asks for. The pronoun in
+   * "it powers" does the disambiguating work "these" was not doing.
+   *
+   * N counts the distinct product PAIRS the section renders, not raw edges.
+   * Counting edges made the heading lie: live data carries duplicate rows for a
+   * pair (that same NetSuite connector has 4 edges over 2 pairs) and several
+   * mechanisms between one pair collapse to a single row, so a reader counting
+   * rows found fewer than the heading promised. Same inline-count treatment as
+   * the endpoint heading above.
+   */
+  protected readonly poweredHeading = computed(() => {
+    const count = this.poweredView().pairCount;
+    return $localize`:@@products.detail.body.powers.heading:Integrations it powers (${count}:count:)`;
+  });
+
+  /**
    * Whether the "How teams use it" section actually renders. Mirrors
    * `ProductUsefulnessSection.hasContent` (product-usefulness.ts) — that child
    * hides itself via `[hidden]` when a non-null `usefulness` carries no usable
@@ -642,6 +834,17 @@ export class ProductDetailPage {
       id: 'integrations',
       label: $localize`:@@products.detail.nav.integrations:Integrations`,
     });
+    // Gated on the same condition as the section itself, or the nav would link
+    // to an anchor that isn't on the page. Label matches the section heading
+    // verbatim (minus the count) so the two never read as different sections —
+    // it sits directly under "Integrations", which is exactly the pair the
+    // pronoun is there to separate.
+    if (this.showPowered()) {
+      items.push({
+        id: 'powered-integrations',
+        label: $localize`:@@products.detail.nav.powers:Integrations it powers`,
+      });
+    }
     // Reviews always renders (its empty state still does), so it is always in
     // the nav — same rule as Integrations above.
     items.push({

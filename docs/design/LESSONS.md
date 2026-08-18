@@ -6,6 +6,34 @@ Newest entries on top.
 
 ---
 
+## 2026-06-27 — A "relevance tuning" prototype is a real surface + a diff panel, not a dev tool (AECI-286)
+
+**Lesson:** When the ask is to "think through search relevance tuning," the prototype that lands is
+a premium, in-app surface you can *feel*, paired with an engineering diff panel underneath — not a
+bare debug table. Chris's standing preference is buyer-facing, toggleable concepts over a dev tool,
+even for an inherently engineering-flavored concern like ranking.
+
+**Context:** AECI-286 is the pre-launch think-through of the `SEARCH_RANKING.md` §7 tuning loop (the
+real post-launch run, AECI-283, is blocked on go-live and needs real query data). Built as
+`/preview/search-relevance`: the real `SearchProductCard`s with rank badges on top (toggle Baseline
+/ Ratings-forward / Coverage-weighted / Balanced blend, drag weight sliders), and a signal +
+rank-delta table below. It ranks curated AEC fixtures through a pure, unit-tested
+`ranking-strategies.ts`, so it runs in any workspace with no Algolia keys; an on-page caveat keeps
+it honest (it models `customRanking` client-side, it is not Algolia).
+
+**Action:**
+
+- For a "tuning/relevance" prototype, lead with the real result surface (reuse the shipping cards +
+  tokens) and put the signal/diff view second; don't ship the diff table alone.
+- Keep the ranking logic pure and framework-free (separate `*.ts` + plain-Vitest spec) so the lab
+  needs no live service and every strategy is unit-testable.
+- Two AA gotchas the axe pass caught in the diff panel: `--accent-rating` (goldenrod) and
+  `--accent-warm` (bone) are icon/background accents, not small-text colors. Use `--text-secondary`
+  for numerals and `--accent-secondary-deep` (clay deep) for the "moved down" delta so up/down stay
+  distinct and both clear AA.
+
+---
+
 ## 2026-06-10 — For multi-concept design selection, default to the in-app `preview/` route, not a `.context/` HTML file (AECI-181, Home design pass)
 
 **Lesson:** When a design pass produces several concepts for the PO to choose between, the

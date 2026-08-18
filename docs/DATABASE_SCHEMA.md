@@ -50,7 +50,7 @@ Handlers never import a module-level client. Each handler is a factory that take
 
 **Reads** use the relational query builder (`db.query.<table>.findMany / findFirst`) or `db.select()`; the read configs/mappers live in `apps/api/src/lib/drizzle-helpers.ts`.
 
-**Atomic writes.** D1 has **no interactive transactions**, so atomic multi-statement writes go through `db.batch([...])` (ADR 0016 / AECI-249). Every state-changing write emits its `audit_log` (+ `workflow_transitions`) row into the **same** batch via the `apps/api/src/lib/audit.ts` builders — see §18.
+**Atomic writes.** D1 has **no interactive transactions**, so atomic multi-statement writes go through `db.batch([...])` (ADR 0016 / AECI-249). Every write that changes **domain state** emits its `audit_log` (+ `workflow_transitions`) row into the **same** batch via the `apps/api/src/lib/audit.ts` builders — see §18. Derived and log-class writes are exempt (ADR 0022).
 
 **`wrangler.jsonc` rationale.** No `nodejs_compat` flag is needed for the database — D1 is reached through the native `DB` binding. Add `nodejs_compat` only for unrelated Node-API needs (the SSR Worker uses it for `@angular/ssr`; the API Worker's DB path does not).
 
@@ -66,12 +66,20 @@ Migration approach is documented in Section 10.
 
 ### 2a. Landing-page lead-capture tables
 
-The two lead-capture tables — `feedback` and `mailing_list` — were cut over to **D1** (AECI-257). They are written by the API Worker's `POST /api/feedback` + `/api/subscribe` handlers (`apps/api/src/routes/landing-forms.ts`), reached over the `env.API` service binding (no longer Supabase Postgres / PostgREST). They predate the AECI Stage 1 schema and are otherwise **out of scope for everything in this document**:
+The two lead-capture tables — `feedback` and `mailing_list` — were cut over to **D1** (AECI-257). They are written by the API Worker's `POST /api/feedback` + `/api/subscribe` handlers (`apps/api/src/routes/landing-forms.ts`), reached over the `env.API` service binding (no longer Supabase Postgres / PostgREST). They predate the AECI Stage 1 schema and remain outside the Stage 1 entity model — but since **AECI-586** they are no longer write-only, so they are documented rather than merely listed:
 
-| Table | Written by | Purpose |
-| --- | --- | --- |
-| `feedback` | `POST /api/feedback` (`routes/landing-forms.ts`) | Lead-capture feedback form. |
-| `mailing_list` | `POST /api/subscribe` (`routes/landing-forms.ts`) | Mailing-list signups (idempotent on `email`). |
+| Table | Written by | Read by | Purpose |
+| --- | --- | --- | --- |
+| `feedback` | `POST /api/feedback` (`routes/landing-forms.ts`) | `GET /api/admin/feedback` (AECI-586) | Lead-capture feedback form. |
+| `mailing_list` | `POST /api/subscribe` + `POST /api/unsubscribe` (`routes/landing-forms.ts`) | `GET /api/admin/audience` (AECI-586); `GET /api/admin/overview`; the 00:15 snapshot cron | Mailing-list signups (idempotent on `email`). |
+
+**Columns, and which read surface exposes them (AECI-586).** `GET /api/admin/feedback` returns a `feedback` row whole — `id`, `created_at`, `features`, `tools`, `email`, `subscribed`, `country`, `city`, `region`, `timezone`, `referrer` — because the operator email fired from the handler was previously the table's only reader, so there is no prior projection to preserve. `GET /api/admin/audience` reads `mailing_list` in **aggregate only**: `created_at` and `unsubscribed_at` for the growth/churn series, `utm_source` / `utm_medium` / `utm_campaign` for attribution, and `country` / `region` / `city` / `asn` / `as_organization` for geography. It never returns `email` or `unsubscribe_token`, and no endpoint returns a `mailing_list` row.
+
+**Indexes (`0014`, AECI-586).** `feedback_created_at_idx` on `feedback (created_at)`; `mailing_list_created_at_idx` and `mailing_list_unsubscribed_at_idx` on the matching `mailing_list` columns. These two tables were the only ones in the database with **no `created_at` index at all** — `page_views` and `audit_log` have carried the equivalent since `0000` — so every day-bucketed signup or churn query and the inbox's `ORDER BY created_at DESC` was a full scan. Pure `CREATE INDEX`; none of §3.3a's table-recreate machinery applies.
+
+**`mailing_list` opt-out columns (AECI-537).** Two columns support unsubscribe: `unsubscribe_token` (TEXT, unique — `mailing_list_unsubscribe_token_key`) is an opaque per-subscriber token set on insert (`crypto.randomUUID()`; backfilled for pre-existing rows in migration `0006` via `hex(randomblob(16))`) and embedded in the welcome email's `/unsubscribe?token=…` link; `unsubscribed_at` (TEXT, nullable ISO-8601) is the **soft-delete / suppression** marker — `null` = active, a timestamp = opted out. `POST /api/unsubscribe` sets it (keyed on the token); a resubscribe (`POST /api/subscribe`) clears it back to active.
+
+That soft delete is what makes churn **exactly computable** rather than modelled: no `mailing_list` row is ever removed, so the active population on any past day is exactly `created_at <= D AND (unsubscribed_at IS NULL OR unsubscribed_at > D)` — the property `ADMIN_PANEL_SPEC.md` §4 shows the catalog counts lack, and the reason §5.4 derives its series live instead of reading the `metrics_daily` stocks. **The one thing it cannot preserve is a return**: the reactivation path clears `unsubscribed_at` and keeps the original `created_at`, so a subscriber who left and came back leaves no trace of having left. `GET /api/admin/audience` discloses that as `audience_history_is_current_state`, and `metrics_daily`'s `audience.subscribers_active` (§9.3) is the only durable record of the state a reactivation overwrites.
 
 The **pre-launch `apps/landing` Worker** was the original caller of both endpoints; it was **retired at the apex cutover (AECI-247/277)**, so the caller is now the shared mailing-list signup band (`apps/web/.../shared/mailing-list-signup`, mounted on the home closing-CTA plus the directory + detail pages — AECI-327, extracted from the home closing-CTA island of AECI-275). These tables are defined in the D1 schema (`apps/api/src/db/schema.ts`) and reproduce on a fresh local D1 via `pnpm db:setup:local`. The original `supabase/migrations/20260101000000_landing_baseline.sql` is retained only as an archived record (`supabase/archive/migrations/`) — the app DB no longer runs on Postgres (ADR 0016 / AECI-278). No AECI Stage 1 directory code reads or writes them; treat them as the lead-capture surface within the shared D1 database.
 
@@ -88,6 +96,7 @@ Tables grouped by domain:
 - `taxonomy_categories` — closed vocabulary: product categories (e.g. "BIM Authoring")
 - `taxonomy_audiences` — closed vocabulary: AEC audiences (e.g. "Architecture")
 - `taxonomy_phases` — closed vocabulary: project phases (e.g. "Design Development")
+- `taxonomy_trades` — closed vocabulary: the work a company sells (e.g. "Electrical", "Paving & Asphalt") — AECI-538
 - `taxonomy_data_objects` — closed vocabulary: data objects that flow through integrations (e.g. "RFIs", "Models") — Stage 1.5
 
 **Claims & attestations** (Stage 1.5 spine + Stage 2 provenance/authority):
@@ -99,6 +108,7 @@ Tables grouped by domain:
 - `product_categories` — product ↔ category many-to-many
 - `product_audiences` — product ↔ audience many-to-many
 - `product_phases` — product ↔ phase many-to-many
+- `product_trades` — product ↔ trade many-to-many (sparse by design — see §5.3a)
 - `product_vendors` — product ↔ vendor many-to-many (typically 1:1, but supports white-label cases)
 - `product_extensions` — product ↔ host product (for plugins/add-ons)
 
@@ -111,6 +121,7 @@ Tables grouped by domain:
 - `workflow_instances` — multi-step process tracking
 - `workflow_transitions` — state transitions for workflows
 - `audit_log` — every state-changing event
+- `promote_jobs` — exactly-once ledger for the async promote ingest (AECI-571)
 
 **Analytics and caching**:
 - `page_views` — server-side page view log with CF enrichment
@@ -214,6 +225,7 @@ create table products (
   research_status text not null default 'pending' check (research_status in ('pending', 'in_progress', 'done', 'blocked')),
   research_notes text,
   promotion_status text not null default 'pending' check (promotion_status in ('pending', 'ready', 'promoted', 'retracted', 'rejected')),
+  promoted_at timestamptz,  -- first-promote timestamp, SET-ONCE (AECI-581 / ADMIN_PANEL_SPEC.md §13 D6) — see below
 
   -- Scoring
   priority_tier text check (priority_tier in ('tier_1', 'tier_2', 'tier_3', 'tier_4', 'tier_5')),
@@ -244,6 +256,10 @@ create index products_priority_tier_idx on products(priority_tier);
 create index products_product_role_idx on products(product_role);
 create index products_updated_at_idx on products(updated_at desc);
 ```
+
+`promoted_at` (AECI-581 / `ADMIN_PANEL_SPEC.md` §13 D6) is the **first**-promote timestamp, and the "first" is the whole point. `POST /api/promote` re-asserts `promotion_status='promoted'` on its **update** branch too, and `product.updated` outnumbers `product.created` roughly 2.7:1 — so a naive `promoted_at = now` there would mean *last* promoted and buy nothing over `updated_at`. It is therefore set **once**, via `COALESCE("promoted_at", ?)` inside the existing promote batch (`apps/api/src/routes/promote.ts`), which preserves an existing value and fills only a NULL with no extra read.
+
+It buys nothing *today*, and that is expected: `products.created_at` already answers the same question exactly, because promote is D1's only INSERT path into `products` and retraction is a hard delete (`ADMIN_PANEL_SPEC.md` §4's correction — the "a row sits at `'ready'` before going live" claim describes the **review app's** lifecycle, not AECi's). The column is future-proofing: the moment a Tier-1 retract endpoint introduces a real un-promote → re-promote cycle, `created_at` stops tracking go-live and the history cannot be reconstructed retroactively. Backfilled `:= created_at` — **exact**, no approximation — by `scripts/ops/backfill-products-promoted-at.sql`, run once per environment. Not indexed: nothing filters or sorts on it yet.
 
 `usefulness` is a nullable `jsonb` column holding narrative "how teams use it" value, grouped by audience and by project phase. Its stored shape mirrors the public `ProductUsefulness` contract (`API_CONTRACTS.md` §5.1) — `{ audiences: [{ slug, name, points[] }], phases: [{ slug, name, points[] }] }` — where each `slug` references a `taxonomy_audiences` / `taxonomy_phases` slug. It is `null` when the source has no usefulness for either facet; otherwise either facet array may be empty. The column is written by promote (`REVIEW_APP_PROMOTE_API.md` §3.3), which resolves each group to an existing taxonomy term and stores the canonical `{ slug, name }` denormalized — so a later taxonomy rename leaves already-promoted labels stale until the product is re-promoted. Not indexed: it is read with the row, never filtered on.
 
@@ -289,6 +305,18 @@ create index integrations_mechanism_kind_idx on integrations(mechanism_kind);
 create index integrations_built_by_idx on integrations(built_by_vendor_id) where built_by_vendor_id is not null;
 create index integrations_powered_by_idx on integrations(powered_by_product_id) where powered_by_product_id is not null;
 ```
+
+**Inverse relation on `products` (Stage 1.5 Addendum B — no schema change).** The
+Drizzle relations file declares
+`poweredIntegrations: many(integrations, { relationName: 'IntegrationPoweredByProduct' })`
+on `productsRelations` (`apps/api/src/db/schema.ts`), the read side of
+`powered_by_product_id`. It hydrates `ProductDetail.integrations_as_connector` — the
+edges a **connector-role** product provides as the mechanism rather than as an
+endpoint (`STAGE_1_5_SPEC.md` §12). The column and its partial index above already
+existed, so this is a relations-file declaration only: **no migration**, no DDL. The
+named `relationName` is required because `products` ↔ `integrations` already has two
+other relations (source and target endpoints) and Drizzle cannot otherwise
+disambiguate a third.
 
 ---
 
@@ -344,7 +372,31 @@ create table taxonomy_phases (
 create index taxonomy_phases_slug_idx on taxonomy_phases(slug);
 ```
 
-### 5.4 `taxonomy_data_objects`
+### 5.3a `taxonomy_trades`
+
+AECI-538 / AECI-540. The **fourth taxonomy facet** — the closed `trade` vocabulary answering *"what work does your company sell?"* (`STAGE_1_SPEC.md` §5.5a). Mirrors `taxonomy_categories` and adds `aliases`, exactly like `taxonomy_data_objects` below.
+
+```sql
+create table taxonomy_trades (
+  id uuid primary key default gen_random_uuid(),
+  slug text unique not null,
+  name text not null,
+  description text not null,   -- non-null: /trades/:slug is an SEO landing page
+  display_order integer,
+  aliases jsonb,               -- resolver + search metadata: alternate/colloquial names
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index taxonomy_trades_slug_idx on taxonomy_trades(slug);
+```
+
+- **D1 specifics.** Shipped in migration `apps/api/migrations/0009_watery_tinkerer.sql`. `id` is `TEXT` (deterministic UUIDv5 of the `slug` — `TRADES_VOCABULARY.md` §8 states the namespace verbatim); `aliases` is `TEXT` in JSON mode (a JSON array of strings). The `slug` uniqueness above is implemented as the unique index `taxonomy_trades_slug_key`, matching every sibling taxonomy table, so no separate `_slug_idx` is created. Seeded from `apps/api/seed/trades.sql` (idempotent `ON CONFLICT(slug) DO UPDATE`, applied to every env — ADR 0008).
+- **Source of truth** for the vocabulary is `docs/TRADES_VOCABULARY.md` (§5) / its generated mirror `docs/trades-vocabulary.json` — a closed, governed 34-term list.
+- **`description` is `not null`** — the one column that differs from the sibling taxonomy tables, which seed `description` as `NULL` (ADR 0008 "Follow-ups"). Trade browse pages ship as SEO landing pages, so copy is part of the contract, not a later addition.
+- **`aliases`** is dual-purpose (a deliberate divergence from `taxonomy_data_objects`, where it is resolver-only): the promote ingest resolves an incoming trade **find-only** by slug → name → alias (`REVIEW_APP_PROMOTE_API.md`), **and** the aliases are indexed as searchable content in Algolia so colloquial queries ("blacktop", "glazier") reach the right products (`SEARCH_RANKING.md` §2). It never drives ranking.
+
+---
 
 Stage 1.5 (AECI-293). The closed `data_object` vocabulary — the kinds of information that flow through an integration (e.g. RFIs, Models, Budgets). Mirrors `taxonomy_categories` and adds one column, `aliases`.
 
@@ -510,6 +562,25 @@ create table product_phases (
 
 create index product_phases_phase_idx on product_phases(phase_id);
 ```
+
+### 6.3a `product_trades`
+
+AECI-538 / AECI-540. Clone of `product_phases`. **Sparse by design** — a product is tagged only when it has *trade-specific* value (trade-specific features, cost databases, templates, takeoff logic, or integrations). Horizontal platforms (Procore, Autodesk Build, Bluebeam) carry **zero** rows here; most of the catalog will. The tagging rule is the load-bearing constraint of the whole facet — `TRADES_VOCABULARY.md` §1.1.
+
+```sql
+create table product_trades (
+  product_id uuid not null references products(id) on delete cascade,
+  trade_id uuid not null references taxonomy_trades(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (product_id, trade_id)
+);
+
+create index product_trades_trade_idx on product_trades(trade_id);
+```
+
+- Shipped in migration `apps/api/migrations/0009_watery_tinkerer.sql`, alongside `taxonomy_trades`.
+- Rows are written **only** by the promote flow (`POST /api/promote`, AECI-542), which replaces a product's full trade set on each promote — never by the taxonomy seed (ADR 0008).
+- **Any `product_role` may carry trade tags**, connectors included — a connector purpose-built to sync a trade ERP is exactly as trade-specific as an app. In practice tags concentrate on `application`-role products.
 
 ### 6.4 `product_vendors`
 
@@ -725,16 +796,16 @@ Multi-step process tracking with approval gates.
 
 ```sql
 create table workflow_instances (
-  id uuid primary key default gen_random_uuid(),
-  workflow_type text not null check (workflow_type in ('vendor_claim', 'review_moderation', 'correction_request')),
-  entity_id uuid not null, -- foreign key varies by workflow_type; not enforced at DB level
+  id text primary key not null, -- application-generated UUID (crypto.randomUUID())
+  workflow_type text not null check (workflow_type in ('vendor_claim', 'review_moderation', 'correction_request', 'reviewer_ban')),
+  entity_id text not null, -- foreign key varies by workflow_type; not enforced at DB level
 
   current_state text not null,
   linear_issue_id text,
 
-  initiated_by uuid references profiles(id),
-  initiated_at timestamptz not null default now(),
-  completed_at timestamptz,
+  initiated_by text references profiles(id),
+  initiated_at text not null, -- ISO-8601 UTC
+  completed_at text,
   final_outcome text check (final_outcome in ('approved', 'rejected', 'cancelled', 'completed'))
 );
 
@@ -749,16 +820,16 @@ State changes for workflow instances. Append-only.
 
 ```sql
 create table workflow_transitions (
-  id uuid primary key default gen_random_uuid(),
-  workflow_id uuid not null references workflow_instances(id) on delete cascade,
+  id text primary key not null,
+  workflow_id text not null references workflow_instances(id) on delete cascade,
 
   from_state text,
   to_state text not null,
-  actor_id uuid references profiles(id),
+  actor_id text references profiles(id),
   reason text,
-  metadata jsonb,
+  metadata text, -- JSON (Drizzle `{ mode: 'json' }`)
 
-  created_at timestamptz not null default now()
+  created_at text not null -- ISO-8601 UTC
 );
 
 create index workflow_transitions_workflow_idx on workflow_transitions(workflow_id, created_at);
@@ -770,27 +841,87 @@ Every state-changing event in the platform. Append-only.
 
 ```sql
 create table audit_log (
-  id uuid primary key default gen_random_uuid(),
+  id text primary key not null, -- application-generated UUID (crypto.randomUUID())
 
-  actor_id uuid references profiles(id),
+  actor_id text references profiles(id),
   actor_type text not null check (actor_type in ('user', 'admin', 'system', 'workflow')),
 
-  action text not null, -- e.g. 'review.approved', 'product.updated'; Stage 1.5 promote ingest (AECI-297) adds 'data_object.created', 'claim.*', 'attestation.*'. Stage 2 vendor authoring (AECI-301) adds 'attestation.retracted' — supersession, one row per retracted attestation, tagged metadata.source = 'vendor-portal'
-  entity_type text, -- unconstrained (no CHECK): 'review' | 'product' | 'vendor' | 'integration' | 'data_object' | 'claim' | 'attestation' | 'correction'
-  entity_id uuid,
+  action text not null, -- e.g. 'review.approved', 'product.updated'; Stage 1.5 promote ingest (AECI-297) adds 'data_object.created', 'claim.*', 'attestation.*'; the retention prune (§7.4) adds 'retention.pruned'; Stage 2 vendor authoring (AECI-301) adds 'attestation.retracted' — supersession, one row per retracted attestation, tagged metadata.source = 'vendor-portal'
+  entity_type text, -- unconstrained (no CHECK): 'review' | 'product' | 'vendor' | 'integration' | 'data_object' | 'claim' | 'attestation' | 'correction' | 'retention'
+  entity_id text,
 
-  before_state jsonb,
-  after_state jsonb,
-  metadata jsonb, -- workflow context: linear_issue_id, ip_address, user_agent, cf_country
+  before_state text, -- JSON (Drizzle `{ mode: 'json' }`)
+  after_state text, -- JSON
+  metadata text, -- JSON workflow context: linear_issue_id, ip_address, user_agent, cf_country
 
+  created_at text not null -- ISO-8601 UTC
+);
+
+create index audit_log_entity_idx on audit_log(entity_type, entity_id, created_at);
+create index audit_log_actor_idx on audit_log(actor_id, created_at) where actor_id is not null;
+create index audit_log_action_idx on audit_log(action, created_at);
+create index audit_log_created_at_idx on audit_log(created_at);
+```
+
+> **Notation.** These three tables are **D1/SQLite**: ids are application-generated UUID `text`,
+> timestamps are ISO-8601 `text`, and JSON columns are `text` read through Drizzle's
+> `{ mode: 'json' }` — there is no `uuid`, `jsonb`, `timestamptz` or `gen_random_uuid()` in this
+> database, and SQLite indexes carry no `desc` in these definitions. Converted 2026-08-14 (AECI-587)
+> because `STAGE_1_SPEC.md` §26 duplicates them and the two had diverged. **Other sections of this
+> document still carry the Postgres-baseline notation** — a pre-existing residue of the ADR 0016
+> migration, tracked separately; `apps/api/src/db/schema.ts` and `apps/api/migrations/` remain the
+> executable truth for every table.
+
+---
+
+### 8.5 `promote_jobs`
+
+Exactly-once ledger for the async promote ingest (AECI-571 / ADR 0021). Internal
+bookkeeping — nothing public reads it.
+
+Cloudflare Workflows guarantee a step runs *at least* once. `POST /api/promote` runs the
+whole plan-then-batch ingest inside one `step.do`, so if the engine dies between the
+`db.batch` committing and the step result being persisted, the callback re-executes. The
+plan phase then mints fresh UUIDs and re-derives the slug against the row it just
+committed, and a **created** product lands twice — as `revit` *and* `revit-2`.
+
+**The primary key is the guard, not application logic.** `runPromoteIngest`
+(`apps/api/src/routes/promote.ts`) pushes this INSERT as the **first statement of the same
+atomic `db.batch`** as the promote's writes, so a replayed batch trips the PK and D1 rolls
+the *whole* batch back — the duplicate is impossible rather than detected afterwards.
+`result` then lets the replay return an identical `PromoteIngestResult` (same ids, same
+slug), so the job still completes and the post-commit hooks — which never fired for the
+lost attempt, being dispatched after the step — fire exactly once. A cheap pre-read of the
+same PK short-circuits the ordinary replay before the plan phase runs.
+
+```sql
+create table promote_jobs (
+  job_id text primary key, -- caller-supplied promote job id = the Workflow instance id
+  result jsonb not null,   -- the committed PromoteJobLedger: the ID map plus everything
+                           -- the post-commit hooks read, minus the D1 session bookmark
   created_at timestamptz not null default now()
 );
 
-create index audit_log_entity_idx on audit_log(entity_type, entity_id, created_at desc);
-create index audit_log_actor_idx on audit_log(actor_id, created_at desc) where actor_id is not null;
-create index audit_log_action_idx on audit_log(action, created_at desc);
-create index audit_log_created_at_idx on audit_log(created_at desc);
+create index promote_jobs_created_at_idx on promote_jobs(created_at);
 ```
+
+Notes:
+
+- **No foreign keys, deliberately.** A cascade delete would silently drop the guard and
+  re-open the duplicate window.
+- **Deleting a row is a safety regression, not housekeeping.** Any prune floor must be
+  **≥ 90 days** — the TTL of the `promote:result:{jobId}` KV mirror this row backstops
+  (`PROMOTE_RESULT_TTL_SECONDS`). Below that you get a window where the poll still serves
+  IDs while a re-push would duplicate them. See §15.
+- **It holds no curation-tool key.** `job_id` is AECi's own job id, so the AECI-562 ruling
+  that no Airtable record id belongs in this schema is untouched.
+- **It extends idempotency past Workflow retention.** Once an instance ages out (30 days),
+  `create({ id })` stops seeing a duplicate; the ledger row is what keeps a re-push of that
+  same job id from committing a second time.
+- `result` is written by the ingest only. It is capped at 512 KiB (D1's row limit is 2 MB);
+  a pathological bundle sheds `auditEntries` then `affectedProducts` and records what it
+  dropped in `truncated`, so an oversized payload costs observability rather than blocking
+  a valid promote. A typical row is ~10 KB.
 
 ---
 
@@ -800,15 +931,43 @@ create index audit_log_created_at_idx on audit_log(created_at desc);
 
 Server-side page view log with Cloudflare header enrichment. Privacy-respecting (no raw IPs, hashed user agents).
 
+**Read surfaces:** the 05:00 analytics digest (`lib/analytics-digest.ts`) and the admin panel's four `GET /api/admin/*` reads (`API_CONTRACTS.md` §6.10). Of those, only `GET /api/admin/page-views` (AECI-577, the §5.2 Activity feed) returns individual rows, and it does **not** return `user_agent_hash` — it returns `substr(user_agent_hash, 1, 8)`, computed in SQL, so the full hash never leaves the API. `user_id`, `session_id` and `profile_role` are gone entirely: §13 **D7** dropped all three (AECI-585, migration `0014`) rather than filling them, and no session identifier is being introduced.
+
+**Retention: 400 days** (`ADMIN_PANEL_SPEC.md` §7.4 / §13 **D5**), enforced since AECI-584 by the daily 03:00 UTC pruning cron (`apps/api/src/lib/retention-prune.ts`). Note what the number is protecting: storage was never the binding constraint (400 d ≈ 280 MB against D1's 10 GB limit), **irreversibility** is — D1 Time Travel recovers only ~30 days, so a prune past that is permanent, and 400 days is the first window that keeps year-over-year comparison possible. The cron cuts on **whole UTC days** (the cutoff is always a midnight), deletes in bounded chunks paged by `id`, and **refuses to run at all** if any day inside its cut window has no `metrics_daily` row — that aggregate is the only thing that survives the prune. Given the 2026-06-23 data start it deletes nothing until ~2027-07. The window is a config constant (`PAGE_VIEWS_RETENTION_DAYS` in `@aeci/shared`) with an unset `PAGE_VIEWS_RETENTION_DAYS` env override, so it can be shortened without a migration; values below 30 days are ignored.
+
+**`path` holds public routes only** (AECI-575 / `ADMIN_PANEL_SPEC.md` §9.6). Neither writer records the operator-only prefixes in `@aeci/shared` `UNTRACKED_ROUTE_PREFIXES` (`/admin`, `/account`) — the admin console must not write into the table it reads. Rows captured before that shipped are still present, and every read applies the same exclusion, so query this table with `path not in ('/admin','/account') and path not like '/admin/%' and path not like '/account/%'` if you want numbers that match the daily digest. (The match is on an exact prefix boundary — a bare `path not like '/admin%'` would wrongly drop look-alike public routes like `/administrators`, which the digest still counts.)
+
+**`path` vs `concrete_path` (AECI-585).** `path` is the route the *writer* named: the pattern (`/products/:slug`) when it knows one — an SSR resolver attached `ctx.pageView` — and the concrete path otherwise (the browser tracker, an SSR cache HIT). It has always been that mix; nothing changed about it. `concrete_path` is new and is *always* the real URL path, locale-stripped and without query or hash. Both are stored because they answer different questions: grouping "top pages" wants the pattern, naming an individual row wants the concrete path. Product and vendor rows could always recover a name through their FK; taxonomy rows could not, which is what made this column necessary.
+
 ```sql
 create table page_views (
   id bigserial primary key,
-  path text not null,
+  path text not null, -- route PATTERN when the writer knows one, else concrete; public routes only (AECI-575)
+  concrete_path text, -- always the real URL path, locale-stripped, no query/hash (AECI-585); null before it shipped
   product_id uuid references products(id),
   vendor_id uuid references vendors(id),
-  user_id uuid references profiles(id),
-  session_id text,
-  referrer text,
+
+  -- Which taxonomy term a facet browse page showed (AECI-585 / ADMIN_PANEL_SPEC.md §7.3).
+  -- Two columns for four facets ('category' | 'audience' | 'phase' | 'trade'), and
+  -- deliberately NOT foreign keys: SQLite cannot point one column at four tables, and a
+  -- hard FK would block ever deleting a term (retract-product.ts already has to delete
+  -- page_views rows for exactly that reason on products). Integrity comes from the
+  -- ingest-time existence check in routes/page-views.ts — an unknown id stores as null,
+  -- and the KIND is stored only alongside a confirmed id, so a dangling kind can never
+  -- inflate a per-facet count with unattributable rows. No CHECK on the kind either: this
+  -- is a log table whose write is swallowed on error, so a constraint violation would
+  -- silently drop the row rather than surface anything.
+  taxonomy_kind text,
+  taxonomy_id text,
+
+  -- How the visitor got here (AECI-585): 'arrival' = full-document load (the SSR Worker's
+  -- firePageView), 'spa' = in-app navigation (the browser PageViewTracker). Null = unknown,
+  -- which is every row written before this shipped. NEVER inferred — the same-origin
+  -- Referer on an SPA hop classifies as Direct, which is exactly the conflation this
+  -- column exists to undo, so a guess would recreate the bug in a new column.
+  navigation text,
+
+  referrer text, -- external referrer HOST only, no path/query (AECI-526); null for Direct/same-origin
 
   -- Campaign attribution (AECI-243 / §11.2) — populated only on tagged arrivals
   -- (e.g. the waitlist launch email's ?ref=waitlist&token=xyz); null otherwise
@@ -819,23 +978,62 @@ create table page_views (
   cf_country text,
   cf_colo text,
   cf_asn integer,
+  -- The AS holder NAME beside the number (AECI-585 / §13 D10), mirroring
+  -- mailing_list.as_organization. An ASN cannot label itself: without this the panel's
+  -- internal-traffic filter reads "excluding AS23700" and the bot classifier's weekly
+  -- audit is a list of bare numbers. READ-side signal only — it never feeds is_bot at
+  -- ingest, because that verdict is permanent and DATACENTER_ASNS's membership doctrine
+  -- is deliberately strict (POST_LAUNCH_MONITORING.md §3b names holder-name matching as
+  -- the durable fix: "not a longer list").
+  cf_as_organization text,
   cf_bot_score integer,
 
   -- Request metadata
   user_agent_hash text, -- SHA-256 hash, NOT raw
   locale text,
 
-  -- Profile-derived (denormalized)
-  profile_role text,
+  -- Traffic classification (AECI-526 follow-up). Written at ingest from the raw UA +
+  -- ASN (apps/api/src/lib/bot-classification.ts) so the daily analytics digest reports
+  -- human-only metrics and a crawler breakdown. Nullable, because rows captured before
+  -- the column existed read as human (is_bot IS NOT 1) — but as of AECI-582 (2026-08-13)
+  -- NO row on any tier is null: the one-time backfill classified them all
+  -- (scripts/ops/2026-08-page-view-bot-backfill/). Pre-2026-08-03 rows are therefore
+  -- classified retroactively, by UA *hash* and ASN, at lower fidelity than live ingest.
+  -- Because cf_bot_score is always null on the CF Pro plan and user_id is never
+  -- captured, UA + ASN are the only signals — and the ASN half is a hand-maintained
+  -- list, so is_bot = 0 means "not known to be a bot", not "human". Audit + widen it
+  -- weekly (POST_LAUNCH_MONITORING.md §3b).
+  is_bot integer,  -- 1 = bot/crawler, 0 = human, null = unclassified (treated as human)
+  bot_name text,   -- crawler name ("Googlebot") or datacenter org ("Datacenter (AWS)"); null for humans
 
+  -- Traffic source (AECI-526 follow-up). Coarse label derived at ingest from the
+  -- forwarded eyeball Referer (apps/api/src/lib/referrer-classification.ts) so the
+  -- digest breaks arrivals down by source. Values: "Direct" (no/self referrer),
+  -- named sites ("LinkedIn"/"Google"/"Bing"/…), or "Other". Best-effort: browser
+  -- Referrer-Policy strips the header, so external sources are under-counted. Null on
+  -- rows captured before this shipped (the Referer was never stored → not backfillable).
+  referrer_source text,
+
+  -- user_id / session_id / profile_role were DROPPED by AECI-585 (§13 D7, migration 0014).
+  -- All three were declared at init and never written by any code path. Do not reintroduce
+  -- them: there is no client-side session id anywhere in apps/web, and minting one would
+  -- create a durable first-party identifier — precisely what makes this table's write
+  -- defensible as consent-independent today. user_id was reachable on the browser POST but
+  -- never on the SSR arrival path, so it would have been right half the time.
   created_at timestamptz not null default now()
 );
 
 create index page_views_path_idx on page_views(path, created_at);
 create index page_views_product_idx on page_views(product_id, created_at) where product_id is not null;
 create index page_views_country_idx on page_views(cf_country, created_at);
-create index page_views_user_idx on page_views(user_id, created_at) where user_id is not null;
+create index page_views_bot_idx on page_views(is_bot, created_at); -- digest human/bot split + crawler grouping
+-- page_views_user_idx is gone with its column (AECI-585). No index was added for the
+-- five AECI-585 columns: nothing groups or filters on them yet, and this is the hottest
+-- write path in the app (D1 bills rows written, index rows included). Add one with the
+-- read that needs it.
 ```
+
+**Migration `0014` is the repo's first table recreate** — every `ALTER` before it is an `ADD`. SQLite refuses `DROP COLUMN` on a column carrying an index **or** a `FOREIGN KEY` clause, and `user_id` had both (`page_views_user_idx` + the FK to `profiles`), so the drop is a `__new_page_views` copy-and-rename; `session_id` and `profile_role` ride along in it for free. Two things about that file are load-bearing: the copy lists `id` explicitly, so the autoincrement PK survives (the Activity feed paginates on `(created_at DESC, id DESC)` and would repeat or skip rows otherwise), and drizzle-kit's emitted `PRAGMA foreign_keys=OFF` was **hand-replaced with `PRAGMA defer_foreign_keys = true`**, which is the lever D1 supports. Regenerating that migration reintroduces the wrong pragma. See `docs/migrations.md`.
 
 ### 9.2 `stats_cache`
 
@@ -864,6 +1062,132 @@ Keys used (see `STAGE_1_SPEC.md` §10):
 - `category_counts`
 - `audience_counts`
 - `phase_counts`
+
+### 9.3 `metrics_daily`
+
+The admin panel's long memory (AECI-581 / `ADMIN_PANEL_SPEC.md` §7.1). One row per
+(UTC day, metric), written by the `15 0 * * *` snapshot cron
+(`apps/api/src/lib/metrics-snapshot.ts`), which captures the prior **complete**
+UTC day.
+
+It exists because nothing else in D1 can answer *"how many did we have on July
+3rd"*: `stats_cache` above is overwritten daily so no history survives, and
+`audit_log` records genuine **additions** but not net totals — 827
+`integration.created` events back 496 live rows, because the 2026-07-25 reset
+removed rows with no per-row audit (`ADMIN_PANEL_SPEC.md` §4).
+
+Deliberately key-value rather than a column per metric, mirroring `stats_cache`,
+so adding a metric never needs a migration. `metric` therefore carries **no**
+CHECK constraint — the vocabulary lives in `ADMIN_SNAPSHOT_METRIC_KEYS`
+(`packages/shared/src/api/admin-panel.ts`), and a SQLite CHECK change would force
+a table rebuild.
+
+```sql
+create table metrics_daily (
+  day         text not null,                      -- 'YYYY-MM-DD', UTC
+  metric      text not null,                      -- one of the keys below
+  value       real not null,                      -- REAL so a future ratio metric needs no migration; every key today is a count
+  source      text not null default 'measured',   -- 'measured' | 'reconstructed'
+  computed_at text not null,
+  primary key (day, metric),                      -- leading `day` serves "is this day captured?"
+  check (source in ('measured', 'reconstructed'))
+);
+create index metrics_daily_metric_day_idx on metrics_daily(metric, day); -- the timeseries read: one metric, day range
+```
+
+**`source` is a stored fact, not an inference.** `measured` means captured on the
+day (or re-aggregated from rows that still exist); `reconstructed` means derived
+after the fact by `scripts/backfill-metrics-daily.ts` from data that can no longer
+prove the day exactly. One precedence rule follows and both writers obey it: **a
+`measured` write always wins; a `reconstructed` write applies only over an absent
+or already-`reconstructed` row.** That is what makes the backfill re-runnable
+without ever degrading a real snapshot. `GET /api/admin/metrics/timeseries`
+surfaces it per point as `reconstructed`.
+
+**No `audit_log` row** — derived bookkeeping, exempt from the §18 / `STAGE_1_SPEC.md`
+§26.1 audit-in-batch invariant under ADR 0022. Writes go **per key, outside any
+batch**, so one failing metric never aborts the others. **Retention: indefinite**
+(§7.4 / §13 D5) — the pruning cron must never touch this table, and must never
+prune raw `page_views` for a day it has not captured. Both halves of that are
+**asserted by test** since AECI-584 (`apps/api/src/lib/retention-prune.spec.ts`),
+against rows deliberately older than every cutoff, so "untouched" means the prune
+considered and rejected them rather than finding nothing old enough.
+
+Metric vocabulary — **flows** count events inside the day; **stocks** are an
+instantaneous sample. Only the flows are backfillable, and only the flows are
+readable through the timeseries endpoint today (the stocks await §5.4/§5.5):
+
+| Metric | Kind | Source | Backfill provenance |
+|---|---|---|---|
+| `traffic.page_views_human` | flow | `page_views`, `is_bot IS NOT 1`, `/admin`+`/account` excluded | measured |
+| `traffic.page_views_bot` | flow | `page_views`, `is_bot = 1` | measured |
+| `traffic.unique_visitors` | flow | `count(distinct (user_agent_hash, cf_asn))`, humans only (§9.8) | measured |
+| `catalog.products_created` | flow | `audit_log` `product.created` live; **`products.created_at`** when backfilled | measured (§4's exception / D6 — exact, and better than the audit log) |
+| `catalog.integrations_created` | flow | `audit_log` `integration.created` | **reconstructed** |
+| `catalog.vendors_created` | flow | `audit_log` `vendor.created` | **reconstructed** |
+| `catalog.claims_created` | flow | `audit_log` `claim.created` | **reconstructed** |
+| `accounts.sign_ins_new` | flow | `profiles.created_at` | measured |
+| `catalog.products_promoted` | stock | `products` where `promotion_status='promoted'` | not backfilled |
+| `catalog.vendors_promoted` | stock | `vendors` where `promotion_status='promoted'` | not backfilled |
+| `catalog.integrations_total` | stock | `integrations` | not backfilled |
+| `catalog.claims_total` | stock | `claims` | not backfilled |
+| `catalog.reviews_approved` | stock | `reviews` where `status='approved'` | not backfilled |
+| `accounts.profiles_total` | stock | `profiles` | not backfilled |
+| `audience.subscribers_active` | stock | `mailing_list` where `unsubscribed_at is null` | not backfilled |
+| `audience.subscribers_unsubscribed` | stock | `mailing_list` where `unsubscribed_at is not null` | not backfilled |
+| `audience.feedback_total` | stock | `feedback` | not backfilled |
+| `queue.reviews_pending` | stock | `reviews` where `status='pending'` | not backfilled |
+| `queue.requests_open` | stock | `vendor_requests` where `status='open'` | not backfilled |
+
+Stocks are captured from day one but never reconstructed: a past *total* is
+unrecoverable (§4), so a cumulative sum of `*.created` events would be wrong
+rather than approximate. Any day not sampled is simply lost, which is why the
+cron writes all 19 keys rather than only the ones a screen reads today.
+
+**The three `audience.*` stocks are the exception, and AECI-586 deliberately did
+not read them.** `ADMIN_PANEL_SPEC.md` §7.1 named §5.4 as their reader; the
+Audience screen derives its series live from `mailing_list` instead, because
+`unsubscribed_at` is a soft delete and no subscriber row is ever removed (§2a), so
+the past *is* exactly recoverable there — the one place the §4 argument for
+snapshotting does not hold. Two things follow. These rows still earn their keep:
+they begin at the first cron run rather than the first signup, but they are the
+**only durable record of a state a resubscribe overwrites**, since reactivation
+clears `unsubscribed_at` from the row itself. And they remain unreadable through
+`GET /api/admin/metrics/timeseries`, whose vocabulary is the flow keys only —
+partly because that endpoint **zero-fills**, which is correct for a flow and a lie
+for a stock: an uncaptured day would report zero subscribers rather than unknown.
+
+### 9.4 `job_runs`
+
+One row per execution of one of the ten `scheduled.ts` cron jobs (AECI-583; `ADMIN_PANEL_SPEC.md` §7.2). Before it existed a cron's outcome lived **only** as a Datadog metric, so nothing in D1 could answer "did the 08:00 Algolia sync run today", and the ten data-quality findings lived **only** in the 04:00 email — computed, sent, discarded.
+
+```sql
+create table job_runs (
+  id bigserial primary key,
+  job text not null,                -- one of the ten AdminCronJob ids (packages/shared/src/api/admin-panel.ts)
+  started_at timestamptz not null,  -- written on ENTRY: the row exists before the job finishes
+  finished_at timestamptz,          -- null = in flight, or the isolate never came back
+  outcome text,                     -- 'ok' | 'failed' | 'skipped'; null while finished_at is null
+  detail jsonb                      -- per-job payload: the DQ run's full DataQualityCheckResult[],
+                                    -- the 09:00 run's drift rows + orphan-sweep counts, the reconcile totals
+);
+
+create index job_runs_job_started_at_idx on job_runs(job, started_at); -- per-job "latest run" seek (LIMIT 1 each, never a scan)
+```
+
+**Written on entry, completed on exit.** That ordering is the whole point: a run killed by the CPU/wall-clock limit or an isolate eviction leaves `finished_at IS NULL`, and that unfinished row is the signal. It is lost if the row is only written on success.
+
+**`outcome` has no `'running'` member.** In flight is already `finished_at IS NULL AND outcome IS NULL`; a second encoding would let the two disagree. NULL passes the CHECK because SQLite satisfies a CHECK when the expression is true *or* NULL. The read side additionally refuses an outcome on an open row whatever is stored, so an unfinished run structurally cannot render as a success.
+
+**`job` carries no CHECK**, following `audit_log.action`: the vocabulary grows with every new cron and SQLite cannot ALTER a CHECK, so a tenth cron would need a table-recreate migration. `Record<ScheduledJob, AdminCronJob>` in `apps/api/src/lib/cron-schedules.ts` plus the Zod enum are the enforcement.
+
+**Why the index is `(job, started_at)` in that order.** Every read is "the newest run of one job": an equality seek on `job`, then one row off the descending `started_at` edge (`LIMIT 1`, ten of them per request). `id` is the rowid and therefore the index's implicit trailing column, which makes `ORDER BY started_at DESC, id DESC` a free deterministic tie-break with no temp b-tree. Verified by `EXPLAIN QUERY PLAN` against a 9,000-row fixture: `SEARCH job_runs USING INDEX job_runs_job_started_at_idx (job=?)`. The `GROUP BY job` and `ROW_NUMBER() OVER (PARTITION BY job)` alternatives both SCAN the whole index, and D1 bills rows read.
+
+**No `audit_log` row.** Derived, log-class, cron-internal bookkeeping, exempt under ADR 0022 / `ADMIN_PANEL_SPEC.md` §13 D11 — and self-evidently the wrong thing to audit, since `job_runs` *is* the observability record. Written the way `stats_cache` is (`lib/home-stats.ts` `upsertStat`): plain single statements, outside any `db.batch`, each inside its own try/catch, so a bookkeeping failure can never abort the job it records. Note the boundary this does **not** cross: the exemption keys on entity class, not actor class, so a cron writing *domain* state still audits.
+
+**Read by** `GET /api/admin/system` (cron liveness + the orphan sweep) and `GET /api/admin/overview`'s status strip (the stored data-quality result) — `API_CONTRACTS.md` §6.10, `ADMIN_PANEL_SPEC.md` §5.1/§5.6. Both treat every field as untrusted and parse rather than assume.
+
+**Retention: 90 days — enforced** since AECI-584 by the daily 03:00 UTC pruning cron (`apps/api/src/lib/retention-prune.ts`), on the same whole-UTC-day, chunked-by-`id` mechanism as `page_views` §9.1. This is the half of §7.4 that bites first: the table accrues roughly 44k rows/year, ~80% of them from the `*/15` reconcile sweep, so the window first removes rows around **2026-11-11** (90 days past the 2026-08-13 start) versus ~2027-07 for `page_views`. Unlike `page_views` it carries no `metrics_daily` gate of its own — but a snapshot gap still stops it, because the prune aborts the whole run rather than half of it. Window: `JOB_RUNS_RETENTION_DAYS` in `@aeci/shared`, overridable per tier by the like-named env var. The read path was always immune by construction (ten bounded seeks), which is why the query shape above matters more than it looks.
 
 ---
 
@@ -1037,7 +1361,12 @@ Production starts empty at launch. Initial bulk migration from Airtable happens 
 Backup policy is deferred to a dedicated operational document (`OPERATIONAL_RUNBOOKS.md`, pending). Defaults:
 
 - D1 Time Travel for the application database (point-in-time recovery within D1's retention window; ADR 0016); Supabase automated backups cover the auth-only project
-- Audit log and page_views retention: indefinite for Stage 1 (see `STAGE_1_SPEC.md` §26.6 and §14.2)
+- Audit log retention: indefinite for Stage 1 (see `STAGE_1_SPEC.md` §26.6 and §14.2)
+- `page_views` retention: **400 days**, settled by `ADMIN_PANEL_SPEC.md` §13 D5 and **enforced since AECI-584** by the daily 03:00 UTC pruning cron — not indefinite, though it deletes nothing until ~2027-07 given the 2026-06-23 data start. 400 rather than 180 because D1 Time Travel gives only ~30 days of point-in-time recovery, so a prune is effectively permanent, and 400 is the first window that keeps year-over-year comparison possible
+- `metrics_daily` retention: **indefinite** — it is the long memory that survives the `page_views` prune (AECI-581 / §7.1). The pruning cron never touches it, and never prunes a `page_views` day it has not captured; both are asserted by test (§9.3)
+- `job_runs` retention: 90 days per `ADMIN_PANEL_SPEC.md` §7.4 — **enforced since AECI-584** (§9.4). This is the window that bites first, around 2026-11-11
+- `promote_jobs`: indefinite for Stage 1 (see §8.5). The row is a duplicate **guard**, not a log — pruning it below a 90-day floor re-opens the AECI-571 replay window. At a handful of promotes a day and ~10 KB a row this is ~100 MB per 10,000 promotes, so there is no pressure to prune; the `created_at` index is there so a future sweep is a cheap range delete
+- Every prune run that deletes anything writes exactly **one** `retention.pruned` `audit_log` row, in the same atomic batch as its deletes (`STAGE_1_SPEC.md` §26.1's scheduled-deletion exception / ADR 0022). A run that deletes nothing writes none. That row is the only durable record that the rows ever existed
 - Reviews and core entities: no retention policy — preserve everything
 
 ---
@@ -1071,7 +1400,9 @@ Migrations are generated by **drizzle-kit** from the Drizzle schema and applied 
 
 ## 18. Transactional writes with audit log
 
-Every state-changing write must emit its `audit_log` (+ `workflow_transitions` where applicable) row (`STAGE_1_SPEC.md` §26, `CLAUDE.md` §"Datadog and audit logging"). Failure to log is a transactional failure — the mutation must not commit without its audit entry.
+Every write that changes **domain state** must emit its `audit_log` (+ `workflow_transitions` where applicable) row (`STAGE_1_SPEC.md` §26.1, `CLAUDE.md` §"Datadog and audit logging"). Failure to log is a transactional failure — the mutation must not commit without its audit entry.
+
+**Scope (ADR 0022).** "Domain state" is the catalog, users and profiles, reviews and moderation, claims and attestations, requests and workflows. **Derived and log-class writes are exempt**: `page_views`, `mailing_list`, `feedback` (`API_CONTRACTS.md` §6.9/§6.13), `stats_cache`, the Algolia watermark, the denormalized product counters (§14.2), and the cron-written `metrics_daily` (§9.3 — **shipped**, AECI-581) and `job_runs` (§9.4 — **shipped**, AECI-583) tables (`ADMIN_PANEL_SPEC.md` §7.1/§7.2). The test is **entity class, not actor class** — a `system`/cron actor writing domain state still audits — and **scheduled `DELETE`s are never exempt**: they emit one summary row per run (`action='retention.pruned'`). That exception is live as of AECI-584 (§9.1/§9.4): the 03:00 retention prune is the only cron that writes an `audit_log` row, and it writes exactly one per run — `actor_type='system'`, `entity_type='retention'`, `metadata={rowsDeleted, tables:[{table, cutoff, rowsDeleted}]}` — inside the same atomic `db.batch` as every chunked `DELETE`. A run that deletes nothing writes none: the exception exists because a deletion's fact is unrecoverable afterwards, and a non-deletion has no such fact.
 
 **Pattern.** D1 has no interactive transactions, so the mutation and the audit insert go into the **same** atomic `db.batch([...])` (ADR 0016 / AECI-249) — both commit or both roll back. The audit/transition statements are built with the `auditInsert` / `workflowTransitionInsert` helpers in `apps/api/src/lib/audit.ts`:
 

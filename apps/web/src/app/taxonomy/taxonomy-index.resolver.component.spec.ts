@@ -1,7 +1,7 @@
 /**
  * Resolver test for the generalized taxonomy index factory (AECI-157). Named
  * `.component.spec.ts` so it runs under `ng test` — needs Angular's `inject()` /
- * `TestBed` for the resolver's DI surface. Covers all three facets.
+ * `TestBed` for the resolver's DI surface. Covers all four facets.
  */
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
@@ -20,6 +20,7 @@ import {
   audiencesIndexResolver,
   categoriesIndexResolver,
   phasesIndexResolver,
+  tradesIndexResolver,
 } from './taxonomy-index.resolver';
 
 interface FacetCase {
@@ -55,6 +56,14 @@ const CASES: FacetCase[] = [
     metaName: 'Phases',
     stateKey: 'aeci.phases-index',
     canonical: 'https://aecintegrations.com/phases',
+  },
+  {
+    name: 'trades',
+    resolver: tradesIndexResolver,
+    apiPath: '/api/trades',
+    metaName: 'Trades',
+    stateKey: 'aeci.trades-index',
+    canonical: 'https://aecintegrations.com/trades',
   },
 ];
 

@@ -15,9 +15,10 @@
 #   - `wrangler d1 migrations apply` is a tracked no-op once a migration is
 #     applied (it consults the d1_migrations bookkeeping table), so re-running
 #     only applies what is still pending.
-#   - Both seeds are idempotent UPSERTs keyed on deterministic UUIDv5(slug) ids
-#     (apps/api/seed/taxonomy.sql, apps/api/seed/data-objects.sql), so re-running
-#     converges to the same rows and never duplicates or deletes.
+#   - All three seeds are idempotent UPSERTs keyed on deterministic UUIDv5(slug)
+#     ids (apps/api/seed/taxonomy.sql, apps/api/seed/data-objects.sql,
+#     apps/api/seed/trades.sql), so re-running converges to the same rows and
+#     never duplicates or deletes.
 # So we retry on ANY non-zero exit rather than pattern-matching Cloudflare's
 # error strings (which drift across wrangler versions). A genuinely broken
 # migration still fails — just after exhausting the (small) attempt budget.
@@ -74,3 +75,4 @@ run_with_retry() {
 run_with_retry pnpm exec wrangler d1 migrations apply "$D1_DATABASE" --env "$D1_ENV" --remote
 run_with_retry pnpm exec wrangler d1 execute "$D1_DATABASE" --env "$D1_ENV" --remote --file=seed/taxonomy.sql
 run_with_retry pnpm exec wrangler d1 execute "$D1_DATABASE" --env "$D1_ENV" --remote --file=seed/data-objects.sql
+run_with_retry pnpm exec wrangler d1 execute "$D1_DATABASE" --env "$D1_ENV" --remote --file=seed/trades.sql

@@ -144,6 +144,7 @@ describe('VendorProductForm', () => {
       ),
       audiences: [],
       phases: [],
+      trades: [],
     };
     const emptyProduct: VendorProduct = {
       ...PRODUCT,

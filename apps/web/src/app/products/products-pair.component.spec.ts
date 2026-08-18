@@ -386,6 +386,73 @@ describe('ProductsPairPage', () => {
     expect(el.querySelector('aec-not-found')).toBeTruthy();
   });
 
+  describe('connector byline (Built by / Powered by)', () => {
+    const agaveVendor = {
+      id: '00000000-0000-4000-8000-0000000000v1',
+      name: 'Agave',
+      slug: 'agave',
+      logo_url: null,
+      // `VendorLinkSchema` gained `verified` with the Stage 2 verified badge
+      // (AECI-523); this fixture predates it. Unverified is the right default —
+      // the badge cases live in the verified-badge specs.
+      verified: false,
+    };
+    const agaveProduct = {
+      id: '00000000-0000-4000-8000-0000000000p1',
+      name: 'Agave ERP Sync',
+      slug: 'agave-erp-sync',
+      logo_url: null,
+    };
+
+    function buildPairWithProvenance(
+      built_by_vendor: typeof agaveVendor | null,
+      powered_by_product: typeof agaveProduct | null,
+    ): ProductPairResponse {
+      const base = buildPair();
+      return {
+        ...base,
+        mechanisms: [{ ...base.mechanisms[0]!, built_by_vendor, powered_by_product }],
+      };
+    }
+
+    it('links both the vendor and the connector product when both are set', () => {
+      const { el } = setup(buildPairWithProvenance(agaveVendor, agaveProduct));
+
+      expect(el.textContent).toContain('Built by');
+      expect(el.textContent).toContain('Powered by');
+      const vendorLink = el.querySelector('a[href="/vendors/agave"]');
+      const productLink = el.querySelector('a[href="/products/agave-erp-sync"]');
+      expect(vendorLink?.textContent).toContain('Agave');
+      expect(productLink?.textContent).toContain('Agave ERP Sync');
+      expect(el.textContent).toContain('·');
+    });
+
+    it('falls back to the vendor-only segment when powered_by_product is null', () => {
+      const { el } = setup(buildPairWithProvenance(agaveVendor, null));
+
+      expect(el.textContent).toContain('Built by');
+      expect(el.querySelector('a[href="/vendors/agave"]')).toBeTruthy();
+      expect(el.textContent).not.toContain('Powered by');
+      expect(el.querySelector('a[href="/products/agave-erp-sync"]')).toBeNull();
+    });
+
+    it('renders no byline when neither field is set', () => {
+      const { el } = setup(buildPair());
+
+      expect(el.textContent).not.toContain('Built by');
+      expect(el.textContent).not.toContain('Powered by');
+    });
+
+    it('keeps the byline visible in Basic view (identity, not detail)', () => {
+      const { el } = setup(buildPairWithProvenance(agaveVendor, agaveProduct), {
+        view: 'basic',
+      });
+
+      expect(el.querySelector('a[href="/products/agave-erp-sync"]')).toBeTruthy();
+      expect(el.textContent).toContain('Built by');
+    });
+  });
+
   describe('Basic/Detailed view toggle', () => {
     it('renders the toggle (Detailed pressed) when the pair has detail to hide', () => {
       const { el } = setup(buildPairWithClaims([claim('models', 'Models', 'outbound')]));

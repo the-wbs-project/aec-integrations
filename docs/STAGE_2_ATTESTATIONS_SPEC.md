@@ -91,9 +91,9 @@ they are safe to apply ahead of the code that reads them (`docs/migrations.md`: 
 | index | `attestations_active_idx` predicate changes `deprecated_at IS NULL` → `retracted_at IS NULL` |
 
 **Migration 2 (§8)** — the product-version model: a new `product_versions` table plus
-`attestations.introduced_version_id` / `deprecated_version_id`. **Shipped as
-`0008_slim_iron_lad.sql`** — the `0007` gap is deliberate, and the two `ALTER`s are hand-authored
-for the reason §2.5 documents; see §8.4.
+`attestations.introduced_version_id` / `deprecated_version_id`. **Shipped as `0008_slim_iron_lad.sql`
+and renumbered to `0017_slim_iron_lad.sql` by AECI-619** (see §1.4), and the two `ALTER`s are
+hand-authored for the reason §2.5 documents; see §8.4.
 
 > **⚠️ `deprecated_at` is a version stamp, not a retraction — the shipped schema comment says
 > otherwise.** `STAGE_1_5_SPEC.md` §3.3 defines `introduced_at`/`deprecated_at` as **version
@@ -132,14 +132,37 @@ Every sub-issue branches from and PRs into **`aeci-514`**, not `stage-2` — eac
 merges to `stage-2`. **The Linear issue template's `**Base branch:** stage-2` line is stale for
 this epic; the sub-issue descriptions override it.** (Same model as AECI-513 / `aeci-513`.)
 
-> **⚠️ `stage-2` is behind `main`.** At kickoff, `origin/stage-2` was **22 commits behind
-> `origin/main`**, and the merge conflicts across 29 files (deploy-workflow secret lists,
-> `promote.ts`, `CLAUDE.md`, several docs). Three of those PRs rewrote the promote path —
-> **AECI-563** (async ingest via a Cloudflare Workflow), **AECI-571** (`promote_jobs` exactly-once
-> ledger) and **AECI-568** (stale-`supabaseId` insert fallback). **§3 edits `promote.ts` directly
-> and must not start until `main → stage-2` has been reconciled** (ADR 0019 requires that merge
-> anyway). Treat the reconciliation as its own tracked task — it is a real integration job, not a
-> fast-forward.
+#### As built: the `main` reconciliation (AECI-619, 2026-08-18) — **done**
+
+At kickoff `stage-2` was 22 commits behind `main`, and this section carried a ⚠️ blocking §3 until
+that was reconciled. It has been, as its own tracked task (AECI-619), in two merges:
+`main → stage-2`, then `stage-2 → aeci-514`. By landing it was **29 commits / 79 files** touched on
+both sides. **AECI-604 is unblocked.**
+
+**The resolution rule, recorded because the next epic branch will need it:** `stage-2` wins on cache
+architecture (ADR 0020 / WC-1…WC-11), `main` wins on promote structure (ADR 0021 / AECI-563, 571,
+568). Neither branch was a superset. `promote.ts` was where they met head-on — `main` had rewritten
+it (`createPromoteHandler` → `runPromoteIngest` + `dispatchPromoteHooks` over a `PromoteRunCtx`)
+while still purging over HTTPS with `CF_PURGE_API_TOKEN`, which `stage-2` had **deleted** in WC-10.
+`main`'s structure was kept and `purgeAfterPromote` re-implemented as a `CACHE_PURGE_QUEUE` enqueue;
+`stage-2`'s claimed-vendor write block (AECI-520) was then re-applied onto the new ingest by hand.
+
+**Migrations were renumbered.** `main` had reached `0015`, so this epic's two migrations moved:
+`0006_lyrical_leper_queen` → **`0016`**, `0008_slim_iron_lad` → **`0017`**. The `0007` reservation
+(§8.4) was never needed in the end, but it cost nothing. Critically, this was **not** the three-file
+rename `docs/migrations.md` §0 describes — across a ten-migration gap the snapshots had to be
+*regenerated* against the merged schema, with the hand-authored SQL bodies swapped back in, or the
+newest snapshot would have omitted every table `main` added. That doc now carries the distinction.
+`aeci-515` still holds a `0006` and takes `0018`+ when it reconciles.
+
+**Six defects surfaced that were not merge conflicts** — each a place where the two branches were
+individually correct and jointly wrong. Recorded because they are the class of thing a conflict-free
+merge hides: `wrote` counting `promote.blocked` audit rows (a fully-blocked promote claimed a write);
+`vendorEditableData` still writing `verified`, which AECI-520 made grant-only; `/trades` shipping
+without the WC-3 resilience pair; duplicated `DD_*` keys in two workflow `env:` maps (invalid YAML);
+three `stage-2` fixtures predating `main`'s `TaxonomyResponse.trades` / `VendorLinkSchema.verified`;
+and a cache-HIT page-view spec driving a stub WC-3 had deleted. The §7 detector sweep also became a
+first-class 11th cron (`AdminCronJob` / `CRON_SCHEDULES`), so it appears on `/admin/system`.
 
 ### 1.5 What already exists — reuse, don't rebuild
 
@@ -257,7 +280,8 @@ ownership cases in the §2.1 table plus the both-endpoints case.
 
 ### 2.5 As built (AECI-603 — 2026-08-14)
 
-Shipped as **migration 1 of two**: `apps/api/migrations/0006_lyrical_leper_queen.sql`, generated from
+Shipped as **migration 1 of two**: `apps/api/migrations/0016_lyrical_leper_queen.sql` (shipped as
+`0006_*`, renumbered by AECI-619 — §1.4), generated from
 `apps/api/src/db/schema.ts` (`claims` / `attestations` + their `relations`), plus the helper seam
 `apps/api/src/lib/attestation-authority.ts` and its spec. Constraint coverage lives in
 `apps/api/src/test/d1.spec.ts` (the harness applies the real migration files, so the CHECK, the
@@ -978,7 +1002,8 @@ anyway. Recorded as a deferral (§10), not an oversight.
 
 ### 8.4 As built (AECI-607 — 2026-08-14)
 
-Shipped as **migration 2 of two**: `apps/api/migrations/0008_slim_iron_lad.sql`, plus the pure
+Shipped as **migration 2 of two**: `apps/api/migrations/0017_slim_iron_lad.sql` (shipped as
+`0008_*`, renumbered by AECI-619 — §1.4), plus the pure
 ordering primitive `packages/shared/src/version-sort.ts`, the wire contract
 `packages/shared/src/api/product-versions.ts`, the CRUD handlers
 `apps/api/src/routes/vendor-product-versions.ts`, and a new shared guard seam
@@ -987,7 +1012,10 @@ ordering primitive `packages/shared/src/version-sort.ts`, the wire contract
 `docs/API_CONTRACTS.md` §6.14, `docs/AUTH_AND_RLS.md` §4.4 and `docs/CACHE_STRATEGY.md` §5(b2) are
 brought forward to match. Decisions taken at build that §8.1–§8.3 did not pre-specify:
 
-- **The migration is numbered `0008`, and the gap is deliberate.** `origin/aeci-514` and
+- **The migration shipped as `0008`, and the gap was deliberate.** (It is `0017` now — AECI-619
+  moved both of this epic's migrations to the end of the chain when `main`, already at `0015`,
+  merged in. The reservation still did its job: nothing had to be squeezed into a gap.)
+  `origin/aeci-514` and
   `origin/aeci-515` (Paid Tiers) each independently generated a **different** `0006_*.sql` —
   `0006_lyrical_leper_queen` here, `0006_easy_sandman` (`vendor_entitlements`, AECI-609) there.
   They collide when both epics merge to `stage-2` and whichever merges second must renumber;

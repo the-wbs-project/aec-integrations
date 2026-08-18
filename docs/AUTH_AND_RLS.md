@@ -353,6 +353,59 @@ await db.batch([
 | `DELETE /api/vendor/claims/:claimId/attestation` (AECI-301) | Hard-required | same **+ §4.2a endpoint authority + `vendors.verified`** | `attestation.retracted` (per retracted row) |
 | `POST /api/webhooks/linear` | HMAC-verified | N/A | `workflow.transitioned` |
 
+**Admin panel reads (AECI-574 / Phase 8.3, extended by AECI-577, AECI-579,
+AECI-580, and AECI-586).** Eight endpoints join the `GET /api/admin/*` row above —
+`/api/admin/overview`, `/api/admin/metrics/timeseries`,
+`/api/admin/traffic/breakdown`, `/api/admin/page-views` (the §5.2 Activity feed),
+`/api/admin/catalog/coverage` (the §5.5 catalog readout), `/api/admin/system`
+(the §5.6 System bundle), `/api/admin/audience` (the §5.4 subscriber, churn, UTM
+and geography bundle), and `/api/admin/feedback` (the feedback inbox) — registered
+on the same `authAdmin` sub-router behind
+the same `requireAdmin()`. **No new gate and no new role**: `requireAdmin()` stays
+the single enforcement point (`ADMIN_PANEL_SPEC.md` §9.1). They are reads and
+therefore write no `audit_log` row, **including under `?recompute=1`**, which
+re-runs two jobs that are already pure reads (§13 D8) — it writes nothing, sends no
+email, and calls no external write API. `admin-panel.authz-matrix.spec.ts` asserts
+the matrix end-to-end against the real guard for **every** panel route: anon → 401,
+authenticated non-admin → 403, banned admin → 403 (the ban precedes the role
+grant), admin → 200. Each new read endpoint the epic adds belongs in that spec's
+`ROUTES` table.
+
+`/api/admin/system` is worth one extra line because it reads more widely than the
+others: it enumerates the live table list from `sqlite_master` and counts every
+row. It returns **counts and table names only** — never a row's contents — so it
+exposes no user data, and it remains a read: the `sqlite_master` walk and the
+`COUNT(*)` union write nothing.
+
+The three analytics endpoints read `page_views`, which by design holds **no user linkage** — a
+UA *hash* and a referrer *host*, never a full URL or query. `ADMIN_PANEL_SPEC.md`
+§13 **D7** settled that no session identifier is introduced, and AECI-585 dropped
+the dead `page_views.user_id` column rather than filling it, so the panel cannot
+de-anonymize a visitor even for an admin. That is now structural rather than a
+matter of which columns the handler selects: the column does not exist. Its
+"visitor" is a distinct `(user_agent_hash, cf_asn)` pair, and the response says so.
+
+`/api/admin/page-views` is the one endpoint that returns visit rows rather than
+aggregates, so it tightens that further: it selects **eight characters** of
+`user_agent_hash`, truncated in SQL (`substr(user_agent_hash, 1, 8)`), so the full
+hash never leaves the API even on an admin-authenticated response. It cannot
+select `user_id`, `session_id`, or `profile_role` — AECI-585 dropped all three.
+Both properties are asserted in `admin-page-views.spec.ts` rather than left to
+review.
+
+`/api/admin/feedback` (AECI-586) goes the **other** way on identity, and the
+contrast is deliberate rather than an inconsistency. It returns the submitter's
+`email` in full. A `page_views` row observes someone who never identified
+themself, which is why §9.7 requires a truncated pseudonymous hash there; a
+feedback submission is contact information a person volunteered *in order to be
+replied to*, and redacting it would defeat the field's only purpose.
+`GET /api/admin/requests` already returns `submitter_email` whole on the same
+reasoning. Both stay admin-only and both stay `private, no-store` — a cached
+response on this route would put a volunteered address in a shared cache, which is
+one more reason `/admin/*` must remain absent from `ROUTE_CACHE_PATTERNS`.
+`/api/admin/audience` returns **aggregates only**: counts, rates and grouped
+breakdowns, never a subscriber's address or a row that identifies one.
+
 **The `/api/vendor/*` rows carry two extra obligations** (AECI-520,
 `STAGE_2_VENDOR_PORTAL_SPEC.md` §4). They are the D1/Drizzle replacement for the
 row filter RLS would have provided, and they are not optional:
@@ -429,6 +482,11 @@ that `POST /api/promote` emits.
 - Skip the audit log for "small" updates
 - Reach the DB by any path other than the request-scoped Drizzle client over the `DB` binding (`getDb(env)`)
 - Return 200 on auth failures (always 401 or 403 with a stable error code)
+- **Cache `profiles.role` / `banned_at` anywhere on the server** — not in KV, not in a Worker global, not in a signed cookie claim (AECI-617)
+
+**Why the role re-fetch is not cacheable.** The per-request `profiles` read in `requireAuth()`/`requireAdmin()` looks like an obvious KV candidate — it is the same row on every call for a given user. It is not. The privileged D1 binding has **no RLS**, so this Worker is the only place authorization is actually decided (§4 preamble): a cached role means a **demoted admin keeps admin authority**, and a cached `banned_at` means a **banned user keeps writing**, both for the length of the TTL. KV is eventually consistent (propagation up to ~60s), so the staleness window can't even be bounded tightly. The read is a single indexed primary-key lookup on the Worker's own D1 binding — it is not the latency that matters.
+
+Where role *is* cached is the browser, for UI only: `AdminStatus` (`apps/web/src/app/admin/admin-status.ts`) keeps the last probed role in `sessionStorage` so the header's admin affordances paint without a round trip. That is a hint, not a grant — every destination behind it re-enters this layer (the `/admin` SSR redirect + resolver, `requireAdmin()` on `/api/admin/*`), so a forged or stale client-side role buys nothing.
 
 ---
 
@@ -588,11 +646,11 @@ the Anthropic org behind `ANTHROPIC_API_KEY` **must** have zero data retention
 window (~30 days) outside this boundary. Confirm ZDR before provisioning a real
 key; the absent-key path (a silent no-op) sends nothing.
 
-**The FK trap (AECI-202).** There are **seven** inbound FKs to `profiles(id)` in D1.
-Six are `ON DELETE NO ACTION`, so any `DELETE FROM profiles` **FK-fails**
+**The FK trap (AECI-202).** There are **six** inbound FKs to `profiles(id)` in D1.
+Five are `ON DELETE NO ACTION`, so any `DELETE FROM profiles` **FK-fails**
 unless every one of them is nulled first. A real reviewer always trips at least
-`audit_log.actor_id` (every `review.submitted` writes an `audit_log` row) and
-usually `page_views.user_id`. The full list:
+`audit_log.actor_id` (every `review.submitted` writes an `audit_log` row). The
+full list:
 
 | FK | ON DELETE | Erasure action |
 | --- | --- | --- |
@@ -602,7 +660,13 @@ usually `page_views.user_id`. The full list:
 | `workflow_instances.initiated_by` | NO ACTION | nulled |
 | `workflow_transitions.actor_id` | NO ACTION | nulled |
 | `audit_log.actor_id` | NO ACTION | nulled (severs the actor link; rows survive) |
-| `page_views.user_id` | NO ACTION | nulled |
+
+There used to be a seventh — `page_views.user_id`, nulled in the same batch.
+AECI-585 **dropped that column** (`ADMIN_PANEL_SPEC.md` §13 D7): it was never
+written by any code path, so the statement was a permanent no-op, and filling it
+would have meant inventing a durable first-party identifier. This **strengthens**
+erasure rather than weakening it — `page_views` can no longer hold user linkage at
+all, so there is nothing left in that table to erase, for this user or any other.
 
 **Flow (`DELETE /api/account`, `requireAuth`, AECI-202; D1 re-platform AECI-254/278).**
 Because the app store (D1) and Supabase Auth are now **separate systems** (ADR 0016),
@@ -611,7 +675,7 @@ and no `apps/api/src/prisma.ts`:
 
 1. User confirms Delete in `/account` → `DELETE /api/account`.
 2. **D1 erasure — one atomic `db.batch([...])`** (`apps/api/src/routes/account.ts`):
-   in order, null all seven inbound references above, write the `account.deleted`
+   in order, null all six inbound references above, write the `account.deleted`
    audit row, then delete the `profiles` row. All commit or roll back as a unit.
 3. The `account.deleted` audit row has **`actorId = null`** — the profile is deleted
    in the same batch and `audit_log.actor_id` is `NO ACTION`, so a non-null actor
@@ -641,7 +705,8 @@ and no `apps/api/src/prisma.ts`:
 
 The "background sweep" once imagined for `page_views`/`audit_log` is performed
 **synchronously, inside the D1 erasure batch, before the profile delete** — there is
-no separate async sweep. No client-side path exists to read or modify deleted users'
+no separate async sweep, and since AECI-585 the `page_views` half has nothing to
+sweep. No client-side path exists to read or modify deleted users'
 data: the sensitive D1 tables have no public read surface (Worker-only), and the rows
 that remain have NULL where the user ID used to be.
 

@@ -1,0 +1,4 @@
+# Row dumps + generated rollback SQL contain full production catalog content.
+# They are operator artifacts, produced fresh on every run — never committed.
+backups/
+affected-slugs.txt

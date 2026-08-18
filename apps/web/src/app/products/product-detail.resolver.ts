@@ -50,5 +50,13 @@ export const productDetailResolver = createDetailResolver<ProductDetail>({
       ctx.embedded.push({ type: 'integration', id: i.id });
       ctx.embedded.push({ type: 'product', slug: i.source.slug });
     }
+    // Powered edges (Stage 1.5 Addendum B): this product is the connector, so
+    // BOTH endpoints are rendered — the hub heading links one and the chip links
+    // the other — and each contributes a tag under the same §3 rule.
+    for (const i of product.integrations_as_connector) {
+      ctx.embedded.push({ type: 'integration', id: i.id });
+      ctx.embedded.push({ type: 'product', slug: i.source.slug });
+      ctx.embedded.push({ type: 'product', slug: i.target.slug });
+    }
   },
 });

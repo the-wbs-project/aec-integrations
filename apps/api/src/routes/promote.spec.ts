@@ -11,9 +11,9 @@
  * `db.batch` that throws the SQLite error the DB would raise.
  */
 
-import type { CachePurgeMessage, PromoteResponse } from '@aeci/shared';
+import { PromotePayloadSchema, type CachePurgeMessage, type PromoteResponse } from '@aeci/shared';
 import { eq } from 'drizzle-orm';
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -23,31 +23,37 @@ import {
   integrations,
   productCategories,
   products,
+  productTrades,
   productVendors,
   profiles,
+  promoteJobs,
   statsCache,
   taxonomyAudiences,
   taxonomyCategories,
   taxonomyDataObjects,
   taxonomyPhases,
+  taxonomyTrades,
   vendors,
 } from '../db/schema';
-import { bookmarkMiddleware } from '../bookmark-middleware';
 import type { Env } from '../env';
-import { errorHandler } from '../errors';
+import { ApiError, errorHandler } from '../errors';
+import { json } from '../http';
 import type { DbFactory } from '../lib/handler-utils';
-import { requireReviewAppAuth } from '../lib/review-auth';
 import { makeTestDb, recordingFactory, type TestDb } from '../test/d1';
 import { fakeExecutionContext } from '../test/helpers';
 import {
-  createPromoteHandler,
+  dispatchPromoteHooks,
   refreshHomeStatsAfterPromote,
+  runPromoteIngest,
   type PromoteAlgoliaSync,
   type PromoteGoogleIndexingNotify,
   type PromoteHomeStatsRefresh,
   type PromoteIndexNowNotify,
+  type PromoteIngestDeps,
+  type PromoteRunCtx,
 } from './promote';
-import { cacheTagsForPromote } from './promote-cache-tags';
+import { cacheTagsForPromote, touchedTradeSlugs } from './promote-cache-tags';
+import { affectedUrlsForPromote, type AffectedUrlOptions } from './promote-indexnow-urls';
 
 /** Deterministic UUID for seeded rows referenced via `supabaseId`. */
 const uuid = (n: number) => `${String(n).padStart(8, '0')}-0000-4000-8000-000000000000`;
@@ -85,9 +91,42 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+/**
+ * `PromoteRunCtx` over a Hono context — the test-lane equivalent of what
+ * `createWorkflowRunCtx` builds for a real run. `setBookmark` mirrors the workflow's
+ * mutable holder: the post-commit seams read `rc.bookmark()`, and the bookmark only
+ * exists once the ingest has returned.
+ */
+function testRunCtx(
+  c: Context<{ Bindings: Env }>,
+): PromoteRunCtx & { setBookmark(bookmark: string | null): void } {
+  let bookmark: string | null = null;
+  return {
+    env: c.env,
+    request: c.req.raw,
+    waitUntil: (promise) => c.executionCtx.waitUntil(promise),
+    bookmark: () => bookmark,
+    setBookmark: (next) => {
+      bookmark = next;
+    },
+  };
+}
+
+/**
+ * Drives the ingest over HTTP the way the retired `createPromoteHandler` did, so the
+ * assertions below (status codes, response bodies, `execCtx.waitUntil` counts) keep
+ * exercising the same behaviour after AECI-563 moved the commit into a Workflow.
+ *
+ * This is a HARNESS, not a shipped route: `POST /api/promote` now returns `202 { jobId }`
+ * (`promote-kickoff.spec.ts`) and this sequence — validate → `runPromoteIngest` →
+ * `dispatchPromoteHooks` → return the ID map — is what `runPromoteWorkflow` performs
+ * inside its commit step (`promote-workflow.spec.ts`). Keeping it here means the ~90
+ * ingest cases stay a direct test of the plan-then-batch SQL rather than being rewritten
+ * around a fake step, and the real `errorHandler` still renders the thrown `ApiError` /
+ * `ZodError` envelopes the Workflow now maps onto job errors.
+ */
 function buildApp(
   opts: {
-    withAuth?: boolean;
     syncAlgolia?: PromoteAlgoliaSync;
     notifyIndexNow?: PromoteIndexNowNotify;
     notifyGoogleIndexing?: PromoteGoogleIndexingNotify;
@@ -95,17 +134,29 @@ function buildApp(
     dbFor?: DbFactory;
   } = {},
 ) {
+  const deps: PromoteIngestDeps = {
+    dbFor: opts.dbFor ?? t.factory,
+    syncAlgolia: opts.syncAlgolia ?? noopAlgolia,
+    notifyIndexNow: opts.notifyIndexNow ?? noopIndexNow,
+    notifyGoogleIndexing: opts.notifyGoogleIndexing ?? noopGoogleIndexing,
+    refreshHomeStats: opts.refreshHomeStats ?? noopHomeStats,
+  };
   const app = new Hono<{ Bindings: Env }>();
   app.onError(errorHandler());
-  const handler = createPromoteHandler(
-    opts.dbFor ?? t.factory,
-    opts.syncAlgolia ?? noopAlgolia,
-    opts.notifyIndexNow ?? noopIndexNow,
-    opts.notifyGoogleIndexing ?? noopGoogleIndexing,
-    opts.refreshHomeStats ?? noopHomeStats,
-  );
-  if (opts.withAuth) app.post('/api/promote', requireReviewAppAuth(), handler);
-  else app.post('/api/promote', handler);
+  app.post('/api/promote', async (c) => {
+    let raw: unknown;
+    try {
+      raw = JSON.parse(await c.req.text());
+    } catch {
+      throw new ApiError(400, 'MALFORMED_REQUEST', 'Request body is not valid JSON');
+    }
+    const payload = PromotePayloadSchema.parse(raw);
+    const rc = testRunCtx(c);
+    const result = await runPromoteIngest(rc, payload, deps);
+    rc.setBookmark(result.bookmark);
+    dispatchPromoteHooks(rc, result, deps);
+    return json(result.response);
+  });
   return app;
 }
 
@@ -135,50 +186,47 @@ const seedProduct = (
 const seedDataObject = (id: string, slug: string, name: string, aliases: string[] = []) =>
   t.db.insert(taxonomyDataObjects).values({ id, slug, name, aliases });
 
-describe('createPromoteHandler — Sessions API bookmark threading (AECI-250)', () => {
-  it('threads inbound x-d1-bookmark + first-primary into getDb and emits the outbound bookmark', async () => {
+describe('runPromoteIngest — Sessions API anchoring (AECI-250 / AECI-563)', () => {
+  it('anchors the write session at first-primary and returns the outbound bookmark', async () => {
     const rec = recordingFactory(t.db);
     rec.setBookmark('bk-after-write');
 
-    const app = new Hono<{ Bindings: Env }>();
-    app.onError(errorHandler());
-    app.use('*', bookmarkMiddleware());
-    app.post(
-      '/api/promote',
-      createPromoteHandler(
-        rec.factory,
-        noopAlgolia,
-        noopIndexNow,
-        noopGoogleIndexing,
-        noopHomeStats,
-      ),
+    const rc: PromoteRunCtx = {
+      env: baseEnv,
+      request: new Request('http://localhost:8787/api/promote'),
+      waitUntil: () => {},
+      bookmark: () => null,
+    };
+
+    const result = await runPromoteIngest(
+      rc,
+      PromotePayloadSchema.parse({
+        vendors: [{ ref: 'v1', companyName: 'Autodesk' }],
+        product: { ref: 'p1', name: 'Revit' },
+        integrations: [],
+      }),
+      {
+        dbFor: rec.factory,
+        syncAlgolia: noopAlgolia,
+        notifyIndexNow: noopIndexNow,
+        notifyGoogleIndexing: noopGoogleIndexing,
+        refreshHomeStats: noopHomeStats,
+      },
     );
 
-    const res = await app.request(
-      '/api/promote',
-      post(
-        {
-          vendors: [{ ref: 'v1', companyName: 'Autodesk' }],
-          product: { ref: 'p1', name: 'Revit' },
-          integrations: [],
-        },
-        { 'x-d1-bookmark': 'in-99' },
-      ),
-      baseEnv,
-      fakeExecutionContext(),
-    );
-
-    expect(res.status).toBe(200);
-    // Inbound bookmark + the write anchor reached getDb …
-    expect(rec.calls[0]).toEqual({ bookmark: 'in-99', constraint: 'first-primary' });
-    // … and the session bookmark came back out for the next request.
-    expect(res.headers.get('x-d1-bookmark')).toBe('bk-after-write');
+    // The write anchor reaches getDb. There is no inbound bookmark to thread any more:
+    // the ingest runs in a Workflow step, not on a request, so there is no
+    // `x-d1-bookmark` header and `bookmarkMiddleware` never sees this path (AECI-563).
+    expect(rec.calls[0]).toEqual({ bookmark: null, constraint: 'first-primary' });
+    // The session bookmark rides the result instead of a response header — that is what
+    // the workflow feeds to `rc.setBookmark` so the post-commit re-reads see the write.
+    expect(result.bookmark).toBe('bk-after-write');
     // The real write still happened over the recording factory's client.
     expect(await t.db.select().from(products)).toHaveLength(1);
   });
 });
 
-describe('createPromoteHandler', () => {
+describe('runPromoteIngest', () => {
   it('creates a product with vendor and taxonomy', async () => {
     const existingProd = uuid(1);
     await seedProduct(existingProd, 'navisworks', 'Navisworks');
@@ -266,6 +314,436 @@ describe('createPromoteHandler', () => {
     expect(await auditActions()).toEqual(
       expect.arrayContaining(['vendor.updated', 'product.updated']),
     );
+  });
+
+  // ── products.promoted_at (AECI-581 / §13 D6) ────────────────────────────────
+  // Set-once, or it degrades to "last promoted" and buys nothing over
+  // `updated_at`: this branch re-asserts `promotion_status: 'promoted'` on EVERY
+  // re-promote, and `product.updated` outnumbers `product.created` ~2.7:1.
+
+  it('stamps promoted_at on a first promote', async () => {
+    const before = new Date().toISOString();
+    const res = await promote({
+      vendors: [{ ref: 'v1', companyName: 'Autodesk' }],
+      product: { ref: 'p1', name: 'Revit' },
+    });
+    expect(res.status).toBe(200);
+
+    const after = new Date().toISOString();
+
+    const prod = await t.db.query.products.findFirst({ where: eq(products.slug, 'revit') });
+    expect(prod?.promotedAt).toBeTruthy();
+    expect(String(prod?.promotedAt) >= before).toBe(true);
+    expect(String(prod?.promotedAt) <= after).toBe(true);
+    // A create IS the first promote, so the stamp is the insert time. Not asserted
+    // byte-equal to `created_at`: `promoted_at` is stamped once for the whole
+    // ingest run while Drizzle's `$defaultFn` fires per statement, so they can sit
+    // a millisecond apart.
+    const skewMs = Math.abs(
+      Date.parse(String(prod?.promotedAt)) - Date.parse(String(prod?.createdAt)),
+    );
+    expect(skewMs).toBeLessThan(1000);
+  });
+
+  it('leaves promoted_at unchanged when a product is mutated and re-promoted', async () => {
+    const prodX = uuid(3);
+    const firstPromote = '2026-01-15T09:30:00.000Z';
+    await seedProduct(prodX, 'revit', 'Revit', { promotedAt: firstPromote });
+
+    // Re-promote twice, changing the row each time — exactly the update branch
+    // that would otherwise overwrite the stamp.
+    for (const name of ['Revit 2025', 'Revit 2026']) {
+      const res = await promote({
+        vendors: [{ ref: 'v1', companyName: 'Autodesk' }],
+        product: { ref: 'p1', supabaseId: prodX, name },
+      });
+      expect(res.status).toBe(200);
+    }
+
+    const prod = await t.db.query.products.findFirst({ where: eq(products.id, prodX) });
+    expect(prod?.name).toBe('Revit 2026');
+    expect(prod?.promotedAt).toBe(firstPromote);
+  });
+
+  it('fills promoted_at on a re-promote when it is still NULL (a pre-backfill row)', async () => {
+    const prodX = uuid(3);
+    await seedProduct(prodX, 'revit', 'Revit');
+    expect(
+      (await t.db.query.products.findFirst({ where: eq(products.id, prodX) }))?.promotedAt,
+    ).toBeNull();
+
+    const res = await promote({
+      vendors: [{ ref: 'v1', companyName: 'Autodesk' }],
+      product: { ref: 'p1', supabaseId: prodX, name: 'Revit 2025' },
+    });
+    expect(res.status).toBe(200);
+
+    // COALESCE fills a NULL — it does not require the ops backfill to have run.
+    expect(
+      (await t.db.query.products.findFirst({ where: eq(products.id, prodX) }))?.promotedAt,
+    ).toBeTruthy();
+  });
+
+  // AECI-568. A `supabaseId` pointing at a row that no longer exists (retracted,
+  // pruned, deleted) used to take the update branch anyway: `UPDATE … WHERE id =
+  // <gone>` writes nothing, yet the response said `operation: 'updated'` with an
+  // empty slug — which the review app then wrote back over its real slug. The ingest
+  // now falls through to a create, so the next write-back self-heals the pointer.
+  describe('stale supabaseId → falls back to create', () => {
+    it('recreates a vendor whose supabaseId no longer resolves', async () => {
+      const gone = uuid(7);
+
+      const res = await promote({
+        vendors: [{ ref: 'v1', supabaseId: gone, companyName: 'Autodesk' }],
+      });
+
+      expect(res.status).toBe(200);
+      const b = (await res.json()) as {
+        vendors: { id: string; slug: string; operation: string }[];
+      };
+      expect(b.vendors[0]).toMatchObject({ slug: 'autodesk', operation: 'created' });
+      expect(b.vendors[0].id).not.toBe(gone);
+
+      const rows = await t.db.select().from(vendors);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ id: b.vendors[0].id, slug: 'autodesk' });
+      expect(await auditActions()).toEqual(['vendor.created']);
+    });
+
+    it('recreates a product whose supabaseId no longer resolves, with a real slug', async () => {
+      const gone = uuid(7);
+
+      const res = await promote({
+        vendors: [{ ref: 'v1', companyName: 'Autodesk' }],
+        product: { ref: 'p1', supabaseId: gone, name: 'Revit' },
+      });
+
+      expect(res.status).toBe(200);
+      const b = (await res.json()) as { product: { id: string; slug: string; operation: string } };
+      // The slug is generated, not the '' the no-op update used to report.
+      expect(b.product).toMatchObject({ slug: 'revit', operation: 'created' });
+      expect(b.product.id).not.toBe(gone);
+
+      const rows = await t.db.select().from(products);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ id: b.product.id, slug: 'revit', name: 'Revit' });
+      expect(await auditActions()).toEqual(
+        expect.arrayContaining(['vendor.created', 'product.created']),
+      );
+    });
+
+    it('recreates an integration whose supabaseId no longer resolves, with its claims', async () => {
+      const srcId = uuid(1);
+      const tgtId = uuid(2);
+      const gone = uuid(7);
+      await seedProduct(srcId, 'revit', 'Revit');
+      await seedProduct(tgtId, 'navisworks', 'Navisworks');
+      await seedDataObject(uuid(3), 'rfis', 'RFIs');
+
+      const res = await promote({
+        integrations: [
+          {
+            ref: 'i1',
+            supabaseId: gone,
+            sourceProduct: { supabaseId: srcId },
+            targetProduct: { supabaseId: tgtId },
+            claims: [
+              {
+                dataObject: 'rfis',
+                direction: 'a_to_b',
+                attestations: [{ source: 'aeci', asserted: true }],
+              },
+            ],
+          },
+        ],
+      });
+
+      expect(res.status).toBe(200);
+      const b = (await res.json()) as { integrations: { id: string; operation: string }[] };
+      expect(b.integrations[0]).toMatchObject({ operation: 'created' });
+      expect(b.integrations[0].id).not.toBe(gone);
+
+      const rows = await t.db.select().from(integrations);
+      expect(rows).toHaveLength(1);
+      expect(rows[0].id).toBe(b.integrations[0].id);
+      // The claim rides the NEW integration id, not the dead one.
+      const claimRows = await t.db.select().from(claims);
+      expect(claimRows).toHaveLength(1);
+      expect(claimRows[0].integrationId).toBe(b.integrations[0].id);
+      expect(await t.db.select().from(attestations)).toHaveLength(1);
+      expect(await auditActions()).toEqual(
+        expect.arrayContaining(['integration.created', 'claim.created']),
+      );
+    });
+
+    it('reports every fallback on staleSupabaseIds, and nothing when the ids resolve', async () => {
+      const goneVendor = uuid(7);
+      const goneProduct = uuid(8);
+      const rc: PromoteRunCtx = {
+        env: baseEnv,
+        request: new Request('http://localhost:8787/api/promote'),
+        waitUntil: () => {},
+        bookmark: () => null,
+      };
+      const deps: PromoteIngestDeps = {
+        dbFor: t.factory,
+        syncAlgolia: noopAlgolia,
+        notifyIndexNow: noopIndexNow,
+        notifyGoogleIndexing: noopGoogleIndexing,
+        refreshHomeStats: noopHomeStats,
+      };
+
+      const stale = await runPromoteIngest(
+        rc,
+        PromotePayloadSchema.parse({
+          vendors: [{ ref: 'v1', supabaseId: goneVendor, companyName: 'Autodesk' }],
+          product: { ref: 'p1', supabaseId: goneProduct, name: 'Revit' },
+        }),
+        deps,
+      );
+      expect(stale.staleSupabaseIds).toEqual([
+        { kind: 'vendor', ref: 'v1', supabaseId: goneVendor },
+        { kind: 'product', ref: 'p1', supabaseId: goneProduct },
+      ]);
+
+      // Re-push with the ids the first run actually assigned: both resolve now, so the
+      // pointer is healed and the report is empty.
+      const healed = await runPromoteIngest(
+        rc,
+        PromotePayloadSchema.parse({
+          vendors: [
+            { ref: 'v1', supabaseId: stale.response.vendors[0].id, companyName: 'Autodesk' },
+          ],
+          product: { ref: 'p1', supabaseId: stale.response.product?.id, name: 'Revit' },
+        }),
+        deps,
+      );
+      expect(healed.staleSupabaseIds).toEqual([]);
+      expect(healed.response.product).toMatchObject({ slug: 'revit', operation: 'updated' });
+    });
+  });
+
+  /**
+   * AECI-571 — the `promote_jobs` ledger makes the commit exactly-once per job id.
+   *
+   * Cloudflare Workflows guarantee a step runs *at least* once, so an engine crash
+   * between `db.batch` committing and the step result being persisted re-executes the
+   * whole ingest. Without the ledger the plan phase mints fresh uuids and re-derives the
+   * slug against the row it just committed, so a *created* product lands twice — as
+   * `revit` AND `revit-2`. These cases drive the ingest directly (the `buildApp` harness
+   * has no job id) and assert the guard from both sides: the pre-read short-circuit and
+   * the in-batch primary key.
+   */
+  describe('exactly-once job ledger (AECI-571)', () => {
+    const LEDGER_JOB = 'job-aeci-571-0001';
+
+    const ledgerRc = (): PromoteRunCtx => ({
+      env: baseEnv,
+      request: new Request('http://localhost:8787/api/promote'),
+      waitUntil: () => {},
+      bookmark: () => null,
+    });
+    const ledgerDeps = (): PromoteIngestDeps => ({
+      dbFor: t.factory,
+      syncAlgolia: noopAlgolia,
+      notifyIndexNow: noopIndexNow,
+      notifyGoogleIndexing: noopGoogleIndexing,
+      refreshHomeStats: noopHomeStats,
+    });
+    const ingest = (body: unknown, jobId?: string) =>
+      runPromoteIngest(
+        ledgerRc(),
+        PromotePayloadSchema.parse(body),
+        ledgerDeps(),
+        jobId ? { jobId } : {},
+      );
+
+    const REVIT = {
+      vendors: [{ ref: 'v1', companyName: 'Autodesk' }],
+      product: { ref: 'p1', name: 'Revit', categories: ['BIM'] },
+      integrations: [],
+    };
+
+    it('commits once and returns the identical ID map when the same jobId is ingested twice', async () => {
+      const first = await ingest(REVIT, LEDGER_JOB);
+      const auditsAfterFirst = await auditActions();
+
+      const second = await ingest(REVIT, LEDGER_JOB);
+
+      // One of everything, and — the part a deterministic-id fix would NOT give us —
+      // the slug never drifted to `revit-2`.
+      expect(await t.db.select().from(products)).toHaveLength(1);
+      expect(await t.db.select().from(vendors)).toHaveLength(1);
+      expect(await t.db.select().from(promoteJobs)).toHaveLength(1);
+      expect(second.response.product).toMatchObject({ slug: 'revit', operation: 'created' });
+      expect(second.response).toEqual(first.response);
+
+      // The audit rows are inside the same batch, so the rollback covers them too.
+      expect(await auditActions()).toEqual(auditsAfterFirst);
+      // …and the replay still hands the hooks the §26.5 entries the lost attempt never
+      // forwarded, `metadata` re-attached after the ledger round-trip.
+      expect(second.auditEntries).toEqual(first.auditEntries);
+      expect(second.auditEntries[0]?.metadata).toEqual({ source: 'review-app-promote' });
+    });
+
+    it('rolls the entire replayed batch back — joins, integrations, claims and attestations included', async () => {
+      const target = uuid(1);
+      await seedProduct(target, 'navisworks', 'Navisworks');
+      await seedDataObject(uuid(20), 'rfis', 'RFIs');
+
+      const bundle = {
+        vendors: [{ ref: 'v1', companyName: 'Autodesk' }],
+        product: { ref: 'p1', name: 'Revit', categories: ['BIM'] },
+        integrations: [
+          {
+            ref: 'i1',
+            sourceProduct: { ref: 'p1' },
+            targetProduct: { supabaseId: target },
+            claims: [
+              {
+                dataObject: 'rfis',
+                direction: 'a_to_b',
+                attestations: [{ source: 'aeci', asserted: true }],
+              },
+            ],
+          },
+        ],
+      };
+
+      await ingest(bundle, LEDGER_JOB);
+      const before = {
+        integrations: await t.db.select().from(integrations),
+        claims: await t.db.select().from(claims),
+        attestations: await t.db.select().from(attestations),
+        productVendors: await t.db.select().from(productVendors),
+        productCategories: await t.db.select().from(productCategories),
+      };
+
+      await ingest(bundle, LEDGER_JOB);
+
+      expect(await t.db.select().from(integrations)).toEqual(before.integrations);
+      expect(await t.db.select().from(claims)).toEqual(before.claims);
+      expect(await t.db.select().from(attestations)).toEqual(before.attestations);
+      expect(await t.db.select().from(productVendors)).toEqual(before.productVendors);
+      expect(await t.db.select().from(productCategories)).toEqual(before.productCategories);
+    });
+
+    it('short-circuits on the pre-read, before the plan phase runs', async () => {
+      const first = await ingest(REVIT, LEDGER_JOB);
+
+      // If the replay reached the batch at all, this spy would fire.
+      const batch = vi.spyOn(t.db, 'batch');
+      const second = await ingest(REVIT, LEDGER_JOB);
+
+      expect(batch).not.toHaveBeenCalled();
+      expect(second.response).toEqual(first.response);
+    });
+
+    it('falls back to the in-batch primary key when the pre-read misses (concurrent replay)', async () => {
+      const first = await ingest(REVIT, LEDGER_JOB);
+
+      // Force the replay to miss the short-circuit exactly once, so it plans in full and
+      // the real guard — the PK inside `db.batch` — is what absorbs it. This is the only
+      // case that exercises the guard rather than the optimization in front of it.
+      const findFirst = vi
+        .spyOn(t.db.query.promoteJobs, 'findFirst')
+        .mockReturnValueOnce(Promise.resolve(undefined) as never);
+
+      const second = await ingest(REVIT, LEDGER_JOB);
+
+      expect(findFirst).toHaveBeenCalled();
+      expect(second.response).toEqual(first.response);
+      // The rollback was total: no orphaned `revit-2`, no second vendor.
+      const rows = await t.db.select().from(products);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]!.slug).toBe('revit');
+      expect(await t.db.select().from(vendors)).toHaveLength(1);
+    });
+
+    it('still returns 409 SLUG_CONFLICT when a jobId is supplied', async () => {
+      // The new duplicate branch must not swallow the AECI-98 path.
+      t.db.batch = (() =>
+        Promise.reject(new Error('UNIQUE constraint failed: products.slug'))) as never;
+
+      await expect(ingest(REVIT, LEDGER_JOB)).rejects.toMatchObject({
+        status: 409,
+        code: 'SLUG_CONFLICT',
+      });
+    });
+
+    it('refuses to re-commit when the stored result is unreadable', async () => {
+      // A future envelope version reads as unusable rather than being coerced. The
+      // commit already happened, so re-planning is the one thing we must never do.
+      await t.db.insert(promoteJobs).values({ jobId: LEDGER_JOB, result: { v: 99 } });
+
+      await expect(ingest(REVIT, LEDGER_JOB)).rejects.toMatchObject({
+        status: 500,
+        code: 'INTERNAL_ERROR',
+        message: expect.stringMatching(/already committed/),
+      });
+      expect(await t.db.select().from(products)).toHaveLength(0);
+    });
+
+    it('keeps pre-AECI-571 behaviour when no jobId is supplied', async () => {
+      await ingest(REVIT);
+      await ingest(REVIT);
+
+      // No ledger row, no protection: two creates, both slugs disambiguated against the
+      // rows the first run committed (the vendor duplicates too, so the product's
+      // vendor-qualified fallback is itself suffixed). This is exactly the damage the
+      // ledger prevents, and the contract the other ~90 cases in this file depend on.
+      expect((await t.db.select().from(products)).map((p) => p.slug).sort()).toEqual([
+        'revit',
+        'revit-autodesk-2',
+      ]);
+      expect((await t.db.select().from(vendors)).map((v) => v.slug).sort()).toEqual([
+        'autodesk',
+        'autodesk-2',
+      ]);
+      expect(await t.db.select().from(promoteJobs)).toHaveLength(0);
+    });
+
+    it('reports wrote:false for an all-skipped promote even though a ledger row is written', async () => {
+      // `wrote` must be read BEFORE the ledger statement joins the batch — otherwise an
+      // all-skipped promote claims a write and fires a pointless home-stats refresh.
+      const result = await ingest(
+        {
+          integrations: [
+            {
+              ref: 'i1',
+              sourceProduct: { supabaseId: uuid(8) },
+              targetProduct: { supabaseId: uuid(9) },
+            },
+          ],
+        },
+        LEDGER_JOB,
+      );
+
+      expect(result.wrote).toBe(false);
+      expect(await t.db.select().from(promoteJobs)).toHaveLength(1);
+    });
+
+    it('repairs the denormalized counts on replay', async () => {
+      const target = uuid(1);
+      await seedProduct(target, 'navisworks', 'Navisworks');
+      const bundle = {
+        product: { ref: 'p1', name: 'Revit' },
+        integrations: [
+          { ref: 'i1', sourceProduct: { ref: 'p1' }, targetProduct: { supabaseId: target } },
+        ],
+      };
+      const first = await ingest(bundle, LEDGER_JOB);
+      const productId = first.response.product!.id;
+
+      // The attempt whose result was lost may have died before `recomputeProductCounts`,
+      // which runs after the batch and outside the transaction. Simulate that drift.
+      await t.db.update(products).set({ integrationCount: 99 }).where(eq(products.id, productId));
+
+      await ingest(bundle, LEDGER_JOB);
+
+      const [row] = await t.db.select().from(products).where(eq(products.id, productId));
+      expect(row!.integrationCount).toBe(1);
+    });
   });
 
   it('promotes a vendor on its own (no product)', async () => {
@@ -614,7 +1092,276 @@ describe('usefulness resolution on promote (AECI-172)', () => {
   });
 });
 
-describe('createPromoteHandler — claims ingest (AECI-297)', () => {
+describe('runPromoteIngest — trades ingest (AECI-542)', () => {
+  // `taxonomy_trades.description` is NOT NULL (`/trades/:slug` ships as an SEO
+  // landing page, so copy is part of the contract — TRADES_VOCABULARY.md §5).
+  const seedTrade = (id: string, slug: string, name: string, aliases: string[] = []) =>
+    t.db.insert(taxonomyTrades).values({ id, slug, name, description: `${name} work.`, aliases });
+
+  const tradeSlugsFor = async (productId: string) =>
+    (
+      await t.db
+        .select({ slug: taxonomyTrades.slug })
+        .from(productTrades)
+        .innerJoin(taxonomyTrades, eq(taxonomyTrades.id, productTrades.tradeId))
+        .where(eq(productTrades.productId, productId))
+    )
+      .map((r) => r.slug)
+      .sort();
+
+  type Body = {
+    product: { id: string };
+    taxonomy: { trades: { slug: string; id: string; operation: string }[] };
+    skipped: { ref: string; kind: string; reason: string }[];
+  };
+
+  it('leaves behaviour unchanged for a payload with no trades key', async () => {
+    await seedTrade(uuid(1), 'electrical', 'Electrical');
+
+    const res = await promote({ product: { ref: 'p1', name: 'Revit' } });
+
+    expect(res.status).toBe(200);
+    const b = (await res.json()) as Body;
+    expect(b.taxonomy.trades).toEqual([]);
+    expect(b.skipped).toHaveLength(0);
+    expect(await tradeSlugsFor(b.product.id)).toEqual([]);
+  });
+
+  it('resolves by slug, name, and alias case-insensitively, deduping to one join row', async () => {
+    await seedTrade(uuid(1), 'electrical', 'Electrical', ['Electrician']);
+    await seedTrade(uuid(2), 'hvac-mechanical', 'HVAC & Mechanical', ['HVAC', 'Mechanical']);
+
+    const res = await promote({
+      product: {
+        ref: 'p1',
+        name: 'Revit',
+        // slug, name (odd casing), alias, and a second alias for the SAME term.
+        trades: ['electrical', 'hvac & MECHANICAL', 'Electrician', 'HVAC'],
+      },
+    });
+
+    expect(res.status).toBe(200);
+    const b = (await res.json()) as Body;
+    expect(b.skipped).toHaveLength(0);
+    expect(b.taxonomy.trades).toEqual([
+      { slug: 'electrical', id: uuid(1), operation: 'reused' },
+      { slug: 'hvac-mechanical', id: uuid(2), operation: 'reused' },
+    ]);
+    expect(await tradeSlugsFor(b.product.id)).toEqual(['electrical', 'hvac-mechanical']);
+  });
+
+  it('writes the join rows and the product audit row in ONE atomic batch (§26.1)', async () => {
+    await seedTrade(uuid(1), 'electrical', 'Electrical');
+    const realBatch = t.db.batch.bind(t.db) as (s: unknown[]) => Promise<unknown[]>;
+    let batchCalls = 0;
+    (t.db as unknown as { batch: (s: unknown[]) => Promise<unknown[]> }).batch = (stmts) => {
+      batchCalls += 1;
+      return realBatch(stmts);
+    };
+
+    const res = await promote({
+      product: { ref: 'p1', name: 'Revit', trades: ['electrical'] },
+    });
+
+    expect(res.status).toBe(200);
+    const b = (await res.json()) as Body;
+    // One batch — so the join rows and the audit row commit or roll back together.
+    expect(batchCalls).toBe(1);
+    expect(await tradeSlugsFor(b.product.id)).toEqual(['electrical']);
+    // Resolve-only: the product audit row lands, but no term was minted, so there
+    // is no `trade.created` action to log.
+    const actions = await auditActions();
+    expect(actions).toContain('product.created');
+    expect(actions).not.toContain('trade.created');
+  });
+
+  it('reports an unresolvable trade in skipped[] (kind: trade) and creates no term', async () => {
+    await seedTrade(uuid(1), 'paving-asphalt', 'Paving & Asphalt', ['Blacktop']);
+
+    const res = await promote({
+      product: {
+        ref: 'p1',
+        name: 'Revit',
+        trades: ['paving-asphalt', 'paving-contractors'],
+      },
+    });
+
+    expect(res.status).toBe(200);
+    const b = (await res.json()) as Body;
+    // The known trade still lands; only the unmatched value is dropped.
+    expect(b.taxonomy.trades).toEqual([
+      { slug: 'paving-asphalt', id: uuid(1), operation: 'reused' },
+    ]);
+    expect(b.skipped).toEqual([expect.objectContaining({ ref: 'p1', kind: 'trade' })]);
+    expect(b.skipped[0]!.reason).toMatch(/paving-contractors/);
+    expect(await tradeSlugsFor(b.product.id)).toEqual(['paving-asphalt']);
+    // The governance guarantee: a typo must NEVER mint a term (§5.5a / ADR 0008).
+    expect(await t.db.select().from(taxonomyTrades)).toHaveLength(1);
+    expect(await auditActions()).not.toContain('trade.created');
+  });
+
+  it('replaces the whole trade set on re-promote, removing a previously-set tag', async () => {
+    const prodId = uuid(9);
+    await seedTrade(uuid(1), 'electrical', 'Electrical');
+    await seedTrade(uuid(2), 'roofing', 'Roofing');
+    await seedProduct(prodId, 'revit', 'Revit');
+    await t.db.insert(productTrades).values([
+      { productId: prodId, tradeId: uuid(1) },
+      { productId: prodId, tradeId: uuid(2) },
+    ]);
+
+    const res = await promote({
+      product: { ref: 'p1', supabaseId: prodId, name: 'Revit', trades: ['roofing'] },
+    });
+
+    expect(res.status).toBe(200);
+    expect(await tradeSlugsFor(prodId)).toEqual(['roofing']);
+  });
+
+  it('clears every trade when the product is re-promoted without the key', async () => {
+    const prodId = uuid(9);
+    await seedTrade(uuid(1), 'electrical', 'Electrical');
+    await seedProduct(prodId, 'revit', 'Revit');
+    await t.db.insert(productTrades).values({ productId: prodId, tradeId: uuid(1) });
+
+    const res = await promote({
+      product: { ref: 'p1', supabaseId: prodId, name: 'Revit' },
+    });
+
+    expect(res.status).toBe(200);
+    expect(await tradeSlugsFor(prodId)).toEqual([]);
+  });
+
+  // ── Publication gate → indexing pings (AECI-546) ───────────────────────────
+  // The handler resolves the floor POST-commit and hands the same result to both
+  // ping seams. This asserts the wiring end to end: the count must include the
+  // rows this very promote just wrote, or a term crossing the floor is missed.
+  describe('trade URLs handed to the indexing pings', () => {
+    const SITE = 'https://aecintegrations.com';
+    const pingEnv: Env = {
+      ...baseEnv,
+      INDEXNOW_KEY: 'k',
+      GOOGLE_INDEXING_SA_EMAIL: 'sa@example.com',
+      GOOGLE_INDEXING_SA_PRIVATE_KEY: 'pk',
+      PUBLIC_SITE_URL: SITE,
+    };
+
+    /** Promote with recording ping seams; returns whatever each seam received. */
+    async function promoteWithPingSeams(body: unknown, env: Env) {
+      const captured: Promise<AffectedUrlOptions>[] = [];
+      const record: PromoteIndexNowNotify = async (_c, _r, tradeUrls) => {
+        captured.push(tradeUrls);
+      };
+      const app = buildApp({ notifyIndexNow: record, notifyGoogleIndexing: record });
+      const res = await app.request('/api/promote', post(body), env, fakeExecutionContext());
+      expect(res.status).toBe(200);
+      return { res, captured };
+    }
+
+    /** Both pings configured → both seams fire, and must share ONE resolution. */
+    async function promoteAndCaptureTradeUrls(body: unknown) {
+      const { res, captured } = await promoteWithPingSeams(body, pingEnv);
+      // The SAME promise reaches both seams — one D1 read, and no chance of the
+      // two pings disagreeing about what's published (§20.2 "no second deriver").
+      expect(captured).toHaveLength(2);
+      expect(captured[0]).toBe(captured[1]);
+      return { res, tradeUrls: await captured[0]! };
+    }
+
+    // `plumbing` is the load-bearing half: it has ZERO products until this promote
+    // writes its link, so it clears the floor only if the resolver counts AFTER the
+    // commit. A pre-commit read would see 0 and drop it. (At TRADE_PUBLISH_MIN_PRODUCTS
+    // = 1 this is the only way a *set* trade can be sub-floor at all — one the promote
+    // tags always ends with at least one product. The sub-floor exclusion itself is
+    // covered by the removal test below, where a term drops back to zero.)
+    it('submits trades this promote pushed over the floor, counting rows it just wrote', async () => {
+      await seedTrade(uuid(1), 'electrical', 'Electrical');
+      await seedTrade(uuid(2), 'plumbing', 'Plumbing');
+      // Two products already carry `electrical`; the promoted one makes three.
+      // Nothing carries `plumbing` — this promote takes it 0 → 1.
+      for (const n of [10, 11]) {
+        await seedProduct(uuid(n), `p${n}`, `P${n}`);
+        await t.db.insert(productTrades).values({ productId: uuid(n), tradeId: uuid(1) });
+      }
+
+      const { res, tradeUrls } = await promoteAndCaptureTradeUrls({
+        product: { ref: 'p1', name: 'Revit', trades: ['electrical', 'plumbing'] },
+      });
+
+      expect(tradeUrls.publishedTradeSlugs?.slice().sort()).toEqual(['electrical', 'plumbing']);
+      const urls = affectedUrlsForPromote((await res.json()) as PromoteResponse, SITE, tradeUrls);
+      expect(urls).toContain(`${SITE}/trades/electrical`);
+      expect(urls).toContain(`${SITE}/trades/plumbing`);
+      expect(urls).toContain(`${SITE}/trades`);
+    });
+
+    // A removal is not echoed on the response, so it reaches the ping only via
+    // `removedTradeSlugs` — and it must be re-counted post-commit, since dropping
+    // the link may have pushed the term back under the floor.
+    it('carries removed trades through and re-counts them after the write', async () => {
+      const prodId = uuid(9);
+      await seedTrade(uuid(1), 'electrical', 'Electrical');
+      await seedProduct(prodId, 'revit', 'Revit');
+      await t.db.insert(productTrades).values({ productId: prodId, tradeId: uuid(1) });
+
+      const { tradeUrls } = await promoteAndCaptureTradeUrls({
+        product: { ref: 'p1', supabaseId: prodId, name: 'Revit' },
+      });
+
+      expect(tradeUrls.removedTradeSlugs).toEqual(['electrical']);
+      // Down to zero products → unpublished → no term URL submitted.
+      expect(tradeUrls.publishedTradeSlugs).toEqual([]);
+    });
+
+    // Trades are sparse by design: the overwhelming majority of promotes touch
+    // none, and must not pay for the floor read.
+    it('resolves to empty options when no trade was touched', async () => {
+      const { tradeUrls } = await promoteAndCaptureTradeUrls({
+        product: { ref: 'p1', name: 'Revit' },
+      });
+
+      expect(tradeUrls).toEqual({});
+    });
+
+    // Pre-launch, neither ping is provisioned (their secrets ARE the gate), so
+    // nothing is submitted and the floor read never runs.
+    it('fires no ping at all when neither is configured', async () => {
+      await seedTrade(uuid(1), 'electrical', 'Electrical');
+
+      const { captured } = await promoteWithPingSeams(
+        { product: { ref: 'p1', name: 'Revit', trades: ['electrical'] } },
+        baseEnv,
+      );
+
+      expect(captured).toEqual([]);
+    });
+
+    // Either ping alone arms the resolution — the two are provisioned by separate
+    // secrets and Google may well land without IndexNow (or vice versa).
+    it('resolves the floor when only the Google ping is configured', async () => {
+      await seedTrade(uuid(1), 'electrical', 'Electrical');
+      for (const n of [10, 11]) {
+        await seedProduct(uuid(n), `p${n}`, `P${n}`);
+        await t.db.insert(productTrades).values({ productId: uuid(n), tradeId: uuid(1) });
+      }
+
+      const { captured } = await promoteWithPingSeams(
+        { product: { ref: 'p1', name: 'Revit', trades: ['electrical'] } },
+        {
+          ...baseEnv,
+          GOOGLE_INDEXING_SA_EMAIL: 'sa@example.com',
+          GOOGLE_INDEXING_SA_PRIVATE_KEY: 'pk',
+          PUBLIC_SITE_URL: SITE,
+        },
+      );
+
+      expect(captured).toHaveLength(1);
+      expect((await captured[0]!).publishedTradeSlugs).toEqual(['electrical']);
+    });
+  });
+});
+
+describe('runPromoteIngest — claims ingest (AECI-297)', () => {
   it('ingests claims + attestations for a created integration and returns the pair slugs', async () => {
     const target = uuid(1);
     await seedProduct(target, 'navisworks', 'Navisworks');
@@ -694,6 +1441,58 @@ describe('createPromoteHandler — claims ingest (AECI-297)', () => {
     const attRows = await t.db.select().from(attestations);
     expect(attRows).toHaveLength(1);
     expect(attRows[0]).toMatchObject({ source: 'aeci', asserted: true, note: 'first' });
+  });
+
+  it('returns poweredBySlug for an integration powered by a connector product (Addendum B)', async () => {
+    const target = uuid(1);
+    const connector = uuid(2);
+    await seedProduct(target, 'navisworks', 'Navisworks');
+    await seedProduct(connector, 'agave-erp-sync', 'Agave ERP Sync', { productRole: 'connector' });
+
+    const res = await promote({
+      product: { ref: 'p1', name: 'Revit' },
+      integrations: [
+        {
+          ref: 'i1',
+          sourceProduct: { ref: 'p1' },
+          targetProduct: { supabaseId: target },
+          poweredByProduct: { supabaseId: connector },
+          claims: [],
+        },
+      ],
+    });
+
+    expect(res.status).toBe(200);
+    const b = (await res.json()) as {
+      integrations: { ref: string; poweredBySlug?: string }[];
+    };
+    // The connector's slug rides back so the cache-tag deriver can purge its own
+    // product page — it is neither endpoint, so no other tag reaches it.
+    expect(b.integrations[0]).toMatchObject({ poweredBySlug: 'agave-erp-sync' });
+
+    const rows = await t.db.select().from(integrations);
+    expect(rows[0]).toMatchObject({ poweredByProductId: connector });
+  });
+
+  it('omits poweredBySlug when the integration names no powered-by product', async () => {
+    const target = uuid(1);
+    await seedProduct(target, 'navisworks', 'Navisworks');
+
+    const res = await promote({
+      product: { ref: 'p1', name: 'Revit' },
+      integrations: [
+        {
+          ref: 'i1',
+          sourceProduct: { ref: 'p1' },
+          targetProduct: { supabaseId: target },
+          claims: [],
+        },
+      ],
+    });
+
+    expect(res.status).toBe(200);
+    const b = (await res.json()) as { integrations: { poweredBySlug?: string }[] };
+    expect(b.integrations[0]?.poweredBySlug).toBeUndefined();
   });
 
   it('reports an unresolved dataObject in skipped[] (kind: claim), never a 500', async () => {
@@ -1272,7 +2071,7 @@ describe('cacheTagsForPromote (AECI-105)', () => {
     slug,
     operation,
   });
-  const emptyTaxonomy = { categories: [], audiences: [], phases: [] };
+  const emptyTaxonomy = { categories: [], audiences: [], phases: [], trades: [] };
 
   it('created product + vendor + mixed taxonomy → entity, index, taxonomy, sitemap tags', () => {
     const response: PromoteResponse = {
@@ -1283,6 +2082,7 @@ describe('cacheTagsForPromote (AECI-105)', () => {
         categories: [tax('bim', 'reused')],
         audiences: [tax('architecture', 'created')],
         phases: [],
+        trades: [],
       },
       skipped: [],
     };
@@ -1304,7 +2104,7 @@ describe('cacheTagsForPromote (AECI-105)', () => {
       vendors: [entity('autodesk', 'updated')],
       product: entity('revit', 'updated'),
       integrations: [],
-      taxonomy: { categories: [tax('bim', 'reused')], audiences: [], phases: [] },
+      taxonomy: { categories: [tax('bim', 'reused')], audiences: [], phases: [], trades: [] },
       skipped: [],
     };
     expect(new Set(cacheTagsForPromote(response))).toEqual(
@@ -1339,7 +2139,7 @@ describe('cacheTagsForPromote (AECI-105)', () => {
       vendors: [],
       product: entity('revit', 'updated'),
       integrations: [],
-      taxonomy: { categories: [], audiences: [], phases: [tax('design', 'created')] },
+      taxonomy: { categories: [], audiences: [], phases: [tax('design', 'created')], trades: [] },
       skipped: [],
     };
     expect(new Set(cacheTagsForPromote(response))).toEqual(
@@ -1358,61 +2158,163 @@ describe('cacheTagsForPromote (AECI-105)', () => {
     expect(cacheTagsForPromote(response)).toEqual([]);
   });
 
+  it('a powered integration → the connector product tag alongside the pair tag', () => {
+    const response: PromoteResponse = {
+      vendors: [],
+      product: null,
+      integrations: [
+        {
+          ref: 'i1',
+          id: 'id-i1',
+          operation: 'updated',
+          sourceSlug: 'revit',
+          targetSlug: 'navisworks',
+          poweredBySlug: 'agave-erp-sync',
+        },
+      ],
+      taxonomy: emptyTaxonomy,
+      skipped: [],
+    };
+    expect(new Set(cacheTagsForPromote(response))).toEqual(
+      new Set(['pair:navisworks__revit', 'product:agave-erp-sync']),
+    );
+  });
+
+  it('an integration with no powered-by product emits no connector tag', () => {
+    const response: PromoteResponse = {
+      vendors: [],
+      product: null,
+      integrations: [
+        {
+          ref: 'i1',
+          id: 'id-i1',
+          operation: 'updated',
+          sourceSlug: 'revit',
+          targetSlug: 'navisworks',
+        },
+      ],
+      taxonomy: emptyTaxonomy,
+      skipped: [],
+    };
+    expect(cacheTagsForPromote(response)).toEqual(['pair:navisworks__revit']);
+  });
+
   it('never emits coarse route-class tags', () => {
     const response: PromoteResponse = {
       vendors: [entity('autodesk', 'created')],
       product: entity('revit', 'created'),
       integrations: [],
-      taxonomy: { categories: [tax('bim', 'created')], audiences: [], phases: [] },
+      taxonomy: { categories: [tax('bim', 'created')], audiences: [], phases: [], trades: [] },
       skipped: [],
     };
     expect(cacheTagsForPromote(response).some((tag) => tag.startsWith('route:'))).toBe(false);
   });
+
+  // AECI-542 — trades diverge from the three sibling facets: they can never be
+  // `created`, yet any touched trade still changes the publication-gated `/trades`
+  // index, facet sidebar, and sitemap (`CACHE_STRATEGY.md` §2).
+  it('a reused trade → trade tag + index:trades + taxonomy + sitemap', () => {
+    const response: PromoteResponse = {
+      vendors: [],
+      product: entity('revit', 'updated'),
+      integrations: [],
+      taxonomy: {
+        categories: [],
+        audiences: [],
+        phases: [],
+        trades: [tax('electrical', 'reused')],
+      },
+      skipped: [],
+    };
+    expect(new Set(cacheTagsForPromote(response))).toEqual(
+      new Set([
+        'product:revit',
+        'index:products',
+        'trade:electrical',
+        'index:trades',
+        'taxonomy',
+        'sitemap',
+      ]),
+    );
+  });
+
+  it('a REMOVED trade still purges its browse page and the gated surfaces', () => {
+    const response: PromoteResponse = {
+      vendors: [],
+      product: entity('revit', 'updated'),
+      integrations: [],
+      taxonomy: emptyTaxonomy,
+      skipped: [],
+    };
+    expect(new Set(cacheTagsForPromote(response, { removedTradeSlugs: ['roofing'] }))).toEqual(
+      new Set([
+        'product:revit',
+        'index:products',
+        'trade:roofing',
+        'index:trades',
+        'taxonomy',
+        'sitemap',
+      ]),
+    );
+  });
+
+  it('a promote with no trades emits no trade tags', () => {
+    const response: PromoteResponse = {
+      vendors: [],
+      product: entity('revit', 'updated'),
+      integrations: [],
+      taxonomy: emptyTaxonomy,
+      skipped: [],
+    };
+    expect(new Set(cacheTagsForPromote(response))).toEqual(
+      new Set(['product:revit', 'index:products']),
+    );
+  });
 });
 
-describe('requireReviewAppAuth (on /api/promote)', () => {
-  const validBody = { product: { ref: 'p1', name: 'Revit' } };
-  const authApp = () => buildApp({ withAuth: true });
-
-  it('rejects a request with no Authorization header', async () => {
-    const res = await authApp().request(
-      '/api/promote',
-      post(validBody),
-      baseEnv,
-      fakeExecutionContext(),
-    );
-    expect(res.status).toBe(401);
-    expect(((await res.json()) as { error: { code: string } }).error.code).toBe('UNAUTHENTICATED');
+// AECI-546 — the touched-trade set, shared by `cacheTagsForPromote` and
+// `affectedUrlsForPromote`. Pinned directly because the two consumers MUST agree:
+// a trade URL pinged to IndexNow but never purged from the edge hands the crawler
+// a stale page.
+describe('touchedTradeSlugs', () => {
+  const withTrades = (trades: string[]): PromoteResponse => ({
+    vendors: [],
+    product: { ref: 'ref-revit', id: 'id-revit', slug: 'revit', operation: 'updated' },
+    integrations: [],
+    taxonomy: {
+      categories: [],
+      audiences: [],
+      phases: [],
+      // Always `reused`: the vocabulary is closed and find-only, so a trade can
+      // never be `created`.
+      trades: trades.map((slug) => ({ id: `id-${slug}`, slug, operation: 'reused' as const })),
+    },
+    skipped: [],
   });
 
-  it('rejects a wrong token', async () => {
-    const res = await authApp().request(
-      '/api/promote',
-      post(validBody, { Authorization: 'Bearer wrong' }),
-      baseEnv,
-      fakeExecutionContext(),
+  it('unions the SET trades with the REMOVED ones', () => {
+    expect(new Set(touchedTradeSlugs(withTrades(['electrical']), ['roofing']))).toEqual(
+      new Set(['electrical', 'roofing']),
     );
-    expect(res.status).toBe(401);
   });
 
-  it('accepts the correct token', async () => {
-    const res = await authApp().request(
-      '/api/promote',
-      post(validBody, { Authorization: 'Bearer secret-token' }),
-      baseEnv,
-      fakeExecutionContext(),
-    );
-    expect(res.status).toBe(200);
+  // A re-promote that keeps a trade puts it in neither list twice; a caller that
+  // passes overlapping sets must not get a duplicate tag or a duplicate ping.
+  it('dedupes a slug present on both sides', () => {
+    expect(touchedTradeSlugs(withTrades(['electrical']), ['electrical'])).toEqual(['electrical']);
   });
 
-  it('fails closed when REVIEW_APP_TOKEN is unset', async () => {
-    const res = await authApp().request(
-      '/api/promote',
-      post(validBody, { Authorization: 'Bearer anything' }),
-      { ...baseEnv, REVIEW_APP_TOKEN: undefined },
-      fakeExecutionContext(),
-    );
-    expect(res.status).toBe(401);
+  it('is empty when the promote touched no trade', () => {
+    expect(touchedTradeSlugs(withTrades([]))).toEqual([]);
+  });
+
+  it('agrees with the tag deriver about what was touched', () => {
+    const response = withTrades(['electrical']);
+    const removed = ['roofing'];
+    const tags = cacheTagsForPromote(response, { removedTradeSlugs: removed });
+    for (const slug of touchedTradeSlugs(response, removed)) {
+      expect(tags).toContain(`trade:${slug}`);
+    }
   });
 });
 
