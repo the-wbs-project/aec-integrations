@@ -1,13 +1,14 @@
-import { Component, input } from '@angular/core';
+import { Component, computed, input } from '@angular/core';
 
 import type { VendorMeResponse } from '@aeci/shared';
+import type { Capability } from '@aeci/shared/entitlements';
 
 import { VendorIntegrationsSection } from './components/vendor-integrations-section';
+import { VendorPlanPanel } from './components/vendor-plan-panel';
 import { VendorProfileForm } from './components/vendor-profile-form';
 import { VendorProductsSection } from './components/vendor-products-section';
 import { VendorRequestStatus } from './components/vendor-request-status';
 import { VendorSeatRoster } from './components/vendor-seat-roster';
-import { VendorVerifiedStatus } from './components/vendor-verified-status';
 
 /**
  * Concept B — the single-page vendor dashboard (AECI-522): the whole surface on
@@ -21,7 +22,7 @@ import { VendorVerifiedStatus } from './components/vendor-verified-status';
 @Component({
   selector: 'aec-vendor-dashboard-single',
   imports: [
-    VendorVerifiedStatus,
+    VendorPlanPanel,
     VendorRequestStatus,
     VendorProfileForm,
     VendorProductsSection,
@@ -33,17 +34,27 @@ import { VendorVerifiedStatus } from './components/vendor-verified-status';
     <div class="mx-auto w-full max-w-4xl px-6 py-10 md:px-8">
       <header class="border-b border-(--border-default) pb-6">
         <p class="aec-overline text-(--text-secondary)" i18n="@@vendor.eyebrow">Vendor</p>
-        <div class="mt-2 flex flex-wrap items-start justify-between gap-4">
-          <h1
-            class="font-display text-3xl font-semibold tracking-tight text-(--text-primary) md:text-4xl"
-          >
-            {{ m.vendor.company_name }}
-          </h1>
-          <aec-vendor-verified-status [verified]="m.vendor.verified" />
-        </div>
+        <h1
+          class="mt-2 font-display text-3xl font-semibold tracking-tight text-(--text-primary) md:text-4xl"
+        >
+          {{ m.vendor.company_name }}
+        </h1>
       </header>
 
       <div class="mt-10 space-y-14">
+        <section aria-labelledby="vendor-verification-heading">
+          <h2
+            id="vendor-verification-heading"
+            class="font-display text-xl font-semibold text-(--text-primary)"
+            i18n="@@vendor.section.verification"
+          >
+            Verification
+          </h2>
+          <div class="mt-4">
+            <aec-vendor-plan-panel [entitlement]="m.entitlement" />
+          </div>
+        </section>
+
         <section aria-labelledby="vendor-requests-heading">
           <h2
             id="vendor-requests-heading"
@@ -66,7 +77,7 @@ import { VendorVerifiedStatus } from './components/vendor-verified-status';
             Vendor profile
           </h2>
           <div class="mt-4">
-            <aec-vendor-profile-form [vendor]="m.vendor" />
+            <aec-vendor-profile-form [vendor]="m.vendor" [canEdit]="canEditProfile()" />
           </div>
         </section>
 
@@ -79,7 +90,11 @@ import { VendorVerifiedStatus } from './components/vendor-verified-status';
             Your products
           </h2>
           <div class="mt-4">
-            <aec-vendor-products-section [products]="m.products" />
+            <aec-vendor-products-section
+              [products]="m.products"
+              [canEdit]="canEditProducts()"
+              [canEditTaxonomy]="canEditTaxonomy()"
+            />
           </div>
         </section>
 
@@ -118,4 +133,15 @@ import { VendorVerifiedStatus } from './components/vendor-verified-status';
 })
 export class VendorDashboardSingle {
   readonly me = input.required<VendorMeResponse>();
+
+  /** Same §8 capability gate as the tabbed shell, so the two concepts cannot
+   *  disagree about what a lapsed vendor may edit. */
+  private readonly capabilities = computed<readonly Capability[]>(
+    () => this.me().entitlement.capabilities,
+  );
+  protected readonly canEditProfile = computed(() => this.capabilities().includes('profile.edit'));
+  protected readonly canEditProducts = computed(() => this.capabilities().includes('product.edit'));
+  protected readonly canEditTaxonomy = computed(() =>
+    this.capabilities().includes('product.taxonomy.edit'),
+  );
 }
