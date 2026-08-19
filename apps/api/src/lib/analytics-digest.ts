@@ -147,9 +147,25 @@ export const HUMAN = or(isNull(pageViews.isBot), eq(pageViews.isBot, false));
 export const BOT = eq(pageViews.isBot, true);
 
 /**
- * Excludes operator-only paths (`/admin/*`, `/account`) — the read-side half of
- * AECI-575 / ADMIN_PANEL_SPEC §9.6.
+ * Excludes the operator's own traffic. Two independent halves, deliberately one
+ * predicate:
  *
+ *   - **Operator-only PATHS** (`/admin/*`, `/account`) — the read-side half of
+ *     AECI-575 / ADMIN_PANEL_SPEC §9.6, described below.
+ *   - **Operator SESSIONS** (`is_operator = 1`) — the operator browsing the
+ *     PUBLIC site while signed in as an admin (§13 **D13**,
+ *     `lib/operator-session.ts`). The path half never saw these: standing on
+ *     `/products/procore` is indistinguishable from a visitor doing the same,
+ *     and on 2026-08-19 that was 15% of all human public-page views.
+ *
+ * They live in one constant because they answer one question — "is this row the
+ * operator?" — and because a caller that remembered one and forgot the other
+ * would report a number that is half-corrected, which is worse than either
+ * consistent alternative. NULL-safe on `is_operator`: every row written before
+ * D13 shipped is NULL and counts as a visitor, so history keeps reading exactly
+ * as it did rather than shifting under a column it never had.
+ *
+
  * The tracker no longer writes these rows, but rows captured BEFORE that shipped
  * are indistinguishable from real traffic once they're in the table, so filtering
  * only at the write side would leave every pre-fix day permanently inflated and
@@ -162,18 +178,25 @@ export const BOT = eq(pageViews.isBot, true);
  * write-side guards. `path` is NOT NULL, so `NOT LIKE` is safe here (no
  * three-valued-logic surprise), and `page_views_path_idx` covers the column.
  *
- * Exported because the admin panel (AECI-574) reads the SAME `page_views` table
- * through its own queries (`lib/admin-analytics.ts`) and must exclude the same
- * operator-only rows — otherwise the panel would re-count the console's own
- * traffic and diverge from the digest it is meant to mirror. Imported there as
- * `EXCLUDE_UNTRACKED_ROUTES` to keep it distinct from that module's unrelated
- * `ANALYTICS_INTERNAL_ASNS` "internal" filter.
+ * Exported because three other read surfaces must exclude the same rows or they
+ * diverge from the digest they are meant to mirror: the admin panel
+ * (`lib/admin-analytics.ts` + `routes/admin-overview.ts`, AECI-574), and the
+ * public home page's trending card (`lib/home-stats.ts`). Both panel modules
+ * import it as `EXCLUDE_OPERATOR_TRAFFIC`, to stay distinct from that module's
+ * unrelated `ANALYTICS_INTERNAL_ASNS` "internal" filter — the alias says *traffic*
+ * rather than *routes* because since D13 it is no longer only about paths.
+ *
+ * Trending is the one that bites hardest if forgotten: it renders publicly, and
+ * D12 recorded it as immune to the path half (an `/admin/*` row has no
+ * `product_id`) — which is true and does not extend to an operator session, which
+ * carries the FK like any other product view.
  */
 export const NOT_INTERNAL = and(
   ...UNTRACKED_ROUTE_PREFIXES.flatMap((prefix) => [
     notLike(pageViews.path, prefix),
     notLike(pageViews.path, `${prefix}/%`),
   ]),
+  or(isNull(pageViews.isOperator), eq(pageViews.isOperator, false)),
 );
 
 /** `COUNT(*)` of human or bot `page_views` in `[startIso, endIso)`. */

@@ -209,6 +209,7 @@ cd apps/api && pnpm exec wrangler d1 execute aeci-app-production --env productio
   --command "SELECT cf_asn, COUNT(*) n, COUNT(DISTINCT user_agent_hash) uas, COUNT(DISTINCT path) paths
              FROM page_views WHERE created_at >= date('now','-7 days') AND is_bot = 0
                AND path NOT IN ('/admin','/account') AND path NOT LIKE '/admin/%' AND path NOT LIKE '/account/%'
+               AND (is_operator IS NULL OR is_operator = 0)
              GROUP BY 1 ORDER BY n DESC LIMIT 40"
 # then, per suspicious ASN:
 curl -s "https://stat.ripe.net/data/as-overview/data.json?resource=AS47007" | jq -r .data.holder
@@ -217,6 +218,12 @@ curl -s "https://stat.ripe.net/data/as-overview/data.json?resource=AS47007" | jq
 Tells that an "ASN" is really automation: one ASN dominating the day; a handful of UA hashes covering
 dozens of paths; many single `/` hits from many countries inside one short window (a residential-proxy
 sweep); a holder name containing hosting / cloud / server / VPS / colo / datacenter.
+
+The `is_operator` clause (§13 D13) matters here more than anywhere else, because **the operator's own
+ASN is the single most likely "one ASN dominating the day"** and misreading it as automation is how a
+residential ISP ends up in `DATACENTER_ASNS` — the exact false positive the membership rule below
+forbids. It only covers rows written from 2026-08-19 onward; on older windows the operator's own
+network will still show up near the top and must be recognised rather than listed.
 
 **Widening the list** (the fix): add `[asn, 'Datacenter (Holder)']` to `DATACENTER_ASNS`, then regenerate
 `scripts/ops/backfill-page-view-bots.sql` to match — `bot-classification.spec.ts` parses that SQL and fails

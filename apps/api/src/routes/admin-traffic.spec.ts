@@ -326,6 +326,66 @@ describe('GET /api/admin/traffic/breakdown — validation and conventions', () =
     ]);
   });
 
+  it('drops operator-session views from the breakdown and from window_total', async () => {
+    // §13 D13 — unconditional, with no toggle and no `excluding_internal` pairing:
+    // an operator session is internal BY CONSTRUCTION (like the §9.6 path rule),
+    // not a heuristic over real visitors the way `ANALYTICS_INTERNAL_ASNS` is. It
+    // is therefore subtracted from `total` itself rather than reported beside it.
+    await seed();
+    await t.db.insert(pageViews).values([
+      {
+        path: '/products/:slug',
+        productId: u(2),
+        isBot: false,
+        referrerSource: 'Google',
+        cfCountry: 'US',
+        cfAsn: 7922,
+        isOperator: true,
+        createdAt: '2026-08-10T04:00:00.000Z',
+      },
+      {
+        path: '/',
+        isBot: false,
+        referrerSource: 'Direct',
+        cfCountry: 'ID',
+        cfAsn: 23700,
+        isOperator: true,
+        createdAt: '2026-08-10T05:00:00.000Z',
+      },
+    ]);
+
+    const body = await breakdown(`dimension=country&${RANGE}`);
+    // The four seeded rows only — the two operator rows are absent, so US stays
+    // at 1 and ID at 2 rather than inheriting the operator's browsing.
+    expect(body.window_total).toEqual({ total: 4, excluding_internal: null });
+    expect(body.data).toEqual([
+      {
+        key: 'ID',
+        label: 'ID',
+        ref: null,
+        views: 2,
+        views_excluding_internal: null,
+        asn_registry: null,
+      },
+      {
+        key: 'US',
+        label: 'US',
+        ref: null,
+        views: 1,
+        views_excluding_internal: null,
+        asn_registry: null,
+      },
+      {
+        key: null,
+        label: 'Unknown',
+        ref: null,
+        views: 1,
+        views_excluding_internal: null,
+        asn_registry: null,
+      },
+    ]);
+  });
+
   it('writes no audit_log row and is never edge-cacheable', async () => {
     const res = await call(`dimension=source&${RANGE}`);
     expect(res.headers.get('Cache-Control')).toBe('private, no-store');
