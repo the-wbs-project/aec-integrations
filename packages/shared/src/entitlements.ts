@@ -85,6 +85,32 @@ export const TIER_CAPABILITIES: Readonly<Record<EntitlementTier, readonly Capabi
 };
 
 /**
+ * The tiers an admin may actually **grant** — i.e. `TIERS` minus every tier that
+ * holds no capabilities.
+ *
+ * This exists because `TIERS` and "what you can sell someone" are not the same
+ * list, and conflating them is a live incoherence rather than a tidiness point.
+ * `unclaimed` is defined as the **absence** of an entitlement (§3.1), but a
+ * `vendor_entitlements` row at that tier would still carry `status: 'active'` —
+ * which flips the `vendors.verified` mirror and lights the Verified badge (§2.1)
+ * while `tierFor` resolves the row to **zero** capabilities. That is a vendor
+ * billed for a badge that unlocks nothing.
+ *
+ * So the *set* request enum derives from here, not from `TIERS`
+ * (`PaidEntitlementTierSchema`, `api/admin-entitlements.ts`), while the session
+ * block and the grant summary keep reading `TIERS` — they legitimately need to
+ * *report* `unclaimed`, they just must never be able to *write* it.
+ *
+ * Kept as an explicit literal rather than a computed filter because `z.enum`
+ * needs a const tuple at the type level; `entitlements.spec.ts` asserts it equals
+ * the derived set, so adding a zero-capability rung cannot silently make it stale.
+ */
+export const PAID_TIERS = ['verified'] as const;
+
+/** A tier that can be granted. Always a subset of {@link EntitlementTier}. */
+export type PaidEntitlementTier = (typeof PAID_TIERS)[number];
+
+/**
  * The `vendor_entitlements.status` vocabulary (§2.2). Unlike `tier`, this one
  * IS CHECK-constrained at the DB layer — adding a status is a state-machine
  * change and therefore a code change anyway. It lives here rather than in the

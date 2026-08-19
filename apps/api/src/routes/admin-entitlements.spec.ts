@@ -222,16 +222,24 @@ describe('PATCH …/entitlement — set', () => {
     expect(await t.db.select().from(vendorEntitlements)).toHaveLength(0);
   });
 
-  it('403s on the `unclaimed` tier — that is the absence of an entitlement, not a rung', async () => {
+  it('rejects the `unclaimed` tier at the SCHEMA — the absence of an entitlement is not a rung', async () => {
     await seedVendor();
     const res = await patch(VENDOR, { action: 'set', tier: 'unclaimed' });
-    expect(res.status).toBe(403);
-    expect(((await res.json()) as { error: { code: string } }).error.code).toBe('FORBIDDEN');
+    // 400, not 403: `SetVendorEntitlementSchema.tier` derives from `PAID_TIERS`, not
+    // `TIERS`, so Zod refuses it before the handler runs. The guard-rail belongs in the
+    // allow-list (`api/vendor.ts`'s header invariant) because a future consumer of this
+    // schema — a datatool surface, a back-office script — inherits the schema, not the
+    // handler. The handler keeps a semantic zero-capability guard behind it.
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+      'VALIDATION_FAILED',
+    );
     // The badge would have lit (status `active` mirrors) while `tierFor` resolved the
     // row to ZERO capabilities — a vendor billed for a badge that unlocks nothing.
     expect((await readVendor()).verified).toBe(false);
     expect(await t.db.select().from(vendorEntitlements)).toHaveLength(0);
-    expect(entitlementActions()).toEqual([['action:set', 'outcome:forbidden']]);
+    // No metric: rejected before the handler, so nothing counts it as an attempt.
+    expect(entitlementActions()).toEqual([]);
   });
 
   it('400s when the term ends before it starts', async () => {

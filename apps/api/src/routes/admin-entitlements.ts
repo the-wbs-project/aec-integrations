@@ -53,6 +53,7 @@ import {
   type VendorEntitlementResponse,
 } from '@aeci/shared';
 import { forwardAuditLog, type AuditLogForwarder } from '@aeci/shared/audit-log';
+import { capabilitiesFor } from '@aeci/shared/entitlements';
 import { eq } from 'drizzle-orm';
 import type { Context } from 'hono';
 
@@ -224,18 +225,23 @@ export function createSetVendorEntitlementHandler(
     const existing = await loadEntitlement(db, vendor.id);
 
     // ── 2. Guardrails ────────────────────────────────────────────────────────
-    // `unclaimed` is the ABSENCE of an entitlement (§3.1) — the wire enum is derived
-    // from `TIERS` and therefore accepts it, but writing an `active` row at that tier
-    // would light the verified badge (status is `active`, so the mirror flips) while
-    // `tierFor` resolves it to ZERO capabilities. A vendor billed for a badge that
-    // unlocks nothing is precisely the incoherence a guardrail exists to stop, and
-    // "clear it instead" is what the admin actually meant.
-    if (payload.tier === 'unclaimed') {
+    // Never sell a tier that unlocks nothing. An `active` row at a zero-capability
+    // tier flips the `vendors.verified` mirror and lights the badge (§2.1) while
+    // `tierFor` resolves it to no capabilities at all — a vendor billed for a badge
+    // that unlocks nothing.
+    //
+    // `unclaimed` — the ABSENCE of an entitlement (§3.1) — is the case that made this
+    // concrete, and it is now unreachable here: `SetVendorEntitlementSchema.tier`
+    // derives from `PAID_TIERS`, not `TIERS`, so Zod rejects it with a 400 first (the
+    // allow-list IS the guard-rail — `api/vendor.ts`'s header invariant). This stays
+    // as the semantic rule rather than a restatement of that one tier id, so it keeps
+    // biting if a future rung is added to `PAID_TIERS` before its capabilities are.
+    if (payload.tier && capabilitiesFor(payload.tier).length === 0) {
       emitEntitlementAction(c, action, 'forbidden');
       throw new ApiError(
         403,
         ApiErrorCode.FORBIDDEN,
-        'The unclaimed tier is the absence of an entitlement; clear the entitlement instead of granting it.',
+        `The ${payload.tier} tier grants no capabilities; clear the entitlement instead of granting it.`,
         { field: 'tier' },
       );
     }

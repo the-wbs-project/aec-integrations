@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { CAPABILITIES, ENTITLEMENT_STATUSES, TIERS } from '../entitlements';
+import { CAPABILITIES, ENTITLEMENT_STATUSES, PAID_TIERS, TIERS } from '../entitlements';
 
 /**
  * Admin entitlement action contracts (AECI-610 declares the shapes; AECI-532
@@ -28,8 +28,30 @@ import { CAPABILITIES, ENTITLEMENT_STATUSES, TIERS } from '../entitlements';
  * payer-model-agnostic (§8.1(4)).
  */
 
-/** The tier ladder as a wire enum — derived, so a new rung needs no edit here. */
+/**
+ * The tier ladder as a wire enum — derived, so a new rung needs no edit here.
+ *
+ * **This is the READ shape.** It includes `unclaimed`, because the session block
+ * (§4) and the grant summary (§6) must be able to *report* that a vendor has no
+ * entitlement. Requests that **grant** a tier use {@link PaidEntitlementTierSchema}.
+ */
 export const EntitlementTierSchema = z.enum(TIERS);
+
+/**
+ * The tiers a `set` request may ask for — `TIERS` minus every zero-capability
+ * tier (`PAID_TIERS`, `@aeci/shared/entitlements`).
+ *
+ * Separate from {@link EntitlementTierSchema} because reporting a tier and selling
+ * one are different contracts. An `active` row at `unclaimed` would flip the
+ * `vendors.verified` mirror and light the badge while resolving to zero
+ * capabilities — a vendor billed for a badge that unlocks nothing. The handler
+ * also refuses it (defence in depth, and it keeps the error message actionable),
+ * but the guard-rail belongs here: `packages/shared/src/api/vendor.ts`'s header
+ * invariant is that **the allow-list IS the guard-rail**, and a future consumer of
+ * this schema — a datatool surface, a back-office script — inherits the schema,
+ * not the handler.
+ */
+export const PaidEntitlementTierSchema = z.enum(PAID_TIERS);
 
 /** The §2.2 status vocabulary as a wire enum — the same list as the DB CHECK. */
 export const EntitlementStatusSchema = z.enum(ENTITLEMENT_STATUSES);
@@ -107,7 +129,7 @@ export type EntitlementArrangement = z.infer<typeof EntitlementArrangementSchema
  */
 export const SetVendorEntitlementSchema = EntitlementArrangementSchema.extend({
   action: z.enum(['set', 'renew', 'clear']),
-  tier: EntitlementTierSchema.optional(),
+  tier: PaidEntitlementTierSchema.optional(),
   period_start: EntitlementTermDateSchema.optional(),
   period_end: EntitlementTermDateSchema.optional(),
   reason: z.string().max(500).optional(),

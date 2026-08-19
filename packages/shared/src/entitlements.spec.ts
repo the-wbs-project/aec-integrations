@@ -12,6 +12,7 @@ import {
   tierFor,
   type Capability,
   type EntitlementTier,
+  PAID_TIERS,
 } from './entitlements';
 
 /**
@@ -232,5 +233,32 @@ describe('capabilitiesFor / hasCapability', () => {
 
   it('rejects a capability this build does not declare', () => {
     expect(hasCapability('verified', 'search.boost' as Capability)).toBe(false);
+  });
+});
+
+describe('PAID_TIERS — what an admin may actually grant [invariant]', () => {
+  // `TIERS` and "what you can sell someone" are different lists, and conflating them
+  // is a live incoherence, not a tidiness point: an `active` vendor_entitlements row
+  // at a zero-capability tier flips the `vendors.verified` mirror and lights the
+  // Verified badge (§2.1) while `tierFor` resolves it to no capabilities at all — a
+  // vendor billed for a badge that unlocks nothing. `SetVendorEntitlementSchema.tier`
+  // therefore derives from PAID_TIERS, while the session block and grant summary keep
+  // reading TIERS because they must be able to REPORT `unclaimed`.
+  //
+  // PAID_TIERS is an explicit literal (z.enum needs a const tuple at the type level),
+  // so this test is what stops it going stale when a rung is added.
+
+  it('is exactly the tiers that hold at least one capability', () => {
+    const derived = TIERS.filter((tier) => capabilitiesFor(tier).length > 0);
+    expect([...PAID_TIERS]).toEqual(derived);
+  });
+
+  it('is a strict subset of TIERS, and excludes unclaimed', () => {
+    for (const tier of PAID_TIERS) expect(TIERS).toContain(tier);
+    expect([...PAID_TIERS]).not.toContain('unclaimed');
+  });
+
+  it('never offers a tier that would light the badge for nothing', () => {
+    for (const tier of PAID_TIERS) expect(capabilitiesFor(tier).length).toBeGreaterThan(0);
   });
 });
