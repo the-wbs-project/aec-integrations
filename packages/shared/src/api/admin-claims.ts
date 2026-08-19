@@ -1,8 +1,12 @@
 import { z } from 'zod';
 
 import { AdminVendorRequestSchema } from './admin-requests';
-import { EntitlementTermDateSchema, EntitlementTierSchema } from './admin-entitlements';
-import { PageQuerySchema, paginatedResponseSchema } from './common';
+import {
+  EntitlementTermDateSchema,
+  EntitlementTierSchema,
+  VendorEntitlementResponseSchema,
+} from './admin-entitlements';
+import { LinkRefSchema, PageQuerySchema, paginatedResponseSchema } from './common';
 
 /**
  * Admin claim → verified-account grant contracts (AECI-519 /
@@ -172,6 +176,29 @@ export const AdminClaimSchema = AdminVendorRequestSchema.extend({
   duplicate_of_request_id: z.string().uuid().nullable(),
   existing_seats: AdminVendorSeatSchema.array().nullable(),
   related_requests: RelatedRequestRefSchema.array().nullable(),
+  /**
+   * The vendor this claim's entitlement applies to (AECI-532 /
+   * `STAGE_2_PAID_TIERS_SPEC.md` §5), already RESOLVED: for a `target_type='vendor'`
+   * claim that is the target itself; for a `target_type='product'` claim it is the
+   * product's PRIMARY vendor — the same resolution `resolveTargetVendor` runs on the
+   * grant path, so the queue's entitlement control always names the row a grant would
+   * actually touch. `null` when there is no vendor to act on (a product with no
+   * `product_vendors` row) or when the enrichment query degraded.
+   *
+   * Present so the `/admin/claims` entitlement control can address
+   * `PATCH /api/admin/vendors/:id/entitlement` — `target_id` alone cannot, because on
+   * a product claim it is a PRODUCT id.
+   */
+  entitlement_vendor: LinkRefSchema.nullable(),
+  /**
+   * That vendor's current entitlement, or `null` for "no entitlement on record"
+   * (never claimed, or the row was cleared) — the same readout the PATCH returns, so
+   * a successful action drops straight into the row with no refetch.
+   *
+   * Required, not optional (R10): a missed construction site must fail
+   * `validateResponseInDev`, not ship as `undefined`.
+   */
+  entitlement: VendorEntitlementResponseSchema.nullable(),
 });
 export type AdminClaim = z.infer<typeof AdminClaimSchema>;
 

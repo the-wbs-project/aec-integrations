@@ -60,6 +60,7 @@ import type {
   ReviewStatus,
   TaxonomyTermWithCount,
   VendorDetail,
+  VendorEntitlementResponse,
   VendorLink,
   VendorListItem,
 } from '@aeci/shared';
@@ -1493,9 +1494,15 @@ export function toAdminVendorRequest(
 
 /** Map a raw `vendor_requests` claim row → `AdminClaim` (AECI-521): the shared
  *  `AdminVendorRequest` (delegated to `toAdminVendorRequest`, so the two never
- *  drift) plus the three claim-only reviewer signals. `existingSeats` /
+ *  drift) plus the claim-only reviewer signals. `existingSeats` /
  *  `relatedRequests` are supplied by the LIST handler's fail-soft enrichment —
- *  `null` = signal unavailable (degraded), `[]` = computed-and-empty. */
+ *  `null` = signal unavailable (degraded), `[]` = computed-and-empty.
+ *
+ *  `entitlementVendor` / `entitlement` (AECI-532 / §5) are the same shape: the
+ *  RESOLVED target vendor (a product claim → its primary vendor) and its current
+ *  entitlement, so the queue can render the entitlement column and address the
+ *  `PATCH /api/admin/vendors/:id/entitlement` control. Both null when there is no
+ *  vendor to act on or the enrichment degraded. */
 export function toAdminClaim(
   raw: RawAdminVendorRequestRow,
   isDuplicate: boolean,
@@ -1503,12 +1510,16 @@ export function toAdminClaim(
   authAccountByEmail: ReadonlyMap<string, boolean>,
   existingSeats: AdminVendorSeat[] | null,
   relatedRequests: RelatedRequestRef[] | null,
+  entitlementVendor: LinkRef | null = null,
+  entitlement: VendorEntitlementResponse | null = null,
 ): AdminClaim {
   return {
     ...toAdminVendorRequest(raw, isDuplicate, target, authAccountByEmail),
     duplicate_of_request_id: raw.duplicateOfRequestId,
     existing_seats: existingSeats,
     related_requests: relatedRequests,
+    entitlement_vendor: entitlementVendor,
+    entitlement,
   };
 }
 

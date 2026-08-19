@@ -34,10 +34,10 @@
  * `workflowEntry` field to tempt anyone.
  *
  * ── SEAM FOR §5 (AECI-532) ─────────────────────────────────────────────────────
- * The admin set/renew/clear endpoint adds `renewEntitlementStatements` here: it writes
- * term + arrangement columns on an ALREADY-active row and MUST NOT emit a `vendors`
- * statement, because the mirror does not move on a renewal (R2). `activate` cannot
- * serve that case — per the §2.3 matrix an already-active row emits nothing at all.
+ * `renewEntitlementStatements` (added by AECI-532) writes term + arrangement columns
+ * on an ALREADY-active row and emits NO `vendors` statement, because the mirror does
+ * not move on a renewal (R2). `activate` cannot serve that case — per the §2.3 matrix
+ * an already-active row emits nothing at all.
  */
 
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
@@ -66,6 +66,7 @@ const ENTITLEMENT_AUDIT_SOURCE = 'admin-entitlement';
 /** Default audit actions, matching the §5 vocabulary. */
 export const ENTITLEMENT_ACTION = {
   set: 'vendor_entitlement.set',
+  renewed: 'vendor_entitlement.renewed',
   cleared: 'vendor_entitlement.cleared',
 } as const;
 
@@ -149,6 +150,21 @@ export interface ActivateEntitlementParams {
   reason?: string | null;
 }
 
+export interface RenewEntitlementParams {
+  vendorId: string;
+  now: string;
+  actorId: string | null;
+  actorType: AuditLogEntry['actorType'];
+  /** The preloaded row. Anything but ACTIVE → the whole call is a no-op (the §5
+   *  handler maps that to 422 — there is no term to extend). */
+  existing: EntitlementBefore | null;
+  /** Only the keys PRESENT are written (see `partialArrangementColumns`). */
+  arrangement?: EntitlementArrangement;
+  action?: string;
+  source?: string;
+  reason?: string | null;
+}
+
 export interface DeactivateEntitlementParams {
   vendorId: string;
   /** `'expired'` = term lapsed amicably; `'revoked'` = pulled for cause. `'pending'`
@@ -190,6 +206,33 @@ function arrangementColumns(a: EntitlementArrangement) {
     periodStart: a.period_start ?? null,
     periodEnd: a.period_end ?? null,
   };
+}
+
+/**
+ * Map only the arrangement keys the caller actually PROVIDED onto columns — the
+ * deliberate divergence from `arrangementColumns`, which writes every key (as null
+ * when absent).
+ *
+ * Activate needs the write-everything shape so a re-activation cannot inherit a stale
+ * previous term. Renew needs the opposite: an admin extending a term sends
+ * `{ period_end }` and must not thereby wipe the `invoice_ref` and `payer` recorded at
+ * grant time. `undefined` (key absent from the Zod-parsed body) means "leave alone";
+ * an explicitly-sent empty string is a value like any other.
+ */
+function partialArrangementColumns(a: EntitlementArrangement) {
+  const map = {
+    payer: a.payer,
+    amount: a.amount,
+    terms: a.terms,
+    arrangedBy: a.arranged_by,
+    invoiceRef: a.invoice_ref,
+    notes: a.notes,
+    periodStart: a.period_start,
+    periodEnd: a.period_end,
+  };
+  return Object.fromEntries(Object.entries(map).filter(([, v]) => v !== undefined)) as Partial<
+    Record<keyof typeof map, string>
+  >;
 }
 
 /**
@@ -297,6 +340,94 @@ export function activateEntitlementStatements(
   ];
 
   return { stmts, auditEntry, verifiedFlipped, entitlementCreated, reactivated };
+}
+
+/**
+ * The RENEW batch (§5 / AECI-532) — extend the term of an ALREADY-active entitlement.
+ *
+ * Two properties make this a separate builder rather than a flag on `activate`:
+ *
+ *  1. **It emits NO `vendors` statement, ever.** The mirror is already `true` and stays
+ *     `true`, so there is nothing to flip — and per R2 a write that does not move the
+ *     mirror must not move `vendors.updated_at` either, or every renewal schedules a
+ *     needless nightly Algolia re-push of an unchanged record. This is why the module's
+ *     *iff* is not violated by a builder that touches only one table: it touches
+ *     NEITHER side of the mirror, it edits the term the active row carries.
+ *  2. **It patches, it does not replace.** `activate` writes every arrangement column
+ *     (null when absent) so a re-activation cannot inherit a stale term; renew writes
+ *     only the keys supplied, so extending a term keeps the PO reference recorded at
+ *     grant time. See `partialArrangementColumns`.
+ *
+ * A missing or non-active row is a NO-OP — `activate` is the builder for that case, and
+ * the §5 handler 422s rather than silently promoting a renew into a grant.
+ *
+ * `expiry_notice_sent_at` is cleared **only when a new `period_end` is supplied**: the
+ * §7 fence is per-TERM, so a new term must earn its own notice, while an
+ * arrangement-only edit (correcting an invoice ref) must not re-arm a warning the
+ * vendor already received.
+ */
+export function renewEntitlementStatements(db: Db, p: RenewEntitlementParams): EntitlementBatch {
+  if (p.existing === null || p.existing.status !== ACTIVE) return NO_OP;
+
+  const a = p.arrangement ?? {};
+  const columns = partialArrangementColumns(a);
+  const newPeriodEnd = columns.periodEnd ?? p.existing.periodEnd;
+
+  const auditEntry: AuditLogEntry = {
+    actorId: p.actorId,
+    actorType: p.actorType,
+    action: p.action ?? ENTITLEMENT_ACTION.renewed,
+    entityType: ENTITLEMENT_ENTITY_TYPE,
+    entityId: p.vendorId,
+    beforeState: {
+      tier: p.existing.tier,
+      status: ACTIVE,
+      period_end: p.existing.periodEnd,
+      // Unchanged by construction — stated on both sides so the ledger reads the same
+      // for a renewal as for a grant.
+      vendor_verified: true,
+    },
+    afterState: {
+      tier: p.existing.tier,
+      status: ACTIVE,
+      period_end: newPeriodEnd,
+      vendor_verified: true,
+    },
+    metadata: {
+      source: p.source ?? ENTITLEMENT_AUDIT_SOURCE,
+      vendor_id: p.vendorId,
+      // Explicit: a renewal never moves the mirror, so it never moves the Algolia
+      // watermark either (R2).
+      verified_flipped: false,
+      entitlement_created: false,
+      ...(Object.keys(a).length > 0 ? { arrangement: a } : {}),
+      ...(p.reason ? { reason: p.reason } : {}),
+    },
+  };
+
+  const stmts: BatchStmt[] = [
+    db
+      .update(vendorEntitlements)
+      .set({
+        ...columns,
+        ...(columns.periodEnd !== undefined ? { expiryNoticeSentAt: null } : {}),
+        updatedAt: p.now,
+      })
+      // Guarded on the CURRENT state: a concurrent clear wins and the renew no-ops
+      // rather than resurrecting the term on a row that just went terminal.
+      .where(
+        and(eq(vendorEntitlements.vendorId, p.vendorId), eq(vendorEntitlements.status, ACTIVE)),
+      ),
+    auditInsert(db, auditEntry),
+  ];
+
+  return {
+    stmts,
+    auditEntry,
+    verifiedFlipped: false,
+    entitlementCreated: false,
+    reactivated: false,
+  };
 }
 
 /**

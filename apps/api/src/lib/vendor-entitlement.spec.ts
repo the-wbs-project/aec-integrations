@@ -29,6 +29,7 @@ import {
   activateEntitlementStatements,
   deactivateEntitlementStatements,
   loadEntitlement,
+  renewEntitlementStatements,
   type EntitlementBefore,
 } from './vendor-entitlement';
 
@@ -395,5 +396,109 @@ describe('the mirror invariant — never one side of the iff without the other',
     // `EntitlementBatch` has no `workflowEntry` field by design; prove nothing lands.
     const wf = await t.db.query.workflowInstances.findMany();
     expect(wf).toHaveLength(0);
+  });
+});
+
+// ─── renew (AECI-532 / §5) ───────────────────────────────────────────────────
+
+describe('renewEntitlementStatements', () => {
+  const ACTIVE_BEFORE: EntitlementBefore = {
+    id: 'e1',
+    tier: 'verified',
+    status: 'active',
+    periodEnd: '2026-09-01',
+  };
+
+  const renewArgs = (existing: EntitlementBefore | null) => ({
+    vendorId: VENDOR_ID,
+    now: NOW,
+    actorId: ADMIN_ID,
+    actorType: 'admin' as const,
+    existing,
+  });
+
+  /** Patch columns the shared `seedEntitlement` helper does not take. */
+  const patchEntitlement = (values: Partial<typeof vendorEntitlements.$inferInsert>) =>
+    t.db.update(vendorEntitlements).set(values).where(eq(vendorEntitlements.vendorId, VENDOR_ID));
+
+  it('emits NO `vendors` statement — the mirror does not move on a renewal (R2)', async () => {
+    await seedVendor({ verified: true });
+    await seedAdmin();
+    await seedEntitlement('active', '2026-09-01');
+
+    const batch = renewEntitlementStatements(t.db, {
+      ...renewArgs(ACTIVE_BEFORE),
+      arrangement: { period_end: '2027-09-01' },
+    });
+    // Entitlement UPDATE + audit. A third statement here would be a `vendors` write
+    // with no mirror transition behind it.
+    expect(batch.stmts).toHaveLength(2);
+    expect(batch.verifiedFlipped).toBe(false);
+    for (const stmt of batch.stmts as unknown as { toSQL(): { sql: string } }[]) {
+      expect(stmt.toSQL().sql).not.toMatch(/update\s+"?vendors"?/i);
+    }
+
+    await t.db.batch(batch.stmts as BatchTuple);
+    const vendor = await vendorOf();
+    expect(vendor!.verified).toBe(true);
+    // The Algolia watermark must not move for a record whose indexed fields did not.
+    expect(vendor!.updatedAt).toBe(OLD_TS);
+    expect((await entitlementOf())!.periodEnd).toBe('2027-09-01');
+  });
+
+  it('patches only the supplied keys, keeping the arrangement recorded at grant time', async () => {
+    await seedVendor({ verified: true });
+    await seedAdmin();
+    await seedEntitlement('active', '2026-09-01');
+    await patchEntitlement({ invoiceRef: 'PO-1', payer: 'AP' });
+
+    await t.db.batch(
+      renewEntitlementStatements(t.db, {
+        ...renewArgs(ACTIVE_BEFORE),
+        arrangement: { period_end: '2027-09-01' },
+      }).stmts as BatchTuple,
+    );
+
+    const row = await entitlementOf();
+    expect(row!.periodEnd).toBe('2027-09-01');
+    // A renewal that nulled these would destroy the paperwork the epic exists to keep.
+    expect(row!.invoiceRef).toBe('PO-1');
+    expect(row!.payer).toBe('AP');
+  });
+
+  it('clears the §7 fence only when a new period_end is supplied', async () => {
+    await seedVendor({ verified: true });
+    await seedAdmin();
+    await seedEntitlement('active', '2026-09-01');
+    await patchEntitlement({ expiryNoticeSentAt: '2026-08-01T00:00:00.000Z' });
+
+    // Arrangement-only edit: the vendor already got this term's notice, so re-arming
+    // the fence would send a duplicate.
+    await t.db.batch(
+      renewEntitlementStatements(t.db, {
+        ...renewArgs(ACTIVE_BEFORE),
+        arrangement: { invoice_ref: 'PO-2' },
+      }).stmts as BatchTuple,
+    );
+    expect((await entitlementOf())!.expiryNoticeSentAt).toBe('2026-08-01T00:00:00.000Z');
+
+    // A new term earns its own notice.
+    await t.db.batch(
+      renewEntitlementStatements(t.db, {
+        ...renewArgs(ACTIVE_BEFORE),
+        arrangement: { period_end: '2027-09-01' },
+      }).stmts as BatchTuple,
+    );
+    expect((await entitlementOf())!.expiryNoticeSentAt).toBeNull();
+  });
+
+  it('is a no-op on a missing or non-active row (the §5 handler 422s that)', () => {
+    expect(renewEntitlementStatements(t.db, renewArgs(null)).stmts).toHaveLength(0);
+    expect(
+      renewEntitlementStatements(
+        t.db,
+        renewArgs({ id: 'e1', tier: 'verified', status: 'revoked', periodEnd: null }),
+      ).auditEntry,
+    ).toBeNull();
   });
 });

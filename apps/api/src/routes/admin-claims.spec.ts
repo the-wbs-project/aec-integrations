@@ -884,6 +884,61 @@ describe('GET /api/admin/claims — reviewer-assist LIST', () => {
     expect(seats[0]).toMatchObject({ display_name: 'Existing Admin', work_email_verified: true });
   });
 
+  // ── The entitlement column (AECI-532 / STAGE_2_PAID_TIERS_SPEC.md §5) ──────
+
+  it('resolves the entitlement vendor + readout for a vendor claim', async () => {
+    await seedVendor({ verified: true });
+    await seedEntitlement('active');
+    await seedRequest();
+
+    const row = (await parseClaims(await getClaims())).data[0]!;
+    // The control addresses `PATCH /api/admin/vendors/:id/entitlement`, so it needs a
+    // VENDOR id — `target_id` happens to be one here, but not on a product claim.
+    expect(row.entitlement_vendor).toEqual({
+      id: VENDOR_ID,
+      name: 'Autodesk, Inc.',
+      slug: 'autodesk',
+    });
+    expect(row.entitlement).toMatchObject({
+      vendor_id: VENDOR_ID,
+      tier: 'verified',
+      status: 'active',
+      verified: true,
+    });
+  });
+
+  it('resolves a PRODUCT claim to the primary vendor, not the product', async () => {
+    await seedVendor();
+    await t.db.insert(products).values({ id: PRODUCT_ID, slug: 'revit', name: 'Revit' });
+    await t.db
+      .insert(productVendors)
+      .values({ productId: PRODUCT_ID, vendorId: VENDOR_ID, isPrimary: true });
+    await seedRequest({ targetType: 'product', targetId: PRODUCT_ID });
+
+    const row = (await parseClaims(await getClaims())).data[0]!;
+    // Same resolution `resolveTargetVendor` runs on the grant path — otherwise the
+    // queue would offer an entitlement control pointed at a product id.
+    expect(row.entitlement_vendor?.id).toBe(VENDOR_ID);
+    expect(row.entitlement).toBeNull();
+  });
+
+  it('reports entitlement: null (not an error) for a vendor that has never been entitled', async () => {
+    await seedVendor();
+    await seedRequest();
+    const row = (await parseClaims(await getClaims())).data[0]!;
+    expect(row.entitlement_vendor?.id).toBe(VENDOR_ID);
+    expect(row.entitlement).toBeNull();
+  });
+
+  it('surfaces a CLEARED entitlement as its terminal status with verified false', async () => {
+    await seedVendor({ verified: false });
+    await seedEntitlement('revoked');
+    await seedRequest();
+
+    const row = (await parseClaims(await getClaims())).data[0]!;
+    expect(row.entitlement).toMatchObject({ status: 'revoked', verified: false });
+  });
+
   it('reports an empty seat roster (not null) for a first claim', async () => {
     await seedVendor();
     await seedRequest();

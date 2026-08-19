@@ -51,9 +51,11 @@ import {
   ModerateClaimSchema,
   type AdminVendorSeat,
   type ClaimGrantSummary,
+  type LinkRef,
   type ListVendorClaimsResponse,
   type ModerateClaimResponse,
   type RelatedRequestRef,
+  type VendorEntitlementResponse,
 } from '@aeci/shared';
 import { forwardAuditLog, type AuditLogForwarder } from '@aeci/shared/audit-log';
 import { tierFor, type EntitlementTier } from '@aeci/shared/entitlements';
@@ -66,7 +68,14 @@ import type { Context } from 'hono';
 import type { ZodType } from 'zod';
 
 import { getDb, type Db } from '../db/client';
-import { productVendors, profiles, vendorRequests, vendors, workflowInstances } from '../db/schema';
+import {
+  productVendors,
+  profiles,
+  vendorEntitlements,
+  vendorRequests,
+  vendors,
+  workflowInstances,
+} from '../db/schema';
 import { logToDatadog, submitCount } from '../datadog';
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
@@ -688,17 +697,20 @@ function dupKey(head: string, targetType: string, targetId: string): string {
 }
 
 /**
- * The claimed vendor's active seats, keyed by REQUEST id (§5 "existing seats").
- * Resolves each claim's target vendor first (a `product` claim → its PRIMARY
- * vendor, mirroring `resolveTargetVendor`), then ONE grouped `profiles` scan over
- * the page's vendor ids (`role='vendor_admin' AND banned_at IS NULL`) — no per-row
- * N+1. A claim whose product has no vendor maps to `[]` (there is no vendor to
- * seat). Ordered oldest-first so the roster is stable.
+ * Each claim's TARGET VENDOR id, keyed by REQUEST id — the page-wide batched form of
+ * `resolveTargetVendor`: a `vendor` claim resolves to its target, a `product` claim to
+ * that product's PRIMARY vendor. One `IN (...)` scan, no per-row N+1. A claim whose
+ * product has no `product_vendors` row is simply absent from the map (there is no
+ * vendor to seat and none to entitle).
+ *
+ * Hoisted out of `loadExistingSeats` by AECI-532: the entitlement column (§5) needs the
+ * same resolution, and two copies of "which vendor does this claim mean" is exactly how
+ * a queue ends up showing one vendor's seats beside another vendor's badge.
  */
-async function loadExistingSeats(
+async function resolveClaimVendorIds(
   db: Db,
   rows: RawAdminVendorRequestRow[],
-): Promise<Map<string, AdminVendorSeat[]>> {
+): Promise<Map<string, string>> {
   const productTargetIds = [
     ...new Set(rows.filter((r) => r.targetType === 'product').map((r) => r.targetId)),
   ];
@@ -724,7 +736,77 @@ async function loadExistingSeats(
     const vendorId = row.targetType === 'vendor' ? row.targetId : productVendorId.get(row.targetId);
     if (vendorId) vendorByRow.set(row.id, vendorId);
   }
+  return vendorByRow;
+}
 
+/**
+ * The claimed vendors' entitlement readouts, keyed by VENDOR id (AECI-532 / §5), plus
+ * the vendor `LinkRef` the entitlement control addresses.
+ *
+ * ONE grouped scan over the page's vendor ids joining `vendors` ← `vendor_entitlements`
+ * — a LEFT join, because "no entitlement row" is the common case and must render as
+ * "not entitled" rather than dropping the row. `verified` is read from the vendor (the
+ * mirror, §2.1), never recomputed from the entitlement: the column shows what the
+ * public surfaces actually render, so a drifted vendor is VISIBLE here rather than
+ * silently normalized away.
+ *
+ * Read-only. §2.5's "no public or read path may query `vendor_entitlements`" binds the
+ * PUBLIC surfaces; the admin entitlement surface is one of the two readers §2.5 names.
+ */
+async function loadClaimEntitlements(
+  db: Db,
+  vendorIds: string[],
+): Promise<Map<string, { vendor: LinkRef; entitlement: VendorEntitlementResponse | null }>> {
+  const byVendor = new Map<
+    string,
+    { vendor: LinkRef; entitlement: VendorEntitlementResponse | null }
+  >();
+  if (vendorIds.length === 0) return byVendor;
+
+  const rows = await db
+    .select({ vendor: vendors, entitlement: vendorEntitlements })
+    .from(vendors)
+    .leftJoin(vendorEntitlements, eq(vendorEntitlements.vendorId, vendors.id))
+    .where(inArray(vendors.id, vendorIds));
+
+  for (const row of rows) {
+    const e = row.entitlement;
+    byVendor.set(row.vendor.id, {
+      vendor: { id: row.vendor.id, name: row.vendor.companyName, slug: row.vendor.slug },
+      entitlement: e
+        ? {
+            vendor_id: row.vendor.id,
+            tier: e.tier as VendorEntitlementResponse['tier'],
+            status: e.status as VendorEntitlementResponse['status'],
+            period_start: e.periodStart,
+            period_end: e.periodEnd,
+            granted_at: e.grantedAt,
+            ended_at: e.endedAt,
+            verified: row.vendor.verified,
+            payer: e.payer,
+            amount: e.amount,
+            terms: e.terms,
+            arranged_by: e.arrangedBy,
+            invoice_ref: e.invoiceRef,
+            notes: e.notes,
+          }
+        : null,
+    });
+  }
+  return byVendor;
+}
+
+/**
+ * The claimed vendor's active seats, keyed by REQUEST id (§5 "existing seats"). ONE
+ * grouped `profiles` scan over the page's vendor ids (`role='vendor_admin' AND
+ * banned_at IS NULL`) — no per-row N+1. A claim whose product has no vendor is absent
+ * from `vendorByRow` and maps to `[]` (there is no vendor to seat). Ordered oldest-first
+ * so the roster is stable.
+ */
+async function loadExistingSeats(
+  db: Db,
+  vendorByRow: Map<string, string>,
+): Promise<Map<string, AdminVendorSeat[]>> {
   const vendorIds = [...new Set(vendorByRow.values())];
   const seatsByVendor = new Map<string, AdminVendorSeat[]>();
   if (vendorIds.length > 0) {
@@ -887,14 +969,34 @@ export function createAdminClaimsListHandler(
 
     // Every row is a claim, so every submitter feeds the auth + related lookups.
     const claimEmails = rows.map((r) => r.submitterEmail);
-    // FAIL-SOFT enrichment: a rejected seats/related query becomes a `null` signal
-    // (UI: "unavailable"), never a failed response.
-    const [targets, authAccountByEmail, seatsByRow, relatedByRow] = await Promise.all([
-      resolveRequestTargets(db, rows),
-      fetchAuthAccounts(c.env, claimEmails),
-      loadExistingSeats(db, rows).catch(() => null),
-      loadRelatedRequests(db, rows, claimEmails).catch(() => null),
-    ]);
+    // Resolved ONCE and shared by the seats + entitlement enrichments (AECI-532): both
+    // answer "which vendor does this claim mean", and two copies of that resolution is
+    // how a queue shows one vendor's seats beside another vendor's badge. Fail-soft
+    // like the signals it feeds — a rejected resolution degrades BOTH to `null`.
+    const vendorByRow = await resolveClaimVendorIds(db, rows).catch(() => null);
+    // FAIL-SOFT enrichment: a rejected seats/related/entitlement query becomes a `null`
+    // signal (UI: "unavailable"), never a failed response.
+    const [targets, authAccountByEmail, seatsByRow, relatedByRow, entitlementByVendor] =
+      await Promise.all([
+        resolveRequestTargets(db, rows),
+        fetchAuthAccounts(c.env, claimEmails),
+        vendorByRow ? loadExistingSeats(db, vendorByRow).catch(() => null) : null,
+        loadRelatedRequests(db, rows, claimEmails).catch(() => null),
+        vendorByRow
+          ? loadClaimEntitlements(db, [...new Set(vendorByRow.values())]).catch(() => null)
+          : null,
+      ]);
+
+    /** The claim's resolved vendor + entitlement, or `[null, null]` when there is no
+     *  vendor to act on (a product with no `product_vendors` row) or the enrichment
+     *  degraded. Both move together so the UI never offers a control it cannot address. */
+    const entitlementFor = (
+      row: RawAdminVendorRequestRow,
+    ): [LinkRef | null, VendorEntitlementResponse | null] => {
+      const vendorId = vendorByRow?.get(row.id);
+      const hit = vendorId ? entitlementByVendor?.get(vendorId) : undefined;
+      return hit ? [hit.vendor, hit.entitlement] : [null, null];
+    };
 
     const body: ListVendorClaimsResponse = {
       data: rows.map((row) =>
@@ -905,6 +1007,7 @@ export function createAdminClaimsListHandler(
           authAccountByEmail,
           seatsByRow ? (seatsByRow.get(row.id) ?? []) : null,
           relatedByRow ? (relatedByRow.get(row.id) ?? []) : null,
+          ...entitlementFor(row),
         ),
       ),
       page: query.page,
