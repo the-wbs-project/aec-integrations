@@ -33,7 +33,7 @@ import { jobRuns, products, statsCache, vendors } from '../db/schema';
 import type { Env } from '../env';
 import type { AlgoliaIndexDrift } from '../lib/algolia-drift';
 import { ALGOLIA_WATERMARK_KEY } from '../lib/algolia-sync';
-import { CRON_SCHEDULES } from '../lib/cron-schedules';
+import { CRON_JOBS, CRON_SCHEDULES } from '../lib/cron-schedules';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { buildAppWithHandler, fakeExecutionContext, TEST_ENV } from '../test/helpers';
 import { createAdminSystemHandler, type AdminSystemDeps } from './admin-system';
@@ -100,12 +100,13 @@ const cron = (body: AdminSystemResponse, job: string) =>
   body.crons.find((r) => r.job === job) ?? expect.fail(`no cron row for ${job}`);
 
 describe('GET /api/admin/system — cron liveness never reports a passing state', () => {
-  it('returns all ten crons as `unknown` on an empty database', async () => {
+  it('returns all eleven crons as `unknown` on an empty database', async () => {
     const body = await system();
 
-    expect(body.crons).toHaveLength(10);
+    expect(body.crons).toHaveLength(11);
     expect(body.crons.map((r) => r.job)).toEqual([
       'metrics-snapshot',
+      'asn-registry',
       'retention-prune',
       'data-quality',
       'analytics-digest',
@@ -149,10 +150,10 @@ describe('GET /api/admin/system — cron liveness never reports a passing state'
     const note = body.notes.find((n) => n.code === 'cron_liveness_unavailable');
     expect(note).toBeDefined();
     expect(note?.severity).toBe('warn');
-    expect(note?.params).toEqual({ unknown: 10, total: 10 });
+    expect(note?.params).toEqual({ unknown: 11, total: 11 });
   });
 
-  it('derives home-stats + algolia-sync from D1 once their artifacts exist, and leaves the other eight unknown', async () => {
+  it('derives home-stats + algolia-sync from D1 once their artifacts exist, and leaves the other nine unknown', async () => {
     await t.db.insert(statsCache).values([
       { key: 'home.total_products', value: 3, computedAt: '2026-08-13T01:00:00.000Z' },
       { key: 'home.total_vendors', value: 2, computedAt: '2026-08-13T01:05:00.000Z' },
@@ -183,6 +184,7 @@ describe('GET /api/admin/system — cron liveness never reports a passing state'
     const stillUnknown = body.crons.filter((r) => r.source === 'unknown').map((r) => r.job);
     expect(stillUnknown).toEqual([
       'metrics-snapshot',
+      'asn-registry',
       'retention-prune',
       'data-quality',
       'analytics-digest',
@@ -192,8 +194,8 @@ describe('GET /api/admin/system — cron liveness never reports a passing state'
       'waf-poll',
     ]);
     expect(body.notes.find((n) => n.code === 'cron_liveness_unavailable')?.params).toEqual({
-      unknown: 8,
-      total: 10,
+      unknown: 9,
+      total: 11,
     });
   });
 
@@ -668,18 +670,10 @@ describe('GET /api/admin/system — cron liveness from job_runs (§7.2 / AECI-58
   });
 
   it('drops the cron_liveness_unavailable note once every job has a row', async () => {
-    for (const job of [
-      'metrics-snapshot',
-      'retention-prune',
-      'data-quality',
-      'analytics-digest',
-      'moderation-snapshot',
-      'home-stats',
-      'algolia-sync',
-      'algolia-drift',
-      'request-reconcile',
-      'waf-poll',
-    ]) {
+    // Driven off CRON_JOBS rather than a second hand-written list: this test's
+    // whole claim is "every job has a row", and a literal here would silently stop
+    // covering the eleventh cron the day one is added.
+    for (const job of CRON_JOBS) {
       seedRun(job, '2026-08-13T04:00:00.000Z', {
         finishedAt: '2026-08-13T04:00:01.000Z',
         outcome: 'ok',

@@ -82,6 +82,8 @@ export class AdminNoteList {
         return $localize`:@@admin.notes.botIncomplete:${count}:COUNT: views in this window have no bot classification and are counted as human. The figure is an upper bound.`;
       case 'referrer_source_incomplete':
         return $localize`:@@admin.notes.referrerIncomplete:${count}:COUNT: human views in this window have no traffic source. The header was never stored, so this is not backfillable.`;
+      case 'referrer_source_is_unverified':
+        return $localize`:@@admin.notes.referrerUnverified:A traffic source is what the request claimed, not a verified fact. The header it comes from is set by the visitor's browser and anything can set it, so a forged source is indistinguishable from a real one here.`;
       case 'direct_is_mixed_bucket':
         return $localize`:@@admin.notes.directMixed:“Direct” mixes true direct arrivals with in-app navigation: a same-origin referrer classifies as direct, so the two are indistinguishable here.`;
       case 'visitor_definition_approximate':

@@ -47,6 +47,23 @@ vi.mock('./lib/algolia-orphans', () => ({
   toOrphanSweepEntity: vi.fn(),
 }));
 vi.mock('./lib/home-stats', () => ({ runHomeStats: vi.fn() }));
+// The weekly §7.6 refresh (AECI-624) GETs peeringdb.com with the real global
+// `fetch`. Mocked for the same reason as the orphan sweep above: these tests
+// assert orchestration, and a live outbound request from a unit test is a flake
+// waiting for a CI runner with slow DNS. The refresh's own behaviour — fail-open,
+// chunking, never re-verdicting — is covered by `lib/asn-registry.spec.ts`.
+vi.mock('./lib/asn-registry', () => ({
+  refreshAsnRegistry: vi.fn(() =>
+    Promise.resolve({
+      status: 'ok',
+      fetched: 35_000,
+      seen: 878,
+      matched: 640,
+      written: 640,
+      failedChunks: 0,
+    }),
+  ),
+}));
 vi.mock('./lib/reconciliation-sweep', () => ({ runReconciliationSweep: vi.fn() }));
 // The WAF poll (AECI-262) reaches Cloudflare's GraphQL Analytics API; mock the
 // shared transport so the dispatch tests assert orchestration without a network call.
@@ -61,6 +78,7 @@ import { getDb } from './db/client';
 import { logToDatadog, submitCount, submitDistribution, submitGauge } from './datadog';
 import { reportAlgoliaDrift } from './lib/algolia-drift';
 import { runDailySync } from './lib/algolia-sync';
+import { refreshAsnRegistry } from './lib/asn-registry';
 import { runHomeStats } from './lib/home-stats';
 import { runReconciliationSweep } from './lib/reconciliation-sweep';
 import { normalizeJobMessage, queue, scheduled } from './scheduled';
@@ -75,6 +93,7 @@ const DATA_QUALITY_CRON = '0 4 * * *';
 const WAF_CRON = '0 * * * *';
 const ANALYTICS_CRON = '0 5 * * *';
 const RETENTION_CRON = '0 3 * * *';
+const ASN_REGISTRY_CRON = '0 2 * * 1';
 
 const ctx = { waitUntil: vi.fn(), passThroughOnException: vi.fn() } as unknown as ExecutionContext;
 
@@ -286,6 +305,55 @@ describe('scheduled (cron producer)', () => {
       expect.anything(),
       expect.objectContaining({ level: 'error', message: 'aeci.algolia.sync.enqueue_failed' }),
     );
+  });
+
+  it('runs the weekly ASN-registry refresh inline (queue-less) and reports coverage (AECI-624)', async () => {
+    // Even with every queue bound, asn_registry has no producer, so it always
+    // runs inline. Provisioning a twelfth queue for a job whose retry semantics
+    // are already "try again next Monday" would be infrastructure for its own sake.
+    const send = vi.fn().mockResolvedValue(undefined);
+    const env = makeEnv({
+      ALGOLIA_SYNC_QUEUE: { send } as never,
+      STATS_QUEUE: { send } as never,
+    });
+
+    await scheduled(cronController(ASN_REGISTRY_CRON), env, ctx);
+
+    expect(send).not.toHaveBeenCalled();
+    expect(refreshAsnRegistry).toHaveBeenCalledTimes(1);
+    // Coverage, not row count, is the gauge: it is what decides whether a given
+    // Activity row shows an annotation, and it decays silently between runs as
+    // new networks arrive.
+    expect(submitGauge).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.asn_registry.coverage',
+      640 / 878,
+      [],
+    );
+  });
+
+  it('records the ASN refresh as failed — never ok — when the upstream is unreachable', async () => {
+    // The job must not swallow an outage into a green tick: the registry is still
+    // serving annotations from last-known-good rows and the operator has to be
+    // able to see that the feed stopped.
+    vi.mocked(refreshAsnRegistry).mockResolvedValueOnce({
+      status: 'failed',
+      fetched: 0,
+      seen: 0,
+      matched: 0,
+      written: 0,
+      failedChunks: 0,
+      reason: 'peeringdb responded 503',
+    });
+
+    await scheduled(cronController(ASN_REGISTRY_CRON), makeEnv(), ctx);
+
+    const rows = await t.db.select().from(jobRuns);
+    const row = rows.find((r) => r.job === 'asn-registry');
+    expect(row?.outcome).toBe('failed');
+    expect(row?.detail).toMatchObject({ job: 'asn-registry', reason: 'peeringdb responded 503' });
   });
 
   it('runs the WAF poll inline (queue-less) and skips when no analytics token is set', async () => {
@@ -574,6 +642,7 @@ describe('job_runs bookkeeping (§7.2)', () => {
     [RECONCILE_CRON, 'request-reconcile'],
     [WAF_CRON, 'waf-poll'],
     [RETENTION_CRON, 'retention-prune'],
+    [ASN_REGISTRY_CRON, 'asn-registry'],
   ];
 
   /**

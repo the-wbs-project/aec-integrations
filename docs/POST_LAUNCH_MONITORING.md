@@ -60,10 +60,10 @@ healthy day — the point is to catch a regression before a monitor's sustained-
 > defaults to the wrong one — select **`aeci`** (us5). CWV live under RUM → Optimize Vitals, not the
 > Phase-2 dashboard (that tracks SSR `aeci.page.render.duration_ms`, not field CWV).
 
-### 1a. The 10 scheduled crons (row 6 detail)
+### 1a. The 11 scheduled crons (row 6 detail)
 
 Each cron emits an always-on heartbeat; the "not running" monitor's no-data is the liveness signal.
-A green board here means all ten fired on schedule. Since AECI-583 each run **also** writes a
+A green board here means all eleven fired on schedule (ten daily/sub-daily, plus the weekly ASN-registry refresh — see its row). Since AECI-583 each run **also** writes a
 `job_runs` row that `/admin/system` renders (see the split below).
 
 > **Read the record off `/admin/system`; read absence off Datadog.** AECI-583 landed the `job_runs`
@@ -87,6 +87,7 @@ A green board here means all ten fired on schedule. Since AECI-583 each run **al
 | `0 6 * * *` | Moderation queue snapshot | `moderation-snapshot` | moderation-queue-age (threshold + no-data) |
 | `0 7 * * *` | Home-stats compute | `home-stats` | stats-compute-failed / stats-not-running |
 | `0 8 * * *` | Algolia incremental sync | `algolia-sync` | sync-failed / sync-not-running |
+| `0 2 * * 1` | **WEEKLY** (Mondays) — `asn_registry` refresh from PeeringDB (AECI-624 / `ADMIN_PANEL_SPEC.md` §7.6): the read-time network annotation behind the Activity feed | `asn-registry` | `aeci.asn_registry.refresh` heartbeat + `aeci.asn_registry.coverage` gauge. **A no-data monitor here needs a ≥2-week window** or it alerts every Tuesday. A `failed` run is not urgent — nothing is ever deleted, so the panel keeps annotating from the last good rows and `/admin/system` marks the registry stale after two missed Mondays. Watch **coverage**, not freshness: it decays silently as new networks arrive and freshness cannot see that |
 | `0 9 * * *` | Algolia drift + orphan sweep | `algolia-drift` | index-drift / orphan-sweep-capped |
 | `*/15 * * * *` | Request→Linear reconciliation sweep | `request-reconcile` | reconcile-stuck / reconcile-no-data |
 | `0 * * * *` | WAF firewall-event poll | `waf-poll` | waf-ratelimit-spike / **waf-poll-not-running** (AECI-279) |
@@ -191,6 +192,15 @@ self-name. The **ASN half is a hand-maintained list** and is the weak point: CF 
 a headless browser on a hosting IP with a spoofed Chrome UA reads as human until its ASN is on the list.
 This is not hypothetical — the 2026-08-03 digest reported **166 "humans" of which ≥149 were
 datacenter/VPN/scanner networks**, 107 from one unlisted colocation provider (AS47007).
+
+**Since AECI-624 the panel does part of this audit for you — but only part.** The §7.6 `asn_registry`
+annotates each Activity row and each `dimension=asn` group with what the network is *registered as*
+(`/admin/traffic` → Networks; a group reading "not a browsing network" with real view counts is the
+tell). It deliberately does **not** change `is_bot`, so the census below is still the thing that
+decides whether an ASN joins `DATACENTER_ASNS`. Two limits worth holding in mind while reading the
+annotation: PeeringDB has no usable signal for ~25% of our traffic, and `Content` includes Google and
+Netflix — it means "not an eyeball network", never "hosting". The annotation narrows the list of ASNs
+worth censusing; it does not replace the judgement.
 
 **Weekly audit** — census the ASNs that came through as human, and name them:
 

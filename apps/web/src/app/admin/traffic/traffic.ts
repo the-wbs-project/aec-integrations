@@ -2,6 +2,7 @@ import { Component, afterNextRender, computed, inject, signal } from '@angular/c
 import { Title } from '@angular/platform-browser';
 
 import type {
+  AdminAsnAnnotation,
   AdminNote,
   AdminTimeseriesResponse,
   AdminTrafficBreakdownResponse,
@@ -110,6 +111,7 @@ export class AdminTraffic {
   private readonly products = signal<AdminTrafficBreakdownResponse | null>(null);
   private readonly countries = signal<AdminTrafficBreakdownResponse | null>(null);
   private readonly crawlers = signal<AdminTrafficBreakdownResponse | null>(null);
+  private readonly networks = signal<AdminTrafficBreakdownResponse | null>(null);
 
   constructor() {
     this.titleSvc.setTitle(
@@ -123,9 +125,9 @@ export class AdminTraffic {
   // ── Fetch ──────────────────────────────────────────────────────────────────
 
   /**
-   * All eight reads in parallel. They share a window and are independent, so
-   * serialising them would multiply the slowest round trip by eight for no gain;
-   * a single `Promise.all` also means one error state rather than eight partial
+   * All nine reads in parallel. They share a window and are independent, so
+   * serialising them would multiply the slowest round trip by nine for no gain;
+   * a single `Promise.all` also means one error state rather than nine partial
    * ones, which is the honest thing to show for a page whose sections must
    * reconcile against the same `window_total`.
    */
@@ -137,7 +139,7 @@ export class AdminTraffic {
     this.loadFailed.set(false);
     this.loading.set(true);
     try {
-      const [human, bot, visitors, sources, pages, products, countries, crawlers] =
+      const [human, bot, visitors, sources, pages, products, countries, crawlers, networks] =
         await Promise.all([
           this.api.timeseries({ metric: 'traffic.page_views_human', from, to, excludeInternal }),
           this.api.timeseries({ metric: 'traffic.page_views_bot', from, to, excludeInternal }),
@@ -147,6 +149,7 @@ export class AdminTraffic {
           this.breakdown('product', from, to, traffic, excludeInternal),
           this.breakdown('country', from, to, traffic, excludeInternal),
           this.breakdown('bot', from, to, traffic, excludeInternal),
+          this.breakdown('asn', from, to, traffic, excludeInternal),
         ]);
       this.humanSeries.set(human);
       this.botSeries.set(bot);
@@ -156,6 +159,7 @@ export class AdminTraffic {
       this.products.set(products);
       this.countries.set(countries);
       this.crawlers.set(crawlers);
+      this.networks.set(networks);
     } catch {
       this.loadFailed.set(true);
     } finally {
@@ -164,7 +168,7 @@ export class AdminTraffic {
   }
 
   private breakdown(
-    dimension: 'source' | 'path' | 'product' | 'country' | 'bot',
+    dimension: 'source' | 'path' | 'product' | 'country' | 'bot' | 'asn',
     from: string,
     to: string,
     traffic: AdminTrafficPopulation,
@@ -315,6 +319,45 @@ export class AdminTraffic {
   );
 
   /**
+   * Views by originating network (AECI-624), with the §7.6 registry's reading
+   * folded into each label.
+   *
+   * The aggregate counterpart to the Activity feed's per-row annotation, and the
+   * question `Geography` above only approximates: a country tells you where an
+   * IP is, a network tells you what kind of place it is. `not a browsing network`
+   * is the label that matters — a network with real view counts and that suffix
+   * is traffic the human/bot split is calling human without much behind it.
+   */
+  protected readonly networkRows = computed(() => {
+    const res = this.networks();
+    if (!res) return [];
+    return res.data.map((row) => ({
+      key: row.key ?? '',
+      label:
+        row.key === null
+          ? $localize`:@@admin.traffic.null.asn:Unknown network`
+          : this.networkLabel(row.label, row.asn_registry),
+      value:
+        this.excludeInternal() && row.views_excluding_internal !== null
+          ? row.views_excluding_internal
+          : row.views,
+      link: null,
+    }));
+  });
+
+  /** `AS30058 · FDCServers.Net (not a browsing network)`. The registry's own word
+   *  is omitted here — the Activity feed shows `info_type` verbatim per row, and
+   *  a bar-chart label has room for the conclusion or the evidence, not both. */
+  private networkLabel(fallback: string, registry: AdminAsnAnnotation | null): string {
+    if (!registry) return fallback;
+    const name = registry.as_name;
+    const base = name ? `${fallback} · ${name}` : fallback;
+    return registry.network_class === 'non_eyeball'
+      ? $localize`:@@admin.traffic.asn.nonEyeball:${base}:NETWORK: (not a browsing network)`
+      : base;
+  }
+
+  /**
    * Breakdown rows → chart categories.
    *
    * The API's `label` for a NULL group is deliberately untranslated operator text
@@ -395,6 +438,7 @@ export class AdminTraffic {
       ...(this.pages()?.notes ?? []),
       ...(this.products()?.notes ?? []),
       ...(this.countries()?.notes ?? []),
+      ...(this.networks()?.notes ?? []),
       ...(this.crawlers()?.notes ?? []),
     ];
     const seen = new Set<string>();
@@ -441,6 +485,7 @@ export class AdminTraffic {
   protected readonly pageHeader = $localize`:@@admin.traffic.header.page:Page`;
   protected readonly productHeader = $localize`:@@admin.traffic.header.product:Product`;
   protected readonly countryHeader = $localize`:@@admin.traffic.header.country:Country`;
+  protected readonly networkHeader = $localize`:@@admin.traffic.header.network:Network`;
   protected readonly crawlerHeader = $localize`:@@admin.traffic.header.crawler:Crawler`;
 
   protected readonly viewsChartLabel = $localize`:@@admin.traffic.aria.views:Page views per day, human and bot, over the selected UTC window`;
@@ -449,6 +494,7 @@ export class AdminTraffic {
   protected readonly pagesChartLabel = $localize`:@@admin.traffic.aria.pages:Top pages by views in the selected window`;
   protected readonly productsChartLabel = $localize`:@@admin.traffic.aria.products:Top products by views in the selected window`;
   protected readonly countriesChartLabel = $localize`:@@admin.traffic.aria.countries:Views by country in the selected window`;
+  protected readonly networksChartLabel = $localize`:@@admin.traffic.aria.networks:Views by originating network in the selected window`;
   protected readonly crawlersChartLabel = $localize`:@@admin.traffic.aria.crawlers:Crawler activity by bot in the selected window`;
 
   protected readonly emptyLabel = $localize`:@@admin.traffic.empty:No views recorded in this window.`;

@@ -28,7 +28,13 @@ import type { PromoteWorkflowParams } from './lib/promote-jobs';
  * `job_runs` past 90, never touches `metrics_daily`, and refuses to run at all
  * if the 00:15 snapshot has not captured every day inside its cut window. Also
  * queue-less — a skipped or partial run is simply re-attempted tomorrow, and a
- * retry of a destructive job is the last thing worth automating.
+ * retry of a destructive job is the last thing worth automating. `asn_registry`
+ * is the WEEKLY 02:00 UTC Monday `asn_registry` refresh (AECI-624 /
+ * `ADMIN_PANEL_SPEC.md` §7.6): one unauthenticated PeeringDB read, intersected
+ * with the ASNs `page_views` has actually seen, upserted for the admin panel's
+ * read-time annotation. Queue-less for the same reason as `waf` — the fetch is a
+ * single read-only GET, the upsert is idempotent, and a failed week is simply
+ * re-run the next week against unchanged rows (nothing is ever deleted).
  */
 export type ScheduledJob =
   | 'sync'
@@ -40,7 +46,8 @@ export type ScheduledJob =
   | 'waf'
   | 'analytics'
   | 'snapshot'
-  | 'retention';
+  | 'retention'
+  | 'asn_registry';
 
 /**
  * Body of a message on a scheduled-job queue. Producer: the cron `scheduled()`

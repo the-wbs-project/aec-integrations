@@ -59,8 +59,16 @@ function makeBreakdown(
         ref: null,
         views: 900,
         views_excluding_internal: null,
+        asn_registry: null,
       },
-      { key: null, label: 'Unattributed', ref: null, views: 100, views_excluding_internal: null },
+      {
+        key: null,
+        label: 'Unattributed',
+        ref: null,
+        views: 100,
+        views_excluding_internal: null,
+        asn_registry: null,
+      },
     ],
     page: 1,
     perPage: 8,
@@ -146,10 +154,10 @@ describe('AdminTraffic', () => {
     expect(el.querySelector('svg')).toBeNull();
   });
 
-  it('fetches three metrics and five breakdowns for the default 30-day window', async () => {
+  it('fetches three metrics and six breakdowns for the default 30-day window', async () => {
     const { api } = await setup();
     expect(api.timeseries).toHaveBeenCalledTimes(3);
-    expect(api.breakdown).toHaveBeenCalledTimes(5);
+    expect(api.breakdown).toHaveBeenCalledTimes(6);
 
     const metrics = api.timeseries.mock.calls.map((c) => (c[0] as { metric: string }).metric);
     expect(metrics).toEqual([
@@ -161,7 +169,7 @@ describe('AdminTraffic', () => {
     const dimensions = api.breakdown.mock.calls.map(
       (c) => (c[0] as { dimension: string }).dimension,
     );
-    expect(dimensions).toEqual(['source', 'path', 'product', 'country', 'bot']);
+    expect(dimensions).toEqual(['source', 'path', 'product', 'country', 'bot', 'asn']);
 
     // Both ends inclusive, so a 30-day window spans 29 days of offset.
     const q = api.timeseries.mock.calls[0]![0] as { from: string; to: string };
@@ -239,7 +247,7 @@ describe('AdminTraffic', () => {
     api.breakdown.mockClear();
     await click(fixture, buttonByText(el, 'Bots'));
     const traffic = api.breakdown.mock.calls.map((c) => (c[0] as { traffic?: string }).traffic);
-    expect(traffic).toEqual(['bot', 'bot', 'bot', 'bot', 'bot']);
+    expect(traffic).toEqual(['bot', 'bot', 'bot', 'bot', 'bot', 'bot']);
   });
 
   it('ignores a re-click of the active filter rather than re-querying', async () => {
@@ -406,6 +414,7 @@ describe('AdminTraffic', () => {
                 ref: null,
                 views: 100,
                 views_excluding_internal: null,
+                asn_registry: null,
               },
             ],
           }),
@@ -429,6 +438,7 @@ describe('AdminTraffic', () => {
                     ref: { id: 'p1', name: 'Procore', slug: 'procore' },
                     views: 42,
                     views_excluding_internal: null,
+                    asn_registry: null,
                   },
                 ],
               })

@@ -67,7 +67,16 @@ on every response rather than left to the reader:
   described in the 2026-08-13 addendum. The `bot_classification_incomplete` note
   was derived from the window's contents rather than a hardcoded date, so it
   retired itself the moment the backfill ran. **`is_bot = 0` still means "not
-  known to be a bot", not "human"** — the ASN half is a hand-maintained list, so
+  known to be a bot", not "human"** — and since **AECI-624** the admin panel says
+  so beside the row rather than only in this document: `/admin/activity` joins the
+  §7.6 `asn_registry` at read time and annotates a network the registry lists as
+  something nobody browses from, while leaving `is_bot` exactly as ingest wrote
+  it. A row reading `is_bot = 0` **and** "not a network people browse from" is the
+  honest state, and it is the shape the 2026-08-13 forged-referrer burst had. The
+  same issue renamed the Activity Source column to **"Claimed source"**, because
+  `referrer_source` comes from a client-supplied header that nothing verifies —
+  production holds a confirmed `www.youtube.com` forgery. The ASN half is a
+  hand-maintained list, so
   the human count remains an upper bound.
 - **`referrer_source` is null on every row before August** and is not
   backfillable — the header was never stored.

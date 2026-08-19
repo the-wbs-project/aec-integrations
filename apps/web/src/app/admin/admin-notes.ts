@@ -105,6 +105,9 @@ const NOTE_PROSE: Record<AdminNoteCode, (params: NoteParams) => string> = {
   referrer_source_incomplete: (p) =>
     $localize`:@@admin.notes.referrerSourceIncomplete:${num(p, 'rows')}:ROWS: human page views in this window have no traffic source. This is not backfillable: the header was never stored.`,
 
+  referrer_source_is_unverified: () =>
+    $localize`:@@admin.notes.referrerSourceIsUnverified:A traffic source is what the request claimed, not a verified fact. It comes from a header the visitor's browser sets, and anything can set it: a forged source is indistinguishable from a real one here.`,
+
   direct_is_mixed_bucket: () =>
     $localize`:@@admin.notes.directIsMixedBucket:Direct mixes true direct arrivals with in-app navigation: a same-origin referrer classifies as Direct.`,
 

@@ -47,6 +47,7 @@ function makeRow(over: Partial<AdminPageViewRow> & { id: number }): AdminPageVie
     entity: over.entity ?? null,
     referrer_source: 'referrer_source' in over ? (over.referrer_source ?? null) : 'Direct',
     referrer: over.referrer ?? null,
+    asn_registry: over.asn_registry ?? null,
   };
 }
 
@@ -231,6 +232,82 @@ describe('ActivityFeed', () => {
       const link = el.querySelector('a[href="/products/procore"]');
       expect(link?.textContent?.trim()).toBe('Procore');
       expect(el.textContent).toContain('/products/:slug');
+    });
+
+    it('names the Source column as a CLAIM, not a fact', async () => {
+      // The value comes from a header the client sets and nothing verifies it.
+      // Production holds a confirmed forgery, so the header has to qualify every
+      // cell below it rather than leaving the note to do all the work.
+      const { el } = await setup(makeApiMock(makeResponse([makeRow({ id: 1 })])));
+      const headers = [...el.querySelectorAll('th[scope="col"]')].map((th) =>
+        th.textContent?.trim(),
+      );
+      expect(headers).toContain('Claimed source');
+      expect(headers).not.toContain('Source');
+    });
+
+    it('annotates a network the registry says nobody browses from, WITHOUT contradicting is_bot', async () => {
+      // The AECI-624 shape: ingest classified this human because the ASN is not
+      // in DATACENTER_ASNS, and the registry says it is a content network. Both
+      // must be on screen at once — that pairing is the finding.
+      const { el } = await setup(
+        makeApiMock(
+          makeResponse([
+            makeRow({
+              id: 1,
+              is_bot: false,
+              cf_asn: 30058,
+              asn_registry: {
+                asn: 30058,
+                info_type: 'Content',
+                as_name: 'FDCServers.Net',
+                network_class: 'non_eyeball',
+                source: 'peeringdb',
+                fetched_at: '2026-08-10T02:00:00.000Z',
+              },
+            }),
+          ]),
+        ),
+      );
+
+      expect(el.textContent).toContain('FDCServers.Net');
+      expect(el.textContent).toContain('Not a network people browse from');
+      // No bot chip: the annotation did not, and must not, re-verdict the row.
+      expect(el.textContent).not.toContain('Other bot');
+      expect(el.textContent).not.toContain('Unclassified');
+    });
+
+    it('says nothing at all when the registry has no record for the network', async () => {
+      const { el } = await setup(
+        makeApiMock(makeResponse([makeRow({ id: 1, cf_asn: 64500, asn_registry: null })])),
+      );
+      expect(el.textContent).toContain('AS64500');
+      expect(el.textContent).not.toContain('registered');
+      expect(el.textContent).not.toContain('browse from');
+    });
+
+    it('distinguishes a typeless registry record from an absent one', async () => {
+      // A quarter of production traffic is in one of these two states and neither
+      // is a finding, so they must not render alike.
+      const { el } = await setup(
+        makeApiMock(
+          makeResponse([
+            makeRow({
+              id: 1,
+              cf_asn: 64500,
+              asn_registry: {
+                asn: 64500,
+                info_type: null,
+                as_name: 'Typeless Net',
+                network_class: 'unclassified',
+                source: 'peeringdb',
+                fetched_at: '2026-08-10T02:00:00.000Z',
+              },
+            }),
+          ]),
+        ),
+      );
+      expect(el.textContent).toContain('The registry lists it but gives it no type');
     });
 
     it('renders an exact UTC instant in the time tooltip', async () => {

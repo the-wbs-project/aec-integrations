@@ -96,6 +96,13 @@ function makeSystem(over: Partial<AdminSystemResponse> = {}): AdminSystemRespons
       age_hours: 4,
       stale: false,
     },
+    asn_registry: {
+      entries: 640,
+      fetched_at: '2026-08-10T02:00:00.000Z',
+      age_hours: 75,
+      stale: false,
+      coverage: 0.73,
+    },
     ...over,
   };
 }
@@ -646,6 +653,67 @@ describe('SystemStatus — Algolia + database', () => {
     expect(el.textContent).toContain('171');
     // Total across tables.
     expect(el.textContent).toContain('297');
+  });
+
+  it('reports registry coverage beside the refresh date, not the row count alone', async () => {
+    // Freshness measures the last write; coverage measures the intersection with a
+    // page_views that keeps meeting new networks. A registry refreshed this
+    // morning can still annotate almost nothing, so both numbers travel together.
+    const { el } = await setup(
+      makeApiMock(
+        makeSystem({
+          asn_registry: {
+            entries: 640,
+            fetched_at: '2026-08-10T02:00:00.000Z',
+            age_hours: 75,
+            stale: false,
+            coverage: 0.73,
+          },
+        }),
+      ),
+    );
+
+    expect(el.textContent).toContain('640');
+    expect(el.textContent).toContain('73%');
+    expect(el.textContent).not.toContain('(stale)');
+  });
+
+  it('reports a never-refreshed registry as never, NOT as stale', async () => {
+    // A fresh environment has nothing to be stale about. Flagging it would make
+    // the one state an operator can ignore look like the one they cannot.
+    const { el } = await setup(
+      makeApiMock(
+        makeSystem({
+          asn_registry: {
+            entries: 0,
+            fetched_at: null,
+            age_hours: null,
+            stale: false,
+            coverage: null,
+          },
+        }),
+      ),
+    );
+
+    expect(el.textContent).toContain('Activity rows show no network annotation');
+  });
+
+  it('flags a registry that has missed two refreshes', async () => {
+    const { el } = await setup(
+      makeApiMock(
+        makeSystem({
+          asn_registry: {
+            entries: 640,
+            fetched_at: '2026-07-01T02:00:00.000Z',
+            age_hours: 1_000,
+            stale: true,
+            coverage: 0.4,
+          },
+        }),
+      ),
+    );
+
+    expect(el.textContent).toContain('(stale)');
   });
 
   it('reports an unknown D1 size as unknown rather than estimating it', async () => {

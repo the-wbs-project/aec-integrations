@@ -179,7 +179,10 @@ The consent-independent equivalent of PostHog's Activity explorer — a reverse-
 | CITY NAME | Location — country + Cloudflare colo (the colo *is* the nearest city) | `cf_country`, `cf_colo` |
 | URL / SCREEN | Page — concrete path, or route pattern hydrated to the real entity name | `path` + `product_id`/`vendor_id` join |
 | TIME | Relative, absolute UTC on hover | `created_at` |
-| REFERRER URL | Source — `Google` / `Direct` + host | `referrer_source`, `referrer` |
+| REFERRER URL | **Claimed source** — `Google` / `Direct` + host. Headed as a claim, not a fact: the value is a client-supplied header nothing verifies (§9.7) | `referrer_source`, `referrer` |
+| *(no PostHog equivalent)* | Network annotation, under the visitor id — "FDCServers.Net, registered Content. Not a network people browse from" | `asn_registry` joined on `cf_asn` (§7.6) |
+
+**The network annotation sits with the visitor, not with the bot chip, and that placement is the point (AECI-624).** It is a fact about the network, never a revision of `is_bot`: a row showing **no** bot chip *and* "not a network people browse from" is the honest state, and it is exactly the shape the 2026-08-13 forged-referrer burst had (§7.6). `eyeball` networks get the name and type with no editorial — confirming the common case is worth a line, not emphasis — and only `non_eyeball` is tinted, to the strength of the secondary text colour. Colour never carries it alone; the prose says "not a network people browse from" on its own. An ASN the registry has never heard of renders **nothing at all** rather than an empty annotation.
 
 Operator-only paths (`/admin/*`, `/account`) never appear in this feed — §9.6 / §13 D12 excludes them **beneath** the filters below, historical rows included, so no filter setting can surface them.
 
@@ -191,7 +194,7 @@ Entity hydration follows the `target` `LinkRef` pattern already used by `GET /ap
 
 ### 5.3 Traffic
 
-Time series over `page_views`: views/day split human vs bot · unique visitors/day (§9.8) · sources over time · top pages · top products · geography (country + colo) · crawler activity per bot over time. A UTC ↔ WIB toggle (§9.5), since the digest and every cron are UTC-only and the operator is at UTC+7. "Top pages" is public routes only — the §13 D12 exclusion applies here too, so the console's own routes can never rank in it.
+Time series over `page_views`: views/day split human vs bot · unique visitors/day (§9.8) · sources over time · top pages · top products · geography (country + colo) · **networks** (`dimension=asn`, added by AECI-624) · crawler activity per bot over time. The Networks breakdown is the aggregate counterpart to §5.2's per-row annotation and answers what Geography only approximates: a country says where an address is, a network says what kind of place it is. Each group carries its `asn_registry` reading, so a network with real view counts and a "not a browsing network" suffix is traffic the human/bot split is calling human on thin evidence. A UTC ↔ WIB toggle (§9.5), since the digest and every cron are UTC-only and the operator is at UTC+7. "Top pages" is public routes only — the §13 D12 exclusion applies here too, so the console's own routes can never rank in it.
 
 **Shipped in AECI-578, with three items deferred by decision.** Three of the list
 above are not reachable from the P1.1 contract, which was found while building the
@@ -255,10 +258,11 @@ This is the section that steers daily catalog work, and the one whose underlying
 ### 5.6 System — SHIPPED (AECI-580, 2026-08-13; completed by AECI-583, 2026-08-13)
 
 - SSR + API `sha` / `deployedAt` / `environment` from the two existing endpoints (`/api/version` and the SSR Worker's own `/_version` — they differ precisely so a stale SSR deploy is detectable). The UI reads both and flags a mismatch as a `role="alert"` band; an unknown SHA (the `wrangler --var` injection missing) reads as *unknown*, not as a difference. The bundle carries the **API** Worker's half — nothing reachable from the API Worker knows the SSR Worker's SHA.
-- **Cron liveness** — last run, duration, outcome per job, for all ten crons (§7.2).
+- **Cron liveness** — last run, duration, outcome per job, for all eleven crons (§7.2).
 - **The ten data-quality checks** rendered with severity and sample rows — formerly visible only in an email. **Delivered as specified:** since AECI-583 the default view reads the last persisted `job_runs` result (labelled with the run's own `computed_at`) and `?recompute=1` is the refresh. Both are pure reads, so neither writes anything or needs an `audit_log` row (§13 **D8**).
 - Algolia sync watermark, index drift, orphan-sweep results.
 - D1 size and per-table row counts.
+- **ASN registry freshness *and* reach** (§7.6, AECI-624) — `fetched_at`, row count, and coverage. Two numbers rather than one, because "the refresh ran" and "the annotation is worth anything" are different questions: freshness measures the last write, while coverage measures the intersection with a `page_views` that keeps meeting new networks, so a registry refreshed this morning can still annotate almost nothing. Three states are kept apart: **never refreshed** is not stale (a fresh environment has nothing to be stale about, and flagging it would make the one state an operator can ignore look like the one they cannot), stale means two missed Mondays rather than one, and `coverage: null` means there is no traffic to cover at all — 0/0 is "not applicable", not 0%.
 - Link-outs to the Datadog dashboards and PostHog.
 
 Effectively the daily procedure in `POST_LAUNCH_MONITORING.md` turned into one screen.
@@ -267,7 +271,7 @@ Effectively the daily procedure in `POST_LAUNCH_MONITORING.md` turned into one s
 
 | Item | State after AECI-580 | State after AECI-583 |
 |---|---|---|
-| Cron **last run** | Derived for two of ten — `home-stats` from `MAX(stats_cache.computed_at)`, `algolia-sync` from the `algolia_sync_watermark` row's stamp — and `unknown` for the other eight. | Read from `job_runs` for every job that has run. `derived` survives only as the pre-first-run fallback (deleting it would blank all ten for 24h after each deploy), and still reports no outcome — a stamp proves the job *ran*, never that it *succeeded*. |
+| Cron **last run** | Derived for two of eleven — `home-stats` from `MAX(stats_cache.computed_at)`, `algolia-sync` from the `algolia_sync_watermark` row's stamp — and `unknown` for the other nine. | Read from `job_runs` for every job that has run. `derived` survives only as the pre-first-run fallback (deleting it would blank all eleven for 24h after each deploy), and still reports no outcome — a stamp proves the job *ran*, never that it *succeeded*. |
 | Cron **outcome / duration** | `null` on every row. `'ok'` is unreachable in P1.6 by construction; the screen renders "Unknown". | Populated. `'ok'` is now reachable — but only from a row that says so: an **open** row (`finished_at IS NULL`) reports `run_state: 'in_flight'` with a null outcome *whatever is stored*, and an unrecognized stored value reads as null. An interrupted run cannot render as a pass. |
 | **Orphan sweep** | Permanently `null` + an `orphan_sweep_not_persisted` note. The sweep runs inside the 09:00 drift cron and reports only to Datadog — there is no D1 read that could fill it, and inventing a persistence layer here is AECI-583's job, not this one's. | Filled from the 09:00 run's `job_runs.detail`, including the `capped` count an operator needs for the `--force` decision. The note is no longer emitted (kept in the enum — removing a code is breaking). `null` now means "no completed run has stored one", never "clean". |
 | **D1 size** | From D1's own `meta.size_after`; `null` (rendered "unknown") where unavailable. Never approximated from the row counts. | Unchanged. |
@@ -445,9 +449,9 @@ job_runs
   INDEX (job, started_at)
 ```
 
-Each of the ten cron handlers in `scheduled.ts` writes one row (eight at the time this was written; AECI-581 added the 00:15 `snapshot` job and AECI-584 the 03:00 `retention` prune). The data-quality run stores its full result set in `detail`, which is what §5.6 renders. Retention: 90 days (§7.4), enforced by the 03:00 prune since AECI-584.
+Each of the eleven cron handlers in `scheduled.ts` writes one row (eight at the time this was written; AECI-581 added the 00:15 `snapshot` job, AECI-584 the 03:00 `retention` prune, and AECI-624 the weekly 02:00 Monday `asn-registry` refresh). The data-quality run stores its full result set in `detail`, which is what §5.6 renders. Retention: 90 days (§7.4), enforced by the 03:00 prune since AECI-584.
 
-**SHIPPED (AECI-583, 2026-08-13.)** `job` uses the ten `AdminCronJob` ids in `packages/shared/src/api/admin-panel.ts` (AECI-581 added the ninth, `metrics-snapshot`; AECI-584 the tenth, `retention-prune` — no migration needed, `job` carries no CHECK for exactly this reason); the DDL above is the built shape and `DATABASE_SCHEMA.md` §9.4 is the implementation record. Four things settled during the build are worth carrying forward:
+**SHIPPED (AECI-583, 2026-08-13.)** `job` uses the eleven `AdminCronJob` ids in `packages/shared/src/api/admin-panel.ts` (AECI-581 added the ninth, `metrics-snapshot`; AECI-584 the tenth, `retention-prune`; AECI-624 the eleventh, `asn-registry` — no migration needed on any of them, `job` carries no CHECK for exactly this reason); the DDL above is the built shape and `DATABASE_SCHEMA.md` §9.4 is the implementation record. Four things settled during the build are worth carrying forward:
 
 - **Written on entry, completed on exit.** `withJobRun` (`apps/api/src/lib/job-runs.ts`) awaits the entry insert *before* invoking the job, so a run the isolate never returns from leaves `finished_at IS NULL` — the unfinished row is the signal. The finish write is awaited too, never `ctx.waitUntil`: on the queue path `ack()` fires the instant the job returns, and a deferred write would race it and manufacture false timeouts.
 - **All ten impls return a `JobRunReport` rather than `void`.** They swallow their own operational errors, so a wrapper that only watched for a throw would record `ok` for a failed run. A *thrown* handler is recorded `failed` **and rethrown**, preserving the reconcile job's deliberate queue retry; a *reported* failure does not throw, so instrumenting did not widen the retry surface to the other nine.
@@ -541,6 +545,146 @@ adds an index in place, so none of the table-recreate machinery
 `migrations.md` §3.3a documents applies. It is the epic's only schema change
 outside §7.1–§7.4, and one more entry to reconcile in the Drizzle journal at the
 `admin-panel → main` merge-up (§13 D1(a)).
+
+### 7.6 `asn_registry` — read-time network classification — SHIPPED (AECI-624, migration `0016`)
+
+#### The problem
+
+`page_views.is_bot` is decided **once, at ingest**, from the hand-curated
+`DATACENTER_ASNS` map in `apps/api/src/lib/bot-classification.ts`. That map is
+deliberately strict — its membership rule is "the ASN's registered holder must be
+a hosting / cloud / CDN / VPN / scanning business, so that NO residential
+subscriber can sit behind it" — because a false positive silently deletes a real
+human from every figure this panel reports. The raw User-Agent is discarded after
+hashing, so a row can only ever be re-classified by ASN alone, which is why
+changing that list costs a one-way SQL backfill (AECI-582 ran the last one on
+2026-08-13).
+
+The cost of that strictness is a known class of miss. On **2026-08-13T00:16:31–33Z**
+five requests hit `/products/octave-sequence-enterprise` inside 1.9 seconds from
+Amsterdam, Los Angeles and Singapore, with the referrer rotating
+Google → none → **YouTube** → none → ChatGPT. Three of the five were counted as
+human, because AS30058 (FDCservers.net, a dedicated-server host) is not on the
+list. It is the only YouTube-sourced row in the entire production table.
+
+#### Why not simply widen the list
+
+Measured against production on 2026-08-19, before this section existed:
+
+| source | ASNs | has AS30058? | notes |
+|---|---|---|---|
+| `DATACENTER_ASNS` (ours) | 109 | ✗ | censused from real prod traffic on 2026-08-04 |
+| [X4BNet/lists_vpn](https://github.com/X4BNet/lists_vpn) | 892 | ✗ | daily, but **no LICENSE** — unvendorable |
+| [brianhama/bad-asn-list](https://github.com/brianhama/bad-asn-list) | 723 | ✗ | MIT, last pushed 2026-04-12 |
+| [IPinfo Lite](https://ipinfo.io/lite) | — | — | free + daily, but carries **no type field** |
+| [PeeringDB](https://www.peeringdb.com/api/net) | 35,145 | ✓ (as `Content`) | free, unauthenticated, has `info_type` |
+
+Three findings decided the design:
+
+1. **56 of our 109 ASNs appear in neither community list.** Ours is the more
+   targeted list, because it was built from traffic we actually received.
+2. **Neither community list contains AS30058** — adopting one would not have
+   caught the miss that prompted this.
+3. X4BNet contains **AS208323 (Applied Privacy / Tor exits)**, which
+   `bot-classification.ts` excludes on purpose ("anonymity ≠ automation").
+   Adopting it wholesale would flip 74 of 2,500 human rows and silently violate
+   our own membership doctrine.
+
+#### The decision: annotate, never re-verdict
+
+**Nothing in this section writes `page_views`.** The registry is joined at READ
+time to say what an ASN is *registered as*, beside an `is_bot` that stays exactly
+as ingest left it. A row reading `is_bot: false` **and** `network_class:
+'non_eyeball'` is the honest state, not a contradiction — it is precisely the
+shape the 2026-08-13 burst had.
+
+Two properties follow, and both are the reason for the choice:
+
+- Improving the feed improves every historical row for free. No backfill, no
+  rewritten verdicts, no Monday-morning edit of history.
+- The annotation can be *wrong* without corrupting anything, because it is
+  labelled as the registry's claim rather than absorbed into ours.
+
+This is the seam `page_views.cf_as_organization` already occupies (§7.3 / §13 D10):
+a read-side signal that deliberately never feeds `classifyTraffic`.
+
+```
+create table asn_registry (
+  asn        integer primary key,   -- the join key; page_views.cf_asn matches by VALUE, no FK
+  info_type  text,                  -- the upstream's word, VERBATIM. Null is a real state (~29% of PeeringDB)
+  as_name    text,
+  source     text not null,         -- 'peeringdb' today; per-row so a second feed can land beside it
+  fetched_at text not null
+);
+create index asn_registry_fetched_at_idx on asn_registry (fetched_at);
+```
+
+`info_type` is stored verbatim and carries **no CHECK**: the vocabulary belongs to
+the source, re-coding it at write time would bake today's reading of their
+taxonomy into stored data, and a SQLite CHECK change forces a full table rebuild
+the moment they add a value. The mapping onto our own buckets is a pure function
+on the read side (`networkClassOf`), revisable without a migration or a re-fetch.
+
+#### The four classes, and why there are four
+
+| `network_class` | from `info_type` | means |
+|---|---|---|
+| `eyeball` | `Cable/DSL/ISP`, `Enterprise`, `Educational/Research`, `Non-Profit`, `Government` | a network real people browse from. Corroborates `is_bot: false` |
+| `transit` | `NSP` | a tier-1 / wholesale carrier. Carries everyone, so it corroborates **nothing** — kept out of `eyeball` because "we can't tell" and "it's a person" are different answers |
+| `non_eyeball` | `Content`, `Network Services`, `Route Server`, `Route Collector` | registered as something no residential subscriber sits behind. **A suspicion, not a verdict** — Google and Netflix are `Content` too, so it means "not an eyeball network", never "hosting" |
+| `unclassified` | null, blank, or a value new upstream | the registry says nothing. Must not render as if it did |
+
+An **absent** annotation (`asn_registry: null`) is a fifth state and a distinct
+one: the registry has never heard of this ASN.
+
+#### Coverage — stated, because it is poor at the tail
+
+Against the 2,500 human-classified production rows (804 distinct ASNs):
+
+| `info_type` | ASNs | views |
+|---|---|---|
+| `Cable/DSL/ISP` | 354 | 1,068 |
+| `NSP` | 140 | 691 |
+| (blank in PeeringDB) | 106 | 328 |
+| no record at all | 152 | 301 |
+| **`Content`** | **31** | **54** |
+| `Network Services` | 9 | 28 |
+| `Enterprise` | 9 | 26 |
+| `Non-Profit` / `Educational/Research` | 3 | 4 |
+
+70% of human views land on an eyeball or transit network; **25% have no usable
+signal at all**. That 25% is why `unclassified` is an explicit member rather than
+a default into `eyeball`, and why §5.6 reports coverage as a first-class number.
+Typed ASN data with a true `hosting` flag exists (IPinfo's paid ASN database,
+ipapi.is at $49/mo) and is the upgrade path if the tail ever matters.
+
+#### The refresh (weekly, `0 2 * * 1`)
+
+Cron → `enqueueOrRun` → inline. **Queue-less**, like `moderation`/`waf`/
+`analytics`/`snapshot`/`retention`: one read-only GET plus an idempotent
+upsert-by-ASN, so a failed week costs freshness and nothing else.
+
+- **Only the ASNs `page_views` has seen are stored.** PeeringDB carries ~35,000
+  networks; production has seen 878. The refresh intersects the feed with
+  `SELECT DISTINCT cf_asn FROM page_views` and keeps the join domain. A
+  first-sighting ASN is unannotated until the next Monday, which is the honest
+  state anyway.
+- **Nothing is ever deleted.** An outage, an empty response, or a schema change
+  upstream leaves the last good rows in place with their real `fetched_at`. The
+  failure mode of an annotation feed must be "old answer", never "no answer,
+  silently" — so an **empty** upstream response is recorded as `failed`, not as a
+  clean run that wrote zero rows.
+- **Chunked at 20 rows per statement.** D1 caps a query at 100 bound parameters
+  and the table has five columns. Sized off the documented limit rather than
+  measured locally, because better-sqlite3's ceiling is far higher and a
+  size-blind implementation passes every spec while failing in production — the
+  same trap `SQLITE_MAX_COMPOUND_SELECT` sets in §5.6's row-count query.
+- **Audit: exempt (ADR 0022).** Derived, log-class, cron-written bookkeeping, in
+  the same class as `metrics_daily` and `job_runs`. The run is recorded in
+  `job_runs`, not `audit_log`.
+
+`aeci.asn_registry.refresh{outcome}` is the liveness heartbeat and
+`aeci.asn_registry.coverage` the gauge; see `OBSERVABILITY.md`.
 
 ---
 
@@ -645,7 +789,9 @@ unchanged.
 4. **i18n.** All strings `i18n` / `$localize`, admin-only or not — the CLAUDE.md rule is unconditional.
 5. **Timezone.** UTC is the default and matches the digest and every cron. The WIB toggle is presentational only; the underlying window is always UTC and is always labelled.
 6. **No self-pollution — SHIPPED (AECI-575, 2026-08-12).** The console does not record its own navigation into the table it reads. The prefix list is `UNTRACKED_ROUTE_PREFIXES` (`/admin`, `/account`) in `@aeci/shared`, with `isUntrackedRoute()` enforcing an exact prefix-boundary match, so nested admin routes are covered without enumeration and a look-alike public path (`/administrators`) keeps being tracked. It is enforced in **three** places, all off the one list so they cannot drift: (a) `PageViewTracker.fire()` — the browser tracker, the only writer that reaches these routes today; (b) the SSR Worker's `firePageView()` — currently unreachable for these prefixes (`/admin/*` and `/account` are non-cacheable, and that branch fires only on a resolver-attached `ctx.pageView`, which no admin/account resolver sets), guarded anyway so the invariant survives a future resolver; and (c) **on read** — see **§13 D12**. Every query this panel adds over `page_views` (§5.2, §5.3, §6) inherits (c): the exclusion is a floor applied before the user-facing filters, not one of them.
-7. **Privacy.** `page_views` deliberately stores a UA **hash** and a referrer **host** (never the full URL or query). The panel renders a truncated hash as a pseudonymous visitor id and must not attempt correlation beyond that.
+7. **Privacy — and the honesty cost that comes with it.** `page_views` deliberately stores a UA **hash** and a referrer **host** (never the full URL or query). The panel renders a truncated hash as a pseudonymous visitor id and must not attempt correlation beyond that.
+
+   The referrer half of that rule has a consequence the UI must carry: **`referrer_source` is what a request CLAIMED, not a verified fact.** `Referer` is a client-supplied header, nothing authenticates it, and storing only the host removes the last thing that could have been sanity-checked. Production contains a confirmed forgery — 2026-08-13, `www.youtube.com`, one of five requests on one URL from three continents inside 1.9 seconds (§7.6) — and a genuine click from that site would have produced a byte-identical row. So the Activity column is headed **"Claimed source"**, and `referrer_source_is_unverified` is emitted with **every** source breakdown, unconditionally: a forged referrer is indistinguishable from a real one in this data, which makes "none detected" a claim the rows cannot support. This is §9.8's obligation — state the bias next to the number — applied to a label rather than a count.
 8. **"Visitor" is a defined term.** Absent sessions, a visitor is a distinct `(user_agent_hash, cf_asn)` pair within the selected window. This over-counts (UA changes on browser update) and under-counts (shared NAT). The definition appears in the UI next to the number, not only in this document.
 9. **Accessibility.** axe-clean on every surface; tables use proper header scope; filters are keyboard-operable; `impeccable detect` reports zero P0.
 10. **Anchor-site rule.** The console inherits the existing admin queues' visual language rather than picking a new Mobbin anchor — same publication, one voice (`DESIGN.md` §Named Rules).
@@ -759,6 +905,27 @@ Two things worth knowing at the same moment, neither of them blocking: **staging
 exercised the panel** (it auto-tracks `main`, so per-PR preview Workers were the only verification
 surface — §13 D1 obligation (b)); and the retention prune's **first production run** deletes nothing
 until ~2026-11-11, so the `RUNBOOKS.md` dry-run procedure is a November task, not a merge-day one.
+
+---
+
+### 12b. AECI-624 addendum — the §7.6 ASN registry (2026-08-19)
+
+Shipped **after** the epic's closeout, on the `main` line, so it carries its own
+row rather than amending the table above:
+
+| Document | Change |
+|---|---|
+| `DATABASE_SCHEMA.md` | New **§9.5 `asn_registry`** (DDL, why no FK, why no CHECK on `info_type`, why the table is bounded by the join domain, why it has no retention window). §9.4's "ten crons" corrected to eleven |
+| `API_CONTRACTS.md` | `AdminAsnAnnotationSchema`, `AdminAsnRegistryStatusSchema`, `asn_registry` on `AdminPageViewRowSchema` + `AdminBreakdownRowSchema`, `dimension=asn`, the `referrer_source_is_unverified` note code, and the three-registry-states paragraph on `/api/admin/system` |
+| `OBSERVABILITY.md` | `aeci.asn_registry.refresh` + `aeci.asn_registry.coverage`, and an eleventh row in the cron ↔ heartbeat reconciliation table. **A no-data monitor on a WEEKLY series needs a ≥2-week window** — noted there because every other row is daily or hourly |
+| `POST_LAUNCH_MONITORING.md` | §1a gained the `0 2 * * 1` row (and became "the 11 scheduled crons"); §3b's weekly ASN audit now says what the annotation does and does **not** replace |
+| `ANALYTICS_BASELINE.md` | The "`is_bot = 0` means *not known to be a bot*" caveat now points at the screen that says so, plus the "Claimed source" rename |
+| `ADMIN_PANEL_SPEC.md` | §7.6 (this section), §5.2's annotation row and placement rule, §5.3's Networks breakdown, §5.6's registry status, §9.7's referrer-spoofability paragraph, and the cron counts throughout |
+
+Not updated, deliberately: `RUNBOOKS.md` has no entry, because a failed refresh is
+not an incident — nothing is deleted, the panel keeps annotating from the last good
+rows, and `/admin/system` marks the registry stale after two missed Mondays. If
+that judgement turns out to be wrong the entry is cheap to add.
 
 ---
 

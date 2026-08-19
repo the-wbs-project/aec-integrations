@@ -1084,6 +1084,82 @@ export const jobRuns = sqliteTable(
   ],
 );
 
+/**
+ * External classification of the ASNs we have actually seen (AECI-624).
+ *
+ * ─── What this is NOT ─────────────────────────────────────────────────────────
+ *
+ * It is **not** a second `DATACENTER_ASNS`, and nothing here ever writes
+ * `page_views.is_bot`. That column is decided once at ingest from a hand-curated
+ * list whose membership rule is deliberately strict (`lib/bot-classification.ts`),
+ * the raw User-Agent is discarded after hashing, and so every change to that list
+ * costs a one-way backfill. Feeding a weekly external refresh into it would mean
+ * rewriting history every Monday against an upstream we do not control.
+ *
+ * So this table is joined at READ time only, to *annotate* a row: "AS30058 is
+ * registered as `Content`, not an eyeball network." Improve the source and every
+ * historical row improves with it — no backfill, no rewritten verdicts. It is the
+ * same seam `page_views.cf_as_organization` already occupies (`routes/page-views.ts`).
+ *
+ * ─── Why only the ASNs we have seen ───────────────────────────────────────────
+ *
+ * PeeringDB carries ~35,000 networks; production `page_views` has seen 878 distinct
+ * ASNs. The join domain is the second set, so the refresh intersects the feed with
+ * `SELECT DISTINCT cf_asn FROM page_views` and stores only that. A first-sighting
+ * ASN is simply unannotated until the next Monday — which is the honest state
+ * anyway, and cheaper than carrying 34,000 rows nothing will ever join against.
+ *
+ * ─── Audit ────────────────────────────────────────────────────────────────────
+ *
+ * Derived, log-class, cron-written bookkeeping — **exempt from the §26.1
+ * audit-in-batch invariant under ADR 0022**, exactly like `metrics_daily` and
+ * `job_runs`. Its refresh is recorded in `job_runs`, not `audit_log`.
+ */
+export const asnRegistry = sqliteTable(
+  'asn_registry',
+  {
+    /** The AS number. PK because there is exactly one classification per ASN and
+     *  the only read is an equality seek from `page_views.cf_asn`. */
+    asn: integer('asn').primaryKey(),
+
+    /**
+     * The upstream's classification, stored **verbatim** — PeeringDB's `info_type`
+     * (`Cable/DSL/ISP`, `NSP`, `Content`, `Enterprise`, `Educational/Research`,
+     * `Non-Profit`, `Government`, `Network Services`, `Route Server`, …).
+     *
+     * Deliberately not normalized on the way in and deliberately CHECK-free. The
+     * vocabulary belongs to the source, not to us: re-coding it at write time would
+     * bake today's reading of their taxonomy into stored data, and a SQLite CHECK
+     * change forces a full table rebuild the moment they add a value. The mapping
+     * onto our own coarse buckets is a pure function on the read side
+     * (`networkClassOf` in `lib/asn-registry.ts`), so it can be revised without a
+     * migration.
+     *
+     * Null is a real, distinct state: ~29% of PeeringDB records carry a blank
+     * `info_type`. "Registered, but unclassified" is not "not registered", and the
+     * read side must not collapse them.
+     */
+    infoType: text('info_type'),
+
+    /** The registered network name, for display beside the number. */
+    asName: text('as_name'),
+
+    /** Which feed this row came from (`peeringdb` today). Present so a future
+     *  second source is distinguishable per row rather than per table. */
+    source: text('source').notNull(),
+
+    /** When the refresh that wrote this row ran. Drives the §5.6 staleness note —
+     *  an annotation from a registry that stopped refreshing must be readable as
+     *  stale rather than silently trusted. */
+    fetchedAt: text('fetched_at').notNull(),
+  },
+  (t) => [
+    // Serves the System screen's "how stale is the registry" probe (MAX) without
+    // scanning, and any future "what did the last refresh touch" read.
+    index('asn_registry_fetched_at_idx').on(t.fetchedAt),
+  ],
+);
+
 // ===========================================================================
 // Future-ready (§10)
 // ===========================================================================

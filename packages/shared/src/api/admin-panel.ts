@@ -79,6 +79,7 @@ export type AdminWindow = z.infer<typeof AdminWindowSchema>;
  * | `partial_day` | the window overlaps the current UTC day, so its last bucket is incomplete |
  * | `bot_classification_incomplete` | N rows in the window have `is_bot IS NULL` and are counted as HUMAN by the digest's `is_bot IS NOT 1` predicate (§3). Dormant since AECI-582 backfilled every row on 2026-08-13 |
  * | `referrer_source_incomplete` | N human rows in the window have `referrer_source IS NULL` — not backfillable, the header was never stored |
+ * | `referrer_source_is_unverified` | `Referer` is client-supplied and unverifiable, so a source is what the request CLAIMED. Emitted unconditionally with any source breakdown, and deliberately not gated on detecting a forgery — a forged referrer is indistinguishable from a real one once §9.7 has reduced it to a host, so "none detected" would be a claim the rows cannot support (AECI-624) |
  * | `direct_is_mixed_bucket` | a `Direct` bucket is present; `PageViewTracker` POSTs on every SPA navigation and the same-origin `Referer` classifies as `Direct`, so in-app hops and true direct arrivals are indistinguishable. AECI-585 stores a `navigation` flag at ingest, but no endpoint groups on it yet and rows written before it cannot be separated at all |
  * | `visitor_definition_approximate` | `unique_visitors` is `DISTINCT (user_agent_hash, cf_asn)` — over-counts on browser update, under-counts behind shared NAT (§9.8) |
  * | `catalog_series_is_additions_only` | a `catalog.*` series counts `*.created` events, never net totals — rows can vanish without per-row audit (§4) |
@@ -101,6 +102,7 @@ export const AdminNoteCodeSchema = z.enum([
   'partial_day',
   'bot_classification_incomplete',
   'referrer_source_incomplete',
+  'referrer_source_is_unverified',
   'direct_is_mixed_bucket',
   'visitor_definition_approximate',
   'catalog_series_is_additions_only',
@@ -277,6 +279,36 @@ export const AdminStatsFreshnessSchema = z.object({
   stale: z.boolean(),
 });
 export type AdminStatsFreshness = z.infer<typeof AdminStatsFreshnessSchema>;
+
+/**
+ * `asn_registry` freshness + reach (AECI-624 / §7.6).
+ *
+ * Two numbers rather than one, because "the refresh ran" and "the annotation is
+ * worth anything" are different questions. `entries` is how many networks the
+ * registry can speak to at all; `coverage` is the share of the ASNs `page_views`
+ * has actually seen that it has a record for — the number that silently decays
+ * between Mondays as new networks arrive, and the one that decides whether a
+ * given Activity row shows an annotation.
+ *
+ * `fetched_at` null means the refresh has never landed (a fresh environment).
+ * That is distinct from a stale one, and the UI must not render them alike: an
+ * empty registry annotates nothing and says so, while a stale one keeps
+ * annotating from last-known-good and needs the date shown beside it.
+ */
+export const AdminAsnRegistryStatusSchema = z.object({
+  entries: z.number().int().nonnegative(),
+  fetched_at: z.string().datetime().nullable(),
+  age_hours: z.number().nullable(),
+  /** Older than two refresh intervals (14 days) — one missed Monday is a blip,
+   *  two is a broken feed. Null `fetched_at` is NOT stale; it is unpopulated. */
+  stale: z.boolean(),
+  /** Distinct `page_views.cf_asn` values the registry has a record for, over the
+   *  total. Null when there are no ASNs to cover (a fresh `page_views`), because
+   *  0/0 is not 0% — it is "not applicable", and rounding it to zero would show a
+   *  healthy new environment a broken-looking gauge. */
+  coverage: z.number().min(0).max(1).nullable(),
+});
+export type AdminAsnRegistryStatus = z.infer<typeof AdminAsnRegistryStatusSchema>;
 
 /** Queue depths an operator acts on today. */
 export const AdminModerationDepthSchema = z.object({
@@ -600,6 +632,63 @@ export const AdminTimeseriesPointSchema = z.object({
 });
 export type AdminTimeseriesPoint = z.infer<typeof AdminTimeseriesPointSchema>;
 
+/**
+ * How the ASN registry reads a network (AECI-624 / §7.6). **Our** coarse bucket,
+ * derived from the upstream's own word — which travels beside it as `info_type`,
+ * so a reader can see the claim and our reading of it separately.
+ *
+ * | value | means |
+ * |---|---|
+ * | `eyeball` | a network real people browse from — consumer ISPs, but also corporate, university, non-profit and government networks. Corroborates `is_bot: false` |
+ * | `transit` | a tier-1 / wholesale carrier. Carries everyone, so it corroborates nothing either way — deliberately NOT folded into `eyeball`, because "we can't tell" and "it's a person" are different answers |
+ * | `non_eyeball` | registered as something no residential subscriber sits behind: content/CDN, network services, route servers. **A suspicion, not a verdict** — Google and Netflix are `Content` too, so it means "not an eyeball network", never "hosting" |
+ * | `unclassified` | the registry has a record but no usable type. Says nothing |
+ *
+ * The absence of an annotation entirely (`asn_registry: null`) is a *fifth*
+ * state and a distinct one: the registry has never heard of this ASN. Roughly a
+ * quarter of production traffic sits in `unclassified` + no-record combined, so
+ * neither may be rendered as if it were a finding.
+ */
+export const AdminAsnNetworkClassSchema = z.enum([
+  'eyeball',
+  'transit',
+  'non_eyeball',
+  'unclassified',
+]);
+export type AdminAsnNetworkClass = z.infer<typeof AdminAsnNetworkClassSchema>;
+
+/**
+ * What the ASN registry says about one network — a **read-time annotation**, never
+ * a stored verdict.
+ *
+ * This exists because `is_bot` cannot answer the question. That column is decided
+ * once at ingest from a hand-curated list (`lib/bot-classification.ts`) whose
+ * membership rule is deliberately strict, and the raw User-Agent is discarded
+ * after hashing, so every revision of that list costs a one-way backfill. On
+ * 2026-08-13 a five-request burst from three continents with rotating forged
+ * referrers put three rows in the human bucket because one exit ASN
+ * (FDCservers.net) is not on the list. Rather than widen the list — measured
+ * against production, the free external lists are *narrower* than ours and would
+ * have missed that ASN too — the panel annotates.
+ *
+ * So an annotation never contradicts `is_bot`; it stands beside it. `fetched_at`
+ * travels on every one because an annotation from a registry that stopped
+ * refreshing must be readable as stale rather than silently trusted (§9.8's
+ * obligation to state a number's bias next to it, applied to a label).
+ */
+export const AdminAsnAnnotationSchema = z.object({
+  asn: z.number().int().positive(),
+  /** The upstream's verbatim classification (PeeringDB `info_type`, e.g.
+   *  `"Content"`). Null when the record exists but carries no type. */
+  info_type: z.string().nullable(),
+  as_name: z.string().nullable(),
+  network_class: AdminAsnNetworkClassSchema,
+  /** Which feed this came from (`"peeringdb"`). */
+  source: z.string().min(1),
+  fetched_at: z.string().datetime(),
+});
+export type AdminAsnAnnotation = z.infer<typeof AdminAsnAnnotationSchema>;
+
 /** Every day in the window appears in `points`, zero-filled — a chart should
  *  never have to infer a gap. */
 export const AdminTimeseriesResponseSchema = z.object({
@@ -623,6 +712,11 @@ export const AdminBreakdownDimensionSchema = z.enum([
   'path',
   'product',
   'bot',
+  /** Group by `cf_asn` (AECI-624). The aggregate counterpart to the Activity
+   *  feed's per-row ASN annotation: it answers "which networks is my traffic
+   *  actually coming from", which is the question `dimension=country` only
+   *  approximates. Each group carries its `asn_registry` annotation. */
+  'asn',
 ]);
 export type AdminBreakdownDimension = z.infer<typeof AdminBreakdownDimensionSchema>;
 
@@ -660,6 +754,11 @@ export const AdminBreakdownRowSchema = z.object({
   ref: LinkRefSchema.nullable(),
   views: z.number().int().nonnegative(),
   views_excluding_internal: z.number().int().nonnegative().nullable(),
+  /** Populated only for `dimension=asn`, and only when the registry has a record
+   *  for that network (AECI-624 / §7.6). Null on every other dimension and on an
+   *  unknown ASN — the two are indistinguishable here by design, because the
+   *  dimension already tells the reader which case applies. */
+  asn_registry: AdminAsnAnnotationSchema.nullable().default(null),
 });
 export type AdminBreakdownRow = z.infer<typeof AdminBreakdownRowSchema>;
 
@@ -714,11 +813,13 @@ export type AdminTrafficBreakdownResponse = z.infer<typeof AdminTrafficBreakdown
  */
 
 /**
- * The ten cron jobs in `apps/api/src/scheduled.ts`, as a closed vocabulary.
+ * The eleven cron jobs in `apps/api/src/scheduled.ts`, as a closed vocabulary.
  * These are the ids `job_runs.job` carries (§7.2), so AECI-583 persists against
  * these strings rather than inventing a second naming. `metrics-snapshot` is the
  * ninth, added with the §7.1 snapshot cron (AECI-581); `retention-prune` is the
- * tenth, added with the §7.4 pruning cron (AECI-584).
+ * tenth, added with the §7.4 pruning cron (AECI-584); `asn-registry` is the
+ * eleventh and the only weekly one, added with the §7.6 read-time ASN
+ * classification (AECI-624).
  */
 export const AdminCronJobSchema = z.enum([
   'metrics-snapshot', // 15 0 * * *
@@ -731,6 +832,7 @@ export const AdminCronJobSchema = z.enum([
   'algolia-drift', // 0 9 * * *
   'request-reconcile', // */15 * * * *
   'waf-poll', // 0 * * * *
+  'asn-registry', // 0 2 * * 1  (weekly)
 ]);
 export type AdminCronJob = z.infer<typeof AdminCronJobSchema>;
 
@@ -922,7 +1024,7 @@ export const AdminSystemResponseSchema = z.object({
    *  which the UI fetches alongside this and compares — see
    *  {@link AdminVersionStatusSchema}. */
   version: AdminVersionStatusSchema,
-  /** All ten, always. */
+  /** All eleven, always. */
   crons: z.array(AdminCronRunSchema),
   /** The last stored 04:00 run by default, or the live result under
    *  `?recompute=1` — `source` says which. Null only when nothing has been stored
@@ -933,6 +1035,9 @@ export const AdminSystemResponseSchema = z.object({
   /** `MAX(stats_cache.computed_at)` — the same freshness figure the §5.1 status
    *  strip reports, from the same helper, so the two screens agree. */
   stats_freshness: AdminStatsFreshnessSchema,
+  /** How fresh, how large, and how far-reaching the §7.6 ASN registry is. The
+   *  Activity screen's annotations are only as good as this row. */
+  asn_registry: AdminAsnRegistryStatusSchema,
 });
 export type AdminSystemResponse = z.infer<typeof AdminSystemResponseSchema>;
 
@@ -1270,11 +1375,33 @@ export const AdminPageViewRowSchema = z.object({
   entity_type: z.enum(['product', 'vendor']).nullable(),
   entity: LinkRefSchema.nullable(),
 
-  /** `null` means unknown, NOT `Direct` — every row before August 2026 has it
-   *  null and is not backfillable. The UI must not collapse the two (§1.1). */
+  /**
+   * The traffic source the request **claimed**, not one that was verified.
+   *
+   * It is derived from the `Referer` header, which is supplied by the client and
+   * is unverifiable by construction — there is no handshake with the named site
+   * and §9.7 stores only the host, so not even the path survives to sanity-check.
+   * Production contains a confirmed forgery (2026-08-13, `www.youtube.com`), and
+   * a real click from that site would have produced a byte-identical row. The UI
+   * must present this as a claim (§9.7); see `referrer_source_is_unverified` in
+   * `notes`.
+   *
+   * `null` means unknown, NOT `Direct` — every row before August 2026 has it null
+   * and is not backfillable. The UI must not collapse the two (§1.1).
+   */
   referrer_source: z.string().nullable(),
   /** External referrer HOST only, never the path or query (AECI-526 / §9.7). */
   referrer: z.string().nullable(),
+
+  /**
+   * What the ASN registry says about `cf_asn` (AECI-624 / §7.6) — an annotation
+   * joined at read time, `null` when the registry has no record for this network.
+   *
+   * It never alters `is_bot`, which stays exactly as ingest wrote it. A row can
+   * legitimately read `is_bot: false` with `network_class: 'non_eyeball'`; that
+   * pairing is the point, not a contradiction to be resolved.
+   */
+  asn_registry: AdminAsnAnnotationSchema.nullable(),
 });
 export type AdminPageViewRow = z.infer<typeof AdminPageViewRowSchema>;
 
