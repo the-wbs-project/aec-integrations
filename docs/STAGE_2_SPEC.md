@@ -103,6 +103,15 @@ Stage 1 shipped **light-only** (AECI-226), which deferred dark to "the Stage 2 v
 - The `profiles.theme_preference` column already exists (`'system' | 'light' | 'dark'`, §3) — persistence is ready.
 - Re-audit contrast (WCAG AA) and re-enable the `dark:` verification step in the design checklist (currently skipped per the "Light only (Stage 1)" constraint).
 
+### 2.6 Product Docs / Help Center
+
+> **Scope outline:** this pillar is outlined in **`docs/STAGE_2_PRODUCT_DOCS_SPEC.md`** (the AECI-634 epic — **kickoff draft, added 2026-08-19, not yet a build contract**). Not one of the original §18 pillars; added at end-of-stage planning because Stage 2's new primary user (the vendor, §1) is the first user the product must *teach*.
+
+- Reader-facing product documentation under **`/docs` inside `apps/web`** — **decided: not a separate site, app, or subdomain** (rationale + re-open trigger in the companion doc §2). Generalizes the proven legal-pages pattern: build-time-inlined markdown → content registry → `marked` → SSR, edge-cached.
+- Three audiences: vendors (claiming, dashboard, attestations, versions, plans — the Stage 2 core), readers (taxonomy, agreement states, the badge), reviewers (dual reviews, requests).
+- Trust content is first-class: how ranking works and what paid does **not** buy (§8.1(4)) get their own pages.
+- The vendor-guide content is **deliberately unwritten until vendor-portal testing settles**; the site map is a v0. Do not decompose the epic before then.
+
 ---
 
 ## 3. Schema readiness carried through to D1/Drizzle (AECI-282 AC #3 — verified)
@@ -183,6 +192,7 @@ The initial epics seeded by AECI-282 (in the `Stage 2 Build` project — renamed
 | Paid Tiers & Entitlements | §2.2 | No pay-for-placement. Re-scopes AECI-532, parents AECI-304. **Build spec:** `STAGE_2_PAID_TIERS_SPEC.md` |
 | Real-Time / Live Portal | §2.3 | Scoped revalidation, **not** Durable Objects (ADR 0023 / §8.6). Decomposed into AECI-626…632 — **all seven shipped 2026-08-19**, zero migrations. **Build spec:** `STAGE_2_REALTIME_SPEC.md` (every section carries an as-built subsection) |
 | Dark Theme Reintroduction | §2.5 | Token-block + toggle; AECI-226 deferral |
+| Product Docs / Help Center | §2.6 | **AECI-634**, added 2026-08-19 (not an AECI-282 seed). In-SPA `/docs`, not a separate site. Kickoff draft only — decompose after portal testing. **Scope outline:** `STAGE_2_PRODUCT_DOCS_SPEC.md` |
 | Stage-1 Deferrals & Carryover | §5 | JSON-LD, sitemap split |
 | Workers Cache Migration | §6 | **Already exists** — AECI-314 |
 
