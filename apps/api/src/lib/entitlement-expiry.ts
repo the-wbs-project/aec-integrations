@@ -53,7 +53,7 @@
 
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
 import { forwardAuditLog } from '@aeci/shared';
-import { and, asc, eq, isNotNull, lte } from 'drizzle-orm';
+import { and, asc, eq, isNotNull, lte, sql } from 'drizzle-orm';
 
 import { auditInsert, type BatchStmt, type BatchTuple } from './audit';
 import { VENDOR_ADMIN_ROLE } from './claimed-vendors';
@@ -102,9 +102,13 @@ const EXPIRY_AUDIT_SOURCE = 'entitlement-expiry-cron';
 
 /**
  * Most terms warned per run. A backstop against a first-adoption spike or a
- * mis-entered bulk term, not a design limit: the fence means tomorrow's run
- * continues the backlog rather than repeating it, and the sweep logs the dropped
- * count instead of truncating silently.
+ * mis-entered bulk term, not a design limit. The read that feeds it orders
+ * never-warned terms FIRST (`loadExpiring`), so a term that got its notice is
+ * stamped and drops to the back of the next run's window rather than
+ * re-occupying it — the backlog drains across days instead of repeating, and a
+ * genuinely-due term is never starved out of the window by the ever-growing set
+ * of already-warned lapsed-but-active rows. The sweep logs the dropped count
+ * instead of truncating silently.
  */
 export const EXPIRY_BATCH_CAP = 200;
 
@@ -159,6 +163,9 @@ export interface ExpiryDeps {
   now?: Date;
   /** Days of lookahead. Overridable so specs don't have to build 30-day fixtures. */
   warningDays?: number;
+  /** Read/warn cap. Overridable so specs can exercise the cap + never-warned-first
+   *  ordering without a 200-row fixture; defaults to {@link EXPIRY_BATCH_CAP}. */
+  batchCap?: number;
   /** The privileged `auth.users` email seam. Injected so specs never touch it. */
   fetchSeatEmails?: FetchSeatEmails;
   sendVendorEmail?: SendEntitlementExpiringEmail;
@@ -201,7 +208,7 @@ interface ExpiringRow {
 // ─── The scan ────────────────────────────────────────────────────────────────
 
 /**
- * Terms at or inside the horizon, oldest first.
+ * Terms at or inside the horizon, **never-warned first, then oldest**.
  *
  * Explicit `select` + `innerJoin`, NOT the relational query builder: §2.5 forbids
  * a `relations()` entry for `vendor_entitlements` (a relation is exactly what
@@ -215,6 +222,19 @@ interface ExpiringRow {
  * run out while `status` is still `active` — which is the steady state, since
  * nothing lapses automatically — is exactly the row an operator most needs to see,
  * and the fence still limits it to one notice.
+ *
+ * ── WHY THE LEAD SORT KEY IS `expiry_notice_sent_at IS NULL` ─────────────────────
+ * Those never-lapsing past-dated rows accumulate WITHOUT BOUND — each one is
+ * already stamped, so the TS fence suppresses it, but it stays selectable every
+ * night forever. Ordered by `period_end` alone they sort to the FRONT (oldest
+ * first), so once ≥`EXPIRY_BATCH_CAP` of them exist they would fill the read
+ * window and starve a genuinely-due newer term out of the scan entirely. Sorting
+ * unstamped rows first defeats that: a due row is ALWAYS unstamped — a renewal
+ * NULLs the stamp (`renewEntitlementStatements`) and re-activation clears it too —
+ * so due rows are read before the suppressed backlog, and a warned row (now
+ * stamped) drops to the back of tomorrow's window rather than re-occupying it.
+ * The `period_end` key still orders within each group, so the operator's oldest
+ * lapsed terms are still surfaced whenever the window has room after the due ones.
  */
 async function loadExpiring(db: Db, horizonIso: string, limit: number): Promise<ExpiringRow[]> {
   return db
@@ -238,7 +258,13 @@ async function loadExpiring(db: Db, horizonIso: string, limit: number): Promise<
         lte(vendorEntitlements.periodEnd, horizonIso),
       ),
     )
-    .orderBy(asc(vendorEntitlements.periodEnd), asc(vendorEntitlements.vendorId))
+    .orderBy(
+      // A plain NULL check — no SQLite date parsing, so none of the `datetime()`
+      // lexical-ordering traps the fence is written in TS to avoid.
+      sql`case when ${vendorEntitlements.expiryNoticeSentAt} is null then 0 else 1 end`,
+      asc(vendorEntitlements.periodEnd),
+      asc(vendorEntitlements.vendorId),
+    )
     .limit(limit) as Promise<ExpiringRow[]>;
 }
 
@@ -437,6 +463,7 @@ export async function runEntitlementExpirySweep(
   const nowMs = now.getTime();
   const nowIso = now.toISOString();
   const warningDays = deps.warningDays ?? EXPIRY_WARNING_DAYS;
+  const cap = deps.batchCap ?? EXPIRY_BATCH_CAP;
   const fetchSeatEmails = deps.fetchSeatEmails ?? fetchAuthUserEmails;
   const sendVendorEmail = deps.sendVendorEmail ?? noopSendExpiryEmail;
   const sendAdminEmail = deps.sendAdminEmail ?? noopSendExpiryAdminEmail;
@@ -454,7 +481,7 @@ export async function runEntitlementExpirySweep(
 
   const horizonIso = new Date(nowMs + warningDays * DAY_MS).toISOString();
   // One over the cap, so "there was more" is detectable without a second query.
-  const rows = await loadExpiring(db, horizonIso, EXPIRY_BATCH_CAP + 1);
+  const rows = await loadExpiring(db, horizonIso, cap + 1);
 
   const pending: Array<{ row: ExpiringRow; periodEndMs: number; daysRemaining: number }> = [];
   for (const row of rows) {
@@ -476,14 +503,14 @@ export async function runEntitlementExpirySweep(
   if (deps.metrics) emitExpiryDueMetric(deps.metrics, result.due);
   if (pending.length === 0) return result;
 
-  const batch = pending.slice(0, EXPIRY_BATCH_CAP);
+  const batch = pending.slice(0, cap);
   result.capped = pending.length - batch.length;
   if (result.capped > 0) {
     // Never truncate silently — an operator must be able to tell "nothing due"
     // from "we stopped early".
     logToDatadog(c.executionCtx, c.env, c.req.raw, {
       level: 'warn',
-      message: `aeci.entitlement.expiry.capped dropped=${result.capped} cap=${EXPIRY_BATCH_CAP}`,
+      message: `aeci.entitlement.expiry.capped dropped=${result.capped} cap=${cap}`,
       source: EXPIRY_AUDIT_SOURCE,
       dropped: result.capped,
     });

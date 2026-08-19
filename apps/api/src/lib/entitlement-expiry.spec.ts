@@ -615,6 +615,52 @@ describe('multiple vendors', () => {
   });
 });
 
+describe('the batch cap — never-warned terms are read before the already-warned backlog', () => {
+  it('warns a due term even when the cap is filled by already-warned lapsed-active rows', async () => {
+    // The steady-state backlog: lapsed-but-active terms already warned for their
+    // (only) term. Nothing auto-lapses (§7.3), so they never leave the scan, they
+    // stay stamped-and-suppressed, and their past `period_end` sorts them to the
+    // FRONT of a `period_end`-only ordering.
+    const past = new Date(NOW.getTime() - 5 * DAY_MS).toISOString();
+    await seedVendor(VENDOR_ID, 'autodesk');
+    await seedSeat(VENDOR_ID, SEAT_ID);
+    await seedEntitlement({ periodEnd: past, expiryNoticeSentAt: past });
+
+    await seedVendor(VENDOR_B_ID, 'procore');
+    await seedSeat(VENDOR_B_ID, '55555555-5555-4555-8555-555555555555');
+    await seedEntitlement({
+      id: '66666666-6666-4666-8666-666666666666',
+      vendorId: VENDOR_B_ID,
+      periodEnd: past,
+      expiryNoticeSentAt: past,
+    });
+
+    // A genuinely-due term whose future `period_end` sorts AFTER the two lapsed
+    // ones, and whose stamp is null.
+    const DUE_VENDOR = '88888888-8888-4888-8888-888888888888';
+    const DUE_ENTITLEMENT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    await seedVendor(DUE_VENDOR, 'bluebeam');
+    await seedSeat(DUE_VENDOR, '99999999-9999-4999-8999-999999999999');
+    await seedEntitlement({ id: DUE_ENTITLEMENT, vendorId: DUE_VENDOR, periodEnd: SOON });
+
+    const { recorded, sendVendorEmail, sendAdminEmail } = seams();
+    const result = await runEntitlementExpirySweep(ctx(), t.db, {
+      now: NOW,
+      // Cap of 1 → the read is `LIMIT 2`. Ordered by `period_end` alone the two
+      // past-dated suppressed rows would fill it and the due term would never load;
+      // never-warned-first puts the due term at the head of the window instead.
+      batchCap: 1,
+      fetchSeatEmails: seatEmails,
+      sendVendorEmail,
+      sendAdminEmail,
+    });
+
+    expect(result.warned).toBe(1);
+    expect(recorded.admin.map((a) => a.vendorSlug)).toEqual(['bluebeam']);
+    expect((await entitlementOf(DUE_ENTITLEMENT))?.expiryNoticeSentAt).toBe(NOW.toISOString());
+  });
+});
+
 describe('pure helpers', () => {
   it('daysUntil rounds up, so "18 hours left" reads as tomorrow', () => {
     const now = Date.parse('2026-08-19T00:00:00.000Z');
