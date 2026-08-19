@@ -24,6 +24,7 @@ import {
   type PairTimelineResponse,
   type ProductPairResponse,
 } from '@aeci/shared';
+import { vendorTiersFromMirror } from '@aeci/shared/version-diff';
 import { and, count, eq, inArray, like, or, type SQL } from 'drizzle-orm';
 import type { Context } from 'hono';
 
@@ -37,7 +38,9 @@ import {
   integrationListConfig,
   integrationPairConfig,
   integrationTimelineConfig,
+  pickPrimaryVendor,
   productListConfig,
+  productVersionDiffGateConfig,
   toIntegrationDetail,
   toIntegrationListItem,
   toPairTimelines,
@@ -233,9 +236,14 @@ export function createProductPairHandler(
       otherProductId: otherProduct.id,
       contextParam: c.req.query(CONTEXT_VERSION_PARAM),
       otherParam: c.req.query(OTHER_VERSION_PARAM),
-      // Anonymous until AECI-304 loads a tier onto the session; accepted and
-      // ignored by the seam today.
-      viewerTier: null,
+      // AECI-304: the gate reads the PAIR'S vendors, never the reader — so it stays
+      // a pure function of the two slugs in the URL and the page stays edge-cacheable.
+      // `verified` is the mirror of an `active` entitlement row; the entitlement
+      // table is never queried on a read path (`STAGE_2_PAID_TIERS_SPEC.md` §2.5).
+      pairVendorTiers: vendorTiersFromMirror([
+        pickPrimaryVendor(contextProduct.productVendors),
+        pickPrimaryVendor(otherProduct.productVendors),
+      ]),
       hasVersionStamps,
     });
 
@@ -261,11 +269,11 @@ export function createProductPairHandler(
  * Pair-scoped rather than claim-scoped so one browser fetch serves every provenance
  * popover on the page. Deliberately a **separate, lazy** read rather than inline on
  * the pair response, for one decisive reason: history is the gateable depth (§9.3),
- * and the pair page is stored in a shared, URL-keyed edge cache — baking gated
- * content into it would break `STAGE_1_SPEC.md` §9.1a the moment AECI-304 makes the
- * gate visitor-dependent. `/api/*` responses are `private, no-store`, which is a
- * legal home for content that may vary per reader. It is also the only unbounded
- * payload in the system, since the append-only log grows forever.
+ * and the pair page is stored in a shared, URL-keyed edge cache. AECI-304 put that
+ * gate on the PAIR'S vendors rather than the reader, so it stayed URL-derived and
+ * `STAGE_1_SPEC.md` §9.1a holds — but the separation still earns its keep: `/api/*`
+ * responses are `private, no-store`, and this is the only unbounded payload in the
+ * system, since the append-only log grows forever.
  *
  * 404 rules mirror the pair read exactly (unknown slug, equal slugs), so a reader
  * who can see the pair can ask for its history and no more.
@@ -284,9 +292,19 @@ export function createPairTimelineHandler(
     }
 
     const { db } = dbFor(c.env);
+    // `productVersionDiffGateConfig` widens the old `{ id: true }` by exactly the
+    // vendor links the §9.3 gate reads (AECI-304). Same config + same
+    // `pickPrimaryVendor` as the pair read, so the two endpoints cannot disagree
+    // about which vendor of a multi-vendor product decides the gate.
     const [contextProduct, otherProduct] = await Promise.all([
-      db.query.products.findFirst({ columns: { id: true }, where: eq(products.slug, contextSlug) }),
-      db.query.products.findFirst({ columns: { id: true }, where: eq(products.slug, otherSlug) }),
+      db.query.products.findFirst({
+        ...productVersionDiffGateConfig,
+        where: eq(products.slug, contextSlug),
+      }),
+      db.query.products.findFirst({
+        ...productVersionDiffGateConfig,
+        where: eq(products.slug, otherSlug),
+      }),
     ]);
     if (!contextProduct) throw notFoundError('product', { slug: contextSlug });
     if (!otherProduct) throw notFoundError('product', { slug: otherSlug });
@@ -294,7 +312,14 @@ export function createPairTimelineHandler(
     // The timeline IS history, so `historical` is unconditionally true. Routed
     // through `resolveDiffAccess` rather than calling `canViewVersionDiff` directly,
     // which is what keeps the seam at exactly two consult sites repo-wide (§9.3).
-    const access = resolveDiffAccess(true, null);
+    // The tiers are the PAIR'S, never the reader's (AECI-304).
+    const access = resolveDiffAccess(
+      true,
+      vendorTiersFromMirror([
+        pickPrimaryVendor(contextProduct.productVendors),
+        pickPrimaryVendor(otherProduct.productVendors),
+      ]),
+    );
     if (access === 'latest_only') {
       const gated: PairTimelineResponse = { claims: [], diff_access: access };
       validateResponseInDev(c.env, () => {

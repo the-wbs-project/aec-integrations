@@ -976,11 +976,11 @@ export class ProductsPairPage {
    * browser only, on the first provenance-popover open** — never during SSR.
    *
    * That is not laziness for its own sake: history is the gateable depth (§9.3), and
-   * the pair page is stored in a shared, URL-keyed edge cache, so baking it into the
-   * SSR payload would break §9.1a the moment AECI-304 makes the gate
-   * visitor-dependent. `/api/*` responses are `private, no-store`, which is a legal
-   * home for content that may vary per reader. It is also the only unbounded payload
-   * in the system — the append-only log grows forever.
+   * the pair page is stored in a shared, URL-keyed edge cache. AECI-304 settled the
+   * gate on the PAIR'S vendors rather than the reader, so it stays URL-derived and
+   * §9.1a holds — but the split is still the right one: `/api/*` responses are
+   * `private, no-store`, and this is the only unbounded payload in the system, since
+   * the append-only log grows forever.
    */
   private readonly timelines = signal<ReadonlyMap<string, ClaimTimeline> | null>(null);
   private timelineRequested = false;

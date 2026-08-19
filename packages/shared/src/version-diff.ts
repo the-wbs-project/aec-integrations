@@ -32,9 +32,14 @@
  * No zod and no `./api/*` import, and deliberately **not** re-exported from the
  * root `src/index.ts` barrel (which carries zod via `export * from './api'`) — the
  * same rule `version-sort.ts` and `algolia.ts` follow, because the pair page is a
- * lazy Angular route. Reach it as `@aeci/shared/version-diff`.
+ * lazy Angular route. Reach it as `@aeci/shared/version-diff`. Enforced by the
+ * file-scoped `no-restricted-imports` in `packages/shared/eslint.config.mjs`, which
+ * AECI-304 extended to cover this module — it now depends on `./entitlements`, and
+ * `./api/product-pairs.ts` depends on IT, so a stray `./api/*` import here would be
+ * both a zod regression and an import cycle.
  */
 
+import { hasCapability, type EntitlementTier } from './entitlements';
 import { compareProductVersions, type ComparableProductVersion } from './version-sort';
 
 // ---------------------------------------------------------------------------
@@ -256,42 +261,76 @@ export interface VersionDiffRequest {
    */
   readonly historical: boolean;
   /**
-   * The viewer's entitlement tier; `null` for an anonymous reader, which is every
-   * reader until AECI-304. Accepted and ignored today so the swap to
-   * `hasCapability(tier, 'integration.version_diff')` needs no call-site edit.
+   * The tiers of the PAIR'S two endpoint vendors — **not the reader's** (AECI-304).
+   * Build it with {@link vendorTiersFromMirror}. An endpoint with no vendor
+   * contributes `'unclaimed'`, so the array is always the pair's two sides and the
+   * `.some(…)` below reads as "either vendor pays".
    */
-  readonly viewerTier: string | null;
+  readonly pairVendorTiers: readonly EntitlementTier[];
 }
 
 /**
- * ⚠️ **PLACEHOLDER** — the `aeci-514`-local stand-in for
- * `hasCapability(tier, 'integration.version_diff')`, whose registry AECI-610 has
- * already shipped on the `aeci-515` branch (`@aeci/shared/entitlements` declares
- * that capability id) and whose guard AECI-611 adds. Neither is reachable from
- * this branch.
+ * The pair's endpoint vendors as tiers, read off the **`vendors.verified` mirror**.
  *
- * Same discipline as `assertVerifiedVendor`
- * (`apps/api/src/routes/vendor-shared.ts`): ONE function, and — per §9.3 and
- * AECI-303's acceptance criteria — exactly **two** consult sites repo-wide, so the
- * swap is a mechanical edit rather than an audit. Those two are
- * `resolveDiffAccess` (`apps/api/src/lib/pair-version-diff.ts`, which both the
- * pair read and the timeline read route through) and the web pair resolver
+ * `verified` is the denormalized mirror of an `active` `vendor_entitlements` row
+ * (`STAGE_2_PAID_TIERS_SPEC.md` §2.1), and §2.5 forbids a public read path from
+ * querying the entitlement table at all — the mirror exists precisely so reads
+ * don't have to. So the mapping is `verified ? 'verified' : 'unclaimed'` and the
+ * registry decides the capability: adding a rung to the ladder later stays a
+ * data-only edit in `./entitlements`, with no branch here and none at either
+ * consult site.
+ *
+ * Declared here rather than at each consult site because the API and the web
+ * resolver must derive the SAME tiers from the SAME field — both read the primary
+ * vendor of each endpoint product, i.e. exactly `ProductListItem.vendor`, which is
+ * the only vendor link on the wire. If the two derivations drifted, the resolver
+ * would clamp a page the API served in full, or vice versa.
+ */
+export function vendorTiersFromMirror(
+  vendors: readonly ({ readonly verified: boolean } | null | undefined)[],
+): readonly EntitlementTier[] {
+  return vendors.map((vendor) => (vendor?.verified === true ? 'verified' : 'unclaimed'));
+}
+
+/**
+ * How much historical diff depth this pair's page may show.
+ *
+ * **The gate is on the PAIR'S VENDORS, never on the reader** (AECI-304, settled
+ * with the PO 2026-08-19). §9.4 recorded the contradiction this resolves:
+ * `'integration.version_diff'` sits in the **vendor** tier ladder, the seam sits in
+ * the **public reader** path, and `STAGE_2_SPEC.md` §8.1(4) says "vendors pay,
+ * always — viewer-pays tooling is out of scope". Only one reading satisfies all
+ * three: historical depth is open when **either endpoint vendor of the pair holds
+ * `'integration.version_diff'`**. A reader never pays, is never identified, and is
+ * never asked to sign in.
+ *
+ * **Why that keeps the page cacheable.** The pair's two vendors are a function of
+ * the two product slugs in the URL, so the answer is URL-derived: a gated pair page
+ * is still storable in the shared, URL-keyed edge cache and still shareable. This is
+ * the first of §9.4's two ⚠️ notes, and it is discharged by construction — no
+ * cookie, no session, no `Cache-Control: private`, no new cache-key axis. Anything
+ * that makes this depend on the *visitor* breaks `STAGE_1_SPEC.md` §9.1a.
+ * Invalidation needs nothing new either: an entitlement flip already purges
+ * `vendor:{slug}` (`apps/api/src/lib/vendor-cache-tags.ts`), and every pair page
+ * embeds its mechanisms' vendor tags.
+ *
+ * **The `!historical` early return IS §8.1(4)** — "the latest-version view, and the
+ * latest conflict / single-source state, are always free and full-fidelity to
+ * readers." It runs before any entitlement is consulted, and the two lines must
+ * never be reordered. Agreement state is computed from live attestations
+ * independently of the version selection, so the dispute is never paywalled; only
+ * the *diff* is.
+ *
+ * Same discipline as `assertVerifiedVendor` (`apps/api/src/routes/vendor-shared.ts`):
+ * ONE function, and — per §9.3 and AECI-303's acceptance criteria — exactly **two**
+ * consult sites repo-wide, asserted by `version-diff.consult-sites.spec.ts`. Those
+ * two are `resolveDiffAccess` (`apps/api/src/lib/pair-version-diff.ts`, which both
+ * the pair read and the timeline read route through) and the web pair resolver
  * (`apps/web/src/app/products/products-pair.resolver.ts`).
- *
- * **The `!historical` early return IS `STAGE_2_SPEC.md` §8.1(4)** — "the
- * latest-version view, and the latest conflict / single-source state, are always
- * free and full-fidelity to readers." AECI-304 must replace only the line below
- * it, never that one.
- *
- * **Cache constraint AECI-304 must confront.** Returning a constant is what keeps
- * gated pair URLs storable in the shared, URL-keyed edge cache. The moment this
- * depends on a cookie or session, a gated selection can no longer live there
- * (`STAGE_1_SPEC.md` §9.1a) — so AECI-304 must either keep the pair-page gate
- * URL-derived, mark gated selections `Cache-Control: private` (the
- * query-dependent-redirect carve-out in `CACHE_STRATEGY.md` §4a is the
- * precedent), or move the gated portion to a post-hydration fetch.
  */
 export function canViewVersionDiff(request: VersionDiffRequest): VersionDiffAccess {
   if (!request.historical) return 'full';
-  return 'full'; // ← AECI-304 replaces exactly this line.
+  return request.pairVendorTiers.some((tier) => hasCapability(tier, 'integration.version_diff'))
+    ? 'full'
+    : 'latest_only';
 }

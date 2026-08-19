@@ -17,6 +17,7 @@ import {
   claims,
   integrations,
   products,
+  productVendors,
   productVersions,
   taxonomyDataObjects,
   vendors,
@@ -46,14 +47,24 @@ const GLOBEX = u(902);
 const P1 = u(700);
 const P9 = u(701);
 
-async function seedPair() {
+/**
+ * The whole timeline read IS history, so §9.3's gate applies unconditionally — and
+ * AECI-304 put that gate on the PAIR'S vendors. `verified` is the mirror of an
+ * `active` entitlement row, so the default seed makes Procore's vendor entitled and
+ * the history open; `seedPair({ entitled: false })` is the gated fixture.
+ */
+async function seedPair({ entitled = true }: { entitled?: boolean } = {}) {
   await t.db.insert(products).values([
     { id: u(1), slug: 'procore', name: 'Procore', promotionStatus: 'promoted' },
     { id: u(2), slug: 'revit', name: 'Revit', promotionStatus: 'promoted' },
   ]);
   await t.db.insert(vendors).values([
-    { id: ACME, companyName: 'Acme Software', slug: 'acme-software' },
-    { id: GLOBEX, companyName: 'Globex', slug: 'globex' },
+    { id: ACME, companyName: 'Acme Software', slug: 'acme-software', verified: entitled },
+    { id: GLOBEX, companyName: 'Globex', slug: 'globex', verified: false },
+  ]);
+  await t.db.insert(productVendors).values([
+    { productId: u(1), vendorId: ACME, isPrimary: true },
+    { productId: u(2), vendorId: GLOBEX, isPrimary: true },
   ]);
   await t.db.insert(productVersions).values([
     { id: P1, productId: u(1), label: '2026.1', sortKey: 20_260_000_100_000 },
@@ -218,13 +229,45 @@ describe('GET …/integrations/:otherSlug/timeline', () => {
     expect(body.claims).toEqual([]);
   });
 
-  it('reports the open seam today', async () => {
+  it('is open when ONE of the pair’s vendors is entitled — either side pays (AECI-304)', async () => {
+    // Globex (Revit) is unverified; Acme (Procore) is not. Either side opens it.
     await seedPair();
     await attestation({ id: u(40), source: 'aeci', createdAt: '2026-01-01T00:00:00.000Z' });
 
     const res = await get('/api/products/procore/integrations/revit/timeline');
     const body = PairTimelineResponseSchema.parse(await res.json());
     expect(body.diff_access).toBe('full');
+    expect(body.claims).toHaveLength(1);
+  });
+
+  it('is gated when NEITHER pair vendor is entitled — empty history, 200, never 403', async () => {
+    await seedPair({ entitled: false });
+    await attestation({ id: u(40), source: 'aeci', createdAt: '2026-01-01T00:00:00.000Z' });
+
+    const res = await get('/api/products/procore/integrations/revit/timeline');
+    // A 403 would make the gate a control-flow branch (`STAGE_2_SPEC.md` §2.2) and
+    // the SSR resolver renders a non-200 as the NotFound shell — costing the reader
+    // the FREE latest view and inverting §8.1(4).
+    expect(res.status).toBe(200);
+    const body = PairTimelineResponseSchema.parse(await res.json());
+    expect(body.diff_access).toBe('latest_only');
+    expect(body.claims).toEqual([]);
+  });
+
+  it('gates on the PAIR, never on the reader — no auth header changes the answer', async () => {
+    await seedPair({ entitled: false });
+    await attestation({ id: u(40), source: 'aeci', createdAt: '2026-01-01T00:00:00.000Z' });
+
+    // Same URL, an "authenticated" caller: identical answer. The gate is a function
+    // of the two slugs, which is what keeps the pair page edge-cacheable.
+    const res = await app().request(
+      '/api/products/procore/integrations/revit/timeline',
+      { headers: { authorization: 'Bearer whoever', cookie: 'sb-access-token=whatever' } },
+      TEST_ENV,
+      fakeExecutionContext(),
+    );
+    const body = PairTimelineResponseSchema.parse(await res.json());
+    expect(body.diff_access).toBe('latest_only');
   });
 
   it('404s on an unknown slug and on two equal slugs, mirroring the pair read', async () => {

@@ -38,6 +38,14 @@ const R5 = row('r5', OTHER_PRODUCT, 'v5', 50_000_000_000);
 
 const ALL = [P1, P9, P10, R4, R5];
 
+/**
+ * The pair's two endpoint vendors, neither of which holds
+ * `'integration.version_diff'` (AECI-304). The default fixture below is ENTITLED, so
+ * every pre-existing assertion keeps describing an open pair and the gate cases opt
+ * in explicitly.
+ */
+const UNENTITLED = ['unclaimed', 'unclaimed'] as const;
+
 /** May be `null` — for the cases that assert the diff does not apply. */
 function resolveMaybe(overrides: Partial<ResolveVersionSelectionInput> = {}) {
   return resolveVersionSelection({
@@ -46,7 +54,8 @@ function resolveMaybe(overrides: Partial<ResolveVersionSelectionInput> = {}) {
     otherProductId: OTHER_PRODUCT,
     contextParam: undefined,
     otherParam: undefined,
-    viewerTier: null,
+    // Entitled by default — these cases are about resolution, not the gate.
+    pairVendorTiers: ['verified', 'verified'],
     hasVersionStamps: true,
     ...overrides,
   });
@@ -269,12 +278,20 @@ describe('resolveVersionSelection — claimWindows', () => {
 
 describe('resolveDiffAccess — the single API consult of the seam', () => {
   it('is `full` for the latest view regardless of tier (§8.1(4))', () => {
-    expect(resolveDiffAccess(false, null)).toBe('full');
-    expect(resolveDiffAccess(false, 'unclaimed')).toBe('full');
+    // The reader invariant, asserted directly: the latest view is free and
+    // full-fidelity BEFORE any entitlement is consulted.
+    expect(resolveDiffAccess(false, [])).toBe('full');
+    expect(resolveDiffAccess(false, ['unclaimed', 'unclaimed'])).toBe('full');
   });
 
-  it('is `full` for a historical view today — the seam defaults open (§9.3)', () => {
-    expect(resolveDiffAccess(true, null)).toBe('full');
+  it('is `latest_only` for a historical view when neither pair vendor is entitled', () => {
+    expect(resolveDiffAccess(true, ['unclaimed', 'unclaimed'])).toBe('latest_only');
+  });
+
+  it('is `full` for a historical view when either pair vendor is entitled', () => {
+    expect(resolveDiffAccess(true, ['verified', 'unclaimed'])).toBe('full');
+    expect(resolveDiffAccess(true, ['unclaimed', 'verified'])).toBe('full');
+    expect(resolveDiffAccess(true, ['verified', 'verified'])).toBe('full');
   });
 });
 
@@ -287,10 +304,49 @@ describe('resolveVersionSelection — the gate clamp', () => {
 
   it('treats any raw param as historical, before any degrade', () => {
     // A reader who typed a label is asking for history whether or not it resolves,
-    // so the gate's input must not depend on catalog state it cannot see. With the
-    // seam open today both answer `full`; the assertion pins the INPUT, which is
-    // what AECI-304 will branch on.
+    // so the gate's input must not depend on catalog state it cannot see. An
+    // UNENTITLED pair is the case that proves it: the label is junk, but it still
+    // counts as a historical ask and still clamps.
     expect(resolve({ contextParam: 'nope' }).diff.diff_access).toBe('full');
     expect(resolve({ contextParam: 'nope' }).diff.is_default).toBe(true);
+    expect(resolve({ contextParam: 'nope', pairVendorTiers: UNENTITLED }).diff.diff_access).toBe(
+      'latest_only',
+    );
+  });
+
+  it('serves the latest view in FULL to an unentitled pair — it never 404s or errors', () => {
+    // §8.1(4) / §11: paywall the diff, never the page. No param at all means no
+    // historical ask, so the gate is not even reached.
+    const resolved = resolve({ pairVendorTiers: UNENTITLED });
+    expect(resolved.diff.diff_access).toBe('full');
+    expect(resolved.diff.is_default).toBe(true);
+    expect(resolved.diff.selected).toEqual({ context: '2026.10', other: 'v5' });
+  });
+
+  it('clamps an unentitled historical ask to latest × latest instead of honouring it', () => {
+    const resolved = resolve({ contextParam: '2026.1', pairVendorTiers: UNENTITLED });
+    expect(resolved.diff.diff_access).toBe('latest_only');
+    // Clamped, not 403'd: the free latest view is served whole.
+    expect(resolved.diff.selected).toEqual({ context: '2026.10', other: 'v5' });
+    expect(resolved.diff.is_default).toBe(true);
+    // No previous pair — a diff against the previous release IS the withheld depth,
+    // which is what makes every claim read `unchanged` and render no marker.
+    expect(resolved.diff.previous).toBeNull();
+    expect(resolved.previous).toBeNull();
+  });
+
+  it('honours the same historical ask when ONE of the pair’s vendors is entitled', () => {
+    const resolved = resolve({
+      contextParam: '2026.1',
+      pairVendorTiers: ['unclaimed', 'verified'],
+    });
+    expect(resolved.diff.diff_access).toBe('full');
+    expect(resolved.diff.selected.context).toBe('2026.1');
+  });
+
+  it('honours it when BOTH are entitled', () => {
+    const resolved = resolve({ contextParam: '2026.1', pairVendorTiers: ['verified', 'verified'] });
+    expect(resolved.diff.diff_access).toBe('full');
+    expect(resolved.diff.selected.context).toBe('2026.1');
   });
 });

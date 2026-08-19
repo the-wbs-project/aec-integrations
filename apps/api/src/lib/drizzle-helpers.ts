@@ -325,6 +325,31 @@ export const integrationTimelineConfig = {
   },
 } as const;
 
+/**
+ * The narrowest product read that still answers §9.3's version-diff gate: the id,
+ * plus the vendor links `pickPrimaryVendor` needs to expose the `verified` MIRROR
+ * (AECI-304 / `STAGE_2_ATTESTATIONS_SPEC.md` §9.3).
+ *
+ * Used by the pair TIMELINE read, whose products are otherwise `{ id: true }` — the
+ * pair read itself already carries this via `productListConfig`. It reuses
+ * `vendorLinkColumns` and `pickPrimaryVendor` rather than a bespoke
+ * "is-this-vendor-verified" selection so the two reads and the web resolver cannot
+ * disagree about *which* vendor of a multi-vendor product the gate reads.
+ *
+ * `verified` is the denormalized mirror of an `active` entitlement row. **Nothing
+ * here may join the entitlement table** — `STAGE_2_PAID_TIERS_SPEC.md` §2.5 forbids
+ * it on a read path, and `drizzle-helpers.read-path.spec.ts` asserts it (which is
+ * why this comment names the mirror rather than the table).
+ */
+export const productVersionDiffGateConfig = {
+  columns: { id: true },
+  with: {
+    productVendors: {
+      with: { vendor: { columns: vendorLinkColumns } },
+    },
+  },
+} as const;
+
 /** `ProductListItem` hydration. `vendor` resolves from `productVendors` ordered
  *  `isPrimary desc`; `primary_category` from the category joins. */
 export const productListConfig = {

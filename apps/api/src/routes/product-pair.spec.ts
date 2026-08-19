@@ -12,6 +12,7 @@ import {
   claims,
   integrations,
   products,
+  productVendors,
   productVersions,
   taxonomyDataObjects,
   vendors,
@@ -69,10 +70,24 @@ async function dataObject(id: string, slug: string, name: string, displayOrder?:
 const ACME = u(901);
 const GLOBEX = u(902);
 
-async function seedVendors() {
+/**
+ * Both companies, each owning one endpoint.
+ *
+ * `entitled` drives §9.3's version-diff gate, which AECI-304 put on the PAIR'S
+ * VENDORS rather than the reader: Acme (Procore's primary vendor) carries
+ * `verified`, the denormalized mirror of an `active` entitlement row, so historical
+ * depth is open. `entitled: false` leaves both endpoint vendors unentitled, which is
+ * the clamped case. Globex stays unverified either way, so the default fixture also
+ * proves "either side pays".
+ */
+async function seedVendors({ entitled = true } = {}) {
   await t.db.insert(vendors).values([
-    { id: ACME, companyName: 'Acme Software', slug: 'acme-software' },
-    { id: GLOBEX, companyName: 'Globex', slug: 'globex' },
+    { id: ACME, companyName: 'Acme Software', slug: 'acme-software', verified: entitled },
+    { id: GLOBEX, companyName: 'Globex', slug: 'globex', verified: false },
+  ]);
+  await t.db.insert(productVendors).values([
+    { productId: u(1), vendorId: ACME, isPrimary: true },
+    { productId: u(2), vendorId: GLOBEX, isPrimary: true },
   ]);
 }
 
@@ -552,9 +567,11 @@ describe('GET /api/products/:slug/integrations/:otherSlug — version diff (AECI
     await version(R5, u(2), 'v5', 50_000_000_000);
   }
 
-  /** One stamped claim on one mechanism, plus an unstamped sibling. */
-  async function seedStampedPair(atts: SeedAttestation[]) {
+  /** One stamped claim on one mechanism, plus an unstamped sibling. `entitled`
+   *  drives §9.3's gate — see `seedVendors`. */
+  async function seedStampedPair(atts: SeedAttestation[], { entitled = true } = {}) {
     await seedProducts();
+    await seedVendors({ entitled });
     await seedVersions();
     await integration(u(10), u(1), u(2));
     await dataObject(u(20), 'rfis', 'RFIs', 1);
@@ -847,5 +864,100 @@ describe('GET /api/products/:slug/integrations/:otherSlug — version diff (AECI
         'submittals',
       ]);
     }
+  });
+
+  // ── AECI-304: the paywall is on the PAIR'S VENDORS, never the reader ───────
+  describe('the entitlement gate (§9.3)', () => {
+    const HISTORICAL = '/api/products/procore/integrations/revit?context_version=2026.1';
+    const LATEST = '/api/products/procore/integrations/revit';
+
+    it('serves the LATEST view in full to an unentitled pair', async () => {
+      // §8.1(4) / §11, asserted directly: the latest-version view is always free and
+      // full-fidelity. Byte-for-byte what an entitled pair gets.
+      await seedStampedPair([{ source: 'aeci', asserted: true, introducedVersion: P1 }], {
+        entitled: false,
+      });
+
+      const body = ProductPairResponseSchema.parse(await (await get(LATEST)).json());
+      const diff = body.version_diff!;
+      expect(diff.diff_access).toBe('full');
+      expect(diff.selected).toEqual({ context: '2026.10', other: 'v5' });
+      expect(diff.previous).toEqual({ context: '2026.9', other: 'v4' });
+      expect(body.mechanisms[0]!.claims.map((c) => c.data_object_slug)).toEqual([
+        'rfis',
+        'submittals',
+      ]);
+    });
+
+    it('serves the latest DISPUTE in full to an unentitled pair — paywall the diff, never the dispute', async () => {
+      // Agreement is computed from the live attestations and is deliberately
+      // independent of the version selection, so a conflict / single_source state
+      // renders identically on a gated pair.
+      await seedStampedPair(
+        [
+          { source: 'vendor_a', asserted: true, by: ACME, introducedVersion: P1 },
+          { source: 'vendor_b', asserted: false, by: GLOBEX },
+        ],
+        { entitled: false },
+      );
+
+      const body = ProductPairResponseSchema.parse(await (await get(LATEST)).json());
+      expect(body.mechanisms[0]!.claims[0]!.agreement).toBe('conflict');
+      // Both sides' attestations still render, so a one-sided state stays visibly
+      // labeled rather than reading as agreement.
+      expect(body.mechanisms[0]!.claims[0]!.attestations.map((a) => a.attestor)).toEqual([
+        'context',
+        'other',
+      ]);
+      expect(body.sync_headline).toEqual({ total: 2, confirmed: 0, single_source: 0 });
+    });
+
+    it('clamps a HISTORICAL ask on an unentitled pair — 200, latest × latest, never 404', async () => {
+      await seedStampedPair([{ source: 'aeci', asserted: true, introducedVersion: P9 }], {
+        entitled: false,
+      });
+
+      const res = await get(HISTORICAL);
+      expect(res.status).toBe(200);
+      const diff = ProductPairResponseSchema.parse(await res.json()).version_diff!;
+      expect(diff.diff_access).toBe('latest_only');
+      expect(diff.selected).toEqual({ context: '2026.10', other: 'v5' });
+      expect(diff.is_default).toBe(true);
+      // The withheld depth: no previous pair, so no claim carries a marker and the
+      // change summary is empty.
+      expect(diff.previous).toBeNull();
+      expect(diff.counts).toEqual({ added: 0, removed: 0 });
+    });
+
+    it('honours the same ask when ONE endpoint vendor is entitled', async () => {
+      // Acme (Procore) is verified; Globex (Revit) is not. Either side opens it.
+      await seedStampedPair([{ source: 'aeci', asserted: true, introducedVersion: P9 }]);
+
+      const diff = ProductPairResponseSchema.parse(
+        await (await get(HISTORICAL)).json(),
+      ).version_diff!;
+      expect(diff.diff_access).toBe('full');
+      expect(diff.selected.context).toBe('2026.1');
+      expect(diff.is_default).toBe(false);
+    });
+
+    it('gives every reader of the same URL the same answer — the gate is URL-derived', async () => {
+      // What keeps a gated pair page storable in the shared, URL-keyed edge cache
+      // (`STAGE_1_SPEC.md` §9.1a): no cookie, no session, no viewer axis.
+      await seedStampedPair([{ source: 'aeci', asserted: true, introducedVersion: P9 }], {
+        entitled: false,
+      });
+
+      const anonymous = await (await get(HISTORICAL)).json();
+      const authenticated = await (
+        await app().request(
+          HISTORICAL,
+          { headers: { authorization: 'Bearer whoever', cookie: 'sb-access-token=whatever' } },
+          TEST_ENV,
+          fakeExecutionContext(),
+        )
+      ).json();
+      expect(authenticated).toEqual(anonymous);
+    });
   });
 });

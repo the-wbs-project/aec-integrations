@@ -30,17 +30,23 @@ import { ServerApiError, type ServerApiClient } from '../../server-api-client';
 import { createRequestContext, type AeciRequestContext } from '../../server/request-context';
 import { MetaService } from '../core/meta.service';
 
-import { productsPairResolver } from './products-pair.resolver';
+import { gateHistoricalDepth, productsPairResolver } from './products-pair.resolver';
 
 const STATE = {} as RouterStateSnapshot;
 
-const productListItem = (slug: string, name: string) => ({
+/**
+ * `verified` is the mirror AECI-304's gate reads: historical diff depth is open when
+ * EITHER endpoint vendor holds `'integration.version_diff'`. The default fixture is
+ * entitled on the context side, so every pre-existing case still describes an open
+ * pair; the gate cases below pass `verified: false` on both.
+ */
+const productListItem = (slug: string, name: string, verified = slug === 'procore') => ({
   id: `00000000-0000-4000-8000-${slug.padEnd(12, '0')}`,
   slug,
   name,
   logo_url: null,
   product_role: 'application' as const,
-  vendor: null,
+  vendor: { id: `v-${slug}`, name: `${name} Inc`, slug: `${slug}-inc`, logo_url: null, verified },
   primary_category: null,
   integration_count: 1,
   review_count: 0,
@@ -418,5 +424,130 @@ describe('productsPairResolver — version-selection noindex', () => {
         canonical: 'https://example.test/products/procore/integrations/revit',
       }),
     );
+  });
+});
+
+// ─── AECI-304 §9.3: the gate is on the PAIR'S VENDORS, never the reader ──────
+
+describe('gateHistoricalDepth — the seam’s second consult site', () => {
+  const claim = (versionStatus?: 'added' | 'removed' | 'unchanged') => ({
+    id: '00000000-0000-4000-8000-0000000000c1',
+    data_object_slug: 'rfis',
+    data_object_name: 'RFIs',
+    direction: 'outbound' as const,
+    agreement: 'conflict' as const,
+    attestations: [],
+    ...(versionStatus ? { version_status: versionStatus } : {}),
+  });
+
+  /** An API answer carrying real historical depth. */
+  const openDiff = {
+    context_versions: [{ label: '2026.1', released_at: null }],
+    other_versions: [{ label: 'v5', released_at: null }],
+    selected: { context: '2026.1', other: 'v5' },
+    previous: { context: null, other: 'v4' },
+    is_default: false,
+    counts: { added: 1, removed: 0 },
+    diff_access: 'full' as const,
+  };
+
+  /** A pair whose two endpoint vendors carry the given `verified` mirrors. */
+  function pair(contextVerified: boolean, otherVerified: boolean): ProductPairResponse {
+    return pairFixture({
+      context_product: productListItem('procore', 'Procore', contextVerified),
+      other_product: productListItem('revit', 'Revit', otherVerified),
+      version_diff: openDiff,
+      mechanisms: [{ ...pairFixture().mechanisms[0]!, claims: [claim('added')] }],
+    });
+  }
+
+  it('leaves the LATEST view untouched however unentitled the pair is', () => {
+    // THE reader invariant (§8.1(4) / §11): the latest-version view is always free
+    // and full-fidelity, decided before any entitlement is consulted.
+    const latest = pair(false, false);
+    expect(gateHistoricalDepth(latest, false)).toBe(latest);
+  });
+
+  it('leaves historical depth intact when EITHER endpoint vendor is entitled', () => {
+    expect(gateHistoricalDepth(pair(true, false), true).version_diff).toEqual(openDiff);
+    expect(gateHistoricalDepth(pair(false, true), true).version_diff).toEqual(openDiff);
+    expect(gateHistoricalDepth(pair(true, true), true).version_diff).toEqual(openDiff);
+  });
+
+  it('strips depth an unentitled pair should never have been served', () => {
+    // Only reachable against an API Worker that predates AECI-304 — the current one
+    // clamps server-side. This resolver is the last thing between that answer and a
+    // shared, URL-keyed, publicly cached SSR document.
+    const gated = gateHistoricalDepth(pair(false, false), true);
+    expect(gated.version_diff).toBeNull();
+    expect(gated.mechanisms[0]!.claims[0]!.version_status).toBeUndefined();
+    // The dispute is NOT paywalled — agreement survives untouched.
+    expect(gated.mechanisms[0]!.claims[0]!.agreement).toBe('conflict');
+  });
+
+  it('leaves an already-clamped payload alone so `diff_access` survives', () => {
+    const clamped = pairFixture({
+      context_product: productListItem('procore', 'Procore', false),
+      other_product: productListItem('revit', 'Revit', false),
+      version_diff: { ...openDiff, is_default: true, diff_access: 'latest_only' },
+    });
+    expect(gateHistoricalDepth(clamped, true)).toBe(clamped);
+  });
+
+  it('tolerates a `version_diff` that is genuinely absent (an older API Worker)', () => {
+    // The web never Zod-parses this response, so the key can be missing entirely.
+    const legacy = pairFixture({
+      context_product: productListItem('procore', 'Procore', false),
+      other_product: productListItem('revit', 'Revit', false),
+      version_diff: undefined,
+    } as Partial<ProductPairResponse>);
+    expect(() => gateHistoricalDepth(legacy, true)).not.toThrow();
+    expect(gateHistoricalDepth(legacy, true)).toBe(legacy);
+  });
+
+  it('treats an endpoint with no vendor as unentitled — fail closed', () => {
+    const vendorless = pairFixture({
+      context_product: { ...productListItem('procore', 'Procore'), vendor: null },
+      other_product: { ...productListItem('revit', 'Revit'), vendor: null },
+      version_diff: openDiff,
+    });
+    expect(gateHistoricalDepth(vendorless, true).version_diff).toBeNull();
+  });
+
+  it('never gates the SSR document on the reader — no cookie or header is consulted', async () => {
+    // What keeps the page in the shared, URL-keyed edge cache: the resolver's answer
+    // is a function of the payload's own vendor mirrors and the URL, nothing else.
+    const meta = metaStub();
+    const ctx = createRequestContext(
+      apiClient(async () =>
+        pairFixture({
+          context_product: productListItem('procore', 'Procore', false),
+          other_product: productListItem('revit', 'Revit', false),
+          version_diff: openDiff,
+        }),
+      ),
+    );
+    const { run, transferState } = setup({
+      platform: 'server',
+      contextSlug: 'procore',
+      otherSlug: 'revit',
+      ctx,
+      responseInit: { status: 200 },
+      meta,
+      request: new Request('https://example.test/products/procore/integrations/revit', {
+        headers: { cookie: 'sb-access-token=whatever' },
+      }),
+      queryParams: { context_version: '2026.1' },
+    });
+
+    const resolved = await run();
+    expect(resolved?.version_diff).toBeNull();
+    // …and the TransferState block — which is serialised INTO the cached document —
+    // carries the stripped payload, not the API's.
+    const transferred = transferState.get(
+      makeStateKey<ProductPairResponse | null>('aeci.product-pair:procore|revit|2026.1|'),
+      null,
+    );
+    expect(transferred?.version_diff).toBeNull();
   });
 });

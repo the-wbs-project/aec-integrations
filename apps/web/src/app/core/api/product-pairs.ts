@@ -78,10 +78,11 @@ export async function fetchProductPair(
  *
  * **Browser-only, and deliberately so.** It takes an `HttpClient` rather than the SSR
  * `ServerApiClient` because there is no SSR caller: history is the gateable depth
- * (§9.3) and the pair page lands in a shared, URL-keyed edge cache, so putting it in
- * the SSR payload would break `STAGE_1_SPEC.md` §9.1a once AECI-304 makes the gate
- * visitor-dependent. It goes through the same-origin `/api/*` passthrough, whose
- * responses are `private, no-store` — a legal home for per-reader content.
+ * (§9.3) and the pair page lands in a shared, URL-keyed edge cache. AECI-304 kept the
+ * gate URL-derived (it reads the PAIR'S vendors, not the reader), so §9.1a holds
+ * either way — but the history stays out of the SSR payload because it is also the
+ * one unbounded response in the system. It goes through the same-origin `/api/*`
+ * passthrough, whose responses are `private, no-store`.
  *
  * Unversioned: the history is the whole append-only log, independent of which version
  * pair is selected.
