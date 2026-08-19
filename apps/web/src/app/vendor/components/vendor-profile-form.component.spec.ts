@@ -128,3 +128,78 @@ describe('VendorProfileForm', () => {
     expect(saveButton(fixture).disabled).toBe(false);
   });
 });
+
+/**
+ * The read-only state (AECI-614 / `STAGE_2_PAID_TIERS_SPEC.md` §8). `canEdit` is
+ * fed from `me.entitlement.capabilities` holding `profile.edit`, so these cases
+ * pin the half of §5.2's promise that lives in the browser: a vendor whose
+ * entitlement lapsed still SEES everything, and simply cannot change it.
+ */
+describe('VendorProfileForm — read-only when the entitlement lapsed', () => {
+  let updateProfile: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    updateProfile = vi.fn();
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [
+        provideZonelessChangeDetection(),
+        provideHttpClient(),
+        { provide: VendorApi, useValue: { updateProfile } as Partial<VendorApi> },
+      ],
+    });
+  });
+
+  afterEach(() => vi.restoreAllMocks());
+
+  function create(canEdit: boolean): ComponentFixture<VendorProfileForm> {
+    const fixture = TestBed.createComponent(VendorProfileForm);
+    fixture.componentRef.setInput('vendor', VENDOR);
+    fixture.componentRef.setInput('canEdit', canEdit);
+    fixture.detectChanges();
+    return fixture;
+  }
+
+  const inputs = (fixture: ComponentFixture<VendorProfileForm>): HTMLInputElement[] =>
+    Array.from(fixture.nativeElement.querySelectorAll('input, textarea'));
+
+  it('keeps every value on screen, marked readonly rather than disabled', () => {
+    const fixture = create(false);
+    const fields = inputs(fixture);
+
+    expect(fields.length).toBeGreaterThan(0);
+    // readonly, NOT disabled: the values must stay in the accessibility tree,
+    // focusable and copyable. A disabled form reads as broken, not as paused.
+    expect(fields.every((f) => f.readOnly)).toBe(true);
+    expect(fields.some((f) => f.disabled)).toBe(false);
+    expect(
+      (fixture.nativeElement.querySelector('#vendor-profile-website') as HTMLInputElement).value,
+    ).toBe(VENDOR.website);
+  });
+
+  it('withholds Save entirely and explains why', () => {
+    const fixture = create(false);
+
+    expect(saveButton(fixture)).toBeNull();
+    expect(fixture.nativeElement.textContent).toContain('Editing is paused');
+  });
+
+  it('does not PATCH even if the form is submitted anyway', async () => {
+    // Enter from a focused (still focusable) read-only field submits the form.
+    const fixture = create(false);
+    (fixture.nativeElement.querySelector('form') as HTMLFormElement).dispatchEvent(
+      new Event('submit', { bubbles: true, cancelable: true }),
+    );
+    await flush();
+
+    expect(updateProfile).not.toHaveBeenCalled();
+  });
+
+  it('is unchanged when the capability IS held (the launch behaviour)', () => {
+    const fixture = create(true);
+
+    expect(inputs(fixture).some((f) => f.readOnly)).toBe(false);
+    expect(saveButton(fixture)).not.toBeNull();
+    expect(fixture.nativeElement.textContent).not.toContain('Editing is paused');
+  });
+});

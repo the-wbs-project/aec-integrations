@@ -173,6 +173,28 @@ Callers of `/admin/purge`:
 
 **(b) `POST /api/promote` + review moderation on the API Worker** — since WC-5, these **enqueue** onto `aeci-cache-purge-{env}` (producer binding `CACHE_PURGE_QUEUE`) after the write commits — for promote, from `dispatchPromoteHooks` *after* the Workflow commit step resolves rather than from the request (AECI-563 / ADR 0021), so a step replay cannot double-enqueue; the SSR consumer issues the `ctx.cache.purge()`. Best-effort, post-commit (`ctx.waitUntil`), a graceful no-op when the queue binding is unset (local dev, PR previews), and never fails the committed write (a `queue.send` rejection is logged and swallowed). The promote's entity/index/pair/taxonomy tags are derived by `cacheTagsForPromote` (`promote-cache-tags.ts`); review moderation enqueues `product:{slug}`; the **vendor-claim grant** (`PATCH /api/admin/claims/:id`, AECI-519) enqueues the vendor **and its products** — `{ tags: ['vendor:{slug}', 'product:{slug}'…, 'index:products'], source: 'moderation' }` — because it flips `vendors.verified` (unlike plain request-moderation, which purges nothing). One message per ≤1000-tag batch (`CACHE_PURGE_QUEUE_MAX_TAGS`, vs. the HTTP transport's 30). This supersedes the ADR-0010 direct HTTP purge (which is inert against Workers Cache); the message is async, so there is still no api→web service binding.
 
+**(b1) entitlement set / clear (Stage 2 paid tiers, AECI-532)** — `PATCH
+/api/admin/vendors/:id/entitlement` enqueues **the same tag set as the claim grant
+above**, from the same builder: `vendorPurgeTags` was promoted out of
+`admin-claims.ts` into the shared `apps/api/src/lib/vendor-cache-tags.ts` precisely
+because this epic added a second writer of it, and duplicated tag construction is how
+a badge goes stale on one path and not the other. **No new tag** — the verified badge
+renders on the vendor hero, the product-detail vendor card and both pair rails, all of
+which are already covered by `vendor:{slug}` + every owned `product:{slug}` +
+`index:products`.
+
+Two deliberate details. **`clear` purges as hard as `set`**: this is the only writer
+that takes `vendors.verified` back *down* (`STAGE_2_PAID_TIERS_SPEC.md` §5), and a
+missed purge there leaves a Verified badge on every cached product page of a vendor
+who is no longer paying. And the purge is **not gated on whether the mirror actually
+flipped** — on a drifted vendor a redundant purge costs one cache miss, while a missed
+one is a wrong badge with a full TTL behind it. **`renew` is the exception and skips
+the purge entirely**, because its builder provably emits no `vendors` statement at all,
+so nothing rendered can have changed. Search freshness rides the same nightly watermark
+as every other vendor write (see the verified-badge-flip paragraph below): the flip
+stamps `vendors.updated_at` in **both** directions, so an un-verify reaches Algolia
+within 24h rather than never.
+
 **(b2) the `/api/vendor/*` write surface on the API Worker (Stage 2, AECI-520 /
 607 / 301)** — the vendor portal's self-service edits use the same producer path
 with a distinct `source: 'vendor'`, so the `aeci.cache.purge{source}` metric
@@ -242,7 +264,14 @@ alongside `verified = true`, so the `vendors` index re-indexes the flip on the n
 nightly window while the grant's `vendor:{slug}` + `product:{slug}` purge repaints the
 SSR pages immediately. The badge therefore appears on the vendor's SSR detail/product
 pages at once but on the `/search` Vendors-tab card only after the next sync
-(`SEARCH_RANKING.md` §6).
+(`SEARCH_RANKING.md` §6). Since AECI-609 that stamp is governed by a sharper rule:
+**`vendors.updated_at` moves if and only if `vendors.verified` moves**, in either
+direction, stamped explicitly inside the same guarded `WHERE verified = <old>` rather
+than left to `$onUpdate`. Both halves earn their keep — a second-seat grant or a term
+renewal must *not* bump it (needless nightly re-push of an unchanged record), and an
+**un-verify must**, or a lapsed vendor keeps a Verified badge in search indefinitely.
+That second direction is the one AECI-529 never reasoned about, because until AECI-532
+nothing could clear the bit.
 
 The home page's `index:home` tag is the one deliberate exception: it is **not** in `cacheTagsForPromote`, because the home banner reads `home.*` `stats_cache` counts that the promote must **recompute first** (via `runHomeStats`). So the home refresh+enqueue is its own ordered post-commit task (`refreshHomeStatsAfterPromote` in `promote.ts`, AECI-305): recompute `stats_cache`, **then** enqueue the `index:home` purge. Enqueueing `index:home` in the concurrent set would let the purge race ahead of the recompute and re-cache stale HTML for another edge TTL. The `stats_cache` recompute runs in every environment; only the `index:home` enqueue is queue-binding-gated.
 

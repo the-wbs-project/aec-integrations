@@ -223,11 +223,17 @@ AECI-619, `main`'s `0010`–`0015` touched `promote_jobs` / `metrics_daily` / `j
 
 ##### Reserved numbers
 
-`aeci-515` (Paid Tiers) still holds `0006_easy_sandman.sql` (`vendor_entitlements`, AECI-609),
-which collides with `main`'s `0006_crazy_lockheed.sql`. **It takes the next free number when it
-reconciles** — check `apps/api/migrations/` rather than trusting a number written here, because this
-line has gone stale once already (`0016`/`0017` were spent by the AECI-514 epic, then `0018` by
-AECI-616).
+**Settled — nothing is reserved.** `aeci-515` (Paid Tiers) generated `vendor_entitlements`
+(AECI-609) as `0006_easy_sandman.sql`, colliding with `main`'s `0006_crazy_lockheed.sql`. AECI-622
+first renumbered it to `0018`, which **also** collided once the AECI-514 epic landed (`0016`/`0017`
+plus `0018_chilly_joseph`). It is now **`0019_easy_sandman.sql`**, renumbered at the
+`stage-2 → aeci-515` merge by the regenerate-the-snapshot procedure above.
+
+That is twice this line went stale while being read as authoritative, which is the point worth
+keeping: **check `apps/api/migrations/` rather than trusting a number written in prose.** The
+regenerated body was verified byte-identical to the hand-authored original and emitted no
+destructive statements — the check that matters, given the generator has previously re-emitted
+`DROP TABLE claims` when a snapshot chain was renamed rather than regenerated.
 
 ### Read replication (D1 Sessions API — AECI-250)
 

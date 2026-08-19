@@ -91,7 +91,18 @@ export type EmailTemplate =
   // `template:` metric tag and the `docs/email.md` catalogue key, and an ops
   // alert is a different message to a different audience. Recipient is
   // `ADMIN_ALERT_EMAIL`, one email per finding.
-  | 'attestation-ops-alert';
+  | 'attestation-ops-alert'
+  // Stage 2 entitlement term-expiry WARNINGS (AECI-613 /
+  // `STAGE_2_PAID_TIERS_SPEC.md` §7.2). Sent by the daily 11:00 UTC sweep
+  // (`lib/entitlement-expiry.ts`). Two ids for one event because the two
+  // recipients have different reachability: the vendor copy needs seat addresses
+  // from `fetchAuthUserEmails` and therefore `SUPABASE_SERVICE_ROLE_KEY` — present
+  // on staging/demo/prod, ABSENT locally and on PR previews, so it degrades to
+  // `skipped` — while the operator copy only needs `ADMIN_ALERT_EMAIL` and always
+  // lands. Nothing either template describes ever changes on its own: the sweep
+  // warns and never lapses (§7.3).
+  | 'entitlement-expiring'
+  | 'entitlement-expiring-admin';
 
 const RESEND_URL = 'https://api.resend.com/emails';
 
@@ -555,6 +566,147 @@ export function sendAttestationOpsAlertEmail(
     subject: denied
       ? `[AECi] Vendor denied a seeded claim: ${opts.dataObject} (${opts.productA} / ${opts.productB})`
       : `[AECi] Unresolved vendor conflict: ${opts.dataObject} (${opts.productA} / ${opts.productB})`,
+    text: opsText(intro, rows),
+    html: opsTable(intro, rows),
+  });
+}
+
+// ─── Entitlement term-expiry warnings (§7.2 — AECI-613) ───────────────────────
+// Sent by the daily 11:00 UTC sweep (`lib/entitlement-expiry.ts`). The load-bearing
+// copy rule is §7.3's: this is a WARNING, and the system never lapses anything on
+// its own. Neither template may imply that verification is about to be switched
+// off automatically, because it is not — un-verify stays a deliberate admin act
+// (§5). Verification is also framed exactly as everywhere else: an account status,
+// never an endorsement and never a ranking or placement signal.
+
+/** What both expiry templates need to describe one term. `daysRemaining` is
+ *  negative once the term is past its end — the sweep still warns exactly once for
+ *  such a row, because "active, and the term ran out" is precisely the state an
+ *  operator has to be told about. */
+export interface EntitlementExpirySubject {
+  to: string;
+  vendorName: string;
+  /** `YYYY-MM-DD`, the house day-label form (`lib/admin-analytics.ts`). */
+  periodEndDay: string;
+  /** Whole days from the run's `now` to `period_end`; <= 0 = already past. */
+  daysRemaining: number;
+}
+
+/** "in 30 days" / "today" / "30 days ago" — the one phrase both bodies branch on. */
+function expiryPhrase(daysRemaining: number): string {
+  if (daysRemaining > 1) return `in ${daysRemaining} days`;
+  if (daysRemaining === 1) return 'tomorrow';
+  if (daysRemaining === 0) return 'today';
+  if (daysRemaining === -1) return 'yesterday';
+  return `${Math.abs(daysRemaining)} days ago`;
+}
+
+/**
+ * §7.2 `entitlement-expiring` — the vendor's renewal prompt, to the vendor's
+ * unbanned `vendor_admin` seats.
+ *
+ * Degrades to `'skipped'` without `SUPABASE_SERVICE_ROLE_KEY` (no resolvable seat
+ * address), which is the expected local / PR-preview state; the admin copy below
+ * always lands, so a term is never silently un-warned.
+ *
+ * The money is deliberately absent. Amount, payer, terms and PO reference are
+ * admin-side only (§8) — this email says what the status is and when the term
+ * ends, and asks the vendor to get in touch.
+ */
+export function sendEntitlementExpiringEmail(
+  c: EmailContext,
+  opts: EntitlementExpirySubject,
+): Promise<EmailOutcome> {
+  const name = opts.vendorName.trim() || 'your company';
+  const dashboard = portalUrl(c.env);
+  const phrase = expiryPhrase(opts.daysRemaining);
+  const past = opts.daysRemaining < 0;
+
+  const lead = past
+    ? `Your verification term for ${name} on AEC Integrations reached its end date of ${opts.periodEndDay} — ${phrase}.`
+    : `Your verification term for ${name} on AEC Integrations ends ${phrase}, on ${opts.periodEndDay}.`;
+  // The reassurance is the point of the whole §7 decision. Say it plainly.
+  const noLapse =
+    "Nothing changes automatically. We don't switch verification off when a term reaches its end date — this is a heads-up so you can decide, not a countdown.";
+  const ask = 'To renew, or if the term dates look wrong, just reply to this email.';
+  const stance =
+    "Verification confirms your account represents this vendor. It's an account status, not an endorsement of the product, and it doesn't affect search ranking or placement.";
+
+  const textParagraphs = [lead, noLapse, ask];
+  const htmlParagraphs = [
+    past
+      ? `Your verification term for <strong>${escapeHtml(name)}</strong> on AEC Integrations reached its end date of ${escapeHtml(opts.periodEndDay)} — ${escapeHtml(phrase)}.`
+      : `Your verification term for <strong>${escapeHtml(name)}</strong> on AEC Integrations ends ${escapeHtml(phrase)}, on ${escapeHtml(opts.periodEndDay)}.`,
+    noLapse,
+    ask,
+  ];
+  if (dashboard) {
+    textParagraphs.push(`Your current status is on your vendor dashboard: ${dashboard}`);
+    htmlParagraphs.push(
+      `Your current status is on <a href="${escapeHtml(dashboard)}">your vendor dashboard</a>.`,
+    );
+  }
+  textParagraphs.push(stance);
+  htmlParagraphs.push(stance);
+
+  return sendTransactionalEmail(c, {
+    to: opts.to,
+    template: 'entitlement-expiring',
+    subject: past
+      ? `Your verification term for ${name} has reached its end date`
+      : `Your verification term for ${name} ends ${phrase}`,
+    text: toText(textParagraphs),
+    html: toHtml(htmlParagraphs),
+  });
+}
+
+/**
+ * §7.2 `entitlement-expiring-admin` — the operator copy, to `ADMIN_ALERT_EMAIL`.
+ *
+ * Exists because the vendor half needs the GoTrue admin seam and can therefore
+ * degrade to `skipped`, while renewal is an offline, human, invoice-driven act
+ * that someone has to actually perform. Operator format (`opsText`/`opsTable`),
+ * and unlike the vendor copy it DOES carry the arrangement — this is the
+ * admin-side surface where payer and PO reference belong (§8).
+ */
+export function sendEntitlementExpiringAdminEmail(
+  c: EmailContext,
+  opts: {
+    to: string;
+    vendorName: string;
+    vendorSlug: string;
+    tier: string;
+    periodEndDay: string;
+    daysRemaining: number;
+    payer: string | null;
+    invoiceRef: string | null;
+    /** Whether the vendor half of this notice reached anyone. */
+    vendorNotice: EmailOutcome;
+  },
+): Promise<EmailOutcome> {
+  const name = opts.vendorName.trim() || opts.vendorSlug;
+  const phrase = expiryPhrase(opts.daysRemaining);
+  const intro =
+    opts.daysRemaining < 0
+      ? 'An ACTIVE entitlement is past its term end date. Nothing has been changed — the expiry sweep warns and never lapses (STAGE_2_PAID_TIERS_SPEC.md §7.3). Renew it or clear it deliberately from /admin/claims.'
+      : 'An active entitlement is approaching its term end date. Nothing will change on its own — the expiry sweep warns and never lapses (STAGE_2_PAID_TIERS_SPEC.md §7.3). Renew it or clear it deliberately from /admin/claims.';
+
+  const rows: ReadonlyArray<readonly [string, string]> = [
+    ['Vendor', `${name} (${opts.vendorSlug})`],
+    ['Tier', opts.tier],
+    ['Term ends', `${opts.periodEndDay} (${phrase})`],
+    ['Payer', opts.payer?.trim() || '(none recorded)'],
+    ['Invoice ref', opts.invoiceRef?.trim() || '(none recorded)'],
+    // Named explicitly so "the vendor was told" is never assumed. `skipped` here is
+    // the normal local/preview state (no SUPABASE_SERVICE_ROLE_KEY) and a real
+    // misconfiguration on a deployed tier.
+    ['Vendor notice', opts.vendorNotice],
+  ];
+
+  return sendTransactionalEmail(c, {
+    to: opts.to,
+    template: 'entitlement-expiring-admin',
+    subject: `[AECi] Entitlement term ends ${phrase}: ${name}`,
     text: opsText(intro, rows),
     html: opsTable(intro, rows),
   });

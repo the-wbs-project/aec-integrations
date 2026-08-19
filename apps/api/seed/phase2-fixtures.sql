@@ -51,6 +51,28 @@ ON CONFLICT ("slug") DO UPDATE SET
   "updated_at" = strftime('%Y-%m-%dT%H:%M:%fZ','now');
 
 -- ---------------------------------------------------------------------------
+-- Vendor entitlement (AECI-609 / STAGE_2_PAID_TIERS_SPEC.md §2.4) — FAR-FUTURE
+-- ACTIVE, and it must STAY that way.
+-- ---------------------------------------------------------------------------
+-- This vendor is the /vendor e2e persona's anchor (auth-fixtures.sql seats a
+-- `vendor_admin` on it), so once the AECI-611 entitlement gate lands, anything other
+-- than an active entitlement 403s every `/api/vendor/*` write and breaks
+-- `vendor-dashboard.spec.ts`. The `verified = 1` above is the MIRROR of this row —
+-- change one and you must change the other, or `entitlement_mirror_drift` flags it.
+-- `granted_by` is NULL: this file runs before auth-fixtures.sql, so no `profiles`
+-- row exists yet and a non-null FK would fail.
+INSERT INTO "vendor_entitlements"
+  ("id","vendor_id","tier","status","period_start","period_end","payer","amount","terms","arranged_by","invoice_ref","notes","granted_by","granted_at","ended_at","created_at","updated_at") VALUES
+  ('00000000-0000-4000-8000-000000000071','00000000-0000-4000-8000-000000000061','verified','active', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now','+10 years'),'Fixture Procore AP','USD 5,000 / yr','Annual, net 30','CI Fixture','FIXTURE-0001','CI fixture: far-future active term anchoring the /vendor e2e persona.',NULL, strftime('%Y-%m-%dT%H:%M:%fZ','now'),NULL, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+ON CONFLICT ("vendor_id") DO UPDATE SET
+  "tier" = excluded."tier",
+  "status" = excluded."status",
+  "period_start" = excluded."period_start",
+  "period_end" = excluded."period_end",
+  "ended_at" = excluded."ended_at",
+  "updated_at" = strftime('%Y-%m-%dT%H:%M:%fZ','now');
+
+-- ---------------------------------------------------------------------------
 -- Products (2) — a primary application + a connector for the integration target.
 -- integration_count = 1 (each participates in the single fixture integration).
 -- The primary product carries a `usefulness` blob (AECI-173) so the detail page's

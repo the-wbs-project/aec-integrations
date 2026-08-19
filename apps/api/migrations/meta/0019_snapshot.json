@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "bf86c089-cd1b-4301-9c5c-74c9888bac55",
-  "prevId": "4dbe6589-b9e2-43d7-8fa4-f6c341e299ee",
+  "id": "8908441e-ff10-48a5-ad0d-63e0dd9f4338",
+  "prevId": "ceae20c0-abea-487a-bafd-81e9992ccd15",
   "tables": {
     "attestations": {
       "name": "attestations",
@@ -50,6 +50,34 @@
           "notNull": false,
           "autoincrement": false
         },
+        "introduced_version_id": {
+          "name": "introduced_version_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "deprecated_version_id": {
+          "name": "deprecated_version_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "retracted_at": {
+          "name": "retracted_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "attested_by_vendor_id": {
+          "name": "attested_by_vendor_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "note": {
           "name": "note",
           "type": "text",
@@ -73,13 +101,22 @@
         }
       },
       "indexes": {
+        "attestations_slot_key": {
+          "name": "attestations_slot_key",
+          "columns": [
+            "claim_id",
+            "source"
+          ],
+          "isUnique": true,
+          "where": "\"retracted_at\" IS NULL"
+        },
         "attestations_active_idx": {
           "name": "attestations_active_idx",
           "columns": [
             "claim_id"
           ],
           "isUnique": false,
-          "where": "\"deprecated_at\" IS NULL"
+          "where": "\"retracted_at\" IS NULL"
         }
       },
       "foreignKeys": {
@@ -94,6 +131,45 @@
             "id"
           ],
           "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "attestations_introduced_version_id_product_versions_id_fk": {
+          "name": "attestations_introduced_version_id_product_versions_id_fk",
+          "tableFrom": "attestations",
+          "tableTo": "product_versions",
+          "columnsFrom": [
+            "introduced_version_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "attestations_deprecated_version_id_product_versions_id_fk": {
+          "name": "attestations_deprecated_version_id_product_versions_id_fk",
+          "tableFrom": "attestations",
+          "tableTo": "product_versions",
+          "columnsFrom": [
+            "deprecated_version_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "attestations_attested_by_vendor_id_vendors_id_fk": {
+          "name": "attestations_attested_by_vendor_id_vendors_id_fk",
+          "tableFrom": "attestations",
+          "tableTo": "vendors",
+          "columnsFrom": [
+            "attested_by_vendor_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },
@@ -270,6 +346,21 @@
           "notNull": true,
           "autoincrement": false
         },
+        "origin": {
+          "name": "origin",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'aeci'"
+        },
+        "created_by_vendor_id": {
+          "name": "created_by_vendor_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "text",
@@ -329,6 +420,19 @@
           ],
           "onDelete": "restrict",
           "onUpdate": "no action"
+        },
+        "claims_created_by_vendor_id_vendors_id_fk": {
+          "name": "claims_created_by_vendor_id_vendors_id_fk",
+          "tableFrom": "claims",
+          "tableTo": "vendors",
+          "columnsFrom": [
+            "created_by_vendor_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -337,6 +441,10 @@
         "claims_direction_check": {
           "name": "claims_direction_check",
           "value": "\"direction\" IN ('a_to_b', 'b_to_a', 'both')"
+        },
+        "claims_origin_check": {
+          "name": "claims_origin_check",
+          "value": "\"origin\" IN ('aeci', 'vendor')"
         }
       }
     },
@@ -422,7 +530,15 @@
           "autoincrement": false
         }
       },
-      "indexes": {},
+      "indexes": {
+        "feedback_created_at_idx": {
+          "name": "feedback_created_at_idx",
+          "columns": [
+            "created_at"
+          ],
+          "isUnique": false
+        }
+      },
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
@@ -574,6 +690,21 @@
           "notNull": false,
           "autoincrement": false
         },
+        "last_reviewed_at": {
+          "name": "last_reviewed_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "maintained_by": {
+          "name": "maintained_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'aeci'"
+        },
         "created_at": {
           "name": "created_at",
           "type": "text",
@@ -692,6 +823,10 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {
+        "integrations_maintained_by_check": {
+          "name": "integrations_maintained_by_check",
+          "value": "\"maintained_by\" IN ('aeci', 'vendor')"
+        },
         "integrations_mechanism_kind_check": {
           "name": "integrations_mechanism_kind_check",
           "value": "\"mechanism_kind\" IN ('native', 'iPaaS', 'marketplace-app', 'api', 'webhook', 'partner')"
@@ -703,6 +838,72 @@
         "integrations_distinct_endpoints_check": {
           "name": "integrations_distinct_endpoints_check",
           "value": "\"source_product_id\" <> \"target_product_id\""
+        }
+      }
+    },
+    "job_runs": {
+      "name": "job_runs",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "job": {
+          "name": "job",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "started_at": {
+          "name": "started_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "finished_at": {
+          "name": "finished_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "outcome": {
+          "name": "outcome",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "detail": {
+          "name": "detail",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "job_runs_job_started_at_idx": {
+          "name": "job_runs_job_started_at_idx",
+          "columns": [
+            "job",
+            "started_at"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "job_runs_outcome_check": {
+          "name": "job_runs_outcome_check",
+          "value": "\"outcome\" IN ('ok', 'failed', 'skipped')"
         }
       }
     },
@@ -836,12 +1037,94 @@
             "unsubscribe_token"
           ],
           "isUnique": true
+        },
+        "mailing_list_created_at_idx": {
+          "name": "mailing_list_created_at_idx",
+          "columns": [
+            "created_at"
+          ],
+          "isUnique": false
+        },
+        "mailing_list_unsubscribed_at_idx": {
+          "name": "mailing_list_unsubscribed_at_idx",
+          "columns": [
+            "unsubscribed_at"
+          ],
+          "isUnique": false
         }
       },
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {}
+    },
+    "metrics_daily": {
+      "name": "metrics_daily",
+      "columns": {
+        "day": {
+          "name": "day",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "metric": {
+          "name": "metric",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "value": {
+          "name": "value",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source": {
+          "name": "source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'measured'"
+        },
+        "computed_at": {
+          "name": "computed_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "metrics_daily_metric_day_idx": {
+          "name": "metrics_daily_metric_day_idx",
+          "columns": [
+            "metric",
+            "day"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "metrics_daily_day_metric_pk": {
+          "columns": [
+            "day",
+            "metric"
+          ],
+          "name": "metrics_daily_day_metric_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "metrics_daily_source_check": {
+          "name": "metrics_daily_source_check",
+          "value": "\"source\" IN ('measured', 'reconstructed')"
+        }
+      }
     },
     "page_views": {
       "name": "page_views",
@@ -860,6 +1143,13 @@
           "notNull": true,
           "autoincrement": false
         },
+        "concrete_path": {
+          "name": "concrete_path",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "product_id": {
           "name": "product_id",
           "type": "text",
@@ -874,15 +1164,22 @@
           "notNull": false,
           "autoincrement": false
         },
-        "user_id": {
-          "name": "user_id",
+        "taxonomy_kind": {
+          "name": "taxonomy_kind",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
         },
-        "session_id": {
-          "name": "session_id",
+        "taxonomy_id": {
+          "name": "taxonomy_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "navigation": {
+          "name": "navigation",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
@@ -930,6 +1227,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "cf_as_organization": {
+          "name": "cf_as_organization",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "cf_bot_score": {
           "name": "cf_bot_score",
           "type": "integer",
@@ -951,8 +1255,22 @@
           "notNull": false,
           "autoincrement": false
         },
-        "profile_role": {
-          "name": "profile_role",
+        "is_bot": {
+          "name": "is_bot",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "bot_name": {
+          "name": "bot_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "referrer_source": {
+          "name": "referrer_source",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
@@ -992,14 +1310,13 @@
           "isUnique": false,
           "where": "\"product_id\" IS NOT NULL"
         },
-        "page_views_user_idx": {
-          "name": "page_views_user_idx",
+        "page_views_bot_idx": {
+          "name": "page_views_bot_idx",
           "columns": [
-            "user_id",
+            "is_bot",
             "created_at"
           ],
-          "isUnique": false,
-          "where": "\"user_id\" IS NOT NULL"
+          "isUnique": false
         }
       },
       "foreignKeys": {
@@ -1022,19 +1339,6 @@
           "tableTo": "vendors",
           "columnsFrom": [
             "vendor_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "page_views_user_id_profiles_id_fk": {
-          "name": "page_views_user_id_profiles_id_fk",
-          "tableFrom": "page_views",
-          "tableTo": "profiles",
-          "columnsFrom": [
-            "user_id"
           ],
           "columnsTo": [
             "id"
@@ -1348,6 +1652,80 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
+    "product_trades": {
+      "name": "product_trades",
+      "columns": {
+        "product_id": {
+          "name": "product_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "trade_id": {
+          "name": "trade_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "product_trades_trade_idx": {
+          "name": "product_trades_trade_idx",
+          "columns": [
+            "trade_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "product_trades_product_id_products_id_fk": {
+          "name": "product_trades_product_id_products_id_fk",
+          "tableFrom": "product_trades",
+          "tableTo": "products",
+          "columnsFrom": [
+            "product_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "product_trades_trade_id_taxonomy_trades_id_fk": {
+          "name": "product_trades_trade_id_taxonomy_trades_id_fk",
+          "tableFrom": "product_trades",
+          "tableTo": "taxonomy_trades",
+          "columnsFrom": [
+            "trade_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "product_trades_product_id_trade_id_pk": {
+          "columns": [
+            "product_id",
+            "trade_id"
+          ],
+          "name": "product_trades_product_id_trade_id_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
     "product_vendors": {
       "name": "product_vendors",
       "columns": {
@@ -1427,6 +1805,103 @@
           "name": "product_vendors_product_id_vendor_id_pk"
         }
       },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "product_versions": {
+      "name": "product_versions",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "product_id": {
+          "name": "product_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "label": {
+          "name": "label",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "released_at": {
+          "name": "released_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "sunset_at": {
+          "name": "sunset_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "sort_key": {
+          "name": "sort_key",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "product_versions_label_key": {
+          "name": "product_versions_label_key",
+          "columns": [
+            "product_id",
+            "label"
+          ],
+          "isUnique": true
+        },
+        "product_versions_order_idx": {
+          "name": "product_versions_order_idx",
+          "columns": [
+            "product_id",
+            "sort_key"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "product_versions_product_id_products_id_fk": {
+          "name": "product_versions_product_id_products_id_fk",
+          "tableFrom": "product_versions",
+          "tableTo": "products",
+          "columnsFrom": [
+            "product_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
@@ -1572,6 +2047,13 @@
           "autoincrement": false,
           "default": "'pending'"
         },
+        "promoted_at": {
+          "name": "promoted_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "priority_tier": {
           "name": "priority_tier",
           "type": "text",
@@ -1634,6 +2116,21 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
+        },
+        "last_reviewed_at": {
+          "name": "last_reviewed_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "maintained_by": {
+          "name": "maintained_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'aeci'"
         },
         "created_at": {
           "name": "created_at",
@@ -1705,6 +2202,10 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {
+        "products_maintained_by_check": {
+          "name": "products_maintained_by_check",
+          "value": "\"maintained_by\" IN ('aeci', 'vendor')"
+        },
         "products_product_role_check": {
           "name": "products_product_role_check",
           "value": "\"product_role\" IN ('application', 'connector', 'hybrid')"
@@ -1868,6 +2369,45 @@
           "value": "\"theme_preference\" IN ('system', 'light', 'dark')"
         }
       }
+    },
+    "promote_jobs": {
+      "name": "promote_jobs",
+      "columns": {
+        "job_id": {
+          "name": "job_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "result": {
+          "name": "result",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "promote_jobs_created_at_idx": {
+          "name": "promote_jobs_created_at_idx",
+          "columns": [
+            "created_at"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
     },
     "reviews": {
       "name": "reviews",
@@ -2430,6 +2970,80 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
+    "taxonomy_trades": {
+      "name": "taxonomy_trades",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "slug": {
+          "name": "slug",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "display_order": {
+          "name": "display_order",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "aliases": {
+          "name": "aliases",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "taxonomy_trades_slug_key": {
+          "name": "taxonomy_trades_slug_key",
+          "columns": [
+            "slug"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
     "translations": {
       "name": "translations",
       "columns": {
@@ -2518,6 +3132,219 @@
         "translations_entity_type_check": {
           "name": "translations_entity_type_check",
           "value": "\"entity_type\" IN ('product', 'vendor', 'category', 'audience', 'phase', 'integration')"
+        }
+      }
+    },
+    "vendor_entitlements": {
+      "name": "vendor_entitlements",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "vendor_id": {
+          "name": "vendor_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "tier": {
+          "name": "tier",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'verified'"
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'active'"
+        },
+        "period_start": {
+          "name": "period_start",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "period_end": {
+          "name": "period_end",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "payer": {
+          "name": "payer",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "amount": {
+          "name": "amount",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "terms": {
+          "name": "terms",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "arranged_by": {
+          "name": "arranged_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "invoice_ref": {
+          "name": "invoice_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "notes": {
+          "name": "notes",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "granted_by": {
+          "name": "granted_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "granted_at": {
+          "name": "granted_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "ended_at": {
+          "name": "ended_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "expiry_notice_sent_at": {
+          "name": "expiry_notice_sent_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "source_request_id": {
+          "name": "source_request_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "vendor_entitlements_vendor_key": {
+          "name": "vendor_entitlements_vendor_key",
+          "columns": [
+            "vendor_id"
+          ],
+          "isUnique": true
+        },
+        "vendor_entitlements_status_idx": {
+          "name": "vendor_entitlements_status_idx",
+          "columns": [
+            "status"
+          ],
+          "isUnique": false
+        },
+        "vendor_entitlements_expiry_idx": {
+          "name": "vendor_entitlements_expiry_idx",
+          "columns": [
+            "period_end"
+          ],
+          "isUnique": false,
+          "where": "\"period_end\" IS NOT NULL AND \"status\" = 'active'"
+        }
+      },
+      "foreignKeys": {
+        "vendor_entitlements_vendor_id_vendors_id_fk": {
+          "name": "vendor_entitlements_vendor_id_vendors_id_fk",
+          "tableFrom": "vendor_entitlements",
+          "tableTo": "vendors",
+          "columnsFrom": [
+            "vendor_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "vendor_entitlements_granted_by_profiles_id_fk": {
+          "name": "vendor_entitlements_granted_by_profiles_id_fk",
+          "tableFrom": "vendor_entitlements",
+          "tableTo": "profiles",
+          "columnsFrom": [
+            "granted_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "vendor_entitlements_source_request_id_vendor_requests_id_fk": {
+          "name": "vendor_entitlements_source_request_id_vendor_requests_id_fk",
+          "tableFrom": "vendor_entitlements",
+          "tableTo": "vendor_requests",
+          "columnsFrom": [
+            "source_request_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "vendor_entitlements_status_check": {
+          "name": "vendor_entitlements_status_check",
+          "value": "\"status\" IN ('pending', 'active', 'expired', 'revoked')"
         }
       }
     },
@@ -2927,6 +3754,21 @@
           "notNull": false,
           "autoincrement": false
         },
+        "last_reviewed_at": {
+          "name": "last_reviewed_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "maintained_by": {
+          "name": "maintained_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'aeci'"
+        },
         "created_at": {
           "name": "created_at",
           "type": "text",
@@ -2983,6 +3825,10 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {
+        "vendors_maintained_by_check": {
+          "name": "vendors_maintained_by_check",
+          "value": "\"maintained_by\" IN ('aeci', 'vendor')"
+        },
         "vendors_public_private_check": {
           "name": "vendors_public_private_check",
           "value": "\"public_private\" IN ('public', 'private')"

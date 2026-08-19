@@ -51,6 +51,11 @@ vi.mock('./lib/reconciliation-sweep', () => ({ runReconciliationSweep: vi.fn() }
 // The §7 detector sweep (AECI-302) sends email and writes `audit_log`; mock it so
 // these tests assert orchestration only (its own suite covers the behaviour).
 vi.mock('./lib/attestation-notify', () => ({ runAttestationNotifySweep: vi.fn() }));
+// The §7 term-expiry sweep (AECI-613) sends email and writes `audit_log`; mock it
+// so these tests assert orchestration only. Its behaviour — and in particular the
+// §7.3 non-negotiable that it never writes `status` or `vendors.verified` — is
+// covered by `lib/entitlement-expiry.spec.ts`.
+vi.mock('./lib/entitlement-expiry', () => ({ runEntitlementExpirySweep: vi.fn() }));
 // The WAF poll (AECI-262) reaches Cloudflare's GraphQL Analytics API; mock the
 // shared transport so the dispatch tests assert orchestration without a network call.
 vi.mock('@aeci/shared/cloudflare-analytics', () => ({ fetchWafFirewallEvents: vi.fn() }));
@@ -65,6 +70,7 @@ import { logToDatadog, submitCount, submitDistribution, submitGauge } from './da
 import { reportAlgoliaDrift } from './lib/algolia-drift';
 import { runDailySync } from './lib/algolia-sync';
 import { runAttestationNotifySweep } from './lib/attestation-notify';
+import { runEntitlementExpirySweep } from './lib/entitlement-expiry';
 import { runHomeStats } from './lib/home-stats';
 import { runReconciliationSweep } from './lib/reconciliation-sweep';
 import { normalizeJobMessage, queue, scheduled } from './scheduled';
@@ -80,6 +86,7 @@ const WAF_CRON = '0 * * * *';
 const ANALYTICS_CRON = '0 5 * * *';
 const RETENTION_CRON = '0 3 * * *';
 const ATTESTATION_NOTIFY_CRON = '0 10 * * *';
+const ENTITLEMENT_EXPIRY_CRON = '0 11 * * *';
 
 const ctx = { waitUntil: vi.fn(), passThroughOnException: vi.fn() } as unknown as ExecutionContext;
 
@@ -297,6 +304,50 @@ describe('scheduled (cron producer)', () => {
       expect.objectContaining({ job: 'attestation_notify', trigger: 'cron' }),
     );
     expect(runAttestationNotifySweep).not.toHaveBeenCalled();
+  });
+
+  it('always runs the entitlement-expiry sweep inline — it is queue-less by design (AECI-613)', async () => {
+    // Even with every other queue bound, §7.1 gives this job no producer: one
+    // indexed read plus a handful of fail-open emails does not earn a queue.
+    const send = vi.fn().mockResolvedValue(undefined);
+    const env = makeEnv({
+      ALGOLIA_SYNC_QUEUE: { send } as never,
+      ATTESTATION_NOTIFY_QUEUE: { send } as never,
+      DATA_QUALITY_QUEUE: { send } as never,
+    });
+
+    await scheduled(cronController(ENTITLEMENT_EXPIRY_CRON), env, ctx);
+
+    expect(send).not.toHaveBeenCalled();
+    expect(runEntitlementExpirySweep).toHaveBeenCalledTimes(1);
+    expect(submitCount).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.entitlement.expiry.job',
+      1,
+      ['trigger:cron', 'outcome:ok'],
+    );
+  });
+
+  it('records an entitlement-expiry crash as a failed run rather than rethrowing (AECI-613)', async () => {
+    // Unlike the attestation sweep this one does NOT rethrow: a warning delayed by
+    // a night costs a day of lead time on an offline renewal, and a retry would
+    // re-send every notice whose fence write is what failed.
+    vi.mocked(runEntitlementExpirySweep).mockRejectedValueOnce(new Error('D1 down'));
+
+    await expect(
+      scheduled(cronController(ENTITLEMENT_EXPIRY_CRON), makeEnv(), ctx),
+    ).resolves.toBeUndefined();
+
+    expect(submitCount).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.entitlement.expiry.job',
+      1,
+      ['trigger:cron', 'outcome:failed'],
+    );
   });
 
   it('runs the attestation sweep inline when no ATTESTATION_NOTIFY_QUEUE binding is present', async () => {
@@ -657,6 +708,7 @@ describe('job_runs bookkeeping (§7.2)', () => {
     [RECONCILE_CRON, 'request-reconcile'],
     [WAF_CRON, 'waf-poll'],
     [RETENTION_CRON, 'retention-prune'],
+    [ENTITLEMENT_EXPIRY_CRON, 'entitlement-expiry'],
   ];
 
   /**
@@ -667,7 +719,15 @@ describe('job_runs bookkeeping (§7.2)', () => {
    * empty database the prune deletes nothing and would pass the exempt test for
    * the wrong reason.
    */
-  const AUDIT_EXEMPT_CRONS = ALL_CRONS.filter(([, job]) => job !== 'retention-prune');
+  const AUDIT_EXEMPT_CRONS = ALL_CRONS.filter(
+    ([, job]) => job !== 'retention-prune' && job !== 'entitlement-expiry',
+  );
+
+  // `entitlement-expiry` is carved out for the same reason as the prune, and then
+  // one further: it is NOT audit-exempt (a delivered warning writes a
+  // `vendor_entitlement.expiry_warned` row in the same batch as the fence stamp),
+  // AND its sweep is mocked here — so the exempt assertion would pass twice over
+  // for the wrong reason. `lib/entitlement-expiry.spec.ts` owns that obligation.
 
   beforeEach(() => {
     // Defaults that let every job reach a normal completion.
@@ -684,6 +744,16 @@ describe('job_runs bookkeeping (§7.2)', () => {
       groups: [],
       truncated: false,
     } as never);
+    vi.mocked(runEntitlementExpirySweep).mockResolvedValue({
+      due: 0,
+      suppressed: 0,
+      capped: 0,
+      malformed: 0,
+      warned: 0,
+      vendor: { sent: 0, failed: 0, skipped: 0 },
+      admin: { sent: 0, failed: 0, skipped: 0 },
+      batchFailures: 0,
+    });
   });
 
   it.each(ALL_CRONS)('%s writes exactly one completed row for %s', async (cron, job) => {
@@ -848,7 +918,7 @@ describe('job_runs bookkeeping (§7.2)', () => {
     const [row] = await jobRunRows();
     const detail = row?.detail as { job: string; checks: unknown[] };
     expect(detail.job).toBe('data-quality');
-    expect(detail.checks).toHaveLength(10);
+    expect(detail.checks).toHaveLength(11);
 
     // The round-trip AC: the stored payload must satisfy the SAME schema the
     // §5.6 response is validated against. This fails the day one side is

@@ -16,7 +16,7 @@
  * `/admin` SSR resolver's gate and the in-shell badge feed.
  *
  * ── Erasure (DELETE), split across the identity seam ────────────────────────────
- * `profiles(id)` has seven inbound FKs; six are NO ACTION, so they must be nulled
+ * `profiles(id)` has seven inbound FKs; five are NO ACTION, so they must be nulled
  * before the profile delete. Under D1 that erasure is ONE atomic `db.batch([...])`
  * (null the 7 refs + the PII-free `account.deleted` audit + delete the profile).
  * The `auth.users` row then goes via the GoTrue Admin API (seam #3,
@@ -45,6 +45,7 @@ import {
   auditLog,
   profiles,
   reviews,
+  vendorEntitlements,
   vendorRequests,
   workflowInstances,
   workflowTransitions,
@@ -199,8 +200,9 @@ export function createDeleteAccountHandler(
       metadata: { source: 'account', initiated_by_self: true },
     };
 
-    // One atomic unit: null every inbound reference (five NO ACTION + the SET NULL
-    // reviewer ref made explicit) → PII-free audit → delete the profile.
+    // One atomic unit: null every inbound reference (five NO ACTION + the two SET NULL
+    // refs — `reviews.reviewer_id` and `vendor_entitlements.granted_by` — made
+    // explicit) → PII-free audit → delete the profile.
     //
     // `page_views` is deliberately absent (AECI-585 / §13 D7). It used to be nulled
     // here, but `page_views.user_id` was never written by any code path and has now
@@ -232,6 +234,14 @@ export function createDeleteAccountHandler(
         .set({ actorId: null })
         .where(eq(workflowTransitions.actorId, userId)),
       db.update(auditLog).set({ actorId: null }).where(eq(auditLog.actorId, userId)),
+      // AECI-609 / R6: the SEVENTH inbound FK. It is `ON DELETE SET NULL`, so SQLite
+      // would cover it, but it is nulled explicitly like `reviews.reviewer_id` so the
+      // erasure test asserts it directly rather than trusting the cascade. The
+      // entitlement ROW survives — only the granting admin's link is severed.
+      db
+        .update(vendorEntitlements)
+        .set({ grantedBy: null })
+        .where(eq(vendorEntitlements.grantedBy, userId)),
       auditInsert(db, auditEntry),
       db.delete(profiles).where(eq(profiles.id, userId)),
     ];

@@ -60,12 +60,32 @@ interface FieldConfig {
  * `public_private` is a discrete choice, so per ADR 0010 it uses the Angular Aria
  * single-select listbox stand-in (Aria@22 ships no `select`), mirroring the
  * review form's "would recommend" control.
+ *
+ * ── READ-ONLY (AECI-614 / `STAGE_2_PAID_TIERS_SPEC.md` §8) ──────────────────
+ * `canEdit` is fed from `me.entitlement.capabilities` holding `profile.edit` —
+ * the same field the API's `requireCapability` gate asserts on, so an enabled
+ * Save can never mean a 403 (and a disabled one can never hide a write that
+ * would have worked). It is `readonly`, deliberately, not `disabled`: a
+ * read-only input keeps its value in the accessibility tree, stays focusable and
+ * copyable, and is what a downgraded vendor needs — the §5.2 promise is that
+ * their data is still THERE, just not editable. `disabled` would drop the whole
+ * form out of tab order and read as "broken" rather than "paused".
  */
 @Component({
   selector: 'aec-vendor-profile-form',
   imports: [Listbox, Option],
   template: `
     <form class="space-y-8" novalidate (submit)="$event.preventDefault(); onSave()">
+      @if (!canEdit()) {
+        <p
+          class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) p-4 text-sm leading-relaxed text-(--text-secondary)"
+          i18n="@@vendor.profile.readOnly"
+        >
+          Editing is paused while your verification is not active. Everything below stays published
+          and is here to read. The verification panel on your dashboard has the renewal path.
+        </p>
+      }
+
       <fieldset class="space-y-5 border-0 p-0">
         <legend class="sr-only" i18n="@@vendor.profile.section.details">Profile details</legend>
 
@@ -77,12 +97,13 @@ interface FieldConfig {
                 [id]="fieldId(cfg.key)"
                 rows="4"
                 [value]="model()[cfg.key]"
+                [readOnly]="!canEdit()"
                 (input)="onInput(cfg.key, $event)"
                 [attr.aria-invalid]="fieldErrors()[cfg.key] ? 'true' : null"
                 [attr.aria-describedby]="
                   fieldErrors()[cfg.key] ? fieldId(cfg.key) + '-error' : null
                 "
-                [class]="inputClass"
+                [class]="controlClass()"
               ></textarea>
             } @else {
               <input
@@ -91,12 +112,13 @@ interface FieldConfig {
                 [attr.inputmode]="cfg.control === 'year' ? 'numeric' : null"
                 [attr.autocomplete]="cfg.autocomplete ?? null"
                 [value]="model()[cfg.key]"
+                [readOnly]="!canEdit()"
                 (input)="onInput(cfg.key, $event)"
                 [attr.aria-invalid]="fieldErrors()[cfg.key] ? 'true' : null"
                 [attr.aria-describedby]="
                   fieldErrors()[cfg.key] ? fieldId(cfg.key) + '-error' : null
                 "
-                [class]="inputClass"
+                [class]="controlClass()"
               />
             }
             @if (fieldErrors()[cfg.key]; as err) {
@@ -124,6 +146,7 @@ interface FieldConfig {
             ngListbox
             orientation="horizontal"
             selectionMode="explicit"
+            [readonly]="!canEdit()"
             [(value)]="publicPrivateSel"
             [attr.aria-labelledby]="fieldId('public_private') + '-label'"
             class="m-0 flex list-none flex-wrap gap-2 p-0"
@@ -157,10 +180,11 @@ interface FieldConfig {
               [type]="inputType(cfg.control)"
               [attr.autocomplete]="cfg.autocomplete ?? null"
               [value]="model()[cfg.key]"
+              [readOnly]="!canEdit()"
               (input)="onInput(cfg.key, $event)"
               [attr.aria-invalid]="fieldErrors()[cfg.key] ? 'true' : null"
               [attr.aria-describedby]="fieldErrors()[cfg.key] ? fieldId(cfg.key) + '-error' : null"
-              [class]="inputClass"
+              [class]="controlClass()"
             />
             @if (fieldErrors()[cfg.key]; as err) {
               <p
@@ -176,13 +200,15 @@ interface FieldConfig {
       </fieldset>
 
       <div class="flex flex-wrap items-center gap-4">
-        <button type="submit" [disabled]="saveDisabled()" [class]="saveButtonClass">
-          @if (saving()) {
-            <span i18n="@@vendor.profile.saving">Saving…</span>
-          } @else {
-            <span i18n="@@vendor.profile.save">Save changes</span>
-          }
-        </button>
+        @if (canEdit()) {
+          <button type="submit" [disabled]="saveDisabled()" [class]="saveButtonClass">
+            @if (saving()) {
+              <span i18n="@@vendor.profile.saving">Saving…</span>
+            } @else {
+              <span i18n="@@vendor.profile.save">Save changes</span>
+            }
+          </button>
+        }
         @if (saved()) {
           <p
             class="text-sm font-medium text-(--accent-primary)"
@@ -209,6 +235,10 @@ export class VendorProfileForm implements OnInit {
   private readonly api = inject(VendorApi);
 
   readonly vendor = input.required<VendorAccount>();
+
+  /** Whether the caller's entitlement holds `profile.edit` (§8). Defaults open so
+   *  no existing caller changes behaviour; the shells feed it the real value. */
+  readonly canEdit = input<boolean>(true);
 
   protected readonly profileFields: readonly FieldConfig[] = [
     {
@@ -314,8 +344,18 @@ export class VendorProfileForm implements OnInit {
 
   protected readonly labelClass =
     'block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)';
-  protected readonly inputClass =
-    'w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
+  /** Everything but the background, which is the read-only tell. Two `bg-*`
+   *  utilities on one element would race on stylesheet order, so the surface
+   *  token is chosen once, here, rather than appended as an override. */
+  private readonly inputBase =
+    'w-full rounded-(--radius-md) border border-(--border-default) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
+  /** Read-only fields sit on the sunken surface so "not editable" is visible as
+   *  well as announced, without dimming the text below the contrast floor. */
+  protected readonly controlClass = computed(() =>
+    this.canEdit()
+      ? `${this.inputBase} bg-(--surface-base)`
+      : `${this.inputBase} bg-(--surface-sunken)`,
+  );
   protected readonly saveButtonClass =
     'inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-5 py-2.5 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50';
 
@@ -365,7 +405,7 @@ export class VendorProfileForm implements OnInit {
     Object.values(this.fieldErrors()).some((e) => e !== null),
   );
   protected readonly saveDisabled = computed(
-    () => this.saving() || !this.hasChanges() || this.hasErrors(),
+    () => !this.canEdit() || this.saving() || !this.hasChanges() || this.hasErrors(),
   );
 
   ngOnInit(): void {
@@ -398,6 +438,10 @@ export class VendorProfileForm implements OnInit {
   }
 
   protected async onSave(): Promise<void> {
+    // The submit button is not rendered without `profile.edit`, but a form still
+    // submits on Enter from a focused field, and read-only fields stay focusable
+    // on purpose. Guard the handler, not just the button.
+    if (!this.canEdit()) return;
     this.saved.set(false);
     this.saveError.set(false);
     const body = this.diff();

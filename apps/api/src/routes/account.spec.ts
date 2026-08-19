@@ -8,7 +8,7 @@
 import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { auditLog, products, profiles, reviews } from '../db/schema';
+import { auditLog, products, profiles, reviews, vendorEntitlements, vendors } from '../db/schema';
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
 import type { AuthzVariables } from '../lib/authz';
@@ -54,8 +54,22 @@ function appFor(
     c.set(
       'auth',
       role === 'admin'
-        ? { userId: ADMIN_USER, email: 'root@example.com', role: 'admin', vendorId: null }
-        : { userId: USER, email: 'me@example.com', role: 'reviewer', vendorId: null },
+        ? {
+            userId: ADMIN_USER,
+            email: 'root@example.com',
+            role: 'admin',
+            vendorId: null,
+            entitlementTier: 'unclaimed',
+            entitlement: null,
+          }
+        : {
+            userId: USER,
+            email: 'me@example.com',
+            role: 'reviewer',
+            vendorId: null,
+            entitlementTier: 'unclaimed',
+            entitlement: null,
+          },
     );
     await next();
   });
@@ -203,6 +217,60 @@ describe('DELETE /api/account', () => {
       expect.anything(),
       expect.objectContaining({ to: 'me@example.com' }),
     );
+  });
+
+  it('declares vendor_entitlements.granted_by ON DELETE SET NULL (AECI-609 / R6)', () => {
+    // This is what actually keeps erasure working. `granted_by` is the EIGHTH inbound
+    // FK to `profiles(id)`; the other six NO ACTION refs are each nulled by hand in the
+    // batch, and if this one were left at the house default it would join them — except
+    // nobody would notice until an admin who had granted an entitlement tried to delete
+    // their account, at which point the whole batch FK-fails. Silent, delayed, and
+    // GDPR-relevant. Asserted at the schema level because the behavioural test below
+    // passes either way (SET NULL and the explicit statement produce the same end
+    // state), so only this assertion fails if the `onDelete` is dropped.
+    const fks = t.raw
+      .prepare(
+        "SELECT `table`, `from`, on_delete FROM pragma_foreign_key_list('vendor_entitlements')",
+      )
+      .all() as Array<{ table: string; from: string; on_delete: string }>;
+    const grantedBy = fks.find((f) => f.from === 'granted_by');
+    expect(grantedBy, 'vendor_entitlements.granted_by has no FK to profiles').toBeDefined();
+    expect(grantedBy!.table).toBe('profiles');
+    expect(grantedBy!.on_delete).toBe('SET NULL');
+  });
+
+  it('nulls vendor_entitlements.granted_by without destroying the entitlement (AECI-609 / R6)', async () => {
+    // The harness runs with `foreign_keys = ON`, so this exercises the real cascade.
+    // The batch also nulls the column explicitly — belt-and-braces, matching the
+    // `reviews.reviewer_id` precedent (also SET NULL, also nulled by hand).
+    await t.db.insert(profiles).values({ id: USER, displayName: 'Ada', role: 'admin' });
+    await t.db.insert(vendors).values({ id: u(2), slug: 'autodesk', companyName: 'Autodesk' });
+    await t.db.insert(vendorEntitlements).values({
+      id: u(21),
+      vendorId: u(2),
+      tier: 'verified',
+      status: 'active',
+      grantedBy: USER,
+      grantedAt: '2026-01-01T00:00:00.000Z',
+    });
+
+    const res = await run(
+      createDeleteAccountHandler(
+        t.factory,
+        vi.fn(async () => ({ ok: true })),
+      ),
+      'delete',
+    );
+    expect(res.status).toBe(200);
+
+    // The batch committed — the profile is gone rather than FK-blocked.
+    expect(await t.db.select().from(profiles)).toHaveLength(0);
+
+    // The entitlement ROW survives; only the granting admin's link is severed.
+    const [ent] = await t.db.select().from(vendorEntitlements);
+    expect(ent).toBeDefined();
+    expect(ent!.grantedBy).toBeNull();
+    expect(ent!.status).toBe('active');
   });
 
   it('still succeeds (data erased) when the auth-user delete fails', async () => {

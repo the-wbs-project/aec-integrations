@@ -845,6 +845,114 @@ export const vendorRequests = sqliteTable(
   ],
 );
 
+/**
+ * Vendor entitlements (AECI-609 / `docs/STAGE_2_PAID_TIERS_SPEC.md` §2). The real
+ * paid-tier model. `vendors.verified` is demoted to a DENORMALIZED MIRROR of this
+ * table, so the five shipped readers (the public `?verified=` filter,
+ * `VendorLinkSchema`, `VendorDetail`/`VendorListItem`, the Algolia vendor record,
+ * `aec-verified-badge`) are untouched by the epic (§2.4/§2.5).
+ *
+ * THE MIRROR INVARIANT (§2.1): `vendors.verified = true` IFF this table holds a row
+ * for the vendor with `status = 'active'`. `vendor_id` is UNIQUE, so that predicate
+ * is a single-row test — and both sides move inside ONE `db.batch([...])` emitted by
+ * `lib/vendor-entitlement.ts`, the SOLE writer of either side. No route handler
+ * writes `vendors.verified` directly: an ESLint `no-restricted-syntax` rule is the
+ * compile-time guard, and the `entitlement_mirror_drift` data-quality check (04:00
+ * UTC) is the run-time guard that catches what lint cannot — hand-written D1 SQL
+ * against a tier, the `apps/datatool` worker, and a backfill that ran on staging but
+ * not demo.
+ *
+ * ONE ROW PER VENDOR, not a period history. The invariant has to be expressible as a
+ * guarded single-row `UPDATE … WHERE status <> 'active'`, because D1 has no
+ * interactive transactions and a read-then-write is a race with no available fix.
+ * With history rows the predicate becomes `MAX(period_end)` over N rows, which is not
+ * something you can put in a `WHERE`. `audit_log` IS the history ledger:
+ * `audit_log_entity_idx` is `(entity_type, entity_id, created_at)`, so
+ * `entity_type = 'vendor_entitlement', entity_id = <vendor_id>` yields the whole
+ * grant/renew/lapse trail with no new index and no new reader. If finance later wants
+ * a queryable term history, an append-only `vendor_entitlement_periods` child table is
+ * purely additive and changes no reader.
+ *
+ * `tier` is DELIBERATELY UNCONSTRAINED — the `audit_log.entity_type` posture, NOT the
+ * `workflow_instances_type_check` one three tables down. Adding a tier rung must be a
+ * data edit in the capability registry (`@aeci/shared/entitlements`, §3.1), never a
+ * SQLite table rebuild; an unknown tier resolves to ZERO capabilities (fail-closed),
+ * which is strictly safer than a write-time CHECK failure. `status` IS CHECK
+ * constrained: adding a status is a state-machine change, so it is a code change
+ * anyway. Only `active` mirrors — `pending` is "arrangement recorded, PO issued, not
+ * yet effective", `expired` is an amicable lapse, `revoked` is for cause.
+ *
+ * NO `workflow_instances` ROW is written for an entitlement change, deliberately:
+ * `workflow_instances_type_check` (below) is a CLOSED check and opening it on SQLite
+ * is a full table rebuild (§1.2 / R1). Settled here so §5 never has to discover it.
+ *
+ * `granted_by` is the EIGHTH inbound FK to `profiles.id` — `ON DELETE SET NULL` AND
+ * nulled explicitly in the `DELETE /api/account` erasure batch (`routes/account.ts`;
+ * `docs/AUTH_AND_RLS.md` §8). Miss either and account deletion FK-fails for any admin
+ * who ever granted an entitlement (R6).
+ */
+export const vendorEntitlements = sqliteTable(
+  'vendor_entitlements',
+  {
+    id: uuidPk(),
+    vendorId: text('vendor_id')
+      .notNull()
+      .references(() => vendors.id, { onDelete: 'cascade' }),
+
+    /** Capability-registry tier id (§3.1). Unconstrained on purpose — see header. */
+    tier: text('tier').notNull().default('verified'),
+    status: text('status').notNull().default('active'),
+
+    /** ISO-8601. `period_start` null = open-ended; `period_end` null = PERPETUAL
+     *  (what the §2.4 backfill writes), which the partial expiry index ignores. */
+    periodStart: text('period_start'),
+    periodEnd: text('period_end'),
+
+    /** The offline PO/invoice arrangement — a superset of `ClaimEntitlementSchema`
+     *  (`packages/shared/src/api/admin-claims.ts`). `amount` stays TEXT, not `real`:
+     *  free-form and currency-agnostic ("USD 5,000 / yr"), matching the shipped
+     *  contract and keeping the model payer-agnostic (§8.1(4)). */
+    payer: text('payer'),
+    amount: text('amount'),
+    terms: text('terms'),
+    arrangedBy: text('arranged_by'),
+    invoiceRef: text('invoice_ref'),
+    notes: text('notes'),
+
+    grantedBy: text('granted_by').references(() => profiles.id, { onDelete: 'set null' }),
+    grantedAt: text('granted_at')
+      .notNull()
+      .$defaultFn(() => new Date().toISOString()),
+    /** Stamped when `status` leaves `'active'`. */
+    endedAt: text('ended_at'),
+    /** The §7 expiry cron's idempotency fence — one notice per term, not per night. */
+    expiryNoticeSentAt: text('expiry_notice_sent_at'),
+
+    /** The claim this arrangement came from, when it came from one (§6). NO ACTION:
+     *  nothing in the app deletes a `vendor_requests` row (erasure nulls
+     *  `resolved_by`, it does not delete). */
+    sourceRequestId: text('source_request_id').references(() => vendorRequests.id),
+
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    // The STRUCTURAL half of the mirror invariant: one row per vendor is what makes
+    // `status = 'active'` a legal single-row `WHERE`.
+    uniqueIndex('vendor_entitlements_vendor_key').on(t.vendorId),
+    index('vendor_entitlements_status_idx').on(t.status),
+    // The §7 cron's ONLY scan. PARTIAL, so perpetual + backfilled rows (null
+    // `period_end`) and every non-active row are invisible to it.
+    index('vendor_entitlements_expiry_idx')
+      .on(t.periodEnd)
+      .where(sql`"period_end" IS NOT NULL AND "status" = 'active'`),
+    check(
+      'vendor_entitlements_status_check',
+      sql`"status" IN ('pending', 'active', 'expired', 'revoked')`,
+    ),
+  ],
+);
+
 export const workflowInstances = sqliteTable(
   'workflow_instances',
   {
@@ -1547,6 +1655,7 @@ export const schema = {
   profiles,
   reviews,
   vendorRequests,
+  vendorEntitlements,
   workflowInstances,
   workflowTransitions,
   auditLog,
@@ -1557,6 +1666,16 @@ export const schema = {
   translations,
   feedback,
   mailingList,
+  // NOTE: `vendorEntitlements` deliberately has NO relations() entry, and that is
+  // load-bearing rather than an oversight. A relation is exactly what would make
+  // `db.query.vendors.findMany({ ...vendorListConfig, with: { entitlement: true } })`
+  // type-check and autocomplete — the read path `STAGE_2_PAID_TIERS_SPEC.md` §2.5
+  // forbids ("joining vendor_entitlements into the public ?verified= filter so it
+  // reads the truth rather than the mirror would defeat the entire denormalization").
+  // Without the relation that line does not compile. The §4 entitlement gate and the
+  // `entitlement_mirror_drift` check both use an explicit leftJoin, which needs none.
+  // Every other ops/ledger table here (auditLog, pageViews, statsCache, vendorRequests)
+  // has no relations entry either.
   // relations
   vendorsRelations,
   productsRelations,

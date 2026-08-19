@@ -119,7 +119,10 @@ const SelectedVersionPairSchema = z.object({
  *
  * `ProductPairResponse.version_diff` is **`null`** whenever the diff does not
  * apply — neither endpoint product has a release, or no live attestation on the
- * pair carries a version stamp, or the reader is gated down to `latest_only`.
+ * pair carries a version stamp. A gated pair (neither endpoint vendor entitled,
+ * AECI-304) instead answers with the selection clamped to latest × latest and
+ * `diff_access: 'latest_only'`; the SSR resolver degrades that to the same `null`
+ * only if it ever receives un-clamped depth from an older API Worker.
  * That null is the entire suppression rule: the browser renders no selectors, no
  * markers and no summary, which is what makes "latest × latest renders identically
  * to today for claims with no version data" a structural guarantee rather than a
@@ -345,15 +348,15 @@ export type ClaimTimeline = z.infer<typeof ClaimTimelineSchema>;
  * Pair-scoped rather than claim-scoped so one fetch serves every provenance
  * popover on the page. Deliberately a **separate, lazy** read rather than inline on
  * the pair response: history is the gateable depth (§9.3), and the pair page is
- * stored in a shared, URL-keyed edge cache — baking gated content into it would
- * break `STAGE_1_SPEC.md` §9.1a the moment AECI-304 makes the gate
- * visitor-dependent. An `/api/*` response is `private, no-store`, which is a legal
- * home for content that may legitimately vary per reader. It is also the only
- * unbounded payload in the system, since the append-only log grows forever.
+ * stored in a shared, URL-keyed edge cache. AECI-304 kept that gate URL-derived — it
+ * reads the PAIR'S two endpoint vendors, never the reader — so `STAGE_1_SPEC.md`
+ * §9.1a holds. The separation stands anyway: an `/api/*` response is
+ * `private, no-store`, and this is the only unbounded payload in the system, since
+ * the append-only log grows forever.
  *
- * Gated ⇒ `{ claims: [], diff_access: 'latest_only' }`. The latest state is already
- * rendered in full on the free page, so withholding *history* is exactly what
- * §8.1(4) permits and no more.
+ * Gated ⇒ `{ claims: [], diff_access: 'latest_only' }` — i.e. neither endpoint vendor
+ * holds `'integration.version_diff'`. The latest state is already rendered in full on
+ * the free page, so withholding *history* is exactly what §8.1(4) permits and no more.
  */
 export const PairTimelineResponseSchema = z.object({
   claims: z.array(ClaimTimelineSchema).default([]),

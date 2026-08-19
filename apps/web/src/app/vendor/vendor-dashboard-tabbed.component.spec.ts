@@ -16,7 +16,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { VendorMeResponse } from '@aeci/shared';
 
 import { VendorApi } from './vendor-api';
-import { VENDOR_ME_FIXTURE, VENDOR_ME_UNVERIFIED_FIXTURE } from './vendor-fixtures';
+import {
+  VENDOR_ME_DOWNGRADED_FIXTURE,
+  VENDOR_ME_FIXTURE,
+  VENDOR_ME_UNVERIFIED_FIXTURE,
+} from './vendor-fixtures';
 import { VendorDashboardTabbed } from './vendor-dashboard-tabbed';
 
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve));
@@ -108,5 +112,65 @@ describe('VendorDashboardTabbed — the Integrations tab', () => {
     // decides for itself what to withhold.
     expect(el.querySelector('aec-vendor-integrations-section')).not.toBeNull();
     expect(el.textContent).toContain('once your account is verified');
+  });
+});
+
+/**
+ * AECI-614 / `STAGE_2_PAID_TIERS_SPEC.md` §8 + §4.3 — the shell's half of the
+ * invariant. The API half (`GET /api/vendor/me` answers 200 with the downgraded
+ * block for a `revoked`/`expired` vendor) is pinned by
+ * `apps/api/src/routes/vendor.entitlement.spec.ts`. This is the other end of the
+ * same wire: given that payload, the DASHBOARD renders — the whole surface, every
+ * tab, with a renewal path — rather than degrading into a not-found. A vendor who
+ * cannot reach the dashboard can never see the notice this epic exists to show.
+ */
+describe('VendorDashboardTabbed — the downgraded entitlement (§4.3 / §8)', () => {
+  it('renders the FULL dashboard for a revoked vendor, never a dead end', () => {
+    const el = create(VENDOR_ME_DOWNGRADED_FIXTURE).nativeElement as HTMLElement;
+
+    // Same shell, same tabs, same company name. Nothing is withheld structurally.
+    expect([...el.querySelectorAll('nav button')].map((b) => b.textContent?.trim())).toEqual([
+      'Overview',
+      'Profile',
+      'Products',
+      'Integrations',
+      'Seats',
+    ]);
+    expect(el.querySelector('h1')?.textContent?.trim()).toBe(
+      VENDOR_ME_DOWNGRADED_FIXTURE.vendor.company_name,
+    );
+    // §5.2: clearing an entitlement does not revoke seats, and the readout says so.
+    expect(el.textContent).toContain(String(VENDOR_ME_DOWNGRADED_FIXTURE.seat_count));
+  });
+
+  it('shows the plan panel with a renewal path on Overview', () => {
+    const el = create(VENDOR_ME_DOWNGRADED_FIXTURE).nativeElement as HTMLElement;
+
+    expect(el.querySelector('aec-vendor-plan-panel')).not.toBeNull();
+    expect(el.querySelector('a[href="/contact"]')?.textContent?.trim()).toBe('Renew verification');
+    expect(el.textContent).toContain('no longer active');
+  });
+
+  it('drives the profile form read-only off CAPABILITIES, not vendor.verified', () => {
+    const fixture = create(VENDOR_ME_DOWNGRADED_FIXTURE);
+    navButton(fixture, 'Profile').click();
+    fixture.detectChanges();
+
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.textContent).toContain('Editing is paused');
+    expect(el.querySelector('form button[type="submit"]')).toBeNull();
+    expect(
+      [...el.querySelectorAll<HTMLInputElement>('input, textarea')].every((f) => f.readOnly),
+    ).toBe(true);
+  });
+
+  it('leaves the paid vendor forms editable — the launch behaviour is unchanged', () => {
+    const fixture = create(VENDOR_ME_FIXTURE);
+    navButton(fixture, 'Profile').click();
+    fixture.detectChanges();
+
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.textContent).not.toContain('Editing is paused');
+    expect(el.querySelector('form button[type="submit"]')).not.toBeNull();
   });
 });

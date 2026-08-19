@@ -60,6 +60,7 @@ import type {
   ReviewStatus,
   TaxonomyTermWithCount,
   VendorDetail,
+  VendorEntitlementResponse,
   VendorLink,
   VendorListItem,
 } from '@aeci/shared';
@@ -321,6 +322,31 @@ export const integrationTimelineConfig = {
           },
         },
       },
+    },
+  },
+} as const;
+
+/**
+ * The narrowest product read that still answers §9.3's version-diff gate: the id,
+ * plus the vendor links `pickPrimaryVendor` needs to expose the `verified` MIRROR
+ * (AECI-304 / `STAGE_2_ATTESTATIONS_SPEC.md` §9.3).
+ *
+ * Used by the pair TIMELINE read, whose products are otherwise `{ id: true }` — the
+ * pair read itself already carries this via `productListConfig`. It reuses
+ * `vendorLinkColumns` and `pickPrimaryVendor` rather than a bespoke
+ * "is-this-vendor-verified" selection so the two reads and the web resolver cannot
+ * disagree about *which* vendor of a multi-vendor product the gate reads.
+ *
+ * `verified` is the denormalized mirror of an `active` entitlement row. **Nothing
+ * here may join the entitlement table** — `STAGE_2_PAID_TIERS_SPEC.md` §2.5 forbids
+ * it on a read path, and `drizzle-helpers.read-path.spec.ts` asserts it (which is
+ * why this comment names the mirror rather than the table).
+ */
+export const productVersionDiffGateConfig = {
+  columns: { id: true },
+  with: {
+    productVendors: {
+      with: { vendor: { columns: vendorLinkColumns } },
     },
   },
 } as const;
@@ -1468,9 +1494,15 @@ export function toAdminVendorRequest(
 
 /** Map a raw `vendor_requests` claim row → `AdminClaim` (AECI-521): the shared
  *  `AdminVendorRequest` (delegated to `toAdminVendorRequest`, so the two never
- *  drift) plus the three claim-only reviewer signals. `existingSeats` /
+ *  drift) plus the claim-only reviewer signals. `existingSeats` /
  *  `relatedRequests` are supplied by the LIST handler's fail-soft enrichment —
- *  `null` = signal unavailable (degraded), `[]` = computed-and-empty. */
+ *  `null` = signal unavailable (degraded), `[]` = computed-and-empty.
+ *
+ *  `entitlementVendor` / `entitlement` (AECI-532 / §5) are the same shape: the
+ *  RESOLVED target vendor (a product claim → its primary vendor) and its current
+ *  entitlement, so the queue can render the entitlement column and address the
+ *  `PATCH /api/admin/vendors/:id/entitlement` control. Both null when there is no
+ *  vendor to act on or the enrichment degraded. */
 export function toAdminClaim(
   raw: RawAdminVendorRequestRow,
   isDuplicate: boolean,
@@ -1478,12 +1510,16 @@ export function toAdminClaim(
   authAccountByEmail: ReadonlyMap<string, boolean>,
   existingSeats: AdminVendorSeat[] | null,
   relatedRequests: RelatedRequestRef[] | null,
+  entitlementVendor: LinkRef | null = null,
+  entitlement: VendorEntitlementResponse | null = null,
 ): AdminClaim {
   return {
     ...toAdminVendorRequest(raw, isDuplicate, target, authAccountByEmail),
     duplicate_of_request_id: raw.duplicateOfRequestId,
     existing_seats: existingSeats,
     related_requests: relatedRequests,
+    entitlement_vendor: entitlementVendor,
+    entitlement,
   };
 }
 

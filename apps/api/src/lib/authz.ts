@@ -31,6 +31,14 @@
  *      via `bannedCode`, else `FORBIDDEN`); wrong role for the route → `403
  *      FORBIDDEN`.
  *
+ * AECI-611 adds a FOURTH thing to the session, on the `requireVendor()` branch
+ * only: the caller's entitlement tier (`STAGE_2_PAID_TIERS_SPEC.md` §4). That
+ * branch's profile re-fetch becomes a `leftJoin` onto `vendor_entitlements`, so
+ * the tier arrives in the SAME round-trip the guard was already paying for, and
+ * `requireCapability()` below is a pure in-memory assertion. The ban check still
+ * runs FIRST — a banned seat is rejected before any entitlement question is
+ * asked (AECI-524).
+ *
  * On success the handler gets `c.get('auth')` = `{ userId, email?, role,
  * vendorId }`. `userId` is the verified token `sub` (the `auth.users` UUID) —
  * handlers MUST server-set `reviewer_id` / actor columns from it; the client
@@ -47,13 +55,21 @@
 
 import { ApiErrorCode } from '@aeci/shared';
 import type { AuditLogActorType } from '@aeci/shared/audit-log';
+import {
+  ENTITLEMENT_STATUSES,
+  hasCapability,
+  tierFor,
+  type Capability,
+  type EntitlementStatus,
+  type EntitlementTier,
+} from '@aeci/shared/entitlements';
 import { eq } from 'drizzle-orm';
-import type { MiddlewareHandler } from 'hono';
+import type { Context, MiddlewareHandler } from 'hono';
 import { getCookie } from 'hono/cookie';
 import type { JWTVerifyGetKey } from 'jose';
 
-import { getDb } from '../db/client';
-import { profiles } from '../db/schema';
+import { getDb, type Db } from '../db/client';
+import { profiles, vendorEntitlements } from '../db/schema';
 import type { Env } from '../env';
 import { ApiError } from '../errors';
 import type { DbFactory } from './handler-utils';
@@ -74,7 +90,42 @@ export type AuthenticatedSession = {
    * writes by this value — never by anything the client sent.
    */
   vendorId: string | null;
+  /**
+   * The caller's entitlement tier (AECI-611 / `STAGE_2_PAID_TIERS_SPEC.md` §4).
+   *
+   * **Always present, never optional.** An optional field invites
+   * `session.entitlementTier ?? 'verified'` at a call site, which is the one
+   * default that must never exist. `'unclaimed'` for every non-vendor session
+   * and for any vendor without an ACTIVE `vendor_entitlements` row — resolved
+   * fail-closed by `tierFor` (no row, a `pending`/`expired`/`revoked` status, or
+   * a tier this build does not know all land on `'unclaimed'` → zero
+   * capabilities → writes 403).
+   *
+   * Named `entitlementTier` and **not `tier`** (§10 R4): `profiles.trust_tier`
+   * is a REVIEWER concept on the neighbouring table whose CHECK vocabulary
+   * literally contains the string `'verified'`. A bare `tier` on the session
+   * would read as that one at every call site.
+   */
+  entitlementTier: EntitlementTier;
+  /**
+   * Term detail for the §8 dashboard readout — `null` for non-vendor sessions,
+   * for a vendor with no `vendor_entitlements` row, and for a row whose `status`
+   * is outside the §2.2 vocabulary (fail closed: no readable term).
+   *
+   * Deliberately NOT the authorization input. `entitlementTier` is the only
+   * thing `requireCapability` consults; this exists so the dashboard can say
+   * "expires 2027-01-01" or "arrangement pending" rather than only "locked".
+   */
+  entitlement: { status: EntitlementStatus; periodEnd: string | null } | null;
 };
+
+/** Non-vendor sessions (`requireAuth()` / `requireAdmin()`) carry the
+ *  fail-closed floor: `/api/vendor/*` is the only entitlement-gated surface, and
+ *  a reviewer or admin session must never resolve to a paid tier. */
+const NO_ENTITLEMENT = {
+  entitlementTier: 'unclaimed',
+  entitlement: null,
+} as const satisfies Pick<AuthenticatedSession, 'entitlementTier' | 'entitlement'>;
 
 /** Hono `Variables` contributed by `requireAuth()` / `requireAdmin()`. */
 export type AuthzVariables = {
@@ -175,6 +226,82 @@ export function auditActorType(session: Pick<AuthenticatedSession, 'role'>): Aud
   return session.role === 'admin' ? 'admin' : 'user';
 }
 
+/** The authorization columns every guard variant re-fetches (§4.5). */
+type ProfileAuthz = {
+  role: string;
+  vendorId: string | null;
+  bannedAt: string | null;
+  banReason: string | null;
+};
+
+/** …plus the joined entitlement projection, on the vendor branch only. */
+type VendorProfileAuthz = ProfileAuthz & {
+  entTier: string | null;
+  entStatus: string | null;
+  entPeriodEnd: string | null;
+};
+
+/**
+ * The `vendor_admin` read: the same four authorization columns, plus the
+ * caller's entitlement, in ONE round-trip (§4.1).
+ *
+ * `leftJoin`, not `innerJoin`: a vendor with no entitlement row must still
+ * authenticate, still pass `requireVendor()`, and still read its dashboard — it
+ * simply resolves to `'unclaimed'` and cannot write (§4.3). The join predicate
+ * is on `profiles.vendor_id`, which is NULL for a half-granted seat; SQL NULL
+ * never matches, so that row also lands on `'unclaimed'` rather than on some
+ * other vendor's entitlement. `vendor_entitlements_vendor_key` is UNIQUE, so
+ * this can never fan out to more than one row.
+ */
+async function findVendorProfile(db: Db, userId: string): Promise<VendorProfileAuthz | undefined> {
+  const rows = await db
+    .select({
+      role: profiles.role,
+      vendorId: profiles.vendorId,
+      bannedAt: profiles.bannedAt,
+      banReason: profiles.banReason,
+      entTier: vendorEntitlements.tier,
+      entStatus: vendorEntitlements.status,
+      entPeriodEnd: vendorEntitlements.periodEnd,
+    })
+    .from(profiles)
+    .leftJoin(vendorEntitlements, eq(vendorEntitlements.vendorId, profiles.vendorId))
+    .where(eq(profiles.id, userId))
+    .limit(1);
+  return rows[0];
+}
+
+/**
+ * Resolve the joined projection to the session's entitlement fields, fail-closed
+ * on every axis.
+ *
+ * `tierFor` owns the tier decision (no row / non-`active` status / unknown tier
+ * → `'unclaimed'`). The term readout is dropped whenever `status` is outside the
+ * §2.2 vocabulary, so a value the DB CHECK should have rejected cannot be echoed
+ * to the dashboard as if it meant something.
+ */
+function entitlementFor(
+  row: Pick<VendorProfileAuthz, 'entTier' | 'entStatus' | 'entPeriodEnd'>,
+): Pick<AuthenticatedSession, 'entitlementTier' | 'entitlement'> {
+  if (row.entTier === null || row.entStatus === null) return NO_ENTITLEMENT;
+  const status = row.entStatus;
+  return {
+    entitlementTier: tierFor({ tier: row.entTier, status }),
+    // The `null` arm is unreachable while `vendor_entitlements_status_check`
+    // holds, and is kept anyway: it is what makes the session type honest
+    // instead of a cast, and it is the behaviour we want if that CHECK is ever
+    // widened — degrade to "no term on record", never echo an unknown status.
+    entitlement: isEntitlementStatus(status) ? { status, periodEnd: row.entPeriodEnd } : null,
+  };
+}
+
+/** Whether a raw `vendor_entitlements.status` is in the §2.2 vocabulary. The DB
+ *  CHECK enforces this; the narrowing exists so the session type is honest
+ *  rather than cast, and so a loosened CHECK degrades to "no term" not garbage. */
+function isEntitlementStatus(status: string): status is EntitlementStatus {
+  return (ENTITLEMENT_STATUSES as readonly string[]).includes(status);
+}
+
 function createAuthzMiddleware(
   requiredRole: 'admin' | 'vendor_admin' | null,
   options: AuthzOptions,
@@ -192,11 +319,24 @@ function createAuthzMiddleware(
     // Re-fetch role + ban state on every request (§4.5 — never trust client
     // claims). The D1 binding is privileged (no RLS), so this read is the
     // authorization source of truth. Only reached AFTER the JWT verifies.
+    //
+    // The vendor branch takes the entitlement join instead (AECI-611 §4.1); the
+    // other two keep the EXACT `findFirst` they have always run. That asymmetry
+    // is deliberate, not an optimization left half-done: an admin session has
+    // `vendor_id = null`, so an unconditional join would be a `LEFT JOIN … ON
+    // NULL` on every `/api/admin/*` request, and `requireAuth()` fronts the
+    // review-submit hot path (`POST /api/reviews`, `DELETE /api/account`) where
+    // there is no entitlement question to ask. Branching keeps both byte-
+    // identical to before this issue: zero added latency, zero regression
+    // surface. Do not "simplify" this to always join.
     const { db } = (options.dbFor ?? getDb)(c.env);
-    const profile = await db.query.profiles.findFirst({
-      columns: { role: true, vendorId: true, bannedAt: true, banReason: true },
-      where: eq(profiles.id, user.userId),
-    });
+    const profile: ProfileAuthz | undefined =
+      requiredRole === 'vendor_admin'
+        ? await findVendorProfile(db, user.userId)
+        : await db.query.profiles.findFirst({
+            columns: { role: true, vendorId: true, bannedAt: true, banReason: true },
+            where: eq(profiles.id, user.userId),
+          });
     // A verified token with no profiles row is an identity we can't authorize
     // (sync trigger lag or a deleted account) — 401, not anonymous treatment.
     if (!profile) throw unauthenticated();
@@ -230,6 +370,11 @@ function createAuthzMiddleware(
       email: user.email,
       role: profile.role,
       vendorId: profile.vendorId,
+      // Only the vendor branch ran the join, so only it can resolve to anything
+      // but the fail-closed floor.
+      ...(requiredRole === 'vendor_admin'
+        ? entitlementFor(profile as VendorProfileAuthz)
+        : NO_ENTITLEMENT),
     });
 
     await next();
@@ -278,4 +423,51 @@ export function requireVendor(
   options: AuthzOptions = {},
 ): MiddlewareHandler<{ Bindings: Env; Variables: AuthzVariables }> {
   return createAuthzMiddleware('vendor_admin', options);
+}
+
+/** Any Hono context carrying a session — every guarded handler's `c`. */
+export type AuthzContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
+
+/**
+ * The entitlement gate (AECI-611 / `STAGE_2_PAID_TIERS_SPEC.md` §3.3a, §4.2).
+ *
+ * A **DB-free** assertion over `c.get('auth').entitlementTier`, which
+ * `createAuthzMiddleware` already loaded on the vendor branch — no seam, no
+ * mock, no round-trip. Call it in a WRITE handler immediately after
+ * `sessionVendorId(c)`, i.e. after the caller's vendor is known and (for a
+ * product write) after ownership has settled, so a non-owner still gets the
+ * flat 404 that does not confirm the row exists.
+ *
+ * **Reads are never gated** (§4.3 / R13). `GET /api/vendor/me` and
+ * `GET /api/vendor/seats` must not call this: `/vendor` is gated by
+ * `vendorMeResolver`, which maps 401/403/404 onto a 404 render, so gating `me`
+ * would 404 the entire dashboard for a vendor whose entitlement lapsed — hiding
+ * the renewal notice from exactly the cohort being billed.
+ *
+ * **403, not 402.** 402 Payment Required is semantically tempting and wrong: it
+ * leaks a billing model into a wire contract that must stay payer-model-
+ * agnostic (§8.1(4)), and `API_CONTRACTS.md` §4.1 has no 402 row. The message
+ * points at activation and **never at ranking or placement** — an entitlement
+ * buys capability, never position (no pay-for-placement).
+ */
+export function requireCapability(c: AuthzContext, capability: Capability): void {
+  const tier = c.get('auth').entitlementTier;
+  if (hasCapability(tier, capability)) return;
+  throw entitlementRequired(capability, tier);
+}
+
+/** The one `ENTITLEMENT_REQUIRED` constructor, so the status, the copy, and the
+ *  `details` shape stay identical across the route-level gate and the
+ *  field-level one in `splitPatch` (`routes/vendor.ts`). */
+export function entitlementRequired(
+  capability: Capability,
+  tier: EntitlementTier,
+  fields?: readonly string[],
+): ApiError {
+  return new ApiError(
+    403,
+    ApiErrorCode.ENTITLEMENT_REQUIRED,
+    'This action requires an active Verified plan. Contact AEC Integrations to activate or renew it.',
+    { details: fields ? { capability, tier, fields: [...fields] } : { capability, tier } },
+  );
 }

@@ -1,13 +1,14 @@
 import { Component, computed, input, signal } from '@angular/core';
 
 import type { VendorMeResponse } from '@aeci/shared';
+import type { Capability } from '@aeci/shared/entitlements';
 
 import { VendorIntegrationsSection } from './components/vendor-integrations-section';
+import { VendorPlanPanel } from './components/vendor-plan-panel';
 import { VendorProfileForm } from './components/vendor-profile-form';
 import { VendorProductsSection } from './components/vendor-products-section';
 import { VendorRequestStatus } from './components/vendor-request-status';
 import { VendorSeatRoster } from './components/vendor-seat-roster';
-import { VendorVerifiedStatus } from './components/vendor-verified-status';
 
 type Tab = 'overview' | 'profile' | 'products' | 'integrations' | 'seats';
 
@@ -21,11 +22,18 @@ type Tab = 'overview' | 'profile' | 'products' | 'integrations' | 'seats';
  * The nav is a set of buttons that swap the visible section (each with its own
  * heading); the active button carries `aria-current="page"`. Light theme only
  * (Stage 1 / AECI-226).
+ *
+ * The shell stays PRESENTATIONAL, with one exception it is the right place for:
+ * it reads `me.entitlement.capabilities` (AECI-614 / §8) and hands each editable
+ * section a plain `canEdit` boolean. Capabilities, never a hardcoded `verified`
+ * bit: `vendors.verified` is a MIRROR of the entitlement row (§2.1), and the
+ * capability list is the same field the API's `requireCapability` gate asserts
+ * on, so the form's enabled state and the 403 a write would get cannot disagree.
  */
 @Component({
   selector: 'aec-vendor-dashboard-tabbed',
   imports: [
-    VendorVerifiedStatus,
+    VendorPlanPanel,
     VendorRequestStatus,
     VendorProfileForm,
     VendorProductsSection,
@@ -74,7 +82,7 @@ type Tab = 'overview' | 'profile' | 'products' | 'integrations' | 'seats';
                     Verification
                   </h2>
                   <div class="mt-4">
-                    <aec-vendor-verified-status [verified]="m.vendor.verified" />
+                    <aec-vendor-plan-panel [entitlement]="m.entitlement" />
                   </div>
                 </div>
 
@@ -142,7 +150,7 @@ type Tab = 'overview' | 'profile' | 'products' | 'integrations' | 'seats';
                   Vendor profile
                 </h2>
                 <div class="mt-4">
-                  <aec-vendor-profile-form [vendor]="m.vendor" />
+                  <aec-vendor-profile-form [vendor]="m.vendor" [canEdit]="canEditProfile()" />
                 </div>
               </div>
             }
@@ -155,7 +163,11 @@ type Tab = 'overview' | 'profile' | 'products' | 'integrations' | 'seats';
                   Your products
                 </h2>
                 <div class="mt-4">
-                  <aec-vendor-products-section [products]="m.products" />
+                  <aec-vendor-products-section
+                    [products]="m.products"
+                    [canEdit]="canEditProducts()"
+                    [canEditTaxonomy]="canEditTaxonomy()"
+                  />
                 </div>
               </div>
             }
@@ -200,6 +212,21 @@ export class VendorDashboardTabbed {
 
   protected readonly openRequests = computed(
     () => this.me().requests.filter((r) => r.status === 'open' || r.status === 'in_review').length,
+  );
+
+  /**
+   * The §8 gate, driven off the RESOLVED capability list rather than
+   * `vendor.verified` or a re-derivation of the tier ladder in the browser. The
+   * API ships `capabilities` on `GET /api/vendor/me` precisely so this stays one
+   * `includes` and cannot drift from `requireCapability`.
+   */
+  private readonly capabilities = computed<readonly Capability[]>(
+    () => this.me().entitlement.capabilities,
+  );
+  protected readonly canEditProfile = computed(() => this.capabilities().includes('profile.edit'));
+  protected readonly canEditProducts = computed(() => this.capabilities().includes('product.edit'));
+  protected readonly canEditTaxonomy = computed(() =>
+    this.capabilities().includes('product.taxonomy.edit'),
   );
 
   protected readonly tabs: ReadonlyArray<{ key: Tab; label: string }> = [

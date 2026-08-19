@@ -122,6 +122,7 @@ Tables grouped by domain:
 - `workflow_transitions` — state transitions for workflows
 - `audit_log` — every state-changing event
 - `promote_jobs` — exactly-once ledger for the async promote ingest (AECI-571)
+- `vendor_entitlements` — the vendor's paid tier, status and term; `vendors.verified` is its denormalized mirror — Stage 2 (AECI-609)
 
 **Analytics and caching**:
 - `page_views` — server-side page view log with CF enrichment
@@ -167,7 +168,7 @@ create table vendors (
   logo_url text,
 
   -- Operational
-  verified boolean not null default false, -- Stage 2 paid-entitlement bit; SOLE writer is the claim→account grant (PATCH /api/admin/claims/:id, AECI-519 / STAGE_2_VENDOR_PORTAL_SPEC §3). Promote dropped it (AECI-520); no un-verify writer yet.
+  verified boolean not null default false, -- DENORMALIZED MIRROR of vendor_entitlements (§8.6). true IFF an active entitlement row exists. SOLE writer of either side is apps/api/src/lib/vendor-entitlement.ts, enforced by an ESLint sole-writer rule + the daily entitlement_mirror_drift check. No route handler writes it; promote cannot (AECI-520). See STAGE_2_PAID_TIERS_SPEC §2.1.
   promotion_status text not null default 'pending' check (promotion_status in ('pending', 'ready', 'promoted', 'retracted', 'rejected')),
   admin_notes text,
 
@@ -193,6 +194,23 @@ create index vendors_company_name_idx on vendors(company_name);
 create index vendors_promotion_status_idx on vendors(promotion_status);
 create index vendors_verified_idx on vendors(verified);
 ```
+
+**`verified` is a mirror, not the model (AECI-609).** Until the Paid Tiers epic it *was* the
+entitlement bit; it is now a denormalized boolean over `vendor_entitlements` (§8.6), with the
+invariant **`vendors.verified = true` iff the vendor has an entitlement row with
+`status = 'active'`**. The demotion is deliberately invisible to readers: the public
+`GET /api/vendors?verified=` filter, `VendorLinkSchema.verified`, `VendorDetail` /
+`VendorListItem`, the Algolia vendor record and `aec-verified-badge` all still read this
+column and none of them changed. **No public or read path may query `vendor_entitlements`** —
+"fixing" the filter to join the entitlement table would defeat the entire denormalization, and
+a test asserts no read config in `lib/drizzle-helpers.ts` references it.
+
+Two consequences worth knowing before touching this column. **`updated_at` moves iff `verified`
+moves** — stamped explicitly inside the same guarded `WHERE verified = <old>`, never left to
+`$onUpdate` — because the nightly Algolia sync selects by `updated_at`: a renewal that does not
+flip the bit must not bump it, and an un-verify **must**, or a lapsed vendor keeps a Verified
+badge in search indefinitely. And **`vendors_verified_idx` is now an index over a cache**; the
+authoritative predicate is on the entitlement row's `status`.
 
 ### 4.2 `products`
 
@@ -673,6 +691,7 @@ create table profiles (
   role text not null default 'reviewer' check (role in ('reviewer', 'admin', 'vendor_admin')),
   vendor_id uuid references vendors(id), -- null for Stage 1, used in Stage 2 vendor portal
   work_email_verified boolean not null default false,
+  -- REVIEWER trust, unrelated to paid entitlements — see the disambiguation note below.
   trust_tier text not null default 'standard' check (trust_tier in ('standard', 'verified', 'trusted')),
 
   -- Theme preference (defaults to system preference)
@@ -690,6 +709,18 @@ create index profiles_role_idx on profiles(role);
 create index profiles_vendor_idx on profiles(vendor_id) where vendor_id is not null;
 create index profiles_banned_idx on profiles(banned_at) where banned_at is not null;
 ```
+
+> **`profiles.trust_tier` is NOT an entitlement tier.** Its CHECK vocabulary literally
+> contains `'verified'`, one table away from `vendors.verified` and two from
+> `vendor_entitlements.tier` — and the three mean entirely different things.
+> `trust_tier` is a **reviewer**-side anti-abuse signal about a *person* (`standard` /
+> `verified` / `trusted`, Stage 3 trust scoring). `vendor_entitlements.tier` is a
+> **paid** capability rung held by a *company* (§8.6), whose launch vocabulary happens
+> to be `unclaimed` / `verified`. Nothing reads one for the other, and nothing should:
+> the session field is named **`entitlementTier`, never `tier`**, there is no `TrustTier`
+> type, and `grantSeatStatements`' no-clobber list names `trust_tier` explicitly so a
+> vendor-seat grant can never reset a reviewer's standing. See
+> `STAGE_2_PAID_TIERS_SPEC.md` §10 R4.
 
 **Trigger:** create a profile row automatically when a user signs up via Supabase Auth.
 
@@ -963,6 +994,106 @@ Notes:
   a pathological bundle sheds `auditEntries` then `affectedProducts` and records what it
   dropped in `truncated`, so an oversized payload costs observability rather than blocking
   a valid promote. A typical row is ~10 KB.
+
+---
+
+### 8.6 `vendor_entitlements`
+
+The vendor's paid arrangement — tier, status, term, and the offline PO/invoice record
+(AECI-609, migration `0019_easy_sandman`; `STAGE_2_PAID_TIERS_SPEC.md` §2). **`vendors.verified`
+(§4.1) is this table's denormalized mirror**, and the two are written together or not at all.
+
+```sql
+create table vendor_entitlements (
+  id uuid primary key default gen_random_uuid(),
+  vendor_id uuid not null references vendors(id) on delete cascade,
+
+  -- Capability-registry tier id (@aeci/shared/entitlements). DELIBERATELY UNCONSTRAINED
+  -- at the DB layer: adding a rung must be data-only. An unknown tier resolves to zero
+  -- capabilities (fail-closed), which is safer than a write-time CHECK failure.
+  tier text not null default 'verified',
+  -- Unlike tier, this IS constrained: adding a status is a state-machine change,
+  -- and therefore a code change anyway. Only 'active' mirrors onto vendors.verified.
+  status text not null default 'active'
+    check (status in ('pending', 'active', 'expired', 'revoked')),
+
+  -- ISO-8601. period_start null = open-ended; period_end null = PERPETUAL (what the
+  -- backfill writes), which the partial expiry index below ignores entirely.
+  period_start timestamptz,
+  period_end timestamptz,
+
+  -- The offline arrangement — a superset of ClaimEntitlementSchema. `amount` is TEXT,
+  -- not numeric: free-form and currency-agnostic ("USD 5,000 / yr"), which keeps the
+  -- model payer-agnostic.
+  payer text,
+  amount text,
+  terms text,
+  arranged_by text,
+  invoice_ref text,
+  notes text,
+
+  granted_by uuid references profiles(id) on delete set null, -- the SEVENTH inbound FK to profiles
+  granted_at timestamptz not null default now(),
+  ended_at timestamptz,             -- stamped when status leaves 'active'
+  expiry_notice_sent_at timestamptz, -- the expiry cron's idempotency fence
+
+  source_request_id uuid references vendor_requests(id), -- the claim this came from, if any
+
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+-- The STRUCTURAL half of the mirror invariant: one row per vendor is what makes
+-- `status = 'active'` a legal single-row WHERE.
+create unique index vendor_entitlements_vendor_key on vendor_entitlements(vendor_id);
+create index vendor_entitlements_status_idx on vendor_entitlements(status);
+-- The expiry cron's ONLY scan. PARTIAL, so perpetual/backfilled rows and every
+-- non-active row are invisible to it.
+create index vendor_entitlements_expiry_idx on vendor_entitlements(period_end)
+  where period_end is not null and status = 'active';
+```
+
+**Why one row per vendor and not a period-history table.** The mirror invariant has to be
+expressible as a **guarded single-row `UPDATE`**, because D1 has no interactive transactions
+and a read-then-write is a race with no available fix. With one row the predicate is
+`status = 'active'`, which is a legal `WHERE`. With history rows it becomes `MAX(period_end)`
+or `is_current` over N rows — not a predicate you can put in a `WHERE` — and the mirror flip
+degrades into exactly that unfixable race. Three supporting reasons: **`audit_log` already is
+the history ledger** (`audit_log_entity_idx` is `(entity_type, entity_id, created_at)`, so
+`entity_type='vendor_entitlement', entity_id=<vendor_id>` yields the full grant/renew/lapse
+trail with no new index and no new read path); **the invoice is not the system of record**
+(offline PO means accounting holds the money ledger — this table records the *arrangement*);
+and **read cost** (the authz guard reads this row on every `/api/vendor/*` request, and a
+history table would put an aggregate on that hot path). If finance later wants a queryable
+term history, an append-only `vendor_entitlement_periods` child table is purely additive and
+changes no reader.
+
+Notes:
+
+- **One writer, both sides.** `apps/api/src/lib/vendor-entitlement.ts` emits every statement
+  that can move either side of the *iff*, and never one without the other. An ESLint
+  `no-restricted-syntax` rule rejects a `.set({ verified })` / `.values({ verified })` on
+  `vendors` in any other file (exempt list: exactly that one module), and the daily
+  `entitlement_mirror_drift` data-quality check counts `verified = 1` XOR an active row as
+  the run-time backstop. Callers are `PATCH /api/admin/vendors/:id/entitlement` (§5 of the
+  paid-tiers spec) and the claim grant, which composes the same builder into its batch.
+- **No `workflow_instances` row, ever.** `workflow_instances_type_check` is a **closed** CHECK
+  and opening it on SQLite is a full table rebuild; `audit_log.entity_type` is deliberately
+  unconstrained, so `'vendor_entitlement'` costs nothing. Entitlement writes audit and do not
+  transition a workflow.
+- **`pending` earns its place.** Offline invoicing genuinely has an "arrangement recorded, PO
+  issued, not yet effective" limbo; without it an admin must either not record the arrangement
+  or verify an unpaid vendor. `expired` = term lapsed amicably, `revoked` = pulled for cause.
+- **Nothing expires itself.** The daily 11:00 UTC sweep **warns** and stamps
+  `expiry_notice_sent_at`; it never writes `status` and never touches `vendors`. An active term
+  past its end date stays active until an admin clears it.
+- **Backfill is a script, not a migration** (`apps/api/scripts/backfill-entitlements.ts`, run
+  per environment). Rows already `verified = 1` from the Airtable/claim era get
+  `{ tier: 'verified', status: 'active', period_end: null }` — perpetual and termless, so the
+  partial expiry index ignores them. `migrations.md` keeps migrations declarative; the drift
+  check is the proof the backfill actually landed on every tier.
+- **No public or read path may query this table** (§4.1). It is written by the sole-writer
+  module, read by the authz guard and the two admin/vendor surfaces, and by nothing else.
 
 ---
 
@@ -1444,6 +1575,8 @@ Migrations are generated by **drizzle-kit** from the Drizzle schema and applied 
 Every write that changes **domain state** must emit its `audit_log` (+ `workflow_transitions` where applicable) row (`STAGE_1_SPEC.md` §26.1, `CLAUDE.md` §"Datadog and audit logging"). Failure to log is a transactional failure — the mutation must not commit without its audit entry.
 
 **Scope (ADR 0022).** "Domain state" is the catalog, users and profiles, reviews and moderation, claims and attestations, requests and workflows. **Derived and log-class writes are exempt**: `page_views`, `mailing_list`, `feedback` (`API_CONTRACTS.md` §6.9/§6.13), `stats_cache`, the Algolia watermark, the denormalized product counters (§14.2), and the cron-written `metrics_daily` (§9.3 — **shipped**, AECI-581) and `job_runs` (§9.4 — **shipped**, AECI-583) tables (`ADMIN_PANEL_SPEC.md` §7.1/§7.2). The test is **entity class, not actor class** — a `system`/cron actor writing domain state still audits — and **scheduled `DELETE`s are never exempt**: they emit one summary row per run (`action='retention.pruned'`). That exception is live as of AECI-584 (§9.1/§9.4): the 03:00 retention prune is the only cron that writes an `audit_log` row, and it writes exactly one per run — `actor_type='system'`, `entity_type='retention'`, `metadata={rowsDeleted, tables:[{table, cutoff, rowsDeleted}]}` — inside the same atomic `db.batch` as every chunked `DELETE`. A run that deletes nothing writes none: the exception exists because a deletion's fact is unrecoverable afterwards, and a non-deletion has no such fact.
+
+**The 11:00 entitlement-expiry sweep is a second auditing cron, and for the same "entity class, not actor class" reason** (AECI-613): it writes `expiry_notice_sent_at` on a domain row and emits one `vendor_entitlement.expiry_warned` row (`actor_type='system'`) per warned term, in the same batch. "We warned them on date X" is precisely the fact an offline-invoice dispute needs, so exempting it would lose the one record that matters. Note what that means for the exempt lists: `entitlement-expiry` is **not** ADR-0022-exempt in the way `retention-prune` is — where a cron-level test carves it out, the carve-out is a mocking artifact, and the real obligation is asserted in `entitlement-expiry.spec.ts`.
 
 **Pattern.** D1 has no interactive transactions, so the mutation and the audit insert go into the **same** atomic `db.batch([...])` (ADR 0016 / AECI-249) — both commit or both roll back. The audit/transition statements are built with the `auditInsert` / `workflowTransitionInsert` helpers in `apps/api/src/lib/audit.ts`:
 

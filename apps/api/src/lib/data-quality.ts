@@ -1,7 +1,7 @@
 /**
  * The §23.1 daily data-quality suite (AECI-241 / Phase 7.6).
  *
- * Ten read-only integrity checks over the D1 catalog, run from the 04:00 UTC cron
+ * Eleven read-only integrity checks over the D1 catalog, run from the 04:00 UTC cron
  * (`scheduled.ts`) and summarised in the email digest (`data-quality-email.ts`).
  * **Report-only** — no auto-remediation; the digest + the per-check Datadog gauge
  * are how humans triage (§23.1).
@@ -10,7 +10,7 @@
  * an injected `fetch` for the logo probe and an injected closure for the reused
  * AECI-140 Algolia-drift count), so every check unit-tests against the in-memory
  * D1 harness (`test/d1.ts`) with no network. The orchestrator
- * `runDataQualityChecks` runs all ten best-effort: a check that throws becomes an
+ * `runDataQualityChecks` runs all eleven best-effort: a check that throws becomes an
  * `error` result rather than aborting the run.
  *
  * Two checks are interpreted against D1 reality (documented inline):
@@ -38,6 +38,7 @@ import {
   isNotNull,
   isNull,
   lt,
+  ne,
   notInArray,
   or,
   sql,
@@ -45,7 +46,15 @@ import {
 import { alias } from 'drizzle-orm/sqlite-core';
 
 import type { Db } from '../db/client';
-import { integrations, products, productVendors, reviews, statsCache, vendors } from '../db/schema';
+import {
+  integrations,
+  products,
+  productVendors,
+  reviews,
+  statsCache,
+  vendorEntitlements,
+  vendors,
+} from '../db/schema';
 
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
@@ -301,6 +310,59 @@ export async function checkAlgoliaDrift(
   };
 }
 
+/**
+ * #11 — the §2.1 MIRROR INVARIANT: `vendors.verified = 1` XOR an `active`
+ * `vendor_entitlements` row (AECI-609 / `docs/STAGE_2_PAID_TIERS_SPEC.md` §2.1).
+ *
+ * Guard 2 of the mirror. Guard 1 is the sole-writer ESLint rule; this is the one that
+ * catches what lint structurally cannot: hand-written D1 SQL against a tier, the
+ * `apps/datatool` worker (which binds all four tiers and can write prod D1), and — the
+ * likely one — a backfill (§2.4) that ran on staging but not demo. Without it, "the
+ * badge is missing on demo" is invisible until a human notices.
+ *
+ * A LEFT JOIN, not two subqueries: `vendor_entitlements_vendor_key` is UNIQUE, so
+ * there is at most one row per vendor and no row multiplication — and joining
+ * UNFILTERED (rather than `AND status = 'active'`) carries the offending status into
+ * the digest line, which is what makes the finding triageable rather than just a count.
+ *
+ * ⚠️ SQL nuance: `status <> 'active'` is NULL — i.e. NOT true — when there is no row,
+ * so the `isNull(id)` disjunct is REQUIRED. Drop it and the check silently misses the
+ * "no entitlement row at all" case, which is precisely the backfill-did-not-run case
+ * this exists to catch.
+ */
+export async function checkEntitlementMirrorDrift(db: Db): Promise<CheckFinding> {
+  const rows = await db
+    .select({
+      slug: vendors.slug,
+      name: vendors.companyName,
+      verified: vendors.verified,
+      status: vendorEntitlements.status,
+      entitlementId: vendorEntitlements.id,
+    })
+    .from(vendors)
+    .leftJoin(vendorEntitlements, eq(vendorEntitlements.vendorId, vendors.id))
+    .where(
+      or(
+        // Verified, but no active entitlement backs it.
+        and(
+          eq(vendors.verified, true),
+          or(isNull(vendorEntitlements.id), ne(vendorEntitlements.status, 'active')),
+        ),
+        // An active entitlement exists, but the mirror was never flipped.
+        and(eq(vendors.verified, false), eq(vendorEntitlements.status, 'active')),
+      ),
+    )
+    .orderBy(asc(vendors.companyName));
+
+  return {
+    lines: rows.map((r) => {
+      const state =
+        r.entitlementId === null ? 'no entitlement row' : `entitlement is '${r.status}'`;
+      return `${r.name} (${r.slug}) — verified=${r.verified ? 1 : 0}, ${state}`;
+    }),
+  };
+}
+
 // ───────────────────────────── registry + orchestrator ───────────────────────
 
 interface CheckSpec {
@@ -310,8 +372,8 @@ interface CheckSpec {
   run: (deps: DataQualityDeps) => Promise<CheckFinding>;
 }
 
-/** The ten §23.1 checks in digest order. Severity drives the digest grouping and
- *  is informational on the gauge. */
+/** The eleven checks in digest order (§23.1, plus the AECI-609 mirror guard).
+ *  Severity drives the digest grouping and is informational on the gauge. */
 export const CHECKS: CheckSpec[] = [
   {
     id: 'products_without_vendor',
@@ -373,6 +435,12 @@ export const CHECKS: CheckSpec[] = [
     label: 'Algolia index drift (Supabase ≠ Algolia)',
     severity: 'warn',
     run: ({ runDrift }) => checkAlgoliaDrift(runDrift),
+  },
+  {
+    id: 'entitlement_mirror_drift',
+    label: 'Vendors whose `verified` flag disagrees with their entitlement',
+    severity: 'error',
+    run: ({ db }) => checkEntitlementMirrorDrift(db),
   },
 ];
 

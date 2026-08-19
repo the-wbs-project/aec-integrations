@@ -27,8 +27,12 @@ The reader-facing invariant that governs every decision below is `STAGE_2_SPEC.m
 agreement.** Everything in §4 exists to make that structurally true rather than a copy promise.
 
 **Capability gate.** Attestation authoring is a **Verified-vendor** capability (`STAGE_2_SPEC.md`
-§8.1(3)); `vendors.verified` is the launch entitlement bit (§8.3(1)). It gates **capability only,
-never ranking, placement, or badge trust** — no pay-for-placement.
+§8.1(3)). It gates **capability only, never ranking, placement, or badge trust** — no
+pay-for-placement. This epic reads `vendors.verified` directly (`assertVerifiedVendor`), which was
+the launch entitlement bit per §8.3(1); since AECI-609 that column is a **mirror** of a
+`vendor_entitlements` row (`STAGE_2_SPEC.md` §8.5(1)), so these routes still read the right thing
+but are gated on the mirror rather than on the `attestation.author` **capability** the registry now
+declares. Behaviourally identical while the ladder is binary; **AECI-623** does the swap.
 
 ### 1.1 Issue map & critical path
 
@@ -1324,9 +1328,18 @@ conflict / single-source state — are always free and full-fidelity to readers.
 
 Implement it as **one seam**, `canViewVersionDiff(...)`, consulted in the pair resolver and the API
 — **not** as entitlement branches scattered through the render path (`STAGE_2_SPEC.md` §2.2:
-"entitlements are data, not code branches scattered across the app"). It defaults to `true` until
-the Paid Tiers epic (AECI-515) lands the entitlement engine; AECI-304 then swaps the implementation
-without touching this epic's code. Design checklist applies as in §4.3.
+"entitlements are data, not code branches scattered across the app"). Design checklist applies as
+in §4.3.
+
+**Built (AECI-304, 2026-08-19).** The seam no longer defaults to `true`: it forks on **the pair's
+two endpoint vendors' tiers**, and historical depth is open when *either* holds
+`'integration.version_diff'`. The `!historical → 'full'` early return is untouched and still runs
+first, so the free latest view is decided before any entitlement is consulted. Exactly the two
+consult sites AC5 fixed remain — `resolveDiffAccess` (`apps/api/src/lib/pair-version-diff.ts`) and
+the web pair resolver's `gateHistoricalDepth` — asserted by `version-diff.consult-sites.spec.ts`.
+Tiers are derived by `vendorTiersFromMirror` off `vendors.verified`, because
+`STAGE_2_PAID_TIERS_SPEC.md` §2.5 forbids a public read path from querying the entitlement table;
+the mirror exists precisely so reads do not have to. See the two resolved ⚠️ notes in §9.4.
 
 ### 9.4 As built (AECI-303 — 2026-08-18)
 
@@ -1442,25 +1455,40 @@ Decisions taken at build that §9.1–§9.3 did not pre-specify:
   of code; AECI-304 must replace only the line below it. Taking `historical` as an input, rather
   than asking the seam a bare entitlement question, is what makes the invariant
   unremovable-by-accident. `aeci-515` also adds a file-scoped `no-restricted-imports` for its
-  zod-free domain modules; **`version-diff.ts` should be added to that rule at the merge.**
+  zod-free domain modules; `version-diff.ts` was added to that rule at the merge — **done**, see the
+  last bullet below.
 - **AC5's "exactly two places" needed a wrapper.** Two API handlers need the access answer (the pair
   read, whose `historical` depends on the selection, and the timeline read, which is always
   history), so a direct call in each would make three. `resolveDiffAccess` in
   `lib/pair-version-diff.ts` is the sole `canViewVersionDiff` importer in `apps/api`; the web pair
   resolver is the other. The `assertVerifiedVendor` precedent — "ONE function with ONE call site per
   handler" — is a looser rule that would not have satisfied the literal AC.
-- **⚠️ The cache constraint AECI-304 inherits.** Today's clamp is edge-cache-safe *only because the
-  seam returns a constant.* The moment it depends on a cookie or session, a gated pair selection can
-  no longer live in the shared, URL-keyed entry (§9.1a) — so AECI-304 must either keep the pair-page
-  gate URL-derived, mark gated selections `Cache-Control: private` (the query-dependent-redirect
-  carve-out in `CACHE_STRATEGY.md` §4a is the precedent), or move the gated portion to a
-  post-hydration fetch. Recorded in the seam's doc comment, in `CACHE_STRATEGY.md` §7.2, and here.
-- **⚠️ Whose entitlement is this, actually? Unresolved, and AECI-304's to answer.**
-  `aeci-515`'s `entitlements.ts` puts `'integration.version_diff'` in the **vendor** tier ladder,
-  while §9.3 puts the seam in the **public reader** path, and §8.1(4) says "vendors pay, always…
-  viewer-pays tooling is possible far later, out of scope now". Those cannot both describe the same
-  gate. `viewerTier: string | null` is deliberately weak so either reading works without a
-  signature change.
+- **✅ The cache constraint AECI-304 inherited — discharged by construction.** This note warned that
+  the clamp was edge-cache-safe only while the seam returned a constant, and named three escape
+  routes if it started depending on a cookie or session. **None were needed:** AECI-304 kept the
+  gate **URL-derived.** The pair's two endpoint vendors are a function of the two product slugs in
+  the URL, so a gated pair page is still storable in the shared, URL-keyed entry and still
+  shareable — no cookie, no session, no `Cache-Control: private`, no new cache-key axis, and
+  `cacheKeyParams` is unchanged. Invalidation needed nothing new either: an entitlement flip already
+  purges `vendor:{slug}` for every product an entitled vendor owns
+  (`apps/api/src/lib/vendor-cache-tags.ts`), and the pair route embeds both endpoints' `product:`
+  tags (`apps/web/src/server/cache-tags.ts`). **The one place it still bites:** SSR `TransferState`
+  is serialized into the cached document, so the gate must run **before** `transferState.set` —
+  clamping after would ship the full payload inside the cached HTML.
+- **✅ Whose entitlement is this? Resolved: the PAIR'S VENDORS, never the reader.**
+  `entitlements.ts` puts `'integration.version_diff'` in the **vendor** tier ladder, §9.3 puts the
+  seam in the **public reader** path, and `STAGE_2_SPEC.md` §8.1(4) says vendors pay, always —
+  viewer-pays tooling is out of scope. Only one reading satisfies all three, and it is the one that
+  shipped: historical depth opens when **either endpoint vendor of the pair** holds the capability.
+  A reader never pays, is never identified, and is never asked to sign in. The weak
+  `viewerTier: string | null` parameter is **gone** — the request carries **no viewer axis at all**,
+  which is simultaneously the §8.1(4) guarantee and the reason the page stays cacheable.
+  `VersionDiffRequest` now takes `{ historical, pairVendorTiers }`.
+- **The zod-free lint rule landed.** `packages/shared/eslint.config.mjs` carries a
+  `NO_ZOD_IN_VERSION_DIFF` block scoped to `src/version-diff.ts`, banning `zod` and `api/*` for the
+  same reason as `entitlements.ts`: the module ships in the lazy product-pair route, and
+  `api/product-pairs.ts` imports **from** it, so the dependency must stay one-way. See
+  `ANGULAR_STYLE_GUIDE.md` §24 "Package-local guards".
 - **The selector is the first SSR-rendered Angular Aria combobox in the repo**, and that forced one
   divergence from `admin-select.ts`: **static ids derived from the side, never a module counter.**
   Both existing instances carry `let nextId = 0`, justified in their own comments by being
@@ -1630,8 +1658,12 @@ consolidated list that enumerates them. Grep for the artifact across `**/*.md`, 
   and `DATA_OBJECT_VOCABULARY.md` §1 no longer lists it as a consumer of the vocabulary. This
   bullet previously said both "reference it", which stopped being the useful statement once the
   decision was final.)*
-- **Paywall *enforcement*** — AECI-304 under the Paid Tiers epic (AECI-515). §9.3 ships the seam,
-  not the gate.
+- ~~**Paywall *enforcement*** — AECI-304 under the Paid Tiers epic (AECI-515). §9.3 ships the seam,
+  not the gate.~~ **SHIPPED 2026-08-19.** §9.3 shipped the seam and AECI-303 unblocked the gate, so
+  AECI-304 landed on the `aeci-515` branch: `canViewVersionDiff` forks on the **pair's endpoint
+  vendors' tiers**, never the reader's, at the same two consult sites. Both §9.4 ⚠️ notes are
+  resolved there. The free latest view, the never-paywalled dispute, and the visible labeling of
+  one-sided states are unchanged.
 - **Promote ingest of version stamps / `product_versions`** — §8.3; vendor-authored only at launch.
 - **Per-pair Algolia records / claims in the search index** — still deferred
   (`STAGE_1_5_SPEC.md` §9); attestation state does not reach search in this epic.

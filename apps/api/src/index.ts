@@ -24,6 +24,7 @@ import {
 } from './routes/account';
 import { createGetAccountReviewsHandler } from './routes/account-reviews';
 import { createAdminClaimsListHandler, createModerateClaimHandler } from './routes/admin-claims';
+import { createSetVendorEntitlementHandler } from './routes/admin-entitlements';
 import {
   createAdminRequestsListHandler,
   createModerateRequestHandler,
@@ -326,6 +327,14 @@ app.route('/', authAccount);
 //     rather than a plain resolve. The `/admin/claims` LIST is AECI-521.
 //   - GET   /api/admin/reviewers    (6.11) — paginated currently-banned reviewers.
 //   - PATCH /api/admin/reviewers/:id(6.11) — ban/unban a reviewer.
+//   - PATCH /api/admin/vendors/:id/entitlement (S2 §5, AECI-532) — set / renew /
+//     clear a vendor's paid entitlement. The ONLY writer that can take
+//     `vendors.verified` back down, and it does so through the entitlement row:
+//     `verified` is never in the payload, it follows in the same `db.batch` via
+//     `lib/vendor-entitlement.ts` (the mirror's sole writer, §2.1). Audit-only —
+//     no `workflow_instances` row, because that CHECK is closed (§1.2). Clearing
+//     is NOT a seat revoke and NOT a ban (§5.2): seats, logins and the dashboard
+//     survive, read-only.
 //
 // Phase 8.3 (AECI-574 P1.1, AECI-577 P1.3) adds the admin panel's READ endpoints
 // to the same router — no new gate, `requireAdmin()` stays the single enforcement
@@ -398,6 +407,14 @@ authAdmin.patch(
 );
 authAdmin.get('/api/admin/reviewers', requireAdmin(), createBannedReviewersListHandler());
 authAdmin.patch('/api/admin/reviewers/:id', requireAdmin(), createBanReviewerHandler());
+// Stage 2 / AECI-532: the admin entitlement action (set / renew / clear). Owns the
+// un-verify half that AECI-520 left unowned, and clears the bit through the
+// entitlement row — never by writing the mirror (§5.1 / §2.1).
+authAdmin.patch(
+  '/api/admin/vendors/:id/entitlement',
+  requireAdmin(),
+  createSetVendorEntitlementHandler(),
+);
 // Admin panel reads (AECI-574, AECI-577, AECI-579, AECI-580, AECI-586).
 // Registered after the moderation routes; no path collides with
 // `/api/admin/re*` or `/api/admin/summary`.

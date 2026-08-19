@@ -21,14 +21,16 @@ export interface PairVersionOption {
  * One of the product-PAIR page's two version selectors (AECI-303 / §9.1).
  *
  * A non-editable Angular Aria combobox + listbox-in-overlay, the project's standard
- * for discrete choice (ADR 0010), ported structurally from `admin/admin-select.ts`:
+ * for discrete choice (ADR 0010), ported structurally from the shared
+ * `shared/aec-select/aec-select.ts` (shipped for the admin panel as `AdminSelect`,
+ * AECI-577, and promoted to the shared control by AECI-606):
  * Aria supplies keyboard and ARIA semantics, and a `cdkConnectedOverlay`
  * (`usePopover: 'inline'` → the browser top layer) supplies positioning and
  * overflow-escape, because `ComboboxPopup` renders its listbox in-flow.
  *
- * ── TWO DELIBERATE DIVERGENCES FROM `admin-select` ──────────────────────────────
+ * ── TWO DELIBERATE DIVERGENCES FROM `aec-select` ────────────────────────────────
  *
- * 1. **Static, deterministic element ids.** `admin-select` and
+ * 1. **Static, deterministic element ids.** `aec-select` and
  *    `search/widgets/search-sort-by.ts` both carry a module-level `let nextId = 0`
  *    counter, justified in their own comments by being browser-only. This control is
  *    the **first Aria combobox in the repo that SSRs**, and module state persists
@@ -85,7 +87,7 @@ export interface PairVersionOption {
         <!--
           ComboboxPopup renders the listbox in-flow (DeferredContent.createEmbeddedView),
           so an outer cdkConnectedOverlay (usePopover:'inline' → top layer) supplies the
-          floating layer + flip/overflow-escape, per ADR 0010. See admin-select.ts.
+          floating layer + flip/overflow-escape, per ADR 0010. See shared/aec-select/aec-select.ts.
         -->
         <ng-template
           [cdkConnectedOverlay]="{ origin, usePopover: 'inline' }"

@@ -25,6 +25,10 @@
       "types": "./src/agreement.ts",
       "default": "./src/agreement.ts"
     },
+    "./entitlements": {
+      "types": "./src/entitlements.ts",
+      "default": "./src/entitlements.ts"
+    },
     "./errors": {
       "types": "./src/errors/index.ts",
       "default": "./src/errors/index.ts"

@@ -34,6 +34,14 @@
  *      Angular's default `paramsChange` explicitly excludes query params, so
  *      without it a selector change would rewrite the URL and refetch nothing.
  *
+ * ── AECI-304: THE PAYWALL IS ON THE PAIR'S VENDORS, NOT THE READER ──────────
+ * Historical diff depth is open when either endpoint vendor holds
+ * `'integration.version_diff'`, read off the `vendors.verified` mirror already on
+ * `ProductListItem.vendor`. That keeps the gate a function of the two slugs in the
+ * URL, so this page stays in the shared, URL-keyed edge cache — no cookie, no
+ * session, no `Cache-Control: private`, no new cache-key axis. See
+ * `gateHistoricalDepth` below, which is the seam's second and last consult site.
+ *
  * ── THE TRANSFERSTATE KEY CARRIES EVERY AXIS THE PAYLOAD DEPENDS ON ─────────
  * It keys on `contextSlug|otherSlug` **in URL order** plus the selection. The
  * previous key used `orderedPairSlugs` (`{min}__{max}`) and described the shared
@@ -60,11 +68,16 @@ import {
 } from '@angular/core';
 import { ResolveFn } from '@angular/router';
 
-import { orderedPairSlugs, type ProductPairResponse } from '@aeci/shared';
+import {
+  orderedPairSlugs,
+  type ProductPairMechanism,
+  type ProductPairResponse,
+} from '@aeci/shared';
 import {
   canViewVersionDiff,
   CONTEXT_VERSION_PARAM,
   OTHER_VERSION_PARAM,
+  vendorTiersFromMirror,
 } from '@aeci/shared/version-diff';
 
 import type { AeciRequestContext } from '../../server/request-context';
@@ -91,6 +104,68 @@ function pairMetaDescription(pair: ProductPairResponse): string {
   return $localize`:@@pair.meta.description:How ${context}:context: and ${other}:other: exchange data across their integrations.`;
 }
 
+/** A mechanism with every claim's `version_status` marker removed. */
+function withoutVersionStatus(mechanism: ProductPairMechanism): ProductPairMechanism {
+  return {
+    ...mechanism,
+    claims: mechanism.claims.map((claim) => {
+      const stripped = { ...claim };
+      delete stripped.version_status;
+      return stripped;
+    }),
+  };
+}
+
+/**
+ * The seam's second consult site (§9.3 / AECI-303 AC5) — and the only one that runs
+ * inside the SSR render.
+ *
+ * **The gate is on the pair's two endpoint vendors, never the reader** (AECI-304).
+ * `vendors.verified` is the mirror of an `active` entitlement row, it already rides
+ * on `ProductListItem.vendor`, and it is a function of the two slugs in the URL — so
+ * the answer is URL-derived and a gated pair page stays storable in the shared,
+ * URL-keyed edge cache. No cookie is read, nothing is marked `private`, and no
+ * cache-key axis is added.
+ *
+ * The consult moved AFTER the fetch because the resolver cannot know the pair's
+ * vendors until the payload arrives — the API is the authority and clamps
+ * server-side, so in the ordinary case this agrees with `diff_access` and changes
+ * nothing.
+ *
+ * It is still not ceremony. The SSR and API Workers deploy per-commit but **not
+ * atomically** (`diff_access` carries `.default('full')` for exactly that reason),
+ * and this resolver is the only place that knows the render — HTML *and* its
+ * `TransferState` block — is going into a URL-keyed, publicly shared, 900s cache
+ * entry. Against an API Worker that predates this gate, stripping here is what keeps
+ * gated depth out of that entry. It degrades to `version_diff: null`, which is the
+ * payload's ONE documented suppression spelling and needs no new render branch: no
+ * selectors, no markers, no summary — the free latest view, in full.
+ */
+export function gateHistoricalDepth(
+  pair: ProductPairResponse,
+  historical: boolean,
+): ProductPairResponse {
+  const access = canViewVersionDiff({
+    historical,
+    pairVendorTiers: vendorTiersFromMirror([
+      pair.context_product.vendor,
+      pair.other_product.vendor,
+    ]),
+  });
+  // Entitled, or nothing to withhold. A falsy `version_diff` is already the free
+  // shape — `null` from the API, or genuinely `undefined` against an API Worker that
+  // predates AECI-303, since the web never Zod-parses this response. A `latest_only`
+  // payload is one the API has already clamped, left intact so the enum survives for
+  // whoever builds the locked-state affordance.
+  if (access === 'full') return pair;
+  if (!pair.version_diff || pair.version_diff.diff_access === 'latest_only') return pair;
+  return {
+    ...pair,
+    version_diff: null,
+    mechanisms: pair.mechanisms.map(withoutVersionStatus),
+  };
+}
+
 export const productsPairResolver: ResolveFn<ProductPairResponse | null> = async (route) => {
   const contextSlug = route.paramMap.get('contextSlug') ?? '';
   const otherSlug = route.paramMap.get('otherSlug') ?? '';
@@ -99,21 +174,16 @@ export const productsPairResolver: ResolveFn<ProductPairResponse | null> = async
   const meta = inject(MetaService);
 
   // ── The §9 version selection ─────────────────────────────────────────────
-  // The seam decides whether to ASK for a historical pair at all. This is one of
-  // its exactly two consult sites (the other is `resolveDiffAccess` on the API),
-  // and it is not ceremony: the API must gate independently because the same-origin
-  // `/api/*` passthrough is directly hittable, while this resolver is the only place
-  // that knows the render is going into a URL-keyed, publicly shared, 900s cache
-  // entry. Declining here means the gated reader gets the free default view off the
-  // default cache key, with no round trip spent on content that would be withheld.
+  // The requested selection is forwarded unconditionally and the API is the
+  // authority: AECI-304 put the gate on the PAIR'S vendors, and this resolver does
+  // not know who they are until the payload comes back. The seam's consult therefore
+  // moved AFTER the fetch (see `gateHistoricalDepth`).
   const requestedContext = route.queryParamMap.get(CONTEXT_VERSION_PARAM);
   const requestedOther = route.queryParamMap.get(OTHER_VERSION_PARAM);
   const historical = Boolean(requestedContext ?? requestedOther);
-  const mayViewHistory = canViewVersionDiff({ historical, viewerTier: null }) === 'full';
-  const selection: PairVersionSelectionParams | undefined =
-    historical && mayViewHistory
-      ? { contextVersion: requestedContext, otherVersion: requestedOther }
-      : undefined;
+  const selection: PairVersionSelectionParams | undefined = historical
+    ? { contextVersion: requestedContext, otherVersion: requestedOther }
+    : undefined;
 
   // The key carries every axis the payload depends on — slugs in URL order plus the
   // selection. See the module header for the orientation bug the old
@@ -154,12 +224,14 @@ export const productsPairResolver: ResolveFn<ProductPairResponse | null> = async
 
   // ── Client path: in-app navigation or initial hydration. ──────────────────
   if (!isPlatformServer(platformId)) {
-    const pair = transferState.hasKey(stateKey)
+    const fetched = transferState.hasKey(stateKey)
       ? transferState.get(stateKey, null)
       : await httpGetOrNull<ProductPairResponse>(
           inject(HttpClient),
           pairPath(contextSlug, otherSlug, selection),
         );
+    // Idempotent on a hydration hit — the server already gated what it transferred.
+    const pair = fetched ? gateHistoricalDepth(fetched, historical) : null;
 
     if (pair) applyResolvedMeta(pair);
     else meta.setNotFoundMeta({ kind: 'integration', slug: notFoundSlug, canonical });
@@ -175,7 +247,10 @@ export const productsPairResolver: ResolveFn<ProductPairResponse | null> = async
     return null;
   }
 
-  const pair = await fetchProductPair(ctx.api, contextSlug, otherSlug, selection);
+  const fetched = await fetchProductPair(ctx.api, contextSlug, otherSlug, selection);
+  // Gate BEFORE the transfer: `TransferState` is serialised into the SSR document,
+  // which is the artefact that lands in the shared edge-cache entry.
+  const pair = fetched ? gateHistoricalDepth(fetched, historical) : null;
   transferState.set(stateKey, pair);
 
   if (!pair) {

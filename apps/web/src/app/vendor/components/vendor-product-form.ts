@@ -69,6 +69,17 @@ const MAX_TERMS_PER_FACET = 10;
       </div>
 
       <form class="space-y-6" novalidate (submit)="$event.preventDefault(); onSave()">
+        @if (!canEdit()) {
+          <p
+            class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) p-4 text-sm leading-relaxed text-(--text-secondary)"
+            i18n="@@vendor.product.readOnly"
+          >
+            Editing is paused while your verification is not active. This product stays published
+            exactly as it is, and everything on record is here to read. The verification panel on
+            your dashboard has the renewal path.
+          </p>
+        }
+
         @for (cfg of textFields; track cfg.key) {
           <div class="space-y-1.5">
             <label [for]="fieldId(cfg.key)" [class]="labelClass">{{ cfg.label }}</label>
@@ -77,24 +88,26 @@ const MAX_TERMS_PER_FACET = 10;
                 [id]="fieldId(cfg.key)"
                 rows="4"
                 [value]="model()[cfg.key]"
+                [readOnly]="!canEdit()"
                 (input)="onInput(cfg.key, $event)"
                 [attr.aria-invalid]="fieldErrors()[cfg.key] ? 'true' : null"
                 [attr.aria-describedby]="
                   fieldErrors()[cfg.key] ? fieldId(cfg.key) + '-error' : null
                 "
-                [class]="inputClass"
+                [class]="controlClass()"
               ></textarea>
             } @else {
               <input
                 [id]="fieldId(cfg.key)"
                 type="url"
                 [value]="model()[cfg.key]"
+                [readOnly]="!canEdit()"
                 (input)="onInput(cfg.key, $event)"
                 [attr.aria-invalid]="fieldErrors()[cfg.key] ? 'true' : null"
                 [attr.aria-describedby]="
                   fieldErrors()[cfg.key] ? fieldId(cfg.key) + '-error' : null
                 "
-                [class]="inputClass"
+                [class]="controlClass()"
               />
             }
             @if (fieldErrors()[cfg.key]; as err) {
@@ -122,6 +135,7 @@ const MAX_TERMS_PER_FACET = 10;
                 @for (term of termsFor(facet.key); track term.slug) {
                   <button
                     type="button"
+                    [disabled]="!taxonomyEditable()"
                     (click)="toggle(facet.key, term.slug)"
                     [attr.aria-pressed]="isSelected(facet.key, term.slug)"
                     [class]="chipClass(isSelected(facet.key, term.slug))"
@@ -138,13 +152,15 @@ const MAX_TERMS_PER_FACET = 10;
         }
 
         <div class="flex flex-wrap items-center gap-4">
-          <button type="submit" [disabled]="saveDisabled()" [class]="saveButtonClass">
-            @if (saving()) {
-              <span i18n="@@vendor.product.saving">Saving…</span>
-            } @else {
-              <span i18n="@@vendor.product.save">Save changes</span>
-            }
-          </button>
+          @if (canEdit()) {
+            <button type="submit" [disabled]="saveDisabled()" [class]="saveButtonClass">
+              @if (saving()) {
+                <span i18n="@@vendor.product.saving">Saving…</span>
+              } @else {
+                <span i18n="@@vendor.product.save">Save changes</span>
+              }
+            </button>
+          }
           @if (saved()) {
             <p
               class="text-sm font-medium text-(--accent-primary)"
@@ -175,6 +191,16 @@ export class VendorProductForm implements OnInit {
   readonly product = input.required<VendorProduct>();
   /** The full taxonomy vocabulary for the pickers; `null` until it loads. */
   readonly taxonomy = input<TaxonomyResponse | null>(null);
+
+  /**
+   * The §8 entitlement gate, kept FIELD-granular the way §3.3b requires: the
+   * PATCH asserts `product.edit` for the handler and `product.taxonomy.edit`
+   * again when facet arrays ride along, so the form mirrors both axes rather
+   * than collapsing them to one boolean. Both default open, so existing callers
+   * are unchanged; at launch the binary ladder grants them together.
+   */
+  readonly canEdit = input<boolean>(true);
+  readonly canEditTaxonomy = input<boolean>(true);
 
   protected readonly textFields: readonly FieldConfig[] = [
     {
@@ -216,8 +242,15 @@ export class VendorProductForm implements OnInit {
 
   protected readonly labelClass =
     'block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)';
-  protected readonly inputClass =
-    'w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
+  /** Everything but the background, which is the read-only tell. Two `bg-*`
+   *  utilities on one element would race on stylesheet order. */
+  private readonly inputBase =
+    'w-full rounded-(--radius-md) border border-(--border-default) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
+  protected readonly controlClass = computed(() =>
+    this.canEdit()
+      ? `${this.inputBase} bg-(--surface-base)`
+      : `${this.inputBase} bg-(--surface-sunken)`,
+  );
   protected readonly saveButtonClass =
     'inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-5 py-2.5 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50';
 
@@ -275,12 +308,16 @@ export class VendorProductForm implements OnInit {
       Object.values(this.facetErrors()).some((e) => e !== null),
   );
   protected readonly saveDisabled = computed(
-    () => this.saving() || !this.hasChanges() || this.hasErrors(),
+    () => !this.canEdit() || this.saving() || !this.hasChanges() || this.hasErrors(),
   );
+
+  /** The PATCH asserts `product.edit` before it ever looks at the facet arrays,
+   *  so taxonomy is editable only when BOTH capabilities are held. */
+  protected readonly taxonomyEditable = computed(() => this.canEdit() && this.canEditTaxonomy());
 
   protected readonly chipClass = (selected: boolean): string => {
     const base =
-      'rounded-(--radius-md) border px-3 py-1.5 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
+      'rounded-(--radius-md) border px-3 py-1.5 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-default';
     return selected
       ? `${base} border-(--accent-primary) bg-(--accent-primary) text-(--surface-base)`
       : `${base} border-(--border-default) text-(--text-primary) hover:border-(--border-strong)`;
@@ -309,6 +346,7 @@ export class VendorProductForm implements OnInit {
   }
 
   protected toggle(key: FacetKey, slug: string): void {
+    if (!this.taxonomyEditable()) return;
     this.selected.update((s) => {
       const cur = s[key];
       const next = cur.includes(slug) ? cur.filter((x) => x !== slug) : [...cur, slug];
@@ -324,6 +362,9 @@ export class VendorProductForm implements OnInit {
   }
 
   protected async onSave(): Promise<void> {
+    // Enter from a focused (read-only, still focusable) field submits the form
+    // even with no rendered submit button, so guard the handler too.
+    if (!this.canEdit()) return;
     this.saved.set(false);
     this.saveError.set(false);
     const parsed = UpdateVendorProductSchema.safeParse(this.diff());
