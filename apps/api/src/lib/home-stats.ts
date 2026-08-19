@@ -62,7 +62,7 @@ import {
 
 import type { Db } from '../db/client';
 import { integrations, pageViews, products, reviews, statsCache, vendors } from '../db/schema';
-import { HUMAN } from './analytics-digest';
+import { HUMAN, NOT_INTERNAL } from './analytics-digest';
 import { COUNTED_REVIEW_STATUS } from './recompute-counts';
 import {
   integrationListConfig,
@@ -265,6 +265,15 @@ export async function computeTrendingProducts(db: Db, now: Date): Promise<Produc
   // volume — on the day this filter landed, 1,121 product views in the trailing
   // 7 days were only 74 human — so counting them ranked products by how hard they
   // were being scraped rather than by what people read.
+  //
+  // `NOT_INTERNAL` is imported for the same reason, and specifically for its
+  // `is_operator` half (§13 D13). `ADMIN_PANEL_SPEC.md` D12 recorded this query as
+  // immune to the `/admin/*` exclusion, correctly: an admin-path row carries no
+  // `product_id`, so `isNotNull` already dropped it. That reasoning does NOT extend
+  // to an operator SESSION, which lands on `/products/:slug` and carries the FK like
+  // any other view. Without this the operator re-checking one product a few times
+  // would rank it on the PUBLIC home page — `TRENDING_MIN_VIEWS` is 3, against a
+  // human population of roughly 2,100 all-time views, so the floor is no protection.
   const groups = await db
     .select({ productId: pageViews.productId, value: count() })
     .from(pageViews)
@@ -273,6 +282,7 @@ export async function computeTrendingProducts(db: Db, now: Date): Promise<Produc
         gte(pageViews.createdAt, sinceIso(now, TRENDING_WINDOW_DAYS)),
         isNotNull(pageViews.productId),
         HUMAN,
+        NOT_INTERNAL,
       ),
     )
     .groupBy(pageViews.productId)

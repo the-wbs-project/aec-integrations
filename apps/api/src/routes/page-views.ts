@@ -20,6 +20,7 @@ import type { Env } from '../env';
 import { ApiError } from '../errors';
 import { noContent } from '../http';
 import type { DbFactory } from '../lib/handler-utils';
+import { isOperatorRequest, type OperatorSessionOptions } from '../lib/operator-session';
 
 /**
  * `POST /api/page-views` (AECI-177) — Drizzle/D1 (ADR 0016 / AECI-253).
@@ -35,6 +36,10 @@ import type { DbFactory } from '../lib/handler-utils';
  * arrival or an in-app hop, and the AS holder name beside the ASN. Rows written
  * before it carry null in all four and cannot be backfilled — nothing in the stored
  * row implies them.
+ *
+ * §13 D13 added a fifth, `is_operator`: whether the request carried a verified
+ * admin session (`lib/operator-session.ts`). Same recoverable-only-at-write-time
+ * property, same not-backfillable consequence for older rows.
  */
 
 /** Structural view of a directly-present `request.cf` (local dev / direct test). */
@@ -195,6 +200,7 @@ async function capturePageView(
   c: Context<{ Bindings: Env }>,
   payload: PageViewPayload,
   dbFor: DbFactory,
+  deps: PageViewsDeps,
 ): Promise<void> {
   const req = c.req.raw;
   try {
@@ -217,7 +223,13 @@ async function capturePageView(
     // 204 regardless) — stays on the `'first-unconstrained'` read default; a
     // primary anchor would spend a round-trip for no benefit. (AECI-250)
     const { db } = dbFor(c.env);
-    const { productId, vendorId, taxonomyKind, taxonomyId } = await resolveEntity(db, payload);
+    // Both reads are independent, so they overlap rather than queue. The operator
+    // check short-circuits to `false` with no I/O when the request is anonymous,
+    // which is nearly all of them.
+    const [{ productId, vendorId, taxonomyKind, taxonomyId }, isOperator] = await Promise.all([
+      resolveEntity(db, payload),
+      isOperatorRequest(c, db, deps),
+    ]);
 
     await db.insert(pageViews).values({
       path: payload.route,
@@ -242,6 +254,10 @@ async function capturePageView(
       locale: localeFromRoute(payload.route),
       isBot,
       botName,
+      // The operator checking their own work (§13 D13). Recorded rather than
+      // dropped: the row stays available to any query that wants it, exactly as
+      // the §9.6 path rows did, and the read side excludes it.
+      isOperator,
       referrer: referrerHost,
       referrerSource,
       // Campaign attribution (AECI-243 / §11.2) — set only on tagged arrivals
@@ -264,8 +280,13 @@ async function capturePageView(
   }
 }
 
+/** Injectable seams. `getKey` is the offline-JWKS hook `isOperatorRequest` needs
+ *  so specs can mint a verifiable admin session without a network round trip. */
+export type PageViewsDeps = OperatorSessionOptions;
+
 export function createPageViewsHandler(
   dbFor: DbFactory = getDb,
+  deps: PageViewsDeps = {},
 ): (c: Context<{ Bindings: Env }>) => Promise<Response> {
   return async (c) => {
     let raw: unknown;
@@ -278,7 +299,7 @@ export function createPageViewsHandler(
     // Validate synchronously (malformed → 400); a well-formed payload schedules
     // the deferred, non-blocking insert.
     const payload = PageViewPayloadSchema.parse(raw);
-    c.executionCtx.waitUntil(capturePageView(c, payload, dbFor));
+    c.executionCtx.waitUntil(capturePageView(c, payload, dbFor, deps));
 
     return noContent();
   };

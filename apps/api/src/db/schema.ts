@@ -920,6 +920,31 @@ export const pageViews = sqliteTable(
     // never stored) — so those are excluded from the digest's Traffic-sources table.
     referrerSource: text('referrer_source'),
 
+    // Whether the request that produced this view carried a VERIFIED admin session
+    // (`ADMIN_PANEL_SPEC.md` §13 D13). Set at ingest by `lib/operator-session.ts`:
+    // the JWT is verified against Supabase's JWKS and `profiles.role` is re-read
+    // from D1, exactly as `lib/authz.ts` does — so this is a server-derived fact
+    // about the request, never a client-supplied claim.
+    //
+    // It exists because the §9.6 path exclusion only catches the operator while they
+    // are ON `/admin/*`. The operator ALSO browses the public site to check their own
+    // work, and those rows are indistinguishable from visitor traffic. On 2026-08-19
+    // that was 368 of 2,493 human public views (15%), spread across three ASNs in two
+    // countries as the operator's network changed — which is precisely why
+    // `ANALYTICS_INTERNAL_ASNS` cannot be the answer here (it would have missed 183 of
+    // them and wrongly excluded 112 rows that were not the operator's).
+    //
+    // This is NOT the `profile_role` column D7 dropped, and must not become it. That
+    // one stored a per-visitor ATTRIBUTE and was rejected because `user_id` is
+    // unreachable on the SSR arrival path — "right half the time". This stores one
+    // boolean whose only consumer is an exclusion predicate, it carries no identity
+    // (no id, no role string, nothing that singles a visitor out), and the arrival-path
+    // gap is closed at the source: `firePageView` now forwards the inbound `Cookie`.
+    //
+    // NULL = unknown, and reads as NOT operator. Every row written before this shipped
+    // is NULL and is not backfillable — nothing stored on those rows implies a session.
+    isOperator: integer('is_operator', { mode: 'boolean' }),
+
     // NOTE: `user_id`, `session_id` and `profile_role` were dropped by AECI-585
     // (§13 D7). All three were declared at init and never written by any code path,
     // and the decision was to drop rather than fill: there is no client-side session
@@ -928,7 +953,9 @@ export const pageViews = sqliteTable(
     // consent-independent today. `user_id` is reachable on the browser POST but never
     // on the SSR arrival path, so it would have been right half the time. `page_views`
     // now holds no user linkage at all, which is also the strongest form of the GDPR
-    // erasure story (`AUTH_AND_RLS.md` §12). Do not reintroduce them.
+    // erasure story (`AUTH_AND_RLS.md` §12). Do not reintroduce them. `is_operator`
+    // (above) is deliberately none of the three: read its comment before concluding
+    // otherwise.
 
     createdAt: createdAt(),
   },

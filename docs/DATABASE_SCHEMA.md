@@ -877,6 +877,8 @@ Server-side page view log with Cloudflare header enrichment. Privacy-respecting 
 
 **`path` holds public routes only** (AECI-575 / `ADMIN_PANEL_SPEC.md` §9.6). Neither writer records the operator-only prefixes in `@aeci/shared` `UNTRACKED_ROUTE_PREFIXES` (`/admin`, `/account`) — the admin console must not write into the table it reads. Rows captured before that shipped are still present, and every read applies the same exclusion, so query this table with `path not in ('/admin','/account') and path not like '/admin/%' and path not like '/account/%'` if you want numbers that match the daily digest. (The match is on an exact prefix boundary — a bare `path not like '/admin%'` would wrongly drop look-alike public routes like `/administrators`, which the digest still counts.)
 
+**That path rule is only half of "not the operator"** (§13 **D13**). It catches the operator while they are standing on `/admin/*`; it cannot catch them browsing `/products/procore` to check their own work, which is indistinguishable from a visitor doing the same. `is_operator` is the other half, so a hand-written query that wants digest-matching numbers needs **both** clauses: add `and (is_operator is null or is_operator = 0)`. Both live together in one predicate in code (`NOT_INTERNAL`, `apps/api/src/lib/analytics-digest.ts`) precisely so no reader applies one and forgets the other.
+
 **`path` vs `concrete_path` (AECI-585).** `path` is the route the *writer* named: the pattern (`/products/:slug`) when it knows one — an SSR resolver attached `ctx.pageView` — and the concrete path otherwise (the browser tracker, an SSR cache HIT). It has always been that mix; nothing changed about it. `concrete_path` is new and is *always* the real URL path, locale-stripped and without query or hash. Both are stored because they answer different questions: grouping "top pages" wants the pattern, naming an individual row wants the concrete path. Product and vendor rows could always recover a name through their FK; taxonomy rows could not, which is what made this column necessary.
 
 ```sql
@@ -954,12 +956,29 @@ create table page_views (
   -- rows captured before this shipped (the Referer was never stored → not backfillable).
   referrer_source text,
 
+  -- Whether the request carried a VERIFIED admin session (ADMIN_PANEL_SPEC.md §13 D13,
+  -- migration 0016). Written at ingest by apps/api/src/lib/operator-session.ts, which
+  -- runs the same two checks lib/authz.ts does — JWKS signature verification, then a
+  -- fresh profiles.role read — so this is a server-derived fact, never a client claim.
+  -- It closes the half the §9.6 path exclusion cannot see: the operator browsing the
+  -- PUBLIC site to check their own work. On 2026-08-19 that was 368 of 2,493 human
+  -- public-page views (15%), across AS23089/US, AS23314/US and AS23700/ID as the
+  -- operator's network changed — which is why ANALYTICS_INTERNAL_ASNS could not be the
+  -- answer (pinned to any one of those it misses the rest and over-excludes strangers).
+  -- Null = unknown and reads as NOT operator, so history is unchanged; not backfillable,
+  -- since nothing stored on an older row implies a session.
+  is_operator integer,  -- 1 = verified admin session, 0 = not, null = pre-D13 (treated as visitor)
+
   -- user_id / session_id / profile_role were DROPPED by AECI-585 (§13 D7, migration 0014).
   -- All three were declared at init and never written by any code path. Do not reintroduce
   -- them: there is no client-side session id anywhere in apps/web, and minting one would
   -- create a durable first-party identifier — precisely what makes this table's write
   -- defensible as consent-independent today. user_id was reachable on the browser POST but
   -- never on the SSR arrival path, so it would have been right half the time.
+  -- is_operator (above) is none of the three and does not reopen this: it stores one
+  -- boolean whose only consumer is an exclusion predicate — no id, no role string,
+  -- nothing that singles a visitor out — and D7's arrival-path objection is closed at
+  -- the source, because firePageView now forwards the inbound Cookie.
   created_at timestamptz not null default now()
 );
 
@@ -971,6 +990,10 @@ create index page_views_bot_idx on page_views(is_bot, created_at); -- digest hum
 -- five AECI-585 columns: nothing groups or filters on them yet, and this is the hottest
 -- write path in the app (D1 bills rows written, index rows included). Add one with the
 -- read that needs it.
+-- is_operator is likewise unindexed even though every read filters on it (AECI-585's
+-- rule holds for a different reason here): it is a near-constant column — almost every
+-- row is 0 or null — so an index on it selects nearly the whole table and no planner
+-- would use it. The existing path / bot / created_at indexes still drive these queries.
 ```
 
 **Migration `0014` is the repo's first table recreate** — every `ALTER` before it is an `ADD`. SQLite refuses `DROP COLUMN` on a column carrying an index **or** a `FOREIGN KEY` clause, and `user_id` had both (`page_views_user_idx` + the FK to `profiles`), so the drop is a `__new_page_views` copy-and-rename; `session_id` and `profile_role` ride along in it for free. Two things about that file are load-bearing: the copy lists `id` explicitly, so the autoincrement PK survives (the Activity feed paginates on `(created_at DESC, id DESC)` and would repeat or skip rows otherwise), and drizzle-kit's emitted `PRAGMA foreign_keys=OFF` was **hand-replaced with `PRAGMA defer_foreign_keys = true`**, which is the lever D1 supports. Regenerating that migration reintroduces the wrong pragma. See `docs/migrations.md`.
@@ -997,7 +1020,7 @@ Keys used (see `STAGE_1_SPEC.md` §10):
 - `home.most_integrated_product`
 - `home.most_active_category`
 - `home.recent_integrations`
-- `home.trending_products` — top 5 by page_views (last 7 days), each clearing the `TRENDING_MIN_VIEWS` floor (currently 3; AECI-280)
+- `home.trending_products` — top 5 by page_views (last 7 days), each clearing the `TRENDING_MIN_VIEWS` floor (currently 3; AECI-280). Counts **human, non-internal** views only: bots (AECI-582) and the operator's own sessions (§13 D13) rank nothing and clear no floor — this card is public, so an unfiltered count would let scraping or self-checking decide what every visitor sees
 - `home.recently_added_products`
 - `category_counts`
 - `audience_counts`
@@ -1059,7 +1082,7 @@ readable through the timeseries endpoint today (the stocks await §5.4/§5.5):
 
 | Metric | Kind | Source | Backfill provenance |
 |---|---|---|---|
-| `traffic.page_views_human` | flow | `page_views`, `is_bot IS NOT 1`, `/admin`+`/account` excluded | measured |
+| `traffic.page_views_human` | flow | `page_views`, `is_bot IS NOT 1`, `/admin`+`/account` and operator sessions excluded | measured |
 | `traffic.page_views_bot` | flow | `page_views`, `is_bot = 1` | measured |
 | `traffic.unique_visitors` | flow | `count(distinct (user_agent_hash, cf_asn))`, humans only (§9.8) | measured |
 | `catalog.products_created` | flow | `audit_log` `product.created` live; **`products.created_at`** when backfilled | measured (§4's exception / D6 — exact, and better than the audit log) |

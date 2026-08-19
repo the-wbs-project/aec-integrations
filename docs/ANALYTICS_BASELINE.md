@@ -16,7 +16,7 @@ marketing produces **before** we produce it.
 | **Mailing-list signup** (server, authoritative) | `mailing_list` D1 table via `POST /api/subscribe`; mirrored to Datadog `aeci.email.send{template:landing-signup}` on each new insert | **Live** (consent-independent) | The true signup count. **Readable since AECI-586** at `/admin/audience` (`GET /api/admin/audience`), which also carries growth, exact churn, and a **consent-independent** UTM + geography breakdown. Read PostHog for the on-site funnel (*which band* converted); read the panel for the number, the trend, and *where they came from*. |
 | **Product feedback** (server) | `feedback` D1 table via `POST /api/feedback` | **Live** (consent-independent) | **Readable since AECI-586** at `/admin/audience` → Feedback inbox (`GET /api/admin/feedback`). Before that the operator email fired from the handler was the only record — the table was genuinely write-only, so a filtered alert was a lost submission. |
 | **Core Web Vitals** (field) | Datadog RUM `@datadog/browser-rum` (`apps/web/src/app/datadog.provider.ts`) | Built; **live once `DD_APPLICATION_ID` + `DD_CLIENT_TOKEN` are set** | RUM collects LCP/CLS/INP/FCP/TTFB automatically on init. `aeci` RUM app, us5. |
-| **Server pageviews / entry pages** | `page_views` D1 table via `POST /api/page-views` | **Live** (consent-independent) | Readable since AECI-574 — see "The consent-independent read path" below. Since **AECI-582** (2026-08-13) every row is classified human/bot — the 2026-07-12 AECI-280 pull's 4,917 rows were counted as human but were ~93% crawls (see the 2026-08-13 addendum). `cf_bot_score` is still null on every row (CF Pro exposes no bot score); the split comes from UA + ASN instead. Since **AECI-575** it captures **public routes only** — `/admin/*` and `/account` are excluded at both writers and filtered out on read (see the 2026-08-12 addendum below). |
+| **Server pageviews / entry pages** | `page_views` D1 table via `POST /api/page-views` | **Live** (consent-independent) | Readable since AECI-574 — see "The consent-independent read path" below. Since **AECI-582** (2026-08-13) every row is classified human/bot — the 2026-07-12 AECI-280 pull's 4,917 rows were counted as human but were ~93% crawls (see the 2026-08-13 addendum). `cf_bot_score` is still null on every row (CF Pro exposes no bot score); the split comes from UA + ASN instead. Since **AECI-575** it captures **public routes only** — `/admin/*` and `/account` are excluded at both writers and filtered out on read (see the 2026-08-12 addendum below). Since **§13 D13** (2026-08-19) views made by a verified admin session are excluded on read too, whatever the path — the operator's own public-site browsing was 15% of the human count (see the 2026-08-19 addendum). |
 
 ### The consent-independent read path (updated 2026-08-13, AECI-574 + AECI-577 + AECI-582)
 
@@ -172,6 +172,26 @@ numbers), and again at launch.
 > the operator's ISP — is `ANALYTICS_INTERNAL_ASNS` (`ADMIN_PANEL_SPEC.md` §13 D10), still unbuilt,
 > so the human count remains an **upper bound**.
 
+> **D13 addendum (2026-08-19) — the operator's own browsing is no longer counted.** AECI-575 (above)
+> stopped counting the operator while they were *in the console*. It never stopped counting them
+> browsing the **public** site to check their own work, and nothing on such a row distinguishes it
+> from a visitor's. Measured on 2026-08-19: **368 of 2,493 all-time human public-page views (15%)**
+> came from the operator's own browser, across **AS23089/US** (Jun 23 → Jul 30), **AS23314/US**, and
+> **AS23700/ID** (Aug 3 → Aug 18) as their network changed. `page_views.is_operator` now records, at
+> ingest, whether the request carried a *verified* admin session, and every read excludes it
+> (`ADMIN_PANEL_SPEC.md` §13 D13).
+>
+> Three consequences when reading numbers across this date. **(1)** Unlike AECI-575 this is **not
+> retroactive** — older rows are `is_operator = NULL`, read as visitors, and cannot be backfilled,
+> because nothing stored on them implies a session. So the correction appears as a **step down at
+> 2026-08-19**, roughly the 15% above, and days on either side are not directly comparable. **(2)**
+> The residual over-count on pre-2026-08-19 days is estimable but not removable: the operator's
+> browsing is *approximately* `user_agent_hash` ∈ (the hashes seen on `/admin%` rows) — good enough
+> to size the bias, too coarse to correct with, since a UA hash is shared by everyone running the
+> same browser build. **(3)** `ANALYTICS_INTERNAL_ASNS` is now genuinely a remainder: it is left
+> covering only the operator's *other* devices on a known network. The human count is still an
+> **upper bound**, but by a much smaller margin than before.
+
 > **AECI-582 addendum (2026-08-13) — most of the "humans" were bots.** The one-time bot backfill ran
 > on all four tiers. It classified the **17,784 of 26,671** production rows that had `is_bot IS NULL`
 > and were therefore being counted as human by `is_bot IS NOT 1`. In the digest population, all-time
@@ -217,6 +237,9 @@ Once the secrets are provisioned (config injected — verify with
   (AECI-575); add `and path not in ('/admin','/account') and path not like '/admin/%' and path not like '/account/%'`
   to any ad-hoc query so it matches what the digest reports (the digest matches on an exact prefix
   boundary, so a bare `'/admin%'` would wrongly drop public look-alikes like `/administrators`).
+  Add `and (is_operator is null or is_operator = 0)` as well — that is the second half of the same
+  exclusion (§13 D13) and an ad-hoc query that applies only the path clause is still counting the
+  operator's public-site browsing.
 - **Core Web Vitals** — Datadog **RUM → Performance / Core Web Vitals** for the `aeci` app (us5),
   filter `env:production` (LCP, CLS, INP). Thin sample pre-launch — re-read post-launch.
 
