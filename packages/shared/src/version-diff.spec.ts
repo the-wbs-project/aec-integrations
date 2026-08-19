@@ -9,6 +9,7 @@
 
 import { describe, expect, it } from 'vitest';
 
+import { TIERS, hasCapability } from './entitlements';
 import {
   VERSION_DIFF_ACCESS,
   VERSION_STATUSES,
@@ -17,7 +18,9 @@ import {
   isClaimPresentAt,
   previousVersion,
   previousVersionPair,
+  vendorTiersFromMirror,
   type ClaimVersionWindow,
+  type VersionDiffRequest,
   type VersionPairSelection,
 } from './version-diff';
 import { deriveVersionSortKey, type ComparableProductVersion } from './version-sort';
@@ -212,21 +215,85 @@ describe('claimVersionStatus', () => {
   });
 });
 
-describe('canViewVersionDiff', () => {
-  it('is `full` for a non-historical request regardless of tier — the §8.1(4) guard', () => {
-    // The latest-version view is always free and full-fidelity. AECI-304 may
-    // replace the historical branch; it may NOT touch this one.
-    expect(canViewVersionDiff({ historical: false, viewerTier: null })).toBe('full');
-    expect(canViewVersionDiff({ historical: false, viewerTier: 'unclaimed' })).toBe('full');
+describe('vendorTiersFromMirror', () => {
+  it('maps the `vendors.verified` mirror onto the tier ladder', () => {
+    expect(vendorTiersFromMirror([{ verified: true }, { verified: false }])).toEqual([
+      'verified',
+      'unclaimed',
+    ]);
   });
 
-  it('is `full` for a historical request today — the seam defaults open (§9.3)', () => {
-    expect(canViewVersionDiff({ historical: true, viewerTier: null })).toBe('full');
+  it('is fail-closed for an endpoint with no vendor at all', () => {
+    // A product with no vendor link contributes `unclaimed`, so the array is always
+    // the pair's two sides and `.some(…)` reads as "either vendor pays".
+    expect(vendorTiersFromMirror([null, undefined])).toEqual(['unclaimed', 'unclaimed']);
+  });
+
+  it('only ever emits tiers the registry knows', () => {
+    for (const tier of vendorTiersFromMirror([{ verified: true }, null])) {
+      expect(TIERS).toContain(tier);
+    }
+  });
+});
+
+describe('canViewVersionDiff', () => {
+  it('is `full` for a non-historical request regardless of tier — the §8.1(4) guard', () => {
+    // THE reader invariant: the latest-version view is always free and
+    // full-fidelity, and the `!historical` early return runs BEFORE any entitlement
+    // is consulted. These two lines must never be reordered.
+    expect(canViewVersionDiff({ historical: false, pairVendorTiers: [] })).toBe('full');
+    expect(
+      canViewVersionDiff({ historical: false, pairVendorTiers: ['unclaimed', 'unclaimed'] }),
+    ).toBe('full');
+  });
+
+  it('is `latest_only` when neither of the pair’s vendors is entitled', () => {
+    expect(
+      canViewVersionDiff({ historical: true, pairVendorTiers: ['unclaimed', 'unclaimed'] }),
+    ).toBe('latest_only');
+  });
+
+  it('is `full` when ONE of the pair’s vendors is entitled — either side opens it', () => {
+    expect(
+      canViewVersionDiff({ historical: true, pairVendorTiers: ['verified', 'unclaimed'] }),
+    ).toBe('full');
+    expect(
+      canViewVersionDiff({ historical: true, pairVendorTiers: ['unclaimed', 'verified'] }),
+    ).toBe('full');
+  });
+
+  it('is `full` when BOTH of the pair’s vendors are entitled', () => {
+    expect(
+      canViewVersionDiff({ historical: true, pairVendorTiers: ['verified', 'verified'] }),
+    ).toBe('full');
+  });
+
+  it('is `latest_only` for a pair with no vendors at all — fail closed', () => {
+    expect(canViewVersionDiff({ historical: true, pairVendorTiers: [] })).toBe('latest_only');
+  });
+
+  it('asks the registry rather than testing the tier id, so a new rung stays data-only', () => {
+    // The gate is `hasCapability(tier, 'integration.version_diff')`, never
+    // `tier === 'verified'`. Proving it through the registry is what keeps
+    // `STAGE_2_PAID_TIERS_SPEC.md` §3.1's "adding a rung is a data edit" true.
+    for (const tier of TIERS) {
+      expect(canViewVersionDiff({ historical: true, pairVendorTiers: [tier] })).toBe(
+        hasCapability(tier, 'integration.version_diff') ? 'full' : 'latest_only',
+      );
+    }
+  });
+
+  it('never gates on the reader — the request carries no viewer axis at all', () => {
+    // AECI-304 / §8.1(4): vendors pay, always. Viewer-pays is out of scope, and the
+    // absence of a reader field is what keeps the answer URL-derived and the page
+    // storable in the shared, URL-keyed edge cache.
+    const request: VersionDiffRequest = { historical: true, pairVendorTiers: ['verified'] };
+    expect(Object.keys(request).sort()).toEqual(['historical', 'pairVendorTiers']);
   });
 
   it('only ever returns a declared access level', () => {
     expect(VERSION_DIFF_ACCESS).toContain(
-      canViewVersionDiff({ historical: true, viewerTier: 'x' }),
+      canViewVersionDiff({ historical: true, pairVendorTiers: ['unclaimed'] }),
     );
   });
 });

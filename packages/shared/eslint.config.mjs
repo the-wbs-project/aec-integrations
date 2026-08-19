@@ -51,4 +51,50 @@ const NO_ZOD_IN_REGISTRY = {
   },
 };
 
-export default tseslint.config(ignores, ...tsBase, prettierCompat, NO_ZOD_IN_REGISTRY);
+/**
+ * AECI-304 — the version-diff engine must import no zod either.
+ *
+ * `STAGE_2_ATTESTATIONS_SPEC.md` §9.4 asked for this at the `aeci-515` merge, and
+ * AECI-304 is that merge: `version-diff.ts` now imports `./entitlements`, and the
+ * pair page reaches it as `@aeci/shared/version-diff` from a **lazy** route. The
+ * `api/*` half of the ban is load-bearing in a second way here —
+ * `src/api/product-pairs.ts` imports FROM this module, so an `./api/*` import back
+ * would be an import cycle as well as a 327 kB zod regression.
+ *
+ * Its own block rather than a second entry in `NO_ZOD_IN_REGISTRY.files` so each
+ * message names the module it is actually protecting.
+ */
+const NO_ZOD_IN_VERSION_DIFF = {
+  files: ['src/version-diff.ts'],
+  rules: {
+    'no-restricted-imports': [
+      severity,
+      {
+        ...constraintOptions,
+        patterns: [
+          ...constraintOptions.patterns,
+          {
+            group: [
+              'zod',
+              'zod/*',
+              './api/*',
+              '../api/*',
+              '@aeci/shared/api',
+              '@aeci/shared/api/*',
+            ],
+            message:
+              'The version-diff engine must import no zod and nothing from `api/*` — it ships in the lazy product-pair Angular route, and `api/product-pairs.ts` imports FROM it. See STAGE_2_ATTESTATIONS_SPEC.md §9.4 / STAGE_2_PAID_TIERS_SPEC.md §3.1 (R11).',
+          },
+        ],
+      },
+    ],
+  },
+};
+
+export default tseslint.config(
+  ignores,
+  ...tsBase,
+  prettierCompat,
+  NO_ZOD_IN_REGISTRY,
+  NO_ZOD_IN_VERSION_DIFF,
+);

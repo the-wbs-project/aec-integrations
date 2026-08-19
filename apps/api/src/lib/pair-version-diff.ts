@@ -21,9 +21,16 @@
  * Both the pair read and the timeline read route through it, so §9.3's seam keeps
  * exactly two consult sites repo-wide (this file and the web pair resolver) even
  * though two handlers need the answer. See its doc comment.
+ *
+ * AECI-304 settled *whose* entitlement it is: **the pair's two endpoint vendors,
+ * never the reader.** Both handlers therefore hand this module the tiers derived
+ * from each endpoint product's primary vendor `verified` mirror — a pure function
+ * of the two slugs in the URL, which is what keeps a gated pair page storable in the
+ * shared, URL-keyed edge cache.
  */
 
 import type { PairVersion, PairVersionDiff } from '@aeci/shared';
+import type { EntitlementTier } from '@aeci/shared/entitlements';
 import {
   canViewVersionDiff,
   previousVersionPair,
@@ -65,8 +72,15 @@ export interface ResolveVersionSelectionInput {
   readonly otherProductId: string;
   readonly contextParam: string | undefined;
   readonly otherParam: string | undefined;
-  /** The viewer's entitlement tier; `null` for every reader until AECI-304. */
-  readonly viewerTier: string | null;
+  /**
+   * The PAIR'S two endpoint vendors as tiers (AECI-304) — never the reader's.
+   * Built by `vendorTiersFromMirror` off each endpoint product's primary vendor's
+   * `verified` column, which is the mirror of an `active` `vendor_entitlements`
+   * row. **Do not query `vendor_entitlements` here** — `STAGE_2_PAID_TIERS_SPEC.md`
+   * §2.5 forbids it on a public read path, and the mirror exists so this read
+   * doesn't have to.
+   */
+  readonly pairVendorTiers: readonly EntitlementTier[];
   /**
    * Whether any live attestation on this pair carries a version stamp. When no
    * stamp exists, nothing on the page can vary by version, so the diff does not
@@ -87,12 +101,16 @@ export interface ResolveVersionSelectionInput {
  *
  * The looser precedent — `assertVerifiedVendor`'s "ONE function with ONE call site
  * per handler" — does not satisfy the literal AC, which is why this exists.
+ *
+ * `pairVendorTiers` is the PAIR'S two endpoint vendors, not the reader (AECI-304).
+ * That is what keeps the answer a pure function of the two slugs in the URL, and
+ * therefore keeps a gated pair page storable in the shared, URL-keyed edge cache.
  */
 export function resolveDiffAccess(
   historical: boolean,
-  viewerTier: string | null,
+  pairVendorTiers: readonly EntitlementTier[],
 ): VersionDiffAccess {
-  return canViewVersionDiff({ historical, viewerTier });
+  return canViewVersionDiff({ historical, pairVendorTiers });
 }
 
 /** Ascending rows for one product, filtered out of the combined read. */
@@ -146,8 +164,9 @@ function comparable(row: VersionRow | null): ComparableProductVersion | null {
  *   2. **No live attestation on the pair carries a version stamp.** Both products
  *      could have releases while nothing on *this* pair varies by them; rendering
  *      selectors that can never change anything is worse than rendering none.
- *   3. **The reader is gated to `latest_only` and asked for a historical pair.**
- *      The free latest view is served in full; only the depth is withheld.
+ *   3. **A historical pair was asked for and NEITHER endpoint vendor is entitled**
+ *      (AECI-304). The free latest view is served in full; only the depth is
+ *      withheld, and the gate reads the pair's vendors, never the reader.
  *
  * That single null is the whole browser-side suppression rule, which is what makes
  * "latest × latest renders identically to today for claims with no version data" a
@@ -168,7 +187,7 @@ export function resolveVersionSelection(
   const requestedContext = (input.contextParam ?? '').trim();
   const requestedOther = (input.otherParam ?? '').trim();
   const historical = requestedContext !== '' || requestedOther !== '';
-  const access = resolveDiffAccess(historical, input.viewerTier);
+  const access = resolveDiffAccess(historical, input.pairVendorTiers);
 
   // Gated ⇒ clamp to latest × latest rather than 403. A 403 would make the gate a
   // control-flow branch (`STAGE_2_SPEC.md` §2.2 forbids that) and the SSR resolver
