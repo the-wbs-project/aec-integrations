@@ -255,7 +255,7 @@ The signed-in vendor's home, backed by `/api/vendor/*` (§4). **Multi-seat, flat
 - **Verified badge management** — show verification state; the badge itself is AECi-controlled (`vendors.verified`), not vendor-toggled.
 - **Seat list** — read-only roster of the vendor's seats at launch.
 
-Design work runs the `apps/web` UI checklist (`CLAUDE.md` §"Design checklist"): critique the surface, pick a Mobbin anchor, build via Impeccable, run axe locally. **Light theme only at launch** — dark returns in the separate Dark-Theme epic (`STAGE_2_SPEC.md` §2.5), not here.
+Design work runs the `apps/web` UI checklist (`CLAUDE.md` §"Design checklist"): critique the surface, pick a Mobbin anchor, build via Impeccable, run axe locally. **Light theme only** — dark theme is not roadmapped (the Stage 2 reintroduction was dropped; see `STAGE_2_SPEC.md` §9).
 
 ### 6.1 As built (AECI-522 — 2026-07-25)
 
@@ -362,7 +362,7 @@ Explicitly **not** in this epic (tracked elsewhere or later):
 - **Real-time / live vendor edits** — the Real-Time epic (AECI-516); transport (Durable Objects vs SSE vs revalidation) deferred. The portal ships without persistent sockets.
 - **Integration attestation authoring / conflict UI / version-diff** — the Integration Attestations epic (activates the dormant `vendor_a`/`vendor_b` sources); `STAGE_2_SPEC.md` §2.4.
 - **Person-lookup enrichment providers** — deferred DPA/GDPR decision (§5 surfaces a link only).
-- **Dark theme** — the Dark-Theme Reintroduction epic; `STAGE_2_SPEC.md` §2.5.
+- **Dark theme** — dropped; not roadmapped (light-only remains the direction). `STAGE_2_SPEC.md` §9.
 - **A public/partner write API** — the "no public API surface" boundary is unchanged (`STAGE_2_SPEC.md` §9).
 
 ---

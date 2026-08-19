@@ -207,8 +207,8 @@ and this report.)_
   `--text-tertiary` was re-pointed to `#71717A` (4.83:1) on 2026-06-12; Phase 5 components that use it
   for disabled/least-emphasis text now pass AA. (The standing rule — tertiary never on sunken/muted —
   still applies.)
-- **Light-only (AECI-226).** Phase 5 components ship a single light theme; dark returns with the
-  Stage 2 vendor portal. No `dark:` variants were added.
+- **Light-only (AECI-226).** Phase 5 components ship a single light theme; dark theme is not
+  roadmapped (the Stage 2 reintroduction was dropped). No `dark:` variants were added.
 - **Build noise (non-blocking).** `ng extract-i18n` prints "File not found in TypeScript compilation"
   notes for the `packages/shared/src/**` re-exports (bundled correctly, outside the web tsconfig
   program) — documented since AECI-67; build-config notes, not i18n/runtime issues. `tsc` against the

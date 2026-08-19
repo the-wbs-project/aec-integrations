@@ -77,13 +77,13 @@ When a section of this spec references one of these documents, the companion doc
 
 ### 2a.1 Theming model
 
-Stage 1 ships a single, **light-only** presentation — no theme toggle and no system-preference detection (AECI-226; this supersedes the earlier light/dark/system model). The dark theme is deferred to the Stage 2 vendor portal, where the semantic-token architecture (below) makes re-introduction a token-block + toggle change. The `profiles.theme_preference` column stays in the schema but is dormant in Stage 1 — its persistence was already scoped to Stage 2+.
+Stage 1 ships a single, **light-only** presentation — no theme toggle and no system-preference detection (AECI-226; this supersedes the earlier light/dark/system model). The dark theme reintroduction was **dropped** (2026-08-14 — the Stage 2 epic AECI-517 was canceled; `STAGE_2_SPEC.md` §9); light-only is the standing presentation direction and there is no roadmapped dark theme. The semantic-token architecture (below) stays in place so a later stage *could* revisit it, and the `profiles.theme_preference` column remains in the schema but is dormant/unused.
 
 **Principle: brand colors are accents, not surfaces.** Surfaces are neutral (white/near-black). Brand colors (Forest, Clay, Bone) layer on top as accents, badges, callouts, and highlights. This matches the modern product design pattern used by many leading product companies, while preserving brand identity through accent placement.
 
 ### 2a.2 Token system
 
-All colors expressed as CSS custom properties on `:root`. Tailwind config reads from these tokens. (Stage 1 is light-only — see §2a.1; the semantic token names below are theme-agnostic, so a dark set can layer back on at Stage 2 without touching consumers.)
+All colors expressed as CSS custom properties on `:root`. Tailwind config reads from these tokens. (AECi is light-only — see §2a.1; the semantic token names below are theme-agnostic, so a dark set *could* layer back on without touching consumers, though dark is not roadmapped — the Stage 2 reintroduction was dropped, §2a.1.)
 
 **Light theme:**
 
@@ -107,11 +107,11 @@ All colors expressed as CSS custom properties on `:root`. Tailwind config reads 
 | `--accent-warm` | `#F5F2EA` | Bone — subtle warm-tinted sections, never primary surface |
 | `--status-error` | `#B3261E` | Form/validation errors (6.54:1 on white); success = Forest, warning = Clay deep (AECI-230) |
 
-> The Stage 1 dark token set was removed in AECI-226 (preserved in git history). It returns with the dark theme at Stage 2; the brand-approved dark Forest/Clay/Bone variants remain documented in `BRAND_GUIDELINES.md` §3.
+> The Stage 1 dark token set was removed in AECI-226 (preserved in git history). The dark theme reintroduction was dropped (`STAGE_2_SPEC.md` §9), so it is not roadmapped; the brand-approved dark Forest/Clay/Bone variants remain documented in `BRAND_GUIDELINES.md` §3 as reference should a later stage revisit dark.
 
 ### 2a.3 Brand identity preserved
 
-Forest and Clay remain the brand colors. Brand-approved *dark* variants of Forest and Clay exist (the originals lack contrast against near-black surfaces) and are documented in `BRAND_GUIDELINES.md` §3 — but they are **not shipped in Stage 1**; they return with the dark theme at Stage 2.
+Forest and Clay remain the brand colors. Brand-approved *dark* variants of Forest and Clay exist (the originals lack contrast against near-black surfaces) and are documented in `BRAND_GUIDELINES.md` §3 — but they are **not shipped**; the dark theme reintroduction was dropped (`STAGE_2_SPEC.md` §9) and dark is not roadmapped.
 
 Bone is reclassified from "the background" to "a warm-tinted accent surface." It still appears in marketing pages, About page hero, callout sections, and the home page hero / marketing bands — anywhere warmth and identity are desired. It is no longer the default page background.
 
@@ -125,7 +125,7 @@ Bone is reclassified from "the background" to "a warm-tinted accent surface." It
 
 ### 2a.5 Theme handling for vendor-supplied content
 
-> Forward-looking (Stage 2+): vendor uploads ship with the vendor portal, by which point the dark theme has returned (§2a.1). The "both themes" requirements below apply from that point — they do not affect the light-only Stage 1 surface.
+> Note: the vendor portal shipped in Stage 2, but **light-only** — the dark theme reintroduction was **dropped** (§2a.1; `STAGE_2_SPEC.md` §9). The "both themes" requirements below are therefore **not active**; they are retained only as reference should a later stage revisit dark. The current surface is light-only.
 
 Vendor-uploaded content (logos, screenshots, embedded videos, custom brand presence) needs explicit theme strategy because user-uploaded content cannot be assumed to work in both themes.
 
@@ -1049,12 +1049,12 @@ Phased to deliver working software at each step. Each phase ends with a deployab
 - [ ] Linear ↔ GitHub integration enabled and validated (branch linking, PR auto-close)
 - [ ] n8n configured with native Linear node and API token
 - [ ] Figma Design System file created with theme tokens from Section 2a.2
-- [ ] Brand guidelines DOCX documents dark-mode accent variants (kept as Stage 2 brand assets; not shipped in Stage 1 — AECI-226)
+- [ ] Brand guidelines DOCX documents dark-mode accent variants (kept as reference brand assets; not shipped — AECI-226; dark reintroduction dropped, §2a.1)
 - [ ] Angular 21+ SSR project scaffolded in `apps/web/`, **zoneless** (`provideZonelessChangeDetection()`, no `zone.js`)
 - [ ] Hydration providers wired: `provideClientHydration(withHttpTransferCacheOptions({ includePostRequests: false }))` — v22 incremental hydration is the default and auto-enables event replay (no explicit `withEventReplay()`; AECI-130) — mirror `apps/web/src/app/app.config.ts`
 - [ ] `@angular/localize` configured with `en-US` as default locale; `angular.json` `i18n.locales` block ready for `es-ES` and others (URL-prefix dispatch, no `Vary` headers — §7a.3)
-- [ ] Tailwind **v4** (`@tailwindcss/postcss`) config bound to the light-theme CSS custom property tokens (Stage 1 is light-only — AECI-226; dark tokens return at Stage 2); `@spartan-ng/brain/hlm-tailwind-preset.css` imported
-- [ ] Light-only presentation — no theme switcher or system-preference detection in Stage 1 (AECI-226). The dark theme + toggle return with the Stage 2 vendor portal; the semantic tokens make that a token-block + toggle re-introduction
+- [ ] Tailwind **v4** (`@tailwindcss/postcss`) config bound to the light-theme CSS custom property tokens (light-only — AECI-226; dark reintroduction dropped, not roadmapped — §2a.1); `@spartan-ng/brain/hlm-tailwind-preset.css` imported
+- [ ] Light-only presentation — no theme switcher or system-preference detection (AECI-226). The dark theme reintroduction was dropped (`STAGE_2_SPEC.md` §9) — dark is not roadmapped; the semantic tokens remain, so a later stage *could* revisit it as a token-block + toggle change, but nothing is planned
 - [ ] Spartan **brain** primitives + Angular CDK installed (no `helm` codegen)
 - [ ] Cloudflare Workers deployment pipeline (`wrangler.jsonc`, GitHub Actions) — SSR Worker has `compatibility_flags: ["nodejs_compat"]`
 - [ ] SSR Worker entry implements cookie-stripping middleware for cacheable routes (§9.1a) and URL-prefix locale dispatch (§7a.3a); mirror `apps/web/src/server-runtime.ts`
@@ -1545,7 +1545,7 @@ This prevents drift between human decisions and AI-generated code.
 Three files, all under the AEC Integrations team in Figma:
 
 - **`AEC Integrations — Design System`** — single source of truth for visual design
-  - Color styles (light theme tokens from Section 2a.2; dark tokens deferred to Stage 2 — AECI-226)
+  - Color styles (light theme tokens from Section 2a.2; dark tokens not shipped — AECI-226; reintroduction dropped, §2a.1)
   - Text styles (heading sizes, body sizes, weights)
   - Spacing tokens (matching Tailwind's spacing scale)
   - Component library (buttons, cards, forms, badges, inputs — mirrors Spartan UI primitives)

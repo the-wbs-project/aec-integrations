@@ -633,8 +633,8 @@ only the two `connect-src` PostHog US hosts are needed).
 events they're merged into the event properties (`analyticsDimensions()` reads
 `<html lang>` / `data-theme`); for autocaptured pageviews they're registered as PostHog
 super-properties in the `loaded` callback (before the first pageview). `theme` is always
-`light` today (dark removed in AECI-226) but the dimension is still emitted so the schema
-is stable when dark returns.
+`light` (dark removed in AECI-226; the Stage 2 reintroduction was dropped — `STAGE_2_SPEC.md` §9)
+but the dimension is still emitted so the schema stays stable if dark is ever revisited.
 
 **Event catalog (§14.1).**
 

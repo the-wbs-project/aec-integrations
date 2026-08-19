@@ -34,13 +34,12 @@ Stage 2 inherits every Stage 1 / 1.5 constraint. It leans on these existing comp
 | Claim / attestation model | `docs/STAGE_1_5_SPEC.md` §3 — Stage 2 activates the dormant `vendor_a`/`vendor_b` sources |
 | Edge caching / invalidation | `docs/CACHE_STRATEGY.md` (mid-migration to native Workers Cache — see §6) |
 | Transactional email | `docs/email.md` (Resend — see §4) |
-| Design tokens / theming | `DESIGN.md` (dark-theme reintroduction — see §2.5) |
 
 ---
 
 ## 2. Scope pillars
 
-The three §18 pillars, plus the two carried-over surfaces (integration attestations, dark theme) that only Stage 2 can complete. Each maps to a Linear epic (§7).
+The three §18 pillars, plus the one carried-over surface (integration attestations) that only Stage 2 can complete. Each maps to a Linear epic (§7). *(The former "Dark Theme Reintroduction" pillar was **dropped** 2026-08-14 — see §9.)*
 
 ### 2.1 Vendor Portal & Self-Serve Claiming — *the anchor*
 
@@ -82,14 +81,6 @@ Stage 1.5 shipped the claim spine with **dormant** `vendor_a`/`vendor_b` attesta
 - **Version-diff timeline** (AECI-303) — per-product version selectors over the dormant `introduced_at`/`deprecated_at` stamps.
 - **Paywalled integration depth** (AECI-304) — see §2.2; the diff is paywalled, the latest view is not.
 
-### 2.5 Dark Theme Reintroduction
-
-Stage 1 shipped **light-only** (AECI-226), which deferred dark to "the Stage 2 vendor portal." The semantic token architecture was kept precisely so this is a token-block + toggle reintroduction, not a re-theme.
-
-- Re-introduce the `.theme-dark` token block + a theme toggle + system-preference detection.
-- The `profiles.theme_preference` column already exists (`'system' | 'light' | 'dark'`, §3) — persistence is ready.
-- Re-audit contrast (WCAG AA) and re-enable the `dark:` verification step in the design checklist (currently skipped per the "Light only (Stage 1)" constraint).
-
 ---
 
 ## 3. Schema readiness carried through to D1/Drizzle (AECI-282 AC #3 — verified)
@@ -105,7 +96,7 @@ Stage 1 shipped **light-only** (AECI-226), which deferred dark to "the Stage 2 v
 | attestation `source` reserves `vendor_a` / `vendor_b` | ✅ `schema.ts` — `attestations_source_check` (`'aeci' \| 'vendor_a' \| 'vendor_b'`) |
 | attestation `introduced_at` / `deprecated_at` version stamps | ✅ `schema.ts` — additive, dormant |
 | `translations` table (localized vendor-managed content) | ✅ `schema.ts` — present |
-| `profiles.theme_preference` (dark-theme persistence) | ✅ `schema.ts` — `'system' \| 'light' \| 'dark'` |
+| `profiles.theme_preference` (dark-theme persistence — **now unused; dark theme dropped, see §9**) | ✅ `schema.ts` — `'system' \| 'light' \| 'dark'` (column retained, dormant) |
 | `computeAgreement` (computed-not-stored agreement) | ✅ defined in `packages/shared/src/agreement.ts` (imported/used in `apps/api/src/lib/drizzle-helpers.ts`) — unit-tested |
 
 ---
@@ -160,7 +151,6 @@ The initial epics seeded by AECI-282 (in the `Stage 2 Build` project — renamed
 | Integration Attestations & Conflict | §2.4 | Re-parents AECI-301 / 302 / 303 |
 | Paid Tiers & Entitlements | §2.2 | Relates AECI-304; no pay-for-placement |
 | Real-Time / Live Portal | §2.3 | Durable Objects |
-| Dark Theme Reintroduction | §2.5 | Token-block + toggle; AECI-226 deferral |
 | Stage-1 Deferrals & Carryover | §5 | JSON-LD, sitemap split |
 | Workers Cache Migration | §6 | **Already exists** — AECI-314 |
 
@@ -199,6 +189,7 @@ Resolved when the Vendor Portal epic was decomposed. These **promote the epic's 
 
 ## 9. Out of scope for Stage 2
 
+- **Dark theme reintroduction — dropped (2026-08-14).** Stage 1 shipped light-only (AECI-226); the former §2.5 pillar / epic **AECI-517 is canceled** and the reintroduction is **removed from the roadmap**. Light-only is the standing presentation direction. The semantic-token architecture (`--surface-*`/`--text-*`/`--accent-*`), the dormant `.theme-dark` block, and the `profiles.theme_preference` column stay in place — so a later stage *could* revisit it — but no theme toggle or system-preference detection is planned. The light-only lint enforcement (AECI-549) stays in force.
 - Rich media profiles (Stage 4)
 - Trust scoring beyond basic anti-abuse (Stage 3)
 - A public/partner write API product ("no public API surface" boundary unchanged)

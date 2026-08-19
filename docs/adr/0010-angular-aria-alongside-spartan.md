@@ -105,9 +105,9 @@ reactively.**
 **Design-system implications.** Angular Aria is styled exactly like Spartan brain: Tailwind `aria-*:`
 variant utilities targeting the attributes the directives toggle (`aria-selected:`, `aria-expanded:`,
 `aria-checked:`, …) — plus the `data-[active=true]:` variant Aria sets on the active option — bound to the
-OKLCH tokens, borders-not-shadows, rendered correctly in the active theme. (Stage 1 ships **light-only**
-per AECI-226; the semantic token model keeps dark a token-block + toggle re-introduction at the Stage 2
-vendor portal, so the historical "both themes" validations recorded below predate that scope cut.) Running
+OKLCH tokens, borders-not-shadows, rendered correctly in the active theme. (AECi ships **light-only**
+per AECI-226; the dark reintroduction was later dropped and is not roadmapped (`STAGE_2_SPEC.md` §9) — the
+semantic token model would keep it a token-block + toggle change if ever revisited, so the historical "both themes" validations recorded below predate that scope cut.) Running
 **two headless behavior providers is not a "mashup"** under the Anchor-Site Rule — that
 rule governs **visual** composition (which Mobbin site anchors a surface's hierarchy, density, atmosphere),
 which is owned by tokens and layout, not by which library supplies keyboard/ARIA behavior. Editorial
