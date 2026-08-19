@@ -80,6 +80,8 @@ const ADMIN_AUTH: AuthzVariables['auth'] = {
   email: 'admin@aeci.test',
   role: 'admin',
   vendorId: null,
+  entitlementTier: 'unclaimed',
+  entitlement: null,
 };
 
 let t: TestDb;

@@ -62,6 +62,7 @@ import {
   products,
   profiles,
   taxonomyDataObjects,
+  vendorEntitlements,
   vendors,
 } from '../db/schema';
 import type { Env } from '../env';
@@ -148,6 +149,16 @@ beforeEach(async () => {
       verified: true,
     },
     { id: VENDOR_UNVERIFIED, slug: 'trimble', companyName: 'Trimble', verified: false },
+  ]);
+  // `vendors.verified` is a MIRROR of an ACTIVE `vendor_entitlements` row
+  // (AECI-609 / §2.1), and AECI-611 made the mirror's SOURCE what the write
+  // gate reads. A fixture that sets `verified: true` without the row describes
+  // a drifted state the middleware resolves to `unclaimed` — so seed both sides
+  // together, exactly as `lib/vendor-entitlement.ts` writes them. Trimble gets
+  // no row on purpose: it is the unverified persona.
+  await t.db.insert(vendorEntitlements).values([
+    { id: uuid(70), vendorId: VENDOR_A, tier: 'verified', status: 'active' },
+    { id: uuid(71), vendorId: VENDOR_B, tier: 'verified', status: 'active' },
   ]);
   await t.db.insert(products).values([
     { id: PRODUCT_A, slug: 'revit', name: 'Revit', description: 'A product' },

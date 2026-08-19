@@ -21,6 +21,11 @@ import type {
   VendorProduct,
   VendorSeat,
 } from '@aeci/shared';
+// Subpath import, deliberately: the capability registry is zod-free and kept off
+// the root barrel so it cannot drag the schema set into a lazy route's graph
+// (`STAGE_2_PAID_TIERS_SPEC.md` §3.1 / §10 R11). `/vendor` is a lazy route and
+// is explicitly ALLOWED to consult it (§3.3c) — cacheable public SSR is not.
+import { capabilitiesFor } from '@aeci/shared/entitlements';
 
 function term(
   slug: string,
@@ -159,6 +164,16 @@ export const VENDOR_ME_FIXTURE: VendorMeResponse = {
     },
   ],
   seat_count: 3,
+  // The entitlement block (AECI-611). `vendors.verified` is a MIRROR of an
+  // ACTIVE entitlement (`STAGE_2_PAID_TIERS_SPEC.md` §2.1), so a fixture with
+  // `verified: true` must carry an active row or it describes a drifted state
+  // the daily `entitlement_mirror_drift` check would flag as an error.
+  entitlement: {
+    tier: 'verified',
+    status: 'active',
+    period_end: '2027-07-01T00:00:00.000Z',
+    capabilities: [...capabilitiesFor('verified')],
+  },
 };
 
 /** An unverified single-seat vendor with no products or requests yet — the
@@ -177,6 +192,10 @@ export const VENDOR_ME_UNVERIFIED_FIXTURE: VendorMeResponse = {
   products: [],
   requests: [],
   seat_count: 1,
+  // The mirror's other side: no active entitlement → `unclaimed` → zero
+  // capabilities, and `verified: false` above. `status: null` = no
+  // `vendor_entitlements` row at all, as opposed to a lapsed one.
+  entitlement: { tier: 'unclaimed', status: null, period_end: null, capabilities: [] },
 };
 
 /** The seat roster for the verified vendor — three flat admins, one banned, one

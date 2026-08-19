@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { VendorEntitlementBlockSchema } from './admin-entitlements';
 import { PUBLIC_PRIVATE } from './promote';
 
 /**
@@ -192,12 +193,18 @@ export type VendorSeat = z.infer<typeof VendorSeatSchema>;
  * share the account. The seat ROSTER is a separate call (`GET /api/vendor/seats`)
  * because it needs the Supabase email lookup and the dashboard's first paint
  * shouldn't wait on it.
+ *
+ * `entitlement` (AECI-611, `STAGE_2_PAID_TIERS_SPEC.md` §4) rides along for free:
+ * it is built from the session the guard already loaded, so it costs no query.
+ * It is REQUIRED — this read is never gated (§4.3), so every caller gets a block,
+ * and a lapsed vendor gets the downgraded one rather than a 404 dashboard.
  */
 export const VendorMeResponseSchema = z.object({
   vendor: VendorAccountSchema,
   products: z.array(VendorProductSchema),
   requests: z.array(VendorRequestSummarySchema),
   seat_count: z.number().int().min(1),
+  entitlement: VendorEntitlementBlockSchema,
 });
 export type VendorMeResponse = z.infer<typeof VendorMeResponseSchema>;
 

@@ -54,8 +54,22 @@ function appFor(
     c.set(
       'auth',
       role === 'admin'
-        ? { userId: ADMIN_USER, email: 'root@example.com', role: 'admin', vendorId: null }
-        : { userId: USER, email: 'me@example.com', role: 'reviewer', vendorId: null },
+        ? {
+            userId: ADMIN_USER,
+            email: 'root@example.com',
+            role: 'admin',
+            vendorId: null,
+            entitlementTier: 'unclaimed',
+            entitlement: null,
+          }
+        : {
+            userId: USER,
+            email: 'me@example.com',
+            role: 'reviewer',
+            vendorId: null,
+            entitlementTier: 'unclaimed',
+            entitlement: null,
+          },
     );
     await next();
   });
