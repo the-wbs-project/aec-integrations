@@ -64,7 +64,7 @@ import type { Db } from '../db/client';
 import { auditLog, metricsDaily, pageViews, products, profiles } from '../db/schema';
 import type { Env } from '../env';
 import { ApiError } from '../errors';
-import { BOT, HUMAN, NOT_INTERNAL as EXCLUDE_UNTRACKED_ROUTES } from './analytics-digest';
+import { BOT, HUMAN, NOT_INTERNAL as EXCLUDE_OPERATOR_TRAFFIC } from './analytics-digest';
 import { resolveRequestTargets } from './drizzle-helpers';
 import { excludeInternalAsns, parseInternalAsns } from './internal-asns';
 
@@ -204,14 +204,15 @@ function populationPredicate(traffic: AdminTrafficPopulation): SQL | undefined {
   return undefined;
 }
 
-/** `created_at` inside `[start, end)`, with the operator-only routes excluded.
+/** `created_at` inside `[start, end)`, with the operator's own traffic excluded.
  *  ISO 8601 text sorts lexicographically the same as chronologically, so the
- *  string range is exact. `EXCLUDE_UNTRACKED_ROUTES` (AECI-575) is folded in here
- *  because every `page_views` read in this module derives its base predicate from
+ *  string range is exact. `EXCLUDE_OPERATOR_TRAFFIC` is folded in here because
+ *  every `page_views` read in this module derives its base predicate from
  *  `inWindow`, so this is the single choke point that keeps the panel counting the
- *  same population the digest does — `/admin/*` and `/account` out of both. */
+ *  same population the digest does — `/admin/*` and `/account` (AECI-575 / D12) out
+ *  of both, and since §13 **D13** verified admin sessions on any path with them. */
 function inWindow(column: typeof pageViews.createdAt, w: UtcWindow): SQL {
-  return and(gte(column, w.startIso), lt(column, w.endIso), EXCLUDE_UNTRACKED_ROUTES) as SQL;
+  return and(gte(column, w.startIso), lt(column, w.endIso), EXCLUDE_OPERATOR_TRAFFIC) as SQL;
 }
 
 /** Resolved state of the `ANALYTICS_INTERNAL_ASNS` read-time filter. */
@@ -739,7 +740,7 @@ export interface PageViewPage {
  * Three things here are load-bearing:
  *
  * **The base predicate comes from {@link inWindow}.** That is the single choke
- * point that folds in `EXCLUDE_UNTRACKED_ROUTES` — §13 D12's retroactive
+ * point that folds in `EXCLUDE_OPERATOR_TRAFFIC` — §13 D12's retroactive
  * `/admin/*` + `/account` exclusion, applied *beneath* the caller's filters so no
  * combination of query parameters can surface an operator row. Hand-rolling the
  * range here would silently lose it.

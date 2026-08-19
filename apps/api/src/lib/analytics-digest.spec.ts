@@ -322,6 +322,58 @@ describe('collectAnalyticsMetrics', () => {
     ]);
   });
 
+  it('excludes operator SESSIONS on public paths (§13 D13), keeping NULL as a visitor', async () => {
+    // The half `/admin/*` cannot see: the operator checking their own work on the
+    // public site. Nothing about the path, referrer, or network distinguishes
+    // these rows — only `is_operator`.
+    await t.db.insert(products).values([{ id: 'p1', slug: 'p1', name: 'P1' }]);
+    await t.db.insert(pageViews).values([
+      // Real visitor traffic on the reported day.
+      {
+        path: '/products/p1',
+        productId: 'p1',
+        isBot: false,
+        referrerSource: 'Google',
+        isOperator: false,
+        createdAt: '2026-07-23T10:00:00.000Z',
+      },
+      // Pre-D13 rows: `is_operator` is NULL and must keep reading as a visitor, so
+      // history does not shift under a column it never had.
+      { path: '/', isBot: false, referrerSource: 'Direct', createdAt: '2026-07-23T10:30:00.000Z' },
+      // The operator, on ordinary public pages, indistinguishable but for the flag.
+      {
+        path: '/products/p1',
+        productId: 'p1',
+        isBot: false,
+        referrerSource: 'Direct',
+        isOperator: true,
+        createdAt: '2026-07-23T11:00:00.000Z',
+      },
+      {
+        path: '/',
+        isBot: false,
+        referrerSource: 'Direct',
+        isOperator: true,
+        createdAt: '2026-07-23T11:05:00.000Z',
+      },
+      // Prior day: 1 visitor, 1 operator.
+      { path: '/', isBot: false, isOperator: false, createdAt: '2026-07-22T10:00:00.000Z' },
+      { path: '/', isBot: false, isOperator: true, createdAt: '2026-07-22T11:00:00.000Z' },
+    ]);
+
+    const m = await collectAnalyticsMetrics(t.db, window);
+
+    expect(m.pageViews).toEqual({ day: 2, prior: 1 });
+    // The operator's product view would otherwise double P1's count.
+    expect(m.topProducts).toEqual([{ name: 'P1', slug: 'p1', views: 1 }]);
+    // `Direct` is the bucket operator traffic inflates hardest — both of the
+    // operator's rows classified Direct, only the NULL-flagged visitor survives.
+    expect(m.referrers).toEqual([
+      { source: 'Google', views: 1 },
+      { source: 'Direct', views: 1 },
+    ]);
+  });
+
   it('returns zeroes and empty lists on an empty database', async () => {
     const m = await collectAnalyticsMetrics(t.db, window);
     expect(m.pageViews).toEqual({ day: 0, prior: 0 });

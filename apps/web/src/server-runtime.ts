@@ -741,6 +741,23 @@ function firePageView(
   // exactly what fires this write. AECI-526.
   const referer = sourceRequest.headers.get('referer');
   if (referer) headers.set('referer', referer);
+  // Forward the eyeball's `Cookie` so the API can decide whether this arrival is
+  // the operator checking their own work (`is_operator`, ADMIN_PANEL_SPEC §13 D13).
+  // The API verifies the session token itself — this header is transport, and
+  // nothing in it is trusted before JWKS verification.
+  //
+  // This is the ONLY page-view path that needed it: the browser tracker POSTs
+  // same-origin, so its cookies already ride the `/api/*` passthrough untouched.
+  // Leaving this out is exactly why D7 judged a per-view role signal "right half
+  // the time" and dropped `profile_role`; forwarding it makes arrivals and in-app
+  // hops agree.
+  //
+  // Cache-neutral by construction: this header is set on the fire-and-forget
+  // analytics subrequest only. It never reaches `renderer()` (the cacheable branch
+  // renders from the cookie-stripped `sanitized` request) and can never reach a
+  // response written to the shared edge cache.
+  const cookie = sourceRequest.headers.get('cookie');
+  if (cookie) headers.set('cookie', cookie);
   // Pathname only — never the query or hash. `page_views` stores a referrer HOST
   // for the same reason (§9.7); a concrete path carrying `?token=…` would put the
   // full URL back into the table the privacy rule keeps it out of.

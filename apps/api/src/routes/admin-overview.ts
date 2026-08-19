@@ -91,7 +91,7 @@ import {
   dailyWindows,
   windowsForDay,
   HUMAN,
-  NOT_INTERNAL as EXCLUDE_UNTRACKED_ROUTES,
+  NOT_INTERNAL as EXCLUDE_OPERATOR_TRAFFIC,
 } from '../lib/analytics-digest';
 import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
 
@@ -254,7 +254,7 @@ async function countHumanViews(db: Db, w: UtcWindow): Promise<number> {
         gte(pageViews.createdAt, w.startIso),
         lt(pageViews.createdAt, w.endIso),
         HUMAN,
-        EXCLUDE_UNTRACKED_ROUTES,
+        EXCLUDE_OPERATOR_TRAFFIC,
       ),
     );
   return row?.value ?? 0;

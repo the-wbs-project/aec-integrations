@@ -1638,6 +1638,67 @@ describe('createApp page-view capture (AECI-58)', () => {
     expect(pageViewCalls(calls)).toHaveLength(1);
   });
 
+  it('forwards the eyeball Cookie so the API can flag an operator arrival (§13 D13)', async () => {
+    // The API decides `is_operator` by verifying the session itself; without this
+    // header an SSR arrival is anonymous to it, which is exactly why §13 D7 judged
+    // a per-view role signal "right half the time".
+    const { binding, calls } = recordingApiBinding();
+    const app = createApp({
+      ssrRenderer: fixedRenderer(new Response('<html>index</html>', { status: 200 })),
+    });
+
+    await app.fetch(
+      new Request('https://www.aecintegrations.com/products', {
+        headers: { cookie: 'sb-abc-auth-token=base64-xyz; theme=light' },
+      }),
+      binding as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+
+    const pv = pageViewCalls(calls);
+    expect(pv).toHaveLength(1);
+    expect(pv[0]!.headers.get('cookie')).toBe('sb-abc-auth-token=base64-xyz; theme=light');
+  });
+
+  it('sends no cookie header on an anonymous arrival', async () => {
+    const { binding, calls } = recordingApiBinding();
+    const app = createApp({
+      ssrRenderer: fixedRenderer(new Response('<html>index</html>', { status: 200 })),
+    });
+
+    await app.fetch(
+      new Request('https://www.aecintegrations.com/products'),
+      binding as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+
+    expect(pageViewCalls(calls)[0]!.headers.get('cookie')).toBeNull();
+  });
+
+  it('forwards the Cookie on a cache HIT without it reaching the cached response', async () => {
+    // Cache-neutrality: the HIT path returns the stored response untouched, and
+    // the cookie rides only the fire-and-forget analytics subrequest.
+    const cached = new Response('<html>cached</html>', {
+      status: 200,
+      headers: { 'content-type': 'text/html' },
+    });
+    cacheStub.match.mockResolvedValueOnce(cached);
+    const { binding, calls } = recordingApiBinding();
+    const app = createApp({ ssrRenderer: vi.fn() as unknown as SsrRenderer });
+
+    const res = await app.fetch(
+      new Request('https://www.aecintegrations.com/products', {
+        headers: { cookie: 'sb-abc-auth-token=base64-xyz' },
+      }),
+      binding as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+
+    expect(pageViewCalls(calls)[0]!.headers.get('cookie')).toBe('sb-abc-auth-token=base64-xyz');
+    expect(res.headers.get('set-cookie')).toBeNull();
+    expect(cacheStub.put).not.toHaveBeenCalled();
+  });
+
   it('does NOT fire page-views on non-cacheable routes', async () => {
     const { binding, calls } = recordingApiBinding();
     const app = createApp({

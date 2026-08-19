@@ -412,6 +412,32 @@ describe('computeTrendingProducts', () => {
     expect(result.map((r) => r.id)).toEqual([U.p1]);
   });
 
+  // §13 D13. D12 recorded this query as immune to the `/admin/*` exclusion because
+  // an admin-path row carries no `product_id` — true, and it does NOT extend to an
+  // operator SESSION, which lands on the product page and carries the FK. The floor
+  // is no defence: TRENDING_MIN_VIEWS is 3.
+  it('ignores operator-session views — they neither rank nor clear the floor', async () => {
+    await seedProduct({ id: U.p1, slug: 'a', name: 'A' });
+    await seedProduct({ id: U.p2, slug: 'b', name: 'B' });
+    // p-1: 3 genuine human views → trends.
+    await seedPageView(U.p1, within7d, false);
+    await seedPageView(U.p1, within7d, false);
+    await seedPageView(U.p1, within7d, false);
+    // p-2: 5 views from the operator re-checking their own work → must not trend,
+    // even though it out-views p-1.
+    for (let i = 0; i < 5; i++) {
+      await t.db.insert(pageViews).values({
+        path: '/x',
+        productId: U.p2,
+        createdAt: within7d,
+        isBot: false,
+        isOperator: true,
+      });
+    }
+    const result = await computeTrendingProducts(t.db, NOW);
+    expect(result.map((r) => r.id)).toEqual([U.p1]);
+  });
+
   // The digest's NULL-safe `is_bot IS NOT 1`: rows captured before the classifier
   // existed still count, so the card did not go blank the day the filter landed.
   it('still counts unclassified (null is_bot) views as human', async () => {

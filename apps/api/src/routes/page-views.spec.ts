@@ -4,16 +4,18 @@
  * settling execution context.
  */
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import {
   pageViews,
   products,
+  profiles,
   taxonomyAudiences,
   taxonomyCategories,
   taxonomyPhases,
   taxonomyTrades,
 } from '../db/schema';
+import { makeTestJwks } from '../test/auth';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { buildAppWithHandler, TEST_ENV } from '../test/helpers';
 import { createPageViewsHandler } from './page-views';
@@ -386,6 +388,87 @@ describe('POST /api/page-views — AECI-585 ingest fixes', () => {
       const rows = await t.db.select().from(pageViews);
       expect(rows[0]!.cfAsOrganization).toBe('Amazon.com, Inc.');
       expect(rows[0]!.isBot).toBe(false);
+    });
+  });
+
+  describe('is_operator (§13 D13)', () => {
+    const ADMIN_ID = '00000000-0000-4000-8000-00000000ad11';
+    const SUPABASE_URL = 'https://test-project.supabase.co';
+
+    let jwks: Awaited<ReturnType<typeof makeTestJwks>>;
+    beforeAll(async () => {
+      jwks = await makeTestJwks();
+    });
+
+    /** Same `post()` as above, plus the offline-JWKS seam and a `SUPABASE_URL`
+     *  so the operator check can actually run. */
+    function postAs(headers: Record<string, string>) {
+      const app = buildAppWithHandler({
+        method: 'post',
+        path: '/api/page-views',
+        handler: createPageViewsHandler(t.factory, { getKey: jwks.getKey }),
+      });
+      const { ctx, settle } = settlingCtx();
+      return {
+        res: app.request(
+          '/api/page-views',
+          {
+            method: 'POST',
+            body: JSON.stringify({ route: '/products/revit' }),
+            headers: { 'content-type': 'application/json', ...headers },
+          },
+          { ...TEST_ENV, SUPABASE_URL },
+          ctx,
+        ),
+        settle,
+      };
+    }
+
+    it('flags a view made by a verified admin session', async () => {
+      await t.db.insert(profiles).values({ id: ADMIN_ID, role: 'admin' });
+      const token = await jwks.mintToken({ sub: ADMIN_ID, supabaseUrl: SUPABASE_URL });
+
+      const { res, settle } = postAs({ Authorization: `Bearer ${token}` });
+      expect((await res).status).toBe(204);
+      await settle();
+
+      const rows = await t.db.select().from(pageViews);
+      // Recorded, not dropped — the read side excludes it (`NOT_INTERNAL`).
+      expect(rows).toHaveLength(1);
+      expect(rows[0]!.isOperator).toBe(true);
+    });
+
+    it('leaves is_operator false for a signed-in NON-admin', async () => {
+      const userId = '00000000-0000-4000-8000-000000000042';
+      await t.db.insert(profiles).values({ id: userId, role: 'reviewer' });
+      const token = await jwks.mintToken({ sub: userId, supabaseUrl: SUPABASE_URL });
+
+      const { res, settle } = postAs({ Authorization: `Bearer ${token}` });
+      expect((await res).status).toBe(204);
+      await settle();
+
+      const rows = await t.db.select().from(pageViews);
+      expect(rows[0]!.isOperator).toBe(false);
+    });
+
+    it('leaves is_operator false for an anonymous view', async () => {
+      const { res, settle } = postAs({});
+      expect((await res).status).toBe(204);
+      await settle();
+
+      const rows = await t.db.select().from(pageViews);
+      expect(rows[0]!.isOperator).toBe(false);
+    });
+
+    it('still writes the row when the session cannot be verified', async () => {
+      // Fail-open: an auth hiccup must cost the flag, never the page view.
+      const { res, settle } = postAs({ Authorization: 'Bearer not-a-jwt' });
+      expect((await res).status).toBe(204);
+      await settle();
+
+      const rows = await t.db.select().from(pageViews);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]!.isOperator).toBe(false);
     });
   });
 });
