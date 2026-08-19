@@ -2867,7 +2867,7 @@ export const UnsubscribeSubmitSchema = z.object({ token: z.string().trim().min(1
 
 Stage 2 (AECI-520). All require `role === 'vendor_admin'` **and** a non-null `profiles.vendor_id`, enforced by the `requireVendor()` Worker middleware (`apps/api/src/lib/authz.ts`) — verifies the JWT, loads the D1 profile, and rejects in this order: missing token/profile `401`; `banned_at` set `403`; wrong role `403`; null `vendor_id` `403`. A site **`admin` is rejected too** — there is no impersonation at launch, admins act on vendor data through `/api/admin/*` so the audit trail names the real actor.
 
-Source of truth: `packages/shared/src/api/vendor.ts` + `product-versions.ts` + `vendor-attestations.ts` + `vendor-notifications.ts` (Zod), `apps/api/src/routes/vendor.ts` + `vendor-product-versions.ts` + `vendor-attestations.ts` + `vendor-notifications.ts` + `vendor-data-objects.ts` (handlers), with the shared guard seam in `apps/api/src/routes/vendor-shared.ts` and the two-slot authority seam in `apps/api/src/lib/attestation-authority.ts`; `STAGE_2_VENDOR_PORTAL_SPEC.md` §4 and `STAGE_2_ATTESTATIONS_SPEC.md` §5 / §7.2 / §8.3.
+Source of truth: `packages/shared/src/api/vendor.ts` + `product-versions.ts` + `vendor-attestations.ts` + `vendor-notifications.ts` + `vendor-updates.ts` (Zod), `apps/api/src/routes/vendor.ts` + `vendor-product-versions.ts` + `vendor-attestations.ts` + `vendor-notifications.ts` + `vendor-data-objects.ts` + `vendor-updates.ts` (handlers), with the shared guard + scoping-predicate seam in `apps/api/src/routes/vendor-shared.ts` and the two-slot authority seam in `apps/api/src/lib/attestation-authority.ts`; `STAGE_2_VENDOR_PORTAL_SPEC.md` §4, `STAGE_2_ATTESTATIONS_SPEC.md` §5 / §7.2 / §8.3, and `STAGE_2_REALTIME_SPEC.md` §2.
 
 **Two invariants govern this whole surface.**
 
@@ -2960,6 +2960,46 @@ export const ListVendorNotificationsResponseSchema = z.object({
 `pair_path` is rebuilt from the stored slugs through the same alphabetical rule the pair route canonicalises to (`orderedPairSlugs`), so it always matches the indexable URL. A row whose stored snapshot cannot be read (a future detector id, a later schema) is **skipped rather than surfaced or thrown** — these rows outlive the code that wrote them.
 
 Errors: none beyond the guard's. An empty ledger is `200 { "notifications": [] }`.
+
+#### `GET /api/vendor/updates`
+
+The portal's **freshness cursor** (AECI-627 / `STAGE_2_REALTIME_SPEC.md` §2) — six per-scope `updated_at` high-water marks in one response, so the dashboard can refetch **only** the section that moved instead of reloading. ADR 0023 chose this over Durable-Object WebSockets and SSE: nothing that changes a vendor's portal state is sub-second (two of the six producers are once-a-day crons), so the house polling pattern — the same one `GET /api/promote/jobs/:id` uses — buys the whole §2.3 outcome without a `durable_objects` binding in four environments, a WebSocket upgrade through the SSR Worker's `/api/*` passthrough, and fan-out coupling on every write.
+
+**Not verified-gated, and never entitlement-gated.** Polling is not an authoring capability; gating it would leave an unverified vendor's read-only tab unable to notice its own verification landing. Same reasoning as the two lists above.
+
+**Read-only, so no `audit_log` row** — and that is a contract, not an omission. §26.1 governs *state changes*; at one poll per 20 s per open tab, auditing this would grow the very `audit_log` table `GET /api/vendor/notifications` scans, i.e. the endpoint would degrade the list it is a cursor for.
+
+```typescript
+export const VendorRevisionsSchema = z.object({
+  profile: z.string().nullable(),        // vendors.updated_at (moves on the `verified` mirror flip too)
+  entitlement: z.string().nullable(),    // MAX(vendor_entitlements.updated_at) — vendor_id is UNIQUE, so ≤ 1 row
+  products: z.string().nullable(),       // MAX(products.updated_at) over product_vendors
+  integrations: z.string().nullable(),   // MAX over claims ∪ attestations on the attestable surface
+  notifications: z.string().nullable(),  // MAX(audit_log.created_at) over this vendor's notification.sent ledger
+  requests: z.string().nullable(),       // MAX(COALESCE(resolved_at, created_at)) — vendor_requests has no updated_at
+});
+export const VendorUpdatesResponseSchema = z.object({
+  revisions: VendorRevisionsSchema,
+  server_time: z.string().datetime(),
+});
+```
+
+**The invariant that makes it correct: every cursor query reuses the scoping predicate of the handler it is a cursor for.** Not an equivalent predicate — the same one, imported (`ownedProductIds` / `vendorRequestsWhere` in `vendor-shared.ts`, `ownedEndpointJoin` in `lib/attestation-authority.ts`, `vendorNotificationLedgerWhere` in `vendor-notifications.ts`). A cursor that scopes **too narrowly** never moves for a change its section would show, so the client stops refetching and the portal goes silently stale; one that scopes **too widely** moves on a row the section will never return, which both amplifies polling and — with no RLS behind `/api/vendor/*` (ADR 0016) — leaks the *existence* of another vendor's write through the timestamp.
+
+Two consumer rules follow from what a cursor is:
+
+1. **Compare as strings, never as dates.** SQLite's `MAX()` over a TEXT column is a lexicographic comparison, and every `*_at` column is an ISO-8601 UTC string from `toISOString()`, for which lexicographic and chronological order coincide. `Date.parse` would introduce a second, subtly different ordering.
+2. **`null` means "no rows of that kind at all", not "unknown".** A vendor with no requests keeps `requests: null` forever and never refetches that section. `null` must never be read as "changed".
+
+`server_time` is stamped **before** the read, so it is never later than the data it describes — a change landing mid-read is reported on the next poll rather than skipped by a client treating it as a high-water mark. It is advisory: do **not** do clock arithmetic against it to decide whether to refetch (browser clocks are wrong often enough to matter).
+
+Scope → refetch map, which is also the client's `VendorPortalScope` vocabulary: `profile` · `entitlement` · `products` · `requests` → `GET /api/vendor/me` (one deduped call); `integrations` → `GET /api/vendor/integrations`; `notifications` → `GET /api/vendor/notifications`.
+
+Two scoping details worth stating because they look like bugs and are not. The `integrations` cursor **does not filter to live attestations**, unlike the list handler: `retracted_at` is a content filter, and applying it would leave a bare retract (which stamps `retracted_at` and inserts nothing) invisible to the cursor while the lane the vendor is looking at empties. And a **counterparty's** attestation on a shared claim legitimately moves the caller's `integrations` cursor — that is one of the six events the transport exists to deliver, not a leak.
+
+Mechanics: six SELECTs in one `db.batch([...])` = one D1 round trip; `private, no-store` (the `json()` default, load-bearing here — a cached cursor reports "nothing changed" to a portal where something did). Emits `aeci.api.vendor.updates` tagged `changed:none|some`.
+
+Errors: none beyond the guard's. A seat whose vendor row has since been deleted gets `200` with `profile: null` rather than the `404` `GET /api/vendor/me` answers — a cursor that threw would take the poll loop down with it.
 
 #### `PATCH /api/vendor/profile`
 
@@ -3299,4 +3339,4 @@ No URL versioning (`/api/v1/`) at Stage 1. If external consumers appear in Stage
 - **GraphQL or tRPC** — worth evaluating if endpoint count grows past ~40 or if the SSR Worker starts making many round-trip requests per page
 - **OpenAPI generation** — possible to auto-generate from Zod schemas via `zod-to-openapi` if external consumers need it
 - **Rate limiting beyond WAF** — application-level limits per authenticated user (see `STAGE_1_SPEC.md` §15)
-- **Subscription/streaming endpoints** — for live updates in Stage 2+ vendor portal (Server-Sent Events or WebSockets)
+- ~~**Subscription/streaming endpoints** — for live updates in Stage 2+ vendor portal (Server-Sent Events or WebSockets)~~ — **decided against, 2026-08-19 (ADR 0023).** The vendor portal goes live through **polling** a per-vendor freshness cursor (`GET /api/vendor/updates`, §6.14) and refetching only the scopes that moved; **SSE is rejected outright** (it holds a Worker invocation open *and* polls D1 inside it) and Durable-Object WebSockets are declined with a named re-open trigger. A dated decision, not a permanent no — re-propose only against one of ADR 0023's three triggers.

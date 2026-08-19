@@ -15,6 +15,7 @@ import type { VendorClaim } from '@aeci/shared';
 
 import { VendorApi } from '../vendor-api';
 import { VENDOR_INTEGRATIONS_FIXTURE } from '../vendor-fixtures';
+import { VendorPortalStore } from '../vendor-portal-store';
 
 import { VendorClaimLane } from './vendor-claim-lane';
 
@@ -24,13 +25,24 @@ const SINGLE_SOURCE = PROCORE.claims[1]; // rfis, outbound, affirmed by us only
 const CONFIRMED = PROCORE.claims[2]; // submittals, inbound, both sides
 const CONFLICT = PROCORE.claims[3]; // drawings, both, we affirm / they deny
 
+let retractAttestation: ReturnType<typeof vi.fn>;
+let getIntegrations: ReturnType<typeof vi.fn>;
+
+const flush = () => new Promise<void>((resolve) => setTimeout(resolve));
+
 beforeEach(() => {
   TestBed.resetTestingModule();
+  retractAttestation = vi.fn().mockResolvedValue(undefined);
+  getIntegrations = vi.fn().mockResolvedValue(VENDOR_INTEGRATIONS_FIXTURE);
   TestBed.configureTestingModule({
     providers: [
       provideZonelessChangeDetection(),
       provideHttpClient(),
-      { provide: VendorApi, useValue: {} as Partial<VendorApi> },
+      {
+        provide: VendorApi,
+        useValue: { retractAttestation, getIntegrations } as Partial<VendorApi>,
+      },
+      VendorPortalStore,
     ],
   });
 });
@@ -195,5 +207,105 @@ describe('VendorClaimLane — the owns-both case', () => {
     expect(text(create(claim, BOTH_ENDPOINTS.other_product.name))).toContain(
       'Confirmed by Summit BIM',
     );
+  });
+});
+
+describe('VendorClaimLane — the optimistic retract interim (AECI-630)', () => {
+  /** Load the real list into the store, so the lane's Clear writes against it. */
+  async function seededStore(): Promise<VendorPortalStore> {
+    const store = TestBed.inject(VendorPortalStore);
+    await store.ensure('integrations');
+    return store;
+  }
+
+  const clear = (fixture: ComponentFixture<VendorClaimLane>) => {
+    const el = fixture.nativeElement as HTMLElement;
+    const match = [...el.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Clear');
+    if (!match) throw new Error('no Clear button');
+    match.click();
+  };
+
+  const claimIn = (store: VendorPortalStore, claimId: string) =>
+    store
+      .integrations()
+      .flatMap((i) => i.claims)
+      .find((c) => c.id === claimId)!;
+
+  it('drops our own rows immediately and leaves the badge for the re-read', async () => {
+    const store = await seededStore();
+    let settle!: () => void;
+    retractAttestation.mockReturnValue(
+      new Promise<void>((resolve) => {
+        settle = resolve;
+      }),
+    );
+    const fixture = create(SINGLE_SOURCE);
+
+    clear(fixture);
+
+    // The lane stops asserting at once rather than sitting frozen for a round
+    // trip plus a re-read...
+    expect(claimIn(store, SINGLE_SOURCE.id).mine).toEqual([]);
+    // ...but `agreement` is the server's to recompute (a 204 carries no body,
+    // and `counterparty` is a lossy reduction of every other voter).
+    expect(claimIn(store, SINGLE_SOURCE.id).agreement).toBe('single_source');
+
+    settle();
+    await flush();
+  });
+
+  it('reports itself busy while the write is in flight, and stops when it settles', async () => {
+    await seededStore();
+    let settle!: () => void;
+    retractAttestation.mockReturnValue(
+      new Promise<void>((resolve) => {
+        settle = resolve;
+      }),
+    );
+    const fixture = create(SINGLE_SOURCE);
+    const row = fixture.nativeElement as HTMLElement;
+
+    expect(row.getAttribute('aria-busy')).toBeNull();
+
+    clear(fixture);
+    fixture.detectChanges();
+    // Part of the lane has moved and part has not; `aria-busy` is how an
+    // assistive reader is told that rather than hearing a contradiction.
+    expect(row.getAttribute('aria-busy')).toBe('true');
+
+    settle();
+    await flush();
+    fixture.detectChanges();
+    expect(row.getAttribute('aria-busy')).toBeNull();
+  });
+
+  it('rolls the position back and shows a lane-local error when the retract fails', async () => {
+    // The rollback test for the retract path. Without it the lane would keep
+    // rendering "no position" for a withdrawal the server refused.
+    const store = await seededStore();
+    retractAttestation.mockRejectedValue(new Error('offline'));
+    const fixture = create(SINGLE_SOURCE);
+
+    clear(fixture);
+    await flush();
+    fixture.detectChanges();
+
+    expect(claimIn(store, SINGLE_SOURCE.id).mine).toEqual(SINGLE_SOURCE.mine);
+    // Failures stay lane-local and `role="alert"`, beside the control that
+    // failed — never in the tab's one polite live region.
+    const alert = (fixture.nativeElement as HTMLElement).querySelector('[role="alert"]');
+    expect(alert?.textContent).toContain('Try again');
+    expect((fixture.nativeElement as HTMLElement).getAttribute('aria-busy')).toBeNull();
+  });
+
+  it('renders the interim honestly once the patch lands', () => {
+    // What the card re-renders the lane with mid-flight: our rows gone, the
+    // badge not yet moved. The stance line must follow the rows, and the badge
+    // must not borrow our name for an attribution we just withdrew.
+    const interim: VendorClaim = { ...SINGLE_SOURCE, mine: [] };
+    const body = text(create(interim));
+
+    expect(body).toContain('No position yet');
+    expect(body).not.toContain('Confirmed by Summit BIM');
   });
 });

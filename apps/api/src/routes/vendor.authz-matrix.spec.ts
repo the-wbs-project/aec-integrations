@@ -38,6 +38,12 @@
  * not exist**, and `GET /api/vendor/integrations` shows a vendor only its own
  * attestable surface.
  *
+ * AECI-627 adds `GET /api/vendor/updates`, the polling freshness cursor. It takes
+ * every guard cell too, and its isolation cell is a *timestamp* one rather than a
+ * payload one: the endpoint returns no rows at all, so what must not leak is the
+ * fact that another vendor's row moved. There is no RLS behind it (ADR 0016), so
+ * the six `WHERE` clauses are the whole authorization.
+ *
  * AECI-606 adds `GET /api/vendor/data-objects`, the surface's FIRST route with no
  * ownership question at all — the `data_object` vocabulary is AECi-curated and
  * holds no vendor-owned rows, so there is nothing to scope. It still takes every
@@ -91,6 +97,7 @@ import {
   createVendorClaimHandler,
 } from './vendor-attestations';
 import { createListDataObjectsHandler } from './vendor-data-objects';
+import { createVendorUpdatesHandler } from './vendor-updates';
 
 const SUPABASE_URL = 'https://test-project.supabase.co';
 const ENV = { ENV: 'preview', SUPABASE_URL } as Env;
@@ -303,6 +310,8 @@ function makeApp() {
     requireVendor(guard),
     createListDataObjectsHandler(t.factory),
   );
+  // AECI-627 — guard only; no authority resolution, no verified gate.
+  app.get('/api/vendor/updates', requireVendor(guard), createVendorUpdatesHandler(t.factory));
   return app;
 }
 
@@ -379,6 +388,7 @@ const ROUTES: ReadonlyArray<{ path: string; method: string; body?: unknown; ok?:
     ok: 204,
   },
   { path: '/api/vendor/data-objects', method: 'GET' },
+  { path: '/api/vendor/updates', method: 'GET' },
 ];
 
 /** The version routes that WRITE, and are therefore Verified-gated. */
@@ -566,6 +576,14 @@ describe('/api/vendor/claims* — the Verified capability gate (AECI-301)', () =
     const { status, body } = await call('/api/vendor/integrations', 'GET', SEAT_UNVERIFIED);
     expect(status).toBe(200);
     expect(body.integrations.map((i: { id: string }) => i.id)).toEqual([INTEGRATION_BU]);
+  });
+
+  it('lets an UNVERIFIED vendor READ its freshness cursors (AECI-627)', async () => {
+    // Polling is not the gated capability either. Gating it would leave the
+    // read-only tab unable to notice that its own verification just landed.
+    const { status, body } = await call('/api/vendor/updates', 'GET', SEAT_UNVERIFIED);
+    expect(status).toBe(200);
+    expect(typeof body.revisions.profile).toBe('string');
   });
 
   it('lets an UNVERIFIED vendor READ the data_object vocabulary (AECI-606)', async () => {
@@ -773,6 +791,24 @@ describe('/api/vendor/* — cross-vendor isolation', () => {
     expect(status).toBe(200);
     expect(body.vendor.slug).toBe('autodesk');
     expect(body.seat_count).toBe(3);
+  });
+
+  it('GET /updates never moves a cursor for another vendor’s write', async () => {
+    // The isolation question this endpoint poses is different from every other
+    // cell's: it returns no rows, so what must not leak is the TIMESTAMP. A
+    // cursor that moved here would tell vendor A that vendor B edited something.
+    const MOVED = '2027-01-01T00:00:00.000Z';
+    const before = (await call('/api/vendor/updates', 'GET', SEAT_A)).body.revisions;
+
+    await t.db
+      .update(products)
+      .set({ description: 'B edited', updatedAt: MOVED })
+      .where(eq(products.id, PRODUCT_B));
+
+    const after = (await call('/api/vendor/updates', 'GET', SEAT_A)).body.revisions;
+    expect(after).toEqual(before);
+    // …and vendor B, whose product it actually is, DOES see it move.
+    expect((await call('/api/vendor/updates', 'GET', SEAT_B)).body.revisions.products).toBe(MOVED);
   });
 
   it('GET /data-objects returns the SAME vocabulary to every vendor — the one route with no scope', async () => {

@@ -16,7 +16,9 @@ import type {
   VendorIntegration,
 } from '@aeci/shared';
 
+import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorApi } from '../vendor-api';
+import { VendorPortalStore } from '../vendor-portal-store';
 
 import { VendorIntegrationCard } from './vendor-integration-card';
 import { VendorNotificationsList } from './vendor-notifications-list';
@@ -36,20 +38,63 @@ import { VendorNotificationsList } from './vendor-notifications-list';
  * component runs verbatim on both surfaces with no conditional code, and the
  * heavier read stays off every other tab's SSR path.
  *
- * ── STATE ───────────────────────────────────────────────────────────────────
- * This is the single owner of the integration list. Writes reconcile from the
- * echo (`POST`/`PUT` both return the recomputed claim, agreement included), so
- * there is no refetch on the common path. `DELETE` is the exception: it answers
- * `204` with no body, and the claim cannot be reconstructed locally, because
- * `counterparty` is a *lossy* reduction of every other voter — with a third
- * vendor in play, dropping the caller's own row can leave a genuine `conflict`
- * that a local guess would render as `single_source`. The contract is explicit
- * that the dashboard never re-derives `computeAgreement`. So a retract triggers
- * one targeted re-read.
+ * ── STATE (AECI-628) ────────────────────────────────────────────────────────
+ * The integration list is owned by {@link VendorPortalStore}, not by this
+ * component: a revalidation loop has to be able to refresh it while the tab is
+ * closed, and an optimistic attestation write has to be able to roll back to an
+ * exact prior value that survives the `@switch` destroying this component.
+ * Everything else about the reconciliation contract is unchanged.
+ *
+ * Writes reconcile from the echo (`POST`/`PUT` both return the recomputed claim,
+ * agreement included), so there is no refetch on the common path; the echo is
+ * spliced into the store through `apply(...).commit()`. `DELETE` is the
+ * exception: it answers `204` with no body, and the claim cannot be
+ * reconstructed locally, because `counterparty` is a *lossy* reduction of every
+ * other voter — with a third vendor in play, dropping the caller's own row can
+ * leave a genuine `conflict` that a local guess would render as `single_source`.
+ * The contract is explicit that the dashboard never re-derives
+ * `computeAgreement`. So a retract triggers one targeted re-read, and that read
+ * stays HERE rather than becoming `store.revalidate(['integrations'])`: the
+ * store would replace the whole list, and splicing the one claim by id is what
+ * keeps a concurrent write on another claim from being clobbered.
+ *
+ * The vocabulary and per-product version lists are NOT store state. They are
+ * lookup tables this tab uses to render its controls, they never change under
+ * the reader, and they are read straight from `VendorApi` (which is also what
+ * keeps the preview's DI shadow working for them).
  *
  * Per-claim busy/error state lives in `VendorAttestationControl`, one instance
  * per claim — the component boundary is the scoping mechanism, so there is no
  * map keyed by claim id to keep in sync.
+ *
+ * ── ANNOUNCEMENTS (AECI-631 / §6.3) ─────────────────────────────────────────
+ * This tab used to own the surface's live region. It no longer does: the region
+ * was hoisted to `vendor-dashboard-tabbed.ts` and this component announces
+ * through {@link VendorPortalAnnouncer}. Two things made the move necessary
+ * rather than cosmetic. The `@switch` in the shell DESTROYS this component on a
+ * tab switch, taking a region mid-announcement with it; and the integration card
+ * carried a second `role="status"` of its own, so one event could queue two
+ * competing utterances.
+ *
+ * The wording still originates here, because this component is the one place
+ * that sees every write's result and can therefore name the subject ("RFIs ·
+ * position saved") rather than saying something vague. Only the channel moved.
+ *
+ * The loading and failure paragraphs are deliberately NOT live regions. They are
+ * the state of this section, not announcements, and a `role="status"` on each
+ * would put three regions back on the page. The block carries `aria-busy` while
+ * it loads, and the one moment where silence would be wrong — a vendor pressing
+ * "Try again" and getting no feedback — announces its outcome explicitly.
+ *
+ * ── NO LAYOUT SHIFT UNDER THE POINTER (§6.3) ────────────────────────────────
+ * A revalidation that reflows the control the vendor is about to click is a
+ * worse outcome than the staleness it fixes. Two properties hold that here, and
+ * both are load-bearing rather than incidental. `loading()` is false while the
+ * store reports `refreshing` — it distinguishes "no data yet" from "we have data
+ * and are checking" precisely so a background fetch cannot swap the card list
+ * for the loading paragraph or drop the summary line. And `@for` tracks by
+ * `integration.id`, so a poll returning the same integrations patches the lanes
+ * that changed instead of tearing down and rebuilding the list under the cursor.
  *
  * ── COPY ────────────────────────────────────────────────────────────────────
  * §6's discipline, enforced here and in `vendor-attestation-labels.ts`: no
@@ -62,7 +107,7 @@ import { VendorNotificationsList } from './vendor-notifications-list';
   imports: [VendorIntegrationCard, VendorNotificationsList],
   styles: [':host { display: block; }'],
   template: `
-    <div class="space-y-6">
+    <div class="space-y-6" [attr.aria-busy]="loading() ? 'true' : null">
       <p class="max-w-prose text-sm text-(--text-secondary)" i18n="@@vendor.attest.intro">
         These are the integrations we have on record for your products. Confirm the data flows that
         are real, and say so when one is not. The other vendor sees the same list from their side.
@@ -90,7 +135,13 @@ import { VendorNotificationsList } from './vendor-notifications-list';
       <aec-vendor-notifications-list />
 
       @if (loading()) {
-        <p role="status" class="text-sm text-(--text-secondary)" i18n="@@vendor.attest.loading">
+        <!--
+          No role="status" here: this is the section's state, not an
+          announcement, and the surface has exactly one announcement channel
+          (the shell's region). aria-busy on the wrapper above is what tells
+          assistive tech this block is still settling.
+        -->
+        <p class="text-sm text-(--text-secondary)" i18n="@@vendor.attest.loading">
           Loading your integrations…
         </p>
       } @else if (failed()) {
@@ -133,36 +184,27 @@ import { VendorNotificationsList } from './vendor-notifications-list';
           }
         </div>
       }
-
-      <!--
-        ONE polite live region for the whole tab, always present in the DOM.
-        Mutating a persistent region announces far more reliably than inserting
-        one, and because the section already receives every write's result it can
-        name the subject ("RFIs · position saved"), which a lane-local region
-        could not do unambiguously. Failures are the opposite case and stay
-        lane-local + assertive, beside the control that failed.
-      -->
-      <p class="sr-only" role="status">{{ liveMessage() }}</p>
     </div>
   `,
 })
 export class VendorIntegrationsSection {
   private readonly api = inject(VendorApi);
+  private readonly store = inject(VendorPortalStore);
+  private readonly announcer = inject(VendorPortalAnnouncer);
 
   readonly verified = input.required<boolean>();
   readonly vendorName = input.required<string>();
 
   private readonly cards = viewChildren(VendorIntegrationCard);
 
-  protected readonly integrations = signal<readonly VendorIntegration[]>([]);
-  protected readonly loading = signal(true);
-  protected readonly failed = signal(false);
+  protected readonly integrations = this.store.integrations;
+  protected readonly loading = this.store.integrationsLoading;
+  protected readonly failed = this.store.integrationsFailed;
   protected readonly dataObjects = signal<readonly DataObjectOption[]>([]);
   protected readonly dataObjectsFailed = signal(false);
   protected readonly versionsByProduct = signal<ReadonlyMap<string, readonly ProductVersion[]>>(
     new Map(),
   );
-  protected readonly liveMessage = signal('');
 
   /** Set after a create or a pivot; consumed once the lane exists. */
   private readonly pendingFocusClaimId = signal<string | null>(null);
@@ -180,7 +222,7 @@ export class VendorIntegrationsSection {
     'rounded-(--radius-sm) border border-(--border-default) px-3 py-1.5 text-sm font-medium text-(--text-primary) transition-colors hover:border-(--border-strong) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
 
   constructor() {
-    afterNextRender(() => void this.load());
+    afterNextRender(() => void this.load('ensure'));
 
     // `afterRenderEffect`, not `afterNextRender`: focus has to move repeatedly —
     // after every create and every duplicate pivot — and only once the lane it
@@ -200,22 +242,32 @@ export class VendorIntegrationsSection {
     return this.versionsByProduct().get(integration.context_product.id) ?? [];
   }
 
+  /**
+   * The retry beside the failure state. It announces its outcome because it is
+   * the one path where the section's own state paragraphs are not enough: the
+   * vendor deliberately pressed a button, and the loading/failure text is not a
+   * live region, so without this a retry is silent for a screen-reader user.
+   */
   protected reload(): void {
-    void this.load();
+    void this.load('reload').then(() => {
+      this.announcer.announce(
+        this.failed()
+          ? $localize`:@@vendor.attest.live.reloadFailed:Your integrations could not be loaded.`
+          : $localize`:@@vendor.attest.live.reloaded:Your integrations are up to date.`,
+      );
+    });
   }
 
-  private async load(): Promise<void> {
-    this.loading.set(true);
-    this.failed.set(false);
-    try {
-      const res = await this.api.getIntegrations();
-      this.integrations.set(res.integrations);
-    } catch {
-      this.failed.set(true);
-      return;
-    } finally {
-      this.loading.set(false);
-    }
+  /**
+   * `ensure` on mount (the store may already hold the list from an earlier visit
+   * to this tab), `reload` from the retry button. The two secondary reads are
+   * component-local, so they run on both paths.
+   */
+  private async load(mode: 'ensure' | 'reload'): Promise<void> {
+    await (mode === 'ensure'
+      ? this.store.ensure('integrations')
+      : this.store.reload('integrations'));
+    if (this.store.integrationsFailed()) return;
 
     // Both secondary reads degrade without blocking the list: an unseeded
     // vocabulary or a versions outage removes an affordance, it does not remove
@@ -249,23 +301,28 @@ export class VendorIntegrationsSection {
   }
 
   /** Splice one claim in place, leaving every other object identity untouched so
-   *  `@for`'s `track claim.id` only rebuilds the lane that actually changed. */
+   *  `@for`'s `track claim.id` only rebuilds the lane that actually changed.
+   *
+   *  `commit()` because the patch IS the server's answer: these all come from a
+   *  write echo or a targeted re-read, so there is nothing left to reconcile. */
   private applyClaim(claim: VendorClaim, mode: 'replace' | 'append'): void {
-    this.integrations.update((list) =>
-      list.map((integration) => {
-        if (integration.id !== claim.integration_id) return integration;
-        const claims =
-          mode === 'append'
-            ? [...integration.claims, claim]
-            : integration.claims.map((c) => (c.id === claim.id ? claim : c));
-        return { ...integration, claims };
-      }),
-    );
+    this.store
+      .apply('integrations', (list) =>
+        list.map((integration) => {
+          if (integration.id !== claim.integration_id) return integration;
+          const claims =
+            mode === 'append'
+              ? [...integration.claims, claim]
+              : integration.claims.map((c) => (c.id === claim.id ? claim : c));
+          return { ...integration, claims };
+        }),
+      )
+      .commit();
   }
 
   protected onClaimChanged(claim: VendorClaim): void {
     this.applyClaim(claim, 'replace');
-    this.liveMessage.set(
+    this.announcer.announce(
       $localize`:@@vendor.attest.live.saved:${claim.data_object_name}:dataObject: · position saved.`,
     );
   }
@@ -274,14 +331,14 @@ export class VendorIntegrationsSection {
     // Appended, not re-sorted: the new lane appears directly above the form the
     // vendor just used, where their attention already is.
     this.applyClaim(claim, 'append');
-    this.liveMessage.set(
+    this.announcer.announce(
       $localize`:@@vendor.attest.live.added:${claim.data_object_name}:dataObject: · data flow added.`,
     );
     this.pendingFocusClaimId.set(claim.id);
   }
 
   protected async onRetracted(claimId: string): Promise<void> {
-    this.liveMessage.set($localize`:@@vendor.attest.live.cleared:Position withdrawn.`);
+    this.announcer.announce($localize`:@@vendor.attest.live.cleared:Position withdrawn.`);
     // See the header: a 204 carries nothing to reconcile from, and the agreement
     // must not be guessed. One targeted re-read, spliced by id so a concurrent
     // write on another claim is not clobbered.
@@ -289,7 +346,7 @@ export class VendorIntegrationsSection {
       const res = await this.api.getIntegrations();
       const fresh = res.integrations.flatMap((i) => i.claims).find((claim) => claim.id === claimId);
       if (fresh) this.applyClaim(fresh, 'replace');
-      else this.integrations.set(res.integrations);
+      else this.store.apply('integrations', () => res.integrations).commit();
     } catch {
       // The write committed; only the refresh failed. Leave the list as it is
       // rather than showing a stale claim as an error.

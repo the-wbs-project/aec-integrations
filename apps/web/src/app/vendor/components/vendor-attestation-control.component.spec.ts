@@ -8,16 +8,24 @@
  * only-changed-fields, so the natural thing to write here — `{ asserted: false }`
  * — silently destroys the note and version stamps the vendor recorded earlier.
  * These cases pin the whole position onto every request.
+ *
+ * AECI-630 adds the optimistic half (`STAGE_2_REALTIME_SPEC.md` §5), and every
+ * optimistic path here carries a **rollback** case. An optimistic UI without a
+ * tested rollback is just a bug with good latency: the failure mode is a control
+ * left rendering a position the server rejected, which is worse than the latency
+ * it bought. The optimistic row is built from the same `position()` object as the
+ * request, so the "whole position, every time" cases above cover it too.
  */
 import { provideHttpClient } from '@angular/common/http';
 import { provideZonelessChangeDetection } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { ProductVersion, VendorClaim } from '@aeci/shared';
+import type { ProductVersion, VendorClaim, VendorClaimResponse } from '@aeci/shared';
 
 import { VendorApi } from '../vendor-api';
 import { VENDOR_INTEGRATIONS_FIXTURE, VENDOR_PRODUCT_VERSIONS_FIXTURE } from '../vendor-fixtures';
+import { VendorPortalStore } from '../vendor-portal-store';
 
 import { VendorAttestationControl } from './vendor-attestation-control';
 
@@ -25,12 +33,15 @@ import { VendorAttestationControl } from './vendor-attestation-control';
 const STAMPED_CLAIM = VENDOR_INTEGRATIONS_FIXTURE.integrations[0].claims[1];
 /** The AECi-seeded `models` lane: no position of the caller's at all. */
 const UNVOTED_CLAIM = VENDOR_INTEGRATIONS_FIXTURE.integrations[0].claims[0];
+/** The owns-both lane: one company, two slots, still one voter. */
+const OWNS_BOTH_CLAIM = VENDOR_INTEGRATIONS_FIXTURE.integrations[1].claims[0];
 const VERSIONS = VENDOR_PRODUCT_VERSIONS_FIXTURE[
   '00000000-0000-4000-8000-000000005201'
 ] as readonly ProductVersion[];
 
 let upsertAttestation: ReturnType<typeof vi.fn>;
 let retractAttestation: ReturnType<typeof vi.fn>;
+let getIntegrations: ReturnType<typeof vi.fn>;
 
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve));
 
@@ -38,14 +49,16 @@ beforeEach(() => {
   TestBed.resetTestingModule();
   upsertAttestation = vi.fn().mockResolvedValue({ claim: STAMPED_CLAIM });
   retractAttestation = vi.fn().mockResolvedValue(undefined);
+  getIntegrations = vi.fn().mockResolvedValue(VENDOR_INTEGRATIONS_FIXTURE);
   TestBed.configureTestingModule({
     providers: [
       provideZonelessChangeDetection(),
       provideHttpClient(),
       {
         provide: VendorApi,
-        useValue: { upsertAttestation, retractAttestation } as Partial<VendorApi>,
+        useValue: { upsertAttestation, retractAttestation, getIntegrations } as Partial<VendorApi>,
       },
+      VendorPortalStore,
     ],
   });
 });
@@ -63,6 +76,36 @@ function create(
   fixture.componentRef.setInput('versions', versions);
   fixture.detectChanges();
   return fixture;
+}
+
+/** Load the real integration list into the store, exactly as the tab does. The
+ *  optimistic patches below are writes against THIS list. */
+async function seededStore(): Promise<VendorPortalStore> {
+  const store = TestBed.inject(VendorPortalStore);
+  await store.ensure('integrations');
+  return store;
+}
+
+/** One claim as the store currently holds it. */
+function claimIn(store: VendorPortalStore, claimId: string): VendorClaim {
+  const claim = store
+    .integrations()
+    .flatMap((i) => i.claims)
+    .find((c) => c.id === claimId);
+  if (!claim) throw new Error(`claim ${claimId} is not in the store`);
+  return claim;
+}
+
+/** A promise whose settlement this test controls, so the window between the
+ *  optimistic patch and the server's answer is inspectable. */
+function deferred<T>(): { promise: Promise<T>; resolve(v: T): void; reject(e: unknown): void } {
+  let resolve!: (v: T) => void;
+  let reject!: (e: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
 }
 
 function button(
@@ -214,7 +257,204 @@ describe('VendorAttestationControl — failure handling', () => {
   });
 });
 
+describe('VendorAttestationControl — optimistic assert / deny (AECI-630)', () => {
+  it('renders the new position before the server answers', async () => {
+    const store = await seededStore();
+    const pending = deferred<VendorClaimResponse>();
+    upsertAttestation.mockReturnValue(pending.promise);
+    const fixture = create();
+
+    button(fixture, 'Deny').click();
+
+    // No await: the patch is applied before the request is even sent.
+    expect(claimIn(store, STAMPED_CLAIM.id).mine[0].asserted).toBe(false);
+    expect(upsertAttestation).toHaveBeenCalled();
+
+    pending.resolve({ claim: STAMPED_CLAIM });
+    await flush();
+  });
+
+  it('carries the WHOLE position onto the optimistic row, not a partial one', async () => {
+    // The same trap the file opens with, one layer in: an optimistic path that
+    // builds its own `{ asserted }` would render a note-less, stamp-less
+    // position and hide the data loss until the echo landed.
+    const store = await seededStore();
+    upsertAttestation.mockReturnValue(deferred<VendorClaimResponse>().promise);
+    const fixture = create();
+
+    button(fixture, 'Deny').click();
+
+    const [row] = claimIn(store, STAMPED_CLAIM.id).mine;
+    expect(row).toMatchObject({
+      asserted: false,
+      note: 'Only for RFIs created after 2025.',
+      introduced_version_id: STAMPED_CLAIM.mine[0].introduced_version_id,
+      deprecated_version_id: null,
+    });
+    // Identical to what went on the wire — one `position()`, two consumers.
+    const sent = upsertAttestation.mock.calls[0][1] as Record<string, unknown>;
+    expect(row).toMatchObject(sent);
+  });
+
+  it('fills every owned slot, taking them from the integration rather than from `mine`', async () => {
+    // A first attestation has no `mine` to copy slots from, and a half-voted
+    // owns-both claim has one too few. `VendorIntegration.slots` is the read's
+    // own answer to "which are mine".
+    const store = await seededStore();
+    upsertAttestation.mockReturnValue(deferred<VendorClaimResponse>().promise);
+
+    const first = create(UNVOTED_CLAIM);
+    button(first, 'Affirm').click();
+    expect(claimIn(store, UNVOTED_CLAIM.id).mine.map((a) => a.slot)).toEqual(['vendor_a']);
+
+    const both = create(OWNS_BOTH_CLAIM, []);
+    button(both, 'Deny').click();
+    expect(claimIn(store, OWNS_BOTH_CLAIM.id).mine.map((a) => a.slot)).toEqual([
+      'vendor_a',
+      'vendor_b',
+    ]);
+  });
+
+  it('leaves `agreement` and `counterparty` for the echo', async () => {
+    // The dashboard never re-derives `computeAgreement`, and `counterparty` is a
+    // lossy reduction of every other voter — a third vendor would be invisible
+    // to a local guess.
+    const store = await seededStore();
+    upsertAttestation.mockReturnValue(deferred<VendorClaimResponse>().promise);
+    const fixture = create(VENDOR_INTEGRATIONS_FIXTURE.integrations[0].claims[3]);
+
+    button(fixture, 'Affirm').click();
+
+    const claim = claimIn(store, VENDOR_INTEGRATIONS_FIXTURE.integrations[0].claims[3].id);
+    expect(claim.agreement).toBe('conflict');
+    expect(claim.counterparty).toEqual({
+      asserted: false,
+      note: 'We do not ingest sheets from this tool.',
+    });
+  });
+
+  it('replaces the optimistic value with the echo, agreement included', async () => {
+    const store = await seededStore();
+    const echo: VendorClaim = { ...STAMPED_CLAIM, agreement: 'confirmed' };
+    upsertAttestation.mockResolvedValue({ claim: echo });
+    const fixture = create();
+
+    button(fixture, 'Affirm').click();
+    await flush();
+
+    expect(claimIn(store, STAMPED_CLAIM.id)).toBe(echo);
+  });
+
+  it('rolls the position back AND shows the error when the write fails', async () => {
+    // The rollback test. A silent revert reads as a UI glitch and the vendor
+    // clicks again; a revert with no rollback leaves the control asserting a
+    // position the server rejected.
+    const store = await seededStore();
+    upsertAttestation.mockRejectedValue(new Error('offline'));
+    const fixture = create();
+
+    button(fixture, 'Deny').click();
+    await flush();
+    fixture.detectChanges();
+
+    expect(claimIn(store, STAMPED_CLAIM.id).mine).toEqual(STAMPED_CLAIM.mine);
+    expect(
+      (fixture.nativeElement as HTMLElement).querySelector('[role="alert"]')?.textContent,
+    ).toContain('Try again');
+  });
+
+  it('rolls back a first-ever attestation to no position at all', async () => {
+    const store = await seededStore();
+    upsertAttestation.mockRejectedValue(new Error('offline'));
+    const fixture = create(UNVOTED_CLAIM);
+
+    button(fixture, 'Affirm').click();
+    await flush();
+    fixture.detectChanges();
+
+    expect(claimIn(store, UNVOTED_CLAIM.id).mine).toEqual([]);
+    expect((fixture.nativeElement as HTMLElement).querySelector('[role="alert"]')).not.toBeNull();
+  });
+});
+
+describe('VendorAttestationControl — optimistic retract (AECI-630)', () => {
+  it('withdraws the position locally so the lane does not sit frozen', async () => {
+    const store = await seededStore();
+    const pending = deferred<void>();
+    retractAttestation.mockReturnValue(pending.promise);
+    const fixture = create();
+
+    button(fixture, 'Clear').click();
+
+    expect(claimIn(store, STAMPED_CLAIM.id).mine).toEqual([]);
+    // The DELETE determines our own rows and nothing else: 204, no body, and the
+    // recomputed agreement arrives with the section's re-read.
+    expect(claimIn(store, STAMPED_CLAIM.id).agreement).toBe('single_source');
+
+    pending.resolve();
+    await flush();
+  });
+
+  it('keeps the interim after a 204 and hands the re-read to the section', async () => {
+    const store = await seededStore();
+    const fixture = create();
+    const retracted = vi.fn();
+    fixture.componentInstance.retracted.subscribe(retracted);
+
+    button(fixture, 'Clear').click();
+    await flush();
+
+    expect(claimIn(store, STAMPED_CLAIM.id).mine).toEqual([]);
+    expect(retracted).toHaveBeenCalledWith(STAMPED_CLAIM.id);
+    // The control never re-reads: reconstructing the agreement is the section's
+    // one targeted refetch, not a local guess.
+    expect(getIntegrations.mock.calls.length).toBe(1); // the seeding read only
+  });
+
+  it('puts the position back AND shows the error when the retract fails', async () => {
+    const store = await seededStore();
+    retractAttestation.mockRejectedValue(new Error('offline'));
+    const fixture = create();
+    const retracted = vi.fn();
+    fixture.componentInstance.retracted.subscribe(retracted);
+
+    button(fixture, 'Clear').click();
+    await flush();
+    fixture.detectChanges();
+
+    expect(claimIn(store, STAMPED_CLAIM.id).mine).toEqual(STAMPED_CLAIM.mine);
+    expect(retracted).not.toHaveBeenCalled();
+    expect(
+      (fixture.nativeElement as HTMLElement).querySelector('[role="alert"]')?.textContent,
+    ).toContain('Try again');
+  });
+});
+
+describe('VendorAttestationControl — a provisional lane cannot be written to', () => {
+  it('disables all three commands on the add form’s placeholder', async () => {
+    await seededStore();
+    // The id the optimistic insert mints. It is deliberately not a UUID: the
+    // server has never seen it, so a write against it could only 404.
+    const provisional: VendorClaim = { ...STAMPED_CLAIM, id: 'pending-claim:1' };
+    const fixture = create(provisional);
+
+    for (const name of ['Affirm', 'Deny', 'Clear']) {
+      expect(button(fixture, name).disabled).toBe(true);
+    }
+    expect(upsertAttestation).not.toHaveBeenCalled();
+    expect(retractAttestation).not.toHaveBeenCalled();
+  });
+});
+
 describe('VendorAttestationControl — the owns-both divergence case', () => {
+  /** The divergence notice, found by its copy rather than by `role="status"`.
+   *  It deliberately is NOT a live region (see the template comment): it
+   *  describes a standing condition, and `divergentSlots()` is computed off
+   *  store data a background revalidation can move, so as a region it competed
+   *  with `VendorPortalAnnouncer` for the same event. */
+  const divergenceNotice = (el: HTMLElement): HTMLElement | undefined =>
+    [...el.querySelectorAll('p')].find((p) => (p.textContent ?? '').includes('different details'));
+
   it('warns when two owned slots record different details', () => {
     // One PUT body replaces every owned slot, so two rows that disagree get
     // collapsed on the next save. The UI has to say so rather than do it quietly.
@@ -227,7 +467,26 @@ describe('VendorAttestationControl — the owns-both divergence case', () => {
     };
 
     const el = create(divergent).nativeElement as HTMLElement;
-    expect(el.querySelector('[role="status"]')?.textContent).toContain('different details');
+    expect(divergenceNotice(el)?.textContent).toContain('different details');
+  });
+
+  it('does not make the divergence notice a live region', () => {
+    // The single-channel rule (STAGE_2_REALTIME_SPEC.md §6.3): standing state is
+    // plain text, events go through VendorPortalAnnouncer. A `role="status"`
+    // here fires on a store refetch the user did not cause, on the one tab that
+    // also announces, so two utterances queue for one event.
+    const divergent: VendorClaim = {
+      ...STAMPED_CLAIM,
+      mine: [
+        { ...STAMPED_CLAIM.mine[0], slot: 'vendor_a', note: 'A' },
+        { ...STAMPED_CLAIM.mine[0], slot: 'vendor_b', note: 'B' },
+      ],
+    };
+
+    const el = create(divergent).nativeElement as HTMLElement;
+    expect(divergenceNotice(el)).toBeDefined();
+    expect(divergenceNotice(el)?.getAttribute('role')).toBeNull();
+    expect(divergenceNotice(el)?.getAttribute('aria-live')).toBeNull();
   });
 
   it('does NOT warn when only the version stamps differ across slots', () => {
@@ -240,7 +499,7 @@ describe('VendorAttestationControl — the owns-both divergence case', () => {
     expect(agreeing.mine[0].introduced_version_id).not.toBe(agreeing.mine[1].introduced_version_id);
 
     const el = create(agreeing, []).nativeElement as HTMLElement;
-    expect(el.querySelector('[role="status"]')).toBeNull();
+    expect(divergenceNotice(el)).toBeUndefined();
   });
 });
 

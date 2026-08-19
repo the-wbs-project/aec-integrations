@@ -1,10 +1,11 @@
-import { Component, computed, effect, inject, signal } from '@angular/core';
+import { Component, computed, effect, inject, signal, untracked } from '@angular/core';
 
 import type { VendorSeat } from '@aeci/shared';
 
 import { VendorDashboardSingle } from '../../vendor/vendor-dashboard-single';
 import { VendorDashboardTabbed } from '../../vendor/vendor-dashboard-tabbed';
 import { VendorApi } from '../../vendor/vendor-api';
+import { VendorPortalStore } from '../../vendor/vendor-portal-store';
 import {
   VENDOR_ME_DOWNGRADED_FIXTURE,
   VENDOR_ME_EXPIRING_FIXTURE,
@@ -52,11 +53,22 @@ const SINGLE_SEAT_FIXTURE: readonly VendorSeat[] = [
  * shadowed with a fixture-backed fake ({@link PreviewVendorApi}) so edits are
  * exercisable without a session. Route: `/preview/vendor-dashboard`,
  * production-blocked by `isPreviewPath`. Don't link to it from product navigation.
+ *
+ * {@link VendorPortalStore} (AECI-628) is provided HERE, alongside the API
+ * shadow, for the same reason: the store is deliberately not `providedIn: 'root'`,
+ * so declaring it on this element is what makes it resolve `PreviewVendorApi`
+ * instead of the real client. Providing it any higher would send the preview's
+ * section reads at the live API. This component is the preview's surface owner,
+ * so it seeds the store the way `VendorPage` seeds it on the real route.
  */
 @Component({
   selector: 'app-vendor-dashboard-preview',
   imports: [VendorDashboardTabbed, VendorDashboardSingle],
-  providers: [PreviewVendorApi, { provide: VendorApi, useExisting: PreviewVendorApi }],
+  providers: [
+    PreviewVendorApi,
+    { provide: VendorApi, useExisting: PreviewVendorApi },
+    VendorPortalStore,
+  ],
   template: `
     <!-- Dev-only concept switcher. Not part of the surface under review. -->
     <div
@@ -114,6 +126,7 @@ const SINGLE_SEAT_FIXTURE: readonly VendorSeat[] = [
 })
 export class VendorDashboardPreview {
   private readonly previewApi = inject(PreviewVendorApi);
+  private readonly store = inject(VendorPortalStore);
 
   protected readonly concept = signal<Concept>('a');
   protected readonly fixture = signal<FixtureKey>('verified');
@@ -155,7 +168,18 @@ export class VendorDashboardPreview {
     // read-only rendering of it is the thing this toggle exists to review. (The
     // empty-surface state has no verification dimension and is covered by
     // `vendor-integrations-section.component.spec.ts` instead.)
-    effect(() => this.previewApi.setFixture(this.activeMe(), this.activeSeats()));
+    //
+    // Seeding the store in the SAME effect keeps the two in step: the sections
+    // read `me` from the store, the fake answers the section reads, and toggling
+    // a fixture has to move both or the panel and the roster would disagree.
+    effect(() => {
+      const me = this.activeMe();
+      const seats = this.activeSeats();
+      untracked(() => {
+        this.previewApi.setFixture(me, seats);
+        this.store.seed(me);
+      });
+    });
   }
 
   protected tabClass(active: boolean): string {

@@ -1,4 +1,4 @@
-import { Component, OnInit, computed, inject, input, signal } from '@angular/core';
+import { Component, computed, effect, inject, input, signal, untracked } from '@angular/core';
 
 import {
   UpdateVendorProductSchema,
@@ -9,6 +9,7 @@ import {
 } from '@aeci/shared';
 
 import { VendorApi } from '../vendor-api';
+import { VendorPortalStore } from '../vendor-portal-store';
 
 type ProductTextKey =
   | 'description'
@@ -51,6 +52,14 @@ const MAX_TERMS_PER_FACET = 10;
  * PATCH echo re-seeds the baseline so the form settles clean. The confirmation
  * must NOT promise instant search — edits reach Algolia on the nightly sync
  * (≤24h) while SSR repaints immediately (AECI-529).
+ *
+ * ── UNSAVED EDITS vs. REVALIDATION (AECI-628) ───────────────────────────────
+ * Same contract as `vendor-profile-form.ts`: the baseline re-seeds from the
+ * input so a clean form tracks the server, and while `hasChanges()` is true the
+ * form registers with {@link VendorPortalStore.markDirty} so a fresh `me`
+ * payload is stashed rather than applied. The registration is keyed by PRODUCT
+ * ID, because the section renders one of these per owned product and a clean
+ * sibling must not be able to cancel a dirty one's protection.
  */
 @Component({
   selector: 'aec-vendor-product-form',
@@ -69,6 +78,25 @@ const MAX_TERMS_PER_FACET = 10;
       </div>
 
       <form class="space-y-6" novalidate (submit)="$event.preventDefault(); onSave()">
+        @if (updatedElsewhere()) {
+          <div
+            class="flex flex-wrap items-center gap-3 rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) p-4"
+          >
+            <p class="text-sm text-(--text-primary)" i18n="@@vendor.product.updatedElsewhere">
+              This product changed somewhere else while you were editing. Your unsaved changes are
+              still here.
+            </p>
+            <button
+              type="button"
+              [class]="reloadButtonClass"
+              (click)="reloadSection()"
+              i18n="@@vendor.product.reloadSection"
+            >
+              Reload this section
+            </button>
+          </div>
+        }
+
         @if (!canEdit()) {
           <p
             class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) p-4 text-sm leading-relaxed text-(--text-secondary)"
@@ -185,8 +213,9 @@ const MAX_TERMS_PER_FACET = 10;
   `,
   styles: [':host { display: block; }'],
 })
-export class VendorProductForm implements OnInit {
+export class VendorProductForm {
   private readonly api = inject(VendorApi);
+  private readonly store = inject(VendorPortalStore);
 
   readonly product = input.required<VendorProduct>();
   /** The full taxonomy vocabulary for the pickers; `null` until it loads. */
@@ -253,6 +282,8 @@ export class VendorProductForm implements OnInit {
   );
   protected readonly saveButtonClass =
     'inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-5 py-2.5 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50';
+  protected readonly reloadButtonClass =
+    'rounded-(--radius-sm) border border-(--border-default) px-3 py-1.5 text-sm font-label text-(--text-primary) transition-colors hover:bg-(--surface-raised) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
 
   protected readonly fieldErrors = computed<Record<string, string | null>>(() => {
     const m = this.model();
@@ -323,8 +354,43 @@ export class VendorProductForm implements OnInit {
       : `${base} border-(--border-default) text-(--text-primary) hover:border-(--border-strong)`;
   };
 
-  ngOnInit(): void {
-    this.seed(this.product());
+  /** The store deferred a fresh `me` payload because THIS product form is
+   *  holding it. Keyed by product id, so a sibling form's edits do not put a
+   *  reload prompt on a product nobody touched. */
+  protected readonly updatedElsewhere = computed(() =>
+    this.store.isStale('products', this.product().id),
+  );
+
+  /** One-shot override for the re-seed guard: see `vendor-profile-form.ts`. */
+  private readonly acceptNextPayload = signal(false);
+
+  constructor() {
+    // Re-seed from the input whenever the payload changes and there is nothing
+    // unsaved to lose.
+    effect(() => {
+      const p = this.product();
+      untracked(() => {
+        if (this.hasChanges() && !this.acceptNextPayload()) return;
+        this.acceptNextPayload.set(false);
+        this.seed(p);
+      });
+    });
+
+    // Register/withdraw this product's unsaved-edit protection.
+    effect(() => {
+      const dirty = this.hasChanges();
+      untracked(() => {
+        const id = this.product().id;
+        if (dirty) this.store.markDirty('products', id);
+        else this.store.clearDirty('products', id);
+      });
+    });
+  }
+
+  /** Take the server's copy and drop the unsaved edits. */
+  protected reloadSection(): void {
+    this.acceptNextPayload.set(true);
+    void this.store.reload('products');
   }
 
   protected fieldId(key: string): string {

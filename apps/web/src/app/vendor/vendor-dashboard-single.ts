@@ -1,8 +1,9 @@
-import { Component, computed, input } from '@angular/core';
+import { Component, computed, inject, input } from '@angular/core';
 
 import type { VendorMeResponse } from '@aeci/shared';
 import type { Capability } from '@aeci/shared/entitlements';
 
+import { VendorPortalAnnouncer } from './vendor-announcer';
 import { VendorIntegrationsSection } from './components/vendor-integrations-section';
 import { VendorPlanPanel } from './components/vendor-plan-panel';
 import { VendorProfileForm } from './components/vendor-profile-form';
@@ -127,12 +128,31 @@ import { VendorSeatRoster } from './components/vendor-seat-roster';
           </div>
         </section>
       </div>
+
+      <!--
+        THE portal's live region for this concept, mirroring the tabbed shell's
+        (AECI-631 / §6.3). Concept B has no @switch destroying sections, but it
+        still composes VendorIntegrationsSection, which announces through
+        VendorPortalAnnouncer and declares no region of its own. Without this the
+        announcements would have nowhere to land and every attestation write on
+        Concept B would be silent to a screen reader.
+
+        Exactly one, polite, sr-only, always in the DOM so a message is a
+        mutation rather than an insertion. Only ever one of the two concepts is
+        rendered at a time, so this cannot race the tabbed shell's.
+      -->
+      <p class="sr-only" role="status">{{ liveMessage() }}</p>
     </div>
   `,
   styles: [':host { display: block; }'],
 })
 export class VendorDashboardSingle {
   readonly me = input.required<VendorMeResponse>();
+
+  /** The single live region's text (§6.3), same channel the tabbed shell reads.
+   *  Read-only here: the concept renders the channel, it does not decide what
+   *  goes into it. */
+  protected readonly liveMessage = inject(VendorPortalAnnouncer).message;
 
   /** Same §8 capability gate as the tabbed shell, so the two concepts cannot
    *  disagree about what a lapsed vendor may edit. */

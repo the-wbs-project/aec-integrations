@@ -1,4 +1,4 @@
-import { Component, inject } from '@angular/core';
+import { Component, afterNextRender, effect, inject, untracked } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { Meta, Title } from '@angular/platform-browser';
 import { ActivatedRoute } from '@angular/router';
@@ -8,6 +8,8 @@ import type { VendorMeResponse } from '@aeci/shared';
 
 import { NotFound } from '../not-found/not-found';
 import { VendorDashboardTabbed } from './vendor-dashboard-tabbed';
+import { VendorLiveSync } from './vendor-live-sync';
+import { VendorPortalStore } from './vendor-portal-store';
 
 /**
  * AECI-522 — the `/vendor` vendor-portal page: the gate + the dashboard. Data
@@ -18,7 +20,22 @@ import { VendorDashboardTabbed } from './vendor-dashboard-tabbed';
  *     noindex 404 meta). Render the global `<aec-not-found/>` so the surface is
  *     never revealed. URL stays at `/vendor`. (`requireVendor()` rejects anon,
  *     reviewers, banned seats, null-`vendor_id` seats, AND site admins.)
- *   - `me` set → render the tabbed dashboard (the PO-chosen IA, AECI-522).
+ *   - `me` set → seed {@link VendorPortalStore} and render the tabbed dashboard
+ *     (the PO-chosen IA, AECI-522).
+ *
+ * ── WHY THE STORE IS PROVIDED HERE (AECI-628) ───────────────────────────────
+ * This page is the surface owner: it holds the resolved payload and it is the
+ * ancestor of every section. Providing `VendorPortalStore` on the component (not
+ * `providedIn: 'root'`) means the store resolves the same `VendorApi` binding the
+ * sections do — which is what lets the dev-only preview keep shadowing
+ * `VendorApi` with `PreviewVendorApi` and get a working store for free. It also
+ * scopes portal state to the portal: `/vendor` is never edge-cached, and none of
+ * this may leak into a cacheable SSR component.
+ *
+ * The gate decision stays on the RESOLVED value, not on `store.me()`. They agree
+ * (the store is seeded synchronously below), but "the resolver said this caller
+ * is not a vendor" and "the store has not loaded yet" are different facts and
+ * only the first one may render a 404.
  *
  * `/vendor` is a private, never-edge-cached surface (cookie-forwarded
  * non-cacheable SSR branch, no `Cache-Tag`), so on the success path we set a
@@ -28,11 +45,11 @@ import { VendorDashboardTabbed } from './vendor-dashboard-tabbed';
 @Component({
   selector: 'aec-vendor-page',
   imports: [NotFound, VendorDashboardTabbed],
+  providers: [VendorPortalStore, VendorLiveSync],
   template: `
-    @let m = me();
-    @if (m === null) {
+    @if (resolved() === null) {
       <aec-not-found />
-    } @else {
+    } @else if (me(); as m) {
       <aec-vendor-dashboard-tabbed [me]="m" />
     }
   `,
@@ -42,21 +59,48 @@ export class VendorPage {
   private readonly route = inject(ActivatedRoute);
   private readonly titleSvc = inject(Title);
   private readonly metaSvc = inject(Meta);
+  private readonly store = inject(VendorPortalStore);
+  private readonly liveSync = inject(VendorLiveSync);
 
   /** Resolved data. `vendorMeResolver` runs server-side and on hydration reads
    *  from `TransferState`; the snapshot value is the SSR-resolved payload (or
    *  null for a non-vendor / not-found). */
-  protected readonly me = toSignal<VendorMeResponse | null, VendorMeResponse | null>(
+  protected readonly resolved = toSignal<VendorMeResponse | null, VendorMeResponse | null>(
     this.route.data.pipe(map((d) => (d['me'] ?? null) as VendorMeResponse | null)),
     { initialValue: (this.route.snapshot.data['me'] ?? null) as VendorMeResponse | null },
   );
 
+  /** What actually renders. The store owns it from here on, so a revalidation
+   *  (AECI-629) or an optimistic write moves the dashboard without a reload. */
+  protected readonly me = this.store.me;
+
   constructor() {
+    // Seed synchronously so the FIRST render pass — including SSR — already has
+    // the payload. An effect alone would not have run by then.
+    const initial = this.resolved();
+    if (initial) this.store.seed(initial);
+
+    // And re-seed if the resolver emits again (an in-app navigation back to
+    // `/vendor` re-runs it). `seed()` no-ops on the identical object, so the
+    // hydration re-emit costs nothing.
+    effect(() => {
+      const next = this.resolved();
+      if (next) untracked(() => this.store.seed(next));
+    });
+
     // Success path only: private surface → noindex + a real title. The not-found
     // path's head is owned by the resolver (`setNotFoundMeta`), so leave it.
-    if (this.me()) {
+    if (initial) {
       this.titleSvc.setTitle($localize`:@@vendor.metaTitle:Vendor dashboard · AEC Integrations`);
       this.metaSvc.updateTag({ name: 'robots', content: 'noindex' });
+
+      // AECI-629 — the revalidation loop, browser-only and success-path only.
+      // `afterNextRender` keeps it off the server (the SSR Worker has no
+      // visibility state and no business holding a timer), and gating it on
+      // `initial` keeps it off the 404 branch, where there is no session to poll
+      // with and `GET /api/vendor/updates` would only 401. Teardown is the
+      // service's own `DestroyRef` hook.
+      afterNextRender(() => this.liveSync.start());
     }
   }
 }

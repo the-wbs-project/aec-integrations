@@ -12,6 +12,7 @@ import type {
 
 import { VendorApi } from '../vendor-api';
 import { VENDOR_ME_FIXTURE, VENDOR_TAXONOMY_FIXTURE } from '../vendor-fixtures';
+import { VendorPortalStore } from '../vendor-portal-store';
 import { VendorProductForm } from './vendor-product-form';
 
 /**
@@ -84,6 +85,7 @@ describe('VendorProductForm', () => {
         provideZonelessChangeDetection(),
         provideHttpClient(),
         { provide: VendorApi, useValue: { updateProduct } as Partial<VendorApi> },
+        VendorPortalStore,
       ],
     });
   });
@@ -216,6 +218,7 @@ describe('VendorProductForm — read-only when the entitlement lapsed', () => {
         provideZonelessChangeDetection(),
         provideHttpClient(),
         { provide: VendorApi, useValue: { updateProduct } as Partial<VendorApi> },
+        VendorPortalStore,
       ],
     });
   });

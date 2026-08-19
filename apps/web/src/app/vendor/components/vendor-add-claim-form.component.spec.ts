@@ -17,14 +17,16 @@ import type { VendorClaim } from '@aeci/shared';
 
 import { VendorApi } from '../vendor-api';
 import { VENDOR_DATA_OBJECTS_FIXTURE, VENDOR_INTEGRATIONS_FIXTURE } from '../vendor-fixtures';
+import { VendorPortalStore } from '../vendor-portal-store';
 
-import { VendorAddClaimForm } from './vendor-add-claim-form';
+import { VendorAddClaimForm, isProvisionalClaimId } from './vendor-add-claim-form';
 
 const INTEGRATION = VENDOR_INTEGRATIONS_FIXTURE.integrations[0];
 /** `rfis`, `outbound` — the identity a duplicate submission would collide with. */
 const EXISTING: VendorClaim = INTEGRATION.claims[1];
 
 let createClaim: ReturnType<typeof vi.fn>;
+let getIntegrations: ReturnType<typeof vi.fn>;
 
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve));
 
@@ -47,11 +49,13 @@ function duplicateError(claimId: string): HttpErrorResponse {
 beforeEach(() => {
   TestBed.resetTestingModule();
   createClaim = vi.fn();
+  getIntegrations = vi.fn().mockResolvedValue(VENDOR_INTEGRATIONS_FIXTURE);
   TestBed.configureTestingModule({
     providers: [
       provideZonelessChangeDetection(),
       provideHttpClient(),
-      { provide: VendorApi, useValue: { createClaim } as Partial<VendorApi> },
+      { provide: VendorApi, useValue: { createClaim, getIntegrations } as Partial<VendorApi> },
+      VendorPortalStore,
     ],
   });
 });
@@ -288,5 +292,146 @@ describe('VendorAddClaimForm — failures and copy', () => {
 
     expect(created).toHaveBeenCalledWith(fresh);
     expect(button(fixture, 'Add data flow')?.disabled).toBe(true);
+  });
+});
+
+describe('VendorAddClaimForm — the optimistic insert (AECI-630)', () => {
+  /** Load the real list into the store: the placeholder is inserted into THIS. */
+  async function seededStore(): Promise<VendorPortalStore> {
+    const store = TestBed.inject(VendorPortalStore);
+    await store.ensure('integrations');
+    return store;
+  }
+
+  const claimsInStore = (store: VendorPortalStore) =>
+    store.integrations().find((i) => i.id === INTEGRATION.id)?.claims ?? [];
+
+  const provisionalIn = (store: VendorPortalStore) =>
+    claimsInStore(store).filter((c) => isProvisionalClaimId(c.id));
+
+  it('shows the new lane before the server answers', async () => {
+    const store = await seededStore();
+    let settle!: (v: { claim: VendorClaim }) => void;
+    createClaim.mockReturnValue(
+      new Promise<{ claim: VendorClaim }>((resolve) => {
+        settle = resolve;
+      }),
+    );
+    const fixture = create();
+    choose(fixture, 'documents', 'outbound');
+
+    button(fixture, 'Add data flow')!.click();
+
+    const [placeholder] = provisionalIn(store);
+    expect(placeholder).toBeDefined();
+    expect(placeholder).toMatchObject({
+      integration_id: INTEGRATION.id,
+      data_object_slug: 'documents',
+      data_object_name: 'Documents',
+      direction: 'outbound',
+      // Creating a claim IS affirming it, and one affirming voter with none
+      // denying is `single_source` — not a re-derivation, an entailment.
+      agreement: 'single_source',
+      origin: 'vendor',
+      counterparty: null,
+    });
+    // One row per slot the caller owns, exactly as the server will write it.
+    expect(placeholder.mine.map((a) => a.slot)).toEqual(INTEGRATION.slots);
+    expect(placeholder.mine[0].asserted).toBe(true);
+    // The id is deliberately not a UUID, so it can never be mistaken for a
+    // server id or sent to one.
+    expect(placeholder.id).not.toMatch(/^[0-9a-f-]{36}$/i);
+
+    settle({ claim: { ...EXISTING, id: '00000000-0000-4000-8000-0000000053ff' } });
+    await flush();
+  });
+
+  it('does not pre-empt its own placeholder as a duplicate', async () => {
+    // `existingClaims` is read from the same store the placeholder just went
+    // into, so without the guard Submit would swap itself for "Go to the
+    // existing data flow" pointing at a lane that does not exist yet.
+    const store = await seededStore();
+    let settle!: (v: { claim: VendorClaim }) => void;
+    createClaim.mockReturnValue(
+      new Promise<{ claim: VendorClaim }>((resolve) => {
+        settle = resolve;
+      }),
+    );
+    const fixture = create();
+    choose(fixture, 'documents', 'outbound');
+
+    button(fixture, 'Add data flow')!.click();
+    // What the card does on the next change detection: hand the lane list back.
+    fixture.componentRef.setInput('existingClaims', claimsInStore(store));
+    fixture.detectChanges();
+
+    expect(button(fixture, 'Go to the existing')).toBeNull();
+    expect(button(fixture, 'Add data flow')).not.toBeNull();
+
+    settle({ claim: { ...EXISTING, id: '00000000-0000-4000-8000-0000000053ff' } });
+    await flush();
+  });
+
+  it('retires the placeholder when the echo lands, leaving the append to the section', async () => {
+    // The section owns the authoritative append (it also names the new lane in
+    // the live region and moves focus to it), so upgrading the row in place here
+    // would land the same claim twice.
+    const store = await seededStore();
+    const fresh: VendorClaim = {
+      ...EXISTING,
+      id: '00000000-0000-4000-8000-0000000053ff',
+      data_object_slug: 'documents',
+    };
+    createClaim.mockResolvedValue({ claim: fresh });
+    const fixture = create();
+    const created = vi.fn();
+    fixture.componentInstance.created.subscribe(created);
+
+    choose(fixture, 'documents', 'outbound');
+    button(fixture, 'Add data flow')!.click();
+    await flush();
+
+    expect(provisionalIn(store)).toHaveLength(0);
+    expect(claimsInStore(store)).toHaveLength(INTEGRATION.claims.length);
+    expect(created).toHaveBeenCalledWith(fresh);
+  });
+
+  it('rolls the lane back and says why when the create fails', async () => {
+    // The rollback test. A row that appears and vanishes in silence reads as the
+    // click having missed.
+    const store = await seededStore();
+    createClaim.mockRejectedValue(new Error('offline'));
+    const fixture = create();
+
+    choose(fixture, 'documents', 'outbound');
+    button(fixture, 'Add data flow')!.click();
+    await flush();
+    fixture.detectChanges();
+
+    expect(provisionalIn(store)).toHaveLength(0);
+    expect(claimsInStore(store)).toEqual(INTEGRATION.claims);
+    expect(
+      (fixture.nativeElement as HTMLElement).querySelector('[role="alert"]')?.textContent,
+    ).toContain('Could not add the data flow');
+  });
+
+  it('rolls back AND routes to the existing lane on the duplicate 400', async () => {
+    // Both halves matter: the optimistic row has to go (the server refused it),
+    // and the vendor has to land somewhere rather than dead-ending.
+    const store = await seededStore();
+    createClaim.mockRejectedValue(duplicateError(EXISTING.id));
+    const fixture = create(VENDOR_DATA_OBJECTS_FIXTURE, []);
+    const duplicate = vi.fn();
+    fixture.componentInstance.duplicate.subscribe(duplicate);
+
+    choose(fixture, 'rfis', 'outbound');
+    button(fixture, 'Add data flow')!.click();
+    await flush();
+    fixture.detectChanges();
+
+    expect(provisionalIn(store)).toHaveLength(0);
+    expect(claimsInStore(store)).toEqual(INTEGRATION.claims);
+    expect(duplicate).toHaveBeenCalledWith({ claimId: EXISTING.id, dataObjectName: 'RFIs' });
+    expect((fixture.nativeElement as HTMLElement).querySelector('[role="alert"]')).toBeNull();
   });
 });

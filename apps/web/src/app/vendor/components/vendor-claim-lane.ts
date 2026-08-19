@@ -40,6 +40,28 @@ import {
  * is `--surface-sunken` + `--border-strong`, NOT `--status-error`: it is two
  * parties describing a flow differently, not a defect in either product, and
  * the vendor surface reserves red for the badge alone.
+ *
+ * ── THE OPTIMISTIC INTERIM (AECI-630) ───────────────────────────────────────
+ * `STAGE_2_REALTIME_SPEC.md` §5 makes the three toggle-shaped writes optimistic:
+ * Affirm / Deny / Clear patch {@link VendorPortalStore} before the round trip and
+ * roll back with a visible error if it fails. This lane needs no code for that —
+ * it renders `claim`, `claim` comes from the store, so the interim arrives the
+ * same way any other update does. What it does owe is honesty about the interim:
+ *
+ * A retract is a `204` with **no body**, and the agreement it recomputes to
+ * cannot be derived here (`counterparty` is a lossy reduction of every other
+ * voter, so a third vendor would be invisible). The optimistic patch therefore
+ * empties the caller's own rows — which the DELETE fully determines — and leaves
+ * the badge alone until the section's re-read lands. For that window the lane is
+ * genuinely mid-update, and it says so with `aria-busy`: the stance line has
+ * already moved and the badge has not, and an assistive reader deserves to know
+ * that rather than hear a contradiction.
+ *
+ * The **forms** on this dashboard (`vendor-profile-form.ts`,
+ * `vendor-product-form.ts`) stay pessimistic by the same §5, and deliberately: a
+ * toggle is one bit the vendor already decided and its rollback is
+ * comprehensible, while a 15-field PATCH diff has no honest optimistic rendering
+ * and "Saved" before it saved is a worse lie than a 300 ms wait.
  */
 @Component({
   // An ATTRIBUTE selector on the `<li>` itself, not an element selector. A
@@ -56,6 +78,9 @@ import {
     '[class]': 'rowClass()',
     '[attr.aria-labelledby]': 'fieldId("name")',
     '[attr.aria-current]': 'highlighted() ? "true" : null',
+    // Mid-write: the optimistic patch has already moved part of this lane and
+    // the server has not answered yet. See the header.
+    '[attr.aria-busy]': 'writing() ? "true" : null',
   },
   template: `
     <div class="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
@@ -136,6 +161,10 @@ export class VendorClaimLane {
   readonly retracted = output<string>();
 
   private readonly control = viewChild(VendorAttestationControl);
+
+  /** Whether this lane's own control has a write in flight. `undefined` before
+   *  the query resolves and on a read-only lane, which is not busy. */
+  protected readonly writing = computed(() => (this.control()?.busy() ?? null) !== null);
 
   protected readonly glyph = computed(() => directionGlyph(this.claim().direction));
   protected readonly directionLabel = computed(() =>

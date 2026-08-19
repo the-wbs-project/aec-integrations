@@ -13,12 +13,12 @@
  */
 
 import { forwardAuditLog, type AuditLogForwarder } from '@aeci/shared/audit-log';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray, or, type SQL, type SQLWrapper } from 'drizzle-orm';
 import type { Context } from 'hono';
 import type { ZodType } from 'zod';
 
 import type { Db } from '../db/client';
-import { productVendors, products, vendors } from '../db/schema';
+import { productVendors, products, vendorRequests, vendors } from '../db/schema';
 import { logToDatadog } from '../datadog';
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
@@ -111,6 +111,60 @@ export function afterVendorWrite(
   const forwarder = makeForwarder(c);
   c.executionCtx.waitUntil(
     Promise.all([purgeTags(c, tags), ...list.map((entry) => forwardAuditLog(entry, forwarder))]),
+  );
+}
+
+// ─── Scoping predicates shared by a handler and its freshness cursor ─────────
+//
+// AECI-627 added `GET /api/vendor/updates`, whose whole job is to report "has
+// anything in scope X moved?". That only works if each cursor query reuses the
+// scoping predicate of the handler it is a cursor for — a cursor that scopes
+// differently from its payload either goes permanently stale (the client never
+// learns to refetch) or moves on a row the caller may not see. So the predicates
+// below are defined ONCE and imported by both sides rather than retyped.
+// The integration-grain equivalent lives in `lib/attestation-authority.ts`
+// (`ownedEndpointJoin`), which already owned that rule.
+
+/**
+ * The caller's owned product ids, as a **subquery** rather than a fetched list.
+ *
+ * `createVendorMeHandler` materialises the same set, because it needs `is_primary`
+ * alongside the ids and reuses them to hydrate the products payload. The cursor
+ * cannot: it has to answer in ONE D1 round trip, and a pre-read to collect ids
+ * would double that. Both express `product_vendors WHERE vendor_id = ?`; this is
+ * the form that composes into another statement.
+ */
+export function ownedProductIds(db: Db, vendorId: string) {
+  return db
+    .select({ productId: productVendors.productId })
+    .from(productVendors)
+    .where(eq(productVendors.vendorId, vendorId));
+}
+
+/**
+ * The `vendor_requests` scoping predicate: requests targeting the caller's vendor
+ * itself, plus those targeting any product it owns.
+ *
+ * `ownedProducts` takes either form of the owned-product set — the materialised
+ * array `GET /api/vendor/me` already holds, or the {@link ownedProductIds}
+ * subquery the cursor composes in. An **empty array** drops the product arm
+ * entirely (Drizzle emits degenerate SQL for `inArray(col, [])`); a subquery
+ * never can be "empty" at build time, and an empty result set matches nothing on
+ * its own, so it needs no such guard.
+ */
+export function vendorRequestsWhere(
+  vendorId: string,
+  ownedProducts: readonly string[] | SQLWrapper,
+): SQL | undefined {
+  const noProducts = Array.isArray(ownedProducts) && ownedProducts.length === 0;
+  return or(
+    and(eq(vendorRequests.targetType, 'vendor'), eq(vendorRequests.targetId, vendorId)),
+    noProducts
+      ? undefined
+      : and(
+          eq(vendorRequests.targetType, 'product'),
+          inArray(vendorRequests.targetId, ownedProducts),
+        ),
   );
 }
 

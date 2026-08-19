@@ -131,8 +131,13 @@ Promoted into `STAGE_2_SPEC.md` §8.4; restated here because they are the contra
    "source-version × target-version", which is what AECI-303 asks for; there is no version entity
    anywhere in the schema today.
 4. **Notifications ship email-only** (Resend) with cron-driven detectors and an in-portal list.
-   Real-time delivery is deferred to AECI-516, whose transport is still open (`STAGE_2_SPEC.md`
-   §8.2). Nothing in this epic waits on that decision.
+   Live in-portal delivery is AECI-516; nothing in this epic waited on it, and nothing it shipped
+   changes. *(**Transport resolved 2026-08-19** — `STAGE_2_SPEC.md` §8.6 / ADR 0023 /
+   `docs/STAGE_2_REALTIME_SPEC.md`: **scoped client revalidation**, not Durable-Object WebSockets or
+   SSE. New nudges appear in-portal within one poll interval and surface as a session-scoped count,
+   never a banner; **email stays the primary channel**. That §7 is cron-driven and daily is in fact
+   the load-bearing input to that decision — a socket would have delivered a 24-hour-stale event
+   with 50 ms of transport latency.)*
 5. **`confirmed` requires two *distinct vendor identities*** — a `single_source` state is added so
    one vendor's affirmation is never rendered as bilateral agreement (§4).
 6. **Notification dedupe uses `audit_log` as the ledger** — no notifications table (§7.3).
@@ -941,6 +946,11 @@ Decisions taken at build that §6 did not pre-specify:
 - **One polite live region for the whole tab, many assertive ones.** Success mutates a single
   persistent `role="status"` at the section (which can name the subject, "RFIs · position saved");
   failures are lane-local `role="alert"` beside the control that failed. Never both for one event.
+  *(Superseded 2026-08-19 by AECI-631: the region moved **out of this section** to the dashboard
+  shell, because the shell's `@switch` destroys this component mid-announcement on a tab switch and
+  the integration card carried a second `role="status"` of its own. The tab now announces through
+  `VendorPortalAnnouncer` — the wording still originates here, only the channel moved.
+  `STAGE_2_REALTIME_SPEC.md` §6.3.)*
 - **§7.2's in-portal notification list now has its first UI consumer**, rendered as a **collapsed**
   disclosure. These rows are a 90-day archive of what was *emailed*, not live state, so rendered
   prominently a stale "Vendors disagree" nudge would sit above a lane whose badge reads `confirmed`.
@@ -980,7 +990,10 @@ correctly but empty). Suites green: `apps/api` 104 files / 1825 tests, `packages
 ## 7. Detector + notification pipeline (AECI-302)
 
 **Needs §2 and §4.** Turns conflict and staleness into outbound vendor nudges. **Email-only at
-launch** (decision §1.3(4)); real-time delivery is AECI-516.
+launch** (decision §1.3(4)); live in-portal delivery is AECI-516 — **transport resolved 2026-08-19**
+as scoped client revalidation, not sockets (`STAGE_2_SPEC.md` §8.6 / ADR 0023 /
+`STAGE_2_REALTIME_SPEC.md` §6.2). **Email remains primary**; the portal gains a faster read of the
+same ledger, not a second channel.
 
 ### 7.1 Detectors
 
@@ -1023,7 +1036,11 @@ alongside the other tunables.
 - Recipient is the vendor's seats (`profiles` with `role='vendor_admin'` + `vendor_id`), emails via
   the existing `fetchAuthUserEmails` seam (degrades to no-send without
   `SUPABASE_SERVICE_ROLE_KEY`).
-- **No real-time.** The §2.3 / AECI-516 channel is additive later; nothing here assumes it.
+- **No real-time in this epic.** The §2.3 / AECI-516 surfacing is additive later; nothing here
+  assumes it. **As decided 2026-08-19** (ADR 0023 / `STAGE_2_REALTIME_SPEC.md`) that later work adds
+  **no channel at all** — it re-reads *this* endpoint on a poll and renders new rows as a
+  session-scoped count. So there is no push contract for this section to anticipate, and the
+  `audit_log` ledger below stays the single source for both the email and the in-portal view.
 
 ### 7.3 Dedupe ledger — `audit_log`, no new table
 
@@ -1647,8 +1664,15 @@ consolidated list that enumerates them. Grep for the artifact across `**/*.md`, 
 
 ## 11. Out of scope / deferred
 
-- **Real-time notification delivery** — AECI-516; transport still open (`STAGE_2_SPEC.md` §8.2).
-  §7 ships email + in-portal only.
+- **Live in-portal notification delivery** — AECI-516. §7 ships email + the in-portal list only.
+  **Transport resolved 2026-08-19** (`STAGE_2_SPEC.md` §8.6 / ADR 0023 /
+  `docs/STAGE_2_REALTIME_SPEC.md`, decomposed into AECI-626…632): **scoped client revalidation**
+  over a per-vendor freshness cursor, **not** Durable-Object WebSockets or SSE. The follow-on epic
+  adds no delivery channel — it polls a cursor whose `notifications` scope reuses **this** section's
+  exact `audit_log` predicate (`routes/vendor-notifications.ts:132-140`) and refetches the same
+  endpoint. **Email stays primary**, and new rows surface as a session-scoped count rather than a
+  banner, for the reason `vendor-notifications-list.ts:11-26` argues: these rows are the history of
+  a nudge that was sent, not a claim's current state.
 - **The `cross-grain` detector** — **dropped at build** (AECI-302; see the §7.1 callout). The only
   definition ever proposed — contradictory directions for one `data_object` across different
   mechanism rows on the same product pair — describes legitimate data, since two mechanisms

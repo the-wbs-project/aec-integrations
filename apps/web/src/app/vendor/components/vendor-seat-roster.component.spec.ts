@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { VendorApi } from '../vendor-api';
 import { VENDOR_SEATS_FIXTURE } from '../vendor-fixtures';
+import { VendorPortalStore } from '../vendor-portal-store';
 import { VendorSeatRoster } from './vendor-seat-roster';
 
 /**
@@ -22,11 +23,16 @@ describe('VendorSeatRoster', () => {
 
   beforeEach(() => {
     getSeats = vi.fn();
+    // Reset explicitly: the roster's state now lives in a per-surface
+    // `VendorPortalStore`, so a store carried over from a previous test would
+    // make `ensure()` a no-op and the next case would assert against stale data.
+    TestBed.resetTestingModule();
     TestBed.configureTestingModule({
       providers: [
         provideZonelessChangeDetection(),
         provideHttpClient(),
         { provide: VendorApi, useValue: { getSeats } as Partial<VendorApi> },
+        VendorPortalStore,
       ],
     });
   });

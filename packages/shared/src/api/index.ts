@@ -21,6 +21,7 @@ export * from './taxonomy';
 export * from './vendor';
 export * from './vendor-attestations';
 export * from './vendor-notifications';
+export * from './vendor-updates';
 export * from './vendors';
 export * from './version';
 export * from './webhooks';

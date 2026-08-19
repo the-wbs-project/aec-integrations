@@ -109,6 +109,32 @@ export function slotsForOwnership(ownsSource: boolean, ownsTarget: boolean): Att
 }
 
 /**
+ * The §2.1 ownership rule as a **JOIN condition**: "this `product_vendors` row ties the
+ * caller's vendor to one of the integration's two endpoints".
+ *
+ * Exported because it is the scoping predicate of the whole attestable surface, and
+ * AECI-627's freshness cursor (`routes/vendor-updates.ts`) has to scope its
+ * `integrations` cursor **identically** to the list it is a cursor for — a cursor that
+ * scopes differently either never moves (the client stops refetching) or moves on a row
+ * the caller may not see. Restating the predicate there would be exactly the inline
+ * re-derivation this module's header forbids, so it lives here with its two original
+ * call sites.
+ *
+ * Note it carries the vendor filter **inside the join**, not in a trailing `WHERE`. That
+ * is what makes a non-owned integration produce no rows at all rather than rows that a
+ * later clause has to remember to discard — see the 404 note in the header.
+ */
+export function ownedEndpointJoin(vendorId: string) {
+  return and(
+    eq(productVendors.vendorId, vendorId),
+    or(
+      eq(productVendors.productId, integrations.sourceProductId),
+      eq(productVendors.productId, integrations.targetProductId),
+    ),
+  );
+}
+
+/**
  * One query for both public entry points, so the rule is computed once.
  *
  * One join rather than two round trips (fetch the integration, then probe ownership):
@@ -140,16 +166,7 @@ async function loadAuthorities(
     // INNER, not LEFT: a row only matters when the caller owns one of the endpoints.
     // The join predicate carries the vendor filter so a non-owned integration produces
     // no rows at all — see the 404 note in the header.
-    .innerJoin(
-      productVendors,
-      and(
-        eq(productVendors.vendorId, vendorId),
-        or(
-          eq(productVendors.productId, integrations.sourceProductId),
-          eq(productVendors.productId, integrations.targetProductId),
-        ),
-      ),
-    )
+    .innerJoin(productVendors, ownedEndpointJoin(vendorId))
     .where(scope ? inArray(integrations.id, scope) : undefined);
 
   // An integration whose endpoints the vendor owns BOTH yields two rows — fold them.
@@ -343,16 +360,7 @@ export async function resolveClaimAuthority(
     .innerJoin(integrations, eq(integrations.id, claims.integrationId))
     // Same INNER JOIN + in-predicate vendor filter as `loadAuthorities`: a claim
     // on an integration the caller does not touch produces no rows at all.
-    .innerJoin(
-      productVendors,
-      and(
-        eq(productVendors.vendorId, vendorId),
-        or(
-          eq(productVendors.productId, integrations.sourceProductId),
-          eq(productVendors.productId, integrations.targetProductId),
-        ),
-      ),
-    )
+    .innerJoin(productVendors, ownedEndpointJoin(vendorId))
     .where(eq(claims.id, claimId));
 
   const first = rows[0];

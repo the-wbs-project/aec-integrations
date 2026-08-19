@@ -68,6 +68,29 @@ export const NOTIFICATION_PAGE_SIZE = 50;
 
 const DETECTORS = new Set<string>(ATTESTATION_DETECTORS);
 
+/**
+ * The ledger scoping predicate — action, window, and vendor, in that order.
+ *
+ * Exported rather than inlined because AECI-627's freshness cursor
+ * (`routes/vendor-updates.ts`) reports `MAX(created_at)` over **these** rows, and a
+ * cursor whose predicate differs from its list's is worse than no cursor at all:
+ * narrow it and the client never learns a nudge arrived; widen it and the cursor
+ * moves on a row (an ops-routed one, or one outside the window) that the list will
+ * never show, so the client refetches forever and finds nothing.
+ *
+ * `now` is injectable so a test can pin the window boundary without faking the clock.
+ */
+export function vendorNotificationLedgerWhere(vendorId: string, now: number = Date.now()) {
+  const since = new Date(now - NOTIFICATION_HISTORY_DAYS * DAY_MS).toISOString();
+  return and(
+    eq(auditLog.action, NOTIFICATION_SENT_ACTION),
+    gte(auditLog.createdAt, since),
+    // The scoping filter. An ops row stores `"vendorId": null`, which
+    // `json_extract` returns as SQL NULL — never equal to a caller's id.
+    sql`json_extract(${auditLog.metadata}, '$.vendorId') = ${vendorId}`,
+  );
+}
+
 function productRef(value: unknown): NotificationProductRef | null {
   if (typeof value !== 'object' || value === null) return null;
   const { slug, name } = value as Record<string, unknown>;
@@ -119,7 +142,6 @@ export function createListVendorNotificationsHandler(
   return async (c) => {
     const vendorId = sessionVendorId(c);
     const { db } = dbFor(c.env);
-    const since = new Date(Date.now() - NOTIFICATION_HISTORY_DAYS * DAY_MS).toISOString();
 
     const rows = await db
       .select({
@@ -129,15 +151,7 @@ export function createListVendorNotificationsHandler(
         metadata: auditLog.metadata,
       })
       .from(auditLog)
-      .where(
-        and(
-          eq(auditLog.action, NOTIFICATION_SENT_ACTION),
-          gte(auditLog.createdAt, since),
-          // The scoping filter. An ops row stores `"vendorId": null`, which
-          // `json_extract` returns as SQL NULL — never equal to a caller's id.
-          sql`json_extract(${auditLog.metadata}, '$.vendorId') = ${vendorId}`,
-        ),
-      )
+      .where(vendorNotificationLedgerWhere(vendorId))
       .orderBy(desc(auditLog.createdAt))
       .limit(NOTIFICATION_PAGE_SIZE);
 

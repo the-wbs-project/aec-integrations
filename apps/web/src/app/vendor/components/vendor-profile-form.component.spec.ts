@@ -7,6 +7,7 @@ import type { UpdateVendorProfileResponse, VendorAccount } from '@aeci/shared';
 
 import { VendorApi } from '../vendor-api';
 import { VENDOR_ME_FIXTURE } from '../vendor-fixtures';
+import { VendorPortalStore } from '../vendor-portal-store';
 import { VendorProfileForm } from './vendor-profile-form';
 
 /**
@@ -50,6 +51,7 @@ describe('VendorProfileForm', () => {
         provideZonelessChangeDetection(),
         provideHttpClient(),
         { provide: VendorApi, useValue: { updateProfile } as Partial<VendorApi> },
+        VendorPortalStore,
       ],
     });
   });
@@ -146,6 +148,7 @@ describe('VendorProfileForm — read-only when the entitlement lapsed', () => {
         provideZonelessChangeDetection(),
         provideHttpClient(),
         { provide: VendorApi, useValue: { updateProfile } as Partial<VendorApi> },
+        VendorPortalStore,
       ],
     });
   });

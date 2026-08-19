@@ -260,13 +260,18 @@ the same "a false positive silently deletes a real visitor" rule. Two limits to 
 every row written before the deploy and is not backfillable, and matching *on* the holder name is still
 unbuilt: this is the capture, not the classifier.
 
-### Attestation detector tunables (AECI-302 / `STAGE_2_ATTESTATIONS_SPEC.md` §7.1)
+### Attestation detector + vendor-portal tunables (AECI-302 / `STAGE_2_ATTESTATIONS_SPEC.md` §7.1; AECI-516 / `STAGE_2_REALTIME_SPEC.md` §4.4)
 
-Like the home-stats knobs, these are **compute constants** in the API Worker, not monitor
-thresholds — change the constant and ship via a normal deploy/promote. They govern the daily
-`0 10 * * *` sweep that emails vendors about one-sided, conflicting or stale attestations.
+Like the home-stats knobs, these are **compute constants**, not monitor thresholds — change the
+constant and ship via a normal deploy/promote. The **first six** live in the API Worker and govern
+the daily `0 10 * * *` sweep that emails vendors about one-sided, conflicting or stale attestations.
+The **last two rows** cover **four named exports** from the **web** bundle that govern how often a
+signed-in vendor portal revalidates itself: per ADR 0023 the portal **polls a freshness cursor
+rather than holding a socket**, so the interval *is* the freshness contract and is deliberately
+operator-visible here. They are exported (rather than module-private literals) specifically so the
+component specs assert against the constant and an operator can grep one name.
 
-**Read them against adoption, not against the calendar.** Every detector keys off a *vendor's*
+**Read the detector rows against adoption, not against the calendar.** Every detector keys off a *vendor's*
 attestation, and nothing in D1 has one yet (promote only ever writes `source='aeci'`), so all four
 fire on **zero rows** until the vendor portal is genuinely in use. Do not tighten anything on the
 evidence of a quiet first month.
@@ -279,6 +284,8 @@ evidence of a quiet first month.
 | `NOTIFICATION_SUPPRESSION_DAYS` | `lib/attestation-notify.ts` | 30 | The anti-nag control: how long a delivered notification blocks a repeat of the same (claim, detector, recipient). The single most important knob if vendors report feeling chased. |
 | `NOTIFY_BATCH_CAP` | `lib/attestation-notify.ts` | 200 | Sends per run. A first-adoption backstop, not a design limit — the next daily sweep continues the backlog, and a capped run logs the dropped count to Datadog (`aeci.attestation.notify.capped`, a **warn log** — there is no metric). Raise if that log recurs. |
 | `NOTIFICATION_HISTORY_DAYS` / `NOTIFICATION_PAGE_SIZE` | `routes/vendor-notifications.ts` | 90 / 50 | The in-portal list's window and cap. The window is deliberately longer than the suppression window so a vendor can see the nudge currently suppressing a repeat. |
+| `VENDOR_SYNC_FOCUSED_INTERVAL_MS` / `VENDOR_SYNC_UNFOCUSED_INTERVAL_MS` (hidden = no timer) | `vendor/vendor-live-sync.ts` (web) | 20 s / 60 s / paused | How fast a live portal notices a change it did not make (AECI-629 / `STAGE_2_REALTIME_SPEC.md` §4.1). **The `aeci.api.vendor.updates{changed:none}` ratio is the evidence** — a high `none` share means the cadence outruns how often the portal actually changes, so **lengthen the interval first**; a high `some` share is the opposite finding and is ADR 0023's third re-open condition (adopt a Durable Object), not a reason to poll harder. **Read `some` as an upper bound** — the endpoint is stateless, so the tag means "a cursor moved within 60 s of this response", and one write can be tagged `some` on three consecutive polls of a focused client (`OBSERVABILITY.md`). Hidden is **paused with no timer** rather than slowed: the tab polls immediately on `visibilitychange`, so a resumed tab is correct in one round trip. `online` is answered immediately **only while visible** — a flapping connection would otherwise wake a hidden tab repeatedly. |
+| `VENDOR_SYNC_BACKOFF_BASE_MS` / `VENDOR_SYNC_BACKOFF_CAP_MS` | `vendor/vendor-live-sync.ts` (web) | 20 s / 160 s | The error backoff: `min(20 s × 2ⁿ, 160 s)`, reset on the first success. **It is floored at the current poll interval** (`Math.max(base, backoff)`), so a *focused* tab sees 20 → 40 → 80 → 160 s while an *unfocused* one sees 60 → 60 → 80 → 160 s — without the floor the first backoff step (20 s) would be shorter than the unfocused cadence (60 s) and an outage would be answered with three times the healthy load. The cap is sized so a portal left open through an API outage settles at roughly one request every three minutes and still recovers on its own without the vendor reloading. Raise only if an outage's tail traffic is itself the problem; lowering it trades recovery latency for load during exactly the window the API is already unwell. |
 
 ---
 

@@ -35,6 +35,7 @@ import type {
   UpsertVendorAttestationInput,
   VendorClaimResponse,
   VendorMeResponse,
+  VendorUpdatesResponse,
 } from '@aeci/shared';
 
 /**
@@ -72,6 +73,15 @@ export class VendorApi {
    *  claim/correction status + seat count). */
   getMe(): Promise<VendorMeResponse> {
     return firstValueFrom(this.http.get<VendorMeResponse>('/api/vendor/me'));
+  }
+
+  /** `GET /api/vendor/updates` — the per-scope freshness cursor (AECI-627): six
+   *  revisions plus the server's clock at read, in one D1 round trip and with no
+   *  writes. Polled by `VendorLiveSync` (AECI-629), which diffs the revisions
+   *  against the last seen and refetches only what moved. Each value is an ISO
+   *  string or `null` ("no rows of that kind"), compared as a string. */
+  getUpdates(): Promise<VendorUpdatesResponse> {
+    return firstValueFrom(this.http.get<VendorUpdatesResponse>('/api/vendor/updates'));
   }
 
   /** `GET /api/vendor/seats` — the read-only seat roster. Loaded lazily after

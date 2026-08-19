@@ -1,9 +1,7 @@
 import { DatePipe } from '@angular/common';
-import { Component, afterNextRender, computed, inject, input, signal } from '@angular/core';
+import { Component, afterNextRender, computed, inject, input } from '@angular/core';
 
-import type { VendorSeat } from '@aeci/shared';
-
-import { VendorApi } from '../vendor-api';
+import { VendorPortalStore } from '../vendor-portal-store';
 
 /**
  * Read-only seat roster for the vendor dashboard (AECI-522). Multi-seat is flat
@@ -11,15 +9,23 @@ import { VendorApi } from '../vendor-api';
  * every seat is equal, each was granted by AECi, and self-serve invite/revoke is
  * deferred — so this list is read-only.
  *
- * The roster is a **separate** browser fetch (`GET /api/vendor/seats`) from the
+ * The roster is a **separate** browser read (`GET /api/vendor/seats`) from the
  * dashboard payload because it needs the Supabase email lookup and the first
  * paint shouldn't wait on it. `email` degrades to `null` in local/preview
  * environments (no service-role key), rendered as "email unavailable" — never an
  * error. A banned seat still appears (per-seat ban never touches the vendor's
  * verified state, §7) so co-admins can see why a colleague is locked out.
  *
- * Browser-only: the fetch runs in `afterNextRender`, so SSR paints the loading
- * state and no visitor data is ever baked into cached HTML.
+ * ── STATE (AECI-628) ────────────────────────────────────────────────────────
+ * The list, its load state and its retry all live in {@link VendorPortalStore}
+ * now; this component only renders them. It used to hold them itself, which
+ * meant the seats vanished and re-fetched every time the tab was switched away
+ * and back (the `@switch` destroys the component), and meant a revalidation loop
+ * had no way to reach them. `ensure()` is load-once, so re-entering the tab is
+ * free and the poll (AECI-629) refreshes what is already on screen.
+ *
+ * Browser-only: `ensure()` is called from `afterNextRender`, so SSR paints the
+ * loading state and no visitor data is ever baked into cached HTML.
  */
 @Component({
   selector: 'aec-vendor-seat-roster',
@@ -39,7 +45,7 @@ import { VendorApi } from '../vendor-api';
         <p class="text-sm text-(--text-primary)" i18n="@@vendor.seats.error">
           Could not load the seat list.
         </p>
-        <button type="button" [class]="retryClass" (click)="load()" i18n="@@vendor.seats.retry">
+        <button type="button" [class]="retryClass" (click)="reload()" i18n="@@vendor.seats.retry">
           Try again
         </button>
       </div>
@@ -119,16 +125,16 @@ import { VendorApi } from '../vendor-api';
   styles: [':host { display: block; }'],
 })
 export class VendorSeatRoster {
-  private readonly api = inject(VendorApi);
+  private readonly store = inject(VendorPortalStore);
 
   /** The seat count from the dashboard payload — shown by the parent as a
    *  header; the detailed roster loads separately. Optional so the component is
    *  usable standalone. */
   readonly seatCount = input<number | null>(null);
 
-  protected readonly seats = signal<readonly VendorSeat[]>([]);
-  protected readonly loading = signal(true);
-  protected readonly failed = signal(false);
+  protected readonly seats = this.store.seats;
+  protected readonly loading = this.store.seatsLoading;
+  protected readonly failed = this.store.seatsFailed;
 
   /** True once the fetch settled with at least one seat — lets the parent hide a
    *  redundant count while the table is visible. */
@@ -141,21 +147,14 @@ export class VendorSeatRoster {
     'rounded-(--radius-sm) border border-(--border-default) px-3 py-1.5 text-sm font-label text-(--text-primary) transition-colors hover:bg-(--surface-raised) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
 
   constructor() {
-    // Browser-only: the seat fetch (with its Supabase email lookup) runs after
+    // Browser-only: the seat read (with its Supabase email lookup) runs after
     // hydration, so cached SSR HTML never carries visitor data.
-    afterNextRender(() => void this.load());
+    afterNextRender(() => void this.store.ensure('seats'));
   }
 
-  protected async load(): Promise<void> {
-    this.loading.set(true);
-    this.failed.set(false);
-    try {
-      const res = await this.api.getSeats();
-      this.seats.set(res.seats);
-    } catch {
-      this.failed.set(true);
-    } finally {
-      this.loading.set(false);
-    }
+  /** The retry beside the failure state. `reload` rather than `ensure` because
+   *  the store has already recorded an attempt. */
+  protected reload(): void {
+    void this.store.reload('seats');
   }
 }
