@@ -30,7 +30,14 @@ function app(userId: string) {
   const a = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
   a.onError(errorHandler());
   a.use('*', async (c, next) => {
-    c.set('auth', { userId, email: undefined, role: 'reviewer', vendorId: null });
+    c.set('auth', {
+      userId,
+      email: undefined,
+      role: 'reviewer',
+      vendorId: null,
+      entitlementTier: 'unclaimed',
+      entitlement: null,
+    });
     await next();
   });
   a.get('/api/account/reviews', createGetAccountReviewsHandler(t.factory));

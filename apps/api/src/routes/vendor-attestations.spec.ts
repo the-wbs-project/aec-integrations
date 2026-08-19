@@ -93,6 +93,8 @@ const seat = (userId: string, vendorId: string): AuthzVariables['auth'] => ({
   email: `${userId}@example.test`,
   role: 'vendor_admin',
   vendorId,
+  entitlementTier: 'verified',
+  entitlement: { status: 'active', periodEnd: null },
 });
 
 const AUTH_A = seat(SEAT_A, VENDOR_A);

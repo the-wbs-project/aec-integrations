@@ -61,6 +61,8 @@ const AUTH: AuthzVariables['auth'] = {
   email: 'ops@autodesk.test',
   role: 'vendor_admin',
   vendorId: VENDOR,
+  entitlementTier: 'verified',
+  entitlement: { status: 'active', periodEnd: null },
 };
 
 const UNVERIFIED_AUTH: AuthzVariables['auth'] = {
@@ -68,6 +70,8 @@ const UNVERIFIED_AUTH: AuthzVariables['auth'] = {
   email: 'ops@bentley.test',
   role: 'vendor_admin',
   vendorId: UNVERIFIED_VENDOR,
+  entitlementTier: 'unclaimed',
+  entitlement: null,
 };
 
 beforeEach(async () => {
