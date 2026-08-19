@@ -177,13 +177,33 @@ previews are excluded.
 
 `vendor_admin` is granted **app-side on vendor-claim approval** — the same app-layer seam as
 `admin` (no `auth.users`↔`profiles` FK, AECI-254). The grant is a single atomic
-`db.batch([...])` (`lib/vendor-grant.ts` → `grantSeatStatements`, driven by
-`PATCH /api/admin/claims/:id`, AECI-519): it upserts the `profiles` seat, flips
-`vendors.verified = true` (guarded on `verified = false` — the claim→grant is the **sole
-writer** of `vendors.verified`), resolves the request, advances the `vendor_claim` workflow,
-and writes the `audit_log` row — all in one batch (§4.3). The PO/invoice arrangement is
-recorded in that audit row's metadata; **`vendors.verified` *is* the launch entitlement bit**
-(there is no `entitlements` table — `STAGE_2_SPEC.md` §8.3(1)).
+`db.batch([...])` (driven by `PATCH /api/admin/claims/:id`, AECI-519): `grantSeatStatements`
+(`lib/vendor-grant.ts`) upserts the `profiles` seat, resolves the request, advances the
+`vendor_claim` workflow and writes its `audit_log` row, and — since AECI-612 —
+`activateEntitlementStatements` (`lib/vendor-entitlement.ts`) contributes the entitlement row
+and the `vendors.verified` flip into the **same** batch (§4.3).
+
+**`vendors.verified` is no longer the entitlement model; it is a mirror of one.** The AECI-515
+epic (`docs/STAGE_2_PAID_TIERS_SPEC.md` §2) introduced a `vendor_entitlements` table carrying
+tier, status, term and the offline PO/invoice arrangement, and demoted `verified` to a
+**denormalized boolean mirror**: `vendors.verified = true` **iff** the vendor has a
+`vendor_entitlements` row with `status = 'active'`. This supersedes the former claim here that
+`verified` *is* the launch entitlement bit and that no entitlements table exists
+(`STAGE_2_SPEC.md` §8.3(1) said so; §8.5 replaced it). Three consequences matter for
+authorization:
+
+- **One writer, not one caller.** `apps/api/src/lib/vendor-entitlement.ts` is the **sole
+  writer of either side** of that *iff*, and never emits one side without the other. The claim
+  grant is now a *caller* of it, not the writer — an ESLint `no-restricted-syntax` rule rejects
+  a `.set({ verified })` / `.values({ verified })` on `vendors` anywhere else, and the daily
+  `entitlement_mirror_drift` data-quality check is the run-time backstop.
+- **The arrangement is a row now, not just audit metadata.** It is still written to the grant
+  audit row's metadata as well — `audit_log` is the renewal ledger (§2.1 of the paid-tiers
+  spec), keyed `entity_type='vendor_entitlement', entity_id=<vendor_id>`.
+- **Authorization reads the tier, not the mirror.** The Layer-1 guard loads the caller's
+  entitlement onto the session and `/api/vendor/*` writes assert a capability against it
+  (§4.2/§4.4). The mirror stays what every **public read** consults; no public or read path may
+  query `vendor_entitlements` at all.
 
 **Exclusivity rules (`STAGE_2_SPEC.md` §8.3(3)).** `role` and `vendor_id` are
 **single-valued** — single columns on `profiles`, with no multi-role or multi-vendor
@@ -213,10 +233,15 @@ ban/unban action only). A **ban** sets `profiles.banned_at` / `ban_reason` on th
 and is checked **before** the role check in the Layer-1 guard (§4.2 / §4.4). Both are
 per-seat — they touch one `profiles` row and **never** touch `vendors.verified`, which is a
 vendor-level paid state. **Un-verifying is a separate entitlement action** (`STAGE_2_SPEC.md`
-§8.3(2)); as of the 2026-08-14 AECI-515 epic review it **has an owner — AECI-532**
-(`PATCH /api/admin/vendors/:id/entitlement`, `docs/STAGE_2_PAID_TIERS_SPEC.md` §5) — though it
-is **not built yet**. Clearing an entitlement there does **not** revoke seats: the vendor keeps
-portal access, read-only. Banning or revoking one abusive seat leaves the vendor
+§8.3(2)), and since **AECI-532** it is built: `PATCH /api/admin/vendors/:id/entitlement`
+(`docs/STAGE_2_PAID_TIERS_SPEC.md` §5), which clears the bit **through the entitlement row**
+rather than by writing the mirror. Clearing an entitlement does **not** revoke seats: the
+vendor keeps portal access, read-only — reads still return 200 and writes 403
+`ENTITLEMENT_REQUIRED`. There are therefore **three orthogonal "take it away" actions**, and
+confusing them is a foreseeable incident: **ban a seat** (one `profiles` row, that seat 403s,
+mirror untouched), **revoke a seat** (one `profiles` row, drops to `reviewer`, mirror
+untouched, still no HTTP surface), and **clear an entitlement** (vendor-level, badge goes away,
+seats and logins survive). Banning or revoking one abusive seat leaves the vendor
 verified and its other seats working. Grant and revoke each emit their `audit_log` row in the
 same batch (§4.3) and are fully reversible. Full contract:
 [`STAGE_2_VENDOR_PORTAL_SPEC.md`](./STAGE_2_VENDOR_PORTAL_SPEC.md) §2, §3.1, §7.
@@ -285,6 +310,8 @@ if (requiredRole === 'admin' && profile.role !== 'admin') {
 
 The D1 binding is privileged (no RLS), so this re-fetch of `profiles.role` + `bannedAt` is the authorization source of truth — never trust client claims (§4.5).
 
+**Ordering note:** the ban check runs **before** the role check and before any entitlement question. A banned seat is rejected outright; it is never told whether its vendor is paying.
+
 #### 4.2a Attestation authority — the two-slot extension of `vendor_id` scoping (AECI-603)
 
 `requireVendor()` proves *which* vendor the caller is; it scopes nothing. Every `/api/vendor/*` handler must still filter by `c.get('auth').vendorId` — that filter is what stands in for the RLS row policy this stack does not have.
@@ -306,6 +333,25 @@ Three rules bind here:
 - **The 404 must also be uniform across grains** (AECI-301). `resolveClaimAuthority()` exists because the obvious composition — load the claim, then resolve its integration — answers `details.resource: 'claim'` for a claim that does not exist and `'integration'` for one belonging to another vendor. Distinguishable 404s are an existence oracle a vendor can walk. One join collapses both into the same empty result, so the property is structural rather than a branch that must be written identically twice.
 
 Two schema facts the rule has to survive: `product_vendors` is many-to-many, so one vendor can own both endpoints (it may write both slots, but §4 of that spec still renders the result one-sided, since `confirmed` needs two **distinct** `attested_by_vendor_id` values); and `profiles.vendor_id` is many-to-one, so two accounts can target the same slot — the `attestations_slot_key` partial unique index makes that explicitly last-write-wins rather than silently accumulating duplicate votes.
+
+#### 4.2b The entitlement tier on the session (AECI-611)
+
+`AuthenticatedSession` carries the caller's entitlement, loaded by the guard, so a handler's capability check is a **DB-free in-memory assertion** rather than a second round-trip:
+
+- **`entitlementTier: EntitlementTier`** — always present, never optional (an optional field invites `session.entitlementTier ?? 'verified'`), `'unclaimed'` for non-vendor sessions and for any vendor without an `active` entitlement. Named `entitlementTier` and **not `tier`**, because `profiles.trust_tier` is a neighbouring **reviewer** concept whose CHECK vocabulary literally contains `'verified'` (`DATABASE_SCHEMA.md` §7.1). They are unrelated and must never be confused.
+- **`entitlement: { status, periodEnd } | null`** — term detail for the dashboard readout only; **deliberately not an authorization input.**
+
+**Loaded on the `vendor_admin` branch only.** That branch's existing per-request profile re-fetch gains a `leftJoin` onto `vendor_entitlements` — one extra table on a single-row lookup over a unique index, in the **same** round-trip. `requireAuth()` and `requireAdmin()` keep the exact query they ran before, so `/api/admin/*`, `POST /api/reviews` and `DELETE /api/account` are byte-identical to pre-AECI-611: an admin session has `vendor_id = null`, so an unconditional join would be a `LEFT JOIN … ON NULL` on every admin request. A separate `requireCapability()` *middleware* was rejected for three reasons: it would need `vendorId` first and therefore **serialize** a second read; being opt-in, an omission would be a silent authorization hole rather than a visible one; and the gate is **field**-granular, which route-level middleware cannot express.
+
+**Fail-closed.** No row, a non-`active` status, or a tier this build does not know all resolve to `'unclaimed'` → zero capabilities → 403. Never default to `'verified'`. `vendor_entitlements.tier` is deliberately unconstrained at the DB layer, so the unknown-tier case is real and not theoretical.
+
+**Where it is enforced.** `requireCapability(c, cap)` throws **403 `ENTITLEMENT_REQUIRED`** with `details: { capability, tier, fields? }` — 403 and not 402, because 402 Payment Required would leak a billing model into a wire contract that must stay payer-model-agnostic, and `API_CONTRACTS.md` §4.1 has no 402 row. Two axes enforce it and they must agree: the **route-level** call in each write handler, and the **field-level** allow-list (`splitPatch`, which maps every vendor-editable column to a capability and **throws with `details.fields` rather than silently dropping** — a dirty-diff form re-seeds its baseline from the echo and would settle *clean* on a value that never landed). At launch `verified` holds every capability, so behaviour is unchanged; adding a rung later is a data edit in two tables.
+
+**Where the call site sits is not uniform, and that is deliberate.** On `PATCH /api/vendor/profile` the gate runs immediately after `sessionVendorId(c)`. On `PATCH /api/vendor/products/:id` it runs **after `requireOwnedProduct`**, because a 403 raised before ownership settles would confirm to a non-owner that the product exists — and **404-never-403 is the harder invariant** of this surface (§4.2a). The rule is "after ownership settles, wherever there is an ownership question", not "immediately after `sessionVendorId`".
+
+**Reads are never gated** — `GET /api/vendor/me` and `GET /api/vendor/seats` must not call `requireCapability`, and that is an acceptance criterion with its own test rather than a convention. `/vendor` is gated by `vendorMeResolver`, which maps 401/403/404 onto a **404 render**, so gating `me` would 404 the entire dashboard for a vendor whose entitlement lapsed — hiding the renewal notice from exactly the cohort being billed.
+
+Full contract: `docs/STAGE_2_PAID_TIERS_SPEC.md` §3.3, §4.
 
 ### 4.3 Audit log inside the same batch
 
@@ -342,12 +388,13 @@ await db.batch([
 | `POST /api/track/pageview` | Optional | None | Logged to `page_views` |
 | `GET /api/admin/*` | Hard-required | `admin` | No (reads only) |
 | `PATCH /api/admin/reviews/:id` | Hard-required | `admin` | `review.approved` / `.rejected` |
-| `PATCH /api/admin/claims/:id` (AECI-519) | Hard-required | `admin` | `vendor_claim.granted` / `.rejected` — grant links a `vendor_admin` seat + flips `vendors.verified` (the seat-revoke mechanic `vendor_claim.seat_revoked` has no endpoint — AECI-524 wired the ban gate only; revoke stays the separate un-grant action, AECI-519) |
+| `PATCH /api/admin/claims/:id` (AECI-519 / AECI-612) | Hard-required | `admin` | **Two** rows on a first grant: `vendor_claim.granted` (the seat) **and** `vendor_entitlement.granted` (the entitlement + the `vendors.verified` mirror flip), both in the one batch and sharing `metadata.source: 'admin-moderation'`; `.rejected` on the reject path. A **second seat** on an already-active entitlement writes only the claim row — the entitlement builder emits nothing, so the mirror does not churn. (The seat-revoke mechanic `vendor_claim.seat_revoked` still has no endpoint — AECI-524 wired the ban gate only; revoke stays the separate un-grant action, AECI-519.) |
+| `PATCH /api/admin/vendors/:id/entitlement` (AECI-532) | Hard-required | `admin` | `vendor_entitlement.set` / `.renewed` / `.cleared` (`entity_type: 'vendor_entitlement'`, `entity_id` = the **vendor** id, `metadata.source: 'admin-entitlement'`) — set/renew/clear the offline arrangement. **The only writer that takes `vendors.verified` back down**, and it does so through the entitlement row, never by writing the mirror. `verified` is never in the request body; it appears on the response as a read-only readout. **No `workflow_instances` row** (that CHECK is closed; `audit_log` is the ledger). Clearing does **not** revoke seats. |
 | `PATCH /api/admin/reviewers/:id` (AECI-218 / AECI-524) | Hard-required | `admin` | `reviewer.banned` / `vendor_admin.banned` / `.unbanned` — bans/unbans any non-admin `profiles` row (reviewer **or** `vendor_admin` seat); role-agnostic UPDATE, role-aware audit, per-seat, never touches `vendors.verified` |
 | `GET /api/vendor/me`, `/seats` | Hard-required | `vendor_admin` + non-null `vendor_id`, not banned | No (reads only) |
 | `GET /api/vendor/notifications` (AECI-302) | Hard-required | same — **no** `vendors.verified` gate (reading is not the gated capability) | No (reads only). Reads the §7.3 `audit_log` `notification.sent` ledger filtered on `json_extract(metadata,'$.vendorId') = <session vendor>`; AECi-ops rows store a null vendor and so can never match a caller |
-| `PATCH /api/vendor/profile` | Hard-required | same | `vendor.updated` (`metadata.source: 'vendor-portal'`) |
-| `PATCH /api/vendor/products/:id` | Hard-required | same **+ ownership** | `product.updated` (`metadata.source: 'vendor-portal'`) |
+| `PATCH /api/vendor/profile` | Hard-required | same **+ `profile.edit`** (§4.2b; field-level too, via `splitPatch`) | `vendor.updated` (`metadata.source: 'vendor-portal'`) |
+| `PATCH /api/vendor/products/:id` | Hard-required | same **+ ownership + `product.edit`**, and **+ `product.taxonomy.edit`** when the body carries any facet array. Both gates run **after** ownership settles, so a non-owner still gets the flat 404 | `product.updated` (`metadata.source: 'vendor-portal'`) |
 | `GET /api/vendor/products/:id/versions` (AECI-607) | Hard-required | same **+ ownership** | No (reads only) |
 | `POST /api/vendor/products/:id/versions` (AECI-607) | Hard-required | same **+ ownership + `vendors.verified`** | `product_version.created` (`metadata.source: 'vendor-portal'`) |
 | `PATCH /api/vendor/products/:id/versions/:versionId` (AECI-607) | Hard-required | same **+ ownership + `vendors.verified`** (+ the version must belong to `:id`) | `product_version.updated` |
@@ -467,10 +514,16 @@ get backwards:
   verification unlocks. The 403 copy points at the claim/verification flow and
   **never at ranking, placement, or search** — no pay-for-placement.
 - The check lives in `assertVerifiedVendor()` (`routes/vendor-shared.ts`), a
-  deliberate **one-function stand-in** for the capability registry AECI-610/611
-  is landing on the Paid Tiers branch (`@aeci/shared/entitlements` already
-  declares the `attestation.author` id). It **reads** `vendors.verified` and
-  never writes it.
+  deliberate **one-function stand-in** for the capability registry. It **reads**
+  `vendors.verified` and never writes it. **The registry has since landed**
+  (AECI-610/611): `@aeci/shared/entitlements` declares `attestation.author` and
+  `requireCapability()` is the general gate — but these routes are still gated on
+  the **mirror**, not the capability, and are now the last place in the portal not
+  driven by `capabilities`. That is a behavioural no-op today (the ladder is
+  binary, so `verified = 1` and `hasCapability(tier, 'attestation.author')` agree
+  on every row the mirror invariant permits) and a real divergence the moment a
+  rung is added between them. The one-function stand-in is what keeps the swap
+  mechanical. Tracked as **AECI-623**.
 
 Two rejection cells are deliberate and easy to get wrong:
 
@@ -696,7 +749,7 @@ and no `apps/api/src/prisma.ts`:
 
 1. User confirms Delete in `/account` → `DELETE /api/account`.
 2. **D1 erasure — one atomic `db.batch([...])`** (`apps/api/src/routes/account.ts`):
-   in order, null all six inbound references above, write the `account.deleted`
+   in order, null all seven inbound references above, write the `account.deleted`
    audit row, then delete the `profiles` row. All commit or roll back as a unit.
 3. The `account.deleted` audit row has **`actorId = null`** — the profile is deleted
    in the same batch and `audit_log.actor_id` is `NO ACTION`, so a non-null actor
@@ -811,8 +864,8 @@ A `vendor_admin` **seat *is* a `profiles` row** — it carries `role = 'vendor_a
 non-null `vendor_id`. `DELETE /api/account` (`routes/account.ts`, the §8 flow) deletes that
 `profiles` row and **never touches the `vendors` table**: there is no `vendors.verified = false`
 flip anywhere in the handler, and there is **no inbound FK from `vendors` to `profiles`**, so
-the erasure batch's eight-FK trap (§8, above) is unaffected and nothing cascades to the vendor.
-(AECI-609 adds the eighth ref, `vendor_entitlements.granted_by`. It points at the *granting
+the erasure batch's seven-FK trap (§8, above) is unaffected and nothing cascades to the vendor.
+(AECI-609 added the seventh ref, `vendor_entitlements.granted_by`. It points at the *granting
 admin*, not the vendor, so deleting a seat still cannot disturb the vendor's entitlement — the
 row survives with `granted_by` nulled.)
 
@@ -820,12 +873,13 @@ row survives with `granted_by` nulled.)
 `vendor_admin` seat removes the last seat but leaves **`vendors.verified = true`**. This is a
 **legitimate state, not a bug**: `verified` is vendor-level paid state, **decoupled** from
 seats — the same §8.3(2) decoupling under which revoke and ban never un-verify
-(`STAGE_2_SPEC.md` §8.3(2); §3.2 above). No un-verify writer exists today — the Paid Tiers epic
-gave it an owner at its 2026-08-14 review (**AECI-532**, `docs/STAGE_2_PAID_TIERS_SPEC.md` §5)
-but it is not built — so nothing is available to flip it, and account-deletion deliberately
-does not add one. **This stays true after AECI-532 ships:** the entitlement is vendor-level and
-the seat is not, so losing the last seat leaves the entitlement row (and therefore the mirror)
-intact, by design. The vendor is therefore **verified-but-unclaimed**: it diverges from the
+(`STAGE_2_SPEC.md` §8.3(2); §3.2 above). An un-verify writer now exists (**AECI-532**,
+`docs/STAGE_2_PAID_TIERS_SPEC.md` §5), and it changes nothing here: it is a **deliberate admin
+act on the vendor**, not a consequence of a seat disappearing, and account-deletion still does
+not reach for it. **The entitlement is vendor-level and the seat is not, so losing the last
+seat leaves the entitlement row — and therefore the mirror — intact, by design.** The vendor is
+therefore **verified-but-unclaimed**, and that is the correct reading: somebody paid for a term
+that has not ended. It diverges from the
 "claimed = ≥1 *active* `vendor_admin` seat" predicate (`loadClaimedVendorIds`,
 `lib/claimed-vendors.ts`) — the same divergence a fully-banned vendor exhibits. AECi re-grants
 a seat through the normal claim→grant flow (§3.2) when a new contact is verified. (Erasure's
@@ -843,8 +897,11 @@ Stage 2 introduces the **vendor portal** (`vendor_admin`). Its authorization is 
 - **`vendorId` on the session** — the Layer-1 guard (`createAuthzMiddleware`, §4.2) gains a `requireVendor()` branch and adds `profiles.vendor_id` to the profile re-fetch, so it rides on `AuthenticatedSession`.
 - **`vendor_id`-scoped queries** — every `/api/vendor/*` read and write filters by the session's `vendor_id` in the **Drizzle query** (`WHERE vendor_id = :sessionVendorId`). This is the D1/Drizzle replacement for the row filter the retired RLS design would have applied; the Worker never trusts a client-supplied vendor/target id. Every write emits its `audit_log` row in the same `db.batch()` (§4.3).
 - **Ban gate** — `profiles.banned_at` already gates vendor seats through the existing §4.2 / §7 check; portal abuse is a ban path (per-seat — it never touches `vendors.verified`).
+- **The entitlement tier on the session** — **shipped** (AECI-611, `docs/STAGE_2_PAID_TIERS_SPEC.md` §4). `AuthenticatedSession` carries `entitlementTier` + `entitlement`, loaded by the `vendor_admin` guard branch, and `/api/vendor/*` **writes** assert a capability against it (§4.2b). This is the one part of Stage 2 authorization that **did** need a migration — see below.
 
-**No schema migration is required for Stage 2 authorization** — the hooks (`profiles.role` `vendor_admin`, `profiles.vendor_id`, `vendors.verified`, `profiles.banned_at`) already exist. The `vendor_admin` surface is now **fully documented above** (AECI-525): role-exclusivity & the grant/revoke/ban mechanics in **§3.2**, the split-identity claimant seam #4 in **§3.1**, the endpoint-by-endpoint rows + `vendor_id`-scoping obligations in **§4.4**, and the GDPR last-seat edge in **§8.2**. The bullets above are the summary; those sections are the contract.
+**Stage 2 authorization needed no migration; Stage 2 *entitlements* needed exactly one.** The authorization hooks (`profiles.role` `vendor_admin`, `profiles.vendor_id`, `vendors.verified`, `profiles.banned_at`) already existed, which is why the vendor portal (AECI-513) shipped without DDL. The Paid Tiers epic (AECI-515) could not: there was no reserved entitlement table, so it added **`vendor_entitlements`** (`DATABASE_SCHEMA.md` §8.5) and demoted `vendors.verified` to a mirror of it (§3.2 above). That is the only schema change either epic made, and it is additive — no reader changed.
+
+The `vendor_admin` surface is **fully documented above** (AECI-525, extended by AECI-615): role-exclusivity, the grant/revoke/ban mechanics and the mirror invariant in **§3.2**, the split-identity claimant seam #4 in **§3.1**, the entitlement tier on the session in **§4.2b**, the endpoint-by-endpoint rows + `vendor_id`-scoping obligations in **§4.4**, the seventh inbound FK in **§8**, and the GDPR last-seat edge in **§8.2**. The bullets above are the summary; those sections are the contract.
 
 ---
 

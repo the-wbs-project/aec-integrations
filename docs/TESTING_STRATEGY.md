@@ -154,6 +154,22 @@ describe('SubmitReviewSchema', () => {
 });
 ```
 
+### 3.6 Invariant tests — tests that encode a decision, not a behaviour
+
+A handful of tests exist to make a **written decision mechanically true** rather than to cover a code path. They look over-specified on purpose: a frozen literal list, an assertion that a builder emits *no* statement of some shape, an assertion that a set is empty. **Deleting or loosening one is a spec change, not a test cleanup** — the governing spec has to be reopened first, and each one names its spec section in a comment so a reviewer can tell the difference.
+
+Three ship with the Stage 2 entitlement model (`docs/STAGE_2_PAID_TIERS_SPEC.md` §10), and they are the reference shape:
+
+| Test | Asserts | Why a test and not a comment |
+|---|---|---|
+| **Ranking disjointness** (`packages/shared/src/entitlements.spec.ts`) | The capability vocabulary and the union of every Algolia `searchableAttributes` ∪ `attributesForFaceting` ∪ `customRanking` are **disjoint sets**; no capability id matches a ranking-word regex; no entitlement concept (`verified`, `tier`, `entitlement`, `paid`, `plan`, …) appears in `INDEX_SETTINGS` at all | **No pay-for-placement** is the product's founding promise. Both tables are pure data in the same package, so the promise is *provable* — this is the one place a documented principle became an asserted property. It carries its own **non-vacuity** case (the ranking vocabulary is non-empty, and the `unordered()`/`desc()` wrappers really were stripped), because a broken strip helper would make every assertion below it pass trivially |
+| **Mirror sole-writer** (`apps/api`, over the batch builders) | `grantSeatStatements` — and every route handler — emits **no statement touching `vendors.verified`**; only `lib/vendor-entitlement.ts` does, and never one side of the *iff* without the other. Plus: `vendors.updated_at` moves **iff** `vendors.verified` moves, in **both** directions | The ESLint sole-writer rule catches the syntax; this catches the semantics the rule cannot see. The both-directions clause exists because the un-verify direction had no writer at all until AECI-532, so nothing had ever exercised it |
+| **Reads are never gated** (`apps/api`) | `GET /api/vendor/me` returns **200** for a vendor whose entitlement is `revoked`/`expired`, carrying the downgraded `entitlement` block | A one-line mistake with total blast radius on exactly the cohort being billed: `vendorMeResolver` maps 403 onto a **404 render**, so gating this read would hide the renewal notice inside a 404 dashboard |
+
+Alongside them, per issue: the second-seat no-op matrix against the in-memory D1 harness; 422 idempotency on the admin `set`/`clear`; `POST /api/promote` still cannot move `verified` (the AECI-520 regression guard); the expiry cron writes **no `status`** (asserted against generated SQL, since a `WHERE status = 'active'` guard is a read and must not be mistaken for a write); and a no-read-path guard asserting no read config in `lib/drizzle-helpers.ts` references `vendor_entitlements`.
+
+**A caveat worth generalizing.** An invariant asserted in a file where its subject is *mocked* passes vacuously. Where a cron-level suite mocks the sweep it is testing, the real obligation belongs in the sweep's own spec, and any exemption list in the mocking file should say which entries are genuinely exempt versus merely asserted elsewhere.
+
 ---
 
 ## 4. Component testing — Vitest + Angular Testing Utilities
