@@ -464,10 +464,42 @@ The directory has **four independent taxonomy facets**. Each is a small, closed 
 
 A product carries any number of terms from each facet (the `product_categories` / `product_audiences` / `product_phases` / `product_trades` join tables). The aggregate vocabulary is exposed at `GET /api/taxonomy → { categories, audiences, phases, trades }` and per-term browse pages at `GET /api/{categories|audiences|phases|trades}/:slug`.
 
+**Index-page ordering.** All four flat index pages (`/categories`, `/audiences`, `/phases`, `/trades`) are one component, `TaxonomyIndexPage`, carrying a sort toggle whose **option set is per-facet**:
+
+| Mode | Order | Offered on |
+|---|---|---|
+| **Sequence** | The API's own `display_order ASC, name ASC` | **`/phases` only**, where it is also the default |
+| **A → Z** | `name` A–Z, collation pinned to `en` | All four; the default for the other three |
+| **Products** | `product_count` DESC, then `integration_count` DESC, then `name` | All four |
+
+`Sequence` exists for `/phases` because that vocabulary genuinely *is* one (Concept & Planning → … → Closeout & Operations) and alphabetising it would destroy meaning the terms carry. The other three facets do **not** offer it: their `display_order` is an editorial convenience rather than something the reader needs, and a term grid answers "is my thing in here?", which A→Z answers better. `display_order` still drives those facets in the nav flyout, the facet sidebar, and the home browse grids — only this surface stops deferring to it.
+
+**Products, not integrations, is the magnitude sort.** `integration_count` is a downstream consequence of the catalog rather than a measure of the term itself, so it ranks only as a tiebreaker among terms carrying the same number of products. It is still *displayed* on each card (`API_CONTRACTS.md` §6.4).
+
+The control is **client-side and stateless**: the whole vocabulary is already resolved into `route.data`, so no ordering triggers a fetch, and the mode is deliberately **not** a query parameter — that would fork the edge-cache key per facet for a presentational preference (see the visitor-state-neutral rule). SSR emits each facet's default, which is why the collation is pinned rather than ambient: for the three A→Z-by-default facets a locale-dependent comparator would be a server/client mismatch, not merely a cosmetic difference. Every comparator falls through to `name`, giving a total order, so a re-sort can never depend on the incoming array order. Sorting reorders only what is already listed: on `/trades` the publication floor (§5.5a) is applied **before** the sort, so a sub-floor term cannot be promoted onto the page by any ordering.
+
 **The Audience facet (AECI-121).** Audience answers "who is this for?" and deliberately holds **two kinds of term on one axis**:
 
-- **Domains** — the professional discipline/department a product serves (Architecture, Civil Engineering, MEP Engineering, Construction Management, …). These are the original 21 facet items.
+- **Domains** — the professional discipline/department a product serves (Architecture, Civil Engineering, MEP Engineering, Construction Management, …). Originally 21 facet items; **27 since the discipline-coverage additions below**.
 - **Personas** — cross-cutting job roles a domain axis cannot express (Project Manager, Project Engineer, Superintendent, Estimator, Scheduler, Foreman / Field Supervisor, Designer / Drafter, BIM Manager, BIM Coordinator).
+
+**Discipline-coverage additions.** Six domain terms were added to close gaps against how AEC firms describe their own disciplines, taking the facet from 30 terms to **36**:
+
+| Term | Slug | Gap it closes |
+|---|---|---|
+| Mechanical Engineering | `mechanical-engineering` | MEP Engineering is a single combined term; a mechanical engineer could not filter to their own discipline. |
+| Electrical Engineering | `electrical-engineering` | Likewise. |
+| Environmental Engineering | `environmental-engineering` | No environmental discipline existed on the facet at all. |
+| Other Engineering | `other-engineering` | Catch-all for engineering disciplines outside the named set. |
+| Planning | `planning` | Urban/site planning existed only as a *phase* (Concept & Planning), never as a discipline. |
+| Sciences | `sciences` | Environmental / geotechnical / materials scientists had no term. |
+
+Two consequences follow, and both are load-bearing:
+
+1. **The names must match the review app exactly.** Audiences resolve **find-or-create** in the promote flow (unlike trades, §5.5a), so a curation-side label that slugifies differently — "Mechanical Engineers" → `mechanical-engineers` — mints a *second*, near-duplicate term rather than matching the seeded one. The Airtable `Audiences` vocabulary must gain these six options under exactly these names.
+2. **They start empty.** The seed writes `taxonomy_audiences` only, never the `product_*` joins (ADR 0008); tagging arrives through promote. The Audience facet has **no publication floor**, so until the review app tags products, each new term renders as a real but zero-count card on `/audiences`.
+
+**Coverage note.** The remaining discipline labels an AEC firm might name are already present under the facet's discipline-noun convention rather than a plural-people one: *Architects* → **Architecture**, *Civil/Structural Engineers* → **Civil / Structural Engineering**, *Landscape Arch.* → **Landscape Architecture**, *Interior Designers* → **Interior Design**, *Surveyors* → **Surveying/Geomatics**, *Construction* → **Construction Management** + **General Contracting**, *Business/Accounting* → **Accounting & Finance** + **Business Development**, *Marketing* → **Marketing & Communications**. Renaming the facet to plural-people labels was **not** done: `slug` is permanent public-URL identity, so the names would desync from the URLs they already own.
 
 A separate "Roles" facet was evaluated and **rejected**: ~55% of the proposed roles duplicated existing domains and others duplicated Categories, so a separate facet would have been a half-populated filter that confuses users and curators. Folding personas into a single "who is this for?" axis keeps one vocabulary to curate and no overlap to police.
 

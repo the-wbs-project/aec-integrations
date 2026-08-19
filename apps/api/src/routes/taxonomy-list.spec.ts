@@ -7,6 +7,7 @@ import { CategoriesListResponseSchema } from '@aeci/shared';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
+  integrations,
   productCategories,
   products,
   productTrades,
@@ -54,6 +55,100 @@ describe('GET /api/categories (list)', () => {
     const body = CategoriesListResponseSchema.parse(await res.json());
     expect(body.data.map((c) => c.slug)).toEqual(['alpha', 'zeta']);
     expect(body.data[0]?.product_count).toBe(1);
+  });
+});
+
+// The count the taxonomy index pages sort by. The cases that matter are the two
+// ways a naive implementation gets it wrong: counting an integration twice when
+// both of its endpoints carry the term, and missing one that is only reachable
+// through its *target*.
+describe('integration_count', () => {
+  /** Two products tagged `alpha`, one tagged nothing, wired as noted per test. */
+  async function seedCategoryFixture() {
+    await t.db.insert(taxonomyCategories).values([
+      { id: u(1), slug: 'alpha', name: 'Alpha', displayOrder: 10 },
+      { id: u(2), slug: 'beta', name: 'Beta', displayOrder: 20 },
+    ]);
+    await t.db.insert(products).values([
+      { id: u(11), slug: 'revit', name: 'Revit', promotionStatus: 'promoted' },
+      { id: u(12), slug: 'procore', name: 'Procore', promotionStatus: 'promoted' },
+      { id: u(13), slug: 'outsider', name: 'Outsider', promotionStatus: 'promoted' },
+    ]);
+    await t.db.insert(productCategories).values([
+      { productId: u(11), categoryId: u(1) },
+      { productId: u(12), categoryId: u(1) },
+    ]);
+  }
+
+  const alpha = async () => {
+    const res = await app('categories', '/api/categories').request(
+      '/api/categories',
+      {},
+      TEST_ENV,
+      fakeExecutionContext(),
+    );
+    const body = CategoriesListResponseSchema.parse(await res.json());
+    return body.data.find((c) => c.slug === 'alpha');
+  };
+
+  it('counts an integration once when BOTH endpoints carry the term', async () => {
+    await seedCategoryFixture();
+    // Revit ↔ Procore: both tagged `alpha`. This is the row that a
+    // SUM(products.integration_count) implementation would count twice.
+    await t.db
+      .insert(integrations)
+      .values({ id: u(21), sourceProductId: u(11), targetProductId: u(12) });
+
+    expect((await alpha())?.integration_count).toBe(1);
+  });
+
+  it('counts an integration reachable through either endpoint', async () => {
+    await seedCategoryFixture();
+    await t.db.insert(integrations).values([
+      // Tagged product as SOURCE.
+      { id: u(21), sourceProductId: u(11), targetProductId: u(13) },
+      // Tagged product as TARGET — the direction a `source_product_id`-only
+      // implementation drops.
+      { id: u(22), sourceProductId: u(13), targetProductId: u(12) },
+    ]);
+
+    expect((await alpha())?.integration_count).toBe(2);
+  });
+
+  it('is 0 for a term whose products have no integrations, and for an empty term', async () => {
+    await seedCategoryFixture();
+    const res = await app('categories', '/api/categories').request(
+      '/api/categories',
+      {},
+      TEST_ENV,
+      fakeExecutionContext(),
+    );
+    const body = CategoriesListResponseSchema.parse(await res.json());
+    expect(body.data.find((c) => c.slug === 'alpha')?.integration_count).toBe(0);
+    // `beta` has no tagged products at all.
+    expect(body.data.find((c) => c.slug === 'beta')?.integration_count).toBe(0);
+  });
+
+  it('does not leak across terms', async () => {
+    await seedCategoryFixture();
+    // An integration between two products, NEITHER tagged `alpha`.
+    await t.db
+      .insert(products)
+      .values({ id: u(14), slug: 'bluebeam', name: 'Bluebeam', promotionStatus: 'promoted' });
+    await t.db.insert(productCategories).values({ productId: u(14), categoryId: u(2) });
+    await t.db
+      .insert(integrations)
+      .values({ id: u(21), sourceProductId: u(13), targetProductId: u(14) });
+
+    const res = await app('categories', '/api/categories').request(
+      '/api/categories',
+      {},
+      TEST_ENV,
+      fakeExecutionContext(),
+    );
+    const body = CategoriesListResponseSchema.parse(await res.json());
+    expect(body.data.find((c) => c.slug === 'alpha')?.integration_count).toBe(0);
+    expect(body.data.find((c) => c.slug === 'beta')?.integration_count).toBe(1);
   });
 });
 

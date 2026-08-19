@@ -6,14 +6,31 @@
 -- `wrangler d1 execute aeci-app-<env> --file=seed/taxonomy.sql`. NEVER deletes
 -- (removals cascade to product_* joins); touches taxonomy_* tables only.
 --
--- KNOWN GAP (AECI-540). The exact UUIDv5 namespace + name form behind THESE ids is
--- unrecovered: they match neither UUIDv5 over the bare slug under any of the five
+-- KNOWN GAP (AECI-540). The exact UUIDv5 namespace + name form behind the ORIGINAL ids
+-- here is unrecovered: they match neither UUIDv5 over the bare slug under any of the five
 -- standard namespaces, nor the `UUIDv5(URL_NS, 'https://aecintegrations.com/vocabulary/<v>')`
 -- scheme that seed/data-objects.sql and seed/trades.sql document and use. The ids are
 -- shipped and immutable (slug is the identity key; ids never regenerate), so this is a
 -- documentation gap, not a defect. ANY NEW TERM added below must therefore have its id
--- minted by hand and recorded here — do not assume a derivation. New vocabularies should
--- use the documented scheme in seed/trades.sql instead.
+-- minted by hand and recorded here — do not assume a derivation covering the whole file.
+--
+-- NEW TERMS USE THE DOCUMENTED SCHEME. Terms added after AECI-540 are minted under the
+-- same construction seed/trades.sql and seed/data-objects.sql use, one vocabulary path
+-- along, so they ARE reproducible even though their older siblings are not:
+--
+--   NAMESPACE = UUIDv5(URL_NS, 'https://aecintegrations.com/vocabulary/audience')
+--             = 9488d68f-a6b7-5edd-ab56-f3f86f7f39ec
+--   id        = uuidv5(slug, NAMESPACE)
+--
+-- (URL_NS = 6ba7b811-9dad-11d1-80b4-00c04fd430c8, RFC 9562 §6.6.) The six audience terms
+-- at display_order 53/56/145/155/165/185 are the first minted this way. Categories and
+-- phases have no post-540 additions yet; when they get one, use the same construction with
+-- `/vocabulary/category` and `/vocabulary/phase`.
+--
+-- DISPLAY_ORDER. The audience block is two runs: disciplines (10..210, alphabetical) then
+-- job titles (220..300, curated). Values are spaced in tens precisely so a term can be
+-- inserted between two without renumbering, which is why the additions above carry
+-- off-round values (53, 145, ...) rather than the block being resequenced.
 
 INSERT INTO "taxonomy_categories" ("id","slug","name","display_order","created_at","updated_at") VALUES
   ('42ac2106-9994-5fad-8298-f82bbb85bc14', 'accounting-erp', 'Accounting & ERP', 10, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
@@ -59,6 +76,8 @@ INSERT INTO "taxonomy_audiences" ("id","slug","name","display_order","created_at
   ('4ab0e0f3-7cbc-5f2b-b432-4cba07b13873', 'business-development', 'Business Development', 30, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   ('d7e21504-edad-5ce3-a000-69565fcba28f', 'civil-engineering', 'Civil Engineering', 40, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   ('4393af17-bef4-569e-80cf-d61f08916ba7', 'construction-management', 'Construction Management', 50, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  ('e617bf7c-a2dd-5cd1-adae-74ea7c7e73ad', 'electrical-engineering', 'Electrical Engineering', 53, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  ('9d63734f-9206-55a9-be02-149fe0376b5c', 'environmental-engineering', 'Environmental Engineering', 56, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   ('bf4fa859-9e51-5d75-9747-42678174ba3e', 'executive-leadership', 'Executive Leadership', 60, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   ('f38f5fe5-8f6c-5912-9f95-e30c6a6178d7', 'facilities-management', 'Facilities Management', 70, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   ('1a838026-087b-5536-bf74-6932fc659808', 'general-contracting', 'General Contracting', 80, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
@@ -68,10 +87,14 @@ INSERT INTO "taxonomy_audiences" ("id","slug","name","display_order","created_at
   ('96ec6eef-1146-5598-a485-e8bb87b04157', 'landscape-architecture', 'Landscape Architecture', 120, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   ('bf47cadc-703c-5bbe-a51f-e8e04eee1b42', 'legal-risk-management', 'Legal & Risk Management', 130, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   ('cd805567-9477-5098-85eb-9a4f42562cac', 'marketing-communications', 'Marketing & Communications', 140, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  ('e5cae339-1529-53ee-ae12-0d8502ae6162', 'mechanical-engineering', 'Mechanical Engineering', 145, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   ('a8623578-4c06-55f0-ab1c-45b1cc74ce0f', 'mep-engineering', 'MEP Engineering', 150, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  ('de118e68-9917-5628-9282-dff3c17404d0', 'other-engineering', 'Other Engineering', 155, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   ('8e8af0f1-3483-5469-928d-84a48a8f72ca', 'owner-developer', 'Owner/Developer', 160, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  ('be603b50-b11d-52a0-9a7e-94e8abf0fba0', 'planning', 'Planning', 165, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   ('df493938-c2b7-52fa-b813-afda6d008b8b', 'procurement-purchasing', 'Procurement & Purchasing', 170, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   ('5258bd19-e52d-553c-840e-6e7575bf09b3', 'safety-management', 'Safety Management', 180, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  ('1340a331-f4a6-5e08-9ade-42c86f6f6d5d', 'sciences', 'Sciences', 185, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   ('32183b5e-1cee-5870-97b8-b26a2e322f5c', 'specialty-contracting', 'Specialty Contracting', 190, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   ('4f4cfa6f-1750-5f04-99c7-d9593b0bd3c8', 'structural-engineering', 'Structural Engineering', 200, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   ('c2c5d10e-2864-5e22-83f3-8efe87a703b4', 'surveying-geomatics', 'Surveying/Geomatics', 210, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
