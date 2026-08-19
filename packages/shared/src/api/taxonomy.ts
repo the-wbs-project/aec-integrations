@@ -4,17 +4,40 @@ import { LinkRefSchema } from './common';
 import { ProductListItemSchema } from './products';
 
 /**
- * A taxonomy term (category / audience / phase / trade) with the count of
- * products tagged with it. Used by `GET /api/categories` (and the audiences /
- * phases / trades equivalents inside `TaxonomyResponse`).
+ * A taxonomy term (category / audience / phase / trade) with the counts of
+ * products tagged with it and integrations reachable through those products.
+ * Used by `GET /api/categories` (and the audiences / phases / trades
+ * equivalents inside `TaxonomyResponse`).
+ *
+ * **`integration_count` is optional, deliberately.** The `*_counts` keys in
+ * `stats_cache` store arrays of this shape (see `TaxonomyCountsSchema` in
+ * `./stats.ts`) and are validated on **read** against this same schema, so a
+ * required field would make every row written before this shipped fail
+ * validation until the compute cron next rewrote it. Optional means the old
+ * rows keep parsing and simply carry no integration count. Read it through
+ * `taxonomyIntegrationCount()` below rather than `?? 0` at each call site.
  */
 export const TaxonomyTermWithCountSchema = LinkRefSchema.extend({
   description: z.string().nullable(),
   display_order: z.number().int(),
   product_count: z.number().int().min(0),
+  integration_count: z.number().int().min(0).optional(),
 });
 
 export type TaxonomyTermWithCount = z.infer<typeof TaxonomyTermWithCountSchema>;
+
+/**
+ * A term's integration count, or 0 when the payload predates the field.
+ *
+ * The one place the absent case is decided. Sorting a term list by integrations
+ * (the taxonomy index toggle) needs a total order over a field that may be
+ * missing, and treating "not carried" as 0 keeps such a term at the bottom of a
+ * descending sort — the same place a genuinely unintegrated term lands, which is
+ * the honest reading for a payload that never measured it.
+ */
+export function taxonomyIntegrationCount(term: { integration_count?: number | undefined }): number {
+  return term.integration_count ?? 0;
+}
 
 /**
  * Minimum promoted products a trade needs before it is **published** —

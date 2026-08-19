@@ -66,7 +66,7 @@ Census taken against **production D1 on 2026-08-12**. These numbers decide what 
 | `integrations` | 496 | same caveat |
 | `vendors` | 126 | same caveat |
 | `claims` / `attestations` | 915 / 915 | `created_at` present |
-| `taxonomy_*` | 33 categories · 30 audiences · 5 phases · 34 trades · 20 data objects | static vocabularies |
+| `taxonomy_*` | 33 categories · 30 audiences · 5 phases · 34 trades · 20 data objects | static vocabularies [^tax] |
 | `product_categories` | 373 | — |
 | `product_trades` | **0** — the fourth facet (AECI-538) is live but untagged | — |
 | `profiles` | 2 | `created_at` |
@@ -75,6 +75,8 @@ Census taken against **production D1 on 2026-08-12**. These numbers decide what 
 | `feedback` | **0** | `created_at` |
 | `vendor_requests` / `workflow_instances` | **0** / **0** | `created_at` + transitions |
 | `stats_cache` | 12 keys, recomputed 07:00 UTC daily | **No** — snapshot, overwritten |
+
+[^tax]: Census figures, correct on 2026-08-12 and left as recorded. The audience vocabulary has since grown to **36** terms (six discipline-coverage additions — `STAGE_1_SPEC.md` §5.5); the six new terms start at zero tagged products, so treat a zero-count audience as expected rather than as a finding until the review app tags them.
 
 Other observations from the census that the panel should surface as findings, not hide:
 
