@@ -1,5 +1,5 @@
 /**
- * The eleven cron expressions the API Worker is triggered on, in one place.
+ * The twelve cron expressions the API Worker is triggered on, in one place.
  *
  * They used to live as module-private constants in `scheduled.ts`, which was fine
  * while `scheduled.ts` was the only reader. `GET /api/admin/system` (AECI-580 /
@@ -11,7 +11,7 @@
  *
  * **Every value MUST stay byte-equal to the matching `triggers.crons` entry in
  * `apps/api/wrangler.jsonc`** (staging, demo and production each declare the same
- * ten, and `cron-schedules.spec.ts` asserts it). `scheduled.ts` `switch`es on
+ * twelve, and `cron-schedules.spec.ts` asserts it). `scheduled.ts` `switch`es on
  * `controller.cron`, so a mismatch silently stops dispatching the job — the
  * failure mode these comments have always warned about.
  *
@@ -97,6 +97,28 @@ export const WAF_CRON = '0 * * * *';
  *  `audit_log`, so it wants the consumer's native retries. */
 export const ATTESTATION_NOTIFY_CRON = '0 10 * * *';
 
+/** Daily Stage 2 §7 entitlement term-expiry warning sweep (AECI-613 /
+ *  `STAGE_2_PAID_TIERS_SPEC.md` §7.1). **11:00 UTC** — the next free slot, one hour
+ *  after the attestation sweep and the new last daily job.
+ *
+ *  **The spec says 05:00; that is stale.** §7.1 was written when seven crons
+ *  existed, and 05:00 has since been taken by the AECI-526 analytics digest. The
+ *  05:00–10:00 band is now fully occupied (04:00 data-quality, 05:00 analytics,
+ *  06:00 moderation, 07:00 stats, 08:00 Algolia sync, 09:00 drift, 10:00
+ *  attestation notify), so this continues the sequence rather than colliding.
+ *  §7's actual requirement — a daily slot in the dead-of-night window, after the
+ *  batch that may have moved the rows it reads — is satisfied either way.
+ *
+ *  Queue-less and inline, following the 06:00 moderation-snapshot precedent
+ *  (`queueForJob` returns `undefined`): one indexed read over
+ *  `vendor_entitlements_expiry_idx` plus a handful of fail-open emails does not
+ *  justify a new `aeci-entitlement-expiry-{env}` queue, two `wrangler.jsonc`
+ *  blocks per tier, and a `wrangler queues create` step in two deploy workflows.
+ *  A missed night costs at most one day of warning lead time, and the
+ *  `expiry_notice_sent_at` fence makes tomorrow's run pick up exactly what this
+ *  one missed. */
+export const ENTITLEMENT_EXPIRY_CRON = '0 11 * * *';
+
 /**
  * Every cron, in schedule order, keyed by the `AdminCronJob` id. `Record<…>` so
  * adding a member to the shared enum without adding a schedule here is a type
@@ -114,6 +136,7 @@ export const CRON_SCHEDULES: Record<AdminCronJob, string> = {
   'request-reconcile': RECONCILE_CRON,
   'waf-poll': WAF_CRON,
   'attestation-notify': ATTESTATION_NOTIFY_CRON,
+  'entitlement-expiry': ENTITLEMENT_EXPIRY_CRON,
 };
 
 /**
@@ -138,6 +161,7 @@ export const ADMIN_CRON_JOB: Record<ScheduledJob, AdminCronJob> = {
   reconcile: 'request-reconcile',
   waf: 'waf-poll',
   attestation_notify: 'attestation-notify',
+  entitlement_expiry: 'entitlement-expiry',
 };
 
 /** Display/iteration order for the System screen — chronological through the UTC
@@ -152,6 +176,7 @@ export const CRON_JOBS: readonly AdminCronJob[] = [
   'algolia-sync',
   'algolia-drift',
   'attestation-notify',
+  'entitlement-expiry',
   'request-reconcile',
   'waf-poll',
 ];

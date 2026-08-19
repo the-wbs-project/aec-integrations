@@ -60,6 +60,16 @@
  * the state the site is actually serving. Unlike the read-only gauges this one
  * RETHROWS on an unexpected failure, so the queue retries — a sweep that never
  * ran is a nudge nobody is ever told about.
+ * 11:00 UTC — daily Stage 2 §7 entitlement term-expiry sweep
+ * (`./lib/entitlement-expiry`, AECI-613 / `STAGE_2_PAID_TIERS_SPEC.md` §7): one
+ * indexed read over `vendor_entitlements_expiry_idx` for terms within 30 days →
+ * a renewal prompt to the vendor's seats and an operator copy to
+ * `ADMIN_ALERT_EMAIL`, fenced by `expiry_notice_sent_at` so a term earns ONE
+ * notice rather than one per night. Queue-less (a small read plus a handful of
+ * fail-open emails). **It warns and never lapses** — it writes
+ * `expiry_notice_sent_at` and an audit row, never `status` and never
+ * `vendors.verified` (§7.3). Perpetual entitlements are invisible to it by
+ * construction: the index is partial on `period_end IS NOT NULL`.
  * Every hour at :00 (`WAF_CRON`) — WAF firewall-event poll (`./lib/waf-metrics` +
  * `@aeci/shared/cloudflare-analytics`, AECI-262 / §15.1): read the previous clock
  * hour of `firewallEventsAdaptiveGroups` from Cloudflare's GraphQL Analytics API
@@ -116,6 +126,7 @@ import {
   ANALYTICS_CRON,
   ATTESTATION_NOTIFY_CRON,
   DATA_QUALITY_CRON,
+  ENTITLEMENT_EXPIRY_CRON,
   MODERATION_CRON,
   RECONCILE_CRON,
   RETENTION_CRON,
@@ -123,9 +134,20 @@ import {
   STATS_CRON,
   WAF_CRON,
 } from './lib/cron-schedules';
+import { runEntitlementExpirySweep } from './lib/entitlement-expiry';
+import {
+  EXPIRY_DURATION_METRIC,
+  EXPIRY_JOB_METRIC,
+  type EntitlementExpiryMetricSink,
+} from './lib/entitlement-expiry-metrics';
 import { hasErrors, runDataQualityChecks, type DataQualityCheckResult } from './lib/data-quality';
 import { buildDataQualityDigest } from './lib/data-quality-email';
-import { parseRecipients, sendEmail } from './lib/email';
+import {
+  parseRecipients,
+  sendEmail,
+  sendEntitlementExpiringAdminEmail,
+  sendEntitlementExpiringEmail,
+} from './lib/email';
 import { emitAlgoliaSyncMetrics, type SyncMetricSink } from './lib/algolia-sync-metrics';
 import { runHomeStats, type HomeStatsResult } from './lib/home-stats';
 import { emitHomeStatsMetrics, jobOutcome } from './lib/home-stats-metrics';
@@ -216,7 +238,7 @@ function jobRunSink(ctx: ExecutionContext, env: Env): JobRunSink {
   };
 }
 
-// The eleven cron expressions now live in `./lib/cron-schedules` — hoisted there
+// The twelve cron expressions now live in `./lib/cron-schedules` — hoisted there
 // by AECI-580 (the snapshot cron joined them in AECI-581, the retention prune in
 // AECI-584, and the §7 attestation sweep at the AECI-619 reconciliation) so
 // `GET /api/admin/system`'s liveness rows read the SAME literals this dispatcher
@@ -224,7 +246,7 @@ function jobRunSink(ctx: ExecutionContext, env: Env): JobRunSink {
 // stay byte-equal to its `triggers.crons` entry in `wrangler.jsonc`, or
 // `controller.cron` won't match the `switch` below; see that file for the per-job
 // scheduling rationale (including why `SNAPSHOT_CRON` runs at 00:15, the first
-// slot of the day, and why `ATTESTATION_NOTIFY_CRON` runs last at 10:00).
+// slot of the day, and why `ENTITLEMENT_EXPIRY_CRON` runs last at 11:00).
 
 /** The gauge a Datadog monitor alerts on (see docs/OBSERVABILITY.md). */
 const DRIFT_METRIC = 'aeci.algolia.index_drift';
@@ -327,7 +349,8 @@ function metricSink(
   ModerationMetricSink &
   SnapshotMetricSink &
   RetentionMetricSink &
-  AttestationNotifyMetricSink {
+  AttestationNotifyMetricSink &
+  EntitlementExpiryMetricSink {
   return {
     count: (metric, value, tags) => submitCount(ctx, env, req, metric, value, tags),
     distribution: (metric, value, tags) => submitDistribution(ctx, env, req, metric, value, tags),
@@ -1131,6 +1154,81 @@ async function runAttestationNotifyJob(env: Env, ctx: ExecutionContext): Promise
   }
 }
 
+/**
+ * Run the daily §7 entitlement term-expiry sweep (AECI-613): scan
+ * `vendor_entitlements` for active terms inside the 30-day horizon, warn the
+ * vendor's seats and the operator, and stamp `expiry_notice_sent_at`.
+ *
+ * The two email senders are injected here — the §1.3 route-seam pattern — so the
+ * sweep module never reaches the Resend transport and its specs need no email
+ * stubbing beyond these two parameters.
+ *
+ * Fail-safe like the read-only gauges rather than rethrowing like the attestation
+ * sweep: this job WARNS, and a warning delayed by one night costs a day of lead
+ * time on an offline renewal that a human performs anyway. Retrying it would also
+ * re-send every notice whose fence write is what failed. So an unexpected error is
+ * an `outcome:failed` heartbeat and a `failed` `job_runs` row, never a throw.
+ */
+async function runEntitlementExpiryJob(env: Env, ctx: ExecutionContext): Promise<JobRunReport> {
+  const req = cronRequest('/cron/entitlement-expiry');
+  const started = Date.now();
+
+  try {
+    const { db } = cronDb(env);
+    const result = await runEntitlementExpirySweep(
+      { env, executionCtx: ctx, req: { raw: req } },
+      db,
+      {
+        metrics: metricSink(ctx, env, req),
+        sendVendorEmail: sendEntitlementExpiringEmail,
+        sendAdminEmail: sendEntitlementExpiringAdminEmail,
+      },
+    );
+    submitCount(ctx, env, req, EXPIRY_JOB_METRIC, 1, ['trigger:cron', 'outcome:ok']);
+    submitDistribution(ctx, env, req, EXPIRY_DURATION_METRIC, Date.now() - started, [
+      'trigger:cron',
+    ]);
+    logToDatadog(ctx, env, req, {
+      level: result.batchFailures > 0 ? 'error' : 'info',
+      message: `aeci.entitlement.expiry due=${result.due} suppressed=${result.suppressed} warned=${result.warned} capped=${result.capped} malformed=${result.malformed} batch_failures=${result.batchFailures}`,
+      source: 'entitlement-expiry-cron',
+    });
+    // A run with per-notice send failures is `ok` with the counts in `detail`, not
+    // `failed` — the sweep is fail-open and a Resend hiccup on one address is not a
+    // failed sweep. A `batchFailures` run IS still `ok` for the same reason: the
+    // fence is retried tomorrow. Only the catch below is a failure.
+    return {
+      outcome: 'ok',
+      detail: {
+        job: 'entitlement-expiry',
+        due: result.due,
+        suppressed: result.suppressed,
+        malformed: result.malformed,
+        capped: result.capped,
+        warned: result.warned,
+        batchFailures: result.batchFailures,
+        vendor: result.vendor,
+        admin: result.admin,
+      },
+    };
+  } catch (error) {
+    submitCount(ctx, env, req, EXPIRY_JOB_METRIC, 1, ['trigger:cron', 'outcome:failed']);
+    logToDatadog(ctx, env, req, {
+      level: 'error',
+      message: 'aeci.entitlement.expiry.crashed',
+      source: 'entitlement-expiry-cron',
+      reason: error instanceof Error ? error.message : String(error),
+    });
+    return {
+      outcome: 'failed',
+      detail: {
+        job: 'entitlement-expiry',
+        reason: error instanceof Error ? error.message : String(error),
+      },
+    };
+  }
+}
+
 /** The host portion of a URL, or `undefined` if it's missing/unparseable. The
  *  WAF poll scopes its query to the env's own host so a shared zone isn't
  *  triple-counted across `env:` tags. */
@@ -1256,6 +1354,16 @@ function queueForJob(env: Env, job: ScheduledJob): Queue<ScheduledJobMessage> | 
       // replayed against state it may already have changed. No `RETENTION_QUEUE`
       // binding exists.
       return undefined;
+    case 'entitlement_expiry':
+      // Queue-less like `moderation`/`waf`/`analytics` (AECI-613 / §7.1): one
+      // indexed read over `vendor_entitlements_expiry_idx` plus a handful of
+      // fail-open emails does not justify a new `aeci-entitlement-expiry-{env}`
+      // queue, two `wrangler.jsonc` blocks per tier, and a `wrangler queues
+      // create` step in `deploy.yml` / `promote-to-prod.yml`. A missed night is
+      // re-attempted tomorrow, and the `expiry_notice_sent_at` fence makes that
+      // re-run pick up exactly what this one missed. No `ENTITLEMENT_EXPIRY_QUEUE`
+      // binding exists, so it always runs inline.
+      return undefined;
     case 'snapshot':
       // Queue-less like `moderation`/`waf`/`analytics` (AECI-581): every metric is
       // already isolated in its own try/catch, and a missed day is recoverable by
@@ -1318,6 +1426,15 @@ function enqueueFailureLog(job: ScheduledJob): { path: string; message: string; 
       path: '/cron/analytics-digest',
       message: 'aeci.analytics_digest.enqueue_failed',
       source: 'analytics-digest-cron',
+    };
+  }
+  if (job === 'entitlement_expiry') {
+    // Unreachable in practice (entitlement_expiry is queue-less, so `queue.send`
+    // is never called) — kept so the mapping is total over `ScheduledJob`.
+    return {
+      path: '/cron/entitlement-expiry',
+      message: 'aeci.entitlement.expiry.enqueue_failed',
+      source: 'entitlement-expiry-cron',
     };
   }
   if (job === 'snapshot') {
@@ -1384,7 +1501,7 @@ async function enqueueOrRun(env: Env, ctx: ExecutionContext, job: ScheduledJob):
  *  {@link JobRunReport} rather than `void`, because the impls swallow their own
  *  operational errors — a wrapper that only watched for a throw would record `ok`
  *  for a run that failed. `Promise<JobRunReport>` also makes the type checker
- *  enumerate every exit path in all ten, which is what makes "each of the ten
+ *  enumerate every exit path in all twelve, which is what makes "each of the twelve
  *  writes a row, on every path" verifiable rather than a review checklist. */
 async function dispatchScheduledJob(
   env: Env,
@@ -1414,6 +1531,8 @@ async function dispatchScheduledJob(
       return runMetricsSnapshotJob(env, ctx);
     case 'retention':
       return runRetentionPruneJob(env, ctx);
+    case 'entitlement_expiry':
+      return runEntitlementExpiryJob(env, ctx);
   }
 }
 
@@ -1481,6 +1600,9 @@ export const scheduled: ExportedHandlerScheduledHandler<Env> = async (controller
       return;
     case ANALYTICS_CRON:
       await enqueueOrRun(env, ctx, 'analytics');
+      return;
+    case ENTITLEMENT_EXPIRY_CRON:
+      await enqueueOrRun(env, ctx, 'entitlement_expiry');
       return;
     default:
       // A trigger fired with no matching case — surface it rather than silently

@@ -36,6 +36,13 @@ import type { PromoteWorkflowParams } from './lib/promote-jobs';
  * if the 00:15 snapshot has not captured every day inside its cut window. Also
  * queue-less — a skipped or partial run is simply re-attempted tomorrow, and a
  * retry of a destructive job is the last thing worth automating.
+ * `entitlement_expiry` is the daily 11:00 UTC Stage 2 §7 term-expiry warning
+ * sweep (AECI-613 / `STAGE_2_PAID_TIERS_SPEC.md` §7): one indexed read over
+ * `vendor_entitlements_expiry_idx` → a renewal prompt to the vendor's seats and
+ * an operator copy to `ADMIN_ALERT_EMAIL`, fenced by `expiry_notice_sent_at` so a
+ * term earns one notice rather than one per night. Queue-less like
+ * `moderation`/`waf`/`analytics`, and it **warns only** — it never writes
+ * `status` and never writes `vendors.verified` (§7.3).
  */
 export type ScheduledJob =
   | 'sync'
@@ -48,7 +55,8 @@ export type ScheduledJob =
   | 'attestation_notify'
   | 'analytics'
   | 'snapshot'
-  | 'retention';
+  | 'retention'
+  | 'entitlement_expiry';
 
 /**
  * Body of a message on a scheduled-job queue. Producer: the cron `scheduled()`

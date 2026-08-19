@@ -91,7 +91,7 @@ export type AdminWindow = z.infer<typeof AdminWindowSchema>;
  * | `trade_facet_sparse_by_design` | products carry no `trade` tag and that is not by itself a defect: `TRADES_VOCABULARY.md` §1.1 tags a product only when it has trade-SPECIFIC value, so horizontal platforms correctly carry zero rows |
  * | `api_docs_flag_inconsistent` | N products have `has_api_docs = 1` but no `api_docs_url` — the flag and the artifact disagree |
  * | `series_partly_reconstructed` | some days in the window come from the P2.1 backfill rather than a same-day snapshot, and are approximate (§4); `params.reconstructed_days` counts them and `params.reconstructed_through` is the last such day |
- * | `cron_liveness_unavailable` | N of the eleven crons have no `job_runs` row yet — they have not run since run recording shipped, or were added since. Datadog's no-data monitors stay the authority for "a job stopped firing" |
+ * | `cron_liveness_unavailable` | N of the twelve crons have no `job_runs` row yet — they have not run since run recording shipped, or were added since. Datadog's no-data monitors stay the authority for "a job stopped firing" |
  * | `orphan_sweep_not_persisted` | **No longer emitted (AECI-583)** — the sweep's result IS persisted now, in the 09:00 drift run's `job_runs.detail`. Retained because removing a code is a breaking change, and so an older cached response still renders |
  * | `stored_result_unreadable` | a stored `job_runs.detail` could not be parsed, so the item is omitted rather than partially reported. `params.job` names which cron's payload |
  * | `utm_attribution_incomplete` | `params.missing` of `params.total` signups in the window carry no `utm_source` — the unattributed bucket is real signups, not missing rows. The direct analogue of `referrer_source_incomplete`, and like it, derived from the window rather than from a date |
@@ -714,14 +714,17 @@ export type AdminTrafficBreakdownResponse = z.infer<typeof AdminTrafficBreakdown
  */
 
 /**
- * The eleven cron jobs in `apps/api/src/scheduled.ts`, as a closed vocabulary.
+ * The twelve cron jobs in `apps/api/src/scheduled.ts`, as a closed vocabulary.
  * These are the ids `job_runs.job` carries (§7.2), so AECI-583 persists against
  * these strings rather than inventing a second naming. `metrics-snapshot` is the
  * ninth, added with the §7.1 snapshot cron (AECI-581); `retention-prune` is the
  * tenth, added with the §7.4 pruning cron (AECI-584); `attestation-notify` is the
  * eleventh, the Stage 2 §7 detector sweep (AECI-302), which met this vocabulary at
  * the AECI-619 reconciliation — it is queue-backed and writes D1, so it belongs on
- * the System screen's liveness table like every other cron.
+ * the System screen's liveness table like every other cron. `entitlement-expiry`
+ * is the twelfth, the Stage 2 term-expiry warning sweep (AECI-613 /
+ * `STAGE_2_PAID_TIERS_SPEC.md` §7): it WARNS and never lapses, so its liveness row
+ * is the only evidence an operator has that renewal notices are still going out.
  */
 export const AdminCronJobSchema = z.enum([
   'metrics-snapshot', // 15 0 * * *
@@ -735,6 +738,7 @@ export const AdminCronJobSchema = z.enum([
   'request-reconcile', // */15 * * * *
   'waf-poll', // 0 * * * *
   'attestation-notify', // 0 10 * * *
+  'entitlement-expiry', // 0 11 * * *
 ]);
 export type AdminCronJob = z.infer<typeof AdminCronJobSchema>;
 
@@ -775,7 +779,7 @@ export const AdminCronRunStateSchema = z.enum(['complete', 'in_flight']);
 export type AdminCronRunState = z.infer<typeof AdminCronRunStateSchema>;
 
 /**
- * One cron's liveness row. All ten are ALWAYS present — a job missing from the
+ * One cron's liveness row. All twelve are ALWAYS present — a job missing from the
  * array would read as "not configured", which is a different and wrong claim
  * from "we have no record of its last run".
  */

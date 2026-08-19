@@ -364,8 +364,16 @@
       // slot and an hour clear of the 04:00 batch. "0 10 * * *" is the daily §7
       // attestation detector sweep (AECI-302): four detectors over the
       // claim/attestation spine → vendor nudge + AECi ops email, deduped via an
-      // audit_log ledger. Last of the daily jobs on purpose — it reads a spine the
-      // earlier batch may have moved. Strings MUST match the constants in
+      // audit_log ledger. It reads a spine the earlier batch may have moved.
+      // "0 11 * * *" is the daily Stage 2 §7 entitlement term-expiry sweep
+      // (AECI-613 / STAGE_2_PAID_TIERS_SPEC.md §7, queue-less): one indexed read
+      // over vendor_entitlements_expiry_idx for active terms inside the 30-day
+      // horizon → a renewal prompt to the vendor's seats + an operator copy to
+      // ADMIN_ALERT_EMAIL, fenced by expiry_notice_sent_at so a term earns ONE
+      // notice, not one per night. It WARNS and never lapses — it never writes
+      // status and never writes vendors.verified (§7.3). Now the last of the daily
+      // jobs. (§7.1 of the spec still says 05:00; that predates the AECI-526
+      // analytics digest taking that slot.) Strings MUST match the constants in
       // `src/lib/cron-schedules.ts` (asserted by `src/lib/cron-schedules.spec.ts`).
       "triggers": {
         "crons": [
@@ -378,6 +386,7 @@
           "0 8 * * *",
           "0 9 * * *",
           "0 10 * * *",
+          "0 11 * * *",
           "*/15 * * * *",
           "0 * * * *",
         ],
@@ -504,12 +513,15 @@
           "migrations_dir": "migrations",
         },
       ],
-      // Same eleven crons as staging/production (see staging note — incl. the hourly
+      // Same twelve crons as staging/production (see staging note — incl. the hourly
       // "0 * * * *" WAF firewall-event poll, AECI-262, the daily "0 5 * * *"
       // operator analytics digest, AECI-526, at 05:00 UTC = noon Jakarta, the
       // daily "15 0 * * *" metrics_daily snapshot, AECI-581, the daily
-      // "0 3 * * *" §7.4 retention prune, AECI-584, and the daily "0 10 * * *"
-      // §7 attestation detector sweep, AECI-302). Dispatched by `controller.cron`.
+      // "0 3 * * *" §7.4 retention prune, AECI-584, the daily "0 10 * * *"
+      // §7 attestation detector sweep, AECI-302, and the daily "0 11 * * *"
+      // Stage 2 §7 entitlement term-expiry sweep, AECI-613 — which WARNS and never
+      // lapses: it never writes status and never writes vendors.verified).
+      // Dispatched by `controller.cron`.
       // Strings MUST match the constants in `src/lib/cron-schedules.ts`.
       "triggers": {
         "crons": [
@@ -522,6 +534,7 @@
           "0 8 * * *",
           "0 9 * * *",
           "0 10 * * *",
+          "0 11 * * *",
           "*/15 * * * *",
           "0 * * * *",
         ],
@@ -676,7 +689,12 @@
       // metrics_daily snapshot of the prior complete UTC day (AECI-581 / §7.1, queue-less);
       // "0 3 * * *" daily at 03:00 UTC — the §7.4 retention prune (AECI-584, queue-less),
       // the only scheduled DELETE: page_views past 400 days, job_runs past 90, gated on
-      // the 00:15 snapshot having captured every day in the cut window.
+      // the 00:15 snapshot having captured every day in the cut window;
+      // "0 11 * * *" daily at 11:00 UTC — the Stage 2 §7 entitlement term-expiry sweep
+      // (AECI-613, queue-less): active terms inside the 30-day horizon get one renewal
+      // prompt to the vendor's seats plus an operator copy, fenced by
+      // expiry_notice_sent_at. It WARNS and never lapses — never writes status, never
+      // writes vendors.verified (§7.3).
       // Dispatched by `controller.cron`.
       "triggers": {
         "crons": [
@@ -689,6 +707,7 @@
           "0 8 * * *",
           "0 9 * * *",
           "0 10 * * *",
+          "0 11 * * *",
           "*/15 * * * *",
           "0 * * * *",
         ],
