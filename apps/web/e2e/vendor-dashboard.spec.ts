@@ -210,8 +210,13 @@ test.describe('vendor dashboard — authed /vendor (AECI-522)', () => {
 
     // sr-only is what satisfies the no-layout-shift rule — an announcement
     // occupies no space, so it can never move a control out from under a
-    // pointer already travelling toward it.
-    await expect(region).not.toBeVisible();
+    // pointer already travelling toward it. Playwright counts the `sr-only`
+    // clip technique (a 1px, clipped, but rendered box) as "visible", so assert
+    // the property that actually matters here: the region collapses to no usable
+    // layout area, and therefore cannot shift anything around it.
+    const box = await region.boundingBox();
+    expect(box?.width ?? 0).toBeLessThanOrEqual(1);
+    expect(box?.height ?? 0).toBeLessThanOrEqual(1);
 
     // At rest on Overview, the channel is the ONLY live region on the page:
     // none of the four conditional `role="status"` paragraphs (§6.5) render
