@@ -138,7 +138,9 @@ export interface ActivateEntitlementParams {
   /** The vendor's `verified` BEFORE the write. Drives `verified_flipped`, and lets a
    *  drifted `verified = 1`-with-no-row vendor self-heal without churning `updated_at`. */
   vendorWasVerified: boolean;
-  /** `profiles.id` of the granting admin — the eighth inbound FK (R6). */
+  /** `profiles.id` of the granting admin — the SEVENTH inbound FK to `profiles`
+   *  (R6). The spec said "eighth" because it counted against a table that still
+   *  listed `page_views.user_id`; AECI-585 had already dropped that one. */
   grantedBy?: string | null;
   /** The claim this came from, when it came from one (§6). */
   sourceRequestId?: string | null;

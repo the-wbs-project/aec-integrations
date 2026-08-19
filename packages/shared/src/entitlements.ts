@@ -64,7 +64,7 @@ export const CAPABILITIES = [
 export type Capability = (typeof CAPABILITIES)[number];
 
 /**
- * The tier ladder. **Binary at launch** (§8.4): `unclaimed` (no active
+ * The tier ladder. **Binary at launch** (`STAGE_2_SPEC.md` §8.5): `unclaimed` (no active
  * entitlement) vs `verified` (the paid entry fee). Adding a rung = one entry
  * here plus one row in `TIER_CAPABILITIES`, and nothing else.
  */
@@ -190,8 +190,14 @@ export function capabilitiesFor(tier: EntitlementTier): readonly Capability[] {
 }
 
 /**
- * Whether a tier holds a capability. The DB-free assertion `/api/vendor/*`
- * writes run immediately after `sessionVendorId(c)` (§3.3a) — no seam, no mock.
+ * Whether a tier holds a capability. The DB-free assertion `/api/vendor/*` writes
+ * run once ownership has settled (§3.3a) — no seam, no mock.
+ *
+ * NOT "immediately after `sessionVendorId(c)`", which is how §3.3(a) originally
+ * read: on `PATCH /products/:id` the check must follow `requireOwnedProduct`,
+ * because a 403 raised before ownership is known would confirm that a foreign
+ * product exists. 404-never-403 is the harder invariant and it wins.
+ *
  * Reads are never gated (§4.3).
  */
 export function hasCapability(tier: EntitlementTier, capability: Capability): boolean {
