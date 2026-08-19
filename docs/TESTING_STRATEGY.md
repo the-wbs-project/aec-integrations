@@ -523,12 +523,53 @@ Run axe on:
   real minted session; it waits for the stat tiles before analyzing.
 - `/vendor` — the **Integrations tab**, in `vendor-dashboard.spec.ts` (AECI-606), for the
   same reason and with the same shape: the tab authorizes server-side via
-  `vendorMeResolver`, and its cards, claim lanes, Aria pickers and live region do
-  not exist until `GET /api/vendor/integrations` lands. That spec mints the
+  `vendorMeResolver`, and its cards, claim lanes and Aria pickers do not exist
+  until `GET /api/vendor/integrations` lands. That spec mints the
   `vendor_admin` persona and waits for the first integration card (or the empty
   state) before analyzing. It is the most interactive vendor-facing surface, so
   this is the run that covers the combobox/listbox wiring end to end — the unit
   specs deliberately never open a CDK overlay (§4.3a).
+  - **The live region is no longer part of that subtree** (AECI-631 /
+    `STAGE_2_REALTIME_SPEC.md` §6.3). The portal has exactly ONE **persistent**
+    polite live region, and it now lives in the dashboard SHELL — an `sr-only`
+    `<p role="status">` fed by `VendorPortalAnnouncer`
+    (`apps/web/src/app/vendor/vendor-announcer.ts`) — so it is present from first
+    paint on every tab, not just after the integrations read. It is declared
+    **once per dashboard concept**:
+    `apps/web/src/app/vendor/vendor-dashboard-tabbed.ts:246` (Concept A, what
+    `/vendor` renders) and `apps/web/src/app/vendor/vendor-dashboard-single.ts:144`
+    (Concept B, preview-only — it composes the same integrations section, which
+    announces through the channel and declares no region of its own, so without
+    it every attestation write on Concept B is silent). Only one concept ever
+    renders at a time, so they cannot race. Two consequences for this run: the
+    axe pass must be **re-run after the hoist** (a region moving is exactly the
+    kind of change that invalidates a prior pass), and any assertion about it
+    should be made on the shell rather than on the tab body.
+    The section's loading/failure paragraphs and the integration card's pivot
+    notice are deliberately **not** live regions — two regions on one page make
+    announcements race — so a second **persistent** `[role="status"]` appearing
+    under `/vendor` is a regression, not an addition. `aria-busy` covers the
+    loading state.
+  - **Assert on `[role="status"].sr-only`, not on `[role="status"]`.** The
+    announcement channel is the only `sr-only` one; three *conditional*
+    `role="status"` paragraphs also exist in the vendor tree (the profile and
+    product "Saved" confirmations and the add-claim form's duplicate-lane
+    notice), so a bare `getByRole('status')` matches more than one element as
+    soon as any of them renders and trips Playwright's strict mode. That is not
+    hypothetical — it broke two pre-existing assertions in
+    `vendor-dashboard.spec.ts` the moment the region was hoisted, and shipped
+    green only because the spec skips without `SUPABASE_VENDOR_TEST_USER_*`.
+    Those three are **legitimate** under the corrected §6.3 rule
+    (`STAGE_2_REALTIME_SPEC.md`): a local `role="status"` is allowed for
+    immediate feedback on an action the user just took, beside the control they
+    took it with, provided it never fires for an event the channel also
+    announces. A fourth — the attestation control's divergent-slots notice — was
+    a real violation (standing state, movable by a background poll, on the tab
+    that announces) and had its role removed on 2026-08-19. **axe cannot see
+    this class at all** (multiple live regions are valid ARIA), which is why the
+    count assertion lives in the e2e spec rather than being left to the a11y
+    pass — and why the three survivors still owe a manual screen-reader pass
+    under a live revalidation (`docs/a11y-manual-testing-checklist.md`).
 
 Run in the light theme (Stage 1 is light-only — AECI-226).
 

@@ -24,6 +24,24 @@ import { VerifiedBadge } from '../../shared/verified-badge/verified-badge';
  * no new query** — the block is built from the session the guard already loaded,
  * so this panel and the 403 a write would get cannot disagree.
  *
+ * ── IT MOVES WITHOUT A RELOAD (AECI-631 / `STAGE_2_REALTIME_SPEC.md` §6.1) ──
+ * The concierge flip is the one event on this surface with a real deadline: an
+ * operator toggles verification while on the phone with the vendor, and until
+ * AECI-516 the vendor had to hard-reload `/vendor` to see it. They no longer do.
+ * `entitlement` is bound from `VendorPortalStore.me` through the dashboard shell,
+ * so when the §4 poll sees the `entitlement` cursor move and refetches
+ * `GET /api/vendor/me`, a new block arrives in this input and every `computed`
+ * below re-derives: the chip becomes the badge, the term line changes, the CTA
+ * disappears.
+ *
+ * That is only true because nothing here copies the input into local state. Every
+ * value below is a `computed` over `entitlement()`; the single exception is
+ * {@link now}, which is a CLOCK rather than entitlement data and is read at day
+ * granularity. Do not "optimise" any of these into a constructor assignment or a
+ * `signal` seeded from the input: the panel would then be a snapshot of the
+ * entitlement as it stood when the tab first rendered, and the deadline this
+ * whole epic exists for would be quietly missed.
+ *
  * ── The states ──────────────────────────────────────────────────────────────
  * `status` is `null` when there is no `vendor_entitlements` row AT ALL, which
  * deliberately distinguishes *never arranged* from *lapsed* — two different

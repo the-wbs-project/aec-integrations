@@ -210,6 +210,59 @@ describe('VendorPlanPanel — state 3: downgraded', () => {
   });
 });
 
+/**
+ * AECI-631 / `STAGE_2_REALTIME_SPEC.md` §6.1 — the concierge flip lands without a
+ * reload.
+ *
+ * `entitlement` is bound from `VendorPortalStore.me`, so a refetch reaches this
+ * panel as a new input value on the SAME component instance. `setInput` without a
+ * re-create is precisely that event, and it is what fails if anyone ever copies
+ * the block into constructor-time state.
+ */
+describe('VendorPlanPanel — a refetched entitlement (§6.1)', () => {
+  it('goes from lapsed to verified in place, badge, term and CTA together', () => {
+    const fixture = create(VENDOR_ME_DOWNGRADED_FIXTURE.entitlement);
+    expect(el(fixture).querySelector('aec-verified-badge')).toBeNull();
+    expect(text(fixture)).toContain('no longer active');
+
+    fixture.componentRef.setInput('entitlement', activeIn(300));
+    fixture.detectChanges();
+
+    expect(el(fixture).querySelector('aec-verified-badge')).not.toBeNull();
+    expect(text(fixture)).toContain('Verified through');
+    expect(text(fixture)).not.toContain('no longer active');
+    expect(renewLink(fixture)).toBeNull();
+  });
+
+  it('goes the other way too: a revoke lands without a reload', () => {
+    const fixture = create(activeIn(300));
+    expect(el(fixture).querySelector('aec-verified-badge')).not.toBeNull();
+
+    fixture.componentRef.setInput('entitlement', VENDOR_ME_DOWNGRADED_FIXTURE.entitlement);
+    fixture.detectChanges();
+
+    expect(el(fixture).querySelector('aec-verified-badge')).toBeNull();
+    expect(text(fixture)).toContain('What is paused: the verified badge');
+  });
+
+  it('still fails closed on the refetched value, never re-deriving the ladder', () => {
+    const fixture = create(VENDOR_ME_DOWNGRADED_FIXTURE.entitlement);
+
+    // An `active` row on a tier this build does not know. Re-deriving would have
+    // to guess; reading the resolved block cannot.
+    fixture.componentRef.setInput('entitlement', {
+      tier: 'unclaimed',
+      status: 'active',
+      period_end: null,
+      capabilities: [],
+    } satisfies VendorEntitlementBlock);
+    fixture.detectChanges();
+
+    expect(el(fixture).querySelector('aec-verified-badge')).toBeNull();
+    expect(text(fixture)).toContain('Verification ended');
+  });
+});
+
 describe('VendorPlanPanel — copy discipline (§8, a trust surface)', () => {
   const ALL: ReadonlyArray<[string, VendorEntitlementBlock]> = [
     ['active', activeIn(300)],

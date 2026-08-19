@@ -92,6 +92,7 @@ import {
   createVendorClaimHandler,
 } from './routes/vendor-attestations';
 import { createListDataObjectsHandler } from './routes/vendor-data-objects';
+import { createVendorUpdatesHandler } from './routes/vendor-updates';
 import { createVendorDetailHandler, createVendorsListHandler } from './routes/vendors';
 import { createVersionHandler } from './routes/version';
 import { queue, scheduled } from './scheduled';
@@ -478,6 +479,15 @@ app.route('/', authAdmin);
 // be vacuous rather than omitted (`docs/AUTH_AND_RLS.md` §4.4). Not
 // verified-gated either, for the same reason the two lists above are not.
 //   - GET   /api/vendor/data-objects — the closed `data_object` vocabulary.
+//
+// Stage 2 / AECI-627 adds the surface's polling endpoint — six per-scope
+// `updated_at` cursors in one response, so the dashboard can refetch only the
+// section that moved instead of reloading (ADR 0023 chose this over Durable-Object
+// WebSockets / SSE; `STAGE_2_REALTIME_SPEC.md` §2). It is a pure read, so it writes
+// no `audit_log` row, and it is NOT verified-gated. The rule that makes it correct:
+// each cursor reuses the scoping predicate of the endpoint it is a cursor for —
+// see the route module's header for what breaks when one drifts.
+//   - GET   /api/vendor/updates — per-scope freshness cursors + `server_time`.
 const authVendor = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
 authVendor.onError(errorHandler());
 authVendor.get('/api/vendor/me', requireVendor(), createVendorMeHandler());
@@ -527,6 +537,8 @@ authVendor.delete(
 // AECI-606. Guard only — no authority resolution and no verified gate; see the
 // route module's header for why that is the contract rather than an omission.
 authVendor.get('/api/vendor/data-objects', requireVendor(), createListDataObjectsHandler());
+// AECI-627. No path overlap with anything above, so ordering is free.
+authVendor.get('/api/vendor/updates', requireVendor(), createVendorUpdatesHandler());
 app.route('/', authVendor);
 
 // Catch-alls throw so the root `onError` renders the canonical §3.3 envelope

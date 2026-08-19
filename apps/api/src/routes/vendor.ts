@@ -73,7 +73,7 @@ import {
   type Capability,
   type EntitlementTier,
 } from '@aeci/shared/entitlements';
-import { and, asc, count, eq, inArray, or } from 'drizzle-orm';
+import { and, asc, count, eq, inArray } from 'drizzle-orm';
 
 import { getDb, type Db } from '../db/client';
 import {
@@ -103,6 +103,7 @@ import {
   parseJsonBody,
   requireOwnedProduct,
   sessionVendorId,
+  vendorRequestsWhere,
   type ProductRow,
   type VendorContext,
   type VendorRow,
@@ -451,17 +452,11 @@ export function createVendorMeHandler(
       // count it in SQL rather than shipping every row back.
       db.select({ value: count() }).from(profiles).where(seatsOf(vendorId)),
       // The vendor's own claim/correction requests: those targeting the vendor
-      // itself, plus those targeting any product it owns.
+      // itself, plus those targeting any product it owns. The predicate is shared
+      // with `GET /api/vendor/updates`'s `requests` cursor (AECI-627) — see
+      // `vendorRequestsWhere` for why that sharing is load-bearing.
       db.query.vendorRequests.findMany({
-        where: or(
-          and(eq(vendorRequests.targetType, 'vendor'), eq(vendorRequests.targetId, vendorId)),
-          productIds.length
-            ? and(
-                eq(vendorRequests.targetType, 'product'),
-                inArray(vendorRequests.targetId, productIds),
-              )
-            : undefined,
-        ),
+        where: vendorRequestsWhere(vendorId, productIds),
         orderBy: [asc(vendorRequests.createdAt)],
       }),
     ]);

@@ -10,10 +10,12 @@ import { provideHttpClient } from '@angular/common/http';
 import { provideZonelessChangeDetection } from '@angular/core';
 import { provideRouter } from '@angular/router';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
+import { By } from '@angular/platform-browser';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ListVendorIntegrationsResponse } from '@aeci/shared';
 
+import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorApi } from '../vendor-api';
 import {
   VENDOR_DATA_OBJECTS_FIXTURE,
@@ -21,7 +23,9 @@ import {
   VENDOR_INTEGRATIONS_FIXTURE,
   VENDOR_PRODUCT_VERSIONS_FIXTURE,
 } from '../vendor-fixtures';
+import { VendorPortalStore } from '../vendor-portal-store';
 
+import { VendorIntegrationCard } from './vendor-integration-card';
 import { VendorIntegrationsSection } from './vendor-integrations-section';
 
 let api: {
@@ -53,6 +57,7 @@ beforeEach(() => {
       provideHttpClient(),
       provideRouter([]),
       { provide: VendorApi, useValue: api as unknown as VendorApi },
+      VendorPortalStore,
     ],
   });
 });
@@ -207,7 +212,7 @@ describe('VendorIntegrationsSection — reconciliation', () => {
     expect(text(fixture)).toContain('Both vendors confirmed');
   });
 
-  it('announces a write once, in one polite live region', async () => {
+  it('announces a write through the portal channel, naming the subject', async () => {
     const fixture = await create();
     const claim = VENDOR_INTEGRATIONS_FIXTURE.integrations[0].claims[1];
     const component = fixture.componentInstance as unknown as {
@@ -216,10 +221,73 @@ describe('VendorIntegrationsSection — reconciliation', () => {
     component.onClaimChanged(claim);
     fixture.detectChanges();
 
-    const regions = el(fixture).querySelectorAll('[role="status"]');
-    expect(regions).toHaveLength(1);
-    expect(regions[0].textContent).toContain('RFIs');
-    expect(regions[0].textContent).toContain('position saved');
+    // The wording still originates here — this is the one component that sees
+    // every write's result and can therefore say WHICH flow was saved.
+    const message = TestBed.inject(VendorPortalAnnouncer).message();
+    expect(message).toContain('RFIs');
+    expect(message).toContain('position saved');
+  });
+});
+
+/**
+ * AECI-631 / §6.3 — this tab used to own the surface's live region. It no longer
+ * does: the region was hoisted to `vendor-dashboard-tabbed.ts` so that a tab
+ * switch cannot destroy it mid-announcement, and so that the integration card's
+ * second `role="status"` could not race it. What is asserted here is the half
+ * that would silently regress: that nothing in this subtree declares a live
+ * region of its own, in any of its states.
+ */
+describe('VendorIntegrationsSection — no live region of its own (§6.3)', () => {
+  const regions = (fixture: ComponentFixture<VendorIntegrationsSection>) =>
+    el(fixture).querySelectorAll('[role="status"], [aria-live]');
+
+  it('declares none once loaded, with cards on screen', async () => {
+    const fixture = await create();
+    expect(el(fixture).querySelectorAll('aec-vendor-integration-card').length).toBeGreaterThan(0);
+    expect(regions(fixture)).toHaveLength(0);
+  });
+
+  it('declares none in the failure state either, and marks the block busy while loading', async () => {
+    api.getIntegrations.mockRejectedValueOnce(new Error('offline'));
+    const fixture = await create();
+
+    expect(text(fixture)).toContain('Could not load your integrations');
+    expect(regions(fixture)).toHaveLength(0);
+    // `aria-busy` is how the loading state is expressed now that the paragraph
+    // is not a region. It is cleared once the read settles, either way.
+    expect(el(fixture).querySelector('[aria-busy]')).toBeNull();
+  });
+
+  it('announces the outcome of a retry, since the failure text no longer speaks', async () => {
+    api.getIntegrations.mockRejectedValueOnce(new Error('offline'));
+    const fixture = await create();
+
+    const retry = [...el(fixture).querySelectorAll('button')].find((b) =>
+      b.textContent?.includes('Try again'),
+    );
+    retry!.click();
+    await flush();
+    fixture.detectChanges();
+
+    expect(TestBed.inject(VendorPortalAnnouncer).message()).toContain('up to date');
+  });
+
+  it('renders the card’s duplicate pivot as visible copy plus one announcement, not a second region', async () => {
+    const fixture = await create();
+    const card = fixture.debugElement.query(By.directive(VendorIntegrationCard))
+      .componentInstance as {
+      onDuplicate(hit: { claimId: string; dataObjectName: string }): void;
+    };
+
+    const claim = VENDOR_INTEGRATIONS_FIXTURE.integrations[0].claims[1];
+    card.onDuplicate({ claimId: claim.id, dataObjectName: claim.data_object_name });
+    fixture.detectChanges();
+
+    // Sighted readers still get the sentence in place, beside the lane it points
+    // at; assistive tech gets it once, through the shell's region.
+    expect(text(fixture)).toContain('It is highlighted below');
+    expect(regions(fixture)).toHaveLength(0);
+    expect(TestBed.inject(VendorPortalAnnouncer).message()).toContain('It is highlighted below');
   });
 });
 

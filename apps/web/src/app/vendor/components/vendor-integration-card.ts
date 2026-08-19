@@ -1,4 +1,4 @@
-import { Component, computed, input, output, signal, viewChildren } from '@angular/core';
+import { Component, computed, inject, input, output, signal, viewChildren } from '@angular/core';
 
 import type {
   DataObjectOption,
@@ -8,6 +8,7 @@ import type {
 } from '@aeci/shared';
 
 import { mechanismKindLabel } from '../../search/mechanism-labels';
+import { VendorPortalAnnouncer } from '../vendor-announcer';
 
 import { VendorAddClaimForm, type DuplicateClaimHit } from './vendor-add-claim-form';
 import { VendorClaimLane } from './vendor-claim-lane';
@@ -57,7 +58,17 @@ import { VendorClaimLane } from './vendor-claim-lane';
       </header>
 
       @if (pivotNotice(); as message) {
-        <p role="status" class="px-5 pt-3 text-sm text-(--text-primary)">{{ message }}</p>
+        <!--
+          Visible copy, NOT a live region (AECI-631 / §6.3). It keeps its job for
+          the sighted reader, telling them why their submission did not create a
+          lane and where the existing one is. What it must not also be is a
+          second role="status": this card renders once per integration, so a
+          dashboard with four of them shipped four competing announcement
+          channels, and the same event would queue two utterances against the
+          shell's region. The sentence still reaches assistive tech, through the
+          one channel, from onDuplicate below.
+        -->
+        <p class="px-5 pt-3 text-sm text-(--text-primary)">{{ message }}</p>
       }
 
       @if (integration().claims.length === 0) {
@@ -108,6 +119,8 @@ export class VendorIntegrationCard {
   readonly claimCreated = output<VendorClaim>();
   readonly retracted = output<string>();
 
+  private readonly announcer = inject(VendorPortalAnnouncer);
+
   private readonly lanes = viewChildren(VendorClaimLane);
 
   protected readonly highlightClaimId = signal<string | null>(null);
@@ -143,15 +156,22 @@ export class VendorIntegrationCard {
 
   /**
    * Route a duplicate submission to the lane that already exists, rather than
-   * dead-ending the vendor with an error they cannot act on. Three signals, for
-   * three audiences: a highlight (sighted), a `role="status"` sentence
-   * (assistive), and focus on that lane's Affirm button (keyboard).
+   * dead-ending the vendor with an error they cannot act on. Still three
+   * signals, for three audiences: a highlight (sighted), the same sentence
+   * announced politely (assistive), and focus on that lane's Affirm button
+   * (keyboard).
+   *
+   * The middle one now goes through {@link VendorPortalAnnouncer} instead of a
+   * `role="status"` on the paragraph above. Same words, same moment, one region
+   * (§6.3) — and it is announced BEFORE focus moves, so the utterance is queued
+   * against the lane the vendor is about to land on rather than the one they
+   * just left.
    */
   protected onDuplicate(hit: DuplicateClaimHit): void {
     this.highlightClaimId.set(hit.claimId);
-    this.pivotNotice.set(
-      $localize`:@@vendor.attest.card.pivot:You already have a ${hit.dataObjectName}:dataObject: data flow in that direction. It is highlighted below.`,
-    );
+    const notice = $localize`:@@vendor.attest.card.pivot:You already have a ${hit.dataObjectName}:dataObject: data flow in that direction. It is highlighted below.`;
+    this.pivotNotice.set(notice);
+    this.announcer.announce(notice);
     this.lanes()
       .find((lane) => lane.claim().id === hit.claimId)
       ?.focusPosition();

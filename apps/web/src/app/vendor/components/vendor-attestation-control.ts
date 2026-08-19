@@ -10,12 +10,20 @@ import {
   viewChild,
 } from '@angular/core';
 
-import type { ProductVersion, VendorClaim } from '@aeci/shared';
+import type {
+  ProductVersion,
+  VendorAttestationSlot,
+  VendorClaim,
+  VendorIntegration,
+  VendorOwnAttestation,
+} from '@aeci/shared';
 
 import { AecSelect, type AecSelectOption } from '../../shared/aec-select/aec-select';
 import { readVendorApiError } from '../vendor-api-error';
 import { VendorApi, type VendorAttestationPosition } from '../vendor-api';
+import { VendorPortalStore } from '../vendor-portal-store';
 
+import { isProvisionalClaimId } from './vendor-add-claim-form';
 import { ownStanceLabel } from './vendor-attestation-labels';
 
 /**
@@ -42,6 +50,37 @@ import { ownStanceLabel } from './vendor-attestation-labels';
  *  4. `vendor-attestation-control.component.spec.ts` denies a stamped, noted
  *     claim without touching the editor and asserts the whole position went.
  *
+ * ── WHY THESE THREE WRITES ARE OPTIMISTIC AND THE FORMS ARE NOT (AECI-630) ───
+ * `STAGE_2_REALTIME_SPEC.md` §5: **toggle-shaped writes apply locally first**,
+ * then reconcile against the server echo and roll back with a **visible** error
+ * on failure. Affirm / Deny / Clear qualify — each is a single bit the vendor
+ * has already decided, activation is the whole interaction, and the round trip
+ * is the only thing between the click and the answer. A rollback is
+ * comprehensible because there is exactly one thing to put back, and it is never
+ * silent: a reverted toggle with no message reads as a UI glitch and the vendor
+ * simply clicks it again.
+ *
+ * `vendor-profile-form.ts` and `vendor-product-form.ts` deliberately stay
+ * **pessimistic**, and that is a decision rather than unfinished work. A 15-field
+ * PATCH diff has no honest optimistic rendering — a form carries a large surface
+ * of partially-valid intermediate states an optimistic render would have to guess
+ * at, and **showing "Saved" before it saved is a worse lie than a 300 ms wait**.
+ * Do not "finish the job" by making them optimistic too.
+ *
+ * ── WHAT MAY BE RENDERED OPTIMISTICALLY, AND WHAT MAY NOT ───────────────────
+ * Only what the request itself determines: **the caller's own rows**. `agreement`
+ * and `counterparty` are left exactly as they were until the echo replaces them,
+ * because the dashboard never re-derives `computeAgreement` and `counterparty` is
+ * a *lossy* reduction of every other voter — with a third vendor in play, a local
+ * guess can be actively wrong. So an in-flight lane can briefly show "You confirm
+ * this flow" under a badge that has not moved yet. That is the honest state: we
+ * know what we sent, we do not yet know what it computed to.
+ *
+ * The optimistic value is built from the SAME {@link position} object that goes
+ * on the wire, for the reason the header opens with: a second, hand-built
+ * partial position is precisely the data-loss bug `VendorAttestationPosition`
+ * exists to prevent.
+ *
  * ── OTHER LOAD-BEARING CHOICES ──────────────────────────────────────────────
  * **Buttons, not an Aria listbox.** ADR 0010 governs discrete-choice *form
  * controls* — values you pick and submit later. These are commands: they fire a
@@ -50,11 +89,14 @@ import { ownStanceLabel } from './vendor-attestation-labels';
  * the version pickers here, and the data-object/direction controls on the add
  * form.
  *
- * **Affirm and Deny stay enabled at all times.** Re-affirming is the legitimate
- * way to save an edited note, and a button that disables itself as a
- * consequence of its own activation drops focus to `<body>`. Clear does disable
- * (there is nothing to withdraw), which is exactly why it hands focus to Affirm
- * afterwards.
+ * **Affirm and Deny disable only while a write is in flight, or on a lane that
+ * does not exist server-side yet.** Re-affirming is the legitimate way to save an
+ * edited note, and a button that disables itself as a lasting consequence of its
+ * own activation drops focus to `<body>`. Clear also disables when there is
+ * nothing to withdraw, which is exactly why it hands focus to Affirm afterwards.
+ * The provisional case is the add form's optimistic placeholder lane
+ * ({@link isProvisionalClaimId}): its id has never been to the server, so a write
+ * against it could only 404.
  *
  * **`mine[0]` is the caller's own endpoint's slot**, always: the API sorts
  * `mine` `vendor_a` first and frames the context on endpoint A whenever the
@@ -143,7 +185,7 @@ import { ownStanceLabel } from './vendor-attestation-labels';
           #affirmButton
           type="button"
           [class]="primaryButtonClass"
-          [disabled]="busy() !== null"
+          [disabled]="busy() !== null || provisional()"
           (click)="onAffirm()"
           i18n="@@vendor.attest.action.affirm"
         >
@@ -152,7 +194,7 @@ import { ownStanceLabel } from './vendor-attestation-labels';
         <button
           type="button"
           [class]="secondaryButtonClass"
-          [disabled]="busy() !== null"
+          [disabled]="busy() !== null || provisional()"
           (click)="onDeny()"
           i18n="@@vendor.attest.action.deny"
         >
@@ -161,7 +203,7 @@ import { ownStanceLabel } from './vendor-attestation-labels';
         <button
           type="button"
           [class]="secondaryButtonClass"
-          [disabled]="busy() !== null || claim().mine.length === 0"
+          [disabled]="busy() !== null || provisional() || claim().mine.length === 0"
           (click)="onClear()"
           i18n="@@vendor.attest.action.clear"
         >
@@ -174,7 +216,22 @@ import { ownStanceLabel } from './vendor-attestation-labels';
       </p>
 
       @if (divergentSlots()) {
-        <p role="status" class="text-xs text-(--text-secondary)" i18n="@@vendor.attest.divergent">
+        <!--
+          Deliberately NOT role="status" (AECI-516 close-out). This sentence
+          describes a standing CONDITION of the claim, not the outcome of an
+          action: it is context for the Save button, read when a user reaches it.
+          As a live region it announced on a state flip the user did not cause,
+          because divergentSlots() is computed off store data that a background
+          revalidation can move. On the Integrations tab that put it in direct
+          competition with VendorPortalAnnouncer for the same event, which is the
+          two-competing-utterances case the single channel exists to prevent.
+
+          The rule this follows is in STAGE_2_REALTIME_SPEC.md 6.3: a local
+          role="status" is for immediate feedback on an action the user just
+          took, beside the control they took it with. Standing state is plain
+          text; events go through the channel.
+        -->
+        <p class="text-xs text-(--text-secondary)" i18n="@@vendor.attest.divergent">
           Your two products on this integration currently record different details. Saving applies
           one position to both.
         </p>
@@ -188,6 +245,9 @@ import { ownStanceLabel } from './vendor-attestation-labels';
 })
 export class VendorAttestationControl {
   private readonly api = inject(VendorApi);
+  /** The one owner of the integration list (AECI-628). Every write here patches
+   *  it optimistically and then settles the handle exactly once. */
+  private readonly store = inject(VendorPortalStore);
 
   readonly claim = input.required<VendorClaim>();
   /** Release labels for the caller's OWN endpoint product. Never the
@@ -199,11 +259,38 @@ export class VendorAttestationControl {
 
   private readonly affirmButton = viewChild<ElementRef<HTMLButtonElement>>('affirmButton');
 
-  protected readonly busy = signal<null | 'affirm' | 'deny' | 'clear'>(null);
+  /** Which write is in flight, or `null`. Public because `VendorClaimLane`
+   *  reports it as `aria-busy` on the lane the write belongs to. */
+  readonly busy = signal<null | 'affirm' | 'deny' | 'clear'>(null);
   protected readonly error = signal<string | null>(null);
+
+  /**
+   * This lane is the add form's optimistic placeholder: the server has never
+   * seen its id, so every write against it would 404. The controls disable for
+   * the one round trip it lives, then the echo replaces it with a real lane.
+   */
+  protected readonly provisional = computed(() => isProvisionalClaimId(this.claim().id));
 
   /** `mine[0]` is the caller's own endpoint's slot — see the header. */
   private readonly mineHead = computed(() => this.claim().mine[0] ?? null);
+
+  /**
+   * The slots a write of ours will fill. The server fills **every** slot the
+   * caller owns (§2.1), and `VendorIntegration.slots` is the read's own answer to
+   * "which are mine" — so the optimistic rows are built from it rather than from
+   * whatever happens to be in `mine` today (which is empty on a first
+   * attestation, and is exactly one row short on an owns-both claim the vendor
+   * has only half-voted).
+   *
+   * Degrades to the slots already on the claim, and then to none. A slot is
+   * never invented: with nothing to build from, the write is simply not rendered
+   * optimistically, which is a slower surface rather than a wrong one.
+   */
+  private readonly mySlots = computed<readonly VendorAttestationSlot[]>(() => {
+    const claim = this.claim();
+    const integration = this.store.integrations().find((i) => i.id === claim.integration_id);
+    return integration?.slots ?? claim.mine.map((a) => a.slot);
+  });
 
   // `linkedSignal`, not `signal`: these reset when — and only when — the server
   // has spoken and replaced the claim, so an in-progress edit is never clobbered
@@ -320,6 +407,26 @@ export class VendorAttestationControl {
     };
   }
 
+  /**
+   * The caller's own rows as they will read once this position lands: one per
+   * owned slot, every field taken from the single {@link position} object that is
+   * also the request body. Spreading it is what makes an incomplete optimistic
+   * row impossible to write — the same guarantee the required fields give the
+   * PUT.
+   */
+  private ownRows(position: VendorAttestationPosition): VendorOwnAttestation[] {
+    const now = new Date().toISOString();
+    return this.mySlots().map((slot) => ({ slot, ...position, updated_at: now }));
+  }
+
+  /** Patch this claim's own rows in the store and hand back the handle. Nothing
+   *  else on the claim is touched — see the header on what may be rendered
+   *  optimistically. */
+  private patchOwnRows(mine: VendorOwnAttestation[]) {
+    const next: VendorClaim = { ...this.claim(), mine };
+    return this.store.apply('integrations', (list) => withClaim(list, next));
+  }
+
   protected onAffirm(): void {
     void this.write('affirm', true);
   }
@@ -329,12 +436,24 @@ export class VendorAttestationControl {
   }
 
   private async write(action: 'affirm' | 'deny', asserted: boolean): Promise<void> {
+    if (this.provisional()) return;
     this.busy.set(action);
     this.error.set(null);
+    // Built ONCE, then used for both the local render and the wire. Two
+    // separately-built positions is how an optimistic path drifts into a partial
+    // update.
+    const position = this.position(asserted);
+    const mutation = this.patchOwnRows(this.ownRows(position));
     try {
-      const res = await this.api.upsertAttestation(this.claim().id, this.position(asserted));
+      const res = await this.api.upsertAttestation(this.claim().id, position);
+      // The echo carries the recomputed `agreement`, so it is the truth for the
+      // whole claim, not just for our rows.
+      mutation.reconcile((list) => withClaim(list, res.claim));
       this.changed.emit(res.claim);
     } catch (err) {
+      // Never silently: the rollback and the alert ship together, or a reverted
+      // toggle reads as a glitch and gets clicked again (§5).
+      mutation.rollback();
       this.error.set(this.messageFor(err));
     } finally {
       this.busy.set(null);
@@ -342,16 +461,26 @@ export class VendorAttestationControl {
   }
 
   protected async onClear(): Promise<void> {
+    if (this.provisional()) return;
+    const claimId = this.claim().id;
     this.busy.set('clear');
     this.error.set(null);
+    // A retract removes exactly the caller's own rows, and that much the request
+    // fully determines — so the lane stops asserting immediately instead of
+    // sitting frozen for a round trip plus a re-read. `agreement` deliberately
+    // does NOT move here.
+    const mutation = this.patchOwnRows([]);
     try {
-      await this.api.retractAttestation(this.claim().id);
-      // 204, no body — the section re-reads. Reconstructing the agreement here
-      // would be wrong whenever a third vendor also holds a position, because
-      // `counterparty` is a lossy reduction of every other voter.
-      this.retracted.emit(this.claim().id);
+      await this.api.retractAttestation(claimId);
+      // 204, no body — nothing to reconcile FROM, so the interim stands and the
+      // section re-reads. Reconstructing the agreement here would be wrong
+      // whenever a third vendor also holds a position, because `counterparty` is
+      // a lossy reduction of every other voter.
+      mutation.commit();
+      this.retracted.emit(claimId);
       this.focusPosition();
     } catch (err) {
+      mutation.rollback();
       this.error.set(this.messageFor(err));
     } finally {
       this.busy.set(null);
@@ -369,4 +498,24 @@ export class VendorAttestationControl {
     }
     return $localize`:@@vendor.attest.error.generic:Could not save your position. Try again.`;
   }
+}
+
+/**
+ * Splice one claim into the store's integration list, leaving every other object
+ * identity untouched.
+ *
+ * That is load-bearing rather than tidy: the card's `@for` tracks lanes by
+ * `claim.id` and the sections above track integrations the same way, so rebuilding
+ * an untouched neighbour would discard its focus and whatever the vendor had typed
+ * into its note editor.
+ */
+function withClaim(
+  list: readonly VendorIntegration[],
+  claim: VendorClaim,
+): readonly VendorIntegration[] {
+  return list.map((integration) =>
+    integration.id === claim.integration_id
+      ? { ...integration, claims: integration.claims.map((c) => (c.id === claim.id ? claim : c)) }
+      : integration,
+  );
 }

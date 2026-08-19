@@ -18,6 +18,7 @@ import type {
   VendorClaimResponse,
   VendorMeResponse,
   VendorSeat,
+  VendorUpdatesResponse,
 } from '@aeci/shared';
 import { computeAgreement } from '@aeci/shared';
 
@@ -34,6 +35,29 @@ import {
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
+
+/**
+ * A frozen freshness cursor for the preview (AECI-629).
+ *
+ * Deliberately CONSTANT: `VendorLiveSync` treats a revision that differs from
+ * last-seen as stale, so a fixture whose cursor never moves means the preview
+ * seeds its baseline once and then refetches nothing, forever. A clock-derived
+ * value here would make the preview refetch on every poll and mask the diff bug
+ * this endpoint exists to avoid.
+ */
+const PREVIEW_UPDATES: VendorUpdatesResponse = {
+  revisions: {
+    profile: '2026-08-18T12:00:00.000Z',
+    entitlement: '2026-08-18T12:00:00.000Z',
+    products: '2026-08-18T12:00:00.000Z',
+    integrations: '2026-08-18T12:00:00.000Z',
+    notifications: '2026-08-18T12:00:00.000Z',
+    // A vendor with no requests keeps a `null` cursor forever. Kept as `null`
+    // here so the preview exercises the value most likely to be mishandled.
+    requests: null,
+  },
+  server_time: '2026-08-18T12:00:00.000Z',
+};
 
 /** Build the error body the API Worker actually returns, so the preview
  *  exercises the same `readVendorApiError` branch the live surface does. */
@@ -122,6 +146,11 @@ export class PreviewVendorApi extends VendorApi {
 
   override async getSeats(): Promise<ListVendorSeatsResponse> {
     return { seats: clone(this.seats) };
+  }
+
+  /** The freshness cursor, frozen. See {@link PREVIEW_UPDATES}. */
+  override async getUpdates(): Promise<VendorUpdatesResponse> {
+    return clone(PREVIEW_UPDATES);
   }
 
   override async updateProfile(
