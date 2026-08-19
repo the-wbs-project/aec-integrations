@@ -151,12 +151,16 @@ export class CatalogCoverage {
         SERIES_METRICS.map((metric) => this.api.timeseries(metric, from, to)),
       );
 
+      // Newest day first — the operator reads the most recent additions at the
+      // top, not after scrolling 30 rows. The API returns points ascending.
       const days = responses[0]?.points.map((p) => p.day) ?? [];
       this.additionsRows.set(
-        days.map((day, i) => ({
-          day,
-          values: responses.map((r) => r.points[i]?.value ?? 0),
-        })),
+        days
+          .map((day, i) => ({
+            day,
+            values: responses.map((r) => r.points[i]?.value ?? 0),
+          }))
+          .reverse(),
       );
 
       // One note per code across the four responses — they share a window, so the

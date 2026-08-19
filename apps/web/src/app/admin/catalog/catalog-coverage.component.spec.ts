@@ -277,6 +277,15 @@ describe('CatalogCoverage', () => {
       expect(additionsSection(el).querySelector('table')).not.toBeNull();
     });
 
+    it('lists the newest day first, reversing the API ascending points', async () => {
+      const { el } = await setup(makeApiMock());
+
+      const days = Array.from(additionsSection(el).querySelectorAll('tbody tr th')).map((c) =>
+        (c.textContent ?? '').trim(),
+      );
+      expect(days).toEqual(['2026-08-12', '2026-08-11']);
+    });
+
     it('shows each distinct caveat once, not once per series', async () => {
       // All four requests share a window, so they return identical notes.
       const { el } = await setup(makeApiMock());
