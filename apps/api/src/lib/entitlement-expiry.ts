@@ -78,11 +78,16 @@ const ACTIVE = 'active';
 
 /**
  * How far ahead a term is warned about. Also the width of the idempotency fence:
- * a stamp inside `[period_end − 30d, period_end]` belongs to the current term and
- * suppresses; anything earlier belongs to a previous one. Launch-tunable —
- * `docs/POST_LAUNCH_MONITORING.md` §3.
+ * a stamp inside `[period_end − EXPIRY_WARNING_DAYS, period_end]` belongs to the
+ * current term and suppresses; anything earlier belongs to a previous one.
+ *
+ * Re-exported from `@aeci/shared/entitlements` rather than declared here: the
+ * vendor dashboard's plan panel leans in on the same horizon, and a cron that
+ * warned earlier than the dashboard admits anything is wrong would email a paying
+ * customer about a problem their own portal denies. One promise, one constant.
  */
-export const EXPIRY_WARNING_DAYS = 30;
+export { EXPIRY_WARNING_DAYS } from '@aeci/shared/entitlements';
+import { EXPIRY_WARNING_DAYS } from '@aeci/shared/entitlements';
 
 /** `audit_log.action` for a delivered warning (§7.3). Audited — rather than
  *  following the `stats_cache` no-audit precedent — because "we warned them on

@@ -30,9 +30,11 @@
  *     subpath being the only import path is what makes rule 1 structural
  *     rather than a convention a consumer can miss.
  *
- * Nothing consumes this yet: AECI-611 loads the tier onto `AuthenticatedSession`
- * and adds `requireCapability`, AECI-532 the admin set/renew/clear action,
- * AECI-614 the vendor-facing plan panel.
+ * Consumers, all shipped: AECI-611 loads the tier onto `AuthenticatedSession` and
+ * adds `requireCapability`; AECI-532 the admin set/renew/clear action; AECI-613
+ * the expiry-warning cron; AECI-614 the vendor-facing plan panel; AECI-304 the
+ * version-diff gate, which reaches it through `./version-diff` and is the reason
+ * rule 1 matters — that path is on a lazy route too.
  *
  * Spec: `STAGE_2_PAID_TIERS_SPEC.md` §3.1 (vocabulary + ladder), §3.2 (the
  * ranking firewall this file's spec asserts), §3.3 (where `hasCapability` is
@@ -109,6 +111,24 @@ export const PAID_TIERS = ['verified'] as const;
 
 /** A tier that can be granted. Always a subset of {@link EntitlementTier}. */
 export type PaidEntitlementTier = (typeof PAID_TIERS)[number];
+
+/**
+ * How close to `period_end` the system starts warning — the §7 expiry horizon.
+ *
+ * **Shared because it is one promise, not two.** The cron (`apps/api`) uses it as
+ * the lookahead AND as the width of the idempotency fence; the vendor dashboard
+ * (`apps/web`) uses it to decide when the plan panel leans in. Those numbers must
+ * never diverge: if the cron's horizon were the wider of the two, a vendor would
+ * receive the renewal email while the dashboard still showed everything as fine —
+ * which is exactly the state that makes a paying customer distrust the surface.
+ *
+ * It shipped as two independent `30`s (AECI-613's `EXPIRY_WARNING_DAYS` and
+ * AECI-614's `EXPIRY_SOON_DAYS`) that agreed by coincidence; consolidated here so
+ * they cannot drift.
+ *
+ * Launch-tunable — `docs/POST_LAUNCH_MONITORING.md` §3.
+ */
+export const EXPIRY_WARNING_DAYS = 30;
 
 /**
  * The `vendor_entitlements.status` vocabulary (§2.2). Unlike `tier`, this one

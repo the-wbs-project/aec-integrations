@@ -10,6 +10,7 @@ import {
 import { RouterLink } from '@angular/router';
 
 import type { VendorEntitlementBlock } from '@aeci/shared';
+import { EXPIRY_WARNING_DAYS } from '@aeci/shared/entitlements';
 
 import { VerifiedBadge } from '../../shared/verified-badge/verified-badge';
 
@@ -309,9 +310,10 @@ type PlanState = 'active' | 'expiring' | 'pending' | 'lapsed' | 'none';
 const DAY_MS = 86_400_000;
 
 /**
- * How close to `period_end` the panel starts leaning in. **Presentational**: the
- * authoritative warning window belongs to the AECI-613 expiry cron (§7.2), which
- * had not landed when this shipped. When it does, the two should be reconciled —
- * a vendor should not get the email before the dashboard admits anything is up.
+ * How close to `period_end` the panel starts leaning in.
+ *
+ * The SAME constant the §7 expiry cron warns on (`@aeci/shared/entitlements`),
+ * not a presentational copy: a vendor must never receive the renewal email while
+ * this panel still shows everything as fine.
  */
-const EXPIRY_SOON_DAYS = 30;
+const EXPIRY_SOON_DAYS = EXPIRY_WARNING_DAYS;
