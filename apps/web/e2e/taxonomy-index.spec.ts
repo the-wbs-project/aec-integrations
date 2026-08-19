@@ -101,7 +101,10 @@ for (const facet of FACETS) {
       // those ~10 flyout links and inflate the count (AECI-164).
       const cards = page.locator(`#main a[href^="${path}/"]`);
       await expect(cards).toHaveCount(terms.length);
-      await expect(cards.first()).toContainText(/\bproducts\b/);
+      // `products?` — the card says "1 product" in the singular, so an
+      // environment whose first term happens to carry exactly one would fail a
+      // plural-only match.
+      await expect(cards.first()).toContainText(/\bproducts?\b/);
     });
 
     test('clicking a card navigates to the browse page', async ({ page }) => {
@@ -117,6 +120,82 @@ for (const facet of FACETS) {
       expect(href, `card link must point at ${path}/:slug`).toMatch(new RegExp(`^${path}/[^/]+$`));
       await firstCard.click();
       await expect(page).toHaveURL(new RegExp(`${path}/[^/]+$`));
+    });
+
+    test('sorts the grid by name and by product count without a navigation', async ({
+      page,
+      request,
+    }) => {
+      const taxonomy = (await (await request.get('/api/taxonomy')).json()) as Record<
+        string,
+        Array<{ slug: string; name: string; product_count: number; integration_count?: number }>
+      >;
+      const terms = (taxonomy[facet.apiKey] ?? []).filter(
+        (t) => t.product_count >= facet.publishFloor,
+      );
+      test.skip(terms.length < 2, `needs 2+ listable ${facet.segment} to observe an ordering`);
+
+      await page.goto(path);
+      await expect(page.locator('app-root')).toBeAttached();
+
+      const cards = page.locator(`#main a[href^="${path}/"]`);
+      const slugs = async () =>
+        (await cards.evaluateAll((links) =>
+          links.map((l) => l.getAttribute('href')?.split('/').pop() ?? ''),
+        )) as string[];
+
+      // Read through `expect.poll`, never a bare `await slugs()`: a click sets a
+      // signal and Angular reconciles the `@for` asynchronously, so a one-shot
+      // `evaluateAll` can snapshot the grid mid-move and see a short list.
+      // Polling asserts the settled order, which is the actual claim.
+      const expectOrder = async (expected: string[], label: string) =>
+        expect.poll(slugs, { message: `grid must settle into ${label} order` }).toEqual(expected);
+
+      const apiOrder = terms.map((t) => t.slug);
+      // Derived from `name`, not from the slug: a slug is a transliteration
+      // (`Punch List & QA/QC` becomes `punch-list-qa-qc`), so slug order and
+      // display-name order are not the same sequence in general.
+      const alphabetical = [...terms]
+        .sort((a, b) => a.name.localeCompare(b.name, 'en'))
+        .map((t) => t.slug);
+      const byProducts = [...terms]
+        .sort(
+          (a, b) =>
+            b.product_count - a.product_count ||
+            (b.integration_count ?? 0) - (a.integration_count ?? 0) ||
+            a.name.localeCompare(b.name, 'en'),
+        )
+        .map((t) => t.slug);
+
+      // Each facet's DEFAULT is what SSR emitted: the curated sequence for
+      // phases, A→Z for the other three (which do not offer `Sequence` at all).
+      const isPhases = facet.segment === 'phases';
+      await expectOrder(isPhases ? apiOrder : alphabetical, isPhases ? 'the API sequence' : 'A→Z');
+
+      const optionLabels = await page
+        .locator('#main fieldset button')
+        .evaluateAll((bs) => bs.map((b) => b.textContent?.trim() ?? ''));
+      expect(optionLabels).toEqual(
+        isPhases ? ['Sequence', 'A → Z', 'Products'] : ['A → Z', 'Products'],
+      );
+
+      await page.getByRole('button', { name: 'Products', exact: true }).click();
+      // Sorting must reorder, never add or drop a card, so the set is invariant.
+      await expect.poll(async () => [...(await slugs())].sort()).toEqual([...apiOrder].sort());
+      await expectOrder(byProducts, 'product count');
+
+      // Reordering is local: no navigation, so the URL is untouched and the edge
+      // cache key cannot fork on a sort choice.
+      expect(new URL(page.url()).pathname).toBe(path);
+      expect(new URL(page.url()).search).toBe('');
+
+      await page.getByRole('button', { name: 'A → Z', exact: true }).click();
+      await expectOrder(alphabetical, 'alphabetical');
+
+      if (isPhases) {
+        await page.getByRole('button', { name: 'Sequence', exact: true }).click();
+        await expectOrder(apiOrder, 'the API sequence again');
+      }
     });
 
     test('has zero axe AA violations', async ({ page }) => {

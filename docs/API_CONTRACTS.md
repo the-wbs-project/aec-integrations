@@ -471,6 +471,9 @@ export type ProductFacetsQuery = z.infer<typeof ProductFacetsQuerySchema>;
 // One `TaxonomyTermWithCount[]` per dimension; here `product_count` is the
 // SCOPED count (reflecting the other active filters), ordered by `display_order`
 // then name — same per-term shape the flat taxonomy list endpoints return.
+// `integration_count` is deliberately ABSENT on this endpoint: it would be
+// unscoped, and sitting beside a scoped product count it would read as
+// comparable. See the note under §6.4.
 export const ProductFacetsResponseSchema = z.object({
   categories: z.array(TaxonomyTermWithCountSchema),
   audiences: z.array(TaxonomyTermWithCountSchema),
@@ -644,6 +647,7 @@ export const TaxonomyTermWithCountSchema = LinkRefSchema.extend({
   description: z.string().nullable(),
   display_order: z.number().int(),
   product_count: z.number().int().min(0),
+  integration_count: z.number().int().min(0).optional(),
 });
 
 // Each detail extends the term with the products carrying that term.
@@ -653,6 +657,26 @@ export const CategoryDetailSchema = TaxonomyTermWithCountSchema.extend({
 });
 // `AudienceDetailSchema` / `PhaseDetailSchema` / `TradeDetailSchema` follow the same shape.
 ```
+
+**`integration_count`** is the number of **distinct** integrations reachable through the products
+carrying the term — an integration counts once if **either** endpoint is tagged, and once only when
+**both** are. It is therefore *not* the sum of the tagged products' own `integration_count`, which
+double-counts every integration internal to the term. It is unscoped (a property of the term, not of
+any active filter). The four taxonomy index pages **display** it on each term card and use it as the
+tiebreaker in their "Products" ordering, but it is deliberately not a primary sort key — it is a
+downstream consequence of the catalog rather than a measure of the term (`STAGE_1_SPEC.md` §5.5).
+
+The field is **optional**, for two distinct reasons that both have to hold:
+
+1. The `*_counts` keys in `stats_cache` store `TaxonomyTermWithCount[]` and are validated on read
+   against this schema (§9.2), so rows written before the field shipped must still parse.
+2. `GET /api/products/facets` deliberately **omits** it. Its `product_count` is the scoped
+   disjunctive count under the active filters; an unscoped integration count printed beside a scoped
+   product count would invite a comparison it cannot support.
+
+Consumers read it through `taxonomyIntegrationCount(term)` from `@aeci/shared`, which resolves an
+absent value to `0`. Note the asymmetry with the trades publication floor: that gate is read off
+`product_count` only (`TRADES_VOCABULARY.md` §6), and swapping its basis would silently retune it.
 
 #### `GET /api/taxonomy`
 

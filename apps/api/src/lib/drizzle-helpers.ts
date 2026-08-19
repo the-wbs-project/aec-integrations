@@ -358,6 +358,34 @@ export const vendorDetailConfig = {
 // `_count` → an `extras` subquery on the model's own join table. The outer
 // column is table-qualified (see the vendor extras note); these join tables have
 // no `id` column so bare would also work, but qualifying keeps the pattern uniform.
+//
+// ── The integration count ──────────────────────────────────────────────────
+// Each term also carries the number of integrations reachable through the
+// products tagged with it — the figure the taxonomy index pages sort by. Built
+// as `EXISTS` over `integrations` rather than the more obvious
+// `WHERE source IN (…) OR target IN (…)`:
+//
+//   1. **It cannot double-count.** An integration whose BOTH endpoints carry the
+//      term is one row satisfying one `EXISTS`, so it counts once. The `IN … OR
+//      IN …` form counts it once too, but `SUM(products.integration_count)` over
+//      the tagged set — the cheap-looking alternative, since that column is
+//      already denormalized — counts it twice. That column is per-product, and
+//      integrations are shared between two products; it does not sum.
+//   2. **Direction is irrelevant here.** An integration belongs to a term if
+//      EITHER endpoint is tagged, because a term page is "software for this
+//      audience" and an integration into such a product is as much part of that
+//      story as one out of it.
+//
+// Cost is one correlated subquery per term over a small vocabulary (~30 terms
+// per facet, `docs/STAGE_1_SPEC.md` §5.5) on responses that are edge-cached with
+// the `taxonomy` tag, not a per-request hot path.
+const integrationCountFor = (joinTable: string, fkColumn: string, termTable: string) =>
+  sql<number>`(SELECT count(*) FROM integrations i WHERE EXISTS (
+    SELECT 1 FROM ${sql.raw(joinTable)} j
+    WHERE j.${sql.raw(fkColumn)} = ${sql.raw(`"${termTable}"."id"`)}
+      AND (j.product_id = i.source_product_id OR j.product_id = i.target_product_id)
+  ))`.as('integration_count');
+
 export const categoryTermConfig = {
   columns: { id: true, slug: true, name: true, description: true, displayOrder: true },
   extras: {
@@ -365,6 +393,11 @@ export const categoryTermConfig = {
       sql<number>`(SELECT count(*) FROM product_categories pc WHERE pc.category_id = "taxonomyCategories"."id")`.as(
         'product_count',
       ),
+    integrationCount: integrationCountFor(
+      'product_categories',
+      'category_id',
+      'taxonomyCategories',
+    ),
   },
 } as const;
 export const audienceTermConfig = {
@@ -374,6 +407,7 @@ export const audienceTermConfig = {
       sql<number>`(SELECT count(*) FROM product_audiences pa WHERE pa.audience_id = "taxonomyAudiences"."id")`.as(
         'product_count',
       ),
+    integrationCount: integrationCountFor('product_audiences', 'audience_id', 'taxonomyAudiences'),
   },
 } as const;
 export const phaseTermConfig = {
@@ -383,13 +417,16 @@ export const phaseTermConfig = {
       sql<number>`(SELECT count(*) FROM product_phases pp WHERE pp.phase_id = "taxonomyPhases"."id")`.as(
         'product_count',
       ),
+    integrationCount: integrationCountFor('product_phases', 'phase_id', 'taxonomyPhases'),
   },
 } as const;
 /** Trades (§5.5a / AECI-541). Same shape as its three siblings — `aliases` is
  *  deliberately NOT selected: it is resolver + search metadata (promote find-only,
  *  Algolia `trade_aliases`), never part of the public term payload. The count is
  *  ungated: sub-`TRADE_PUBLISH_MIN_PRODUCTS` terms travel with their real count
- *  and each surface applies the floor (`TRADES_VOCABULARY.md` §6). */
+ *  and each surface applies the floor (`TRADES_VOCABULARY.md` §6). The floor is
+ *  read off `product_count`, never `integration_count` — a trade is published on
+ *  how many products carry it, and swapping the basis would silently retune it. */
 export const tradeTermConfig = {
   columns: { id: true, slug: true, name: true, description: true, displayOrder: true },
   extras: {
@@ -397,6 +434,7 @@ export const tradeTermConfig = {
       sql<number>`(SELECT count(*) FROM product_trades pt WHERE pt.trade_id = "taxonomyTrades"."id")`.as(
         'product_count',
       ),
+    integrationCount: integrationCountFor('product_trades', 'trade_id', 'taxonomyTrades'),
   },
 } as const;
 
@@ -591,6 +629,16 @@ export interface RawTaxonomyTermRow {
   description: string | null;
   displayOrder: number | null;
   productCount: number;
+  /**
+   * Optional because one caller legitimately has no such number to give: the
+   * facet sidebar (`routes/product-facets.ts`) builds term rows whose
+   * `productCount` is the **scoped** disjunctive count under the active filters,
+   * not a global one. An unscoped integration count sitting beside a scoped
+   * product count would invite exactly the comparison it cannot support, so that
+   * path omits it and the field travels absent — which is why
+   * `TaxonomyTermWithCountSchema` makes it optional too.
+   */
+  integrationCount?: number | undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -1123,6 +1171,7 @@ export function toTaxonomyTermWithCount(raw: RawTaxonomyTermRow): TaxonomyTermWi
     description: raw.description,
     display_order: raw.displayOrder ?? 0,
     product_count: raw.productCount,
+    integration_count: raw.integrationCount,
   };
 }
 
