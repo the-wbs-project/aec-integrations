@@ -77,6 +77,10 @@ function makeApiMock(rows: AdminClaim[], total = rows.length): ApiMock {
                 verified: true,
                 identity_outcome: 'linked',
                 seat_created: false,
+                // AECI-612: the grant now opens a `vendor_entitlements` row in the
+                // same batch, and reports the tier it landed on.
+                tier: 'verified',
+                entitlement_created: true,
               }
             : null,
       }),

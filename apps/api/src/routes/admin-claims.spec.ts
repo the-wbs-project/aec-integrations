@@ -14,6 +14,15 @@
  * mutates no vendor and enqueues no purge; a `target_type='product'` claim grants
  * the product's primary vendor; and the revoke mechanic leaves `verified`
  * untouched.
+ *
+ * AECI-612 (`STAGE_2_PAID_TIERS_SPEC.md` §6) folded the entitlement half in: the
+ * grant now composes `grantSeatStatements` + `activateEntitlementStatements` into
+ * ONE `db.batch`, so the matrix also covers the `vendor_entitlements` row landing
+ * with the seat, the §2.3 second-seat NO-OP (zero entitlement statements, zero
+ * `vendors` statements — an INSERT there would violate the unique index and roll
+ * the seat grant back), reactivation on a re-claim after revoke, and the two audit
+ * rows a first grant now writes. `verified` is no longer written from
+ * `lib/vendor-grant.ts` at all; `vendor-grant.spec.ts` guards that.
  */
 
 import { ApiErrorCode, ListVendorClaimsResponseSchema } from '@aeci/shared';
@@ -26,6 +35,7 @@ import {
   products,
   productVendors,
   profiles,
+  vendorEntitlements,
   vendorRequests,
   vendors,
   workflowInstances,
@@ -123,6 +133,21 @@ function reqRow(
 
 const seedRequest = (o: Partial<typeof vendorRequests.$inferInsert> = {}) =>
   t.db.insert(vendorRequests).values(reqRow(o));
+
+/** Seed the vendor's `vendor_entitlements` row directly (bypassing the builders) to
+ *  set up a §2.3 matrix state. `updated_at` is pinned to `OLD_TS` so a test can prove
+ *  the second-seat path did not churn it. */
+const seedEntitlement = (status: string) =>
+  t.db.insert(vendorEntitlements).values({
+    vendorId: VENDOR_ID,
+    tier: 'verified',
+    status,
+    grantedAt: OLD_TS,
+    endedAt: status === 'active' ? null : OLD_TS,
+    expiryNoticeSentAt: status === 'active' ? null : OLD_TS,
+    createdAt: OLD_TS,
+    updatedAt: OLD_TS,
+  });
 
 const seedWorkflow = (entityId = REQUEST_ID, currentState = 'open') =>
   t.db
@@ -244,6 +269,9 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
       verified: true,
       identity_outcome: 'linked',
       seat_created: true,
+      // AECI-612: the grant opened the entitlement row that `verified` mirrors.
+      tier: 'verified',
+      entitlement_created: true,
     });
     expect(body.request.status).toBe('resolved');
     expect(body.request.resolved_by).toBe(ADMIN_ID);
@@ -263,17 +291,43 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
     expect(req!.status).toBe('resolved');
     expect(req!.resolvedById).toBe(ADMIN_ID);
 
-    // One audit row in the same batch, with the entitlement recorded in metadata.
+    // The entitlement row `verified` mirrors, opened in the SAME batch (AECI-612 §6).
+    const ents = await t.db.select().from(vendorEntitlements);
+    expect(ents).toHaveLength(1);
+    expect(ents[0]).toMatchObject({
+      vendorId: VENDOR_ID,
+      tier: 'verified',
+      status: 'active',
+      payer: 'Autodesk AP',
+      amount: 'USD 5,000/yr',
+      grantedBy: ADMIN_ID,
+      sourceRequestId: REQUEST_ID,
+    });
+
+    // TWO audit rows in the same batch since AECI-612 — the claim decision and the
+    // entitlement it opened. The claim row's shape is unchanged; the entitlement row
+    // is what makes `entity_type='vendor_entitlement'` the history ledger (§2.1).
     const audits = await t.db.select().from(auditLog);
-    expect(audits).toHaveLength(1);
-    expect(audits[0]!.action).toBe('vendor_claim.granted');
-    expect(audits[0]!.actorId).toBe(ADMIN_ID);
-    expect(audits[0]!.metadata).toMatchObject({
+    expect(audits).toHaveLength(2);
+    const claimAudit = audits.find((a) => a.action === 'vendor_claim.granted')!;
+    expect(claimAudit.actorId).toBe(ADMIN_ID);
+    expect(claimAudit.metadata).toMatchObject({
       source: 'admin-moderation',
       vendor_id: VENDOR_ID,
       identity_outcome: 'linked',
       verified_flipped: true,
       entitlement: { payer: 'Autodesk AP', amount: 'USD 5,000/yr' },
+    });
+    const entAudit = audits.find((a) => a.action === 'vendor_entitlement.granted')!;
+    expect(entAudit.entityType).toBe('vendor_entitlement');
+    // entity_id is the VENDOR id — that is what makes the ledger queryable.
+    expect(entAudit.entityId).toBe(VENDOR_ID);
+    expect(entAudit.metadata).toMatchObject({
+      // Shares `source` with the claim row, so the two read as one action.
+      source: 'admin-moderation',
+      verified_flipped: true,
+      entitlement_created: true,
+      source_request_id: REQUEST_ID,
     });
 
     // Workflow completed + transition.
@@ -348,6 +402,8 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
 
   it('grants a second seat without re-flipping verified or churning updated_at (multi-seat safe)', async () => {
     await seedVendor({ verified: true, updatedAt: OLD_TS });
+    // The active entitlement the verified vendor already holds — the §2.3 row-2 state.
+    await seedEntitlement('active');
     // Existing seat A.
     await t.db
       .insert(profiles)
@@ -355,7 +411,7 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
     // A second, open claim for the same vendor from a different submitter.
     await seedRequest({ id: REQUEST2_ID, submitterEmail: 'second@vendor.com' });
 
-    const { status } = await patchClaim(
+    const { status, body } = await patchClaim(
       moderateApp(resolveLinked(null, CLAIMANT2_ID)),
       { action: 'approve' },
       REQUEST2_ID,
@@ -372,6 +428,69 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
     const audits = await t.db.select().from(auditLog);
     expect(audits).toHaveLength(1);
     expect(audits[0]!.metadata).toMatchObject({ verified_flipped: false });
+
+    // §2.3 row 2 (AECI-612): the entitlement builder emitted NOTHING — no second row
+    // (an INSERT would violate `vendor_entitlements_vendor_key` and roll the whole
+    // seat grant back), no second audit row, and the existing row is untouched.
+    const ents = await t.db.select().from(vendorEntitlements);
+    expect(ents).toHaveLength(1);
+    expect(ents[0]!.updatedAt).toBe(OLD_TS);
+    expect(body.grant).toMatchObject({ tier: 'verified', entitlement_created: false });
+  });
+
+  it('re-claiming a revoked vendor REACTIVATES the existing row rather than inserting a second', async () => {
+    // The unique index makes this the only safe shape (§2.3 row 3): a guarded
+    // `UPDATE … WHERE status <> 'active'`, not an INSERT.
+    await seedVendor({ verified: false, updatedAt: OLD_TS });
+    await seedEntitlement('revoked');
+    await seedRequest();
+
+    const { status, body } = await patchClaim(moderateApp(resolveLinked(null)), {
+      action: 'approve',
+      entitlement: { invoice_ref: 'PO-4471', period_end: '2031-01-01' },
+    });
+
+    expect(status).toBe(200);
+    const ents = await t.db.select().from(vendorEntitlements);
+    expect(ents).toHaveLength(1); // reactivated in place
+    expect(ents[0]).toMatchObject({
+      status: 'active',
+      invoiceRef: 'PO-4471',
+      periodEnd: '2031-01-01',
+      sourceRequestId: REQUEST_ID,
+    });
+    // Reactivation clears the terminal stamp and the §7 expiry-notice fence.
+    expect(ents[0]!.endedAt).toBeNull();
+    expect(ents[0]!.expiryNoticeSentAt).toBeNull();
+
+    // The mirror came back up, and `updated_at` moved with it (R2 — the Algolia
+    // watermark must see a re-verify).
+    const vendor = await vendorOf(VENDOR_ID);
+    expect(vendor!.verified).toBe(true);
+    expect(vendor!.updatedAt).not.toBe(OLD_TS);
+
+    expect(body.grant).toMatchObject({ tier: 'verified', entitlement_created: false });
+    const entAudit = (await t.db.select().from(auditLog)).find(
+      (a) => a.action === 'vendor_entitlement.granted',
+    )!;
+    expect(entAudit.metadata).toMatchObject({ reactivated: true, entitlement_created: false });
+  });
+
+  it('composes both builders into ONE db.batch (D1 has no interactive transactions)', async () => {
+    // The load-bearing structural claim of §6.3. Two batches would mean a window in
+    // which a seat exists with no entitlement — and no way to roll the first back.
+    await seedVendor({ verified: false });
+    await seedRequest();
+    const batchSpy = vi.spyOn(t.db, 'batch');
+
+    const { status } = await patchClaim(moderateApp(resolveLinked(null)), { action: 'approve' });
+
+    expect(status).toBe(200);
+    expect(batchSpy).toHaveBeenCalledTimes(1);
+    // 5 from `grantSeatStatements` (seat, request, workflow, transition, audit) +
+    // 3 from `activateEntitlementStatements` (entitlement row, mirror flip, audit).
+    expect(batchSpy.mock.calls[0]![0]).toHaveLength(8);
+    batchSpy.mockRestore();
   });
 
   it('is idempotent: re-granting an already-granted claim is a 200 no-op (no audit noise)', async () => {
@@ -389,6 +508,12 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
 
     expect(status).toBe(200);
     expect(body.grant).toMatchObject({ verified: true, seat_created: false });
+    // §6.5: this path returns BEFORE any batch is built, so the summary is a pure
+    // readout. This fixture is the drifted pre-backfill state (`verified = 1`, no
+    // entitlement row) and `tierFor` fails closed rather than inferring a tier from
+    // the mirror — `unclaimed`, not a flattering `verified`.
+    expect(body.grant).toMatchObject({ tier: 'unclaimed', entitlement_created: false });
+    expect(await t.db.select().from(vendorEntitlements)).toHaveLength(0);
     // No new audit / transition rows, no purge, no email.
     expect(await t.db.select().from(auditLog)).toHaveLength(0);
     expect(await t.db.select().from(workflowTransitions)).toHaveLength(0);

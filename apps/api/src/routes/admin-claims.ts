@@ -9,11 +9,28 @@
  * A sibling of `PATCH /api/admin/requests/:id` (`admin-requests.ts`), not a
  * replacement: corrections still moderate through the requests endpoint; a claim
  * moderates here so `approve` runs the §3 grant batch (link the `vendor_admin`
- * seat, flip `vendors.verified`, resolve the request — one atomic `db.batch`)
+ * seat, open the entitlement, resolve the request — one atomic `db.batch`)
  * instead of a plain resolve. The batch mechanics live in `lib/vendor-grant.ts`;
  * the claimant email→auth-user resolution in `lib/claimant-identity.ts` (AECI-527);
  * this handler owns HTTP, the resolution→status mapping, the idempotency gate, and
  * the post-commit cache purge + claim-decision email seam.
+ *
+ * ── THE GRANT IS TWO COMPOSED BUILDERS (AECI-612 / §6) ────────────────────────
+ * `approveClaim` concatenates `grantSeatStatements(...)` (seat, request resolve,
+ * workflow, claim audit) with `activateEntitlementStatements(...)` (the
+ * `vendor_entitlements` row, the guarded `vendors.verified` flip, the entitlement
+ * audit) into ONE `db.batch([...grant.stmts, ...ent.stmts])`. D1 has no
+ * interactive transactions, so composition-into-one-batch is the only way the
+ * seat and the entitlement can be atomic with each other.
+ *
+ * Why two modules and not one: `vendors.verified` is a denormalized MIRROR of
+ * `vendor_entitlements` (§2.1) and `lib/vendor-entitlement.ts` is its SOLE writer
+ * — enforced by an ESLint rule. `grantSeatStatements` no longer names `vendors`
+ * at all. The §2.3 second-seat row is what makes this safe: when the vendor
+ * already has an `active` entitlement, `ent.stmts` is `[]` and `ent.auditEntry` is
+ * `null`, so the batch is exactly today's minus the no-op guarded UPDATE. An
+ * unconditional INSERT there would violate `vendor_entitlements_vendor_key` and
+ * roll back the entire seat grant.
  *
  * The `/admin/claims` LIST + reviewer UI is AECI-521. The claim-decision email
  * SENDER is AECI-528: the send-site is an injectable seam (cf. `noopSyncToLinear`
@@ -39,6 +56,7 @@ import {
   type RelatedRequestRef,
 } from '@aeci/shared';
 import { forwardAuditLog, type AuditLogForwarder } from '@aeci/shared/audit-log';
+import { tierFor, type EntitlementTier } from '@aeci/shared/entitlements';
 import {
   forwardWorkflowTransition,
   type WorkflowTransitionForwarder,
@@ -67,7 +85,16 @@ import {
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import { fetchAuthAccountsByEmail } from '../lib/supabase-admin';
 import { vendorPurgeTags, type TargetVendor } from '../lib/vendor-cache-tags';
-import { grantSeatStatements, rejectClaimStatements } from '../lib/vendor-grant';
+import {
+  activateEntitlementStatements,
+  loadEntitlement,
+  type EntitlementBefore,
+} from '../lib/vendor-entitlement';
+import {
+  CLAIM_AUDIT_SOURCE,
+  grantSeatStatements,
+  rejectClaimStatements,
+} from '../lib/vendor-grant';
 
 type ClaimContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
 
@@ -98,6 +125,24 @@ export type SendClaimDecisionEmail = (
 ) => Promise<void>;
 
 const noopSendClaimEmail: SendClaimDecisionEmail = async () => {};
+
+/**
+ * The tier a claim approval grants (AECI-612 / §6.3). `verified` is the paid ENTRY
+ * rung (§3.1) and the only one this flow mints — moving a vendor up a future ladder
+ * is the admin `PATCH /api/admin/vendors/:id/entitlement` action (§5), not a claim
+ * decision. Typed as `EntitlementTier`, so adding a rung to `TIERS` cannot silently
+ * turn this into a free-form string.
+ */
+const GRANT_TIER: EntitlementTier = 'verified';
+
+/**
+ * `audit_log.action` for the entitlement row a claim approval opens. Distinct from
+ * `ENTITLEMENT_ACTION.set` (the §5 admin action) so the `entity_type='vendor_entitlement',
+ * entity_id=<vendor_id>` history ledger (§2.1) shows at a glance which grants came
+ * from a claim and which an admin recorded by hand. It shares `metadata.source` with
+ * the sibling `vendor_claim.granted` row, so the two read as one action.
+ */
+const ENTITLEMENT_GRANT_ACTION = 'vendor_entitlement.granted';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -155,17 +200,32 @@ function emitClaimModeration(
   ]);
 }
 
+/** The preloaded grant target: the vendor a claim seats against, plus its
+ *  entitlement row (`null` = never entitled). */
+interface ClaimTarget {
+  vendor: TargetVendor;
+  /** Preloaded so `activateEntitlementStatements` can branch the §2.3 matrix in TS
+   *  rather than with `onConflictDoUpdate` — that branch is what makes the
+   *  second-seat case emit genuinely nothing. */
+  entitlement: EntitlementBefore | null;
+}
+
 /**
  * The vendor a claim grants: for a `target_type='vendor'` claim, the target
  * itself; for a `target_type='product'` claim, the product's PRIMARY vendor (the
  * `is_primary` row wins; any row is the fallback). Resolving this before calling
  * `resolveClaimantIdentity` is mandatory — exclusivity compares against
  * `profiles.vendor_id`, which can only ever hold a vendor id (§2).
+ *
+ * Also preloads the vendor's `vendor_entitlements` row (AECI-612 / §6.4) — one
+ * extra single-row lookup on `vendor_entitlements_vendor_key`, on a path that
+ * already does five reads. It feeds both the §2.3 activate branch and the
+ * idempotent re-grant's `tier` readout, so no caller re-derives the `findFirst`.
  */
 async function resolveTargetVendor(
   db: Db,
   existing: RawAdminVendorRequestRow,
-): Promise<TargetVendor> {
+): Promise<ClaimTarget> {
   let vendorId: string;
   if (existing.targetType === 'vendor') {
     vendorId = existing.targetId;
@@ -190,7 +250,7 @@ async function resolveTargetVendor(
     where: eq(vendors.id, vendorId),
   });
   if (!vendor) throw notFoundError('vendor', { id: vendorId });
-  return vendor;
+  return { vendor, entitlement: await loadEntitlement(db, vendorId) };
 }
 
 /** Find-or-derive the `vendor_claim` workflow instance id for a claim (find-or-create
@@ -321,7 +381,7 @@ async function approveClaim(
     );
   }
 
-  const vendor = await resolveTargetVendor(db, existing);
+  const { vendor, entitlement: entitlementBefore } = await resolveTargetVendor(db, existing);
 
   // A `resolved` claim is terminal too. Its only valid re-approve is the idempotent
   // same-seat no-op, which needs an EXISTING linked account to recognize — so resolve
@@ -388,12 +448,18 @@ async function approveClaim(
     if (existing.status === 'resolved' && alreadySeated) {
       emitClaimModeration(c, 'approve', 'noop');
       const targets = await resolveRequestTargets(db, [existing]);
+      // No batch is built on this path (§6.5) — the summary is a pure readout of
+      // the preloaded state. `tierFor` fails closed, so a vendor whose entitlement
+      // was cleared (or never backfilled) reports `unclaimed`, not a flattering
+      // `verified` derived from the mirror.
       const body = claimResponse(existing, {}, targets.get(existing.targetId) ?? null, {
         user_id: userId,
         vendor_id: vendor.id,
         verified: vendor.verified,
         identity_outcome: identityOutcome,
         seat_created: false,
+        tier: tierFor(entitlementBefore),
+        entitlement_created: false,
       });
       validateResponseInDev(c.env, () => ModerateClaimResponseSchema.parse(body));
       return json(body);
@@ -409,7 +475,7 @@ async function approveClaim(
   const resolvedAt = new Date().toISOString();
   const { workflowId, existingWf } = await findClaimWorkflow(db, existing.id);
 
-  const { stmts, auditEntry, workflowEntry } = grantSeatStatements(db, {
+  const grant = grantSeatStatements(db, {
     userId,
     vendorId: vendor.id,
     requestId: existing.id,
@@ -429,7 +495,33 @@ async function approveClaim(
     targetId: existing.targetId,
   });
 
-  await db.batch(stmts as BatchTuple);
+  // The entitlement half of the same grant (§6.3). `tier: 'verified'` is the paid
+  // entry rung (§3.1) — the claim flow grants no other. The claim body's
+  // arrangement blob lands in BOTH places on purpose (§6.6): verbatim in the claim
+  // audit metadata (the history ledger) and as columns on the row (the state).
+  //
+  // Per the §2.3 matrix this returns the frozen no-op — zero statements, `null`
+  // audit entry — whenever the vendor already has an `active` row, which is the
+  // second-seat case.
+  const ent = activateEntitlementStatements(db, {
+    vendorId: vendor.id,
+    tier: GRANT_TIER,
+    now: resolvedAt,
+    actorId,
+    actorType,
+    existing: entitlementBefore,
+    vendorWasVerified: vendor.verified,
+    grantedBy: actorId,
+    sourceRequestId: existing.id,
+    arrangement: entitlement,
+    action: ENTITLEMENT_GRANT_ACTION,
+    source: CLAIM_AUDIT_SOURCE,
+    reason,
+  });
+
+  // ONE batch. The seat, the request resolve, the workflow, the entitlement row,
+  // the mirror flip and both audit rows commit or roll back together (§26.1).
+  await db.batch([...grant.stmts, ...ent.stmts] as BatchTuple);
   emitClaimModeration(c, 'approve', 'ok');
 
   // Resolve the claimed target's display name up front — reused by the email
@@ -462,10 +554,13 @@ async function approveClaim(
       }
     }),
   );
+  // Both audit rows forward (§26.5). `ent.auditEntry` is null on the second-seat
+  // path, and `forwardAuditLog` is a no-op for it.
   c.executionCtx.waitUntil(
     Promise.all([
-      forwardAuditLog(auditEntry, makeForwarder(c)),
-      forwardWorkflowTransition(workflowEntry, makeWorkflowForwarder(c)),
+      forwardAuditLog(grant.auditEntry, makeForwarder(c)),
+      ent.auditEntry ? forwardAuditLog(ent.auditEntry, makeForwarder(c)) : Promise.resolve(),
+      forwardWorkflowTransition(grant.workflowEntry, makeWorkflowForwarder(c)),
     ]),
   );
 
@@ -476,9 +571,21 @@ async function approveClaim(
     {
       user_id: userId,
       vendor_id: vendor.id,
-      verified: true,
+      // Where the MIRROR actually landed, not an assumption. True on a first grant
+      // (the guarded flip fired) and on a second seat (already true). It is only
+      // false in the one drifted state this grant cannot repair — an `active`
+      // entitlement row over `verified = 0`, where the §2.3 matrix emits nothing
+      // and `ops:backfill-entitlements` (Guard 2's remedy) owns the fix.
+      verified: vendor.verified || ent.verifiedFlipped,
       identity_outcome: identityOutcome,
       seat_created: seatCreated,
+      // The tier this grant WROTE, or — on the second-seat no-op, where nothing was
+      // written — the tier the pre-existing active row already carries, resolved
+      // fail-closed. Today `TIERS` is binary so both arms say `verified`; the
+      // distinction is what keeps the readout honest once a rung is added (§3.1
+      // makes that a data-only edit).
+      tier: ent.stmts.length > 0 ? GRANT_TIER : tierFor(entitlementBefore),
+      entitlement_created: ent.entitlementCreated,
     },
   );
   validateResponseInDev(c.env, () => ModerateClaimResponseSchema.parse(body));

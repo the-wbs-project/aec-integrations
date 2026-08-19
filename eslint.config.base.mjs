@@ -203,29 +203,24 @@ export const CONSTRAINT_SYNTAX_SOURCE_ONLY = [...NO_DARK_THEME, ...NO_FORBIDDEN_
 export const CONSTRAINT_SYNTAX_MIRROR = [...NO_DIRECT_VERIFIED_WRITE];
 
 /**
- * Files exempt from the sole-writer rule.
+ * Files exempt from the sole-writer rule — now EXACTLY ONE.
  *
  * `lib/vendor-entitlement.ts` is the permanent, by-design writer (§2.1).
  *
- * `lib/vendor-grant.ts` is a TEMPORARY baseline carve-out: it still emits the
- * `verified` flip today, and AECI-612 (§6 step 1) is the issue that deletes that
- * statement and composes `activateEntitlementStatements` instead. Landing a rule
- * scoped to the clean subset and widening it as the rest is cleaned up is the
- * documented lifecycle (`ANGULAR_STYLE_GUIDE.md` §24 "Rule lifecycle"); `warn` is NOT
- * a usable staging severity here because `pnpm lint` runs without `--max-warnings`,
- * so a warning would be decorative.
+ * `lib/vendor-grant.ts` used to be a second, TEMPORARY baseline carve-out: it still
+ * emitted the `verified` flip when AECI-609 landed the rule. **AECI-612 (§6 step 1)
+ * deleted that statement** — `grantSeatStatements` no longer names `vendors` at all,
+ * and `approveClaim` composes `activateEntitlementStatements` into the same
+ * `db.batch` instead — so the carve-out is gone and the rule now covers that file
+ * like any other. Landing a rule scoped to the clean subset and widening it as the
+ * rest is cleaned up is the documented lifecycle (`ANGULAR_STYLE_GUIDE.md` §24
+ * "Rule lifecycle"); this is the widening step.
  *
- * ⚠️ AECI-612 MUST delete the second entry AND its assertion in
- * `apps/web/src/eslint-config.spec.ts`.
- *
- * `**\/`-prefixed so the globs resolve under both the package basePath (`eslint .`
+ * `**\/`-prefixed so the glob resolves under both the package basePath (`eslint .`
  * inside `apps/api`, which is how `pnpm -r run lint` runs) and the repo root (editors)
  * — the same reason `TEST_FILES` uses them.
  */
-export const MIRROR_WRITE_EXEMPT = [
-  '**/lib/vendor-entitlement.ts',
-  '**/lib/vendor-grant.ts', // TEMPORARY — AECI-612 removes this
-];
+export const MIRROR_WRITE_EXEMPT = ['**/lib/vendor-entitlement.ts'];
 
 /**
  * Decommissioned and forbidden dependencies (CLAUDE.md): Prisma / Accelerate and

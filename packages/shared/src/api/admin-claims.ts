@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { AdminVendorRequestSchema } from './admin-requests';
+import { EntitlementTermDateSchema, EntitlementTierSchema } from './admin-entitlements';
 import { PageQuerySchema, paginatedResponseSchema } from './common';
 
 /**
@@ -14,24 +15,46 @@ import { PageQuerySchema, paginatedResponseSchema } from './common';
  * This is a sibling of `PATCH /api/admin/requests/:id` (`admin-requests.ts`),
  * NOT a replacement: corrections still moderate through the requests endpoint;
  * claims moderate here so approval can run the §3 grant batch (link the seat,
- * flip `vendors.verified`, resolve the request) rather than a plain resolve. The
+ * open the entitlement, resolve the request) rather than a plain resolve. The
  * `/admin/claims` LIST + reviewer UI is AECI-521; the claim-decision emails are
  * AECI-528; this issue is the grant mechanics.
+ *
+ * Since AECI-612 (`STAGE_2_PAID_TIERS_SPEC.md` §6) the grant also opens the
+ * `vendor_entitlements` row that `vendors.verified` now MIRRORS, in the same
+ * `db.batch` — which is why `ClaimGrantSummary` reports a `tier` and whether the
+ * row was created.
  */
 
 /**
- * The offline PO/invoice arrangement recorded in the grant's `audit_log`
- * metadata. `vendors.verified` IS the launch entitlement bit (§3 / `STAGE_2_SPEC.md`
- * §8.3(1)); a formal entitlement model is deferred to AECI-515, so this arrangement
- * lives in the audit trail, never in a new column. `amount` is a free-form string
- * to stay currency-agnostic (e.g. "USD 5,000 / yr").
+ * The offline PO/invoice arrangement carried by a claim approval. `amount` is a
+ * free-form string to stay currency-agnostic (e.g. "USD 5,000 / yr").
+ *
+ * **Two destinations since AECI-612** (`STAGE_2_PAID_TIERS_SPEC.md` §6.6). It keeps
+ * landing verbatim in the grant's `audit_log` metadata — per §2.1 the audit log IS the
+ * entitlement history ledger, so the metadata write is the history — and it now ALSO
+ * populates the `vendor_entitlements` row the grant creates in the same `db.batch`.
+ * The former "`vendors.verified` IS the launch entitlement bit, so this lives in the
+ * audit trail and never in a column" (AECI-519 / `STAGE_2_SPEC.md` §8.3(1)) is
+ * superseded: `verified` is now a MIRROR of that row (§2.1).
+ *
+ * `invoice_ref` / `period_start` / `period_end` are ADDITIVE (AECI-612): the shipped
+ * `/admin/claims` approve form sends only `notes`, so it needs no change, but an admin
+ * who knows the term at approval time can record it without a second round-trip through
+ * `PATCH /api/admin/vendors/:id/entitlement`. Every field is a structural subset of
+ * `EntitlementArrangementSchema` (`./admin-entitlements`) with matching caps, so the
+ * claim body passes straight through to `activateEntitlementStatements` and the two
+ * surfaces can never disagree about what fits.
  */
 export const ClaimEntitlementSchema = z.object({
   payer: z.string().max(200).optional(),
   amount: z.string().max(100).optional(),
   terms: z.string().max(500).optional(),
   arranged_by: z.string().max(200).optional(),
+  invoice_ref: z.string().max(200).optional(),
   notes: z.string().max(1000).optional(),
+  /** ISO-8601 term boundaries; date-only is accepted (what a date picker submits). */
+  period_start: EntitlementTermDateSchema.optional(),
+  period_end: EntitlementTermDateSchema.optional(),
 });
 export type ClaimEntitlement = z.infer<typeof ClaimEntitlementSchema>;
 
@@ -53,12 +76,22 @@ export type ModerateClaimInput = z.infer<typeof ModerateClaimSchema>;
 /**
  * The grant outcome surfaced on a successful `approve`, so the reviewer
  * confirmation can distinguish "linked an existing account" from "provisioned a
- * new one", and show the resulting verification state.
+ * new one", and show the resulting verification + entitlement state.
  *  - `identity_outcome` — `linked` (an auth user already owned the email) vs
  *    `invited` (one was provisioned; onboarding is the AECI-528 claim-approved email).
- *  - `verified` — the vendor's verification state after the grant (true).
+ *  - `verified` — where the `vendors.verified` MIRROR landed after the grant (§2.1).
  *  - `seat_created` — a brand-new `profiles` row was written (grant landed before
  *    the claimant's first sign-in), vs an existing row upgraded in place.
+ *  - `tier` — the vendor's entitlement tier after the grant, resolved fail-closed by
+ *    `tierFor` (`@aeci/shared/entitlements`): `unclaimed` when no `active` row backs
+ *    the seat, which is the honest readout for a drifted vendor.
+ *  - `entitlement_created` — a `vendor_entitlements` row was INSERTed by this grant,
+ *    vs one that already existed (the second-seat no-op, or a reactivation).
+ *
+ * `tier` and `entitlement_created` are REQUIRED, not optional (AECI-612 / §6.7, R10):
+ * the `/admin/claims` `ClaimQueue` ignores unknown keys, so a construction site that
+ * forgot one would ship `undefined` silently. Required is what makes
+ * `validateResponseInDev` catch it.
  */
 export const ClaimGrantSummarySchema = z.object({
   user_id: z.string().uuid(),
@@ -66,6 +99,8 @@ export const ClaimGrantSummarySchema = z.object({
   verified: z.boolean(),
   identity_outcome: z.enum(['linked', 'invited']),
   seat_created: z.boolean(),
+  tier: EntitlementTierSchema,
+  entitlement_created: z.boolean(),
 });
 export type ClaimGrantSummary = z.infer<typeof ClaimGrantSummarySchema>;
 
