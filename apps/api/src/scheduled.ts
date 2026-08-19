@@ -15,6 +15,13 @@
  * `--test-scheduled` tick is never silently dropped.
  *
  * Cron triggers (`wrangler.jsonc`), staging + production:
+ * 02:00 UTC **Mondays** — the weekly §7.6 `asn_registry` refresh
+ * (`./lib/asn-registry`, AECI-624): one unauthenticated PeeringDB read,
+ * intersected with the ASNs `page_views` has actually seen, upserted for the
+ * admin panel's read-time annotation. The only weekly trigger, and the only job
+ * whose output is an annotation rather than a measurement — it never writes
+ * `page_views.is_bot` and never deletes a row, so a failed week leaves the last
+ * good registry in place (visibly stale via `fetched_at`).
  * 03:00 UTC — daily §7.4 retention prune (`./lib/retention-prune`, AECI-584 /
  * Phase 8.3 P3.2): delete `page_views` older than 400 days and `job_runs` older
  * than 90, in bounded chunks, committing every chunk together with ONE summary
@@ -69,6 +76,7 @@ import { fetchWafFirewallEvents } from '@aeci/shared/cloudflare-analytics';
 import { and, asc, count, eq, inArray } from 'drizzle-orm';
 
 import { getDb } from './db/client';
+import type { Db } from './db/client';
 import { integrations, products, reviews, vendors } from './db/schema';
 import { logToDatadog, submitCount, submitDistribution, submitGauge } from './datadog';
 import { forwardAuditLog, type AuditLogForwarder } from '@aeci/shared/audit-log';
@@ -93,11 +101,13 @@ import {
   collectAnalyticsMetrics,
   dailyWindows,
 } from './lib/analytics-digest';
+import { refreshAsnRegistry } from './lib/asn-registry';
 import {
   ADMIN_CRON_JOB,
   ALGOLIA_DRIFT_CRON,
   ALGOLIA_SYNC_CRON,
   ANALYTICS_CRON,
+  ASN_REGISTRY_CRON,
   DATA_QUALITY_CRON,
   MODERATION_CRON,
   RECONCILE_CRON,
@@ -235,6 +245,14 @@ const ANALYTICS_EMAIL_METRIC = 'aeci.analytics_digest.email';
  *  run with `outcome:ok|failed|skipped_no_creds` — the always-emitted `outcome:ok`
  *  series doubles as the cron-liveness signal (see docs/OBSERVABILITY.md). */
 const WAF_POLL_METRIC = 'aeci.waf.poll';
+
+/** Per-run heartbeat for the weekly `asn_registry` refresh (AECI-624), tagged
+ *  `outcome:ok|partial|failed|skipped`, and the coverage gauge beside it: the
+ *  fraction of seen ASNs the registry can classify. Coverage is what silently
+ *  decays between runs as new ASNs arrive, so it gets its own series rather than
+ *  living only in the `job_runs` payload (see docs/OBSERVABILITY.md). */
+const ASN_REGISTRY_METRIC = 'aeci.asn_registry.refresh';
+const ASN_REGISTRY_COVERAGE_METRIC = 'aeci.asn_registry.coverage';
 
 /** Outcome of a §7.2 `job_runs` bookkeeping write (AECI-583), tagged
  *  `phase:start|finish`, `job:<AdminCronJob>`, `outcome:ok|failed`. This measures
@@ -1047,6 +1065,105 @@ async function runAnalyticsDigestJob(env: Env, ctx: ExecutionContext): Promise<J
   }
 }
 
+/**
+ * Refresh `asn_registry` from PeeringDB (AECI-624 / §7.6) — the weekly job, and
+ * the only one here whose output is *annotation* rather than measurement.
+ *
+ * Everything load-bearing is in `./lib/asn-registry`; this is the shell that
+ * supplies the clock, `fetch`, and the Datadog sink. Two things are specific to
+ * an annotation feed:
+ *
+ *   - **It never throws and never deletes.** An upstream outage returns
+ *     `status: 'failed'` with the last good rows untouched, so the panel keeps
+ *     annotating from a stale registry (visibly stale — §5.6 renders
+ *     `fetched_at`) rather than losing the annotation entirely.
+ *   - **`written === 0` on a healthy feed is not a failure.** A fresh environment
+ *     with an empty `page_views` has nothing to intersect, so the honest outcome
+ *     is `skipped`, not `ok` (which would claim a refresh happened) and not
+ *     `failed` (nothing broke). The refresh result distinguishes the two by
+ *     reporting `seen`.
+ */
+async function runAsnRegistryJob(env: Env, ctx: ExecutionContext): Promise<JobRunReport> {
+  const req = cronRequest('/cron/asn-registry');
+  const started = Date.now();
+
+  let db: Db;
+  try {
+    db = cronDb(env).db;
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    submitCount(ctx, env, req, ASN_REGISTRY_METRIC, 1, ['trigger:cron', 'outcome:failed']);
+    logToDatadog(ctx, env, req, {
+      level: 'error',
+      message: 'aeci.asn_registry.crashed',
+      source: 'asn-registry-cron',
+      reason,
+    });
+    return { outcome: 'failed', detail: { job: 'asn-registry', reason } };
+  }
+
+  const result = await refreshAsnRegistry(db, fetch, new Date());
+  const durationMs = Date.now() - started;
+
+  if (result.status === 'failed') {
+    submitCount(ctx, env, req, ASN_REGISTRY_METRIC, 1, ['trigger:cron', 'outcome:failed']);
+    logToDatadog(ctx, env, req, {
+      level: 'error',
+      message: `aeci.asn_registry.failed reason=${result.reason ?? 'unknown'}`,
+      source: 'asn-registry-cron',
+      reason: result.reason,
+      fetched: result.fetched,
+      seen: result.seen,
+    });
+    return {
+      outcome: 'failed',
+      detail: { job: 'asn-registry', reason: result.reason ?? 'refresh failed' },
+    };
+  }
+
+  // Nothing to classify — the expected state on a fresh env, and honestly a
+  // non-run rather than a clean one.
+  if (result.seen === 0) {
+    submitCount(ctx, env, req, ASN_REGISTRY_METRIC, 1, ['trigger:cron', 'outcome:skipped']);
+    return { outcome: 'skipped', detail: { job: 'asn-registry', reason: 'no page_views ASNs' } };
+  }
+
+  // Coverage is the number worth a gauge: it is what decides whether an
+  // annotation exists for a given row, and it degrades silently as new ASNs
+  // arrive between runs.
+  submitGauge(ctx, env, req, ASN_REGISTRY_COVERAGE_METRIC, result.matched / result.seen, []);
+  submitCount(ctx, env, req, ASN_REGISTRY_METRIC, 1, [
+    'trigger:cron',
+    `outcome:${result.failedChunks > 0 ? 'partial' : 'ok'}`,
+  ]);
+  logToDatadog(ctx, env, req, {
+    level: result.failedChunks > 0 ? 'warn' : 'info',
+    message: `aeci.asn_registry.refreshed fetched=${result.fetched} seen=${result.seen} matched=${result.matched} written=${result.written}`,
+    source: 'asn-registry-cron',
+    fetched: result.fetched,
+    seen: result.seen,
+    matched: result.matched,
+    written: result.written,
+    failed_chunks: result.failedChunks,
+  });
+
+  // A partial write collapses to `failed`, in step with every other job here:
+  // the panel must not show a green tick for a run that dropped rows. The detail
+  // carries `written` so "partial" is still recoverable from the row.
+  return {
+    outcome: result.failedChunks > 0 ? 'failed' : 'ok',
+    detail: {
+      job: 'asn-registry',
+      durationMs,
+      fetched: result.fetched,
+      seen: result.seen,
+      matched: result.matched,
+      written: result.written,
+      failedChunks: result.failedChunks,
+    },
+  };
+}
+
 /** The host portion of a URL, or `undefined` if it's missing/unparseable. The
  *  WAF poll scopes its query to the env's own host so a shared zone isn't
  *  triple-counted across `env:` tags. */
@@ -1177,6 +1294,13 @@ function queueForJob(env: Env, job: ScheduledJob): Queue<ScheduledJobMessage> | 
       // idempotent `(day, metric)` upsert — so queue-native retries buy nothing.
       // No `SNAPSHOT_QUEUE` binding exists, so it always runs inline.
       return undefined;
+    case 'asn_registry':
+      // Queue-less like `waf` (AECI-624): one read-only GET plus an upsert that is
+      // idempotent by ASN and never deletes, so a failed week costs nothing but
+      // freshness and the next Monday converges. Provisioning a twelfth queue for
+      // a job whose retry semantics are already "try again next week" would be
+      // infrastructure for its own sake. No `ASN_REGISTRY_QUEUE` binding exists.
+      return undefined;
   }
 }
 
@@ -1243,6 +1367,15 @@ function enqueueFailureLog(job: ScheduledJob): { path: string; message: string; 
       path: '/cron/retention-prune',
       message: 'aeci.retention.enqueue_failed',
       source: 'retention-prune-cron',
+    };
+  }
+  if (job === 'asn_registry') {
+    // Unreachable in practice (asn_registry is queue-less, so `queue.send` is
+    // never called) — kept so the mapping is total over `ScheduledJob`.
+    return {
+      path: '/cron/asn-registry',
+      message: 'aeci.asn_registry.enqueue_failed',
+      source: 'asn-registry-cron',
     };
   }
   return {
@@ -1319,6 +1452,8 @@ async function dispatchScheduledJob(
       return runMetricsSnapshotJob(env, ctx);
     case 'retention':
       return runRetentionPruneJob(env, ctx);
+    case 'asn_registry':
+      return runAsnRegistryJob(env, ctx);
   }
 }
 
@@ -1359,6 +1494,9 @@ export const scheduled: ExportedHandlerScheduledHandler<Env> = async (controller
       return;
     case SNAPSHOT_CRON:
       await enqueueOrRun(env, ctx, 'snapshot');
+      return;
+    case ASN_REGISTRY_CRON:
+      await enqueueOrRun(env, ctx, 'asn_registry');
       return;
     case RETENTION_CRON:
       await enqueueOrRun(env, ctx, 'retention');

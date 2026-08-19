@@ -1279,6 +1279,7 @@ export const AdminNoteCodeSchema = z.enum([
   'partial_day',                       // window overlaps the current UTC day
   'bot_classification_incomplete',     // N rows have is_bot IS NULL → counted HUMAN
   'referrer_source_incomplete',        // N human rows have no referrer_source
+  'referrer_source_is_unverified',     // Referer is client-supplied; a source is a CLAIM (AECI-624)
   'direct_is_mixed_bucket',            // Direct mixes SPA hops with real arrivals
   'visitor_definition_approximate',    // §9.8 (user_agent_hash, cf_asn)
   'catalog_series_is_additions_only',  // catalog.* are events, never net totals (§4)
@@ -1512,7 +1513,7 @@ Grouped `page_views` counts over a window. Pagination is over **groups** and use
 
 ```typescript
 export const AdminTrafficBreakdownQuerySchema = PageQuerySchema.extend({
-  dimension: z.enum(['source', 'country', 'path', 'product', 'bot']),
+  dimension: z.enum(['source', 'country', 'path', 'product', 'bot', 'asn']),
   from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   traffic: z.enum(['human', 'bot', 'all']).default('human'),
@@ -1525,6 +1526,7 @@ export const AdminBreakdownRowSchema = z.object({
   ref: LinkRefSchema.nullable(),      // hydrated only for dimension=product
   views: z.number().int().nonnegative(),
   views_excluding_internal: z.number().int().nonnegative().nullable(),
+  asn_registry: AdminAsnAnnotationSchema.nullable().default(null),  // dimension=asn only
 });
 
 export const AdminTrafficBreakdownResponseSchema =
@@ -1555,6 +1557,15 @@ Ordering is views desc, then **named groups before the NULL bucket**, then the k
 to `human` (matching §5.2); `dimension=bot` forces the bot population regardless,
 since grouping human rows by `bot_name` returns one empty bucket.
 
+**`dimension=asn`** (AECI-624) groups by `cf_asn` and is the only dimension that
+populates `asn_registry`. `key` is the ASN **stringified**, because
+`AdminBreakdownRowSchema.key` is `string | null` across every dimension; `label`
+is `AS<n>`, the same rendering the Activity feed's visitor column uses, so the two
+screens name a network identically. Annotations are hydrated once per page, not
+per row. A group whose ASN the registry has no record for carries
+`asn_registry: null` — indistinguishable here from the other dimensions' null,
+which is fine because the dimension already tells the reader which case applies.
+
 Errors: `VALIDATION_FAILED` (400) for an unknown `dimension`, a bad/reversed date
 range, an over-long window, or `perPage > 100`.
 
@@ -1577,7 +1588,7 @@ export const AdminSystemResponseSchema = z.object({
   recomputed: z.boolean(),
   notes: z.array(AdminNoteSchema),
   version: AdminVersionStatusSchema,            // the API Worker's — see below
-  crons: z.array(AdminCronRunSchema),           // ALWAYS all ten
+  crons: z.array(AdminCronRunSchema),           // ALWAYS all eleven
   data_quality: AdminDataQualityStatusSchema.nullable(),   // null unless ?recompute=1
   algolia: z.object({
     watermark: AdminAlgoliaWatermarkSchema.nullable(),     // null = the sync never ran
@@ -1589,8 +1600,30 @@ export const AdminSystemResponseSchema = z.object({
     tables: z.array(z.object({ table: z.string(), rows: z.number().int().nonnegative() })),
   }),
   stats_freshness: AdminStatsFreshnessSchema,
+  asn_registry: AdminAsnRegistryStatusSchema,   // §7.6 freshness AND reach — see below
+});
+
+/** How fresh, how large, and how far-reaching the §7.6 ASN registry is (AECI-624).
+ *  Two numbers rather than one: freshness measures the last write, coverage
+ *  measures the intersection with a `page_views` that keeps meeting new networks,
+ *  so a registry refreshed this morning can still annotate almost nothing. */
+export const AdminAsnRegistryStatusSchema = z.object({
+  entries: z.number().int().nonnegative(),
+  fetched_at: z.string().datetime().nullable(),  // null = NEVER refreshed (≠ stale)
+  age_hours: z.number().nullable(),
+  stale: z.boolean(),                            // older than TWO refresh intervals (14d)
+  coverage: z.number().min(0).max(1).nullable(), // null when there are no ASNs to cover (0/0 ≠ 0%)
 });
 ```
+
+**Three registry states, and they must not render alike.** `fetched_at: null` is
+**never refreshed**, and it is deliberately **not** `stale: true` — a fresh
+environment has nothing to be stale about, and flagging it would make the one
+state an operator can ignore look like the one they cannot. `stale` means two
+missed Mondays, not one: a single miss is a blip the next run repairs. And
+`coverage: null` means the intersection is undefined rather than empty, because
+0/0 is "not applicable" and rounding it to 0% shows a healthy new environment a
+gauge that reads broken.
 
 *(`window` is listed as absent deliberately: unlike the other three endpoints this
 is a point-in-time system read, not a windowed aggregation, so it carries no
@@ -1903,8 +1936,21 @@ export const AdminPageViewRowSchema = z.object({
   path: z.string().min(1),                 // the stored `path` — see the note below
   entity_type: z.enum(['product', 'vendor']).nullable(),
   entity: LinkRefSchema.nullable(),
-  referrer_source: z.string().nullable(),  // null = UNKNOWN, not Direct
+  referrer_source: z.string().nullable(),  // null = UNKNOWN, not Direct. A CLAIM, never verified
   referrer: z.string().nullable(),         // external HOST only
+  asn_registry: AdminAsnAnnotationSchema.nullable(),  // read-time only; never alters is_bot
+});
+
+/** What the §7.6 ASN registry says about one network (AECI-624). `info_type` is
+ *  the upstream's verbatim word; `network_class` is our coarse reading of it, and
+ *  both travel so a reader can see the claim and the reading separately. */
+export const AdminAsnAnnotationSchema = z.object({
+  asn: z.number().int().positive(),
+  info_type: z.string().nullable(),        // null = listed, but with no type (~29% of PeeringDB)
+  as_name: z.string().nullable(),
+  network_class: z.enum(['eyeball', 'transit', 'non_eyeball', 'unclassified']),
+  source: z.string().min(1),               // 'peeringdb'
+  fetched_at: z.string().datetime(),
 });
 
 export const AdminPageViewsResponseSchema =

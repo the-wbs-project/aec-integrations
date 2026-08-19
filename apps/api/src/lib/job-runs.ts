@@ -224,6 +224,22 @@ export type JobRunDetail =
        *  are different facts and this row has to distinguish them. */
       tables: RetentionPrunedTableDetail[];
     }
+  /** The weekly §7.6 `asn_registry` refresh (AECI-624). Five counts, because the
+   *  operator's question is never "did it run" but "how much of my traffic can
+   *  the registry actually speak to" — `seen` vs `matched` answers exactly that,
+   *  and `failedChunks > 0` with `written > 0` is a real, reportable partial. */
+  | {
+      job: 'asn-registry';
+      durationMs: number;
+      /** Networks the upstream returned (~35,000 from PeeringDB). */
+      fetched: number;
+      /** Distinct ASNs `page_views` has seen — the join domain. */
+      seen: number;
+      /** `fetched ∩ seen`. The coverage number. */
+      matched: number;
+      written: number;
+      failedChunks: number;
+    }
   /** The §7.4 refusal: a day inside the cut window had no `metrics_daily` row,
    *  so NOTHING was deleted from either table. Distinct from the shape above
    *  because the operator's next question is "which days", and answering it from

@@ -65,6 +65,7 @@ import { auditLog, metricsDaily, pageViews, products, profiles } from '../db/sch
 import type { Env } from '../env';
 import { ApiError } from '../errors';
 import { BOT, HUMAN, NOT_INTERNAL as EXCLUDE_OPERATOR_TRAFFIC } from './analytics-digest';
+import { loadAsnAnnotations } from './asn-registry';
 import { resolveRequestTargets } from './drizzle-helpers';
 import { excludeInternalAsns, parseInternalAsns } from './internal-asns';
 
@@ -527,6 +528,7 @@ const DIMENSION_COLUMN = {
   country: pageViews.cfCountry,
   path: pageViews.path,
   bot: pageViews.botName,
+  asn: pageViews.cfAsn,
 } as const;
 
 /**
@@ -541,6 +543,7 @@ const NULL_LABEL: Record<AdminBreakdownDimension, string> = {
   path: 'Unknown',
   product: 'Unknown',
   bot: 'Other bot',
+  asn: 'Unknown',
 };
 
 export interface BreakdownPage {
@@ -615,6 +618,10 @@ export async function breakdown(
         ref: { id: r.id, name: r.name, slug: r.slug },
         views: r.views,
         views_excluding_internal: filtered ? (filtered.get(r.id) ?? 0) : null,
+        // Products have no ASN. Explicit rather than omitted so the field is
+        // present on every row of every dimension and a reader never has to know
+        // which dimensions populate it.
+        asn_registry: null,
       })),
     };
   }
@@ -650,14 +657,32 @@ export async function breakdown(
     .select({ value: count() })
     .from(db.select({ key: column }).from(pageViews).where(base).groupBy(column).as('g'));
 
+  // `dimension=asn` groups a numeric column, so the key is stringified for the
+  // contract (`AdminBreakdownRowSchema.key` is `string | null` across every
+  // dimension) and each group is annotated from the registry. One extra query for
+  // the whole page, not one per row, and only on this dimension.
+  const annotations =
+    dimension === 'asn'
+      ? await loadAsnAnnotations(
+          db,
+          rows.map((r) => r.key).filter((k): k is number => typeof k === 'number'),
+        )
+      : null;
+
   return {
     groups: groupRow?.value ?? 0,
     rows: rows.map((r) => ({
-      key: r.key,
-      label: r.key ?? NULL_LABEL[dimension],
+      key: r.key === null ? null : String(r.key),
+      // An ASN reads as `AS20001`, not a bare number — the same rendering the
+      // Activity feed's visitor column uses, so the two screens name a network
+      // the same way.
+      label:
+        r.key === null ? NULL_LABEL[dimension] : dimension === 'asn' ? `AS${r.key}` : String(r.key),
       ref: null,
       views: r.views,
       views_excluding_internal: filtered ? (filtered.get(r.key) ?? 0) : null,
+      asn_registry:
+        annotations && typeof r.key === 'number' ? (annotations.get(r.key) ?? null) : null,
     })),
   };
 }
@@ -805,16 +830,25 @@ export async function listPageViews(
     countPageViewRows(db, where),
   ]);
 
-  const entities = await resolveRequestTargets(
-    db,
-    raw.flatMap((r) =>
-      r.productId
-        ? [{ targetType: 'product', targetId: r.productId }]
-        : r.vendorId
-          ? [{ targetType: 'vendor', targetId: r.vendorId }]
-          : [],
+  // Both hydrations are per-PAGE, not per-row: one `IN (…)` for the entities and
+  // one for the registry, issued together. A 50-row page therefore costs two extra
+  // round trips regardless of how many distinct ASNs it contains.
+  const [entities, annotations] = await Promise.all([
+    resolveRequestTargets(
+      db,
+      raw.flatMap((r) =>
+        r.productId
+          ? [{ targetType: 'product', targetId: r.productId }]
+          : r.vendorId
+            ? [{ targetType: 'vendor', targetId: r.vendorId }]
+            : [],
+      ),
     ),
-  );
+    loadAsnAnnotations(
+      db,
+      raw.map((r) => r.cfAsn).filter((a): a is number => typeof a === 'number'),
+    ),
+  ]);
 
   return {
     total,
@@ -834,6 +868,9 @@ export async function listPageViews(
         entity: entityId ? (entities.get(entityId) ?? null) : null,
         referrer_source: r.referrerSource,
         referrer: r.referrer,
+        // Read-time only. `is_bot` above is untouched by this — see
+        // `lib/asn-registry.ts` for why the two must not be merged.
+        asn_registry: r.cfAsn === null ? null : (annotations.get(r.cfAsn) ?? null),
       };
     }),
   };
@@ -845,6 +882,11 @@ const SEVERITY: Record<AdminNoteCode, 'info' | 'warn'> = {
   partial_day: 'info',
   bot_classification_incomplete: 'warn',
   referrer_source_incomplete: 'warn',
+  // `info`, not `warn`: it is a permanent property of the `Referer` header, true
+  // of every source breakdown that will ever render, and not a condition anyone
+  // can act on or clear. A standing caveat styled as a warning trains the
+  // operator to skip the warnings that are actionable.
+  referrer_source_is_unverified: 'info',
   direct_is_mixed_bucket: 'info',
   visitor_definition_approximate: 'info',
   catalog_series_is_additions_only: 'warn',
@@ -951,6 +993,18 @@ export async function trafficNotes(
         ),
       );
     }
+    // Unconditional, and deliberately not gated on finding a forgery: the point
+    // is that a forged source is INDISTINGUISHABLE from a real one in this data,
+    // so "we didn't detect any" would itself be a claim the rows cannot support.
+    // Production carries a confirmed example (2026-08-13, www.youtube.com — one
+    // of five requests on one URL from three continents inside 1.9 seconds, the
+    // referrer rotating Google → none → YouTube → none → ChatGPT).
+    out.push(
+      note(
+        'referrer_source_is_unverified',
+        'Source is derived from the client-supplied Referer header and is not verified — it is what the request claimed, not where it came from. A forged referrer is indistinguishable from a real one here, because §9.7 stores only the host.',
+      ),
+    );
     out.push(
       note(
         'direct_is_mixed_bucket',

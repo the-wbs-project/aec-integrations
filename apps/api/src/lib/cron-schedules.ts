@@ -1,5 +1,5 @@
 /**
- * The ten cron expressions the API Worker is triggered on, in one place.
+ * The eleven cron expressions the API Worker is triggered on, in one place.
  *
  * They used to live as module-private constants in `scheduled.ts`, which was fine
  * while `scheduled.ts` was the only reader. `GET /api/admin/system` (AECI-580 /
@@ -11,7 +11,7 @@
  *
  * **Every value MUST stay byte-equal to the matching `triggers.crons` entry in
  * `apps/api/wrangler.jsonc`** (staging, demo and production each declare the same
- * ten, and `cron-schedules.spec.ts` asserts it). `scheduled.ts` `switch`es on
+ * eleven, and `cron-schedules.spec.ts` asserts it). `scheduled.ts` `switch`es on
  * `controller.cron`, so a mismatch silently stops dispatching the job — the
  * failure mode these comments have always warned about.
  *
@@ -23,6 +23,28 @@
 import type { AdminCronJob } from '@aeci/shared';
 
 import type { ScheduledJob } from '../env';
+
+/**
+ * Weekly `asn_registry` refresh (AECI-624 / `ADMIN_PANEL_SPEC.md` §7.6).
+ * **02:00 UTC on Mondays** — the only non-daily, non-sub-hourly trigger here.
+ *
+ * Weekly, not daily, because the input barely moves: PeeringDB `info_type` values
+ * change when a network re-registers, which is a matter of months, and the join
+ * domain grows by a handful of ASNs a week. A daily fetch of ~35,000 upstream
+ * records to rewrite ~878 unchanged rows would be seven times the egress for the
+ * same answer.
+ *
+ * 02:00 puts it an hour clear of the 03:00 retention prune on both sides and
+ * inside the same dead-of-night window as everything else. Nothing depends on its
+ * ordering: it neither reads nor writes `page_views`, `metrics_daily` or
+ * `job_runs` state that another job consumes, so a late or skipped run costs an
+ * annotation, never a number.
+ *
+ * Queue-less, like `moderation`/`waf`/`analytics`/`snapshot`/`retention`: one
+ * read-only GET plus an idempotent upsert that never deletes, so a failed week
+ * leaves the last good rows in place and the next Monday converges.
+ */
+export const ASN_REGISTRY_CRON = '0 2 * * 1';
 
 /** Daily `metrics_daily` snapshot (AECI-581 / `ADMIN_PANEL_SPEC.md` §7.1). **00:15
  *  UTC**, deliberately the first slot of the day: it captures the prior COMPLETE
@@ -96,6 +118,7 @@ export const WAF_CRON = '0 * * * *';
  */
 export const CRON_SCHEDULES: Record<AdminCronJob, string> = {
   'metrics-snapshot': SNAPSHOT_CRON,
+  'asn-registry': ASN_REGISTRY_CRON,
   'retention-prune': RETENTION_CRON,
   'data-quality': DATA_QUALITY_CRON,
   'analytics-digest': ANALYTICS_CRON,
@@ -119,6 +142,7 @@ export const CRON_SCHEDULES: Record<AdminCronJob, string> = {
  */
 export const ADMIN_CRON_JOB: Record<ScheduledJob, AdminCronJob> = {
   snapshot: 'metrics-snapshot',
+  asn_registry: 'asn-registry',
   retention: 'retention-prune',
   data_quality: 'data-quality',
   analytics: 'analytics-digest',
@@ -131,9 +155,13 @@ export const ADMIN_CRON_JOB: Record<ScheduledJob, AdminCronJob> = {
 };
 
 /** Display/iteration order for the System screen — chronological through the UTC
- *  day, then the two sub-daily jobs. Matches `POST_LAUNCH_MONITORING.md` §1a. */
+ *  day, then the two sub-daily jobs. The weekly `asn-registry` sits at its 02:00
+ *  slot in that same day-ordering rather than in a section of its own; its row
+ *  carries the schedule, so "Mondays" is already visible beside it. Matches
+ *  `POST_LAUNCH_MONITORING.md` §1a. */
 export const CRON_JOBS: readonly AdminCronJob[] = [
   'metrics-snapshot',
+  'asn-registry',
   'retention-prune',
   'data-quality',
   'analytics-digest',

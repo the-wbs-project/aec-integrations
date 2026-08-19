@@ -22,11 +22,12 @@ nil-to-negligible. The value is a known zero to accrue against.
 |---|---|---|
 | Worker error rate / APM | ✅ live | `aeci.api.query.duration_ms`, SSR error logs |
 | Edge cache hit rate + render latency | ✅ live | `aeci.page.render.duration_ms{cache_status}` |
-| 10 scheduled crons (health/liveness) | ✅ live | per-cron heartbeat + no-data monitors (**absence**); `job_runs` + `/admin/system` (**the record**) |
+| 11 scheduled crons (health/liveness) | ✅ live | per-cron heartbeat + no-data monitors (**absence**); `job_runs` + `/admin/system` (**the record**). The eleventh (`asn-registry`, AECI-624) is **weekly**, so a no-data monitor on it needs a ≥2-week window |
 | Moderation queue depth / age | ✅ live | `aeci.moderation.queue_*`, `/api/admin/*` |
 | Request → Linear pipeline | ✅ live | `aeci.linear.*`, `aeci.webhooks.linear.*` |
 | Authoritative signups | ✅ live | `mailing_list` D1 + `aeci.email.send{template:landing-signup}`; `/admin/audience` |
 | Server pageviews / entry pages | ✅ live | `page_views` D1 via the admin panel's read endpoints (`API_CONTRACTS.md` §6.10) |
+| Whether a "human" page view really is one | ⚠️ **partial, and now says so** | `is_bot` is a hand-maintained ASN list written once at ingest. Since AECI-624 the panel annotates each row with what the network is *registered as* (`ADMIN_PANEL_SPEC.md` §7.6) without altering `is_bot` — but PeeringDB has no usable signal for ~25% of our traffic, so this narrows the question rather than closing it |
 | Algolia query latency / error rate | ⚠️ live but low-sample | browser RUM `aeci.search.query` |
 | **PostHog** pageviews + signup funnel | ✅ live | `__AECI_POSTHOG__` injected in prod HTML since 2026-08-12 |
 | **RUM Core Web Vitals** (field LCP/CLS/INP) | ✅ live | `__AECI_DD__` injected in prod HTML since 2026-08-12 |

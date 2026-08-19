@@ -1122,12 +1122,12 @@ for a stock: an uncaptured day would report zero subscribers rather than unknown
 
 ### 9.4 `job_runs`
 
-One row per execution of one of the ten `scheduled.ts` cron jobs (AECI-583; `ADMIN_PANEL_SPEC.md` §7.2). Before it existed a cron's outcome lived **only** as a Datadog metric, so nothing in D1 could answer "did the 08:00 Algolia sync run today", and the ten data-quality findings lived **only** in the 04:00 email — computed, sent, discarded.
+One row per execution of one of the eleven `scheduled.ts` cron jobs (AECI-583; `ADMIN_PANEL_SPEC.md` §7.2). Before it existed a cron's outcome lived **only** as a Datadog metric, so nothing in D1 could answer "did the 08:00 Algolia sync run today", and the ten data-quality findings lived **only** in the 04:00 email — computed, sent, discarded.
 
 ```sql
 create table job_runs (
   id bigserial primary key,
-  job text not null,                -- one of the ten AdminCronJob ids (packages/shared/src/api/admin-panel.ts)
+  job text not null,                -- one of the eleven AdminCronJob ids (packages/shared/src/api/admin-panel.ts)
   started_at timestamptz not null,  -- written on ENTRY: the row exists before the job finishes
   finished_at timestamptz,          -- null = in flight, or the isolate never came back
   outcome text,                     -- 'ok' | 'failed' | 'skipped'; null while finished_at is null
@@ -1142,15 +1142,48 @@ create index job_runs_job_started_at_idx on job_runs(job, started_at); -- per-jo
 
 **`outcome` has no `'running'` member.** In flight is already `finished_at IS NULL AND outcome IS NULL`; a second encoding would let the two disagree. NULL passes the CHECK because SQLite satisfies a CHECK when the expression is true *or* NULL. The read side additionally refuses an outcome on an open row whatever is stored, so an unfinished run structurally cannot render as a success.
 
-**`job` carries no CHECK**, following `audit_log.action`: the vocabulary grows with every new cron and SQLite cannot ALTER a CHECK, so a tenth cron would need a table-recreate migration. `Record<ScheduledJob, AdminCronJob>` in `apps/api/src/lib/cron-schedules.ts` plus the Zod enum are the enforcement.
+**`job` carries no CHECK**, following `audit_log.action`: the vocabulary grows with every new cron and SQLite cannot ALTER a CHECK, so a tenth cron would have needed a table-recreate migration (an eleventh, `asn-registry`, landed with AECI-624 at no migration cost — which is the payoff). `Record<ScheduledJob, AdminCronJob>` in `apps/api/src/lib/cron-schedules.ts` plus the Zod enum are the enforcement.
 
-**Why the index is `(job, started_at)` in that order.** Every read is "the newest run of one job": an equality seek on `job`, then one row off the descending `started_at` edge (`LIMIT 1`, ten of them per request). `id` is the rowid and therefore the index's implicit trailing column, which makes `ORDER BY started_at DESC, id DESC` a free deterministic tie-break with no temp b-tree. Verified by `EXPLAIN QUERY PLAN` against a 9,000-row fixture: `SEARCH job_runs USING INDEX job_runs_job_started_at_idx (job=?)`. The `GROUP BY job` and `ROW_NUMBER() OVER (PARTITION BY job)` alternatives both SCAN the whole index, and D1 bills rows read.
+**Why the index is `(job, started_at)` in that order.** Every read is "the newest run of one job": an equality seek on `job`, then one row off the descending `started_at` edge (`LIMIT 1`, eleven of them per request). `id` is the rowid and therefore the index's implicit trailing column, which makes `ORDER BY started_at DESC, id DESC` a free deterministic tie-break with no temp b-tree. Verified by `EXPLAIN QUERY PLAN` against a 9,000-row fixture: `SEARCH job_runs USING INDEX job_runs_job_started_at_idx (job=?)`. The `GROUP BY job` and `ROW_NUMBER() OVER (PARTITION BY job)` alternatives both SCAN the whole index, and D1 bills rows read.
 
 **No `audit_log` row.** Derived, log-class, cron-internal bookkeeping, exempt under ADR 0022 / `ADMIN_PANEL_SPEC.md` §13 D11 — and self-evidently the wrong thing to audit, since `job_runs` *is* the observability record. Written the way `stats_cache` is (`lib/home-stats.ts` `upsertStat`): plain single statements, outside any `db.batch`, each inside its own try/catch, so a bookkeeping failure can never abort the job it records. Note the boundary this does **not** cross: the exemption keys on entity class, not actor class, so a cron writing *domain* state still audits.
 
 **Read by** `GET /api/admin/system` (cron liveness + the orphan sweep) and `GET /api/admin/overview`'s status strip (the stored data-quality result) — `API_CONTRACTS.md` §6.10, `ADMIN_PANEL_SPEC.md` §5.1/§5.6. Both treat every field as untrusted and parse rather than assume.
 
-**Retention: 90 days — enforced** since AECI-584 by the daily 03:00 UTC pruning cron (`apps/api/src/lib/retention-prune.ts`), on the same whole-UTC-day, chunked-by-`id` mechanism as `page_views` §9.1. This is the half of §7.4 that bites first: the table accrues roughly 44k rows/year, ~80% of them from the `*/15` reconcile sweep, so the window first removes rows around **2026-11-11** (90 days past the 2026-08-13 start) versus ~2027-07 for `page_views`. Unlike `page_views` it carries no `metrics_daily` gate of its own — but a snapshot gap still stops it, because the prune aborts the whole run rather than half of it. Window: `JOB_RUNS_RETENTION_DAYS` in `@aeci/shared`, overridable per tier by the like-named env var. The read path was always immune by construction (ten bounded seeks), which is why the query shape above matters more than it looks.
+**Retention: 90 days — enforced** since AECI-584 by the daily 03:00 UTC pruning cron (`apps/api/src/lib/retention-prune.ts`), on the same whole-UTC-day, chunked-by-`id` mechanism as `page_views` §9.1. This is the half of §7.4 that bites first: the table accrues roughly 44k rows/year, ~80% of them from the `*/15` reconcile sweep, so the window first removes rows around **2026-11-11** (90 days past the 2026-08-13 start) versus ~2027-07 for `page_views`. Unlike `page_views` it carries no `metrics_daily` gate of its own — but a snapshot gap still stops it, because the prune aborts the whole run rather than half of it. Window: `JOB_RUNS_RETENTION_DAYS` in `@aeci/shared`, overridable per tier by the like-named env var. The read path was always immune by construction (eleven bounded seeks), which is why the query shape above matters more than it looks.
+
+### 9.5 `asn_registry`
+
+External classification of the ASNs `page_views` has actually seen (AECI-624; `ADMIN_PANEL_SPEC.md` §7.6). Joined at **read time** to annotate an Activity row or a `dimension=asn` breakdown group — it is **not** a second `DATACENTER_ASNS`, and nothing that writes it ever touches `page_views.is_bot`.
+
+```sql
+create table asn_registry (
+  asn integer primary key,      -- the join key; page_views.cf_asn matches by VALUE (no FK)
+  info_type text,               -- the upstream's word, VERBATIM ('Content', 'Cable/DSL/ISP', 'NSP', …).
+                                -- Null is a real, distinct state: ~29% of PeeringDB records carry a blank one
+  as_name text,
+  source text not null,         -- 'peeringdb' today; per-row so a second feed can land beside it
+  fetched_at text not null      -- drives the §5.6 staleness note
+);
+
+create index asn_registry_fetched_at_idx on asn_registry(fetched_at);
+```
+
+**Why it exists.** `is_bot` is written once at ingest from a hand-curated list whose membership rule is deliberately strict, and the raw User-Agent is discarded after hashing — so improving that list costs a one-way backfill. The cost of the strictness is a known miss: on 2026-08-13 three of five requests in a 1.9-second, three-continent burst on one product page counted as human because AS30058 (FDCservers.net) is not on the list. Rather than widen it — measured, the free external lists are *narrower* than ours and would have missed that ASN too — the panel annotates. Improve the feed and every historical row improves with it, no backfill and no rewritten verdicts.
+
+**No foreign key, deliberately.** `page_views` rows are pruned at 400 days (§9.1) and ASNs are not ours to own, so the join is by value and an absent row is an ordinary state that the read path renders as "no annotation" rather than as an error.
+
+**`info_type` carries no CHECK**, for the same reason `job_runs.job` does not and one more: the vocabulary belongs to the upstream, so re-coding it on the way in would bake today's reading of their taxonomy into stored data. The mapping onto our four coarse buckets (`eyeball` / `transit` / `non_eyeball` / `unclassified`) is a pure function on the read side (`networkClassOf` in `apps/api/src/lib/asn-registry.ts`), revisable with no migration and no re-fetch.
+
+**Bounded by the join domain, not by the feed.** PeeringDB carries ~35,000 networks; production `page_views` has seen 878 distinct ASNs. The weekly refresh intersects the two and stores only the second set, so the table stays under ~1k rows and carries nothing that will never be joined against. A first-sighting ASN is unannotated until the next Monday.
+
+**Never deleted, and an empty upstream is a failure.** A refresh only ever upserts. An outage, a schema change, or an empty response leaves the last good rows in place with their real `fetched_at` — the failure mode of an annotation feed must be "old answer", never "no answer, silently". Chunked at 20 rows per statement against D1's 100-bound-parameter cap (five columns × 20).
+
+**No `audit_log` row.** Derived, log-class, cron-written bookkeeping, exempt under ADR 0022 — the same class as `metrics_daily` §9.3 and `job_runs` §9.4. The run is recorded in `job_runs` (`job = 'asn-registry'`).
+
+**Written by** the weekly `0 2 * * 1` cron (`apps/api/src/scheduled.ts` → `refreshAsnRegistry`). **Read by** `GET /api/admin/page-views`, `GET /api/admin/traffic/breakdown?dimension=asn`, and `GET /api/admin/system` (freshness + coverage).
+
+**Retention: none.** The table is bounded by the distinct-ASN count and a classification stays true after the `page_views` rows that prompted it are pruned, so §7.4's prune deliberately does not touch it.
 
 ---
 
