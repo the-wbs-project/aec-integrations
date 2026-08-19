@@ -18,7 +18,9 @@ import { ChangeDetectionStrategy, Component, computed, input } from '@angular/co
  *
  * Renders **nothing** when `verified` is false — the free/default "Unverified"
  * baseline on the public surface is the *absence* of the badge (the explicit
- * "Unverified" caption stays a vendor-dashboard concept, `vendor-verified-status.ts`).
+ * not-verified caption stays a vendor-dashboard concept, `vendor-plan-panel.ts`,
+ * which also reuses THIS badge for its active state so the vendor sees exactly
+ * the pill the public sees).
  * `:host { display: contents }` keeps an unverified badge from leaving a flex gap.
  *
  * Quiet editorial pill: Forest-soft wash + Forest text + 0.5px Forest border +

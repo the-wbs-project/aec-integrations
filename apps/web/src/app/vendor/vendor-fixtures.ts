@@ -5,9 +5,11 @@
  *
  * NOT production data. The shapes match `@aeci/shared` (`VendorMeResponse`,
  * `VendorSeat`, `TaxonomyResponse`) so the same presentational components render
- * fixtures here and live `/api/vendor/*` data on the real surface. A verified and
- * an unverified vendor are both provided so the verification state can be
- * reviewed in both directions.
+ * fixtures here and live `/api/vendor/*` data on the real surface. All four
+ * entitlement states are provided (AECI-614 / `STAGE_2_PAID_TIERS_SPEC.md` §8) so
+ * the plan panel can be reviewed and asserted in every direction: active with a
+ * far term, active and expiring soon, downgraded after a revoke, and never
+ * arranged at all.
  */
 import type {
   DataObjectOption,
@@ -196,6 +198,59 @@ export const VENDOR_ME_UNVERIFIED_FIXTURE: VendorMeResponse = {
   // capabilities, and `verified: false` above. `status: null` = no
   // `vendor_entitlements` row at all, as opposed to a lapsed one.
   entitlement: { tier: 'unclaimed', status: null, period_end: null, capabilities: [] },
+};
+
+// ─── The §8 entitlement states (AECI-614) ────────────────────────────────────
+//
+// `VENDOR_ME_FIXTURE` is state 1 (active, far term) and
+// `VENDOR_ME_UNVERIFIED_FIXTURE` is the never-arranged baseline. These two add
+// the remaining panels, so all of them are reviewable in the preview and
+// assertable in the specs.
+//
+// `period_end` is RELATIVE to load time, deliberately: an absolute date would
+// quietly stop being "soon" and the expiring panel would rot into the quiet one
+// the first time someone opened the preview after that date.
+
+/** Days from now, as the ISO timestamp the API serves. */
+function inDays(days: number): string {
+  return new Date(Date.now() + days * 86_400_000).toISOString();
+}
+
+/**
+ * State 2: verified, term inside the panel's warning window. Still fully
+ * capable, because §7.3 is that the system WARNS and never auto-lapses.
+ */
+export const VENDOR_ME_EXPIRING_FIXTURE: VendorMeResponse = {
+  ...VENDOR_ME_FIXTURE,
+  entitlement: {
+    tier: 'verified',
+    status: 'active',
+    period_end: inDays(12),
+    capabilities: [...capabilitiesFor('verified')],
+  },
+};
+
+/**
+ * State 3: DOWNGRADED. A vendor who had an entitlement and no longer does, which
+ * `status: 'revoked'` distinguishes from the `status: null` never-arranged case
+ * above. `vendor.verified` is false because the mirror follows the row (§2.1),
+ * `tier` is `unclaimed` and the capability list is empty, so every form on the
+ * dashboard renders read-only.
+ *
+ * The seats, the products, the requests and the integrations are all untouched
+ * on purpose: §5.2 is that clearing an entitlement does NOT revoke seats, and
+ * this fixture is what proves the dashboard keeps its promise that nothing was
+ * taken away except the badge and the ability to edit.
+ */
+export const VENDOR_ME_DOWNGRADED_FIXTURE: VendorMeResponse = {
+  ...VENDOR_ME_FIXTURE,
+  vendor: { ...VENDOR_ME_FIXTURE.vendor, verified: false },
+  entitlement: {
+    tier: 'unclaimed',
+    status: 'revoked',
+    period_end: inDays(-45),
+    capabilities: [],
+  },
 };
 
 /** The seat roster for the verified vendor — three flat admins, one banned, one

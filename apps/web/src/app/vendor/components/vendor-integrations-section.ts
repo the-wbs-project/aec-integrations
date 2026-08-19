@@ -20,7 +20,6 @@ import { VendorApi } from '../vendor-api';
 
 import { VendorIntegrationCard } from './vendor-integration-card';
 import { VendorNotificationsList } from './vendor-notifications-list';
-import { VendorVerifiedStatus } from './vendor-verified-status';
 
 /**
  * The Integrations tab's body (AECI-606 / `STAGE_2_ATTESTATIONS_SPEC.md` §6):
@@ -60,7 +59,7 @@ import { VendorVerifiedStatus } from './vendor-verified-status';
  */
 @Component({
   selector: 'aec-vendor-integrations-section',
-  imports: [VendorIntegrationCard, VendorNotificationsList, VendorVerifiedStatus],
+  imports: [VendorIntegrationCard, VendorNotificationsList],
   styles: [':host { display: block; }'],
   template: `
     <div class="space-y-6">
@@ -74,11 +73,16 @@ import { VendorVerifiedStatus } from './vendor-verified-status';
       }
 
       @if (!canWrite()) {
-        <div class="space-y-2 rounded-(--radius-md) border border-(--border-default) p-4">
-          <aec-vendor-verified-status [verified]="false" />
+        <!--
+          The plan read-out itself lives ONCE, on the Overview panel
+          (vendor-plan-panel.ts, AECI-614). This is only the local consequence, so
+          it states what is closed here and does not restate the status chip.
+        -->
+        <div class="rounded-(--radius-md) border border-(--border-default) p-4">
           <p class="text-sm text-(--text-secondary)" i18n="@@vendor.attest.readOnly">
             You can review everything on record here. Confirming data flows and adding new ones
-            opens up once your account is verified.
+            opens up once your account is verified. Verification is an account status arranged with
+            AEC Integrations, not something you switch on from the dashboard.
           </p>
         </div>
       }
