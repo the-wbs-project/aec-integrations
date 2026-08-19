@@ -27,6 +27,8 @@ import {
   sendClaimApprovedEmail,
   sendClaimRejectedEmail,
   sendEmail,
+  sendEntitlementExpiringAdminEmail,
+  sendEntitlementExpiringEmail,
   sendMailingListWelcomeEmail,
   sendReviewApprovedEmail,
   sendReviewRejectedEmail,
@@ -671,5 +673,161 @@ describe('attestation nudge templates', () => {
   it('skips every nudge when the transport is unconfigured', async () => {
     const c = fakeContext({ RESEND_API_KEY: undefined });
     expect(await sendAttestationSilentCounterpartyEmail(c, SUBJECT)).toBe('skipped');
+  });
+});
+
+// ─── Entitlement term-expiry warnings (§7.2 — AECI-613) ───────────────────────
+
+describe('entitlement expiry templates', () => {
+  const SUBJECT = {
+    to: 'ops@vendor.test',
+    vendorName: 'Autodesk',
+    periodEndDay: '2026-09-18',
+    daysRemaining: 30,
+  };
+
+  it('sends the vendor renewal prompt under its own template id', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    const c = fakeContext({ PUBLIC_SITE_URL: 'https://www.aecintegrations.com' });
+
+    expect(await sendEntitlementExpiringEmail(c, SUBJECT)).toBe('sent');
+    expect(sendTags()).toEqual([['outcome:sent', 'template:entitlement-expiring']]);
+
+    const body = lastBody(fetchSpy);
+    expect(body.to).toBe('ops@vendor.test');
+    expect(String(body.subject)).toContain('in 30 days');
+    expect(String(body.text)).toContain('2026-09-18');
+    expect(String(body.text)).toContain('https://www.aecintegrations.com/vendor');
+  });
+
+  it('promises no automatic lapse — the §7.3 decision, stated in the copy', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+
+    await sendEntitlementExpiringEmail(fakeContext(), SUBJECT);
+
+    const text = String(lastBody(fetchSpy).text);
+    expect(text).toContain('Nothing changes automatically');
+    expect(text).toContain("don't switch verification off");
+    // Nothing that reads as a threat or a countdown to removal.
+    expect(text.toLowerCase()).not.toContain('will be removed');
+    expect(text.toLowerCase()).not.toContain('will expire');
+  });
+
+  it('reads as past tense once the term is behind us', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+
+    await sendEntitlementExpiringEmail(fakeContext(), { ...SUBJECT, daysRemaining: -5 });
+
+    const body = lastBody(fetchSpy);
+    expect(String(body.subject)).toContain('has reached its end date');
+    expect(String(body.text)).toContain('5 days ago');
+  });
+
+  it.each([
+    [1, 'tomorrow'],
+    [0, 'today'],
+    [-1, 'yesterday'],
+  ])('renders %s days remaining as "%s"', async (days, phrase) => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+
+    await sendEntitlementExpiringEmail(fakeContext(), { ...SUBJECT, daysRemaining: days });
+
+    expect(String(lastBody(fetchSpy).text)).toContain(phrase);
+  });
+
+  it('never implies verification affects ranking or placement', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+
+    await sendEntitlementExpiringEmail(
+      fakeContext({ PUBLIC_SITE_URL: 'https://www.aecintegrations.com' }),
+      SUBJECT,
+    );
+
+    const text = String(lastBody(fetchSpy).text);
+    // It says the opposite, explicitly — the same framing the badge tooltip and
+    // the `claim-approved` email use.
+    expect(text).toContain("doesn't affect search ranking or placement");
+    expect(text).toContain('not an endorsement');
+  });
+
+  it('omits the dashboard link entirely when PUBLIC_SITE_URL is unset', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+
+    await sendEntitlementExpiringEmail(fakeContext(), SUBJECT);
+
+    const text = String(lastBody(fetchSpy).text);
+    expect(text).not.toContain('http');
+    expect(text).not.toContain('undefined');
+  });
+
+  it('keeps the money out of the vendor copy — arrangement details are admin-side', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+
+    await sendEntitlementExpiringEmail(fakeContext(), SUBJECT);
+
+    const text = String(lastBody(fetchSpy).text).toLowerCase();
+    for (const word of ['invoice', 'payer', 'amount', 'purchase order', 'po-']) {
+      expect(text).not.toContain(word);
+    }
+  });
+
+  const ADMIN_SUBJECT = {
+    to: 'ops@aecintegrations.com',
+    vendorName: 'Autodesk',
+    vendorSlug: 'autodesk',
+    tier: 'verified',
+    periodEndDay: '2026-09-18',
+    daysRemaining: 30,
+    payer: 'Autodesk Inc.',
+    invoiceRef: 'PO-4471',
+    vendorNotice: 'sent' as const,
+  };
+
+  it('renders the admin copy in the operator format, carrying the arrangement', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+
+    expect(await sendEntitlementExpiringAdminEmail(fakeContext(), ADMIN_SUBJECT)).toBe('sent');
+    expect(sendTags()).toEqual([['outcome:sent', 'template:entitlement-expiring-admin']]);
+
+    const body = lastBody(fetchSpy);
+    expect(String(body.subject)).toContain('[AECi]');
+    expect(String(body.text)).toContain('Vendor: Autodesk (autodesk)');
+    expect(String(body.text)).toContain('Term ends: 2026-09-18 (in 30 days)');
+    expect(String(body.text)).toContain('Invoice ref: PO-4471');
+    // Says outright that nothing was changed — the operator must not read this as
+    // a notification of an automatic action.
+    expect(String(body.text)).toContain('warns and never lapses');
+  });
+
+  it('names the vendor half\u2019s outcome so delivery is never assumed', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+
+    await sendEntitlementExpiringAdminEmail(fakeContext(), {
+      ...ADMIN_SUBJECT,
+      vendorNotice: 'skipped',
+    });
+
+    expect(String(lastBody(fetchSpy).text)).toContain('Vendor notice: skipped');
+  });
+
+  it('labels an unrecorded arrangement rather than rendering undefined', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+
+    await sendEntitlementExpiringAdminEmail(fakeContext(), {
+      ...ADMIN_SUBJECT,
+      payer: null,
+      invoiceRef: null,
+    });
+
+    const text = String(lastBody(fetchSpy).text);
+    expect(text).toContain('Payer: (none recorded)');
+    expect(text).toContain('Invoice ref: (none recorded)');
+    expect(text).not.toContain('undefined');
+  });
+
+  it('skips both halves when the transport is unconfigured', async () => {
+    const c = fakeContext({ RESEND_API_KEY: undefined });
+    expect(await sendEntitlementExpiringEmail(c, SUBJECT)).toBe('skipped');
+    expect(await sendEntitlementExpiringAdminEmail(c, ADMIN_SUBJECT)).toBe('skipped');
   });
 });
