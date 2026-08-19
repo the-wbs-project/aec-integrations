@@ -181,16 +181,39 @@ numbers), and again at launch.
 > ingest, whether the request carried a *verified* admin session, and every read excludes it
 > (`ADMIN_PANEL_SPEC.md` §13 D13).
 >
-> Three consequences when reading numbers across this date. **(1)** Unlike AECI-575 this is **not
-> retroactive** — older rows are `is_operator = NULL`, read as visitors, and cannot be backfilled,
-> because nothing stored on them implies a session. So the correction appears as a **step down at
-> 2026-08-19**, roughly the 15% above, and days on either side are not directly comparable. **(2)**
-> The residual over-count on pre-2026-08-19 days is estimable but not removable: the operator's
-> browsing is *approximately* `user_agent_hash` ∈ (the hashes seen on `/admin%` rows) — good enough
-> to size the bias, too coarse to correct with, since a UA hash is shared by everyone running the
-> same browser build. **(3)** `ANALYTICS_INTERNAL_ASNS` is now genuinely a remainder: it is left
-> covering only the operator's *other* devices on a known network. The human count is still an
-> **upper bound**, but by a much smaller margin than before.
+> Three consequences when reading numbers across this date. **(1)** The live flag is **not
+> retroactive** — older rows are `is_operator = NULL` and read as visitors, because nothing stored
+> on them implies a *session*. Left alone that would put a **step down at 2026-08-19** of roughly
+> the 15% above, with days on either side not directly comparable. **(2)** Most of that step is
+> closed by a separate, explicitly approximate backfill —
+> `scripts/ops/2026-08-operator-page-view-backfill/`, see the addendum below. **(3)**
+> `ANALYTICS_INTERNAL_ASNS` is now genuinely a remainder: it is left covering only the operator's
+> *other* devices on a known network. The human count is still an **upper bound**, but by a much
+> smaller margin than before.
+
+> **Backfill addendum (2026-08-19) — history corrected by visitor PAIR, not by country.** The
+> recoverable signal for older rows is not the session but the **`(user_agent_hash, cf_asn)` pair**
+> — §9.8's own definition of a visitor. `page_views` still holds `/admin*` and `/account` rows,
+> which no visitor reaches, so a pair appearing on one is *proven* to be the operator. Six pairs,
+> four proven directly: **679 rows flagged, 458 of them in the human public population**, taking
+> all-time human page views **2,494 → ~2,036 (an 18% correction)**. The remaining 221 are the
+> operator's own WARP/VPN traffic, currently mislabelled as datacenter crawls.
+>
+> **Two simpler rules were measured and rejected, and the numbers are worth keeping.**
+> *"Everything from Indonesia"* flags 333 rows of which only **185** are the operator — **44% false
+> positives**, because Indonesian traffic carries 25 distinct browsers — while missing the **183**
+> views from the operator's US period (AS23089, Jun 23 → Jul 30) entirely, for **50% recall**. It
+> is wrong in both directions at once, and a country is simply a coarser network than the ASN
+> §13 D10 already rejected. *"The operator's UA hash"* is safe for the primary hash but unsafe as a
+> method: their **second** browser hash spans **6 ASNs across 5 countries**, since a UA hash is a
+> browser *build* shared with strangers.
+>
+> **Do not read the backfilled rows as equivalent to the live flag.** The flag is a verified session;
+> this is an inference. Two candidate pairs on the operator's own ISP (an 11-view hour, a
+> 7-views-in-one-second burst) were deliberately left counted because neither can be told apart from
+> a visitor, and a browser used only on public pages before the move would leave no proof row at
+> all. The backfill writes only over NULL, so it never overrides the live flag and its rollback is a
+> true inverse.
 
 > **AECI-582 addendum (2026-08-13) — most of the "humans" were bots.** The one-time bot backfill ran
 > on all four tiers. It classified the **17,784 of 26,671** production rows that had `is_bot IS NULL`
