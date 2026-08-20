@@ -37,7 +37,7 @@
  *
  * ── Usage ──────────────────────────────────────────────────────────────────
  *   ALGOLIA_APP_ID=… ALGOLIA_ADMIN_KEY=<per-env management key> \
- *     node scripts/algolia/apply-settings.mjs --env <preview|staging|demo|production>
+ *     node scripts/algolia/apply-settings.mjs --env <preview|staging|demo|production|stage2>
  *
  *   # or: pnpm algolia:apply-settings --env staging
  *
@@ -56,7 +56,8 @@ import { algoliasearch } from 'algoliasearch';
 // single-source-of-truth settings hold. Matches provision.mjs.
 import { applyIndexSettings } from '../../packages/shared/src/algolia.ts';
 
-const VALID_ENVS = ['preview', 'staging', 'demo', 'production'];
+// `stage2` is the TEMPORARY Stage 2 test tier (AECI-637); remove at teardown.
+const VALID_ENVS = ['preview', 'staging', 'demo', 'production', 'stage2'];
 
 function fail(message) {
   console.error(`\n✗ ${message}\n`);
@@ -77,7 +78,7 @@ async function main() {
     fail(
       `--env is required and must be one of ${VALID_ENVS.join(' | ')}.\n` +
         `  (development folds onto the preview index set — apply 'preview'.)\n` +
-        `  Usage: node scripts/algolia/apply-settings.mjs --env <preview|staging|demo|production>`,
+        `  Usage: node scripts/algolia/apply-settings.mjs --env <preview|staging|demo|production|stage2>`,
     );
   }
 

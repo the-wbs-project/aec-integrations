@@ -231,6 +231,48 @@
         ],
       },
     },
+    // AECI-637 — TEMPORARY `stage2` tier. Delete this whole block at teardown.
+    // The SSR half of the hand-deployed Stage 2 test surface (see the matching
+    // block + rationale in apps/api/wrangler.jsonc, and docs/environments.md §10).
+    //
+    //   - NO `exports` block ⇒ UNCACHED, like demo/production. It still ships the
+    //     WC-4 two-entrypoint code (the gateway forwards to `Renderer`), just with
+    //     the platform cache off. Deliberate for a test tier: every request runs the
+    //     render, so what you see is the deploy you just made, with no MISS→HIT wait
+    //     and no purge story to operate.
+    //   - NO `queues` consumer — with no cache there is nothing to purge, and the
+    //     API Worker has no `CACHE_PURGE_QUEUE` producer to feed it.
+    //   - Access-gated (unlike public demo): `stage2.aecintegrations.com` is added as
+    //     a destination on the `AECi Non-Prod` app (docs/access.md §1).
+    //   - `ALLOW_INDEXING` stays "false" — Access already keeps crawlers out, but the
+    //     header is the fail-closed layer and a test tier must never be indexable.
+    //
+    // `custom_domain: true` provisions `stage2.aecintegrations.com` + its cert on the
+    // first deploy. This is a NEW hostname — nothing is reassigned off another Worker,
+    // unlike the demo/apex cutovers — and the DNS record is removed when the Worker is
+    // deleted at teardown.
+    "stage2": {
+      "name": "aeci-web-stage2",
+      "vars": {
+        "ENV": "stage2",
+        // See the preview env's note. stage2 is behind Access AND non-indexable.
+        "ALLOW_INDEXING": "false",
+        "DD_SITE": "us5.datadoghq.com",
+        "COMMIT_SHA": "unknown",
+        "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
+        // ADR 0017: the single shared auth project (same value in every env).
+        "SUPABASE_URL": "https://ktuhnlypztujpsseujzx.supabase.co",
+        "POSTHOG_HOST": "https://us.i.posthog.com",
+      },
+      "observability": { "enabled": true },
+      "routes": [
+        {
+          "pattern": "stage2.aecintegrations.com",
+          "custom_domain": true,
+        },
+      ],
+      "services": [{ "binding": "API", "service": "aeci-api-stage2" }],
+    },
     "production": {
       "name": "aeci-web-production",
       "vars": {

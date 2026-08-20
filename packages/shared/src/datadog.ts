@@ -37,12 +37,15 @@ export type DdLogEvent = {
 /**
  * Minimal Worker-env surface the transport reads. Both the API Worker's `Env`
  * and the SSR Worker's `WebEnv` satisfy this structurally, so the configured
- * client accepts either without a cast.
+ * client accepts either without a cast — which means this `ENV` union must stay
+ * a superset of theirs, or every `forwardAuditLog`/`logToDatadog` call site
+ * fails to typecheck. `stage2` is the TEMPORARY Stage 2 test tier (AECI-637);
+ * remove it here in the same commit as the two `env.ts` unions at teardown.
  */
 export type DatadogEnv = {
   DD_API_KEY?: string;
   DD_SITE?: string;
-  ENV?: 'development' | 'preview' | 'staging' | 'demo' | 'production';
+  ENV?: 'development' | 'preview' | 'staging' | 'demo' | 'production' | 'stage2';
 };
 
 /** Per-Worker identity — the only values that differed between the two helpers. */

@@ -68,7 +68,7 @@ shipped.
 > - **Production** is promoted manually via `.github/workflows/promote-to-prod.yml` (AECI-78) — `workflow_dispatch` with explicit `commit_sha` + `confirm=PROMOTE` inputs and a GH Environment approval gate. It promotes from **demo** (the immediate upstream tier). There is intentionally **no auto-deploy to demo or production**.
 > - **Per-PR previews** are wired via `.github/workflows/pr-preview.yml` (AECI-79). Only the SSR Worker is per-PR (`aeci-web-pr-<N>` on `*.aec-integrations.workers.dev`); the API Worker is shared (`aeci-api-preview`) and reaches the app DB through its native D1 `DB` binding (no Prisma Accelerate, no `DATABASE_URL`; ADR 0016). See `docs/environments.md` §"PR previews" for the DB-strategy decision.
 
-Four environments, all on Cloudflare:
+Four permanent environments, all on Cloudflare — plus, while Stage 2 is being tested, one temporary fifth:
 
 | Environment | URL pattern | Triggered by | Auto/Manual | Data |
 |---|---|---|---|---|
@@ -76,10 +76,13 @@ Four environments, all on Cloudflare:
 | **Staging** | `staging.aecintegrations.com` | Merge to `main` | Auto | `aeci-app-staging` D1 |
 | **Demo** | `demo.aecintegrations.com` | Manual, after staging | Manual | `aeci-app-demo` D1 |
 | **Production** | `aecintegrations.com` + `www.` (public, canonical) and `prod.` | Manual approval, after demo | Manual | `aeci-app-production` D1 |
+| **stage2** _(temporary — AECI-637)_ | `stage2.aecintegrations.com` | Nothing — **no workflow exists** | By hand, `wrangler deploy --env stage2` from a `stage-2` SHA | `aeci-app-stage2` D1 |
 
-> **One Supabase project, four D1 databases.** Per **ADR 0017** every tier shares a *single*
-> Supabase project (`ktuhnlypztujpsseujzx`, verified in all four `env.*` blocks of both
-> `wrangler.jsonc` files) and Supabase is **auth only** — hence the single un-suffixed
+> **`stage2` is outside the promotion chain by design.** It exists because staging auto-tracks `main` (§10 / ADR 0019), so the completed Stage 2 build has no deployed surface; there is no `promote-to-stage2.yml`, no GH Environment, and no GH secret that names it. It carries **no `triggers.crons` and no `queues`**, so it runs no scheduled jobs and cannot send email. Bootstrap, secret posture and teardown: `docs/environments.md` §10. Delete it when Stage 2 testing is done.
+
+> **One Supabase project, one D1 database per tier.** Per **ADR 0017** every tier shares a *single*
+> Supabase project (`ktuhnlypztujpsseujzx`, verified in every `env.*` block of both
+> `wrangler.jsonc` files — including the temporary `env.stage2`) and Supabase is **auth only** — hence the single un-suffixed
 > `SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY` (§7.1). The application database is
 > Cloudflare D1 (ADR 0016) and *that* is what is per-tier. Earlier revisions of this table said
 > "Staging Supabase project" / "Production D1 + Supabase", implying per-env Supabase projects;

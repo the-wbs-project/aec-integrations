@@ -33,7 +33,7 @@
  *
  * ── Usage ──────────────────────────────────────────────────────────────────
  *   ALGOLIA_APP_ID=… ALGOLIA_ADMIN_KEY=<root admin key> \
- *     node scripts/algolia/provision.mjs --env <preview|staging|demo|production> [--rotate]
+ *     node scripts/algolia/provision.mjs --env <preview|staging|demo|production|stage2> [--rotate]
  *
  * Requires Node ≥22.18 (native TypeScript type-stripping for the shared import);
  * the repo's `engines` floor (22.22.3) satisfies this.
@@ -54,7 +54,11 @@ import {
   searchKeyParams,
 } from '../../packages/shared/src/algolia.ts';
 
-const VALID_ENVS = ['preview', 'staging', 'demo', 'production'];
+// `stage2` is the TEMPORARY Stage 2 test tier (AECI-637). Remove it — and delete
+// the `stage2_*` indexes + the `aeci:{search,management}:stage2` keys this mints —
+// at teardown. Its search key is per-env scoped and pushed straight to the stage2
+// Workers, so the SHARED `ALGOLIA_SEARCH_KEY` GH secret is never touched or widened.
+const VALID_ENVS = ['preview', 'staging', 'demo', 'production', 'stage2'];
 
 function fail(message) {
   console.error(`\n✗ ${message}\n`);
@@ -123,6 +127,30 @@ function printNextSteps({ env, appId, searchKey, managementKey }) {
   console.log('NEXT STEPS — set these secrets (values above are LIVE; treat as secret)');
   console.log(rule);
 
+  // AECI-637: `stage2` is a TEMPORARY hand-deployed tier with no CI workflow, so it
+  // reads no GitHub secret at all. Printing the usual `gh secret set` lines here
+  // would be actively harmful — `ALGOLIA_SEARCH_KEY` is a SINGLE shared secret that
+  // staging/demo/production all read, and overwriting it with this stage2-scoped key
+  // 403s browser search on every one of them. Print only the per-Worker puts.
+  if (env === 'stage2') {
+    console.log('\n# GitHub Actions secrets — NONE.');
+    console.log(`#   stage2 is a temporary, hand-deployed tier (AECI-637): no workflow reads`);
+    console.log(`#   a GH secret for it. Do NOT run 'gh secret set ALGOLIA_SEARCH_KEY' with the`);
+    console.log(`#   key above — that secret is SHARED, and replacing it with this stage2-scoped`);
+    console.log(`#   key would 403 browser search on staging, demo AND production.`);
+    console.log('\n# Cloudflare Worker secrets (persist across deploys)');
+    console.log('#   web Worker — app id + query-only SEARCH key ONLY (never the admin key):');
+    console.log(`cd apps/web`);
+    console.log(`echo '${appId}'     | wrangler secret put ALGOLIA_APP_ID --env stage2`);
+    console.log(`echo '${searchKey}' | wrangler secret put ALGOLIA_SEARCH_KEY --env stage2`);
+    console.log('#   API Worker — app id + the stage2 MANAGEMENT key (search + index-mutation):');
+    console.log(`cd ../api`);
+    console.log(`echo '${appId}'        | wrangler secret put ALGOLIA_APP_ID --env stage2`);
+    console.log(`echo '${managementKey}' | wrangler secret put ALGOLIA_ADMIN_KEY --env stage2`);
+    console.log(`\n${rule}\n`);
+    return;
+  }
+
   console.log('\n# GitHub Actions secrets');
   console.log(`#   ALGOLIA_APP_ID, ALGOLIA_SEARCH_KEY and ALGOLIA_ADMIN_KEY are now`);
   console.log(`#   SINGLE shared secrets across every env (no _STAGING/_PRODUCTION/_PREVIEW/`);
@@ -161,7 +189,7 @@ async function main() {
     fail(
       `--env is required and must be one of ${VALID_ENVS.join(' | ')}.\n` +
         `  (development folds onto the preview index set — provision 'preview'.)\n` +
-        `  Usage: node scripts/algolia/provision.mjs --env <preview|staging|demo|production> [--rotate]`,
+        `  Usage: node scripts/algolia/provision.mjs --env <preview|staging|demo|production|stage2> [--rotate]`,
     );
   }
 

@@ -28,16 +28,19 @@
  * independently per env), §7.5 (topology), §3.2 (the CI apply step). ADR 0006.
  */
 
-/** Deployment-environment label, matching the Workers' `ENV` var (AECI-119). */
-export type AlgoliaEnv = 'development' | 'preview' | 'staging' | 'demo' | 'production';
+/** Deployment-environment label, matching the Workers' `ENV` var (AECI-119).
+ *  `stage2` is the TEMPORARY Stage 2 test tier (AECI-637) — remove it, and its
+ *  `stage2_*` indexes, at teardown. */
+export type AlgoliaEnv = 'development' | 'preview' | 'staging' | 'demo' | 'production' | 'stage2';
 
 /**
  * Physical index-name prefix. `development` folds onto `preview` (there is no
- * `development_*` set), so the prefix space is exactly four (preview, staging,
- * demo, production). `demo` and `production` keep separate index sets — the demo
- * showcase must never read or write the live `production_*` indexes.
+ * `development_*` set), so the prefix space is exactly four permanent tiers
+ * (preview, staging, demo, production) plus the temporary `stage2`. `demo` and
+ * `production` keep separate index sets — the demo showcase must never read or
+ * write the live `production_*` indexes, and neither may `stage2`.
  */
-export type AlgoliaIndexPrefix = 'preview' | 'staging' | 'demo' | 'production';
+export type AlgoliaIndexPrefix = 'preview' | 'staging' | 'demo' | 'production' | 'stage2';
 
 /** The three entity indexes, in a stable order. */
 export const INDEX_ENTITIES = ['products', 'vendors', 'integrations'] as const;

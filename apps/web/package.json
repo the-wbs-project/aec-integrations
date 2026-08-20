@@ -28,6 +28,7 @@
     "deploy:staging": "pnpm run build && wrangler deploy --env staging --var COMMIT_SHA:$(git rev-parse HEAD) --var DEPLOYED_AT:$(date -u +%Y-%m-%dT%H:%M:%S.000Z)",
     "deploy:demo": "pnpm run build && wrangler deploy --env demo --var COMMIT_SHA:$(git rev-parse HEAD) --var DEPLOYED_AT:$(date -u +%Y-%m-%dT%H:%M:%S.000Z)",
     "deploy:production": "pnpm run build && wrangler deploy --env production --var COMMIT_SHA:$(git rev-parse HEAD) --var DEPLOYED_AT:$(date -u +%Y-%m-%dT%H:%M:%S.000Z)",
+    "deploy:stage2": "pnpm run build && wrangler deploy --env stage2 --var COMMIT_SHA:$(git rev-parse HEAD) --var DEPLOYED_AT:$(date -u +%Y-%m-%dT%H:%M:%S.000Z)",
     "tail": "wrangler tail --env production",
     "tail:staging": "wrangler tail --env staging",
     "tail:production": "wrangler tail --env production",

@@ -598,6 +598,94 @@
         },
       },
     },
+    // AECI-637 — TEMPORARY `stage2` tier. Delete this whole block at teardown.
+    //
+    // Why it exists: staging auto-tracks `main` (ADR 0019), so the completed Stage 2
+    // build on the `stage-2` branch has no deployed surface. This gives it one:
+    // `aeci-{api,web}-stage2` on `stage2.aecintegrations.com`, its own D1 / KV /
+    // Algolia (`stage2_*`), the single shared Supabase auth project (ADR 0017), and
+    // Cloudflare Access in front (unlike the public demo tier).
+    //
+    // Modelled on `env.demo` with three deliberate trims:
+    //   - NO `triggers.crons` — a temp env needs no scheduled jobs, and several of
+    //     them (data-quality digest, attestation notify, entitlement expiry) send
+    //     REAL Resend email. Every cron handler is env-gated by presence, so their
+    //     absence is not a degradation, it is the point.
+    //   - NO `queues` — with no crons there is no producer for the five scheduled-job
+    //     queues, and the SSR Worker is uncached so `CACHE_PURGE_QUEUE` has nothing to
+    //     invalidate. Both producer bindings are optional in `src/env.ts` and no-op
+    //     when unbound (the documented local/preview path), so nothing throws.
+    //   - `PROMOTE_WORKFLOW` is KEPT. Workflows are created by `wrangler deploy` (no
+    //     `queues create`-style provisioning step) and `POST /api/promote` returns 503
+    //     without the binding (routes/promote-kickoff.ts), which would kill the
+    //     re-promote seeding path. One Workflow per env so instance ids never collide.
+    //
+    // Deployed BY HAND from a `stage-2` SHA — there is no promote-to-stage2 workflow
+    // and stage-2 never reaches staging, so the usual "verify one tier up" gate has
+    // nothing to check. See docs/environments.md §10 for the bootstrap + teardown.
+    "stage2": {
+      "name": "aeci-api-stage2",
+      "workers_dev": false,
+      "vars": {
+        "ENV": "stage2",
+        "DD_SITE": "us5.datadoghq.com",
+        // AECI-74: overridden at deploy time via `wrangler --var COMMIT_SHA:<sha> --var DEPLOYED_AT:<iso>`.
+        "COMMIT_SHA": "unknown",
+        "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
+        // ADR 0017: the single shared auth project (same value in every env).
+        "SUPABASE_URL": "https://ktuhnlypztujpsseujzx.supabase.co",
+        // AECI-240: EMAIL_FROM + PUBLIC_SITE_URL shape any mail this tier composes.
+        // RESEND_API_KEY is deliberately NOT provisioned here (docs/environments.md
+        // §10), so every send is a fail-open `'skipped'` — these vars exist so the
+        // absolute links are right if email testing is switched on later.
+        "EMAIL_FROM": "AEC Integrations <notifications@aecintegrations.com>",
+        "PUBLIC_SITE_URL": "https://stage2.aecintegrations.com",
+        "ADMIN_ALERT_EMAIL": "chrisw@thewbsproject.com",
+        "DATA_QUALITY_EMAIL_FROM": "AECi Data Quality <support@thewbsproject.com>",
+        "DATA_QUALITY_EMAIL_TO": "chrisw@thewbsproject.com",
+        // ANALYTICS_DIGEST_EMAIL_TO intentionally unset (production-only, AECI-526).
+      },
+      // Provisioned at bootstrap (docs/environments.md §10). All-zero ids are the
+      // repo convention for "not yet created" — the same placeholder demo shipped
+      // with. TAXONOMY_KV is optional (routes/taxonomy.ts falls back to a direct D1
+      // read); PROMOTE_KV only matters for an oversize promote bundle + the 90-day
+      // result mirror.
+      "kv_namespaces": [
+        {
+          "binding": "TAXONOMY_KV",
+          "id": "00000000000000000000000000000000",
+        },
+        {
+          "binding": "PROMOTE_KV",
+          "id": "00000000000000000000000000000000",
+        },
+      ],
+      // AECI-563 / ADR 0021: the promote ingest Workflow (see the base-config note).
+      "workflows": [
+        {
+          "name": "aeci-promote-stage2",
+          "binding": "PROMOTE_WORKFLOW",
+          "class_name": "PromoteWorkflow",
+        },
+      ],
+      // Created by hand: `wrangler d1 create aeci-app-stage2` → paste the id here.
+      // Migrations are applied by hand too (`scripts/d1-apply-migrations.sh
+      // aeci-app-stage2 stage2`) — no CI workflow targets this tier.
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "aeci-app-stage2",
+          "database_id": "00000000-0000-0000-0000-000000000000",
+          "migrations_dir": "migrations",
+        },
+      ],
+      "observability": {
+        "logs": {
+          "enabled": true,
+          "invocation_logs": true,
+        },
+      },
+    },
     "production": {
       "name": "aeci-api-production",
       "workers_dev": false,
