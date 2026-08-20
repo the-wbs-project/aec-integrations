@@ -645,19 +645,19 @@
         "DATA_QUALITY_EMAIL_TO": "chrisw@thewbsproject.com",
         // ANALYTICS_DIGEST_EMAIL_TO intentionally unset (production-only, AECI-526).
       },
-      // Provisioned at bootstrap (docs/environments.md §10). All-zero ids are the
-      // repo convention for "not yet created" — the same placeholder demo shipped
-      // with. TAXONOMY_KV is optional (routes/taxonomy.ts falls back to a direct D1
-      // read); PROMOTE_KV only matters for an oversize promote bundle + the 90-day
-      // result mirror.
+      // Provisioned 2026-08-20 at bootstrap (docs/environments.md §10.2):
+      // `aeci-api-taxonomy-stage2` + `aeci-api-promote-stage2`. TAXONOMY_KV is
+      // optional (routes/taxonomy.ts falls back to a direct D1 read); PROMOTE_KV
+      // only matters for an oversize promote bundle + the 90-day result mirror.
+      // Delete BOTH namespaces at teardown — they are not shared with any tier.
       "kv_namespaces": [
         {
           "binding": "TAXONOMY_KV",
-          "id": "00000000000000000000000000000000",
+          "id": "d53b4b9e6dac406fa063524728698ef7",
         },
         {
           "binding": "PROMOTE_KV",
-          "id": "00000000000000000000000000000000",
+          "id": "831004125cd14da3898f21801e38306b",
         },
       ],
       // AECI-563 / ADR 0021: the promote ingest Workflow (see the base-config note).
@@ -668,14 +668,14 @@
           "class_name": "PromoteWorkflow",
         },
       ],
-      // Created by hand: `wrangler d1 create aeci-app-stage2` → paste the id here.
-      // Migrations are applied by hand too (`scripts/d1-apply-migrations.sh
+      // Created by hand 2026-08-20 (`wrangler d1 create aeci-app-stage2`, region
+      // APAC). Migrations are applied by hand too (`scripts/d1-apply-migrations.sh
       // aeci-app-stage2 stage2`) — no CI workflow targets this tier.
       "d1_databases": [
         {
           "binding": "DB",
           "database_name": "aeci-app-stage2",
-          "database_id": "00000000-0000-0000-0000-000000000000",
+          "database_id": "d6960a3f-b44c-4a2b-899e-f21d5c05dbc2",
           "migrations_dir": "migrations",
         },
       ],

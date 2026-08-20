@@ -792,6 +792,12 @@ A **throwaway** tier for end-to-end testing of the completed Stage 2 build (vend
 
 Unlike every other tier, this one is **deployed by hand from a `stage-2` SHA**. There is no workflow, no GH Environment, and no GH secret that names it — `stage-2` never reaches staging, so the usual "verify one tier up" gate has nothing to check.
 
+> **As-built status — 2026-08-20.** LIVE at `82f26ba1`. D1 `aeci-app-stage2` (`d6960a3f-…`, region APAC) migrated to `0019` and seeded; both KV namespaces provisioned; both Workers deployed and reporting the SHA on `/api/version` + `/_version`, `/api/health` `db:ok`. Seeded content verified rendering: pair-page agreement states (`confirmed` / `single_source` / `unverified`), the vendor verified badge, and the version-diff selectors.
+>
+> ⚠️ **The Access gate is NOT yet attached** — `stage2.aecintegrations.com` currently answers `200` to anyone. `X-Robots-Tag: noindex, nofollow` is set so it cannot be indexed, the data is synthetic fixtures, and authorization is per-tier D1 (`profiles` holds only the two seeded rows, so any other signed-in identity gets no role) — but it is publicly reachable until §10.3's Access destination is added. The deploying token is scoped to Workers/D1/Queues only (`CICD_PLAN.md` §7.1) and cannot add it: `GET /accounts/…/access/apps/…` returns `auth.forbidden`. Dashboard step, and the first thing to do.
+>
+> Also still pending: the Supabase redirect-URL entry (§10.3), without which magic-link sign-in bounces to the wrong host. No Algolia by decision (§10.4).
+
 #### 10.1 What's in the repo already
 
 Committed to `stage-2` (the AECI-637 PR):
