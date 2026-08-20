@@ -177,4 +177,30 @@ describe('productDetailResolver — product-specific', () => {
     // This product has no embedded integrations either, so the list is empty.
     expect(ctx.embedded).toEqual([]);
   });
+
+  // AECI-518 — the second argument the shared harness deliberately does not
+  // assert. The canonical is what gives the node a stable `@id`, and it is the
+  // URI the product-PAIR page references in `about[]`; passing the wrong URL (or
+  // dropping the argument) silently disconnects the entity graph rather than
+  // failing anything.
+  it('passes the canonical to setProductJsonLd so the node gets a stable @id', async () => {
+    const product = buildProduct();
+    const setProductJsonLd = vi.fn();
+    const ctx = createRequestContext(buildClient(async () => product));
+
+    const { run } = setup({
+      platform: 'server',
+      ctx,
+      responseInit: { status: 200 },
+      request: new Request('https://aecintegrations.com/products/procore'),
+      meta: { setEntityMeta: vi.fn(), setProductJsonLd } as Partial<MetaService>,
+    });
+
+    await run();
+
+    expect(setProductJsonLd).toHaveBeenCalledWith(
+      product,
+      'https://aecintegrations.com/products/procore',
+    );
+  });
 });

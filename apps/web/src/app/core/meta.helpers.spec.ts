@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import type { ProductDetail, VendorDetail } from '@aeci/shared';
+import type { ProductDetail, ProductListItem, VendorDetail } from '@aeci/shared';
 
 import {
   DEFAULT_OG_IMAGE,
@@ -9,6 +9,8 @@ import {
   SITE_NAME,
   buildEntityTitle,
   buildOgTags,
+  buildPairBreadcrumbLd,
+  buildPairJsonLd,
   buildProductJsonLd,
   buildSiteOrganizationLd,
   buildVendorJsonLd,
@@ -16,9 +18,36 @@ import {
   isBrowseKind,
   ogTypeForKind,
   originOf,
+  productLdId,
   stripQueryParams,
   truncateAtWordBoundary,
 } from './meta.helpers';
+
+/** A pair endpoint (`ProductListItem`, not `ProductDetail`). Defaults to Revit. */
+function makePairProduct(overrides: Partial<ProductListItem> = {}): ProductListItem {
+  const base: ProductListItem = {
+    id: '00000000-0000-0000-0000-000000000001',
+    slug: 'revit',
+    name: 'Revit',
+    logo_url: 'https://cdn.example/revit.png',
+    product_role: 'application',
+    vendor: {
+      id: '00000000-0000-0000-0000-0000000000a0',
+      slug: 'autodesk',
+      name: 'Autodesk',
+      logo_url: 'https://cdn.example/autodesk.png',
+      verified: false,
+    },
+    primary_category: { id: 'c1', name: 'BIM Authoring', slug: 'bim-authoring' },
+    integration_count: 12,
+    review_count: 4,
+    rating_overall_avg: 4.2,
+    rating_onboarding_avg: 3.9,
+    created_at: '2024-01-01T00:00:00.000Z',
+    updated_at: '2024-06-01T00:00:00.000Z',
+  };
+  return { ...base, ...overrides };
+}
 
 describe('truncateAtWordBoundary', () => {
   it.each([
@@ -235,11 +264,14 @@ describe('buildProductJsonLd', () => {
     return { ...base, ...overrides };
   }
 
+  const PRODUCT_CANONICAL = 'https://www.aecintegrations.com/products/revit';
+
   it('produces the canonical SoftwareApplication shape', () => {
-    const ld = buildProductJsonLd(makeProduct());
+    const ld = buildProductJsonLd(makeProduct(), PRODUCT_CANONICAL);
     expect(ld).toEqual({
       '@context': 'https://schema.org',
       '@type': 'SoftwareApplication',
+      '@id': 'https://www.aecintegrations.com/products/revit#product',
       name: 'Revit',
       description: 'BIM authoring tool for architects and engineers.',
       url: 'https://www.autodesk.com/products/revit',
@@ -249,11 +281,11 @@ describe('buildProductJsonLd', () => {
   });
 
   it('omits offers entirely (deferred to AECI-68)', () => {
-    const ld = buildProductJsonLd(makeProduct());
+    const ld = buildProductJsonLd(makeProduct(), PRODUCT_CANONICAL);
     expect(ld).not.toHaveProperty('offers');
   });
 
-  it('omits null / empty source fields', () => {
+  it('omits null / empty source fields, but never @id', () => {
     const ld = buildProductJsonLd(
       makeProduct({
         description: null,
@@ -261,16 +293,45 @@ describe('buildProductJsonLd', () => {
         categories: [],
         audiences: [],
       }),
+      PRODUCT_CANONICAL,
     );
     expect(ld).toEqual({
       '@context': 'https://schema.org',
       '@type': 'SoftwareApplication',
+      '@id': 'https://www.aecintegrations.com/products/revit#product',
       name: 'Revit',
     });
     expect(ld).not.toHaveProperty('description');
     expect(ld).not.toHaveProperty('url');
     expect(ld).not.toHaveProperty('applicationCategory');
     expect(ld).not.toHaveProperty('applicationSubCategory');
+  });
+
+  // The whole point of the AECI-518 `@id`: the node this page publishes and the
+  // node the pair page references must be ONE entity. If these two ever drift,
+  // the `about[]` reference dangles and the entity graph silently comes apart.
+  it('publishes the same @id the pair page references in about[]', () => {
+    const ld = buildProductJsonLd(makeProduct(), PRODUCT_CANONICAL);
+    const pair = buildPairJsonLd({
+      canonical: 'https://www.aecintegrations.com/products/procore/integrations/revit',
+      origin: 'https://www.aecintegrations.com',
+      name: 'Procore and Revit integrations',
+      description: 'How Procore and Revit exchange data.',
+      context: makePairProduct({ slug: 'procore', name: 'Procore' }),
+      other: makePairProduct(),
+    });
+    expect(pair.about[1]['@id']).toBe(ld['@id']);
+  });
+
+  // The canonical is self-referential against the SERVING origin (ADR 0011), so
+  // a preview / staging host must produce host-matched ids rather than baking in
+  // the apex.
+  it('derives @id from the serving origin, not a hardcoded host', () => {
+    const ld = buildProductJsonLd(
+      makeProduct(),
+      'https://staging.aecintegrations.com/products/revit',
+    );
+    expect(ld['@id']).toBe('https://staging.aecintegrations.com/products/revit#product');
   });
 });
 
@@ -422,5 +483,161 @@ describe('ogTypeForKind', () => {
 
   it('returns "website" for index kind — index is not an article', () => {
     expect(ogTypeForKind('index')).toBe('website');
+  });
+});
+
+// ── AECI-518 — product-PAIR structured data (§9.2's deferral, resolved) ──────
+// The decision record is `STAGE_2_SPEC.md` §8.7: `WebPage` + `about`, plus a
+// sibling `BreadcrumbList`. These are the pure builders; the emission gate
+// (indexable pairs only) is asserted in `products-pair.resolver.component.spec.ts`.
+
+const PAIR_ORIGIN = 'https://www.aecintegrations.com';
+const PAIR_CANONICAL = `${PAIR_ORIGIN}/products/procore/integrations/revit`;
+
+describe('buildPairJsonLd', () => {
+  function build(overrides: Partial<Parameters<typeof buildPairJsonLd>[0]> = {}) {
+    return buildPairJsonLd({
+      canonical: PAIR_CANONICAL,
+      origin: PAIR_ORIGIN,
+      name: 'Procore and Revit integrations',
+      description: 'How Procore and Revit exchange data across their integrations.',
+      context: makePairProduct({
+        id: '00000000-0000-0000-0000-000000000002',
+        slug: 'procore',
+        name: 'Procore',
+        logo_url: 'https://cdn.example/procore.png',
+        primary_category: { id: 'c9', name: 'Project Management', slug: 'project-management' },
+        vendor: {
+          id: '00000000-0000-0000-0000-0000000000b0',
+          slug: 'procore-technologies',
+          name: 'Procore Technologies',
+          logo_url: null,
+          verified: true,
+        },
+      }),
+      other: makePairProduct(),
+      ...overrides,
+    });
+  }
+
+  it('produces a WebPage whose about names both endpoint products', () => {
+    expect(build()).toEqual({
+      '@context': 'https://schema.org',
+      '@type': 'WebPage',
+      '@id': `${PAIR_CANONICAL}#webpage`,
+      url: PAIR_CANONICAL,
+      name: 'Procore and Revit integrations',
+      description: 'How Procore and Revit exchange data across their integrations.',
+      breadcrumb: { '@id': `${PAIR_CANONICAL}#breadcrumb` },
+      about: [
+        {
+          '@type': 'SoftwareApplication',
+          '@id': `${PAIR_ORIGIN}/products/procore#product`,
+          name: 'Procore',
+          url: `${PAIR_ORIGIN}/products/procore`,
+          applicationCategory: 'Project Management',
+          image: 'https://cdn.example/procore.png',
+          publisher: { '@type': 'Organization', name: 'Procore Technologies' },
+        },
+        {
+          '@type': 'SoftwareApplication',
+          '@id': `${PAIR_ORIGIN}/products/revit#product`,
+          name: 'Revit',
+          url: `${PAIR_ORIGIN}/products/revit`,
+          applicationCategory: 'BIM Authoring',
+          image: 'https://cdn.example/revit.png',
+          publisher: { '@type': 'Organization', name: 'Autodesk' },
+        },
+      ],
+    });
+  });
+
+  it('omits every optional about field when the source is null', () => {
+    const bare = makePairProduct({ logo_url: null, vendor: null, primary_category: null });
+    const ld = build({ context: bare, other: bare });
+    expect(ld.about[0]).toEqual({
+      '@type': 'SoftwareApplication',
+      '@id': `${PAIR_ORIGIN}/products/revit#product`,
+      name: 'Revit',
+      url: `${PAIR_ORIGIN}/products/revit`,
+    });
+  });
+
+  // Nested nodes inherit the enclosing document's @context; repeating it is
+  // legal but noisy, and Google's own examples omit it.
+  it('carries no @context on the nested about nodes', () => {
+    for (const node of build().about) expect(node).not.toHaveProperty('@context');
+  });
+
+  // `about` is ordered by the URL, not alphabetically: the page is framed from
+  // its context product, and the non-default orientation is a real, rendered URL.
+  it('orders about by URL orientation, context first', () => {
+    const ld = build();
+    expect(ld.about.map((n) => n.name)).toEqual(['Procore', 'Revit']);
+  });
+
+  it('composes about @ids through productLdId so the graph cannot drift', () => {
+    const ld = build();
+    expect(ld.about[0]['@id']).toBe(productLdId(PAIR_ORIGIN, 'procore'));
+    expect(ld.about[1]['@id']).toBe(productLdId(PAIR_ORIGIN, 'revit'));
+  });
+});
+
+describe('buildPairBreadcrumbLd', () => {
+  function build() {
+    return buildPairBreadcrumbLd({
+      canonical: PAIR_CANONICAL,
+      origin: PAIR_ORIGIN,
+      homeLabel: 'Home',
+      context: makePairProduct({ slug: 'procore', name: 'Procore' }),
+      other: makePairProduct(),
+    });
+  }
+
+  // Mirrors the trail `products-pair.ts` renders: Home › {context} › {other}.
+  // Google requires breadcrumb markup to match visible content, so the shape is
+  // dictated by the template — including the last crumb being the OTHER
+  // product's name rather than the pair title.
+  it('mirrors the visible trail', () => {
+    expect(build()).toEqual({
+      '@context': 'https://schema.org',
+      '@type': 'BreadcrumbList',
+      '@id': `${PAIR_CANONICAL}#breadcrumb`,
+      itemListElement: [
+        { '@type': 'ListItem', position: 1, name: 'Home', item: `${PAIR_ORIGIN}/` },
+        {
+          '@type': 'ListItem',
+          position: 2,
+          name: 'Procore',
+          item: `${PAIR_ORIGIN}/products/procore`,
+        },
+        { '@type': 'ListItem', position: 3, name: 'Revit' },
+      ],
+    });
+  });
+
+  // Omitting `item` on the final crumb is schema.org convention for "this page",
+  // and it is what keeps the payload honest on the NON-default orientation,
+  // whose canonical points at the other URL.
+  it('omits item on the final crumb', () => {
+    const last = build().itemListElement.at(-1);
+    expect(last).not.toHaveProperty('item');
+  });
+
+  it('numbers positions from 1, contiguously', () => {
+    expect(build().itemListElement.map((i) => i.position)).toEqual([1, 2, 3]);
+  });
+
+  it('resolves back to the WebPage that references it', () => {
+    const crumbs = build();
+    const page = buildPairJsonLd({
+      canonical: PAIR_CANONICAL,
+      origin: PAIR_ORIGIN,
+      name: 'Procore and Revit integrations',
+      description: 'How Procore and Revit exchange data.',
+      context: makePairProduct({ slug: 'procore', name: 'Procore' }),
+      other: makePairProduct(),
+    });
+    expect(page.breadcrumb['@id']).toBe(crumbs['@id']);
   });
 });
