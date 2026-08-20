@@ -899,6 +899,18 @@ Both `deploy:stage2` scripts derive `COMMIT_SHA` from `git rev-parse HEAD` and `
 | `auth-fixtures.sql` profile `e1a8f812-…` (`vendor_admin`, `vendor_id` = `…061`) | `requireVendor()` authorizes the `/vendor` portal. Pair it with the `SUPABASE_VENDOR_TEST_USER_*` account. |
 | `version-diff-fixtures.sql` | Product versions + version-stamped attestations, so the §9 version-diff selectors actually render. |
 
+Three things the fixture set does **not** cover, all applied by hand on 2026-08-20:
+
+- **Reviews.** `seed/*.sql` seeds none, so product review sections and the admin moderation queue render empty. `pnpm --filter @aeci/api db:seed-reviews -- --remote --env stage2 --apply` reads this tier's own catalog and writes a deterministic set (46 approved here). Every row carries the `aeceed00-…` id prefix, so `--teardown --apply` removes exactly those.
+- **An operator profile.** The fixture profiles are the two e2e personas; **your own account has no row**, so signing in with it lands you as a role-less user — no `/admin`, no `/vendor`. Authorization is per-tier D1 (ADR 0016), so a profile here grants nothing anywhere else. Seed one with your Supabase `sub` as the PK:
+  ```sql
+  INSERT OR REPLACE INTO profiles (id, display_name, role, created_at, updated_at)
+  VALUES ('<your auth.users.id>', '<name> (operator)', 'admin',
+          strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'));
+  ```
+  Find the id with a read-only GoTrue admin call — `GET {SUPABASE_URL}/auth/v1/admin/users?filter=<substring>`, which is a **case-sensitive substring** match over email OR full name, not an equality lookup.
+- **Home stats.** `GET /api/stats/home` **never live-aggregates** — `stats_cache` is its only source (`routes/stats.ts`), and that table is written by the 07:00 cron, which this tier does not run. Left alone the home page reports `0` products / vendors / reviews over a fully populated catalog, which reads as broken. The six scalar keys were inserted directly using the cron's own definitions from `lib/home-stats.ts` (note `total_reviews` and `total_contributing_firms` count **approved only**, unlike products/vendors/integrations which are unfiltered). The three list keys and two card keys are deliberately left absent so they fall back to `[]` / `null` — with no `page_views` history there is no honest `trending_products` to show.
+
 Alternatives, for the record: **`apps/datatool` cannot clone into this tier** without code changes — `apps/datatool/src/targets.ts` has a closed four-element `ENV_IDS` list and one D1 binding per tier — and adding a fifth to a Worker that can wipe prod D1 is not worth it for a temp env. Re-promoting from the review app works (`REVIEW_APP_TOKEN` + the `PROMOTE_WORKFLOW` binding are both wired) but needs the review app pointed at this host.
 
 #### 10.8 Verify
