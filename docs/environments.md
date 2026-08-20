@@ -792,11 +792,13 @@ A **throwaway** tier for end-to-end testing of the completed Stage 2 build (vend
 
 Unlike every other tier, this one is **deployed by hand from a `stage-2` SHA**. There is no workflow, no GH Environment, and no GH secret that names it — `stage-2` never reaches staging, so the usual "verify one tier up" gate has nothing to check.
 
-> **As-built status — 2026-08-20.** LIVE at `82f26ba1`. D1 `aeci-app-stage2` (`d6960a3f-…`, region APAC) migrated to `0019` and seeded; both KV namespaces provisioned; both Workers deployed and reporting the SHA on `/api/version` + `/_version`, `/api/health` `db:ok`. Seeded content verified rendering: pair-page agreement states (`confirmed` / `single_source` / `unverified`), the vendor verified badge, and the version-diff selectors.
+> **As-built status — 2026-08-20.** LIVE at `82f26ba1` and **Access-gated**. D1 `aeci-app-stage2` (`d6960a3f-…`, region APAC) migrated to `0019` and seeded; both KV namespaces provisioned; both Workers deployed and reporting the SHA on `/api/version` + `/_version`, `/api/health` `db:ok`. Seeded content verified rendering: pair-page agreement states (`confirmed` / `single_source` / `unverified`), the vendor verified badge, and the version-diff selectors.
 >
-> ⚠️ **The Access gate is NOT yet attached** — `stage2.aecintegrations.com` currently answers `200` to anyone. `X-Robots-Tag: noindex, nofollow` is set so it cannot be indexed, the data is synthetic fixtures, and authorization is per-tier D1 (`profiles` holds only the two seeded rows, so any other signed-in identity gets no role) — but it is publicly reachable until §10.3's Access destination is added. The deploying token is scoped to Workers/D1/Queues only (`CICD_PLAN.md` §7.1) and cannot add it: `GET /accounts/…/access/apps/…` returns `auth.forbidden`. Dashboard step, and the first thing to do.
+> **Access verified 2026-08-20.** A bare request to `/`, `/api/version` and `/_version` all `302` to `aecintegrations.cloudflareaccess.com/cdn-cgi/access/login/stage2.aecintegrations.com`, and the redirect's `kid` is `6d89b808…d98643` — byte-equal to the **App AUD tag** in `docs/access.md` §1, which confirms the hostname was added as a destination on the existing `AECi Non-Prod` app rather than a new one (the §"Locked decisions" requirement). `staging.aecintegrations.com` still `302`s with the same AUD, so nothing regressed on the shared app.
 >
-> Also still pending: the Supabase redirect-URL entry (§10.3), without which magic-link sign-in bounces to the wrong host. No Algolia by decision (§10.4).
+> **Verification now needs the service token.** §10.8's `verify-version.sh` / `verify-health.sh` recipe worked pre-gate without headers; it will `302` now. Export `CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET` (the `aeci-gh-actions` token, `docs/access.md` §1) first, or reach it in a browser via email-OTP. Nothing automated hits this host — there is no workflow for this tier — so the service token is a convenience for manual checks, not a functional dependency.
+>
+> Still pending: the Supabase redirect-URL entry (§10.3), without which magic-link sign-in bounces to the project Site URL. No Algolia by decision (§10.4).
 
 #### 10.1 What's in the repo already
 
