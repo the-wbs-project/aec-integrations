@@ -17,7 +17,7 @@ AECi runs four permanent tiers of environment plus local, and — while Stage 2 
 | **Production** | `aeci-{api,web}-production` | Shared auth project | `https://prod.aecintegrations.com` | Cloudflare Access until launch (ADR 0017), then public |
 | **stage2** _(temporary — AECI-637)_ | `aeci-{api,web}-stage2` | Shared auth project | `https://stage2.aecintegrations.com` | Cloudflare Access — same allowlist as staging |
 
-> **`stage2` is a throwaway tier, not a fifth permanent one.** It exists because staging auto-tracks `main` (ADR 0019), so the completed Stage 2 build on the `stage-2` branch has no deployed surface. It is **hand-deployed** from a `stage-2` SHA — there is no `promote-to-stage2.yml`, no GH Environment, no CI step and no GH secret that names it — and it runs **no crons and no queues** so it can never send real email or do scheduled work. Bootstrap + teardown: **§10** below. Delete it when Stage 2 testing is done; everything about it, including the `env.stage2` config blocks and the `stage2` entries in the `ENV`/`AlgoliaEnv` unions, is meant to be reverted in one commit.
+> **`stage2` is a throwaway tier, not a fifth permanent one.** It exists because staging auto-tracks `main` (ADR 0019), so the completed Stage 2 build on the `stage-2` branch has no deployed surface. It is **hand-deployed** from a `stage-2` SHA — there is no `promote-to-stage2.yml`, no GH Environment, no CI step and no GH secret that names it — and it runs **no crons and no queues** so it can never send real email or do scheduled work. Bootstrap + teardown: **§10** below. It also has **no Algolia** — search is not being tested on it (§10.4). Delete it when Stage 2 testing is done; everything about it, including the `env.stage2` config blocks and the `stage2` entries in the `ENV` / `DatadogEnv` / `AlgoliaEnv` unions, is meant to be reverted in one commit.
 
 > **Supabase is auth-only** (app data is on D1 — ADR 0016). Per **[ADR 0017](./adr/0017-single-supabase-auth-project-across-environments.md)** a single shared auth project (`ktuhnlypztujpsseujzx`) backs **every** tier; per-environment isolation is provided by Cloudflare Access, not project separation. (The retained legacy Supabase-Postgres `public`-schema gate still lives on the old `dmbygwupskttzsvfzluq` / `jgxebjufabtwkcgxjqvk` projects until AECI-256/257 retire it — that's what the `SUPABASE_*_PROJECT_REF` repo variables below point at, unrelated to auth.)
 
@@ -797,7 +797,7 @@ Unlike every other tier, this one is **deployed by hand from a `stage-2` SHA**. 
 Committed to `stage-2` (the AECI-637 PR):
 
 - `env.stage2` blocks in `apps/{api,web}/wrangler.jsonc` — mirroring `env.demo` minus `triggers`, `queues`, and (web) `exports`, plus `custom_domain: true` on `stage2.aecintegrations.com`. **`workflows` is kept** (`aeci-promote-stage2`): Workflows are created by `wrangler deploy` with no provisioning step, and `POST /api/promote` returns 503 without the binding, which would kill the re-promote seeding path.
-- `stage2` added to the `ENV` unions (`apps/{api,web}/src/env.ts`), to `AlgoliaEnv` / `AlgoliaIndexPrefix` (`packages/shared/src/algolia.ts`), and to `VALID_ENVS` in both `scripts/algolia/*.mjs` — without the last one `--env stage2` exits non-zero and the Algolia step cannot run at all.
+- `stage2` added to the `ENV` unions (`apps/{api,web}/src/env.ts`) and to the three unions that must stay supersets of them or the build breaks: `DatadogEnv.ENV` (`packages/shared/src/datadog.ts`) and `AlgoliaEnv` / `AlgoliaIndexPrefix` (`packages/shared/src/algolia.ts`). The Algolia pair is a **compile** requirement only — this tier has no indexes (§10.4). The Algolia operator scripts are deliberately **not** touched.
 - `pnpm --filter @aeci/{api,web} deploy:stage2` and `pnpm --filter @aeci/api db:seed:stage2`.
 
 `isPublicSite()` deliberately does **not** include `stage2` — it is Access-gated, so `/preview/*` stays reachable and per-request response validation stays on, which is what you want on a test tier.
@@ -823,38 +823,15 @@ Paste the three ids over the all-zero placeholders in `apps/api/wrangler.jsonc` 
 - **Access.** Add `stage2.aecintegrations.com` as a destination on the existing `AECi Non-Prod` app — same allowlist and same `aeci-gh-actions` service-token policy. See `docs/access.md` §1. Do **not** create a second Access app (§"Locked decisions").
 - **Supabase.** Add `https://stage2.aecintegrations.com/**` to the shared auth project's redirect-URL allow-list (dashboard → Authentication → URL Configuration). Without it, magic-link and OAuth callbacks silently fall back to the project Site URL and you land on the wrong host.
 
-#### 10.4 Algolia — ⛔ BLOCKED ON THE INDEX QUOTA. Skip search on this tier.
+#### 10.4 Algolia — out of scope. This tier has NO search.
 
-**Do not attempt this step as written. It cannot succeed today.** Verified 2026-08-20:
+**Decided 2026-08-20: `stage2` ships without Algolia.** Search is not being tested on it, so there are no `stage2_*` indexes, no `ALGOLIA_*` secrets on either Worker, and no entry in either script's `VALID_ENVS` — `--env stage2` is rejected by `provision.mjs` / `apply-settings.mjs` on purpose. Nothing to provision here, and nothing to tear down in §10.9.
 
-```
-✗ Algolia setSettings failed: Too many indices (24>20), please remove unused
-  indices before pushing more data.
-```
+What that costs: `/search` renders the degraded shell (`ALGOLIA_APP_ID` / `ALGOLIA_SEARCH_KEY` absent → `algolia-bootstrap-inject.ts` no-ops). Everything the tier exists to exercise — vendor portal, attestations, paid tiers, real-time — is untouched. The one Stage 2 feature that reads Algolia is the AECI-529 verified badge on the search surfaces; verify that on a PR preview against `preview_*`.
 
-The AECi Algolia app is **already over its index quota** — 24 live indexes against a 20 cap — so *every* new index creation is rejected, `stage2_*` included. A full stage2 set matching the other tiers is 3 primaries + 4 sort replicas = **7 more** (31 total); even primaries-only would be 27. The `setSettings` call fails on the first index, so nothing partial is created and there is nothing to clean up.
+`AlgoliaEnv` / `AlgoliaIndexPrefix` in `packages/shared/src/algolia.ts` **do** carry a `stage2` member, and that is a compile requirement rather than a claim that indexes exist: `algolia-drift-deps.ts` and `routes/promote.ts` assign the Worker's `ENV` straight into an `AlgoliaEnv` position, so the union must stay a superset of `Env['ENV']` or the API Worker does not build. Both paths are inert without credentials.
 
-**Recommendation: stand `stage2` up without Algolia.** `/search` renders the degraded shell (`ALGOLIA_APP_ID` / `ALGOLIA_SEARCH_KEY` absent → `algolia-bootstrap-inject.ts` no-ops), the daily-sync cron doesn't exist on this tier anyway, and every Stage 2 surface the env was built to test — vendor portal, attestations, paid tiers, real-time — works untouched. The one Stage 2 feature that reads Algolia is the AECI-529 verified badge on the search surfaces; verify that on a PR preview against `preview_*` instead.
-
-**If search on `stage2` genuinely matters**, exactly one of these unblocks it first:
-
-1. Raise the Algolia plan's index limit. This is the only option that doesn't degrade an existing tier — the app is over quota regardless of `stage2`, so it is worth resolving on its own account.
-2. Delete unused indexes. Note there is no cheap 4-index win available: dropping the three `preview_*` indexes only reaches 21 (still over) **and** breaks PR-preview + `lighthouse.yml` `/search`.
-
-Do **not** point `stage2` at the `preview_*` index set to dodge the quota. The stage2 API Worker's promote→index hook would then write catalog rows into the indexes every PR preview and the Lighthouse gate read from.
-
-Once unblocked, the scripts accept `--env stage2` (the AECI-637 PR added it to both `VALID_ENVS` lists) and the sequence is:
-
-```bash
-ALGOLIA_APP_ID=… ALGOLIA_ADMIN_KEY=<root admin key> \
-  node scripts/algolia/provision.mjs --env stage2      # creates stage2_* + mints two stage2-scoped keys
-ALGOLIA_APP_ID=… ALGOLIA_ADMIN_KEY=<the stage2 management key> \
-  node scripts/algolia/apply-settings.mjs --env stage2 # searchable attrs, faceting, ranking, replicas
-```
-
-Run **both**. `provision.mjs` only creates the indexes with empty settings; without `apply-settings.mjs` the `stage2_*` indexes have no searchable attributes, no faceting and no custom ranking, and `/search` returns unusable results.
-
-⚠️ **Do not touch the shared `ALGOLIA_SEARCH_KEY` GitHub secret.** `provision.mjs` mints a search key scoped to `stage2_*` only; push that one straight to the stage2 web Worker with `wrangler secret put`. The GH secret is a **single shared value** that staging, demo and production all read (§Secrets), so replacing it with a stage2-scoped key would 403 browser search on all three. `provision.mjs` prints no `gh secret set` lines for this env for exactly that reason.
+> **If search on `stage2` is ever wanted, it needs a quota decision first.** The shared Algolia app is **already over its index limit** — 24 live indexes against a 20 cap — so `provision.mjs` cannot create *any* new index. Verified 2026-08-20: `✗ Algolia setSettings failed: Too many indices (24>20)`. A stage2 set matching the other tiers is 7 more (3 primaries + 4 sort replicas). Raising the plan limit is the only unblock that degrades nothing — deleting the three `preview_*` indexes reaches only 21 and breaks PR previews plus the `lighthouse.yml` `/search` gate. Do **not** point `stage2` at another tier's index prefix to dodge it: this tier's promote→index hook would then write into indexes that tier reads. And whatever happens, do **not** overwrite the shared `ALGOLIA_SEARCH_KEY` GitHub secret with a per-env key — it is one value that staging, demo and production all read (§Secrets).
 
 #### 10.5 Secrets
 
@@ -875,7 +852,7 @@ printf '%s' "$ADMIN_PURGE_TOKEN" | pnpm exec wrangler secret put ADMIN_PURGE_TOK
 
 `SUPABASE_ANON_KEY` is the only one that gates a headline feature: without it every SSR auth surface returns `503 auth_not_configured`, so sign-in — and therefore the whole vendor portal — is untestable. Everything else above is fail-open.
 
-**No `ALGOLIA_*` secrets** — see §10.4: the index quota blocks a `stage2_*` set, so this tier ships without search. Add `ALGOLIA_APP_ID` + `ALGOLIA_ADMIN_KEY` (API Worker) and `ALGOLIA_APP_ID` + the stage2-scoped `ALGOLIA_SEARCH_KEY` (web Worker) only after that is unblocked.
+**No `ALGOLIA_*` secrets** — this tier has no search by decision (§10.4). Leaving them unset is what makes `/search` degrade cleanly instead of querying indexes that do not exist.
 
 `CF_ZONE_ID` / `CF_ANALYTICS_API_TOKEN` are pointless here: they feed the hourly WAF poll, which is a cron, and this tier has none.
 
@@ -946,10 +923,10 @@ pnpm exec wrangler kv namespace delete --namespace-id <promote-id>
 
 Then, by hand:
 
-- Delete the `stage2_*` Algolia indexes and the `aeci:search:stage2` / `aeci:management:stage2` keys — **only if §10.4 was ever unblocked and run**; by default this tier creates none.
+- **Algolia: nothing to do** — this tier creates no indexes and no keys (§10.4).
 - Remove the `stage2.aecintegrations.com` destination from the `AECi Non-Prod` Access app and the entry from `docs/access.md` §1.
 - Remove `https://stage2.aecintegrations.com/**` from the Supabase redirect allow-list.
-- **Revert the repo side in one commit:** both `env.stage2` blocks, the `stage2` entries in the two `ENV` unions + `AlgoliaEnv`/`AlgoliaIndexPrefix` + both `VALID_ENVS`, the three `package.json` scripts, this section, and the `stage2` rows in §Topology, `docs/access.md` §1 and `docs/CICD_PLAN.md` §2.
+- **Revert the repo side in one commit:** both `env.stage2` blocks, the `stage2` entries in the two `ENV` unions + `DatadogEnv.ENV` + `AlgoliaEnv`/`AlgoliaIndexPrefix`, the three `package.json` scripts, this section, and the `stage2` rows in §Topology, `docs/access.md` §1 and `docs/CICD_PLAN.md` §2. Nothing under `scripts/algolia/` was changed, so nothing there needs reverting.
 
 ## What lives where
 

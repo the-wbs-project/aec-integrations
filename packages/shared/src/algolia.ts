@@ -28,17 +28,31 @@
  * independently per env), §7.5 (topology), §3.2 (the CI apply step). ADR 0006.
  */
 
-/** Deployment-environment label, matching the Workers' `ENV` var (AECI-119).
- *  `stage2` is the TEMPORARY Stage 2 test tier (AECI-637) — remove it, and its
- *  `stage2_*` indexes, at teardown. */
+/**
+ * Deployment-environment label, matching the Workers' `ENV` var (AECI-119).
+ *
+ * `stage2` (the TEMPORARY Stage 2 test tier, AECI-637) is here for TYPE reasons
+ * only — **no `stage2_*` indexes exist and none are meant to.** That tier ships
+ * without search: it holds no `ALGOLIA_*` secrets, and the shared Algolia app is
+ * over its index quota anyway (`docs/environments.md` §10.4). But two call sites
+ * assign the Worker's `ENV` straight into an `AlgoliaEnv` position —
+ * `apps/api/src/lib/algolia-drift-deps.ts` `algoliaEnvFor()` and
+ * `apps/api/src/routes/promote.ts` `syncAlgoliaAfterPromote()` — so this union
+ * has to stay a superset of `Env['ENV']` or the API Worker does not compile.
+ * Both are inert on that tier: without credentials the sync is a graceful no-op,
+ * and the tier runs no crons at all. Remove with the rest of AECI-637 at teardown.
+ */
 export type AlgoliaEnv = 'development' | 'preview' | 'staging' | 'demo' | 'production' | 'stage2';
 
 /**
  * Physical index-name prefix. `development` folds onto `preview` (there is no
- * `development_*` set), so the prefix space is exactly four permanent tiers
- * (preview, staging, demo, production) plus the temporary `stage2`. `demo` and
- * `production` keep separate index sets — the demo showcase must never read or
- * write the live `production_*` indexes, and neither may `stage2`.
+ * `development_*` set), so the prefix space is exactly four (preview, staging,
+ * demo, production). `demo` and `production` keep separate index sets — the demo
+ * showcase must never read or write the live `production_*` indexes.
+ *
+ * `stage2` rides along for the same compile-only reason as `AlgoliaEnv` above —
+ * `indexPrefixForEnv` passes every non-`development` label straight through — and
+ * names no index set that has ever been created.
  */
 export type AlgoliaIndexPrefix = 'preview' | 'staging' | 'demo' | 'production' | 'stage2';
 
