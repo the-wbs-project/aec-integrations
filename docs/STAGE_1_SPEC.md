@@ -1179,7 +1179,7 @@ Governed by `docs/STAGE_1_PHASE_6_SPEC.md` (decomposed into AECI Phase 6.1–6.1
 Decomposed into AECI Phase 7.1–7.13 (planned 2026-06-10; **no sibling spec — straight to issues**). Much of §16's original Phase 7 list **already shipped in Phases 2–4** (verified on `main` 2026-06-10) and is struck below; Phase 7 is the genuine launch-readiness remainder.
 
 **Already shipped:** ~~XML sitemap~~ (AECI-63) · ~~OG/Twitter meta~~ + ~~product/vendor JSON-LD~~ (AECI-51) + ~~home JSON-LD~~ (AECI-186) · ~~canonical tags~~ (AECI-147) · ~~404 page~~ (AECI-62) · ~~robots.txt~~ (AECI-63) · ~~axe-core in e2e~~ + ~~Lighthouse a11y ≥95 in CI~~ (AECI-65) · ~~CSP/security headers~~ (AECI-89) · ~~color-contrast validation~~ (AECI-148/150/166/230) · ~~Datadog dashboards~~ (per-phase: AECI-66/141/180/206) — **no Slack** (Phase 6 decision).
-**Deferred (not Stage 1):** integration-page JSON-LD (Phase 2 §9.2 → Stage 2); sitemap index/sub-sitemap split (AECI-63 — only needed beyond 50k URLs; now tracked as AECI-560, see §20.1).
+**Deferred (not Stage 1):** integration-page JSON-LD (Phase 2 §9.2 → Stage 2 — ✅ **shipped there 2026-08-20 as AECI-518**, on the pair page that superseded `/integrations/:id`: `WebPage` + `about` + `BreadcrumbList`, contract in `STAGE_2_SPEC.md` §8.7); sitemap index/sub-sitemap split (AECI-63 — only needed beyond 50k URLs; now tracked as AECI-560 under the AECI-518 epic, still **not warranted** — see §20.1).
 
 **Phase 7.1–7.13 (the remainder):**
 - [x] 7.1 — IndexNow on the write-event pipeline (§20.2) — AECI-236 (Google Indexing API ping deferred → AECI-263)

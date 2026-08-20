@@ -91,9 +91,14 @@ function pairFixture(overrides: Partial<ProductPairResponse> = {}): ProductPairR
 }
 
 function metaStub() {
-  return { setEntityMeta: vi.fn(), setNotFoundMeta: vi.fn() } as unknown as MetaService & {
+  return {
+    setEntityMeta: vi.fn(),
+    setNotFoundMeta: vi.fn(),
+    setPairJsonLd: vi.fn(),
+  } as unknown as MetaService & {
     setEntityMeta: ReturnType<typeof vi.fn>;
     setNotFoundMeta: ReturnType<typeof vi.fn>;
+    setPairJsonLd: ReturnType<typeof vi.fn>;
   };
 }
 
@@ -268,6 +273,27 @@ describe('productsPairResolver — client path', () => {
     expect(result).toEqual(fixture);
     httpMock.verify(); // no outstanding HTTP requests
     expect(meta.setEntityMeta).toHaveBeenCalled();
+    // AECI-518 — both branches call the same `applyResolvedMeta`, so the LD is
+    // re-applied on hydration and on every in-app navigation onto a pair page.
+    // That matters twice over: a JS-rendering crawler sees the client head, and
+    // it is what keeps a stale block from a prior route off this page.
+    expect(meta.setPairJsonLd).toHaveBeenCalled();
+  });
+
+  it('suppresses JSON-LD client-side for an empty pair', async () => {
+    const meta = metaStub();
+    const { run, transferState } = setup({
+      platform: 'browser',
+      contextSlug: 'procore',
+      otherSlug: 'revit',
+      meta,
+    });
+    transferState.set(key('procore', 'revit'), pairFixture({ mechanisms: [] }));
+
+    await run();
+
+    expect(meta.setEntityMeta).toHaveBeenCalledWith(expect.objectContaining({ noindex: true }));
+    expect(meta.setPairJsonLd).not.toHaveBeenCalled();
   });
 
   it('does NOT consume the other orientation’s slot (the pre-AECI-303 bug)', async () => {
@@ -424,6 +450,46 @@ describe('productsPairResolver — version-selection noindex', () => {
         canonical: 'https://example.test/products/procore/integrations/revit',
       }),
     );
+  });
+
+  // ─── AECI-518: JSON-LD rides the SAME noindex decision ────────────────────
+  // Structured data must never describe a page we are telling crawlers to skip.
+  // Both suppression reasons are exercised, because they are OR'd and a
+  // regression could easily restore one while breaking the other.
+
+  it('emits JSON-LD for an indexable pair', async () => {
+    const meta = await runWith({ version_diff: diff(true) });
+    expect(meta.setPairJsonLd).toHaveBeenCalledWith(
+      expect.objectContaining({
+        canonical: 'https://example.test/products/procore/integrations/revit',
+        name: 'Procore and Revit integrations',
+        context: expect.objectContaining({ slug: 'procore' }),
+        other: expect.objectContaining({ slug: 'revit' }),
+      }),
+    );
+  });
+
+  it('suppresses JSON-LD on an empty pair (thin content)', async () => {
+    const meta = await runWith({ mechanisms: [] });
+    expect(meta.setEntityMeta).toHaveBeenCalledWith(expect.objectContaining({ noindex: true }));
+    expect(meta.setPairJsonLd).not.toHaveBeenCalled();
+  });
+
+  it('suppresses JSON-LD on a non-default version selection', async () => {
+    const meta = await runWith({ version_diff: diff(false) }, { context_version: '2026.1' });
+    expect(meta.setPairJsonLd).not.toHaveBeenCalled();
+  });
+
+  // The LD's `name`/`description` are the same values `setEntityMeta` receives,
+  // which is what makes structured-data-vs-`<title>` drift structurally
+  // impossible rather than test-enforced.
+  it('passes the SAME name and description it gave setEntityMeta', async () => {
+    const meta = await runWith({ version_diff: diff(true) });
+    const entity = meta.setEntityMeta.mock.calls[0]![0];
+    const ld = meta.setPairJsonLd.mock.calls[0]![0];
+    expect(ld.name).toBe(entity.name);
+    expect(ld.description).toBe(entity.description);
+    expect(ld.canonical).toBe(entity.canonical);
   });
 });
 

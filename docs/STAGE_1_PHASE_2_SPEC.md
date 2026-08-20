@@ -114,7 +114,7 @@ All entity detail pages are **single pages with sections**. Section navigation i
 - `profiles`, `reviews`, `stats_cache`, `page_views` tables (Phases 4–5)
 - View-count badges on detail pages (Phase 4)
 - Compare tool, comments, Q&A (Stage 2)
-- Integration JSON-LD (Stage 2, contingent on MCP exposure direction)
+- Integration JSON-LD (Stage 2, contingent on MCP exposure direction) — ✅ **shipped in Stage 2 as AECI-518**, on the pair page that superseded `/integrations/:id`; the MCP contingency resolved as "no MCP surface" (§9.2 above, `STAGE_2_SPEC.md` §8.7)
 - Sub-route pattern (`/vendors/:slug/details`, etc.) — considered and rejected; single page with sections is the pattern
 
 ---
@@ -408,8 +408,10 @@ Implementation: a `MetaService` in `apps/web/src/app/core/` that pages call from
 - **Product detail**: `schema.org/SoftwareApplication` with `name`, `description`, `url`, `applicationCategory`, `applicationSubCategory`, `offers` (link to vendor site), `operatingSystem` if known
   - **`offers` is deferred to AECI-68.** Not emitted in the current implementation — it needs a vendor-site URL that `VendorLink` does not yet carry. `buildProductJsonLd` (`apps/web/src/app/core/meta.helpers.ts`) omits it until `VendorLink.website` lands (AECI-68), which will populate `offers.url`.
   - **`operatingSystem` is out of scope for Phase 2.** No product field carries OS data, so the `if known` condition is never satisfied and the field is not emitted. No tracking issue.
+  - **`@id` added in AECI-518.** `buildProductJsonLd(product, canonical)` takes the page's canonical as a second argument purely to compose the node's `@id` via `productLdId(origin, slug)`. That URI is what the product-PAIR page's `about[]` entries reference, so the two blocks describe **one** entity — both sides must compose it through that helper, since a hand-built string would silently yield two unrelated nodes instead of failing.
 - **Vendor detail**: `schema.org/Organization` with `name`, `url`, `logo`, `foundingDate`, `address` (if HQ known)
 - **Integration detail**: **No JSON-LD in Phase 2.** No clean schema.org type exists; revisit in Stage 2 once MCP exposure direction is clearer.
+  - ✅ **Resolved in Stage 2 — AECI-518 (2026-08-20).** The "revisit once MCP exposure direction is clearer" precondition resolved the *other* way: `STAGE_2_SPEC.md` §9 keeps a public/partner write-API product out of Stage 2, so there is no MCP surface to model against and the type was decided on SEO merit alone. The observation above was right — schema.org has no *integration* type, and the page is not itself a `SoftwareApplication` — so the shipped shape is a **`schema.org/WebPage` whose `about` names both endpoint products** (each a nested `SoftwareApplication` whose `@id` is the one the product detail page publishes, so the two describe one entity) plus a sibling **`BreadcrumbList`** mirroring the visible trail. Emitted only when the page is indexable. Note the surface moved: the Stage 1.5 **product-PAIR page** (`/products/:contextSlug/integrations/:otherSlug`) superseded `/integrations/:id`, which now 301s. `ItemList`, `FAQPage`, and `SoftwareApplication`-as-main-entity were considered and rejected — the reasoning and the full contract are **`STAGE_2_SPEC.md` §8.7**; the code is `buildPairJsonLd` / `buildPairBreadcrumbLd` in `apps/web/src/app/core/meta.helpers.ts`.
 
 ### 9.3 sitemap.xml
 
@@ -605,7 +607,7 @@ The seven open questions from the spec draft are resolved:
 
 1. **`vendor_requests` FK shape**: loose `(target_type, target_id)` with CHECK constraint
 2. **Slug immutability**: immutable by default, admin tool (Phase 6) has explicit rename + 301 action
-3. **Integration JSON-LD**: deferred to Stage 2
+3. **Integration JSON-LD**: deferred to Stage 2 — ✅ **resolved there** (AECI-518, 2026-08-20): `WebPage` + `about` + `BreadcrumbList` on the pair page. See §9.2 and `STAGE_2_SPEC.md` §8.7
 4. **`/categories` flat page**: ships in Phase 2
 5. **`/admin/purge` auth**: Wrangler secret in Phase 2, migrate to Cloudflare Access in Phase 6
 6. **`page_views` table**: deferred to Phase 4, but `POST /api/page-views` capture hook ships in Phase 2 (no-op write)

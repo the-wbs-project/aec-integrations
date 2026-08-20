@@ -15,6 +15,9 @@
  *     of a pair canonicalise to one indexable page.
  *   - **An empty pair (no integrations) is `noindex`** — it still renders (the
  *     API returns 200 `mechanisms: []`), but thin content isn't indexed.
+ *   - **JSON-LD rides the same `noindex` decision** (AECI-518, §9.2's deferral
+ *     resolved): a `WebPage` naming both endpoints in `about` plus the visible
+ *     breadcrumb trail, emitted only when the page is indexable.
  *
  * ── AECI-303: THE VERSION SELECTORS (§9) ────────────────────────────────────
  * `?context_version=` / `?other_version=` are forwarded to the API, which resolves
@@ -199,25 +202,51 @@ export const productsPairResolver: ResolveFn<ProductPairResponse | null> = async
   const canonical = canonicalUrl(`/products/${minSlug}/integrations/${maxSlug}`);
 
   const applyResolvedMeta = (pair: ProductPairResponse): void => {
+    // Two independent reasons not to index, OR'd:
+    //   - no integrations between the two products → renders, but thin content;
+    //   - a non-default version selection (§9.2) → every (vA × vB) combination
+    //     would otherwise be an indexable near-duplicate.
+    // `?.` + `=== false` is deliberate: the web never Zod-parses this response
+    // (`core/api/fetch-or-null.ts` is types-only), so `version_diff` can be
+    // genuinely `undefined` at runtime against an API Worker that predates it —
+    // and `undefined?.is_default === false` is `false`, i.e. indexable, which is
+    // the correct degradation.
+    const noindex = pair.mechanisms.length === 0 || pair.version_diff?.is_default === false;
+    const name = pairMetaName(pair);
+    const description = pairMetaDescription(pair);
+
     meta.setEntityMeta({
       entity: 'integration',
-      name: pairMetaName(pair),
-      description: pairMetaDescription(pair),
+      name,
+      description,
       canonical,
       // Pairs have no own logo; OG falls back to the site default.
       ogImage: undefined,
-      // Two independent reasons not to index, OR'd:
-      //   - no integrations between the two products → renders, but thin content;
-      //   - a non-default version selection (§9.2) → every (vA × vB) combination
-      //     would otherwise be an indexable near-duplicate.
-      // `?.` + `=== false` is deliberate: the web never Zod-parses this response
-      // (`core/api/fetch-or-null.ts` is types-only), so `version_diff` can be
-      // genuinely `undefined` at runtime against an API Worker that predates it —
-      // and `undefined?.is_default === false` is `false`, i.e. indexable, which is
-      // the correct degradation.
-      noindex: pair.mechanisms.length === 0 || pair.version_diff?.is_default === false,
+      noindex,
     });
-    // No JSON-LD: §9.2 defers integration structured data to Stage 2.
+
+    // AECI-518 — the Stage 2 resolution of §9.2's integration-JSON-LD deferral
+    // (decision record: `STAGE_2_SPEC.md` §8.7). Gated on the SAME `noindex`
+    // condition: structured data must never describe a page we are telling
+    // crawlers to skip, and an empty pair has no subject matter to describe
+    // beyond its two endpoints. `setEntityMeta` clears prior JSON-LD, so the
+    // noindex branch leaves the head clean without an explicit removal here.
+    //
+    // Built from `pair` — the payload AFTER `gateHistoricalDepth` (AECI-304), so
+    // the LD can never describe version depth the page does not serve. Reusing
+    // `name` / `description` verbatim is what keeps the structured data and the
+    // `<title>` from drifting; the breadcrumb label reuses the template's own
+    // `@@pair.breadcrumb.home` message id for the same reason.
+    if (!noindex) {
+      meta.setPairJsonLd({
+        canonical,
+        name,
+        description,
+        homeLabel: $localize`:@@pair.breadcrumb.home:Home`,
+        context: pair.context_product,
+        other: pair.other_product,
+      });
+    }
   };
 
   const notFoundSlug = `${contextSlug}/${otherSlug}`;

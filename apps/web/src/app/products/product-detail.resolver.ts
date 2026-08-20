@@ -30,7 +30,9 @@ export const productDetailResolver = createDetailResolver<ProductDetail>({
       canonical,
       ogImage: product.logo_url ?? undefined,
     });
-    meta.setProductJsonLd(product);
+    // `canonical` gives the node a stable `@id` (AECI-518) — the URI the pair
+    // page's `about[]` entries reference so the two describe ONE product.
+    meta.setProductJsonLd(product, canonical);
   },
   pushEmbedded: (ctx, product) => {
     // Embedded cache-tag entities — vendor, every integration shown, and

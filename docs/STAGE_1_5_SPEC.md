@@ -313,7 +313,7 @@ The pair page is **Layer A**: it ships first, needs **no** claim data, and deliv
 > **Superseded in part by §11 (Addendum A, 2026-07-08).** The single-canonical rule below was the shipped Layer-A behaviour and remains accurate until AECI-340 lands; from then on, **pairs with ≥1 mechanism carry a self-referential canonical on each orientation** (two indexable URLs per real pair, each direction-framed). Empty pairs are unchanged (render + `noindex`). See §11.2 for the replacement contract and §11.1 for why the alphabetical default survives everywhere else.
 
 - **Canonical** uses the serving origin (ADR 0011) — the default-context pair URL is the canonical; the non-default orientation (viewing from the other product) is a secondary entry that canonicalises to the default. Avoid two indexable URLs for one pair. *(Superseded by §11.2 for pairs with mechanisms — see the note above.)*
-- JSON-LD and per-pair meta describe the product pair.
+- JSON-LD and per-pair meta describe the product pair. *(Per-pair meta shipped with the page in 1.5. **JSON-LD did not** — Phase 2 §9.2 had deferred integration structured data to Stage 2, so this line described an intent rather than the build for as long as the page has existed. ✅ **Closed 2026-08-20 by AECI-518**: a `schema.org/WebPage` whose `about` names both endpoint products, plus a `BreadcrumbList` mirroring the visible trail, emitted only when the page is indexable. Contract: `STAGE_2_SPEC.md` §8.7.)*
 - **Cache tags** per `CACHE_STRATEGY.md` — tag the pair page by both product slugs so a promote touching either product (or its claims) purges it (§6.2).
 
 ---
