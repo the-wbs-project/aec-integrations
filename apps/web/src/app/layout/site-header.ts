@@ -5,8 +5,15 @@
  * `aec-nav-menu` (its own `lg:hidden` host) opens an overlay that holds the
  * links, search, and Sign-in. At `lg+` the hamburger drops out and those
  * affordances render inline: a centered primary `<nav>` with the directory
- * links, plus a right-side cluster (search at `xl+`, Sign-in CTA), over a warm
- * Bone "shelf" that reads as editorial structure rather than chrome.
+ * links, plus a right-side cluster (search, Sign-in CTA), over a warm Bone
+ * "shelf" that reads as editorial structure rather than chrome.
+ *
+ * Search is the one affordance that changes SHAPE rather than just appearing:
+ * icon-collapsed (`aec-search-trigger`) through the `lg`–`xl` band, then the
+ * inline `w-52` box at `xl+`. That band used to render no search at all — the
+ * hamburger ended at `lg` and the box started at `xl` — and the box genuinely
+ * doesn't fit at 1024px, so the icon is what closes the gap. See
+ * `search-trigger.ts` for the width budget.
  *
  * The row is Home · Products · Categories▾ · Trades▾ · Audiences▾ · Phases▾ ·
  * More▾. AECI-158 re-pointed the directory at the taxonomy; Vendors /
@@ -41,6 +48,7 @@ import { BrandLogo } from './brand-logo';
 import { NavFlyoutTrigger } from './nav-flyout-trigger';
 import { NavMenu } from './nav-menu';
 import { NavMoreTrigger } from './nav-more-trigger';
+import { SearchTrigger } from './search-trigger';
 import { UserMenu } from './user-menu';
 
 @Component({
@@ -53,11 +61,26 @@ import { UserMenu } from './user-menu';
     NavFlyoutTrigger,
     NavMoreTrigger,
     SearchAutocomplete,
+    SearchTrigger,
     UserMenu,
   ],
   template: `
     <header class="bg-(--surface-base)">
-      <div class="mx-auto flex max-w-7xl items-center gap-3 px-8 py-5 md:gap-8">
+      <!--
+        The lg-band gaps (lg:gap-6 here, gap-3.5 on the nav) are load-bearing,
+        not taste. Measured at 1024px, signed out (the worst case: "Sign in" is
+        wider than the account icon):
+          before the search icon, at gap-5/gap-8: fits, nav box 598 vs content
+            597, i.e. 1px of slack
+          with the search icon, at gap-5/gap-8: scrollWidth exceeds clientWidth
+            by 29px, so the row clips
+          with the search icon, at gap-3.5/gap-6: fits, nav box 562 vs content
+            561, back to the same 1px
+        So these two gap steps are what pay for the 36px control; they buy back
+        exactly what it costs and nothing more. At xl+ the gaps go back up, where
+        there is room. Re-measure at 1024 before adding anything to this row.
+      -->
+      <div class="mx-auto flex max-w-7xl items-center gap-3 px-8 py-5 md:gap-8 lg:gap-6 xl:gap-8">
         <aec-nav-menu />
         <aec-brand-logo />
         <!--
@@ -70,9 +93,14 @@ import { UserMenu } from './user-menu';
           The row is still measured: "More" replaced the Updates link (net width
           ~neutral), and any further top-level item needs a re-measure at 1024px,
           not just an insert. Secondary destinations belong in More.
+          Measured item widths at gap-3.5 (1024px, en-US): Home 37 · Products 56
+          · Categories 96 · Trades 70 · Audiences 93 · Phases 73 · More 52, plus
+          6 gaps of 14 = 561, in a 561px box. There is no headroom left at lg:
+          the next item added here has to displace one, and demoting Home into
+          the wordmark (which already links to "/") is the cheapest ~51px.
         -->
         <nav
-          class="hidden flex-1 items-center justify-center gap-5 text-sm font-medium lg:flex xl:gap-7"
+          class="hidden flex-1 items-center justify-center gap-3.5 text-sm font-medium lg:flex xl:gap-7"
           i18n-aria-label="@@app.nav.primary.aria"
           aria-label="Primary"
         >
@@ -100,6 +128,19 @@ import { UserMenu } from './user-menu';
           <aec-nav-more-trigger />
         </nav>
         <div class="hidden items-center gap-3 md:flex">
+          <!--
+            Search renders at every width, but in three different sizes, because
+            the row's slack varies by ~250px across the desktop range:
+              below lg → inside the hamburger overlay (aec-nav-menu)
+              lg – xl  → the icon-collapsed aec-search-trigger (~36px; the box
+                         does not fit; at 1024px the row has ~1px spare)
+              xl+      → the inline w-52 box below
+            aec-search-trigger owns its own "hidden lg:block xl:hidden" band, so
+            the three mounts hand off without a gap. They did NOT before: the
+            hamburger stopped at lg and this box started at xl, leaving 1024-1279
+            with no search affordance at all.
+          -->
+          <aec-search-trigger />
           <aec-search-autocomplete
             class="hidden xl:block"
             inputId="header-search"

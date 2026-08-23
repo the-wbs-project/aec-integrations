@@ -9,7 +9,11 @@
  * (Updates · Roadmap · About · Contact, Legal, and the `/admin` section for an
  * admin), search, and the Sign-in CTA. The component is hidden at `lg+` via
  * its `lg:hidden` host class — at those widths the same affordances render as the
- * inline desktop nav in `site-header.ts` (with hover flyouts). Both surfaces
+ * inline desktop nav in `site-header.ts` (with hover flyouts). Search is the one
+ * exception: it does NOT go inline at `lg`, because the input doesn't fit until
+ * `xl`. `aec-search-trigger` (`hidden lg:block xl:hidden`) catches it as an icon
+ * across that band, so this `lg:hidden` and the inline box's `xl:block` no
+ * longer leave 1024–1279 without search. Both surfaces
  * share `NavFlyoutList` + `NavMoreList` and the copy modules
  * (`taxonomy-nav-copy.ts`, `more-menu-links.ts`, `admin/admin-nav.ts`), so the
  * link sets cannot drift. AECI-158/159 re-pointed the nav at the taxonomy;
@@ -65,6 +69,9 @@ import { facetNavLabel, facetViewAllLabel } from './taxonomy-nav-copy';
   // removed from the layout above `lg`. The handover moved up from `md` in
   // AECI-544: four taxonomy flyouts no longer fit in the 768px header, so the
   // hamburger now carries navigation through the md range too.
+  // Changing this breakpoint moves the search handover too — `aec-search-trigger`
+  // starts exactly where this stops. Keep the two in lockstep or a width band
+  // ends up with two search boxes, or none.
   host: { class: 'lg:hidden' },
   imports: [
     RouterLink,
