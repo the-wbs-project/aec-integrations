@@ -23,6 +23,11 @@ import { expect, test, type Page } from '@playwright/test';
 const ROUTE = '/preview/layouts/browse';
 const MOBILE = { width: 375, height: 667 } as const;
 const DESKTOP = { width: 1280, height: 800 } as const;
+// The `lg`-`xl` band. Neither the hamburger nor the inline search box renders
+// here, so it is the width the compact `aec-search-trigger` exists to cover.
+// 1100 rather than 1024 so the assertions aren't sitting on the exact edge; the
+// row's fit at 1024 is pinned by measurement in `site-header.ts`, not here.
+const NARROW_DESKTOP = { width: 1100, height: 800 } as const;
 const AXE_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'];
 
 // Top-level links (not the taxonomy facets, which are flyouts/disclosures).
@@ -295,6 +300,68 @@ test.describe('primary navigation menu (1280px)', () => {
     await primaryNav(page).getByRole('button', { name: 'More menu' }).hover();
     await expect(page.locator('#nav-more-panel')).toBeVisible();
     expect(await analyzeHeader(page), 'More menu open').toEqual([]);
+  });
+});
+
+// The 1024-1279 band used to render NO search affordance at all: the hamburger
+// (which carries a search box) is `lg:hidden`, and the inline header box is
+// `hidden xl:block`, so the two breakpoints never met. The inline box genuinely
+// does not fit at 1024 - the row has ~1px of slack - so the fix is the compact
+// icon trigger rather than widening the box. These tests are the regression
+// guard: the failure mode is silent (nothing throws, search just disappears at
+// some widths), so both "exactly one affordance" and "it actually works" are
+// pinned here.
+test.describe('header search in the lg-xl band (1100px)', () => {
+  test.use({ viewport: NARROW_DESKTOP });
+
+  function searchTrigger(page: Page) {
+    return page.locator('aec-search-trigger button');
+  }
+
+  test('the compact trigger is the only search affordance at this width', async ({ page }) => {
+    await page.goto(ROUTE);
+    await expect(page.locator('app-root')).toBeAttached();
+
+    // The hamburger (and its search box) is gone above `lg`...
+    await expect(toggle(page)).toBeHidden();
+    // ...and the inline box has not arrived yet below `xl`.
+    await expect(page.locator('aec-site-header aec-search-autocomplete')).toBeHidden();
+    // ...so this is what carries search here.
+    await expect(searchTrigger(page)).toBeVisible();
+    await expect(searchTrigger(page)).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  test('the trigger opens a focused search box and Escape returns focus', async ({ page }) => {
+    await page.goto(ROUTE);
+    await searchTrigger(page).click();
+
+    const input = overlay(page).getByRole('combobox', { name: 'Search' });
+    await expect(input).toBeVisible();
+    // Opening a search affordance that does not take focus is a dead control.
+    await expect(input).toBeFocused();
+
+    await page.keyboard.press('Escape');
+    await expect(input).toHaveCount(0);
+    await expect(searchTrigger(page)).toBeFocused();
+  });
+
+  test('submitting a query from the panel reaches /search', async ({ page }) => {
+    await page.goto(ROUTE);
+    await searchTrigger(page).click();
+
+    await overlay(page).getByRole('combobox', { name: 'Search' }).fill('revit');
+    await page.keyboard.press('Enter');
+
+    await expect(page).toHaveURL(/\/search\?q=revit/);
+  });
+
+  test('the header and the open search panel are axe-clean', async ({ page }) => {
+    await page.goto(ROUTE);
+    expect(await analyzeHeader(page), 'closed').toEqual([]);
+
+    await searchTrigger(page).click();
+    await expect(overlay(page).getByRole('combobox', { name: 'Search' })).toBeVisible();
+    expect(await analyzeHeaderAndOverlay(page), 'search panel open').toEqual([]);
   });
 });
 
