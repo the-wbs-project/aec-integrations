@@ -64,7 +64,16 @@
   },
 
   "tagVocabulary": {
-    "resourceAttributes": ["env", "app", "service", "worker", "version", "locale", "host", "service.name"],
+    "resourceAttributes": [
+      "env",
+      "app",
+      "service",
+      "worker",
+      "version",
+      "locale",
+      "host",
+      "service.name"
+    ],
     "_note": "The shared vocabulary rides as OTLP RESOURCE attributes (spec §2 invariant 4). Per-call tags (`outcome`, `trigger`, `endpoint`, `status_class`, `check`, `severity`, `table`, `index`, `route_class`, `cache_status`, …) ride as POINT attributes and are read as `attributes.<key>` in HogQL. Raw `status` was dropped in §AW1 for cardinality (§3.5) — the status code lives on the error log."
   },
 

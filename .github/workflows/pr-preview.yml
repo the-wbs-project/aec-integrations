@@ -267,7 +267,6 @@ jobs:
           PH_SM_RELEASE_NAME: aeci-web
         run: bash scripts/ci/posthog-sourcemaps.sh
 
-
       # ---------------------------------------------------------------------
       # Step 8: Deploy SSR Worker (PR-scoped name)
       #   `--name` overrides `env.preview.name`; everything else

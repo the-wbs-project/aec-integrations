@@ -792,7 +792,6 @@ jobs:
           PH_SM_RELEASE_NAME: aeci-web
         run: bash scripts/ci/posthog-sourcemaps.sh
 
-
       - name: Deploy SSR
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

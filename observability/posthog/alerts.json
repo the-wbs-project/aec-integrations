@@ -19,9 +19,7 @@
     "AECI-651 — this becomes the only record."
   ],
   "managedBy": "AECI-647",
-  "appliesTo": [
-    "prod"
-  ],
+  "appliesTo": ["prod"],
   "alerts": [
     {
       "key": "worker-error-rate",
