@@ -16,7 +16,7 @@ import type { AttestationDetector } from '@aeci/shared';
 import { ATTESTATION_DETECTORS } from '@aeci/shared';
 import type { DetectorResult } from './attestation-detectors';
 
-/** The slice of the Datadog client this module needs (`scheduled.ts`'s
+/** The slice of the telemetry client this module needs (`scheduled.ts`'s
  *  `metricSink` adapter satisfies it structurally). */
 export interface AttestationNotifyMetricSink {
   count(metric: string, value: number, tags: string[]): void;

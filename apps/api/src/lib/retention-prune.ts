@@ -470,7 +470,7 @@ export async function runRetentionPrune(
 // Observability (docs/OBSERVABILITY.md)
 // ---------------------------------------------------------------------------
 
-/** Datadog transport, narrowed to what this module emits — the same injected
+/** Telemetry transport, narrowed to what this module emits — the same injected
  *  seam as `SnapshotMetricSink`, so this file stays free of `ctx`/`env`/`Request`. */
 export type RetentionMetricSink = {
   count(metric: string, value: number, tags: string[]): void;

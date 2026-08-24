@@ -23,7 +23,7 @@
 
 import type { WafEventGroup } from '@aeci/shared/cloudflare-analytics';
 
-/** Datadog transport, narrowed to the count submitter this module needs. The
+/** Telemetry transport, narrowed to the count submitter this module needs. The
  *  caller binds `(ctx, env, request)` and forwards to the shared client's
  *  `submitCount`. */
 export type WafMetricSink = {

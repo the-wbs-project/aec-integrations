@@ -46,7 +46,7 @@ import type { ZodType } from 'zod';
 
 import { getDb } from '../db/client';
 import { profiles, workflowInstances } from '../db/schema';
-import { logToDatadog, submitCount } from '../datadog';
+import { logToPosthog, submitCount } from '../posthog';
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
@@ -68,7 +68,7 @@ type AdminContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
 function makeForwarder(c: AdminContext): AuditLogForwarder | undefined {
   if (!c.env.DD_API_KEY) return undefined;
   return (entry) => {
-    logToDatadog(c.executionCtx, c.env, c.req.raw, {
+    logToPosthog(c.executionCtx, c.env, c.req.raw, {
       level: 'info',
       message: `audit ${entry.action} ${entry.entityId ?? ''}`.trim(),
       action: entry.action,
@@ -82,7 +82,7 @@ function makeForwarder(c: AdminContext): AuditLogForwarder | undefined {
 function makeWorkflowForwarder(c: AdminContext): WorkflowTransitionForwarder | undefined {
   if (!c.env.DD_API_KEY) return undefined;
   return (entry) => {
-    logToDatadog(c.executionCtx, c.env, c.req.raw, {
+    logToPosthog(c.executionCtx, c.env, c.req.raw, {
       level: 'info',
       message: `workflow ${entry.fromState ?? '∅'}→${entry.toState} ${entry.workflowId}`.trim(),
       from_state: entry.fromState ?? undefined,

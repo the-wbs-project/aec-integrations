@@ -41,7 +41,7 @@ import {
   workflowInstances,
   workflowTransitions,
 } from '../db/schema';
-import { submitCount } from '../datadog';
+import { submitCount } from '../posthog';
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
 import type { AuthzVariables } from '../lib/authz';
@@ -58,9 +58,9 @@ import {
 } from './admin-claims';
 
 // The moderation metric rides the shared transport; mock it so we can assert the
-// per-action count. The handler also imports `logToDatadog`.
-vi.mock('../datadog', () => ({
-  logToDatadog: vi.fn(),
+// per-action count. The handler also imports `logToPosthog`.
+vi.mock('../posthog', () => ({
+  logToPosthog: vi.fn(),
   submitCount: vi.fn(),
   submitDistribution: vi.fn(),
   submitGauge: vi.fn(),

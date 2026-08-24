@@ -21,7 +21,7 @@ import { ApiErrorCode } from '@aeci/shared';
 import type { Context, ErrorHandler } from 'hono';
 import { ZodError } from 'zod';
 
-import { logToDatadog } from './datadog';
+import { logToPosthog } from './posthog';
 import type { Env } from './env';
 import { json } from './http';
 
@@ -157,7 +157,8 @@ export type ErrorHandlerOptions = {
  *      full issues array so the SSR client can render multi-field validation
  *      feedback later.
  *   3. Everything else → status 500, code `INTERNAL_ERROR`, log full stack to
- *      Datadog (best-effort; helper is a no-op without `DD_API_KEY`). The
+ *      the observability plane (best-effort; each vendor leg no-ops without
+ *      its own key). The
  *      message returned to the caller is deliberately generic — never leak
  *      internal error strings to the wire.
  *
@@ -215,7 +216,7 @@ export function errorHandler<E extends { Bindings: Env }>(
     // console line and the Datadog log so the actual failure is visible.
     const cause = causeChain(unknownError);
     console.error(`Unhandled error in ${c.req.path}:`, unknownError, cause ? { cause } : '');
-    logToDatadog(c.executionCtx, c.env, c.req.raw, {
+    logToPosthog(c.executionCtx, c.env, c.req.raw, {
       level: 'error',
       message: `Unhandled error: ${message}`,
       ...(source ? { source } : {}),
@@ -246,7 +247,7 @@ function logRequestError<E extends { Bindings: Env }>(
   traceId: string,
   source: string | undefined,
 ): void {
-  logToDatadog(c.executionCtx, c.env, c.req.raw, {
+  logToPosthog(c.executionCtx, c.env, c.req.raw, {
     level: error.status >= 500 ? 'error' : 'warn',
     message: `Request error ${error.status} ${error.code}: ${error.message}`,
     ...(source ? { source } : {}),

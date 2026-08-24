@@ -35,7 +35,7 @@
  * ── Write mechanics ─────────────────────────────────────────────────────────
  * Every write is one `db.batch([...])` carrying the UPDATE, any taxonomy join
  * rewrite, and its `audit_log` row (the §26.1 invariant — D1 has no interactive
- * transactions). The Datadog forward and the Cache-Tag purge run post-commit in
+ * transactions). The §26.5 forward and the Cache-Tag purge run post-commit in
  * `waitUntil`.
  *
  * Vendor edits deliberately do NOT trigger an Algolia reindex: they reach search

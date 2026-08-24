@@ -198,7 +198,7 @@ async function call(
   };
   const execCtx = fakeExecutionContext();
   const res = await app(auth).request(path, init, env, execCtx);
-  // Drain waitUntil so the post-commit purge + Datadog forward have run.
+  // Drain waitUntil so the post-commit purge + §26.5 forward have run.
   await Promise.all(vi.mocked(execCtx.waitUntil).mock.calls.map((c) => c[0]));
   const body = res.status === 204 ? {} : await res.json();
   return { status: res.status, body: body as JsonBody, send };

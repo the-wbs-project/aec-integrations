@@ -14,7 +14,7 @@
  * See `docs/OBSERVABILITY.md`.
  */
 
-/** The slice of the Datadog client this module needs (`scheduled.ts`'s
+/** The slice of the telemetry client this module needs (`scheduled.ts`'s
  *  `metricSink` adapter satisfies it structurally). */
 export interface EntitlementExpiryMetricSink {
   count(metric: string, value: number, tags: string[]): void;

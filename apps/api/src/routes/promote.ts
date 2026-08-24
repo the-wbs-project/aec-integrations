@@ -103,7 +103,7 @@ import {
   taxonomyTrades,
   vendors,
 } from '../db/schema';
-import { logToDatadog, submitCount, submitDistribution } from '../datadog';
+import { logToPosthog, submitCount, submitDistribution } from '../posthog';
 import type { Env } from '../env';
 import { ApiError } from '../errors';
 import { syncPromoteTargets } from '../lib/algolia-sync';
@@ -294,7 +294,7 @@ function integrationEditableData(intg: PromoteIntegration): Record<string, unkno
 function makeForwarder(rc: PromoteRunCtx): AuditLogForwarder | undefined {
   if (!rc.env.DD_API_KEY) return undefined;
   return (entry) => {
-    logToDatadog(rc, rc.env, rc.request, {
+    logToPosthog(rc, rc.env, rc.request, {
       level: 'info',
       message: `audit ${entry.action} ${entry.entityId ?? ''}`.trim(),
       action: entry.action,
@@ -333,8 +333,8 @@ const BLOCKED_INTEGRATION_REASON =
  * issues the purge itself. The HTTP transport (`callCloudflarePurge` +
  * `CF_PURGE_API_TOKEN`) was retired in WC-10 (AECI-324).
  *
- * Batches are fired concurrently; a failed `queue.send` is logged (Datadog
- * `warn`) and swallowed so it never affects the committed promote.
+ * Batches are fired concurrently; a failed `queue.send` is logged (a `warn`) and
+ * swallowed so it never affects the committed promote.
  *
  * `removedTradeSlugs` carries the trades this promote *dropped* from the product
  * (AECI-542). The response echoes only what was SET, so a re-promote that clears a
@@ -370,7 +370,7 @@ async function purgeAfterPromote(
 }
 
 function logPurgeEnqueueFailure(rc: PromoteRunCtx, batch: string[], reason: string): void {
-  logToDatadog(rc, rc.env, rc.request, {
+  logToPosthog(rc, rc.env, rc.request, {
     level: 'warn',
     message: 'aeci.api.promote.cache_purge_enqueue_failed',
     source: 'review-app-promote',
@@ -427,7 +427,7 @@ async function syncAlgoliaAfterPromote(
 }
 
 function logAlgoliaSyncFailure(rc: PromoteRunCtx, entity: string, reason: string): void {
-  logToDatadog(rc, rc.env, rc.request, {
+  logToPosthog(rc, rc.env, rc.request, {
     level: 'warn',
     message: 'aeci.api.promote.algolia_sync_failed',
     source: 'review-app-promote',
@@ -443,7 +443,7 @@ function logAlgoliaSyncFailure(rc: PromoteRunCtx, entity: string, reason: string
  * from the promote response (`affectedUrlsForPromote`) and submits them to
  * IndexNow (Bing/Yandex/…) via `callIndexNow`, gated on `INDEXNOW_KEY` +
  * `PUBLIC_SITE_URL`. Records `aeci.indexnow.submit{source:promote,outcome:ok|failed}`
- * and warn-logs a failure (Datadog) — never throws, never blocks the committed
+ * and warn-logs a failure — never throws, never blocks the committed
  * promote (§20.2 / §20.5). Injected for tests (mirrors the Algolia seam).
  *
  * `tradeUrls` carries the trade inputs the response can't supply (AECI-546): the
@@ -494,7 +494,7 @@ async function notifyIndexNowAfterPromote(
 }
 
 function logIndexNowFailure(rc: PromoteRunCtx, urlsCount: number, reason: string): void {
-  logToDatadog(rc, rc.env, rc.request, {
+  logToPosthog(rc, rc.env, rc.request, {
     level: 'warn',
     message: 'aeci.api.promote.indexnow_failed',
     source: 'review-app-promote',
@@ -548,7 +548,7 @@ function resolveTradeUrlOptions(
  * §20.2 acceptance criterion) and pings Google's Indexing API via
  * `callGoogleIndexing`, gated on the service-account creds + `PUBLIC_SITE_URL`.
  * Records `aeci.google_indexing.submit{source:promote,outcome:ok|failed}` and
- * warn-logs a token failure or a partial publish (Datadog) — never throws, never
+ * warn-logs a token failure or a partial publish — never throws, never
  * blocks the committed promote (§20.2 / §20.5). Best-effort: Google officially
  * supports only `JobPosting`/`BroadcastEvent`, so this is an additive signal on
  * top of the sitemap `<lastmod>` (§20.5 step 5). Injected for tests.
@@ -600,7 +600,7 @@ async function notifyGoogleIndexingAfterPromote(
 }
 
 function logGoogleIndexingFailure(rc: PromoteRunCtx, urlsCount: number, reason: string): void {
-  logToDatadog(rc, rc.env, rc.request, {
+  logToPosthog(rc, rc.env, rc.request, {
     level: 'warn',
     message: 'aeci.api.promote.google_indexing_failed',
     source: 'review-app-promote',
@@ -658,7 +658,7 @@ export async function refreshHomeStatsAfterPromote(rc: PromoteRunCtx, db: Db): P
       'trigger:promote',
       'outcome:failed',
     ]);
-    logToDatadog(rc, rc.env, rc.request, {
+    logToPosthog(rc, rc.env, rc.request, {
       level: 'error',
       message: 'aeci.stats.compute.crashed',
       source: 'review-app-promote',
@@ -675,7 +675,7 @@ export async function refreshHomeStatsAfterPromote(rc: PromoteRunCtx, db: Db): P
   emitHomeStatsMetrics(sink, 'promote', result, Date.now() - started);
   for (const k of result.keys) {
     if (k.status !== 'failed') continue;
-    logToDatadog(rc, rc.env, rc.request, {
+    logToPosthog(rc, rc.env, rc.request, {
       level: 'warn',
       message: `aeci.stats.compute ${k.key} status=failed`,
       source: 'review-app-promote',
@@ -729,7 +729,7 @@ function logPromoteSkips(rc: PromoteRunCtx, skipped: PromoteSkipped[]): void {
     return acc;
   }, {});
 
-  logToDatadog(rc, rc.env, rc.request, {
+  logToPosthog(rc, rc.env, rc.request, {
     level: 'warn',
     message: 'aeci.api.promote.partial_skipped',
     source: 'review-app-promote',
@@ -770,7 +770,7 @@ function logPromoteStaleIds(rc: PromoteRunCtx, staleSupabaseIds: PromoteStaleId[
     return acc;
   }, {});
 
-  logToDatadog(rc, rc.env, rc.request, {
+  logToPosthog(rc, rc.env, rc.request, {
     level: 'warn',
     message: 'aeci.api.promote.stale_supabase_id',
     source: 'review-app-promote',
@@ -809,7 +809,7 @@ function logPromoteReplay(
   via: PromoteReplayPath,
   ledger: PromoteJobLedger,
 ): void {
-  logToDatadog(rc, rc.env, rc.request, {
+  logToPosthog(rc, rc.env, rc.request, {
     level: 'warn',
     message: 'aeci.api.promote.replay_detected',
     source: 'review-app-promote',
@@ -836,7 +836,7 @@ function logPromoteReplay(
  *
  *   - `env` — the Worker bindings (`DB`, CF/Algolia/IndexNow/Google creds, `DD_*`).
  *   - `waitUntil` — dispatch for the best-effort post-commit tasks AND for the
- *     Datadog transport, which is fire-and-forget by design (`@aeci/shared/datadog`).
+ *     telemetry transport, which is fire-and-forget by design (`@aeci/shared/posthog`).
  *     `PromoteRunCtx` satisfies that transport's `{ waitUntil }` shape directly, so
  *     it is passed as the ctx argument.
  *   - `request` — used ONLY to derive the Datadog `hostname` dimension. The Workflow
@@ -880,7 +880,7 @@ export type PromoteIngestResult = {
   wrote: boolean;
   /** D1 session bookmark of the commit, for the post-commit re-reads (AECI-250). */
   bookmark: string | null;
-  /** Audit rows committed inside the batch, forwarded to Datadog post-commit (§26.5). */
+  /** Audit rows committed inside the batch, forwarded to PostHog post-commit (§26.5) (§26.5). */
   auditEntries: AuditLogEntry[];
   /** Entities the caller addressed by a `supabaseId` whose row no longer exists, and
    *  which were therefore **created** instead of updated (AECI-568). Deliberately NOT

@@ -50,7 +50,7 @@ import {
   workflowInstances,
   workflowTransitions,
 } from '../db/schema';
-import { logToDatadog } from '../datadog';
+import { logToPosthog } from '../posthog';
 import type { Env } from '../env';
 import { ApiError } from '../errors';
 import { json } from '../http';
@@ -65,7 +65,7 @@ type AuthContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
 function makeForwarder(c: AuthContext): AuditLogForwarder | undefined {
   if (!c.env.DD_API_KEY) return undefined;
   return (entry) => {
-    logToDatadog(c.executionCtx, c.env, c.req.raw, {
+    logToPosthog(c.executionCtx, c.env, c.req.raw, {
       level: 'info',
       message: `audit ${entry.action} ${entry.entityId ?? ''}`.trim(),
       action: entry.action,
@@ -251,7 +251,7 @@ export function createDeleteAccountHandler(
     // already erased (GDPR-met); a failure here is logged, not fatal.
     const authResult = await deleteAuthUser(c.env, userId);
     if (!authResult.ok) {
-      logToDatadog(c.executionCtx, c.env, c.req.raw, {
+      logToPosthog(c.executionCtx, c.env, c.req.raw, {
         level: 'warn',
         message: 'account.deleted: auth.users delete failed (D1 data already erased)',
         source: 'account',

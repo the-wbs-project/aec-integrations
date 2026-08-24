@@ -23,7 +23,8 @@ import type { ApiError } from '@aeci/shared';
 import { injectAlgoliaBootstrap } from './algolia-bootstrap-inject';
 import { injectPostHogBootstrap } from './posthog-bootstrap-inject';
 import { injectDatadogBootstrap } from './server-bootstrap-inject';
-import { logToDatadog, shouldEmitRenderLog } from './server-datadog';
+import { logToPosthog } from './server-posthog';
+import { shouldEmitRenderLog } from './server-render-log';
 import { injectHtmlLangDir } from './server-html-dir-inject';
 import { createCachePurgeQueueHandler } from './server/cache-purge-queue';
 import { cacheGateway, createApp, type Bindings, type SsrRenderer } from './server-runtime';
@@ -84,7 +85,7 @@ const app = createApp({
     // renders, so prod 2xx traffic doesn't flood the logs intake (AECI-103).
     if (shouldEmitRenderLog(env, injected.status)) {
       const { pathname, search } = new URL(request.url);
-      logToDatadog(ctx, env, request, {
+      logToPosthog(ctx, env, request, {
         message: 'ssr.render',
         path: pathname,
         query: search || undefined,

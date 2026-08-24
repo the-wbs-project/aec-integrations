@@ -257,7 +257,7 @@ export async function runMetricsSnapshot(
 // Observability (docs/OBSERVABILITY.md)
 // ---------------------------------------------------------------------------
 
-/** Datadog transport, narrowed to what this module emits. The caller binds
+/** Telemetry transport, narrowed to what this module emits. The caller binds
  *  `(ctx, env, request)` — same shape as `StatsMetricSink`. */
 export type SnapshotMetricSink = {
   count(metric: string, value: number, tags: string[]): void;

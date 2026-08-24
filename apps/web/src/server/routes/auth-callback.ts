@@ -34,7 +34,7 @@ import type { Context } from 'hono';
 
 import type { WebEnv } from '../../env';
 import { createServerApiClient } from '../../server-api-client';
-import { submitCount } from '../../server-datadog';
+import { submitCount } from '../../server-posthog';
 import { createSupabaseServerClient } from '../auth/supabase-server-client';
 
 /**
@@ -70,7 +70,7 @@ const NO_STORE = 'private, no-store';
  * (`link_invalid` / `missing_code` / `auth_not_configured`). Browser-side
  * *initiation* attempts (magic-link send, OAuth redirect-out) are direct
  * browser→Supabase and are a deferred RUM concern (see docs/OBSERVABILITY.md).
- * Fire-and-forget via the shared transport — no-op without `DD_API_KEY`.
+ * Fire-and-forget via the shared transport — each vendor leg no-ops without its own key.
  */
 function emitSignin(
   c: Context<{ Bindings: WebEnv }>,

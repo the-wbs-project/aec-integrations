@@ -67,7 +67,7 @@ import type { ZodType } from 'zod';
 
 import { getDb, type Db } from '../db/client';
 import { vendorRequests, workflowInstances } from '../db/schema';
-import { logToDatadog, submitCount } from '../datadog';
+import { logToPosthog, submitCount } from '../posthog';
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
@@ -117,12 +117,12 @@ const noopSyncToLinear: SyncRequestToLinear = async () => {};
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-/** Datadog forwarder for the audit write; no-op without `DD_API_KEY`. Mirrors
+/** Telemetry forwarder (PostHog + the dual-run Datadog leg) for the audit write; each vendor leg no-ops without its own key. Mirrors
  *  `routes/admin-reviews.ts`, tagged `source: admin-moderation`. */
 function makeForwarder(c: AdminContext): AuditLogForwarder | undefined {
   if (!c.env.DD_API_KEY) return undefined;
   return (entry) => {
-    logToDatadog(c.executionCtx, c.env, c.req.raw, {
+    logToPosthog(c.executionCtx, c.env, c.req.raw, {
       level: 'info',
       message: `audit ${entry.action} ${entry.entityId ?? ''}`.trim(),
       action: entry.action,
@@ -133,12 +133,12 @@ function makeForwarder(c: AdminContext): AuditLogForwarder | undefined {
   };
 }
 
-/** Datadog forwarder for the workflow-transition write; no-op without
+/** Telemetry forwarder (PostHog + the dual-run Datadog leg) for the workflow-transition write; no-op without
  *  `DD_API_KEY`. Mirrors `makeForwarder`, tagged `source: admin-moderation`. */
 function makeWorkflowForwarder(c: AdminContext): WorkflowTransitionForwarder | undefined {
   if (!c.env.DD_API_KEY) return undefined;
   return (entry) => {
-    logToDatadog(c.executionCtx, c.env, c.req.raw, {
+    logToPosthog(c.executionCtx, c.env, c.req.raw, {
       level: 'info',
       message: `workflow ${entry.fromState ?? '∅'}→${entry.toState} ${entry.workflowId}`.trim(),
       from_state: entry.fromState ?? undefined,
@@ -428,7 +428,7 @@ export function createModerateRequestHandler(
         actorLabel: null,
       }).catch((error) => {
         try {
-          logToDatadog(c.executionCtx, c.env, c.req.raw, {
+          logToPosthog(c.executionCtx, c.env, c.req.raw, {
             level: 'warn',
             message: `request→Linear sync failed for ${id}`,
             error: error instanceof Error ? error.message : String(error),

@@ -11,15 +11,15 @@
 import type { Context } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { submitCount, submitDistribution } from '../datadog';
+import { submitCount, submitDistribution } from '../posthog';
 import type { Env } from '../env';
 import { scoreToxicity } from './toxicity';
 
 // AECI-206 / AECI-258: the `aeci.toxicity.api*` observability pair rides the
 // shared transport; mock it so we can assert the per-branch outcome/latency. The
-// file also imports `logToDatadog` (the `warn` path).
-vi.mock('../datadog', () => ({
-  logToDatadog: vi.fn(),
+// file also imports `logToPosthog` (the `warn` path).
+vi.mock('../posthog', () => ({
+  logToPosthog: vi.fn(),
   submitCount: vi.fn(),
   submitDistribution: vi.fn(),
   submitGauge: vi.fn(),
@@ -48,7 +48,7 @@ beforeEach(() => {
   vi.mocked(submitDistribution).mockClear();
 });
 
-/** Minimal context the function reads: env + the Datadog logging triple. */
+/** Minimal context the function reads: env + the telemetry logging triple. */
 function fakeContext(env: Partial<Env> = {}): ScoreContext {
   return {
     env: { DD_API_KEY: undefined, ...env } as Env,

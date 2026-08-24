@@ -68,7 +68,7 @@ import { fetchAuthUserEmails } from './supabase-admin';
 import { ENTITLEMENT_ENTITY_TYPE } from './vendor-entitlement';
 import type { Db } from '../db/client';
 import { vendorEntitlements, vendors } from '../db/schema';
-import { logToDatadog } from '../datadog';
+import { logToPosthog } from '../posthog';
 import type { Env } from '../env';
 
 const DAY_MS = 86_400_000;
@@ -508,7 +508,7 @@ export async function runEntitlementExpirySweep(
   if (result.capped > 0) {
     // Never truncate silently — an operator must be able to tell "nothing due"
     // from "we stopped early".
-    logToDatadog(c.executionCtx, c.env, c.req.raw, {
+    logToPosthog(c.executionCtx, c.env, c.req.raw, {
       level: 'warn',
       message: `aeci.entitlement.expiry.capped dropped=${result.capped} cap=${cap}`,
       source: EXPIRY_AUDIT_SOURCE,
@@ -589,7 +589,7 @@ export async function runEntitlementExpirySweep(
       // aborting: the cost is one duplicate warning in 24h, which is strictly
       // better than losing every remaining row's notice to one D1 hiccup.
       result.batchFailures++;
-      logToDatadog(c.executionCtx, c.env, c.req.raw, {
+      logToPosthog(c.executionCtx, c.env, c.req.raw, {
         level: 'error',
         message: 'aeci.entitlement.expiry.stamp_failed',
         source: EXPIRY_AUDIT_SOURCE,
@@ -611,7 +611,7 @@ export async function runEntitlementExpirySweep(
 function forwardEntry(c: ExpiryContext, entry: AuditLogEntry): void {
   const forwarder = c.env.DD_API_KEY
     ? (e: AuditLogEntry) => {
-        logToDatadog(c.executionCtx, c.env, c.req.raw, {
+        logToPosthog(c.executionCtx, c.env, c.req.raw, {
           level: 'info',
           message: `audit ${e.action} ${e.entityId ?? ''}`.trim(),
           action: e.action,

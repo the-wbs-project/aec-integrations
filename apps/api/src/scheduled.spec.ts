@@ -16,8 +16,8 @@ import { auditLog, jobRuns, pageViews, products, reviews } from './db/schema';
 import type { ScheduledJob, ScheduledJobMessageInput, Env } from './env';
 import { makeTestDb, type TestDb } from './test/d1';
 
-vi.mock('./datadog', () => ({
-  logToDatadog: vi.fn(),
+vi.mock('./posthog', () => ({
+  logToPosthog: vi.fn(),
   submitCount: vi.fn(),
   submitDistribution: vi.fn(),
   submitGauge: vi.fn(),
@@ -66,7 +66,7 @@ vi.mock('./db/client', () => ({ getDb: vi.fn() }));
 import { fetchWafFirewallEvents } from '@aeci/shared/cloudflare-analytics';
 
 import { getDb } from './db/client';
-import { logToDatadog, submitCount, submitDistribution, submitGauge } from './datadog';
+import { logToPosthog, submitCount, submitDistribution, submitGauge } from './posthog';
 import { reportAlgoliaDrift } from './lib/algolia-drift';
 import { runDailySync } from './lib/algolia-sync';
 import { runAttestationNotifySweep } from './lib/attestation-notify';
@@ -372,7 +372,7 @@ describe('scheduled (cron producer)', () => {
 
     expect(send).toHaveBeenCalledTimes(1);
     expect(runDailySync).toHaveBeenCalledTimes(1); // ran inline rather than dropping the tick
-    expect(logToDatadog).toHaveBeenCalledWith(
+    expect(logToPosthog).toHaveBeenCalledWith(
       ctx,
       env,
       expect.anything(),

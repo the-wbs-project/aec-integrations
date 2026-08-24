@@ -22,7 +22,7 @@ import { ApiErrorCode, type PromoteJobStatus, type PromotePayload } from '@aeci/
 export type PromoteWorkflowParams = {
   jobId: string;
   /**
-   * The kick-off request's URL, replayed into a synthetic `Request` purely so the Datadog
+   * The kick-off request's URL, replayed into a synthetic `Request` purely so the telemetry
    * `hostname` dimension of workflow-originated promote logs matches the request-originated
    * ones operators already query. Nothing reads a body or headers off it.
    */

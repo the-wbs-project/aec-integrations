@@ -1,19 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { WebEnv } from './env';
-import {
-  logToDatadog,
-  shouldEmitRenderLog,
-  submitCount,
-  submitDistribution,
-} from './server-datadog';
+import { logToDatadog, submitCount, submitDistribution } from './server-datadog';
 
 // The transport mechanics (no-op without key, intake URLs, ctx.waitUntil,
 // error swallowing, payload shapes) are covered canonically in
-// packages/shared/src/datadog.spec.ts. The transport tests here pin the *SSR
-// Worker's* config wiring: the adapter must tag with service=aeci-web,
-// ddsource=worker-angular, worker=aeci-web. `shouldEmitRenderLog` is web-only
-// policy and is tested in full below.
+// packages/shared/src/datadog.spec.ts. The tests here pin the *SSR Worker's*
+// Datadog config wiring: the adapter must tag with service=aeci-web,
+// ddsource=worker-angular, worker=aeci-web.
+//
+// AECI-642: this module is no longer a call-site surface — the Worker imports
+// telemetry from `server-posthog.ts`, which fans out to both vendors. The
+// `shouldEmitRenderLog` gate moved to `server-render-log.ts` (policy, not
+// transport) and is tested in `server-render-log.spec.ts`.
 
 function makeEnv(overrides: Partial<WebEnv> = {}): WebEnv {
   return {
@@ -93,41 +92,4 @@ describe('SSR Worker datadog adapter (config wiring)', () => {
       expect.arrayContaining(['service:aeci-web', 'worker:aeci-web', 'source:manual']),
     );
   });
-});
-
-describe('shouldEmitRenderLog (AECI-103 ssr.render log gate)', () => {
-  // Errors are kept at full fidelity in every env — including production —
-  // because the non-cacheable branch's 404/5xx visibility leans on this log.
-  it.each<WebEnv['ENV']>(['production', 'demo'])(
-    'logs error status even on the public tier %s',
-    (env) => {
-      for (const status of [404, 500, 503]) {
-        expect(shouldEmitRenderLog(makeEnv({ ENV: env }), status)).toBe(true);
-      }
-    },
-  );
-
-  // Non-public tiers keep every render (dev/preview/staging volume is tiny; the
-  // full stream verifies the pipe end-to-end).
-  it.each<WebEnv['ENV']>(['development', 'preview', 'staging'])(
-    'logs 2xx renders in non-public env %s',
-    (env) => {
-      expect(shouldEmitRenderLog(makeEnv({ ENV: env }), 200)).toBe(true);
-    },
-  );
-
-  it('logs 2xx renders when ENV is unset (development default)', () => {
-    expect(shouldEmitRenderLog(makeEnv({ ENV: undefined }), 200)).toBe(true);
-  });
-
-  // Public-tier 2xx (production + demo) is the unbounded firehose we drop — the
-  // aeci.ssr.render count metric carries that signal instead.
-  it.each<WebEnv['ENV']>(['production', 'demo'])(
-    'drops non-error 2xx/3xx on the public tier %s',
-    (env) => {
-      for (const status of [200, 204, 301, 304]) {
-        expect(shouldEmitRenderLog(makeEnv({ ENV: env }), status)).toBe(false);
-      }
-    },
-  );
 });

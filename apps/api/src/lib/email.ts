@@ -5,7 +5,7 @@
  *
  *   1. **Transactional templates** (AECI-240 / Phase 7.5, §11.1) — `sendTransactionalEmail`
  *      plus the per-template helpers (review submitted/approved/rejected, account
- *      deletion, the reconcile-sweep admin alert). These ride the Datadog triple
+ *      deletion, the reconcile-sweep admin alert). These ride the telemetry triple
  *      (`EmailContext`) and emit the `aeci.email.send` metric.
  *   2. **Low-level transport** (AECI-241 / Phase 7.6) — `sendEmail` + `parseRecipients`,
  *      a dependency-free `fetch` POST with an injectable fetch/logger, used by the
@@ -30,18 +30,18 @@
  *     `waitUntil` budget (transactional layer).
  *
  * Observability: every transactional attempt emits the `aeci.email.send` count tagged
- * `outcome:sent|failed|skipped` + `template:<id>`; failures also `warn` to Datadog
+ * `outcome:sent|failed|skipped` + `template:<id>`; failures also `warn` to the observability plane
  * (`source: 'email'`). Telemetry is wrapped so it can never turn a send into a throw.
  */
 
 import { orderedPairSlugs } from '@aeci/shared';
 
-import { logToDatadog, submitCount } from '../datadog';
+import { logToPosthog, submitCount } from '../posthog';
 import type { Env } from '../env';
 import type { StuckRequestSummary } from './admin-alert';
 
 /**
- * Minimal context a send needs: env (key + sender) plus the Datadog logging triple
+ * Minimal context a send needs: env (key + sender) plus the telemetry logging triple
  * (`executionCtx`, `env`, `req.raw`). Typed structurally rather than as Hono's
  * `Context` so both a route handler's `c` and the cron-synthesised `AlertContext`
  * (`lib/admin-alert.ts`) are assignable — Hono's `Context` is invariant on its
@@ -1090,10 +1090,10 @@ function emit(c: EmailContext, outcome: EmailOutcome, template: EmailTemplate): 
   }
 }
 
-/** Best-effort `warn` to Datadog; wrapped like `emit`. */
+/** Best-effort `warn` to the observability plane; wrapped like `emit`. */
 function warn(c: EmailContext, message: string): void {
   try {
-    logToDatadog(c.executionCtx, c.env, c.req.raw, { level: 'warn', message, source: 'email' });
+    logToPosthog(c.executionCtx, c.env, c.req.raw, { level: 'warn', message, source: 'email' });
   } catch {
     console.warn(`email: ${message}`);
   }

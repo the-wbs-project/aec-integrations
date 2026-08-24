@@ -43,7 +43,7 @@ import { and, eq, isNull } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import { vendorRequests, workflowInstances } from '../db/schema';
-import { logToDatadog, submitCount, submitDistribution } from '../datadog';
+import { logToPosthog, submitCount, submitDistribution } from '../posthog';
 import type { Env } from '../env';
 import { workflowTransitionInsert } from './audit';
 
@@ -664,13 +664,13 @@ function emitSync(
   }
 }
 
-/** Datadog forwarder for the sync transition write; no-op without `DD_API_KEY`.
+/** Telemetry forwarder (PostHog + the dual-run Datadog leg) for the sync transition write; each vendor leg no-ops without its own key.
  *  Mirrors `routes/webhooks.ts`'s `makeWorkflowForwarder`, tagged
  *  `source: site-linear-sync`. */
 function makeSyncForwarder(c: LinearContext): WorkflowTransitionForwarder | undefined {
   if (!c.env.DD_API_KEY) return undefined;
   return (entry) => {
-    logToDatadog(c.executionCtx, c.env, c.req.raw, {
+    logToPosthog(c.executionCtx, c.env, c.req.raw, {
       level: 'info',
       message: `workflow ${entry.fromState ?? '∅'}→${entry.toState} ${entry.workflowId}`.trim(),
       from_state: entry.fromState ?? undefined,
@@ -692,7 +692,7 @@ function error(c: LinearContext, message: string): void {
 }
 function log(c: LinearContext, level: 'info' | 'warn' | 'error', message: string): void {
   try {
-    logToDatadog(c.executionCtx, c.env, c.req.raw, { level, message, source: 'linear' });
+    logToPosthog(c.executionCtx, c.env, c.req.raw, { level, message, source: 'linear' });
   } catch {
     const sink = level === 'error' ? 'error' : level === 'warn' ? 'warn' : 'info';
     console[sink](`linear: ${message}`);

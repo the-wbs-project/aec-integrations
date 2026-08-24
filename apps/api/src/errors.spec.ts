@@ -10,13 +10,13 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { logToDatadog } from './datadog';
+import { logToPosthog } from './posthog';
 import type { Env } from './env';
 import { ApiError, errorHandler } from './errors';
 import { fakeExecutionContext } from './test/helpers';
 
-vi.mock('./datadog', () => ({
-  logToDatadog: vi.fn(),
+vi.mock('./posthog', () => ({
+  logToPosthog: vi.fn(),
   submitCount: vi.fn(),
   submitDistribution: vi.fn(),
   submitGauge: vi.fn(),
@@ -38,14 +38,14 @@ function request(app: Hono<{ Bindings: Env }>) {
   return app.request('/boom', {}, ENV, fakeExecutionContext());
 }
 
-/** The single `logToDatadog` event payload (4th arg) of the most recent call. */
+/** The single `logToPosthog` event payload (4th arg) of the most recent call. */
 function lastLogEvent(): Record<string, unknown> {
-  const calls = vi.mocked(logToDatadog).mock.calls;
+  const calls = vi.mocked(logToPosthog).mock.calls;
   return calls[calls.length - 1]![3] as Record<string, unknown>;
 }
 
 beforeEach(() => {
-  vi.mocked(logToDatadog).mockClear();
+  vi.mocked(logToPosthog).mockClear();
 });
 
 describe('errorHandler — default (client errors are silent)', () => {
@@ -58,7 +58,7 @@ describe('errorHandler — default (client errors are silent)', () => {
     const body = (await res.json()) as { error: { code: string }; trace_id: string };
     expect(body.error.code).toBe('VALIDATION_FAILED');
     expect(body.trace_id).toBeTruthy();
-    expect(logToDatadog).not.toHaveBeenCalled();
+    expect(logToPosthog).not.toHaveBeenCalled();
   });
 
   it('still logs an unknown error as a 500 (existing behavior)', async () => {
@@ -66,7 +66,7 @@ describe('errorHandler — default (client errors are silent)', () => {
 
     expect(res.status).toBe(500);
     expect(((await res.json()) as { error: { code: string } }).error.code).toBe('INTERNAL_ERROR');
-    expect(logToDatadog).toHaveBeenCalledTimes(1);
+    expect(logToPosthog).toHaveBeenCalledTimes(1);
     expect(lastLogEvent()).toMatchObject({ level: 'error', message: 'Unhandled error: kaboom' });
   });
 
@@ -111,7 +111,7 @@ describe('errorHandler — logClientErrors (review-app-promote observability)', 
 
     expect(res.status).toBe(400);
     const body = (await res.json()) as { trace_id: string };
-    expect(logToDatadog).toHaveBeenCalledTimes(1);
+    expect(logToPosthog).toHaveBeenCalledTimes(1);
     expect(lastLogEvent()).toMatchObject({
       level: 'warn',
       source: 'review-app-promote',
@@ -138,7 +138,7 @@ describe('errorHandler — logClientErrors (review-app-promote observability)', 
     const res = await request(appThatThrows(zodErr, opts));
 
     expect(res.status).toBe(400);
-    expect(logToDatadog).toHaveBeenCalledTimes(1);
+    expect(logToPosthog).toHaveBeenCalledTimes(1);
     const event = lastLogEvent();
     expect(event).toMatchObject({ level: 'warn', code: 'VALIDATION_FAILED', http_status: 400 });
     expect((event.details as { issues: unknown[] }).issues.length).toBeGreaterThan(0);
@@ -170,7 +170,7 @@ describe('errorHandler — logClientErrors (review-app-promote observability)', 
     const res = await request(appThatThrows(new Error('kaboom'), opts));
 
     expect(res.status).toBe(500);
-    expect(logToDatadog).toHaveBeenCalledTimes(1);
+    expect(logToPosthog).toHaveBeenCalledTimes(1);
     expect(lastLogEvent()).toMatchObject({
       level: 'error',
       source: 'review-app-promote',

@@ -43,7 +43,7 @@ import type { ZodType } from 'zod';
 import { getDb } from '../db/client';
 import type { Db } from '../db/client';
 import { reviews, workflowInstances } from '../db/schema';
-import { logToDatadog, submitCount } from '../datadog';
+import { logToPosthog, submitCount } from '../posthog';
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
@@ -78,7 +78,7 @@ type RecomputeFn = (db: Db, productIds: Iterable<string>) => Promise<void>;
 function makeForwarder(c: AdminContext): AuditLogForwarder | undefined {
   if (!c.env.DD_API_KEY) return undefined;
   return (entry) => {
-    logToDatadog(c.executionCtx, c.env, c.req.raw, {
+    logToPosthog(c.executionCtx, c.env, c.req.raw, {
       level: 'info',
       message: `audit ${entry.action} ${entry.entityId ?? ''}`.trim(),
       action: entry.action,
@@ -92,7 +92,7 @@ function makeForwarder(c: AdminContext): AuditLogForwarder | undefined {
 function makeWorkflowForwarder(c: AdminContext): WorkflowTransitionForwarder | undefined {
   if (!c.env.DD_API_KEY) return undefined;
   return (entry) => {
-    logToDatadog(c.executionCtx, c.env, c.req.raw, {
+    logToPosthog(c.executionCtx, c.env, c.req.raw, {
       level: 'info',
       message: `workflow ${entry.fromState ?? '∅'}→${entry.toState} ${entry.workflowId}`.trim(),
       from_state: entry.fromState ?? undefined,
@@ -129,7 +129,7 @@ function emitModeration(
  * SSR Worker's queue consumer issues the actual `ctx.cache.purge()` and emits
  * `aeci.cache.purge{source:moderation}` — the API Worker's own zone-HTTP purge is
  * inert against native Workers Cache. Best-effort: no-ops without the queue binding
- * (local/preview), and a `queue.send` rejection is logged (Datadog `warn`) and
+ * (local/preview), and a `queue.send` rejection is logged (a `warn`) and
  * swallowed so it never affects the committed moderation.
  */
 async function purgeProductTag(c: AdminContext, slug: string): Promise<void> {
@@ -138,7 +138,7 @@ async function purgeProductTag(c: AdminContext, slug: string): Promise<void> {
   try {
     await queue.send({ tags: [`product:${slug}`], source: 'moderation' });
   } catch (error) {
-    logToDatadog(c.executionCtx, c.env, c.req.raw, {
+    logToPosthog(c.executionCtx, c.env, c.req.raw, {
       level: 'warn',
       message: `Cache purge enqueue failed for product:${slug}`,
       outcome: error instanceof Error ? error.message : String(error),

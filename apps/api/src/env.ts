@@ -150,11 +150,32 @@ export type Env = {
   DEPLOYED_AT?: string;
   /**
    * Datadog Logs HTTP intake credentials (AECI-31). `DD_API_KEY` is required
-   * for `logToDatadog()` to forward; absent → helper is a no-op so dev boots
+   * for `logToPosthog()` to forward; absent → helper is a no-op so dev boots
    * cleanly without a Datadog account. `DD_SITE` defaults to `datadoghq.com`.
    */
   DD_API_KEY?: string;
   DD_SITE?: string;
+  /**
+   * PostHog transport config (AECI-642 / `docs/POSTHOG_MIGRATION_SPEC.md` §AW1).
+   *
+   * `POSTHOG_PROJECT_KEY` is the PUBLISHABLE `phc_` project token — not a
+   * secret, so it is a committed per-env **var** in `wrangler.jsonc` rather than
+   * a `wrangler secret` (spec §3.2: keeping it a CI-pushed secret is what
+   * produced the weeks-dark prod analytics of AECI-326). It authenticates all
+   * three pipes (OTLP logs, OTLP metrics, `posthog-node` events), which takes
+   * Worker telemetry secrets from 4 to 0. Absent → the whole transport is a
+   * total no-op, so a keyless local Worker boots cleanly.
+   *
+   * `POSTHOG_HOST` is the **ingest** origin (`https://us.i.posthog.com`), NOT
+   * the management API (`us.posthog.com`); swapping them 404s. Defaults to the
+   * US ingest host when unset.
+   *
+   * Topology (spec §3.6 / D4): preview/staging/demo/stage2 carry the
+   * `aec-integrations-dev` (525793) token; ONLY production carries
+   * `aec-integrations` (354071).
+   */
+  POSTHOG_PROJECT_KEY?: string;
+  POSTHOG_HOST?: string;
   /**
    * Bearer token gating `POST /api/promote` (the review-app push endpoint).
    * Set as a Wrangler secret per environment; absent → every promote request is

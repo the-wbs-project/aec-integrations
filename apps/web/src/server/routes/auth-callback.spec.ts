@@ -13,7 +13,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { WebEnv } from '../../env';
 import type { ServerApiClient } from '../../server-api-client';
-import { submitCount } from '../../server-datadog';
+import { submitCount } from '../../server-posthog';
 import {
   createAuthCallbackHandler,
   normalizeAuthMethod,
@@ -23,7 +23,7 @@ import {
 
 // The callback emits the `aeci.auth.signin` count (AECI-206) via the shared
 // transport; mock it so we can assert the per-branch metric/tags directly.
-vi.mock('../../server-datadog', () => ({ submitCount: vi.fn() }));
+vi.mock('../../server-posthog', () => ({ submitCount: vi.fn() }));
 
 const submitCountMock = vi.mocked(submitCount);
 
