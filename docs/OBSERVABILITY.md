@@ -916,3 +916,103 @@ second Datadog datapoint; confirm the HIT via the **`Cf-Cache-Status: HIT`** res
   and `route_class`), `aeci.api.query.duration_ms` (split by `endpoint`), `aeci.cache.purge`.
 - The dashboard should show data on the render / API / error-rate / purge widgets; the HIT-rate
   slot is now a note pointing to the Cloudflare Workers observability dashboard (WC-8).
+
+---
+
+## PostHog dashboards & alerts (AECI-647 / PH-6)
+
+**Status: committed and applied to non-production only.** Everything above this line
+describes the **live Datadog plane**, which stays canonical for the duration of the
+dual-run window (`docs/POSTHOG_MIGRATION_SPEC.md` D1). This section describes its
+PostHog replacement. AECI-648 (§AW7) rewrites the rest of this document; until then the
+two planes are documented side by side on purpose — one is operating, one is staged.
+
+**Source of truth: `observability/posthog/`.** Do not duplicate query text or thresholds
+here; that directory is the applied-from-JSON contract, the same way
+`observability/datadog/` was.
+
+| File | What it is |
+|---|---|
+| `observability/posthog/README.md` | The **26-row monitor disposition table** (every Datadog monitor → its new home, with its retired threshold), the AW6 judgement calls, the migration hazards, the numbered manual steps and the operator checklist. |
+| `observability/posthog/project-config.json` | Project topology + the twelve-cron liveness registry. |
+| `observability/posthog/insights.json` | 7 dashboards, 43 insights. |
+| `observability/posthog/alerts.json` | 13 alerts, each carrying the retired Datadog query verbatim. |
+| `observability/posthog/apply.sh` | The applier. `--dry-run` / `--verify`; dashboards + insights to both projects, alerts to prod only. |
+
+### Where the 26 monitors went
+
+13 PostHog alerts (covering 16 monitors) · 8 to the external liveness sweep · 2 to the
+existing daily digests · 2 dual monitors split across both. The per-monitor table with
+old thresholds is in `observability/posthog/README.md`.
+
+Three things changed in the port and are worth knowing before reading a number:
+
+- **Cadence is hourly.** PostHog's `every_15_minutes` needs the Boost add-on and
+  `real_time` needs Scale/Enterprise (spec D3). Four Datadog monitors evaluated at
+  5–15 minutes; the Worker error-rate alert (5 min → 1 h) is the largest single
+  degradation in the migration.
+- **Ratio alerts gained minimum-denominator floors** (5 / 5 / 20 / 3 samples). New, and
+  deliberate: at current volume one failed sign-in out of two is 50% and would page.
+- **The WAF threshold was rescaled** 500/15 min → 2,000/1 h. Same sensitivity — the source
+  is an hourly cron reading a whole clock hour, so the 15-minute window was always coarser
+  than it looked.
+
+### Absence detection moved out of the vendor entirely
+
+No PostHog tier has `notify_no_data`. All eight absence monitors are replaced by
+**`.github/workflows/posthog-liveness-sweep.yml`** (logic in
+`scripts/ci/posthog-liveness-sweep.sh`), a scheduled GitHub Actions job that queries the
+production project for a per-cron heartbeat every 3 hours and **fails red**.
+
+It runs outside the Worker on purpose — that is the property that made "Datadog owns
+absence" true, and a liveness check hosted inside the API Worker cannot detect the API
+Worker being dead. **Do not add `continue-on-error` to it.** Every other telemetry step in
+this repo is best-effort (`scripts/ci/posthog-deploy-marker.sh` always exits 0), so the
+surrounding convention points the other way; the correct precedent is
+`.github/workflows/reconcile-counts.yml`.
+
+**New dependency, stated rather than discovered:** absence detection now depends on
+GitHub Actions availability, which Datadog's server-side `notify_no_data` did not. The
+per-cron windows in `project-config.json` carry margin for the sweep's own lateness
+(26 h for daily jobs, 90 min for the 15-minute reconcile). `job_runs`, `/admin/system`
+and the two daily digest emails remain an independent second record.
+
+The sweep also **widens** coverage: Datadog watched six crons for absence; the sweep
+watches all twelve.
+
+### HogQL, not the metrics UI
+
+Every insight is a `HogQLQuery` over `posthog.metrics` (or, for the two re-homed browser
+search widgets, over `events`). PostHog Metrics is alpha and its insight builder is
+unsettled, but the underlying table is fully queryable in SQL — so the alerts are ordinary
+SQL insights with a threshold, which is a stable surface. Alert-source insights are
+aggregates with **no `GROUP BY`**, so they always return exactly one row and a
+healthy-but-empty window evaluates to `0` rather than to "no rows".
+
+Three query conventions differ from the Datadog originals and fail **silently** if
+forgotten — casing (`lower(cache_status)`; PostHog does not lowercase tag values as
+Datadog did), no `env:` filter (the project is the tier boundary), and no
+`aggregation_temporality` filter. The reasoning for each is in
+`observability/posthog/README.md` §"Migration hazards".
+
+### Applying
+
+```bash
+export POSTHOG_PERSONAL_API_KEY=phx_...       # or POSTHOG_CLI_API_KEY
+./observability/posthog/apply.sh --dry-run    # plan only; no key needed
+./observability/posthog/apply.sh              # apply
+./observability/posthog/apply.sh --verify     # read-only drift report
+```
+
+Fix drift in the JSON and re-run — never in the UI, because the next run will not know.
+`--verify` reports a live query that no longer matches the committed one.
+
+**Live dashboards (non-production, project 525793):**
+<https://us.posthog.com/project/525793/dashboard> — Traffic `2025785`, Search `2025786`,
+Home/Stats `2025787`, Auth/Reviews/Moderation `2025788`, Requests/Linear `2025789`,
+Cron health `2025790`, Alert signal sources `2025791`.
+
+**Production (354071) is not yet applied** — it needs the `phx_` personal key, which is
+still an outstanding operator step. Paste the production dashboard URLs here after the
+first prod `apply.sh` run (spec §7). The full operator checklist is in
+`observability/posthog/README.md`.
