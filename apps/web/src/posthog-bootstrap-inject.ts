@@ -17,18 +17,25 @@
  * tag (no per-request rewriting on cache hits). Note the *consent* gate lives
  * entirely client-side (`app/analytics/consent.ts`); this only exposes config.
  *
- * No-op contract: when `POSTHOG_KEY` is absent (local dev without secrets
- * provisioned, or any env where analytics is intentionally off), the helper
+ * No-op contract: when `POSTHOG_PROJECT_KEY` is absent (bare `wrangler dev`
+ * with no vars, or any env where analytics is intentionally off), the helper
  * returns the response unchanged. The browser reader mirrors the same defensive
  * check so missing config never throws — mirrors `injectDatadogBootstrap`.
+ *
+ * AECI-640 renamed `POSTHOG_KEY` → `POSTHOG_PROJECT_KEY` and moved it from a
+ * CI-pushed secret to a committed per-env `vars` entry. The `phc_` token ships
+ * in this very script tag on every page, so treating it as a secret bought
+ * nothing and cost the weeks-dark production analytics of AECI-326.
  */
 
 import type { PostHogPublicConfig, WebEnv } from './env';
 
 const HEAD_CLOSE = '</head>';
 
-/** Default ingestion host when `POSTHOG_HOST` is unset (US Cloud). The static
- *  CSP `connect-src` is pinned to the matching US hosts — see
+/** Default **ingest** host when `POSTHOG_HOST` is unset (US Cloud). Note this
+ *  is `us.i.posthog.com`, not `us.posthog.com` — the latter is the management
+ *  API and produces a confusing 404 on an intake path. The static CSP
+ *  `connect-src` is pinned to the matching US hosts — see
  *  `server/seo-headers.ts`. */
 const DEFAULT_POSTHOG_HOST = 'https://us.i.posthog.com';
 
@@ -37,7 +44,7 @@ const DEFAULT_POSTHOG_HOST = 'https://us.i.posthog.com';
  * project API key is missing. The host falls back to the US Cloud default.
  */
 export function buildPostHogPublicConfig(env: WebEnv): PostHogPublicConfig | null {
-  const key = env.POSTHOG_KEY;
+  const key = env.POSTHOG_PROJECT_KEY;
   if (!key) return null;
   return {
     key,

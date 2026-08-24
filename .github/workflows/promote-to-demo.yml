@@ -58,7 +58,7 @@
 #   SUPABASE_ANON_KEY          Shared publishable/anon key — the SINGLE shared
 #                              auth project, un-suffixed, identical for every env
 #                              (ADR 0017).
-#   ANTHROPIC_API_KEY_PRODUCTION / RESEND_API_KEY / POSTHOG_KEY_PRODUCTION
+#   ANTHROPIC_API_KEY_PRODUCTION / RESEND_API_KEY
 #                              Shared fail-open keys (reused on demo). RESEND_API_KEY
 #                              is a single shared (un-suffixed) key — one Resend
 #                              account/key spans every env (like SUPABASE_ANON_KEY).
@@ -155,7 +155,10 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           ANTHROPIC_API_KEY_PRODUCTION: ${{ secrets.ANTHROPIC_API_KEY_PRODUCTION }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
-          POSTHOG_KEY_PRODUCTION: ${{ secrets.POSTHOG_KEY_PRODUCTION }}
+          # AECI-640: POSTHOG_KEY_PRODUCTION is no longer mapped or checked — the
+          # publishable `phc_` token is a committed `vars.POSTHOG_PROJECT_KEY`
+          # entry in wrangler.jsonc, and demo now points at the NON-prod PostHog
+          # project rather than pushing the production key here.
           DATADOG_API_KEY: ${{ secrets.DATADOG_API_KEY }}
           # Un-suffixed RUM pair (one shared "aeci" app on us5), pushed to the web
           # Worker below. Must be MAPPED here, not just named in
@@ -181,7 +184,7 @@ jobs:
           # seams on the API Worker — recommended, never REQUIRED, because every seam
           # degrades rather than failing closed. CF_PURGE_API_TOKEN is absent by
           # design (WC-10 / AECI-324 retired the zone HTTP purge transport).
-          RECOMMENDED_SECRETS: 'CF_ACCESS_CLIENT_ID CF_ACCESS_CLIENT_SECRET REVIEW_APP_TOKEN ALGOLIA_APP_ID ALGOLIA_ADMIN_KEY ALGOLIA_SEARCH_KEY SUPABASE_ANON_KEY SUPABASE_SERVICE_ROLE_KEY ANTHROPIC_API_KEY_PRODUCTION RESEND_API_KEY POSTHOG_KEY_PRODUCTION DATADOG_API_KEY DD_APPLICATION_ID DD_CLIENT_TOKEN ADMIN_PURGE_TOKEN CF_ZONE_ID CF_ANALYTICS_API_TOKEN'
+          RECOMMENDED_SECRETS: 'CF_ACCESS_CLIENT_ID CF_ACCESS_CLIENT_SECRET REVIEW_APP_TOKEN ALGOLIA_APP_ID ALGOLIA_ADMIN_KEY ALGOLIA_SEARCH_KEY SUPABASE_ANON_KEY SUPABASE_SERVICE_ROLE_KEY ANTHROPIC_API_KEY_PRODUCTION RESEND_API_KEY DATADOG_API_KEY DD_APPLICATION_ID DD_CLIENT_TOKEN ADMIN_PURGE_TOKEN CF_ZONE_ID CF_ANALYTICS_API_TOKEN'
         run: bash scripts/require-secrets.sh
 
       # Assert STAGING (the immediate upstream tier) is at the SHA on BOTH the API
@@ -481,21 +484,24 @@ jobs:
           printf '%s' "$ALGOLIA_SEARCH_KEY_VALUE" \
             | pnpm exec wrangler secret put ALGOLIA_SEARCH_KEY --env demo
 
-      # Push the PUBLIC PostHog key (shared, fail-open) to the demo WEB Worker.
-      - name: Push PostHog key to web Worker (demo)
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          POSTHOG_KEY_VALUE: ${{ secrets.POSTHOG_KEY_PRODUCTION }}
-        working-directory: apps/web
-        run: |
-          set -euo pipefail
-          if [ -z "$POSTHOG_KEY_VALUE" ]; then
-            echo "::warning::POSTHOG_KEY_PRODUCTION not set — skipping. PostHog analytics no-ops on demo."
-            exit 0
-          fi
-          printf '%s' "$POSTHOG_KEY_VALUE" \
-            | pnpm exec wrangler secret put POSTHOG_KEY --env demo
+      # AECI-640: the "push POSTHOG_KEY to the web Worker" step that stood here
+      # is GONE. The `phc_` project token is publishable — it is rendered into
+      # the served HTML on every page — so it is now a committed per-env
+      # `vars.POSTHOG_PROJECT_KEY` entry in `apps/web/wrangler.jsonc` (and
+      # `apps/api/wrangler.jsonc`), not a CI-pushed secret. AECI-239 kept it out
+      # of git for tidiness; that is precisely what produced the weeks-dark
+      # production analytics of AECI-326 — the push step ran, the secret was
+      # absent, and the warn-and-skip path said so only in a log nobody read. A
+      # committed var has no provisioning step to forget.
+      #
+      # The `POSTHOG_KEY_STAGING` / `POSTHOG_KEY_PRODUCTION` GitHub secrets are
+      # now unused and should be deleted (operator step, AECI-640).
+      #
+      # This step was also the demo→prod-project pollution bug: it pushed
+      # POSTHOG_KEY_PRODUCTION to demo, so synthetic demo traffic landed in the
+      # PRODUCTION PostHog project (354071). Demo now reports to
+      # `aec-integrations-dev` (525793) via its committed var
+      # (POSTHOG_MIGRATION_SPEC.md §3.6 / D4).
 
       # Push the PUBLIC Datadog RUM credentials (shared un-suffixed, fail-open) to
       # the demo WEB Worker so SSR emits `window.__AECI_DD__` and RUM reports Core
@@ -654,6 +660,36 @@ jobs:
             echo
             echo "Demo shares the production Supabase project (untouched by this workflow), so there is NO DB restore step — see docs/environments.md."
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # ─────────────────────────────────────────────────────────────────────
+      # PostHog deploy marker (AECI-640 / POSTHOG_MIGRATION_SPEC.md §AW5).
+      #
+      # Two legs: a project ANNOTATION (the vertical line across every insight —
+      # needs the personal `phx_` key) and a queryable `deployment` EVENT (what a
+      # HogQL query joins against — needs only the publishable `phc_` token). The
+      # annotation leg warn-skips until the operator provisions POSTHOG_CLI_API_KEY;
+      # the event leg works today because the project key is a committed var.
+      #
+      # `continue-on-error: true` AND the script always exits 0 — belt and braces.
+      # A PostHog outage must never fail or block a deploy.
+      #
+      # The `phc_` token below is the same publishable value committed in
+      # wrangler.jsonc and rendered into every served page — it is not a secret
+      # (see the AECI-640 note there). Project ids fall back to the literals so
+      # this works with zero provisioning; set the repo variables to repoint
+      # without a code change.
+      # ─────────────────────────────────────────────────────────────────────
+      - name: PostHog promote marker (demo)
+        continue-on-error: true
+        env:
+          PH_EVENT_ENV: demo
+          PH_SERVICE: both
+          PH_VERSION: ${{ inputs.commit_sha }}
+          PH_DEPLOY_KIND: promote
+          PH_PROJECT_KEY: phc_pY8FDQ9FNAmFUJFFd85jNKAAUCMvndUsyGMMV8TR97MD
+          PH_PROJECT_ID: ${{ vars.POSTHOG_PROJECT_ID_NONPROD || '525793' }}
+          POSTHOG_CLI_API_KEY: ${{ secrets.POSTHOG_CLI_API_KEY }}
+        run: bash scripts/ci/posthog-deploy-marker.sh
 
       - name: Summary
         if: always()

@@ -170,17 +170,34 @@ export type WebEnv = {
   SUPABASE_URL?: string;
   SUPABASE_ANON_KEY?: string;
   /**
-   * Public PostHog analytics surface (AECI-239 / Phase 7.4, §14.1).
+   * Public PostHog surface (AECI-239 / Phase 7.4, §14.1; renamed AECI-640).
    *
-   * - POSTHOG_KEY — the project API key (publishable; safe to render into HTML,
-   *   same security class as `ALGOLIA_SEARCH_KEY`). Stored as a CI-pushed secret
-   *   to keep values out of git. Absent → `injectPostHogBootstrap` is a no-op
-   *   (no `window.__AECI_POSTHOG__`) and the browser analytics layer never loads
-   *   PostHog (fail-open).
-   * - POSTHOG_HOST — the ingestion host. Defaults to `https://us.i.posthog.com`
-   *   (US Cloud) when unset; the static CSP `connect-src` is pinned to the US
-   *   hosts, so changing region requires a CSP update (`server/seo-headers.ts`).
+   * - POSTHOG_PROJECT_KEY — the project API key (`phc_…`). Publishable by
+   *   design: it is rendered into the served HTML on every page, so it is not
+   *   and cannot be a secret. Since AECI-640 it is a **committed per-env
+   *   `vars` entry** in `wrangler.jsonc`, not a CI-pushed secret. AECI-239
+   *   kept it out of git for tidiness only, and that choice is what produced
+   *   the weeks-dark production analytics of AECI-326: the push step existed,
+   *   the secret did not, and the warn-and-skip path was silent. A committed
+   *   var has no provisioning step to forget, and PR previews get analytics
+   *   automatically. Absent → `injectPostHogBootstrap` is a no-op (no
+   *   `window.__AECI_POSTHOG__`) and the browser layer never loads PostHog
+   *   (fail-open) — which is the intended state for bare `wrangler dev`.
+   *   Since AECI-642 the SSR Worker's own server-side telemetry authenticates
+   *   with this same token (PostHog's log/metric/event intakes all accept the
+   *   publishable project key), which is why the Worker holds **no** PostHog
+   *   secret at all.
+   * - POSTHOG_HOST — the **ingest** host, `https://us.i.posthog.com` (US
+   *   Cloud). Note `us.posthog.com` (no `.i`) is the *management* API — mixing
+   *   them up yields a confusing 404. The static CSP `connect-src` is pinned to
+   *   the US ingest + assets hosts, so changing region requires a CSP update
+   *   (`server/seo-headers.ts`).
+   *
+   * Project topology (POSTHOG_MIGRATION_SPEC.md §3.6 / D4): production points
+   * at `aec-integrations` (354071); preview/staging/demo/stage2 all point at
+   * `aec-integrations-dev` (525793). Demo previously received the *production*
+   * key and polluted the prod project with synthetic traffic — AECI-640.
    */
-  POSTHOG_KEY?: string;
+  POSTHOG_PROJECT_KEY?: string;
   POSTHOG_HOST?: string;
 };

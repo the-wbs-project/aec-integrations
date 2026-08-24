@@ -132,10 +132,25 @@
         // auth project — identical across preview/staging/production. Pairs with
         // the CI-pushed SUPABASE_ANON_KEY secret — see the header comment.
         "SUPABASE_URL": "https://ktuhnlypztujpsseujzx.supabase.co",
-        // AECI-239: PostHog ingestion host (public; US Cloud). The CSP
-        // connect-src is pinned to the US hosts. The POSTHOG_KEY is a CI-pushed
-        // secret (absent → analytics no-ops, fail-open).
+        // AECI-239 / AECI-640: PostHog INGEST host + publishable project key.
+        // `us.i.posthog.com` is the ingest host — `us.posthog.com` (no `.i`) is
+        // the management API and 404s on an intake path. The CSP connect-src is
+        // pinned to the US ingest + assets hosts (server/seo-headers.ts).
+        //
+        // POSTHOG_PROJECT_KEY is a `phc_` PUBLISHABLE key. It is rendered into
+        // the served HTML on every page (window.__AECI_POSTHOG__), so it is not
+        // a secret and committing it costs nothing. AECI-239 kept it as a
+        // CI-pushed secret for tidiness; that is exactly what produced the
+        // weeks-dark production analytics of AECI-326 (push step present,
+        // secret absent, warn-and-skip silent). A committed var has no
+        // provisioning step to forget and gives PR previews analytics for free.
+        //
+        // Project topology (POSTHOG_MIGRATION_SPEC.md §3.6 / D4): preview,
+        // staging, demo and stage2 all report to `aec-integrations-dev`
+        // (525793); ONLY production reports to `aec-integrations` (354071).
+        // Tiers inside the non-prod project are separated by `$host`/`env`.
         "POSTHOG_HOST": "https://us.i.posthog.com",
+        "POSTHOG_PROJECT_KEY": "phc_pY8FDQ9FNAmFUJFFd85jNKAAUCMvndUsyGMMV8TR97MD",
       },
       "services": [{ "binding": "API", "service": "aeci-api-preview" }],
     },
@@ -150,6 +165,9 @@
         "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
         "SUPABASE_URL": "https://ktuhnlypztujpsseujzx.supabase.co",
         "POSTHOG_HOST": "https://us.i.posthog.com",
+        // See the preview env note (AECI-640): non-prod tiers report to
+        // `aec-integrations-dev` (525793).
+        "POSTHOG_PROJECT_KEY": "phc_pY8FDQ9FNAmFUJFFd85jNKAAUCMvndUsyGMMV8TR97MD",
       },
       "observability": { "enabled": true },
       // WC-3 (AECI-317) + WC-4 (AECI-318) — native Workers Cache via the gateway
@@ -197,6 +215,11 @@
         // ADR 0017: the single shared auth project (same value in every env).
         "SUPABASE_URL": "https://ktuhnlypztujpsseujzx.supabase.co",
         "POSTHOG_HOST": "https://us.i.posthog.com",
+        // AECI-640 REPOINT: demo previously received POSTHOG_KEY_PRODUCTION from
+        // promote-to-demo.yml, so synthetic demo traffic landed in the PROD
+        // project (354071) and skewed every production number. Demo is a
+        // non-prod tier and reports to `aec-integrations-dev` (525793).
+        "POSTHOG_PROJECT_KEY": "phc_pY8FDQ9FNAmFUJFFd85jNKAAUCMvndUsyGMMV8TR97MD",
       },
       "observability": { "enabled": true },
       // WC-4 (AECI-318): ships the gateway + `Renderer` two-entrypoint code like
@@ -263,6 +286,9 @@
         // ADR 0017: the single shared auth project (same value in every env).
         "SUPABASE_URL": "https://ktuhnlypztujpsseujzx.supabase.co",
         "POSTHOG_HOST": "https://us.i.posthog.com",
+        // See the preview env note (AECI-640). stage2 is a TEMPORARY test tier
+        // (AECI-637) and reports to `aec-integrations-dev` (525793).
+        "POSTHOG_PROJECT_KEY": "phc_pY8FDQ9FNAmFUJFFd85jNKAAUCMvndUsyGMMV8TR97MD",
       },
       "observability": { "enabled": true },
       "routes": [
@@ -290,6 +316,10 @@
         "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
         "SUPABASE_URL": "https://ktuhnlypztujpsseujzx.supabase.co",
         "POSTHOG_HOST": "https://us.i.posthog.com",
+        // AECI-640: the ONLY tier that reports to the production PostHog project
+        // `aec-integrations` (354071). Every other tier uses the dev project —
+        // see the preview env note.
+        "POSTHOG_PROJECT_KEY": "phc_Ka6zXrunFnSKZS6jQTqG6GNQHKuya9RTMZzQvcY7reJ",
       },
       "observability": { "enabled": true },
       // WC-4 (AECI-318): ships the gateway + `Renderer` two-entrypoint code, but

@@ -811,28 +811,18 @@ jobs:
           printf '%s' "$ALGOLIA_SEARCH_KEY_VALUE" \
             | pnpm exec wrangler secret put ALGOLIA_SEARCH_KEY --env staging
 
-      # AECI-239/Phase 7.4: push the PUBLIC PostHog project key to the staging WEB
-      # Worker so the SSR `posthog-bootstrap-inject` can emit
-      # `window.__AECI_POSTHOG__` and the browser analytics layer can init (after
-      # consent). Web only; the project API key is publishable (client-exposed),
-      # same security class as ALGOLIA_SEARCH_KEY. POSTHOG_HOST is a plain `vars`
-      # entry (US Cloud), so only the key is pushed here. Recommended-but-optional:
-      # warn-and-skip when unset keeps staging green pre-provision (analytics
-      # no-ops, fail-open). Same idempotent deploy→secret order.
-      - name: Push PostHog key to web Worker (staging)
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          POSTHOG_KEY_VALUE: ${{ secrets.POSTHOG_KEY_STAGING }}
-        working-directory: apps/web
-        run: |
-          set -euo pipefail
-          if [ -z "$POSTHOG_KEY_VALUE" ]; then
-            echo "::warning::POSTHOG_KEY_STAGING not set — skipping push. PostHog analytics no-ops (no window.__AECI_POSTHOG__) until it is provisioned."
-            exit 0
-          fi
-          printf '%s' "$POSTHOG_KEY_VALUE" \
-            | pnpm exec wrangler secret put POSTHOG_KEY --env staging
+      # AECI-640: the "push POSTHOG_KEY to the web Worker" step that stood here
+      # is GONE. The `phc_` project token is publishable — it is rendered into
+      # the served HTML on every page — so it is now a committed per-env
+      # `vars.POSTHOG_PROJECT_KEY` entry in `apps/web/wrangler.jsonc` (and
+      # `apps/api/wrangler.jsonc`), not a CI-pushed secret. AECI-239 kept it out
+      # of git for tidiness; that is precisely what produced the weeks-dark
+      # production analytics of AECI-326 — the push step ran, the secret was
+      # absent, and the warn-and-skip path said so only in a log nobody read. A
+      # committed var has no provisioning step to forget.
+      #
+      # The `POSTHOG_KEY_STAGING` / `POSTHOG_KEY_PRODUCTION` GitHub secrets are
+      # now unused and should be deleted (operator step, AECI-640).
 
       # AECI-326: push the PUBLIC Datadog RUM credentials to the staging WEB
       # Worker so SSR `server-bootstrap-inject` emits `window.__AECI_DD__` and the
@@ -962,3 +952,34 @@ jobs:
           DD_API_KEY: ${{ secrets.DATADOG_API_KEY }}
           DD_ENV: staging
         run: pnpm --filter @aeci/api exec tsx scripts/reconcile-algolia-drift.ts --env staging
+
+      # ─────────────────────────────────────────────────────────────────────
+      # PostHog deploy marker (AECI-640 / POSTHOG_MIGRATION_SPEC.md §AW5).
+      #
+      # Two legs: a project ANNOTATION (the vertical line across every insight —
+      # needs the personal `phx_` key) and a queryable `deployment` EVENT (what a
+      # HogQL query joins against — needs only the publishable `phc_` token). The
+      # annotation leg warn-skips until the operator provisions POSTHOG_CLI_API_KEY;
+      # the event leg works today because the project key is a committed var.
+      #
+      # `continue-on-error: true` AND the script always exits 0 — belt and braces.
+      # A PostHog outage must never fail a deploy. Runs AFTER the smoke gate so a
+      # marker means "a healthy release went out", not "a deploy was attempted".
+      #
+      # The `phc_` token below is the same publishable value committed in
+      # wrangler.jsonc and rendered into every served page — it is not a secret
+      # (see the AECI-640 note there). Project ids fall back to the literals so
+      # this works with zero provisioning; set the repo variables to repoint
+      # without a code change.
+      # ─────────────────────────────────────────────────────────────────────
+      - name: PostHog deploy marker (staging)
+        continue-on-error: true
+        env:
+          PH_EVENT_ENV: staging
+          PH_SERVICE: both
+          PH_VERSION: ${{ github.sha }}
+          PH_DEPLOY_KIND: deploy
+          PH_PROJECT_KEY: phc_pY8FDQ9FNAmFUJFFd85jNKAAUCMvndUsyGMMV8TR97MD
+          PH_PROJECT_ID: ${{ vars.POSTHOG_PROJECT_ID_NONPROD || '525793' }}
+          POSTHOG_CLI_API_KEY: ${{ secrets.POSTHOG_CLI_API_KEY }}
+        run: bash scripts/ci/posthog-deploy-marker.sh
