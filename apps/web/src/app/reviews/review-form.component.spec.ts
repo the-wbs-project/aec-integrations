@@ -192,6 +192,25 @@ describe('ReviewForm', () => {
     httpMock.verify();
   });
 
+  it('discloses the length floors as persistent hint text on the title + body fields', async () => {
+    const { fixture, el, httpMock } = setup();
+    await showForm(fixture);
+
+    // Both floors are stated before the user can trip them, and each field is
+    // described by its hint from first render (the error id joins it on touch).
+    expect(el.querySelector('#review-title-hint')?.textContent).toContain(
+      'Between 5 and 100 characters',
+    );
+    expect(el.querySelector('#review-body-hint')?.textContent).toContain('Minimum 50 characters');
+    expect(el.querySelector('#review-title-input')?.getAttribute('aria-describedby')).toBe(
+      'review-title-hint',
+    );
+    expect(el.querySelector('#review-body')?.getAttribute('aria-describedby')).toBe(
+      'review-body-hint',
+    );
+    httpMock.verify();
+  });
+
   it('surfaces a per-field error once the body is touched', async () => {
     const { fixture, el, httpMock } = setup();
     await showForm(fixture);
