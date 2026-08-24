@@ -242,7 +242,7 @@ The site runs on Cloudflare Workers with `@angular/ssr`. Server-side rendering e
 - Never reach for browser globals at module, constructor, or render-pass scope.
 - Inject `DOCUMENT` (from `@angular/common`) instead of touching `document` directly. Reference: `apps/web/src/app/theme.service.ts:30`.
 - Gate browser-only work with `isPlatformBrowser(inject(PLATFORM_ID))` and `afterNextRender(() => { … })`. Reference: `apps/web/src/app/theme.service.ts:49-58`, `apps/web/src/app/datadog.provider.ts:35-36`.
-- Browser-only third-party SDKs (Datadog RUM, anything touching `window` at module load) must be `import()`-ed dynamically inside an `afterNextRender` / `provideAppInitializer` browser-only branch — see `apps/web/src/app/datadog.provider.ts` for the full pattern.
+- Browser-only third-party SDKs (`posthog-js`, Datadog RUM, anything touching `window` at module load) must be `import()`-ed dynamically inside an `afterNextRender` / `provideAppInitializer` browser-only branch — see `apps/web/src/app/datadog.provider.ts` and `apps/web/src/app/analytics/` for the full pattern. *(Both providers are live during the ADR 0024 dual-run; `datadog.provider.ts` is deleted at AECI-651, and the pattern it demonstrates is what the PostHog client follows — cite whichever one still exists when you read this.)*
 - `new Date()` is platform-dependent — server clock ≠ client clock. Don't call it during render. Freeze on the server, pass to the client.
 - Cached SSR routes must render visitor-state-neutral HTML (no cookie content baked in). See `CLAUDE.md` "Constraints" and `docs/STAGE_1_SPEC.md` §9.1a.
 

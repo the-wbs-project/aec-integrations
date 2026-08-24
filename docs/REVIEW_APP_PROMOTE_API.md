@@ -702,16 +702,23 @@ pending marker and get a `404`, the safe move is to re-push with a new `jobId` �
 check first that the product isn't already live, because a `404` cannot distinguish
 "never ran" from "ran, and aged out".
 
-### 6.3 Every rejection is logged in Datadog
+### 6.3 Every rejection is logged
 
 You don't have to keep the HTTP response body to diagnose a failed push. **Every
-rejected promote — synchronous or on the job — emits a detailed Datadog log** under
-`source:review-app-promote`, so the AECi operator can find and triage it from
-Datadog alone:
+rejected promote — synchronous or on the job — emits a detailed structured log** under
+`source:review-app-promote`, so the AECi operator can find and triage it from the
+log console alone:
+
+> **Which console.** Datadog today; **PostHog Logs** once the ADR 0024 migration completes
+> (Datadog is deleted at AECI-651). The **contract below is unchanged by the swap** — the same
+> attributes, the same `source`, the same `trace_id` correlation. Only the query syntax differs:
+> a Datadog `service:aeci-api source:review-app-promote` search becomes an attribute filter on
+> the OTLP resource attribute `service.name` plus the `source` attribute. Nothing the review app
+> sends or the curator does changes.
 
 - **Where:** service `aeci-api`, filter `source:review-app-promote`.
-- **Synchronous rejections** carry the HTTP status (as `http_status` — Datadog
-  reserves the `status` attribute for the log level), the error `code`, the `field`
+- **Synchronous rejections** carry the HTTP status (as `http_status` — the bare `status`
+  attribute is reserved for the log level on both vendors), the error `code`, the `field`
   (when set), the full `details` (for a `VALIDATION_FAILED`, the entire Zod
   `issues[]`), the request `path`/`method`, and the **same `trace_id`** returned in
   the response envelope — so a curator-reported `trace_id` pivots straight to its
@@ -725,7 +732,7 @@ Datadog alone:
   too (see `docs/OBSERVABILITY.md`).
 
 This is promote-specific — the public read endpoints stay silent on 4xx to avoid
-log noise. So "look in Datadog" is the authoritative way to see why a promote was
+log noise. So "look in the logs" is the authoritative way to see why a promote was
 rejected; you don't need to plumb the response body anywhere else.
 
 ### 6.4 Partial promotes (`skipped[]`) are logged too
@@ -734,14 +741,14 @@ A `complete` job with a non-empty `result.skipped[]` (§4) is a **partial** prom
 some entities couldn't be linked (an integration/extension whose far endpoint isn't
 promoted yet, a usefulness group, a claim `dataObject`, or a trade that didn't
 resolve). Those never fail the promote, so they're easy to miss. They are surfaced
-in Datadog as:
+in the logs as:
 
 - a single `warn` log `aeci.api.promote.partial_skipped` (`source:review-app-promote`)
   detailing every `{ ref, kind, reason }` plus per-kind counts, and
 - an `aeci.api.promote.skipped` count metric tagged by `kind`
-  (`integration` / `extension` / `usefulness` / `claim` / `trade`), for a monitor.
+  (`integration` / `extension` / `usefulness` / `claim` / `trade`), for an alert to watch.
 
-So a curator's silently-dropped push is visible in Datadog even though the job
+So a curator's silently-dropped push is visible even though the job
 completed successfully. (You should still inspect `result.skipped[]` and re-push once
 the blocking condition clears — the log is the operator's backstop, not a substitute
 for handling `skipped[]`.)
@@ -767,7 +774,7 @@ the API Worker **enqueues** a tag-purge message onto the AECi cache-purge queue
 (`aeci-cache-purge-{env}`); the SSR Worker's consumer does the actual eviction via
 native Cloudflare Workers Cache (`ctx.cache.purge()`). The old direct HTTP
 purge-by-tag API call was retired in the Workers Cache migration. On the AECi side
-every purge is observable in Datadog as
+every purge is observable as
 `aeci.cache.purge{source:promote,outcome:ok|purge_failed|no_cache}`, plus a `warn`
 log if the eviction fails (the queue consumer retries it). If a purge ultimately
 fails, the only consequence is that the affected pages fall back to their normal

@@ -34,8 +34,14 @@ decision record; no separate ADR.
   - `POST https://api.resend.com/emails` (Bearer auth, `from/to/subject/text/html`,
     `AbortSignal.timeout`).
 - **Observability:** every attempt emits `aeci.email.send` (count) tagged
-  `outcome:sent|failed|skipped` + `template:<id>`; failures also `warn` to Datadog
-  (`source: 'email'`). Telemetry is wrapped so it can never turn a send into a throw.
+  `outcome:sent|failed|skipped` + `template:<id>`; failures also `warn` with
+  `source: 'email'`. Telemetry is wrapped so it can never turn a send into a throw.
+  **Every send is fail-open, so the telemetry is the only evidence a send was
+  attempted at all** — a `'skipped'` outcome leaves no other trace. That backstop is
+  currently **Datadog** (the live plane) and is moving to **PostHog** under ADR 0024;
+  during the dual-run both receive it, and Datadog goes away at AECI-651. Whichever
+  console you are in, the query is the same shape: the `aeci.email.send` count broken
+  down by `outcome` and `template`.
 - **Recipient emails** for reviewers come from `fetchAuthUserEmails()`
   (`lib/supabase-admin.ts`, the GoTrue Admin API) — D1 has no `auth.users` (ADR
   0016). The submission email uses the verified `session.email` directly; the

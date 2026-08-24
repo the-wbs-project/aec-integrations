@@ -29,11 +29,11 @@ This directory holds the planning, architecture, and operational documentation f
 | [`environments.md`](./environments.md) | Active | Environment topology, promotion model, PR-preview lifecycle, secrets, and bootstrap checklist across all tiers. |
 | [`access.md`](./access.md) | Active | Cloudflare Access runbook for non-prod environments — allowlist management, service-token rotation, lockout recovery. |
 | [`CACHE_STRATEGY.md`](./CACHE_STRATEGY.md) | Active | Edge caching: tag vocabulary, TTLs, `POST /admin/purge` invalidation, SEO header set. |
-| [`OBSERVABILITY.md`](./OBSERVABILITY.md) | Active | Datadog custom-metric catalog, dashboard, and monitors. |
+| [`OBSERVABILITY.md`](./OBSERVABILITY.md) | Active | The custom-metric catalogue, cardinality budget, dashboards and alerts. **Dual-run** (AECI-639): Datadog is what alerts on production today; PostHog is the destination. Datadog goes at AECI-651. |
 | [`local-tracing.md`](./local-tracing.md) | Active | Local dev tracing (AECI-548): the `wrangler dev` Local Explorer SQL endpoint, `spans`/`logs` schema, and debugging recipes. Dev-only and ephemeral — distinct from the Datadog/PostHog pipes. |
 | [`ANALYTICS.md`](./ANALYTICS.md) | Active | Product analytics: event catalogue, naming + privacy rules, the consent-tier caveat, the activation funnel, and the identity/vendor-group model (AECI-649). |
-| [`ANALYTICS_BASELINE.md`](./ANALYTICS_BASELINE.md) | Active | Pre-marketing measurement baseline (AECI-326): what PostHog/Datadog-RUM instrument, the starting numbers snapshot, and the weekly read procedure. |
-| [`RUNBOOKS.md`](./RUNBOOKS.md) | Active | Incident runbooks for Datadog alerts. (Realizes the formerly-planned `OPERATIONAL_RUNBOOKS.md`.) |
+| [`ANALYTICS_BASELINE.md`](./ANALYTICS_BASELINE.md) | Active | Pre-marketing measurement baseline (AECI-326): what PostHog and Datadog RUM instrument, the starting-numbers snapshot, and the weekly read procedure. Carries an AECI-648 addendum correcting the stale "prod is dark" state. |
+| [`RUNBOOKS.md`](./RUNBOOKS.md) | Active | Incident runbooks, keyed by alert. Datadog monitors are what page today; the PostHog alert set + the CI liveness sweep arrive with AECI-647. (Realizes the formerly-planned `OPERATIONAL_RUNBOOKS.md`.) |
 | [`POST_LAUNCH_MONITORING.md`](./POST_LAUNCH_MONITORING.md) | Active | Post-launch daily/weekly monitoring runbook (AECI-279 / Phase 8.1): the operate-and-tune procedure over the shipped dashboards, monitors, and scheduled crons. |
 | [`POST_LAUNCH_HEALTH_REPORT.md`](./POST_LAUNCH_HEALTH_REPORT.md) | Log | Dated first-week/first-month health-report log fed by the monitoring runbook (AECI-279 / Phase 8.1). |
 | [`ADMIN_PANEL_SPEC.md`](./ADMIN_PANEL_SPEC.md) | Active (v1.0) | Operator console over the data AECi already collects (traffic, audience, catalog, moderation, system health) — the consent-independent read surface for `page_views` plus a screen for the two cron digests. Build contract: **Phase 8.3**, `main` line, epic AECI-572 integrating on the `admin-panel` branch. |
@@ -105,5 +105,7 @@ A simple admin UI for legal page editing may be built in Stage 2+ if this become
 - **Linear workspace:** issues, sprints, vendor requests
 - **Airtable base** `appy81IdGJY6Fngf9`: curator workspace for vendor and product research (pre-promotion to Supabase)
 - **Figma:** design system, page layouts, marketing assets
-- **Datadog:** performance, errors, audit log forwarding
-- **PostHog:** product analytics
+- **PostHog:** Worker logs + metrics, browser errors and web vitals, audit-log
+  forwarding, and product analytics — one vendor for all of it (ADR 0024)
+- **Datadog:** the same performance/error/audit surface, still live and still
+  alerting on production for the AECI-639 dual-run window. Removed by AECI-651.

@@ -128,6 +128,51 @@ capturing anything in production**. AECI-326 makes both durable: PostHog was alr
 un-suffixed `DD_APPLICATION_ID` / `DD_CLIENT_TOKEN`, all four deploy/promote workflows). **Both go
 live once the GitHub secret *values* are set** (see [`OBSERVABILITY.md` → Credentials](./OBSERVABILITY.md#credentials)).
 
+> **AECI-648 addendum (2026-08-24) — prod is no longer dark, and the provisioning dependency
+> above is gone.** The section it corrects stays as written, because it is a dated record of
+> the 2026-07-11 state; this is the correction, not an edit.
+>
+> **The secrets were provisioned after 2026-07-11, and both layers are live in production.**
+> Verified live 2026-08-24: the served HTML on production injects **both** `__AECI_POSTHOG__`
+> **and** `__AECI_DD__`. Every "dark, gated on secrets" claim in this document — in the
+> instrumentation table, in this section, and in the snapshot below — describes a state that
+> ended weeks ago. Read the numbers in the snapshot as a genuine pre-marketing baseline, not
+> as evidence that nothing was being captured.
+>
+> **The provisioning dependency itself is also gone, for PostHog.** AECI-640 turned
+> `POSTHOG_KEY` from a CI-pushed Worker secret into a **committed per-env wrangler var**
+> (`POSTHOG_PROJECT_KEY`) in both `wrangler.jsonc` files, and deleted all four push steps. The
+> `phc_` token is publishable — it ships in the served HTML on every page — so treating it as a
+> secret bought nothing and cost exactly the failure this section documents: the push step ran,
+> the secret was absent, and the warn-and-skip said so only in a log nobody read. There is now
+> no PostHog provisioning step to forget, and PR previews get analytics for free. The Datadog
+> RUM credentials are still CI-pushed secrets, and stay that way until AECI-651.
+>
+> **Two topology facts that change how you read a production number:**
+>
+> - Since AECI-640, **production is the only tier on the production PostHog project**
+>   (`aec-integrations`, 354071); preview / staging / demo / stage2 all report to
+>   `aec-integrations-dev` (525793). Before that, `promote-to-demo.yml` pushed the production
+>   key to the demo Worker, so **synthetic demo traffic landed in the production project**.
+>   Events in 354071 from **before** that change carry mixed tiers — filter by `$host` when
+>   reading history.
+> - **The operator's own consented browser feeds production product analytics** while
+>   `page_views` excludes him via his verified admin session. Until PostHog's internal-user
+>   exclusion is configured on 354071, the two surfaces disagree for a reason that looks like
+>   a bug and is not.
+>
+> **What is changing next.** ADR 0024 migrates observability from Datadog to PostHog as a
+> **dual-run** (epic AECI-639): Datadog RUM stays live beside the PostHog browser client, and
+> the Datadog half is deleted only at **AECI-651**. Two consequences for this document's
+> subject matter: the browser client becomes **two-mode**, so errors and web vitals are
+> captured for **every** visitor (including DNT/GPC) on an anonymous, memory-only slice while
+> product analytics stay banner-gated — which is why "consent-gated" in the table above is now
+> true of the *event catalogue* but not of error/vitals capture. And the `aeci.search.query`
+> Datadog RUM action retires into the `search_performed` event, making search latency a
+> consented-slice number. `docs/ANALYTICS.md` is the source of truth for the product event
+> catalogue; `docs/OBSERVABILITY.md` remains canonical for the live Datadog plane while the
+> migration is in flight.
+
 ## Baseline (the recorded snapshot)
 
 > **As of 2026-07-11, AECi is pre-launch and pre-marketing.** The mailing list holds ~1 real
@@ -195,11 +240,15 @@ numbers), and again at launch.
 
 ## How to read the numbers (weekly, going forward)
 
-Once the secrets are provisioned (config injected — verify with
-`curl -s https://www.aecintegrations.com/ | grep -oE '__AECI_(POSTHOG|DD)__'`):
+**Both layers are live in production** (verified 2026-08-24 — the old "once the secrets are
+provisioned" precondition is met; see the AECI-648 addendum above). Spot-check the injection any
+time with `curl -s https://www.aecintegrations.com/ | grep -oE '__AECI_(POSTHOG|DD)__'`.
 
-- **Weekly visitors + pageviews** — PostHog UI (Web Analytics / Insights), filter to production.
-  Cross-check against the Datadog **Phase-2 Traffic** dashboard (top routes by request count; us5).
+- **Weekly visitors + pageviews** — PostHog UI (Web Analytics / Insights). **Select the
+  production project** `aec-integrations` (354071) — since AECI-640 it is the only tier
+  reporting there, so no `env` filter is needed; before that change, filter by `$host`.
+  Cross-check against the Datadog **Phase-2 Traffic** dashboard (top routes by request count;
+  us5) while Datadog is live (deleted at AECI-651).
 - **Signups** — **`/admin/audience`** (AECI-586). The authoritative count is still the
   `mailing_list` D1 table; that screen is now the read path for it, so the manual
   `wrangler d1 execute … "select count(*) from mailing_list"` is no longer the procedure
@@ -217,10 +266,23 @@ Once the secrets are provisioned (config injected — verify with
   (AECI-575); add `and path not in ('/admin','/account') and path not like '/admin/%' and path not like '/account/%'`
   to any ad-hoc query so it matches what the digest reports (the digest matches on an exact prefix
   boundary, so a bare `'/admin%'` would wrongly drop public look-alikes like `/administrators`).
-- **Core Web Vitals** — Datadog **RUM → Performance / Core Web Vitals** for the `aeci` app (us5),
-  filter `env:production` (LCP, CLS, INP). Thin sample pre-launch — re-read post-launch.
+- **Core Web Vitals** — **two sources during the ADR 0024 dual-run.** Datadog **RUM → Performance /
+  Core Web Vitals** for the `aeci` app (us5), filter `env:production` (LCP, CLS, INP) — the live
+  one, until AECI-651. PostHog's `$web_vitals` is the successor, and it is captured on the
+  **Tier 2 anonymous slice**, so it covers *every* visitor including DNT/GPC rather than the
+  consented minority — a wider sample than RUM had, on a fresh anonymous id per page load. Thin
+  sample pre-launch — re-read post-launch.
+- **Errors** — PostHog error tracking, once the operator enables the product on both projects
+  (it is **off today** — an operator step, not a code gap). Source maps are uploaded before every
+  deploy (AECI-646), so a production stack should read unminified; deploy annotations/`deployment`
+  events (AECI-640) are what turn "which deploy introduced this" into a query.
 
 ## Verification checklist (closes AECI-326 "Done when")
+
+> **Historical — all four items are closed.** Items 2 and 3 describe a provisioning gate that no
+> longer exists in the form written: `POSTHOG_KEY` is not a secret any more (AECI-640 made it the
+> committed `POSTHOG_PROJECT_KEY` var, and the `POSTHOG_KEY_STAGING` / `_PRODUCTION` GH secrets are
+> unreferenced and awaiting deletion). Do not act on them; see the AECI-648 addendum above.
 
 1. **Signup fires as a tracked event** — ✅ code: `home-closing-cta.ts` calls
    `Analytics.mailingListSignup({ source: 'home_closing_cta' })` on `created`; covered by the

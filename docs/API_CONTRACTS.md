@@ -143,7 +143,7 @@ export const ApiErrorSchema = z.object({
     field: z.string().optional(),    // for validation errors
     details: z.unknown().optional(), // structured context
   }),
-  trace_id: z.string(),              // Datadog trace ID
+  trace_id: z.string(),              // `crypto.randomUUID()` per request — NOT a vendor trace id
 });
 
 export type ApiError = z.infer<typeof ApiErrorSchema>;
@@ -227,7 +227,7 @@ Machine-readable codes are stable identifiers. Messages are localized.
 - `413` — request body over the endpoint's hard ceiling
 - `422` — semantically valid but business rule violation
 - `429` — rate limited (with `Retry-After` header)
-- `500` — unexpected server error (auto-alerts Datadog)
+- `500` — unexpected server error (emits an error log the alert threshold watches)
 - `503` — dependency failure (distinguishes from generic 500s)
 
 ### 4.2 Error throwing pattern
@@ -250,8 +250,10 @@ throw new ApiError(409, 'REVIEW_DUPLICATE', 'You already reviewed this product')
 Centralized error middleware:
 - Catches `ApiError` instances and returns the structured response
 - Catches `ZodError` and converts to `VALIDATION_FAILED` with field info
-- Catches all other errors as `INTERNAL_ERROR` (logs full stack to Datadog)
-- Adds `trace_id` to every response from the active Datadog span
+- Catches all other errors as `INTERNAL_ERROR` (logs the full stack to the observability plane)
+- Adds `trace_id` to every response and emits it on the matching log line, so a caller-reported `trace_id` pivots straight to the log
+
+> **`trace_id` is not an APM trace id.** It is `crypto.randomUUID()`, minted per request in `apps/api/src/errors.ts` — there has never been distributed tracing here. The pre-launch note that it would become a Datadog APM trace id is void: **no APM was ever in use and PostHog has no equivalent**, so nothing changes at the ADR 0024 cutover. Correlate on `trace_id`, not on a span.
 
 ### 4.3 Localization
 
@@ -1085,7 +1087,7 @@ export const PageViewPayloadSchema = z.object({
 export type PageViewPayload = z.infer<typeof PageViewPayloadSchema>;
 ```
 
-**Phase 4 (AECI-177) wires the write.** The handler validates the body synchronously (so a malformed body still surfaces `400`), returns `204` immediately, and inserts one `page_views` row via `ctx.waitUntil()` — the write never blocks the response (§14.2). A capture failure is logged to Datadog (`warn`) and swallowed; the endpoint still returns `204`. User-blocking errors are never raised.
+**Phase 4 (AECI-177) wires the write.** The handler validates the body synchronously (so a malformed body still surfaces `400`), returns `204` immediately, and inserts one `page_views` row via `ctx.waitUntil()` — the write never blocks the response (§14.2). A capture failure is logged at `warn` and swallowed; the endpoint still returns `204`. User-blocking errors are never raised.
 
 **Enrichment** (DATABASE_SCHEMA §9.1 columns): `cf_country`, `cf_colo`, `cf_asn`, `cf_as_organization`, `cf_bot_score` from Cloudflare request context; `user_agent_hash` = SHA-256 of the `User-Agent` (the raw UA is **never** stored); `locale` = the served locale (`en-US` today); and the entity columns resolved from `(entity_type, entity_id)` — `entity_id` is the entity's own UUID (the SSR resolvers attach `entity.id`), existence-checked before storing so a stale/spoofed id becomes null rather than an FK error. **No raw IP is ever persisted** (§14.2 privacy).
 
@@ -1514,7 +1516,7 @@ One atomic `db.batch` carries the entitlement row, the guarded `vendors.verified
 `.cleared`, `entity_type: 'vendor_entitlement'`, `entity_id` = the **vendor** id,
 `actor_type: 'admin'`, `metadata.source: 'admin-entitlement'`). **No `workflow_instances`
 row** — that CHECK is closed and `audit_log` is the ledger. Post-commit, best-effort: metric
-`aeci.entitlement.action`, the Datadog audit forward, and — on `set`/`clear` only — a
+`aeci.entitlement.action`, the §26.5 post-commit audit forward, and — on `set`/`clear` only — a
 Cache-Tag purge of the full grant tag set (`vendor:{slug}` + every owned `product:{slug}` +
 `index:products`) via the shared `lib/vendor-cache-tags.ts`. The purge is **not** gated on
 whether the mirror actually flipped: a redundant purge costs one cache miss, a missed one
@@ -2028,7 +2030,7 @@ run — an isolate reclaimed mid-flight — renders as *In flight*, never as a p
 mirrors the stored column, and inventing a wire value with no storage counterpart
 would have the API assert an outcome for a run that has none. It is null on
 `derived` and `unknown` rows, where the question does not apply. There is no
-`'stalled'` member: that needs a per-job threshold, and Datadog's no-data monitors
+`'stalled'` member: that needs a per-job threshold, and the external absence check (Datadog's no-data monitors today, the AECI-647 CI liveness sweep after)
 remain the alerting authority for a job that stops finishing.
 
 Everything crossing the `job_runs` boundary is treated as untrusted — another
@@ -2090,7 +2092,7 @@ Note codes specific to this endpoint:
 ##### `algolia.orphan_sweep`
 
 Read from the last 09:00 drift run's `job_runs.detail` (AECI-583); it was
-permanently `null` in P1.6 because the sweep reported only to Datadog.
+permanently `null` in P1.6 because the sweep reported only as an emitted metric.
 
 ```typescript
 export const AdminOrphanSweepStatusSchema = z.object({
@@ -2107,7 +2109,7 @@ export const AdminOrphanSweepStatusSchema = z.object({
 completed with one index erroring still produced counts worth showing. `null` means
 **no completed run has stored one** — a fresh environment, or a tier where the drift
 cron skips for want of Algolia credentials. Null is never "clean". The per-index
-`orphan_ids` are deliberately not carried: unbounded, and already in the Datadog log.
+`orphan_ids` are deliberately not carried: unbounded, and already in the forwarded log.
 
 ##### The D1 footprint
 

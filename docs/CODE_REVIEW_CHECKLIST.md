@@ -93,7 +93,7 @@ If the spec is wrong, that's also a defect — flag it. Do not silently work aro
 - Errors caught but the original error context lost (`throw new Error('failed')` loses the cause)
 - API or Worker responses that return 200 with an error payload instead of the right HTTP status code
 - No fallback when an external dependency (Algolia, Linear, Resend) fails
-- Errors thrown from `ctx.waitUntil()` work that silently fail and never reach Datadog
+- Errors thrown from `ctx.waitUntil()` work that silently fail and never reach the observability plane
 - New code path that can throw but doesn't include the error in audit log
 
 ### Data integrity and audit
@@ -108,6 +108,39 @@ If the spec is wrong, that's also a defect — flag it. Do not silently work aro
 - Denormalized counts updated in one place but not the corresponding place (review approval doesn't increment `review_count`)
 - Foreign key constraints missing where the relationship is required
 - Soft-delete pattern violated (hard deletion where the spec calls for `status = 'archived'`)
+
+### Observability
+
+> **Two vendors are live right now** (ADR 0024 dual-run). PostHog is where the migration is
+> going; **Datadog is what is alerting on production today** and is deleted only by AECI-651.
+> A PR that removes a Datadog leg "because we use PostHog now" is wrong until that issue ships.
+
+- Telemetry dispatched **without** `ctx.waitUntil(...)` — a forward must never block the response
+- A forwarding failure that can **throw**. Every transport leg must `console.warn` and swallow;
+  a telemetry outage must not become a 500
+- Telemetry emitted only on one vendor's leg where the fan-out expects both (during the dual-run,
+  call sites emit once and the per-Worker adapter fans out — a call site that reaches a vendor
+  client directly has bypassed the seam)
+- A **metric** tagged with a concrete path instead of the matched route pattern, or tagged with
+  raw `status` instead of `status_class` (the code belongs on the error log). Route patterns
+  contain colons, so `key:value` tag strings split on the **first** colon only
+- **A user / person / session id on a metric** — never. Ids belong on logs and events, and only
+  where a genuine Supabase user id is in hand (`posthogDistinctId`; omit the attribute entirely
+  otherwise, never mint a per-request id)
+- **A new metric tag added without redoing the cardinality arithmetic.** PostHog guardrails at
+  1,000 series per window and series identity includes resource attributes — `version` alone
+  doubles every dimension while two deploy versions are live. The standing rule is in
+  `OBSERVABILITY.md`; adding a dimension is a budget decision, not a one-line change
+- Failure and liveness collapsed into one signal — emit on **every** run with an `outcome` tag,
+  and never alert below-threshold on a failure-only slice (it is empty on healthy days, so the
+  alert fires constantly)
+- A new **product event** shipped without its row in `ANALYTICS.md` §4, or a **renamed** shipped
+  event (a rename splits the series; there is no rename-and-backfill)
+- Free text in an event property (§2 of `ANALYTICS.md`) — identifiers and shapes, never contents
+- A browser capture placed in the wrong consent tier: errors + web vitals + `app_started` are
+  Tier 2 (every visitor, DNT/GPC included, memory persistence, no identifier); pageviews, the
+  event catalogue and `identify`/groups are Tier 3 (consented only). Writing anything persistent
+  pre-consent is a defect
 
 ### API contract integrity
 

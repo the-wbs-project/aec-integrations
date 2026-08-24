@@ -117,12 +117,19 @@ CF_ZONE_ID=
 # outcome:skipped_no_creds and no-ops. See docs/waf-rate-limits.md §5.
 CF_ANALYTICS_API_TOKEN=
 
-# ─── Datadog (AECI-31) ─────────────────────────────────────────────────────
-# DD_API_KEY is the only required secret for `logToDatadog()` (Datadog Logs
-# HTTP intake). When empty, the helper is a no-op so dev boots cleanly.
+# ─── Observability: PostHog is the destination, Datadog is the dual-run ──────
+# PostHog needs NO secret here. All three intakes (OTLP logs, OTLP metrics,
+# events) authenticate with the publishable `phc_` project token, which is a
+# committed per-env `vars.POSTHOG_PROJECT_KEY` in wrangler.jsonc — so on a
+# deployed tier there is nothing to provision. Locally, `--env preview` supplies
+# it, and a bare `wrangler dev` has none, which makes the transport a total
+# no-op. That is the intended local default (AECI-642).
+#
+# DD_API_KEY is the Datadog Logs/metrics intake key. Datadog runs BESIDE PostHog
+# for the dual-run window and is deleted by AECI-651 — until then both legs emit
+# and each no-ops independently without its own config. Leave DD_API_KEY empty
+# locally; nothing breaks.
 DD_API_KEY=
-# Optional. Datadog region host. Defaults to datadoghq.com when unset.
-# Examples: datadoghq.eu, us3.datadoghq.com, us5.datadoghq.com, ap1.datadoghq.com
 DD_SITE=datadoghq.com
 
 # ─── Algolia (AECI-134) ────────────────────────────────────────────────────

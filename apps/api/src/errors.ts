@@ -174,8 +174,15 @@ export type ErrorHandlerOptions = {
  * propagating back through middleware `try/catch`). Each sub-router that
  * wants the canonical envelope registers this via `app.onError(errorHandler())`.
  *
- * `trace_id` is `crypto.randomUUID()` for now. When Datadog APM lands, this
- * will be the active span ID so logs and the response are pivot-able together.
+ * `trace_id` is `crypto.randomUUID()`, and that is now the permanent answer
+ * rather than a placeholder. The original note here promised it would become a
+ * Datadog APM span id — no APM was ever provisioned, and PostHog has no
+ * distributed-tracing product, so there is no span id to inherit (ADR 0024 /
+ * POSTHOG_MIGRATION_SPEC.md §3.8 lists this as a knowingly-accepted gap, not a
+ * regression). What makes the id useful is unchanged: the same value goes on
+ * the error log and in the response envelope, so a user-reported id pivots
+ * straight to its log line. Local `wrangler dev` OTel tracing
+ * (`docs/local-tracing.md`) still gives real spans in development.
  *
  * Generic over the router's env so `Variables`-extended sub-routers (e.g. the
  * AECI-193 auth-spike router, whose middleware sets `c.get('user')`) can reuse
