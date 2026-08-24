@@ -534,3 +534,37 @@ flushes on the visible→hidden transition. An automation tab that was *never*
 visible never makes that transition, and its timers are throttled, so events
 sit in the queue and the check looks like a failure. Dispatch a `pagehide`
 event on `window` to force the flush.
+
+### §8.10 The `aeci.search.query` re-home narrows twice, not once
+
+§3.9 records one narrowing: the RUM action saw every search, the
+`search_performed` event sees the consented slice. There is a **second** one it
+does not mention.
+
+The RUM action carried an **`index`** dimension (`products` / `vendors` /
+`integrations` / `federated`). `search_performed` has no such property — it
+reports federated `results_count` and the root index's `processingTimeMS`. So
+the **per-index split is gone**, not merely the unconsented traffic, and the
+two Phase-3 dashboard widgets that used it are regrouped by `results_bucket`
+and by day (AECI-647).
+
+Recovering it would mean adding an `index` property to a shipped event, which
+§1 of `docs/ANALYTICS.md` allows (adding a property is not renaming an event) —
+but it is a deliberate future change, not something the migration did quietly.
+
+### §8.11 "Dashboards in both projects" — how it was resolved
+
+§4's `apply.sh` requirement says dashboards are created in **both** projects
+while alerts stay prod-only. That is implemented and dry-run verified.
+
+What actually ran during the build touched **only** the non-production project
+(525793): 7 dashboards and 43 insights. Production creation is deliberately
+**operator step 3** in §7 — a build agent writing dashboards into the project
+that carries live production data is a different risk class from writing into
+an empty dev project, and the applier makes it a one-command step either way.
+
+The one exception, made knowingly: AECI-649's two **product** insights and the
+`AECi — Activation` dashboard were created directly in **production**, because
+a funnel over `search_performed → product_viewed → external_link_clicked` is
+meaningless against an empty project and the production events already exist.
+Saved insights page nobody; alerts do. That is the line drawn.
