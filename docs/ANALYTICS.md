@@ -96,6 +96,8 @@ here** — see §7.
 | Event | Fired from | Properties | Notes |
 |---|---|---|---|
 | `$pageview` | automatic (`capture_pageview: 'history_change'`) | PostHog defaults + the two super-properties | Covers SPA navigations, because the Angular Router drives `history.pushState`. Consented visitors only. |
+| `$identify` | automatic, on `identify(user.id)` after consented sign-in (AECI-649) | PostHog defaults | The Supabase user id and nothing else — **never** the email (§2). Consent-gated: a signed-in visitor who declined, or who sends DNT/GPC, stays anonymous. |
+| `$groupidentify` | automatic, on `group('vendor', vendor_id, { name })` at vendor-dashboard entry | `vendor_id`, `name` | The B2B piece — it is what makes "how many **vendors** activated" answerable. One vendor with four seats is one activated vendor. |
 | `app_started` | app bootstrap (AECI-643) | the two dimensions | **Tier 2** — fires for *every* visitor, consented or not. A liveness beacon: it is how you tell "nobody visited" from "the bundle is broken". |
 | `search_performed` | `search-controller.ts`, once per distinct non-empty query when the root stats settle | `query`, `results_count`, `filters_applied[]`, `status`, `duration_ms`, `results_bucket` | The empty initial `/search` load is skipped. The last three properties arrived in AECI-643, absorbing the retiring `aeci.search.query` Datadog RUM action (§3.9) — which means search *latency* is now a consented-slice number where RUM saw every search. |
 | `product_viewed` | `products/product-detail.ts` (`afterNextRender`) | `product_id`, `source` | `source` is `search` / `browse` / `direct`, derived from the previous in-app route. |
@@ -187,6 +189,21 @@ retrofitted (§3.10).
 - **`posthog.reset()` on logout.** Without it, the next anonymous session on
   that browser is attributed to the person who just left — which is both wrong
   and, on a shared machine, a privacy problem.
+
+  Two consequences worth knowing, both established by reading the SDK source
+  rather than assuming (AECI-649):
+
+  1. **`reset()` clears the super-properties**, so the `locale` and `theme`
+     dimensions §3 says ride *every* event would silently stop riding the
+     automatic ones (`$pageview`, `$exception`, `$web_vitals`) after a logout.
+     Custom events survive because `capture()` merges them per call — which is
+     exactly what would make the bug hard to spot. The reset path therefore
+     re-registers the dimensions immediately, and a test pins the order.
+  2. **The client stays on Tier 3 after logout**, with a fresh anonymous id.
+     That is correct, not an oversight: signing out does not withdraw consent,
+     and a consented signed-out visitor is simply a consented anonymous
+     visitor. Downgrading to Tier 2 would stop `$pageview` for someone who is
+     still consented.
 - **Server-side events fall back to the service slug (`aeci-api`) as
   `distinct_id`.** Never mint a per-request id: a synthetic id creates a bogus
   person on every request and corrupts every person-linked view in the project.

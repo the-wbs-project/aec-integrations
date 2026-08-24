@@ -127,6 +127,27 @@ export interface PostHogClient {
   readonly historyAutocapture?: { startIfEnabled(): void };
 
   /**
+   * Identity (AECI-649 / §AW8; the contract is `docs/ANALYTICS.md` §8).
+   *
+   * REQUIRED, deliberately — unlike the two flag members below, which are
+   * optional so pre-flags test fakes still satisfy this interface. Identity is
+   * load-bearing: `identify` is what turns a stream of anonymous events into a
+   * person, `group` is the only way "how many VENDORS activated" is answerable,
+   * and `reset` is what stops the next visitor on a shared browser being
+   * attributed to the person who just left. An optional member that a fake
+   * silently omits would make all three no-ops that no test can see — the exact
+   * silent failure `docs/ANALYTICS.md` warns about. A fake that does not
+   * implement them is a compile error, which is the point.
+   *
+   * `identify` takes the Supabase user id and NOTHING else: no user-property
+   * bag, because §2 forbids duplicating the email into a property and there is
+   * nothing else worth sending. `group` carries only the display name.
+   */
+  identify(distinctId: string, properties?: Record<string, unknown>): void;
+  group(groupType: string, groupKey: string, properties?: Record<string, unknown>): void;
+  reset(resetDeviceId?: boolean): void;
+
+  /**
    * Feature flags (AECI-650). Both are OPTIONAL so the many existing test
    * fakes that predate flags still satisfy this interface; `FeatureFlags`
    * treats an absent member as "no flags available, defaults stand".

@@ -40,6 +40,10 @@ export interface PostHogJsFake {
   set_config: ReturnType<typeof vi.fn>;
   captureException: ReturnType<typeof vi.fn>;
   historyAutocapture: { startIfEnabled: ReturnType<typeof vi.fn> };
+  /** Identity (AECI-649 / `docs/ANALYTICS.md` §8). */
+  identify: ReturnType<typeof vi.fn>;
+  group: ReturnType<typeof vi.fn>;
+  reset: ReturnType<typeof vi.fn>;
 }
 
 /**
@@ -54,6 +58,9 @@ export const posthogJsFake: PostHogJsFake = {
   set_config: vi.fn(),
   captureException: vi.fn(),
   historyAutocapture: { startIfEnabled: vi.fn() },
+  identify: vi.fn(),
+  group: vi.fn(),
+  reset: vi.fn(),
 };
 
 /** The `vi.mock` factory return: an ES module whose default export is the fake. */
@@ -69,6 +76,9 @@ export function resetPosthogJsFake(): void {
   posthogJsFake.set_config.mockReset();
   posthogJsFake.captureException.mockReset();
   posthogJsFake.historyAutocapture.startIfEnabled.mockReset();
+  posthogJsFake.identify.mockReset();
+  posthogJsFake.group.mockReset();
+  posthogJsFake.reset.mockReset();
 }
 
 /** The options object recorded by the most recent `posthog.init(...)` call. */

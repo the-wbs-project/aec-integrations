@@ -44,6 +44,7 @@ import { BrnPopover, BrnPopoverContent, BrnPopoverTrigger } from '@spartan-ng/br
 import { ADMIN_NAV_GROUPS } from '../admin/admin-nav';
 import { AdminStatus } from '../admin/admin-status';
 import { AdminSummaryStore } from '../admin/admin-summary.store';
+import { Analytics } from '../analytics/analytics';
 import { AuthService } from '../auth/auth.service';
 import { SessionStatus } from '../auth/session-status';
 import { signOutAndGoHome } from '../auth/sign-out';
@@ -314,6 +315,7 @@ export class NavMenu {
   protected readonly vendorStatus = inject(VendorStatus);
   private readonly summaryStore = inject(AdminSummaryStore);
   private readonly auth = inject(AuthService);
+  private readonly analytics = inject(Analytics);
   private readonly router = inject(Router);
 
   /** Live pending-review count (0 until the admin probe seeds the store). */
@@ -331,7 +333,7 @@ export class NavMenu {
 
   protected async onSignOut(): Promise<void> {
     this.signOutFailed.set(false);
-    const ok = await signOutAndGoHome(this.auth);
+    const ok = await signOutAndGoHome(this.auth, this.analytics);
     if (!ok) this.signOutFailed.set(true);
   }
 

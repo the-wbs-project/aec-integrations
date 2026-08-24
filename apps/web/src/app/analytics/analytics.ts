@@ -5,7 +5,9 @@
  *
  * Shape (mirrors `datadog.provider.ts` + the `search-rum.ts` seam):
  *   - The SDK is reached only through the injectable `POSTHOG_CLIENT_FACTORY`
- *     (default = the real dynamic-`import('posthog-js')`); tests swap a fake so
+ *     (default = the real dynamic
+ *     `import('posthog-js/dist/module.full.no-external')` — the self-contained
+ *     bundle; see the decision block in `posthog-client.ts`); tests swap a fake so
  *     event payloads are asserted without loading the SDK.
  *   - Every custom event is gated on `'granted'` and merges the `locale`+`theme`
  *     dimensions (§14.1). Pageviews get the same dimensions via the
@@ -26,9 +28,30 @@
  * 'granted'` the SAME client is upgraded in place (`upgrade()`): persistence
  * moves to localStorage, `$pageview` starts, and the 8-event catalog unlocks.
  * Decline, DNT and GPC all stay at Tier 2 — see `consent.ts`.
+ *
+ * ## Identity (AECI-649 / §AW8 — contract: `docs/ANALYTICS.md` §8)
+ *
+ * Three calls, each with its own reason to exist, all Tier 3:
+ *
+ *   - `identify(userId)` — the Supabase user id and nothing else. Never the
+ *     email (§2): `identify()` already links the person, and copying the email
+ *     into a property makes it searchable by anyone with project read.
+ *   - `groupVendor({id, name})` — the B2B half. One vendor with four seats is
+ *     ONE activated vendor, which a per-person count cannot approximate.
+ *   - `resetIdentity()` — on logout, so the next anonymous session on that
+ *     browser is not attributed to the person who just left.
+ *
+ * `identify` and `groupVendor` are **stored, not sent**, until consent is
+ * granted. Both facts arrive on their own schedule and in either order (a
+ * returning visitor is consented before the session resolves; a first-time
+ * visitor signs in and accepts the banner afterwards), so a single effect
+ * watches BOTH and fires when the pair is complete. Writing an identifier for a
+ * visitor who declined would break the "no identifier is ever written
+ * pre-consent" property the privacy policy states in writing (D2), and that
+ * property is the whole reason Tier 2 exists.
  */
 import { isPlatformBrowser } from '@angular/common';
-import { Injectable, PLATFORM_ID, effect, inject } from '@angular/core';
+import { Injectable, PLATFORM_ID, effect, inject, signal } from '@angular/core';
 import { NavigationEnd, Router } from '@angular/router';
 import { filter } from 'rxjs';
 
@@ -54,6 +77,13 @@ const BROWSE_ROOTS = new Set(['products', 'vendors', 'integrations', 'categories
  */
 export const APP_STARTED_EVENT = 'app_started';
 
+/**
+ * PostHog's group type for a vendor account (`docs/ANALYTICS.md` §8). Exported
+ * so the spec asserts the literal rather than restating it — a typo here would
+ * mint a second, empty group type in the project that nothing ever reports on.
+ */
+export const VENDOR_GROUP_TYPE = 'vendor';
+
 @Injectable({ providedIn: 'root' })
 export class Analytics {
   private readonly isBrowser = isPlatformBrowser(inject(PLATFORM_ID));
@@ -64,8 +94,27 @@ export class Analytics {
   /** Memoized client boot — runs at most once, in the browser, for all visitors. */
   private bootPromise: Promise<PostHogClient | null> | null = null;
 
-  /** Guards `upgrade()` — the consent effect can re-run; the upgrade must not. */
-  private upgraded = false;
+  /**
+   * Memoized `upgrade()`. A promise rather than a boolean flag because the
+   * identity writes must be able to AWAIT the upgrade: `identify()` has to land
+   * on a Tier 3 client, not race the `set_config` that moves persistence to
+   * localStorage. A boolean guard returns instantly on the second caller, which
+   * is exactly the caller that needs to wait.
+   */
+  private upgradePromise: Promise<void> | null = null;
+
+  /**
+   * The two Tier 3 identity facts, held until consent completes the pair.
+   * Signals, not plain fields, so the identity effect re-runs when either
+   * arrives — that is what makes the ordering work in both directions.
+   */
+  private readonly pendingUserId = signal<string | null>(null);
+  private readonly pendingVendor = signal<{ id: string; name: string } | null>(null);
+
+  /** What has actually been written to PostHog, so a re-navigation to
+   *  `/vendor` or a second session probe does not re-send. */
+  private identifiedAs: string | null = null;
+  private groupedAs: string | null = null;
 
   /** The route the visitor was on BEFORE the current one — drives `source`. */
   private previousUrl: string | null = null;
@@ -94,6 +143,24 @@ export class Analytics {
     // immediately, for a returning visitor whose decision is already stored).
     effect(() => {
       if (this.consent.state() === 'granted') void this.upgrade();
+    });
+
+    // Tier 3 identity (§AW8 / `docs/ANALYTICS.md` §8). ONE effect for both
+    // halves, because both are the same shape of problem: a fact that is only
+    // sendable once consent ALSO holds, and which can arrive before or after it.
+    //
+    //   consent → sign-in : the effect re-runs when `pendingUserId` is set.
+    //   sign-in → consent : the effect re-runs when `consent.state()` flips.
+    //
+    // A signed-in visitor who declined the banner (or sends DNT/GPC) never
+    // reaches the body, so no identifier is ever written for them — they stay
+    // an anonymous Tier 2 visitor, which is D2's promise.
+    effect(() => {
+      if (this.consent.state() !== 'granted') return;
+      const userId = this.pendingUserId();
+      const vendor = this.pendingVendor();
+      if (userId) void this.identifyNow(userId);
+      if (vendor) void this.groupVendorNow(vendor);
     });
   }
 
@@ -161,6 +228,103 @@ export class Analytics {
    */
   mailingListSignup(input: { source: string }): void {
     this.capture('mailing_list_signup', { source: input.source });
+  }
+
+  // ─── Identity (§AW8 / `docs/ANALYTICS.md` §8) ──────────────────────────────
+
+  /**
+   * Link this browser to the signed-in person (`docs/ANALYTICS.md` §8).
+   *
+   * `userId` MUST be the Supabase `auth.users` UUID — the JWT `sub` — because
+   * that is exactly what the Worker side records as `posthogDistinctId`
+   * (`packages/shared/src/posthog.ts`), and the two only join if they are the
+   * same value. Nothing else is sent: no email, no display name, no user
+   * properties at all (§2).
+   *
+   * Records the fact and returns. The write happens when consent is ALSO
+   * granted — see the identity effect in the constructor. Safe to call on every
+   * page load: the SDK's `identify` is a no-op when the distinct id is
+   * unchanged (verified in `posthog-js@1.393.0`: no `$identify` event unless
+   * `new_distinct_id !== previous_distinct_id`), and this service short-circuits
+   * before even that.
+   */
+  identify(userId: string): void {
+    if (!this.isBrowser || !userId) return;
+    this.pendingUserId.set(userId);
+  }
+
+  /**
+   * Associate the visitor with the vendor account whose dashboard they just
+   * entered (`docs/ANALYTICS.md` §8).
+   *
+   * This is the reason PostHog groups exist in this project at all: it makes
+   * "how many VENDORS activated" answerable. One vendor with four seats is one
+   * activated vendor, and no per-person count can approximate that.
+   *
+   * Same consent gate and same store-then-send shape as {@link identify}.
+   */
+  groupVendor(vendor: { id: string; name: string }): void {
+    if (!this.isBrowser || !vendor.id) return;
+    this.pendingVendor.set({ id: vendor.id, name: vendor.name });
+  }
+
+  /**
+   * Drop the PostHog identity on logout (`docs/ANALYTICS.md` §8).
+   *
+   * ## What `reset()` actually does, and what the client is left running
+   *
+   * Read out of `posthog-js@1.393.0` rather than assumed
+   * (`lib/src/posthog-core.js`, `PostHog.prototype.reset`):
+   *
+   *   1. `consent.reset()` — removes the SDK's own `__ph_opt_in_out_<token>`
+   *      key. AECi never writes that key (consent lives in `consent.ts` and
+   *      `respect_dnt` is `false`), so the status lands on `PENDING`, and
+   *      `isRejected()` is `PENDING && opt_out_capturing_by_default`, which is
+   *      `false` by default. **The client is NOT opted out** — this is the step
+   *      that would otherwise leave us Tier 1-dead, with `$exception` and
+   *      `$web_vitals` silently stopped for the rest of the page's life.
+   *   2. `persistence.clear()` + `sessionPersistence.clear()` — wipes every
+   *      stored property, **including the `locale`/`theme` super-properties**
+   *      registered in the factory's `loaded` callback and the `$groups` entry
+   *      written by `group()`. That is why this method re-registers the
+   *      dimensions afterwards: `docs/ANALYTICS.md` §3 says they ride EVERY
+   *      event, and after a bare `reset()` they would silently stop riding
+   *      `$pageview`, `$exception` and `$web_vitals` (custom events survive
+   *      either way — `capture()` merges them per call).
+   *   3. A fresh `distinct_id` is minted; `$device_id` is preserved (we do not
+   *      pass `reset_device_id`), and `USER_STATE` goes back to `anonymous`.
+   *   4. `reloadFeatureFlags()` — flags re-evaluate for the new anonymous user,
+   *      which `FeatureFlags` picks up through its existing `onFeatureFlags`
+   *      subscription.
+   *
+   * So the post-logout client is: **still capturing, no identity, dimensions
+   * intact** — the operational floor is never lost. It is NOT downgraded to
+   * Tier 2 config, and that is correct rather than an oversight: signing out
+   * does not withdraw consent, so a consented, signed-out visitor is exactly a
+   * consented anonymous visitor, which is a Tier 3 state with a fresh
+   * anonymous id. Downgrading here would stop `$pageview` for someone who is
+   * still consented.
+   *
+   * Awaited by every caller because all three logout paths follow it with a
+   * hard `location.assign('/')`. The persistence writes are synchronous
+   * localStorage calls, but they sit behind the memoized boot promise, so a
+   * fire-and-forget call would be racing the navigation for a microtask.
+   */
+  async resetIdentity(): Promise<void> {
+    if (!this.isBrowser) return;
+    this.pendingUserId.set(null);
+    this.pendingVendor.set(null);
+    this.identifiedAs = null;
+    this.groupedAs = null;
+    try {
+      const client = await this.boot();
+      if (!client) return;
+      client.reset();
+      // Step 2 above: re-arm the required dimensions the clear() just dropped.
+      client.register({ ...analyticsDimensions() });
+    } catch {
+      // Analytics MUST NOT break a logout.
+    }
   }
 
   // ─── Tier 2 operational API (NOT consent-gated) ────────────────────────────
@@ -232,16 +396,56 @@ export class Analytics {
    * Known minor edge: `HistoryAutocapture._lastPathname` was seeded at init, so
    * navigating BACK to the page the SDK booted on right after granting consent
    * is suppressed as a same-path change. Every other navigation is captured.
+   *
+   * Memoized rather than flag-guarded so the identity writes can await it (see
+   * {@link upgradePromise}).
    */
-  private async upgrade(): Promise<void> {
-    if (this.upgraded) return;
-    this.upgraded = true;
+  private upgrade(): Promise<void> {
+    return (this.upgradePromise ??= this.runUpgrade());
+  }
+
+  private async runUpgrade(): Promise<void> {
     try {
       const client = await this.boot();
       if (!client) return;
       client.set_config({ ...TIER_3_PRODUCT_ANALYTICS_CONFIG });
       client.historyAutocapture?.startIfEnabled();
       client.capture('$pageview', { ...analyticsDimensions() });
+    } catch {
+      // Analytics MUST NOT break the app.
+    }
+  }
+
+  /**
+   * Write the identity. Both writers await {@link upgrade} first so the call
+   * lands on a Tier 3 client — consent is already granted when they run (the
+   * effect gates on it), and the upgrade promise is therefore already in flight.
+   *
+   * The "already written" marker is set BEFORE the await, not after: the effect
+   * can re-run (a second `identify()` from another page-load probe) while the
+   * first write is still resolving, and two overlapping `$identify` captures
+   * would be worse than one lost retry on a failing client.
+   */
+  private async identifyNow(userId: string): Promise<void> {
+    if (this.identifiedAs === userId) return;
+    this.identifiedAs = userId;
+    try {
+      await this.upgrade();
+      const client = await this.boot();
+      // The Supabase user id, alone. Never the email (§2).
+      client?.identify(userId);
+    } catch {
+      // Analytics MUST NOT break the app.
+    }
+  }
+
+  private async groupVendorNow(vendor: { id: string; name: string }): Promise<void> {
+    if (this.groupedAs === vendor.id) return;
+    this.groupedAs = vendor.id;
+    try {
+      await this.upgrade();
+      const client = await this.boot();
+      client?.group(VENDOR_GROUP_TYPE, vendor.id, { name: vendor.name });
     } catch {
       // Analytics MUST NOT break the app.
     }

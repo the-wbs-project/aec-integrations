@@ -14,7 +14,9 @@ import {
 
 import { UpdateAccountSchema, type AccountProfileResponse, type AccountReview } from '@aeci/shared';
 
+import { Analytics } from '../analytics/analytics';
 import { AuthService } from '../auth/auth.service';
+import { signOutAndGoHome } from '../auth/sign-out';
 import { AccountApi } from './account-api';
 import { ReviewStatusBadge } from './review-status-badge';
 
@@ -58,6 +60,7 @@ const REVIEWS_PER_PAGE = 24;
 export class AccountPage {
   private readonly api = inject(AccountApi);
   private readonly auth = inject(AuthService);
+  private readonly analytics = inject(Analytics);
   private readonly titleSvc = inject(Title);
   private readonly metaSvc = inject(Meta);
 
@@ -186,15 +189,13 @@ export class AccountPage {
     });
   }
 
+  /** Delegates to the shared helper (AECI-649) so this page can't drift from
+   *  the header menus — in particular it can't forget the PostHog identity
+   *  reset that must happen before the hard redirect (`ANALYTICS.md` §8). */
   protected async onSignOut(): Promise<void> {
     this.signOutFailed.set(false);
-    try {
-      await this.auth.signOut();
-    } catch {
-      this.signOutFailed.set(true);
-      return;
-    }
-    this.redirectHome();
+    const ok = await signOutAndGoHome(this.auth, this.analytics);
+    if (!ok) this.signOutFailed.set(true);
   }
 
   /** Confirmed from the dialog. Deletes the account, signs out, redirects home. */
@@ -216,6 +217,12 @@ export class AccountPage {
     } catch {
       /* ignore — the account is deleted; redirect regardless */
     }
+    // Not `signOutAndGoHome`: that helper aborts the redirect when `signOut()`
+    // throws, and here the account is already gone so the redirect is
+    // unconditional. The identity reset is not optional either way — this is
+    // the ONE case where a stale localStorage distinct id would outlive the
+    // person it names (`docs/ANALYTICS.md` §8).
+    await this.analytics.resetIdentity();
     this.redirectHome();
   }
 
