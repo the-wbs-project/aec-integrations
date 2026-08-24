@@ -440,6 +440,9 @@ Live check, 2026-08-24. None of these block the code; each gates a capability.
 | Error tracking (exception autocapture) | **Disabled on both projects.** Browser and Worker exception capture has nowhere to land until it is enabled. Dashboard-only — the API key available here lacks `product_enablement:write`. |
 | Internal-user exclusion | **Not configured.** Until it is, production product analytics carry operator traffic while `page_views` excludes it via verified admin session — so the two surfaces disagree for a reason that looks like a bug. |
 | `POSTHOG_KEY_STAGING` / `POSTHOG_KEY_PRODUCTION` GH secrets | **Now unused** — delete. |
+| Web vitals (`capturePerformance.web_vitals`) | **On in prod, OFF in non-prod.** Enable on 525793 or `$web_vitals` is untestable on every tier you would test on (§8.8). |
+| Session replay at the **project** level | **Enabled on prod**, off on non-prod. D5 says replay is off; today only the client's `disable_session_recording` enforces that on production. Turn it off at the project level too. |
+| Heatmaps at the **project** level | **Enabled on prod.** Same class as replay — a collection surface D5's privacy review never covered. |
 
 ### §8.8 PostHog's remote config is a server-side gate the client cannot override
 
@@ -462,6 +465,21 @@ So setting `capture_performance: { web_vitals: true }` in `posthog.init()` is
 vitals is enabled in the **project settings**. The same is true of exception
 autocapture. Both are operator toggles, not code.
 
+**And the two projects disagree**, which is the part that will waste someone's
+afternoon. Compared live:
+
+| Setting | prod (354071) | non-prod (525793) |
+|---|---|---|
+| `capturePerformance.web_vitals` | **true** | **false** |
+| `errorTracking.autocaptureExceptions` | false | false |
+| `heatmaps` | **true** | false |
+| `sessionRecording` | **enabled** (full config object) | `false` |
+
+So web vitals works in production and **silently does nothing** on preview,
+staging, demo and stage2 — the tiers you would actually test on. A verification
+run against the non-prod project will conclude "web vitals is broken" when the
+code is fine.
+
 Two consequences worth stating plainly:
 
 1. **§7's operator list was incomplete.** It named "error-tracking product
@@ -476,8 +494,17 @@ Two consequences worth stating plainly:
    So the browser error path works today; it just has no console to read it in
    until the toggle is flipped.
 
-`sessionRecording: false` in that response is a useful independent confirmation
-of D5 — replay is off at the project level as well as in the client config.
+**D5 is currently held by the client alone on production.** `sessionRecording`
+is `false` on the non-prod project, but production returns a **full session
+recording config object** — replay is enabled at the project level there. The
+only thing stopping production sessions being recorded today is the client's
+`disable_session_recording: true`. That is one config regression away from
+recording production visitors without the privacy review D5 requires, and it
+would not be caught by any test in this repo. `heatmaps: true` on production is
+the same class of thing.
+
+Both are operator toggles (§8.7). Turning them off at the project level makes
+D5 belt-and-braces instead of a single point of failure.
 
 ### §8.9 Live verification results (2026-08-24, local `dev:agent` + dev project)
 
