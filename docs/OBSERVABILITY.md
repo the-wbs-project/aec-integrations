@@ -134,7 +134,133 @@ is the slice for the `**` 404 wildcard and non-GET requests.
 Every metric also carries the base tags `env`, `app:aeci`, `service` (`aeci-web` /
 `aeci-api`), `worker`, `locale` — the same vocabulary as the log `ddtags` string.
 
-### `job_runs` is a second recording surface, not a replacement (AECI-583)
+## Cardinality budget (AECI-645 / POSTHOG_MIGRATION_SPEC.md §3.5)
+
+PostHog guardrails metrics at **1,000 series per window**. Datadog had no
+comparable ceiling at our volume, so the catalogue above was grown one tag at a
+time without anyone doing the sum. This section is that sum, and the standing
+rule that comes out of it.
+
+> **The standing rule: no new tag without redoing this arithmetic.**
+> Adding one two-valued tag to `aeci.api.query.duration_ms` costs 186 series —
+> a fifth of the entire budget — because tag cost is multiplicative, not
+> additive. If you add a metric or a tag dimension, update the table below in
+> the same PR. A budget nobody recomputes is a budget nobody has.
+
+### Series identity includes the resource attributes
+
+A PostHog metric series is identified by the **whole** attribute tuple — the
+per-point attributes *and* the OTLP resource attributes. That second half is
+easy to forget because we never write it at the call site: the transport
+(`packages/shared/src/posthog.ts`) attaches `service.name`, `env`, `app`,
+`service`, `worker`, `version` and `locale` to every point automatically.
+
+Within one project most of those are ×1 (`app` is always `aeci`, `locale` is
+always `en-US`, and a given metric is emitted by exactly one `service`). Two
+are not:
+
+- **`version` (= `COMMIT_SHA`) is ×2 for the length of a deploy overlap.** Two
+  Worker versions are live at once, so every series in the catalogue
+  temporarily doubles. It collapses back on its own, but it means the budget
+  must be sized against `2 × steady-state`, not steady-state.
+- **`env` is ×1 in the production project and up to ×4 in the non-production
+  one**, which carries preview, staging, demo and stage2 together (§3.6 / D4).
+  The non-prod project is therefore the tighter constraint, not the looser one.
+
+### The arithmetic
+
+Per-point series counts, at steady state, for the metrics that actually cost
+something. Everything not listed is single-digit; the long tail of ~50 metrics
+contributes ≈490 between them.
+
+| Metric | Arithmetic | Series |
+|---|---|---|
+| `aeci.api.query.duration_ms` | 62 route patterns × 3 `status_class` | **186** |
+| `aeci.waf.ratelimit.blocked` | ~5 `rule` × ~3 `action` × ~3 `host` × 2 `source` | ~90 |
+| `aeci.stats.compute.key` | 2 `trigger` × 12 `home.*` keys × 3 `outcome` | 72 |
+| `aeci.email.send` | 16 templates × 3 `outcome` | 48 |
+| `aeci.cache.purge` | consumer (3 × 4) + `/admin/purge` (3 × 3 × 4 `mode`) | ~48 |
+| `aeci.metrics_snapshot.metric` | 19 `metrics_daily` keys × 2 `outcome` | 38 |
+| `aeci.job_runs.write` | 2 `phase` × 9 jobs × 2 `outcome` | 36 |
+| `aeci.linear.sync` | `outcome` × `kind` × `to_status` × `reason` | ~32 |
+| `aeci.stats.compute.key.duration_ms` | 2 `trigger` × 12 keys | 24 |
+| `aeci.algolia.sync` | 2 `trigger` × 4 `entity` × 3 `outcome` | 24 |
+| *(remaining ~50 metrics)* | mostly `outcome` × one dimension | ≈490 |
+| **Steady-state total** | | **≈854** |
+| **During a deploy overlap** | ×2 for `version` | **≈1,708** |
+
+**≈854 is 85% of the guardrail before any multiplier, and a deploy overlap puts
+us at ~1.7× over it.** That is the finding. Two decisions follow, both taken in
+AECI-645 and implemented in AECI-642.
+
+### Decision 1 — the raw `status` tag is dropped
+
+`aeci.api.query.duration_ms` used to carry both raw `status` and `status_class`.
+Because `status` determines `status_class`, the pair costs 62 × ~15 distinct
+codes ≈ **930 series from a single metric** — over the entire budget on its own,
+before every other metric in the catalogue. Keeping `status_class` costs 186.
+
+The exact status code is not lost. It lives on the error log, which is where you
+were going to look anyway once a rate moved: a metric tells you *that* 5xx rose,
+the log tells you *which* endpoint returned *what*.
+
+The same defect existed on the web side — `aeci.page.render.duration_ms` carried
+a raw `status_code` beside `status_class`. Dropped for the same reason.
+
+### Decision 2 — `host` is a log attribute, not a metric attribute
+
+This is a deliberate exception to the "one tag vocabulary on all pipes"
+invariant, and it is the reason the arithmetic was worth doing.
+
+In the **non-production** project, the preview tier deploys **one Worker per
+pull request** (`aeci-web-pr-123.<subdomain>.workers.dev`). If `host` were a
+metrics resource attribute, every series in the catalogue would fork per PR —
+**unbounded cardinality that grows with every PR, forever**, and no amount of
+tag discipline elsewhere would recover it. In production it is a more modest
+×2–3 (`aecintegrations.com`, `www.`, `prod.`) but for no analytical gain, since
+`env` already identifies the tier and the apex 301s to `www` anyway.
+
+So `host` stays on **logs** — cheap there, high-cardinality is the norm for
+logs, and "which hostname served this" is a real question when reading one.
+It is **not** attached to metric points or metric resources.
+
+Note the one place `host` legitimately remains on a metric:
+`aeci.waf.ratelimit.blocked` carries it as a *per-point* attribute, because a
+WAF event is intrinsically about a hostname and the set is the small, fixed list
+of zone hostnames. That is bounded and deliberate.
+
+### Value-bearing counts map to OTLP monotonic sums
+
+Several metrics submit a **row count** as the value rather than incrementing by
+one — `aeci.api.promote.skipped`, `aeci.api.promote.stale_id`,
+`aeci.linear.reconcile.attempt`, `aeci.linear.reconcile.persistent_failure`,
+`aeci.waf.ratelimit.blocked`. Under Datadog these were the "query with `sum:`,
+not `count:`" gotchas: `count:` counted *submissions* and silently under-reported,
+which is a genuinely nasty class of bug because the graph looks plausible.
+
+**That gotcha dies with the migration.** Every one of them maps to an OTLP `sum`
+with `isMonotonic: true` and DELTA temporality, so the submitted value *is* the
+delta and any aggregation over the series adds up correctly. There is no
+`count:`-vs-`sum:` choice left to get wrong.
+
+Gauges (`aeci.algolia.index_drift`, `aeci.moderation.queue_depth`,
+`aeci.data_quality.check`, `aeci.attestation.detector`,
+`aeci.entitlement.expiry_due`, …) stay OTLP `gauge` — they report a level as of
+submission, not a delta, and summing them is meaningless.
+
+### Never a user, person, or session id on a metric
+
+Not once, not "just for debugging". An identifier tag is cardinality equal to
+the user base, so a single such tag would blow the entire budget the first day
+it saw traffic — and it would do it silently, by pushing *other* metrics out of
+the window rather than by failing.
+
+Person-level correlation has a designed home: `posthogDistinctId` as a **log**
+attribute on genuinely-authed requests (AECI-644 / §AW3), which is the exact
+name PostHog joins on. An unhandled 500 is one click from the person via the
+log. The metric stays anonymous and bounded.
+
+## `job_runs` is a second recording surface, not a replacement (AECI-583)
 
 Since AECI-583 every cron also writes a `job_runs` row in D1 (`DATABASE_SCHEMA.md`
 §9.4, `ADMIN_PANEL_SPEC.md` §7.2), and `/admin/system` renders it. That does **not**
@@ -178,7 +304,7 @@ partial** (per-key and per-entity respectively), and Datadog models that as
 recorded `failed`, derived from the *same* `jobOutcome()` the metric tag uses. The
 panel therefore never claims more success than Datadog does for the same run.
 
-### Measuring the D1 read-replication latency win (AECI-250)
+## Measuring the D1 read-replication latency win (AECI-250)
 
 The edge-read-latency thesis (ADR 0016) is realized by the D1 Sessions API:
 reads default to the `'first-unconstrained'` session anchor and are served by the
