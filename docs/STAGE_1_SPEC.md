@@ -400,6 +400,11 @@ Both use the same form pattern, with different fields and Linear destinations:
 
 Both submit to a Cloudflare Worker endpoint, which posts to an n8n webhook, which creates a Linear issue with all fields pre-filled.
 
+**Signed-in email prefill.** Both forms stay **public** — an anonymous visitor can submit either one, and neither endpoint requires auth. But when the visitor *does* have a session, the email field is **pre-filled** from it (`SessionStatus.email()`, the same JWT claim `GET /api/account` reports) so nobody retypes an address the site already knows. Two constraints on how:
+
+- **Prefill, never lock.** The claim form asks for a *work* email, which may differ from the account's (a Google sign-in on a personal address is normal), and that address is what §7.1 (docs/STAGE_1_PHASE_6_SPEC.md)'s `domain_match` compares against the target vendor's website. Forcing the account email would break that signal, so the field stays editable and a visitor edit always wins over a later-resolving probe.
+- **Post-hydration only.** `SessionStatus.email()` is `null` during SSR and until the browser probe resolves, so the server-rendered HTML stays visitor-state-neutral and `/products|vendors/:slug/{claim,correction}` remains safe to edge-cache (§8).
+
 ---
 
 ## 5. Data Model
