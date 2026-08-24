@@ -440,3 +440,70 @@ Live check, 2026-08-24. None of these block the code; each gates a capability.
 | Error tracking (exception autocapture) | **Disabled on both projects.** Browser and Worker exception capture has nowhere to land until it is enabled. Dashboard-only — the API key available here lacks `product_enablement:write`. |
 | Internal-user exclusion | **Not configured.** Until it is, production product analytics carry operator traffic while `page_views` excludes it via verified admin session — so the two surfaces disagree for a reason that looks like a bug. |
 | `POSTHOG_KEY_STAGING` / `POSTHOG_KEY_PRODUCTION` GH secrets | **Now unused** — delete. |
+
+### §8.8 PostHog's remote config is a server-side gate the client cannot override
+
+Found during the live verification pass, and **not anticipated anywhere in
+§2–§3**: on init, `posthog-js` fetches
+`https://us-assets.i.posthog.com/array/{phc_token}/config` and that response
+**overrides client-side config for the two operational signals**. For the
+non-prod project today it returns:
+
+```json
+{ "capturePerformance": { "network_timing": true, "web_vitals": false, … },
+  "autocaptureExceptions": false,
+  "errorTracking": { "autocaptureExceptions": false, … },
+  "sessionRecording": false,
+  "analytics": { "endpoint": "/i/v0/e/" } }
+```
+
+So setting `capture_performance: { web_vitals: true }` in `posthog.init()` is
+**necessary but not sufficient** — `$web_vitals` does not fire until web
+vitals is enabled in the **project settings**. The same is true of exception
+autocapture. Both are operator toggles, not code.
+
+Two consequences worth stating plainly:
+
+1. **§7's operator list was incomplete.** It named "error-tracking product
+   enabled on both projects" but not web vitals. Both are required for §6(4)
+   to pass, on **both** projects. §8.7 now carries them.
+2. **Manual capture is NOT gated.** `posthog.captureException(...)` — the path
+   `PosthogErrorHandler` uses, and the load-bearing one per §3.3 — delivers
+   `$exception` events even while `autocaptureExceptions` is false. Verified
+   live: an uncaught error routed through Angular's global error listener into
+   the `ErrorHandler` arrived in the project. What project-level error tracking
+   gates is the **issue grouping / Error Tracking product**, not ingestion.
+   So the browser error path works today; it just has no console to read it in
+   until the toggle is flipped.
+
+`sessionRecording: false` in that response is a useful independent confirmation
+of D5 — replay is off at the project level as well as in the client config.
+
+### §8.9 Live verification results (2026-08-24, local `dev:agent` + dev project)
+
+What the §6 checklist actually returned, run against `pnpm dev:agent`
+(SSR :8790 / API :8789) reporting to `aec-integrations-dev` (525793).
+
+| §6 check | Result |
+|---|---|
+| 1. Worker metrics reach the intake | ✅ `POST /i/v1/metrics` → 200, repeatedly. PostHog Metrics is alpha and has **no read tool**, so "split by `endpoint`" is unverifiable from here; the intake accepting is the available evidence. |
+| 2. Worker logs by `service.name` with `env` + `version` | ✅ Both Workers. Resource attributes arrive complete: `app`, `env: preview`, `host`, `locale`, `service`, **`service.name`**, `source` (`worker` / `worker-angular`), `version` = the real `COMMIT_SHA`, `worker`. The AECI-103 gated `ssr.render` log ported as-is and fires. |
+| 3. §26.5 audit forward visible as a PostHog log | ⚠️ Partial. Local tracing shows outbound `fetch` spans to `us.i.posthog.com/i/v1/logs` returning 200, which is the mechanism — but no audit-bearing write was triggered in this pass. |
+| 4. Browser Tier 2 pre-consent | ✅ `app_started` arrived **twice, pre-consent, with a stored `denied` decision**, carrying `locale`/`theme`. Zero PostHog storage keys in `localStorage`/`sessionStorage`. `$pageview` correctly absent. ❌ `$web_vitals` — blocked by §8.8, not by the code. |
+| 5. Angular error capture | ✅ An uncaught error through Angular's global error listener → `ErrorHandler` → `captureException` arrived as `$exception`. The bench button is correctly **absent** from the production bundle, so the global-listener path stood in for it. |
+| 6. Source maps | ✅ 122 `.map` emitted, **0** `sourceMappingURL` comments in served JS, 0 `.css.map`; the skip path deleted all 122 while leaving the 122 chunks. |
+| 7. A promote run | ❌ Not run — needs `REVIEW_APP_TOKEN`, absent from local `.dev.vars`. |
+| 8. Liveness sweep drill | ✅ Drilled against a stub speaking the real query envelope: fresh → exit 0; missing → exit 1; stale → exit 1; PostHog 5xx / no key → exit 2 ("UNCHECKED, not healthy"). |
+| 9. Email/side-effect pipe | ❌ Not run deliberately — local `.dev.vars` holds a live Resend key, so triggering it would send real mail. |
+| 10. `dev:agent` boots + SSR 200, separately from `pnpm build` | ✅ SSR 200, `/api/health` 200, `__AECI_POSTHOG__` injected with the committed non-prod key, `__AECI_DD__` still injected. The pnpm strict-layout trap is clear. |
+
+**The dual-run fan-out is proven end to end, not asserted.** In the same local
+run, one set of call sites produced `us.i.posthog.com/i/v1/{logs,metrics}` →
+**200** *and* `api.us5.datadoghq.com` + `http-intake.logs.us5.datadoghq.com` →
+**202**, concurrently.
+
+**Harness note for whoever re-runs check 4.** `posthog-js` batches captures and
+flushes on the visible→hidden transition. An automation tab that was *never*
+visible never makes that transition, and its timers are throttled, so events
+sit in the queue and the check looks like a failure. Dispatch a `pagehide`
+event on `window` to force the flush.
