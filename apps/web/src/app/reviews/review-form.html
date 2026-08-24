@@ -230,9 +230,13 @@
         type="text"
         [formField]="form.title"
         [attr.aria-invalid]="form.title().touched() && form.title().invalid() ? 'true' : null"
-        [attr.aria-describedby]="form.title().touched() && form.title().getError('standardSchema') ? 'review-title-error' : null"
+        [attr.aria-describedby]="form.title().touched() && form.title().getError('standardSchema') ? 'review-title-hint review-title-error' : 'review-title-hint'"
         class="w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
       />
+      <p id="review-title-hint" class="text-xs text-(--text-secondary)" i18n="@@reviews.title.hint">
+        One line summing up your experience.
+        <strong class="text-(--text-primary)">Between 5 and 100 characters.</strong>
+      </p>
       @if (form.title().touched() && form.title().getError('standardSchema')) {
       <p
         id="review-title-error"
@@ -240,7 +244,7 @@
         role="alert"
         i18n="@@reviews.title.error"
       >
-        Add a headline between 5 and 100 characters.
+        Use between 5 and 100 characters.
       </p>
       }
     </div>
@@ -259,9 +263,13 @@
         rows="6"
         [formField]="form.body"
         [attr.aria-invalid]="form.body().touched() && form.body().invalid() ? 'true' : null"
-        [attr.aria-describedby]="form.body().touched() && form.body().getError('standardSchema') ? 'review-body-error' : null"
+        [attr.aria-describedby]="form.body().touched() && form.body().getError('standardSchema') ? 'review-body-hint review-body-error' : 'review-body-hint'"
         class="w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
       ></textarea>
+      <p id="review-body-hint" class="text-xs text-(--text-secondary)" i18n="@@reviews.body.hint">
+        What worked, what didn't, and who you'd recommend it to.
+        <strong class="text-(--text-primary)">Minimum 50 characters.</strong>
+      </p>
       @if (form.body().touched() && form.body().getError('standardSchema')) {
       <p
         id="review-body-error"
@@ -269,7 +277,7 @@
         role="alert"
         i18n="@@reviews.body.error"
       >
-        Write at least 50 characters so your review is useful.
+        Add at least 50 characters.
       </p>
       }
     </div>

@@ -97,9 +97,17 @@
       rows="4"
       [formField]="form.body"
       [attr.aria-invalid]="form.body().touched() && form.body().invalid() ? 'true' : null"
-      [attr.aria-describedby]="form.body().touched() && form.body().getError('standardSchema') ? 'correction-body-error' : null"
+      [attr.aria-describedby]="form.body().touched() && form.body().getError('standardSchema') ? 'correction-body-hint correction-body-error' : 'correction-body-hint'"
       class="w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
     ></textarea>
+    <p
+      id="correction-body-hint"
+      class="text-xs text-(--text-secondary)"
+      i18n="@@requests.correction.body.hint"
+    >
+      Tell us what's inaccurate and what it should say instead.
+      <strong class="text-(--text-primary)">Minimum 20 characters.</strong>
+    </p>
     @if (form.body().touched() && form.body().getError('standardSchema')) {
     <p
       id="correction-body-error"
@@ -107,7 +115,7 @@
       role="alert"
       i18n="@@requests.correction.body.error"
     >
-      Describe the correction in at least 20 characters.
+      Add at least 20 characters.
     </p>
     }
   </div>
@@ -303,9 +311,18 @@
       rows="4"
       [formField]="form.body"
       [attr.aria-invalid]="form.body().touched() && form.body().invalid() ? 'true' : null"
-      [attr.aria-describedby]="form.body().touched() && form.body().getError('standardSchema') ? 'claim-body-error' : null"
+      [attr.aria-describedby]="form.body().touched() && form.body().getError('standardSchema') ? 'claim-body-hint claim-body-error' : 'claim-body-hint'"
       class="w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
     ></textarea>
+    <p
+      id="claim-body-hint"
+      class="text-xs text-(--text-secondary)"
+      i18n="@@requests.claim.body.hint"
+    >
+      Tell us how you're connected to this listing: the team you work on, what you do with the
+      product, or a link to your profile on the company site.
+      <strong class="text-(--text-primary)">Minimum 20 characters.</strong>
+    </p>
     @if (form.body().touched() && form.body().getError('standardSchema')) {
     <p
       id="claim-body-error"
@@ -313,7 +330,7 @@
       role="alert"
       i18n="@@requests.claim.body.error"
     >
-      Tell us about your connection to this listing (at least 20 characters).
+      Add at least 20 characters.
     </p>
     }
   </div>
