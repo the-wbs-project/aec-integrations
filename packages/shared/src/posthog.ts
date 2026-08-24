@@ -63,6 +63,16 @@
  *      on `metricResourceAttributes` below; do not "restore consistency" here
  *      without redoing that arithmetic.
  *
+ * ## Person identity on logs (AECI-644 / §AW3)
+ *
+ * A log carries `posthogDistinctId` — that exact camelCase spelling, the
+ * property PostHog joins logs to persons on — **iff** its request carries a
+ * JWKS-verified Supabase user id, registered by the auth layer via
+ * `rememberPosthogDistinctId`. Cron, queue, promote-Workflow and anonymous SSR
+ * renders omit the attribute entirely; never synthesize one. Full reasoning on
+ * `withDistinctId` below. (Server-side *events* are the deliberate asymmetry:
+ * they fall back to the service slug — §3.10.)
+ *
  * ## pnpm trap (spec §2 — read before touching `package.json`)
  *
  * `posthog-node` must be declared in **each consuming app's** `package.json`
@@ -85,6 +95,13 @@ export type PosthogLogLevel = 'debug' | 'info' | 'warn' | 'error';
 export type PosthogLogEvent = {
   message: string;
   level?: PosthogLogLevel;
+  /**
+   * RESERVED — typed `never` so a call site cannot author it (AECI-644 / §AW3).
+   * The only value permitted on a log is one this transport read back from
+   * {@link rememberPosthogDistinctId}, i.e. one that came out of Supabase JWKS
+   * verification. See the `posthogDistinctId` block below the tag vocabulary.
+   */
+  posthogDistinctId?: never;
   [key: string]: unknown;
 };
 
@@ -251,6 +268,75 @@ function toAttributes(record: Record<string, unknown>): OtlpAttribute[] {
     attributes.push({ key, value: attributeValue(value) });
   }
   return attributes;
+}
+
+/**
+ * Request → verified Supabase user id, for the `posthogDistinctId` log
+ * attribute (AECI-644 / spec §AW3).
+ *
+ * Keyed on the `Request` object itself because that is the only handle every
+ * log call site already holds: `logToPosthog(ctx, env, request, event)` takes no
+ * session, and there are ~50 request-scoped call sites in the API Worker alone.
+ * Stamping the attribute at each of them would drift, and the failure mode of
+ * drift here is silent under-coverage. Registering once in the auth layer and
+ * reading once in `logToPosthog` is the whole mechanism.
+ *
+ * `WeakMap`, so an entry dies with the request that owns it — no eviction pass,
+ * no isolate-lifetime leak, and no chance of a stale id outliving its request.
+ */
+const distinctIdByRequest = new WeakMap<Request, string>();
+
+/**
+ * Record the **verified** Supabase user id for this request, so every log the
+ * request goes on to emit carries `posthogDistinctId` and is one click from the
+ * person in PostHog.
+ *
+ * Call this ONLY where a Supabase JWT has just passed JWKS verification —
+ * `apps/api/src/lib/user-auth.ts` and `apps/api/src/lib/authz.ts` are the two
+ * producers today. There is no other legitimate source: the id must be the
+ * token `sub` (the `auth.users` UUID), because that is exactly what the browser
+ * calls `identify()` with (`docs/ANALYTICS.md` §8). Anything else mints a person
+ * that does not exist.
+ */
+export function rememberPosthogDistinctId(request: Request, userId: string): void {
+  distinctIdByRequest.set(request, userId);
+}
+
+/**
+ * Resolve the log attribute bag's `posthogDistinctId` — **the only writer of
+ * that key**. Present iff this request carries a JWKS-verified Supabase user id;
+ * a caller-supplied value is stripped rather than trusted.
+ *
+ * ## Why omission beats synthesis (read before "fixing the gap")
+ *
+ * Cron, queue, the promote Workflow, and anonymous SSR renders have no person
+ * behind them, so they emit **no attribute at all** — not `null`, not `""`, not
+ * `"anonymous"`, and emphatically not the service slug. PostHog joins logs to
+ * persons on this property, so any synthesized value mints a bogus person and
+ * corrupts every person-linked view in the project — permanently, and in a way
+ * that looks like real data rather than like a bug. An absent attribute is the
+ * correct, complete answer for those contexts; it is not a coverage gap, and it
+ * does not want a fallback.
+ *
+ * Note the asymmetry with server-side *events*, which DO fall back to the
+ * service slug as `distinct_id` (spec §3.10 / `captureEvent` below). Different
+ * mechanism, different failure mode: an event needs some `distinct_id` to exist
+ * at all, while a log attribute can simply be absent. Do not unify them.
+ */
+function withDistinctId(
+  request: Request,
+  attributes: Record<string, unknown>,
+): Record<string, unknown> {
+  const distinctId = distinctIdByRequest.get(request);
+  if (distinctId !== undefined) return { ...attributes, posthogDistinctId: distinctId };
+  if (!('posthogDistinctId' in attributes)) return attributes;
+  // A call site tried to author the key on an unauthenticated request (the type
+  // says `never`, but a spread can smuggle one past the compiler). Drop it.
+  const stripped = { ...attributes };
+  // Bracket access: `apps/web` compiles this file as source with
+  // `noPropertyAccessFromIndexSignature` on, where the dotted form is TS4111.
+  delete stripped['posthogDistinctId'];
+  return stripped;
 }
 
 /**
@@ -475,7 +561,11 @@ export function createPosthogClient(config: PosthogClientConfig): PosthogClient 
                   severityNumber: severity.number,
                   severityText: severity.text,
                   body: { stringValue: message },
-                  attributes: toAttributes(rest),
+                  // `withDistinctId` is the ONLY writer of `posthogDistinctId`
+                  // (AECI-644 / §AW3): present iff this request carries a
+                  // JWKS-verified Supabase user id, absent otherwise. Never
+                  // synthesize one here — see the function's docblock.
+                  attributes: toAttributes(withDistinctId(request, rest)),
                 },
               ],
             },

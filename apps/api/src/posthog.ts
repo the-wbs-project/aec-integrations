@@ -32,6 +32,13 @@
  * Worker identity is pinned here: `service: 'aeci-api'`, `worker: 'aeci-api'`,
  * `source: 'worker'` (the SSR Worker's counterpart is
  * `apps/web/src/server-posthog.ts`).
+ *
+ * One deliberate exception to "everything imports from here": the auth layer
+ * (`lib/user-auth.ts`, `lib/authz.ts`) imports `rememberPosthogDistinctId`
+ * straight from `@aeci/shared/posthog` (AECI-644 / §AW3). It registers identity
+ * rather than emitting telemetry, has no Datadog counterpart to fan out to, and
+ * must keep working in the dozen route specs that `vi.mock('../posthog')` to
+ * silence telemetry — behind that mock it would silently stop registering.
  */
 
 import { createPosthogClient, type PosthogEnv, type PosthogLogEvent } from '@aeci/shared/posthog';
@@ -80,7 +87,14 @@ export const captureEvent = client.captureEvent;
 export const captureException = client.captureException;
 export const isFeatureEnabled = client.isFeatureEnabled;
 
-/** Structured log → PostHog OTLP logs (+ Datadog logs for the dual-run window). */
+/**
+ * Structured log → PostHog OTLP logs (+ Datadog logs for the dual-run window).
+ *
+ * The PostHog leg adds `posthogDistinctId` when this request carries a verified
+ * Supabase user id (AECI-644); the Datadog leg gets the caller's event
+ * untouched, so the dual-run stays byte-identical on that side and PH-final is
+ * still a one-line deletion.
+ */
 export function logToPosthog(
   ctx: WaitUntilContext,
   env: TelemetryEnv,

@@ -1,6 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { createPosthogClient, type PosthogEnv } from './posthog';
+import {
+  createPosthogClient,
+  rememberPosthogDistinctId,
+  type PosthogEnv,
+  type PosthogLogEvent,
+} from './posthog';
 
 // `posthog-node/edge` owns the events + exceptions pipe (spec §2). It is mocked
 // here so the assertions can pin the *contract* the transport must honour:
@@ -316,6 +321,83 @@ describe('createPosthogClient — logToPosthog', () => {
       'logToPosthog: intake rejected 401',
       expect.stringContaining('No token provided'),
     );
+  });
+});
+
+describe('createPosthogClient — posthogDistinctId on logs (AECI-644 / §AW3)', () => {
+  it('stamps the verified Supabase user id on every log from a registered request', async () => {
+    const request = makeRequest('https://api.aeci.com/api/reviews');
+    rememberPosthogDistinctId(request, 'f47ac10b-58cc-4372-a567-0e02b2c3d479');
+
+    const { ctx, promises } = makeCtx();
+    client.logToPosthog(ctx as never, makeEnv(), request, { message: 'x', route: '/api/reviews' });
+    await Promise.all(promises);
+
+    // The exact camelCase spelling is load-bearing — it is the property PostHog
+    // joins logs to persons on.
+    expect(attributeMap(logRecord().attributes)).toEqual({
+      route: '/api/reviews',
+      posthogDistinctId: 'f47ac10b-58cc-4372-a567-0e02b2c3d479',
+    });
+  });
+
+  it('OMITS the key entirely for an anonymous request — no null, no empty string', async () => {
+    const { ctx, promises } = makeCtx();
+    client.logToPosthog(ctx as never, makeEnv(), makeRequest(), { message: 'x', route: '/' });
+    await Promise.all(promises);
+
+    // Key ABSENCE, not a falsy value: a `null`/`""`/`"anonymous"` here would
+    // mint a bogus person and corrupt every person-linked view in the project.
+    const keys = logRecord().attributes.map((a: OtlpAttribute) => a.key);
+    expect(keys).not.toContain('posthogDistinctId');
+    expect(attributeMap(logRecord().attributes)).not.toHaveProperty('posthogDistinctId');
+  });
+
+  it('omits the key on a cron / queue / Workflow request even after another request registered one', async () => {
+    // Same isolate, two requests: the authed one registers, the synthetic one
+    // the scheduled handler and the promote Workflow build never does.
+    const authed = makeRequest('https://api.aeci.com/api/admin/claims');
+    rememberPosthogDistinctId(authed, 'user-123');
+
+    const cronRequest = new Request('https://api.aeci.com/__scheduled/algolia-sync');
+    const { ctx, promises } = makeCtx();
+    client.logToPosthog(ctx as never, makeEnv(), cronRequest, {
+      message: 'cron ran',
+      job: 'algolia-sync',
+    });
+    await Promise.all(promises);
+
+    expect(attributeMap(logRecord().attributes)).toEqual({ job: 'algolia-sync' });
+  });
+
+  it('strips a caller-supplied id rather than trusting it (the transport is the only writer)', async () => {
+    // The event type says `never`, but a spread can smuggle one past the
+    // compiler — so the strip is enforced at runtime too.
+    const forged = {
+      message: 'x',
+      route: '/',
+      posthogDistinctId: 'forged-person',
+    } as unknown as PosthogLogEvent;
+
+    const { ctx, promises } = makeCtx();
+    client.logToPosthog(ctx as never, makeEnv(), makeRequest(), forged);
+    await Promise.all(promises);
+
+    expect(attributeMap(logRecord().attributes)).toEqual({ route: '/' });
+  });
+
+  it('never puts the id on a metric, even from a registered request (spec §2)', async () => {
+    const request = makeRequest('https://api.aeci.com/api/reviews');
+    rememberPosthogDistinctId(request, 'user-123');
+
+    const { ctx, promises } = makeCtx();
+    client.submitCount(ctx as never, makeEnv(), request, 'aeci.api.reviews', 1, ['outcome:ok']);
+    await Promise.all(promises);
+
+    expect(attributeMap(metric().sum.dataPoints[0].attributes)).not.toHaveProperty(
+      'posthogDistinctId',
+    );
+    expect(attributeMap(metricResource().attributes)).not.toHaveProperty('posthogDistinctId');
   });
 });
 

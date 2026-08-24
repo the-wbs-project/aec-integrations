@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Env } from './env';
+import { rememberPosthogDistinctId } from '@aeci/shared/posthog';
+
 import { logToPosthog, submitCount, submitDistribution, submitGauge } from './posthog';
 
 // The transport mechanics (no-op without key, intake URLs, ctx.waitUntil,
@@ -99,6 +101,45 @@ describe('API Worker telemetry adapter (config wiring)', () => {
       ddsource: 'worker',
       ddtags: 'env:staging,app:aeci,worker:aeci-api,locale:en-US',
     });
+  });
+});
+
+describe('API Worker telemetry adapter (posthogDistinctId, AECI-644 / §AW3)', () => {
+  /** Log-record attributes from the PostHog OTLP body, as a plain map. */
+  function posthogLogAttributes(): Record<string, unknown> {
+    const body = bodyFor('https://us.i.posthog.com/i/v1/logs') as {
+      resourceLogs: {
+        scopeLogs: {
+          logRecords: { attributes: { key: string; value: { stringValue?: string } }[] }[];
+        }[];
+      }[];
+    };
+    const attributes = body.resourceLogs[0]!.scopeLogs[0]!.logRecords[0]!.attributes;
+    return Object.fromEntries(attributes.map((a) => [a.key, a.value.stringValue]));
+  }
+
+  it('stamps the PostHog leg only — the Datadog leg stays untouched', async () => {
+    const request = makeRequest('http://localhost:8787/api/admin/claims');
+    rememberPosthogDistinctId(request, 'user-abc');
+
+    const { ctx, promises } = makeCtx();
+    logToPosthog(ctx as never, makeEnv(), request, { message: 'claim approved' });
+    await Promise.all(promises);
+
+    expect(posthogLogAttributes()).toHaveProperty('posthogDistinctId', 'user-abc');
+    // PH-final must stay a one-line deletion: the dual-run Datadog payload is
+    // byte-identical to what it was before this issue.
+    expect(bodyFor('https://http-intake.logs.us5.datadoghq.com/api/v2/logs')).not.toHaveProperty(
+      'posthogDistinctId',
+    );
+  });
+
+  it('omits the key on an unregistered request (cron, queue, Workflow, anonymous)', async () => {
+    const { ctx, promises } = makeCtx();
+    logToPosthog(ctx as never, makeEnv(), makeRequest(), { message: 'cron ran' });
+    await Promise.all(promises);
+
+    expect(Object.keys(posthogLogAttributes())).not.toContain('posthogDistinctId');
   });
 });
 

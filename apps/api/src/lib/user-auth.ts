@@ -24,6 +24,10 @@
  */
 
 import { ApiErrorCode } from '@aeci/shared';
+// From the shared transport, not `../posthog`: this registers identity rather
+// than emitting telemetry, and route specs that `vi.mock('../posthog')` must
+// not silently switch it off (see the same note in `authz.ts`).
+import { rememberPosthogDistinctId } from '@aeci/shared/posthog';
 import type { MiddlewareHandler } from 'hono';
 import { createRemoteJWKSet, jwtVerify } from 'jose';
 import type { JWTVerifyGetKey } from 'jose';
@@ -120,7 +124,12 @@ export function requireUserAuth(
     const token = extractBearer(c.req.header('Authorization'));
     if (!supabaseUrl || !token) throw unauthenticated();
 
-    c.set('user', await verifySupabaseJwt(token, supabaseUrl, options.getKey));
+    const user = await verifySupabaseJwt(token, supabaseUrl, options.getKey);
+    c.set('user', user);
+    // One of the two places in this Worker where a genuine Supabase user id
+    // exists (the other is `lib/authz.ts`). Registering it here is what puts
+    // `posthogDistinctId` on every log this request emits — AECI-644 / §AW3.
+    rememberPosthogDistinctId(c.req.raw, user.userId);
 
     await next();
   };
