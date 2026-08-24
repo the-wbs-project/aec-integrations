@@ -18,21 +18,23 @@ import { AuthService } from './auth.service';
  * on a (cacheable, hence neutral-rendered) page with a fresh, JS-readable
  * `sb-<ref>-auth-token` cookie; the SYNCHRONOUS cookie-presence check flips the
  * header immediately, before the ~58 kB `@supabase/ssr` SDK even loads. The
- * async `AuthService.isSignedIn()` probe then confirms (or corrects a stale
- * cookie back to neutral). Without the synchronous step the header stayed on
+ * async `AuthService.sessionSnapshot()` probe then confirms (or corrects a stale
+ * cookie back to neutral) and supplies the session's email. Without the synchronous step the header stayed on
  * "Sign in" until the dynamic import + `getSession()` resolved, so a just-signed-
  * in visitor saw the wrong affordance on their landing page until they navigated.
  *
  * `providedIn: 'root'` (singleton) so the desktop header (`site-header.ts`) and
  * the mobile overlay (`nav-menu.ts`) share one reconciled value — they never
  * disagree, and the ~58 kB `@supabase/ssr` SDK loads at most once (and only
- * when an auth cookie is actually present; see `AuthService.isSignedIn`).
+ * when an auth cookie is actually present; see `AuthService.sessionSnapshot`).
  */
 @Injectable({ providedIn: 'root' })
 export class SessionStatus {
   private readonly auth = inject(AuthService);
 
   private readonly _signedIn = signal(false);
+
+  private readonly _email = signal<string | null>(null);
 
   /**
    * Whether the visitor has a session. `false` during SSR / before the
@@ -41,6 +43,19 @@ export class SessionStatus {
    * redirect, `POST /api/*` `requireAuth`).
    */
   readonly signedIn = this._signedIn.asReadonly();
+
+  /**
+   * The signed-in visitor's email, or `null` for an anonymous visitor / during
+   * SSR + pre-hydration (same cache-neutral default as `signedIn`). Comes from
+   * the same probe, so it costs no extra request. Consumers use it to skip
+   * asking for something the session already knows — the claim/correction forms
+   * prefill their email field from it.
+   *
+   * Note it stays `null` for the synchronous cookie-presence hint above: a
+   * cookie proves a session exists but carries no readable email, so the email
+   * only lands once the async snapshot resolves.
+   */
+  readonly email = this._email.asReadonly();
 
   constructor() {
     // Browser-only (never during SSR), so the session read can't poison the
@@ -61,9 +76,12 @@ export class SessionStatus {
 
     try {
       // Confirm against the cookie-derived session: a present-but-stale cookie
-      // corrects back to neutral, and the fast-path in `isSignedIn()` means an
-      // absent cookie resolves without loading the SDK at all.
-      this._signedIn.set(await this.auth.isSignedIn());
+      // corrects back to neutral, and the fast-path in `sessionSnapshot()` means
+      // an absent cookie resolves without loading the SDK at all. One read yields
+      // both the flag and the email.
+      const { signedIn, email } = await this.auth.sessionSnapshot();
+      this._signedIn.set(signedIn);
+      this._email.set(email);
     } catch {
       // Probe failed (e.g. the SDK chunk didn't load) → keep the synchronous
       // cookie hint. Cookie-present stays "signed in" (a UI hint only; every

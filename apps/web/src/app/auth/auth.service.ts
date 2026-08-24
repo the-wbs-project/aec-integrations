@@ -35,6 +35,16 @@ function hasSupabaseAuthCookie(): boolean {
   return /(?:^|;\s*)sb-[^=;]*-auth-token(?:\.\d+)?=/.test(document.cookie);
 }
 
+/** What a single cookie-derived session read yields. `email` is `null` when
+ *  there's no session or the session carries no email claim. */
+export interface SessionSnapshot {
+  readonly signedIn: boolean;
+  readonly email: string | null;
+}
+
+/** The "no session" answer — also what an unconfigured env resolves to. */
+const ANONYMOUS_SNAPSHOT: SessionSnapshot = { signedIn: false, email: null };
+
 @Injectable({ providedIn: 'root' })
 export class AuthService {
   /** `undefined` = not yet constructed; `null` = env unconfigured. */
@@ -59,6 +69,38 @@ export class AuthService {
   }
 
   /**
+   * Browser-only snapshot of the cookie-derived session: whether one exists and
+   * the email it carries. One `getSession()` serves both, so `SessionStatus` can
+   * reconcile the header affordance AND the signed-in email (used to prefill the
+   * claim/correction forms' email field, so a signed-in visitor never retypes an
+   * address the session already knows) without probing twice.
+   *
+   * Same guarantees as `isSignedIn()`: never call it during SSR (it would bake
+   * visitor state into the URL-keyed edge cache; §8), it's a UI hint only — every
+   * real gate is server-side — and an unconfigured env resolves to the anonymous
+   * snapshot rather than throwing.
+   *
+   * `email` is the same value `GET /api/account` reports (both read the session's
+   * JWT claim), so the prefill agrees with the account page without a round-trip.
+   * It can be `null` on a session with no email claim.
+   */
+  async sessionSnapshot(): Promise<SessionSnapshot> {
+    if (!this.isConfigured()) return ANONYMOUS_SNAPSHOT;
+    // Anonymous fast-path: no auth cookie → not signed in, and the browser SDK
+    // never loads. This is the cacheable detail-page case (and the Lighthouse
+    // measurement) where `ReviewCta` probes every load — so `@supabase/ssr`
+    // stays out of the detail-page JS budget (AECI-221). A logged-in visitor
+    // (cookie present) falls through and loads the SDK to verify the session.
+    if (!hasSupabaseAuthCookie()) return ANONYMOUS_SNAPSHOT;
+    const client = await this.requireClient();
+    const {
+      data: { session },
+    } = await client.auth.getSession();
+    if (!session) return ANONYMOUS_SNAPSHOT;
+    return { signedIn: true, email: session.user.email ?? null };
+  }
+
+  /**
    * Browser-only probe for "is there a signed-in session right now?", used by
    * the cache-neutral review CTA (AECI-201) to flip from its neutral SSR
    * default to a personalized label *after* hydration — never during SSR (that
@@ -70,18 +112,7 @@ export class AuthService {
    * only from `afterNextRender`/user events, never from SSR.
    */
   async isSignedIn(): Promise<boolean> {
-    if (!this.isConfigured()) return false;
-    // Anonymous fast-path: no auth cookie → not signed in, and the browser SDK
-    // never loads. This is the cacheable detail-page case (and the Lighthouse
-    // measurement) where `ReviewCta` probes every load — so `@supabase/ssr`
-    // stays out of the detail-page JS budget (AECI-221). A logged-in visitor
-    // (cookie present) falls through and loads the SDK to verify the session.
-    if (!hasSupabaseAuthCookie()) return false;
-    const client = await this.requireClient();
-    const {
-      data: { session },
-    } = await client.auth.getSession();
-    return session !== null;
+    return (await this.sessionSnapshot()).signedIn;
   }
 
   /**
