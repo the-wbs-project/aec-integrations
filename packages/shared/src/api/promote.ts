@@ -12,6 +12,14 @@ import { z } from 'zod';
  * ID is returned. There is no `external_id` column on Supabase — the review app
  * is the system of record for the rec-ID ↔ Supabase-UUID mapping.
  *
+ * **Async since AECI-563.** The endpoint validates synchronously and returns
+ * `202` {@link PromoteKickoffResponse}; the upsert runs in a Cloudflare Workflow
+ * and the ID map arrives via `GET /api/promote/jobs/:id`
+ * ({@link PromoteJobResponse}). The caller-supplied {@link PromoteJobIdSchema}
+ * `jobId` is the *kick-off* idempotency key — a replay attaches to the existing
+ * Workflow instance and can never commit twice. That is orthogonal to the
+ * `supabaseId` model above, which remains the row-level create-vs-update key.
+ *
  * Intra-payload links use a client-local `ref` (unique within the request).
  * The product references its vendors implicitly (every entry in `vendors[]`
  * becomes a `product_vendor`); integrations reference their endpoints by `ref`
@@ -21,6 +29,28 @@ import { z } from 'zod';
  * Enum values mirror the DB CHECK constraints in `docs/DATABASE_SCHEMA.md`.
  * Contract source of truth; no codegen (see `docs/API_CONTRACTS.md` §2).
  */
+
+/**
+ * The maintenance-marker review signal (AECI-616 / `STAGE_2_ATTESTATIONS_SPEC.md`
+ * §13), accepted on vendors, products, and integrations alike.
+ *
+ * **Absence is load-bearing.** Omit the field and the stored `last_reviewed_at` is
+ * left exactly as it was — that is what makes a plain re-promote (which re-asserts
+ * `promotion_status` on every push) leave the record's advertised freshness alone.
+ * Send it ONLY when a human actually re-checked the record. Send `null` to clear it.
+ *
+ * Deliberately stricter than the loose-string rule the rest of this contract follows
+ * (`introducedAt` / `deprecatedAt` / the URL-ish fields, which stay loose because
+ * over-strict validation would reject legitimate curated values). Here an unparseable
+ * value would render as *no date at all* — silently, and indistinguishably from "never
+ * reviewed" — so a 400 is strictly better than the lie.
+ */
+const ReviewSignalSchema = z
+  .string()
+  .refine((v) => Number.isFinite(Date.parse(v)), {
+    message: 'lastReviewedAt must be a parseable date (ISO-8601)',
+  })
+  .nullish();
 
 /** Enum vocabularies — kept in sync with the Postgres CHECK constraints. */
 export const PRODUCT_ROLES = ['application', 'connector', 'hybrid'] as const;
@@ -116,6 +146,13 @@ export const PromoteVendorSchema = z.object({
    * — the server simply drops it.
    */
   verified: z.boolean().optional(),
+  /** See {@link ReviewSignalSchema}. Absent leaves the stored value untouched. */
+  lastReviewedAt: ReviewSignalSchema,
+  // `maintainedBy` is deliberately NOT accepted here, on any entity. It flips to
+  // `'vendor'` only via a live vendor attestation (AECI-301), and a routine
+  // Airtable push carrying `'aeci'` would silently un-vendor a record the vendor
+  // maintains — the same failure mode as `verified` above (AECI-520) and as the
+  // wholesale claim replacement AECI-604 removed.
 });
 
 export type PromoteVendor = z.infer<typeof PromoteVendorSchema>;
@@ -187,7 +224,21 @@ export const PromoteProductSchema = z.object({
   categories: z.array(z.string().min(1)).default([]),
   audiences: z.array(z.string().min(1)).default([]),
   phases: z.array(z.string().min(1)).default([]),
+  // The fourth taxonomy facet — "what work does the buyer's company sell?"
+  // (`STAGE_1_SPEC.md` §5.5a, `docs/TRADES_VOCABULARY.md`). Values are trade
+  // slugs, names, OR aliases, resolved server-side **find-only** against the
+  // seeded closed vocabulary by slug → name → alias, case-insensitively. Unlike
+  // the three facets above, an unmatched value is NEVER find-or-created: it is
+  // dropped and reported in `skipped[]` with `kind: 'trade'` (a typo minting
+  // `paving-contractors` alongside `paving-asphalt` would split a trade page's
+  // products across two permanent URLs). Sparse by design — send trades only for
+  // products with trade-SPECIFIC value; horizontal platforms send none.
+  trades: z.array(z.string().min(1)).default([]),
   extensionOf: z.array(EntityRefSchema).default([]),
+  /** See {@link ReviewSignalSchema}. Absent leaves the stored value untouched — so
+   *  a re-promote that changed a description does not re-advertise the record as
+   *  freshly reviewed. */
+  lastReviewedAt: ReviewSignalSchema,
 });
 
 export type PromoteProduct = z.infer<typeof PromoteProductSchema>;
@@ -258,6 +309,8 @@ export const PromoteIntegrationSchema = z.object({
   // the §5.1 withhold rule). Optional; defaults to []. An unresolved `dataObject`
   // lands in the response's `skipped[]` with `kind: 'claim'` (§5.1, §6.2).
   claims: z.array(PromoteClaimSchema).default([]),
+  /** See {@link ReviewSignalSchema}. Absent leaves the stored value untouched. */
+  lastReviewedAt: ReviewSignalSchema,
 });
 
 export type PromoteIntegration = z.infer<typeof PromoteIntegrationSchema>;
@@ -267,8 +320,36 @@ export type PromoteIntegration = z.infer<typeof PromoteIntegrationSchema>;
  * `superRefine` enforces structural integrity that can't be expressed per-field:
  * globally-unique `ref`s, and `ref`-form links pointing at a declared entity.
  */
+/**
+ * Caller-supplied promote **job id** — the idempotency key of the async ingest
+ * (AECI-563). It becomes the Cloudflare Workflow *instance id* verbatim, so the
+ * charset and the 100-character ceiling are the platform's, not ours: instance
+ * ids are capped at 100 chars, and a replayed kick-off with the same id attaches
+ * to the existing instance instead of starting a second one (`create({ id })`
+ * throws on a duplicate → the handler returns the same `jobId`, never a second
+ * commit).
+ *
+ * The floor of 8 characters is ours: a 1–2 character id is almost certainly a
+ * caller bug (a loop index, a truthiness accident) and would silently collide
+ * across products, folding two different promotes onto one instance.
+ */
+export const PromoteJobIdSchema = z
+  .string()
+  .regex(
+    /^[A-Za-z0-9_-]{8,100}$/,
+    'jobId must be 8–100 characters of [A-Za-z0-9_-] (it becomes the Workflow instance id)',
+  );
+
 export const PromotePayloadSchema = z
   .object({
+    /**
+     * Optional idempotency key for the kick-off (AECI-563). Supply it — the review
+     * app stamps `promote_job_id` on the Airtable row BEFORE pushing (AECI-567), so
+     * a retry replays the same id and can never double-commit. Omitted → the server
+     * generates one, which still returns a pollable job but gives the caller no
+     * replay protection.
+     */
+    jobId: PromoteJobIdSchema.optional(),
     vendors: z.array(PromoteVendorSchema).default([]),
     // Optional: a vendor-only or integration-only push (e.g. "I edited just the
     // vendor on review and want it live") omits `product`. When present, it
@@ -379,6 +460,16 @@ export interface PromoteIntegrationResult {
    */
   sourceSlug?: string;
   targetSlug?: string;
+  /**
+   * Slug of the connector product that POWERS the promoted integration
+   * (`integrations.powered_by_product_id`), when the payload named one. Present
+   * so the cache-tag deriver can purge the connector's own product detail page —
+   * its "Integrations it powers" hub view (Stage 1.5 Addendum B) renders this
+   * edge, and without the tag it would sit stale until the TTL. Absent when the
+   * integration has no powered-by product, and older responses omit it entirely,
+   * so consumers must tolerate its absence.
+   */
+  poweredBySlug?: string;
 }
 
 export interface PromoteTaxonomyResult {
@@ -398,8 +489,33 @@ export interface PromoteTaxonomyResult {
  */
 export interface PromoteSkipped {
   ref: string;
-  kind: 'integration' | 'extension' | 'usefulness' | 'claim' | 'vendor' | 'product';
+  kind: 'integration' | 'extension' | 'usefulness' | 'claim' | 'trade' | 'vendor' | 'product';
   reason: string;
+}
+
+/**
+ * An EXISTING row this promote deliberately left alive (AECI-604 /
+ * `STAGE_2_ATTESTATIONS_SPEC.md` §3.3).
+ *
+ * Deliberately a separate array from {@link PromoteSkipped} rather than more
+ * `kind`s on it, because the two carry opposite signals. `skipped` is "something
+ * you sent was not written" — the review app is told to inspect it and act
+ * (`REVIEW_APP_PROMOTE_API.md` §4). `preserved` is "something you did NOT send
+ * survived anyway", which is never actionable for the caller and never an error:
+ * it is the operator's receipt that replace-by-origin worked. Folding them
+ * together would make every claimed product's re-promote look like it had
+ * problems.
+ *
+ * `ref` is the enclosing **integration**'s `ref`, matching how `kind: 'claim'`
+ * entries in `skipped` are addressed — claims have no `ref` of their own.
+ * Entries are aggregated per `(ref, kind, reason)` with a `count`, so a mechanism
+ * retaining nine vendor claims reports one row saying nine, not nine rows.
+ */
+export interface PromotePreserved {
+  ref: string;
+  kind: 'claim' | 'attestation';
+  reason: string;
+  count: number;
 }
 
 /**
@@ -416,9 +532,15 @@ export interface PromoteSkipped {
  *
  * `skipped` also lists integrations/extensions that couldn't be linked because an
  * endpoint wasn't resolvable (e.g. the other product isn't promoted yet),
- * usefulness groups that didn't resolve to an existing audience/phase term, and
+ * usefulness groups that didn't resolve to an existing audience/phase term,
  * claims whose `dataObject` failed find-only resolution against the seeded
- * vocabulary (`kind: 'claim'`) — surfaced rather than silently dropped.
+ * vocabulary (`kind: 'claim'`), and trades that failed find-only resolution
+ * against the seeded `trade` vocabulary (`kind: 'trade'`) — surfaced rather than
+ * silently dropped.
+ *
+ * `preserved` is the mirror image, added by AECI-604: rows that were NOT in the
+ * payload and were kept anyway because a vendor owns them. See
+ * {@link PromotePreserved}.
  */
 export interface PromoteResponse {
   vendors: PromoteEntityResult[];
@@ -428,6 +550,63 @@ export interface PromoteResponse {
     categories: PromoteTaxonomyResult[];
     audiences: PromoteTaxonomyResult[];
     phases: PromoteTaxonomyResult[];
+    /**
+     * Trades the product resolved to. Always `operation: 'reused'` — the `trade`
+     * vocabulary is closed and resolves find-only (`STAGE_1_SPEC.md` §5.5a), so
+     * promote can only ever match an existing term, never mint one. Always
+     * present; empty for a push with no product or no resolvable trades.
+     */
+    trades: PromoteTaxonomyResult[];
   };
   skipped: PromoteSkipped[];
+  /**
+   * Existing claims/attestations this promote left alive because they are
+   * vendor-owned (AECI-604). Always present; empty for the ordinary promote of
+   * an unclaimed product, which is still the overwhelming majority.
+   */
+  preserved: PromotePreserved[];
+}
+
+// ─── Async job protocol (AECI-563) ───────────────────────────────────────────
+/**
+ * `POST /api/promote` no longer commits inline. It validates synchronously, starts
+ * a Cloudflare Workflow carrying the bundle, and returns this `202` immediately —
+ * so the commit's durability no longer depends on the caller's HTTP connection
+ * surviving (the stranding bug of AECI-561: the batch committed, the response with
+ * the assigned IDs was lost, and the Airtable write-back never ran).
+ *
+ * `jobId` is the caller's own id when they supplied one, otherwise the
+ * server-generated fallback. Either way it is the ONLY handle to the result —
+ * persist it before pushing. The response also carries a `Location` header
+ * pointing at the poll endpoint.
+ */
+export interface PromoteKickoffResponse {
+  jobId: string;
+  status: 'queued';
+}
+
+/**
+ * Lifecycle of a promote job as `GET /api/promote/jobs/:id` reports it. Deliberately
+ * four values, not the nine the Workflows platform exposes: `paused` / `waiting` /
+ * `waitingForPause` / `unknown` all collapse to `running` (they mean "not finished,
+ * not failed" to a poller) and `terminated` collapses to `errored`.
+ */
+export type PromoteJobStatus = 'queued' | 'running' | 'complete' | 'errored';
+
+/**
+ * Poll response. `result` is the full {@link PromoteResponse} — the same ID map the
+ * synchronous endpoint used to return — and is present exactly when
+ * `status === 'complete'`. `error` is present exactly when `status === 'errored'`,
+ * and carries the structured code the failed call would have returned inline
+ * (`SLUG_CONFLICT` for a racing duplicate slug, `INTERNAL_ERROR` for a fault).
+ *
+ * IDs stay fetchable for the Workflow instance's retention window, and past it via
+ * the result mirror the ingest writes to KV — so a lost response is no longer a
+ * lost ID.
+ */
+export interface PromoteJobResponse {
+  jobId: string;
+  status: PromoteJobStatus;
+  result?: PromoteResponse;
+  error?: { code: string; message: string };
 }

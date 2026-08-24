@@ -260,4 +260,329 @@ describe('datatool routes', () => {
     expect(json.refresh.purge.enqueued).toBe(true);
     expect(stagingQueue.send).toHaveBeenCalledWith({ purgeEverything: true, source: 'datatool' });
   });
+
+  // ── Prune orphaned integrations ────────────────────────────────────────────
+
+  /** Add an exact twin of the seeded `int-1` so the guards see a redundant copy. */
+  function seedOrphanTwin(h: ShimHandle): string {
+    const id = 'bbbbbbbb-0000-4000-8000-000000000002';
+    h.raw
+      .prepare(
+        `INSERT INTO integrations (id, name, source_product_id, target_product_id, mechanism_kind, direction, created_at, updated_at)
+         VALUES (?, 'Revit to AutoCAD', 'prod-1', 'prod-2', 'native', 'one-way', ?, ?)`,
+      )
+      .run(id, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z');
+    return id;
+  }
+
+  it('prune dry-run reports the footprint + rollback SQL without writing', async () => {
+    seedCatalog(staging.raw);
+    const orphan = seedOrphanTwin(staging);
+
+    const res = await call('/api/prune-integrations', { target: 'staging', ids: orphan }, TOKEN);
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as {
+      dryRun: boolean;
+      found: number;
+      blocked: string[];
+      affectedSlugs: string[];
+      rollbackSql: string;
+    };
+    expect(json.dryRun).toBe(true);
+    expect(json.found).toBe(1);
+    expect(json.blocked).toEqual([]);
+    expect(json.affectedSlugs.sort()).toEqual(['autocad', 'revit']);
+    expect(json.rollbackSql).toContain('INSERT OR IGNORE INTO "integrations"');
+    // Nothing written.
+    expect(staging.raw.prepare('SELECT COUNT(*) AS n FROM integrations').get()).toEqual({ n: 2 });
+  });
+
+  it('400s a malformed id list', async () => {
+    seedCatalog(staging.raw);
+    const res = await call(
+      '/api/prune-integrations',
+      { target: 'staging', ids: 'not-a-uuid' },
+      TOKEN,
+    );
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe('BAD_IDS');
+  });
+
+  it('409s the execute path when a guard trips, even with a valid confirmation', async () => {
+    seedCatalog(staging.raw);
+    const orphan = seedOrphanTwin(staging);
+    // Remove the twin, so the remaining row is the ONLY copy of that
+    // (source, target, mechanism) — `orphansWithoutATwin` must fire and block.
+    staging.raw.prepare('DELETE FROM integrations WHERE id = ?').run('int-1');
+
+    const res = await call(
+      '/api/prune-integrations',
+      { target: 'staging', ids: orphan, dryRun: false, confirmName: 'aeci-app-staging' },
+      TOKEN,
+    );
+
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe('GUARD_TRIPPED');
+    // The guard is the last gate before an irreversible delete: nothing was removed.
+    expect(staging.raw.prepare('SELECT COUNT(*) AS n FROM integrations').get()).toEqual({ n: 1 });
+  });
+
+  // ── Overriding a tripped guard (AECI-593) ──────────────────────────────────
+  //
+  // A curator can editorially retract an edge — delete the Airtable record on
+  // purpose — which strands the live D1 row with no twin. Deleting it is correct
+  // but must be deliberate, so the acknowledged set has to equal the tripped set
+  // exactly and carry a reason.
+
+  /** Leaves `orphan` as the only copy of its (source, target, mechanism): both guards trip. */
+  function seedNoTwinOrphan(h: ShimHandle): string {
+    seedCatalog(h.raw);
+    const orphan = seedOrphanTwin(h);
+    h.raw
+      .prepare(
+        "INSERT INTO taxonomy_data_objects (id, slug, name, display_order, created_at, updated_at) VALUES ('do-1','rfis','RFIs',10,?,?)",
+      )
+      .run('2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z');
+    h.raw
+      .prepare(
+        "INSERT INTO claims (id, integration_id, data_object_id, direction, created_at, updated_at) VALUES ('claim-orphan', ?, 'do-1', 'a_to_b', ?, ?)",
+      )
+      .run(orphan, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z');
+    h.raw.prepare('DELETE FROM integrations WHERE id = ?').run('int-1');
+    return orphan;
+  }
+
+  const REASON = 'AECI-593: curator retracted this edge in Airtable on 2026-08-09.';
+
+  it('deletes when every tripped guard is acknowledged with a reason', async () => {
+    const orphan = seedNoTwinOrphan(staging);
+
+    const dry = await call('/api/prune-integrations', { target: 'staging', ids: orphan }, TOKEN);
+    const blocked = ((await dry.json()) as { blocked: string[] }).blocked;
+    expect(blocked.sort()).toEqual(['claimsUniqueToOrphans', 'orphansWithoutATwin']);
+
+    const res = await call(
+      '/api/prune-integrations',
+      {
+        target: 'staging',
+        ids: orphan,
+        dryRun: false,
+        confirmName: 'aeci-app-staging',
+        acknowledgeGuards: blocked,
+        acknowledgeReason: REASON,
+      },
+      TOKEN,
+    );
+
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as {
+      executed: boolean;
+      deleted: { integrations: number; claims: number };
+      acknowledgedGuards: string[];
+      acknowledgeReason: string;
+    };
+    expect(json.executed).toBe(true);
+    expect(json.deleted).toMatchObject({ integrations: 1, claims: 1 });
+    // Echoed back so the operator's own record of the run carries the override.
+    expect(json.acknowledgedGuards.sort()).toEqual([
+      'claimsUniqueToOrphans',
+      'orphansWithoutATwin',
+    ]);
+    expect(json.acknowledgeReason).toBe(REASON);
+    expect(staging.raw.prepare('SELECT COUNT(*) AS n FROM integrations').get()).toEqual({ n: 0 });
+  });
+
+  it('409s when only some of the tripped guards are acknowledged', async () => {
+    const orphan = seedNoTwinOrphan(staging);
+
+    const res = await call(
+      '/api/prune-integrations',
+      {
+        target: 'staging',
+        ids: orphan,
+        dryRun: false,
+        confirmName: 'aeci-app-staging',
+        acknowledgeGuards: ['orphansWithoutATwin'],
+        acknowledgeReason: REASON,
+      },
+      TOKEN,
+    );
+
+    expect(res.status).toBe(409);
+    const err = (await res.json()) as { error: { code: string; message: string } };
+    expect(err.error.code).toBe('GUARD_TRIPPED');
+    expect(err.error.message).toContain('claimsUniqueToOrphans');
+    expect(staging.raw.prepare('SELECT COUNT(*) AS n FROM integrations').get()).toEqual({ n: 1 });
+  });
+
+  it('400s when acknowledging a guard that reads zero (the plan is stale)', async () => {
+    const orphan = seedNoTwinOrphan(staging);
+
+    const res = await call(
+      '/api/prune-integrations',
+      {
+        target: 'staging',
+        ids: orphan,
+        dryRun: false,
+        confirmName: 'aeci-app-staging',
+        acknowledgeGuards: [
+          'claimsUniqueToOrphans',
+          'orphansWithoutATwin',
+          'orphansRicherThanTwin',
+        ],
+        acknowledgeReason: REASON,
+      },
+      TOKEN,
+    );
+
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe('GUARD_ACK_STALE');
+    expect(staging.raw.prepare('SELECT COUNT(*) AS n FROM integrations').get()).toEqual({ n: 1 });
+  });
+
+  it('400s an acknowledgment on a plan where nothing tripped', async () => {
+    seedCatalog(staging.raw);
+    const orphan = seedOrphanTwin(staging); // twin survives → all guards read zero
+
+    const res = await call(
+      '/api/prune-integrations',
+      {
+        target: 'staging',
+        ids: orphan,
+        dryRun: false,
+        confirmName: 'aeci-app-staging',
+        acknowledgeGuards: ['orphansWithoutATwin'],
+        acknowledgeReason: REASON,
+      },
+      TOKEN,
+    );
+
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe('GUARD_ACK_STALE');
+    expect(staging.raw.prepare('SELECT COUNT(*) AS n FROM integrations').get()).toEqual({ n: 2 });
+  });
+
+  it('400s an override with no reason — the log line is the only audit trail', async () => {
+    const orphan = seedNoTwinOrphan(staging);
+
+    const res = await call(
+      '/api/prune-integrations',
+      {
+        target: 'staging',
+        ids: orphan,
+        dryRun: false,
+        confirmName: 'aeci-app-staging',
+        acknowledgeGuards: ['claimsUniqueToOrphans', 'orphansWithoutATwin'],
+        acknowledgeReason: 'ok',
+      },
+      TOKEN,
+    );
+
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+      'ACK_REASON_REQUIRED',
+    );
+    expect(staging.raw.prepare('SELECT COUNT(*) AS n FROM integrations').get()).toEqual({ n: 1 });
+  });
+
+  it('400s an unknown guard name', async () => {
+    const orphan = seedNoTwinOrphan(staging);
+
+    const res = await call(
+      '/api/prune-integrations',
+      {
+        target: 'staging',
+        ids: orphan,
+        dryRun: false,
+        confirmName: 'aeci-app-staging',
+        acknowledgeGuards: ['noSuchGuard'],
+        acknowledgeReason: REASON,
+      },
+      TOKEN,
+    );
+
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe('BAD_ACK_GUARDS');
+  });
+
+  it('still requires prodConfirm when guards are acknowledged on production', async () => {
+    const orphan = seedNoTwinOrphan(production);
+
+    const res = await call(
+      '/api/prune-integrations',
+      {
+        target: 'production',
+        ids: orphan,
+        dryRun: false,
+        confirmName: 'aeci-app-production',
+        acknowledgeGuards: ['claimsUniqueToOrphans', 'orphansWithoutATwin'],
+        acknowledgeReason: REASON,
+      },
+      TOKEN,
+    );
+
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+      'PROD_CONFIRM_REQUIRED',
+    );
+    expect(production.raw.prepare('SELECT COUNT(*) AS n FROM integrations').get()).toEqual({
+      n: 1,
+    });
+  });
+
+  it('requires the typed DB name to execute', async () => {
+    seedCatalog(staging.raw);
+    const orphan = seedOrphanTwin(staging);
+    const res = await call(
+      '/api/prune-integrations',
+      { target: 'staging', ids: orphan, dryRun: false, confirmName: 'wrong' },
+      TOKEN,
+    );
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe('CONFIRM_MISMATCH');
+  });
+
+  it('requires prodConfirm on production', async () => {
+    seedCatalog(production.raw);
+    const orphan = seedOrphanTwin(production);
+    const res = await call(
+      '/api/prune-integrations',
+      { target: 'production', ids: orphan, dryRun: false, confirmName: 'aeci-app-production' },
+      TOKEN,
+    );
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+      'PROD_CONFIRM_REQUIRED',
+    );
+  });
+
+  it('executes, repairs integration_count, and returns rollback SQL', async () => {
+    seedCatalog(staging.raw);
+    const orphan = seedOrphanTwin(staging);
+    // Counts start at the fixture's (now stale) value of 1 each; the twin makes 2.
+    staging.raw.prepare('UPDATE products SET integration_count = 2').run();
+
+    const res = await call(
+      '/api/prune-integrations',
+      { target: 'staging', ids: orphan, dryRun: false, confirmName: 'aeci-app-staging' },
+      TOKEN,
+    );
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as {
+      executed: boolean;
+      deleted: { integrations: number };
+      recounted: { productId: string; from: number; to: number }[];
+      rollbackSql: string;
+    };
+    expect(json.executed).toBe(true);
+    expect(json.deleted.integrations).toBe(1);
+    expect(json.recounted).toHaveLength(2);
+    expect(json.recounted.every((r) => r.from === 2 && r.to === 1)).toBe(true);
+    expect(json.rollbackSql).toContain(orphan);
+
+    expect(staging.raw.prepare('SELECT id FROM integrations').all()).toEqual([{ id: 'int-1' }]);
+    expect(
+      staging.raw.prepare('SELECT integration_count AS c FROM products ORDER BY slug').all(),
+    ).toEqual([{ c: 1 }, { c: 1 }]);
+  });
 });

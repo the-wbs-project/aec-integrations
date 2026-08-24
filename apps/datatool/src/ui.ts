@@ -110,6 +110,38 @@ export function renderUi(nonce: string): string {
   </section>
 
   <section>
+    <h2>Prune orphaned integrations</h2>
+    <p class="muted">Delete <strong>stranded</strong> integration rows (+ their claims/attestations) that no Airtable record points at — they surface as duplicate mechanism cards on the public pair pages. Paste the ids from the ops runbook's <code>orphan-ids.txt</code>. Three guards run first and <strong>block</strong> the delete unless all read zero — a tripped guard can be overridden only by acknowledging it by name with a reason, which the dry run will offer below. Recomputes <code>integration_count</code> and reindexes automatically.</p>
+    <div class="row">
+      <div><label for="prune-target">Target</label><select id="prune-target">${envOptions('staging')}</select></div>
+      <button id="prune-dry" class="primary">Dry run</button>
+    </div>
+    <div class="row" style="display:block;">
+      <label for="prune-ids">Integration ids (one per line, or comma separated)</label>
+      <textarea id="prune-ids" rows="6" style="width:100%; padding:8px 10px; border:1px solid #d6d3d1; border-radius:6px; font:12px/1.5 ui-monospace, monospace;" placeholder="0399b4ba-7881-414a-9b6e-6189043e71df&#10;1aafcfd0-e0d9-450f-af04-d5c2dd92c90a"></textarea>
+    </div>
+    <div class="confirm">
+      <p class="muted" style="margin:0 0 8px;"><strong>Save <code>rollbackSql</code> from the dry run before executing.</strong> D1 has no undo and this Worker cannot write files.</p>
+      <label for="prune-confirm">Type the target DB name to execute: <span class="hint" id="prune-confirm-hint"></span></label>
+      <input type="text" id="prune-confirm" placeholder="aeci-app-…" autocomplete="off">
+      <div class="checkline" id="prune-prod-wrap" style="display:none; margin-top:8px;">
+        <input type="checkbox" id="prune-prod"><label for="prune-prod">I understand this deletes from PRODUCTION</label>
+      </div>
+      <div id="prune-ack-wrap" style="display:none; margin-top:8px;">
+        <p class="muted" style="margin:0 0 6px;"><strong>Guards tripped — these rows are not redundant copies.</strong> Stop unless an editorial ruling has retracted the content. To proceed, tick every tripped guard and record why.</p>
+        <div id="prune-ack-guards"></div>
+        <label for="prune-ack-reason" style="margin-top:8px;">Reason (logged with your identity — a prune writes no <code>audit_log</code> row, so this is the only record)</label>
+        <textarea id="prune-ack-reason" rows="3" style="width:100%; padding:8px 10px; border:1px solid #d6d3d1; border-radius:6px; font:12px/1.5 ui-monospace, monospace;" placeholder="AECI-593: curator ruled 2026-08-09 that the bar is a purpose-built mechanism; both edges deleted in Airtable."></textarea>
+      </div>
+      <div class="checkline" style="margin-top:8px;">
+        <input type="checkbox" id="prune-refresh" checked><label for="prune-refresh">Reindex search + purge cache after</label>
+      </div>
+      <div style="margin-top:10px;"><button id="prune-exec" class="danger">Execute prune</button></div>
+    </div>
+    <pre id="prune-out">No run yet.</pre>
+  </section>
+
+  <section>
     <h2>Reindex search (no data change)</h2>
     <p class="muted">Rebuild a target env's Algolia indexes from its current D1 (clear + repopulate, promoted-only) and purge its cache. Use after a CLI seed or to recover a drifted index.</p>
     <div class="row">
@@ -130,14 +162,17 @@ async function post(path, body, outId){
     var res = await fetch(path, { method: 'POST', headers: Object.assign({ 'content-type': 'application/json' }, tokenHeaders()), body: JSON.stringify(body) });
     var json = await res.json();
     show(outId, json);
-  } catch (e) { show(outId, 'Request failed: ' + e); }
+    return json;
+  } catch (e) { show(outId, 'Request failed: ' + e); return null; }
 }
 function dbName(env){ return 'aeci-app-' + env; }
 function sync(){
   $('copy-confirm-hint').textContent = dbName($('copy-dest').value);
   $('seed-confirm-hint').textContent = dbName($('seed-target').value);
+  $('prune-confirm-hint').textContent = dbName($('prune-target').value);
   $('copy-prod-wrap').style.display = ($('copy-dest').value === 'production') ? 'flex' : 'none';
   $('seed-prod-wrap').style.display = ($('seed-target').value === 'production') ? 'flex' : 'none';
+  $('prune-prod-wrap').style.display = ($('prune-target').value === 'production') ? 'flex' : 'none';
 }
 function seedAction(){ return document.querySelector('input[name=seed-action]:checked').value; }
 function seedVal(){ var v = parseInt($('seed-seed').value, 10); return isNaN(v) ? undefined : v; }
@@ -146,11 +181,43 @@ function copyExec(){ return post('/api/copy', { source: $('copy-source').value, 
 function seedDry(){ return post('/api/seed', { target: $('seed-target').value, action: seedAction(), seed: seedVal(), dryRun: true }, 'seed-out'); }
 function seedExec(){ return post('/api/seed', { target: $('seed-target').value, action: seedAction(), seed: seedVal(), dryRun: false, confirmName: $('seed-confirm').value, prodConfirm: $('seed-prod').checked, refresh: $('seed-refresh').checked }, 'seed-out'); }
 function reindexRun(){ return post('/api/reindex', { target: $('reindex-target').value }, 'reindex-out'); }
+// The acknowledgment UI is driven BY the dry run: you cannot tick a guard the plan
+// did not report, which is the browser-side half of the route's exact-match rule.
+function pruneRenderAck(json){
+  var wrap = $('prune-ack-wrap'), host = $('prune-ack-guards');
+  var blocked = (json && json.blocked) || [], guards = (json && json.guards) || {};
+  host.textContent = '';
+  if (!blocked.length) { wrap.style.display = 'none'; return; }
+  blocked.forEach(function(g){
+    var line = document.createElement('div'); line.className = 'checkline';
+    var cb = document.createElement('input');
+    cb.type = 'checkbox'; cb.id = 'prune-ack-' + g; cb.setAttribute('data-guard', g);
+    var lb = document.createElement('label');
+    lb.htmlFor = cb.id; lb.textContent = 'Acknowledge ' + g + ' (' + (guards[g] || 0) + ')';
+    line.appendChild(cb); line.appendChild(lb); host.appendChild(line);
+  });
+  wrap.style.display = 'block';
+}
+function pruneAck(){
+  return Array.prototype.slice.call(document.querySelectorAll('#prune-ack-guards input[type=checkbox]'))
+    .filter(function(cb){ return cb.checked; })
+    .map(function(cb){ return cb.getAttribute('data-guard'); });
+}
+async function pruneDry(){
+  pruneRenderAck(await post('/api/prune-integrations', { target: $('prune-target').value, ids: $('prune-ids').value, dryRun: true }, 'prune-out'));
+}
+function pruneExec(){
+  var body = { target: $('prune-target').value, ids: $('prune-ids').value, dryRun: false, confirmName: $('prune-confirm').value, prodConfirm: $('prune-prod').checked, refresh: $('prune-refresh').checked };
+  var ack = pruneAck();
+  if (ack.length) { body.acknowledgeGuards = ack; body.acknowledgeReason = $('prune-ack-reason').value; }
+  return post('/api/prune-integrations', body, 'prune-out');
+}
 document.addEventListener('DOMContentLoaded', function(){
   $('copy-dry').onclick = copyDry; $('copy-exec').onclick = copyExec;
   $('seed-dry').onclick = seedDry; $('seed-exec').onclick = seedExec;
   $('reindex-run').onclick = reindexRun;
-  $('copy-dest').onchange = sync; $('seed-target').onchange = sync;
+  $('prune-dry').onclick = pruneDry; $('prune-exec').onclick = pruneExec;
+  $('copy-dest').onchange = sync; $('seed-target').onchange = sync; $('prune-target').onchange = sync;
   sync();
 });
 </script>

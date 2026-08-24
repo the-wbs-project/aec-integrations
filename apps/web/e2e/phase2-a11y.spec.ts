@@ -51,6 +51,8 @@ const FIXTURE = {
   productSlug: 'fixture-procore',
   vendorSlug: 'fixture-procore-technologies',
   integrationId: '00000000-0000-4000-8000-000000000065',
+  /** The fixture integration's target endpoint — the other half of the pair. */
+  otherProductSlug: 'fixture-acme-connector',
   categorySlug: 'project-management',
   audienceSlug: 'general-contracting',
   phaseSlug: 'construction',
@@ -72,6 +74,17 @@ const PAGES: readonly Phase2Page[] = [
   {
     name: 'integration detail',
     path: `/integrations/${FIXTURE.integrationId}`,
+    needsFixture: true,
+  },
+  // AECI-303: the product-PAIR page was absent from this sweep entirely, which is
+  // how the design checklist's axe step went unenforced in CI for the surface that
+  // owns the claim lanes — and is now gaining its first combobox (the §9 version
+  // selectors). Added here rather than only in `products-pair.spec.ts` so the whole
+  // page, header and footer included, is held to zero AA violations like every other
+  // route in this list.
+  {
+    name: 'product pair',
+    path: `/products/${FIXTURE.productSlug}/integrations/${FIXTURE.otherProductSlug}`,
     needsFixture: true,
   },
   { name: 'category browse', path: `/categories/${FIXTURE.categorySlug}`, needsFixture: false },

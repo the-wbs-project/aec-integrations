@@ -13,18 +13,21 @@ import { ProductDetailSchema, ProductsListResponseSchema } from '@aeci/shared';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
+  attestations,
   claims,
   integrations,
   productAudiences,
   productCategories,
   productPhases,
   products,
+  productTrades,
   productVendors,
   reviews,
   taxonomyAudiences,
   taxonomyCategories,
   taxonomyDataObjects,
   taxonomyPhases,
+  taxonomyTrades,
   vendors,
 } from '../db/schema';
 import { makeTestDb, type TestDb } from '../test/d1';
@@ -196,6 +199,95 @@ describe('GET /api/products', () => {
     );
     expect(bySearch.data.map((p) => p.slug)).toEqual(['autocad']);
   });
+
+  // AECI-541 — `trade_id` is the fourth taxonomy dimension and carries the exact
+  // AECI-223 semantics of the other three: OR within the dimension, AND across.
+  describe('trade_id filtering (§5.5a)', () => {
+    beforeEach(async () => {
+      // accubid ∈ {electrical}; roofsnap ∈ {roofing}; procore ∈ {} (horizontal
+      // platform — untagged by design); dual ∈ {electrical, roofing}.
+      await seedProduct(u(1), 'accubid', 'Accubid');
+      await seedProduct(u(2), 'roofsnap', 'RoofSnap');
+      await seedProduct(u(3), 'procore', 'Procore');
+      await seedProduct(u(4), 'dual', 'Dual Trade Tool');
+      await t.db.insert(taxonomyTrades).values([
+        {
+          id: u(71),
+          slug: 'electrical',
+          name: 'Electrical',
+          description: 'Power distribution.',
+          displayOrder: 10,
+        },
+        {
+          id: u(72),
+          slug: 'roofing',
+          name: 'Roofing',
+          description: 'Roof systems.',
+          displayOrder: 20,
+        },
+      ]);
+      await t.db.insert(productTrades).values([
+        { productId: u(1), tradeId: u(71) },
+        { productId: u(2), tradeId: u(72) },
+        { productId: u(4), tradeId: u(71) },
+        { productId: u(4), tradeId: u(72) },
+      ]);
+    });
+
+    const slugs = async (url: string) =>
+      ProductsListResponseSchema.parse(await (await get(listApp(), url)).json())
+        .data.map((p) => p.slug)
+        .sort();
+
+    it('filters to a single trade id', async () => {
+      expect(await slugs(`/api/products?trade_id=${u(71)}`)).toEqual(['accubid', 'dual']);
+    });
+
+    it('ORs within the dimension for a comma-separated id list', async () => {
+      expect(await slugs(`/api/products?trade_id=${u(71)},${u(72)}`)).toEqual([
+        'accubid',
+        'dual',
+        'roofsnap',
+      ]);
+    });
+
+    it('ANDs across dimensions when combined with another facet', async () => {
+      await t.db
+        .insert(taxonomyCategories)
+        .values({ id: u(81), slug: 'estimating', name: 'Estimating', displayOrder: 10 });
+      // Only accubid carries BOTH the electrical trade and the estimating category.
+      await t.db.insert(productCategories).values([
+        { productId: u(1), categoryId: u(81) },
+        { productId: u(2), categoryId: u(81) },
+      ]);
+
+      expect(await slugs(`/api/products?trade_id=${u(71)}&category_id=${u(81)}`)).toEqual([
+        'accubid',
+      ]);
+    });
+
+    it('returns an empty page for a trade nothing carries, and the full list when omitted', async () => {
+      await t.db.insert(taxonomyTrades).values({
+        id: u(73),
+        slug: 'paving-asphalt',
+        name: 'Paving & Asphalt',
+        description: 'Pavement.',
+        displayOrder: 30,
+      });
+      const empty = ProductsListResponseSchema.parse(
+        await (await get(listApp(), `/api/products?trade_id=${u(73)}`)).json(),
+      );
+      expect(empty.data).toEqual([]);
+      expect(empty.total).toBe(0);
+
+      // No `trade_id` → the untagged horizontal platform is still listed.
+      expect(await slugs('/api/products')).toContain('procore');
+    });
+
+    it('rejects a malformed trade_id with a 400', async () => {
+      expect((await get(listApp(), '/api/products?trade_id=not-a-uuid')).status).toBe(400);
+    });
+  });
 });
 
 describe('GET /api/products/:slug', () => {
@@ -211,9 +303,17 @@ describe('GET /api/products/:slug', () => {
     await t.db
       .insert(taxonomyPhases)
       .values({ id: u(41), slug: 'design', name: 'Design', displayOrder: 20 });
+    await t.db.insert(taxonomyTrades).values({
+      id: u(42),
+      slug: 'electrical',
+      name: 'Electrical',
+      description: 'Power distribution.',
+      displayOrder: 10,
+    });
     await t.db.insert(productCategories).values({ productId: u(1), categoryId: u(21) });
     await t.db.insert(productAudiences).values({ productId: u(1), audienceId: u(31) });
     await t.db.insert(productPhases).values({ productId: u(1), phaseId: u(41) });
+    await t.db.insert(productTrades).values({ productId: u(1), tradeId: u(42) });
     await t.db
       .insert(integrations)
       .values({ id: u(51), sourceProductId: u(1), targetProductId: u(2), mechanismKind: 'native' });
@@ -244,10 +344,60 @@ describe('GET /api/products/:slug', () => {
     expect(detail.categories.map((c) => c.slug)).toEqual(['bim']);
     expect(detail.audiences.map((a) => a.slug)).toEqual(['arch']);
     expect(detail.phases.map((p) => p.slug)).toEqual(['design']);
+    expect(detail.trades.map((x) => x.slug)).toEqual(['electrical']);
     expect(detail.integrations_as_source.map((i) => i.id)).toEqual([u(51)]);
     // ≥5 approved reviews → averages visible; only the approved review is embedded.
     expect(detail.rating_overall_avg).toBe(4.2);
     expect(detail.reviews.map((r) => r.id)).toEqual([u(61)]);
+  });
+
+  it('returns trades: [] for an untagged horizontal platform (the sparse default, §5.5a)', async () => {
+    await seedProduct(u(1), 'procore', 'Procore');
+    await t.db.insert(taxonomyTrades).values({
+      id: u(42),
+      slug: 'electrical',
+      name: 'Electrical',
+      description: 'Power distribution.',
+      displayOrder: 10,
+    });
+
+    const detail = ProductDetailSchema.parse(
+      await (await get(detailApp(), '/api/products/procore')).json(),
+    );
+    expect(detail.trades).toEqual([]);
+  });
+
+  it('hydrates integrations_as_connector for a powered-by product (Stage 1.5 Addendum B)', async () => {
+    await seedProduct(u(1), 'agave-erp-sync', 'Agave ERP Sync', { productRole: 'connector' });
+    await seedProduct(u(2), 'procore', 'Procore');
+    await seedProduct(u(3), 'sage-intacct', 'Sage Intacct');
+    // The connector is the mechanism, NOT an endpoint of the edge.
+    await t.db.insert(integrations).values({
+      id: u(51),
+      sourceProductId: u(2),
+      targetProductId: u(3),
+      mechanismKind: 'marketplace-app',
+      poweredByProductId: u(1),
+    });
+
+    const connector = ProductDetailSchema.parse(
+      await (await get(detailApp(), '/api/products/agave-erp-sync')).json(),
+    );
+    // The powered edge lands in the connector bucket with both endpoints hydrated…
+    expect(connector.integrations_as_connector.map((i) => i.id)).toEqual([u(51)]);
+    expect(connector.integrations_as_connector[0]?.source.slug).toBe('procore');
+    expect(connector.integrations_as_connector[0]?.target.slug).toBe('sage-intacct');
+    // …and NOT in the endpoint buckets (the connector terminates neither side).
+    expect(connector.integrations_as_source).toEqual([]);
+    expect(connector.integrations_as_target).toEqual([]);
+
+    // The endpoints see the edge only as an endpoint edge — their connector
+    // bucket stays empty.
+    const endpoint = ProductDetailSchema.parse(
+      await (await get(detailApp(), '/api/products/procore')).json(),
+    );
+    expect(endpoint.integrations_as_source.map((i) => i.id)).toEqual([u(51)]);
+    expect(endpoint.integrations_as_connector).toEqual([]);
   });
 
   it('derives the table Direction from claims when the row direction is null (§3.2 — regression: table matched "–" while the pair page said "Syncs both ways")', async () => {
@@ -305,6 +455,102 @@ describe('GET /api/products/:slug', () => {
     expect(fromTarget.integrations_as_target[0]?.context_direction).toBe('inbound');
   });
 
+  // §4.3: once every voting vendor denies a flow, it must stop steering the
+  // table's arrow — otherwise the table keeps asserting a direction the pair
+  // page has already struck through (the §7.1 drift bug, in the other direction).
+  it('drops a refuted claim from the effective context direction', async () => {
+    await seedProduct(u(1), 'egnyte', 'Egnyte');
+    await seedProduct(u(2), 'procore', 'Procore');
+    await t.db.insert(vendors).values({ id: u(91), companyName: 'Acme', slug: 'acme' });
+    // Stored direction null, so the claims are the only signal.
+    await t.db
+      .insert(integrations)
+      .values({ id: u(51), sourceProductId: u(1), targetProductId: u(2) });
+    await t.db.insert(taxonomyDataObjects).values([
+      { id: u(71), slug: 'drawings', name: 'Drawings' },
+      { id: u(72), slug: 'rfis', name: 'RFIs' },
+    ]);
+    await t.db.insert(claims).values([
+      { id: u(81), integrationId: u(51), dataObjectId: u(71), direction: 'a_to_b' },
+      { id: u(82), integrationId: u(51), dataObjectId: u(72), direction: 'b_to_a' },
+    ]);
+    // The b_to_a claim is denied by the only vendor that voted on it. Without
+    // the filter the two opposing claims would aggregate to 'both'.
+    await t.db.insert(attestations).values({
+      id: u(85),
+      claimId: u(82),
+      source: 'vendor_a',
+      asserted: false,
+      attestedByVendorId: u(91),
+    });
+
+    const detail = ProductDetailSchema.parse(
+      await (await get(detailApp(), '/api/products/egnyte')).json(),
+    );
+    expect(detail.integrations_as_source[0]?.context_direction).toBe('outbound');
+  });
+
+  it('falls back to the stored row direction when every claim is refuted', async () => {
+    await seedProduct(u(1), 'egnyte', 'Egnyte');
+    await seedProduct(u(2), 'procore', 'Procore');
+    await t.db.insert(vendors).values({ id: u(91), companyName: 'Acme', slug: 'acme' });
+    await t.db.insert(integrations).values({
+      id: u(51),
+      sourceProductId: u(1),
+      targetProductId: u(2),
+      direction: 'bidirectional',
+    });
+    await t.db
+      .insert(taxonomyDataObjects)
+      .values({ id: u(71), slug: 'drawings', name: 'Drawings' });
+    await t.db
+      .insert(claims)
+      .values({ id: u(81), integrationId: u(51), dataObjectId: u(71), direction: 'a_to_b' });
+    await t.db.insert(attestations).values({
+      id: u(85),
+      claimId: u(81),
+      source: 'vendor_a',
+      asserted: false,
+      attestedByVendorId: u(91),
+    });
+
+    const detail = ProductDetailSchema.parse(
+      await (await get(detailApp(), '/api/products/egnyte')).json(),
+    );
+    // The a_to_b claim is gone, so the stored `bidirectional` wins.
+    expect(detail.integrations_as_source[0]?.context_direction).toBe('both');
+  });
+
+  // A retracted denial is a withdrawn assertion, not a live "no" — the claim
+  // must go back to steering the arrow.
+  it('ignores a retracted denial when computing the context direction', async () => {
+    await seedProduct(u(1), 'egnyte', 'Egnyte');
+    await seedProduct(u(2), 'procore', 'Procore');
+    await t.db.insert(vendors).values({ id: u(91), companyName: 'Acme', slug: 'acme' });
+    await t.db
+      .insert(integrations)
+      .values({ id: u(51), sourceProductId: u(1), targetProductId: u(2) });
+    await t.db
+      .insert(taxonomyDataObjects)
+      .values({ id: u(71), slug: 'drawings', name: 'Drawings' });
+    await t.db
+      .insert(claims)
+      .values({ id: u(81), integrationId: u(51), dataObjectId: u(71), direction: 'both' });
+    await t.db.insert(attestations).values({
+      id: u(85),
+      claimId: u(81),
+      source: 'vendor_a',
+      asserted: false,
+      attestedByVendorId: u(91),
+      retractedAt: '2026-08-14T00:00:00.000Z',
+    });
+
+    const detail = ProductDetailSchema.parse(
+      await (await get(detailApp(), '/api/products/egnyte')).json(),
+    );
+    expect(detail.integrations_as_source[0]?.context_direction).toBe('both');
+  });
+
   it('withholds rating averages below the 5-review gate', async () => {
     await seedProduct(u(1), 'revit', 'Revit', { reviewCount: 4, ratingOverallAvg: 4.2 });
     const detail = ProductDetailSchema.parse(
@@ -316,5 +562,29 @@ describe('GET /api/products/:slug', () => {
   it('404s an unknown slug', async () => {
     const res = await get(detailApp(), '/api/products/nope');
     expect(res.status).toBe(404);
+  });
+});
+
+describe('GET /api/products/:slug — maintenance marker (AECI-616)', () => {
+  it('reports the unreviewed baseline: AECi attribution with no date', async () => {
+    await seedProduct(u(1), 'revit', 'Revit');
+
+    const body = ProductDetailSchema.parse(
+      await (await get(detailApp(), '/api/products/revit')).json(),
+    );
+    // `null` here is the honest reading, not missing data — nothing was backfilled
+    // from `created_at` / `updated_at` / `promoted_at`, deliberately.
+    expect(body.maintenance).toEqual({ maintained_by: 'aeci', last_reviewed_at: null });
+  });
+
+  it('surfaces a real review date without touching updated_at', async () => {
+    const reviewed = '2026-03-04T00:00:00.000Z';
+    await seedProduct(u(1), 'revit', 'Revit', { lastReviewedAt: reviewed });
+
+    const body = ProductDetailSchema.parse(
+      await (await get(detailApp(), '/api/products/revit')).json(),
+    );
+    expect(body.maintenance).toEqual({ maintained_by: 'aeci', last_reviewed_at: reviewed });
+    expect(body.updated_at).not.toBe(reviewed);
   });
 });

@@ -5,17 +5,29 @@
  *
  * NOT production data. The shapes match `@aeci/shared` (`VendorMeResponse`,
  * `VendorSeat`, `TaxonomyResponse`) so the same presentational components render
- * fixtures here and live `/api/vendor/*` data on the real surface. A verified and
- * an unverified vendor are both provided so the verification state can be
- * reviewed in both directions.
+ * fixtures here and live `/api/vendor/*` data on the real surface. All four
+ * entitlement states are provided (AECI-614 / `STAGE_2_PAID_TIERS_SPEC.md` §8) so
+ * the plan panel can be reviewed and asserted in every direction: active with a
+ * far term, active and expiring soon, downgraded after a revoke, and never
+ * arranged at all.
  */
 import type {
+  DataObjectOption,
+  ListVendorIntegrationsResponse,
+  ProductVersion,
   TaxonomyResponse,
   TaxonomyTermWithCount,
+  VendorIntegration,
   VendorMeResponse,
+  VendorNotification,
   VendorProduct,
   VendorSeat,
 } from '@aeci/shared';
+// Subpath import, deliberately: the capability registry is zod-free and kept off
+// the root barrel so it cannot drag the schema set into a lazy route's graph
+// (`STAGE_2_PAID_TIERS_SPEC.md` §3.1 / §10 R11). `/vendor` is a lazy route and
+// is explicitly ALLOWED to consult it (§3.3c) — cacheable public SSR is not.
+import { capabilitiesFor } from '@aeci/shared/entitlements';
 
 function term(
   slug: string,
@@ -48,6 +60,17 @@ export const VENDOR_TAXONOMY_FIXTURE: TaxonomyResponse = {
     term('design', 'Design', 2, 19),
     term('construction', 'Construction', 3, 22),
     term('operations', 'Operations', 4, 7),
+  ],
+  // The fourth facet (AECI-538/544), which landed on `main` after these fixtures
+  // were written and arrives here with the AECI-619 reconciliation. Slugs are real
+  // entries from the governed closed vocabulary (`apps/api/seed/trades.sql`) — a
+  // fixture must not invent one, because the trade facet is find-only and an
+  // unseeded slug is exactly the state the vocabulary exists to prevent.
+  trades: [
+    term('concrete', 'Concrete', 1, 11),
+    term('electrical', 'Electrical', 2, 9),
+    term('hvac-mechanical', 'HVAC & Mechanical', 3, 8),
+    term('structural-steel', 'Structural Steel & Metals', 4, 5),
   ],
 };
 
@@ -143,6 +166,16 @@ export const VENDOR_ME_FIXTURE: VendorMeResponse = {
     },
   ],
   seat_count: 3,
+  // The entitlement block (AECI-611). `vendors.verified` is a MIRROR of an
+  // ACTIVE entitlement (`STAGE_2_PAID_TIERS_SPEC.md` §2.1), so a fixture with
+  // `verified: true` must carry an active row or it describes a drifted state
+  // the daily `entitlement_mirror_drift` check would flag as an error.
+  entitlement: {
+    tier: 'verified',
+    status: 'active',
+    period_end: '2027-07-01T00:00:00.000Z',
+    capabilities: [...capabilitiesFor('verified')],
+  },
 };
 
 /** An unverified single-seat vendor with no products or requests yet — the
@@ -161,6 +194,63 @@ export const VENDOR_ME_UNVERIFIED_FIXTURE: VendorMeResponse = {
   products: [],
   requests: [],
   seat_count: 1,
+  // The mirror's other side: no active entitlement → `unclaimed` → zero
+  // capabilities, and `verified: false` above. `status: null` = no
+  // `vendor_entitlements` row at all, as opposed to a lapsed one.
+  entitlement: { tier: 'unclaimed', status: null, period_end: null, capabilities: [] },
+};
+
+// ─── The §8 entitlement states (AECI-614) ────────────────────────────────────
+//
+// `VENDOR_ME_FIXTURE` is state 1 (active, far term) and
+// `VENDOR_ME_UNVERIFIED_FIXTURE` is the never-arranged baseline. These two add
+// the remaining panels, so all of them are reviewable in the preview and
+// assertable in the specs.
+//
+// `period_end` is RELATIVE to load time, deliberately: an absolute date would
+// quietly stop being "soon" and the expiring panel would rot into the quiet one
+// the first time someone opened the preview after that date.
+
+/** Days from now, as the ISO timestamp the API serves. */
+function inDays(days: number): string {
+  return new Date(Date.now() + days * 86_400_000).toISOString();
+}
+
+/**
+ * State 2: verified, term inside the panel's warning window. Still fully
+ * capable, because §7.3 is that the system WARNS and never auto-lapses.
+ */
+export const VENDOR_ME_EXPIRING_FIXTURE: VendorMeResponse = {
+  ...VENDOR_ME_FIXTURE,
+  entitlement: {
+    tier: 'verified',
+    status: 'active',
+    period_end: inDays(12),
+    capabilities: [...capabilitiesFor('verified')],
+  },
+};
+
+/**
+ * State 3: DOWNGRADED. A vendor who had an entitlement and no longer does, which
+ * `status: 'revoked'` distinguishes from the `status: null` never-arranged case
+ * above. `vendor.verified` is false because the mirror follows the row (§2.1),
+ * `tier` is `unclaimed` and the capability list is empty, so every form on the
+ * dashboard renders read-only.
+ *
+ * The seats, the products, the requests and the integrations are all untouched
+ * on purpose: §5.2 is that clearing an entitlement does NOT revoke seats, and
+ * this fixture is what proves the dashboard keeps its promise that nothing was
+ * taken away except the badge and the ability to edit.
+ */
+export const VENDOR_ME_DOWNGRADED_FIXTURE: VendorMeResponse = {
+  ...VENDOR_ME_FIXTURE,
+  vendor: { ...VENDOR_ME_FIXTURE.vendor, verified: false },
+  entitlement: {
+    tier: 'unclaimed',
+    status: 'revoked',
+    period_end: inDays(-45),
+    capabilities: [],
+  },
 };
 
 /** The seat roster for the verified vendor — three flat admins, one banned, one
@@ -186,5 +276,351 @@ export const VENDOR_SEATS_FIXTURE: readonly VendorSeat[] = [
     email: null,
     banned: true,
     created_at: '2026-06-20T16:30:00.000Z',
+  },
+];
+
+// ─── Attestations (AECI-606 / `STAGE_2_ATTESTATIONS_SPEC.md` §6) ─────────────
+
+/**
+ * The closed `data_object` vocabulary as `GET /api/vendor/data-objects` serves
+ * it — an excerpt, in `display_order`.
+ *
+ * **Every slug is a real entry** from the governed closed list
+ * (`docs/DATA_OBJECT_VOCABULARY.md` §4), for the same reason the trades fixture
+ * above says so: the facet is find-only, and an invented slug is precisely the
+ * state the vocabulary exists to prevent — a picker offering a term the server
+ * will reject. Note `issues` is deliberately NOT here: it is one of the five
+ * terms the vocabulary holds out, so it is not seeded and would not resolve.
+ */
+export const VENDOR_DATA_OBJECTS_FIXTURE: readonly DataObjectOption[] = [
+  {
+    slug: 'models',
+    name: 'Models',
+    description: 'BIM / 3D models exchanged between authoring and coordination tools.',
+  },
+  {
+    slug: 'drawings',
+    name: 'Drawings',
+    description: '2D sheets and plans (DWG/PDF) shared across design and field tools.',
+  },
+  {
+    slug: 'rfis',
+    name: 'RFIs',
+    description: 'Requests for information raised and answered across project teams.',
+  },
+  {
+    slug: 'submittals',
+    name: 'Submittals',
+    description: 'Product data, shop drawings and samples routed for review.',
+  },
+  {
+    slug: 'punch-lists',
+    name: 'Punch lists',
+    description: 'Closeout items tracked to completion in the field.',
+  },
+  {
+    slug: 'documents',
+    name: 'Documents',
+    description: 'General project documents and their revisions.',
+  },
+];
+
+const OTHER_PROCORE = {
+  id: '00000000-0000-4000-8000-000000005301',
+  slug: 'procore',
+  name: 'Procore',
+  logo_url: null,
+};
+
+const OTHER_AUTODESK_BUILD = {
+  id: '00000000-0000-4000-8000-000000005302',
+  slug: 'autodesk-build',
+  name: 'Autodesk Build',
+  logo_url: null,
+};
+
+const CONTEXT_PRIMARY = {
+  id: PRIMARY_PRODUCT.id,
+  slug: PRIMARY_PRODUCT.slug,
+  name: PRIMARY_PRODUCT.name,
+  logo_url: null,
+};
+
+const CONTEXT_SECONDARY = {
+  id: SECONDARY_PRODUCT.id,
+  slug: SECONDARY_PRODUCT.slug,
+  name: SECONDARY_PRODUCT.name,
+  logo_url: null,
+};
+
+const V_2026_1 = '00000000-0000-4000-8000-000000005401';
+const V_2025_2 = '00000000-0000-4000-8000-000000005402';
+
+/** Release labels for the caller's own endpoint products. Only these may stamp
+ *  an attestation (§8.2) — the counterpart product's versions would be a 400,
+ *  which is why the tab never fetches them. */
+export const VENDOR_PRODUCT_VERSIONS_FIXTURE: Readonly<Record<string, readonly ProductVersion[]>> =
+  {
+    [PRIMARY_PRODUCT.id]: [
+      {
+        id: V_2025_2,
+        product_id: PRIMARY_PRODUCT.id,
+        label: '2025.2',
+        released_at: '2025-09-01',
+        sunset_at: null,
+        sort_key: 20250200,
+        created_at: '2025-09-01T00:00:00.000Z',
+        updated_at: '2025-09-01T00:00:00.000Z',
+      },
+      {
+        id: V_2026_1,
+        product_id: PRIMARY_PRODUCT.id,
+        label: '2026.1',
+        released_at: '2026-03-15',
+        sunset_at: null,
+        sort_key: 20260100,
+        created_at: '2026-03-15T00:00:00.000Z',
+        updated_at: '2026-03-15T00:00:00.000Z',
+      },
+    ],
+    [SECONDARY_PRODUCT.id]: [],
+  };
+
+/**
+ * The attestable surface. Deliberately covers every state the §6 tab has to
+ * render, because the preview is where this gets reviewed:
+ *
+ *  - all four `agreement` states, including a `conflict` whose counterparty note
+ *    is visible (§6: a conflict must be legible from the vendor's side);
+ *  - an `origin: 'aeci'` claim the vendor has not voted on;
+ *  - a claim carrying a note **and** both version stamps, which is the fixture
+ *    the PUT-replaces regression test needs;
+ *  - an integration where the caller owns BOTH endpoints — `mine` has two
+ *    entries and it must still read `single_source`, because one company is one
+ *    voter no matter how many slots it fills;
+ *  - an integration where the caller owns `vendor_b` only, so the direction
+ *    framing is reviewable in the preview and not only in a unit test;
+ *  - an integration with no claims at all, for the per-card empty state;
+ *  - a null `name` and a null `mechanism_kind`, for the nullable paths.
+ */
+const INTEGRATION_PROCORE: VendorIntegration = {
+  id: '00000000-0000-4000-8000-000000005310',
+  name: 'Summit Model Coordination ↔ Procore',
+  mechanism_kind: 'native',
+  mechanism_name: 'Native connector',
+  context_product: CONTEXT_PRIMARY,
+  other_product: OTHER_PROCORE,
+  slots: ['vendor_a'],
+  claims: [
+    {
+      id: '00000000-0000-4000-8000-000000005321',
+      integration_id: '00000000-0000-4000-8000-000000005310',
+      data_object_slug: 'models',
+      data_object_name: 'Models',
+      direction: 'outbound',
+      // Nobody has voted, and the claim came from AECi's own curation.
+      agreement: 'unverified',
+      origin: 'aeci',
+      mine: [],
+      counterparty: null,
+    },
+    {
+      id: '00000000-0000-4000-8000-000000005322',
+      integration_id: '00000000-0000-4000-8000-000000005310',
+      data_object_slug: 'rfis',
+      data_object_name: 'RFIs',
+      direction: 'outbound',
+      // One voter. Never `confirmed` — the counterparty's silence is not assent.
+      agreement: 'single_source',
+      origin: 'vendor',
+      mine: [
+        {
+          slot: 'vendor_a',
+          asserted: true,
+          note: 'Only for RFIs created after 2025.',
+          introduced_version_id: V_2025_2,
+          deprecated_version_id: null,
+          updated_at: '2026-08-01T10:00:00.000Z',
+        },
+      ],
+      counterparty: null,
+    },
+    {
+      id: '00000000-0000-4000-8000-000000005323',
+      integration_id: '00000000-0000-4000-8000-000000005310',
+      data_object_slug: 'submittals',
+      data_object_name: 'Submittals',
+      direction: 'inbound',
+      agreement: 'confirmed',
+      origin: 'vendor',
+      mine: [
+        {
+          slot: 'vendor_a',
+          asserted: true,
+          note: null,
+          introduced_version_id: null,
+          deprecated_version_id: null,
+          updated_at: '2026-08-02T10:00:00.000Z',
+        },
+      ],
+      counterparty: { asserted: true, note: 'Two-way since our 2026 release.' },
+    },
+    {
+      id: '00000000-0000-4000-8000-000000005324',
+      integration_id: '00000000-0000-4000-8000-000000005310',
+      data_object_slug: 'drawings',
+      data_object_name: 'Drawings',
+      direction: 'both',
+      agreement: 'conflict',
+      origin: 'vendor',
+      mine: [
+        {
+          slot: 'vendor_a',
+          asserted: true,
+          note: 'Sheets sync both ways through the coordination workspace.',
+          introduced_version_id: V_2026_1,
+          deprecated_version_id: null,
+          updated_at: '2026-08-05T10:00:00.000Z',
+        },
+      ],
+      counterparty: { asserted: false, note: 'We do not ingest sheets from this tool.' },
+    },
+  ],
+};
+
+const INTEGRATION_BOTH_ENDPOINTS: VendorIntegration = {
+  id: '00000000-0000-4000-8000-000000005311',
+  name: null,
+  mechanism_kind: 'api',
+  mechanism_name: null,
+  context_product: CONTEXT_PRIMARY,
+  other_product: CONTEXT_SECONDARY,
+  slots: ['vendor_a', 'vendor_b'],
+  claims: [
+    {
+      id: '00000000-0000-4000-8000-000000005331',
+      integration_id: '00000000-0000-4000-8000-000000005311',
+      data_object_slug: 'punch-lists',
+      data_object_name: 'Punch lists',
+      direction: 'both',
+      // TWO attestations, ONE voter: the agreement engine dedupes by attesting
+      // vendor, so owning both endpoints cannot manufacture `confirmed`.
+      agreement: 'single_source',
+      origin: 'vendor',
+      mine: [
+        {
+          slot: 'vendor_a',
+          asserted: true,
+          note: 'Rolls up into the coordination model.',
+          introduced_version_id: V_2026_1,
+          deprecated_version_id: null,
+          updated_at: '2026-08-06T10:00:00.000Z',
+        },
+        {
+          slot: 'vendor_b',
+          asserted: true,
+          note: 'Rolls up into the coordination model.',
+          introduced_version_id: null,
+          deprecated_version_id: null,
+          updated_at: '2026-08-06T10:00:00.000Z',
+        },
+      ],
+      counterparty: null,
+    },
+  ],
+};
+
+const INTEGRATION_VENDOR_B: VendorIntegration = {
+  id: '00000000-0000-4000-8000-000000005312',
+  name: 'Autodesk Build ↔ Summit Field Issues',
+  mechanism_kind: 'marketplace-app',
+  mechanism_name: 'Autodesk App Store listing',
+  // The caller holds endpoint B here, so `context_product` is still ITS product
+  // and `direction` is still framed outward from it. Nothing in the UI may reach
+  // for `source`/`target`.
+  context_product: CONTEXT_SECONDARY,
+  other_product: OTHER_AUTODESK_BUILD,
+  slots: ['vendor_b'],
+  claims: [
+    {
+      id: '00000000-0000-4000-8000-000000005341',
+      integration_id: '00000000-0000-4000-8000-000000005312',
+      data_object_slug: 'documents',
+      data_object_name: 'Documents',
+      direction: 'inbound',
+      agreement: 'unverified',
+      origin: 'aeci',
+      mine: [],
+      counterparty: null,
+    },
+  ],
+};
+
+const INTEGRATION_NO_CLAIMS: VendorIntegration = {
+  id: '00000000-0000-4000-8000-000000005313',
+  name: null,
+  mechanism_kind: null,
+  mechanism_name: null,
+  context_product: CONTEXT_SECONDARY,
+  other_product: OTHER_PROCORE,
+  slots: ['vendor_a'],
+  claims: [],
+};
+
+export const VENDOR_INTEGRATIONS_FIXTURE: ListVendorIntegrationsResponse = {
+  integrations: [
+    INTEGRATION_PROCORE,
+    INTEGRATION_BOTH_ENDPOINTS,
+    INTEGRATION_VENDOR_B,
+    INTEGRATION_NO_CLAIMS,
+  ],
+};
+
+/** A vendor whose products carry no integrations. The API returns exactly this
+ *  — a 200 with an empty list, never a 404. */
+export const VENDOR_INTEGRATIONS_EMPTY_FIXTURE: ListVendorIntegrationsResponse = {
+  integrations: [],
+};
+
+/**
+ * The §7 detector ledger as the in-portal list reads it.
+ *
+ * `aeci-denied` is absent on purpose: it is an ops-routed signal whose ledger
+ * rows carry `vendorId: null`, so it can never match a vendor caller. It stays
+ * in the type union, so the UI's `switch` must remain total — but no fixture
+ * should imply a vendor will ever see one.
+ */
+export const VENDOR_NOTIFICATIONS_FIXTURE: readonly VendorNotification[] = [
+  {
+    id: '00000000-0000-4000-8000-000000005351',
+    detector: 'open-conflict',
+    claim_id: '00000000-0000-4000-8000-000000005324',
+    integration_id: INTEGRATION_PROCORE.id,
+    data_object: { slug: 'drawings', name: 'Drawings' },
+    counterpart_product: { slug: 'procore', name: 'Procore' },
+    pair_path: '/products/procore/integrations/summit-model-coordination',
+    created_at: '2026-08-06T08:00:00.000Z',
+  },
+  {
+    id: '00000000-0000-4000-8000-000000005352',
+    detector: 'silent-counterparty',
+    claim_id: '00000000-0000-4000-8000-000000005322',
+    integration_id: INTEGRATION_PROCORE.id,
+    data_object: { slug: 'rfis', name: 'RFIs' },
+    counterpart_product: { slug: 'procore', name: 'Procore' },
+    pair_path: '/products/procore/integrations/summit-model-coordination',
+    created_at: '2026-07-30T08:00:00.000Z',
+  },
+  {
+    // The tolerant-mapper degrade case: an older row whose snapshot no longer
+    // carries every field. It must still render, not disappear or throw.
+    id: '00000000-0000-4000-8000-000000005353',
+    detector: 'stale-version',
+    claim_id: '00000000-0000-4000-8000-000000005331',
+    integration_id: INTEGRATION_BOTH_ENDPOINTS.id,
+    data_object: null,
+    counterpart_product: null,
+    pair_path: null,
+    created_at: '2026-06-15T08:00:00.000Z',
   },
 ];

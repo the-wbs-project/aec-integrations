@@ -1,4 +1,4 @@
-import { Component, OnInit, computed, inject, input, signal } from '@angular/core';
+import { Component, computed, effect, inject, input, signal, untracked } from '@angular/core';
 import { Listbox, Option } from '@angular/aria/listbox';
 
 import {
@@ -8,6 +8,7 @@ import {
 } from '@aeci/shared';
 
 import { VendorApi } from '../vendor-api';
+import { VendorPortalStore } from '../vendor-portal-store';
 
 /** The vendor-editable text fields (`founded_year` is the one numeric field;
  *  `public_private` is a discrete choice, handled separately). */
@@ -60,12 +61,63 @@ interface FieldConfig {
  * `public_private` is a discrete choice, so per ADR 0010 it uses the Angular Aria
  * single-select listbox stand-in (Aria@22 ships no `select`), mirroring the
  * review form's "would recommend" control.
+ *
+ * ── READ-ONLY (AECI-614 / `STAGE_2_PAID_TIERS_SPEC.md` §8) ──────────────────
+ * `canEdit` is fed from `me.entitlement.capabilities` holding `profile.edit` —
+ * the same field the API's `requireCapability` gate asserts on, so an enabled
+ * Save can never mean a 403 (and a disabled one can never hide a write that
+ * would have worked). It is `readonly`, deliberately, not `disabled`: a
+ * read-only input keeps its value in the accessibility tree, stays focusable and
+ * copyable, and is what a downgraded vendor needs — the §5.2 promise is that
+ * their data is still THERE, just not editable. `disabled` would drop the whole
+ * form out of tab order and read as "broken" rather than "paused".
+ *
+ * ── UNSAVED EDITS vs. REVALIDATION (AECI-628) ───────────────────────────────
+ * `me` is live now: a poll, or another seat saving in another tab, can replace
+ * the vendor payload under this form. Two things follow.
+ *
+ * 1. The baseline re-seeds from the INPUT rather than once in `ngOnInit`, so a
+ *    clean form silently picks up whatever the server last said.
+ * 2. While `hasChanges()` is true the form registers itself with
+ *    {@link VendorPortalStore.markDirty}, which makes the store stash a fresh
+ *    payload instead of applying it. The vendor is told, in place, that the
+ *    profile moved and is offered an explicit reload. Half-typed text is never
+ *    silently replaced, and it is never silently kept either.
  */
 @Component({
   selector: 'aec-vendor-profile-form',
   imports: [Listbox, Option],
   template: `
     <form class="space-y-8" novalidate (submit)="$event.preventDefault(); onSave()">
+      @if (updatedElsewhere()) {
+        <div
+          class="flex flex-wrap items-center gap-3 rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) p-4"
+        >
+          <p class="text-sm text-(--text-primary)" i18n="@@vendor.profile.updatedElsewhere">
+            This profile changed somewhere else while you were editing. Your unsaved changes are
+            still here.
+          </p>
+          <button
+            type="button"
+            [class]="reloadButtonClass"
+            (click)="reloadSection()"
+            i18n="@@vendor.profile.reloadSection"
+          >
+            Reload this section
+          </button>
+        </div>
+      }
+
+      @if (!canEdit()) {
+        <p
+          class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) p-4 text-sm leading-relaxed text-(--text-secondary)"
+          i18n="@@vendor.profile.readOnly"
+        >
+          Editing is paused while your verification is not active. Everything below stays published
+          and is here to read. The verification panel on your dashboard has the renewal path.
+        </p>
+      }
+
       <fieldset class="space-y-5 border-0 p-0">
         <legend class="sr-only" i18n="@@vendor.profile.section.details">Profile details</legend>
 
@@ -77,12 +129,13 @@ interface FieldConfig {
                 [id]="fieldId(cfg.key)"
                 rows="4"
                 [value]="model()[cfg.key]"
+                [readOnly]="!canEdit()"
                 (input)="onInput(cfg.key, $event)"
                 [attr.aria-invalid]="fieldErrors()[cfg.key] ? 'true' : null"
                 [attr.aria-describedby]="
                   fieldErrors()[cfg.key] ? fieldId(cfg.key) + '-error' : null
                 "
-                [class]="inputClass"
+                [class]="controlClass()"
               ></textarea>
             } @else {
               <input
@@ -91,12 +144,13 @@ interface FieldConfig {
                 [attr.inputmode]="cfg.control === 'year' ? 'numeric' : null"
                 [attr.autocomplete]="cfg.autocomplete ?? null"
                 [value]="model()[cfg.key]"
+                [readOnly]="!canEdit()"
                 (input)="onInput(cfg.key, $event)"
                 [attr.aria-invalid]="fieldErrors()[cfg.key] ? 'true' : null"
                 [attr.aria-describedby]="
                   fieldErrors()[cfg.key] ? fieldId(cfg.key) + '-error' : null
                 "
-                [class]="inputClass"
+                [class]="controlClass()"
               />
             }
             @if (fieldErrors()[cfg.key]; as err) {
@@ -124,6 +178,7 @@ interface FieldConfig {
             ngListbox
             orientation="horizontal"
             selectionMode="explicit"
+            [readonly]="!canEdit()"
             [(value)]="publicPrivateSel"
             [attr.aria-labelledby]="fieldId('public_private') + '-label'"
             class="m-0 flex list-none flex-wrap gap-2 p-0"
@@ -157,10 +212,11 @@ interface FieldConfig {
               [type]="inputType(cfg.control)"
               [attr.autocomplete]="cfg.autocomplete ?? null"
               [value]="model()[cfg.key]"
+              [readOnly]="!canEdit()"
               (input)="onInput(cfg.key, $event)"
               [attr.aria-invalid]="fieldErrors()[cfg.key] ? 'true' : null"
               [attr.aria-describedby]="fieldErrors()[cfg.key] ? fieldId(cfg.key) + '-error' : null"
-              [class]="inputClass"
+              [class]="controlClass()"
             />
             @if (fieldErrors()[cfg.key]; as err) {
               <p
@@ -176,13 +232,15 @@ interface FieldConfig {
       </fieldset>
 
       <div class="flex flex-wrap items-center gap-4">
-        <button type="submit" [disabled]="saveDisabled()" [class]="saveButtonClass">
-          @if (saving()) {
-            <span i18n="@@vendor.profile.saving">Saving…</span>
-          } @else {
-            <span i18n="@@vendor.profile.save">Save changes</span>
-          }
-        </button>
+        @if (canEdit()) {
+          <button type="submit" [disabled]="saveDisabled()" [class]="saveButtonClass">
+            @if (saving()) {
+              <span i18n="@@vendor.profile.saving">Saving…</span>
+            } @else {
+              <span i18n="@@vendor.profile.save">Save changes</span>
+            }
+          </button>
+        }
         @if (saved()) {
           <p
             class="text-sm font-medium text-(--accent-primary)"
@@ -205,10 +263,15 @@ interface FieldConfig {
   `,
   styles: [':host { display: block; }'],
 })
-export class VendorProfileForm implements OnInit {
+export class VendorProfileForm {
   private readonly api = inject(VendorApi);
+  private readonly store = inject(VendorPortalStore);
 
   readonly vendor = input.required<VendorAccount>();
+
+  /** Whether the caller's entitlement holds `profile.edit` (§8). Defaults open so
+   *  no existing caller changes behaviour; the shells feed it the real value. */
+  readonly canEdit = input<boolean>(true);
 
   protected readonly profileFields: readonly FieldConfig[] = [
     {
@@ -314,10 +377,22 @@ export class VendorProfileForm implements OnInit {
 
   protected readonly labelClass =
     'block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)';
-  protected readonly inputClass =
-    'w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
+  /** Everything but the background, which is the read-only tell. Two `bg-*`
+   *  utilities on one element would race on stylesheet order, so the surface
+   *  token is chosen once, here, rather than appended as an override. */
+  private readonly inputBase =
+    'w-full rounded-(--radius-md) border border-(--border-default) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
+  /** Read-only fields sit on the sunken surface so "not editable" is visible as
+   *  well as announced, without dimming the text below the contrast floor. */
+  protected readonly controlClass = computed(() =>
+    this.canEdit()
+      ? `${this.inputBase} bg-(--surface-base)`
+      : `${this.inputBase} bg-(--surface-sunken)`,
+  );
   protected readonly saveButtonClass =
     'inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-5 py-2.5 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50';
+  protected readonly reloadButtonClass =
+    'rounded-(--radius-sm) border border-(--border-default) px-3 py-1.5 text-sm font-label text-(--text-primary) transition-colors hover:bg-(--surface-raised) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
 
   /** Live per-field validity — an empty value is a valid "clear" (every field is
    *  nullable), otherwise the single field is checked against the shared schema. */
@@ -365,11 +440,46 @@ export class VendorProfileForm implements OnInit {
     Object.values(this.fieldErrors()).some((e) => e !== null),
   );
   protected readonly saveDisabled = computed(
-    () => this.saving() || !this.hasChanges() || this.hasErrors(),
+    () => !this.canEdit() || this.saving() || !this.hasChanges() || this.hasErrors(),
   );
 
-  ngOnInit(): void {
-    this.seed(this.vendor());
+  /** The store deferred a fresh vendor payload because THIS form is holding it. */
+  protected readonly updatedElsewhere = computed(() => this.store.isStale('profile'));
+
+  /**
+   * One-shot override for the re-seed guard below. "Reload this section" has to
+   * beat "never clobber unsaved edits", and it cannot do that by clearing the
+   * store's flag alone: the guard reads the local model, which is still dirty at
+   * the moment the fresh payload arrives.
+   */
+  private readonly acceptNextPayload = signal(false);
+
+  constructor() {
+    // Re-seed from the input whenever the payload changes and there is nothing
+    // unsaved to lose. Reading `hasChanges()` untracked keeps this an
+    // input-driven effect rather than a per-keystroke one.
+    effect(() => {
+      const v = this.vendor();
+      untracked(() => {
+        if (this.hasChanges() && !this.acceptNextPayload()) return;
+        this.acceptNextPayload.set(false);
+        this.seed(v);
+      });
+    });
+
+    // Tell the store when there is something to protect. `hasChanges` is a
+    // computed boolean, so this only runs on the transitions.
+    effect(() => {
+      if (this.hasChanges()) untracked(() => this.store.markDirty('profile'));
+      else untracked(() => this.store.clearDirty('profile'));
+    });
+  }
+
+  /** Take the server's copy and drop the unsaved edits. Deliberately explicit:
+   *  the affordance says what it will do before the vendor clicks it. */
+  protected reloadSection(): void {
+    this.acceptNextPayload.set(true);
+    void this.store.reload('profile');
   }
 
   protected fieldId(key: string): string {
@@ -398,6 +508,10 @@ export class VendorProfileForm implements OnInit {
   }
 
   protected async onSave(): Promise<void> {
+    // The submit button is not rendered without `profile.edit`, but a form still
+    // submits on Enter from a focused field, and read-only fields stay focusable
+    // on purpose. Guard the handler, not just the button.
+    if (!this.canEdit()) return;
     this.saved.set(false);
     this.saveError.set(false);
     const body = this.diff();

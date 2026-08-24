@@ -6,7 +6,7 @@
  * Spec anchor: docs/STAGE_1_PHASE_2_SPEC.md §9 (§9.1 metadata, §9.2 JSON-LD).
  */
 
-import type { ProductDetail, VendorDetail } from '@aeci/shared';
+import type { ProductDetail, ProductListItem, VendorDetail } from '@aeci/shared';
 
 export const META_DESCRIPTION_MAX = 155;
 
@@ -55,11 +55,29 @@ export interface OgTagInput {
 export interface SoftwareApplicationLd {
   '@context': 'https://schema.org';
   '@type': 'SoftwareApplication';
+  '@id'?: string;
   name: string;
   description?: string;
   url?: string;
   applicationCategory?: string;
   applicationSubCategory?: string;
+}
+
+/**
+ * A product node NESTED inside another payload's `about` (the pair page, §9.2a).
+ * Carries no `@context` — a nested node inherits the enclosing document's — and
+ * its `@id` is the same URI the product detail page publishes on its own
+ * `SoftwareApplicationLd`, which is what turns three isolated JSON-LD islands
+ * into one entity graph.
+ */
+export interface AboutSoftwareApplicationLd {
+  '@type': 'SoftwareApplication';
+  '@id': string;
+  name: string;
+  url: string;
+  applicationCategory?: string;
+  image?: string;
+  publisher?: { '@type': 'Organization'; name: string };
 }
 
 export interface OrganizationLd {
@@ -162,9 +180,15 @@ export type EntityKind =
   | 'category'
   | 'audience'
   | 'phase'
+  | 'trade'
   | 'index';
 
-const BROWSE_META_KINDS: ReadonlySet<EntityKind> = new Set(['category', 'audience', 'phase']);
+const BROWSE_META_KINDS: ReadonlySet<EntityKind> = new Set([
+  'category',
+  'audience',
+  'phase',
+  'trade',
+]);
 
 const WEBSITE_META_KINDS: ReadonlySet<EntityKind> = new Set([...BROWSE_META_KINDS, 'index']);
 
@@ -202,11 +226,21 @@ export function buildOgTags(input: OgTagInput): MetaTag[] {
  *
  * `offers` is intentionally omitted until `VendorLink` carries `website` —
  * tracked in AECI-68.
+ *
+ * `canonical` is the product page's own canonical URL, used only to derive the
+ * node's `@id` via {@link productLdId} (AECI-518). That `@id` is the URI the
+ * pair page's `about[]` entries reference, so both sides MUST compose it through
+ * the same helper — a hand-built string on either side would silently produce
+ * two unrelated nodes instead of one.
  */
-export function buildProductJsonLd(product: ProductDetail): SoftwareApplicationLd {
+export function buildProductJsonLd(
+  product: ProductDetail,
+  canonical: string,
+): SoftwareApplicationLd {
   const ld: SoftwareApplicationLd = {
     '@context': 'https://schema.org',
     '@type': 'SoftwareApplication',
+    '@id': productLdId(originOf(canonical), product.slug),
     name: product.name,
   };
   if (product.description) ld.description = product.description;
@@ -280,4 +314,137 @@ export function buildSiteOrganizationLd(input: {
   };
   if (input.logo) ld.logo = input.logo;
   return ld;
+}
+
+/**
+ * `schema.org/WebPage` JSON-LD for the product-PAIR page (AECI-518 — the Stage 2
+ * resolution of the `STAGE_1_PHASE_2_SPEC.md` §9.2 "no clean schema.org type
+ * exists" deferral; the decision record is `STAGE_2_SPEC.md` §8.7).
+ *
+ * `WebPage` + `about` is the honest model: the page's subject matter is two
+ * software products, and `about[].@id` points at each product's own detail-page
+ * node so the site reads as one entity graph rather than three islands. The page
+ * is NOT itself a `SoftwareApplication` and does not claim to be, and an
+ * `ItemList` of mechanisms was rejected — `ItemList` only yields a carousel for
+ * types `SoftwareApplication` is not among, so it would be inert markup.
+ *
+ * `breadcrumb` is an `@id` reference into {@link buildPairBreadcrumbLd}'s node,
+ * emitted as a sibling `<script>`. Consumers merge every JSON-LD block on the
+ * page into one graph, so the cross-reference resolves.
+ */
+export interface WebPageLd {
+  '@context': 'https://schema.org';
+  '@type': 'WebPage';
+  '@id': string;
+  url: string;
+  name: string;
+  description: string;
+  breadcrumb: { '@id': string };
+  about: AboutSoftwareApplicationLd[];
+}
+
+/** One `schema.org/ListItem` in a {@link BreadcrumbListLd}. */
+export interface BreadcrumbItemLd {
+  '@type': 'ListItem';
+  position: number;
+  name: string;
+  /** Omitted on the final crumb — that one IS the current page. */
+  item?: string;
+}
+
+/** `schema.org/BreadcrumbList` mirroring a page's visible breadcrumb trail. */
+export interface BreadcrumbListLd {
+  '@context': 'https://schema.org';
+  '@type': 'BreadcrumbList';
+  '@id': string;
+  itemListElement: BreadcrumbItemLd[];
+}
+
+/** The URI a product's `SoftwareApplication` node is published under, site-wide. */
+export function productLdId(origin: string, slug: string): string {
+  return `${origin}/products/${slug}#product`;
+}
+
+/** Nest one endpoint product as an `about` node. Null source fields are omitted. */
+function aboutProduct(origin: string, product: ProductListItem): AboutSoftwareApplicationLd {
+  const url = `${origin}/products/${product.slug}`;
+  const node: AboutSoftwareApplicationLd = {
+    '@type': 'SoftwareApplication',
+    '@id': productLdId(origin, product.slug),
+    name: product.name,
+    url,
+  };
+  // `ProductListItem` carries no `description`/`website` (unlike `ProductDetail`),
+  // which is why `url` is the AECi product page rather than the vendor site — and
+  // that is the better target anyway, since it is where the referenced `@id` node
+  // is actually published.
+  if (product.primary_category) node.applicationCategory = product.primary_category.name;
+  if (product.logo_url) node.image = product.logo_url;
+  if (product.vendor) node.publisher = { '@type': 'Organization', name: product.vendor.name };
+  return node;
+}
+
+/**
+ * Build the pair page's `WebPage` payload. `canonical` is the already
+ * query-stripped canonical URL (the resolver's single source of truth, so this
+ * needs no change when AECI-340 gives each orientation a self-referential
+ * canonical); `origin` is its scheme+host via {@link originOf}. `name` and
+ * `description` are passed in already `$localize`d so this module stays
+ * Angular-free and the structured data can never drift from the `<title>`.
+ */
+export function buildPairJsonLd(input: {
+  canonical: string;
+  origin: string;
+  name: string;
+  description: string;
+  context: ProductListItem;
+  other: ProductListItem;
+}): WebPageLd {
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'WebPage',
+    '@id': `${input.canonical}#webpage`,
+    url: input.canonical,
+    name: input.name,
+    description: input.description,
+    breadcrumb: { '@id': `${input.canonical}#breadcrumb` },
+    about: [aboutProduct(input.origin, input.context), aboutProduct(input.origin, input.other)],
+  };
+}
+
+/**
+ * Build the pair page's `BreadcrumbList`, mirroring the trail the page actually
+ * renders (`products-pair.ts`: Home › {context} › {other}). Google requires
+ * breadcrumb markup to match visible content, so the shape is dictated by the
+ * template — including the last crumb being the OTHER product's name rather than
+ * the pair title.
+ *
+ * `homeLabel` is passed in under the template's own `@@pair.breadcrumb.home`
+ * message id, so a translation can never move the visible text without moving
+ * the markup with it. The final crumb omits `item` per schema.org convention for
+ * the current page, which also keeps the payload correct on the non-default
+ * orientation, whose canonical points at the other URL.
+ */
+export function buildPairBreadcrumbLd(input: {
+  canonical: string;
+  origin: string;
+  homeLabel: string;
+  context: ProductListItem;
+  other: ProductListItem;
+}): BreadcrumbListLd {
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'BreadcrumbList',
+    '@id': `${input.canonical}#breadcrumb`,
+    itemListElement: [
+      { '@type': 'ListItem', position: 1, name: input.homeLabel, item: `${input.origin}/` },
+      {
+        '@type': 'ListItem',
+        position: 2,
+        name: input.context.name,
+        item: `${input.origin}/products/${input.context.slug}`,
+      },
+      { '@type': 'ListItem', position: 3, name: input.other.name },
+    ],
+  };
 }

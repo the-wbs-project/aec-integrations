@@ -4,6 +4,8 @@
 **Scope:** All changes in this branch against the base branch.
 **Companion documents:** `STAGE_1_SPEC.md` (intent), `API_CONTRACTS.md` (contracts), `DATABASE_SCHEMA.md` (data layer), `CLAUDE.md` (stack constraints), `ANGULAR_STYLE_GUIDE.md` (Angular + TypeScript conventions, lint enforcement), `UNIT_TESTING_GUIDE.md` (test standards), `CODE_REVIEW_EXEMPTIONS.md` (findings the team has consciously accepted or deferred).
 
+**Pre-implementation half:** this document reviews a **diff**. The **plan** gets reviewed earlier, by step 4.5 of the `spec-anchor` skill (`.agents/skills/spec-anchor/SKILL.md`), which rates findings 🔴 CRITICAL / 🟡 MAJOR / 🔵 MINOR against the same governing docs. The vocabulary is deliberately different so you can tell at a glance which reviewer produced a block.
+
 ---
 
 ## Approach
@@ -35,7 +37,9 @@ The most distinctive concern for this codebase. Code that diverges from the spec
 - Does the code use the entity types, error codes, and field names defined in `API_CONTRACTS.md` and `DATABASE_SCHEMA.md`?
 - Does the code respect the constraints in `CLAUDE.md` (DB access is Drizzle over the D1 `DB` binding via `getDb(env)` — no Prisma, no Accelerate, no pg adapter; atomic writes use `db.batch([...])`; cacheable SSR responses set `Cache-Tag` via the AECI-56 helper; zoneless; light theme only; no pay-for-placement; i18n strings wrapped)? `Lint: ✅` for the statically-checkable half — no Prisma / Accelerate / pg adapter / connection vars, no `zone.js` or `NgZone`, no `dark:` variant or `.theme-dark` block, no forbidden `Vary` (AECI-549). The rest — `db.batch([...])` atomicity, `Cache-Tag` emission, no pay-for-placement, i18n wrapping — is `Lint: 🟡 review-only` and still needs your eyes.
 
-If the spec is wrong, that's also a defect — flag it. Do not silently work around it.
+- If a `## Spec Review` block exists for this issue (posted in the conversation, a Linear comment, or the PR body), were its findings addressed or explicitly waived? An unaddressed plan-time **CRITICAL** is a **BLOCKER** here; an unaddressed **MAJOR** stays **MAJOR**. If the plan check was never run and the diff contradicts its spec section, say so.
+
+If the spec is wrong, that's also a defect — flag it. Do not silently work around it. Note that the docs are stale in known places: cite the code as well as the doc before calling a divergence a defect.
 
 ### Bugs and logic errors
 
@@ -94,8 +98,8 @@ If the spec is wrong, that's also a defect — flag it. Do not silently work aro
 
 ### Data integrity and audit
 
-- Write path that should call `appendAuditLog()` but doesn't
-- Write path that mutates an entity and writes `audit_log` outside the **same** `db.batch([...])` — both must commit together (see `DATABASE_SCHEMA.md` §18)
+- Write path that mutates state but emits no `audit_log` row at all (the builders are `auditInsert` / `workflowTransitionInsert` in `apps/api/src/lib/audit.ts`)
+- Write path that mutates an entity and writes `audit_log` outside the **same** `db.batch([...])` — both must commit together (see `DATABASE_SCHEMA.md` §18). D1 has no interactive transactions, so a separate statement is not atomic
 - Cache purge (`POST /admin/purge`) fired inside the `db.batch([...])` instead of after it commits, or not wrapped in `ctx.waitUntil()` on the response path
 - Write path that affects cached pages but doesn't purge the relevant cache tags (see `CACHE_STRATEGY.md` §5)
 - Migration that's not forward-only safe (drops a column the old code still reads)
@@ -244,7 +248,7 @@ If issues are found:
 - `apps/api/migrations/0007_add_locale.sql:8` — Migration adds `NOT NULL` column without default; will fail on existing rows. Either add a default or use a two-phase migration (nullable, backfill, then NOT NULL).
 
 🟡 MAJOR
-- `apps/web/src/app/review-form/review-form.component.ts:78` — Form does not call appendAuditLog on submit. Audit trail for review submissions is required (STAGE_1_SPEC.md §26.1).
+- `apps/api/src/routes/reviews.ts:112` — Review insert commits without an audit row in the same `db.batch([...])`. Audit trail for review submissions is required and must be atomic with the write (STAGE_1_SPEC.md §26.1; `apps/api/src/lib/audit.ts` `auditInsert`).
 - `packages/shared/src/api/reviews.ts:34` — New error code 'REVIEW_TOO_LONG' added but not in the documented error code table in API_CONTRACTS.md §4.
 - `apps/web/src/app/product-page/reviews-tab.component.html:12` — New "Submit review" button has no accessible name (icon-only, no aria-label).
 

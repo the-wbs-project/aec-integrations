@@ -173,7 +173,11 @@ export function registerDetailResolverSuite<T>(scenario: DetailResolverScenario<
       expect(result).toEqual(fixture);
       expect(responseInit.status).toBe(200); // unchanged
       expect(setEntityMeta).toHaveBeenCalledWith(scenario.expectedMeta);
-      if (jsonLd) expect(jsonLd).toHaveBeenCalledWith(fixture);
+      // First argument only: the setters have entity-specific arities
+      // (`setProductJsonLd` also takes the canonical, for its `@id` — AECI-518),
+      // and the shared suite's claim is just "this resolver publishes LD for the
+      // entity it fetched". Arity-specific assertions live in the entity spec.
+      if (jsonLd) expect(jsonLd.mock.calls[0]?.[0]).toEqual(fixture);
       expect(ctx.embedded).toEqual(scenario.expectedEmbedded);
       expect(ctx.pageView).toEqual(scenario.expectedPageView);
 
@@ -283,7 +287,11 @@ export function registerDetailResolverSuite<T>(scenario: DetailResolverScenario<
       httpMock.expectNone(scenario.apiPath); // a hydration HIT never refetches
       // Meta IS re-applied client-side now (idempotent over the SSR-rendered head).
       expect(setEntityMeta).toHaveBeenCalledWith(scenario.expectedMeta);
-      if (jsonLd) expect(jsonLd).toHaveBeenCalledWith(fixture);
+      // First argument only: the setters have entity-specific arities
+      // (`setProductJsonLd` also takes the canonical, for its `@id` — AECI-518),
+      // and the shared suite's claim is just "this resolver publishes LD for the
+      // entity it fetched". Arity-specific assertions live in the entity spec.
+      if (jsonLd) expect(jsonLd.mock.calls[0]?.[0]).toEqual(fixture);
     });
 
     it('fetches via the browser /api/* passthrough on a TransferState miss and applies meta', async () => {
@@ -309,7 +317,11 @@ export function registerDetailResolverSuite<T>(scenario: DetailResolverScenario<
       expect(result).toEqual(fixture);
       expect(apiRequest).not.toHaveBeenCalled(); // browser path, not the service binding
       expect(setEntityMeta).toHaveBeenCalledWith(scenario.expectedMeta);
-      if (jsonLd) expect(jsonLd).toHaveBeenCalledWith(fixture);
+      // First argument only: the setters have entity-specific arities
+      // (`setProductJsonLd` also takes the canonical, for its `@id` — AECI-518),
+      // and the shared suite's claim is just "this resolver publishes LD for the
+      // entity it fetched". Arity-specific assertions live in the entity spec.
+      if (jsonLd) expect(jsonLd.mock.calls[0]?.[0]).toEqual(fixture);
     });
 
     it('renders not-found (setNotFoundMeta, null) on a NOT_FOUND client fetch', async () => {

@@ -1,17 +1,19 @@
 /**
- * GET /api/categories|audiences|phases/:slug detail on the Drizzle/D1 path
- * (ADR 0016 / AECI-253), against the in-memory D1 harness.
+ * GET /api/categories|audiences|phases|trades/:slug detail on the Drizzle/D1
+ * path (ADR 0016 / AECI-253), against the in-memory D1 harness.
  */
 
-import { AudienceDetailSchema, CategoryDetailSchema } from '@aeci/shared';
+import { AudienceDetailSchema, CategoryDetailSchema, TradeDetailSchema } from '@aeci/shared';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
   productAudiences,
   productCategories,
   products,
+  productTrades,
   taxonomyAudiences,
   taxonomyCategories,
+  taxonomyTrades,
 } from '../db/schema';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { buildAppWithHandler, fakeExecutionContext, TEST_ENV } from '../test/helpers';
@@ -40,6 +42,15 @@ const audienceApp = () =>
     path: '/api/audiences/:slug',
     handler: createTaxonomyDetailHandler(
       { resource: 'audience', schema: AudienceDetailSchema },
+      t.factory,
+    ),
+  });
+const tradeApp = () =>
+  buildAppWithHandler({
+    method: 'get',
+    path: '/api/trades/:slug',
+    handler: createTaxonomyDetailHandler(
+      { resource: 'trade', schema: TradeDetailSchema },
       t.factory,
     ),
   });
@@ -83,5 +94,52 @@ describe('GET /api/audiences/:slug', () => {
       await (await get(audienceApp(), '/api/audiences/arch')).json(),
     );
     expect(body.products.map((p) => p.slug)).toEqual(['revit']);
+  });
+});
+
+// AECI-541 — §5.5a. `taxonomy_trades.description` is NOT NULL, so fixtures set it.
+describe('GET /api/trades/:slug', () => {
+  it('hydrates the term, its product_count, and embedded products', async () => {
+    await t.db.insert(taxonomyTrades).values({
+      id: u(1),
+      slug: 'electrical',
+      name: 'Electrical',
+      description: 'Power distribution, lighting, and low-voltage systems.',
+      displayOrder: 10,
+    });
+    await t.db
+      .insert(products)
+      .values({ id: u(11), slug: 'accubid', name: 'Accubid', promotionStatus: 'promoted' });
+    await t.db.insert(productTrades).values({ productId: u(11), tradeId: u(1) });
+
+    const res = await get(tradeApp(), '/api/trades/electrical');
+    expect(res.status).toBe(200);
+    const body = TradeDetailSchema.parse(await res.json());
+    expect(body.slug).toBe('electrical');
+    expect(body.product_count).toBe(1);
+    expect(body.products.map((p) => p.slug)).toEqual(['accubid']);
+  });
+
+  it('resolves a sub-floor term with an empty product list (no publication gate)', async () => {
+    await t.db.insert(taxonomyTrades).values({
+      id: u(1),
+      slug: 'paving-asphalt',
+      name: 'Paving & Asphalt',
+      description: 'Pavement construction, striping, and maintenance.',
+      displayOrder: 10,
+    });
+
+    const res = await get(tradeApp(), '/api/trades/paving-asphalt');
+    expect(res.status).toBe(200);
+    const body = TradeDetailSchema.parse(await res.json());
+    expect(body.product_count).toBe(0);
+    expect(body.products).toEqual([]);
+  });
+
+  it('404s an unknown slug with resource "trade"', async () => {
+    const res = await get(tradeApp(), '/api/trades/nope');
+    expect(res.status).toBe(404);
+    const payload = (await res.json()) as { error: { details: { resource: string } } };
+    expect(payload.error.details.resource).toBe('trade');
   });
 });

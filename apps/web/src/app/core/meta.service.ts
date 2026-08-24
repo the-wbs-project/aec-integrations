@@ -2,7 +2,7 @@ import { DOCUMENT } from '@angular/common';
 import { Service, inject } from '@angular/core';
 import { Meta, Title } from '@angular/platform-browser';
 
-import type { ProductDetail, VendorDetail } from '@aeci/shared';
+import type { ProductDetail, ProductListItem, VendorDetail } from '@aeci/shared';
 
 import {
   DEFAULT_OG_IMAGE,
@@ -11,6 +11,8 @@ import {
   SITE_NAME,
   buildEntityTitle,
   buildOgTags,
+  buildPairBreadcrumbLd,
+  buildPairJsonLd,
   buildProductJsonLd,
   buildSiteOrganizationLd,
   buildVendorJsonLd,
@@ -21,6 +23,13 @@ import {
   stripQueryParams,
   truncateAtWordBoundary,
 } from './meta.helpers';
+
+/**
+ * The JSON-LD blocks this service knows how to emit, one `<script>` per kind
+ * keyed by `data-aeci-jsonld`. `pair` + `breadcrumb` are the product-PAIR page's
+ * pair (AECI-518).
+ */
+type JsonLdKind = 'product' | 'vendor' | 'website' | 'organization' | 'pair' | 'breadcrumb';
 
 /**
  * Entity kinds the service knows how to title. Defined once in `meta.helpers.ts`
@@ -56,7 +65,10 @@ export interface SetEntityMetaInput {
 /**
  * Centralized SEO metadata composer for every Phase 2 page. Sets `<title>`,
  * description, canonical link, OG/Twitter tags, and (via `setProductJsonLd` /
- * `setVendorJsonLd`) JSON-LD script tags. Platform-agnostic — `Title`, `Meta`,
+ * `setVendorJsonLd` / `setPairJsonLd`) JSON-LD script tags. Every method that
+ * owns the head calls `clearJsonLd()` first, so structured data always describes
+ * the CURRENT route rather than accumulating across an SPA session (AECI-518).
+ * Platform-agnostic — `Title`, `Meta`,
  * and `DOCUMENT` all work under `@angular/ssr` AND in the browser, so no
  * `isPlatformBrowser` guards. During SSR these ship in the initial HTML; on an
  * in-app client navigation the resolvers re-invoke them so the head stays
@@ -72,6 +84,12 @@ export class MetaService {
   private readonly document = inject(DOCUMENT);
 
   setEntityMeta(input: SetEntityMetaInput): void {
+    // Drop whatever the PREVIOUS page published before this page publishes its
+    // own. Every JSON-LD setter is called by its resolver *after* this method, so
+    // clearing first is what makes the head a function of the current route
+    // rather than of the navigation history (AECI-518).
+    this.clearJsonLd();
+
     const suffix = isBrowseKind(input.entity)
       ? $localize`:@@meta.browseTitleSuffix: tools · AEC Integrations`
       : $localize`:@@meta.titleSuffix: · AEC Integrations`;
@@ -117,6 +135,8 @@ export class MetaService {
    * `NOT_FOUND_TTL`.
    */
   setNotFoundMeta(input: { kind: EntityKind; slug: string; canonical: string }): void {
+    this.clearJsonLd();
+
     const title = $localize`:@@meta.notFoundTitle:Not found · AEC Integrations`;
     const description = $localize`:@@meta.notFoundDescription:The page you were looking for could not be found.`;
 
@@ -124,17 +144,6 @@ export class MetaService {
     this.meta.updateTag({ name: 'description', content: description });
     this.meta.updateTag({ name: 'robots', content: 'noindex' });
     this.upsertCanonical(stripQueryParams(input.canonical));
-
-    // Belt-and-braces: if a prior render path on the same Worker instance set
-    // a product/vendor JSON-LD, remove it so the 404 doesn't ship stale
-    // structured data. JSON-LD script elements use the `data-aeci-jsonld`
-    // attribute set by `upsertJsonLdScript` (line 100).
-    const head = this.document.head;
-    for (const script of head.querySelectorAll(
-      'script[type="application/ld+json"][data-aeci-jsonld]',
-    )) {
-      script.remove();
-    }
   }
 
   /**
@@ -145,11 +154,10 @@ export class MetaService {
    * (query-stripped, so `?q=…` variants don't fork the canonical). Set from the
    * component constructor so the noindex ships in the SSR HTML head AND is
    * refreshed on an in-app client navigation onto `/search`.
-   *
-   * Mirrors `setNotFoundMeta`'s stale-JSON-LD cleanup so navigating from a
-   * product/vendor detail page into search doesn't leave structured data behind.
    */
   setSearchMeta(input: { canonical: string }): void {
+    this.clearJsonLd();
+
     const title = $localize`:@@meta.searchTitle:Search · AEC Integrations`;
     const description = $localize`:@@meta.searchDescription:Search the AEC software integration directory by product, vendor, or integration.`;
 
@@ -157,13 +165,6 @@ export class MetaService {
     this.meta.updateTag({ name: 'description', content: description });
     this.meta.updateTag({ name: 'robots', content: 'noindex' });
     this.upsertCanonical(stripQueryParams(input.canonical));
-
-    const head = this.document.head;
-    for (const script of head.querySelectorAll(
-      'script[type="application/ld+json"][data-aeci-jsonld]',
-    )) {
-      script.remove();
-    }
   }
 
   /**
@@ -185,13 +186,11 @@ export class MetaService {
    * `Organization` (whose `logo` stays the square monogram, not the share card).
    * Both are derived from the serving origin so they follow the self-referential
    * canonical (ADR 0011). No `aggregateRating`/`Review` LD: nothing is verified
-   * and the launch corpus is not an honest basis for star ratings (§20.3). Stale
-   * detail JSON-LD from a prior in-app navigation is left untouched — like
-   * `setProductJsonLd` / `setVendorJsonLd`, which only upsert their own kind;
-   * each SSR render (the SEO-relevant path) is a fresh per-URL app, so it never
-   * ships cross-page LD.
+   * and the launch corpus is not an honest basis for star ratings (§20.3).
    */
   setHomeMeta(input: { canonical: string }): void {
+    this.clearJsonLd();
+
     const title = $localize`:@@meta.homeTitle:AEC Integrations: the independent directory of AEC software integrations`;
     const description = $localize`:@@meta.homeDescription:The independent directory of AEC software integrations. No vendor marketing, no pay-for-placement.`;
 
@@ -230,19 +229,36 @@ export class MetaService {
   }
 
   /**
-   * Meta for a static, indexable content page with hand-authored copy — `/about`
-   * (AECI-238) and the future `/legal/*` pages (Phase 7.2). Like `setHomeMeta`
+   * Meta for a static content page with hand-authored copy — `/about`
+   * (AECI-238) and the `/legal/*` pages (Phase 7.2). Like `setHomeMeta`
    * but WITHOUT the WebSite/Organization JSON-LD: sets `<title>`, description, a
-   * self-referential canonical, and OG/Twitter tags (`og:type=website`). No
-   * `robots` tag — these are canonical, indexable content pages (contrast
-   * `setSearchMeta` / `setNotFoundMeta`, which noindex). The caller passes the
-   * full title (e.g. `"About · AEC Integrations"`), mirroring `setSearchMeta` /
-   * `setHomeMeta`. Set from the component constructor so it ships in the SSR HTML
-   * head AND refreshes on an in-app navigation onto the route.
+   * self-referential canonical, and OG/Twitter tags (`og:type=website`). The caller
+   * passes the full title (e.g. `"About · AEC Integrations"`), mirroring
+   * `setSearchMeta` / `setHomeMeta`. Set from the component constructor so it ships
+   * in the SSR HTML head AND refreshes on an in-app navigation onto the route.
+   *
+   * `noindex: true` adds a `robots: noindex` tag for transactional pages that must
+   * not be indexed — e.g. the tokenized `/unsubscribe` page (AECI-537), whose URL
+   * carries a per-subscriber token (contrast `/about` / `/legal`, which stay
+   * indexable). Default is indexable (no `robots` tag), matching `setHomeMeta`.
    */
-  setStaticPageMeta(input: { title: string; description: string; canonical: string }): void {
+  setStaticPageMeta(input: {
+    title: string;
+    description: string;
+    canonical: string;
+    noindex?: boolean;
+  }): void {
+    this.clearJsonLd();
+
     this.title.setTitle(input.title);
     this.meta.updateTag({ name: 'description', content: input.description });
+
+    // Indexable by default; noindex only when the caller opts in (e.g. the
+    // tokenized `/unsubscribe` page). Clear the tag otherwise so a client nav off
+    // a noindexed page onto an indexable one (`/about`, `/legal/*`) doesn't carry
+    // the stale tag — same guard as `setEntityMeta`.
+    if (input.noindex) this.meta.updateTag({ name: 'robots', content: 'noindex' });
+    else this.meta.removeTag('name="robots"');
 
     const canonical = stripQueryParams(input.canonical);
     this.upsertCanonical(canonical);
@@ -257,12 +273,47 @@ export class MetaService {
     for (const tag of tags) this.meta.updateTag(tag);
   }
 
-  setProductJsonLd(product: ProductDetail): void {
-    this.upsertJsonLdScript('product', buildProductJsonLd(product));
+  setProductJsonLd(product: ProductDetail, canonical: string): void {
+    this.upsertJsonLdScript('product', buildProductJsonLd(product, stripQueryParams(canonical)));
   }
 
   setVendorJsonLd(vendor: VendorDetail): void {
     this.upsertJsonLdScript('vendor', buildVendorJsonLd(vendor));
+  }
+
+  /**
+   * Structured data for the product-PAIR page (AECI-518) — the Stage 2
+   * resolution of the `STAGE_1_PHASE_2_SPEC.md` §9.2 integration-JSON-LD
+   * deferral. Two sibling blocks: a `WebPage` whose `about` names both endpoint
+   * products, and the `BreadcrumbList` mirroring the page's visible trail. They
+   * cross-reference by `@id`; consumers merge every block on a page into one
+   * graph, so two scripts and one `@graph` are equivalent — two matches the
+   * existing per-kind upsert shape (`setHomeMeta` already emits two).
+   *
+   * The caller emits this ONLY for an indexable pair — see the resolver. Because
+   * `setEntityMeta` clears first, the noindex branch needs no explicit removal.
+   */
+  setPairJsonLd(input: {
+    canonical: string;
+    name: string;
+    description: string;
+    homeLabel: string;
+    context: ProductListItem;
+    other: ProductListItem;
+  }): void {
+    const canonical = stripQueryParams(input.canonical);
+    const origin = originOf(canonical);
+    this.upsertJsonLdScript('pair', buildPairJsonLd({ ...input, canonical, origin }));
+    this.upsertJsonLdScript(
+      'breadcrumb',
+      buildPairBreadcrumbLd({
+        canonical,
+        origin,
+        homeLabel: input.homeLabel,
+        context: input.context,
+        other: input.other,
+      }),
+    );
   }
 
   private upsertCanonical(href: string): void {
@@ -276,10 +327,29 @@ export class MetaService {
     link.setAttribute('href', href);
   }
 
-  private upsertJsonLdScript(
-    kind: 'product' | 'vendor' | 'website' | 'organization',
-    payload: object,
-  ): void {
+  /**
+   * Remove every JSON-LD block this service owns, identified by the
+   * `data-aeci-jsonld` attribute `upsertJsonLdScript` stamps on each script.
+   *
+   * Called first by every method that takes ownership of the head, so a page
+   * publishes exactly its own structured data. Before AECI-518 only
+   * `setNotFoundMeta` / `setSearchMeta` did this, which meant an in-app
+   * navigation off a product or vendor detail page carried that page's
+   * `SoftwareApplication` / `Organization` block onto the pair, taxonomy-browse,
+   * `/about`, and `/legal/*` pages — all of which set meta but publish no LD of
+   * their own. SSR was always clean (a fresh per-URL app), so this only ever
+   * misdescribed the client-navigated SPA — which is still what a JS-rendering
+   * crawler sees.
+   */
+  private clearJsonLd(): void {
+    for (const script of this.document.head.querySelectorAll(
+      'script[type="application/ld+json"][data-aeci-jsonld]',
+    )) {
+      script.remove();
+    }
+  }
+
+  private upsertJsonLdScript(kind: JsonLdKind, payload: object): void {
     const head = this.document.head;
     const selector = `script[type="application/ld+json"][data-aeci-jsonld="${kind}"]`;
     let script = head.querySelector(selector) as HTMLScriptElement | null;

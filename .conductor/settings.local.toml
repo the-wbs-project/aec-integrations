@@ -2,6 +2,7 @@
 file_include_globs = ".env*\n**/.dev.vars*"
 
 [environment_variables]
+AECI_MCP_TOKEN = "conductor-keychain"
 ALGOLIA_ADMIN_KEY = "conductor-keychain"
 ALGOLIA_APP_ID = "conductor-keychain"
 CLOUDFLARE_ACCOUNT_ID = "conductor-keychain"
@@ -13,13 +14,13 @@ LINEAR_API_KEY = "conductor-keychain"
 
 [prompts]
 code_review = "Use @docs/CODE_REVIEW_CHECKLIST.md to perform code reviews. If the finding is a doc issue, go ahead and address it automatically. Give an indicator it was fixed when telling me about it and mark approved if there's no other issues."
-general = "When starting a workspace from a Linear issue, assign that issue to chrisw@thewbsproject.com then change the status to \"In Progress\".\n\nWhen creating a plan, always include a bullet point summary at the end of the plan. This way I can read the quick points and decide if I need to read the full plan (I usually will).\n\nMake sure you status the project accordingly. Do not create PRs automatically unless I specify.\n\nMake sure you update all documents based on changes you have made. Most code reviews are finding documents are stale because they do not reflect changes made to the application."
+general = "When starting a workspace from a Linear issue, assign that issue to chrisw@thewbsproject.com then change the status to \"In Progress\".\n\nWhen creating a plan, always include a bullet point summary at the end of the plan. This way I can read the quick points and decide if I need to read the full plan (I usually will).\n\nMake sure you status the project accordingly. Do not create PRs automatically unless I specify.\n\nMake sure you update all documents based on changes you have made. Most code reviews are finding documents are stale because they do not reflect changes made to the application.\n\nWhen you create a plan for an AECI-* issue, run the spec-anchor plan check (step 4.5 of .agents/skills/spec-anchor/SKILL.md) on it before writing any code, and fold its CRITICAL and MAJOR findings into the plan."
 
 [scripts]
 run_mode = "concurrent"
 setup = "pnpm install\npnpm run build:web"
 
-[tasks.Run]
+[scripts.run.Run]
 available_in = "local"
 command = "pnpm run dev"
 default = true

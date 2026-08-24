@@ -101,6 +101,7 @@ Implements `STAGE_1_SPEC.md` §8 and `AUTH_AND_RLS.md` §3–§4.
 - The SSR Worker reads the session on non-cacheable authenticated routes to gate/redirect (`/account`, `/products/:slug/review`, `/admin/*`).
 - Sign-out clears the session cookie (Supabase signOut) and redirects home.
 - The header's signed-in state (avatar/menu vs "Sign in") is **client-hydrated** so the header stays cache-neutral on cacheable pages.
+- The header's **admin** state (the "More" menu's Admin section + pending-review badge) is client-hydrated for the same reason, via `AdminStatus` (`apps/web/src/app/admin/admin-status.ts`). Because it is a probe rather than a render-time read, it must be **self-healing**: a failed probe leaves the latch open so a menu open or a later `signedIn()` transition retries. AECI-617 fixed the original, which latched on dispatch and swallowed errors — one transient failure hid the Admin section for the life of the page. The resolved role is cached in `sessionStorage` (never a cookie, so it cannot reach the SSR Worker or influence cached HTML) for an instant, zero-network paint on the next load in the tab; it is a UI hint only, and `AUTH_AND_RLS.md` §4.5 records why the *server-side* role read must never be cached.
 
 ### 4.5 Worker authorization middleware (Phase 5.5)
 

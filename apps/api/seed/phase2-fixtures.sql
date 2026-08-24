@@ -51,6 +51,28 @@ ON CONFLICT ("slug") DO UPDATE SET
   "updated_at" = strftime('%Y-%m-%dT%H:%M:%fZ','now');
 
 -- ---------------------------------------------------------------------------
+-- Vendor entitlement (AECI-609 / STAGE_2_PAID_TIERS_SPEC.md §2.4) — FAR-FUTURE
+-- ACTIVE, and it must STAY that way.
+-- ---------------------------------------------------------------------------
+-- This vendor is the /vendor e2e persona's anchor (auth-fixtures.sql seats a
+-- `vendor_admin` on it), so once the AECI-611 entitlement gate lands, anything other
+-- than an active entitlement 403s every `/api/vendor/*` write and breaks
+-- `vendor-dashboard.spec.ts`. The `verified = 1` above is the MIRROR of this row —
+-- change one and you must change the other, or `entitlement_mirror_drift` flags it.
+-- `granted_by` is NULL: this file runs before auth-fixtures.sql, so no `profiles`
+-- row exists yet and a non-null FK would fail.
+INSERT INTO "vendor_entitlements"
+  ("id","vendor_id","tier","status","period_start","period_end","payer","amount","terms","arranged_by","invoice_ref","notes","granted_by","granted_at","ended_at","created_at","updated_at") VALUES
+  ('00000000-0000-4000-8000-000000000071','00000000-0000-4000-8000-000000000061','verified','active', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now','+10 years'),'Fixture Procore AP','USD 5,000 / yr','Annual, net 30','CI Fixture','FIXTURE-0001','CI fixture: far-future active term anchoring the /vendor e2e persona.',NULL, strftime('%Y-%m-%dT%H:%M:%fZ','now'),NULL, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+ON CONFLICT ("vendor_id") DO UPDATE SET
+  "tier" = excluded."tier",
+  "status" = excluded."status",
+  "period_start" = excluded."period_start",
+  "period_end" = excluded."period_end",
+  "ended_at" = excluded."ended_at",
+  "updated_at" = strftime('%Y-%m-%dT%H:%M:%fZ','now');
+
+-- ---------------------------------------------------------------------------
 -- Products (2) — a primary application + a connector for the integration target.
 -- integration_count = 1 (each participates in the single fixture integration).
 -- The primary product carries a `usefulness` blob (AECI-173) so the detail page's
@@ -101,4 +123,29 @@ ON CONFLICT DO NOTHING;
 -- ---------------------------------------------------------------------------
 INSERT INTO "integrations" ("id","name","source_product_id","target_product_id","mechanism_kind","mechanism_name","direction","built_by_vendor_id","description","listing_url","docs_url","created_at","updated_at") VALUES
   ('00000000-0000-4000-8000-000000000065','Fixture Procore ↔ Acme Connector','00000000-0000-4000-8000-000000000062','00000000-0000-4000-8000-000000000063','native','Native integration','bidirectional','00000000-0000-4000-8000-000000000061','Fixture integration used by the AECI-65 axe + Lighthouse CI harness. A native, bidirectional integration between two fixture products with a built-by vendor, mechanism, and description, so the integration detail page renders a realistic amount of content.','https://example.com/fixture-integration/listing','https://example.com/fixture-integration/docs', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+ON CONFLICT ("id") DO NOTHING;
+
+-- ---------------------------------------------------------------------------
+-- AECI-606 — one AECi-seeded claim on the fixture integration, so the vendor
+-- dashboard's Integrations tab has a real lane to render and `vendor-dashboard.spec.ts`
+-- has something to affirm/clear against.
+--
+-- Without this the tab is correct but empty: `phase2-fixtures.sql` seeds integration
+-- `...065` (source = the vendor persona's owned product `...062`), and promote has never
+-- run locally, so `claims` is empty in every fresh D1. The e2e round-trip would then have
+-- nothing to PUT against.
+--
+-- Direction `a_to_b` is relative to the integration row's own endpoints; the vendor owns
+-- endpoint A, so the tab frames it as OUTBOUND. `data_object_id` is the deterministic
+-- UUIDv5 for `rfis` from `data-objects.sql`, which runs earlier in `db:seed:local`.
+-- The `aeci` attestation is what promote would have written: it leaves the claim on
+-- `unverified` (an AECi seed is not a vendor voter), so a vendor affirming it moves it to
+-- `single_source` — the state change the e2e asserts.
+-- ---------------------------------------------------------------------------
+INSERT INTO "claims" ("id","integration_id","data_object_id","direction","origin","created_at","updated_at") VALUES
+  ('00000000-0000-4000-8000-000000000066','00000000-0000-4000-8000-000000000065','2d14be8b-4d2a-55f9-8d45-c1092a5302af','a_to_b','aeci', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+ON CONFLICT ("id") DO NOTHING;
+
+INSERT INTO "attestations" ("id","claim_id","source","asserted","created_at","updated_at") VALUES
+  ('00000000-0000-4000-8000-000000000067','00000000-0000-4000-8000-000000000066','aeci',1, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 ON CONFLICT ("id") DO NOTHING;

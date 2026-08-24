@@ -12,6 +12,7 @@ import type {
 
 import { VendorApi } from '../vendor-api';
 import { VENDOR_ME_FIXTURE, VENDOR_TAXONOMY_FIXTURE } from '../vendor-fixtures';
+import { VendorPortalStore } from '../vendor-portal-store';
 import { VendorProductForm } from './vendor-product-form';
 
 /**
@@ -84,6 +85,7 @@ describe('VendorProductForm', () => {
         provideZonelessChangeDetection(),
         provideHttpClient(),
         { provide: VendorApi, useValue: { updateProduct } as Partial<VendorApi> },
+        VendorPortalStore,
       ],
     });
   });
@@ -144,6 +146,7 @@ describe('VendorProductForm', () => {
       ),
       audiences: [],
       phases: [],
+      trades: [],
     };
     const emptyProduct: VendorProduct = {
       ...PRODUCT,
@@ -195,5 +198,100 @@ describe('VendorProductForm', () => {
     expect(alert?.textContent).toContain('Something went wrong');
     // Still enabled so the user can retry.
     expect(saveButton(fixture).disabled).toBe(false);
+  });
+});
+
+/**
+ * The read-only state (AECI-614 / `STAGE_2_PAID_TIERS_SPEC.md` §8). The product
+ * form carries the FIELD-granular half of §3.3b: the PATCH asserts `product.edit`
+ * for the handler and `product.taxonomy.edit` again when facet arrays ride along,
+ * so the form mirrors both axes instead of collapsing them into one flag.
+ */
+describe('VendorProductForm — read-only when the entitlement lapsed', () => {
+  let updateProduct: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    updateProduct = vi.fn();
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [
+        provideZonelessChangeDetection(),
+        provideHttpClient(),
+        { provide: VendorApi, useValue: { updateProduct } as Partial<VendorApi> },
+        VendorPortalStore,
+      ],
+    });
+  });
+
+  afterEach(() => vi.restoreAllMocks());
+
+  function build(canEdit: boolean, canEditTaxonomy = canEdit): ComponentFixture<VendorProductForm> {
+    const fixture = TestBed.createComponent(VendorProductForm);
+    fixture.componentRef.setInput('product', PRODUCT);
+    fixture.componentRef.setInput('taxonomy', VENDOR_TAXONOMY_FIXTURE);
+    fixture.componentRef.setInput('canEdit', canEdit);
+    fixture.componentRef.setInput('canEditTaxonomy', canEditTaxonomy);
+    fixture.detectChanges();
+    return fixture;
+  }
+
+  const fields = (fixture: ComponentFixture<VendorProductForm>): HTMLInputElement[] =>
+    Array.from(fixture.nativeElement.querySelectorAll('input, textarea'));
+
+  it('keeps every value readable, marked readonly rather than disabled', () => {
+    const fixture = build(false);
+
+    expect(fields(fixture).every((f) => f.readOnly)).toBe(true);
+    expect(
+      (fixture.nativeElement.querySelector(`#${DESCRIPTION_ID}`) as HTMLTextAreaElement).value,
+    ).toBe(PRODUCT.description);
+  });
+
+  it('withholds Save, explains why, and disables the taxonomy chips', () => {
+    const fixture = build(false);
+
+    expect(saveButton(fixture)).toBeNull();
+    expect(fixture.nativeElement.textContent).toContain('Editing is paused');
+    expect(categoryChips(fixture).every((c) => c.disabled)).toBe(true);
+  });
+
+  it('leaves the chips readable: aria-pressed still reports what is assigned', () => {
+    const fixture = build(false);
+    const pressed = categoryChips(fixture)
+      .filter((c) => c.getAttribute('aria-pressed') === 'true')
+      .map((c) => (c.textContent ?? '').trim());
+
+    // Disabled must not mean invisible: the vendor can still see their taxonomy.
+    expect(pressed).toContain('BIM authoring');
+  });
+
+  it('ignores a programmatic toggle without the taxonomy capability', () => {
+    const fixture = build(false);
+    const before = categoryChips(fixture).map((c) => c.getAttribute('aria-pressed'));
+
+    chipByName(fixture, 'Estimating').click();
+    fixture.detectChanges();
+
+    expect(categoryChips(fixture).map((c) => c.getAttribute('aria-pressed'))).toEqual(before);
+  });
+
+  it('gates taxonomy on its OWN capability, even while text editing is open', () => {
+    // Not reachable on the binary launch ladder, but §3.3b is field-granular by
+    // construction so that adding a rung is a data edit, not a code change.
+    const fixture = build(true, false);
+
+    expect(fields(fixture).some((f) => f.readOnly)).toBe(false);
+    expect(saveButton(fixture)).not.toBeNull();
+    expect(categoryChips(fixture).every((c) => c.disabled)).toBe(true);
+  });
+
+  it('does not PATCH even if the form is submitted anyway', async () => {
+    const fixture = build(false);
+    (fixture.nativeElement.querySelector('form') as HTMLFormElement).dispatchEvent(
+      new Event('submit', { bubbles: true, cancelable: true }),
+    );
+    await flush();
+
+    expect(updateProduct).not.toHaveBeenCalled();
   });
 });

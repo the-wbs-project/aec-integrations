@@ -58,7 +58,12 @@ import { VendorProductForm } from './vendor-product-form';
               </span>
             </summary>
             <div class="border-t border-(--border-default) p-5">
-              <aec-vendor-product-form [product]="product" [taxonomy]="taxonomy()" />
+              <aec-vendor-product-form
+                [product]="product"
+                [taxonomy]="taxonomy()"
+                [canEdit]="canEdit()"
+                [canEditTaxonomy]="canEditTaxonomy()"
+              />
             </div>
           </details>
         }
@@ -71,6 +76,12 @@ export class VendorProductsSection {
   private readonly api = inject(VendorApi);
 
   readonly products = input.required<readonly VendorProduct[]>();
+
+  /** Pass-through of the §8 entitlement gate to every product form (AECI-614).
+   *  The section itself renders identically either way: a downgraded vendor still
+   *  sees every product and every value, just not the controls to change them. */
+  readonly canEdit = input<boolean>(true);
+  readonly canEditTaxonomy = input<boolean>(true);
 
   protected readonly taxonomy = signal<TaxonomyResponse | null>(null);
   protected readonly taxonomyFailed = signal(false);

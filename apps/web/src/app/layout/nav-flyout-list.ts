@@ -19,6 +19,11 @@ import type { TaxonomyKind } from '../shared/taxonomy-badge/taxonomy-badge';
  * (localized-as-data), so they carry no `i18n` markers. `KIND_PATH_SEGMENT` is
  * the single source of truth for facet pluralization (shared with the resolver
  * and route table). AECI-156.
+ *
+ * Values pin `font-normal` for the same reason `nav-more-list.ts` does: the
+ * desktop primary `<nav>` sets `font-medium` on the row, so an unpinned value
+ * renders at 500 in the flyout and 400 in the mobile overlay. "View all" keeps
+ * its `font-medium` — it is the one deliberate emphasis in the panel.
  */
 @Component({
   selector: 'aec-nav-flyout-list',
@@ -31,7 +36,7 @@ import type { TaxonomyKind } from '../shared/taxonomy-badge/taxonomy-badge';
           <a
             [routerLink]="[basePath(), item.slug]"
             (click)="navigate.emit()"
-            class="block rounded-(--radius-sm) px-3 py-1.5 text-sm text-(--text-primary) no-underline transition-colors hover:bg-(--surface-sunken) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            class="block rounded-(--radius-sm) px-3 py-1.5 text-sm font-normal text-(--text-primary) no-underline transition-colors hover:bg-(--surface-sunken) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
             >{{ item.name }}</a
           >
         </li>

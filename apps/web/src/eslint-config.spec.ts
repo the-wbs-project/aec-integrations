@@ -34,13 +34,28 @@ import { beforeAll, describe, expect, it } from 'vitest';
 const WEB = process.cwd();
 const REPO_ROOT = join(WEB, '..', '..');
 const API = join(REPO_ROOT, 'apps', 'api');
+const SHARED = join(REPO_ROOT, 'packages', 'shared');
 
-/** A representative real file for each (package × tier) combination. */
+/**
+ * A representative real file for each (package × tier) combination, plus the
+ * two `packages/shared` files that sit on either side of the AECI-610
+ * file-scoped zod ban.
+ */
 const FIXTURE_FILES = {
   webSource: { cwd: WEB, file: join(WEB, 'src/app/home/home-hero.ts') },
   webTest: { cwd: WEB, file: join(WEB, 'src/server/seo-headers.spec.ts') },
   apiSource: { cwd: API, file: join(API, 'src/index.ts') },
   apiTest: { cwd: API, file: join(API, 'src/routes/vendors.spec.ts') },
+  // AECI-609 sole-writer tier: the one permanent exempt file, the file whose
+  // TEMPORARY carve-out AECI-612 removed, and a neighbouring lib — so the exemption is
+  // proven to be exactly ONE file, not "anything under lib/".
+  apiMirrorWriter: { cwd: API, file: join(API, 'src/lib/vendor-entitlement.ts') },
+  apiMirrorFormerBaseline: { cwd: API, file: join(API, 'src/lib/vendor-grant.ts') },
+  apiMirrorNeighbour: { cwd: API, file: join(API, 'src/lib/vendor-cache-tags.ts') },
+  /** The capability registry — the one file that may not import zod. */
+  sharedRegistry: { cwd: SHARED, file: join(SHARED, 'src/entitlements.ts') },
+  /** Its wire-contract sibling — zod is exactly where it belongs. */
+  sharedWireContract: { cwd: SHARED, file: join(SHARED, 'src/api/admin-entitlements.ts') },
 } as const;
 
 type Target = keyof typeof FIXTURE_FILES;
@@ -58,6 +73,8 @@ const CONSTRAINT = {
   darkVariant: 'No `dark:` variants',
   themeDark: 'No `.theme-dark` block',
   vary: 'Only `Vary: Accept-Language` is permitted',
+  mirror: 'is a denormalized mirror of',
+  registryZod: 'The capability registry must import no zod',
 } as const;
 
 /** Only the two core rules — a bare Linter cannot resolve plugin rules. */
@@ -146,6 +163,42 @@ describe('resolved ESLint config — constraint coverage per package and tier', 
       ).toBeDefined();
     }
   });
+
+  // ── AECI-609 Guard 1: the `vendors.verified` sole-writer tier ────────────────
+
+  it('the mirror sole-writer rule reaches apps/api AND apps/web source', () => {
+    // apps/web has no Drizzle, but angularBase REPLACES the rule per file, so what is
+    // actually being asserted for webSource is that the restate did not drop it.
+    expect(syntaxMessages('apiSource')).toContain(CONSTRAINT.mirror);
+    expect(syntaxMessages('webSource')).toContain(CONSTRAINT.mirror);
+  });
+
+  it('tests are exempt from the mirror rule (they seed verified rows as fixtures)', () => {
+    expect(syntaxMessages('apiTest')).not.toContain(CONSTRAINT.mirror);
+    expect(syntaxMessages('webTest')).not.toContain(CONSTRAINT.mirror);
+  });
+
+  it('lib/vendor-entitlement.ts is exempt from the mirror rule but keeps both other tiers', () => {
+    const messages = syntaxMessages('apiMirrorWriter');
+    expect(messages).not.toContain(CONSTRAINT.mirror);
+    // The flat-config trap: an `ignores` on the wrong block would drop these too.
+    for (const fragment of [...ALL_TIER, ...SOURCE_TIER]) {
+      expect(messages, `the sole-writer file lost: ${fragment}`).toContain(fragment);
+    }
+  });
+
+  it('lib/vendor-grant.ts LOST its temporary exemption once AECI-612 landed', () => {
+    // AECI-609 carved vendor-grant.ts out because it still emitted the `verified`
+    // flip. AECI-612 (§6 step 1) deleted that statement and composed
+    // `activateEntitlementStatements` into the same batch instead, so the carve-out
+    // was removed. Asserting the rule is now ACTIVE here — rather than deleting the
+    // case — is what stops the flip being reintroduced under a stale exemption.
+    expect(syntaxMessages('apiMirrorFormerBaseline')).toContain(CONSTRAINT.mirror);
+  });
+
+  it('the exemption is exactly one file — a neighbouring lib still carries the rule', () => {
+    expect(syntaxMessages('apiMirrorNeighbour')).toContain(CONSTRAINT.mirror);
+  });
 });
 
 describe('constraint rules fire on deliberate violations', () => {
@@ -198,6 +251,55 @@ describe('constraint rules fire on deliberate violations', () => {
     ).toBeGreaterThan(0);
     expect(lint('apiTest', 'const db = getPrisma(env);').join()).toContain(CONSTRAINT.prisma);
   });
+
+  it('rejects a direct write to vendors.verified, via UPDATE or INSERT', () => {
+    expect(
+      lint('apiSource', 'db.update(vendors).set({ verified: true, updatedAt: now });').join(),
+    ).toContain(CONSTRAINT.mirror);
+    expect(
+      lint('apiSource', 'db.insert(vendors).values({ id, slug, verified: true });').join(),
+    ).toContain(CONSTRAINT.mirror);
+  });
+});
+
+describe('the capability registry is zod-free by lint (AECI-610)', () => {
+  // packages/shared/eslint.config.mjs scopes this to ONE file. The bundle
+  // constraint it protects (STAGE_2_PAID_TIERS_SPEC.md §10 R11) is invisible at
+  // runtime — nothing fails, the Angular initial graph just grows a 327 kB zod
+  // chunk again — so the lint rule is the only feedback there is.
+
+  it('rejects zod, and any hop through api/* that would reintroduce it', () => {
+    expect(lint('sharedRegistry', 'import { z } from "zod";').join()).toContain(
+      CONSTRAINT.registryZod,
+    );
+    expect(
+      lint('sharedRegistry', 'import { PageQuerySchema } from "./api/common";').join(),
+    ).toContain(CONSTRAINT.registryZod);
+    expect(
+      lint('sharedRegistry', 'import { VendorSchema } from "@aeci/shared/api";').join(),
+    ).toContain(CONSTRAINT.registryZod);
+  });
+
+  it('keeps the shared constraint bans through the flat-config restate', () => {
+    // The file-scoped block sets `no-restricted-imports`, which REPLACES rather
+    // than merges. If it ever stops spreading CONSTRAINT_IMPORTS, these are the
+    // bans that vanish — silently, on the one file with the strictest rules.
+    expect(
+      lint('sharedRegistry', 'import { PrismaClient } from "@prisma/client";').length,
+    ).toBeGreaterThan(0);
+    expect(lint('sharedRegistry', 'import "zone.js";').length).toBeGreaterThan(0);
+  });
+
+  it('bans zod on the registry only, not across packages/shared', () => {
+    // The whole design is a registry/wire-contract split: if the ban leaked to
+    // the package it would make `api/*` unwritable and the split pointless.
+    expect(lint('sharedWireContract', 'import { z } from "zod";')).toEqual([]);
+    expect(lint('sharedWireContract', 'import { TIERS } from "../entitlements";')).toEqual([]);
+  });
+
+  it('permits the registry its own legitimate imports (it has none today)', () => {
+    expect(lint('sharedRegistry', 'import { INDEX_ENTITIES } from "./algolia";')).toEqual([]);
+  });
 });
 
 describe('constraint rules do not fire on legitimate code', () => {
@@ -219,5 +321,30 @@ describe('constraint rules do not fire on legitimate code', () => {
   it('lets tests build a forbidden Vary fixture, which is why seo-headers.spec.ts is clean', () => {
     expect(lint('webTest', 'const h = new Headers({ vary: "Cookie" });')).toEqual([]);
     expect(lint('webTest', 'h.append("vary", "User-Agent");')).toEqual([]);
+  });
+
+  it('permits `verified` in read projections, spread column vars, and other tables', () => {
+    // Every one of these is a real shape in the tree today; the mirror selector is
+    // anchored to the `.update(vendors).set({...})` chain precisely so they stay clean.
+    expect(
+      lint('apiSource', 'const cfg = { columns: { id: true, slug: true, verified: true } };'),
+    ).toEqual([]);
+    expect(
+      lint('apiSource', 'db.update(vendors).set(writeColumns).where(eq(vendors.id, id));'),
+    ).toEqual([]);
+    expect(
+      lint('apiSource', 'db.update(vendors).set({ companyName: n, promotionStatus: "promoted" });'),
+    ).toEqual([]);
+    expect(lint('apiSource', 'db.update(profiles).set({ verified: true });')).toEqual([]);
+  });
+
+  it('permits an Angular signal .set({ … }) that happens to carry a verified key', () => {
+    expect(lint('webSource', 'this.model.set({ verified: true });')).toEqual([]);
+  });
+
+  it('lets the sole writer write the mirror', () => {
+    expect(
+      lint('apiMirrorWriter', 'db.update(vendors).set({ verified: true, updatedAt: now });'),
+    ).toEqual([]);
   });
 });

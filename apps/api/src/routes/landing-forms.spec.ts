@@ -15,7 +15,11 @@ import { feedback, mailingList } from '../db/schema';
 import type { Env } from '../env';
 import { makeTestDb, recordingFactory, type TestDb } from '../test/d1';
 import { buildAppWithHandler, fakeExecutionContext, TEST_ENV } from '../test/helpers';
-import { createFeedbackHandler, createSubscribeHandler } from './landing-forms';
+import {
+  createFeedbackHandler,
+  createSubscribeHandler,
+  createUnsubscribeHandler,
+} from './landing-forms';
 
 let t: TestDb;
 beforeEach(async () => {
@@ -57,6 +61,34 @@ function postSubscribe(body: unknown, extraHeaders: Record<string, string> = {})
     TEST_ENV,
     fakeExecutionContext(),
   );
+}
+
+function postUnsubscribe(
+  body: unknown,
+  opts: { query?: string; headers?: Record<string, string> } = {},
+) {
+  const app = buildAppWithHandler({
+    method: 'post',
+    path: '/api/unsubscribe',
+    handler: createUnsubscribeHandler(t.factory),
+  });
+  const path = opts.query ? `/api/unsubscribe?${opts.query}` : '/api/unsubscribe';
+  return app.request(
+    path,
+    {
+      method: 'POST',
+      body: body === undefined ? undefined : typeof body === 'string' ? body : JSON.stringify(body),
+      headers: { 'content-type': 'application/json', ...(opts.headers ?? {}) },
+    },
+    TEST_ENV,
+    fakeExecutionContext(),
+  );
+}
+
+/** The single mailing_list row (specs here insert at most one). */
+async function onlyMailingRow() {
+  const [row] = await t.db.select().from(mailingList);
+  return row!;
 }
 
 describe('POST /api/feedback', () => {
@@ -143,6 +175,33 @@ describe('POST /api/subscribe', () => {
     const res = await postSubscribe({ email: 'not-an-email' });
     expect(res.status).toBe(400);
     expect(await t.db.select().from(mailingList)).toHaveLength(0);
+  });
+
+  // AECI-537 — a fresh signup gets an opaque unsubscribe token and starts active.
+  it('assigns an unsubscribe token on a fresh signup (unsubscribed_at null)', async () => {
+    await postSubscribe({ email: 'tok@example.com' });
+    const row = await onlyMailingRow();
+    expect(row.unsubscribeToken).toBeTruthy();
+    expect(row.unsubscribedAt).toBeNull();
+  });
+
+  // AECI-537 — soft-delete reactivation: a resubscribe after an opt-out clears
+  // `unsubscribed_at`, keeps the same token, re-welcomes, and adds no second row.
+  it('reactivates a previously-unsubscribed email on resubscribe (created:true, 200)', async () => {
+    await postSubscribe({ email: 'back@example.com' });
+    const token = (await onlyMailingRow()).unsubscribeToken!;
+    await postUnsubscribe({ token });
+    expect((await onlyMailingRow()).unsubscribedAt).not.toBeNull();
+
+    const res = await postSubscribe({ email: 'back@example.com' });
+    // Reactivation is not a new resource → 200, but created:true (re-welcome).
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ created: true });
+
+    const after = await onlyMailingRow();
+    expect(after.unsubscribedAt).toBeNull();
+    expect(after.unsubscribeToken).toBe(token);
+    expect(await t.db.select().from(mailingList)).toHaveLength(1);
   });
 
   // AECI-250 — subscribe is the single-insert write shape: it anchors first-primary
@@ -311,6 +370,20 @@ describe('lead-capture notifications (AECI-247/277, AECI-327)', () => {
     expect(ctx.waitUntil).not.toHaveBeenCalled();
   });
 
+  // AECI-537 — a reactivation (resubscribe after opt-out) IS a real "signup", so
+  // it re-schedules both sends, unlike the still-active no-op above.
+  it('subscribe: schedules both sends again on a reactivation', async () => {
+    const app = subscribeApp();
+    await request(app, '/api/subscribe', { email: 'react@example.com' }, fakeExecutionContext());
+    const token = (await onlyMailingRow()).unsubscribeToken!;
+    await postUnsubscribe({ token });
+
+    const ctx = fakeExecutionContext();
+    const res = await request(app, '/api/subscribe', { email: 'react@example.com' }, ctx);
+    expect(res.status).toBe(200);
+    expect(ctx.waitUntil).toHaveBeenCalledTimes(2);
+  });
+
   it('feedback: schedules a background send after the insert', async () => {
     const app = buildAppWithHandler({
       method: 'post',
@@ -321,5 +394,60 @@ describe('lead-capture notifications (AECI-247/277, AECI-327)', () => {
     const res = await request(app, '/api/feedback', { tools: 'Revit' }, ctx);
     expect(res.status).toBe(201);
     expect(ctx.waitUntil).toHaveBeenCalledTimes(1);
+  });
+});
+
+// AECI-537 — token-keyed soft-delete opt-out. Serves the `/unsubscribe` page (JSON
+// body) and the RFC 8058 one-click header (`?token=` query). Idempotent; a matched
+// token → { ok: true }, an unknown token → { ok: false } (no membership leak).
+describe('POST /api/unsubscribe (AECI-537)', () => {
+  async function subscribeAndGetToken(email: string): Promise<string> {
+    await postSubscribe({ email });
+    const rows = await t.db.select().from(mailingList);
+    return rows.find((r) => r.email === email)!.unsubscribeToken!;
+  }
+
+  it('soft-deletes the subscriber and returns 200 { ok: true }', async () => {
+    const token = await subscribeAndGetToken('bye@example.com');
+    const res = await postUnsubscribe({ token });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
+    expect((await onlyMailingRow()).unsubscribedAt).not.toBeNull();
+  });
+
+  it('returns 200 { ok: false } for an unknown token and changes nothing', async () => {
+    await subscribeAndGetToken('stay@example.com');
+    const res = await postUnsubscribe({ token: 'no-such-token' });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: false });
+    expect((await onlyMailingRow()).unsubscribedAt).toBeNull();
+  });
+
+  it('is idempotent: a repeat opt-out stays ok:true and preserves the original timestamp', async () => {
+    const token = await subscribeAndGetToken('again@example.com');
+    await postUnsubscribe({ token });
+    const firstTs = (await onlyMailingRow()).unsubscribedAt;
+    expect(firstTs).not.toBeNull();
+
+    const res = await postUnsubscribe({ token });
+    expect(await res.json()).toEqual({ ok: true });
+    // COALESCE(unsubscribed_at, now) keeps the first opt-out time.
+    expect((await onlyMailingRow()).unsubscribedAt).toBe(firstTs);
+  });
+
+  it('accepts the token from the ?token= query (one-click) and ignores the form body', async () => {
+    const token = await subscribeAndGetToken('oneclick@example.com');
+    const res = await postUnsubscribe('List-Unsubscribe=One-Click', {
+      query: `token=${encodeURIComponent(token)}`,
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
+    expect((await onlyMailingRow()).unsubscribedAt).not.toBeNull();
+  });
+
+  it('400s when no token is provided', async () => {
+    const res = await postUnsubscribe({});
+    expect(res.status).toBe(400);
   });
 });

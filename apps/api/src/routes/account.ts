@@ -6,8 +6,17 @@
  * is the token `sub` — the id of both the `profiles` row (D1) and the `auth.users`
  * row (Supabase).
  *
+ * ── `pending_reviews` on the read shapes (AECI-617) ─────────────────────────────
+ * `GET`/`PATCH` return the moderation-queue count for `role === 'admin'` (`null`
+ * otherwise) so the header's admin probe (`apps/web/.../admin/admin-status.ts`)
+ * gets role + badge count in one round trip rather than chaining
+ * `GET /api/admin/summary`. That second hop repeated the JWKS verify and the
+ * `profiles` read, and its latency was the visible lag before the "More" menu's
+ * Admin section appeared. `routes/admin-summary.ts` is unchanged — it stays the
+ * `/admin` SSR resolver's gate and the in-shell badge feed.
+ *
  * ── Erasure (DELETE), split across the identity seam ────────────────────────────
- * `profiles(id)` has seven inbound FKs; six are NO ACTION, so they must be nulled
+ * `profiles(id)` has seven inbound FKs; five are NO ACTION, so they must be nulled
  * before the profile delete. Under D1 that erasure is ONE atomic `db.batch([...])`
  * (null the 7 refs + the PII-free `account.deleted` audit + delete the profile).
  * The `auth.users` row then goes via the GoTrue Admin API (seam #3,
@@ -27,16 +36,16 @@ import {
   type AuditLogEntry,
   type AuditLogForwarder,
 } from '@aeci/shared/audit-log';
-import { eq } from 'drizzle-orm';
+import { count, eq } from 'drizzle-orm';
 import type { Context } from 'hono';
 import type { ZodType } from 'zod';
 
-import { getDb } from '../db/client';
+import { getDb, type DbContext } from '../db/client';
 import {
   auditLog,
-  pageViews,
   profiles,
   reviews,
+  vendorEntitlements,
   vendorRequests,
   workflowInstances,
   workflowTransitions,
@@ -96,9 +105,30 @@ export function createGetAccountHandler(
       email: session.email ?? null,
       display_name: profile?.displayName ?? null,
       role: session.role,
+      pending_reviews: await pendingReviewsForSession(db, session.role),
     };
     return json(body);
   };
+}
+
+/**
+ * The moderation-queue count for the header badge (AECI-617) — the same
+ * aggregate `routes/admin-summary.ts` serves, folded into the account read so
+ * `AdminStatus` resolves role + count in ONE round trip. Returns `null` for a
+ * non-admin without touching the table, so the extra column costs a reviewer
+ * nothing and leaks no moderation state.
+ *
+ * `session.role` is the DB-refetched role from `requireAuth()` (`lib/authz.ts`
+ * re-reads it every request per `AUTH_AND_RLS.md` §4.5), NOT a client claim — so
+ * gating on it here is as trustworthy as the `requireAdmin()` gate itself.
+ */
+async function pendingReviewsForSession(db: DbContext['db'], role: string): Promise<number | null> {
+  if (role !== 'admin') return null;
+  const rows = await db
+    .select({ value: count() })
+    .from(reviews)
+    .where(eq(reviews.status, 'pending'));
+  return rows[0]?.value ?? 0;
 }
 
 // ─── PATCH /api/account ────────────────────────────────────────────────────────
@@ -140,6 +170,7 @@ export function createUpdateAccountHandler(
       email: session.email ?? null,
       display_name: payload.display_name,
       role: session.role,
+      pending_reviews: await pendingReviewsForSession(db, session.role),
     };
     return json(body);
   };
@@ -169,8 +200,15 @@ export function createDeleteAccountHandler(
       metadata: { source: 'account', initiated_by_self: true },
     };
 
-    // One atomic unit: null every inbound reference (six NO ACTION + the SET NULL
-    // reviewer ref made explicit) → PII-free audit → delete the profile.
+    // One atomic unit: null every inbound reference (five NO ACTION + the two SET NULL
+    // refs — `reviews.reviewer_id` and `vendor_entitlements.granted_by` — made
+    // explicit) → PII-free audit → delete the profile.
+    //
+    // `page_views` is deliberately absent (AECI-585 / §13 D7). It used to be nulled
+    // here, but `page_views.user_id` was never written by any code path and has now
+    // been dropped along with `session_id` and `profile_role`. That strengthens this
+    // handler rather than weakening it: the table can no longer hold user linkage at
+    // all, so there is nothing here to erase (`AUTH_AND_RLS.md` §12).
     const stmts: BatchStmt[] = [
       db
         .update(reviews)
@@ -196,7 +234,14 @@ export function createDeleteAccountHandler(
         .set({ actorId: null })
         .where(eq(workflowTransitions.actorId, userId)),
       db.update(auditLog).set({ actorId: null }).where(eq(auditLog.actorId, userId)),
-      db.update(pageViews).set({ userId: null }).where(eq(pageViews.userId, userId)),
+      // AECI-609 / R6: the SEVENTH inbound FK. It is `ON DELETE SET NULL`, so SQLite
+      // would cover it, but it is nulled explicitly like `reviews.reviewer_id` so the
+      // erasure test asserts it directly rather than trusting the cascade. The
+      // entitlement ROW survives — only the granting admin's link is severed.
+      db
+        .update(vendorEntitlements)
+        .set({ grantedBy: null })
+        .where(eq(vendorEntitlements.grantedBy, userId)),
       auditInsert(db, auditEntry),
       db.delete(profiles).where(eq(profiles.id, userId)),
     ];

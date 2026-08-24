@@ -1,11 +1,14 @@
-import { Component, computed, effect, inject, signal } from '@angular/core';
+import { Component, computed, effect, inject, signal, untracked } from '@angular/core';
 
 import type { VendorSeat } from '@aeci/shared';
 
 import { VendorDashboardSingle } from '../../vendor/vendor-dashboard-single';
 import { VendorDashboardTabbed } from '../../vendor/vendor-dashboard-tabbed';
 import { VendorApi } from '../../vendor/vendor-api';
+import { VendorPortalStore } from '../../vendor/vendor-portal-store';
 import {
+  VENDOR_ME_DOWNGRADED_FIXTURE,
+  VENDOR_ME_EXPIRING_FIXTURE,
   VENDOR_ME_FIXTURE,
   VENDOR_ME_UNVERIFIED_FIXTURE,
   VENDOR_SEATS_FIXTURE,
@@ -13,7 +16,7 @@ import {
 import { PreviewVendorApi } from './preview-vendor-api';
 
 type Concept = 'a' | 'b';
-type FixtureKey = 'verified' | 'unverified';
+type FixtureKey = 'verified' | 'expiring' | 'downgraded' | 'unverified';
 
 /** A single-seat roster for the unverified/new-vendor fixture. */
 const SINGLE_SEAT_FIXTURE: readonly VendorSeat[] = [
@@ -38,17 +41,34 @@ const SINGLE_SEAT_FIXTURE: readonly VendorSeat[] = [
  *   - **b · Single page** — the whole surface on one scroll. Fewer clicks; longer
  *     page.
  *
- * A second toggle swaps a verified multi-seat vendor for an unverified new one so
- * both verification and empty states can be reviewed. The real dashboard
- * components are used verbatim — only the {@link VendorApi} is shadowed with a
- * fixture-backed fake ({@link PreviewVendorApi}) so edits are exercisable without
- * a session. Route: `/preview/vendor-dashboard`, production-blocked by
- * `isPreviewPath`. Don't link to it from product navigation.
+ * A second toggle swaps the ENTITLEMENT STATE (AECI-614 /
+ * `docs/STAGE_2_PAID_TIERS_SPEC.md` §8), which is what the plan panel and the
+ * read-only forms are reviewed against. All four states are here — active with a
+ * far term, active and expiring soon, downgraded after a revoke, and never
+ * verified — because §8 asks specifically for the DOWNGRADED state to get sign-off
+ * before the gated route is wired: it is the panel a customer AECi wants back
+ * will read.
+ *
+ * The real dashboard components are used verbatim — only the {@link VendorApi} is
+ * shadowed with a fixture-backed fake ({@link PreviewVendorApi}) so edits are
+ * exercisable without a session. Route: `/preview/vendor-dashboard`,
+ * production-blocked by `isPreviewPath`. Don't link to it from product navigation.
+ *
+ * {@link VendorPortalStore} (AECI-628) is provided HERE, alongside the API
+ * shadow, for the same reason: the store is deliberately not `providedIn: 'root'`,
+ * so declaring it on this element is what makes it resolve `PreviewVendorApi`
+ * instead of the real client. Providing it any higher would send the preview's
+ * section reads at the live API. This component is the preview's surface owner,
+ * so it seeds the store the way `VendorPage` seeds it on the real route.
  */
 @Component({
   selector: 'app-vendor-dashboard-preview',
   imports: [VendorDashboardTabbed, VendorDashboardSingle],
-  providers: [PreviewVendorApi, { provide: VendorApi, useExisting: PreviewVendorApi }],
+  providers: [
+    PreviewVendorApi,
+    { provide: VendorApi, useExisting: PreviewVendorApi },
+    VendorPortalStore,
+  ],
   template: `
     <!-- Dev-only concept switcher. Not part of the surface under review. -->
     <div
@@ -77,23 +97,17 @@ const SINGLE_SEAT_FIXTURE: readonly VendorSeat[] = [
           </button>
         </div>
         <div class="flex flex-wrap items-center gap-2">
-          <span class="aec-overline text-(--text-secondary)">Fixture</span>
-          <button
-            type="button"
-            [class]="tabClass(fixture() === 'verified')"
-            [attr.aria-pressed]="fixture() === 'verified'"
-            (click)="fixture.set('verified')"
-          >
-            Verified · multi-seat
-          </button>
-          <button
-            type="button"
-            [class]="tabClass(fixture() === 'unverified')"
-            [attr.aria-pressed]="fixture() === 'unverified'"
-            (click)="fixture.set('unverified')"
-          >
-            Unverified · new
-          </button>
+          <span class="aec-overline text-(--text-secondary)">AECI-614 entitlement state</span>
+          @for (f of fixtures; track f.key) {
+            <button
+              type="button"
+              [class]="tabClass(fixture() === f.key)"
+              [attr.aria-pressed]="fixture() === f.key"
+              (click)="fixture.set(f.key)"
+            >
+              {{ f.label }}
+            </button>
+          }
         </div>
       </div>
     </div>
@@ -112,22 +126,60 @@ const SINGLE_SEAT_FIXTURE: readonly VendorSeat[] = [
 })
 export class VendorDashboardPreview {
   private readonly previewApi = inject(PreviewVendorApi);
+  private readonly store = inject(VendorPortalStore);
 
   protected readonly concept = signal<Concept>('a');
   protected readonly fixture = signal<FixtureKey>('verified');
 
-  protected readonly activeMe = computed(() =>
-    this.fixture() === 'verified' ? VENDOR_ME_FIXTURE : VENDOR_ME_UNVERIFIED_FIXTURE,
-  );
+  /** The four §8 entitlement states, in the order a vendor would meet them. */
+  protected readonly fixtures: ReadonlyArray<{ key: FixtureKey; label: string }> = [
+    { key: 'verified', label: 'Active · far term' },
+    { key: 'expiring', label: 'Active · expiring soon' },
+    { key: 'downgraded', label: 'Downgraded · revoked' },
+    { key: 'unverified', label: 'Never verified · new' },
+  ];
 
+  protected readonly activeMe = computed(() => {
+    switch (this.fixture()) {
+      case 'expiring':
+        return VENDOR_ME_EXPIRING_FIXTURE;
+      case 'downgraded':
+        return VENDOR_ME_DOWNGRADED_FIXTURE;
+      case 'unverified':
+        return VENDOR_ME_UNVERIFIED_FIXTURE;
+      default:
+        return VENDOR_ME_FIXTURE;
+    }
+  });
+
+  /** The downgraded vendor keeps its seats: clearing an entitlement does not
+   *  revoke them (§5.2), and the preview has to show that it doesn't. */
   private readonly activeSeats = computed(() =>
-    this.fixture() === 'verified' ? VENDOR_SEATS_FIXTURE : SINGLE_SEAT_FIXTURE,
+    this.fixture() === 'unverified' ? SINGLE_SEAT_FIXTURE : VENDOR_SEATS_FIXTURE,
   );
 
   constructor() {
     // Keep the fixture-backed fake pointed at whichever fixture is on screen, so
     // the seat roster + product saves operate on matching data.
-    effect(() => this.previewApi.setFixture(this.activeMe(), this.activeSeats()));
+    //
+    // Both fixtures get the SAME integrations surface, deliberately. `GET
+    // /api/vendor/integrations` is ownership-gated but not Verified-gated, so an
+    // unverified vendor really does see its full attestable surface — and the
+    // read-only rendering of it is the thing this toggle exists to review. (The
+    // empty-surface state has no verification dimension and is covered by
+    // `vendor-integrations-section.component.spec.ts` instead.)
+    //
+    // Seeding the store in the SAME effect keeps the two in step: the sections
+    // read `me` from the store, the fake answers the section reads, and toggling
+    // a fixture has to move both or the panel and the roster would disagree.
+    effect(() => {
+      const me = this.activeMe();
+      const seats = this.activeSeats();
+      untracked(() => {
+        this.previewApi.setFixture(me, seats);
+        this.store.seed(me);
+      });
+    });
   }
 
   protected tabClass(active: boolean): string {

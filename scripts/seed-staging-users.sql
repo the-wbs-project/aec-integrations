@@ -28,13 +28,15 @@
 --   - ADOPT-OR-MINT, keyed on EMAIL. chrisw@ and billh@ are real prod operators
 --     AS WELL AS seed accounts, so the prod restore (refresh-staging step 5)
 --     carries auth.users rows for those emails under their REAL prod UUIDs,
---     plus matching profiles and audit_log/page_views FK references. We must NOT
+--     plus matching profiles and audit_log FK references. We must NOT
 --     create a second row for the same email (auth.users enforces a partial
 --     unique index on email — `users_email_partial_key` — so a pinned-UUID
 --     INSERT collides: "duplicate key value ... email=chrisw@..."), and we must
 --     NOT delete the existing row (profiles is referenced by audit_log /
---     page_views / workflow_* via ON DELETE NO ACTION FKs, so deleting an
---     operator's profile can itself fail). So: if a row with the email already
+--     workflow_* via ON DELETE NO ACTION FKs, so deleting an operator's profile
+--     can itself fail). `page_views` no longer belongs on that list: AECI-585
+--     dropped its `user_id` column, so it holds no reference to profiles at all.
+--     So: if a row with the email already
 --     exists, ADOPT it — set the shared test password and reset its tokens in
 --     place — otherwise MINT a fresh row under its pinned fallback UUID.
 --   - Pinned UUIDs are used only when minting a brand-new account, so re-runs

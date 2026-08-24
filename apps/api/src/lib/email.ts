@@ -34,6 +34,8 @@
  * (`source: 'email'`). Telemetry is wrapped so it can never turn a send into a throw.
  */
 
+import { orderedPairSlugs } from '@aeci/shared';
+
 import { logToDatadog, submitCount } from '../datadog';
 import type { Env } from '../env';
 import type { StuckRequestSummary } from './admin-alert';
@@ -75,7 +77,32 @@ export type EmailTemplate =
   // sent post-commit from `PATCH /api/admin/claims/:id` (approve → approved,
   // reject → rejected).
   | 'claim-approved'
-  | 'claim-rejected';
+  | 'claim-rejected'
+  // Stage 2 attestation detector nudges (AECI-302 /
+  // `STAGE_2_ATTESTATIONS_SPEC.md` §7.2). Sent by the daily detector sweep
+  // (`lib/attestation-notify.ts`); recipients are the vendor's unbanned
+  // `vendor_admin` seats, resolved through `fetchAuthUserEmails`.
+  | 'attestation-silent-counterparty'
+  | 'attestation-open-conflict'
+  | 'attestation-stale-version'
+  // The AECi-facing half of the same sweep: the `aeci-denied` correction signal
+  // and the ops escalation of an unresolved `open-conflict`. §7.2 named only the
+  // three vendor ids above; ops mail needs its own id because the id IS the
+  // `template:` metric tag and the `docs/email.md` catalogue key, and an ops
+  // alert is a different message to a different audience. Recipient is
+  // `ADMIN_ALERT_EMAIL`, one email per finding.
+  | 'attestation-ops-alert'
+  // Stage 2 entitlement term-expiry WARNINGS (AECI-613 /
+  // `STAGE_2_PAID_TIERS_SPEC.md` §7.2). Sent by the daily 11:00 UTC sweep
+  // (`lib/entitlement-expiry.ts`). Two ids for one event because the two
+  // recipients have different reachability: the vendor copy needs seat addresses
+  // from `fetchAuthUserEmails` and therefore `SUPABASE_SERVICE_ROLE_KEY` — present
+  // on staging/demo/prod, ABSENT locally and on PR previews, so it degrades to
+  // `skipped` — while the operator copy only needs `ADMIN_ALERT_EMAIL` and always
+  // lands. Nothing either template describes ever changes on its own: the sweep
+  // warns and never lapses (§7.3).
+  | 'entitlement-expiring'
+  | 'entitlement-expiring-admin';
 
 const RESEND_URL = 'https://api.resend.com/emails';
 
@@ -349,6 +376,342 @@ export async function sendClaimDecisionEmail(
   }
 }
 
+// ─── Attestation detector nudges (§7.2 — AECI-302) ────────────────────────────
+// One email per (finding, recipient address), sent by `lib/attestation-notify.ts`
+// after the daily sweep. Copy discipline (§6): never imply that attesting affects
+// ranking or placement, never promise how fast a change appears, and treat
+// "Verified" strictly as an account status.
+
+/** What every attestation nudge needs to describe the flow it is about. Product
+ *  names/slugs are the snapshot the detector captured, not a live read. */
+export interface AttestationEmailSubject {
+  to: string;
+  /** The `data_object` name, e.g. "RFIs". */
+  dataObject: string;
+  /** The endpoint the recipient owns. */
+  product: string;
+  /** The other endpoint. */
+  counterpart: string;
+  /** `integrations.mechanism_name`, when the row has one. */
+  mechanismName: string | null;
+  /** Both endpoint slugs, for the canonical pair link. */
+  pairSlugs: readonly [string, string];
+}
+
+/** " through Procore Connector" — or nothing when the mechanism is unnamed. */
+function viaMechanism(name: string | null): string {
+  const trimmed = name?.trim();
+  return trimmed ? ` through ${trimmed}` : '';
+}
+
+/** The two closing lines every vendor nudge shares: where to look, where to act.
+ *  Each is omitted (not faked) when `PUBLIC_SITE_URL` is unset. */
+function attestationLinks(
+  c: EmailContext,
+  pairSlugs: readonly [string, string],
+): { text: string[]; html: string[] } {
+  const pair = pairUrl(c.env, pairSlugs[0], pairSlugs[1]);
+  const portal = portalUrl(c.env);
+  const text: string[] = [];
+  const html: string[] = [];
+  if (pair) {
+    text.push(`See how it currently reads: ${pair}`);
+    html.push(`<a href="${escapeHtml(pair)}">See how it currently reads</a>.`);
+  }
+  if (portal) {
+    text.push(`Update it from your vendor dashboard: ${portal}`);
+    html.push(`<a href="${escapeHtml(portal)}">Update it from your vendor dashboard</a>.`);
+  }
+  return { text, html };
+}
+
+/**
+ * `silent-counterparty` (§7.1): the counterparty affirmed a flow and this vendor
+ * has not answered. The second paragraph is the point of the whole epic — it says
+ * plainly that silence is rendered as silence (`STAGE_2_SPEC.md` §8.1(4)), so the
+ * nudge is informative rather than coercive.
+ */
+export function sendAttestationSilentCounterpartyEmail(
+  c: EmailContext,
+  opts: AttestationEmailSubject,
+): Promise<EmailOutcome> {
+  const via = viaMechanism(opts.mechanismName);
+  const links = attestationLinks(c, opts.pairSlugs);
+  const lead = `${opts.counterpart} has confirmed that ${opts.dataObject} moves between ${opts.product} and ${opts.counterpart}${via}. We have not heard from your side yet.`;
+  const stance =
+    "Until both vendors confirm it, we show this flow as reported by one vendor only. We never present one vendor's word as agreement.";
+  const ask =
+    'If it is accurate, confirm it. If it is wrong or has changed, say so, and we will show your position alongside theirs.';
+
+  return sendTransactionalEmail(c, {
+    to: opts.to,
+    template: 'attestation-silent-counterparty',
+    subject: `Confirm how ${opts.dataObject} flows between ${opts.product} and ${opts.counterpart}`,
+    text: toText([lead, stance, ask, ...links.text]),
+    html: toHtml([
+      `<strong>${escapeHtml(opts.counterpart)}</strong> has confirmed that ${escapeHtml(opts.dataObject)} moves between ${escapeHtml(opts.product)} and ${escapeHtml(opts.counterpart)}${escapeHtml(via)}. We have not heard from your side yet.`,
+      stance,
+      ask,
+      ...links.html,
+    ]),
+  });
+}
+
+/**
+ * `open-conflict` (§7.1): two vendors have taken opposing positions. Copy is
+ * deliberately non-accusatory and mirrors the pair page's "Vendors disagree"
+ * treatment (§4.5) — the disagreement is surfaced as a difference in description,
+ * not as a defect in either product.
+ */
+export function sendAttestationOpenConflictEmail(
+  c: EmailContext,
+  opts: AttestationEmailSubject,
+): Promise<EmailOutcome> {
+  const via = viaMechanism(opts.mechanismName);
+  const links = attestationLinks(c, opts.pairSlugs);
+  const lead = `Your account and ${opts.counterpart} have recorded different answers about whether ${opts.dataObject} moves between ${opts.product} and ${opts.counterpart}${via}.`;
+  const stance =
+    'While the two positions differ, we show the disagreement itself rather than picking a side.';
+  const ask =
+    'If your position has changed, update it. If it has not, no action is needed and we will keep showing both.';
+
+  return sendTransactionalEmail(c, {
+    to: opts.to,
+    template: 'attestation-open-conflict',
+    subject: `You and ${opts.counterpart} describe ${opts.dataObject} differently`,
+    text: toText([lead, stance, ask, ...links.text]),
+    html: toHtml([
+      `Your account and <strong>${escapeHtml(opts.counterpart)}</strong> have recorded different answers about whether ${escapeHtml(opts.dataObject)} moves between ${escapeHtml(opts.product)} and ${escapeHtml(opts.counterpart)}${escapeHtml(via)}.`,
+      stance,
+      ask,
+      ...links.html,
+    ]),
+  });
+}
+
+/**
+ * `stale-version` (§7.1): an assertion has aged past a year with no version data,
+ * or names a version that has since been retired. The ask is explicitly
+ * three-way — re-confirm, add versions, or withdraw — because "withdraw" is a
+ * legitimate answer and an email that only asks for confirmation biases the data.
+ */
+export function sendAttestationStaleVersionEmail(
+  c: EmailContext,
+  opts: AttestationEmailSubject,
+): Promise<EmailOutcome> {
+  const via = viaMechanism(opts.mechanismName);
+  const links = attestationLinks(c, opts.pairSlugs);
+  const lead = `Your record that ${opts.dataObject} moves between ${opts.product} and ${opts.counterpart}${via} has not been updated in a while, or names a version that has since been retired.`;
+  const ask =
+    'Re-confirm it, add the product versions it applies to, or withdraw it if it no longer holds. Any of the three is a good answer.';
+
+  return sendTransactionalEmail(c, {
+    to: opts.to,
+    template: 'attestation-stale-version',
+    subject: `Re-confirm your ${opts.dataObject} record for ${opts.product}`,
+    text: toText([lead, ask, ...links.text]),
+    html: toHtml([
+      `Your record that ${escapeHtml(opts.dataObject)} moves between <strong>${escapeHtml(opts.product)}</strong> and ${escapeHtml(opts.counterpart)}${escapeHtml(via)} has not been updated in a while, or names a version that has since been retired.`,
+      ask,
+      ...links.html,
+    ]),
+  });
+}
+
+/**
+ * The AECi-facing half of the sweep, one email per finding. Two detectors route
+ * here and the body names which:
+ *
+ * - `aeci-denied` — a vendor denies a claim **AECi** seeded. The claim then
+ *   computes `unverified` (§4.2), which is indistinguishable from "nobody voted"
+ *   on every surface, so without this mail the correction is simply lost.
+ * - `open-conflict` — the §7.1 escalation that accompanies the two vendor nudges.
+ *
+ * Operator format (`opsText`/`opsTable`), not the vendor prose format: this is a
+ * triage record, and every value in it is escaped because product and mechanism
+ * names are vendor-supplied.
+ */
+export function sendAttestationOpsAlertEmail(
+  c: EmailContext,
+  opts: {
+    to: string;
+    detector: 'aeci-denied' | 'open-conflict';
+    dataObject: string;
+    productA: string;
+    productB: string;
+    mechanismName: string | null;
+    claimId: string;
+    integrationId: string;
+    pairSlugs: readonly [string, string];
+  },
+): Promise<EmailOutcome> {
+  const denied = opts.detector === 'aeci-denied';
+  const intro = denied
+    ? 'A vendor has denied a claim AECi seeded. A denial-only claim renders as unverified, so it is invisible on the site until someone corrects the curation.'
+    : 'Two vendors have been in unresolved disagreement about a claim past the notification threshold. Both have been nudged; this is the ops copy.';
+
+  const rows: ReadonlyArray<readonly [string, string]> = [
+    ['Detector', opts.detector],
+    ['Data object', opts.dataObject],
+    ['Products', `${opts.productA} / ${opts.productB}`],
+    ['Mechanism', opts.mechanismName?.trim() || '(unnamed)'],
+    ['Claim', opts.claimId],
+    ['Integration', opts.integrationId],
+    ['Pair page', pairUrl(c.env, opts.pairSlugs[0], opts.pairSlugs[1]) ?? '(no PUBLIC_SITE_URL)'],
+  ];
+
+  return sendTransactionalEmail(c, {
+    to: opts.to,
+    template: 'attestation-ops-alert',
+    subject: denied
+      ? `[AECi] Vendor denied a seeded claim: ${opts.dataObject} (${opts.productA} / ${opts.productB})`
+      : `[AECi] Unresolved vendor conflict: ${opts.dataObject} (${opts.productA} / ${opts.productB})`,
+    text: opsText(intro, rows),
+    html: opsTable(intro, rows),
+  });
+}
+
+// ─── Entitlement term-expiry warnings (§7.2 — AECI-613) ───────────────────────
+// Sent by the daily 11:00 UTC sweep (`lib/entitlement-expiry.ts`). The load-bearing
+// copy rule is §7.3's: this is a WARNING, and the system never lapses anything on
+// its own. Neither template may imply that verification is about to be switched
+// off automatically, because it is not — un-verify stays a deliberate admin act
+// (§5). Verification is also framed exactly as everywhere else: an account status,
+// never an endorsement and never a ranking or placement signal.
+
+/** What both expiry templates need to describe one term. `daysRemaining` is
+ *  negative once the term is past its end — the sweep still warns exactly once for
+ *  such a row, because "active, and the term ran out" is precisely the state an
+ *  operator has to be told about. */
+export interface EntitlementExpirySubject {
+  to: string;
+  vendorName: string;
+  /** `YYYY-MM-DD`, the house day-label form (`lib/admin-analytics.ts`). */
+  periodEndDay: string;
+  /** Whole days from the run's `now` to `period_end`; <= 0 = already past. */
+  daysRemaining: number;
+}
+
+/** "in 30 days" / "today" / "30 days ago" — the one phrase both bodies branch on. */
+function expiryPhrase(daysRemaining: number): string {
+  if (daysRemaining > 1) return `in ${daysRemaining} days`;
+  if (daysRemaining === 1) return 'tomorrow';
+  if (daysRemaining === 0) return 'today';
+  if (daysRemaining === -1) return 'yesterday';
+  return `${Math.abs(daysRemaining)} days ago`;
+}
+
+/**
+ * §7.2 `entitlement-expiring` — the vendor's renewal prompt, to the vendor's
+ * unbanned `vendor_admin` seats.
+ *
+ * Degrades to `'skipped'` without `SUPABASE_SERVICE_ROLE_KEY` (no resolvable seat
+ * address), which is the expected local / PR-preview state; the admin copy below
+ * always lands, so a term is never silently un-warned.
+ *
+ * The money is deliberately absent. Amount, payer, terms and PO reference are
+ * admin-side only (§8) — this email says what the status is and when the term
+ * ends, and asks the vendor to get in touch.
+ */
+export function sendEntitlementExpiringEmail(
+  c: EmailContext,
+  opts: EntitlementExpirySubject,
+): Promise<EmailOutcome> {
+  const name = opts.vendorName.trim() || 'your company';
+  const dashboard = portalUrl(c.env);
+  const phrase = expiryPhrase(opts.daysRemaining);
+  const past = opts.daysRemaining < 0;
+
+  const lead = past
+    ? `Your verification term for ${name} on AEC Integrations reached its end date of ${opts.periodEndDay} — ${phrase}.`
+    : `Your verification term for ${name} on AEC Integrations ends ${phrase}, on ${opts.periodEndDay}.`;
+  // The reassurance is the point of the whole §7 decision. Say it plainly.
+  const noLapse =
+    "Nothing changes automatically. We don't switch verification off when a term reaches its end date — this is a heads-up so you can decide, not a countdown.";
+  const ask = 'To renew, or if the term dates look wrong, just reply to this email.';
+  const stance =
+    "Verification confirms your account represents this vendor. It's an account status, not an endorsement of the product, and it doesn't affect search ranking or placement.";
+
+  const textParagraphs = [lead, noLapse, ask];
+  const htmlParagraphs = [
+    past
+      ? `Your verification term for <strong>${escapeHtml(name)}</strong> on AEC Integrations reached its end date of ${escapeHtml(opts.periodEndDay)} — ${escapeHtml(phrase)}.`
+      : `Your verification term for <strong>${escapeHtml(name)}</strong> on AEC Integrations ends ${escapeHtml(phrase)}, on ${escapeHtml(opts.periodEndDay)}.`,
+    noLapse,
+    ask,
+  ];
+  if (dashboard) {
+    textParagraphs.push(`Your current status is on your vendor dashboard: ${dashboard}`);
+    htmlParagraphs.push(
+      `Your current status is on <a href="${escapeHtml(dashboard)}">your vendor dashboard</a>.`,
+    );
+  }
+  textParagraphs.push(stance);
+  htmlParagraphs.push(stance);
+
+  return sendTransactionalEmail(c, {
+    to: opts.to,
+    template: 'entitlement-expiring',
+    subject: past
+      ? `Your verification term for ${name} has reached its end date`
+      : `Your verification term for ${name} ends ${phrase}`,
+    text: toText(textParagraphs),
+    html: toHtml(htmlParagraphs),
+  });
+}
+
+/**
+ * §7.2 `entitlement-expiring-admin` — the operator copy, to `ADMIN_ALERT_EMAIL`.
+ *
+ * Exists because the vendor half needs the GoTrue admin seam and can therefore
+ * degrade to `skipped`, while renewal is an offline, human, invoice-driven act
+ * that someone has to actually perform. Operator format (`opsText`/`opsTable`),
+ * and unlike the vendor copy it DOES carry the arrangement — this is the
+ * admin-side surface where payer and PO reference belong (§8).
+ */
+export function sendEntitlementExpiringAdminEmail(
+  c: EmailContext,
+  opts: {
+    to: string;
+    vendorName: string;
+    vendorSlug: string;
+    tier: string;
+    periodEndDay: string;
+    daysRemaining: number;
+    payer: string | null;
+    invoiceRef: string | null;
+    /** Whether the vendor half of this notice reached anyone. */
+    vendorNotice: EmailOutcome;
+  },
+): Promise<EmailOutcome> {
+  const name = opts.vendorName.trim() || opts.vendorSlug;
+  const phrase = expiryPhrase(opts.daysRemaining);
+  const intro =
+    opts.daysRemaining < 0
+      ? 'An ACTIVE entitlement is past its term end date. Nothing has been changed — the expiry sweep warns and never lapses (STAGE_2_PAID_TIERS_SPEC.md §7.3). Renew it or clear it deliberately from /admin/claims.'
+      : 'An active entitlement is approaching its term end date. Nothing will change on its own — the expiry sweep warns and never lapses (STAGE_2_PAID_TIERS_SPEC.md §7.3). Renew it or clear it deliberately from /admin/claims.';
+
+  const rows: ReadonlyArray<readonly [string, string]> = [
+    ['Vendor', `${name} (${opts.vendorSlug})`],
+    ['Tier', opts.tier],
+    ['Term ends', `${opts.periodEndDay} (${phrase})`],
+    ['Payer', opts.payer?.trim() || '(none recorded)'],
+    ['Invoice ref', opts.invoiceRef?.trim() || '(none recorded)'],
+    // Named explicitly so "the vendor was told" is never assumed. `skipped` here is
+    // the normal local/preview state (no SUPABASE_SERVICE_ROLE_KEY) and a real
+    // misconfiguration on a deployed tier.
+    ['Vendor notice', opts.vendorNotice],
+  ];
+
+  return sendTransactionalEmail(c, {
+    to: opts.to,
+    template: 'entitlement-expiring-admin',
+    subject: `[AECi] Entitlement term ends ${phrase}: ${name}`,
+    text: opsText(intro, rows),
+    html: opsTable(intro, rows),
+  });
+}
+
 /** §11.1 "Account deletion confirmation" (deferred from AECI-202). The recipient is
  *  captured from `session.email` BEFORE the `auth.users` row is erased. */
 export function sendAccountDeletionEmail(
@@ -379,16 +742,23 @@ function unsubscribeMailto(env: Env): string | null {
 }
 
 /** Mailing-list welcome (AECI-327) — the subscriber's first touch, sent by
- *  `POST /api/subscribe` on a real insert (not the idempotent already-listed
- *  no-op). Recipient is the new subscriber. Links to the directory when
- *  `PUBLIC_SITE_URL` is configured, otherwise the link is omitted (never a dead
- *  host). Carries a `List-Unsubscribe` mailto header (deliverability + one-click
- *  opt-out UI in Gmail/Apple Mail; keeps this "updates" list off the spam path).
+ *  `POST /api/subscribe` on a real insert / reactivation (not the idempotent
+ *  already-listed no-op). Recipient is the new subscriber. Links to the directory
+ *  when `PUBLIC_SITE_URL` is configured, otherwise the link is omitted (never a
+ *  dead host).
+ *
+ *  Unsubscribe (AECI-537): when we have a public host AND the subscriber's
+ *  `token`, the in-body link points at the `/unsubscribe?token=…` page and the
+ *  headers carry a true RFC 8058 one-click opt-out (`List-Unsubscribe-Post` +
+ *  an https `List-Unsubscribe` target that hits `POST /api/unsubscribe?token=…`
+ *  through the SSR passthrough), with the RFC 2369 `mailto:` as a secondary
+ *  value. Without a host/token we fall back to the mailto-only header + link.
+ *
  *  Voice per PRODUCT.md: sentence case, no em dashes, no "verification is live"
  *  claim, no pricing. Draft copy — marketing owns final wording. */
 export function sendMailingListWelcomeEmail(
   c: EmailContext,
-  opts: { to: string | undefined },
+  opts: { to: string | undefined; token?: string | null },
 ): Promise<EmailOutcome> {
   const base = siteUrl(c.env);
   const browseUrl = base ? `${base}/products` : null;
@@ -399,13 +769,37 @@ export function sendMailingListWelcomeEmail(
   const browseLead =
     "The best next step is to browse the directory: see how tools connect, and where they don't, before you commit.";
   const fallback = "We'll also email you as new tools and reviews land in the directory.";
-  const unsub = unsubscribeMailto(c.env);
-  const unsubText = unsub
-    ? `To stop these updates, email ${unsub} with the subject unsubscribe.`
-    : null;
-  const unsubHtml = unsub
-    ? `To stop these updates, <a href="mailto:${escapeHtml(unsub)}?subject=unsubscribe">unsubscribe</a>.`
-    : null;
+
+  // Tokenized page link + one-click endpoint (preferred), else the mailto opt-out.
+  const mailto = unsubscribeMailto(c.env);
+  const token = opts.token ?? null;
+  const pageUrl = base && token ? `${base}/unsubscribe?token=${encodeURIComponent(token)}` : null;
+  const oneClickUrl =
+    base && token ? `${base}/api/unsubscribe?token=${encodeURIComponent(token)}` : null;
+
+  const unsubText = pageUrl
+    ? `To stop these updates, unsubscribe here: ${pageUrl}`
+    : mailto
+      ? `To stop these updates, email ${mailto} with the subject unsubscribe.`
+      : null;
+  const unsubHtml = pageUrl
+    ? `To stop these updates, <a href="${escapeHtml(pageUrl)}">unsubscribe</a>.`
+    : mailto
+      ? `To stop these updates, <a href="mailto:${escapeHtml(mailto)}?subject=unsubscribe">unsubscribe</a>.`
+      : null;
+
+  // List-Unsubscribe: https one-click (RFC 8058) with the mailto as a secondary
+  // value when both are available; otherwise whichever single value we have.
+  const mailtoValue = mailto ? `<mailto:${mailto}?subject=unsubscribe>` : null;
+  const listUnsub = oneClickUrl
+    ? mailtoValue
+      ? `<${oneClickUrl}>, ${mailtoValue}`
+      : `<${oneClickUrl}>`
+    : mailtoValue;
+  const unsubHeaders: Record<string, string> = {};
+  if (listUnsub) unsubHeaders['List-Unsubscribe'] = listUnsub;
+  if (oneClickUrl) unsubHeaders['List-Unsubscribe-Post'] = 'List-Unsubscribe=One-Click';
+
   const textParagraphs = [
     intro,
     what,
@@ -426,10 +820,7 @@ export function sendMailingListWelcomeEmail(
     subject: 'Welcome to AEC Integrations',
     text: toText(textParagraphs),
     html: toHtml(htmlParagraphs),
-    // RFC 2369 List-Unsubscribe (mailto). One-click POST (RFC 8058) is intentionally
-    // omitted: it needs a public unsubscribe endpoint + token and is only required
-    // of bulk senders (5000+/day), which this pre-launch list is not.
-    ...(unsub ? { headers: { 'List-Unsubscribe': `<mailto:${unsub}?subject=unsubscribe>` } } : {}),
+    ...(Object.keys(unsubHeaders).length ? { headers: unsubHeaders } : {}),
   });
 }
 
@@ -634,6 +1025,23 @@ function productUrl(env: Env, slug: string): string | null {
 function portalUrl(env: Env): string | null {
   const base = siteUrl(env);
   return base ? `${base}/vendor` : null;
+}
+
+/**
+ * The canonical product-pair page for two endpoint slugs
+ * (`/products/{context}/integrations/{other}`, Stage 1.5 §7.1 / AECI-297), or
+ * `null` when `PUBLIC_SITE_URL` is unset.
+ *
+ * `orderedPairSlugs` is the shared alphabetical primitive the pair route, the
+ * `pair:{min}__{max}` cache tag and the IndexNow submitter all resolve through —
+ * so a notification link lands on the same URL those already canonicalised to,
+ * rather than on the orientation that happens to be stored on the row.
+ */
+function pairUrl(env: Env, slugA: string, slugB: string): string | null {
+  const base = siteUrl(env);
+  if (!base) return null;
+  const [context, other] = orderedPairSlugs(slugA, slugB);
+  return `${base}/products/${context}/integrations/${other}`;
 }
 
 function toText(paragraphs: string[]): string {

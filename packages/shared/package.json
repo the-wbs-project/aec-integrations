@@ -25,6 +25,10 @@
       "types": "./src/agreement.ts",
       "default": "./src/agreement.ts"
     },
+    "./entitlements": {
+      "types": "./src/entitlements.ts",
+      "default": "./src/entitlements.ts"
+    },
     "./errors": {
       "types": "./src/errors/index.ts",
       "default": "./src/errors/index.ts"
@@ -80,6 +84,14 @@
     "./seed-reviews": {
       "types": "./src/seed-reviews/index.ts",
       "default": "./src/seed-reviews/index.ts"
+    },
+    "./version-sort": {
+      "types": "./src/version-sort.ts",
+      "default": "./src/version-sort.ts"
+    },
+    "./version-diff": {
+      "types": "./src/version-diff.ts",
+      "default": "./src/version-diff.ts"
     }
   },
   "scripts": {

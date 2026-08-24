@@ -53,15 +53,71 @@ decision record; no separate ADR.
 | `review-approved` | `PATCH /api/admin/reviews/:id` approve (`routes/admin-reviews.ts`) | reviewer | links to `/products/{slug}` when `PUBLIC_SITE_URL` set |
 | `review-rejected` | `PATCH /api/admin/reviews/:id` reject | reviewer | includes the moderator's reason + a guidelines link |
 | `account-deleted` | `DELETE /api/account` (`routes/account.ts`) | the deleted user (captured pre-erasure) | GDPR confirmation |
-| `mailing-list-welcome` | `POST /api/subscribe` on a fresh insert (`routes/landing-forms.ts`) | the new subscriber (`payload.email`) | Subscriber welcome / first touch (AECI-327). Links to `/products` when `PUBLIC_SITE_URL` set. Not sent on the idempotent already-listed no-op. Sibling of the operator `landing-signup` alert. Carries a `List-Unsubscribe` mailto header (`unsubscribe@<EMAIL_FROM domain>`) + a matching in-body opt-out line for deliverability. |
+| `mailing-list-welcome` | `POST /api/subscribe` on a fresh insert or reactivation (`routes/landing-forms.ts`) | the new subscriber (`payload.email`) | Subscriber welcome / first touch (AECI-327). Links to `/products` when `PUBLIC_SITE_URL` set. Not sent on the still-active already-listed no-op. Sibling of the operator `landing-signup` alert. Unsubscribe (AECI-537): with a public host + the subscriber's token, the in-body link and `List-Unsubscribe` header point at the tokenized `/unsubscribe` flow and set RFC 8058 one-click (`List-Unsubscribe-Post`); without them it degrades to the `unsubscribe@<EMAIL_FROM domain>` mailto (see List-Unsubscribe section below). |
 | `stuck-request-alert` | reconciliation sweep (`lib/admin-alert.ts` → `lib/reconciliation-sweep.ts`) | `ADMIN_ALERT_EMAIL` | §6.2 persistent-failure digest |
-| `landing-signup` | `POST /api/subscribe` on a fresh insert (`routes/landing-forms.ts`) | `ADMIN_ALERT_EMAIL` | Operator "new mailing-list signup" (AECI-247/277 — replaces the retired `apps/landing` Worker's own send). Not sent on the idempotent already-listed no-op. |
-| `landing-feedback` | `POST /api/feedback` (`routes/landing-forms.ts`) | `ADMIN_ALERT_EMAIL` | Operator "new feedback submitted" (AECI-247/277). |
+| `landing-signup` | `POST /api/subscribe` on a fresh insert (`routes/landing-forms.ts`) | `ADMIN_ALERT_EMAIL` | Operator "new mailing-list signup" (AECI-247/277 — replaces the retired `apps/landing` Worker's own send). Not sent on the idempotent already-listed no-op. **Screen equivalent since AECI-586: `/admin/audience`.** |
+| `landing-feedback` | `POST /api/feedback` (`routes/landing-forms.ts`) | `ADMIN_ALERT_EMAIL` | Operator "new feedback submitted" (AECI-247/277). **Screen equivalent since AECI-586: `/admin/audience` → Feedback inbox, over `GET /api/admin/feedback`.** |
 | `claim-approved` | `PATCH /api/admin/claims/:id` approve (`routes/admin-claims.ts`, AECI-528) | claimant (`submitter_email`) | Names the claimed vendor/product, lists what the account can now do, links to the `/vendor` dashboard when `PUBLIC_SITE_URL` set. Sign-in copy branches on the `invited` (just-provisioned) vs `linked` identity outcome. Verification framed as an account status, never ranking/placement. |
 | `claim-rejected` | `PATCH /api/admin/claims/:id` reject | claimant (`submitter_email`) | Neutral by design (§9 AC): names the vendor, states the claim wasn't approved, invites resubmission. The reviewer's decision `reason` is an **internal audit note** (recorded in `audit_log`, admin-visible) and is **never emailed** — so nothing a reviewer types can leak to the claimant. |
+| `attestation-silent-counterparty` | daily §7 detector sweep, 10:00 UTC (`lib/attestation-notify.ts` → `lib/attestation-detectors.ts`, AECI-302) | the **silent** slot's vendor seats (unbanned `vendor_admin`, addresses via `fetchAuthUserEmails`) | The counterparty affirmed a data flow and this vendor has not answered for >14d. Copy states outright that one-sided is rendered as one-sided (`STAGE_2_SPEC.md` §8.1(4)), so the nudge informs rather than pressures. Links to the canonical pair page + `/vendor`; both omitted when `PUBLIC_SITE_URL` is unset. |
+| `attestation-open-conflict` | same sweep | **both** disputing vendors' seats | Two vendors recorded opposing positions and it has stood >7d. Non-accusatory, mirroring the pair page's "Vendors disagree" treatment — the disagreement is a difference in description, not a defect in either product. Recipients are the *attesting* vendors, not every slot co-owner. |
+| `attestation-stale-version` | same sweep | the attesting vendor's seats | An assertion has aged past 12 months with no version data, or still affirms a flow whose deprecated version has passed. The ask is explicitly three-way — re-confirm, add versions, or **withdraw** — because withdraw is a legitimate answer and a confirm-only ask biases the data. |
+| `attestation-ops-alert` | same sweep, one email **per finding** | `ADMIN_ALERT_EMAIL` | The AECi-facing half. Two detectors route here and the body names which: `aeci-denied` (a vendor denies a claim AECi seeded — the claim then computes `unverified`, so the correction is invisible on every surface without this) and the ops escalation of `open-conflict`. Operator format (`opsText`/`opsTable`) with the claim + integration ids and the pair-page URL. §7.2 named only the three vendor ids above; the id *is* the metric tag and the catalogue key, so ops mail needs its own. |
+| `entitlement-expiring` | daily term-expiry sweep, 11:00 UTC (`lib/entitlement-expiry.ts`, AECI-613) | the vendor's seats (unbanned `vendor_admin`, addresses via `fetchAuthUserEmails`) | The renewal prompt, sent once per term as `period_end` comes within `EXPIRY_WARNING_DAYS` (30). **The money is deliberately absent** — amount, payer, terms and PO reference are admin-side only (`STAGE_2_PAID_TIERS_SPEC.md` §8); this copy says what the status is, when the term ends, and asks the vendor to get in touch. States outright that **nothing changes on its own** (§7.3 — the sweep warns, it never lapses), so the email cannot read as a shut-off notice. Needs `SUPABASE_SERVICE_ROLE_KEY` for the seat addresses, so it resolves `skipped` locally and on PR previews. |
+| `entitlement-expiring-admin` | same sweep, one email **per term** | `ADMIN_ALERT_EMAIL` | The operator copy, and the reason there are two ids for one event: the vendor half can degrade to `skipped`, while renewal is an offline, human, invoice-driven act somebody has to actually perform. Operator format (`opsText`/`opsTable`) carrying vendor, tier, term end, **payer and invoice ref** — this is the admin-side surface where the arrangement belongs. The last row is the vendor half's own outcome, named explicitly so "the vendor was told" is never assumed: `skipped` there is the normal local/preview state and a real misconfiguration on a deployed tier. |
+
+**The two `landing-*` operator alerts got a screen behind them for a stronger reason
+than the digests did (AECI-586).** A digest is a summary of data that stays in D1
+either way, so its screen is a convenience. These two were the **only** record: the
+`feedback` table had no read path anywhere in the product, so a filtered, deleted or
+undelivered alert was a permanently lost submission, recoverable only by querying D1
+by hand. `/admin/audience` makes the table readable and the email a notification
+rather than an archive. Both sends are unchanged and still fire, fail-open, on the
+same conditions (`ADMIN_PANEL_SPEC.md` §13 **D2** — push and pull are complementary).
 
 Copy is en-US plain text + minimal HTML, built inline in `lib/email.ts` (emails are
 not i18n'd at launch — the CLAUDE.md i18n rule is for rendered `apps/web` templates).
+
+### Cron digests (the low-level `sendEmail` layer)
+
+The table above is the **transactional** layer (`sendTransactionalEmail`, one `template`
+id each, on the `aeci.email.send` metric). Two **scheduled digests** ride the separate
+low-level `sendEmail` transport (`lib/email.ts`, AECI-241) instead — multi-recipient,
+their own metric, no `template` tag — so they don't appear above:
+
+| Digest | Cron (UTC) | Builder | Recipient var | Metric | Screen equivalent |
+|---|---|---|---|---|---|
+| Data-quality report | `0 4 * * *` | `lib/data-quality-email.ts` (`scheduled.ts` `runDataQualityJob`) | `DATA_QUALITY_EMAIL_{FROM,TO}` | `aeci.data_quality.email` | **`/admin/system` → "Run data-quality checks"** (AECI-580) |
+| Operator analytics digest (AECI-526) | `0 5 * * *` (05:00 UTC = 12:00 WIB, noon Jakarta) | `lib/analytics-digest.ts` (`scheduled.ts` `runAnalyticsDigestJob`) | `ANALYTICS_DIGEST_EMAIL_TO` — **production only** (sender = shared `EMAIL_FROM`) | `aeci.analytics_digest.email` | **`/admin/overview`** (AECI-576) over `GET /api/admin/overview` (AECI-574). `?day=YYYY-MM-DD` reads any UTC day, defaulting to the digest's prior complete day; `?recompute=1` refreshes the two network-dependent status items and **sends no email** |
+
+**Neither email is retired by its screen** (`ADMIN_PANEL_SPEC.md` §13 **D2**): push and pull are
+complementary, and no cron is being removed. What the screen adds is *on demand* — the ten §23.1
+checks used to be visible only in the 04:00 send, so a defect fixed at 10:00 could not be confirmed
+until the next morning. `GET /api/admin/system?recompute=1` re-runs the suite live and is a **pure
+read**: it writes no row and, in particular, **sends no email** (§13 **D8** draws the line at side
+effects, not manual-ness). Running a digest *for real* stays deferred.
+
+The analytics digest summarizes the **prior complete UTC day** as a styled HTML email
+(with a plain-text fallback): **human** page views + top products (`page_views` where
+`is_bot IS NOT 1`), a **Traffic sources** breakdown (human arrivals grouped by
+`referrer_source` — LinkedIn / Twitter/X / Google / other search engines / Direct /
+Other), new sign-ins (`profiles` created) + total registered users, the live
+pending-moderation depth (`reviews` where `status='pending'`), and a **Crawler
+activity** section listing every bot/crawler and its crawl count for the day
+(`is_bot = 1`, grouped by `bot_name`) — all with day-over-day deltas. The human/bot
+split is classified at ingest from the raw User-Agent + Cloudflare ASN
+(`lib/bot-classification.ts`), because the CF Pro plan yields no `cf_bot_score` and
+`user_id` is never captured; the traffic source is classified from the forwarded
+eyeball `Referer` (`lib/referrer-classification.ts`, best-effort — Referrer-Policy
+strips it, so external sources under-count) (AECI-526 follow-up). **Read the human count as an upper
+bound**: the ASN half of the classifier is a hand-maintained list, and pre-classifier rows (`is_bot IS
+NULL`) count as human until the one-time backfill runs — see
+[`POST_LAUNCH_MONITORING.md`](./POST_LAUNCH_MONITORING.md#3b-traffic-classification--auditing-the-digests-humans-aeci-526-follow-up)
+§3b for the weekly audit and the widen/backfill procedure. Report-only reads; fail-open (absent
+key/recipient → `skipped`). The cron runs in **every** deploy env (staging/demo/production)
+for liveness, but `ANALYTICS_DIGEST_EMAIL_TO` is set on **production only** —
+staging/demo carry synthetic D1 data, so their sends intentionally `skip` (the var is
+left unset).
 
 ## Secrets & vars
 
@@ -70,7 +126,7 @@ not i18n'd at launch — the CLAUDE.md i18n rule is for rendered `apps/web` temp
 | `RESEND_API_KEY` | Wrangler **secret** | API Worker, staging + production | CI pushes it from a **single shared, un-suffixed** `RESEND_API_KEY` GH secret — one Resend account/key spans every env (like `SUPABASE_ANON_KEY`); `deploy.yml`, `promote-to-demo.yml`, and `promote-to-prod.yml` all push the same secret. Graceful warn-and-skip; absent → sends `'skipped'`. |
 | `EMAIL_FROM` | plain `var` | API Worker, per env (`wrangler.jsonc`) | Resend `from`; `Name <addr>` on a verified domain. |
 | `PUBLIC_SITE_URL` | plain `var` | API Worker, per env | Builds absolute links in emails; absent → link omitted. |
-| `ADMIN_ALERT_EMAIL` | plain `var` | API Worker, staging + production | `To:` for the stuck-request alert **and** the landing signup/feedback operator notifications (AECI-247/277). |
+| `ADMIN_ALERT_EMAIL` | plain `var` | API Worker, staging + production | `To:` for the stuck-request alert, the landing signup/feedback operator notifications (AECI-247/277), the §7 attestation ops alerts (AECI-302 — one per finding; absent → those findings resolve `skipped` and are retried by the next daily sweep, since no ledger row is written), **and** the `entitlement-expiring-admin` term warnings (AECI-613 — absent → the operator half resolves `skipped`, which leaves `expiry_notice_sent_at` unstamped only if the vendor half also failed, so the term is re-warned tomorrow). |
 
 **One-time ops step (not in CI):** provision the keys —
 
@@ -163,7 +219,14 @@ The sending domain (`aecintegrations.com`) must have, in DNS (Resend sends via A
 
 **Gmail vs. Microsoft 365 placement.** With `p=quarantine` and a brand-new sending domain (no reputation), Gmail will often route mail to **spam** while M365 tenants inbox it — even when SPF/DKIM/DMARC all pass. This is reputation/warm-up, not an auth failure. Levers: consistent low volume + recipient engagement (mark "not spam"), a `List-Unsubscribe` header (below), and DMARC `rua` reports to watch pass/fail per receiver.
 
-**List-Unsubscribe.** The `mailing-list-welcome` template sets `List-Unsubscribe: <mailto:unsubscribe@<sender-domain>?subject=unsubscribe>` (RFC 2369), derived from the `EMAIL_FROM` domain. For it to be actionable, route `unsubscribe@aecintegrations.com` (Cloudflare Email Routing) to an inbox that processes opt-outs. One-click POST (RFC 8058 `List-Unsubscribe-Post`) is intentionally **not** set: it needs a public unsubscribe endpoint + token and is only required of bulk senders (5000+/day). Add it if/when volume warrants.
+**List-Unsubscribe (AECI-537).** The `mailing-list-welcome` template now sets a true one-click opt-out when it has both a public host (`PUBLIC_SITE_URL`) and the subscriber's `unsubscribe_token`:
+
+```
+List-Unsubscribe: <https://<host>/api/unsubscribe?token=…>, <mailto:unsubscribe@<sender-domain>?subject=unsubscribe>
+List-Unsubscribe-Post: List-Unsubscribe=One-Click
+```
+
+The https target is the public SSR host, which forwards `POST /api/unsubscribe` to the private API Worker via the `/api/*` passthrough; the mailto (RFC 2369, derived from the `EMAIL_FROM` domain) is retained as a secondary value. The in-body opt-out link points at the human-facing `/unsubscribe?token=…` page (which confirms, then POSTs the same endpoint). When the host or token is missing, both the header and the in-body link **degrade to the mailto only** — for that path to be actionable, route `unsubscribe@aecintegrations.com` (Cloudflare Email Routing) to an inbox that processes opt-outs. See `POST /api/unsubscribe` in `docs/API_CONTRACTS.md` §6.13 and the `/unsubscribe` page (`apps/web/src/app/unsubscribe/`).
 
 ## Testing
 

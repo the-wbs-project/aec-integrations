@@ -60,6 +60,8 @@ function buildVendor(overrides: Partial<VendorDetail> = {}): VendorDetail {
     instagram_url: null,
     youtube_url: null,
     products: [],
+    // The unreviewed baseline (AECI-616): bare attribution, no date.
+    maintenance: { maintained_by: 'aeci', last_reviewed_at: null },
     ...overrides,
   };
 }

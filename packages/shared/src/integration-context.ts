@@ -12,10 +12,12 @@
  * plain string comparison is a stable total order.
  *
  * Spec: `docs/STAGE_1_5_SPEC.md` §7.1 (context + routing), §3.2 (stored vs
- * context-relative direction).
+ * context-relative direction); `docs/STAGE_2_ATTESTATIONS_SPEC.md` §4 (the
+ * refuted-claim carve-out + attestor framing).
  */
+import { type AgreementAttestation, isClaimRefuted } from './agreement';
 import type { ContextDirection, IntegrationDirection } from './api/integrations';
-import type { ClaimDirection } from './api/promote';
+import type { AttestationSource, ClaimDirection } from './api/promote';
 
 /**
  * The canonical **context product** for a pair's default URL: the
@@ -88,6 +90,32 @@ export function claimDirectionForContext(
 }
 
 /**
+ * The **inverse** of `claimDirectionForContext` — fold a caller-relative
+ * direction back into the canonical form stored on `claims.direction`
+ * (`STAGE_2_ATTESTATIONS_SPEC.md` §5.2).
+ *
+ * Every read path so far only needed the outward translation, because the DB was
+ * the only author. The vendor authoring API (AECI-301) is the first *writer*
+ * that speaks the context frame: its UI says "inbound"/"outbound" and the DB
+ * never does, so something has to translate at the API boundary. It lives here,
+ * beside its inverse, because this module is the single home for direction
+ * framing — the two surfaces drifted once already (`STAGE_1_5_SPEC.md` §7.1) and
+ * a second implementation somewhere in `routes/` is how that happens again.
+ *
+ * `contextIsSource` is whether the caller's frame is the integration's
+ * `source_product_id` (endpoint A). Exactly invertible: for every
+ * `(direction, contextIsSource)`,
+ * `claimDirectionFromContext(claimDirectionForContext(d, c), c) === d`.
+ */
+export function claimDirectionFromContext(
+  direction: ContextDirection,
+  contextIsSource: boolean,
+): ClaimDirection {
+  if (direction === 'both') return 'both';
+  return (direction === 'outbound') === contextIsSource ? 'a_to_b' : 'b_to_a';
+}
+
+/**
  * Aggregate a mechanism's `data_object` claim directions (each stored relative to
  * the row's source/target — §3.2) into ONE context-relative direction: any
  * `both` claim, or any pair of opposing flows across claims, reads `both`;
@@ -113,6 +141,37 @@ export function contextDirectionFromClaims(
 }
 
 /**
+ * Which party a claim's attestation speaks for, **relative to the page's
+ * context product** (`STAGE_2_ATTESTATIONS_SPEC.md` §4.3). The attestation slot
+ * is stored against the integration row's endpoints — `vendor_a` = endpoint A =
+ * the row's `source_product`, `vendor_b` = endpoint B — so the same mirror that
+ * frames direction also frames attribution:
+ *
+ * - `aeci` → `'aeci'` (the seed; never a party to the vote).
+ * - `vendor_a` → `'context'` when the context product is endpoint A, else `'other'`;
+ *   `vendor_b` is the mirror.
+ *
+ * Resolving this server-side is what lets the pair page render "Confirmed by
+ * {vendor}" from the two `ProductListItem.vendor` links it already hydrates —
+ * no join to `vendors` through `attested_by_vendor_id`, and no client-side
+ * re-derivation of which endpoint is which.
+ */
+export function attestorForContext(
+  source: AttestationSource,
+  contextIsSource: boolean,
+): 'aeci' | 'context' | 'other' {
+  if (source === 'aeci') return 'aeci';
+  return (source === 'vendor_a') === contextIsSource ? 'context' : 'other';
+}
+
+/** A mechanism's claim as `effectiveContextDirection` reads it: the stored
+ *  direction plus the attestation set that decides whether it still counts. */
+export interface DirectionalClaim {
+  readonly direction: ClaimDirection;
+  readonly attestations: readonly AgreementAttestation[];
+}
+
+/**
  * The **effective** context-relative direction for the product-detail
  * integrations table (§3.2). Claims are the more specific, richer signal — and
  * the one the pair page surfaces — so when the mechanism carries any, their
@@ -121,14 +180,23 @@ export function contextDirectionFromClaims(
  * there is neither claim nor stored direction (an honest "unknown", rendered as
  * an em-dash). Precomputing this here — the single home for direction framing —
  * keeps the table and the pair page from drifting.
+ *
+ * **Refuted claims are excluded** (`STAGE_2_ATTESTATIONS_SPEC.md` §4.3): once
+ * every vendor that voted says a flow does not exist, it must stop steering the
+ * table's arrow, or the table would keep claiming a direction the pair page has
+ * already struck through. A `conflict` claim still counts — the vendors dispute
+ * it, they have not withdrawn it. Filtering here rather than at the call site is
+ * deliberate: this module is the single home for direction framing, and the two
+ * surfaces drifted once already (§7.1).
  */
 export function effectiveContextDirection(
   storedDirection: IntegrationDirection | null,
-  claimDirections: readonly ClaimDirection[],
+  claims: readonly DirectionalClaim[],
   contextIsSource: boolean,
 ): ContextDirection | null {
+  const live = claims.filter((c) => !isClaimRefuted(c.attestations)).map((c) => c.direction);
   return (
-    contextDirectionFromClaims(claimDirections, contextIsSource) ??
+    contextDirectionFromClaims(live, contextIsSource) ??
     integrationDirectionForContext(storedDirection, contextIsSource)
   );
 }

@@ -1,12 +1,16 @@
 import { describe, expect, it } from 'vitest';
 
+import { CLAIM_DIRECTIONS, type ClaimDirection } from './api/promote';
 import {
+  attestorForContext,
   claimDirectionForContext,
+  claimDirectionFromContext,
   contextDirectionFromClaims,
   defaultIntegrationContext,
   effectiveContextDirection,
   integrationDirectionForContext,
   orderedPairSlugs,
+  type DirectionalClaim,
 } from './integration-context';
 
 describe('defaultIntegrationContext', () => {
@@ -67,6 +71,45 @@ describe('claimDirectionForContext', () => {
   });
 });
 
+describe('claimDirectionFromContext', () => {
+  it('folds both back to both regardless of which endpoint is the context', () => {
+    expect(claimDirectionFromContext('both', true)).toBe('both');
+    expect(claimDirectionFromContext('both', false)).toBe('both');
+  });
+
+  it('stores outbound as a_to_b from endpoint A and b_to_a from endpoint B', () => {
+    expect(claimDirectionFromContext('outbound', true)).toBe('a_to_b');
+    expect(claimDirectionFromContext('outbound', false)).toBe('b_to_a');
+  });
+
+  it('stores inbound as the mirror of outbound', () => {
+    expect(claimDirectionFromContext('inbound', true)).toBe('b_to_a');
+    expect(claimDirectionFromContext('inbound', false)).toBe('a_to_b');
+  });
+
+  // The property that matters for AECI-301: a vendor writes in its own frame and
+  // reads back the same thing. If these two ever disagree, a vendor authoring
+  // "outbound" would see "inbound" on its own dashboard, and the pair page would
+  // render the arrow backwards.
+  it('is the exact inverse of claimDirectionForContext, in both frames', () => {
+    for (const contextIsSource of [true, false]) {
+      for (const stored of CLAIM_DIRECTIONS) {
+        const framed = claimDirectionForContext(stored, contextIsSource);
+        expect(claimDirectionFromContext(framed, contextIsSource)).toBe(stored);
+      }
+    }
+  });
+
+  it('round-trips the other way too — framed → stored → framed', () => {
+    for (const contextIsSource of [true, false]) {
+      for (const framed of ['inbound', 'outbound', 'both'] as const) {
+        const stored = claimDirectionFromContext(framed, contextIsSource);
+        expect(claimDirectionForContext(stored, contextIsSource)).toBe(framed);
+      }
+    }
+  });
+});
+
 describe('contextDirectionFromClaims', () => {
   it('returns null when the mechanism has no claims', () => {
     expect(contextDirectionFromClaims([], true)).toBeNull();
@@ -91,13 +134,48 @@ describe('contextDirectionFromClaims', () => {
   });
 });
 
+describe('attestorForContext', () => {
+  it('never attributes the AECi seed to either endpoint', () => {
+    expect(attestorForContext('aeci', true)).toBe('aeci');
+    expect(attestorForContext('aeci', false)).toBe('aeci');
+  });
+
+  // `vendor_a` is endpoint A = the integration row's `source_product`. Viewed
+  // from that product the slot is the context's own vendor; viewed from the
+  // other end it is the counterparty. Same mirror as `claimDirectionForContext`.
+  it('mirrors the endpoint-A/B slots into the context frame', () => {
+    expect(attestorForContext('vendor_a', true)).toBe('context');
+    expect(attestorForContext('vendor_a', false)).toBe('other');
+    expect(attestorForContext('vendor_b', true)).toBe('other');
+    expect(attestorForContext('vendor_b', false)).toBe('context');
+  });
+});
+
 describe('effectiveContextDirection', () => {
+  /** A claim nobody has voted on — the Stage 1.5 AECi-seeded baseline. */
+  const seeded = (direction: ClaimDirection): DirectionalClaim => ({
+    direction,
+    attestations: [{ source: 'aeci', asserted: true, attestedByVendorId: null, retractedAt: null }],
+  });
+
+  /** A claim every voting vendor denies — refuted, so it must not steer the arrow. */
+  const refuted = (direction: ClaimDirection): DirectionalClaim => ({
+    direction,
+    attestations: [
+      { source: 'vendor_a', asserted: false, attestedByVendorId: 'v-acme', retractedAt: null },
+    ],
+  });
+
   it('prefers the claim aggregate over the stored row direction when claims exist', () => {
     // The bug this fixes: stored direction null, but claims flow both ways.
-    expect(effectiveContextDirection(null, ['both'], true)).toBe('both');
-    expect(effectiveContextDirection(null, ['a_to_b', 'b_to_a'], false)).toBe('both');
+    expect(effectiveContextDirection(null, [seeded('both')], true)).toBe('both');
+    expect(effectiveContextDirection(null, [seeded('a_to_b'), seeded('b_to_a')], false)).toBe(
+      'both',
+    );
     // Claims win even over a (stale/coarse) stored one-way.
-    expect(effectiveContextDirection('one-way', ['a_to_b', 'b_to_a'], true)).toBe('both');
+    expect(effectiveContextDirection('one-way', [seeded('a_to_b'), seeded('b_to_a')], true)).toBe(
+      'both',
+    );
   });
 
   it('falls back to the stored row direction when there are no claims', () => {
@@ -109,5 +187,36 @@ describe('effectiveContextDirection', () => {
   it('is null only when there is neither a claim nor a stored direction', () => {
     expect(effectiveContextDirection(null, [], true)).toBeNull();
     expect(effectiveContextDirection(null, [], false)).toBeNull();
+  });
+
+  // §4.3: once every voting vendor denies a flow, it must stop steering the
+  // product-detail table's arrow — otherwise the table keeps asserting a
+  // direction the pair page has already struck through (the §7.1 drift bug).
+  it('drops refuted claims from the aggregate', () => {
+    // The refuted b_to_a would otherwise widen this to `both`.
+    expect(effectiveContextDirection(null, [seeded('a_to_b'), refuted('b_to_a')], true)).toBe(
+      'outbound',
+    );
+  });
+
+  it('falls back to the stored direction when every claim is refuted', () => {
+    expect(effectiveContextDirection('one-way', [refuted('both')], true)).toBe('outbound');
+  });
+
+  it('is null when every claim is refuted and there is no stored direction', () => {
+    expect(effectiveContextDirection(null, [refuted('a_to_b')], true)).toBeNull();
+  });
+
+  // A conflict is a dispute, not a withdrawal: one vendor still says the flow
+  // exists, so the table keeps showing it.
+  it('keeps a disputed (conflict) claim in the aggregate', () => {
+    const disputed: DirectionalClaim = {
+      direction: 'a_to_b',
+      attestations: [
+        { source: 'vendor_a', asserted: true, attestedByVendorId: 'v-acme', retractedAt: null },
+        { source: 'vendor_b', asserted: false, attestedByVendorId: 'v-globex', retractedAt: null },
+      ],
+    };
+    expect(effectiveContextDirection(null, [disputed], true)).toBe('outbound');
   });
 });

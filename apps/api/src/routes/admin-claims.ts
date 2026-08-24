@@ -9,11 +9,28 @@
  * A sibling of `PATCH /api/admin/requests/:id` (`admin-requests.ts`), not a
  * replacement: corrections still moderate through the requests endpoint; a claim
  * moderates here so `approve` runs the §3 grant batch (link the `vendor_admin`
- * seat, flip `vendors.verified`, resolve the request — one atomic `db.batch`)
+ * seat, open the entitlement, resolve the request — one atomic `db.batch`)
  * instead of a plain resolve. The batch mechanics live in `lib/vendor-grant.ts`;
  * the claimant email→auth-user resolution in `lib/claimant-identity.ts` (AECI-527);
  * this handler owns HTTP, the resolution→status mapping, the idempotency gate, and
  * the post-commit cache purge + claim-decision email seam.
+ *
+ * ── THE GRANT IS TWO COMPOSED BUILDERS (AECI-612 / §6) ────────────────────────
+ * `approveClaim` concatenates `grantSeatStatements(...)` (seat, request resolve,
+ * workflow, claim audit) with `activateEntitlementStatements(...)` (the
+ * `vendor_entitlements` row, the guarded `vendors.verified` flip, the entitlement
+ * audit) into ONE `db.batch([...grant.stmts, ...ent.stmts])`. D1 has no
+ * interactive transactions, so composition-into-one-batch is the only way the
+ * seat and the entitlement can be atomic with each other.
+ *
+ * Why two modules and not one: `vendors.verified` is a denormalized MIRROR of
+ * `vendor_entitlements` (§2.1) and `lib/vendor-entitlement.ts` is its SOLE writer
+ * — enforced by an ESLint rule. `grantSeatStatements` no longer names `vendors`
+ * at all. The §2.3 second-seat row is what makes this safe: when the vendor
+ * already has an `active` entitlement, `ent.stmts` is `[]` and `ent.auditEntry` is
+ * `null`, so the batch is exactly today's minus the no-op guarded UPDATE. An
+ * unconditional INSERT there would violate `vendor_entitlements_vendor_key` and
+ * roll back the entire seat grant.
  *
  * The `/admin/claims` LIST + reviewer UI is AECI-521. The claim-decision email
  * SENDER is AECI-528: the send-site is an injectable seam (cf. `noopSyncToLinear`
@@ -34,11 +51,14 @@ import {
   ModerateClaimSchema,
   type AdminVendorSeat,
   type ClaimGrantSummary,
+  type LinkRef,
   type ListVendorClaimsResponse,
   type ModerateClaimResponse,
   type RelatedRequestRef,
+  type VendorEntitlementResponse,
 } from '@aeci/shared';
 import { forwardAuditLog, type AuditLogForwarder } from '@aeci/shared/audit-log';
+import { tierFor, type EntitlementTier } from '@aeci/shared/entitlements';
 import {
   forwardWorkflowTransition,
   type WorkflowTransitionForwarder,
@@ -49,9 +69,9 @@ import type { ZodType } from 'zod';
 
 import { getDb, type Db } from '../db/client';
 import {
-  products,
   productVendors,
   profiles,
+  vendorEntitlements,
   vendorRequests,
   vendors,
   workflowInstances,
@@ -73,16 +93,19 @@ import {
 } from '../lib/drizzle-helpers';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import { fetchAuthAccountsByEmail } from '../lib/supabase-admin';
-import { grantSeatStatements, rejectClaimStatements } from '../lib/vendor-grant';
+import { vendorPurgeTags, type TargetVendor } from '../lib/vendor-cache-tags';
+import {
+  activateEntitlementStatements,
+  loadEntitlement,
+  type EntitlementBefore,
+} from '../lib/vendor-entitlement';
+import {
+  CLAIM_AUDIT_SOURCE,
+  grantSeatStatements,
+  rejectClaimStatements,
+} from '../lib/vendor-grant';
 
 type ClaimContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
-
-/** The target vendor of a claim — the row the grant flips + purges. */
-interface TargetVendor {
-  id: string;
-  slug: string;
-  verified: boolean;
-}
 
 /**
  * Claim-decision email seam (§9 / AECI-528). Fired post-commit after an
@@ -111,6 +134,24 @@ export type SendClaimDecisionEmail = (
 ) => Promise<void>;
 
 const noopSendClaimEmail: SendClaimDecisionEmail = async () => {};
+
+/**
+ * The tier a claim approval grants (AECI-612 / §6.3). `verified` is the paid ENTRY
+ * rung (§3.1) and the only one this flow mints — moving a vendor up a future ladder
+ * is the admin `PATCH /api/admin/vendors/:id/entitlement` action (§5), not a claim
+ * decision. Typed as `EntitlementTier`, so adding a rung to `TIERS` cannot silently
+ * turn this into a free-form string.
+ */
+const GRANT_TIER: EntitlementTier = 'verified';
+
+/**
+ * `audit_log.action` for the entitlement row a claim approval opens. Distinct from
+ * `ENTITLEMENT_ACTION.set` (the §5 admin action) so the `entity_type='vendor_entitlement',
+ * entity_id=<vendor_id>` history ledger (§2.1) shows at a glance which grants came
+ * from a claim and which an admin recorded by hand. It shares `metadata.source` with
+ * the sibling `vendor_claim.granted` row, so the two read as one action.
+ */
+const ENTITLEMENT_GRANT_ACTION = 'vendor_entitlement.granted';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -168,17 +209,32 @@ function emitClaimModeration(
   ]);
 }
 
+/** The preloaded grant target: the vendor a claim seats against, plus its
+ *  entitlement row (`null` = never entitled). */
+interface ClaimTarget {
+  vendor: TargetVendor;
+  /** Preloaded so `activateEntitlementStatements` can branch the §2.3 matrix in TS
+   *  rather than with `onConflictDoUpdate` — that branch is what makes the
+   *  second-seat case emit genuinely nothing. */
+  entitlement: EntitlementBefore | null;
+}
+
 /**
  * The vendor a claim grants: for a `target_type='vendor'` claim, the target
  * itself; for a `target_type='product'` claim, the product's PRIMARY vendor (the
  * `is_primary` row wins; any row is the fallback). Resolving this before calling
  * `resolveClaimantIdentity` is mandatory — exclusivity compares against
  * `profiles.vendor_id`, which can only ever hold a vendor id (§2).
+ *
+ * Also preloads the vendor's `vendor_entitlements` row (AECI-612 / §6.4) — one
+ * extra single-row lookup on `vendor_entitlements_vendor_key`, on a path that
+ * already does five reads. It feeds both the §2.3 activate branch and the
+ * idempotent re-grant's `tier` readout, so no caller re-derives the `findFirst`.
  */
 async function resolveTargetVendor(
   db: Db,
   existing: RawAdminVendorRequestRow,
-): Promise<TargetVendor> {
+): Promise<ClaimTarget> {
   let vendorId: string;
   if (existing.targetType === 'vendor') {
     vendorId = existing.targetId;
@@ -203,7 +259,7 @@ async function resolveTargetVendor(
     where: eq(vendors.id, vendorId),
   });
   if (!vendor) throw notFoundError('vendor', { id: vendorId });
-  return vendor;
+  return { vendor, entitlement: await loadEntitlement(db, vendorId) };
 }
 
 /** Find-or-derive the `vendor_claim` workflow instance id for a claim (find-or-create
@@ -239,19 +295,6 @@ async function purgeGrantTags(c: ClaimContext, tags: readonly string[]): Promise
       outcome: error instanceof Error ? error.message : String(error),
     });
   }
-}
-
-/** The `vendor:<slug>` + `product:<slug>` (+ `index:products`) tag set a grant
- *  invalidates: the vendor detail page and every product page that embeds it. */
-async function grantPurgeTags(db: Db, vendor: TargetVendor): Promise<string[]> {
-  const productRows = await db
-    .select({ slug: products.slug })
-    .from(productVendors)
-    .innerJoin(products, eq(products.id, productVendors.productId))
-    .where(eq(productVendors.vendorId, vendor.id));
-  const tags = [`vendor:${vendor.slug}`, ...productRows.map((r) => `product:${r.slug}`)];
-  if (productRows.length > 0) tags.push('index:products');
-  return tags;
 }
 
 /** Build the response row from the preloaded claim + the values just committed. */
@@ -347,7 +390,7 @@ async function approveClaim(
     );
   }
 
-  const vendor = await resolveTargetVendor(db, existing);
+  const { vendor, entitlement: entitlementBefore } = await resolveTargetVendor(db, existing);
 
   // A `resolved` claim is terminal too. Its only valid re-approve is the idempotent
   // same-seat no-op, which needs an EXISTING linked account to recognize — so resolve
@@ -414,12 +457,18 @@ async function approveClaim(
     if (existing.status === 'resolved' && alreadySeated) {
       emitClaimModeration(c, 'approve', 'noop');
       const targets = await resolveRequestTargets(db, [existing]);
+      // No batch is built on this path (§6.5) — the summary is a pure readout of
+      // the preloaded state. `tierFor` fails closed, so a vendor whose entitlement
+      // was cleared (or never backfilled) reports `unclaimed`, not a flattering
+      // `verified` derived from the mirror.
       const body = claimResponse(existing, {}, targets.get(existing.targetId) ?? null, {
         user_id: userId,
         vendor_id: vendor.id,
         verified: vendor.verified,
         identity_outcome: identityOutcome,
         seat_created: false,
+        tier: tierFor(entitlementBefore),
+        entitlement_created: false,
       });
       validateResponseInDev(c.env, () => ModerateClaimResponseSchema.parse(body));
       return json(body);
@@ -435,7 +484,7 @@ async function approveClaim(
   const resolvedAt = new Date().toISOString();
   const { workflowId, existingWf } = await findClaimWorkflow(db, existing.id);
 
-  const { stmts, auditEntry, workflowEntry } = grantSeatStatements(db, {
+  const grant = grantSeatStatements(db, {
     userId,
     vendorId: vendor.id,
     requestId: existing.id,
@@ -455,7 +504,33 @@ async function approveClaim(
     targetId: existing.targetId,
   });
 
-  await db.batch(stmts as BatchTuple);
+  // The entitlement half of the same grant (§6.3). `tier: 'verified'` is the paid
+  // entry rung (§3.1) — the claim flow grants no other. The claim body's
+  // arrangement blob lands in BOTH places on purpose (§6.6): verbatim in the claim
+  // audit metadata (the history ledger) and as columns on the row (the state).
+  //
+  // Per the §2.3 matrix this returns the frozen no-op — zero statements, `null`
+  // audit entry — whenever the vendor already has an `active` row, which is the
+  // second-seat case.
+  const ent = activateEntitlementStatements(db, {
+    vendorId: vendor.id,
+    tier: GRANT_TIER,
+    now: resolvedAt,
+    actorId,
+    actorType,
+    existing: entitlementBefore,
+    vendorWasVerified: vendor.verified,
+    grantedBy: actorId,
+    sourceRequestId: existing.id,
+    arrangement: entitlement,
+    action: ENTITLEMENT_GRANT_ACTION,
+    source: CLAIM_AUDIT_SOURCE,
+    reason,
+  });
+
+  // ONE batch. The seat, the request resolve, the workflow, the entitlement row,
+  // the mirror flip and both audit rows commit or roll back together (§26.1).
+  await db.batch([...grant.stmts, ...ent.stmts] as BatchTuple);
   emitClaimModeration(c, 'approve', 'ok');
 
   // Resolve the claimed target's display name up front — reused by the email
@@ -465,7 +540,7 @@ async function approveClaim(
 
   // Post-commit, best-effort (§3): purge the vendor + its products, send the
   // claim-approved email (AECI-528 seam), forward audit + workflow to Datadog.
-  const purgeTags = await grantPurgeTags(db, vendor);
+  const purgeTags = await vendorPurgeTags(db, vendor);
   c.executionCtx.waitUntil(purgeGrantTags(c, purgeTags));
   c.executionCtx.waitUntil(
     sendClaimDecisionEmail(c, {
@@ -488,10 +563,13 @@ async function approveClaim(
       }
     }),
   );
+  // Both audit rows forward (§26.5). `ent.auditEntry` is null on the second-seat
+  // path, and `forwardAuditLog` is a no-op for it.
   c.executionCtx.waitUntil(
     Promise.all([
-      forwardAuditLog(auditEntry, makeForwarder(c)),
-      forwardWorkflowTransition(workflowEntry, makeWorkflowForwarder(c)),
+      forwardAuditLog(grant.auditEntry, makeForwarder(c)),
+      ent.auditEntry ? forwardAuditLog(ent.auditEntry, makeForwarder(c)) : Promise.resolve(),
+      forwardWorkflowTransition(grant.workflowEntry, makeWorkflowForwarder(c)),
     ]),
   );
 
@@ -502,9 +580,21 @@ async function approveClaim(
     {
       user_id: userId,
       vendor_id: vendor.id,
-      verified: true,
+      // Where the MIRROR actually landed, not an assumption. True on a first grant
+      // (the guarded flip fired) and on a second seat (already true). It is only
+      // false in the one drifted state this grant cannot repair — an `active`
+      // entitlement row over `verified = 0`, where the §2.3 matrix emits nothing
+      // and `ops:backfill-entitlements` (Guard 2's remedy) owns the fix.
+      verified: vendor.verified || ent.verifiedFlipped,
       identity_outcome: identityOutcome,
       seat_created: seatCreated,
+      // The tier this grant WROTE, or — on the second-seat no-op, where nothing was
+      // written — the tier the pre-existing active row already carries, resolved
+      // fail-closed. Today `TIERS` is binary so both arms say `verified`; the
+      // distinction is what keeps the readout honest once a rung is added (§3.1
+      // makes that a data-only edit).
+      tier: ent.stmts.length > 0 ? GRANT_TIER : tierFor(entitlementBefore),
+      entitlement_created: ent.entitlementCreated,
     },
   );
   validateResponseInDev(c.env, () => ModerateClaimResponseSchema.parse(body));
@@ -607,17 +697,20 @@ function dupKey(head: string, targetType: string, targetId: string): string {
 }
 
 /**
- * The claimed vendor's active seats, keyed by REQUEST id (§5 "existing seats").
- * Resolves each claim's target vendor first (a `product` claim → its PRIMARY
- * vendor, mirroring `resolveTargetVendor`), then ONE grouped `profiles` scan over
- * the page's vendor ids (`role='vendor_admin' AND banned_at IS NULL`) — no per-row
- * N+1. A claim whose product has no vendor maps to `[]` (there is no vendor to
- * seat). Ordered oldest-first so the roster is stable.
+ * Each claim's TARGET VENDOR id, keyed by REQUEST id — the page-wide batched form of
+ * `resolveTargetVendor`: a `vendor` claim resolves to its target, a `product` claim to
+ * that product's PRIMARY vendor. One `IN (...)` scan, no per-row N+1. A claim whose
+ * product has no `product_vendors` row is simply absent from the map (there is no
+ * vendor to seat and none to entitle).
+ *
+ * Hoisted out of `loadExistingSeats` by AECI-532: the entitlement column (§5) needs the
+ * same resolution, and two copies of "which vendor does this claim mean" is exactly how
+ * a queue ends up showing one vendor's seats beside another vendor's badge.
  */
-async function loadExistingSeats(
+async function resolveClaimVendorIds(
   db: Db,
   rows: RawAdminVendorRequestRow[],
-): Promise<Map<string, AdminVendorSeat[]>> {
+): Promise<Map<string, string>> {
   const productTargetIds = [
     ...new Set(rows.filter((r) => r.targetType === 'product').map((r) => r.targetId)),
   ];
@@ -643,7 +736,77 @@ async function loadExistingSeats(
     const vendorId = row.targetType === 'vendor' ? row.targetId : productVendorId.get(row.targetId);
     if (vendorId) vendorByRow.set(row.id, vendorId);
   }
+  return vendorByRow;
+}
 
+/**
+ * The claimed vendors' entitlement readouts, keyed by VENDOR id (AECI-532 / §5), plus
+ * the vendor `LinkRef` the entitlement control addresses.
+ *
+ * ONE grouped scan over the page's vendor ids joining `vendors` ← `vendor_entitlements`
+ * — a LEFT join, because "no entitlement row" is the common case and must render as
+ * "not entitled" rather than dropping the row. `verified` is read from the vendor (the
+ * mirror, §2.1), never recomputed from the entitlement: the column shows what the
+ * public surfaces actually render, so a drifted vendor is VISIBLE here rather than
+ * silently normalized away.
+ *
+ * Read-only. §2.5's "no public or read path may query `vendor_entitlements`" binds the
+ * PUBLIC surfaces; the admin entitlement surface is one of the two readers §2.5 names.
+ */
+async function loadClaimEntitlements(
+  db: Db,
+  vendorIds: string[],
+): Promise<Map<string, { vendor: LinkRef; entitlement: VendorEntitlementResponse | null }>> {
+  const byVendor = new Map<
+    string,
+    { vendor: LinkRef; entitlement: VendorEntitlementResponse | null }
+  >();
+  if (vendorIds.length === 0) return byVendor;
+
+  const rows = await db
+    .select({ vendor: vendors, entitlement: vendorEntitlements })
+    .from(vendors)
+    .leftJoin(vendorEntitlements, eq(vendorEntitlements.vendorId, vendors.id))
+    .where(inArray(vendors.id, vendorIds));
+
+  for (const row of rows) {
+    const e = row.entitlement;
+    byVendor.set(row.vendor.id, {
+      vendor: { id: row.vendor.id, name: row.vendor.companyName, slug: row.vendor.slug },
+      entitlement: e
+        ? {
+            vendor_id: row.vendor.id,
+            tier: e.tier as VendorEntitlementResponse['tier'],
+            status: e.status as VendorEntitlementResponse['status'],
+            period_start: e.periodStart,
+            period_end: e.periodEnd,
+            granted_at: e.grantedAt,
+            ended_at: e.endedAt,
+            verified: row.vendor.verified,
+            payer: e.payer,
+            amount: e.amount,
+            terms: e.terms,
+            arranged_by: e.arrangedBy,
+            invoice_ref: e.invoiceRef,
+            notes: e.notes,
+          }
+        : null,
+    });
+  }
+  return byVendor;
+}
+
+/**
+ * The claimed vendor's active seats, keyed by REQUEST id (§5 "existing seats"). ONE
+ * grouped `profiles` scan over the page's vendor ids (`role='vendor_admin' AND
+ * banned_at IS NULL`) — no per-row N+1. A claim whose product has no vendor is absent
+ * from `vendorByRow` and maps to `[]` (there is no vendor to seat). Ordered oldest-first
+ * so the roster is stable.
+ */
+async function loadExistingSeats(
+  db: Db,
+  vendorByRow: Map<string, string>,
+): Promise<Map<string, AdminVendorSeat[]>> {
   const vendorIds = [...new Set(vendorByRow.values())];
   const seatsByVendor = new Map<string, AdminVendorSeat[]>();
   if (vendorIds.length > 0) {
@@ -806,14 +969,34 @@ export function createAdminClaimsListHandler(
 
     // Every row is a claim, so every submitter feeds the auth + related lookups.
     const claimEmails = rows.map((r) => r.submitterEmail);
-    // FAIL-SOFT enrichment: a rejected seats/related query becomes a `null` signal
-    // (UI: "unavailable"), never a failed response.
-    const [targets, authAccountByEmail, seatsByRow, relatedByRow] = await Promise.all([
-      resolveRequestTargets(db, rows),
-      fetchAuthAccounts(c.env, claimEmails),
-      loadExistingSeats(db, rows).catch(() => null),
-      loadRelatedRequests(db, rows, claimEmails).catch(() => null),
-    ]);
+    // Resolved ONCE and shared by the seats + entitlement enrichments (AECI-532): both
+    // answer "which vendor does this claim mean", and two copies of that resolution is
+    // how a queue shows one vendor's seats beside another vendor's badge. Fail-soft
+    // like the signals it feeds — a rejected resolution degrades BOTH to `null`.
+    const vendorByRow = await resolveClaimVendorIds(db, rows).catch(() => null);
+    // FAIL-SOFT enrichment: a rejected seats/related/entitlement query becomes a `null`
+    // signal (UI: "unavailable"), never a failed response.
+    const [targets, authAccountByEmail, seatsByRow, relatedByRow, entitlementByVendor] =
+      await Promise.all([
+        resolveRequestTargets(db, rows),
+        fetchAuthAccounts(c.env, claimEmails),
+        vendorByRow ? loadExistingSeats(db, vendorByRow).catch(() => null) : null,
+        loadRelatedRequests(db, rows, claimEmails).catch(() => null),
+        vendorByRow
+          ? loadClaimEntitlements(db, [...new Set(vendorByRow.values())]).catch(() => null)
+          : null,
+      ]);
+
+    /** The claim's resolved vendor + entitlement, or `[null, null]` when there is no
+     *  vendor to act on (a product with no `product_vendors` row) or the enrichment
+     *  degraded. Both move together so the UI never offers a control it cannot address. */
+    const entitlementFor = (
+      row: RawAdminVendorRequestRow,
+    ): [LinkRef | null, VendorEntitlementResponse | null] => {
+      const vendorId = vendorByRow?.get(row.id);
+      const hit = vendorId ? entitlementByVendor?.get(vendorId) : undefined;
+      return hit ? [hit.vendor, hit.entitlement] : [null, null];
+    };
 
     const body: ListVendorClaimsResponse = {
       data: rows.map((row) =>
@@ -824,6 +1007,7 @@ export function createAdminClaimsListHandler(
           authAccountByEmail,
           seatsByRow ? (seatsByRow.get(row.id) ?? []) : null,
           relatedByRow ? (relatedByRow.get(row.id) ?? []) : null,
+          ...entitlementFor(row),
         ),
       ),
       page: query.page,

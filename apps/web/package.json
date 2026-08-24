@@ -64,7 +64,7 @@
     "@supabase/ssr": "^0.7.0",
     "@supabase/supabase-js": "^2.49.0",
     "algoliasearch": "^5.40.0",
-    "hono": "^4.12.12",
+    "hono": "^4.13.0",
     "instantsearch.js": "^4.79.0",
     "marked": "^18.0.5",
     "posthog-js": "^1.393.0",
@@ -90,7 +90,7 @@
     "tailwindcss": "^4.3.0",
     "typescript": "~6.0.3",
     "vitest": "^4.1.8",
-    "wrangler": "^4.111.0",
+    "wrangler": "^4.123.0",
     "xhr2": "^0.2.1"
   }
 }

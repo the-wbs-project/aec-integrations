@@ -5,16 +5,31 @@
  * D1 has no interactive transactions — only atomic `db.batch([...])`. Like
  * `lib/audit.ts`, each function RETURNS the Drizzle statements (plus the audit /
  * workflow entries the caller forwards to Datadog post-commit) rather than
- * executing them, so the seat write, the `vendors.verified` flip, the request
- * resolution, and the `audit_log` row all commit or roll back as one unit
- * (§26.1 — no state change without an audit row). The route handler
- * (`routes/admin-claims.ts`) owns HTTP, identity resolution, and the post-commit
- * cache purge / email; this module is pure so the batch shape is unit-testable
- * without a live Supabase or the D1 harness.
+ * executing them, so the seat write, the request resolution, and the `audit_log`
+ * row all commit or roll back as one unit (§26.1 — no state change without an
+ * audit row). The route handler (`routes/admin-claims.ts`) owns HTTP, identity
+ * resolution, and the post-commit cache purge / email; this module is pure so the
+ * batch shape is unit-testable without a live Supabase or the D1 harness.
  *
  * The pieces are split out (rather than inlined in the handler) so the grant,
  * reject, and revoke batches share one no-drift definition and AECI-524 can wire
  * an endpoint onto `revokeSeatStatements` later without re-deriving the shape.
+ *
+ * ── THIS MODULE NEVER TOUCHES `vendors` (AECI-612 / §6 step 1) ─────────────────
+ * `grantSeatStatements` used to emit `UPDATE vendors SET verified = 1` itself. It
+ * does not any more: `vendors.verified` is a denormalized MIRROR of
+ * `vendor_entitlements` (§2.1) and `lib/vendor-entitlement.ts` is its SOLE writer.
+ * `approveClaim` now composes the two builders —
+ * `db.batch([...grant.stmts, ...ent.stmts])` — so the seat, the entitlement row,
+ * the mirror flip and both audit rows still commit or roll back as ONE unit. What
+ * did NOT change is the audit shape: `vendorWasVerified` is still a parameter and
+ * `verified_flipped` / `beforeState.vendor_verified` / `afterState.vendor_verified`
+ * are still written. They are pure metadata with no statement behind them, which is
+ * why the refactor is invisible to every shipped claim assertion.
+ *
+ * An ESLint `no-restricted-syntax` rule (`eslint.config.base.mjs`, Guard 1) now
+ * covers this file, and `vendor-grant.spec.ts` asserts by generated SQL that no
+ * statement here names `vendors` at all — the invariant cannot silently regress.
  */
 
 import type { ClaimEntitlement } from '@aeci/shared';
@@ -23,7 +38,7 @@ import type { WorkflowTransitionEntry } from '@aeci/shared/workflow-transition';
 import { and, eq, inArray } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
-import { profiles, vendorRequests, vendors, workflowInstances } from '../db/schema';
+import { profiles, vendorRequests, workflowInstances } from '../db/schema';
 import { auditInsert, workflowTransitionInsert, type BatchStmt } from './audit';
 import { VENDOR_ADMIN_ROLE } from './claimed-vendors';
 
@@ -35,8 +50,13 @@ const REVIEWER_ROLE = 'reviewer';
  * moderation surfaces (`admin-requests.ts` / `admin-reviews.ts`): the actor is an
  * `admin` acting on `/api/admin/*`, so the trail reads alongside the other
  * moderation actions, not the vendor-portal self-service edits (`vendor-portal`).
+ *
+ * EXPORTED for `routes/admin-claims.ts`, which passes it to
+ * `activateEntitlementStatements` so the grant's TWO audit rows —
+ * `vendor_claim.granted` here and `vendor_entitlement.granted` there — carry the
+ * same `source` tag and read as one action in the trail (§6.3).
  */
-const CLAIM_AUDIT_SOURCE = 'admin-moderation';
+export const CLAIM_AUDIT_SOURCE = 'admin-moderation';
 
 /** `workflow_instances.final_outcome` for the terminal claim statuses (§26.2),
  *  mirroring `TERMINAL_OUTCOME` in `routes/admin-requests.ts`. */
@@ -73,8 +93,11 @@ export interface GrantSeatParams {
   resolvedAt: string;
   /** The request's real prior state — `'open' | 'in_review'`. */
   fromStatus: string;
-  /** Whether the vendor was ALREADY verified (drives `verified_flipped` in audit;
-   *  a second-seat grant leaves the flip a no-op). */
+  /** Whether the vendor was ALREADY verified. AUDIT METADATA ONLY since AECI-612 —
+   *  there is no `vendors` statement behind it here any more; the flip itself is
+   *  emitted by `activateEntitlementStatements` in the same batch (§2.1 / §6). It is
+   *  kept because `verified_flipped` and the before/after `vendor_verified` snapshots
+   *  are what make the claim's audit row self-contained. */
   vendorWasVerified: boolean;
   workflowId: string;
   /** Whether a `vendor_claim` workflow instance already exists (update vs insert). */
@@ -142,18 +165,21 @@ function claimMetadata(
 
 /**
  * The grant batch (§3): (1) no-clobber seat upsert → `vendor_admin` + `vendor_id`,
- * (2) guarded `vendors.verified = true` (+ `updated_at`), (3) guarded request
- * resolve, (4) `vendor_claim` workflow completion + transition, (5) audit.
+ * (2) guarded request resolve, (3) `vendor_claim` workflow completion +
+ * transition, (4) audit. **FIVE statements, none of them on `vendors`.**
  *
  * The seat upsert sets ONLY `role`/`vendor_id` (+ `updated_at`) on conflict, so a
  * grant landing before the claimant's first sign-in — or after — never clobbers
- * `display_name`, `theme_preference`, `work_email_verified`, `trust_tier`, or the
- * ban columns (§2 no-clobber contract). The verified flip is guarded on
- * `verified = false`, so a second seat on an already-verified vendor is a no-op
- * there (no redundant flip, no `updated_at` churn), while the seat + audit still
- * land — multi-seat safe. `updated_at` is stamped explicitly (not left to
- * `$onUpdate`) to match `routes/vendor.ts` and guarantee the Algolia watermark
- * (AECI-529) moves.
+ * `display_name`, `theme_preference`, `work_email_verified`, `trust_tier` (a
+ * REVIEWER concept whose CHECK vocabulary happens to contain `'verified'` — not
+ * this epic's entitlement tier, R4), or the ban columns (§2 no-clobber contract).
+ *
+ * The `vendors.verified` flip that used to be statement (2) moved to
+ * `activateEntitlementStatements` (AECI-612 / §6 step 1), which the caller
+ * concatenates into the SAME batch. Multi-seat safety is unchanged and now comes
+ * from the §2.3 matrix: a second seat on a vendor with an `active` entitlement
+ * emits ZERO entitlement statements and ZERO `vendors` statements, so there is no
+ * redundant flip and no `updated_at` churn, while the seat + audit still land.
  */
 export function grantSeatStatements(db: Db, p: GrantSeatParams): ClaimBatch {
   const verifiedFlipped = !p.vendorWasVerified;
@@ -205,10 +231,6 @@ export function grantSeatStatements(db: Db, p: GrantSeatParams): ClaimBatch {
         target: profiles.id,
         set: { role: VENDOR_ADMIN_ROLE, vendorId: p.vendorId, updatedAt: p.resolvedAt },
       }),
-    db
-      .update(vendors)
-      .set({ verified: true, updatedAt: p.resolvedAt })
-      .where(and(eq(vendors.id, p.vendorId), eq(vendors.verified, false))),
     db
       .update(vendorRequests)
       .set({ status: 'resolved', resolvedById: p.actorId, resolvedAt: p.resolvedAt })
@@ -309,8 +331,10 @@ export function rejectClaimStatements(db: Db, p: RejectClaimParams): ClaimBatch 
  * and unlink `vendor_id`, audited. **Never touches `vendors.verified`** —
  * `verified` is a vendor-level paid state, not a seat property, so revoking one of
  * several seats must not un-verify the vendor (`STAGE_2_SPEC.md` §8.3(2)); the
- * vendor-level un-verify is a separate entitlement action (AECI-515), unowned
- * today. The `WHERE` is scoped to an ACTIVE `vendor_admin` seat on this vendor, so
+ * vendor-level un-verify is a separate entitlement action, owned by
+ * `deactivateEntitlementStatements` (`STAGE_2_PAID_TIERS_SPEC.md` §5.2 — three
+ * orthogonal "take it away" actions).
+ * The `WHERE` is scoped to an ACTIVE `vendor_admin` seat on this vendor, so
  * revoking a non-seat is a safe no-op that still records its audit row.
  *
  * A mechanic with **no HTTP endpoint** at launch. AECI-524 (moderation) scoped

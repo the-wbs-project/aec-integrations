@@ -31,7 +31,16 @@ export type ContextDirection = 'outbound' | 'inbound' | 'both';
 /** The §7.1 integration mechanism enum (mirrors `@aeci/shared` `IntegrationMechanismKind`). */
 export type MechanismKind = 'native' | 'iPaaS' | 'marketplace-app' | 'api' | 'webhook' | 'partner';
 
-/** The only 1.5-reachable agreement value; `confirmed`/`conflict` arrive with the Stage 2 portal (§3.4). */
+/**
+ * The only 1.5-reachable agreement value; `confirmed`/`conflict` arrive with the Stage 2 portal (§3.4).
+ *
+ * **Superseded — do not copy from here.** The shipped engine
+ * (`packages/shared/src/agreement.ts`) now has FOUR states: AECI-605 added
+ * `single_source` and narrowed `confirmed` to two *distinct* vendor identities
+ * (`STAGE_2_ATTESTATIONS_SPEC.md` §4). This prototype is frozen at the AECI-289
+ * concept and is deliberately not kept in lockstep — it exists to show the PO
+ * the visual direction, not to be a second implementation.
+ */
 export type AgreementState = 'unverified' | 'confirmed' | 'conflict';
 
 /** A product endpoint, shaped like `@aeci/shared` `ProductLink` plus two prototype conveniences. */

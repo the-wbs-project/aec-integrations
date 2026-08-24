@@ -52,11 +52,15 @@ function buildProduct(overrides: Partial<ProductDetail> = {}): ProductDetail {
     categories: [],
     audiences: [],
     phases: [],
+    trades: [],
     usefulness: null,
     integrations_as_source: [],
     integrations_as_target: [],
+    integrations_as_connector: [],
     related_products: [],
     reviews: [],
+    // The unreviewed baseline (AECI-616): bare attribution, no date.
+    maintenance: { maintained_by: 'aeci', last_reviewed_at: null },
     ...overrides,
   };
 }
@@ -100,6 +104,21 @@ registerDetailResolverSuite<ProductDetail>({
           updated_at: '2024-01-01T00:00:00.000Z',
         },
       ],
+      // Powered edge (this product is the connector) — bare IntegrationListItem,
+      // no `context_direction`. Both endpoints render, so both get tagged.
+      integrations_as_connector: [
+        {
+          id: 'int-c',
+          name: 'D ↔ E',
+          mechanism_kind: 'iPaaS',
+          mechanism_name: null,
+          direction: null,
+          source: { id: 's3', name: 'D', slug: 'd', logo_url: null },
+          target: { id: 't3', name: 'E', slug: 'e', logo_url: null },
+          created_at: '2024-01-01T00:00:00.000Z',
+          updated_at: '2024-01-01T00:00:00.000Z',
+        },
+      ],
     }),
   expectedMeta: {
     entity: 'product',
@@ -112,12 +131,17 @@ registerDetailResolverSuite<ProductDetail>({
   // Vendor tag + integration tag + partner product tag for each shown
   // integration (both source and target lists). Partner product tags are
   // required per CACHE_STRATEGY.md §3 so edits to those products purge this page.
+  // Powered edges (Addendum B) tag BOTH endpoints — this product is the
+  // connector, so neither endpoint is "self".
   expectedEmbedded: [
     { type: 'vendor', slug: 'procore' },
     { type: 'integration', id: 'int-a' },
     { type: 'product', slug: 'b' }, // target of integrations_as_source[0]
     { type: 'integration', id: 'int-b' },
     { type: 'product', slug: 'c' }, // source of integrations_as_target[0]
+    { type: 'integration', id: 'int-c' },
+    { type: 'product', slug: 'd' }, // source of integrations_as_connector[0]
+    { type: 'product', slug: 'e' }, // target of integrations_as_connector[0]
   ],
   expectedPageView: {
     route: '/products/:slug',
@@ -152,5 +176,31 @@ describe('productDetailResolver — product-specific', () => {
     // No vendor link → no `vendor:*` tag (and no fabricated `vendor:unknown`).
     // This product has no embedded integrations either, so the list is empty.
     expect(ctx.embedded).toEqual([]);
+  });
+
+  // AECI-518 — the second argument the shared harness deliberately does not
+  // assert. The canonical is what gives the node a stable `@id`, and it is the
+  // URI the product-PAIR page references in `about[]`; passing the wrong URL (or
+  // dropping the argument) silently disconnects the entity graph rather than
+  // failing anything.
+  it('passes the canonical to setProductJsonLd so the node gets a stable @id', async () => {
+    const product = buildProduct();
+    const setProductJsonLd = vi.fn();
+    const ctx = createRequestContext(buildClient(async () => product));
+
+    const { run } = setup({
+      platform: 'server',
+      ctx,
+      responseInit: { status: 200 },
+      request: new Request('https://aecintegrations.com/products/procore'),
+      meta: { setEntityMeta: vi.fn(), setProductJsonLd } as Partial<MetaService>,
+    });
+
+    await run();
+
+    expect(setProductJsonLd).toHaveBeenCalledWith(
+      product,
+      'https://aecintegrations.com/products/procore',
+    );
   });
 });
