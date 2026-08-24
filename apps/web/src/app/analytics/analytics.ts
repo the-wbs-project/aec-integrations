@@ -183,6 +183,25 @@ export class Analytics {
       .catch(() => undefined);
   }
 
+  /**
+   * The memoized Tier 2 client boot, shared with `FeatureFlags` (AECI-650).
+   *
+   * `createPostHogClient()` calls `posthog.init()` on the SDK's module
+   * singleton, so exactly one owner may boot it: a second `init` is refused
+   * with a console error ("You have already initialized posthog!") and the
+   * second caller silently gets the first caller's configuration. Rather than
+   * let a second service call the factory, everything that needs the client
+   * borrows this promise.
+   *
+   * Resolves `null` on the server and whenever PostHog is unconfigured, which
+   * is what makes a keyless tier deterministic: the SDK is never imported and
+   * nothing is fetched.
+   */
+  client(): Promise<PostHogClient | null> {
+    if (!this.isBrowser) return Promise.resolve(null);
+    return this.boot();
+  }
+
   // ─── Internals ─────────────────────────────────────────────────────────────
 
   /** Gate on browser + consent, merge the required dimensions, fire-and-forget. */

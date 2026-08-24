@@ -207,7 +207,167 @@ retrofitted (§3.10).
   the only tier on `aec-integrations` (354071). Events in 354071 from **before**
   that change carry mixed tiers — filter by `$host` when reading history.
 
-## 10. Related
+## 10. Feature flags
+
+Flags are the *other* thing PostHog does for AECi, and they are governed here
+because they share the browser client, the consent posture and the key
+namespace with events. Introduced by AECI-650 (§AW9). The mechanism lives in
+`apps/web/src/app/analytics/feature-flags.ts`; that file's header is the
+long-form version of everything below.
+
+### 10.1 The catalogue is the type
+
+`featureFlagDefaults` is a committed map of every flag key to the value the app
+must behave correctly under when PostHog has not answered:
+
+```ts
+export const featureFlagDefaults = {
+  'example-placeholder': false,
+} as const satisfies Record<string, boolean>;
+
+export type FeatureFlag = keyof typeof featureFlagDefaults;
+```
+
+`FeatureFlag` is *derived from* the catalogue, so `flags.flag('serch-v2')` is a
+**compile error** rather than a flag that quietly reads `false` forever. That
+inversion is the point: at runtime an unknown key and a switched-off flag are
+indistinguishable, which is the most common way flag plumbing fails silently.
+
+**User-visible flags default to `false`** — the unflagged path is the shipped
+path, so a PostHog outage degrades to today's behaviour rather than to a
+half-rolled-out one.
+
+`example-placeholder` is exactly what it says. AECI-650 delivered the mechanism
+before there was a surface to gate; the row exists only because an empty map
+types `FeatureFlag` as `never` and makes every call site a compile error.
+Delete it in the PR that adds the first real flag.
+
+### 10.2 There is no `undefined` third state
+
+`flag(key)` returns `Signal<boolean>`, never `Signal<boolean | undefined>`. The
+signal is *created* at the committed default and is only ever replaced by a
+real evaluation once the `/flags` response lands. There is no window in which a
+caller can observe `undefined`.
+
+That is a deliberate narrowing of the SDK, which does have a third state:
+`posthog.isFeatureEnabled(key)` returns `undefined` both before flags load and
+for a key the project does not define. Exposing it would force every call site
+to handle "not loaded yet", and they would not; they would write `if (flag())`
+and ship the wrong branch for the first few hundred milliseconds of every page
+load. The collapse to a boolean therefore happens once, at the seam.
+
+Three behaviours follow from the same rule:
+
+- **A flip propagates without a redeploy.** The service subscribes to
+  `onFeatureFlags`, which fires when `/flags` first answers *and* on every later
+  change, so toggling a flag in the PostHog UI moves a live page.
+- **Late subscribers adopt the current value.** A component that mounts after
+  the response landed is seeded from the loaded client, not left on the default
+  until the next change (which may never come).
+- **Signal identity is stable.** Repeated `flag('x')` calls return the same
+  signal instance, so a template binding does not churn.
+
+Reads pass `send_event: false`, mirroring `sendFeatureFlagEvents: false` on the
+Worker seam: reading a flag must not capture a `$feature_flag_called` event
+into the Tier 2 pre-consent slice, and AECi runs no PostHog experiments, which
+are the only consumer of those events.
+
+### 10.3 Keyless tiers are deterministic
+
+With no `window.__AECI_POSTHOG__` (bare local dev, an unprovisioned tier) the
+client boot resolves `null`, nothing subscribes, and every flag stands at its
+default. **Nothing is fetched.** Local dev behaves identically on every machine
+and never depends on the network, which is the browser-side twin of the
+transport's "no project key means total no-op" invariant
+(`POSTHOG_MIGRATION_SPEC.md` §2, invariant 3).
+
+### 10.4 Flags never alter cacheable SSR output
+
+**This is the AECi-specific rule, and it is the one that will hurt if it is
+forgotten.**
+
+The Workers Cache is keyed by **URL** and nothing about the visitor
+(`CACHE_STRATEGY.md` §4a, `STAGE_1_SPEC.md` §9.1a). If a flag reached an SSR
+render decision, the **first visitor's flag evaluation would be baked into the
+cached HTML and served to everyone**, including every visitor in the other
+variant. It is the same trap as the theme cookie, with a worse failure mode: a
+mis-served theme is visible, a mis-served variant is not, so the experiment
+just reports nonsense.
+
+Two consequences:
+
+1. **Flag-gated UI reconciles post-hydration** — the pattern `ReviewCta`
+   (`apps/web/src/app/reviews/review-cta.ts`) and `ConsentBanner` already use:
+   render the visitor-neutral default during SSR, let the browser move it
+   afterwards. Follow that pattern; do not invent a second mechanism. Here it
+   costs nothing extra, because §10.2 already guarantees the signal starts at
+   the default, which is also what keeps hydration matching (server render and
+   first client render read the identical value).
+2. **Server-side flag checks are for API-Worker behaviour only** — never for an
+   SSR render decision.
+
+The rule is enforced **by construction**, not by discipline: `FeatureFlags`
+resolves no value on the server (the constructor returns early, and the SDK is
+browser-only), so an SSR pass can only ever see defaults. The one way to break
+it is to call the Worker-side helper from SSR code, which is what rule 2
+forbids.
+
+### 10.5 Server-side evaluation, and its price
+
+`isFeatureEnabled(env, key, distinctId, fallback)` in
+`packages/shared/src/posthog.ts` (AECI-642) is the Worker-side check. Two
+things to know before reaching for it:
+
+- **It costs a network round-trip per call.** Local evaluation would require a
+  personal API key (`phx_`) or a project secret key inside the client, and
+  neither may ever become a Worker secret — a publishable-token-only telemetry
+  surface is one of the properties this migration bought. So the round trip is
+  **genuinely unavailable, not merely unimplemented**. Budget for it at the call
+  site; do not reach for `secretKey`.
+- **It returns `fallback` on anything going wrong** — missing project key,
+  evaluation error, or a flag the project does not define. Same no-third-state
+  discipline as the browser side.
+
+Server-side flags have no catalogue equivalent today because the type lives in
+`apps/web`. Pass the same kebab-case key and the same default you would use in
+the browser.
+
+### 10.6 Conventions
+
+- **Keys are `kebab-case` and feature-scoped** (`vendor-seat-invites`, not
+  `newFlag` or `flag_2`). A different namespace from events (`snake_case
+  object_verb`) on purpose, so a flag key never reads like an event name (§1).
+- **Check a flag at route or feature level, never in a leaf component.** One
+  check that picks a branch is reviewable; twenty checks sprinkled through a
+  component tree are a permanent second code path.
+- **Flags are scaffolding, not architecture.** Remove the flag, its catalogue
+  row and the dead branch **within weeks of full rollout**. A flag that outlives
+  its rollout has become architecture, and nobody ever deletes architecture.
+- **Never gate a security or authorization decision on a flag.** Authorization
+  is `docs/AUTH_AND_RLS.md`'s three layers; a client-evaluated boolean is a
+  presentation detail.
+
+### 10.7 Adding a flag — the checklist
+
+1. **Check the flag is the right tool.** If the branch will live forever it is
+   configuration, not a flag. If it varies by entitlement it is a capability
+   (`STAGE_2_PAID_TIERS_SPEC.md` §8), not a flag.
+2. **Name it `kebab-case` and feature-scoped**, and decide the default as "what
+   must happen when PostHog is unreachable". User-visible means `false`.
+3. **Add it to `featureFlagDefaults` in the same PR.** Not "later", not a
+   follow-up issue: the catalogue is the type, so a flag that is not in it does
+   not compile, and a flag added without a row here is one nobody can explain in
+   eight months.
+4. **Put the check at route or feature level**, and make the flagged branch
+   reconcile post-hydration if it renders on a cacheable route (§10.4).
+5. **Create the flag in BOTH PostHog projects** — `aec-integrations-dev`
+   (525793) for preview / staging / demo / stage2 and `aec-integrations`
+   (354071) for production. A flag that exists only in prod reads as its default
+   everywhere else, which looks exactly like a broken rollout.
+6. **Write down the removal trigger** in the issue: what has to be true before
+   the flag and its branch are deleted.
+
+## 11. Related
 
 - [`OBSERVABILITY.md`](./OBSERVABILITY.md) — logs, metrics, alerts, the metric
   catalogue and its cardinality budget.

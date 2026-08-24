@@ -125,6 +125,22 @@ export interface PostHogClient {
   set_config(config: Record<string, unknown>): void;
   captureException(error: unknown, properties?: Record<string, unknown>): unknown;
   readonly historyAutocapture?: { startIfEnabled(): void };
+
+  /**
+   * Feature flags (AECI-650). Both are OPTIONAL so the many existing test
+   * fakes that predate flags still satisfy this interface; `FeatureFlags`
+   * treats an absent member as "no flags available, defaults stand".
+   *
+   * `onFeatureFlags` fires when the `/flags` response first lands and again on
+   * every change, which is what lets a flip in the PostHog UI reach a live
+   * page. `isFeatureEnabled` returns `undefined` both before flags load and for
+   * a key the project does not define; `feature-flags.ts` collapses that third
+   * state into the committed default exactly once.
+   */
+  onFeatureFlags?(
+    callback: (flags: string[], variants: Record<string, string | boolean>) => void,
+  ): () => void;
+  isFeatureEnabled?(key: string, options?: { send_event?: boolean }): boolean | undefined;
 }
 
 /** Resolves the initialized client, or `null` when analytics is unavailable. */
