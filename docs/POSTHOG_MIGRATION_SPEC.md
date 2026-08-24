@@ -14,6 +14,11 @@ wins; where this doc is silent, the EV decisions in §2 apply.
 §1 is the inventory record, §2–§3 are the normative decisions, the rest are tables and
 checklists the workstreams execute against.
 
+**Read §8 before §2–§3.** §8 records what the build actually found — verified intake
+behaviour, the cardinality arithmetic that changed the tag vocabulary, and the current
+state of every operator prerequisite. Where §8 and an earlier section disagree, §8 wins;
+the earlier text is left intact so the delta stays legible.
+
 ---
 
 ## Decisions record (ratified 2026-08-24)
@@ -348,3 +353,90 @@ change, not archaeology.
 - At AW-final: delete live Datadog monitors/dashboards in the UI, the per-env
   `DD_API_KEY` Worker secrets, and the `DATADOG_API_KEY`/`DD_APPLICATION_ID`/
   `DD_CLIENT_TOKEN` GH secrets; decide the Datadog account's fate.
+
+---
+
+## §8 As-built amendments (recorded during the build)
+
+Findings that came out of *doing* the migration rather than planning it. Each
+one supersedes the corresponding statement above; the original text is left
+intact so the delta is legible.
+
+### §8.1 Verified intake facts (AECI-642)
+
+Probed live against `aec-integrations-dev` (525793), not inferred from docs:
+
+| Fact | Detail |
+|---|---|
+| OTLP logs | `POST https://us.i.posthog.com/i/v1/logs` → `200 {}` |
+| OTLP metrics | `POST https://us.i.posthog.com/i/v1/metrics` → `200 {}` |
+| Auth | `Authorization: Bearer <phc_ project token>` is **required** on both. The `?api_key=` query form returns `401 {"error":"No token provided"}` — the opposite of `/capture/`, which takes the key in the body. |
+| Capture | `/i/v1/e/` **does not exist** (404). Use `/capture/` (or `/i/v0/e/`). A `/i/v1/e/` typo is a silent 404 that reads exactly like a config problem. |
+| Number encoding | OTLP metric **data points** use `asDouble`; **attribute values** use `doubleValue`. §2's "numbers → `doubleValue`" rule is about attributes only. |
+| Gauge temporality | OTLP's `Gauge` message has **no** `aggregationTemporality` field. §2's DELTA rule applies to the sum and histogram pipes; `submitGauge` omits it rather than sending `1`, which a strict parser could reject. |
+
+### §8.2 The cardinality arithmetic changed the tag vocabulary (AECI-645)
+
+§3.5 anticipated that dropping the raw `status` tag would bring the catalogue
+inside PostHog's 1,000-series guardrail. It does not. The full arithmetic
+(committed in `docs/OBSERVABILITY.md`) is **≈854 series at steady state** and
+**≈1,708 while a deploy has two `version`s live** — over the guardrail on
+`version` alone.
+
+Three consequences, all implemented in AECI-642:
+
+1. Raw `status` dropped from `aeci.api.query.duration_ms` as planned. With it,
+   that one metric was ~930 series — over the entire budget by itself.
+2. Raw `status_code` dropped from `aeci.page.render.duration_ms`. §AW1 did not
+   name this one; it is the same defect on the web side.
+3. **`host` is a log and event attribute, not a metric attribute.** This is a
+   deliberate, arithmetic-backed exception to invariant 4 ("one tag vocabulary
+   on all pipes"). In the non-production project the preview tier deploys **one
+   Worker per pull request**, so `host` on a metric is unbounded cardinality
+   that grows with every PR, forever — and no tag discipline elsewhere would
+   recover it. Enforced structurally: `postMetric()` does not accept a
+   `Request`, so `host` cannot be re-added to a metric by accident.
+
+### §8.3 `POSTHOG_CLI_API_KEY` scopes (AECI-646)
+
+§7 lists insight/dashboard/alert write + project read, which covers `apply.sh`.
+Source-map upload additionally requires **`error tracking write`** and
+**`organization read`**. One personal key needs the **union** of both sets.
+
+### §8.4 There is no `staging` build configuration (AECI-646)
+
+§AW5 asks for hidden source maps on "production **and** staging" Angular
+configurations. `apps/web/angular.json` has only `production` and
+`development`. That is correct and not an omission: AECi promotes **one build
+by SHA** across staging → demo → prod (`docs/environments.md`), so `production`
+*is* the configuration every deployed tier is built with. The bare
+`"sourceMap": true` §AW5 refers to is on `development`, and stays.
+
+### §8.5 `@aeci/shared/posthog` is not in the barrel (AECI-642)
+
+Every other module in `packages/shared/src/index.ts` is a pure declaration.
+`posthog.ts` pulls a real npm dependency (`posthog-node`), and the barrel is
+imported by browser code — which is exactly the shape of the 327 kB zod
+regression recorded in `packages/shared/package.json`. The adapters import the
+`@aeci/shared/posthog` subpath instead.
+
+### §8.6 Deploy markers ship two legs, and one works without provisioning (AECI-640)
+
+§AW5's marker requirement is satisfied by `scripts/ci/posthog-deploy-marker.sh`:
+a project **annotation** (the line across every insight — needs the personal
+`phx_` key, warn-skips without it) and a queryable **`deployment` event** (what
+a HogQL query joins against — needs only the publishable token, so it works
+today, before any operator step). Verified live: the event arrives with
+`env` / `service` / `version` / `deploy_kind` intact.
+
+### §8.7 Operator prerequisites — current state
+
+Live check, 2026-08-24. None of these block the code; each gates a capability.
+
+| Prerequisite | State |
+|---|---|
+| Personal `phx_` key → `POSTHOG_CLI_API_KEY` | **Not provisioned.** Deploy annotations and source-map upload warn-skip until it exists. Needs the §8.3 union of scopes. |
+| `POSTHOG_PROJECT_ID_PROD` / `_NONPROD` repo variables | **Not set.** The workflows fall back to the literals `354071` / `525793`, so this is a repoint convenience, not a prerequisite. |
+| Error tracking (exception autocapture) | **Disabled on both projects.** Browser and Worker exception capture has nowhere to land until it is enabled. Dashboard-only — the API key available here lacks `product_enablement:write`. |
+| Internal-user exclusion | **Not configured.** Until it is, production product analytics carry operator traffic while `page_views` excludes it via verified admin session — so the two surfaces disagree for a reason that looks like a bug. |
+| `POSTHOG_KEY_STAGING` / `POSTHOG_KEY_PRODUCTION` GH secrets | **Now unused** — delete. |
