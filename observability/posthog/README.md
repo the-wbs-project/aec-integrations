@@ -2,8 +2,9 @@
 
 Spec: `docs/POSTHOG_MIGRATION_SPEC.md` §AW6 (+ §3.4, §5, §8). This directory is the
 committed source of truth for the PostHog dashboards, insights and alerts that replace
-`observability/datadog/`. AECI-648 lifts the disposition table below into
-`docs/RUNBOOKS.md`; keep it clean and liftable.
+`observability/datadog/`. The disposition table below is mirrored in
+`docs/RUNBOOKS.md` (lifted there by AECI-648) — **this file is the origin**, so
+change it here first and carry the edit across; keep the table clean and liftable.
 
 | File | What it is |
 |---|---|
