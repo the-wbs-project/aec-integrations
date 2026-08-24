@@ -130,9 +130,11 @@ export type Env = {
    * (`preview`/`staging`/`demo`/`production`); when unset (bare `wrangler dev`,
    * tests) both `/api/version` and Datadog tags report `development` — one
    * convention for the unset state (AECI-119). `demo` + `production` are the two
-   * public, non-Access-gated tiers (see `@aeci/shared/deploy-env`).
+   * public, non-Access-gated tiers (see `@aeci/shared/deploy-env`). `stage2` is
+   * the TEMPORARY Stage 2 test tier (AECI-637) — Access-gated, so deliberately
+   * NOT a public site; remove it from this union at teardown.
    */
-  ENV?: 'development' | 'preview' | 'staging' | 'demo' | 'production';
+  ENV?: 'development' | 'preview' | 'staging' | 'demo' | 'production' | 'stage2';
   /**
    * Commit SHA the Worker was deployed at (AECI-74). Injected via
    * `wrangler dev --var COMMIT_SHA:$(git rev-parse HEAD)` locally and

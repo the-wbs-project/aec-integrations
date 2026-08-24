@@ -101,9 +101,11 @@ export type WebEnv = {
    * tests) Datadog logs/metrics and the RUM bootstrap report `development` —
    * matching the API Worker's `/api/version` convention (AECI-119). `demo` +
    * `production` are the two public, non-Access-gated tiers (see
-   * `@aeci/shared/deploy-env`).
+   * `@aeci/shared/deploy-env`). `stage2` is the TEMPORARY Stage 2 test tier
+   * (AECI-637) — Access-gated, so deliberately NOT a public site; remove it from
+   * this union at teardown.
    */
-  ENV?: 'development' | 'preview' | 'staging' | 'demo' | 'production';
+  ENV?: 'development' | 'preview' | 'staging' | 'demo' | 'production' | 'stage2';
   /**
    * Crawler-indexing gate (`server/robots-policy.ts`). FAIL-CLOSED: indexing is
    * blocked on every environment unless this is exactly the string `"true"`.

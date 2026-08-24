@@ -10,7 +10,7 @@ How `staging.aecintegrations.com`, `*.aec-integrations.workers.dev` PR previews,
 
 ## Scope
 
-- **Gated:** `staging.aecintegrations.com`, any preview Worker on `*.aec-integrations.workers.dev`, and — **until launch (ADR 0017)** — web production `demo.aecintegrations.com`.
+- **Gated:** `staging.aecintegrations.com`, any preview Worker on `*.aec-integrations.workers.dev`, — **until launch (ADR 0017)** — web production `demo.aecintegrations.com`, and — **while it exists** — the temporary Stage 2 test tier `stage2.aecintegrations.com` (AECI-637). The last one is a **new destination on this same app**, not a new app: per "Locked decisions" below, splitting the app per-surface has been observed to break Worker requests.
 - **Not gated:** the landing site (`aecintegrations.com` + `www.`), public by design. Web production becomes public **at launch**, when its Access destination is removed.
 
 Access is a *network-level* gate in front of these hostnames. Once a user is past the Access challenge they still have to log into AECi itself with a Supabase account — Access is additional auth, not a replacement (per the AECI-71 spec note).
@@ -42,7 +42,7 @@ The Cloudflare resources as deployed. If any of these change, update this sectio
 | Allow policy | `AECi allowlist` — `4c6b7bbd-6371-4a21-a5db-a3ae9c3c9afd` |
 | OTP identity provider | `c31649de-3c54-40aa-829c-d424e74c0f7f` |
 | Service token | `aeci-gh-actions` (Client ID + Secret in GitHub repo secrets as `CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET`) |
-| Destinations | `staging.aecintegrations.com`, `*.aec-integrations.workers.dev`, `demo.aecintegrations.com` _(prod — **added at the ADR-0017 cutover; remove at launch**)_ |
+| Destinations | `staging.aecintegrations.com`, `*.aec-integrations.workers.dev`, `demo.aecintegrations.com` _(prod — **added at the ADR-0017 cutover; remove at launch**)_, `stage2.aecintegrations.com` _(the **temporary** Stage 2 test tier — AECI-637; **remove at teardown**, `docs/environments.md` §10.9)_ |
 | Session duration | `24h` |
 | Allowlist emails | `chrisw@thewbsproject.com`, `billh@thewbsproject.com` |
 
