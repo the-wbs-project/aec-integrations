@@ -52,6 +52,7 @@ The site is currently in pre-launch. Production data lives in Airtable; Supabase
 | Edge caching: tag vocabulary, TTLs, invalidation, SEO headers | `docs/CACHE_STRATEGY.md` |
 | Search ranking: Algolia index settings (searchable attrs, faceting), custom ranking signals, mechanism-kind priority, tie-breakers, post-launch tuning loop | `docs/SEARCH_RANKING.md` |
 | Observability: custom metric catalog, Datadog dashboard + monitors | `docs/OBSERVABILITY.md` |
+| Observability migration Datadog → PostHog (the AECI-639 epic: dual-run transport fan-out, two-mode consent-aware browser init, the alert/liveness-sweep model, project topology, decommission gates; the build contract each AECI-639 sub-issue [640…651] anchors to; while it is in flight `docs/OBSERVABILITY.md` stays canonical for the *live* Datadog plane) | `docs/POSTHOG_MIGRATION_SPEC.md` (rationale: `docs/adr/0024-observability-migrates-to-posthog.md`) |
 | Analytics/marketing measurement baseline (AECI-326): PostHog + Datadog-RUM instrumentation status, starting-numbers snapshot, weekly read procedure | `docs/ANALYTICS_BASELINE.md` |
 | Transactional email (Resend client, template catalogue, secrets) + the Supabase→Resend SMTP magic-link sender + deliverability (SPF/DKIM/DMARC) | `docs/email.md` |
 | Incident runbooks for Datadog alerts | `docs/RUNBOOKS.md` |
