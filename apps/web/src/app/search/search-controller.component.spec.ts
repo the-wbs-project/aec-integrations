@@ -418,6 +418,9 @@ describe('SearchController — AECI-239 search_performed emit', () => {
       query: 'revit',
       results_count: 8,
       filters_applied: [],
+      status: 'ok',
+      duration_ms: 7,
+      results_bucket: '6-20',
     });
   });
 
@@ -451,6 +454,9 @@ describe('SearchController — AECI-239 search_performed emit', () => {
       query: 'autocad',
       results_count: 2,
       filters_applied: [],
+      status: 'ok',
+      duration_ms: 7,
+      results_bucket: '1-5',
     });
   });
 
@@ -468,6 +474,9 @@ describe('SearchController — AECI-239 search_performed emit', () => {
       query: 'revit',
       results_count: 8,
       filters_applied: [],
+      status: 'ok',
+      duration_ms: 7,
+      results_bucket: '6-20',
     });
   });
 
@@ -496,6 +505,40 @@ describe('SearchController — AECI-239 search_performed emit', () => {
       query: 'revit',
       results_count: 5,
       filters_applied: ['categories', 'founded_year'],
+      status: 'ok',
+      duration_ms: 7,
+      results_bucket: '1-5',
     });
+  });
+
+  it('emits a status:"error" row from the instance error event (AECI-643 / §3.9)', () => {
+    const fake = build();
+    fake.controller.setQuery('revit');
+    fake.instance.triggerError();
+    expect(fake.onSearch).toHaveBeenCalledExactlyOnceWith({
+      query: 'revit',
+      results_count: 0,
+      filters_applied: [],
+      status: 'error',
+      duration_ms: 0,
+      results_bucket: 'none',
+    });
+  });
+
+  it('does NOT emit an error row for the empty query', () => {
+    const fake = build();
+    fake.instance.triggerError();
+    expect(fake.onSearch).not.toHaveBeenCalled();
+  });
+
+  it('a failure does not suppress the "ok" row when the same query is retried', () => {
+    const fake = build();
+    fake.controller.setQuery('revit');
+    fake.instance.triggerError();
+    settle(fake, 'revit', { products: 5, vendors: 0 });
+    expect(fake.onSearch).toHaveBeenCalledTimes(2);
+    expect(fake.onSearch).toHaveBeenLastCalledWith(
+      expect.objectContaining({ query: 'revit', status: 'ok' }),
+    );
   });
 });

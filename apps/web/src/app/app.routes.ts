@@ -24,6 +24,11 @@ import {
 import { vendorMeResolver } from './vendor/vendor-me.resolver';
 import { vendorDetailResolver } from './vendors/vendor-detail.resolver';
 
+/** Build-time dev flag (see the `_dev/error-bench` entry below). No runtime
+ *  binding is emitted, which is what lets the build's `define` substitution
+ *  reach the bare identifier. */
+declare const ngDevMode: unknown;
+
 export const routes: Routes = [
   // AECI-186 — Phase 4.11 home assembly. Two parallel SSR resolvers feed the
   // page (both via the service binding; hydration reads from TransferState):
@@ -419,6 +424,21 @@ export const routes: Routes = [
     loadComponent: () => import('./legal/legal-page').then((m) => m.LegalPage),
     data: { slug: 'listing-accuracy' },
   },
+  // AECI-643 — dev-only error bench (POSTHOG_MIGRATION_SPEC §6.5). Spread in
+  // behind `ngDevMode` so the optimized build folds this to `[]` and never
+  // references the chunk: `@angular/build` substitutes the literal `false` when
+  // script optimization is on, so esbuild removes the branch (and, with it, the
+  // greppable marker string in `error-bench.ts`). The `typeof` prefix keeps dev
+  // working, where the global may not be installed yet at module-eval time. See
+  // `dev/error-bench.ts` for the verification grep.
+  ...(typeof ngDevMode === 'undefined' || ngDevMode
+    ? [
+        {
+          path: '_dev/error-bench',
+          loadComponent: () => import('./dev/error-bench').then((m) => m.ErrorBench),
+        },
+      ]
+    : []),
   // AECI-62 — Phase 2.16 global 404. Must be the last entry so every other
   // route gets a chance to match first. The resolver sets RESPONSE_INIT.status
   // to 404 and the noindex meta tags; the SSR runtime then emits NOT_FOUND_TTL

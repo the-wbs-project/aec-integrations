@@ -1,19 +1,31 @@
 /**
- * Client-side product analytics (AECI-239 / §14.1) — the typed PostHog event
- * API the app calls, and the consent-gated boot of the SDK.
+ * Client-side analytics (AECI-239 / §14.1, reworked for the two-mode consent
+ * init in AECI-643 / `docs/POSTHOG_MIGRATION_SPEC.md` §3.3, decision D2) — the
+ * typed PostHog event API the app calls, plus the boot of the SDK.
  *
  * Shape (mirrors `datadog.provider.ts` + the `search-rum.ts` seam):
  *   - The SDK is reached only through the injectable `POSTHOG_CLIENT_FACTORY`
  *     (default = the real dynamic-`import('posthog-js')`); tests swap a fake so
  *     event payloads are asserted without loading the SDK.
- *   - An `effect` boots PostHog the moment consent becomes `'granted'` (incl. a
- *     returning visitor whose decision is already stored) so the automatic
- *     initial `$pageview` fires without waiting for a custom event.
  *   - Every custom event is gated on `'granted'` and merges the `locale`+`theme`
- *     dimensions (§14.1). Autocaptured pageviews get the same dimensions via the
+ *     dimensions (§14.1). Pageviews get the same dimensions via the
  *     super-properties the factory registers in PostHog's `loaded` callback.
  *   - Fire-and-forget: `capture` never awaits in a way that can throw into the
  *     caller — analytics MUST NOT break navigation or a form submit.
+ *
+ * ## Two tiers (§3.3)
+ *
+ * **Tier 2 — operational, every visitor.** The client boots at app bootstrap
+ * for EVERYONE, DNT/GPC browsers included, with memory-only persistence and no
+ * identifier. It carries errors, web vitals, and the `app_started` liveness
+ * beacon. This is the PostHog counterpart of the consent-independent Datadog
+ * RUM that stays live through the dual-run window (§AW-final retires RUM, not
+ * this).
+ *
+ * **Tier 3 — product analytics, banner-gated.** On `consent.state() ===
+ * 'granted'` the SAME client is upgraded in place (`upgrade()`): persistence
+ * moves to localStorage, `$pageview` starts, and the 8-event catalog unlocks.
+ * Decline, DNT and GPC all stay at Tier 2 — see `consent.ts`.
  */
 import { isPlatformBrowser } from '@angular/common';
 import { Injectable, PLATFORM_ID, effect, inject } from '@angular/core';
@@ -22,13 +34,25 @@ import { filter } from 'rxjs';
 
 import { analyticsDimensions } from './analytics-dimensions';
 import { ConsentService } from './consent';
-import { POSTHOG_CLIENT_FACTORY, type PostHogClient } from './posthog-client';
+import {
+  POSTHOG_CLIENT_FACTORY,
+  TIER_3_PRODUCT_ANALYTICS_CONFIG,
+  type PostHogClient,
+} from './posthog-client';
 
 /** Where a `product_viewed` was reached from (§14.1). */
 export type ProductViewSource = 'search' | 'browse' | 'direct';
 
 /** Catalog index/listing surfaces — arriving from one means `source: 'browse'`. */
 const BROWSE_ROOTS = new Set(['products', 'vendors', 'integrations', 'categories']);
+
+/**
+ * The Tier 2 liveness beacon (§3.3). Fired once per page load for every
+ * visitor, so "did the browser plane reach PostHog at all?" is answerable
+ * without waiting for an organic error. The Datadog RUM twin
+ * (`aeci.app_started`, `datadog.provider.ts`) stays live through the dual-run.
+ */
+export const APP_STARTED_EVENT = 'app_started';
 
 @Injectable({ providedIn: 'root' })
 export class Analytics {
@@ -37,8 +61,11 @@ export class Analytics {
   private readonly factory = inject(POSTHOG_CLIENT_FACTORY);
   private readonly router = inject(Router);
 
-  /** Memoized client boot — runs at most once, only after consent is granted. */
+  /** Memoized client boot — runs at most once, in the browser, for all visitors. */
   private bootPromise: Promise<PostHogClient | null> | null = null;
+
+  /** Guards `upgrade()` — the consent effect can re-run; the upgrade must not. */
+  private upgraded = false;
 
   /** The route the visitor was on BEFORE the current one — drives `source`. */
   private previousUrl: string | null = null;
@@ -57,25 +84,42 @@ export class Analytics {
         this.currentUrl = e.urlAfterRedirects;
       });
 
-    // Boot PostHog as soon as consent is granted (or immediately, for a
-    // returning visitor whose decision is already stored) so the automatic
-    // initial pageview is captured.
+    // Tier 2 (§3.3): boot immediately, unconditionally, for every visitor —
+    // no consent check, no DNT check. This is the operational slice.
+    void this.boot()
+      .then((client) => client?.capture(APP_STARTED_EVENT, { ...analyticsDimensions() }))
+      .catch(() => undefined);
+
+    // Tier 3 (§3.3): upgrade the SAME client the moment consent is granted (or
+    // immediately, for a returning visitor whose decision is already stored).
     effect(() => {
-      if (this.consent.state() === 'granted') void this.boot();
+      if (this.consent.state() === 'granted') void this.upgrade();
     });
   }
 
   // ─── Custom events (§14.1) ─────────────────────────────────────────────────
 
+  /**
+   * §14.1's `search_performed`, carrying the three fields re-homed from the
+   * retired `aeci.search.query` Datadog RUM action (§3.9). Accepted narrowing,
+   * stated in §3.8: the RUM action saw EVERY search; this event sees the
+   * consented slice only.
+   */
   searchPerformed(input: {
     query: string;
     results_count: number;
     filters_applied: readonly string[];
+    status: string;
+    duration_ms: number;
+    results_bucket: string;
   }): void {
     this.capture('search_performed', {
       query: input.query,
       results_count: input.results_count,
       filters_applied: [...input.filters_applied],
+      status: input.status,
+      duration_ms: input.duration_ms,
+      results_bucket: input.results_bucket,
     });
   }
 
@@ -119,6 +163,26 @@ export class Analytics {
     this.capture('mailing_list_signup', { source: input.source });
   }
 
+  // ─── Tier 2 operational API (NOT consent-gated) ────────────────────────────
+
+  /**
+   * Report an application error as a PostHog `$exception` (§3.3, Tier 2).
+   *
+   * Deliberately NOT consent-gated: this is operational telemetry, the direct
+   * analogue of the consent-independent Datadog RUM error stream, and it is
+   * disclosed as strictly-necessary in the privacy policy. It carries no
+   * identifier — Tier 2 persistence is memory-only.
+   *
+   * Called by `PosthogErrorHandler`; fire-and-forget and failure-swallowing,
+   * because an error reporter that throws turns one bug into two.
+   */
+  captureException(error: unknown): void {
+    if (!this.isBrowser) return;
+    void this.boot()
+      .then((client) => client?.captureException(error))
+      .catch(() => undefined);
+  }
+
   // ─── Internals ─────────────────────────────────────────────────────────────
 
   /** Gate on browser + consent, merge the required dimensions, fire-and-forget. */
@@ -132,6 +196,36 @@ export class Analytics {
 
   private boot(): Promise<PostHogClient | null> {
     return (this.bootPromise ??= this.factory());
+  }
+
+  /**
+   * Tier 2 → Tier 3 upgrade, IN PLACE on the already-running client (§3.3): no
+   * re-init, so the anonymous id and super-properties survive the switch to
+   * localStorage persistence.
+   *
+   * `set_config` alone is not enough for pageviews. Verified against
+   * `posthog-js@1.393.0`: `HistoryAutocapture.startIfEnabled()` is only called
+   * from `initialize()`, and `_captureInitialPageview()` only from `_loaded()`
+   * / `opt_in_capturing()`. So the upgrade explicitly (a) starts the history
+   * patch — idempotent, it checks `__posthog_wrapped__` — and (b) captures the
+   * page the visitor consented on.
+   *
+   * Known minor edge: `HistoryAutocapture._lastPathname` was seeded at init, so
+   * navigating BACK to the page the SDK booted on right after granting consent
+   * is suppressed as a same-path change. Every other navigation is captured.
+   */
+  private async upgrade(): Promise<void> {
+    if (this.upgraded) return;
+    this.upgraded = true;
+    try {
+      const client = await this.boot();
+      if (!client) return;
+      client.set_config({ ...TIER_3_PRODUCT_ANALYTICS_CONFIG });
+      client.historyAutocapture?.startIfEnabled();
+      client.capture('$pageview', { ...analyticsDimensions() });
+    } catch {
+      // Analytics MUST NOT break the app.
+    }
   }
 
   private navigationSource(): ProductViewSource {
