@@ -100,6 +100,33 @@
  * autocapture (manual `captureException` is bundled in both entries and is
  * unaffected either way, so `PosthogErrorHandler` keeps working).
  *
+ * **`.full.` is required, and that was checked rather than assumed.** The
+ * package also ships `dist/module.no-external.js` at 239 kB raw, which looks
+ * like a cheaper version of the same idea. It is not: only the `.full.` bundle
+ * contains `largest-contentful-paint`, the PerformanceObserver entry type the
+ * real web-vitals library subscribes to. The other two entries carry the
+ * `onLCP`/`onCLS`/`onINP` *names* (the extension interface) without the
+ * implementation, so they would refuse to load it externally and then have
+ * nothing to fall back on.
+ *
+ *     module.js                    216 kB raw   (default; loads extensions remotely)
+ *     module.no-external.js        239 kB raw   (no external loading, NO web-vitals impl)
+ *     module.full.no-external.js   503 kB raw   (everything inlined)  ← ours
+ *
+ * Part of that gap buys nothing: `.full.` also inlines the session-replay
+ * recorder and its web-worker, and replay is off (D5). That is unavoidable
+ * collateral of the only entry point that carries web vitals offline, not a
+ * separate decision — but it is the honest reason the number is 503 and not
+ * something closer to 300.
+ *
+ * One consequence to know before it alarms someone: the inlined replay worker
+ * is embedded as a template literal whose text ends in a `//# sourceMappingURL=
+ * image-bitmap-data-url-worker-….js.map` line. A `grep sourceMappingURL
+ * dist/browser` therefore returns exactly one hit, ~14% into the posthog chunk,
+ * pointing at a map that is not shipped. It is string content, not a trailing
+ * comment on our chunk, and the AECI-646 "zero sourceMappingURL comments in
+ * served JS" check still holds.
+ *
  * Caveat for whoever upgrades the SDK: `posthog-js` publishes **no `exports`
  * field**, so `dist/module.full.no-external` is stable by convention rather
  * than by contract. It ships its own `.d.ts` and has an `array.*` sibling for

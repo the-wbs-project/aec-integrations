@@ -37,6 +37,15 @@
 # `POSTHOG_CLI_API_KEY` is CI-only and must NEVER become a Worker secret — it is
 # a personal key with write scopes, a completely different security class from
 # the publishable `phc_` project token the Workers use.
+#
+# VERIFYING THE HIDDEN-MAP CONTRACT: `grep -rl sourceMappingURL dist/browser`
+# returns exactly ONE file, and that is expected. The posthog-js
+# `module.full.no-external` bundle embeds the session-replay web-worker as a
+# template literal whose text ends in a `//# sourceMappingURL=…` line. It sits
+# ~14% into that chunk, points at a map that is not shipped, and is string
+# content rather than a trailing comment on our output. Check the position, not
+# just the count: a real leak would be at the END of a chunk and its `.map`
+# would exist in `dist/`.
 
 set -uo pipefail   # NOT -e: we must always reach the map sweep.
 

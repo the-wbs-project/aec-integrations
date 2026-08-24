@@ -13,7 +13,8 @@
  *
  *   - **Never throws.** Every failure mode (absent key, timeout, non-2xx, a
  *     200-with-`errors[]` body, `success:false`, a DB write error) is caught,
- *     logged to Datadog, and metered — the row simply stays `open` with
+ *     logged (PostHog beside Datadog for the AECI-639 dual-run), and
+ *     metered — the row simply stays `open` with
  *     `linear_issue_id=null` for the §6.7 reconciliation sweep to retry (§6.2).
  *   - **Absent key → silent no-op, no metric.** No `LINEAR_API_KEY` is the
  *     expected state in local `dev:bound` / PR previews (staging/prod only), so it

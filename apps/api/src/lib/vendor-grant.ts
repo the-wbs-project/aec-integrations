@@ -4,7 +4,8 @@
  *
  * D1 has no interactive transactions — only atomic `db.batch([...])`. Like
  * `lib/audit.ts`, each function RETURNS the Drizzle statements (plus the audit /
- * workflow entries the caller forwards to Datadog post-commit) rather than
+ * workflow entries the caller forwards post-commit — §26.5, PostHog beside
+ * Datadog for the AECI-639 dual-run) rather than
  * executing them, so the seat write, the request resolution, and the `audit_log`
  * row all commit or roll back as one unit (§26.1 — no state change without an
  * audit row). The route handler (`routes/admin-claims.ts`) owns HTTP, identity

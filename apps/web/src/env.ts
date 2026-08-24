@@ -10,7 +10,11 @@
  *     `injectDatadogBootstrap` so `@datadog/browser-rum` can pick them up at
  *     hydration. We still store them as secrets (not `vars`) so the values do
  *     not live in git.
- *   - DD_API_KEY — server-only. Used by `logToDatadog()` (see
+ *   - DD_API_KEY — server-only, and Datadog-only. Since AECI-642 the Worker
+ *     reaches PostHog through `logToPosthog()` in `server-posthog.ts`, which
+ *     fans out to BOTH vendors for the AECI-639 dual-run and needs no secret
+ *     on the PostHog side (the publishable project key authenticates all
+ *     three intakes). This key backs only the Datadog leg. Used by (see
  *     `./server-datadog.ts`) to POST logs to the Datadog HTTP intake. Never
  *     rendered into HTML.
  *   - DD_SITE — public, the Datadog site host (`datadoghq.com`,
@@ -38,7 +42,7 @@
  *
  * All Datadog, purge, and Algolia fields are optional so the Worker boots
  * cleanly in local dev before secrets have been provisioned — the RUM provider
- * and `logToDatadog` helper no-op when missing; the purge endpoint reports a
+ * and the Datadog leg of `logToPosthog` no-op when missing; the purge endpoint reports a
  * `skipped: 'cache_disabled'` no-op when native Workers Cache is off on the
  * entrypoint (local / miniflare); the Algolia bootstrap injects nothing (no
  * `window.__AECI_ALGOLIA__`).
