@@ -277,7 +277,7 @@ At go-live there is no separate marketing page: when the apex flips from the sta
 **Tabs:** Each tab is a separately addressable URL using route segments (see Section 4.2.1 for full URL strategy).
 
 1. **Overview** (`/products/:slug` or `/products/:slug/overview`) — description, website link, key features, supported phases/audiences
-2. **Integrations** (`/products/:slug/integrations`) — table of integrations grouped by source/target with mechanism badges
+2. **Integrations** (`/products/:slug/integrations`) — table of integrations with mechanism badges. **"Grouped by source/target" is superseded** (`STAGE_1_5_SPEC.md` §7.1): the two buckets interleave into one list ordered alphabetically by partner name, because the source/target split is invisible in the rendered row.
 3. **Reviews** (`/products/:slug/reviews`) — individual reviews from review 1, aggregate score shown only at ≥5 reviews
 4. **Details** (`/products/:slug/details`) — vendor info, API docs link, marketplace link, founded year, headquarters
 

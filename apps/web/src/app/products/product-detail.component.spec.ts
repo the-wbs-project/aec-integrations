@@ -21,9 +21,14 @@ import { provideZonelessChangeDetection } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { ActivatedRoute, provideRouter } from '@angular/router';
 import { of } from 'rxjs';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { IntegrationListItem, ProductDetail, ProductLink } from '@aeci/shared';
+import type {
+  IntegrationListItem,
+  ProductDetail,
+  ProductIntegrationItem,
+  ProductLink,
+} from '@aeci/shared';
 
 import { AccountApi } from '../account/account-api';
 import { Analytics } from '../analytics/analytics';
@@ -158,6 +163,44 @@ describe('ProductDetailPage hero rating', () => {
   });
 });
 
+const link = (slug: string, name: string): ProductLink => ({
+  id: `id-${slug}`,
+  slug,
+  name,
+  logo_url: null,
+});
+
+let seq = 0;
+const edge = (
+  source: ProductLink,
+  target: ProductLink,
+  direction: IntegrationListItem['direction'] = null,
+): IntegrationListItem => ({
+  id: `00000000-0000-4000-8000-${String(++seq).padStart(12, '0')}`,
+  name: `${source.name} ↔ ${target.name}`,
+  mechanism_kind: 'iPaaS',
+  mechanism_name: 'via Agave ERP Sync',
+  direction,
+  source,
+  target,
+  created_at: '2024-06-01T00:00:00.000Z',
+  updated_at: '2024-06-01T00:00:00.000Z',
+});
+
+const procore = link('procore', 'Procore');
+const acumatica = link('acumatica', 'Acumatica');
+const sage = link('sage-intacct', 'Sage Intacct');
+const vista = link('viewpoint-vista', 'Viewpoint Vista');
+const bluebeam = link('bluebeam-revu', 'Bluebeam Revu');
+
+const connector = (overrides: Partial<ProductDetail> = {}) =>
+  buildProduct({
+    slug: 'agave-erp-sync',
+    name: 'Agave ERP Sync',
+    product_role: 'connector',
+    ...overrides,
+  });
+
 /**
  * Stage 1.5 Addendum B — the "Integrations it powers" hub section that makes
  * a connector product's page intelligible (its endpoint table is legitimately
@@ -165,43 +208,6 @@ describe('ProductDetailPage hero rating', () => {
  */
 describe('ProductDetailPage powered-integrations hub', () => {
   beforeEach(() => TestBed.resetTestingModule());
-
-  const link = (slug: string, name: string): ProductLink => ({
-    id: `id-${slug}`,
-    slug,
-    name,
-    logo_url: null,
-  });
-
-  let seq = 0;
-  const edge = (
-    source: ProductLink,
-    target: ProductLink,
-    direction: IntegrationListItem['direction'] = null,
-  ): IntegrationListItem => ({
-    id: `00000000-0000-4000-8000-${String(++seq).padStart(12, '0')}`,
-    name: `${source.name} ↔ ${target.name}`,
-    mechanism_kind: 'iPaaS',
-    mechanism_name: 'via Agave ERP Sync',
-    direction,
-    source,
-    target,
-    created_at: '2024-06-01T00:00:00.000Z',
-    updated_at: '2024-06-01T00:00:00.000Z',
-  });
-
-  const procore = link('procore', 'Procore');
-  const acumatica = link('acumatica', 'Acumatica');
-  const sage = link('sage-intacct', 'Sage Intacct');
-  const vista = link('viewpoint-vista', 'Viewpoint Vista');
-
-  const connector = (overrides: Partial<ProductDetail> = {}) =>
-    buildProduct({
-      slug: 'agave-erp-sync',
-      name: 'Agave ERP Sync',
-      product_role: 'connector',
-      ...overrides,
-    });
 
   it('renders a hub card whose heading is the hub name, with pair-page partner rows', () => {
     const { el } = setup(
@@ -380,6 +386,128 @@ describe('ProductDetailPage powered-integrations hub', () => {
     expect(
       plain.el.querySelector('[slot="hero"]')!.querySelector('aec-role-badge')!.textContent!.trim(),
     ).toBe('');
+  });
+});
+
+/**
+ * The endpoint integrations table (`#integrations`) — the edges this product
+ * TERMINATES, as opposed to the powered-hub section above. Covers the row
+ * ORDER only; `ProductIntegrationRow`'s own spec covers what a row renders.
+ */
+describe('ProductDetailPage integrations table order', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  const endpointEdge = (source: ProductLink, target: ProductLink): ProductIntegrationItem => ({
+    ...edge(source, target),
+    context_direction: null,
+  });
+
+  /**
+   * The partner name from each rendered row, in DOM order. A row carries two
+   * sibling links — the stretched pair-page overlay and the partner-product
+   * link (see `ProductIntegrationRow`) — and only the partner one points at a
+   * bare product page.
+   */
+  const partnerOrder = (el: HTMLElement) =>
+    [
+      ...el.querySelectorAll<HTMLTableRowElement>(
+        // Attribute-selected component, so the `@defer` placeholder row (a bare
+        // `<tr aria-hidden>` skeleton, no links) can't be mistaken for a result.
+        '#integrations tbody tr[aec-product-integration-row]',
+      ),
+    ].map((row) => {
+      const partner = [...row.querySelectorAll('a')].find(
+        (a) => !a.getAttribute('href')!.includes('/integrations/'),
+      );
+      return partner!.textContent!.trim();
+    });
+
+  it('orders rows alphabetically by partner, interleaving the source and target buckets', () => {
+    // Both buckets are supplied out of alphabetical order, and the expected
+    // result alternates between them (source, target, target, source) — so
+    // this fails both if the sort is dropped AND if the buckets are merely
+    // concatenated with each half sorted independently.
+    const { el } = setup(
+      buildProduct({
+        integrations_as_source: [endpointEdge(procore, vista), endpointEdge(procore, acumatica)],
+        integrations_as_target: [endpointEdge(sage, procore), endpointEdge(bluebeam, procore)],
+      }),
+    );
+
+    expect(partnerOrder(el)).toEqual([
+      'Acumatica',
+      'Bluebeam Revu',
+      'Sage Intacct',
+      'Viewpoint Vista',
+    ]);
+  });
+
+  it('breaks a repeated-partner tie on the integration name, not on DB order', () => {
+    // One partner reachable by two mechanisms. Without the tail comparison
+    // these two rows tie and `Array#sort` stability pins them to the arbitrary
+    // order the API happened to return.
+    const viaB = {
+      ...endpointEdge(procore, acumatica),
+      name: 'B — REST API',
+      mechanism_name: 'REST bridge',
+    };
+    const viaA = {
+      ...endpointEdge(procore, acumatica),
+      name: 'A — native',
+      mechanism_name: 'Native link',
+    };
+
+    const { el } = setup(
+      buildProduct({
+        integrations_as_source: [viaB, viaA],
+        integrations_as_target: [endpointEdge(sage, procore)],
+      }),
+    );
+
+    expect(partnerOrder(el)).toEqual(['Acumatica', 'Acumatica', 'Sage Intacct']);
+    // Partner name and pair link are identical on both Acumatica rows, so the
+    // mechanism is the only visible discriminator: `A — native` must lead.
+    const rows = el.querySelectorAll('#integrations tbody tr[aec-product-integration-row]');
+    expect(rows[0]!.textContent).toContain('Native link');
+    expect(rows[1]!.textContent).toContain('REST bridge');
+  });
+
+  // The 21-row case below instantiates the `@defer (on viewport)` block, whose
+  // trigger news up an `IntersectionObserver` unguarded (unlike our own
+  // browser-only code, which checks `typeof`). jsdom has none.
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('sorts before the 20-row @defer cut, so the visible rows are the alphabetical head', () => {
+    vi.stubGlobal(
+      'IntersectionObserver',
+      class {
+        observe = vi.fn();
+        unobserve = vi.fn();
+        disconnect = vi.fn();
+      },
+    );
+
+    // 21 partners authored in REVERSE alphabetical order. If the slice ran
+    // before the sort, "Partner 01" would land in the deferred tail.
+    const partners = Array.from({ length: 21 }, (_, i) =>
+      link(
+        `partner-${String(21 - i).padStart(2, '0')}`,
+        `Partner ${String(21 - i).padStart(2, '0')}`,
+      ),
+    );
+
+    const { el } = setup(
+      buildProduct({
+        integrations_as_source: partners.map((partner) => endpointEdge(procore, partner)),
+      }),
+    );
+
+    // Only the undeferred head renders here — `@defer (on viewport)` never
+    // triggers in this harness — which is exactly the boundary under test.
+    const rendered = partnerOrder(el);
+    expect(rendered).toHaveLength(20);
+    expect(rendered[0]).toBe('Partner 01');
+    expect(rendered.at(-1)).toBe('Partner 20');
   });
 });
 
