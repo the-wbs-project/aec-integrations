@@ -100,7 +100,7 @@ Each Phase 2 list endpoint exposes a **combined sort key** — a single enum tha
 // Per-entity sort enums live alongside their endpoint schemas
 // (`packages/shared/src/api/products.ts` etc.).
 export const ProductSortSchema = z
-  .enum(['created', 'name', 'updated', 'rating', 'reviews'])
+  .enum(['created', 'name', 'updated', 'rating', 'reviews', 'integrations'])
   .default('created');
 
 export const VendorSortSchema = z
@@ -121,13 +121,14 @@ export const IntegrationSortSchema = z
 | `name` | ASC |
 | `rating` | DESC |
 | `reviews` | DESC |
+| `integrations` | DESC |
 
 Per-entity defaults (Phase 2 Spec §7.4):
 
 - `/api/products`, `/api/vendors` → `created` (i.e. created DESC, "newest first")
 - `/api/integrations` → `name` (alphabetical; groups by source product since names render as `"Source → Target"`)
 
-`rating` ("Highest rated") and `reviews` ("Most reviewed") are **products-only** sorts (the `/products` index dropdown). For `rating`, products whose rating is withheld by the §5.5 gate (`review_count < 5`) sort **last** — the orderBy nulls the sort key below the threshold so a single 5★ review can't outrank a well-reviewed 4.8★ product. The §5.5 gate that nulls `rating_overall_avg` / `rating_onboarding_avg` is applied on **both** the list and detail mappers (`toProductListItem` / `toProductDetail`), so a sub-5 product never emits a misleading average and the card / table / detail surfaces stay consistent. The shared threshold constant is `RATING_VISIBILITY_MIN_REVIEWS` (`@aeci/shared`); the `rating` sort reuses it in its `CASE` guard.
+`rating` ("Highest rated"), `reviews` ("Most reviewed"), and `integrations` ("Most integrations") are **products-only** sorts — products are the only entity with a rating, a review count, or an integration count. They are offered on **every** product listing: the `/products` index **and** the four taxonomy browse pages, which share one option set (`productSortOptions()`, `apps/web/src/app/shared/listing-toolbar/`) so the two surfaces cannot drift. (Until AECI-657 the browse pages accepted only `created`/`name`/`updated` and rendered no control at all.) `integrations` sorts on the denormalized `products.integration_count` — no join, no visibility gate, since the count renders on every card including zero. For `rating`, products whose rating is withheld by the §5.5 gate (`review_count < 5`) sort **last** — the orderBy nulls the sort key below the threshold so a single 5★ review can't outrank a well-reviewed 4.8★ product. The §5.5 gate that nulls `rating_overall_avg` / `rating_onboarding_avg` is applied on **both** the list and detail mappers (`toProductListItem` / `toProductDetail`), so a sub-5 product never emits a misleading average and the card / table / detail surfaces stay consistent. The shared threshold constant is `RATING_VISIBILITY_MIN_REVIEWS` (`@aeci/shared`); the `rating` sort reuses it in its `CASE` guard.
 
 `SortOrderSchema = z.enum(['asc', 'desc'])` is retained in `common.ts` for server-side helpers, but does not appear in any Phase 2 public query.
 

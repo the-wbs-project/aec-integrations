@@ -12,7 +12,15 @@ import { KIND_PATH_SEGMENT, type TaxonomyTermDetail } from '../core/api/taxonomy
 import { BrowseLayout } from '../layouts/browse-layout';
 import { NotFound } from '../not-found/not-found';
 import { ProductCard } from '../products/product-card';
+import { ProductCardGrid } from '../products/product-card-grid';
 import { FacetSidebar } from '../shared/facets/facet-sidebar';
+import { ListingToolbar } from '../shared/listing-toolbar/listing-toolbar';
+import { createListingView } from '../shared/listing-toolbar/listing-view';
+import {
+  PRODUCT_DEFAULT_SORT,
+  PRODUCT_VALID_SORTS,
+  productSortOptions,
+} from '../shared/listing-toolbar/product-sort-options';
 import { MailingListSignup } from '../shared/mailing-list-signup/mailing-list-signup';
 import { createPaginatedIndex } from '../shared/paginated-index/paginated-index-controller';
 import { PaginationFooter } from '../shared/pagination/pagination-footer';
@@ -36,6 +44,19 @@ import { PaginationFooter } from '../shared/pagination/pagination-footer';
  *     + name + description + count), the API-backed facet sidebar, and the
  *     matching products as a paginated grid.
  *
+ * AECI-657 — the grid slot leads with `aec-listing-toolbar`, the same sort +
+ * cards/table control `/products` carries, and renders `ProductCardGrid` in the
+ * cards view (the default, matching `/products`) or the existing table in the
+ * table view. Until then this page had NO toolbar: `STAGE_1_SPEC.md` §4.5 asks
+ * for a "Product grid with sort options (alphabetical, most integrations, most
+ * reviewed)" and it shipped with a table and no sort, because AECI-190's
+ * redesign was scoped to `/products` and gave this page only the upgraded row.
+ * `?sort=` worked all along — `createPaginatedIndex` reads it off the URL — it
+ * was simply undiscoverable. `?view=` is owned by the shared
+ * `createListingView`; both params are already in `LISTING_CACHE_KEY_PARAMS`
+ * (`CACHE_STRATEGY.md` §4a), and neither reaches the canonical, which the
+ * resolver builds from path segments alone.
+ *
  * AECI-143 — the filter sidebar (`aec-facet-sidebar`) is locked to this page's
  * own taxonomy (`lockedKind`/`lockedId`) so it cross-filters by the *other* two
  * dimensions, and the static `term.products` table is replaced by a
@@ -57,11 +78,13 @@ import { PaginationFooter } from '../shared/pagination/pagination-footer';
   imports: [
     BrowseLayout,
     FacetSidebar,
+    ListingToolbar,
     MailingListSignup,
     NgTemplateOutlet,
     NotFound,
     PaginationFooter,
     ProductCard,
+    ProductCardGrid,
     RouterLink,
   ],
   template: `
@@ -168,97 +191,137 @@ import { PaginationFooter } from '../shared/pagination/pagination-footer';
           [resetsPage]="false"
         />
 
-        <!-- Append mode: dim only while a filter/sort RESET refetches (page 1),
-             keeping the current rows on screen (no blank flash). Loading MORE
-             pages never dims; the footer shows its own spinner. -->
-        <div
-          slot="grid"
-          class="space-y-8 transition-opacity duration-200"
-          [class.opacity-60]="idx.reloading()"
-          [class.pointer-events-none]="idx.reloading()"
-          [attr.aria-busy]="idx.reloading() ? 'true' : null"
-        >
-          <div class="overflow-x-auto">
-            <table
-              class="w-full border-collapse text-start text-sm md:min-w-[52rem]"
-              i18n-aria-label="@@taxonomy.browse.table.aria"
-              aria-label="Products"
-            >
-              <thead
-                class="border-b border-(--border-default) text-xs font-medium tracking-wide text-(--text-secondary)"
-              >
-                <tr>
-                  <th scope="col" class="px-4 py-3 font-medium" i18n="@@taxonomy.browse.col.name">
-                    Name
-                  </th>
-                  <th
-                    scope="col"
-                    class="hidden px-4 py-3 font-medium md:table-cell"
-                    i18n="@@taxonomy.browse.col.vendor"
+        <div slot="grid" class="space-y-6">
+          <aec-listing-toolbar
+            [sortOptions]="sortOptions"
+            [sort]="idx.sort()"
+            [view]="listingView.view()"
+            (sortChange)="idx.onSortChange($event)"
+            (viewChange)="listingView.set($event)"
+          />
+
+          <!-- Append mode: dim only while a filter/sort RESET refetches (page 1),
+               keeping the current rows on screen (no blank flash). Loading MORE
+               pages never dims; the footer shows its own spinner. -->
+          <div
+            class="space-y-8 transition-opacity duration-200"
+            [class.opacity-60]="idx.reloading()"
+            [class.pointer-events-none]="idx.reloading()"
+            [attr.aria-busy]="idx.reloading() ? 'true' : null"
+          >
+            @if (listingView.view() === 'table') {
+              <div class="overflow-x-auto">
+                <table
+                  class="w-full border-collapse text-start text-sm md:min-w-[52rem]"
+                  i18n-aria-label="@@taxonomy.browse.table.aria"
+                  aria-label="Products"
+                >
+                  <thead
+                    class="border-b border-(--border-default) text-xs font-medium tracking-wide text-(--text-secondary)"
                   >
-                    Vendor
-                  </th>
-                  <th
-                    scope="col"
-                    class="px-4 py-3 font-medium"
-                    i18n="@@taxonomy.browse.col.category"
-                  >
-                    Primary category
-                  </th>
-                  <th
-                    scope="col"
-                    class="hidden px-4 py-3 text-end font-medium md:table-cell"
-                    i18n="@@taxonomy.browse.col.rating"
-                  >
-                    Rating
-                  </th>
-                  <th
-                    scope="col"
-                    class="px-4 py-3 text-end font-medium"
-                    i18n="@@taxonomy.browse.col.integrations"
-                  >
-                    Integrations
-                  </th>
-                </tr>
-              </thead>
-              <tbody class="divide-y divide-(--border-default)">
-                @if (idx.items().length === 0 && idx.pending()) {
-                  <tr aria-busy="true">
-                    <td
-                      colspan="4"
-                      class="px-4 py-12 text-center text-(--text-secondary)"
-                      i18n="@@taxonomy.browse.loading"
-                    >
-                      Loading products…
-                    </td>
-                  </tr>
-                } @else if (idx.items().length === 0 && idx.error()) {
-                  <tr>
-                    <td
-                      colspan="4"
-                      class="px-4 py-12 text-center text-(--text-secondary)"
-                      i18n="@@taxonomy.browse.error"
-                    >
-                      Couldn't load products. Refresh to try again.
-                    </td>
-                  </tr>
-                } @else {
-                  @for (product of idx.items(); track product.id) {
-                    <tr aec-product-card [product]="product"></tr>
-                  } @empty {
                     <tr>
-                      <td
-                        colspan="4"
-                        class="px-4 py-12 text-center text-(--text-secondary)"
-                        i18n="@@taxonomy.browse.empty"
+                      <th
+                        scope="col"
+                        class="px-4 py-3 font-medium"
+                        i18n="@@taxonomy.browse.col.name"
                       >
-                        No products match these filters.
-                      </td>
+                        Name
+                      </th>
+                      <th
+                        scope="col"
+                        class="hidden px-4 py-3 font-medium md:table-cell"
+                        i18n="@@taxonomy.browse.col.vendor"
+                      >
+                        Vendor
+                      </th>
+                      <th
+                        scope="col"
+                        class="px-4 py-3 font-medium"
+                        i18n="@@taxonomy.browse.col.category"
+                      >
+                        Primary category
+                      </th>
+                      <th
+                        scope="col"
+                        class="hidden px-4 py-3 text-end font-medium md:table-cell"
+                        i18n="@@taxonomy.browse.col.rating"
+                      >
+                        Rating
+                      </th>
+                      <th
+                        scope="col"
+                        class="px-4 py-3 text-end font-medium"
+                        i18n="@@taxonomy.browse.col.integrations"
+                      >
+                        Integrations
+                      </th>
                     </tr>
-                  }
-                }
-              </tbody>
-            </table>
+                  </thead>
+                  <tbody class="divide-y divide-(--border-default)">
+                    @if (idx.items().length === 0 && idx.pending()) {
+                      <tr aria-busy="true">
+                        <td
+                          colspan="5"
+                          class="px-4 py-12 text-center text-(--text-secondary)"
+                          i18n="@@taxonomy.browse.loading"
+                        >
+                          Loading products…
+                        </td>
+                      </tr>
+                    } @else if (idx.items().length === 0 && idx.error()) {
+                      <tr>
+                        <td
+                          colspan="5"
+                          class="px-4 py-12 text-center text-(--text-secondary)"
+                          i18n="@@taxonomy.browse.error"
+                        >
+                          Couldn't load products. Refresh to try again.
+                        </td>
+                      </tr>
+                    } @else {
+                      @for (product of idx.items(); track product.id) {
+                        <tr aec-product-card [product]="product"></tr>
+                      } @empty {
+                        <tr>
+                          <td
+                            colspan="5"
+                            class="px-4 py-12 text-center text-(--text-secondary)"
+                            i18n="@@taxonomy.browse.empty"
+                          >
+                            No products match these filters.
+                          </td>
+                        </tr>
+                      }
+                    }
+                  </tbody>
+                </table>
+              </div>
+            } @else if (idx.items().length > 0) {
+              <aec-product-card-grid [products]="idx.items()" [featuredLead]="showFeatured()" />
+            } @else if (idx.pending()) {
+              <p
+                class="py-12 text-center text-(--text-secondary)"
+                aria-busy="true"
+                i18n="@@taxonomy.browse.cards.loading"
+              >
+                Loading products…
+              </p>
+            } @else if (idx.error()) {
+              <p
+                class="py-12 text-center text-(--text-secondary)"
+                i18n="@@taxonomy.browse.cards.error"
+              >
+                Couldn't load products. Refresh to try again.
+              </p>
+            } @else {
+              <p
+                class="rounded-(--radius-lg) border border-dashed border-(--border-default)
+                  bg-(--surface-sunken) p-6 text-center text-sm text-(--text-secondary)"
+                i18n="@@taxonomy.browse.cards.empty"
+              >
+                No products match these filters.
+              </p>
+            }
           </div>
 
           @if (idx.items().length > 0) {
@@ -298,6 +361,10 @@ export class TaxonomyBrowsePage {
     { initialValue: (this.route.snapshot.data['term'] ?? null) as TaxonomyTermDetail | null },
   );
 
+  /** Toolbar options + `?view=` ownership, shared with `/products` (AECI-657). */
+  protected readonly sortOptions = productSortOptions();
+  protected readonly listingView = createListingView();
+
   /**
    * Filtered products grid. Locks this page's own dimension via `baseParams`
    * (`{kind}_id=<term.id>`, never a URL param) and lets the facet sidebar drive
@@ -307,8 +374,13 @@ export class TaxonomyBrowsePage {
    */
   protected readonly idx = createPaginatedIndex<ProductsListResponse>({
     apiPath: '/api/products',
-    validSorts: new Set(['created', 'name', 'updated']),
-    defaultSort: 'created',
+    // The full product sort set, shared with `/products` so the two catalog
+    // surfaces cannot offer different options (AECI-657). Before that, this page
+    // accepted only three keys and rendered no control, so `rating`/`reviews`
+    // were unreachable here even by hand-typed URL — and STAGE_1_SPEC.md §4.5's
+    // "sort options (alphabetical, most integrations, most reviewed)" was unmet.
+    validSorts: PRODUCT_VALID_SORTS,
+    defaultSort: PRODUCT_DEFAULT_SORT,
     // Infinite-scroll list: page 1 SSRs + edge-caches, later pages append
     // client-side (the page number stays out of the URL). See createPaginatedIndex.
     mode: 'append',
@@ -318,6 +390,15 @@ export class TaxonomyBrowsePage {
     ),
     enabled: () => this.term() !== null,
   });
+
+  /**
+   * The card grid's "Recently added" featured lead, gated exactly as on
+   * `/products`: only when the buffer starts at page 1 at the newest sort, so
+   * the eyebrow's claim stays true under a filter or a re-sort.
+   */
+  protected readonly showFeatured = computed(
+    () => this.idx.sort() === PRODUCT_DEFAULT_SORT && this.idx.firstPage() === 1,
+  );
 
   /** Absolute `?page=N+1` URL (current params merged) for the footer's real anchor / no-JS path. */
   protected readonly nextHref = computed<string | null>(() => {
