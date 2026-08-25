@@ -361,11 +361,11 @@ const RESILIENCE = { staleWhileRevalidate: 60, staleIfError: 86_400 } as const;
  * carries its own `{kind}_id` on the path, not the query, but listing it here
  * costs nothing), so the union is applied uniformly.
  *
- * AECI-190 — `/products` SSR-renders a different layout for `?view=table`
- * (the dense table) vs. the card-grid default, so `view` is content-affecting
+ * AECI-190 / AECI-657 — `/products` and (since AECI-657) the four taxonomy
+ * browse pages SSR-render a different layout for `?view=table` (the dense table)
+ * vs. the card-grid default, so `view` is content-affecting on all five routes
  * and MUST be in the key or the two renders collapse onto one entry and serve
- * wrong HTML. Only `/products` reads it; on the browse routes it's a harmless
- * over-include per the §4a rule above.
+ * wrong HTML.
  */
 const LISTING_CACHE_KEY_PARAMS: readonly string[] = [
   'page',

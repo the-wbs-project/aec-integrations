@@ -92,8 +92,9 @@ export class IntegrationTile {
     return ['/products', context, 'integrations', other];
   });
 
-  // Shared with the /search + /integrations surfaces via `mechanism-labels.ts`
-  // so the `$localize` id set can't drift; wrapped in `computed` (keyed off the
+  // Shared with the /search surface via `mechanism-labels.ts` (the /integrations
+  // table that also used it was removed by AECI-165) so the `$localize` id set
+  // can't drift; wrapped in `computed` (keyed off the
   // input signal) for zoneless memoization, matching `ProductCard`.
   protected readonly mechanismKindLabel = computed(() =>
     mechanismKindLabel(this.integration().mechanism_kind),
