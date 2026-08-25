@@ -459,15 +459,17 @@ Three reusable Angular layout components (per `DESIGN.md` patterns):
 
 - `DetailLayout` — left column hero (name, vendor, key facts) + right column metadata + body sections below
 - `BrowseLayout` — header strip + filter sidebar (Phase 3 placeholder) + grid of cards
-- `IndexLayout` — table-style listing with sort headers + pagination
+- ~~`IndexLayout` — table-style listing with sort headers + pagination~~ **(deleted, AECI-657)**
+
+> **`IndexLayout` no longer ships.** Its consumers were the `/vendors` and `/integrations` index pages, both removed by AECI-165, plus `/products`, which AECI-190 rebuilt on `BrowseLayout` (it needs a facet rail, and `IndexLayout` has no slot for one). The shell survived only behind its dev preview route until AECI-657 deleted it. Two layout shells ship. Listing pages compose `BrowseLayout` with their own `<table>` or `ProductCardGrid`.
 
 Each detail page (product, vendor, integration) is a different *body content* projected into `DetailLayout`. Same for browses and indexes. Sections within a detail page use Angular's `@defer` for heavy content (e.g. a product with 50+ integrations).
 
 ### 11.2 New primitives
 
-- `ProductCard`, `VendorCard`, `IntegrationCard` — used by index and browse pages
+- `ProductCard` — the listing table row, used by `/products` (table view) and the taxonomy browse pages. ~~`VendorCard`, `IntegrationCard`~~ **(deleted, AECI-657 — their index pages went away with AECI-165)**. The card-grid counterpart the "card" name anticipated shipped separately as `ProductCardGrid` (AECI-190).
 - `TaxonomyBadge` — pill component for category / audience / phase chips, color-coded per token (forest variants per DESIGN.md)
-- `EntityTable` — generic sortable / paginated table for index pages
+- ~~`EntityTable` — generic sortable / paginated table for index pages~~ **(never shipped)** — its responsibility was folded into `IndexLayout`, which is itself now deleted; see §11.1.
 
 Each new component goes through `/impeccable craft` and is added to DESIGN.md's component definitions before merging.
 
@@ -573,7 +575,7 @@ Issue breakdown follows in a sibling document. Rough wave structure:
 - Cache-tag vocabulary (this section §8 lifted into `docs/CACHE_STRATEGY.md`)
 - API contract Zod schemas for product / vendor / integration / taxonomy
 - `MetaService` + JSON-LD helper in `apps/web/`
-- `DetailLayout`, `BrowseLayout`, `IndexLayout` skeletons
+- `DetailLayout`, `BrowseLayout`, `IndexLayout` skeletons *(`IndexLayout` since deleted — §11.1)*
 
 **Wave 2 — Backend complete**
 

@@ -1,10 +1,15 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
 
-// Phase 2.6 (AECI-52). Smoke for the three reusable layout shells via their
-// preview routes. Validates: SSR returns 200, slots render, axe-core finds no
+// Phase 2.6 (AECI-52). Smoke for the reusable layout shells via their preview
+// routes. Validates: SSR returns 200, slots render, axe-core finds no
 // violations, and the responsive breakpoint behaviour kicks in at the small
 // viewport.
+//
+// Originally three shells. `IndexLayout` was deleted once its last consumer
+// went away: AECI-165 removed the `/vendors` + `/integrations` index pages and
+// AECI-190 moved `/products` onto `BrowseLayout`, leaving the shell reachable
+// only from its own preview route. Two shells ship.
 
 const LAYOUTS = [
   {
@@ -23,15 +28,6 @@ const LAYOUTS = [
       hero: 'h1:has-text("Products")',
       sidebar: 'aside[aria-label="Filters"]',
       grid: 'section[aria-label="Results"]',
-    },
-  },
-  {
-    name: 'index',
-    path: '/preview/layouts/index',
-    selectors: {
-      hero: 'h1:has-text("Vendors")',
-      table: 'table[aria-label="Results table"]',
-      pagination: 'nav[aria-label="Pagination"]',
     },
   },
 ] as const;

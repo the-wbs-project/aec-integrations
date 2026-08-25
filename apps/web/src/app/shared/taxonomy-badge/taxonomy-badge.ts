@@ -4,8 +4,7 @@ import { RouterLink } from '@angular/router';
 /**
  * Phase 2 §11.2 — `TaxonomyBadge`. A chip-style link to a category /
  * audience / phase browse page. Used by detail-page metadata sidebars
- * (product, vendor, integration) and by `ProductCard` / `IntegrationCard`
- * once those land.
+ * (product, vendor, integration) and by `ProductCard`.
  *
  * Visual spec:
  *   - Surface: `surface-raised` fill (light) / `dark-surface-raised` (dark)

@@ -392,6 +392,13 @@ const MULTI_VALUE_CACHE_KEY_PARAMS: ReadonlySet<string> = new Set([
   'category_id',
   'audience_id',
   'phase_id',
+  // AECI-544 shipped `trade_id` as a fourth multi-select dimension (it is in
+  // `DIMENSIONS` in `facet-sidebar.ts`, and `onRefine` emits it sorted like the
+  // other three) but missed this set, so a hand-typed/bot `?trade_id=b,a` got
+  // its own cache entry instead of collapsing onto `a,b`. Content was always
+  // correct — the sidebar is the only producer and it already sorts — but the
+  // entry was a duplicate. Kept in step with `LISTING_CACHE_KEY_PARAMS` above.
+  'trade_id',
 ]);
 
 const ROUTE_CACHE_PATTERNS: readonly RoutePattern[] = [

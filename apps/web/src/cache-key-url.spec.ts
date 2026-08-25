@@ -186,6 +186,17 @@ describe('cacheKeyFor — multi-select facet CSV order-independence (AECI-223 / 
   it('still forks distinct sets (a,b is not the same filter as just a)', () => {
     expect(key('/products?category_id=a,b')).not.toBe(key('/products?category_id=a'));
   });
+
+  // AECI-657 — `trade_id` is the fourth multi-select dimension (AECI-544) and was
+  // missing from MULTI_VALUE_CACHE_KEY_PARAMS, so it alone kept forking on CSV
+  // order. Asserted per-dimension rather than only on `category_id` so the next
+  // facet added to `DIMENSIONS` can't repeat the omission silently.
+  it.each(['category_id', 'audience_id', 'phase_id', 'trade_id'])(
+    'collapses CSV order for the %s dimension',
+    (param) => {
+      expect(key(`/products?${param}=b,a`)).toBe(key(`/products?${param}=a,b`));
+    },
+  );
 });
 
 describe('cacheKeyFor — tracking/marketing params are stripped', () => {

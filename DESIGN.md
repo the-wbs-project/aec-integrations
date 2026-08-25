@@ -151,13 +151,6 @@ components:
     padding: "{spacing.8} {spacing.6}"
     md_padding: "{spacing.12} {spacing.8}"
     sectionDivider: "1px solid {colors.border-default}"
-  index-layout:
-    backgroundColor: "{colors.surface-base}"
-    textColor: "{colors.text-primary}"
-    padding: "{spacing.8} {spacing.6}"
-    md_padding: "{spacing.12} {spacing.8}"
-    rowDivider: "1px solid {colors.border-default}"
-    headerTypography: "{typography.label}"
 ---
 
 # Design System: AEC Integrations
@@ -255,7 +248,7 @@ The dark palette was removed from the active design system in **AECI-226**: Stag
 
 ### Named Rules
 
-**The Sentence-Case Rule.** Headings, buttons, labels, navigation, table headers, page titles, section titles — all sentence case. Title Case reads as marketing copy; sentence case reads as editorial copy. This rule has exactly **one named exception: the overline role** (above) — uppercase via CSS `text-transform`, never in source strings. Eyebrows, kickers, and sidebar microheadings are overlines; *nothing else* is uppercase. Table headers and breadcrumbs are explicitly **not** overlines — they are sentence case (the former IndexLayout uppercase-header treatment contradicted this rule and was struck in AECI-230).
+**The Sentence-Case Rule.** Headings, buttons, labels, navigation, table headers, page titles, section titles — all sentence case. Title Case reads as marketing copy; sentence case reads as editorial copy. This rule has exactly **one named exception: the overline role** (above) — uppercase via CSS `text-transform`, never in source strings. Eyebrows, kickers, and sidebar microheadings are overlines; *nothing else* is uppercase. Table headers and breadcrumbs are explicitly **not** overlines — they are sentence case (the uppercase table-header treatment that contradicted this rule was struck in AECI-230).
 
 **The Serif-Floor Rule.** Source Serif 4 never renders below 1.125rem / 18px. Anything smaller is by definition a label, overline, or caption — Atkinson territory. (The global `h1,h2,h3` serif rule in `styles.css` makes small serif easy to leak; the `.aec-overline` class on small headings is the standing fix — AECI-230.)
 
@@ -312,19 +305,19 @@ Used for vendor profiles, integration cards, the `/search` result tiles (see Sea
 
 ### Entity cards (index rows)
 
-The three index pages render their rows through dedicated per-entity components — `ProductCard`, `VendorCard`, `IntegrationCard` (Phase 2 Spec §11.2, in `apps/web/src/app/{products,vendors,integrations}/`). Despite the "card" name they render as **table rows**: each uses an attribute selector on `<tr>` (`tr[aec-product-card]`, `tr[aec-vendor-card]`, `tr[aec-integration-card]`) so the rendered DOM stays a valid `<tbody>` child — a custom element placed directly inside `<tbody>` is foster-parented out by the HTML tree builder (the same pattern Angular CDK uses for `tr[cdk-row]`). AECI-190 split the products catalog into two views: these `<tr>` components are the **table view** (shared by the `/products` table and the taxonomy browse-page tables), while a separate `ProductCardGrid` (below) is the **card-grid view** and the default for `/products`.
+Listing rows render through `ProductCard` (Phase 2 Spec §11.2, `apps/web/src/app/products/product-card.ts`). Despite the "card" name it renders as a **table row**: it uses an attribute selector on `<tr>` (`tr[aec-product-card]`) so the rendered DOM stays a valid `<tbody>` child — a custom element placed directly inside `<tbody>` is foster-parented out by the HTML tree builder (the same pattern Angular CDK uses for `tr[cdk-row]`). AECI-190 split the products catalog into two views: this `<tr>` component is the **table view** (shared by the `/products` table and the taxonomy browse-page tables), while a separate `ProductCardGrid` (below) is the **card-grid view** and the default for `/products`.
 
-Shared behavior across all three:
+> **Formerly three.** §11.2 also specified `VendorCard` (`tr[aec-vendor-card]`) and `IntegrationCard` (`tr[aec-integration-card]`), the row primitives of the `/vendors` and `/integrations` index pages. AECI-165 removed both index pages (orphaned from the nav after AECI-160; the URLs now 301 to `/products`), leaving the two components with no consumer. They were deleted in AECI-657 along with `IndexLayout`. `/vendors/:slug` detail pages are unaffected — they never used `VendorCard`.
+
+Row behavior:
 
 - **Host:** `text-primary`; `hover` and `focus-within` raise the row fill to `surface-muted`. No shadow, no scale.
 - **Cells:** `spacing.4` horizontal / `spacing.3` vertical padding. Numeric cells (counts, founded year) are `text-end` and `tabular-nums`. Linked cells shift to `accent-primary` on hover with a `focus-visible` ring.
 - **Empty states:** a missing optional field renders an en-dash (`–`) in `text-tertiary` carrying an i18n-wrapped `aria-label` (`@@{entity}.card.{field}.none`) — never a bare blank, and color is never the sole signal.
 
-The three variants differ only in cell content:
+Cell content:
 
 - **ProductCard** (`tr[aec-product-card]`) — a monogram (`LogoOrInitial`, 32px) beside the name (→ `/products/:slug`), vendor (→ `/vendors/:slug`; nullable per AECI-115), primary category as a `TaxonomyBadge` chip (→ `/categories/:slug`), the overall rating as a `RatingSummary` (`variant="cell"` — gold star + average + review count, or an en-dash below the §5.5 ≥5-review gate; `hidden md:table-cell` so it collapses with the vendor column on mobile, where the card-grid view carries the rating), and the integration count as an `IntegrationStat` (graceful "Not yet connected" at zero). AECI-190 folded this richer treatment in so the `/products` table view and the taxonomy browse-page tables share one row.
-- **VendorCard** (`tr[aec-vendor-card]`) — company name (→ `/vendors/:slug`), headquarters, founded year, product count.
-- **IntegrationCard** (`tr[aec-integration-card]`) — the `"{source} → {target}"` headline (→ `/integrations/:id`; integrations are keyed by id, not slug, per §6.5), a `mechanism_kind` badge (reusing the chip treatment from Tags / Taxonomy chips), and the direction label. The `→` glyph is `aria-hidden` and RTL-mirrored (`rtl:-scale-x-100`).
 
 ### Search & discovery (Phase 3)
 
@@ -633,14 +626,9 @@ All three share the same outer container: `max-w-7xl` centered, `surface-base` b
   - **Grid:** `md:` two-column (1fr filters / 3fr grid) with sticky-top filters; filters collapse above grid on phones.
   - **Internal rhythm:** header bordered below; grid uses container's own card spacing.
 
-- **IndexLayout** (`<aec-index-layout>`) — for sortable, paginated table listings.
-  - **Slots:** `header` (required), `table-header` (rendered into `<thead>`), `table-body` (rendered into `<tbody>`), `pagination`.
-  - **Table:** semantic `<table>` with `min-w-[40rem]`; wrapped in a horizontally scrollable container on phones. Row dividers from `border-default`. Header typography uses the `label` role in **sentence case** (per the Sentence-Case Rule — table headers are not overlines; the former uppercase treatment was struck in AECI-230).
-  - **Pagination:** bordered above, flex row with summary copy left + button group right.
+Every visible string and every ARIA label is i18n-wrapped (`@@app.layouts.{detail|browse}.{slot}.aria`). Concrete pages add their own i18n keys for projected content.
 
-Every visible string and every ARIA label is i18n-wrapped (`@@app.layouts.{detail|browse|index}.{slot}.aria`). Concrete pages add their own i18n keys for projected content.
-
-> **`EntityTable` (§11.2) — subsumed into `IndexLayout`, not a standalone component.** The Phase 2 spec listed a generic sortable / paginated `EntityTable` primitive. In implementation its entire responsibility — the semantic `<table>`, the horizontally-scrollable container, and the `table-header` / `table-body` / `pagination` slots — lives in **`IndexLayout`**, composed with the per-entity row components above (`{Product,Vendor,Integration}Card`). No separate `EntityTable` class ships. This is recorded so the spec's component list reconciles with the codebase; if a non-index table consumer ever needs the table shell independently, that is the moment to extract `EntityTable`.
+> **`IndexLayout` and `EntityTable` (§11.2) — neither ships.** The Phase 2 spec listed a generic sortable / paginated `EntityTable` primitive; in implementation its whole responsibility (the semantic `<table>`, the scroll container, the `table-header` / `table-body` / `pagination` slots) was folded into a third shell, `IndexLayout` (`<aec-index-layout>`), so no separate `EntityTable` class was ever written. `IndexLayout` then lost its own consumers: AECI-165 deleted the `/vendors` + `/integrations` index pages, and AECI-190 rebuilt `/products` on **`BrowseLayout`** (it needs the facet rail, which `IndexLayout` has no slot for). The shell was deleted in AECI-657. Listing pages now compose `BrowseLayout` + their own `<table>` or `ProductCardGrid`; if a table shell is ever wanted as a primitive again, extract it from `products-index.ts` at that point.
 
 ## 6. Do's and Don'ts
 
