@@ -1,6 +1,8 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type APIRequestContext } from '@playwright/test';
 
+import { chooseSort, chooseView } from './listing-toolbar';
+
 // AECI-61 / Phase 2.15 / AECI-544 — taxonomy browse pages: /categories/:slug,
 // /audiences/:slug, /phases/:slug, /trades/:slug. The four routes share one
 // component + resolver, so the spec parametrizes over the kinds. For each it verifies SSR
@@ -59,7 +61,7 @@ async function emptyTerm(
 
 for (const { kind, segment, listKey } of KINDS) {
   test.describe(`/${segment}/:slug — ${kind} browse (AECI-61)`, () => {
-    test(`renders SSR HTML with the "{name} tools" title, canonical, breadcrumb, and product table`, async ({
+    test(`renders SSR HTML with the "{name} tools" title, canonical, breadcrumb, and product grid`, async ({
       request,
     }) => {
       const term = await firstTerm(request, listKey);
@@ -81,7 +83,57 @@ for (const { kind, segment, listKey } of KINDS) {
         `${origin}/${segment}/${term!.slug}`,
       );
       expect(html, 'breadcrumb must mention Home').toMatch(/Home/);
+      // AECI-657 — the toolbar SSRs regardless of data, and the default view is
+      // the card grid (matching /products), not the table.
+      expect(html, 'sort dropdown must render').toMatch(/<select[^>]+id="aec-listing-sort-/);
+      expect(html, 'view toggle must render (aria-pressed)').toMatch(/aria-pressed/);
+      expect(html, 'card grid is the default view').toMatch(/<aec-product-card-grid/);
+    });
+
+    // AECI-657 — the table is still the other half of the toggle; ?view=table is
+    // the pre-existing rendering, so this pins that it did not regress.
+    test('?view=table SSRs the product table instead of the grid', async ({ request }) => {
+      const term = await firstTerm(request, listKey);
+      test.skip(term === null, `no ${kind} terms seeded in this environment`);
+      test.skip(term!.product_count === 0, `${kind} "${term?.slug}" has no products`);
+
+      const res = await request.get(`/${segment}/${term!.slug}?view=table`);
+      expect(res.status()).toBe(200);
+      const html = await res.text();
+
       expect(html, 'products table must render').toMatch(/<table[^>]+aria-label[^>]*>/);
+      expect(html, 'the card grid must not render in the table view').not.toMatch(
+        /<aec-product-card-grid/,
+      );
+    });
+
+    // The §4.5 gap this issue closed: the page had no sort control at all.
+    test('the sort dropdown updates ?sort= and reflects the choice', async ({ page, request }) => {
+      const term = await firstTerm(request, listKey);
+      test.skip(term === null, `no ${kind} terms seeded in this environment`);
+
+      await page.goto(`/${segment}/${term!.slug}`);
+      await expect(page.locator('app-root')).toBeAttached();
+
+      await chooseSort(page, 'integrations');
+    });
+
+    test('the view toggle switches cards ↔ table and reflects ?view=', async ({
+      page,
+      request,
+    }) => {
+      const term = await firstTerm(request, listKey);
+      test.skip(term === null, `no ${kind} terms seeded in this environment`);
+      test.skip(term!.product_count === 0, `${kind} "${term?.slug}" has no products`);
+
+      await page.goto(`/${segment}/${term!.slug}`);
+      await expect(page.locator('app-root')).toBeAttached();
+
+      await chooseView(page, 'Table');
+      await expect(page.locator('table[aria-label="Products"]')).toBeVisible();
+
+      await chooseView(page, 'Cards');
+      await expect(page.locator('table[aria-label="Products"]')).toHaveCount(0);
     });
 
     test('a term with no products renders the empty panel, not an empty table', async ({
@@ -132,7 +184,9 @@ for (const { kind, segment, listKey } of KINDS) {
       test.skip(term === null, `no ${kind} terms seeded in this environment`);
       test.skip(term!.product_count === 0, `${kind} "${term?.slug}" has no products`);
 
-      await page.goto(`/${segment}/${term!.slug}`);
+      // Pinned to the table view: the row component only renders there now that
+      // cards is the default (AECI-657).
+      await page.goto(`/${segment}/${term!.slug}?view=table`);
       await expect(page.locator('app-root')).toBeAttached();
 
       const firstProduct = page.locator('tr[aec-product-card] a[href^="/products/"]').first();
@@ -144,19 +198,25 @@ for (const { kind, segment, listKey } of KINDS) {
       await expect(page).toHaveURL(/\/products\/[^/]+$/);
     });
 
-    test('has zero axe AA violations', async ({ page, request }) => {
-      const term = await firstTerm(request, listKey);
-      test.skip(term === null, `no ${kind} terms seeded in this environment`);
+    // AECI-657 — BOTH views are scanned. The toggle made the table a state a
+    // reader reaches by choice rather than the only rendering, and a violation
+    // behind a toggle is still a violation; scanning only the default would have
+    // left half the surface uncovered the moment the toggle shipped.
+    for (const view of ['cards', 'table'] as const) {
+      test(`has zero axe AA violations (?view=${view})`, async ({ page, request }) => {
+        const term = await firstTerm(request, listKey);
+        test.skip(term === null, `no ${kind} terms seeded in this environment`);
 
-      await page.goto(`/${segment}/${term!.slug}`);
-      await expect(page.locator('app-root')).toBeAttached();
+        await page.goto(`/${segment}/${term!.slug}?view=${view}`);
+        await expect(page.locator('app-root')).toBeAttached();
 
-      const results = await new AxeBuilder({ page })
-        .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
-        .analyze();
+        const results = await new AxeBuilder({ page })
+          .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
+          .analyze();
 
-      expect(results.violations, formatViolations(results.violations)).toEqual([]);
-    });
+        expect(results.violations, formatViolations(results.violations)).toEqual([]);
+      });
+    }
 
     test('unknown slug returns a real HTTP 404 with the route:404 tag', async ({ request }) => {
       const res = await request.get(`/${segment}/__aeci61-no-such-slug__`);

@@ -1,9 +1,12 @@
 /**
  * Shared, localized labels for integration `mechanism_kind` / `direction`
- * enums. Lifted out of `integrations/integration-card.ts` (AECI-142) so the
- * `/search` integration hit card and the `/integrations` table row render from
- * ONE `$localize` id set — the labels (and their `@@integrations.mechanism.*` /
- * `@@integrations.direction.*` ids) can't drift between the two surfaces.
+ * enums. Lifted out of the since-deleted `integrations/integration-card.ts`
+ * (AECI-142) so every surface that names a mechanism renders from ONE
+ * `$localize` id set — the labels (and their `@@integrations.mechanism.*` /
+ * `@@integrations.direction.*` ids) can't drift apart. The `/integrations`
+ * table that motivated the extraction is gone (AECI-165); the surviving
+ * consumers are the `/search` integration hit card and the home
+ * `IntegrationTile`.
  *
  * Pure functions, not a component or service: `$localize` is a global tagged
  * template available at runtime (SSR + browser + the Angular unit-test

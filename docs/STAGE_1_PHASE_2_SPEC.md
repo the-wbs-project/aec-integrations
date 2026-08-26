@@ -306,7 +306,9 @@ Not every `ProductDetail` field is a hydrated relation. `usefulness` (`ProductUs
 - `/products`, `/vendors`: **`created DESC`** ("newest first") — gives a sense of liveliness, surfaces fresh content
 - `/integrations`: **`name ASC`** — since names are `"Source → Target"`, alphabetical groups by source product, which is useful for browsing
 
-**Review-driven product sorts** (`/products` only): `rating` ("Highest rated") and `reviews` ("Most reviewed"), both **DESC**. For `rating`, products whose average is withheld by the §5.5 ≥5-review gate sort **last** (the orderBy nulls the sort key below the threshold, so a lone 5★ review can't top a well-reviewed 4.8★ product). Both are mostly inert until reviews accumulate post-launch, but ship now so the option is ready. Vendors do not expose these (no vendor rating field; no live `/vendors` list).
+**Review-driven product sorts** (every product listing — the `/products` index and the four taxonomy browse pages, which share one option set since AECI-657): `rating` ("Highest rated") and `reviews` ("Most reviewed"), both **DESC**. For `rating`, products whose average is withheld by the §5.5 ≥5-review gate sort **last** (the orderBy nulls the sort key below the threshold, so a lone 5★ review can't top a well-reviewed 4.8★ product). Both are mostly inert until reviews accumulate post-launch, but ship now so the option is ready. Vendors do not expose these (no vendor rating field; no live `/vendors` list).
+
+**Catalog-driven product sort** (AECI-657): `integrations` ("Most integrations"), **DESC** on the denormalized `products.integration_count`. `STAGE_1_SPEC.md` §4.5 named it alongside alphabetical and most-reviewed for the browse pages, and it was the one of the three with no implementation anywhere. No visibility gate applies — unlike `rating`, the count is shown on every card (zero included, as "Not yet connected"), so the ranking always matches what the reader sees.
 
 **Rating display on cards/tables.** The product table rows, the card-grid tiles, and the `/search` product cards surface the **gated overall rating** via `RatingSummary` (`<aec-rating-summary>`, `DESIGN.md` § Rating summary) — a numeral-forward gold-star + average + review-count unit, shown only at ≥5 approved reviews (the same §5.5 gate, now applied on the **list** mapper too, not just detail). Below the gate the table cell shows an en-dash and the grid/search cards omit the line. This closes the 2026-06-12 trust-audit P0 ("zero social-proof on cards") and gives the two sorts above a visible counterpart. Vendors/integrations have no rating field, so they show no rating.
 
@@ -459,15 +461,17 @@ Three reusable Angular layout components (per `DESIGN.md` patterns):
 
 - `DetailLayout` — left column hero (name, vendor, key facts) + right column metadata + body sections below
 - `BrowseLayout` — header strip + filter sidebar (Phase 3 placeholder) + grid of cards
-- `IndexLayout` — table-style listing with sort headers + pagination
+- ~~`IndexLayout` — table-style listing with sort headers + pagination~~ **(deleted, AECI-657)**
+
+> **`IndexLayout` no longer ships.** Its consumers were the `/vendors` and `/integrations` index pages, both removed by AECI-165, plus `/products`, which AECI-190 rebuilt on `BrowseLayout` (it needs a facet rail, and `IndexLayout` has no slot for one). The shell survived only behind its dev preview route until AECI-657 deleted it. Two layout shells ship. Listing pages compose `BrowseLayout` with their own `<table>` or `ProductCardGrid`.
 
 Each detail page (product, vendor, integration) is a different *body content* projected into `DetailLayout`. Same for browses and indexes. Sections within a detail page use Angular's `@defer` for heavy content (e.g. a product with 50+ integrations).
 
 ### 11.2 New primitives
 
-- `ProductCard`, `VendorCard`, `IntegrationCard` — used by index and browse pages
+- `ProductCard` — the listing table row, used by `/products` (table view) and the taxonomy browse pages. ~~`VendorCard`, `IntegrationCard`~~ **(deleted, AECI-657 — their index pages went away with AECI-165)**. The card-grid counterpart the "card" name anticipated shipped separately as `ProductCardGrid` (AECI-190).
 - `TaxonomyBadge` — pill component for category / audience / phase chips, color-coded per token (forest variants per DESIGN.md)
-- `EntityTable` — generic sortable / paginated table for index pages
+- ~~`EntityTable` — generic sortable / paginated table for index pages~~ **(never shipped)** — its responsibility was folded into `IndexLayout`, which is itself now deleted; see §11.1.
 
 Each new component goes through `/impeccable craft` and is added to DESIGN.md's component definitions before merging.
 
@@ -573,7 +577,7 @@ Issue breakdown follows in a sibling document. Rough wave structure:
 - Cache-tag vocabulary (this section §8 lifted into `docs/CACHE_STRATEGY.md`)
 - API contract Zod schemas for product / vendor / integration / taxonomy
 - `MetaService` + JSON-LD helper in `apps/web/`
-- `DetailLayout`, `BrowseLayout`, `IndexLayout` skeletons
+- `DetailLayout`, `BrowseLayout`, `IndexLayout` skeletons *(`IndexLayout` since deleted — §11.1)*
 
 **Wave 2 — Backend complete**
 

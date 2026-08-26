@@ -1,6 +1,8 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
 
+import { chooseSort, chooseView } from './listing-toolbar';
+
 // AECI-58 / Phase 2.12 — paginated product index at /products. Redesigned in
 // AECI-190: a buyer-facing card grid (default) + a table view, switched by a
 // toolbar toggle, with a sort dropdown. Verifies the page renders SSR-side with
@@ -41,7 +43,7 @@ test.describe('/products — product index (AECI-58)', () => {
     expect(html, 'breadcrumb nav must mention Home and Products').toMatch(/Home/);
 
     // The toolbar renders regardless of data: a sort <select> + the view toggle.
-    expect(html, 'sort dropdown must render').toMatch(/<select[^>]+id="aec-products-sort"/);
+    expect(html, 'sort dropdown must render').toMatch(/<select[^>]+id="aec-listing-sort-/);
     expect(html, 'view toggle buttons must render (aria-pressed)').toMatch(/aria-pressed/);
   });
 
@@ -83,28 +85,21 @@ test.describe('/products — product index (AECI-58)', () => {
     await page.goto('/products');
     await expect(page.locator('app-root')).toBeAttached();
 
-    const sort = page.locator('#aec-products-sort');
-    await expect(sort).toBeVisible();
-    await sort.selectOption('name');
-
-    await expect(page).toHaveURL(/\?.*sort=name/);
-    await expect(sort).toHaveValue('name');
+    await chooseSort(page, 'name');
   });
 
   test('the view toggle switches between cards and table and reflects ?view=', async ({ page }) => {
     await page.goto('/products');
     await expect(page.locator('app-root')).toBeAttached();
 
-    await page.getByRole('button', { name: 'Table' }).click();
-    await expect(page).toHaveURL(/\?.*view=table/);
+    await chooseView(page, 'Table');
     // The table only renders when products are present; assert it when there is data.
     const hasProducts = (await page.locator('#main a[href^="/products/"]').count()) > 0;
     if (hasProducts) {
       await expect(page.locator('table[aria-label="Products"]')).toBeVisible();
     }
 
-    await page.getByRole('button', { name: 'Cards' }).click();
-    await expect(page).toHaveURL(/\?.*view=cards/);
+    await chooseView(page, 'Cards');
     await expect(page.locator('table[aria-label="Products"]')).toHaveCount(0);
   });
 

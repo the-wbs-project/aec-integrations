@@ -29,9 +29,15 @@ export type ProductRole = z.infer<typeof ProductRoleSchema>;
  * hidden by the §5.5 gate (`review_count < 5`) sort **last** so the order
  * matches what the card actually displays — the gate lives in
  * `resolveProductOrderBy` (`apps/api/src/lib/sort.ts`).
+ *
+ * `integrations` ("Most integrations") is `DESC` on the denormalized
+ * `products.integration_count` (maintained by `lib/recompute-counts.ts`, so the
+ * sort needs no join and no migration). It is the third sort STAGE_1_SPEC.md
+ * §4.5 named for the taxonomy browse pages — "alphabetical, most integrations,
+ * most reviewed" — and was the one that existed nowhere until AECI-657.
  */
 export const ProductSortSchema = z
-  .enum(['created', 'name', 'updated', 'rating', 'reviews'])
+  .enum(['created', 'name', 'updated', 'rating', 'reviews', 'integrations'])
   .default('created');
 
 export type ProductSort = z.infer<typeof ProductSortSchema>;

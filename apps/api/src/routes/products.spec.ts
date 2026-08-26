@@ -139,6 +139,35 @@ describe('GET /api/products', () => {
     expect(parsed.data.map((p) => p.slug)).toEqual(['many', 'few', 'none']);
   });
 
+  // AECI-657 — STAGE_1_SPEC.md §4.5 asked for "most integrations" alongside
+  // alphabetical and most-reviewed; this was the one that had no implementation.
+  // Unlike `rating` there is no visibility gate: the count renders on every card
+  // (zero included), so the order always matches what the reader sees.
+  it('sorts by integration count desc (Most integrations), zero-count products last', async () => {
+    await seedProduct(u(1), 'few', 'Few', { integrationCount: 3 });
+    await seedProduct(u(2), 'many', 'Many', { integrationCount: 21 });
+    await seedProduct(u(3), 'none', 'None', { integrationCount: 0 });
+
+    const parsed = ProductsListResponseSchema.parse(
+      await (await get(listApp(), '/api/products?sort=integrations')).json(),
+    );
+    expect(parsed.data.map((p) => p.slug)).toEqual(['many', 'few', 'none']);
+  });
+
+  it('breaks integration-count ties on id, so paging cannot drop or duplicate a row', async () => {
+    // Three-way tie: without the AECI-99 `id ASC` tiebreaker the two pages below
+    // could overlap or skip a row, since D1 gives no stable order for equal keys.
+    for (const i of [1, 2, 3]) {
+      await seedProduct(u(i), `tied-${i}`, `Tied ${i}`, { integrationCount: 7 });
+    }
+    const page = async (n: number) =>
+      ProductsListResponseSchema.parse(
+        await (await get(listApp(), `/api/products?sort=integrations&perPage=2&page=${n}`)).json(),
+      ).data.map((p) => p.slug);
+
+    expect([...(await page(1)), ...(await page(2))]).toEqual(['tied-1', 'tied-2', 'tied-3']);
+  });
+
   it('sorts by rating desc and ranks sub-5-review products last (Highest rated, §5.5 gate)', async () => {
     await seedProduct(u(1), 'good', 'Good', { reviewCount: 10, ratingOverallAvg: 4.0 });
     await seedProduct(u(2), 'best', 'Best', { reviewCount: 8, ratingOverallAvg: 4.8 });
