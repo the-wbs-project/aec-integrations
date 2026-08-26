@@ -57,6 +57,10 @@
       "types": "./src/cache-purge.ts",
       "default": "./src/cache-purge.ts"
     },
+    "./response-drain": {
+      "types": "./src/response-drain.ts",
+      "default": "./src/response-drain.ts"
+    },
     "./cloudflare-analytics": {
       "types": "./src/cloudflare-analytics.ts",
       "default": "./src/cloudflare-analytics.ts"

@@ -20,6 +20,8 @@
  * plan; callers that may exceed that must batch.
  */
 
+import { discardResponseBody } from './response-drain';
+
 /** Max `Cache-Tag`s Cloudflare purge-by-tag accepts per request (Pro plan). */
 export const CF_PURGE_MAX_TAGS = 30;
 
@@ -64,7 +66,11 @@ export async function callCloudflarePurge(
       },
       body: JSON.stringify({ tags }),
     });
-    if (res.ok) return { ok: true, status: res.status };
+    if (res.ok) {
+      // Success carries nothing we read; release the connection (AECI-666).
+      discardResponseBody(res);
+      return { ok: true, status: res.status };
+    }
     let message = res.statusText || 'cf_failed';
     try {
       const body = (await res.json()) as { errors?: Array<{ message?: string }> };

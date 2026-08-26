@@ -445,6 +445,22 @@ wrangler tail aeci-api-production --format pretty
 # then look for:  logToDatadog: intake rejected 403   /   submitMetric: intake rejected 403
 ```
 
+**A third silent-loss mode, closed by AECI-666:** the transport used to leave its success-path
+response body unread. Each unread body holds an open connection, a Worker invocation may hold only
+a bounded number of those, and past the limit the runtime cancels the stalled responses — into
+`fetch` promises that **never settle**, so neither the `res.ok` check nor the `catch` above ever
+runs. The tell is not a Datadog symptom at all; it is a burst of
+`"A stalled HTTP response was canceled to prevent deadlock"` warnings in Workers Observability,
+often followed by `"your Worker's code had hung and would never generate a response"`. The
+transport now releases every body (`discardResponseBody`) and exposes `logBatchToDatadog` so a
+caller with N related lines — the promote's §26.5 audit forwards — costs one request instead of N.
+To check whether an invocation is still over-fanning:
+
+```bash
+# Any hit here means some caller is opening more connections than it releases.
+wrangler tail aeci-api-production --format pretty | grep -i "stalled HTTP response"
+```
+
 A `403` there means the key value is wrong for the `DD_SITE` org (rotate/replace the `DD_API_KEY`
 Worker secret — it is NOT CI-pushed; set it manually per `docs/environments.md` §6). No `intake
 rejected` / `forward failed` line means the intake accepted the payload and the gap is Datadog-side

@@ -326,3 +326,128 @@ describe('createDatadogClient — submitGauge', () => {
     );
   });
 });
+
+// ─── AECI-666: connection hygiene + batched log forwarding ───────────────────
+
+/**
+ * A `Response` whose stream reports cancellation — the observable for "the
+ * connection was released". An unread body keeps holding its connection, and
+ * enough of those get the runtime to cancel the response into a `fetch` promise
+ * that never settles (AECI-666).
+ */
+function trackedResponse(status: number, body = '{}'): { res: Response; drained: () => boolean } {
+  let cancelled = false;
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode(body));
+    },
+    cancel() {
+      cancelled = true;
+    },
+  });
+  return { res: new Response(stream, { status }), drained: () => cancelled };
+}
+
+describe('createDatadogClient — response bodies are always released', () => {
+  it('cancels the body of a successful intake POST', async () => {
+    const { res, drained } = trackedResponse(202);
+    fetchSpy.mockResolvedValue(res);
+    const { ctx, promises } = makeCtx();
+
+    client.logToDatadog(ctx, makeEnv(), makeRequest(), { message: 'hello' });
+    await Promise.all(promises);
+
+    expect(drained()).toBe(true);
+  });
+
+  it('consumes the body of a rejected intake POST (and still warns)', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    fetchSpy.mockResolvedValue(new Response('forbidden', { status: 403 }));
+    const { ctx, promises } = makeCtx();
+
+    client.logToDatadog(ctx, makeEnv(), makeRequest(), { message: 'hello' });
+    await Promise.all(promises);
+
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('intake rejected 403'),
+      expect.stringContaining('forbidden'),
+    );
+  });
+
+  it('cancels the body of a successful metric POST', async () => {
+    const { res, drained } = trackedResponse(202);
+    fetchSpy.mockResolvedValue(res);
+    const { ctx, promises } = makeCtx();
+
+    client.submitCount(ctx, makeEnv(), makeRequest(), 'aeci.test.count', 1);
+    await Promise.all(promises);
+
+    expect(drained()).toBe(true);
+  });
+});
+
+describe('createDatadogClient — logBatchToDatadog', () => {
+  it('forwards N events in ONE request, not N', async () => {
+    const { ctx, promises } = makeCtx();
+    const events = Array.from({ length: 12 }, (_, i) => ({ message: `audit ${i}` }));
+
+    client.logBatchToDatadog(ctx, makeEnv(), makeRequest(), events);
+    await Promise.all(promises);
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const payload = JSON.parse(fetchSpy.mock.calls[0][1].body as string) as unknown[];
+    expect(payload).toHaveLength(12);
+  });
+
+  it('gives every event the same envelope logToDatadog would', async () => {
+    const { ctx, promises } = makeCtx();
+
+    client.logBatchToDatadog(ctx, makeEnv(), makeRequest('https://api.aeci.com/api/promote'), [
+      { message: 'audit product.created', level: 'info', entity_id: 'p1' },
+    ]);
+    await Promise.all(promises);
+
+    const [entry] = JSON.parse(fetchSpy.mock.calls[0][1].body as string) as Record<
+      string,
+      unknown
+    >[];
+    expect(entry).toMatchObject({
+      message: 'audit product.created',
+      status: 'info',
+      entity_id: 'p1',
+      service: 'aeci-test',
+      ddsource: 'test-source',
+      hostname: 'api.aeci.com',
+    });
+    expect(entry.ddtags).toContain('env:preview');
+  });
+
+  it('posts to the logs intake, not the metrics intake', async () => {
+    const { ctx, promises } = makeCtx();
+
+    client.logBatchToDatadog(ctx, makeEnv(), makeRequest(), [{ message: 'x' }]);
+    await Promise.all(promises);
+
+    expect(fetchSpy.mock.calls[0][0]).toBe(
+      'https://http-intake.logs.us5.datadoghq.com/api/v2/logs',
+    );
+  });
+
+  it('never posts an empty array', () => {
+    const { ctx } = makeCtx();
+
+    client.logBatchToDatadog(ctx, makeEnv(), makeRequest(), []);
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('no-ops without DD_API_KEY', () => {
+    const { ctx } = makeCtx();
+
+    client.logBatchToDatadog(ctx, makeEnv({ DD_API_KEY: undefined }), makeRequest(), [
+      { message: 'x' },
+    ]);
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});

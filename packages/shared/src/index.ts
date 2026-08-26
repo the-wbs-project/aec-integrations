@@ -6,6 +6,7 @@ export * from './datadog';
 export * from './deploy-env';
 export * from './errors';
 export * from './integration-context';
+export * from './response-drain';
 export * from './slug';
 export * from './timing-safe-equal';
 export * from './workflow-transition';
