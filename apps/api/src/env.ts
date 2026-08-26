@@ -29,7 +29,8 @@ import type { PromoteWorkflowParams } from './lib/promote-jobs';
  * if the 00:15 snapshot has not captured every day inside its cut window. Also
  * queue-less — a skipped or partial run is simply re-attempted tomorrow, and a
  * retry of a destructive job is the last thing worth automating. `asn_registry`
- * is the WEEKLY 02:00 UTC Monday `asn_registry` refresh (AECI-624 /
+ * is the WEEKLY 02:00 UTC Monday `asn_registry` refresh (cron `0 2 * * 2` —
+ * Cloudflare's day-of-week is 1=Sunday, so Monday is `2`; AECI-624 /
  * `ADMIN_PANEL_SPEC.md` §7.6): one PeeringDB read (authenticated when
  * `PEERINGDB_API_KEY` is set, AECI-661), intersected
  * with the ASNs `page_views` has actually seen, upserted for the admin panel's

@@ -93,7 +93,10 @@ const DATA_QUALITY_CRON = '0 4 * * *';
 const WAF_CRON = '0 * * * *';
 const ANALYTICS_CRON = '0 5 * * *';
 const RETENTION_CRON = '0 3 * * *';
-const ASN_REGISTRY_CRON = '0 2 * * 1';
+// Cloudflare's day-of-week is 1=Sunday, so Monday is `2` (AECI-661). Kept as a
+// literal rather than imported so the dispatcher test still fails if the real
+// constant drifts silently.
+const ASN_REGISTRY_CRON = '0 2 * * 2';
 
 const ctx = { waitUntil: vi.fn(), passThroughOnException: vi.fn() } as unknown as ExecutionContext;
 

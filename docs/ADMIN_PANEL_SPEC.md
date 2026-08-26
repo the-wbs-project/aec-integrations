@@ -449,7 +449,7 @@ job_runs
   INDEX (job, started_at)
 ```
 
-Each of the eleven cron handlers in `scheduled.ts` writes one row (eight at the time this was written; AECI-581 added the 00:15 `snapshot` job, AECI-584 the 03:00 `retention` prune, and AECI-624 the weekly 02:00 Monday `asn-registry` refresh). The data-quality run stores its full result set in `detail`, which is what §5.6 renders. Retention: 90 days (§7.4), enforced by the 03:00 prune since AECI-584.
+Each of the eleven cron handlers in `scheduled.ts` writes one row (eight at the time this was written; AECI-581 added the 00:15 `snapshot` job, AECI-584 the 03:00 `retention` prune, and AECI-624 the weekly 02:00 Monday `asn-registry` refresh — cron `0 2 * * 2`, because Cloudflare's day-of-week is 1=Sunday, AECI-661). The data-quality run stores its full result set in `detail`, which is what §5.6 renders. Retention: 90 days (§7.4), enforced by the 03:00 prune since AECI-584.
 
 **SHIPPED (AECI-583, 2026-08-13.)** `job` uses the eleven `AdminCronJob` ids in `packages/shared/src/api/admin-panel.ts` (AECI-581 added the ninth, `metrics-snapshot`; AECI-584 the tenth, `retention-prune`; AECI-624 the eleventh, `asn-registry` — no migration needed on any of them, `job` carries no CHECK for exactly this reason); the DDL above is the built shape and `DATABASE_SCHEMA.md` §9.4 is the implementation record. Four things settled during the build are worth carrying forward:
 
@@ -660,7 +660,7 @@ a default into `eyeball`, and why §5.6 reports coverage as a first-class number
 Typed ASN data with a true `hosting` flag exists (IPinfo's paid ASN database,
 ipapi.is at $49/mo) and is the upgrade path if the tail ever matters.
 
-#### The refresh (weekly, `0 2 * * 1`)
+#### The refresh (weekly, `0 2 * * 2` — Mondays; CF day-of-week is 1=Sunday)
 
 Cron → `enqueueOrRun` → inline. **Queue-less**, like `moderation`/`waf`/
 `analytics`/`snapshot`/`retention`: one read-only GET plus an idempotent

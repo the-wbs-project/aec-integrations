@@ -832,7 +832,7 @@ export const AdminCronJobSchema = z.enum([
   'algolia-drift', // 0 9 * * *
   'request-reconcile', // */15 * * * *
   'waf-poll', // 0 * * * *
-  'asn-registry', // 0 2 * * 1  (weekly)
+  'asn-registry', // 0 2 * * 2  (weekly; CF day-of-week is 1=Sunday, so 2 = Monday)
 ]);
 export type AdminCronJob = z.infer<typeof AdminCronJobSchema>;
 

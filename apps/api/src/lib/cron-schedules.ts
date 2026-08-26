@@ -26,7 +26,26 @@ import type { ScheduledJob } from '../env';
 
 /**
  * Weekly `asn_registry` refresh (AECI-624 / `ADMIN_PANEL_SPEC.md` §7.6).
- * **02:00 UTC on Mondays** — the only non-daily, non-sub-hourly trigger here.
+ * **02:00 UTC on Mondays** — the only non-daily, non-sub-hourly trigger here,
+ * and therefore the only one exposed to the trap in the next paragraph.
+ *
+ * ⚠️ **Cloudflare's day-of-week field is 1 = Sunday … 7 = Saturday**, NOT the
+ * Unix `0 = Sunday`. Cloudflare's own docs give `0 17 * * sun` and `0 17 * * 1`
+ * as equivalent. So **Monday is `2`**, and the `'0 2 * * 1'` this constant
+ * carried until AECI-661 meant *Sunday* — which is exactly what production did:
+ * the job's only run landed Sunday 2026-08-23 and it did not run on Monday
+ * 2026-08-24. Nothing failed, because the dispatcher matched fine; the schedule
+ * simply meant a different day from the one every comment and doc claimed.
+ *
+ * Written numerically rather than as `'0 2 * * MON'`, despite the abbreviation
+ * being the unambiguous form Cloudflare recommends, because `scheduled.ts`
+ * `switch`es on the raw `controller.cron` string: if Cloudflare ever normalised
+ * `MON` back to a digit on the round trip, the expression would stop matching
+ * this constant and the job would silently stop dispatching — the precise
+ * failure this file's header exists to prevent. The numeric form is *known* to
+ * round-trip byte-identically (the Sunday run above proves it: the handler ran
+ * and wrote its `job_runs` row, so `controller.cron` matched exactly). Prefer a
+ * form we have evidence for over a form that merely reads better.
  *
  * Weekly, not daily, because the input barely moves: PeeringDB `info_type` values
  * change when a network re-registers, which is a matter of months, and the join
@@ -44,7 +63,7 @@ import type { ScheduledJob } from '../env';
  * read-only GET plus an idempotent upsert that never deletes, so a failed week
  * leaves the last good rows in place and the next Monday converges.
  */
-export const ASN_REGISTRY_CRON = '0 2 * * 1';
+export const ASN_REGISTRY_CRON = '0 2 * * 2';
 
 /** Daily `metrics_daily` snapshot (AECI-581 / `ADMIN_PANEL_SPEC.md` §7.1). **00:15
  *  UTC**, deliberately the first slot of the day: it captures the prior COMPLETE
