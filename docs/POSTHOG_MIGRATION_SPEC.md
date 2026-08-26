@@ -464,6 +464,33 @@ Live check, 2026-08-24. None of these block the code; each gates a capability.
 
 ### §8.8 PostHog's remote config is a server-side gate the client cannot override
 
+> **Dated addendum — 2026-08-26, verified live.** The **non-prod project's toggles have since
+> been flipped on**, so the disagreement recorded below is no longer the shape it describes.
+> Re-fetched from `/array/{token}/config` on 2026-08-26:
+>
+> | Setting | prod `aec-integrations` (354071) | non-prod `aec-integrations-dev` (525793) |
+> |---|---|---|
+> | `capturePerformance.web_vitals` | true | **true** _(was `false`)_ |
+> | `errorTracking.autocaptureExceptions` | **true** _(was `false`)_ | **true** _(was `false`)_ |
+> | `heatmaps` | true | false |
+> | `sessionRecording` | enabled (full object) | **enabled (full object)** _(was `false`)_ |
+>
+> Three consequences:
+>
+> 1. **`$web_vitals` now fires on preview / staging / demo / stage2.** The "silently does
+>    nothing on the tiers you would actually test on" warning below is **historical** — §6(4)
+>    is now verifiable on a non-prod tier.
+> 2. **Exception autocapture is on for both projects**, so `$exception` now arrives from the
+>    window-level path too, not only the manual `captureException` one (which was never gated).
+> 3. **D5 is now held by the client alone on BOTH projects.** Replay is enabled at the project
+>    level everywhere; the only thing stopping it is `disable_session_recording: true` in
+>    `posthog-client.ts`. The "one config regression away" risk stated at the end of this
+>    section now applies to **every** tier, not just production, and there is still no test
+>    that catches it.
+>
+> The 2026-08-24 record below is left intact deliberately.
+
+
 Found during the live verification pass, and **not anticipated anywhere in
 §2–§3**: on init, `posthog-js` fetches
 `https://us-assets.i.posthog.com/array/{phc_token}/config` and that response

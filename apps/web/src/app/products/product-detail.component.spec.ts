@@ -545,3 +545,60 @@ describe('ProductDetailPage taxonomy chips (AECI-544)', () => {
     expect(el.querySelector('a[href^="/trades/"]')).toBeNull();
   });
 });
+
+/**
+ * The Actions-sidebar claim CTA. `vendors.verified` is the only public signal
+ * that a listing is claimed, so it drives the copy: an unverified vendor gets
+ * "Claim this listing", a verified one gets "Request access to this listing"
+ * plus a note. Both open the same `kind:'claim'` request — seats are
+ * admin-granted and multi-seat (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11), so the
+ * claim form stays the only route in for a second person at the vendor.
+ */
+describe('ProductDetailPage claim CTA', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  const actions = (el: HTMLElement) =>
+    el.querySelector('section[aria-labelledby="actions-label"]') as HTMLElement;
+
+  it('offers to claim the listing when the built-by vendor is unverified', () => {
+    const { el } = setup(buildProduct());
+    const section = actions(el);
+
+    expect(section.textContent).toContain('Claim this listing');
+    expect(section.textContent).not.toContain('Request access to this listing');
+    expect(section.textContent).not.toContain('Already managed by a verified vendor');
+  });
+
+  it('offers to request access when the built-by vendor is verified', () => {
+    const { el } = setup(
+      buildProduct({
+        vendor: {
+          id: '00000000-0000-4000-8000-000000010001',
+          slug: 'procore',
+          name: 'Procore Technologies',
+          logo_url: null,
+          verified: true,
+        },
+      }),
+    );
+    const section = actions(el);
+
+    expect(section.textContent).toContain('Request access to this listing');
+    expect(section.textContent).not.toContain('Claim this listing');
+    expect(section.textContent).toContain('Already managed by a verified vendor');
+
+    // Copy only: the CTA still targets the same claim route/kind.
+    const cta = section.querySelector<HTMLAnchorElement>('a[href="/products/procore/claim"]');
+    expect(cta).toBeTruthy();
+  });
+
+  it('falls back to the claim copy when the product has no vendor at all', () => {
+    // `ProductDetail.vendor` is nullable (no DB constraint forces one), so the
+    // verified read must not assume a vendor is present.
+    const { el } = setup(buildProduct({ vendor: null }));
+    const section = actions(el);
+
+    expect(section.textContent).toContain('Claim this listing');
+    expect(section.textContent).not.toContain('Already managed by a verified vendor');
+  });
+});

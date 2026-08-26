@@ -59,6 +59,7 @@ import {
 } from '../lib/audit';
 import { computeDomainMatch } from '../lib/domain-match';
 import { writeDb, type DbFactory } from '../lib/handler-utils';
+import { sendClaimSubmittedNotification } from '../lib/email';
 import { createLinearIssueForRequest, drizzleLinearStore } from '../lib/linear';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -311,6 +312,28 @@ async function createRequest(
       duplicateLinearIssueId: duplicate?.linearIssueId ?? null,
     }),
   );
+
+  // Operator alert on claim INTAKE — the support inbox learns a claim landed without
+  // waiting for someone to read Linear. CLAIMS ONLY: a correction is a low-stakes data
+  // fix, a claim asserts control of a listing. Fire-and-forget after the commit and
+  // fail-open (absent `CLAIM_ALERT_EMAIL`/`RESEND_API_KEY` → `'skipped'`), so it can
+  // never delay or fail the 201. The claimant still gets no submit-time mail by
+  // design; their only mail is the decision pair from `PATCH /api/admin/claims/:id`.
+  if (kind === 'claim') {
+    c.executionCtx.waitUntil(
+      sendClaimSubmittedNotification(c, {
+        requestId,
+        targetName,
+        targetType: insert.targetType,
+        slug,
+        submitterEmail: insert.submitterEmail,
+        submitterName: insert.submitterName,
+        submitterRole: insert.submitterRole,
+        domainMatch,
+        duplicateOfRequestId: duplicate?.id ?? null,
+      }),
+    );
+  }
 
   const body: RequestSubmitResponse = {
     request_id: requestId,

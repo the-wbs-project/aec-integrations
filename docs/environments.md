@@ -822,6 +822,16 @@ Unlike every other tier, this one is **deployed by hand from a `stage-2` SHA**. 
 
 > **As-built status — 2026-08-20.** LIVE at `82f26ba1` and **Access-gated**. D1 `aeci-app-stage2` (`d6960a3f-…`, region APAC) migrated to `0019` and seeded; both KV namespaces provisioned; both Workers deployed and reporting the SHA on `/api/version` + `/_version`, `/api/health` `db:ok`. Seeded content verified rendering: pair-page agreement states (`confirmed` / `single_source` / `unverified`), the vendor verified badge, and the version-diff selectors.
 >
+> **Redeployed 2026-08-26 → `6553e654`.** Hand-deployed from the `stage-2` HEAD that
+> merged the AECI-639 observability dual-run (#568), so this tier now carries the **PostHog
+> leg** and is the surface for testing it. **No migration was needed** — `0019` is still the
+> head and `wrangler d1 migrations list --remote` reported "No migrations to apply", so
+> everything seeded at bootstrap (including the hand-applied reviews, the operator profile
+> and the `stats_cache` rows in §10.7) survived untouched. Deploy order was API then SSR per
+> §10.7; both Workers report `6553e654…` under `wrangler versions view`, and the Access gate
+> still `302`s with the same `kid`. The PostHog deploy marker was emitted **by hand** (§10.7
+> step 4) and the `deployment` event landed in `aec-integrations-dev` with `env: stage2`.
+>
 > **Access verified 2026-08-20.** A bare request to `/`, `/api/version` and `/_version` all `302` to `aecintegrations.cloudflareaccess.com/cdn-cgi/access/login/stage2.aecintegrations.com`, and the redirect's `kid` is `6d89b808…d98643` — byte-equal to the **App AUD tag** in `docs/access.md` §1, which confirms the hostname was added as a destination on the existing `AECi Non-Prod` app rather than a new one (the §"Locked decisions" requirement). `staging.aecintegrations.com` still `302`s with the same AUD, so nothing regressed on the shared app.
 >
 > **Verification now needs the service token.** §10.8's `verify-version.sh` / `verify-health.sh` recipe worked pre-gate without headers; it will `302` now. Export `CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET` (the `aeci-gh-actions` token, `docs/access.md` §1) first, or reach it in a browser via email-OTP. Nothing automated hits this host — there is no workflow for this tier — so the service token is a convenience for manual checks, not a functional dependency.
@@ -931,6 +941,19 @@ pnpm --filter @aeci/web  deploy:stage2      # runs the web build first
 ```
 
 Both `deploy:stage2` scripts derive `COMMIT_SHA` from `git rev-parse HEAD` and `DEPLOYED_AT` from `date -u`, so run them from a checked-out `stage-2` SHA and the version endpoints report it without any extra flags.
+
+```bash
+# 4. Deploy marker (optional, best-effort). No workflow targets this tier, so nothing
+#    emits one for you — without this step the tier's PostHog data has no deploy line
+#    and no queryable `deployment` row. The script accepts `stage2` as a tier value and
+#    always exits 0. PH_PROJECT_KEY is the committed non-prod var (aec-integrations-dev).
+PH_EVENT_ENV=stage2 PH_SERVICE=both PH_VERSION=$(git rev-parse HEAD) \
+PH_PROJECT_KEY=$(sed -n 's/.*"POSTHOG_PROJECT_KEY": "\(phc_[^"]*\)".*/\1/p' apps/web/wrangler.jsonc | head -1) \
+PH_NOTE="hand deploy from stage-2 (no CI for this tier)" \
+  bash scripts/ci/posthog-deploy-marker.sh
+```
+
+Without `POSTHOG_CLI_API_KEY` + `PH_PROJECT_ID` the **annotation** leg warn-skips (no deploy line drawn across insights) and only the queryable `deployment` event ships — which is the leg that matters for "which deploy introduced this". Both legs are fail-open by design.
 
 `seed/catalog.sql` and `seed/phase2-fixtures.sql` carry a "dev / CI only — never staging/production" warning. Applying them to `stage2` is a **deliberate exception**: it is a throwaway tier that exists to be thrown away, and hand-writing equivalent SQL would be strictly worse. They give you, for free, the four things the Stage 2 surfaces need and a bare catalog does not:
 

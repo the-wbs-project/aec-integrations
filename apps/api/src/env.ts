@@ -473,6 +473,19 @@ export type Env = {
    */
   ADMIN_ALERT_EMAIL?: string;
   /**
+   * Recipient for the operator "new vendor claim" alert — sent post-commit from
+   * `POST /api/requests/claim` (`routes/requests.ts`). A SINGLE address, like
+   * `ADMIN_ALERT_EMAIL` (the transactional transport passes `to` through to Resend
+   * verbatim; only the `_TO` digest vars take a parsed list). Separate from
+   * `ADMIN_ALERT_EMAIL` on purpose: claim intake
+   * goes to the support inbox (`support@aecintegrations.com`), while
+   * `ADMIN_ALERT_EMAIL` remains the individual operator address the sweep alerts and
+   * lead-capture notifications use. Plain wrangler var per env. Absent → the alert is
+   * a `skipped` no-op and the submit still returns `201` — the Linear issue
+   * (§6.4) stays the durable record either way.
+   */
+  CLAIM_ALERT_EMAIL?: string;
+  /**
    * Resend API key — the single transactional-email secret for the API Worker.
    * Powers BOTH the §11.1 transactional templates (AECI-240 / Phase 7.5 — review
    * submit/moderate, account delete, the reconcile-sweep admin alert) AND the daily
