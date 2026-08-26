@@ -318,11 +318,19 @@
         "EMAIL_FROM": "AEC Integrations <notifications@aecintegrations.com>",
         "PUBLIC_SITE_URL": "https://staging.aecintegrations.com",
         "ADMIN_ALERT_EMAIL": "chrisw@thewbsproject.com",
+        // Operator alert on claim INTAKE (`POST /api/requests/claim`) — the support
+        // inbox, deliberately NOT `ADMIN_ALERT_EMAIL` (which stays the individual
+        // operator address for sweep alerts + lead capture). Absent -> the alert is a
+        // fail-open `skipped` and the Linear issue is still the durable record.
+        "CLAIM_ALERT_EMAIL": "support@aecintegrations.com",
         // AECI-241: sender + recipient(s) for the daily data-quality digest. Plain
-        // vars (not secrets — only RESEND_API_KEY is). `_FROM` must be on a Resend-
-        // verified domain (thewbsproject.com). `_TO` is comma-separated (read by
+        // vars (not secrets — only RESEND_API_KEY is). `_FROM` must be on the
+        // Resend-verified sending domain, which is `aecintegrations.com` (see
+        // docs/email.md §Deliverability). It previously read `thewbsproject.com`
+        // here, which was wrong and diverged staging/demo/stage2 from production
+        // until 2026-08-26. `_TO` is comma-separated (read by
         // parseRecipients). Staging sends to Chris only.
-        "DATA_QUALITY_EMAIL_FROM": "AECi Data Quality <support@thewbsproject.com>",
+        "DATA_QUALITY_EMAIL_FROM": "AEC Integrations <notifications@aecintegrations.com>",
         "DATA_QUALITY_EMAIL_TO": "chrisw@thewbsproject.com",
         // AECI-526: the daily operator analytics digest is PRODUCTION-ONLY — the cron
         // still runs here (emits its liveness metric) but ANALYTICS_DIGEST_EMAIL_TO is
@@ -508,7 +516,12 @@
         "EMAIL_FROM": "AEC Integrations <notifications@aecintegrations.com>",
         "PUBLIC_SITE_URL": "https://demo.aecintegrations.com",
         "ADMIN_ALERT_EMAIL": "chrisw@thewbsproject.com",
-        "DATA_QUALITY_EMAIL_FROM": "AECi Data Quality <support@thewbsproject.com>",
+        // Operator alert on claim INTAKE (`POST /api/requests/claim`) — the support
+        // inbox, deliberately NOT `ADMIN_ALERT_EMAIL` (which stays the individual
+        // operator address for sweep alerts + lead capture). Absent -> the alert is a
+        // fail-open `skipped` and the Linear issue is still the durable record.
+        "CLAIM_ALERT_EMAIL": "support@aecintegrations.com",
+        "DATA_QUALITY_EMAIL_FROM": "AEC Integrations <notifications@aecintegrations.com>",
         "DATA_QUALITY_EMAIL_TO": "chrisw@thewbsproject.com",
         // AECI-526: the daily operator analytics digest is PRODUCTION-ONLY — the cron
         // still runs here (emits its liveness metric) but ANALYTICS_DIGEST_EMAIL_TO is
@@ -678,7 +691,12 @@
         "EMAIL_FROM": "AEC Integrations <notifications@aecintegrations.com>",
         "PUBLIC_SITE_URL": "https://stage2.aecintegrations.com",
         "ADMIN_ALERT_EMAIL": "chrisw@thewbsproject.com",
-        "DATA_QUALITY_EMAIL_FROM": "AECi Data Quality <support@thewbsproject.com>",
+        // Operator alert on claim INTAKE (`POST /api/requests/claim`) — the support
+        // inbox, deliberately NOT `ADMIN_ALERT_EMAIL` (which stays the individual
+        // operator address for sweep alerts + lead capture). Absent -> the alert is a
+        // fail-open `skipped` and the Linear issue is still the durable record.
+        "CLAIM_ALERT_EMAIL": "support@aecintegrations.com",
+        "DATA_QUALITY_EMAIL_FROM": "AEC Integrations <notifications@aecintegrations.com>",
         "DATA_QUALITY_EMAIL_TO": "chrisw@thewbsproject.com",
         // ANALYTICS_DIGEST_EMAIL_TO intentionally unset (production-only, AECI-526).
       },
@@ -750,9 +768,17 @@
         // — absent → sends skip.
         "EMAIL_FROM": "AEC Integrations <notifications@aecintegrations.com>",
         "ADMIN_ALERT_EMAIL": "chrisw@thewbsproject.com",
+        // Operator alert on claim INTAKE (`POST /api/requests/claim`) — the support
+        // inbox, deliberately NOT `ADMIN_ALERT_EMAIL` (which stays the individual
+        // operator address for sweep alerts + lead capture). Absent -> the alert is a
+        // fail-open `skipped` and the Linear issue is still the durable record.
+        "CLAIM_ALERT_EMAIL": "support@aecintegrations.com",
         // AECI-241: sender + recipient(s) for the daily data-quality digest. Plain
-        // vars (not secrets — only RESEND_API_KEY is). `_FROM` must be on a Resend-
-        // verified domain (thewbsproject.com). `_TO` is comma-separated (read by
+        // vars (not secrets — only RESEND_API_KEY is). `_FROM` must be on the
+        // Resend-verified sending domain, which is `aecintegrations.com` (see
+        // docs/email.md §Deliverability). It previously read `thewbsproject.com`
+        // here, which was wrong and diverged staging/demo/stage2 from production
+        // until 2026-08-26. `_TO` is comma-separated (read by
         // parseRecipients). TODO: append Bill's address alongside Chris?
         "DATA_QUALITY_EMAIL_FROM": "AEC Integrations <notifications@aecintegrations.com>",
         "DATA_QUALITY_EMAIL_TO": "chrisw@thewbsproject.com",

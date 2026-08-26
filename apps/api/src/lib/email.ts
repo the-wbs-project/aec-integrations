@@ -34,7 +34,7 @@
  * (`source: 'email'`). Telemetry is wrapped so it can never turn a send into a throw.
  */
 
-import { orderedPairSlugs } from '@aeci/shared';
+import { orderedPairSlugs, type RequestTargetType } from '@aeci/shared';
 
 import { logToPosthog, submitCount } from '../posthog';
 import type { Env } from '../env';
@@ -78,6 +78,11 @@ export type EmailTemplate =
   // reject → rejected).
   | 'claim-approved'
   | 'claim-rejected'
+  // Operator alert on claim INTAKE (not decision): a vendor submitted "claim this
+  // listing" via `POST /api/requests/claim`. Recipient is `CLAIM_ALERT_EMAIL` (the
+  // support inbox), NOT `ADMIN_ALERT_EMAIL`. The claimant gets nothing at submit
+  // time by design — the only claimant-facing mail is the decision pair above.
+  | 'claim-submitted-alert'
   // Stage 2 attestation detector nudges (AECI-302 /
   // `STAGE_2_ATTESTATIONS_SPEC.md` §7.2). Sent by the daily detector sweep
   // (`lib/attestation-notify.ts`); recipients are the vendor's unbanned
@@ -894,6 +899,65 @@ export function sendLandingSignupNotification(
     subject: '[AECi] New mailing list signup',
     text: opsText('Someone just joined the AEC Integrations mailing list.', rows),
     html: opsTable('Someone just joined the AEC Integrations mailing list.', rows),
+  });
+}
+
+/**
+ * Operator alert: someone submitted a vendor claim (`POST /api/requests/claim`).
+ *
+ * Fired fire-and-forget via `ctx.waitUntil` AFTER the atomic commit, so a mail
+ * failure can never roll back an accepted claim or delay the `201` — same posture as
+ * every other send here. Recipient is `CLAIM_ALERT_EMAIL`; absent → `'skipped'`.
+ *
+ * Corrections (`POST /api/requests/correction`) deliberately do NOT alert: they share
+ * `createRequest`, but a correction is a low-stakes data fix while a claim asserts
+ * control of a listing and starts the verification path. Both still create a Linear
+ * issue, which remains the durable record.
+ *
+ * Carries the two §6.8 admin signals the reviewer would otherwise have to look up —
+ * `domain_match` (submitter email domain vs the target vendor's website) and whether
+ * this duplicates an open request. Operator format, en-US, never i18n'd.
+ */
+export function sendClaimSubmittedNotification(
+  c: EmailContext,
+  opts: {
+    requestId: string;
+    /** Display name of the claimed vendor/product. */
+    targetName: string;
+    /** `'product'` or `'vendor'` — decides the listing URL below. */
+    targetType: RequestTargetType;
+    slug: string;
+    submitterEmail: string;
+    submitterName: string | null;
+    submitterRole: string | null;
+    /** §6.8 signal: `match` | `no_match` | `pending`. */
+    domainMatch: string;
+    /** §7.2 signal: the id of an open request this appears to duplicate. */
+    duplicateOfRequestId: string | null;
+  },
+): Promise<EmailOutcome> {
+  const base = siteUrl(c.env);
+  const rows: Array<[string, string]> = [
+    ['Claimed', `${opts.targetName} (${opts.targetType})`],
+    ['Submitter', opts.submitterEmail],
+    ['Name', opts.submitterName ?? '—'],
+    ['Role', opts.submitterRole ?? '—'],
+    ['Domain match', opts.domainMatch],
+    ['Possible duplicate', opts.duplicateOfRequestId ?? 'no'],
+    ['Request id', opts.requestId],
+  ];
+  if (base) {
+    rows.push(['Review queue', `${base}/admin/claims`]);
+    const path = opts.targetType === 'vendor' ? 'vendors' : 'products';
+    rows.push(['Listing', `${base}/${path}/${opts.slug}`]);
+  }
+  const intro = `${opts.submitterEmail} submitted a claim for ${opts.targetName}.`;
+  return sendTransactionalEmail(c, {
+    to: c.env.CLAIM_ALERT_EMAIL ?? '',
+    template: 'claim-submitted-alert',
+    subject: `[AECi] New vendor claim: ${opts.targetName}`,
+    text: opsText(intro, rows),
+    html: opsTable(intro, rows),
   });
 }
 

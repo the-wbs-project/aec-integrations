@@ -355,6 +355,7 @@ import { RoleBadge } from './role-badge';
                 [entity]="'product'"
                 [kind]="'claim'"
                 [slug]="p.slug"
+                [claimed]="p.vendor?.verified ?? false"
                 [href]="'/products/' + p.slug + '/claim'"
                 class="inline-flex items-center justify-center gap-2 rounded-(--radius-md)
                   border border-(--border-default) bg-(--surface-raised) px-4 py-2.5
@@ -377,9 +378,15 @@ import { RoleBadge } from './role-badge';
                   <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
                   <path d="M4 22v-7" />
                 </svg>
-                <ng-container i18n="@@products.detail.metadata.claim"
-                  >Claim this listing</ng-container
-                >
+                @if (p.vendor?.verified) {
+                  <ng-container i18n="@@products.detail.metadata.requestAccess"
+                    >Request access to this listing</ng-container
+                  >
+                } @else {
+                  <ng-container i18n="@@products.detail.metadata.claim"
+                    >Claim this listing</ng-container
+                  >
+                }
               </a>
               <a
                 aecRequestTrigger
@@ -413,6 +420,14 @@ import { RoleBadge } from './role-badge';
                 >
               </a>
             </div>
+            @if (p.vendor?.verified) {
+              <p
+                class="text-xs leading-relaxed text-(--text-secondary)"
+                i18n="@@products.detail.metadata.claimedNote"
+              >
+                Already managed by a verified vendor. Request access if you work there too.
+              </p>
+            }
           </section>
         </div>
 

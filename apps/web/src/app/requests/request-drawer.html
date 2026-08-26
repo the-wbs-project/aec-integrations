@@ -7,9 +7,11 @@
       <div class="flex items-start justify-between gap-4">
         <div class="min-w-0">
           <p class="text-xs uppercase tracking-[0.14em] text-(--text-tertiary)">
-            @switch (t.kind) { @case ('claim') {
+            @switch (t.kind) { @case ('claim') { @if (t.claimed) {
+            <ng-container i18n="@@requests.access.eyebrow">Request access</ng-container>
+            } @else {
             <ng-container i18n="@@requests.claim.eyebrow">Claim this listing</ng-container>
-            } @case ('correction') {
+            } } @case ('correction') {
             <ng-container i18n="@@requests.correction.eyebrow">Suggest a correction</ng-container>
             } }
           </p>
@@ -17,9 +19,13 @@
             brnDialogTitle
             class="mt-1 font-display text-xl font-semibold tracking-tight text-(--text-primary)"
           >
-            @switch (t.kind) { @case ('claim') {
+            @switch (t.kind) { @case ('claim') { @if (t.claimed) {
+            <ng-container i18n="@@requests.access.title"
+              >Request access to this listing</ng-container
+            >
+            } @else {
             <ng-container i18n="@@requests.claim.title">Claim this listing</ng-container>
-            } @case ('correction') {
+            } } @case ('correction') {
             <ng-container i18n="@@requests.correction.title">Suggest a correction</ng-container>
             } }
           </h2>
@@ -48,12 +54,17 @@
       </div>
 
       <p brnDialogDescription class="mt-2 text-sm leading-relaxed text-(--text-secondary)">
-        @switch (t.kind) { @case ('claim') {
+        @switch (t.kind) { @case ('claim') { @if (t.claimed) {
+        <ng-container i18n="@@requests.access.subtitle"
+          >A verified vendor already manages this listing. Work there too? Tell us about your
+          connection and we'll review your request.</ng-container
+        >
+        } @else {
         <ng-container i18n="@@requests.claim.subtitle"
           >Work here? Tell us about your connection to this listing and we'll verify your
           claim.</ng-container
         >
-        } @case ('correction') {
+        } } @case ('correction') {
         <ng-container i18n="@@requests.correction.subtitle"
           >Spotted something inaccurate? Describe what's wrong and we'll review it.</ng-container
         >

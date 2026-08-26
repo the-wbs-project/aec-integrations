@@ -26,6 +26,7 @@ import {
   sendAttestationStaleVersionEmail,
   sendClaimApprovedEmail,
   sendClaimRejectedEmail,
+  sendClaimSubmittedNotification,
   sendEmail,
   sendEntitlementExpiringAdminEmail,
   sendEntitlementExpiringEmail,
@@ -465,6 +466,104 @@ describe('sendStuckRequestAdminAlert', () => {
       ],
     });
     expect(lastBody(fetchSpy).subject).toBe('[AECi] 1 request stuck in the Linear pipeline');
+  });
+});
+
+describe('sendClaimSubmittedNotification', () => {
+  const CLAIM = {
+    requestId: 'req-9',
+    targetName: 'Globex Inc',
+    targetType: 'vendor' as const,
+    slug: 'globex',
+    submitterEmail: 'ops@globex.com',
+    submitterName: 'Dana Ops',
+    submitterRole: 'VP Product',
+    domainMatch: 'match',
+    duplicateOfRequestId: null,
+  };
+
+  it('sends to CLAIM_ALERT_EMAIL with the target in the subject and both signals in the body', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    const outcome = await sendClaimSubmittedNotification(
+      fakeContext({
+        CLAIM_ALERT_EMAIL: 'support@aecintegrations.com',
+        PUBLIC_SITE_URL: 'https://www.aecintegrations.com',
+      }),
+      CLAIM,
+    );
+
+    expect(outcome).toBe('sent');
+    const body = lastBody(fetchSpy);
+    expect(body.to).toBe('support@aecintegrations.com');
+    expect(body.subject).toBe('[AECi] New vendor claim: Globex Inc');
+    const text = String(body.text);
+    expect(text).toContain('ops@globex.com');
+    expect(text).toContain('Domain match: match');
+    expect(text).toContain('Possible duplicate: no');
+    expect(text).toContain('req-9');
+    expect(sendTags()).toContainEqual(['outcome:sent', 'template:claim-submitted-alert']);
+  });
+
+  it('links a vendor target at /vendors and a product target at /products', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    const ctx = fakeContext({
+      CLAIM_ALERT_EMAIL: 'support@aecintegrations.com',
+      PUBLIC_SITE_URL: 'https://www.aecintegrations.com',
+    });
+
+    await sendClaimSubmittedNotification(ctx, CLAIM);
+    expect(String(lastBody(fetchSpy).text)).toContain(
+      'https://www.aecintegrations.com/vendors/globex',
+    );
+
+    await sendClaimSubmittedNotification(ctx, {
+      ...CLAIM,
+      targetType: 'product',
+      slug: 'acme-cad',
+    });
+    expect(String(lastBody(fetchSpy).text)).toContain(
+      'https://www.aecintegrations.com/products/acme-cad',
+    );
+  });
+
+  it('surfaces the duplicate id when the probe matched', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendClaimSubmittedNotification(
+      fakeContext({ CLAIM_ALERT_EMAIL: 'support@aecintegrations.com' }),
+      { ...CLAIM, duplicateOfRequestId: 'req-1' },
+    );
+    expect(String(lastBody(fetchSpy).text)).toContain('Possible duplicate: req-1');
+  });
+
+  it('omits the links when PUBLIC_SITE_URL is unset rather than emitting a dead host', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendClaimSubmittedNotification(
+      fakeContext({ CLAIM_ALERT_EMAIL: 'support@aecintegrations.com' }),
+      CLAIM,
+    );
+    const text = String(lastBody(fetchSpy).text);
+    expect(text).not.toContain('Review queue');
+    expect(text).not.toContain('Listing');
+  });
+
+  it('skips (no fetch) when CLAIM_ALERT_EMAIL is unset — fail-open, never throws', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    const outcome = await sendClaimSubmittedNotification(fakeContext(), CLAIM);
+
+    expect(outcome).toBe('skipped');
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(sendTags()).toContainEqual(['outcome:skipped', 'template:claim-submitted-alert']);
+  });
+
+  it('escapes HTML in the submitter-supplied fields', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendClaimSubmittedNotification(
+      fakeContext({ CLAIM_ALERT_EMAIL: 'support@aecintegrations.com' }),
+      { ...CLAIM, submitterName: '<script>alert(1)</script>' },
+    );
+    const html = String(lastBody(fetchSpy).html);
+    expect(html).toContain('&lt;script&gt;');
+    expect(html).not.toContain('<script>');
   });
 });
 

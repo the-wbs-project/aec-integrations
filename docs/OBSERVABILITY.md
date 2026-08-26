@@ -31,7 +31,7 @@ reader to the wrong console mid-incident.
 | "Show me the graph" | Either. Datadog's 5 dashboards are live and populated; PostHog's 7 are applied to the **non-production project only** | PostHog (after the operator runs `apply.sh` against 354071) |
 | "Read the error log for this request" | Either. Both transports fire from the same call site on every request | The PostHog Logs explorer |
 | "Which person hit this 500?" | **PostHog only.** `posthogDistinctId` is a PostHog-leg log attribute (AECI-644); the Datadog payload stays byte-identical | PostHog |
-| "Core Web Vitals in the field" | **Datadog RUM** today. PostHog `$web_vitals` is coded and correct but blocked by an operator toggle (see "The remote-config gate") | PostHog web vitals |
+| "Core Web Vitals in the field" | **Datadog RUM** today. PostHog `$web_vitals` is coded, correct and — since the project toggle was flipped on 2026-08-26 — **live on every tier** (see "The remote-config gate") | PostHog web vitals |
 
 What the dual-run actually costs: **doubled telemetry egress per request** for the
 window. Bounded and accepted (§3.1). What it buys: a rollback that is a config
@@ -920,6 +920,20 @@ the flush never happened — which is exactly what `captureImmediate` /
 
 ### The remote-config gate — a server-side switch the client cannot override
 
+> **Dated correction — 2026-08-26, re-fetched live.** **The toggles have since been turned
+> on.** Both projects now return `capturePerformance.web_vitals: true` and
+> `errorTracking.autocaptureExceptions: true`, and **both** return a full `sessionRecording`
+> config object. The mechanism described below is unchanged and still the thing to know —
+> remote config overrides the client — but three of its conclusions are now historical:
+>
+> - `$web_vitals` **is no longer blocked**; it fires on every tier, non-prod included. Consequence 1 below is stale.
+> - Exception **autocapture** is on for both projects, so `$exception` now also arrives from the window-level path. (Consequence 2 — that *manual* capture was never gated — still holds and is still why the error path worked throughout.)
+> - `sessionRecording` is **no longer a project-level confirmation of D5**. Replay is enabled at the project level on **both** projects; the only thing keeping it off is `disable_session_recording: true` in `posthog-client.ts`, on every tier. The closing sentence of this section is wrong as written.
+>
+> `heatmaps` still differs (prod `true`, non-prod `false`). Full table + consequences:
+> `docs/POSTHOG_MIGRATION_SPEC.md` §8.8 addendum.
+
+
 Found during the live verification pass and **not anticipated anywhere in the
 migration spec's §2–§3** (recorded as §8.8). On init, `posthog-js` fetches
 `https://us-assets.i.posthog.com/array/{phc_token}/config`, and **that response
@@ -952,8 +966,11 @@ Two consequences worth stating plainly:
    So the browser error path works today; it just has no console to read it in until
    the toggle is flipped.
 
-`sessionRecording: false` in that response is a useful independent confirmation of
-D5 — replay is off at the project level as well as in the client config.
+~~`sessionRecording: false` in that response is a useful independent confirmation of
+D5 — replay is off at the project level as well as in the client config.~~
+**No longer true as of 2026-08-26** — see the dated correction at the top of this
+section. Replay is enabled at the project level on both projects; D5 is held by the
+client alone, everywhere.
 
 ## Known coverage limitation (`aeci.page.render.duration_ms`)
 
@@ -1709,6 +1726,8 @@ each was accepted with its eyes open (spec §3.8).
   changed what a number *means* — see "Browser search telemetry" above.
 - **`$web_vitals` and exception *autocapture* are gated on project settings**, not
   code. Manual `captureException` is not gated. See "The remote-config gate".
-- **Field Core Web Vitals currently live only in Datadog RUM.** That is a direct
-  consequence of the row above, and it is the one signal where deleting Datadog
-  before flipping the toggle would leave a real hole.
+- ~~**Field Core Web Vitals currently live only in Datadog RUM.**~~ **Resolved
+  2026-08-26** — the project toggle was flipped on both projects, so `$web_vitals`
+  now flows to PostHog on every tier and this is no longer a hole blocking the
+  AECI-651 Datadog deletion. (It was the one signal where deleting Datadog before
+  flipping the toggle would have left a real gap.)

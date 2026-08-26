@@ -306,6 +306,22 @@ Render the verified badge on the SSR detail surfaces (vendor detail, and product
 
 Data plumbing: `VendorDetail.verified` already existed, so the vendor page needed none; the product surfaces embed the lean `VendorLink`, so `verified: z.boolean()` was added to `VendorLinkSchema` (`packages/shared/src/api/common.ts`) and hydrated in the single `toVendorLink` constructor (`apps/api/src/lib/drizzle-helpers.ts`, via `vendorLinkColumns`) — covering product detail, integration detail, product-pairs, and `ProductListItem.vendor`. No cache work: the §3 `vendor:<slug>` purge already invalidates the vendor page and every embedding product/pair page.
 
+### 8.1a Claim-CTA copy on an already-claimed listing
+
+The badge landing on the detail pages exposed a copy contradiction: the Actions-sidebar claim CTA (AECI-128) was **unconditional**, so a verified vendor rendered the "Verified vendor" badge and "Claim this listing" on the same page.
+
+**The CTA is not removed, only reworded.** Hiding it would close the only route in for cases the rest of this epic assumes exist:
+
+1. Seats are **multi-seat and admin-granted**, and self-serve invite/revoke is deferred (§11), so the public claim form is the only way a *second* person at a vendor asks for one. §5's `AdminVendorSeat` signal exists precisely so a reviewer can tell a second-seat request from a first claim.
+2. A wrongly-granted listing needs a public correction path for its rightful owner.
+3. `vendors.verified` is a **mirror of `vendor_entitlements`** since AECI-609, not an ownership bit, so hard-gating on it would tie the CTA to billing state: a cleared or expired entitlement would make it reappear on a vendor that still has live seats. There is no claim/ownership field on the public payload; `verified` is the closest available proxy and is used for **copy only**.
+
+**As built.** `verified === true` swaps the CTA label to "Request access to this listing" (`@@vendors.detail.metadata.requestAccess` / `@@products.detail.metadata.requestAccess`) and appends a one-line note under the action pair (`@@…metadata.claimedNote`: "Already managed by a verified vendor. Request access if you work there too."). The vendor page reads `v.verified`; the product page reads `p.vendor?.verified` (a nullable vendor falls back to the neutral claim copy). A copy-only `claimed` input on `RequestTrigger` rides into `RequestDrawerTarget`, so the drawer opens with matching eyebrow/title/subtitle (`@@requests.access.*`). **No contract change** — both states POST the same `kind:'claim'` request to the same route, and `verified` was already on `VendorDetail` and `VendorLink` from §8.1. Covered by `vendor-detail.component.spec.ts` (new), `product-detail.component.spec.ts`, and `request-trigger.component.spec.ts`.
+
+**Deliberately unchanged:** the routed fallback form at `/{products,vendors}/:slug/claim` keeps the neutral "Claim this listing" wording — `RequestForm` resolves no entity data (route `data` + `slug` only), so it cannot read `verified` without new plumbing, and the no-JS/deep-link path is honest either way. Server-side nothing gates either: `detectDuplicate` (`apps/api/src/routes/requests.ts`) only matches requests still `status='open'`, so a claim against an already-granted vendor is not even flagged as a duplicate. Surfacing "vendor already verified" as an **admin intake signal** is the open follow-up.
+
+---
+
 ### 8.2 Search surfaces (AECI-529)
 
 Thread the existing `vendors.verified` column into the Algolia vendor record. Four **lockstep** edits (miss one and the field silently drops):
