@@ -78,6 +78,7 @@ below. The bounded render-volume signal is the `aeci.ssr.render` count metric.
 | `aeci.data_quality.email` | count | `apps/api/src/scheduled.ts` (`runDataQualityJob` → `lib/email.ts` `sendEmail`, AECI-241) | `outcome` (sent / failed / skipped) — **`skipped`** when `RESEND_API_KEY` / `DATA_QUALITY_EMAIL_{FROM,TO}` are unset (fail-open; the Datadog monitors are the delivery backstop) |
 | `aeci.waf.ratelimit.blocked` | count | `apps/api/src/lib/waf-metrics.ts` (`emitWafEventMetrics`, from the hourly WAF poll in `apps/api/src/scheduled.ts` `runWafMetricsJob`, AECI-262) | `rule` (CF rule id), `action` (block / managed_challenge / …), `host`, `source` (ratelimit / firewallcustom) — **value is the event count, so query with `sum:`** (gotcha 3); only mitigation actions counted |
 | `aeci.waf.poll` | count | `apps/api/src/scheduled.ts` (`runWafMetricsJob`, hourly cron, AECI-262) | `trigger` (cron), `outcome` (ok / failed / skipped_no_creds) — one heartbeat per run; the always-emitted `outcome:ok` series is the cron-liveness signal |
+| `aeci.cron.no_handler` | count | `apps/api/src/scheduled.ts` (the `scheduled()` dispatch `default:` branch, AECI-661) | `cron` (the unmatched expression). **Any non-zero value is a defect.** `controller.cron` is matched by exact string, so a deployed `triggers.crons` entry that drifts from `lib/cron-schedules.ts` silently does nothing. This used to be a bare `console.warn`, which made a mis-scheduled job indistinguishable from a quiet week — `asn_registry` sat in exactly that state, and the only evidence was an absent `job_runs` row |
 | `aeci.analytics_digest.email` | count | `apps/api/src/scheduled.ts` (`runAnalyticsDigestJob` → `lib/email.ts` `sendEmail`, AECI-526, daily 05:00 UTC = noon Jakarta cron) | `outcome` (sent / failed / skipped) — the daily operator digest: **human** page views + top products (`is_bot IS NOT 1`), new/total sign-ins, pending-moderation depth, and a Crawler-activity breakdown (`is_bot = 1`, grouped by `bot_name`). **`skipped`** when `RESEND_API_KEY` / `EMAIL_FROM` / `ANALYTICS_DIGEST_EMAIL_TO` are unset (fail-open); one count per run, so the always-emitted series doubles as the cron-liveness signal (`outcome:failed` also covers a pre-send crash) |
 | `aeci.moderation.ban` | count | `apps/api/src/routes/admin-reviewers.ts` (`emitBanAction`, **AECI-218 / Phase 6.11** — the `PATCH /api/admin/reviewers/:id` ban/unban write-path) | `action` (`ban` / `unban`), `outcome` (`ok` / `invalid_state` / `forbidden`) — one count per ban/unban attempt, alongside the §9 `appendAuditLog()` + `reviewer_ban` `workflow_transition` |
 | `aeci.job_runs.write` | count | `apps/api/src/scheduled.ts` (`jobRunSink` → `lib/job-runs.ts`, **AECI-583 / Phase 8.3 P3.1**) | `phase` (start / finish), `job` (the `AdminCronJob` id), `outcome` (ok / failed) — this measures the **recorder, not the job**: a `failed` here means the admin panel's cron liveness under-reports while the job itself completed normally. Emitted on success too, so a silently-broken writer is distinguishable from "no crons ran". 36 series, ~245 points/day. Companion error log: `aeci.job_runs.write_failed`, `source:job-runs` |
@@ -737,6 +738,28 @@ PostHog is the **client-side** product-analytics layer — funnels, cohorts, fea
 adoption, retention — complementing the server-side `page_views` table (§14.2, which
 sees the Cloudflare context PostHog can't). It is **not** part of the Datadog pipes
 above. Implemented in `apps/web/src/app/analytics/`.
+
+> **The server side now reads PostHog back (AECI-660).** For months this was write-only:
+> AECI-239 shipped the instrumentation and nothing consumed it, so the daily digest reported one
+> number with no second opinion. `apps/api/src/lib/posthog-query.ts` closes that loop — the 05:00
+> digest runs one HogQL query for the reported UTC day, scoped to the env's own `$host`, and prints
+> the result **beside** the D1 figure.
+>
+> The pair matters because the two sources fail in opposite directions. `page_views` is written
+> server-side on every full-document load including cache hits, so a crawler that never runs
+> JavaScript still counts: an **upper bound**. PostHog fires only when JS runs *and* the visitor
+> consented, so a real person who declines is invisible: a **lower bound**. On 2026-08-23 the digest
+> said "48 human views"; PostHog saw **5 pageviews from 1 person**, and those five were the operator's
+> own session, which the digest had already excluded.
+>
+> Pure transport, like `cloudflare-analytics.ts`: it never throws, and every failure path returns a
+> structured `{ ok: false, reason }` that the email renders as "unavailable". It must **never** report
+> a `0` on failure — a fabricated zero beside a real count reads as a finding rather than as missing
+> data, which is the specific way this kind of pairing goes wrong. Needs `POSTHOG_QUERY_API_KEY`
+> (a **personal** `phx_` key scoped to `query:read`, API Worker only) + `POSTHOG_PROJECT_ID`; absent,
+> the digest is byte-identical to what it sent before, plus one note. Outcomes are recorded in the
+> `job_runs` detail (`posthogPageViews` / `posthogPeople` / `posthogSkipped`) so a join that silently
+> stops running is visible without diffing emails.
 
 **How it loads (cache-neutral, opt-in).** The SSR Worker inlines the public config as
 `window.__AECI_POSTHOG__ = {key, host}` before `</head>` (`posthog-bootstrap-inject.ts`)

@@ -969,6 +969,42 @@ create table page_views (
   -- since nothing stored on an older row implies a session.
   is_operator integer,  -- 1 = verified admin session, 0 = not, null = pre-D13 (treated as visitor)
 
+  -- ─── Request-shape signals (AECI-658, migration 0018) ──────────────────────────
+  -- How browser-shaped the request was, written at ingest by
+  -- apps/api/src/lib/client-signals.ts. These exist because neither lever we already
+  -- had can see a rotating residential-proxy swarm: cf_bot_score is Enterprise-only
+  -- (always null on Pro) and the swarm's ASNs are genuine consumer ISPs, so
+  -- DATACENTER_ASNS must not be widened to reach them. What a rotating proxy cannot
+  -- launder is the shape of the request itself.
+  --
+  -- ANNOTATION ONLY, exactly like cf_as_organization. Nothing here feeds
+  -- classifyTraffic() and no value here changes is_bot. That separation is load
+  -- bearing: is_bot is decided once and costs a one-way backfill to revise, while an
+  -- annotation can be re-read and re-interpreted for free. Audit client_verdict
+  -- against known-good traffic before anyone proposes promoting it into a verdict.
+  --
+  -- All six are null on every row written before 2026-08-26 and are NOT backfillable:
+  -- the headers are unrecoverable after the request, the same property navigation and
+  -- referrer_source already have.
+  --
+  -- They carry no identity — no cookie, no canvas, no durable id — so D7's rule below
+  -- is untouched. A fingerprinting library would classify better and cost us exactly
+  -- the consent-independence that makes this table's write defensible.
+  sec_fetch_dest text,          -- verbatim: 'document' on a real navigation, 'empty' on the tracker's fetch.
+                                -- THE browser-agnostic signal: Chrome, Edge, Firefox and Safari 16.4+ all send it.
+  has_accept_language integer,  -- presence only. The VALUE is a weak identifier; the fact of the header is the signal.
+  has_sec_ch_ua integer,        -- presence only, and CHROMIUM-ONLY. Firefox and Safari legitimately never send it,
+                                -- so this must ONLY be read against a UA that claims Chrome/Edge. A bare presence
+                                -- test would label every Safari visitor a bot. classifyClientSignals() encodes that
+                                -- conditional; do not re-derive it at a call site.
+  tls_version text,             -- e.g. 'TLSv1.3'. DELIBERATELY LOW ENTROPY: the negotiated cipher is largely the
+  http_protocol text,           -- e.g. 'HTTP/2'.  server's choice, so this is nothing like JA3/JA4 (Enterprise).
+                                -- Corroboration for client_verdict, never a fingerprint on its own.
+  client_verdict text,          -- 'browser' | 'inconsistent' | 'non-browser' | 'unknown'. No CHECK constraint,
+                                -- deliberately: this is a log table where a constraint violation would silently
+                                -- drop the row, and on D1 a CHECK edit triggers drizzle-kit's destructive table
+                                -- recreate. The value comes from a closed server-side union.
+
   -- user_id / session_id / profile_role were DROPPED by AECI-585 (§13 D7, migration 0014).
   -- All three were declared at init and never written by any code path. Do not reintroduce
   -- them: there is no client-side session id anywhere in apps/web, and minting one would
@@ -990,6 +1026,9 @@ create index page_views_bot_idx on page_views(is_bot, created_at); -- digest hum
 -- five AECI-585 columns: nothing groups or filters on them yet, and this is the hottest
 -- write path in the app (D1 bills rows written, index rows included). Add one with the
 -- read that needs it.
+-- The six AECI-658 request-shape columns are unindexed for the same reason: the swarm
+-- detector groups on user_agent_hash (already covered by the window predicate) and reads
+-- client_verdict only as a conditional SUM inside that group, never as a filter.
 -- is_operator is likewise unindexed even though every read filters on it (AECI-585's
 -- rule holds for a different reason here): it is a near-constant column — almost every
 -- row is 0 or null — so an index on it selects nearly the whole table and no planner

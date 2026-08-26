@@ -945,6 +945,61 @@ export const pageViews = sqliteTable(
     // is NULL and is not backfillable — nothing stored on those rows implies a session.
     isOperator: integer('is_operator', { mode: 'boolean' }),
 
+    // ─── Request-shape signals (AECI-658, `lib/client-signals.ts`) ───────────
+    //
+    // How browser-shaped the request was. These exist because the two levers we
+    // already had cannot see a rotating residential-proxy swarm: `cf_bot_score`
+    // is Enterprise-only (always null on Pro) and the swarm's ASNs are genuine
+    // consumer ISPs, so `DATACENTER_ASNS` must not be widened to reach them (that
+    // map drives LIVE ingest — see the `bot-classification.ts` header). What a
+    // rotating proxy cannot launder is the shape of the request itself.
+    //
+    // ANNOTATION ONLY, exactly like `cf_as_organization`. Nothing here feeds
+    // `classifyTraffic()` and no value here changes `is_bot`. That separation is
+    // load bearing: `is_bot` is decided once and costs a one-way backfill to
+    // revise, while an annotation can be re-read and re-interpreted for free.
+    // Audit `client_verdict` against known-good traffic before anyone proposes
+    // promoting it into a verdict.
+    //
+    // Computed at ingest because headers are unrecoverable afterwards, so every
+    // row written before this shipped is NULL and is NOT backfillable — the same
+    // property `navigation` and `referrer_source` already have.
+    //
+    // Carries no identity: no cookie, no canvas, no durable id. `page_views`
+    // holds no user linkage at all (§13 D7) and that is what keeps the write
+    // consent-independent. A fingerprinting library would classify better and
+    // cost us exactly that; these headers do not.
+
+    // `Sec-Fetch-Dest` verbatim. THE browser-agnostic signal: Chrome, Edge,
+    // Firefox and Safari 16.4+ all send `document` on a top-level navigation.
+    // Stored raw (not as a boolean) because the value distinguishes an arrival
+    // (`document`) from the tracker's own fetch (`empty`) at a glance.
+    secFetchDest: text('sec_fetch_dest'),
+
+    // Presence-only, because the VALUE is personal-ish (a language list is a
+    // weak identifier) while the mere fact of the header is the whole signal.
+    hasAcceptLanguage: integer('has_accept_language', { mode: 'boolean' }),
+
+    // Presence of `sec-ch-ua`, which is CHROMIUM-ONLY. Firefox and Safari
+    // legitimately never send it, so this must only ever be read against a UA
+    // that claims Chrome/Edge — a bare presence test would label every Safari
+    // visitor a bot. `classifyClientSignals` encodes that conditional; do not
+    // re-derive it at a call site.
+    hasSecChUa: integer('has_sec_ch_ua', { mode: 'boolean' }),
+
+    // The two connection facts Pro exposes. DELIBERATELY LOW ENTROPY: the
+    // negotiated cipher is largely the server's choice and the version set is
+    // tiny, so this is nothing like JA3/JA4 (Enterprise). Corroboration only.
+    tlsVersion: text('tls_version'),
+    httpProtocol: text('http_protocol'),
+
+    // The derived label: 'browser' | 'inconsistent' | 'non-browser' | 'unknown'.
+    // No CHECK constraint, deliberately: this is a log table, a constraint
+    // violation would silently drop the row, and on D1 a CHECK edit triggers
+    // drizzle-kit's destructive table recreate. The value comes from a closed
+    // server-side union.
+    clientVerdict: text('client_verdict'),
+
     // NOTE: `user_id`, `session_id` and `profile_role` were dropped by AECI-585
     // (§13 D7). All three were declared at init and never written by any code path,
     // and the decision was to drop rather than fill: there is no client-side session

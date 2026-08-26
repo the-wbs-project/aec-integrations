@@ -181,11 +181,33 @@ export function parsePeeringDbNetworks(payload: unknown): PeeringDbNetwork[] {
 export async function fetchPeeringDbNetworks(
   fetchImpl: typeof fetch,
   url: string = PEERINGDB_NETWORKS_URL,
+  apiKey?: string,
 ): Promise<PeeringDbNetwork[]> {
-  const response = await fetchImpl(url, {
-    headers: { accept: 'application/json', 'user-agent': 'aeci-admin-panel/asn-registry' },
-  });
+  const headers: Record<string, string> = {
+    accept: 'application/json',
+    'user-agent': 'aeci-admin-panel/asn-registry',
+  };
+  // AECI-661. PeeringDB throttles ANONYMOUS reads hard, and the whole-list GET
+  // above is exactly the shape it throttles first: production's only run of this
+  // job (2026-08-23) came back `429` and the table has been empty ever since.
+  // A free PeeringDB account issues a key with a workable limit.
+  //
+  // Optional on purpose — absent, this behaves exactly as it did before, so no
+  // environment hard-fails on a secret it has not been given yet.
+  if (apiKey) headers.authorization = `Api-Key ${apiKey}`;
+
+  const response = await fetchImpl(url, { headers });
   if (!response.ok) {
+    // Name the throttle explicitly. `peeringdb responded 429` was a truthful but
+    // inert message: it told the operator the status code and nothing about the
+    // fix, and it sat unread in `job_runs` for days.
+    if (response.status === 429) {
+      throw new Error(
+        apiKey
+          ? 'peeringdb responded 429 (rate limited despite an API key; back off or reduce frequency)'
+          : 'peeringdb responded 429 (rate limited; set PEERINGDB_API_KEY, anonymous reads are throttled)',
+      );
+    }
     throw new Error(`peeringdb responded ${response.status}`);
   }
   return parsePeeringDbNetworks(await response.json());
@@ -266,13 +288,13 @@ export async function refreshAsnRegistry(
   db: Db,
   fetchImpl: typeof fetch,
   now: Date,
-  opts: { url?: string } = {},
+  opts: { url?: string; apiKey?: string } = {},
 ): Promise<AsnRegistryRefreshResult> {
   const empty = { fetched: 0, seen: 0, matched: 0, written: 0, failedChunks: 0 };
 
   let networks: PeeringDbNetwork[];
   try {
-    networks = await fetchPeeringDbNetworks(fetchImpl, opts.url);
+    networks = await fetchPeeringDbNetworks(fetchImpl, opts.url, opts.apiKey);
   } catch (error) {
     return {
       ...empty,

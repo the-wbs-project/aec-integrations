@@ -1010,6 +1010,12 @@ It is deliberately **not** a payload field and **not** a header. A client-settab
 | `x-aeci-cf-asn` | `cf.asn` | `cf_asn` |
 | `x-aeci-cf-as-organization` | `cf.asOrganization` | `cf_as_organization` |
 | `x-aeci-cf-bot-score` | `cf.botManagement.score` | `cf_bot_score` |
+| `x-aeci-cf-tls-version` | `cf.tlsVersion` | `tls_version` |
+| `x-aeci-cf-http-protocol` | `cf.httpProtocol` | `http_protocol` |
+
+`x-aeci-cf-tls-version` / `x-aeci-cf-http-protocol` (AECI-658) are the two connection facts `request.cf` exposes on **Pro**, unlike the bot score above (Enterprise, hence always null). They are deliberately **low-entropy corroboration, not a fingerprint** — the negotiated cipher is largely the server's choice — and are nothing like JA3/JA4.
+
+**Request-shape headers (AECI-658).** Alongside the `x-aeci-*` set, the SSR Worker's `firePageView` copies the eyeball's own `Sec-Fetch-Dest` / `-Mode` / `-Site`, `Accept-Language`, `sec-ch-ua` and `Accept` verbatim onto its subrequest (`PAGE_VIEW_CLIENT_SIGNAL_HEADERS`), so the API can record how browser-shaped the arrival was (`lib/client-signals.ts` → `client_verdict`). Three deliberate differences from the set above: they keep their **real names** (they are the browser's headers, not our renaming of a `request.cf` field), they are **not stripped** on the proxy path (the browser's own POST carries them natively and they mean the same thing either way), and there is **no anti-spoof boundary** to defend — nothing is trusted on their strength, they produce an annotation that never writes `is_bot`, and a scraper willing to forge the whole set has only raised its own cost. Only `firePageView` needs the copy; the tracker's fetch already has them.
 
 `x-aeci-cf-as-organization` (AECI-585 / §13 D10) reuses the header name `LANDING_CF_HEADERS` already carries it under, deliberately: both proxies read the same `request.cf` field onto the same wire name, so the two enrichment paths cannot drift apart on it. It is a **read-side label only** — it never feeds `is_bot` at ingest.
 
