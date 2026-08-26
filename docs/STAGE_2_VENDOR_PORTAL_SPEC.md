@@ -265,12 +265,116 @@ Design work runs the `apps/web` UI checklist (`CLAUDE.md` §"Design checklist"):
 
 Shipped as the Angular `/vendor` surface (singular — the public `/vendors/:slug` detail is a different, cacheable route). Files under `apps/web/src/app/vendor/`. Decisions taken at build:
 
-- **IA — tabbed.** Both a tabbed and a single-page concept were built as live-toggleable previews (`/preview/vendor-dashboard`, the AECI-270 precedent); the PO chose **tabbed** (`vendor-dashboard-tabbed.ts`: a side-nav — Overview / Profile / Products / Seats — over one in-page panel, no child routes). The single-page concept (`vendor-dashboard-single.ts`) stays in the tree behind the preview. The presentational pieces (`components/vendor-{verified-status,request-status,seat-roster,profile-form,product-form,products-section}.ts`) are shared by both. **AECI-606** (`STAGE_2_ATTESTATIONS_SPEC.md` §6) adds an Integrations tab and its components (`components/vendor-{integrations-section,integration-card,claim-lane,attestation-control,add-claim-form,notifications-list,attestation-labels}.ts`) to **both** concepts, so the single-page concept does not silently lose a section the tabbed one has.
+- **IA — tabbed.** Both a tabbed and a single-page concept were built as live-toggleable previews (`/preview/vendor-dashboard`, the AECI-270 precedent); the PO chose **tabbed** (`vendor-dashboard-tabbed.ts`: a side-nav — Overview / Profile / Products / Seats — over one content panel). It was originally an in-page `@switch` with **no child routes**, so the concept could render identically in the preview and on the real page; **§6.2 replaced that with real child routes** and the same relative-link trick keeps the preview working. The single-page concept (`vendor-dashboard-single.ts`) stays in the tree behind the preview. The presentational pieces (`components/vendor-{verified-status,request-status,seat-roster,profile-form,product-form,products-section}.ts`) are shared by both. **AECI-606** (`STAGE_2_ATTESTATIONS_SPEC.md` §6) adds an Integrations tab and its components (`components/vendor-{integrations-section,integration-card,claim-lane,attestation-control,add-claim-form,notifications-list,attestation-labels}.ts`) to **both** concepts, so the single-page concept does not silently lose a section the tabbed one has.
 - **Gate = the `/admin` pattern.** `vendorMeResolver` (`vendor-me.resolver.ts`) calls `GET /api/vendor/me`; a **401/403/404 → 404 render** (`<aec-not-found/>` + `RESPONSE_INIT.status = 404` + noindex), a 200 → the dashboard, a 5xx rethrows. `requireVendor()` rejects anon, reviewers, banned seats, null-`vendor_id` seats, **and site admins** — all surface as the same 404. Non-cacheable + `Cache-Tag`-free by the fail-closed classifier (no `server-runtime.ts` change; the worker login-bounce for anon `/vendor` already shipped with AECI-520). The page sets `robots: noindex`.
 - **Edits.** `vendor-profile-form.ts` / `vendor-product-form.ts` are dirty-diff editors validated **live against the shared `UpdateVendorProfile*`/`UpdateVendorProduct*` schemas** (single source of truth; a single-key parse per field). Only changed fields are PATCHed (the endpoint requires ≥1; Save is disabled until a real change); the echo re-seeds the baseline so the form settles clean. **Optimistic + on-demand revalidation, no socket.** Save-confirmation copy never promises instant search — it says the listing updates now and search refreshes within a day (§8.3(5) / AECI-529). Product taxonomy is assigned via `aria-pressed` toggle chips fed by `GET /api/taxonomy` (existing terms only); `name`/`slug` are read-only with a "rename = correction request" hint. `public_private` uses the Angular Aria single-select listbox stand-in (ADR 0010).
 - **Header entry point.** A role-gated "Vendor dashboard" link in the signed-in user menu (`layout/user-menu.ts` + `layout/nav-menu.ts`), driven by `VendorStatus` (`vendor/vendor-status.ts`) — the cache-neutral clone of `AdminStatus`: it probes the cheap `GET /api/account` `role` (never `/api/vendor/*`) and stays `false` during SSR.
 - **Verified state.** Originally rendered read-only (`vendor-verified-status.ts`) as the launch-minimum entitlement display, with the richer paid-tier display deferred to AECI-515. **That hand-off is now resolved: AECI-614 shipped** (`docs/STAGE_2_PAID_TIERS_SPEC.md` §8/§8.1) and **`vendor-verified-status.ts` is deleted**. Its successor is `vendor/components/vendor-plan-panel.ts` — tier, status, term and resolved capabilities off the `entitlement` block on `GET /api/vendor/me`, across five states (`active` / `expiring` / `pending` / `lapsed` / `none`), with the forms read-only rather than disabled when the entitlement is not active.
 - **e2e.** The AECI-235 real-session mint (`apps/web/e2e/auth-session.ts`) was parameterized with a `vendor` persona; `vendor-dashboard.spec.ts` drives `/vendor` + a profile-edit round-trip. Seeded by a `vendor_admin` D1 profile in `apps/api/seed/auth-fixtures.sql` (id = the real vendor test account's Supabase `sub`, anchored to the `...061` fixture vendor). Skips-green until the `SUPABASE_VENDOR_TEST_USER_*` GH secrets are set (see `environments.md`).
+
+
+### 6.2 As built — the portal gets real URLs (2026-08-26)
+
+The §6.1 dashboard had one URL. Every section was the same address, so nothing on
+the portal was linkable, bookmarkable or shareable, Back left the portal entirely
+instead of returning to the previous section, and a reload always landed on
+Overview. This change gives the surface the browser's navigation model.
+
+**URL shape — `/vendor/:vendorSlug/<section>`.** The vendor slug comes first, the
+section after it: `/vendor/acme/overview`, `/vendor/acme/profile`,
+`/vendor/acme/products`, `/vendor/acme/products/:productSlug`,
+`/vendor/acme/integrations`, `/vendor/acme/seats`. Naming the vendor is not
+decoration — today one seat maps to exactly one `vendor_id`, so the slug is
+derivable, but §11's deferred multi-vendor seat is precisely the case where the
+address has to say which company is being edited, and putting it in now means that
+change is a resolver branch rather than a URL migration.
+
+**The route table moved into `apps/web/src/app/vendor/vendor.routes.ts`** and
+`app.routes.ts` reaches it through `loadChildren`. Two consequences worth knowing:
+the resolver, the guard and the section table are no longer in the initial bundle
+(the portal is a private surface used by a handful of accounts, and the initial
+bundle sits close enough to its 1 MB budget that eagerly importing the guard alone
+broke the build); and `VENDOR_SECTION_ROUTES` is exported separately because three
+surfaces mount it — the real portal, the dev preview, and the shell's own spec.
+
+- **`VendorPage` is now the layout route** (`/vendor/:vendorSlug`): the gate, the
+  head, `VendorPortalStore` and `VendorLiveSync`, plus the shell. The sections are
+  lazy children rendered through `<router-outlet/>`, so a section still only
+  fetches when a vendor opens it — the property the `@switch` used to provide.
+  The parent resolver runs once per entry into the portal, so moving between
+  sections costs no round-trip and never re-seeds the store.
+- **The nav links are relative.** `routerLink="overview"` resolves against the
+  `ActivatedRoute` of whichever route created the shell's ancestor, so one
+  template serves both `/vendor/:vendorSlug` and `/preview/vendor-dashboard`
+  (which mounts the same `VENDOR_SECTION_ROUTES` as children). No "am I
+  previewing" branch anywhere, and the preview keeps reviewing the component that
+  actually ships.
+- **The slug is checked, not decorative.** `vendorMeResolver` takes the same
+  not-found path for a 200 whose `vendor.slug` is not the one in the URL as it
+  does for a 401/403 — and does not put the payload in `TransferState`, so the
+  client branch cannot hydrate the dashboard the server refused to render.
+  Rendering the session's dashboard under a URL naming a different vendor is how
+  someone edits (or cites) the wrong listing.
+- **Bare `/vendor` still works, via a guard.** Both header menus link to it and
+  neither has a vendor payload to build a slugged link from.
+  `vendorHomeRedirectGuard` resolves `GET /api/vendor/me` and returns a `UrlTree`
+  to `/vendor/:vendorSlug/overview`; under SSR that becomes a **real 302**
+  (`@angular/ssr` emits one whenever the router's final URL differs from the
+  requested one), so a cold hit costs one redirect and lands on an address that
+  names the vendor. `redirectTo` — including its function form — cannot do this:
+  resolvers do not run for a redirect route, so the target is unknowable there.
+  The rejection branch returns `true` instead, leaving the URL intact and
+  rendering the global `NotFound` with the 404 status + noindex head the guard
+  sets (the AECI-62 "no pinned-404 trap" rule). A 5xx rethrows.
+  The cost is one extra `GET /api/vendor/me` on that one hop — a 302 carries no
+  `TransferState`, so the redirect target's resolver fetches again. Deep links,
+  bookmarks and every in-portal navigation skip the guard.
+- **"Vendor Overview", not "Overview"** (`vendor-nav.ts`, the `admin-nav.ts`
+  shape). The portal's overview is one of several overview-ish surfaces a
+  signed-in operator meets, and the nav sits inside a page whose `h1` is the
+  company name — naming the scope is what makes the link self-describing in a
+  screen-reader's link list and in a browser-history entry.
+- **The products section is one product at a time, with a picker.** It used to
+  render every owned product as a collapsed `<details>`; that reads fine for the
+  three-product fixture vendor and falls apart for a real one with a hundred, where
+  the product you came to edit is somewhere in the middle and cannot be named.
+  `sections/vendor-products-page.ts` puts the shared `AecSelect` (the ADR 0010
+  non-editable Aria combobox, whose listbox brings typeahead — the thing that makes
+  a hundred options navigable) beside the "Your products" heading, and the choice
+  is the `:productSlug` segment. The bare path shows the primary product (the nav
+  has no product in hand), the picker is hidden for a single-product vendor, and a
+  slug naming a product the vendor does not own is **called out** rather than
+  silently substituted. `VendorProductsSection` keeps its stacked-list rendering
+  for a `null` `selectedSlug`, which is what the single-page concept still uses.
+- **Ownership is still enforced server-side.** Nothing here is the gate:
+  `PATCH /api/vendor/products/:id` proves ownership against the session, and
+  `requireVendor()` still scopes every read. The slug check and the unknown-product
+  notice are clarity guards on top of that.
+- **No worker change was needed.** `isVendorPath` already matched `/vendor/…`, so
+  the anon login-bounce carries the deep path through in `?return=`, and the
+  fail-closed cache classifier still gives every portal path `private, no-store`
+  with no `Cache-Tag`.
+
+> ⚠️ **Deployed-environment blocker — the zone WAF 403s any path containing
+> `/vendor/`.** Verified 2026-08-26 by curl on `www`, `staging`, `demo` and
+> `stage2`: `/vendor` is fine, `/vendor/acme/overview` is a Cloudflare block page.
+> Almost certainly a Cloudflare **Managed Ruleset** rule (the Composer/PHPUnit
+> `vendor/` RCE family), not one of ours. This already broke every browser-side
+> `/api/vendor/*` call (SSR reaches the API over a service binding, so the page
+> looked alive while its XHRs 403'd); after this change it blocks the **page loads**
+> too, so the portal is unreachable on the zone until a skip rule lands. Local dev,
+> `workers.dev` preview URLs and CI are outside the zone and unaffected — which is
+> why no test catches it. Fix: a WAF skip for that managed rule scoped to
+> `starts_with(http.request.uri.path, "/api/vendor/") or
+> starts_with(http.request.uri.path, "/vendor/")`. Dashboard access required; see
+> `docs/waf-rate-limits.md` §"Managed-rule collision".
+
+**Tests.** `vendor-dashboard-tabbed.component.spec.ts` drives the sections with
+`RouterTestingHarness` (the shell's nav is anchors now, not buttons) and re-pins
+every AECI-606/614/631 property against the routed shape, plus the picker's own
+cases. `vendor-me.resolver.component.spec.ts` gains a `:vendorSlug` block covering
+both branches on both platforms. `apps/web/e2e/vendor-dashboard.spec.ts` asserts
+the bare-`/vendor` redirect and navigates by link.
 
 ---
 

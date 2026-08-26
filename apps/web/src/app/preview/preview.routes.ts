@@ -1,5 +1,7 @@
 import { Routes } from '@angular/router';
 
+import { VENDOR_SECTION_ROUTES } from '../vendor/vendor.routes';
+
 /**
  * Dev-only preview routes for v0.dev → Angular ports.
  *
@@ -60,10 +62,17 @@ export const previewRoutes: Routes = [
   // one before it's wired into the real gated `/vendor` route. The real dashboard
   // components are used verbatim, fed synthetic fixtures with the `VendorApi`
   // shadowed by a fixture-backed fake.
+  //
+  // It carries the portal's own section routes as CHILDREN because the tabbed
+  // concept is a router shell now (`vendor/vendor.routes.ts`): its nav links are
+  // relative, so mounting the same array here makes them resolve under
+  // `/preview/vendor-dashboard/...` instead of jumping into the live portal, and
+  // the preview keeps reviewing the component that actually ships.
   {
     path: 'vendor-dashboard',
     loadComponent: () =>
       import('./vendor-dashboard/vendor-dashboard-preview').then((m) => m.VendorDashboardPreview),
+    children: VENDOR_SECTION_ROUTES,
   },
   // AECI-286 — search relevance lab: compare candidate `customRanking` levers
   // (SEARCH_RANKING.md §7) over curated fixtures while real query data is still

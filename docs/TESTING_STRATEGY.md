@@ -521,8 +521,9 @@ Run axe on:
   authorized `afterNextRender` reads resolve, so an axe run on the unauthenticated
   route would only ever audit the loading state. That spec is the one place with a
   real minted session; it waits for the stat tiles before analyzing.
-- `/vendor` — the **Integrations tab**, in `vendor-dashboard.spec.ts` (AECI-606), for the
-  same reason and with the same shape: the tab authorizes server-side via
+- `/vendor/:vendorSlug/integrations` — the **Integrations section**, in
+  `vendor-dashboard.spec.ts` (AECI-606), for the
+  same reason and with the same shape: it authorizes server-side via
   `vendorMeResolver`, and its cards, claim lanes and Aria pickers do not exist
   until `GET /api/vendor/integrations` lands. That spec mints the
   `vendor_admin` persona and waits for the first integration card (or the empty
@@ -534,21 +535,25 @@ Run axe on:
     polite live region, and it now lives in the dashboard SHELL — an `sr-only`
     `<p role="status">` fed by `VendorPortalAnnouncer`
     (`apps/web/src/app/vendor/vendor-announcer.ts`) — so it is present from first
-    paint on every tab, not just after the integrations read. It is declared
+    paint on every section, not just after the integrations read. It is declared
     **once per dashboard concept**:
-    `apps/web/src/app/vendor/vendor-dashboard-tabbed.ts:246` (Concept A, what
-    `/vendor` renders) and `apps/web/src/app/vendor/vendor-dashboard-single.ts:144`
+    `apps/web/src/app/vendor/vendor-dashboard-tabbed.ts` (Concept A, what the
+    portal renders) and `apps/web/src/app/vendor/vendor-dashboard-single.ts`
     (Concept B, preview-only — it composes the same integrations section, which
     announces through the channel and declares no region of its own, so without
     it every attestation write on Concept B is silent). Only one concept ever
     renders at a time, so they cannot race. Two consequences for this run: the
     axe pass must be **re-run after the hoist** (a region moving is exactly the
     kind of change that invalidates a prior pass), and any assertion about it
-    should be made on the shell rather than on the tab body.
+    should be made on the shell rather than on the section body. Since the
+    sections became child routes (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.2) the shell
+    is the layout route's component, so the region is the **same DOM node** across
+    a section navigation — `vendor-dashboard-tabbed.component.spec.ts` asserts
+    node identity, which is a stronger claim than "there is still exactly one".
     The section's loading/failure paragraphs and the integration card's pivot
     notice are deliberately **not** live regions — two regions on one page make
     announcements race — so a second **persistent** `[role="status"]` appearing
-    under `/vendor` is a regression, not an addition. `aria-busy` covers the
+    under the portal is a regression, not an addition. `aria-busy` covers the
     loading state.
   - **Assert on `[role="status"].sr-only`, not on `[role="status"]`.** The
     announcement channel is the only `sr-only` one; three *conditional*

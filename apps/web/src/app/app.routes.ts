@@ -21,7 +21,6 @@ import {
   phasesIndexResolver,
   tradesIndexResolver,
 } from './taxonomy/taxonomy-index.resolver';
-import { vendorMeResolver } from './vendor/vendor-me.resolver';
 import { vendorDetailResolver } from './vendors/vendor-detail.resolver';
 
 /** Build-time dev flag (see the `_dev/error-bench` entry below). No runtime
@@ -337,18 +336,16 @@ export const routes: Routes = [
       },
     ],
   },
-  // AECI-522 — Phase 2 (Stage 2) vendor portal. The signed-in vendor's dashboard
-  // over `/api/vendor/*` (AECI-520). `vendorMeResolver` calls `GET /api/vendor/me`
-  // (gated by `requireVendor()`): a 401/403/404 → 404 render (don't reveal the
-  // surface); a 200 → the tabbed dashboard. A logged-out visitor is bounced to
-  // login by the worker-level `isVendorPath` gate before SSR. Non-cacheable +
-  // Cache-Tag-free by the fail-closed classifier (no change needed). Registered
-  // before the `**` wildcard so it matches. NOTE the singular `/vendor` — the
-  // public `/vendors/:slug` detail is a different, cacheable route.
+  // AECI-522 — Phase 2 (Stage 2) vendor portal, at the singular `/vendor` (the
+  // public `/vendors/:slug` detail is a different, cacheable route). The whole
+  // sub-tree — the bare-`/vendor` redirect guard, the gated `:vendorSlug` layout
+  // route and its section children — lives in `vendor/vendor.routes.ts` and is
+  // loaded lazily, so a private surface used by a handful of vendor accounts
+  // costs the initial bundle nothing. Registered before the `**` wildcard so it
+  // matches. See that file for the gate, the slug check and the URL shape.
   {
     path: 'vendor',
-    loadComponent: () => import('./vendor/vendor-page').then((m) => m.VendorPage),
-    resolve: { me: vendorMeResolver },
+    loadChildren: () => import('./vendor/vendor.routes').then((m) => m.VENDOR_ROUTES),
   },
   // AECI-238 — Phase 7.3 static content pages (About + Contact). No resolver:
   // the copy is static, so meta (title/description/canonical/OG) is set in each

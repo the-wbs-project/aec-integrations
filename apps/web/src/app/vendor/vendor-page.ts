@@ -13,16 +13,24 @@ import { VendorLiveSync } from './vendor-live-sync';
 import { VendorPortalStore } from './vendor-portal-store';
 
 /**
- * AECI-522 — the `/vendor` vendor-portal page: the gate + the dashboard. Data
- * comes from `vendorMeResolver` via `route.data['me']`:
+ * AECI-522 — the vendor-portal LAYOUT route at `/vendor/:vendorSlug`: the gate,
+ * the head, the store, the live sync, and the shell that renders the section
+ * children (`vendor.routes.ts`). Data comes from `vendorMeResolver` via
+ * `route.data['me']`:
  *
- *   - `me === null` → the caller is NOT a vendor admin (the resolver got a
- *     401/403 from `GET /api/vendor/me` and set `RESPONSE_INIT.status = 404` + the
- *     noindex 404 meta). Render the global `<aec-not-found/>` so the surface is
- *     never revealed. URL stays at `/vendor`. (`requireVendor()` rejects anon,
- *     reviewers, banned seats, null-`vendor_id` seats, AND site admins.)
- *   - `me` set → seed {@link VendorPortalStore} and render the tabbed dashboard
- *     (the PO-chosen IA, AECI-522).
+ *   - `me === null` → the caller is NOT a vendor admin, OR the `:vendorSlug` in
+ *     the URL is not this session's vendor. The resolver has already set
+ *     `RESPONSE_INIT.status = 404` + the noindex 404 meta; render the global
+ *     `<aec-not-found/>` so the surface is never revealed, with the URL left
+ *     intact. (`requireVendor()` rejects anon, reviewers, banned seats,
+ *     null-`vendor_id` seats, AND site admins.)
+ *   - `me` set → seed {@link VendorPortalStore} and render the dashboard shell
+ *     (the PO-chosen tabbed IA, AECI-522, on child routes since the portal gained
+ *     real URLs).
+ *
+ * The parent route's resolver runs once per entry into the portal — moving
+ * between sections changes only the child, so a section switch costs no
+ * round-trip and never re-seeds the store.
  *
  * ── WHY THE STORE IS PROVIDED HERE (AECI-628) ───────────────────────────────
  * This page is the surface owner: it holds the resolved payload and it is the

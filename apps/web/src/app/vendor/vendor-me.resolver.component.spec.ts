@@ -9,6 +9,10 @@
  * `GET /api/vendor/me` becomes a 404 render (don't reveal the surface), a 200
  * yields the payload + a TransferState handoff, and a 5xx rethrows (never a fake
  * 404 on an outage).
+ *
+ * Since the portal moved to `/vendor/:vendorSlug/...`, a fourth branch joins
+ * them: a 200 whose `vendor.slug` is not the slug in the URL takes the same
+ * not-found path — see the ":vendorSlug check" block below.
  */
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
@@ -21,7 +25,7 @@ import {
   makeStateKey,
 } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { ActivatedRouteSnapshot, RouterStateSnapshot } from '@angular/router';
+import { convertToParamMap, ActivatedRouteSnapshot, RouterStateSnapshot } from '@angular/router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { VendorMeResponse } from '@aeci/shared';
@@ -73,7 +77,14 @@ const ME: VendorMeResponse = {
   },
 };
 
-const ROUTE = {} as ActivatedRouteSnapshot;
+/** The route snapshot the resolver reads `:vendorSlug` off. `null` models the
+ *  pre-AECI-522-routing shape (and any future slug-less mount): no slug in the
+ *  URL means nothing to check the payload against. */
+function routeFor(vendorSlug: string | null): ActivatedRouteSnapshot {
+  return {
+    paramMap: convertToParamMap(vendorSlug === null ? {} : { vendorSlug }),
+  } as ActivatedRouteSnapshot;
+}
 const STATE = {} as RouterStateSnapshot;
 
 function buildClient(request: (path: string) => Promise<unknown>): ServerApiClient {
@@ -89,6 +100,8 @@ function setup(opts: {
   ctx?: AeciRequestContext | null;
   responseInit?: { status: number };
   meta?: Partial<MetaService>;
+  /** The `:vendorSlug` the URL names. Omitted = slug-less route. */
+  vendorSlug?: string | null;
 }): {
   run: () => Promise<VendorMeResponse | null>;
   transferState: TransferState;
@@ -111,7 +124,7 @@ function setup(opts: {
     httpMock: TestBed.inject(HttpTestingController),
     run: () =>
       TestBed.runInInjectionContext(() =>
-        vendorMeResolver(ROUTE, STATE),
+        vendorMeResolver(routeFor(opts.vendorSlug ?? null), STATE),
       ) as Promise<VendorMeResponse | null>,
   };
 }
@@ -206,6 +219,86 @@ describe('vendorMeResolver — server path', () => {
     await expect(run()).rejects.toBe(err);
     expect(responseInit.status).toBe(200);
     expect(setNotFoundMeta).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The `:vendorSlug` check. The URL names a vendor; the session owns exactly one.
+ * When those disagree the resolver takes the SAME not-found path as an
+ * unauthorized caller — rendering the session's dashboard under a URL that names
+ * a different vendor is how someone edits (or cites) the wrong listing, and it is
+ * the branch a future multi-vendor seat needs.
+ */
+describe('vendorMeResolver — the :vendorSlug check', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  it('returns the payload when the URL names the session\u2019s own vendor', async () => {
+    const ctx = createRequestContext(buildClient(async () => ME));
+    const setNotFoundMeta = vi.fn();
+    const { run } = setup({
+      platform: 'server',
+      ctx,
+      vendorSlug: ME.vendor.slug,
+      responseInit: { status: 200 },
+      meta: { setNotFoundMeta } as Partial<MetaService>,
+    });
+
+    expect(await run()).toEqual(ME);
+    expect(setNotFoundMeta).not.toHaveBeenCalled();
+  });
+
+  it('404s a slug that is not the session\u2019s vendor, even on a 200 payload', async () => {
+    const ctx = createRequestContext(buildClient(async () => ME));
+    const responseInit = { status: 200 };
+    const setNotFoundMeta = vi.fn();
+    const { run, transferState } = setup({
+      platform: 'server',
+      ctx,
+      vendorSlug: 'someone-else',
+      responseInit,
+      meta: { setNotFoundMeta } as Partial<MetaService>,
+    });
+
+    expect(await run()).toBeNull();
+    expect(responseInit.status).toBe(404);
+    // The 404's canonical names the path that was asked for, not a bare /vendor.
+    expect(setNotFoundMeta).toHaveBeenCalledWith({
+      kind: 'index',
+      slug: '',
+      canonical: 'https://example.test/vendor/someone-else',
+    });
+    // And the payload must not ride along in TransferState — the client branch
+    // would otherwise hydrate the very dashboard the server refused to render.
+    expect(JSON.parse(transferState.toJson())[STATE_KEY]).toBeNull();
+  });
+
+  it('re-checks the slug against a TransferState payload on hydration', async () => {
+    const setNotFoundMeta = vi.fn();
+    const { run, transferState, httpMock } = setup({
+      platform: 'browser',
+      vendorSlug: 'someone-else',
+      meta: { setNotFoundMeta } as Partial<MetaService>,
+    });
+    transferState.set(makeStateKey<VendorMeResponse | null>(STATE_KEY), ME);
+
+    expect(await run()).toBeNull();
+    expect(setNotFoundMeta).toHaveBeenCalled();
+    httpMock.expectNone(API_PATH);
+  });
+
+  it('404s a mismatched slug on the client fetch path too', async () => {
+    const setNotFoundMeta = vi.fn();
+    const { run, httpMock } = setup({
+      platform: 'browser',
+      vendorSlug: 'someone-else',
+      meta: { setNotFoundMeta } as Partial<MetaService>,
+    });
+
+    const promise = run();
+    httpMock.expectOne(API_PATH).flush(ME);
+
+    expect(await promise).toBeNull();
+    expect(setNotFoundMeta).toHaveBeenCalled();
   });
 });
 
