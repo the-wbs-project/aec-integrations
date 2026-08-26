@@ -47,6 +47,7 @@ import {
   reviews,
   vendorEntitlements,
   vendorRequests,
+  vendorSeatInvites,
   workflowInstances,
   workflowTransitions,
 } from '../db/schema';
@@ -242,6 +243,14 @@ export function createDeleteAccountHandler(
         .update(vendorEntitlements)
         .set({ grantedBy: null })
         .where(eq(vendorEntitlements.grantedBy, userId)),
+      // AECI-664: the NINTH inbound FK, same treatment and same reason. The INVITE
+      // survives its sender's erasure — a pending invite is the invitee's to
+      // redeem, and deleting it would silently break a colleague's link because
+      // someone else closed their account. Only the sender's link is severed.
+      db
+        .update(vendorSeatInvites)
+        .set({ invitedById: null })
+        .where(eq(vendorSeatInvites.invitedById, userId)),
       auditInsert(db, auditEntry),
       db.delete(profiles).where(eq(profiles.id, userId)),
     ];

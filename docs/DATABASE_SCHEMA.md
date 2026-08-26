@@ -123,6 +123,7 @@ Tables grouped by domain:
 - `audit_log` — every state-changing event
 - `promote_jobs` — exactly-once ledger for the async promote ingest (AECI-571)
 - `vendor_entitlements` — the vendor's paid tier, status and term; `vendors.verified` is its denormalized mirror — Stage 2 (AECI-609)
+- `vendor_seat_invites` — pending self-serve seat invites; an INTENT, never an account — Stage 2 (AECI-664)
 
 **Analytics and caching**:
 - `page_views` — server-side page view log with CF enrichment
@@ -690,7 +691,16 @@ create table profiles (
   display_name text,
   role text not null default 'reviewer' check (role in ('reviewer', 'admin', 'vendor_admin')),
   vendor_id uuid references vendors(id), -- null for Stage 1, used in Stage 2 vendor portal
+  -- Set true by the AECI-664 invite redeem: the account proved control of an
+  -- address on the vendor's own domain (the gate ran at invite time). Nothing
+  -- else has ever written it.
   work_email_verified boolean not null default false,
+  -- The owner/admin distinction (AECI-664 / STAGE_2_VENDOR_PORTAL_SPEC §11a).
+  -- Meaningful ONLY on a vendor_admin row. true = may invite colleagues and
+  -- remove seats. Set by the admin claim grant, cleared by revoke; a seat created
+  -- by ACCEPTING an invite gets false, which is what bounds the invite chain.
+  -- Migration 0020 backfills every pre-existing vendor_admin to true.
+  seat_owner boolean not null default false,
   -- REVIEWER trust, unrelated to paid entitlements — see the disambiguation note below.
   trust_tier text not null default 'standard' check (trust_tier in ('standard', 'verified', 'trusted')),
 
@@ -1051,6 +1061,53 @@ create index vendor_entitlements_status_idx on vendor_entitlements(status);
 -- non-active row are invisible to it.
 create index vendor_entitlements_expiry_idx on vendor_entitlements(period_end)
   where period_end is not null and status = 'active';
+```
+
+### `vendor_seat_invites` (Stage 2 — AECI-664)
+
+A pending self-serve seat invite. A row is an **INTENT, never an account**: this
+table is why the vendor portal can add a colleague without the vendor ever
+triggering a Supabase account create, and therefore why the whole invite path
+needs no `SUPABASE_SERVICE_ROLE_KEY` and works in local dev and on PR previews.
+
+**The row grants nothing.** Redeeming requires the caller's verified JWT email to
+equal `email`, so a forwarded or prefetched `token` is inert. The token is an
+opaque lookup handle, not a bearer credential — which is what makes it safe in a
+URL. Shape and discipline are `mailing_list.unsubscribe_token`'s: opaque
+`crypto.randomUUID()`, a unique index for the direct lookup, and SOFT delete
+(`revoked_at`) rather than a row delete, so a revoked invite stays auditable.
+
+**No FK on the invitee.** `email` is deliberately not a `profiles` reference: at
+insert time the invitee usually has no account at all. Who actually redeemed it
+is on the `audit_log` row (`vendor_seat.invite_accepted`, `actor_id` = redeemer).
+`invited_by_id` is the **ninth** inbound FK to `profiles.id` — `ON DELETE SET
+NULL` **and** nulled explicitly in the `DELETE /api/account` erasure batch
+(`AUTH_AND_RLS.md` §8); miss either and account deletion FK-fails for anyone who
+ever sent an invite. The invite itself survives its sender's erasure, on purpose:
+it belongs to the invitee.
+
+```sql
+create table vendor_seat_invites (
+  id uuid primary key,
+  vendor_id uuid not null references vendors(id) on delete cascade,
+  email text not null,                 -- normalized lowercase at the handler
+  token text not null,                 -- opaque crypto.randomUUID()
+  invited_by_id uuid references profiles(id) on delete set null,
+  expires_at timestamptz not null,     -- 14 days; TS policy, not a CHECK (a CHECK
+                                       -- change on SQLite is a full table rebuild)
+  accepted_at timestamptz,             -- both null = pending; either set = spent
+  revoked_at timestamptz,
+
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create unique index vendor_seat_invites_token_key on vendor_seat_invites(token);
+-- The roster read AND the per-vendor daily rate-limit count.
+create index vendor_seat_invites_vendor_idx on vendor_seat_invites(vendor_id, created_at);
+-- The duplicate probe. PARTIAL, so spent rows never widen it.
+create index vendor_seat_invites_pending_idx on vendor_seat_invites(vendor_id, email)
+  where accepted_at is null and revoked_at is null;
 ```
 
 **Why one row per vendor and not a period-history table.** The mirror invariant has to be

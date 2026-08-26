@@ -22,6 +22,7 @@ import type {
   VendorNotification,
   VendorProduct,
   VendorSeat,
+  VendorSeatInvite,
 } from '@aeci/shared';
 // Subpath import, deliberately: the capability registry is zod-free and kept off
 // the root barrel so it cannot drag the schema set into a lazy route's graph
@@ -253,8 +254,9 @@ export const VENDOR_ME_DOWNGRADED_FIXTURE: VendorMeResponse = {
   },
 };
 
-/** The seat roster for the verified vendor — three flat admins, one banned, one
- *  with an unresolved email (the local/preview degrade-to-null case). */
+/** The seat roster for the verified vendor: the viewer (an OWNER, so the preview
+ *  exercises the invite/remove controls), a member, and a banned seat with an
+ *  unresolved email (the local/preview degrade-to-null case). */
 export const VENDOR_SEATS_FIXTURE: readonly VendorSeat[] = [
   {
     user_id: '00000000-0000-4000-8000-0000000052b1',
@@ -262,6 +264,8 @@ export const VENDOR_SEATS_FIXTURE: readonly VendorSeat[] = [
     email: 'dana@summitbim.example.com',
     banned: false,
     created_at: '2026-06-04T14:00:00.000Z',
+    is_self: true,
+    owner: true,
   },
   {
     user_id: '00000000-0000-4000-8000-0000000052b2',
@@ -269,6 +273,8 @@ export const VENDOR_SEATS_FIXTURE: readonly VendorSeat[] = [
     email: 'priya@summitbim.example.com',
     banned: false,
     created_at: '2026-06-12T09:00:00.000Z',
+    is_self: false,
+    owner: false,
   },
   {
     user_id: '00000000-0000-4000-8000-0000000052b3',
@@ -276,6 +282,19 @@ export const VENDOR_SEATS_FIXTURE: readonly VendorSeat[] = [
     email: null,
     banned: true,
     created_at: '2026-06-20T16:30:00.000Z',
+    is_self: false,
+    owner: false,
+  },
+];
+
+/** One pending invite, so the preview renders the §11a pending list + revoke. */
+export const VENDOR_SEAT_INVITES_FIXTURE: readonly VendorSeatInvite[] = [
+  {
+    id: '00000000-0000-4000-8000-0000000052c1',
+    email: 'jordan@summitbim.example.com',
+    invited_by: 'Dana Ruiz',
+    expires_at: '2099-01-01T00:00:00.000Z',
+    created_at: '2026-08-20T10:00:00.000Z',
   },
 ];
 

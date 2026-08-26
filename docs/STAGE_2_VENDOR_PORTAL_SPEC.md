@@ -481,13 +481,89 @@ Complete `AUTH_AND_RLS.md` for `vendor_admin`. The **kickoff** already seeds the
 
 Explicitly **not** in this epic (tracked elsewhere or later):
 
-- **Self-serve seat invite/revoke + owner/admin distinction** — needs a small schema add; deferred (`STAGE_2_SPEC.md` §8.1(2)). Launch is admin-granted seats only.
+- ~~**Self-serve seat invite/revoke + owner/admin distinction**~~ — **SHIPPED 2026-08-26 (AECI-664); see §11a below.** The "small schema add" this bullet anticipated turned out to be exactly that: one table (`vendor_seat_invites`) and one column (`profiles.seat_owner`), migration `0020`. Launch is no longer admin-granted-seats-only — an owner seat can invite a colleague **on the vendor's own email domain**, and every other case still falls through to the §5 claim queue.
 - **Paid-tier ladder above the entry Verified fee, automated billing, self-serve card, offline-invoicing mechanics** (renewal/expiry/dunning) — the Paid Tiers epic (AECI-515). **Decomposed 2026-08-14** in `docs/STAGE_2_PAID_TIERS_SPEC.md`; the decisions landed in `STAGE_2_SPEC.md` **§8.5** (§8.4 is the AECI-514 attestations block, taken at its own review the same day). **Built out 2026-08-14…19**: the entitlement model, the capability registry, the gate, the admin set/renew/clear action, the expiry warnings and the vendor plan panel all shipped. Automated billing and self-serve card stay deferred there; dunning is deliberately out (expiry **warns**, never auto-lapses); the tier *ladder* is now a data-only edit but its **pricing** stays open.
 - **Real-time / live vendor edits** — the Real-Time epic (AECI-516). **Transport resolved 2026-08-19** (ADR 0023 / `STAGE_2_SPEC.md` §8.6): **scoped client revalidation** over a per-vendor freshness cursor — **not** Durable-Object WebSockets, not SSE — decomposed into AECI-626…632 in **`docs/STAGE_2_REALTIME_SPEC.md`** and **built out 2026-08-19**. "The portal ships without persistent sockets" stayed true and is now the decision rather than the interim posture. It builds directly on this doc's §4 authz seam (a new `GET /api/vendor/updates` behind `requireVendor()`, scoped by `c.get('auth').vendorId`) and makes this doc's §6 dashboard live; nothing this epic shipped changes.
 - **Integration attestation authoring / conflict UI / version-diff** *(the version-diff half is now **shipped** — AECI-303, `STAGE_2_ATTESTATIONS_SPEC.md` §9 + §9.4)* — the Integration Attestations epic (AECI-514; activates the dormant `vendor_a`/`vendor_b` sources). Decomposed at its 2026-08-14 kickoff: **`docs/STAGE_2_ATTESTATIONS_SPEC.md`** is the build contract (`STAGE_2_SPEC.md` §2.4 is now just the scope outline). It builds directly on the §4 authz seam and the §6 dashboard shipped here — the two-slot attestation authority rule is the extension of this doc's `vendor_id`-scoping invariant, and the attestations surface is a new tab on this doc's dashboard.
 - **Person-lookup enrichment providers** — deferred DPA/GDPR decision (§5 surfaces a link only).
 - **Dark theme** — the Dark-Theme Reintroduction epic; `STAGE_2_SPEC.md` §2.5.
 - **A public/partner write API** — the "no public API surface" boundary is unchanged (`STAGE_2_SPEC.md` §9).
+
+---
+
+## 11a. Self-serve seat invites (AECI-664) — activating the first §11 deferral
+
+**Shipped 2026-08-26.** One migration (`0020`), five endpoints, two web surfaces. This section is the build contract; the code is `apps/api/src/lib/vendor-seat-invites.ts`, `apps/api/src/routes/{vendor-seat-invites,seat-invites}.ts`, and `apps/web/src/app/vendor/{vendor-invite-page.ts,components/vendor-seat-{roster,invite-form}.ts}`.
+
+### 11a.1 Why this was safe to open up
+
+§8.1(1) put a human in the loop for every seat, and that stays true for the cases that need it. What changed is the finding that the **second** seat's review was protecting nothing:
+
+- **Not revenue.** `activateEntitlementStatements` already returns the frozen no-op when an `active` row exists (§3.1), so a second-seat grant never re-flipped `verified`, never re-charged, never even bumped `updated_at`. There is no seat cap and no seat capability: `CAPABILITIES` (`packages/shared/src/entitlements.ts`) holds seven ids and none is about seats.
+- **Not attestation integrity.** `computeAgreement` (`packages/shared/src/agreement.ts`) dedupes by `attestedByVendorId`, so N seats at one vendor cast **one** vote and `confirmed` still needs two *distinct* vendor identities. Seat count cannot manufacture agreement. The residual risk is vendor-internal quality, which is the vendor's to manage.
+
+What the review WAS protecting is the identity question — "does this person really work there?" — and that is precisely what the domain gate answers mechanically for the easy case and escalates for every other one.
+
+### 11a.2 The model
+
+**Supabase does the sign-in; the invite is ours.** GoTrue's `POST /auth/v1/invite` was evaluated and rejected — the rationale is in `apps/api/src/lib/supabase-admin.ts` (the `WHY NOT` block on `createAuthUser`) and is unchanged by this issue: its link lands on `/auth/v1/verify?type=invite` and returns the session in a **URL fragment**, which `/auth/callback` (PKCE `?code=`) dead-ends; and enabling it needs two dashboard edits on the ONE shared auth project that backs production (ADR 0017).
+
+**The vendor never provisions an account.** No `createAuthUser` call exists on this path. An invite row is an INTENT; the invitee signs in through the ordinary self-service flow and the seat attaches on acceptance. Two consequences worth stating: it removes the spam / enumeration / third-party-consent problem a vendor-triggered account create would introduce, and — because nothing here reads `SUPABASE_SERVICE_ROLE_KEY` — the whole flow works in local `wrangler dev` and on PR previews, unlike the §3 admin grant which 503s wherever that key is absent.
+
+**The token is not a credential.** It identifies an invite; it never authorizes one. `inviteRedeemState` (the single shared verdict, used by both the preview read and the accept write) requires the redeemer's **verified JWT email** to equal the invited address, and an ABSENT session email fails closed. A forwarded link, a shared-inbox link, or a link a scanner prefetches grants nothing.
+
+**GET describes, POST mutates.** Mail scanners, link-preview bots and corporate URL rewriters fetch what they are sent, so a GET that redeemed would be spent by the invitee's own security appliance before they clicked. Same confirm-then-POST discipline as `/unsubscribe` (AECI-537).
+
+### 11a.3 The domain gate
+
+`computeDomainMatch(email, vendors.website)` (`apps/api/src/lib/domain-match.ts`) — already the reviewer's primary signal on the §5 queue — is reused verbatim as the policy:
+
+| verdict | outcome |
+|---|---|
+| `match` | the invite sends |
+| `no_match` | **422 `INVITE_DOMAIN_MISMATCH`**, no row written, no mail sent |
+| `manual_review` (freemail, or the vendor has no `website`) | same 422 |
+
+The refusal copy names the fallback explicitly ("ask them to open your listing and choose *Request access to this listing*"), so an agency address, a subsidiary, or a contractor lands back in the §5 queue where a human already weighs this exact question. **The concierge review is narrowed, not removed.**
+
+### 11a.4 Owner vs member
+
+`profiles.seat_owner` is the owner/admin distinction §11 deferred, and it gates **seat management only** — data capabilities stay identical across seats, so this is not the start of a permission matrix.
+
+- `true` on a seat created by the §3 admin claim grant (`grantSeatStatements`) — an AECi-reviewed human IS the owner event.
+- `false` on a **new** seat created by redeeming an invite (`acceptInviteStatements`). **This is the bound**: without it, one reviewed human seeds an unbounded chain of seats no reviewer ever saw. Redeeming never **demotes**, though — an existing owner who happens to redeem (re-invited, or self-invited; the invite path cannot cheaply tell they already hold a seat) keeps their bit, so the accept upsert's conflict path preserves the prior `seat_owner` rather than forcing it false. Forcing it false there could strip the only owner and leave the vendor unadministrable — the state the removal path's last-owner guard exists to prevent.
+- Cleared by `revokeSeatStatements`, so a stale `true` cannot make a re-linked account an owner by accident.
+- **Migration `0020` backfills every pre-existing `vendor_admin` to `true`.** A default-`false` rollout would have shipped the feature dead — no existing vendor could invite anyone.
+
+### 11a.5 Endpoints
+
+Owner side, behind `requireVendor()` **plus** an in-handler `requireSeatOwner()` that re-reads `seat_owner` from D1 every request (a demotion lands on the caller's next call, the same discipline as the `banned_at` re-read in `createAuthzMiddleware`):
+
+- `POST /api/vendor/seats/invites` — 201. Domain gate, duplicate probe, **rate limit** (`INVITE_DAILY_LIMIT` = 10 per vendor per rolling 24 h, counted over `vendor_seat_invites` — no KV, no new binding). Mail is post-commit `waitUntil`; a send failure never un-creates a committed invite.
+- `DELETE /api/vendor/seats/invites/:id` — 204, soft delete (`revoked_at`).
+- `DELETE /api/vendor/seats/:userId` — 204. **The first HTTP surface `revokeSeatStatements` has ever had** (AECI-524 shipped the builder unwired). Refuses self-removal; also carries an explicit last-owner guard which is *currently unreachable* and kept deliberately — see the handler docblock.
+
+Invitee side, on its **own prefix** and behind `requireAuth()`, because the caller is by definition not a `vendor_admin` yet:
+
+- `GET /api/seat-invites/:token` — the preview + the redeemability verdict.
+- `POST /api/seat-invites/:token/accept` — attaches the seat.
+
+`GET /api/vendor/seats` gains `pending_invites` and `can_manage_seats`. It stays **un-gated** by capability (`STAGE_2_PAID_TIERS_SPEC.md` §4.3). **The `token` is never on this payload** — the roster is readable by every seat, and a token there would let any seat redeem an invite addressed to someone else's mailbox. It appears in exactly one place: the invite email.
+
+### 11a.6 Seat management is NOT entitlement-gated
+
+No `requireCapability` call exists in `routes/vendor-seat-invites.ts`, and that is a position rather than an omission. There is no seat capability in the frozen registry; §3 already establishes that clearing an entitlement does not revoke seats; and gating **removal** on a live entitlement would mean a lapsed vendor cannot revoke a departed employee's access — a security regression wearing a billing lever's clothes. A lapsed vendor's seats still cannot write anything: every data write is separately capability-gated.
+
+### 11a.7 Routing
+
+The portal is `/vendor/:vendorSlug/<section>` since §6.2, so the redeem page is `/vendor/invite/:token`, registered **ahead of `:vendorSlug`** in `vendor.routes.ts` (or the literal `invite` segment is captured as a slug and `vendorMeResolver` 404s the one page a non-vendor must reach). It is deliberately OUTSIDE that layout route — everything under it is behind the resolver — but stays under `/vendor/` so the worker-level anon gate (`isVendorPath`) bounces a signed-out visitor to `/auth/login?return=<path>` with the token intact (`safeReturnPath` preserves query strings and path segments alike). **That bounce is the flow, not a side-effect.**
+
+### 11a.8 Deliberately deferred
+
+- **An `invites` scope on `GET /api/vendor/updates`.** There are exactly six cursor scopes, and both `STAGE_2_REALTIME_SPEC.md` and `CLAUDE.md` state "six SELECTs in one `db.batch`". A seventh is its own change. Cross-tab invite freshness degrades to on-demand `store.reload('seats')`, which the surface already does after every write.
+- **Cross-domain invites.** By design — that is what the §5 claim queue is for.
+- **Bulk/CSV invite, and role tiers beyond owner/member.**
+- **A seat-count capability or per-seat billing** — a Paid Tiers (AECI-515) decision, not this one's.
 
 ---
 

@@ -64,7 +64,11 @@ beforeEach(() => {
     getMe: vi.fn().mockResolvedValue(VENDOR_ME_FIXTURE),
     getIntegrations: vi.fn().mockResolvedValue(VENDOR_INTEGRATIONS_FIXTURE),
     getNotifications: vi.fn().mockResolvedValue({ notifications: VENDOR_NOTIFICATIONS_FIXTURE }),
-    getSeats: vi.fn().mockResolvedValue({ seats: VENDOR_SEATS_FIXTURE }),
+    getSeats: vi.fn().mockResolvedValue({
+      seats: VENDOR_SEATS_FIXTURE,
+      pending_invites: [],
+      can_manage_seats: true,
+    }),
   };
 });
 afterEach(() => vi.restoreAllMocks());

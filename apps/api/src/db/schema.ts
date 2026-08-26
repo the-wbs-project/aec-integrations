@@ -698,6 +698,22 @@ export const profiles = sqliteTable(
     role: text('role').notNull().default('reviewer'),
     vendorId: text('vendor_id').references(() => vendors.id),
     workEmailVerified: integer('work_email_verified', { mode: 'boolean' }).notNull().default(false),
+    /**
+     * The owner/admin distinction `STAGE_2_VENDOR_PORTAL_SPEC.md` §11 deferred,
+     * activated by AECI-664 (§11a). Meaningful ONLY on a `vendor_admin` row; it
+     * is inert noise on a `reviewer`/`admin` profile and nothing reads it there.
+     *
+     * `true` = this seat may invite colleagues and remove seats. Set by
+     * `grantSeatStatements` (an AECi-reviewed claim grant IS the owner event) and
+     * cleared by `revokeSeatStatements`; a seat created by ACCEPTING an invite
+     * gets `false`, which is what stops an unbounded transitive invite chain from
+     * one reviewed human.
+     *
+     * The `0020` migration backfills every pre-existing `vendor_admin` to `true`
+     * — they were all admin-granted, and a default-`false` rollout would ship the
+     * invite feature dead (nobody could invite anyone).
+     */
+    seatOwner: integer('seat_owner', { mode: 'boolean' }).notNull().default(false),
     trustTier: text('trust_tier').notNull().default('standard'),
     themePreference: text('theme_preference').notNull().default('system'),
 
@@ -950,6 +966,78 @@ export const vendorEntitlements = sqliteTable(
       'vendor_entitlements_status_check',
       sql`"status" IN ('pending', 'active', 'expired', 'revoked')`,
     ),
+  ],
+);
+
+/**
+ * Vendor seat invites — the self-serve half of the §6 seat roster (AECI-664 /
+ * `STAGE_2_VENDOR_PORTAL_SPEC.md` §11a). A row is an INTENT, never an account:
+ * this table is why the vendor portal can add a colleague without the vendor ever
+ * triggering a Supabase account create.
+ *
+ * ── THE ROW GRANTS NOTHING ──────────────────────────────────────────────────
+ * Acceptance requires the redeemer's VERIFIED JWT email to equal `email` here, so
+ * a forwarded or leaked `token` is inert — whoever holds it still has to prove
+ * control of that mailbox through the ordinary sign-in. The token is an opaque
+ * lookup handle, not a bearer credential, which is also why it is safe to put in
+ * a URL. Shape and discipline are `mailing_list.unsubscribe_token`'s: an opaque
+ * `crypto.randomUUID()`, a unique index for the direct lookup, and SOFT-delete
+ * (`revoked_at`) rather than a row delete, so a revoked invite stays auditable.
+ *
+ * ── NO FK ON THE INVITEE ────────────────────────────────────────────────────
+ * `email` is deliberately not a `profiles` reference: at insert time the invitee
+ * usually has no account at all, and inventing one is the exact thing this design
+ * avoids. Who actually redeemed it is recorded on the `audit_log` row
+ * (`vendor_seat.invite_accepted`, `actor_id` = the redeemer), not here — which
+ * keeps `profiles` at its existing inbound-FK count plus one rather than plus two.
+ *
+ * `invited_by_id` IS that one: the NINTH inbound FK to `profiles.id`. Like
+ * `vendor_entitlements.granted_by` it is `ON DELETE SET NULL` **and** nulled
+ * explicitly in the `DELETE /api/account` erasure batch (`routes/account.ts`;
+ * `docs/AUTH_AND_RLS.md` §8) — miss either and account deletion FK-fails for
+ * anyone who ever sent an invite.
+ */
+export const vendorSeatInvites = sqliteTable(
+  'vendor_seat_invites',
+  {
+    id: uuidPk(),
+    vendorId: text('vendor_id')
+      .notNull()
+      .references(() => vendors.id, { onDelete: 'cascade' }),
+
+    /** The invitee's address, lowercased at the handler (GoTrue stores lowercase
+     *  and the accept comparison must be exact — see `normalizeEmail`). */
+    email: text('email').notNull(),
+
+    /** Opaque lookup handle. Unique so the accept path is one indexed read. */
+    token: text('token')
+      .notNull()
+      .$defaultFn(() => crypto.randomUUID()),
+
+    invitedById: text('invited_by_id').references(() => profiles.id, { onDelete: 'set null' }),
+
+    /** ISO-8601. Checked in TS on redeem, not by a CHECK — a CHECK change on
+     *  SQLite is a full table rebuild (§1.2 / R1) and expiry is not a data
+     *  integrity rule, it is a policy that may well be tuned. */
+    expiresAt: text('expires_at').notNull(),
+
+    /** Terminal states. Both null = pending; either set = spent. */
+    acceptedAt: text('accepted_at'),
+    revokedAt: text('revoked_at'),
+
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    uniqueIndex('vendor_seat_invites_token_key').on(t.token),
+    /** The roster's "pending invites for this vendor" read, and the per-vendor
+     *  daily rate-limit count, which scans by `vendor_id` + `created_at`. */
+    index('vendor_seat_invites_vendor_idx').on(t.vendorId, t.createdAt),
+    /** The duplicate probe: "is there already a live invite for this address on
+     *  this vendor?" PARTIAL, so spent rows never widen it. */
+    index('vendor_seat_invites_pending_idx')
+      .on(t.vendorId, t.email)
+      .where(sql`"accepted_at" IS NULL AND "revoked_at" IS NULL`),
   ],
 );
 
@@ -1656,6 +1744,7 @@ export const schema = {
   reviews,
   vendorRequests,
   vendorEntitlements,
+  vendorSeatInvites,
   workflowInstances,
   workflowTransitions,
   auditLog,

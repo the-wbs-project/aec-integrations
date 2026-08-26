@@ -212,7 +212,8 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `REVIEW_BANNED` | 403 | User is banned and cannot submit reviews |
 | `ENTITLEMENT_REQUIRED` | 403 | The vendor's entitlement tier does not hold the capability this write requires (code minted AECI-610, thrown since AECI-611; `details: { capability, tier, fields? }` — `fields` is present only on the field-level rejection in `splitPatch`). **403, not 402** — 402 Payment Required would leak a billing model into a contract that must stay payer-model-agnostic, and this table has no 402 row. **Reads are never gated**, and the gate never fires before ownership settles on a product write (a 403 there would confirm a foreign product exists). Raised only from `entitlementRequired()` in `apps/api/src/lib/authz.ts`, so the status, copy and `details` shape cannot diverge between the two call sites |
 | `SLUG_CONFLICT` | 409 | Slug collision detected on entity creation |
-| `GRANT_CONFLICT` | 409 | Vendor-claim grant would violate role/vendor exclusivity — the claimant account is a site `admin`, or is already linked to a different vendor (AECI-519; `details.reason` ∈ `already_admin` \| `other_vendor`) |
+| `GRANT_CONFLICT` | 409 | Vendor-claim grant would violate role/vendor exclusivity — the claimant account is a site `admin`, or is already linked to a different vendor (AECI-519; `details.reason` ∈ `already_admin` \| `other_vendor`). Also returned by `POST /api/vendor/seats/invites` when the address already holds a live invite, and by the invite accept when the redeemer is a site admin or belongs to another vendor (AECI-664) |
+| `INVITE_DOMAIN_MISMATCH` | 422 | A vendor seat invite was addressed outside the vendor's own `website` domain (AECI-664). A POLICY refusal, not a malformed payload: the address may be perfectly valid, and the client renders a specific next step (submit a claim instead) that `VALIDATION_FAILED` could not carry |
 | `INVALID_STATE_TRANSITION` | 422 | Attempted workflow transition is not allowed from current state |
 | `RATE_LIMITED` | 429 | Rate limit exceeded |
 | `DEPENDENCY_FAILURE` | 503 | Upstream dependency (Supabase, Algolia, Linear) failed |
@@ -2918,7 +2919,13 @@ Errors: `NOT_FOUND` if the granted seat's vendor row has since been deleted.
 
 #### `GET /api/vendor/seats`
 
-The vendor's seat roster. A bare object, never paginated — seats are granted by hand, so the list is bounded. Multi-seat is **flat**: every seat is equal, there is no owner/admin distinction, and self-serve invite/revoke is deferred (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11), so this is read-only.
+The vendor's seat roster plus the caller's own management rights. A bare object, never paginated — a vendor's seat list is bounded.
+
+Multi-seat is **flat in data capability** — every seat edits the same things — but since AECI-664 it is not flat in seat MANAGEMENT: `profiles.seat_owner` gates invite/remove alone (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11a). A seat is an owner if it came from an admin claim grant, and is not if it came from redeeming an invite.
+
+**This read is never capability-gated** (R13, with `GET /api/vendor/me`): a vendor whose entitlement lapsed must still be able to see and manage who has access.
+
+**`token` is deliberately absent from `pending_invites`.** Every seat can read this payload, and a token is the redeem handle — putting it here would let any seat redeem an invite addressed to somebody else's mailbox. Revoking uses the row `id`; the token appears only in the invite email.
 
 ```typescript
 export const VendorSeatSchema = z.object({
@@ -2929,8 +2936,85 @@ export const VendorSeatSchema = z.object({
   banned: z.boolean(),            // per-seat ban never touches vendors.verified
   created_at: z.string().datetime(),
 });
-export const ListVendorSeatsResponseSchema = z.object({ seats: z.array(VendorSeatSchema) });
+  is_self: z.boolean(),           // the caller's own row: labelled "(you)", and
+                                  // never offered a Remove button (a self-remove
+                                  // is a 422 server-side regardless)
+  owner: z.boolean(),             // profiles.seat_owner — shown so a member can
+                                  // see WHO to ask
+});
+
+export const VendorSeatInviteSchema = z.object({
+  id: z.string().uuid(),
+  email: z.string(),
+  invited_by: z.string().nullable(),   // sender's display_name; null once that
+                                       // account is erased (FK is ON DELETE SET
+                                       // NULL — the invite outlives its sender)
+  expires_at: z.string().datetime(),
+  created_at: z.string().datetime(),
+});
+
+export const ListVendorSeatsResponseSchema = z.object({
+  seats: z.array(VendorSeatSchema),
+  pending_invites: z.array(VendorSeatInviteSchema),  // live only: not accepted,
+                                                    // not revoked, not expired
+  can_manage_seats: z.boolean(),                    // the caller's seat_owner
+});
 ```
+
+#### `POST /api/vendor/seats/invites`
+
+Invite a colleague (AECI-664 / §11a). **Owner-only** — `requireVendor()` establishes the vendor, then an in-handler `requireSeatOwner()` re-reads `profiles.seat_owner` from D1 **this request** (a demotion lands on the caller's next call, the same discipline as the `banned_at` re-read).
+
+```typescript
+export const CreateSeatInviteSchema = z.object({
+  email: z.string().trim().min(3).max(320).email(),
+});
+// 201 → { invite: VendorSeatInvite }
+```
+
+The only field is the address: the vendor is the session's, the sender is the session's, and expiry is server policy (14 days). Anything else here would be a client-supplied value on an authorization path.
+
+**The domain gate is the policy.** `computeDomainMatch(email, vendors.website)` must return `match`. `no_match` and `manual_review` (freemail, or a vendor with no `website` on file) both **422 `INVITE_DOMAIN_MISMATCH`**, writing no row and sending no mail — the caller is directed to the public claim form, where a human already weighs this exact question.
+
+**Rate-limited**: 10 invites per vendor per rolling 24 h, counted over `vendor_seat_invites` (no KV, no new binding) → **429 `RATE_LIMITED`**. This is the only endpoint on the surface that sends mail on a customer's command.
+
+Errors: `FORBIDDEN` (403, not an owner) · `INVITE_DOMAIN_MISMATCH` (422) · `GRANT_CONFLICT` (409, a live invite for that address already exists) · `RATE_LIMITED` (429) · `VALIDATION_FAILED` (400).
+
+#### `DELETE /api/vendor/seats/invites/:id`
+
+Revoke a pending invite. Owner-only, **204**, and a SOFT delete (`revoked_at`) so "who invited this address and who took it back" stays answerable. A spent or cross-vendor id is a **404**, indistinguishable from one that never existed.
+
+#### `DELETE /api/vendor/seats/:userId`
+
+Remove a colleague's seat — the vendor-side counterpart to AECi's ban action, and the first HTTP surface `revokeSeatStatements` has had. Owner-only, **204**. Drops the row to `reviewer`, unlinks `vendor_id`, clears `seat_owner`, and **never touches `vendors.verified` or the entitlement row** (§8.3(2)).
+
+Refuses self-removal (**422**) — someone leaving hands over first, and self-removal is a support conversation rather than a button that can orphan a vendor. A seat on another vendor is a **404**.
+
+#### `GET /api/seat-invites/:token`
+
+The invitee's preview. Behind **`requireAuth()`, not `requireVendor()`** — the caller is by definition not a `vendor_admin` yet, which is why this lives on its own prefix rather than under `/api/vendor/*` (a non-vendor route under the vendor prefix is a trap for whoever next adds a prefix-level guard).
+
+```typescript
+export const SeatInvitePreviewSchema = z.object({
+  vendor_name: z.string(),
+  email: z.string(),
+  expires_at: z.string().datetime(),
+  redeemable: z.boolean(),
+  reason: z.enum(['ok', 'expired', 'revoked', 'accepted', 'email_mismatch']),
+});
+```
+
+Deliberately thin: the token is in a URL, so treat everything behind it as semi-public. It names the company and nothing else — no inviter identity, no roster, no product list. `email` is echoed because the page has to say *which* address must be signed in, and it is the address the link was already sent to.
+
+**This is a READ.** Mail scanners, link-preview bots and corporate URL rewriters fetch what they are sent; a GET that redeemed would be spent before the human clicked.
+
+#### `POST /api/seat-invites/:token/accept`
+
+Redeem it. `requireAuth()`. Returns `{ vendor_slug, vendor_name }` so the client can land the new seat on `/vendor/:slug/overview`.
+
+**The security control is the email binding, not the token.** The session's verified email must equal the invited address; an ABSENT session email fails closed. Possession of a link therefore grants nothing without control of that mailbox. Single-use, and the spend is guarded on still-pending so two concurrent redeems produce one seat and one audit row.
+
+Errors: `FORBIDDEN` (422, wrong signed-in address) · `INVALID_STATE_TRANSITION` (422, expired/revoked/already used) · `GRANT_CONFLICT` (409, redeemer is a site admin or already belongs to another vendor) · `NOT_FOUND` (404, unknown token — **with no identifier echoed back**, since the token is the identifier).
 
 #### `GET /api/vendor/notifications`
 

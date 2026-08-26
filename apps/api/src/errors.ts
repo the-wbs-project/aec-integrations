@@ -42,6 +42,12 @@ type ResourceKind =
   | 'trade'
   | 'review'
   | 'vendor_request'
+  // A vendor seat and the pending invite to one (AECI-664). Both are the SAME
+  // 404 a cross-vendor id gets: an owner probing `/api/vendor/seats/invites/:id`
+  // must not be able to tell "no such invite" from "that invite belongs to
+  // another vendor", and a spent token must look exactly like an unknown one.
+  | 'seat'
+  | 'seat_invite'
   | 'profile';
 
 export type ApiErrorOptions = {

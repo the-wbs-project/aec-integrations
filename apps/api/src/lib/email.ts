@@ -78,6 +78,12 @@ export type EmailTemplate =
   // reject → rejected).
   | 'claim-approved'
   | 'claim-rejected'
+  // Stage 2 vendor seat invite (AECI-664 / `STAGE_2_VENDOR_PORTAL_SPEC.md` §11a).
+  // Sent by `POST /api/vendor/seats/invites` on a VENDOR's command, not AECi's —
+  // the only customer-triggered send on the surface, which is why that endpoint
+  // is the only one carrying a rate limit. Carries the redeem link; see
+  // `sendVendorSeatInviteEmail` for why the token is safe in a URL.
+  | 'vendor-seat-invite'
   // Operator alert on claim INTAKE (not decision): a vendor submitted "claim this
   // listing" via `POST /api/requests/claim`. Recipient is `CLAIM_ALERT_EMAIL` (the
   // support inbox), NOT `ADMIN_ALERT_EMAIL`. The claimant gets nothing at submit
@@ -313,6 +319,99 @@ export function sendClaimApprovedEmail(
     text: toText(textParagraphs),
     html: toHtml(htmlParagraphs),
   });
+}
+
+/**
+ * §11a "You've been invited to manage <vendor> on AEC Integrations" (AECI-664).
+ *
+ * The one template on this surface sent on a CUSTOMER's command rather than
+ * AECi's, which shapes three things:
+ *
+ * 1. **It names who invited them and which company.** A cold "you have been
+ *    granted access" from a directory the recipient may not know is
+ *    indistinguishable from phishing; the colleague's name and their own employer
+ *    are what make it legible.
+ * 2. **It states the address the link is bound to.** Redeeming requires signing in
+ *    as exactly that address, so saying it up front turns the most likely failure
+ *    (they are signed in as something else) into a instruction rather than a dead
+ *    end.
+ * 3. **It says the link expires.** An invite is not a standing grant.
+ *
+ * The token rides in the URL, which is safe here and nowhere else on this
+ * surface: it identifies an invite, it does not authorize one. Redeeming demands
+ * a signed-in session whose verified email matches, so a forwarded link, a
+ * shared-inbox link, or a link a scanner prefetches grants nothing. See
+ * `lib/vendor-seat-invites.ts`.
+ *
+ * Fail-open like every other send: an absent key/sender/recipient, or no
+ * `PUBLIC_SITE_URL` to build the link from, is a silent `'skipped'`.
+ */
+export function sendVendorSeatInviteEmail(
+  c: EmailContext,
+  opts: {
+    to: string | undefined;
+    vendorName: string;
+    invitedByName: string | null;
+    token: string;
+    expiresAt: string;
+  },
+): Promise<EmailOutcome> {
+  const name = opts.vendorName.trim() || 'a vendor';
+  const link = seatInviteUrl(c.env, opts.token);
+  // No link, no email. Mailing "you have been invited" with no way to act on it
+  // is worse than silence — it strands the recipient with a claim they cannot
+  // verify and no next step.
+  if (!link) return Promise.resolve('skipped');
+
+  const inviter = opts.invitedByName?.trim();
+  const opening = inviter
+    ? `${inviter} invited you to help manage ${name} on AEC Integrations.`
+    : `You have been invited to help manage ${name} on AEC Integrations.`;
+  const openingHtml = inviter
+    ? `${escapeHtml(inviter)} invited you to help manage <strong>${escapeHtml(name)}</strong> on AEC Integrations.`
+    : `You have been invited to help manage <strong>${escapeHtml(name)}</strong> on AEC Integrations.`;
+
+  const capabilities =
+    'A seat lets you edit the company profile, keep product details current, and add integration attestations.';
+  const binding = `The invite is tied to ${opts.to ?? 'this address'} — sign in with that address to accept it.`;
+  const expiry = `This link expires on ${new Date(opts.expiresAt).toUTCString()}.`;
+
+  return sendTransactionalEmail(c, {
+    to: opts.to ?? '',
+    template: 'vendor-seat-invite',
+    subject: `You're invited to manage ${name} on AEC Integrations`,
+    text: toText([opening, capabilities, `Accept your invite: ${link}`, binding, expiry]),
+    html: toHtml([
+      openingHtml,
+      capabilities,
+      `<a href="${escapeHtml(link)}">Accept your invite</a>`,
+      escapeHtml(binding),
+      escapeHtml(expiry),
+    ]),
+  });
+}
+
+/**
+ * Adapter for the `POST /api/vendor/seats/invites` send seam (AECI-664) — the
+ * `sendClaimDecisionEmail` shape. Drops the `EmailOutcome`: the handler fires
+ * this through `waitUntil` after the batch has already committed and never reads
+ * the result, because a send failure must not un-create a committed invite (the
+ * owner can revoke and re-send, and the roster shows it pending either way).
+ *
+ * Typed structurally so this file doesn't import the route's seam type; the
+ * assignability is enforced where it is wired (`index.ts`).
+ */
+export async function sendSeatInvite(
+  c: EmailContext,
+  opts: {
+    to: string;
+    vendorName: string;
+    invitedByName: string | null;
+    token: string;
+    expiresAt: string;
+  },
+): Promise<void> {
+  await sendVendorSeatInviteEmail(c, opts);
 }
 
 /**
@@ -1089,6 +1188,21 @@ function productUrl(env: Env, slug: string): string | null {
 function portalUrl(env: Env): string | null {
   const base = siteUrl(env);
   return base ? `${base}/vendor` : null;
+}
+
+/**
+ * The seat-invite redeem page (AECI-664). `null` when `PUBLIC_SITE_URL` is unset,
+ * which makes the whole send `'skipped'` rather than mailing a bare token with
+ * nowhere to put it.
+ *
+ * A PATH segment, not a query param: the portal moved to
+ * `/vendor/:vendorSlug/<section>` (§6.2), so `/vendor/invite/<token>` sits beside
+ * it as a sibling route registered ahead of `:vendorSlug`, and the anon
+ * login-bounce carries the whole deep path through in `?return=` unchanged.
+ */
+function seatInviteUrl(env: Env, token: string): string | null {
+  const base = siteUrl(env);
+  return base ? `${base}/vendor/invite/${encodeURIComponent(token)}` : null;
 }
 
 /**

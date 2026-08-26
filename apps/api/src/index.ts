@@ -12,7 +12,7 @@ import type { Env } from './env';
 import { ApiError, errorHandler } from './errors';
 import { requireAdmin, requireAuth, requireVendor, type AuthzVariables } from './lib/authz';
 import { resolveClaimantIdentity } from './lib/claimant-identity';
-import { sendClaimDecisionEmail } from './lib/email';
+import { sendClaimDecisionEmail, sendSeatInvite } from './lib/email';
 import { pushRequestResolutionToLinear } from './lib/linear';
 import { requireReviewAppAuth } from './lib/review-auth';
 import { requireUserAuth } from './lib/user-auth';
@@ -92,6 +92,15 @@ import {
   createVendorClaimHandler,
 } from './routes/vendor-attestations';
 import { createListDataObjectsHandler } from './routes/vendor-data-objects';
+import {
+  createRemoveSeatHandler,
+  createRevokeSeatInviteHandler,
+  createSeatInviteHandler,
+} from './routes/vendor-seat-invites';
+import {
+  createAcceptSeatInviteHandler,
+  createSeatInvitePreviewHandler,
+} from './routes/seat-invites';
 import { createVendorUpdatesHandler } from './routes/vendor-updates';
 import { createVendorDetailHandler, createVendorsListHandler } from './routes/vendors';
 import { createVersionHandler } from './routes/version';
@@ -539,7 +548,58 @@ authVendor.delete(
 authVendor.get('/api/vendor/data-objects', requireVendor(), createListDataObjectsHandler());
 // AECI-627. No path overlap with anything above, so ordering is free.
 authVendor.get('/api/vendor/updates', requireVendor(), createVendorUpdatesHandler());
+//
+// Stage 2 / AECI-664 adds the OWNER half of seat management — the first writes on
+// this surface that change who can reach it. Three gates in order: `requireVendor()`
+// (which vendor), `requireSeatOwner()` inside each handler (`profiles.seat_owner`,
+// re-read from D1 every request so a demotion lands on the next call), then the
+// `vendor_id` filter that is the actual authorization. Deliberately NOT
+// capability-gated: seats are not a paid feature, and gating removal on a live
+// entitlement would stop a lapsed vendor revoking a departed employee's access
+// (§11a). `DELETE /seats/:userId` is the first HTTP surface `revokeSeatStatements`
+// has ever had — AECI-524 shipped the builder unwired.
+//   - POST   /api/vendor/seats/invites     — invite a colleague (201).
+//   - DELETE /api/vendor/seats/invites/:id — revoke a pending invite (204).
+//   - DELETE /api/vendor/seats/:userId     — remove a seat (204).
+//
+// The invites routes are registered BEFORE `/seats/:userId` so the literal
+// `invites` segment can never be parsed as a user id.
+authVendor.post(
+  '/api/vendor/seats/invites',
+  requireVendor(),
+  createSeatInviteHandler(getDb, sendSeatInvite),
+);
+authVendor.delete(
+  '/api/vendor/seats/invites/:id',
+  requireVendor(),
+  createRevokeSeatInviteHandler(),
+);
+authVendor.delete('/api/vendor/seats/:userId', requireVendor(), createRemoveSeatHandler());
 app.route('/', authVendor);
+
+// Stage 2 / AECI-664 — the INVITEE half, on its own prefix and its own router.
+// `requireAuth()`, NOT `requireVendor()`: the caller is signed in but is not a
+// vendor admin yet, which is the entire point. It is not under `/api/vendor/*`
+// precisely so that a future prefix-level vendor guard cannot silently lock the
+// one endpoint that has to be reachable by a non-vendor.
+//
+// The token in the URL identifies an invite; it never authorizes one. Redeeming
+// requires the session's VERIFIED email to equal the invited address, so a
+// forwarded or prefetched link grants nothing. GET describes, POST mutates — mail
+// scanners fetch what they are sent, and a GET that redeemed would be spent by the
+// invitee's own security appliance before they clicked (the `/unsubscribe`
+// confirm-then-POST discipline, AECI-537).
+//   - GET  /api/seat-invites/:token        — preview + redeemability verdict.
+//   - POST /api/seat-invites/:token/accept — attach the seat.
+const authSeatInvites = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
+authSeatInvites.onError(errorHandler());
+authSeatInvites.get('/api/seat-invites/:token', requireAuth(), createSeatInvitePreviewHandler());
+authSeatInvites.post(
+  '/api/seat-invites/:token/accept',
+  requireAuth(),
+  createAcceptSeatInviteHandler(),
+);
+app.route('/', authSeatInvites);
 
 // Catch-alls throw so the root `onError` renders the canonical §3.3 envelope
 // (AECI-101) — an unmatched `/api/*` route parses with `ApiErrorSchema` too.
