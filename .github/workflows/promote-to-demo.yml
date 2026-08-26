@@ -156,12 +156,18 @@ jobs:
           # real — listed in RECOMMENDED_SECRETS below, so an unmapped name would
           # false-warn "not set" on every promote.
           CF_ANALYTICS_API_TOKEN: ${{ secrets.CF_ANALYTICS_API_TOKEN }}
+          # AECI-660/661 read-side cron creds (demo reuses _PRODUCTION). Must be
+          # MAPPED here, not just named in RECOMMENDED_SECRETS — require-secrets.sh
+          # checks the VALUE, so an unmapped name false-warns "not set" on every promote.
+          POSTHOG_QUERY_API_KEY_PRODUCTION: ${{ secrets.POSTHOG_QUERY_API_KEY_PRODUCTION }}
+          POSTHOG_PROJECT_ID_PRODUCTION: ${{ secrets.POSTHOG_PROJECT_ID_PRODUCTION }}
+          PEERINGDB_API_KEY: ${{ secrets.PEERINGDB_API_KEY }}
           ENV_LABEL: demo
           REQUIRED_SECRETS: 'CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID'
           # AECI-262: CF_ANALYTICS_API_TOKEN (single shared, un-suffixed) backs the
           # hourly WAF firewall-event poll — recommended/fail-safe (absent → the poll
           # no-ops outcome:skipped_no_creds).
-          RECOMMENDED_SECRETS: 'CF_ACCESS_CLIENT_ID CF_ACCESS_CLIENT_SECRET REVIEW_APP_TOKEN ALGOLIA_APP_ID ALGOLIA_ADMIN_KEY ALGOLIA_SEARCH_KEY SUPABASE_ANON_KEY ANTHROPIC_API_KEY_PRODUCTION RESEND_API_KEY POSTHOG_KEY_PRODUCTION DATADOG_API_KEY DD_APPLICATION_ID DD_CLIENT_TOKEN ADMIN_PURGE_TOKEN CF_PURGE_API_TOKEN CF_ZONE_ID CF_ANALYTICS_API_TOKEN'
+          RECOMMENDED_SECRETS: 'CF_ACCESS_CLIENT_ID CF_ACCESS_CLIENT_SECRET REVIEW_APP_TOKEN ALGOLIA_APP_ID ALGOLIA_ADMIN_KEY ALGOLIA_SEARCH_KEY SUPABASE_ANON_KEY ANTHROPIC_API_KEY_PRODUCTION RESEND_API_KEY POSTHOG_KEY_PRODUCTION DATADOG_API_KEY DD_APPLICATION_ID DD_CLIENT_TOKEN ADMIN_PURGE_TOKEN CF_PURGE_API_TOKEN CF_ZONE_ID CF_ANALYTICS_API_TOKEN POSTHOG_QUERY_API_KEY_PRODUCTION POSTHOG_PROJECT_ID_PRODUCTION PEERINGDB_API_KEY'
         run: bash scripts/require-secrets.sh
 
       # Assert STAGING (the immediate upstream tier) is at the SHA on BOTH the API
@@ -367,6 +373,50 @@ jobs:
           fi
           printf '%s' "$CF_ANALYTICS_API_TOKEN_VALUE" \
             | pnpm exec wrangler secret put CF_ANALYTICS_API_TOKEN --env demo
+
+      # AECI-660 / AECI-661. Three read-side credentials the API Worker's cron jobs
+      # use, all OPTIONAL + FAIL-OPEN, so warn-and-skip and never in
+      # REQUIRED_WORKER_SECRETS. They had no CI step at all until now: the
+      # environments.md rows described them as "CI-pushed" from the day they shipped,
+      # but the wiring was never written, so a value set in GH secrets reached no
+      # Worker and prod ran with the features inert.
+      #
+      # POSTHOG_QUERY_API_KEY is a PostHog PERSONAL key (`phx_…`, scope `query:read`)
+      # and is NOT the publishable `POSTHOG_KEY` (`phc_…`) pushed to the web Worker —
+      # this one grants account-wide read and must never reach apps/web.
+      # POSTHOG_PROJECT_ID must name the project POSTHOG_KEY writes to, so it carries
+      # the SAME suffix as POSTHOG_KEY on every tier — here `_PRODUCTION`, because demo
+      # sends its browser events to the production PostHog project (see the
+      # POSTHOG_KEY_PRODUCTION push below) and is separated from prod only by $host,
+      # which is exactly what the digest's query filters on. Pairing the demo key with
+      # any other project id would query a project demo never writes to, and `count()`
+      # over an empty set returns a real row of zeros — so the digest would print a
+      # confident "0 PostHog pageviews", the fabricated zero the join exists to avoid.
+      # PEERINGDB_API_KEY is env-independent (the upstream is a public registry).
+      - name: Push analytics read credentials to API Worker (demo)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          POSTHOG_QUERY_API_KEY_VALUE: ${{ secrets.POSTHOG_QUERY_API_KEY_PRODUCTION }}
+          POSTHOG_PROJECT_ID_VALUE: ${{ secrets.POSTHOG_PROJECT_ID_PRODUCTION }}
+          PEERINGDB_API_KEY_VALUE: ${{ secrets.PEERINGDB_API_KEY }}
+        working-directory: apps/api
+        run: |
+          set -euo pipefail
+          if [ -n "$POSTHOG_QUERY_API_KEY_VALUE" ] && [ -n "$POSTHOG_PROJECT_ID_VALUE" ]; then
+            printf '%s' "$POSTHOG_QUERY_API_KEY_VALUE" \
+              | pnpm exec wrangler secret put POSTHOG_QUERY_API_KEY --env demo
+            printf '%s' "$POSTHOG_PROJECT_ID_VALUE" \
+              | pnpm exec wrangler secret put POSTHOG_PROJECT_ID --env demo
+          else
+            echo "::warning::POSTHOG_QUERY_API_KEY_PRODUCTION / POSTHOG_PROJECT_ID_PRODUCTION not both set — skipping push. The daily digest will report the D1 upper bound alone plus a 'PostHog lower bound unavailable' note (AECI-660). Both are required together; one alone is a no-op."
+          fi
+          if [ -n "$PEERINGDB_API_KEY_VALUE" ]; then
+            printf '%s' "$PEERINGDB_API_KEY_VALUE" \
+              | pnpm exec wrangler secret put PEERINGDB_API_KEY --env demo
+          else
+            echo "::warning::PEERINGDB_API_KEY not set — skipping push. The weekly asn_registry refresh stays anonymous; anonymous whole-list reads are throttled hard and production's first run returned 429 (AECI-661)."
+          fi
 
       # ADR 0010: promote + admin review-approve purge edge-cache tags by calling
       # Cloudflare directly with the API Worker's own scoped token; CF_ZONE_ID is

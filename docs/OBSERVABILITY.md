@@ -122,7 +122,7 @@ no matching heartbeat, or a heartbeat with no row, is a bug in the instrumentati
 | Cron | `job_runs.job` | Its Datadog liveness signal |
 |---|---|---|
 | 00:15 metrics snapshot | `metrics-snapshot` | `aeci.metrics_snapshot.run` (`outcome:success\|partial\|failed`) |
-| Mondays 02:00 ASN registry | `asn-registry` | `aeci.asn_registry.refresh` (`outcome:ok\|partial\|failed\|skipped`) |
+| Mondays 02:00 ASN registry (`0 2 * * 2` — CF day-of-week is 1=Sunday) | `asn-registry` | `aeci.asn_registry.refresh` (`outcome:ok\|partial\|failed\|skipped`) |
 | 03:00 retention prune | `retention-prune` | `aeci.retention.prune` (`outcome:ok\|skipped\|failed`) |
 | 04:00 data quality | `data-quality` | `aeci.data_quality.job` (`outcome:success\|failed`) |
 | 05:00 analytics digest | `analytics-digest` | `aeci.analytics_digest.email` |

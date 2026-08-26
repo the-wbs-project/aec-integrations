@@ -1220,7 +1220,7 @@ create index asn_registry_fetched_at_idx on asn_registry(fetched_at);
 
 **No `audit_log` row.** Derived, log-class, cron-written bookkeeping, exempt under ADR 0022 — the same class as `metrics_daily` §9.3 and `job_runs` §9.4. The run is recorded in `job_runs` (`job = 'asn-registry'`).
 
-**Written by** the weekly `0 2 * * 1` cron (`apps/api/src/scheduled.ts` → `refreshAsnRegistry`). **Read by** `GET /api/admin/page-views`, `GET /api/admin/traffic/breakdown?dimension=asn`, and `GET /api/admin/system` (freshness + coverage).
+**Written by** the weekly `0 2 * * 2` cron (Mondays; Cloudflare's day-of-week is 1=Sunday, AECI-661) (`apps/api/src/scheduled.ts` → `refreshAsnRegistry`). **Read by** `GET /api/admin/page-views`, `GET /api/admin/traffic/breakdown?dimension=asn`, and `GET /api/admin/system` (freshness + coverage).
 
 **Retention: none.** The table is bounded by the distinct-ASN count and a classification stays true after the `page_views` rows that prompted it are pruned, so §7.4's prune deliberately does not touch it.
 

@@ -338,19 +338,24 @@
       // past 400 days and job_runs past 90 in bounded chunks, never touches
       // metrics_daily, and refuses to run at all if the 00:15 snapshot has not
       // captured every day inside its cut window — which is why it sits after that
-      // slot and an hour clear of the 04:00 batch. "0 2 * * 1" is the ONLY WEEKLY
+      // slot and an hour clear of the 04:00 batch. "0 2 * * 2" is the ONLY WEEKLY
       // trigger — Mondays at 02:00 UTC, the asn_registry refresh (AECI-624 /
-      // ADMIN_PANEL_SPEC.md §7.6, queue-less): one unauthenticated PeeringDB read
+      // ADMIN_PANEL_SPEC.md §7.6, queue-less): one PeeringDB read (authenticated
+      // when PEERINGDB_API_KEY is set, AECI-661)
       // intersected with the ASNs page_views has seen, upserted for the admin panel's
       // read-time ASN annotation. Weekly because the input barely moves (an info_type
       // changes when a network re-registers), and it needs no ordering against
       // anything — it neither reads nor writes state another job consumes, so a
       // skipped week costs an annotation, never a number. Strings MUST match the
       // constants in `src/scheduled.ts` (asserted by `src/lib/cron-schedules.spec.ts`).
+      // ⚠️ Cloudflare's day-of-week is 1 = Sunday … 7 = Saturday, NOT Unix 0 = Sunday,
+      // so Monday is "2". "0 2 * * 1" (the value before AECI-661) meant SUNDAY, which
+      // is the day production actually ran it. See src/lib/cron-schedules.ts for why
+      // this stays numeric rather than "0 2 * * MON".
       "triggers": {
         "crons": [
           "15 0 * * *",
-          "0 2 * * 1",
+          "0 2 * * 2",
           "0 3 * * *",
           "0 4 * * *",
           "0 5 * * *",
@@ -498,7 +503,7 @@
       "triggers": {
         "crons": [
           "15 0 * * *",
-          "0 2 * * 1",
+          "0 2 * * 2",
           "0 3 * * *",
           "0 4 * * *",
           "0 5 * * *",
@@ -669,7 +674,7 @@
       "triggers": {
         "crons": [
           "15 0 * * *",
-          "0 2 * * 1",
+          "0 2 * * 2",
           "0 3 * * *",
           "0 4 * * *",
           "0 5 * * *",
