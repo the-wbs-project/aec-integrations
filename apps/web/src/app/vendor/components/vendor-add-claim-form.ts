@@ -283,8 +283,31 @@ export class VendorAddClaimForm {
   protected readonly introducedVersionId = signal<string | null>(null);
   protected readonly deprecatedVersionId = signal<string | null>(null);
 
+  /**
+   * The picker is **alphabetical by label**, and it is the one place in the
+   * portal that re-sorts the vocabulary.
+   *
+   * `GET /api/vendor/data-objects` serves `display_order` — a project-lifecycle
+   * sequence (Models → Drawings → … → Directory & Contacts) chosen so the claim
+   * *lanes* on this tab read the way the public pair page's lanes do
+   * (`lib/data-object-vocabulary.ts`, `routes/vendor-attestations.ts`). That
+   * order stays exactly as it is on the wire and in the lanes; only this control
+   * diverges, because the two lists do different jobs. A lane list is read — the
+   * lifecycle grouping is the point. A picker is *searched*: the vendor already
+   * knows they want "Submittals", and `AecSelect` is a non-editable combobox
+   * with no type-to-filter, so an unfamiliar semantic order makes finding a
+   * known label a 20-item linear scan with no anchor.
+   *
+   * Sorted here rather than in SQL on purpose. The key is the **display name in
+   * the active locale**, so it must follow the rendered label through
+   * `localeCompare`; SQLite would order by ASCII bytes against the en-US names.
+   * The in-place `sort` is safe — it runs on the array `map` just produced, not
+   * on the `dataObjects()` input.
+   */
   protected readonly dataObjectOptions = computed<readonly AecSelectOption[]>(() =>
-    this.dataObjects().map((term) => ({ value: term.slug, label: term.name })),
+    this.dataObjects()
+      .map((term) => ({ value: term.slug, label: term.name }))
+      .sort((a, b) => a.label.localeCompare(b.label)),
   );
 
   protected readonly directionOptions = computed(() =>

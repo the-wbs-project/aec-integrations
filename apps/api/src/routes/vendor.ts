@@ -82,12 +82,14 @@ import {
   productAudiences,
   productCategories,
   productPhases,
+  productTrades,
   productVendors,
   products,
   profiles,
   taxonomyAudiences,
   taxonomyCategories,
   taxonomyPhases,
+  taxonomyTrades,
   vendorRequests,
   vendorSeatInvites,
   vendors,
@@ -150,9 +152,32 @@ function seatsOf(vendorId: string) {
  *    page tags each product it lists, so the page the product has just been
  *    ADDED to never carried `product:{slug}` and would otherwise stay stale.
  *    Purging both sides repaints the page it left and the page it joined.
+ * 4. `trade:{slug}` for the same before/after union — but ALSO `index:trades`,
+ *    `taxonomy`, and `sitemap` whenever the trade set changed at all. Trades are
+ *    NOT symmetric with the three facets above and must not be folded into that
+ *    loop: the trade facet is **publication-gated** (`TRADE_PUBLISH_MIN_PRODUCTS`
+ *    is 1, `STAGE_1_SPEC.md` §5.5a), so a vendor tagging a trade that had no
+ *    products flips `/trades/{slug}` from `noindex` to indexable and adds it to
+ *    the `/trades` index grid, the taxonomy nav flyout, and `sitemap.xml` —
+ *    none of which carry this product's tag. A removal crosses the same floor
+ *    downward. Same RULE as `cacheTagsForPromote` (`promote-cache-tags.ts`);
+ *    keep them in lockstep. The TRIGGER here is deliberately tighter: promote
+ *    cannot cheaply diff (its response echoes only what was set, so it purges
+ *    every trade on the product), whereas this handler holds both sides and so
+ *    fires only on a real difference. Both purge a superset of what is stale;
+ *    this one wastes fewer global purges.
  *
- * `taxonomy` is deliberately NOT emitted: that tag is for a change to the term
- * SET, and a vendor can only assign existing terms, never mint one.
+ * `taxonomy` is otherwise NOT emitted: for the three unpublished-gated facets
+ * that tag means a change to the term SET, and a vendor can only assign existing
+ * terms, never mint one. A trade edit emits it for the different reason above —
+ * the nav's trade list is filtered by the publication floor, so it changes
+ * without any term being minted.
+ *
+ * NOT emitted for a vendor edit, deliberately: the IndexNow / Google submission
+ * that `POST /api/promote` fires for newly-published trade URLs. A vendor edit
+ * repaints the edge but does not ask a crawler to re-fetch; the next promote
+ * touching that trade does. Cheap to add later if trade pages prove slow to
+ * index.
  */
 function productEditTags(slug: string, before: TaxonomySlugs, after: TaxonomySlugs): string[] {
   const tags = new Set<string>([`product:${slug}`, 'index:products']);
@@ -166,7 +191,41 @@ function productEditTags(slug: string, before: TaxonomySlugs, after: TaxonomySlu
       tags.add(`${prefix}:${termSlug}`);
     }
   }
+
+  // Trades: the CHANGED terms purge their own browse pages, and any change at
+  // all pulls in the three publication-gated surfaces. Guarded on a real
+  // difference rather than on "the caller sent the key", so re-saving an
+  // unchanged trade set doesn't purge the sitemap for nothing.
+  //
+  // Why the symmetric difference is safe where the siblings above take the full
+  // union: a trade the product ALREADY carried and still carries has an
+  // unchanged membership, and `/trades/{slug}` embeds a `product:{slug}` tag for
+  // every product it lists (`taxonomy-browse.resolver.ts` pushes `ctx.embedded`),
+  // so `product:{slug}` — always emitted above — already repaints it for a
+  // content edit. Only a JOIN or a LEAVE needs the explicit trade tag.
+  const touchedTrades = symmetricDifference(before.trades, after.trades);
+  for (const termSlug of touchedTrades) tags.add(`trade:${termSlug}`);
+  if (touchedTrades.length > 0) {
+    tags.add('index:trades');
+    tags.add('taxonomy');
+    tags.add('sitemap');
+  }
+
   return [...tags];
+}
+
+/** Slugs present in exactly one of the two sets — the trades this edit added or
+ *  removed. A trade the product already carried and still carries has not
+ *  changed any page, so it buys no purge. */
+function symmetricDifference(before: readonly string[], after: readonly string[]): string[] {
+  const inBefore = new Set(before);
+  const inAfter = new Set(after);
+  return [
+    ...new Set([
+      ...before.filter((slug) => !inAfter.has(slug)),
+      ...after.filter((slug) => !inBefore.has(slug)),
+    ]),
+  ];
 }
 
 // ─── Row → wire mappers ──────────────────────────────────────────────────────
@@ -199,7 +258,12 @@ function toVendorAccount(row: VendorRow): VendorAccount {
   };
 }
 
-type TaxonomySlugs = { categories: string[]; audiences: string[]; phases: string[] };
+type TaxonomySlugs = {
+  categories: string[];
+  audiences: string[];
+  phases: string[];
+  trades: string[];
+};
 
 function toVendorProduct(row: ProductRow, isPrimary: boolean, tax: TaxonomySlugs): VendorProduct {
   return {
@@ -215,6 +279,7 @@ function toVendorProduct(row: ProductRow, isPrimary: boolean, tax: TaxonomySlugs
     category_slugs: tax.categories,
     audience_slugs: tax.audiences,
     phase_slugs: tax.phases,
+    trade_slugs: tax.trades,
     product_role: row.productRole,
     integration_count: row.integrationCount,
     review_count: row.reviewCount,
@@ -223,8 +288,8 @@ function toVendorProduct(row: ProductRow, isPrimary: boolean, tax: TaxonomySlugs
 }
 
 /**
- * Read the taxonomy slugs for a set of products in three queries (one per facet)
- * rather than 3×N. Returns a per-product bucket so both the dashboard list and a
+ * Read the taxonomy slugs for a set of products in four queries (one per facet)
+ * rather than 4×N. Returns a per-product bucket so both the dashboard list and a
  * single-product PATCH response can use it.
  */
 async function loadTaxonomySlugs(
@@ -232,11 +297,11 @@ async function loadTaxonomySlugs(
   productIds: readonly string[],
 ): Promise<Map<string, TaxonomySlugs>> {
   const buckets = new Map<string, TaxonomySlugs>(
-    productIds.map((id) => [id, { categories: [], audiences: [], phases: [] }]),
+    productIds.map((id) => [id, { categories: [], audiences: [], phases: [], trades: [] }]),
   );
   if (productIds.length === 0) return buckets;
 
-  const [cats, auds, phs] = await Promise.all([
+  const [cats, auds, phs, trds] = await Promise.all([
     db
       .select({ productId: productCategories.productId, slug: taxonomyCategories.slug })
       .from(productCategories)
@@ -255,26 +320,38 @@ async function loadTaxonomySlugs(
       .innerJoin(taxonomyPhases, eq(productPhases.phaseId, taxonomyPhases.id))
       .where(inArray(productPhases.productId, [...productIds]))
       .orderBy(asc(taxonomyPhases.slug)),
+    db
+      .select({ productId: productTrades.productId, slug: taxonomyTrades.slug })
+      .from(productTrades)
+      .innerJoin(taxonomyTrades, eq(productTrades.tradeId, taxonomyTrades.id))
+      .where(inArray(productTrades.productId, [...productIds]))
+      .orderBy(asc(taxonomyTrades.slug)),
   ]);
 
   for (const row of cats) buckets.get(row.productId)?.categories.push(row.slug);
   for (const row of auds) buckets.get(row.productId)?.audiences.push(row.slug);
   for (const row of phs) buckets.get(row.productId)?.phases.push(row.slug);
+  for (const row of trds) buckets.get(row.productId)?.trades.push(row.slug);
   return buckets;
 }
 
 /** Empty-set fallback so a product with no taxonomy still maps cleanly. */
-const NO_TAXONOMY: TaxonomySlugs = { categories: [], audiences: [], phases: [] };
+const NO_TAXONOMY: TaxonomySlugs = { categories: [], audiences: [], phases: [], trades: [] };
 
 /**
- * The three taxonomy facets, as data.
+ * The four taxonomy facets, as data.
  *
  * Each facet has to be handled in four places on a product edit — term
  * resolution, the before/after audit state, and the batch's delete+reinsert.
- * Written out longhand that is twelve near-identical fragments that must agree
- * about "did the caller send this facet?", and a fourth facet (Stage 2 has
- * `data_object` waiting) would mean twelve correct edits. Driving them off one
- * table makes the agreement structural instead of remembered.
+ * Written out longhand that is sixteen near-identical fragments that must agree
+ * about "did the caller send this facet?". Driving them off one table makes the
+ * agreement structural instead of remembered — which is what let `trade`
+ * (AECI-538, the fourth facet) join as a single entry here.
+ *
+ * `trade` is uniform in this table on purpose: resolution, audit, and write are
+ * identical to its siblings. Where it is NOT uniform is cache invalidation —
+ * see `productEditTags`, which handles it separately because the trade facet is
+ * publication-gated.
  */
 const FACETS = [
   {
@@ -298,11 +375,26 @@ const FACETS = [
     join: productPhases,
     row: (productId: string, phaseId: string) => ({ productId, phaseId }),
   },
+  {
+    field: 'trade_slugs',
+    bucket: 'trades',
+    terms: taxonomyTrades,
+    join: productTrades,
+    row: (productId: string, tradeId: string) => ({ productId, tradeId }),
+  },
 ] as const satisfies ReadonlyArray<{
   field: keyof UpdateVendorProductInput & `${string}_slugs`;
   bucket: keyof TaxonomySlugs;
-  terms: typeof taxonomyCategories | typeof taxonomyAudiences | typeof taxonomyPhases;
-  join: typeof productCategories | typeof productAudiences | typeof productPhases;
+  terms:
+    | typeof taxonomyCategories
+    | typeof taxonomyAudiences
+    | typeof taxonomyPhases
+    | typeof taxonomyTrades;
+  join:
+    | typeof productCategories
+    | typeof productAudiences
+    | typeof productPhases
+    | typeof productTrades;
   row: (productId: string, termId: string) => Record<string, string>;
 }>;
 
@@ -320,7 +412,11 @@ function pickColumns(row: object, keys: readonly string[]): Record<string, unkno
  */
 async function resolveTermIds(
   db: Db,
-  table: typeof taxonomyCategories | typeof taxonomyAudiences | typeof taxonomyPhases,
+  table:
+    | typeof taxonomyCategories
+    | typeof taxonomyAudiences
+    | typeof taxonomyPhases
+    | typeof taxonomyTrades,
   slugs: readonly string[],
   field: string,
 ): Promise<string[]> {

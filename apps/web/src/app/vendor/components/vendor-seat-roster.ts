@@ -5,13 +5,19 @@ import type { VendorSeat, VendorSeatInvite } from '@aeci/shared';
 
 import { VendorApi } from '../vendor-api';
 import { VendorPortalStore } from '../vendor-portal-store';
-import { VendorSeatInviteForm } from './vendor-seat-invite-form';
 
 /**
- * Read-only seat roster for the vendor dashboard (AECI-522). Multi-seat is flat
- * at launch (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6 / `STAGE_2_SPEC.md` §8.1(2)):
- * every seat is equal, each was granted by AECi, and self-serve invite/revoke is
- * deferred — so this list is read-only.
+ * The seat roster for the vendor dashboard (AECI-522). Multi-seat is flat at
+ * launch (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6 / `STAGE_2_SPEC.md` §8.1(2)): data
+ * capabilities are identical across seats, and the only owner/member split is
+ * seat management itself (§11a.4).
+ *
+ * ── WHAT LIVES HERE, AND WHAT DOESN'T ───────────────────────────────────────
+ * This renders the roster, the pending-invite list, and the two destructive
+ * actions an owner has over them (remove a seat, revoke an invite). **Creating**
+ * an invite does not live here — it is {@link VendorSeatInviteDialog}, triggered
+ * from the section heading, so the list people come here to read isn't sitting
+ * under a permanent form. Both surfaces gate on the same `canManageSeats` flag.
  *
  * The roster is a **separate** browser read (`GET /api/vendor/seats`) from the
  * dashboard payload because it needs the Supabase email lookup and the first
@@ -33,12 +39,12 @@ import { VendorSeatInviteForm } from './vendor-seat-invite-form';
  */
 @Component({
   selector: 'aec-vendor-seat-roster',
-  imports: [DatePipe, VendorSeatInviteForm],
+  imports: [DatePipe],
   template: `
     @if (canManage()) {
       <p class="text-sm leading-relaxed text-(--text-secondary)" i18n="@@vendor.seats.intro.owner">
-        Everyone with access to this vendor. You can invite colleagues on your company's email
-        domain, and remove access when someone leaves.
+        Everyone with access to this vendor. You can invite anyone who helps maintain this listing,
+        and remove access when someone leaves.
       </p>
     } @else {
       <p class="text-sm leading-relaxed text-(--text-secondary)" i18n="@@vendor.seats.intro.member">
@@ -206,10 +212,6 @@ import { VendorSeatInviteForm } from './vendor-seat-invite-form';
           }
         </ul>
       </section>
-    }
-
-    @if (canManage()) {
-      <aec-vendor-seat-invite-form />
     }
 
     @if (actionError(); as message) {

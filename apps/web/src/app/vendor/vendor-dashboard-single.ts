@@ -9,6 +9,7 @@ import { VendorPlanPanel } from './components/vendor-plan-panel';
 import { VendorProfileForm } from './components/vendor-profile-form';
 import { VendorProductsSection } from './components/vendor-products-section';
 import { VendorRequestStatus } from './components/vendor-request-status';
+import { VendorSeatInviteDialog } from './components/vendor-seat-invite-dialog';
 import { VendorSeatRoster } from './components/vendor-seat-roster';
 
 /**
@@ -28,6 +29,7 @@ import { VendorSeatRoster } from './components/vendor-seat-roster';
     VendorProfileForm,
     VendorProductsSection,
     VendorIntegrationsSection,
+    VendorSeatInviteDialog,
     VendorSeatRoster,
   ],
   template: `
@@ -116,13 +118,17 @@ import { VendorSeatRoster } from './components/vendor-seat-roster';
         </section>
 
         <section aria-labelledby="vendor-seats-heading">
-          <h2
-            id="vendor-seats-heading"
-            class="font-display text-xl font-semibold text-(--text-primary)"
-          >
-            <span i18n="@@vendor.section.seats">Seats</span>
-            <span class="text-(--text-secondary)">({{ m.seat_count }})</span>
-          </h2>
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <h2
+              id="vendor-seats-heading"
+              class="font-display text-xl font-semibold text-(--text-primary)"
+            >
+              <span i18n="@@vendor.section.seats">Seats</span>
+              <span class="text-(--text-secondary)">({{ m.seat_count }})</span>
+            </h2>
+            <!-- Owner-only; renders nothing for a member seat. -->
+            <aec-vendor-seat-invite-dialog />
+          </div>
           <div class="mt-4">
             <aec-vendor-seat-roster [seatCount]="m.seat_count" />
           </div>

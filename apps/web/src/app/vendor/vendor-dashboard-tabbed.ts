@@ -1,15 +1,19 @@
 import { Component, inject, input } from '@angular/core';
-import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
+import { RouterOutlet } from '@angular/router';
 
 import type { VendorMeResponse } from '@aeci/shared';
 
 import { VendorPortalAnnouncer } from './vendor-announcer';
-import { VENDOR_NAV_ITEMS } from './vendor-nav';
+import { VendorPortalNav } from './vendor-portal-nav';
 
 /**
- * Concept A — the vendor dashboard shell (AECI-522): a side-nav (Vendor Overview
- * / Profile / Products / Integrations / Seats) over one content panel, modelled
- * on the admin shell.
+ * Concept A — the vendor portal shell (AECI-522): the section nav (Vendor
+ * Overview / Profile / Products / Integrations / Seats) over one content panel.
+ *
+ * The nav was a side rail modelled on the admin shell and is now a horizontal
+ * tab row above the content (`vendor-portal-nav.ts`, which also explains why
+ * Products is a filterable dropdown rather than a link). The shell keeps only
+ * the header, the nav, the outlet and the live region.
  *
  * ── THE SECTIONS ARE CHILD ROUTES NOW ───────────────────────────────────────
  * They started as an in-page `@switch` over a `Tab` signal, explicitly "no child
@@ -57,11 +61,11 @@ import { VENDOR_NAV_ITEMS } from './vendor-nav';
  */
 @Component({
   selector: 'aec-vendor-dashboard-tabbed',
-  imports: [RouterLink, RouterLinkActive, RouterOutlet],
+  imports: [RouterOutlet, VendorPortalNav],
   template: `
     @let m = me();
     <section class="mx-auto w-full max-w-7xl px-6 py-10 md:px-8">
-      <header class="mb-8 border-b border-(--border-default) pb-6">
+      <header class="pb-4">
         <p class="aec-overline text-(--text-secondary)" i18n="@@vendor.eyebrow">Vendor</p>
         <h1
           class="mt-2 font-display text-3xl font-semibold tracking-tight text-(--text-primary) md:text-4xl"
@@ -70,30 +74,10 @@ import { VENDOR_NAV_ITEMS } from './vendor-nav';
         </h1>
       </header>
 
-      <div class="grid gap-8 md:grid-cols-[minmax(0,14rem)_minmax(0,1fr)]">
-        <nav i18n-aria-label="@@vendor.nav.aria" aria-label="Dashboard sections">
-          <ul class="space-y-1">
-            @for (item of navItems; track item.path) {
-              <li>
-                <a
-                  [routerLink]="item.path"
-                  routerLinkActive="bg-(--surface-raised) text-(--text-primary)"
-                  ariaCurrentWhenActive="page"
-                  class="flex w-full items-center rounded-(--radius-md) px-3 py-2 text-start text-sm
-                    font-bold text-(--text-secondary) no-underline transition-colors
-                    hover:text-(--text-primary) focus-visible:outline-2
-                    focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-                >
-                  {{ item.label }}
-                </a>
-              </li>
-            }
-          </ul>
-        </nav>
+      <aec-vendor-portal-nav [products]="m.products" />
 
-        <div class="min-w-0">
-          <router-outlet />
-        </div>
+      <div class="min-w-0">
+        <router-outlet />
       </div>
 
       <!--
@@ -121,7 +105,4 @@ export class VendorDashboardTabbed {
   /** The single live region's text (§6.3). Read-only here: the shell renders the
    *  channel, it does not decide what goes into it. */
   protected readonly liveMessage = inject(VendorPortalAnnouncer).message;
-
-  /** The portal IA — see `vendor-nav.ts`. Relative paths, deliberately. */
-  protected readonly navItems = VENDOR_NAV_ITEMS;
 }

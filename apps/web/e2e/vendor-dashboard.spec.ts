@@ -64,13 +64,24 @@ const BASE_URL = process.env['PLAYWRIGHT_BASE_URL'] ?? 'http://localhost:8788';
  * asserts exactly the invariant §6.3 states.
  */
 /**
- * A dashboard side-nav entry. They are `routerLink` anchors since the portal
- * moved onto child routes (`/vendor/:vendorSlug/<section>`), so a `role: 'button'`
- * lookup silently matches nothing — which is why this helper exists rather than
- * an inline `getByRole` at each call site.
+ * A portal nav entry.
+ *
+ * Four of the five are `routerLink` anchors (the portal has moved onto child
+ * routes, `/vendor/:vendorSlug/<section>`). Products is a disclosure BUTTON when
+ * the vendor owns more than one product, because it opens the filterable
+ * products menu — so a bare `role: 'link'` lookup silently matches nothing for
+ * that one, and a bare `role: 'button'` matches nothing for the other four.
+ * Hence the `.or()`, and hence this helper rather than an inline `getByRole`.
+ *
+ * `exact` on both halves: without it Playwright substring-matches, and a nav
+ * that ever gains "Products settings" would start resolving two elements.
  */
 function section(page: Page, name: string) {
-  return page.getByRole('navigation', { name: 'Dashboard sections' }).getByRole('link', { name });
+  const nav = page.getByRole('navigation', { name: 'Portal sections' });
+  return nav
+    .getByRole('link', { name, exact: true })
+    .or(nav.getByRole('button', { name, exact: true }))
+    .first();
 }
 
 const ANNOUNCER = '[role="status"].sr-only';

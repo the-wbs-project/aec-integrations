@@ -263,16 +263,16 @@ import { facetNavLabel, facetViewAllLabel } from './taxonomy-nav-copy';
 
               <!-- The admin section is NOT repeated here: the "More" disclosure
                    above renders it from ADMIN_NAV_GROUPS (AECI-572). The vendor
-                   dashboard is not an admin screen, so it stays in the account
+                   portal is not an admin screen, so it stays in the account
                    block, revealed after hydration by VendorStatus (AECI-522). -->
               @if (vendorStatus.isVendor()) {
                 <a
                   routerLink="/vendor"
                   (click)="menu.close()"
                   class="block rounded-md px-3 py-2 text-sm font-medium text-(--text-primary) hover:bg-(--surface-sunken) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-                  i18n="@@app.header.vendorDashboard"
+                  i18n="@@app.header.vendorPortal"
                 >
-                  Vendor dashboard
+                  Vendor portal
                 </a>
               }
 

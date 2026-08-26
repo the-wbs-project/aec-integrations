@@ -17,7 +17,7 @@ type ProductTextKey =
   | 'tool_integrations_url'
   | 'api_docs_url'
   | 'logo_url';
-type FacetKey = 'category_slugs' | 'audience_slugs' | 'phase_slugs';
+type FacetKey = 'category_slugs' | 'audience_slugs' | 'phase_slugs' | 'trade_slugs';
 type Control = 'url' | 'textarea';
 
 interface FieldConfig {
@@ -29,6 +29,11 @@ interface FieldConfig {
 interface FacetConfig {
   readonly key: FacetKey;
   readonly legend: string;
+  /** Optional guidance rendered under the legend. Only `trade` carries one: its
+   *  tagging rule is a genuine judgement call the vendor is best placed to make,
+   *  and "most products have none" is deeply counter-intuitive next to three
+   *  facets where more tags is simply more accurate. */
+  readonly hint?: string;
 }
 
 /** The taxonomy endpoint caps each facet assignment at 10 terms (`termSlugList`). */
@@ -104,7 +109,7 @@ const MAX_TERMS_PER_FACET = 10;
           >
             Editing is paused while your verification is not active. This product stays published
             exactly as it is, and everything on record is here to read. The verification panel on
-            your dashboard has the renewal path.
+            Vendor Overview has the renewal path.
           </p>
         }
 
@@ -154,6 +159,9 @@ const MAX_TERMS_PER_FACET = 10;
         @for (facet of facets; track facet.key) {
           <fieldset class="space-y-2 border-0 p-0">
             <legend [class]="labelClass">{{ facet.legend }}</legend>
+            @if (facet.hint; as hint) {
+              <p class="max-w-prose text-xs leading-relaxed text-(--text-secondary)">{{ hint }}</p>
+            }
             @if (taxonomy() === null) {
               <p class="text-xs text-(--text-secondary)" i18n="@@vendor.product.taxonomy.loading">
                 Loading options…
@@ -255,6 +263,11 @@ export class VendorProductForm {
     { key: 'category_slugs', legend: $localize`:@@vendor.product.facet.categories:Categories` },
     { key: 'audience_slugs', legend: $localize`:@@vendor.product.facet.audiences:Audiences` },
     { key: 'phase_slugs', legend: $localize`:@@vendor.product.facet.phases:Phases` },
+    {
+      key: 'trade_slugs',
+      legend: $localize`:@@vendor.product.facet.trades:Trades`,
+      hint: $localize`:@@vendor.product.facet.tradesHint:Pick a trade only where your product does something specific for it: trade-specific features, cost data, templates, takeoff logic, or integrations. Most products have none, and that is the right answer for a general-purpose platform.`,
+    },
   ];
 
   private readonly baseline = signal<VendorProduct | null>(null);
@@ -263,6 +276,7 @@ export class VendorProductForm {
     category_slugs: [],
     audience_slugs: [],
     phase_slugs: [],
+    trade_slugs: [],
   });
 
   protected readonly saving = signal(false);
@@ -312,6 +326,7 @@ export class VendorProductForm {
       category_slugs: sel.category_slugs.length > MAX_TERMS_PER_FACET ? tooMany : null,
       audience_slugs: sel.audience_slugs.length > MAX_TERMS_PER_FACET ? tooMany : null,
       phase_slugs: sel.phase_slugs.length > MAX_TERMS_PER_FACET ? tooMany : null,
+      trade_slugs: sel.trade_slugs.length > MAX_TERMS_PER_FACET ? tooMany : null,
     };
   });
 
@@ -404,7 +419,14 @@ export class VendorProductForm {
       ? t.categories
       : key === 'audience_slugs'
         ? t.audiences
-        : t.phases;
+        : key === 'phase_slugs'
+          ? t.phases
+          : // The FULL closed vocabulary, unfiltered by the publication floor.
+            // `TRADE_PUBLISH_MIN_PRODUCTS` gates the SEO surfaces, not tagging:
+            // hiding an unpublished trade here would make it unreachable
+            // forever, since a vendor tagging it is exactly how it reaches the
+            // floor in the first place.
+            t.trades;
   }
 
   protected isSelected(key: FacetKey, slug: string): boolean {
@@ -460,6 +482,7 @@ export class VendorProductForm {
       category_slugs: [...p.category_slugs],
       audience_slugs: [...p.audience_slugs],
       phase_slugs: [...p.phase_slugs],
+      trade_slugs: [...p.trade_slugs],
     });
   }
 }

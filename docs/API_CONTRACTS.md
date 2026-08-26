@@ -213,7 +213,6 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `ENTITLEMENT_REQUIRED` | 403 | The vendor's entitlement tier does not hold the capability this write requires (code minted AECI-610, thrown since AECI-611; `details: { capability, tier, fields? }` — `fields` is present only on the field-level rejection in `splitPatch`). **403, not 402** — 402 Payment Required would leak a billing model into a contract that must stay payer-model-agnostic, and this table has no 402 row. **Reads are never gated**, and the gate never fires before ownership settles on a product write (a 403 there would confirm a foreign product exists). Raised only from `entitlementRequired()` in `apps/api/src/lib/authz.ts`, so the status, copy and `details` shape cannot diverge between the two call sites |
 | `SLUG_CONFLICT` | 409 | Slug collision detected on entity creation |
 | `GRANT_CONFLICT` | 409 | Vendor-claim grant would violate role/vendor exclusivity — the claimant account is a site `admin`, or is already linked to a different vendor (AECI-519; `details.reason` ∈ `already_admin` \| `other_vendor`). Also returned by `POST /api/vendor/seats/invites` when the address already holds a live invite, and by the invite accept when the redeemer is a site admin or belongs to another vendor (AECI-664) |
-| `INVITE_DOMAIN_MISMATCH` | 422 | A vendor seat invite was addressed outside the vendor's own `website` domain (AECI-664). A POLICY refusal, not a malformed payload: the address may be perfectly valid, and the client renders a specific next step (submit a claim instead) that `VALIDATION_FAILED` could not carry |
 | `INVALID_STATE_TRANSITION` | 422 | Attempted workflow transition is not allowed from current state |
 | `RATE_LIMITED` | 429 | Rate limit exceeded |
 | `DEPENDENCY_FAILURE` | 503 | Upstream dependency (Supabase, Algolia, Linear) failed |
@@ -2974,11 +2973,11 @@ export const CreateSeatInviteSchema = z.object({
 
 The only field is the address: the vendor is the session's, the sender is the session's, and expiry is server policy (14 days). Anything else here would be a client-supplied value on an authorization path.
 
-**The domain gate is the policy.** `computeDomainMatch(email, vendors.website)` must return `match`. `no_match` and `manual_review` (freemail, or a vendor with no `website` on file) both **422 `INVITE_DOMAIN_MISMATCH`**, writing no row and sending no mail — the caller is directed to the public claim form, where a human already weighs this exact question.
+**Any address is accepted — there is no domain gate.** The endpoint shipped restricted to the vendor's own `website` domain (a 422 `INVITE_DOMAIN_MISMATCH`, since retired along with the code); that restriction was removed, because the people who maintain a listing are routinely off-domain — an agency, a subsidiary, a parent company, a contractor — and only the owner knows which. What bounds the endpoint is unchanged and was never the domain: **owner-only**, an invited seat is never itself an owner, the redeem requires control of the invited mailbox, and the daily cap limits the mail. `computeDomainMatch` still runs, but on the **accept** path and only to set `profiles.work_email_verified` — a signal for the §5 claim reviewer, not a gate.
 
 **Rate-limited**: 10 invites per vendor per rolling 24 h, counted over `vendor_seat_invites` (no KV, no new binding) → **429 `RATE_LIMITED`**. This is the only endpoint on the surface that sends mail on a customer's command.
 
-Errors: `FORBIDDEN` (403, not an owner) · `INVITE_DOMAIN_MISMATCH` (422) · `GRANT_CONFLICT` (409, a live invite for that address already exists) · `RATE_LIMITED` (429) · `VALIDATION_FAILED` (400).
+Errors: `FORBIDDEN` (403, not an owner) · `GRANT_CONFLICT` (409, a live invite for that address already exists) · `RATE_LIMITED` (429) · `VALIDATION_FAILED` (400).
 
 #### `DELETE /api/vendor/seats/invites/:id`
 
@@ -3013,6 +3012,8 @@ Deliberately thin: the token is in a URL, so treat everything behind it as semi-
 Redeem it. `requireAuth()`. Returns `{ vendor_slug, vendor_name }` so the client can land the new seat on `/vendor/:slug/overview`.
 
 **The security control is the email binding, not the token.** The session's verified email must equal the invited address; an ABSENT session email fails closed. Possession of a link therefore grants nothing without control of that mailbox. Single-use, and the spend is guarded on still-pending so two concurrent redeems produce one seat and one audit row.
+
+**`profiles.work_email_verified` is decided here, not at invite time.** `computeDomainMatch(invite.email, vendors.website) === 'match'` sets it; an off-domain redeem leaves it as it was. This moved onto the accept path when the invite-time domain gate was removed: an invited address may now legitimately be off-domain, so "a redeem happened" is not a claim about employment, and the bit means what the §5 reviewer reads it to mean. Like `seat_owner`, it is never cleared — a profile that already earned it keeps it.
 
 Errors: `FORBIDDEN` (422, wrong signed-in address) · `INVALID_STATE_TRANSITION` (422, expired/revoked/already used) · `GRANT_CONFLICT` (409, redeemer is a site admin or already belongs to another vendor) · `NOT_FOUND` (404, unknown token — **with no identifier echoed back**, since the token is the identifier).
 
@@ -3132,6 +3133,7 @@ export const UpdateVendorProductSchema = z
     category_slugs: termSlugList.optional(),   // max 10, [a-z0-9-]+
     audience_slugs: termSlugList.optional(),
     phase_slugs: termSlugList.optional(),
+    trade_slugs: termSlugList.optional(),      // AECI-665, the fourth facet
   })
   .superRefine(/* at least one field must be present */);
 
@@ -3139,6 +3141,13 @@ export const UpdateVendorProductResponseSchema = z.object({ product: VendorProdu
 ```
 
 **Taxonomy guard-rail:** a vendor may only **assign terms that already exist**. Minting a term is an AECi curation act, so an unknown slug is a `VALIDATION_FAILED` keyed to the field rather than a silent drop — and nothing is partially applied, because terms are resolved before the batch opens.
+
+**`trade_slugs` (AECI-665)** is the fourth facet (`TRADES_VOCABULARY.md`) and is deliberately **uniform with its three siblings on the wire**: same `termSlugList` cap, same find-only resolution, same set-replacement semantics, same `product.taxonomy.edit` gate. It is **not** given a stricter cap. The `trade` vocabulary is closed and governed — a vendor can never mint `paving-contractors` alongside `paving-asphalt` — but *which* of the 34 seeded terms describe their product is the vendor's call to make and defend. The over-tagging incentive is real (trades are the highest-leverage discovery facet) and is accepted deliberately: the write is audited and reversible, and a "challenge recently-changed trades" review workflow is a **known, deferred** follow-up, not a gap.
+
+Two consequences that do **not** follow the sibling pattern:
+
+- **Cache purge is asymmetric.** A trade change also purges `index:trades`, `taxonomy`, and `sitemap`, because the trade facet is publication-gated — see `CACHE_STRATEGY.md` §2 (`trade:{slug}`) and `STAGE_2_VENDOR_PORTAL_SPEC.md` §4. The three sibling facets purge only their own browse pages.
+- **The picker is unfiltered by the publication floor.** `GET /api/taxonomy → trades` returns every seeded term; the floor gates the SEO surfaces, not tagging. Hiding a sub-floor trade from the picker would make it permanently unreachable, since a vendor tagging it is precisely how it reaches the floor.
 
 Errors: `NOT_FOUND` (unknown id **or** a product owned by another vendor — deliberately indistinguishable), `VALIDATION_FAILED` (empty body, unknown taxonomy slug, malformed URL/slug), `MALFORMED_REQUEST`, `ENTITLEMENT_REQUIRED` (403 — the tier lacks `product.edit`, or lacks `product.taxonomy.edit` when the body carries any facet array, or lacks a specific field's capability via `details.fields`). **Raised only after ownership settles**, so a non-owner still gets the flat 404.
 

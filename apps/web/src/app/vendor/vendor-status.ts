@@ -5,7 +5,7 @@ import { SessionStatus } from '../auth/session-status';
 
 /**
  * App-wide "is the signed-in visitor a vendor admin?" hint, driving the header
- * user menu's "Vendor dashboard" link (AECI-522).
+ * user menu's "Vendor portal" link (AECI-522).
  *
  * Like `AdminStatus` / `SessionStatus`, this MUST stay neutral during SSR and
  * pre-hydration so the header's URL-keyed cached HTML is visitor-state-neutral:

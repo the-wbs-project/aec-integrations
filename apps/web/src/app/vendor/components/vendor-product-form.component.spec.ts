@@ -24,6 +24,8 @@ import { VendorProductForm } from './vendor-product-form';
  * cap. Plus one success round-trip to prove the echo re-seeds the baseline clean.
  */
 const PRODUCT: VendorProduct = VENDOR_ME_FIXTURE.products[0];
+/** The fixture product that DOES carry trades (most carry none, by design). */
+const SECONDARY: VendorProduct = VENDOR_ME_FIXTURE.products[1];
 const DESCRIPTION_ID = `vendor-product-${PRODUCT.id}-description`;
 
 function term(slug: string, name: string, order: number): TaxonomyTermWithCount {
@@ -126,6 +128,70 @@ describe('VendorProductForm', () => {
     expect(updateProduct).toHaveBeenCalledWith(PRODUCT.id, {
       category_slugs: ['bim-authoring', 'document-control', 'estimating'],
     });
+  });
+
+  it('renders the trades facet with the full closed vocabulary', () => {
+    const fixture = create();
+    const fieldsets = Array.from(
+      fixture.nativeElement.querySelectorAll('fieldset'),
+    ) as HTMLFieldSetElement[];
+    const trades = fieldsets.find(
+      (f) => (f.querySelector('legend')?.textContent ?? '') === 'Trades',
+    );
+
+    expect(trades).toBeDefined();
+    // Every seeded term is offered, INCLUDING ones below the publication floor:
+    // that floor gates the SEO surfaces, not tagging, and a vendor tagging a
+    // trade is how it reaches the floor at all.
+    const names = Array.from(trades!.querySelectorAll('button[aria-pressed]')).map((c) =>
+      (c.textContent ?? '').trim(),
+    );
+    expect(names).toEqual([
+      'Concrete',
+      'Electrical',
+      'HVAC & Mechanical',
+      'Structural Steel & Metals',
+    ]);
+  });
+
+  it('states the trade-specific tagging rule, which is not self-evident', () => {
+    // "Most products have none" reads as broken next to three facets where more
+    // tags is simply more accurate, so the rule is on the surface, not in a doc.
+    const fixture = create();
+    expect(fixture.nativeElement.textContent).toContain('Most products have none');
+  });
+
+  it('sends trade_slugs as its own full replacement set', async () => {
+    updateProduct.mockResolvedValue({ product: { ...PRODUCT } } as UpdateVendorProductResponse);
+    const fixture = create();
+
+    click(fixture, chipByName(fixture, 'Electrical'));
+    saveButton(fixture).click();
+    await flush();
+
+    // Only the touched facet rides along: the three sibling arrays stay absent
+    // so an untouched facet is never rewritten.
+    expect(updateProduct).toHaveBeenCalledWith(PRODUCT.id, { trade_slugs: ['electrical'] });
+  });
+
+  it('round-trips a product that already carries trades', async () => {
+    updateProduct.mockResolvedValue({ product: { ...SECONDARY } } as UpdateVendorProductResponse);
+    const fixture = create(VENDOR_TAXONOMY_FIXTURE, SECONDARY);
+
+    // Seeded from the payload, so the assigned trades show as pressed.
+    expect(chipByName(fixture, 'Electrical').getAttribute('aria-pressed')).toBe('true');
+    expect(chipByName(fixture, 'HVAC & Mechanical').getAttribute('aria-pressed')).toBe('true');
+    expect(chipByName(fixture, 'Concrete').getAttribute('aria-pressed')).toBe('false');
+    expect(saveButton(fixture).disabled).toBe(true);
+
+    // Clearing the last trade is a legitimate edit: an empty set is the honest
+    // answer for a product that stopped having trade-specific value.
+    click(fixture, chipByName(fixture, 'Electrical'));
+    click(fixture, chipByName(fixture, 'HVAC & Mechanical'));
+    saveButton(fixture).click();
+    await flush();
+
+    expect(updateProduct).toHaveBeenCalledWith(SECONDARY.id, { trade_slugs: [] });
   });
 
   it('treats reordering the same terms as no change (order-insensitive sameSet)', () => {

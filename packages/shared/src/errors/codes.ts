@@ -15,12 +15,6 @@ export const ApiErrorCode = {
   ENTITLEMENT_REQUIRED: 'ENTITLEMENT_REQUIRED',
   SLUG_CONFLICT: 'SLUG_CONFLICT',
   GRANT_CONFLICT: 'GRANT_CONFLICT',
-  /** A vendor seat invite was addressed to a domain that is not the vendor's own
-   *  (AECI-664). Distinct from `VALIDATION_FAILED` — the payload is well-formed
-   *  and the address may be perfectly real; this is a POLICY refusal, and the
-   *  client renders a specific next step ("ask them to submit a claim") that no
-   *  generic validation message could. */
-  INVITE_DOMAIN_MISMATCH: 'INVITE_DOMAIN_MISMATCH',
   INVALID_STATE_TRANSITION: 'INVALID_STATE_TRANSITION',
   RATE_LIMITED: 'RATE_LIMITED',
   DEPENDENCY_FAILURE: 'DEPENDENCY_FAILURE',

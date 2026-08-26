@@ -152,7 +152,6 @@ describe('VendorSeatRoster — seat management (§11a)', () => {
     const fixture = await render();
     const text = fixture.nativeElement.textContent as string;
 
-    expect(fixture.nativeElement.querySelector('form')).toBeNull();
     expect(text).not.toContain('Remove');
     expect(text).not.toContain('Revoke');
     // But it still names who to ask, which is the whole point of showing the
@@ -161,7 +160,7 @@ describe('VendorSeatRoster — seat management (§11a)', () => {
     expect(text).toContain('Owner');
   });
 
-  it('shows the invite form, pending invites and Remove to an owner', async () => {
+  it('shows pending invites and Remove to an owner', async () => {
     setup({
       seats: VENDOR_SEATS_FIXTURE,
       pending_invites: VENDOR_SEAT_INVITES_FIXTURE,
@@ -170,10 +169,12 @@ describe('VendorSeatRoster — seat management (§11a)', () => {
     const fixture = await render();
     const text = fixture.nativeElement.textContent as string;
 
-    expect(fixture.nativeElement.querySelector('form')).not.toBeNull();
     expect(text).toContain('Pending invites');
     expect(text).toContain('jordan@summitbim.example.com');
     expect(text).toContain('Remove');
+    // Creating an invite is NOT here — it moved to `VendorSeatInviteDialog`,
+    // triggered from the section heading. The roster carries no form at all now.
+    expect(fixture.nativeElement.querySelector('form')).toBeNull();
   });
 
   it('never offers Remove on the caller’s OWN row', async () => {

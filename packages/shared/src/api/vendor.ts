@@ -136,6 +136,11 @@ export const VendorProductSchema = z.object({
   category_slugs: z.array(z.string()),
   audience_slugs: z.array(z.string()),
   phase_slugs: z.array(z.string()),
+  // SPARSE BY DESIGN, and the only facet that usually reads empty: a trade tag
+  // means the product has trade-SPECIFIC value, so horizontal platforms carry
+  // none (`TRADES_VOCABULARY.md` §1.1). An empty array is the intended answer
+  // for most products, never missing data.
+  trade_slugs: z.array(z.string()),
 
   product_role: z.string(),
   integration_count: z.number().int().min(0),
@@ -286,6 +291,16 @@ export const UpdateVendorProductSchema = z
     category_slugs: termSlugList.optional(),
     audience_slugs: termSlugList.optional(),
     phase_slugs: termSlugList.optional(),
+    // The fourth facet (AECI-538). Same shape and same cap as its siblings —
+    // deliberately NOT stricter. The `trade` vocabulary is closed and governed,
+    // so resolution stays find-only (an unknown slug is a `VALIDATION_FAILED`
+    // exactly as for the other three), but WHICH of the 34 terms describe a
+    // product is the vendor's call to make and defend, not ours to ration. The
+    // over-tagging risk is real — trades are the highest-leverage discovery
+    // facet — and it is accepted deliberately: the write is audited and
+    // reversible, and challenging a suspicious change is a review workflow we
+    // have chosen not to build yet.
+    trade_slugs: termSlugList.optional(),
   })
   .superRefine((value, ctx) => {
     if (Object.keys(value).length === 0) {

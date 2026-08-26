@@ -79,16 +79,16 @@ import { VendorStatus } from '../vendor/vendor-status';
 
           <!-- The admin block moved to the header "More" menu (AECI-572), which
                renders the full /admin IA from ADMIN_NAV_GROUPS. The vendor
-               dashboard is not an admin screen and stays here (AECI-522). -->
+               portal is not an admin screen and stays here (AECI-522). -->
           @if (vendorStatus.isVendor()) {
             <div class="mt-1 border-t border-(--border-default) pt-1">
               <a
                 routerLink="/vendor"
                 (click)="menu.close()"
                 class="block rounded-md px-3 py-2 text-sm font-medium text-(--text-primary) hover:bg-(--surface-sunken) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-                i18n="@@app.header.vendorDashboard"
+                i18n="@@app.header.vendorPortal"
               >
-                Vendor dashboard
+                Vendor portal
               </a>
             </div>
           }

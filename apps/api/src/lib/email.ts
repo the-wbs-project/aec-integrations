@@ -269,7 +269,7 @@ export function sendReviewRejectedEmail(
  * `invited` claimant the account was provisioned silently (no GoTrue invite email, see
  * `createAuthUser`), so this IS the onboarding touch and the sign-in copy explains a
  * first login; a `linked` claimant already has an account. Links to the `/vendor`
- * dashboard when `PUBLIC_SITE_URL` is set. Recipient is the claim's `submitter_email`;
+ * portal when `PUBLIC_SITE_URL` is set. Recipient is the claim's `submitter_email`;
  * absent → silent skip. Copy stays account-scoped: verification is a status, not a
  * product endorsement, and never touches ranking (no pay-for-placement).
  */
@@ -278,27 +278,27 @@ export function sendClaimApprovedEmail(
   opts: { to: string | undefined; vendorName: string; invited: boolean },
 ): Promise<EmailOutcome> {
   const name = opts.vendorName.trim() || 'this vendor';
-  const dashboard = portalUrl(c.env);
+  const portal = portalUrl(c.env);
 
   const signInText = opts.invited
-    ? dashboard
-      ? `We created an account for your email address. To sign in, request a one-time sign-in link at ${dashboard}.`
+    ? portal
+      ? `We created an account for your email address. To sign in, request a one-time sign-in link at ${portal}.`
       : 'We created an account for your email address. To sign in, request a one-time sign-in link from the AEC Integrations sign-in page.'
-    : dashboard
-      ? `Sign in with your existing account to get started: ${dashboard}.`
+    : portal
+      ? `Sign in with your existing account to get started: ${portal}.`
       : 'Sign in with your existing account to get started.';
   const signInHtml = opts.invited
-    ? dashboard
-      ? `We created an account for your email address. To sign in, request a one-time sign-in link at <a href="${escapeHtml(dashboard)}">your vendor dashboard</a>.`
+    ? portal
+      ? `We created an account for your email address. To sign in, request a one-time sign-in link at <a href="${escapeHtml(portal)}">your vendor portal</a>.`
       : 'We created an account for your email address. To sign in, request a one-time sign-in link from the AEC Integrations sign-in page.'
-    : dashboard
-      ? `<a href="${escapeHtml(dashboard)}">Sign in with your existing account</a> to get started.`
+    : portal
+      ? `<a href="${escapeHtml(portal)}">Sign in with your existing account</a> to get started.`
       : 'Sign in with your existing account to get started.';
 
   const verification =
     "Verification confirms your account represents this vendor. It's an account status, not an endorsement of the product, and it doesn't affect search ranking or placement.";
   const capabilities =
-    'You can now edit the vendor profile, submit data corrections, and add integration attestations from your vendor dashboard.';
+    'You can now edit the vendor profile, submit data corrections, and add integration attestations from your vendor portal.';
 
   const textParagraphs = [
     `Your claim for ${name} has been approved, and your account is now verified on AEC Integrations.`,
@@ -523,8 +523,8 @@ function attestationLinks(
     html.push(`<a href="${escapeHtml(pair)}">See how it currently reads</a>.`);
   }
   if (portal) {
-    text.push(`Update it from your vendor dashboard: ${portal}`);
-    html.push(`<a href="${escapeHtml(portal)}">Update it from your vendor dashboard</a>.`);
+    text.push(`Update it from your vendor portal: ${portal}`);
+    html.push(`<a href="${escapeHtml(portal)}">Update it from your vendor portal</a>.`);
   }
   return { text, html };
 }
@@ -722,7 +722,7 @@ export function sendEntitlementExpiringEmail(
   opts: EntitlementExpirySubject,
 ): Promise<EmailOutcome> {
   const name = opts.vendorName.trim() || 'your company';
-  const dashboard = portalUrl(c.env);
+  const portal = portalUrl(c.env);
   const phrase = expiryPhrase(opts.daysRemaining);
   const past = opts.daysRemaining < 0;
 
@@ -744,10 +744,10 @@ export function sendEntitlementExpiringEmail(
     noLapse,
     ask,
   ];
-  if (dashboard) {
-    textParagraphs.push(`Your current status is on your vendor dashboard: ${dashboard}`);
+  if (portal) {
+    textParagraphs.push(`Your current status is on your vendor portal: ${portal}`);
     htmlParagraphs.push(
-      `Your current status is on <a href="${escapeHtml(dashboard)}">your vendor dashboard</a>.`,
+      `Your current status is on <a href="${escapeHtml(portal)}">your vendor portal</a>.`,
     );
   }
   textParagraphs.push(stance);
@@ -1183,7 +1183,7 @@ function productUrl(env: Env, slug: string): string | null {
   return base ? `${base}/products/${slug}` : null;
 }
 
-/** The vendor portal entry point (`/vendor` dashboard, AECI-522) or `null` when
+/** The vendor portal entry point (`/vendor`, AECI-522) or `null` when
  *  `PUBLIC_SITE_URL` is unset — the claim-approved email then omits the link. */
 function portalUrl(env: Env): string | null {
   const base = siteUrl(env);

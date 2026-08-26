@@ -133,6 +133,39 @@ describe('VendorAddClaimForm — the closed vocabulary', () => {
     expect(el.textContent).not.toMatch(/a_to_b|b_to_a/);
   });
 
+  it('offers the terms ALPHABETICALLY, not in the wire’s `display_order`', () => {
+    // The endpoint serves lifecycle order (Models → Drawings → … ) so the claim
+    // *lanes* read as the public pair page's do. A picker is a different job:
+    // the vendor already knows the term they want, and `AecSelect` has no
+    // type-to-filter, so an unfamiliar semantic order is a linear scan. Pinning
+    // both halves — sorted here, unsorted on the input — is what stops someone
+    // "restoring" the wire order and quietly undoing the divergence.
+    const fixture = create();
+    const options = (
+      fixture.componentInstance as unknown as {
+        dataObjectOptions(): readonly { value: string | null; label: string }[];
+      }
+    ).dataObjectOptions();
+
+    expect(options.map((o) => o.label)).toEqual([
+      'Documents',
+      'Drawings',
+      'Models',
+      'Punch Lists',
+      'RFIs',
+      'Submittals',
+    ]);
+    // The input itself is untouched — the sort runs on the mapped copy.
+    expect(VENDOR_DATA_OBJECTS_FIXTURE.map((t) => t.slug)).toEqual([
+      'models',
+      'drawings',
+      'rfis',
+      'submittals',
+      'punch-lists',
+      'documents',
+    ]);
+  });
+
   it('disables adding entirely when the vocabulary could not be loaded', () => {
     const fixture = create([]);
     expect(text(fixture)).toContain('cannot be added right now');

@@ -132,9 +132,18 @@ export interface DataObjectListing {
  * (`routes/vendor-attestations.ts`), which coerces a null `display_order` to
  * `Number.MAX_SAFE_INTEGER` in JS — i.e. **NULLs last**. SQLite sorts NULLs
  * *first* by default, so the `IS NULL` term below is load-bearing, not
- * decorative: without it the picker's rows and the tab's lanes would disagree
- * on any hand-inserted row. (All 20 seeded terms carry a `display_order`, which
- * is exactly what would make the divergence invisible until it wasn't.)
+ * decorative: without it this list and the tab's lanes would disagree on any
+ * hand-inserted row. (All 20 seeded terms carry a `display_order`, which is
+ * exactly what would make the divergence invisible until it wasn't.)
+ *
+ * Note that **today's only consumer does not observe this order.** The vendor
+ * dashboard's picker re-sorts alphabetically by label client-side, on the
+ * argument that finding a known term is a different job from reading a lane list
+ * (`vendor-add-claim-form.ts`, `dataObjectOptions`). The wire order stays
+ * lifecycle-ordered anyway, and is pinned by a spec: an endpoint returning a
+ * documented list should have one defined order rather than whatever the planner
+ * picks, and the next consumer that renders these rows *as lanes* — where the
+ * lifecycle grouping is the point — needs it to already be right.
  *
  * No memoisation. Twenty rows off one indexed table, and a module-level isolate
  * cache would go stale across a re-seed with no invalidation path —

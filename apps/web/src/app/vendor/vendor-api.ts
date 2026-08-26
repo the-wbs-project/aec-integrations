@@ -92,8 +92,9 @@ export class VendorApi {
   }
 
   /** `POST /api/vendor/seats/invites` — invite a colleague (AECI-664 / §11a).
-   *  Owner-only and domain-gated server-side; a refusal is an `ApiError` the
-   *  caller renders, never something this client pre-empts. */
+   *  Owner-only server-side; any address is accepted (§11a.3 dropped the domain
+   *  gate). A refusal is an `ApiError` the caller renders, never something this
+   *  client pre-empts. */
   inviteSeat(email: string): Promise<CreateSeatInviteResponse> {
     return firstValueFrom(
       this.http.post<CreateSeatInviteResponse>('/api/vendor/seats/invites', { email }),
@@ -152,8 +153,10 @@ export class VendorApi {
   }
 
   /** `GET /api/vendor/data-objects` — the closed `data_object` vocabulary, in
-   *  the order the claim lanes use. `data_object` is find-only server-side, so
-   *  the picker offers this list rather than a text input (AECI-606 / §5.2). */
+   *  the vocabulary (`display_order`) order the claim lanes use. `data_object`
+   *  is find-only server-side, so the picker offers this list rather than a text
+   *  input (AECI-606 / §5.2). The picker itself re-sorts alphabetically by label
+   *  — see `dataObjectOptions` in `components/vendor-add-claim-form.ts`. */
   getDataObjects(): Promise<ListDataObjectsResponse> {
     return firstValueFrom(this.http.get<ListDataObjectsResponse>('/api/vendor/data-objects'));
   }

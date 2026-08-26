@@ -243,11 +243,20 @@ export interface AcceptInviteParams {
   userId: string;
   actorType: AuditLogEntry['actorType'];
   now: string;
+  /** Is the invited address on the vendor's own registrable domain? The caller
+   *  computes it with `computeDomainMatch`; it decides `work_email_verified` and
+   *  nothing else — it is a signal, never a gate (docblock property 2). */
+  domainMatched: boolean;
   /** The redeemer's `profiles` row before the write; `null` if they have none yet
    *  (possible even for a signed-in user — `profile-ensure` is non-fatal).
-   *  `seatOwner` is read so redeeming NEVER demotes an existing owner — see the
-   *  docblock's property 1. */
-  profileBefore: { role: string; vendorId: string | null; seatOwner: boolean } | null;
+   *  `seatOwner` and `workEmailVerified` are read so redeeming can only ever ADD
+   *  to a profile, never strip a bit it already earned — see properties 1 and 2. */
+  profileBefore: {
+    role: string;
+    vendorId: string | null;
+    seatOwner: boolean;
+    workEmailVerified: boolean;
+  } | null;
 }
 
 /**
@@ -265,10 +274,17 @@ export interface AcceptInviteParams {
  *    it false. Forcing it false there could strip the only owner and leave the
  *    vendor unadministrable — the exact state the removal path's last-owner guard
  *    protects.
- * 2. **`workEmailVerified: true`.** The redeemer proved control of an address on
- *    the vendor's own domain (the handler's domain gate ran at INVITE time, and
- *    the redeem binds to that same address). This is the event the column has
- *    been waiting for — nothing has ever written it.
+ * 2. **`workEmailVerified` follows the DOMAIN, not the redeem.** Redeeming proves
+ *    control of the invited mailbox and nothing more; since the invite domain gate
+ *    was removed (§11a.3) an owner may invite any address, so "they signed in" no
+ *    longer implies "they work there". The caller therefore passes
+ *    `domainMatched` — `computeDomainMatch(invite.email, vendors.website)`,
+ *    evaluated at redeem time against the address actually being redeemed — and
+ *    only a match writes the column. Setting it unconditionally would quietly
+ *    corrupt the one place it is read: the §5 claim queue renders it to a human as
+ *    "work email verified" while they decide whether a claimant really works
+ *    there. Like `seatOwner` it is never cleared — a profile that already earned
+ *    the bit keeps it.
  * 3. **The accept UPDATE is guarded on still-pending.** Redeeming is single-use,
  *    and two concurrent redeems of one token must produce one seat and one audit
  *    row, not two. The guard is what makes the second a no-op instead of a
@@ -282,6 +298,10 @@ export function acceptInviteStatements(db: Db, p: AcceptInviteParams): SeatInvit
   // A brand-new seat is never an owner; an EXISTING seat keeps whatever it had, so
   // redeeming can only ever add access, never strip an owner's management bit.
   const resultingSeatOwner = p.profileBefore?.seatOwner ?? false;
+  // Same direction of travel: an on-domain redeem EARNS the bit, and an off-domain
+  // one never takes back a bit the profile already had.
+  const resultingWorkEmailVerified =
+    p.domainMatched || (p.profileBefore?.workEmailVerified ?? false);
 
   const auditEntry: AuditLogEntry = {
     actorId: p.userId,
@@ -293,7 +313,12 @@ export function acceptInviteStatements(db: Db, p: AcceptInviteParams): SeatInvit
       role: p.profileBefore?.role ?? null,
       vendor_id: p.profileBefore?.vendorId ?? null,
     },
-    afterState: { role: VENDOR_ADMIN_ROLE, vendor_id: p.vendorId, seat_owner: resultingSeatOwner },
+    afterState: {
+      role: VENDOR_ADMIN_ROLE,
+      vendor_id: p.vendorId,
+      seat_owner: resultingSeatOwner,
+      work_email_verified: resultingWorkEmailVerified,
+    },
     metadata: {
       source: SEAT_INVITE_AUDIT_SOURCE,
       vendor_id: p.vendorId,
@@ -312,7 +337,7 @@ export function acceptInviteStatements(db: Db, p: AcceptInviteParams): SeatInvit
           role: VENDOR_ADMIN_ROLE,
           vendorId: p.vendorId,
           seatOwner: false,
-          workEmailVerified: true,
+          workEmailVerified: resultingWorkEmailVerified,
         })
         .onConflictDoUpdate({
           target: profiles.id,
@@ -322,7 +347,7 @@ export function acceptInviteStatements(db: Db, p: AcceptInviteParams): SeatInvit
             // Preserve, never demote — see property 1. Only a brand-new seat
             // (the insert branch) is forced to a non-owner.
             seatOwner: resultingSeatOwner,
-            workEmailVerified: true,
+            workEmailVerified: resultingWorkEmailVerified,
             updatedAt: p.now,
           },
         }),

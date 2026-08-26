@@ -121,6 +121,19 @@ one the original three facets carry:
   model instead (`docs/DATA_OBJECT_VOCABULARY.md` §2), because a curator minting
   `paving-contractors` alongside `paving-asphalt` would silently split a trade page's products
   across two permanent URLs and quietly destroy the SEO asset the facet exists to build.
+- **Vendors assign trades; they never mint one (AECI-665).** The vendor portal's product editor
+  (`PATCH /api/vendor/products/:id`) offers the full closed list as toggle chips, so a claimed
+  vendor tags their own product's trades directly — uniformly with the other three facets, with
+  no stricter cap. Resolution stays find-only: an unknown slug is a `VALIDATION_FAILED` keyed to
+  `trade_slugs`, not a silent drop and not a new term. The **closed-vocabulary** guarantee above
+  is therefore untouched by self-serve; what changes is only *who decides which existing terms
+  apply*, and that decision now sits with the vendor. This is intentional — the §1.1 rule is a
+  judgement about the product, and its owner is better placed to make it than a researcher. The
+  matching risk is that a vendor over-answers it; the accepted mitigation is the audit trail plus
+  a **deferred** "challenge recently-changed trades" review workflow, not a cap
+  (`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.3). Note the asymmetry this creates with §6: a vendor tag
+  can push a term across the publication floor, so a vendor edit purges `index:trades`,
+  `taxonomy`, and `sitemap` exactly as a promote does.
 - **Adding, removing, or renaming a term is a deliberate vocabulary change.** The change process is
   **manual and four-step**, and all four must land together or the two apps drift:
   1. Edit the §5 table in this file (the human-canonical source).
@@ -454,7 +467,7 @@ does not belong in this vocabulary (§5.2).
 - **`display_order`** carried through verbatim (10, 20, … 340).
 - **`description` is seeded non-null** for every term (§5) — the column is `not null`.
 - The seed writes **`taxonomy_trades` only**, never `product_trades` (those links come from the
-  promote flow — AECI-542).
+  promote flow — AECI-542 — or from a vendor's own edit in the portal — AECI-665, §3).
 - **Application** is uniform across environments (ADR 0008): locally via
   `pnpm --filter @aeci/api db:seed:trades:local` (folded into `db:seed:local` / `db:setup:local`),
   and per-env via the `--remote` step in `scripts/d1-apply-migrations.sh`, which every deploy lane

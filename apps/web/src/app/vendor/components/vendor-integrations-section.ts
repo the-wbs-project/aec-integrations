@@ -127,7 +127,7 @@ import { VendorNotificationsList } from './vendor-notifications-list';
           <p class="text-sm text-(--text-secondary)" i18n="@@vendor.attest.readOnly">
             You can review everything on record here. Confirming data flows and adding new ones
             opens up once your account is verified. Verification is an account status arranged with
-            AEC Integrations, not something you switch on from the dashboard.
+            AEC Integrations, not something you switch on from this portal.
           </p>
         </div>
       }
