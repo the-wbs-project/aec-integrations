@@ -547,11 +547,27 @@ run, one set of call sites produced `us.i.posthog.com/i/v1/{logs,metrics}` →
 **200** *and* `api.us5.datadoghq.com` + `http-intake.logs.us5.datadoghq.com` →
 **202**, concurrently.
 
-**Harness note for whoever re-runs check 4.** `posthog-js` batches captures and
-flushes on the visible→hidden transition. An automation tab that was *never*
-visible never makes that transition, and its timers are throttled, so events
-sit in the queue and the check looks like a failure. Dispatch a `pagehide`
-event on `window` to force the flush.
+**Harness notes for whoever re-runs check 4.** Two separate traps, both of which
+make a working implementation look broken.
+
+1. **Batching.** `posthog-js` flushes on the visible→hidden transition. An
+   automation tab that was *never* visible never makes that transition, and its
+   timers are throttled, so events sit in the queue. Dispatch a `pagehide`
+   event on `window` to force the flush. With that, `app_started` arrives
+   reliably (confirmed twice).
+
+2. **`$web_vitals` cannot be verified from a headless/background tab at all**,
+   and this is by design in the `web-vitals` library rather than a PostHog or
+   AECi issue: LCP is discarded outright if the page was hidden before first
+   paint, and CLS/INP need real visibility and interaction. Re-enabling the
+   project toggle (done 2026-08-26) did **not** make it appear locally, because
+   the blocker moved from the project setting to the harness.
+
+   **So check 4's `$web_vitals` half is only verifiable in a real, visible
+   browser against a deployed tier.** Do it on the first PR preview after this
+   branch deploys; do not spend time on it locally. Everything else in check 4 —
+   Tier 2 firing pre-consent for a `denied` visitor, no persistent storage,
+   `$pageview` correctly absent — is verified and re-verified.
 
 ### §8.10 The `aeci.search.query` re-home narrows twice, not once
 
