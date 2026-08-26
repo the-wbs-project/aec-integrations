@@ -127,6 +127,13 @@
       "when": 1787114281034,
       "tag": "0017_legal_ricochet",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1787708613934,
+      "tag": "0018_chubby_whirlwind",
+      "breakpoints": true
     }
   ]
 }

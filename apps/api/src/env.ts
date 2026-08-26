@@ -30,7 +30,8 @@ import type { PromoteWorkflowParams } from './lib/promote-jobs';
  * queue-less — a skipped or partial run is simply re-attempted tomorrow, and a
  * retry of a destructive job is the last thing worth automating. `asn_registry`
  * is the WEEKLY 02:00 UTC Monday `asn_registry` refresh (AECI-624 /
- * `ADMIN_PANEL_SPEC.md` §7.6): one unauthenticated PeeringDB read, intersected
+ * `ADMIN_PANEL_SPEC.md` §7.6): one PeeringDB read (authenticated when
+ * `PEERINGDB_API_KEY` is set, AECI-661), intersected
  * with the ASNs `page_views` has actually seen, upserted for the admin panel's
  * read-time annotation. Queue-less for the same reason as `waf` — the fetch is a
  * single read-only GET, the upsert is idempotent, and a failed week is simply
@@ -208,6 +209,40 @@ export type Env = {
    * `docs/waf-rate-limits.md` §5.
    */
   CF_ANALYTICS_API_TOKEN?: string;
+  /**
+   * PostHog **personal** API key scoped to `query:read`, used by the daily digest
+   * to report a human LOWER bound beside the D1 upper bound (AECI-660, completing
+   * the AECI-239 join). Set as a Wrangler secret on the API Worker.
+   *
+   * NOT the same credential as the browser's `POSTHOG_KEY` (`phc_…`), which is
+   * publishable and inlined into public HTML. This one is `phx_…` and grants
+   * account-wide read: it must never reach `apps/web`, and the `phx_` key that
+   * was once mis-provisioned as `POSTHOG_KEY` (and therefore served publicly)
+   * must be revoked rather than reused here. See `docs/email.md`-adjacent notes
+   * in `docs/OBSERVABILITY.md`.
+   *
+   * Optional + fail-open: absent (or without `POSTHOG_PROJECT_ID`) → the digest
+   * reports the D1 figure alone plus a short "unavailable" note, exactly as it
+   * did before this shipped.
+   */
+  /**
+   * PeeringDB API key for the weekly `asn_registry` refresh (AECI-661). Free
+   * account, `Authorization: Api-Key <key>`.
+   *
+   * Optional + fail-open: absent → the fetch stays anonymous and behaves exactly
+   * as it did before. It is worth setting because anonymous whole-list reads are
+   * throttled aggressively: production's only run of this job (2026-08-23) came
+   * back `429` and `asn_registry` has held 0 rows ever since, so every read-time
+   * ASN annotation silently resolves to nothing.
+   */
+  PEERINGDB_API_KEY?: string;
+  POSTHOG_QUERY_API_KEY?: string;
+  /** Numeric PostHog project id the query runs against (e.g. `354071`). Paired
+   *  with `POSTHOG_QUERY_API_KEY`; absent → the same graceful skip. */
+  POSTHOG_PROJECT_ID?: string;
+  /** PostHog API host. Defaults to US Cloud (`https://us.posthog.com`) when unset;
+   *  present so a future EU/self-hosted move is a config change, not a code one. */
+  POSTHOG_API_HOST?: string;
   /**
    * IndexNow key for the post-promote URL submission (AECI-236, §20.2). Also the
    * contents of the `{key}.txt` verification file the SSR Worker serves at the

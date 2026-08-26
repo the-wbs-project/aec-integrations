@@ -16,7 +16,8 @@
  *
  * Cron triggers (`wrangler.jsonc`), staging + production:
  * 02:00 UTC **Mondays** — the weekly §7.6 `asn_registry` refresh
- * (`./lib/asn-registry`, AECI-624): one unauthenticated PeeringDB read,
+ * (`./lib/asn-registry`, AECI-624): one PeeringDB read (authenticated when
+ * `PEERINGDB_API_KEY` is set — anonymous reads are throttled, AECI-661),
  * intersected with the ASNs `page_views` has actually seen, upserted for the
  * admin panel's read-time annotation. The only weekly trigger, and the only job
  * whose output is an annotation rather than a measurement — it never writes
@@ -100,8 +101,11 @@ import {
   buildAnalyticsDigest,
   collectAnalyticsMetrics,
   dailyWindows,
+  type DigestWindow,
 } from './lib/analytics-digest';
 import { refreshAsnRegistry } from './lib/asn-registry';
+import { fetchPosthogTraffic, publicHostOf, type PosthogQueryOutcome } from './lib/posthog-query';
+import { detectSwarms, swarmNote } from './lib/swarm-detection';
 import {
   ADMIN_CRON_JOB,
   ALGOLIA_DRIFT_CRON,
@@ -997,16 +1001,56 @@ async function runDataQualityJob(env: Env, ctx: ExecutionContext): Promise<JobRu
  *  a read/format crash is logged and counted `outcome:failed` (so the metric still
  *  fires as a liveness heartbeat), never rethrown — a failed cron must not tear down
  *  the invocation. */
+/**
+ * The digest's client-side human floor (AECI-660), or a structured skip.
+ *
+ * Fail-open by construction: every failure path returns `{ ok: false, reason }`
+ * and the digest renders a short "unavailable" note instead of a number. It must
+ * never return a zero on failure — a fabricated 0 beside a real 48 reads as a
+ * finding rather than as missing data.
+ *
+ * Host-scoped to this environment's own `PUBLIC_SITE_URL`, because every tier
+ * currently shares one PostHog project and an unscoped read would fold demo and
+ * staging traffic into the production figure.
+ */
+async function readPosthogFloor(env: Env, window: DigestWindow): Promise<PosthogQueryOutcome> {
+  const host = publicHostOf(env.PUBLIC_SITE_URL);
+  if (!host) return { ok: false, reason: 'public_site_url_unset' };
+  return fetchPosthogTraffic(
+    {
+      apiKey: env.POSTHOG_QUERY_API_KEY,
+      projectId: env.POSTHOG_PROJECT_ID,
+      host: env.POSTHOG_API_HOST,
+    },
+    { startIso: window.startIso, endIso: window.endIso, host },
+    fetch,
+  );
+}
+
 async function runAnalyticsDigestJob(env: Env, ctx: ExecutionContext): Promise<JobRunReport> {
   const req = cronRequest('/cron/analytics-digest');
   try {
     const { db } = cronDb(env);
     const window = dailyWindows(new Date());
-    const metrics = await collectAnalyticsMetrics(db, window);
+
+    // Three reads, deliberately orchestrated HERE rather than folded into
+    // `collectAnalyticsMetrics`. The swarm detector imports that module's
+    // `HUMAN` / `NOT_INTERNAL` predicates, so calling it from inside would close
+    // an import cycle; and the PostHog read reaches the network, which the
+    // D1-only collector has never done and should not start doing.
+    const [metrics, swarm, posthog] = await Promise.all([
+      collectAnalyticsMetrics(db, window),
+      detectSwarms(db, window.startIso, window.endIso),
+      readPosthogFloor(env, window),
+    ]);
+
     const digest = buildAnalyticsDigest(metrics, {
       env: env.ENV ?? 'development',
       dayLabel: window.dayLabel,
       generatedAt: new Date(),
+      posthog: posthog.ok ? posthog.traffic : null,
+      posthogUnavailable: posthog.ok ? null : posthog.reason,
+      swarmNote: swarmNote(swarm),
     });
     const recipients = parseRecipients(env.ANALYTICS_DIGEST_EMAIL_TO);
     const outcome = await sendEmail(env, {
@@ -1044,6 +1088,13 @@ async function runAnalyticsDigestJob(env: Env, ctx: ExecutionContext): Promise<J
           newUsers: metrics.newUsers.day,
           totalUsers: metrics.totalUsers,
           pendingModeration: metrics.pendingModeration,
+          // AECI-660 / AECI-658. Recorded so a join that silently stops running
+          // is visible in `job_runs` rather than only as an absence in the email.
+          posthogPageViews: posthog.ok ? posthog.traffic.pageviews : null,
+          posthogPeople: posthog.ok ? posthog.traffic.people : null,
+          posthogSkipped: posthog.ok ? null : posthog.reason,
+          swarmCandidates: swarm.candidates.length,
+          swarmFlaggedViews: swarm.flaggedViews,
         },
       },
     };
@@ -1102,7 +1153,9 @@ async function runAsnRegistryJob(env: Env, ctx: ExecutionContext): Promise<JobRu
     return { outcome: 'failed', detail: { job: 'asn-registry', reason } };
   }
 
-  const result = await refreshAsnRegistry(db, fetch, new Date());
+  const result = await refreshAsnRegistry(db, fetch, new Date(), {
+    apiKey: env.PEERINGDB_API_KEY,
+  });
   const durationMs = Date.now() - started;
 
   if (result.status === 'failed') {
@@ -1523,9 +1576,25 @@ export const scheduled: ExportedHandlerScheduledHandler<Env> = async (controller
       await enqueueOrRun(env, ctx, 'analytics');
       return;
     default:
-      // A trigger fired with no matching case — surface it rather than silently
-      // doing nothing (e.g. a wrangler.jsonc cron added without a handler).
+      // A trigger fired with no matching case. This used to be a bare
+      // `console.warn`, which made it indistinguishable from a job that never
+      // ran at all: `asn_registry` sat unnoticed in exactly this state, because
+      // the only evidence was an absent `job_runs` row, and an absent row looks
+      // identical to a quiet week (AECI-661).
+      //
+      // `controller.cron` is matched by EXACT STRING above, so any drift between
+      // a deployed `triggers.crons` entry and `lib/cron-schedules.ts` lands here.
+      // Forward it to the observability pipeline as an error so it can alert.
       console.warn(`scheduled: no handler for cron "${controller.cron}"`);
+      logToDatadog(ctx, env, cronRequest('/cron/unmatched'), {
+        level: 'error',
+        message: 'aeci.cron.no_handler',
+        source: 'cron-dispatch',
+        reason: `no handler for cron "${controller.cron}"`,
+      });
+      submitCount(ctx, env, cronRequest('/cron/unmatched'), 'aeci.cron.no_handler', 1, [
+        `cron:${controller.cron}`,
+      ]);
   }
 };
 

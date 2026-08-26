@@ -186,6 +186,57 @@ behind it:
 
 ### 3b. Traffic classification — auditing the digest's "humans" (AECI-526 follow-up)
 
+> **Read the digest's human figure as an UPPER bound — and since 2026-08-26 the email says so
+> itself.** AECI-658 / AECI-660 changed three things, so the number no longer has to be mentally
+> corrected by whoever reads it:
+>
+> - The subject line now says **"up to N human views"**, and the body labels the count an upper
+>   bound. `page_views` is written server-side on every full-document load, so any crawler that
+>   does not run JavaScript is still in it.
+> - A **lower bound** is reported beside it: the PostHog count for the same UTC day and host
+>   (`lib/posthog-query.ts`). PostHog fires only when JS runs *and* the visitor consented, so a real
+>   person who declines is invisible. The truth is between the two, and a large gap means most
+>   arrivals never ran our JavaScript. Needs `POSTHOG_QUERY_API_KEY` + `POSTHOG_PROJECT_ID`; absent,
+>   the email says the floor is unavailable and never prints a fabricated `0`.
+> - An **Automation signal** line appears when the swarm detector (below) flags anything.
+>
+> The worked example that forced this: on **2026-08-23** the digest emailed "48 human views."
+> PostHog for the same day recorded **5 pageviews from 1 person**, and those five were the
+> operator's own session, which the digest had already excluded. The 48 produced **zero**
+> client-side events.
+
+#### The rotating-proxy swarm detector (AECI-658)
+
+`lib/swarm-detection.ts` groups a window's human views by `user_agent_hash` and flags a hash whose
+views came overwhelmingly from *different networks*. The 2026-08-23 shape it was built from: 48 views
+across **44 ASNs and 31 countries** but only **18 UA hashes**, with one hash reading nine different
+pages from nine different countries on nine different networks and never repeating one.
+
+`cf_asn` shatters a swarm like that into 44 apparent visitors; `user_agent_hash` reassembles it into
+seven. It is the same join AECI-582's backfill used retroactively (`recover-ua-names.sql`), pointed
+forward at live traffic.
+
+**Launch-tunable thresholds** (§3 rules apply — change them here and in the module together):
+
+| Constant | Value | Why |
+|---|---|---|
+| `SWARM_MIN_VIEWS` | `4` | Below this the ratios are noise; one view is trivially "1 ASN for 1 view". |
+| `SWARM_MIN_ASN_RATIO` | `0.8` | "Nearly every view came from a different network." A real browser sits on one network; a proxy pool cannot. |
+
+**Known ceiling — it works because we are small.** A `user_agent_hash` is a browser *build*
+fingerprint, not a person: thousands of unrelated people share "Chrome 128 on Windows 10" exactly, so
+at real volume a popular hash legitimately spans many ASNs and cardinality alone would light up
+constantly. The signal that survives growth is the **combination** with `client_verdict` — a
+high-cardinality hash whose rows are *also* mostly `inconsistent` / `non-browser`. That is what
+`nonBrowserViews` and `isCorroboratedByRequestShape()` are for; read them alongside the ratios, never
+the ratios alone. Revisit both thresholds when human volume passes a few hundred views/day.
+
+**It never writes `is_bot`, and must not start.** The rule from AECI-582 is unchanged and applies
+doubly here: do **not** widen `DATACENTER_ASNS` to catch a residential-proxy swarm. Those ASNs are
+genuine consumer ISPs — that is the entire point of a residential proxy — and the map drives the
+**live** classifier, so listing them would classify real people's ISPs as datacenters.
+
+
 The digest's headline **Traffic (humans)** filters on `page_views.is_bot IS NOT 1`, written at ingest by
 `classifyTraffic(ua, asn)` (`apps/api/src/lib/bot-classification.ts`). The UA half is reliable — crawlers
 self-name. The **ASN half is a hand-maintained list** and is the weak point: CF Pro yields no bot score, so

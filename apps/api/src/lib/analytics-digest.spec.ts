@@ -419,14 +419,14 @@ describe('buildAnalyticsDigest', () => {
   it('summarizes humans + top product + crawl count in the subject', () => {
     const d = buildAnalyticsDigest(base, opts);
     expect(d.subject).toBe(
-      'AECi daily digest (production) — 2026-07-23: 512 human views, 8 new users · top: Revit · 260 crawls',
+      'AECi daily digest (production) — 2026-07-23: up to 512 human views, 8 new users · top: Revit · 260 crawls',
     );
   });
 
   it('renders human counts, deltas, and the human top-product list in the text body', () => {
     const { text } = buildAnalyticsDigest(base, opts);
     expect(text).toContain('== Traffic (humans) ==');
-    expect(text).toContain('Page views: 512 (+112 (+28%) vs 400 prior day)');
+    expect(text).toContain('Page views: 512 (+112 (+28%) vs 400 prior day)  [upper bound]');
     expect(text).toContain('(260 bot/crawler views excluded — see Crawler activity)');
     expect(text).toContain('New sign-ins (new accounts): 8 (+3 (+60%) vs 5 prior day)');
     expect(text).toContain('Total sign-ins (registered users): 143');
@@ -492,7 +492,7 @@ describe('buildAnalyticsDigest', () => {
       opts,
     );
     expect(subject).toBe(
-      'AECi daily digest (production) — 2026-07-23: 40 human views, 0 new users',
+      'AECi daily digest (production) — 2026-07-23: up to 40 human views, 0 new users',
     );
     expect(text).toContain('Page views: 40 (no change vs prior day)');
     expect(text).not.toContain('bot/crawler views excluded');
@@ -502,5 +502,92 @@ describe('buildAnalyticsDigest', () => {
     expect(text).toContain('No bot/crawler activity.');
     expect(html).toContain('No referrer data yet.');
     expect(html).toContain('No bot/crawler activity.');
+  });
+});
+
+describe('buildAnalyticsDigest — the two bounds (AECI-658 / AECI-660)', () => {
+  const metrics: AnalyticsMetrics = {
+    pageViews: { day: 48, prior: 40 },
+    botPageViews: { day: 734, prior: 700 },
+    newUsers: { day: 0, prior: 0 },
+    totalUsers: 3,
+    pendingModeration: 0,
+    topProducts: [{ name: 'Corpay', slug: 'corpay', views: 2 }],
+    referrers: [{ source: 'Direct', views: 48 }],
+    botActivity: [{ name: 'Bingbot', crawls: 173 }],
+  };
+  const opts = {
+    env: 'production',
+    dayLabel: '2026-08-23',
+    generatedAt: new Date('2026-08-24T05:00:00.000Z'),
+  };
+
+  it('qualifies the headline number in the subject line', () => {
+    // The subject is what the operator actually reads. For weeks it asserted a
+    // figure that was an order of magnitude high with nothing to qualify it.
+    const { subject } = buildAnalyticsDigest(metrics, opts);
+    expect(subject).toContain('up to 48 human views');
+  });
+
+  it('labels the server-side count as an upper bound in both renderings', () => {
+    const { text, html } = buildAnalyticsDigest(metrics, opts);
+    expect(text).toContain('[upper bound]');
+    expect(text).toContain('UPPER bound on humans');
+    expect(html).toContain('upper bound');
+  });
+
+  it('reports the PostHog floor beside it when the join ran', () => {
+    const { text, html } = buildAnalyticsDigest(metrics, {
+      ...opts,
+      posthog: { pageviews: 5, people: 1 },
+    });
+    // The real 2026-08-23 numbers: 48 server-side, 5 client-side from 1 person.
+    expect(text).toContain('PostHog page views: 5 from 1 person  [lower bound]');
+    expect(text).toContain('a LOWER bound');
+    expect(html).toContain('lower bound');
+    expect(html).toContain('PostHog page views from');
+    expect(html).toContain('</strong> person (client-side, consented only)');
+  });
+
+  it('pluralizes people correctly', () => {
+    const { text } = buildAnalyticsDigest(metrics, {
+      ...opts,
+      posthog: { pageviews: 12, people: 4 },
+    });
+    expect(text).toContain('PostHog page views: 12 from 4 people  [lower bound]');
+    expect(text).not.toContain('persons');
+  });
+
+  it('says the floor is unavailable rather than printing a zero', () => {
+    // A fabricated 0 beside a real 48 would read as a finding rather than as
+    // missing data.
+    const { text, html } = buildAnalyticsDigest(metrics, {
+      ...opts,
+      posthogUnavailable: 'posthog_credentials_missing',
+    });
+    expect(text).toContain('PostHog lower bound unavailable (posthog_credentials_missing)');
+    expect(text).not.toContain('PostHog page views: 0');
+    expect(html).toContain('unavailable');
+  });
+
+  it("renders exactly today's email when neither read is supplied", () => {
+    const { text, html } = buildAnalyticsDigest(metrics, opts);
+    expect(text).not.toContain('PostHog');
+    expect(html).not.toContain('PostHog');
+    expect(text).not.toContain('Automation signal');
+  });
+
+  it('carries the swarm note into both renderings when one is supplied', () => {
+    const note = '31 of 48 may not be people: 7 clients each read nearly every page.';
+    const { text, html } = buildAnalyticsDigest(metrics, { ...opts, swarmNote: note });
+    expect(text).toContain(`Automation signal: ${note}`);
+    expect(html).toContain('Automation signal');
+    expect(html).toContain('31 of 48 may not be people');
+  });
+
+  it('stays quiet when nothing was flagged', () => {
+    const { text, html } = buildAnalyticsDigest(metrics, { ...opts, swarmNote: null });
+    expect(text).not.toContain('Automation signal');
+    expect(html).not.toContain('Automation signal');
   });
 });

@@ -15,6 +15,7 @@ import {
 } from '../db/schema';
 import { logToDatadog, submitCount } from '../datadog';
 import { classifyTraffic } from '../lib/bot-classification';
+import { classifyClientSignals } from '../lib/client-signals';
 import { classifyReferrer } from '../lib/referrer-classification';
 import type { Env } from '../env';
 import { ApiError } from '../errors';
@@ -49,6 +50,9 @@ interface CfLike {
   asn?: number | null;
   asOrganization?: string | null;
   botManagement?: { score?: number | null } | null;
+  /** AECI-658 — available on Pro, unlike the bot score. */
+  tlsVersion?: string | null;
+  httpProtocol?: string | null;
 }
 
 type CfContext = {
@@ -57,6 +61,8 @@ type CfContext = {
   asn: number | null;
   asOrganization: string | null;
   botScore: number | null;
+  tlsVersion: string | null;
+  httpProtocol: string | null;
 };
 
 const DEFAULT_LOCALE = 'en-US';
@@ -80,12 +86,17 @@ function readCfContext(req: Request): CfContext {
   const asOrganization = h.get(PAGE_VIEW_CF_HEADERS.asOrganization) ?? cf?.asOrganization ?? null;
   const botScore =
     intOrNull(h.get(PAGE_VIEW_CF_HEADERS.botScore)) ?? cf?.botManagement?.score ?? null;
+  // AECI-658. Corroboration for `client_verdict`, never a fingerprint on their own.
+  const tlsVersion = h.get(PAGE_VIEW_CF_HEADERS.tlsVersion) ?? cf?.tlsVersion ?? null;
+  const httpProtocol = h.get(PAGE_VIEW_CF_HEADERS.httpProtocol) ?? cf?.httpProtocol ?? null;
   return {
     country: country || null,
     colo: colo || null,
     asn,
     asOrganization: asOrganization || null,
     botScore,
+    tlsVersion: tlsVersion || null,
+    httpProtocol: httpProtocol || null,
   };
 }
 
@@ -218,6 +229,12 @@ async function capturePageView(
       req.headers.get('referer'),
       selfHosts(c.env),
     );
+    // How browser-shaped this request was (AECI-658). Computed here for the same
+    // reason the two classifications above are: the headers are gone afterwards.
+    // ANNOTATION ONLY — deliberately not passed to `classifyTraffic` and it must
+    // never change `isBot` above. Navigation-aware, so the tracker's same-origin
+    // fetch is not judged by document-arrival rules it fails by construction.
+    const clientSignals = classifyClientSignals(req.headers, ua, payload.navigation ?? null, cf);
 
     // Fire-and-forget analytics (runs in `waitUntil`, never read back, returns
     // 204 regardless) — stays on the `'first-unconstrained'` read default; a
@@ -260,6 +277,13 @@ async function capturePageView(
       isOperator,
       referrer: referrerHost,
       referrerSource,
+      // Request-shape annotation (AECI-658). Never read by the bot classifier.
+      secFetchDest: clientSignals.secFetchDest,
+      hasAcceptLanguage: clientSignals.hasAcceptLanguage,
+      hasSecChUa: clientSignals.hasSecChUa,
+      tlsVersion: clientSignals.tlsVersion,
+      httpProtocol: clientSignals.httpProtocol,
+      clientVerdict: clientSignals.verdict,
       // Campaign attribution (AECI-243 / §11.2) — set only on tagged arrivals
       // (e.g. the waitlist welcome banner); null for ordinary views.
       refSource: payload.ref_source ?? null,

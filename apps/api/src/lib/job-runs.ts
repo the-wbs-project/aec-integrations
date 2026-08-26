@@ -161,6 +161,21 @@ export interface AnalyticsDigestSummary {
   newUsers: number;
   totalUsers: number;
   pendingModeration: number;
+  /**
+   * The client-side human floor from PostHog (AECI-660), or null when the join
+   * was skipped. Recorded here so a join that silently stops running is visible
+   * in `job_runs` rather than only as an absence in an email nobody diffs.
+   *
+   * Optional so historical rows (written before this shipped) still parse.
+   */
+  posthogPageViews?: number | null;
+  posthogPeople?: number | null;
+  /** Why the PostHog read was skipped, when it was. Null on success. */
+  posthogSkipped?: string | null;
+  /** Rotating-proxy read-out for the same window (AECI-658): how many UA hashes
+   *  were flagged and how many of the reported human views they account for. */
+  swarmCandidates?: number;
+  swarmFlaggedViews?: number;
 }
 
 /**

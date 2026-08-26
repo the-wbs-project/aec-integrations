@@ -345,6 +345,28 @@ export interface AnalyticsDigestOptions {
   dayLabel: string;
   /** When the run completed — rendered into the header. */
   generatedAt: Date;
+  /**
+   * The client-side human floor (AECI-660). Present only when the PostHog query
+   * ran; the formatter renders an "unavailable" note otherwise, never a zero.
+   * A fabricated 0 beside a real 48 would read as a finding.
+   */
+  posthog?: { pageviews: number; people: number } | null;
+  /** Why the PostHog figure is missing, when it is. Shown so a silently-skipping
+   *  join is visible in the email rather than only in `job_runs`. */
+  posthogUnavailable?: string | null;
+  /**
+   * Pre-rendered rotating-proxy note for the same window (AECI-658), or null when
+   * nothing was flagged.
+   *
+   * Passed in ALREADY RENDERED rather than as a `SwarmSummary`, for two reasons.
+   * The formatter stays pure — it has always taken data and options and reached
+   * for nothing — and, more practically, `swarm-detection` imports this module's
+   * `HUMAN` / `NOT_INTERNAL` predicates, so importing its renderer back here
+   * would close a runtime import cycle. It would happen to work today (the
+   * predicates are only dereferenced inside a function body) and would break the
+   * first time either module grew a top-level use. The caller renders; we print.
+   */
+  swarmNote?: string | null;
 }
 
 export interface EmailDigest {
@@ -421,15 +443,52 @@ export function buildAnalyticsDigest(
 function buildSubject(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): string {
   const { pageViews: pv, botPageViews: bot, newUsers, topProducts } = metrics;
   const topName = topProducts[0]?.name;
+  // "up to" rather than a bare count (AECI-658). The subject line is the number
+  // the operator actually reads, and for weeks it asserted a figure that was an
+  // order of magnitude high with nothing to qualify it. ASCII, not a "<=" glyph,
+  // so it survives every mail client's subject rendering.
   return (
     `AECi daily digest (${opts.env}) — ${opts.dayLabel}: ` +
-    `${plural(pv.day, 'human view')}, ${plural(newUsers.day, 'new user')}` +
+    `up to ${plural(pv.day, 'human view')}, ${plural(newUsers.day, 'new user')}` +
     (topName ? ` · top: ${topName}` : '') +
     (bot.day > 0 ? ` · ${plural(bot.day, 'crawl')}` : '')
   );
 }
 
 // ── plain text ──
+
+/**
+ * The two bounds, as one plain-text block.
+ *
+ * Shared by the text and HTML builders so the wording cannot drift between the
+ * two renderings of the same email — the pair only helps if both halves say the
+ * same thing.
+ *
+ * The framing is deliberate. `page_views` is written server-side on every
+ * full-document load including cache hits, so a crawler that never runs
+ * JavaScript still counts: an UPPER bound. PostHog fires only when JS runs and
+ * the visitor consented, so a real person who declines is invisible: a LOWER
+ * bound. `POST_LAUNCH_MONITORING.md` §3 has instructed reading the server figure
+ * as an upper bound since launch; until AECI-658 the email never said so, which
+ * is how a number that was ~10x high read as authoritative for weeks.
+ */
+function boundsLines(opts: AnalyticsDigestOptions): string[] {
+  const lines = [
+    'Page views above are an UPPER bound on humans: they are counted server-side on every',
+    'full-document load, so any crawler that does not run JavaScript is still in the number.',
+  ];
+  if (opts.posthog) {
+    const { pageviews, people } = opts.posthog;
+    lines.push(
+      `PostHog (client-side, consented only) saw ${plural(pageviews, 'page view')} from ` +
+        `${people} ${people === 1 ? 'person' : 'people'} the same day: a LOWER bound.`,
+      'The truth is between the two. A large gap means most arrivals never ran our JavaScript.',
+    );
+  } else if (opts.posthogUnavailable) {
+    lines.push(`PostHog lower bound unavailable (${opts.posthogUnavailable}).`);
+  }
+  return lines;
+}
 
 function buildText(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): string {
   const { pageViews: pv, botPageViews: bot, newUsers, totalUsers, pendingModeration } = metrics;
@@ -442,8 +501,17 @@ function buildText(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): str
     `Generated: ${opts.generatedAt.toISOString()}`,
     '',
     '== Traffic (humans) ==',
-    `Page views: ${pv.day} (${deltaText(pv)})`,
+    `Page views: ${pv.day} (${deltaText(pv)})  [upper bound]`,
   ];
+  if (opts.posthog) {
+    t.push(
+      `PostHog page views: ${opts.posthog.pageviews} from ${opts.posthog.people} ` +
+        `${opts.posthog.people === 1 ? 'person' : 'people'}  [lower bound]`,
+    );
+  }
+  if (opts.swarmNote) {
+    t.push(`Automation signal: ${opts.swarmNote}`);
+  }
   if (bot.day > 0) {
     t.push(
       `  (${bot.day} bot/crawler view${bot.day === 1 ? '' : 's'} excluded — see Crawler activity)`,
@@ -486,6 +554,8 @@ function buildText(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): str
   } else {
     t.push('No bot/crawler activity.');
   }
+
+  t.push('', ...boundsLines(opts));
 
   t.push(
     '',
@@ -576,9 +646,27 @@ function buildHtml(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): str
     `<span style="display:inline-block;background:${HTML.accent};color:#fff;border-radius:4px;padding:2px 8px;font-size:11px;font-weight:600;letter-spacing:.03em">${escapeHtml(opts.env)}</span>` +
     `&nbsp; · &nbsp;${escapeHtml(opts.dayLabel)} (UTC)&nbsp; · &nbsp;generated ${escapeHtml(opts.generatedAt.toISOString())}</div></div>`;
 
+  // The upper-bound caption sits ON the big number, not in a footnote. The whole
+  // failure mode this fixes is a figure that reads as authoritative because
+  // nothing next to it says otherwise.
+  const posthogLine = opts.posthog
+    ? `<p style="margin:8px 0 0;font-size:13px;color:${HTML.muted}">` +
+      `<strong style="color:${HTML.ink}">${opts.posthog.pageviews}</strong> PostHog page view${opts.posthog.pageviews === 1 ? '' : 's'} ` +
+      `from <strong style="color:${HTML.ink}">${opts.posthog.people}</strong> ${opts.posthog.people === 1 ? 'person' : 'people'} ` +
+      `(client-side, consented only) &mdash; a <strong>lower bound</strong>.</p>`
+    : opts.posthogUnavailable
+      ? `<p style="margin:8px 0 0;font-size:13px;color:${HTML.muted}">PostHog lower bound unavailable (${escapeHtml(opts.posthogUnavailable)}).</p>`
+      : '';
+  const swarmLine = opts.swarmNote
+    ? `<p style="margin:10px 0 0;padding:10px 12px;border-left:3px solid ${HTML.accent};background:${HTML.accentSoft};font-size:13px;color:${HTML.ink}">` +
+      `<strong>Automation signal.</strong> ${escapeHtml(opts.swarmNote)}</p>`
+    : '';
   const traffic =
     sectionTitle('Traffic (humans)') +
     primaryStat(pv.day, pv.day === 1 ? 'human page view' : 'human page views', deltaText(pv)) +
+    `<p style="margin:6px 0 0;font-size:13px;color:${HTML.muted}">Counted server-side on every full-document load, so this is an <strong>upper bound</strong> on humans.</p>` +
+    posthogLine +
+    swarmLine +
     (bot.day > 0
       ? `<p style="margin:6px 0 0;font-size:13px;color:${HTML.muted}">${bot.day} bot/crawler view${bot.day === 1 ? '' : 's'} excluded — see <strong>Crawler activity</strong> below.</p>`
       : '');
@@ -635,6 +723,9 @@ function buildHtml(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): str
       : emptyNote('No bot/crawler activity.'));
 
   const footer =
+    // Same prose as the plain-text body, from the same helper: the two bounds
+    // only help if both renderings of the email explain them identically.
+    `${escapeHtml(boundsLines(opts).join(' '))} ` +
     `Human vs. bot is classified at capture from User-Agent + network (ASN) — a maintained heuristic, not exact. ` +
     `Traffic sources come from the Referer header (best-effort — privacy tools strip it, so external sources are under-counted; stripped arrivals fall into Direct). ` +
     `Report-only: counts are read from the app database; the window is the full prior UTC day.`;
