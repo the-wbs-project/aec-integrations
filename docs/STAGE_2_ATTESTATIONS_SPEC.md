@@ -852,6 +852,11 @@ pre-existing spec passes **unmodified**.
 - New tab in `apps/web/src/app/vendor/vendor-dashboard-tabbed.ts` — extend the `Tab` union, the
   `tabs` array, and the `@switch`. The component is presentational and takes its payload as an
   input; keep it that way (it renders both the dev preview and the gated `/vendor` route).
+  *(As built that is where it landed. **The three edit points moved** when the portal gained real
+  URLs — `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.2: there is no `Tab` union or `@switch` any more, and a
+  section is now one entry in `vendor/vendor-nav.ts` plus one lazy child route in
+  `vendor/vendor.routes.ts`. The shell is still presentational and still takes only `me`, and the
+  section component itself is unchanged.)*
 - **Per integration:** the counterpart product, the mechanism, and each `data_object` claim lane
   with the caller's control (**Affirm / Deny / Clear**) alongside the counterparty's current state.
   A conflict must be legible from the vendor's side, with the counterparty's position shown.
@@ -911,7 +916,8 @@ Decisions taken at build that §6 did not pre-specify:
   `vendor-products-section.ts` — the child injects `VendorApi`, and the preview shadows `VendorApi`
   through DI. So the same component runs verbatim on both surfaces with no conditional code, and the
   heavier read stays off every other tab's SSR path. `@switch` also means it only fires when a
-  vendor opens the tab.
+  vendor opens the tab — and a lazy child route means the same thing after the §6.2 routing change,
+  since the component is not instantiated until its route is active.
 - **`DELETE` triggers a targeted re-read; the claim is never reconstructed locally.** A `204` echoes
   nothing, and `counterparty` is a *lossy* reduction of every other voter — with a third vendor in
   play, dropping the caller's own row can leave a genuine `conflict` that a local guess renders as
@@ -947,8 +953,9 @@ Decisions taken at build that §6 did not pre-specify:
   persistent `role="status"` at the section (which can name the subject, "RFIs · position saved");
   failures are lane-local `role="alert"` beside the control that failed. Never both for one event.
   *(Superseded 2026-08-19 by AECI-631: the region moved **out of this section** to the dashboard
-  shell, because the shell's `@switch` destroys this component mid-announcement on a tab switch and
-  the integration card carried a second `role="status"` of its own. The tab now announces through
+  shell, because the shell destroys this component mid-announcement on a tab switch — an `@switch`
+  branch then, a `<router-outlet/>` swap now — and the integration card carried a second
+  `role="status"` of its own. The tab now announces through
   `VendorPortalAnnouncer` — the wording still originates here, only the channel moved.
   `STAGE_2_REALTIME_SPEC.md` §6.3.)*
 - **§7.2's in-portal notification list now has its first UI consumer**, rendered as a **collapsed**

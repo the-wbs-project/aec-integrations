@@ -1,72 +1,63 @@
-import { Component, computed, inject, input, signal } from '@angular/core';
+import { Component, inject, input } from '@angular/core';
+import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 
 import type { VendorMeResponse } from '@aeci/shared';
-import type { Capability } from '@aeci/shared/entitlements';
 
 import { VendorPortalAnnouncer } from './vendor-announcer';
-import { VendorIntegrationsSection } from './components/vendor-integrations-section';
-import { VendorPlanPanel } from './components/vendor-plan-panel';
-import { VendorProfileForm } from './components/vendor-profile-form';
-import { VendorProductsSection } from './components/vendor-products-section';
-import { VendorRequestStatus } from './components/vendor-request-status';
-import { VendorSeatRoster } from './components/vendor-seat-roster';
-
-type Tab = 'overview' | 'profile' | 'products' | 'integrations' | 'seats';
+import { VENDOR_NAV_ITEMS } from './vendor-nav';
 
 /**
- * Concept A — the tabbed vendor dashboard (AECI-522): a side-nav (Overview /
- * Profile / Products / Seats) over a single content panel, modelled on the admin
- * shell but switched in-page (no child routes) so the same component renders both
- * in the dev-only preview and on the real gated `/vendor` page. Presentational
- * only — it takes the `GET /api/vendor/me` payload as an input.
+ * Concept A — the vendor dashboard shell (AECI-522): a side-nav (Vendor Overview
+ * / Profile / Products / Integrations / Seats) over one content panel, modelled
+ * on the admin shell.
  *
- * The nav is a set of buttons that swap the visible section (each with its own
- * heading); the active button carries `aria-current="page"`. Light theme only
- * (Stage 1 / AECI-226).
+ * ── THE SECTIONS ARE CHILD ROUTES NOW ───────────────────────────────────────
+ * They started as an in-page `@switch` over a `Tab` signal, explicitly "no child
+ * routes", so that the same component could render both in the dev-only preview
+ * and on the real gated page. The cost of that was the whole of the browser's
+ * navigation model: every section was the same URL, so nothing was linkable,
+ * bookmarkable or shareable, Back left the portal entirely rather than returning
+ * to the previous section, and a reload always landed on Overview. The portal
+ * now mounts `VENDOR_SECTION_ROUTES` (`vendor.routes.ts`) under
+ * `/vendor/:vendorSlug`, and this shell renders the nav + `<router-outlet/>`.
  *
- * The shell stays PRESENTATIONAL, with one exception it is the right place for:
- * it reads `me.entitlement.capabilities` (AECI-614 / §8) and hands each editable
- * section a plain `canEdit` boolean. Capabilities, never a hardcoded `verified`
- * bit: `vendors.verified` is a MIRROR of the entitlement row (§2.1), and the
- * capability list is the same field the API's `requireCapability` gate asserts
- * on, so the form's enabled state and the 403 a write would get cannot disagree.
+ * The preview keeps working because the nav links are **relative**: `routerLink`
+ * resolves against the `ActivatedRoute` of whichever route created the ancestor
+ * that renders this shell — `/vendor/:vendorSlug` on the real surface,
+ * `/preview/vendor-dashboard` in the preview — so one template serves both, with
+ * no "am I previewing" branch anywhere.
  *
- * ── THE ENTITLEMENT FLIP LANDS WITHOUT A RELOAD (AECI-631 / §6.1) ───────────
- * `me` is not a snapshot. `VendorPage` binds it to `VendorPortalStore.me`, so
- * when the §4 poll sees the `entitlement` cursor move and refetches
- * `GET /api/vendor/me`, a NEW payload flows into this input and every `computed`
- * below re-derives: the plan panel changes state, the forms unlock, the
- * Integrations tab gains its controls. That is the one event on this surface
- * with a real deadline (an operator toggling verification while on the phone
- * with the vendor), and the cost of supporting it is that nothing here may latch
- * `me` at construction. Read it through a `computed`, never copy it into a
- * `signal` in the constructor.
+ * The vendor slug is in the URL (`/vendor/acme/products/revit`) rather than
+ * implied by the session. Today one seat maps to exactly one `vendor_id`, so the
+ * slug is derivable and the bare `/vendor` redirects to it; naming it anyway is
+ * what makes the address describe the page, and it is the seam a future
+ * multi-vendor seat needs. `vendorMeResolver` 404s a slug that is not the
+ * session's, so the URL can never render someone else's dashboard.
  *
- * The gate re-derives from the RESOLVED `capabilities` list and never from a
- * client-side re-reading of the tier ladder: an unknown tier fails closed to zero
- * capabilities server-side, whereas a browser that re-implemented the ladder
- * would fail OPEN on exactly the tier it does not recognise.
+ * The shell stays presentational: it renders the company name, the nav, and the
+ * live region. The §8 capability gate moved down to the routed sections with the
+ * forms it gates (`vendor-capabilities.ts`), where it is read from
+ * `VendorPortalStore` and re-derives on every refetched `me` — see
+ * `docs/STAGE_2_REALTIME_SPEC.md` §6.1. Nothing here may latch `me` at
+ * construction.
  *
  * ── THE ONE LIVE REGION (AECI-631 / §6.3) ───────────────────────────────────
  * The portal's single polite live region lives HERE, at the bottom of the shell,
  * and is fed by {@link VendorPortalAnnouncer}. It used to live inside
  * `vendor-integrations-section.ts`, with a second `role="status"` in
  * `vendor-integration-card.ts`; two regions on one page make announcements race
- * and duplicate. The shell is the right home because it outlives every tab
- * switch, so the region is persistent-and-mutated (which announces far more
- * reliably than one that is inserted) and is present from first paint rather
- * than appearing only after a section's fetch lands.
+ * and duplicate. The shell is the right home because it outlives every section
+ * change — the router destroys and re-creates the outlet's component exactly as
+ * the `@switch` destroyed its branch, and the shell survives both — so the region
+ * is persistent-and-mutated (which announces far more reliably than one that is
+ * inserted) and is present from first paint rather than appearing only after a
+ * section's fetch lands.
+ *
+ * Light theme only (Stage 1 / AECI-226).
  */
 @Component({
   selector: 'aec-vendor-dashboard-tabbed',
-  imports: [
-    VendorPlanPanel,
-    VendorRequestStatus,
-    VendorProfileForm,
-    VendorProductsSection,
-    VendorIntegrationsSection,
-    VendorSeatRoster,
-  ],
+  imports: [RouterLink, RouterLinkActive, RouterOutlet],
   template: `
     @let m = me();
     <section class="mx-auto w-full max-w-7xl px-6 py-10 md:px-8">
@@ -82,160 +73,36 @@ type Tab = 'overview' | 'profile' | 'products' | 'integrations' | 'seats';
       <div class="grid gap-8 md:grid-cols-[minmax(0,14rem)_minmax(0,1fr)]">
         <nav i18n-aria-label="@@vendor.nav.aria" aria-label="Dashboard sections">
           <ul class="space-y-1">
-            @for (t of tabs; track t.key) {
+            @for (item of navItems; track item.path) {
               <li>
-                <button
-                  type="button"
-                  (click)="activeTab.set(t.key)"
-                  [attr.aria-current]="activeTab() === t.key ? 'page' : null"
-                  [class]="navClass(activeTab() === t.key)"
+                <a
+                  [routerLink]="item.path"
+                  routerLinkActive="bg-(--surface-raised) text-(--text-primary)"
+                  ariaCurrentWhenActive="page"
+                  class="flex w-full items-center rounded-(--radius-md) px-3 py-2 text-start text-sm
+                    font-bold text-(--text-secondary) no-underline transition-colors
+                    hover:text-(--text-primary) focus-visible:outline-2
+                    focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
                 >
-                  {{ t.label }}
-                </button>
+                  {{ item.label }}
+                </a>
               </li>
             }
           </ul>
         </nav>
 
         <div class="min-w-0">
-          @switch (activeTab()) {
-            @case ('overview') {
-              <div class="space-y-8">
-                <div>
-                  <h2
-                    class="font-display text-xl font-semibold text-(--text-primary)"
-                    i18n="@@vendor.section.verification"
-                  >
-                    Verification
-                  </h2>
-                  <div class="mt-4">
-                    <aec-vendor-plan-panel [entitlement]="m.entitlement" />
-                  </div>
-                </div>
-
-                <dl class="grid grid-cols-2 gap-4 sm:grid-cols-3">
-                  <div
-                    class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-4"
-                  >
-                    <dt
-                      class="text-xs uppercase tracking-[0.08em] text-(--text-secondary)"
-                      i18n="@@vendor.stat.products"
-                    >
-                      Products
-                    </dt>
-                    <dd class="mt-1 font-display text-2xl tabular-nums text-(--text-primary)">
-                      {{ m.products.length }}
-                    </dd>
-                  </div>
-                  <div
-                    class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-4"
-                  >
-                    <dt
-                      class="text-xs uppercase tracking-[0.08em] text-(--text-secondary)"
-                      i18n="@@vendor.stat.seats"
-                    >
-                      Seats
-                    </dt>
-                    <dd class="mt-1 font-display text-2xl tabular-nums text-(--text-primary)">
-                      {{ m.seat_count }}
-                    </dd>
-                  </div>
-                  <div
-                    class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-4"
-                  >
-                    <dt
-                      class="text-xs uppercase tracking-[0.08em] text-(--text-secondary)"
-                      i18n="@@vendor.stat.openRequests"
-                    >
-                      Open requests
-                    </dt>
-                    <dd class="mt-1 font-display text-2xl tabular-nums text-(--text-primary)">
-                      {{ openRequests() }}
-                    </dd>
-                  </div>
-                </dl>
-
-                <div>
-                  <h2
-                    class="font-display text-xl font-semibold text-(--text-primary)"
-                    i18n="@@vendor.section.requests"
-                  >
-                    Claim &amp; correction status
-                  </h2>
-                  <div class="mt-4">
-                    <aec-vendor-request-status [requests]="m.requests" />
-                  </div>
-                </div>
-              </div>
-            }
-            @case ('profile') {
-              <div>
-                <h2
-                  class="font-display text-xl font-semibold text-(--text-primary)"
-                  i18n="@@vendor.section.profile"
-                >
-                  Vendor profile
-                </h2>
-                <div class="mt-4">
-                  <aec-vendor-profile-form [vendor]="m.vendor" [canEdit]="canEditProfile()" />
-                </div>
-              </div>
-            }
-            @case ('products') {
-              <div>
-                <h2
-                  class="font-display text-xl font-semibold text-(--text-primary)"
-                  i18n="@@vendor.section.products"
-                >
-                  Your products
-                </h2>
-                <div class="mt-4">
-                  <aec-vendor-products-section
-                    [products]="m.products"
-                    [canEdit]="canEditProducts()"
-                    [canEditTaxonomy]="canEditTaxonomy()"
-                  />
-                </div>
-              </div>
-            }
-            @case ('integrations') {
-              <div>
-                <h2
-                  class="font-display text-xl font-semibold text-(--text-primary)"
-                  i18n="@@vendor.section.integrations"
-                >
-                  Integrations
-                </h2>
-                <div class="mt-4">
-                  <aec-vendor-integrations-section
-                    [verified]="m.vendor.verified"
-                    [vendorName]="m.vendor.company_name"
-                  />
-                </div>
-              </div>
-            }
-            @case ('seats') {
-              <div>
-                <h2 class="font-display text-xl font-semibold text-(--text-primary)">
-                  <span i18n="@@vendor.section.seats">Seats</span>
-                  <span class="text-(--text-secondary)">({{ m.seat_count }})</span>
-                </h2>
-                <div class="mt-4">
-                  <aec-vendor-seat-roster [seatCount]="m.seat_count" />
-                </div>
-              </div>
-            }
-          }
+          <router-outlet />
         </div>
       </div>
 
       <!--
         THE portal's live region. One, polite, sr-only, and always in the DOM so
         a message is a mutation rather than an insertion. It sits in the shell
-        because the shell survives every tab switch: a region that lived in a
-        section would be destroyed mid-announcement by the @switch, and a second
-        region anywhere on the page would make two utterances compete for one
-        event. Nothing writes to it directly; everything goes through
+        because the shell survives every section change: a region that lived in a
+        section would be destroyed mid-announcement when the outlet swapped, and
+        a second region anywhere on the page would make two utterances compete
+        for one event. Nothing writes to it directly; everything goes through
         VendorPortalAnnouncer. Failures are the opposite case and stay lane-local
         and role="alert", beside the control that failed.
 
@@ -255,40 +122,6 @@ export class VendorDashboardTabbed {
    *  channel, it does not decide what goes into it. */
   protected readonly liveMessage = inject(VendorPortalAnnouncer).message;
 
-  protected readonly activeTab = signal<Tab>('overview');
-
-  protected readonly openRequests = computed(
-    () => this.me().requests.filter((r) => r.status === 'open' || r.status === 'in_review').length,
-  );
-
-  /**
-   * The §8 gate, driven off the RESOLVED capability list rather than
-   * `vendor.verified` or a re-derivation of the tier ladder in the browser. The
-   * API ships `capabilities` on `GET /api/vendor/me` precisely so this stays one
-   * `includes` and cannot drift from `requireCapability`.
-   */
-  private readonly capabilities = computed<readonly Capability[]>(
-    () => this.me().entitlement.capabilities,
-  );
-  protected readonly canEditProfile = computed(() => this.capabilities().includes('profile.edit'));
-  protected readonly canEditProducts = computed(() => this.capabilities().includes('product.edit'));
-  protected readonly canEditTaxonomy = computed(() =>
-    this.capabilities().includes('product.taxonomy.edit'),
-  );
-
-  protected readonly tabs: ReadonlyArray<{ key: Tab; label: string }> = [
-    { key: 'overview', label: $localize`:@@vendor.tab.overview:Overview` },
-    { key: 'profile', label: $localize`:@@vendor.tab.profile:Profile` },
-    { key: 'products', label: $localize`:@@vendor.tab.products:Products` },
-    { key: 'integrations', label: $localize`:@@vendor.tab.integrations:Integrations` },
-    { key: 'seats', label: $localize`:@@vendor.tab.seats:Seats` },
-  ];
-
-  protected navClass(active: boolean): string {
-    const base =
-      'flex w-full items-center rounded-(--radius-md) px-3 py-2 text-start text-sm font-bold no-underline transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
-    return active
-      ? `${base} bg-(--surface-raised) text-(--text-primary)`
-      : `${base} text-(--text-secondary) hover:text-(--text-primary)`;
-  }
+  /** The portal IA — see `vendor-nav.ts`. Relative paths, deliberately. */
+  protected readonly navItems = VENDOR_NAV_ITEMS;
 }
