@@ -76,7 +76,7 @@ type RecomputeFn = (db: Db, productIds: Iterable<string>) => Promise<void>;
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function makeForwarder(c: AdminContext): AuditLogForwarder | undefined {
-  if (!c.env.DD_API_KEY) return undefined;
+  if (!c.env.DD_API_KEY && !c.env.POSTHOG_PROJECT_KEY) return undefined;
   return (entry) => {
     logToPosthog(c.executionCtx, c.env, c.req.raw, {
       level: 'info',
@@ -90,7 +90,7 @@ function makeForwarder(c: AdminContext): AuditLogForwarder | undefined {
 }
 
 function makeWorkflowForwarder(c: AdminContext): WorkflowTransitionForwarder | undefined {
-  if (!c.env.DD_API_KEY) return undefined;
+  if (!c.env.DD_API_KEY && !c.env.POSTHOG_PROJECT_KEY) return undefined;
   return (entry) => {
     logToPosthog(c.executionCtx, c.env, c.req.raw, {
       level: 'info',

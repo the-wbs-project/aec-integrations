@@ -42,7 +42,7 @@ import type { UserAuthVariables } from '../lib/user-auth';
 function makeForwarder(
   c: Context<{ Bindings: Env; Variables: UserAuthVariables }>,
 ): AuditLogForwarder | undefined {
-  if (!c.env.DD_API_KEY) return undefined;
+  if (!c.env.DD_API_KEY && !c.env.POSTHOG_PROJECT_KEY) return undefined;
   return (entry) => {
     logToPosthog(c.executionCtx, c.env, c.req.raw, {
       level: 'info',

@@ -292,7 +292,7 @@ function integrationEditableData(intg: PromoteIntegration): Record<string, unkno
 }
 
 function makeForwarder(rc: PromoteRunCtx): AuditLogForwarder | undefined {
-  if (!rc.env.DD_API_KEY) return undefined;
+  if (!rc.env.DD_API_KEY && !rc.env.POSTHOG_PROJECT_KEY) return undefined;
   return (entry) => {
     logToPosthog(rc, rc.env, rc.request, {
       level: 'info',

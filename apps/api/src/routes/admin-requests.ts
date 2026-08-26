@@ -120,7 +120,7 @@ const noopSyncToLinear: SyncRequestToLinear = async () => {};
 /** Telemetry forwarder (PostHog + the dual-run Datadog leg) for the audit write; each vendor leg no-ops without its own key. Mirrors
  *  `routes/admin-reviews.ts`, tagged `source: admin-moderation`. */
 function makeForwarder(c: AdminContext): AuditLogForwarder | undefined {
-  if (!c.env.DD_API_KEY) return undefined;
+  if (!c.env.DD_API_KEY && !c.env.POSTHOG_PROJECT_KEY) return undefined;
   return (entry) => {
     logToPosthog(c.executionCtx, c.env, c.req.raw, {
       level: 'info',
@@ -136,7 +136,7 @@ function makeForwarder(c: AdminContext): AuditLogForwarder | undefined {
 /** Telemetry forwarder (PostHog + the dual-run Datadog leg) for the workflow-transition write; no-op without
  *  `DD_API_KEY`. Mirrors `makeForwarder`, tagged `source: admin-moderation`. */
 function makeWorkflowForwarder(c: AdminContext): WorkflowTransitionForwarder | undefined {
-  if (!c.env.DD_API_KEY) return undefined;
+  if (!c.env.DD_API_KEY && !c.env.POSTHOG_PROJECT_KEY) return undefined;
   return (entry) => {
     logToPosthog(c.executionCtx, c.env, c.req.raw, {
       level: 'info',
@@ -162,8 +162,8 @@ async function parseJsonBody<T>(c: AdminContext, schema: ZodType<T>): Promise<T>
 
 /** Emit the `aeci.request.moderation.action` count — one per moderation attempt:
  *  `outcome:ok` on a committed resolve/reject, `outcome:invalid_state` when the
- *  target isn't open/in-review (the preload guard, 422). Fire-and-forget; no-op
- *  without `DD_API_KEY`. */
+ *  target isn't open/in-review (the preload guard, 422). Fire-and-forget;
+ *  each vendor leg no-ops without its own key. */
 function emitRequestModeration(
   c: AdminContext,
   action: 'resolve' | 'reject',

@@ -669,7 +669,7 @@ function emitSync(
  *  Mirrors `routes/webhooks.ts`'s `makeWorkflowForwarder`, tagged
  *  `source: site-linear-sync`. */
 function makeSyncForwarder(c: LinearContext): WorkflowTransitionForwarder | undefined {
-  if (!c.env.DD_API_KEY) return undefined;
+  if (!c.env.DD_API_KEY && !c.env.POSTHOG_PROJECT_KEY) return undefined;
   return (entry) => {
     logToPosthog(c.executionCtx, c.env, c.req.raw, {
       level: 'info',

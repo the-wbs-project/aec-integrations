@@ -684,12 +684,13 @@ function withCacheHeaders(
 type WaitUntilContext = { waitUntil(promise: Promise<unknown>): void };
 
 /**
- * Optional post-SSR hook. `server.ts` uses this to (a) inject the Datadog RUM
+ * Optional post-SSR hook. `server.ts` uses this to (a) inject the analytics
  * bootstrap `<script>` into the rendered HTML before it reaches the edge
  * cache, so the cached payload already carries deployment-scoped public
- * tokens, and (b) emit a per-render Datadog log so any SSR hit produces
- * visible signal in Datadog Logs. Kept generic (no Datadog vocabulary in this
- * file) so `createApp` remains a pure cache/cookie/SSR pipeline.
+ * tokens, and (b) emit a per-render log so any SSR hit produces visible
+ * signal. During the dual-run both legs fan out to PostHog and Datadog
+ * (ADR 0024); this file stays vendor-neutral so `createApp` remains a pure
+ * cache/cookie/SSR pipeline.
  *
  * Receives the request and the waitUntil-capable ctx so transforms can fan
  * out async side-effects (logging, metrics) without blocking the response.

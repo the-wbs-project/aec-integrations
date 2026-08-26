@@ -92,7 +92,7 @@ const TERMINAL_OUTCOME: Partial<Record<VendorRequestStatus, string>> = {
 /** Telemetry forwarder (PostHog + the dual-run Datadog leg) for the audit write; each vendor leg no-ops without its own key. Mirrors
  *  `routes/requests.ts`, tagged `source: linear-webhook`. */
 function makeAuditForwarder(c: Context<{ Bindings: Env }>): AuditLogForwarder | undefined {
-  if (!c.env.DD_API_KEY) return undefined;
+  if (!c.env.DD_API_KEY && !c.env.POSTHOG_PROJECT_KEY) return undefined;
   return (entry) => {
     logToPosthog(c.executionCtx, c.env, c.req.raw, {
       level: 'info',
@@ -109,7 +109,7 @@ function makeAuditForwarder(c: Context<{ Bindings: Env }>): AuditLogForwarder | 
 function makeWorkflowForwarder(
   c: Context<{ Bindings: Env }>,
 ): WorkflowTransitionForwarder | undefined {
-  if (!c.env.DD_API_KEY) return undefined;
+  if (!c.env.DD_API_KEY && !c.env.POSTHOG_PROJECT_KEY) return undefined;
   return (entry) => {
     logToPosthog(c.executionCtx, c.env, c.req.raw, {
       level: 'info',

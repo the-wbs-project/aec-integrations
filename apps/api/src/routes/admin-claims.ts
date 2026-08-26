@@ -158,7 +158,7 @@ const ENTITLEMENT_GRANT_ACTION = 'vendor_entitlement.granted';
 /** Telemetry forwarder (PostHog + the dual-run Datadog leg) for the audit write; each vendor leg no-ops without its own key. Tagged
  *  `source: admin-moderation`, matching `admin-requests.ts`. */
 function makeForwarder(c: ClaimContext): AuditLogForwarder | undefined {
-  if (!c.env.DD_API_KEY) return undefined;
+  if (!c.env.DD_API_KEY && !c.env.POSTHOG_PROJECT_KEY) return undefined;
   return (entry) => {
     logToPosthog(c.executionCtx, c.env, c.req.raw, {
       level: 'info',
@@ -173,7 +173,7 @@ function makeForwarder(c: ClaimContext): AuditLogForwarder | undefined {
 
 /** Telemetry forwarder (PostHog + the dual-run Datadog leg) for the workflow-transition write; each vendor leg no-ops without its own key. */
 function makeWorkflowForwarder(c: ClaimContext): WorkflowTransitionForwarder | undefined {
-  if (!c.env.DD_API_KEY) return undefined;
+  if (!c.env.DD_API_KEY && !c.env.POSTHOG_PROJECT_KEY) return undefined;
   return (entry) => {
     logToPosthog(c.executionCtx, c.env, c.req.raw, {
       level: 'info',
