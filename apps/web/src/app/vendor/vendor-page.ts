@@ -6,6 +6,7 @@ import { map } from 'rxjs';
 
 import type { VendorMeResponse } from '@aeci/shared';
 
+import { Analytics } from '../analytics/analytics';
 import { NotFound } from '../not-found/not-found';
 import { VendorDashboardTabbed } from './vendor-dashboard-tabbed';
 import { VendorLiveSync } from './vendor-live-sync';
@@ -61,6 +62,7 @@ export class VendorPage {
   private readonly metaSvc = inject(Meta);
   private readonly store = inject(VendorPortalStore);
   private readonly liveSync = inject(VendorLiveSync);
+  private readonly analytics = inject(Analytics);
 
   /** Resolved data. `vendorMeResolver` runs server-side and on hydration reads
    *  from `TransferState`; the snapshot value is the SSR-resolved payload (or
@@ -100,7 +102,25 @@ export class VendorPage {
       // `initial` keeps it off the 404 branch, where there is no session to poll
       // with and `GET /api/vendor/updates` would only 401. Teardown is the
       // service's own `DestroyRef` hook.
-      afterNextRender(() => this.liveSync.start());
+      afterNextRender(() => {
+        this.liveSync.start();
+
+        // AECI-649 / §AW8 — the vendor group (`docs/ANALYTICS.md` §8). THIS is
+        // where the vendor identity is actually resolved: `initial` is the
+        // payload `GET /api/vendor/me` returned through `requireVendor()`, so a
+        // group is only ever asserted for a caller the API confirmed is a seat
+        // on that vendor. A route-name guess would group anyone who typed
+        // `/vendor`, including the 404 branch above.
+        //
+        // Guarded to the success path and to `afterNextRender` for the same two
+        // reasons as the live sync: the 404 branch has no vendor, and the SSR
+        // pass has no business writing analytics identity. `Analytics` holds it
+        // until consent is granted and no-ops on a repeat navigation.
+        this.analytics.groupVendor({
+          id: initial.vendor.id,
+          name: initial.vendor.company_name,
+        });
+      });
     }
   }
 }

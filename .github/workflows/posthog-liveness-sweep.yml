@@ -1,0 +1,106 @@
+# AEC Integrations — PostHog cron liveness sweep (AECI-647 / PH-6).
+#
+# Spec: docs/POSTHOG_MIGRATION_SPEC.md §3.4 + §AW6. Registry + thresholds:
+# observability/posthog/project-config.json -> liveness.crons[]. Logic:
+# scripts/ci/posthog-liveness-sweep.sh (which carries the long-form rationale).
+#
+# Triggers are `schedule` + `workflow_dispatch` only, and the job consumes no event
+# payload — no issue/PR/commit text reaches a `run:` block, so there is no injection
+# surface here. The only inputs are a secret and a repo variable, both passed via `env:`.
+#
+# ── What this replaces ──────────────────────────────────────────────────────────
+#
+# All EIGHT Datadog `notify_no_data` monitors, in one job:
+#   AECi — Algolia sync not running                  (no_data_timeframe 2880 min)
+#   AECi — Home stats not running                    (1560)
+#   AECi — Data quality job not running              (1560)
+#   AECi — Linear reconciliation sweep not running   (60)
+#   AECi — WAF poll not running                      (180)
+#   AECi — Retention prune not running               (1560)
+#   AECi — Algolia index drift          [liveness half of a dual monitor] (2880)
+#   AECi — Moderation queue backlog     [liveness half of a dual monitor] (1560)
+# ...and extends the same coverage to the six crons Datadog never watched
+# (metrics-snapshot, analytics-digest, moderation-snapshot, attestation-notify,
+# entitlement-expiry, and the drift job's own run).
+#
+# No PostHog tier has `notify_no_data`. An alert cannot fire on the absence of the data
+# it evaluates, so absence detection has to live somewhere the system being watched
+# cannot take down with it — which is exactly why this runs on GitHub Actions and not
+# inside the API Worker. A Worker-hosted liveness check cannot detect its own death.
+#
+# ── THIS JOB FAILS RED. DO NOT ADD continue-on-error. ───────────────────────────
+#
+# Every other PostHog/telemetry step in this repo is best-effort by design
+# (scripts/ci/posthog-deploy-marker.sh always exits 0 and its callers pass
+# continue-on-error: true), so the surrounding convention points the other way and a
+# future reader will be tempted to "make this consistent". Resist it. A liveness sweep
+# that cannot fail is decoration. The correct precedent is
+# .github/workflows/reconcile-counts.yml — a scheduled correctness guard that goes red
+# and explains itself. Failure here means a production cron has stopped.
+#
+# ── The dependency this introduces ──────────────────────────────────────────────
+#
+# Absence detection now depends on GitHub Actions availability, which Datadog's
+# server-side `notify_no_data` did not. Scheduled workflows are best-effort and GitHub
+# defers them under load. That is priced in: every daily window in project-config.json
+# is 26 h (not 24) and the 15-minute reconcile job gets 90 minutes (not 60), so the
+# margin absorbs the SWEEP's lateness rather than only the job's. Independent second
+# line of defence, unchanged: `job_runs`, /admin/system, and the two daily digests.
+#
+# ── Cadence ─────────────────────────────────────────────────────────────────────
+#
+# Every 3 hours. Bounded by the tightest window in the registry: the request-reconcile
+# job allows 90 minutes, so a 3-hourly sweep can be up to ~3 h late in noticing it —
+# acceptable for a backstop whose own backstop is a 15-minute retry loop. The daily
+# jobs (26 h windows) are covered many times over. Tighten to hourly if the reconcile
+# gap ever matters; the cost is 8 -> 24 runs/day of a single 60-second job.
+
+name: posthog-liveness-sweep
+
+on:
+  schedule:
+    - cron: '20 */3 * * *'
+  workflow_dispatch: {}
+
+concurrency:
+  group: posthog-liveness-sweep
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  sweep:
+    name: Cron heartbeats (production)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Sweep PostHog for per-cron heartbeats
+        env:
+          # Personal `phx_` key with `query read` on the production project. NOT the
+          # publishable phc_ token — us.posthog.com/api/projects/:id/query/ is the
+          # MANAGEMENT API and rejects project tokens. As of the §8.7 audit this secret
+          # is NOT YET PROVISIONED; until it is, the script exits 2 ("unchecked"), which
+          # is deliberately distinct from exit 1 ("a cron is dead") and from a pass.
+          POSTHOG_CLI_API_KEY: ${{ secrets.POSTHOG_CLI_API_KEY }}
+          # Repo variable with a literal fallback, matching the house pattern established
+          # by the deploy markers (§8.7: the variables are a repoint convenience, not a
+          # prerequisite).
+          PH_PROJECT_ID: ${{ vars.POSTHOG_PROJECT_ID_PROD || '354071' }}
+        run: ./scripts/ci/posthog-liveness-sweep.sh
+
+      - name: Explain a red sweep
+        if: failure()
+        run: |
+          {
+            echo "::error::A production cron heartbeat is stale, missing, or unverifiable."
+            echo "::error::This job replaces the eight Datadog notify_no_data monitors — red here means a scheduled job has stopped, not that CI is flaky."
+            echo "::error::Triage order:"
+            echo "::error::  1. /admin/system — the job_runs liveness rows are an independent record and do not depend on PostHog."
+            echo "::error::  2. Cloudflare dashboard — apps/api Worker, Triggers tab: is the cron still registered and firing?"
+            echo "::error::  3. apps/api/src/lib/cron-schedules.ts — a schedule edited there but not in wrangler.jsonc stops dispatching SILENTLY (controller.cron no longer matches the switch)."
+            echo "::error::  4. observability/posthog/project-config.json — if the schedule changed deliberately, maxAgeMinutes has to change with it."
+            echo "::error::Runbook: docs/RUNBOOKS.md."
+          }

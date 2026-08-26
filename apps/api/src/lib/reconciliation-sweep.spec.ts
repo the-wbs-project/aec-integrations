@@ -18,8 +18,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { fakeExecutionContext, TEST_ENV } from '../test/helpers';
 
-vi.mock('../datadog', () => ({
-  logToDatadog: vi.fn(),
+vi.mock('../posthog', () => ({
+  logToPosthog: vi.fn(),
   submitCount: vi.fn(),
   submitGauge: vi.fn(),
   submitDistribution: vi.fn(),
@@ -27,7 +27,7 @@ vi.mock('../datadog', () => ({
 
 import { products, vendorRequests, vendors, workflowInstances } from '../db/schema';
 import { makeTestDb, type TestDb } from '../test/d1';
-import { logToDatadog, submitCount, submitGauge } from '../datadog';
+import { logToPosthog, submitCount, submitGauge } from '../posthog';
 import { RECONCILE_BATCH_CAP, runReconciliationSweep } from './reconciliation-sweep';
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
@@ -222,7 +222,7 @@ describe('runReconciliationSweep', () => {
       1,
       [],
     );
-    expect(logToDatadog).toHaveBeenCalledWith(
+    expect(logToPosthog).toHaveBeenCalledWith(
       expect.anything(),
       expect.anything(),
       expect.anything(),
@@ -324,7 +324,7 @@ describe('runReconciliationSweep', () => {
     expect(result.stuck).toBe(total);
     // Only the cap's worth is processed this sweep; the next tick continues.
     expect(createIssue).toHaveBeenCalledTimes(RECONCILE_BATCH_CAP);
-    expect(logToDatadog).toHaveBeenCalledWith(
+    expect(logToPosthog).toHaveBeenCalledWith(
       expect.anything(),
       expect.anything(),
       expect.anything(),
@@ -353,7 +353,7 @@ describe('runReconciliationSweep', () => {
       persistent: 1,
       alerted: true,
     });
-    expect(logToDatadog).toHaveBeenCalledWith(
+    expect(logToPosthog).toHaveBeenCalledWith(
       expect.anything(),
       expect.anything(),
       expect.anything(),

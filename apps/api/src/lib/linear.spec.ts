@@ -4,15 +4,15 @@ import { fakeExecutionContext, TEST_ENV } from '../test/helpers';
 
 // Mock the Datadog adapter so we can assert outcome metrics + error logs without
 // a real DD_API_KEY (the real helpers no-op without one — we want to see calls).
-vi.mock('../datadog', () => ({
-  logToDatadog: vi.fn(),
+vi.mock('../posthog', () => ({
+  logToPosthog: vi.fn(),
   submitCount: vi.fn(),
   submitDistribution: vi.fn(),
 }));
 
 import { profiles, workflowInstances, workflowTransitions } from '../db/schema';
 import { makeTestDb, type TestDb } from '../test/d1';
-import { logToDatadog, submitCount, submitDistribution } from '../datadog';
+import { logToPosthog, submitCount, submitDistribution } from '../posthog';
 import {
   ASSIGNEE_IDS,
   AECI_TEAM_ID,
@@ -252,7 +252,7 @@ describe('createLinearIssueForRequest — issue creation', () => {
 
     expect(links).toHaveLength(1); // persisted despite attach failure
     expect(lastOutcome()).toBe('outcome:ok');
-    expect(logToDatadog).toHaveBeenCalledWith(
+    expect(logToPosthog).toHaveBeenCalledWith(
       expect.anything(),
       expect.anything(),
       expect.anything(),
@@ -311,7 +311,7 @@ describe('createLinearIssueForRequest — duplicate note', () => {
 
     expect(links).toHaveLength(1);
     expect(lastOutcome()).toBe('outcome:ok');
-    expect(logToDatadog).toHaveBeenCalledWith(
+    expect(logToPosthog).toHaveBeenCalledWith(
       expect.anything(),
       expect.anything(),
       expect.anything(),
@@ -348,7 +348,7 @@ describe('createLinearIssueForRequest — failure handling', () => {
 
     expect(links).toHaveLength(0);
     expect(lastTags()).toEqual(expect.arrayContaining(['outcome:failed', 'reason:graphql_error']));
-    expect(logToDatadog).toHaveBeenCalledWith(
+    expect(logToPosthog).toHaveBeenCalledWith(
       expect.anything(),
       expect.anything(),
       expect.anything(),
@@ -425,7 +425,7 @@ describe('createLinearIssueForRequest — failure handling', () => {
 
     expect(fetchImpl).toHaveBeenCalled(); // issue was created
     expect(lastTags()).toEqual(expect.arrayContaining(['outcome:failed', 'reason:db_error']));
-    expect(logToDatadog).toHaveBeenCalledWith(
+    expect(logToPosthog).toHaveBeenCalledWith(
       expect.anything(),
       expect.anything(),
       expect.anything(),
@@ -654,7 +654,7 @@ describe('pushRequestResolutionToLinear — tolerance & failure', () => {
     expect(lastTags()).toEqual(
       expect.arrayContaining(['outcome:skipped_no_issue', 'kind:claim', 'to_status:resolved']),
     );
-    expect(logToDatadog).toHaveBeenCalledWith(
+    expect(logToPosthog).toHaveBeenCalledWith(
       expect.anything(),
       expect.anything(),
       expect.anything(),
@@ -689,7 +689,7 @@ describe('pushRequestResolutionToLinear — tolerance & failure', () => {
     expect(lastTags()).toEqual(
       expect.arrayContaining(['outcome:failed', 'reason:graphql_error', 'to_status:resolved']),
     );
-    expect(logToDatadog).toHaveBeenCalledWith(
+    expect(logToPosthog).toHaveBeenCalledWith(
       expect.anything(),
       expect.anything(),
       expect.anything(),
@@ -721,7 +721,7 @@ describe('pushRequestResolutionToLinear — tolerance & failure', () => {
 
     expect(await allTransitions()).toHaveLength(1); // recorded despite the comment failure
     expect(lastOutcome()).toBe('outcome:ok');
-    expect(logToDatadog).toHaveBeenCalledWith(
+    expect(logToPosthog).toHaveBeenCalledWith(
       expect.anything(),
       expect.anything(),
       expect.anything(),
@@ -737,7 +737,7 @@ describe('pushRequestResolutionToLinear — tolerance & failure', () => {
 
     expect(await allTransitions()).toHaveLength(0);
     expect(lastTags()).toEqual(expect.arrayContaining(['outcome:failed', 'reason:db_error']));
-    expect(logToDatadog).toHaveBeenCalledWith(
+    expect(logToPosthog).toHaveBeenCalledWith(
       expect.anything(),
       expect.anything(),
       expect.anything(),

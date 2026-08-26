@@ -677,7 +677,7 @@ three `apps/web/src/app/products/*.component.spec.ts` files. Suites green at mer
 **Needs §2. Gated by §4 (§1.1).** The `/api/vendor/*` surface a Verified vendor writes through.
 `apps/api/src/routes/vendor.ts` is the template: `requireVendor()`, the ban gate, `vendorId` from
 `c.get('auth')` and **never** from the request, one `db.batch` per write carrying its `audit_log`
-row, `waitUntil(purge + Datadog forward)`.
+row, `waitUntil(purge + §26.5 audit forward)`.
 
 ### 5.1 Endpoints
 
@@ -803,7 +803,7 @@ Decisions taken at build that §5.1–§5.3 did not pre-specify:
   `attestation.retracted` each carry their own `entityId` and `metadata.slot`, which is what §7.3's
   `audit_log`-as-ledger dedupe will read. `POST` therefore emits `claim.created` plus one
   `attestation.created` per owned slot, all in the same batch. `afterVendorWrite` gained an array
-  overload so every row is forwarded to Datadog (§26.5), not just the headline one.
+  overload so every row is forwarded (§26.5), not just the headline one.
 - **`attestation.retracted` is a new action string** — it did not exist in the tree.
   `errors.ts` gained `claim` and `attestation` resource kinds so the 404 envelope names the right
   thing.
@@ -1057,9 +1057,13 @@ New daily trigger following ADR 0013 (cron enqueues, queue consumer runs). Add t
 `apps/api/wrangler.jsonc` — for **every** env block that carries triggers, staging and production
 both. Pick a slot that does not collide with the existing sweeps (04:00 data-quality, 06:00
 moderation, 07:00 stats, 08:00 Algolia sync, 09:00 drift, `*/15` reconciliation, hourly WAF) — and
-re-check against `main`, which has added crons since `stage-2` forked (§1.4). Emit a Datadog
+re-check against `main`, which has added crons since `stage-2` forked (§1.4). Emit a
 metric per detector per run (`docs/OBSERVABILITY.md`), including the zero case, so the cron's
-liveness is observable.
+liveness is observable. **The zero case is not optional** — a failure-only series is empty on
+healthy days, so anything watching it can never distinguish "nothing to detect" from "the cron
+never ran". That distinction is why absence detection is a separate mechanism entirely: under
+ADR 0024 it is an **external CI liveness sweep** (AECI-647), because PostHog has no
+`notify_no_data` equivalent.
 
 ### 7.5 As built (AECI-302 — 2026-08-17)
 
@@ -1136,7 +1140,7 @@ liveness is observable.
   so cannot act on a nudge.
 - **`NOTIFY_BATCH_CAP = 200` sends per run**, ordered most-signal-first (open-conflict →
   aeci-denied → silent-counterparty → stale-version) so the cap drops the least urgent work, and
-  **logging the dropped count** to Datadog — no silent truncation. Suppression is applied *before*
+  **logging the dropped count** — no silent truncation. Suppression is applied *before*
   the cap so a suppressed backlog cannot starve findings that need sending.
 - **Cron slot `0 10 * * *`** (10:00 UTC = 05:00 EST), last of the daily jobs so a nudge describes
   the state the site is serving. Verified free on this branch **and** on `main` (which has added

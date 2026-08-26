@@ -21,7 +21,7 @@ import { ApiErrorCode } from '@aeci/shared';
 import type { Context, ErrorHandler } from 'hono';
 import { ZodError } from 'zod';
 
-import { logToDatadog } from './datadog';
+import { logToPosthog } from './posthog';
 import type { Env } from './env';
 import { json } from './http';
 
@@ -157,7 +157,8 @@ export type ErrorHandlerOptions = {
  *      full issues array so the SSR client can render multi-field validation
  *      feedback later.
  *   3. Everything else → status 500, code `INTERNAL_ERROR`, log full stack to
- *      Datadog (best-effort; helper is a no-op without `DD_API_KEY`). The
+ *      the observability plane (best-effort; each vendor leg no-ops without
+ *      its own key). The
  *      message returned to the caller is deliberately generic — never leak
  *      internal error strings to the wire.
  *
@@ -173,8 +174,15 @@ export type ErrorHandlerOptions = {
  * propagating back through middleware `try/catch`). Each sub-router that
  * wants the canonical envelope registers this via `app.onError(errorHandler())`.
  *
- * `trace_id` is `crypto.randomUUID()` for now. When Datadog APM lands, this
- * will be the active span ID so logs and the response are pivot-able together.
+ * `trace_id` is `crypto.randomUUID()`, and that is now the permanent answer
+ * rather than a placeholder. The original note here promised it would become a
+ * Datadog APM span id — no APM was ever provisioned, and PostHog has no
+ * distributed-tracing product, so there is no span id to inherit (ADR 0024 /
+ * POSTHOG_MIGRATION_SPEC.md §3.8 lists this as a knowingly-accepted gap, not a
+ * regression). What makes the id useful is unchanged: the same value goes on
+ * the error log and in the response envelope, so a user-reported id pivots
+ * straight to its log line. Local `wrangler dev` OTel tracing
+ * (`docs/local-tracing.md`) still gives real spans in development.
  *
  * Generic over the router's env so `Variables`-extended sub-routers (e.g. the
  * AECI-193 auth-spike router, whose middleware sets `c.get('user')`) can reuse
@@ -215,7 +223,7 @@ export function errorHandler<E extends { Bindings: Env }>(
     // console line and the Datadog log so the actual failure is visible.
     const cause = causeChain(unknownError);
     console.error(`Unhandled error in ${c.req.path}:`, unknownError, cause ? { cause } : '');
-    logToDatadog(c.executionCtx, c.env, c.req.raw, {
+    logToPosthog(c.executionCtx, c.env, c.req.raw, {
       level: 'error',
       message: `Unhandled error: ${message}`,
       ...(source ? { source } : {}),
@@ -246,7 +254,7 @@ function logRequestError<E extends { Bindings: Env }>(
   traceId: string,
   source: string | undefined,
 ): void {
-  logToDatadog(c.executionCtx, c.env, c.req.raw, {
+  logToPosthog(c.executionCtx, c.env, c.req.raw, {
     level: error.status >= 500 ? 'error' : 'warn',
     message: `Request error ${error.status} ${error.code}: ${error.message}`,
     ...(source ? { source } : {}),

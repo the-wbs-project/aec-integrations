@@ -36,7 +36,7 @@
  * ── WRITE MECHANICS ─────────────────────────────────────────────────────────
  * One `db.batch([...])` per write carrying the mutation and its `audit_log` row
  * (the §26.1 invariant — D1 has no interactive transactions). Post-commit, the
- * Cache-Tag purge and the Datadog forward run in `waitUntil`, both best-effort.
+ * Cache-Tag purge and the §26.5 forward run in `waitUntil`, both best-effort.
  * Ids are generated up front, never read back from `db.batch()`.
  */
 

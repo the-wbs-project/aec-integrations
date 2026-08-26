@@ -227,6 +227,27 @@
         // Worker; the service-role key is a Worker SECRET (not a var here), used
         // only by the ADR-0016 split-identity seams (AUTH_AND_RLS.md §4).
         "SUPABASE_URL": "https://ktuhnlypztujpsseujzx.supabase.co",
+        // AECI-640 / AECI-642: PostHog INGEST host + publishable project key.
+        // `us.i.posthog.com` is the INGEST host; `us.posthog.com` (no `.i`) is the
+        // MANAGEMENT API and 404s on an intake path. Easy to swap, confusing to
+        // diagnose. The OTLP intakes (`/i/v1/logs`, `/i/v1/metrics`) authenticate
+        // with an `Authorization: Bearer <token>` header; an `?api_key=` query param
+        // is rejected 401 there (verified 2026-08-24).
+        //
+        // POSTHOG_PROJECT_KEY is a `phc_` PUBLISHABLE key. The SSR Worker already
+        // renders it into the served HTML on every page (window.__AECI_POSTHOG__),
+        // so it is not a secret and committing it costs nothing. AECI-239 kept it as
+        // a CI-pushed secret for tidiness; that is exactly what produced the
+        // weeks-dark production analytics of AECI-326 (push step present, secret
+        // absent, warn-and-skip silent). A committed var has no provisioning step to
+        // forget, and it takes Worker telemetry secrets from 4 to 0.
+        //
+        // Project topology (POSTHOG_MIGRATION_SPEC.md §3.6 / D4): preview, staging,
+        // demo and stage2 all report to `aec-integrations-dev` (525793); ONLY
+        // production reports to `aec-integrations` (354071). Tiers inside the
+        // non-prod project are separated by `$host`/`env`.
+        "POSTHOG_HOST": "https://us.i.posthog.com",
+        "POSTHOG_PROJECT_KEY": "phc_pY8FDQ9FNAmFUJFFd85jNKAAUCMvndUsyGMMV8TR97MD",
       },
       "kv_namespaces": [
         {
@@ -286,6 +307,10 @@
         // Worker; the service-role key is a Worker SECRET (not a var here), used
         // only by the ADR-0016 split-identity seams (AUTH_AND_RLS.md §4).
         "SUPABASE_URL": "https://ktuhnlypztujpsseujzx.supabase.co",
+        "POSTHOG_HOST": "https://us.i.posthog.com",
+        // See the preview env note (AECI-640): non-prod tiers report to
+        // `aec-integrations-dev` (525793).
+        "POSTHOG_PROJECT_KEY": "phc_pY8FDQ9FNAmFUJFFd85jNKAAUCMvndUsyGMMV8TR97MD",
         // AECI-240 / Phase 7.5: transactional email (Resend). EMAIL_FROM is the
         // verified sender; PUBLIC_SITE_URL builds absolute links in emails;
         // ADMIN_ALERT_EMAIL receives the §6.2 reconcile-sweep stuck-request alert.
@@ -473,6 +498,12 @@
         // Drives JWKS user-JWT verification only (lib/user-auth.ts) — public
         // material, no DB round-trip.
         "SUPABASE_URL": "https://ktuhnlypztujpsseujzx.supabase.co",
+        "POSTHOG_HOST": "https://us.i.posthog.com",
+        // AECI-640 REPOINT: demo previously received POSTHOG_KEY_PRODUCTION from
+        // promote-to-demo.yml, so synthetic demo traffic landed in the PROD project
+        // (354071) and skewed every production number. Demo is a non-prod tier and
+        // reports to `aec-integrations-dev` (525793). See the preview env note.
+        "POSTHOG_PROJECT_KEY": "phc_pY8FDQ9FNAmFUJFFd85jNKAAUCMvndUsyGMMV8TR97MD",
         // AECI-240 / Phase 7.5: transactional email (Resend). See the staging note.
         "EMAIL_FROM": "AEC Integrations <notifications@aecintegrations.com>",
         "PUBLIC_SITE_URL": "https://demo.aecintegrations.com",
@@ -634,6 +665,10 @@
         "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
         // ADR 0017: the single shared auth project (same value in every env).
         "SUPABASE_URL": "https://ktuhnlypztujpsseujzx.supabase.co",
+        "POSTHOG_HOST": "https://us.i.posthog.com",
+        // See the preview env note (AECI-640). stage2 is a TEMPORARY test tier
+        // (AECI-637) and reports to `aec-integrations-dev` (525793).
+        "POSTHOG_PROJECT_KEY": "phc_pY8FDQ9FNAmFUJFFd85jNKAAUCMvndUsyGMMV8TR97MD",
         // AECI-240: EMAIL_FROM + PUBLIC_SITE_URL shape any mail this tier composes.
         // RESEND_API_KEY was PROVISIONED 2026-08-24 for claim-decision email testing
         // (docs/environments.md §10.6) — this tier now sends REAL mail to real
@@ -705,6 +740,11 @@
         // Worker; the service-role key is a Worker SECRET (not a var here), used
         // only by the ADR-0016 split-identity seams (AUTH_AND_RLS.md §4).
         "SUPABASE_URL": "https://ktuhnlypztujpsseujzx.supabase.co",
+        "POSTHOG_HOST": "https://us.i.posthog.com",
+        // AECI-640: the ONLY tier that reports to the production PostHog project
+        // `aec-integrations` (354071). Every other tier uses the dev project — see
+        // the preview env note.
+        "POSTHOG_PROJECT_KEY": "phc_Ka6zXrunFnSKZS6jQTqG6GNQHKuya9RTMZzQvcY7reJ",
         // AECI-240 / Phase 7.5: transactional email (Resend). See the staging note.
         // The RESEND_API_KEY secret is pushed by CI from RESEND_API_KEY_PRODUCTION
         // — absent → sends skip.

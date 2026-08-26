@@ -1,0 +1,409 @@
+{
+  "_readme": [
+    "AECI-647 / PH-6 — docs/POSTHOG_MIGRATION_SPEC.md §AW6.",
+    "Every dashboard and insight in the AECi PostHog observability plane, as data. apply.sh",
+    "is a thin applier over this file; it invents nothing.",
+    "",
+    "Shapes verified live against project 354071 on 2026-08-24: dashboard-create,",
+    "insight-create (DataVisualizationNode + HogQLQuery), and every query below compiled and",
+    "executed. They return ZERO ROWS today because the AECI-642 transport has not shipped —",
+    "that is expected, not a defect. See README.md §\"What is verified and what is not\".",
+    "",
+    "Two shape rules, both load-bearing:",
+    "  - Board insights may return any number of rows.",
+    "  - ALERT-SOURCE insights (dashboard \"AECi — Alert signal sources\") MUST be an aggregate",
+    "    with NO GROUP BY, so they always return exactly one row. A query that can return zero",
+    "    rows gives its alert nothing to evaluate."
+  ],
+  "managedBy": "AECI-647",
+  "dashboards": [
+    {
+      "name": "AECi — Traffic (SSR + API)",
+      "description": "Ported from observability/datadog/dashboard.json (Phase 2, AECI-66). Worker-side request volume, latency and error rate for both Workers. NOTE (WC-8 / AECI-322): under native Workers Cache a HIT skips the SSR Worker entirely, so cache_status is MISS / non_cacheable only — there is no hit series, and these are MISS / Worker-run volume. Edge HIT rate lives on the Cloudflare Workers dashboard.",
+      "tags": ["aeci", "observability", "managed-by:aeci-647"],
+      "pinned": true
+    },
+    {
+      "name": "AECi — Search (Algolia + browser)",
+      "description": "Ported from observability/datadog/dashboard-search.json (Phase 3, AECI-141/140/174/266). Algolia sync health, index drift, the orphan sweep, and browser search telemetry. The two browser widgets were sourced from the retiring Datadog RUM aeci.search.query action and now read the consent-gated search_performed event instead (spec §3.9) — a deliberate narrowing from all searches to the consented slice.",
+      "tags": ["aeci", "observability", "managed-by:aeci-647"],
+      "pinned": false
+    },
+    {
+      "name": "AECi — Home / Stats",
+      "description": "Ported from observability/datadog/dashboard-home-stats.json (Phase 4, AECI-180). The two silent-failure surfaces behind the home page: the daily home-stats compute cron and the deferred page_views write.",
+      "tags": ["aeci", "observability", "managed-by:aeci-647"],
+      "pinned": false
+    },
+    {
+      "name": "AECi — Auth / Reviews / Moderation",
+      "description": "Ported from observability/datadog/dashboard-auth-reviews.json (Phase 5, AECI-206). Sign-ins (emitted by the SSR Worker at /auth/callback, so service=aeci-web not aeci-api), review submits, moderation actions, toxicity scoring, and the daily moderation-queue gauges.",
+      "tags": ["aeci", "observability", "managed-by:aeci-647"],
+      "pinned": false
+    },
+    {
+      "name": "AECi — Requests / Linear pipeline",
+      "description": "Ported from observability/datadog/dashboard-requests-moderation.json (Phase 6, AECI-219). The request→Linear pipeline: issue creation, the site→Linear resolution push, inbound webhooks, and the every-15-minute reconciliation sweep.",
+      "tags": ["aeci", "observability", "managed-by:aeci-647"],
+      "pinned": false
+    },
+    {
+      "name": "AECi — Cron health & retention",
+      "description": "NEW — no Datadog board equivalent; cron health lived only in monitors. Carries (a) the in-product mirror of the external liveness sweep, (b) the per-job failure roll-up, and (c) the two non-paging Datadog monitors the spec §5 table routes to 'digest': 'Retention prune skipped (metrics_daily gap)' and 'Data quality check found WARN-severity issues'. Both keep their old thresholds in observability/posthog/README.md.",
+      "tags": ["aeci", "observability", "managed-by:aeci-647"],
+      "pinned": true
+    },
+    {
+      "name": "AECi — Alert signal sources",
+      "description": "One insight per PostHog alert. Every alert must be attached to an insight, and every one of these returns EXACTLY ONE ROW by construction (an aggregate with no GROUP BY), so a healthy-but-empty window evaluates to 0 rather than to 'no rows' — which is the shape that makes a threshold alert safe. Reading this board top to bottom tells you what every alert currently sees. Do not add breakdowns here; use the topic boards for that.",
+      "tags": ["aeci", "observability", "alerts", "managed-by:aeci-647"],
+      "pinned": true
+    }
+  ],
+  "insights": [
+    {
+      "name": "AECi — Traffic — SSR render volume and latency by route class",
+      "dashboard": "AECi — Traffic (SSR + API)",
+      "description": "Datadog parity: 'Top routes by request count (SSR route_class)' + 'Page render duration per route_class — p50/p95/p99'. p50/p99 are not reconstructed: the OTLP explicit-bucket histogram gives an exact bucket-upper-bound percentile, and one (p95, the one that carried a monitor) is enough here.",
+      "tags": ["aeci", "managed-by:aeci-647"],
+      "display": "ActionsTable",
+      "query": "-- AECI-647 / PH-6. Source: observability/datadog/dashboard.json widgets 1 + 3.\n-- `count` is the OTLP histogram observation count, `value` the sum of observations,\n-- so mean = sum(value)/sum(count). p95 is the upper bound of the bucket the 95th\n-- observation falls in — see the 'AECi — ALERT' insight of the same shape for the\n-- guard rails (overflow sentinel + minimum sample).\nSELECT\n    m.attributes.route_class                                          AS route_class,\n    lower(m.attributes.cache_status)                                  AS cache_status,\n    toInt(sum(m.count))                                               AS renders,\n    round(sum(m.value) / greatest(sum(m.count), 1), 1)                AS mean_ms\nFROM posthog.metrics AS m\nWHERE m.timestamp >= now() - INTERVAL 24 HOUR\n  AND m.metric_name = 'aeci.page.render.duration_ms'\nGROUP BY route_class, cache_status\nORDER BY renders DESC"
+    },
+    {
+      "name": "AECi — Traffic — SSR render latency distribution (histogram buckets)",
+      "dashboard": "AECi — Traffic (SSR + API)",
+      "description": "The exact latency shape, with no percentile reconstruction at all: observation counts per explicit OTLP bucket. This is the widget to trust while PostHog Metrics is still alpha — it is a straight read of what the transport sent.",
+      "tags": ["aeci", "managed-by:aeci-647"],
+      "display": "ActionsTable",
+      "query": "-- AECI-647 / PH-6. No Datadog equivalent — Datadog's distribution type hid the buckets.\n-- Bucket bounds are pinned by the transport (spec §2):\n--   [5,10,25,50,75,100,250,500,750,1000,1500,2500,5000,7500,10000] ms\n-- `histogram_counts` has bounds.length + 1 entries; the last is the +Inf overflow bucket,\n-- rendered below as the string '>10000'.\nWITH agg AS (\n    SELECT\n        sumForEach(m.histogram_counts) AS counts,\n        any(m.histogram_bounds)        AS bounds\n    FROM posthog.metrics AS m\n    WHERE m.timestamp >= now() - INTERVAL 24 HOUR\n      AND m.metric_name = 'aeci.page.render.duration_ms'\n)\nSELECT\n    arrayJoin(\n        arrayZip(\n            arrayMap(i -> if(i > length(bounds), '>10000', concat('<=', toString(bounds[i]))),\n                     arrayEnumerate(counts)),\n            counts\n        )\n    ) AS bucket_and_count\nFROM agg"
+    },
+    {
+      "name": "AECi — Traffic — API query volume and p95 by endpoint",
+      "dashboard": "AECi — Traffic (SSR + API)",
+      "description": "Datadog parity: 'p95 API query duration per endpoint'. Tagged by MATCHED ROUTE PATTERN (e.g. /api/products/:slug), never the concrete path — the §3.5 cardinality rule. Note AECI-563: on /api/promote this now times only the fast kick-off; the ingest is aeci.api.promote.job.duration_ms.",
+      "tags": ["aeci", "managed-by:aeci-647"],
+      "display": "ActionsTable",
+      "query": "-- AECI-647 / PH-6. Source: observability/datadog/dashboard.json widget 4.\nWITH per_endpoint AS (\n    SELECT\n        m.attributes.endpoint          AS endpoint,\n        sumForEach(m.histogram_counts) AS counts,\n        any(m.histogram_bounds)        AS bounds\n    FROM posthog.metrics AS m\n    WHERE m.timestamp >= now() - INTERVAL 24 HOUR\n      AND m.metric_name = 'aeci.api.query.duration_ms'\n    GROUP BY endpoint\n)\nSELECT\n    endpoint,\n    toInt(arraySum(counts)) AS requests,\n    arrayPushBack(bounds, 999999.0)[\n        greatest(indexOf(arrayMap(c -> c >= 0.95 * arraySum(counts), arrayCumSum(counts)), 1), 1)\n    ] AS p95_bucket_upper_ms\nFROM per_endpoint\nORDER BY requests DESC\nLIMIT 40"
+    },
+    {
+      "name": "AECi — Traffic — 4xx / 5xx rate per hour, both Workers",
+      "dashboard": "AECi — Traffic (SSR + API)",
+      "description": "Datadog parity: '4xx / 5xx error rate over time (both Workers)'. Same numerator/denominator as the 'Worker error rate' alert, but broken out per hour so you can see the shape rather than the single number the alert evaluates.",
+      "tags": ["aeci", "managed-by:aeci-647"],
+      "display": "ActionsTable",
+      "query": "-- AECI-647 / PH-6. Source: observability/datadog/dashboard.json widget 5.\n-- lower() on status_class is defensive, not cosmetic: Datadog lowercased tag values on\n-- ingest and PostHog does not, so any casing assumption carried over from the Datadog\n-- queries is a silent-zero waiting to happen. See README.md §'Migration hazards'.\nSELECT\n    toStartOfHour(m.timestamp)                                                   AS hour,\n    toInt(sum(m.count))                                                          AS requests,\n    round(100.0 * sumIf(m.count, lower(m.attributes.status_class) = '4xx')\n          / greatest(sum(m.count), 1), 3)                                        AS rate_4xx_pct,\n    round(100.0 * sumIf(m.count, lower(m.attributes.status_class) = '5xx')\n          / greatest(sum(m.count), 1), 3)                                        AS rate_5xx_pct\nFROM posthog.metrics AS m\nWHERE m.timestamp >= now() - INTERVAL 7 DAY\n  AND m.metric_name IN ('aeci.page.render.duration_ms', 'aeci.api.query.duration_ms')\nGROUP BY hour\nORDER BY hour DESC\nLIMIT 200"
+    },
+    {
+      "name": "AECi — Traffic — cache purges by source and outcome",
+      "dashboard": "AECi — Traffic (SSR + API)",
+      "description": "Datadog parity: 'Cache purge events by source'. Extended with `outcome` because the WC-5/WC-6 split gave the consumer its own failure vocabulary (purge_failed / no_cache / noop) that the Datadog widget could not see.",
+      "tags": ["aeci", "managed-by:aeci-647"],
+      "display": "ActionsTable",
+      "query": "-- AECI-647 / PH-6. Source: observability/datadog/dashboard.json widget 6.\nSELECT\n    m.attributes.source  AS source,\n    m.attributes.outcome AS outcome,\n    m.attributes.mode    AS mode,\n    toInt(sum(m.value))  AS purges\nFROM posthog.metrics AS m\nWHERE m.timestamp >= now() - INTERVAL 7 DAY\n  AND m.metric_name = 'aeci.cache.purge'\nGROUP BY source, outcome, mode\nORDER BY purges DESC"
+    },
+    {
+      "name": "AECi — Search — Algolia sync runs by outcome, entity and trigger",
+      "dashboard": "AECi — Search (Algolia + browser)",
+      "description": "Datadog parity: 'Algolia sync runs by outcome' + 'by entity and trigger', merged — HogQL returns all three dimensions in one table where Datadog needed two widgets.",
+      "tags": ["aeci", "managed-by:aeci-647"],
+      "display": "ActionsTable",
+      "query": "-- AECI-647 / PH-6. Source: observability/datadog/dashboard-search.json widgets 1 + 2.\nSELECT\n    m.attributes.trigger AS trigger,\n    m.attributes.entity  AS entity,\n    m.attributes.outcome AS outcome,\n    toInt(sum(m.value))  AS runs\nFROM posthog.metrics AS m\nWHERE m.timestamp >= now() - INTERVAL 14 DAY\n  AND m.metric_name = 'aeci.algolia.sync'\nGROUP BY trigger, entity, outcome\nORDER BY runs DESC"
+    },
+    {
+      "name": "AECi — Search — Algolia sync duration and records pushed",
+      "dashboard": "AECi — Search (Algolia + browser)",
+      "description": "Datadog parity: 'Sync duration — p50/p95/p99 (by trigger)' + 'Records pushed per entity (saved/deleted)'. aeci.algolia.sync.records submits the RECORD COUNT as its value, not 1 — so it is summed, not counted.",
+      "tags": ["aeci", "managed-by:aeci-647"],
+      "display": "ActionsTable",
+      "query": "-- AECI-647 / PH-6. Source: observability/datadog/dashboard-search.json widgets 3 + 4.\nSELECT 'duration'                                                    AS section,\n       m.attributes.trigger                                          AS dimension_a,\n       ''                                                            AS dimension_b,\n       toInt(sum(m.count))                                           AS runs,\n       round(sum(m.value) / greatest(sum(m.count), 1), 1)            AS mean_ms_or_records\nFROM posthog.metrics AS m\nWHERE m.timestamp >= now() - INTERVAL 14 DAY\n  AND m.metric_name = 'aeci.algolia.sync.duration_ms'\nGROUP BY dimension_a\nUNION ALL\nSELECT 'records'                                                     AS section,\n       m.attributes.entity                                           AS dimension_a,\n       m.attributes.op                                               AS dimension_b,\n       0                                                             AS runs,\n       sum(m.value)                                                  AS mean_ms_or_records\nFROM posthog.metrics AS m\nWHERE m.timestamp >= now() - INTERVAL 14 DAY\n  AND m.metric_name = 'aeci.algolia.sync.records'\nGROUP BY dimension_a, dimension_b\nORDER BY section, dimension_a, dimension_b"
+    },
+    {
+      "name": "AECi — Search — Algolia index drift and orphan sweep per index",
+      "dashboard": "AECi — Search (Algolia + browser)",
+      "description": "Datadog parity: 'Index drift per index (AECI-140)'. Also carries the REPORT-ONLY value half of the dual Datadog monitor 'AECi — Algolia index drift (D1 ≠ Algolia)' (threshold: abs(drift) > 0 over 1d) — spec §5 routes the value half here and the liveness half to the CI sweep.",
+      "tags": ["aeci", "managed-by:aeci-647"],
+      "display": "ActionsTable",
+      "query": "-- AECI-647 / PH-6. Source: observability/datadog/dashboard-search.json widget 5,\n-- plus the AECI-266 orphan-sweep gauges the Datadog board never showed.\nSELECT\n    m.metric_name              AS metric,\n    m.attributes.index         AS index_name,\n    m.attributes.entity        AS entity,\n    argMax(m.value, m.timestamp) AS latest_value,\n    max(m.timestamp)           AS last_seen\nFROM posthog.metrics AS m\nWHERE m.timestamp >= now() - INTERVAL 14 DAY\n  AND m.metric_name IN (\n      'aeci.algolia.index_drift',\n      'aeci.algolia.orphans_removed',\n      'aeci.algolia.orphans_skipped_cap')\nGROUP BY metric, index_name, entity\nORDER BY metric, index_name"
+    },
+    {
+      "name": "AECi — Search — browser query latency by result bucket (consented slice)",
+      "dashboard": "AECi — Search (Algolia + browser)",
+      "description": "RE-HOMED (spec §3.9). Datadog source: 'Search query latency — p50/p95/p99 (browser RUM, AECI-174)'. Two accepted narrowings: the RUM action saw every search, this sees only the consented slice; and the action carried `index` while search_performed does not, so the per-index split is lost. Grouped by results_bucket instead. Full note in observability/posthog/README.md.",
+      "tags": ["aeci", "managed-by:aeci-647"],
+      "display": "ActionsTable",
+      "query": "-- AECI-647 / PH-6. Source: observability/datadog/dashboard-search.json widget 6.\n-- Reads the PRODUCT-ANALYTICS event, not a metric — hence `events`, not posthog.metrics.\n-- `status` / `duration_ms` / `results_bucket` are already on the searchPerformed()\n-- signature (apps/web/src/app/analytics/analytics.ts); `index` is NOT, so the RUM\n-- action's per-index split does not survive the re-home. Until prod carries these\n-- properties the columns read null and this is empty rather than wrong — PostHog's\n-- taxonomy warning on `duration_ms` is the expected pre-AW2 state.\nSELECT\n    properties.results_bucket                                                 AS results_bucket,\n    count()                                                                   AS queries,\n    round(avg(toFloatOrNull(toString(properties.duration_ms))), 1)            AS mean_ms,\n    round(quantile(0.95)(toFloatOrNull(toString(properties.duration_ms))), 1) AS p95_ms\nFROM events\nWHERE timestamp >= now() - INTERVAL 7 DAY\n  AND event = 'search_performed'\nGROUP BY results_bucket\nORDER BY queries DESC"
+    },
+    {
+      "name": "AECi — Search — browser query error rate (consented slice)",
+      "dashboard": "AECi — Search (Algolia + browser)",
+      "description": "RE-HOMED (spec §3.9). Datadog source: 'Search query error rate (%) (browser RUM, AECI-174)'. The Datadog widget had to restrict the denominator to @context.index:(products OR federated) because one successful /search query emitted TWO ok actions while a failure emitted ONE — the event carries one row per query, so that correction is no longer needed.",
+      "tags": ["aeci", "managed-by:aeci-647"],
+      "display": "ActionsTable",
+      "query": "-- AECI-647 / PH-6. Source: observability/datadog/dashboard-search.json widget 7.\n-- The Datadog widget had to restrict its denominator to @context.index:(products OR\n-- federated) because ONE successful /search query emitted TWO ok RUM actions (one per\n-- index) while a failure emitted ONE federated error — counting all actions halved the\n-- apparent error rate. search_performed is one row per query, so that correction is\n-- gone along with the `index` dimension that made it necessary.\nSELECT\n    toStartOfDay(timestamp) AS day,\n    count()                 AS queries,\n    round(100.0 * countIf(toString(properties.status) = 'error') / greatest(count(), 1), 2) AS error_rate_pct\nFROM events\nWHERE timestamp >= now() - INTERVAL 30 DAY\n  AND event = 'search_performed'\nGROUP BY day\nORDER BY day DESC\nLIMIT 60"
+    },
+    {
+      "name": "AECi — Home stats — compute runs by outcome and duration",
+      "dashboard": "AECi — Home / Stats",
+      "description": "Datadog parity: 'Stats compute runs by outcome' + 'Stats compute duration — p50/p95/p99'.",
+      "tags": ["aeci", "managed-by:aeci-647"],
+      "display": "ActionsTable",
+      "query": "-- AECI-647 / PH-6. Source: observability/datadog/dashboard-home-stats.json widgets 1 + 2.\nSELECT\n    m.attributes.trigger AS trigger,\n    m.attributes.outcome AS outcome,\n    toInt(sum(m.value))  AS runs\nFROM posthog.metrics AS m\nWHERE m.timestamp >= now() - INTERVAL 14 DAY\n  AND m.metric_name = 'aeci.stats.compute'\nGROUP BY trigger, outcome\nORDER BY runs DESC"
+    },
+    {
+      "name": "AECi — Home stats — per-key outcome (which key failed)",
+      "dashboard": "AECi — Home / Stats",
+      "description": "Datadog parity: 'Per-key compute outcome (which key failed)' + 'Per-key compute duration — p95 (by key)'. Per-key is best-effort: one key failing does not abort the rest, which is exactly why the per-key breakdown exists.",
+      "tags": ["aeci", "managed-by:aeci-647"],
+      "display": "ActionsTable",
+      "query": "-- AECI-647 / PH-6. Source: observability/datadog/dashboard-home-stats.json widgets 3 + 4.\nSELECT\n    m.attributes.key     AS stats_cache_key,\n    m.attributes.outcome AS outcome,\n    toInt(sum(m.value))  AS runs\nFROM posthog.metrics AS m\nWHERE m.timestamp >= now() - INTERVAL 14 DAY\n  AND m.metric_name = 'aeci.stats.compute.key'\nGROUP BY stats_cache_key, outcome\nORDER BY stats_cache_key, outcome"
+    },
+    {
+      "name": "AECi — Page views — writes by outcome and bot class",
+      "dashboard": "AECi — Home / Stats",
+      "description": "Datadog parity: 'Page-view writes by outcome'. Extended with the AECI-526 `bot` tag so the human/bot ratio is readable here rather than only in the daily digest — prod page_views has historically been ~89% bot.",
+      "tags": ["aeci", "managed-by:aeci-647"],
+      "display": "ActionsTable",
+      "query": "-- AECI-647 / PH-6. Source: observability/datadog/dashboard-home-stats.json widget 5.\nSELECT\n    toStartOfDay(m.timestamp) AS day,\n    m.attributes.outcome      AS outcome,\n    m.attributes.bot          AS bot,\n    toInt(sum(m.value))       AS writes\nFROM posthog.metrics AS m\nWHERE m.timestamp >= now() - INTERVAL 14 DAY\n  AND m.metric_name = 'aeci.pageviews.write'\nGROUP BY day, outcome, bot\nORDER BY day DESC, writes DESC\nLIMIT 200"
+    },
+    {
+      "name": "AECi — Page views — write error rate per hour (%)",
+      "dashboard": "AECi — Home / Stats",
+      "description": "Datadog parity: 'Page-view write error rate (%)'. Same numerator/denominator as the page_views alert, per hour.",
+      "tags": ["aeci", "managed-by:aeci-647"],
+      "display": "ActionsTable",
+      "query": "-- AECI-647 / PH-6. Source: observability/datadog/dashboard-home-stats.json widget 6.\nSELECT\n    toStartOfHour(m.timestamp) AS hour,\n    toInt(sum(m.value))        AS writes,\n    round(100.0 * sumIf(m.value, m.attributes.outcome = 'failed')\n          / greatest(sum(m.value), 1), 2) AS error_rate_pct\nFROM posthog.metrics AS m\nWHERE m.timestamp >= now() - INTERVAL 7 DAY\n  AND m.metric_name = 'aeci.pageviews.write'\nGROUP BY hour\nORDER BY hour DESC\nLIMIT 200"
+    },
+    {
+      "name": "AECi — Auth — sign-ins by method and outcome",
+      "dashboard": "AECi — Auth / Reviews / Moderation",
+      "description": "Datadog parity: 'Sign-ins by outcome' + 'Sign-ins by method', merged. Emitted from the SSR Worker at /auth/callback, so these rows carry service=aeci-web, NOT aeci-api. 'Attempts' = the sum over outcomes (one per sign-in COMPLETION); browser-side initiation is not counted.",
+      "tags": ["aeci", "managed-by:aeci-647"],
+      "display": "ActionsTable",
+      "query": "-- AECI-647 / PH-6. Source: observability/datadog/dashboard-auth-reviews.json widgets 1 + 2.\nSELECT\n    m.attributes.method  AS method,\n    m.attributes.outcome AS outcome,\n    m.attributes.reason  AS failure_reason,\n    toInt(sum(m.value))  AS signins\nFROM posthog.metrics AS m\nWHERE m.timestamp >= now() - INTERVAL 14 DAY\n  AND m.metric_name = 'aeci.auth.signin'\nGROUP BY method, outcome, failure_reason\nORDER BY signins DESC"
+    },
+    {
+      "name": "AECi — Auth — sign-in failure rate per hour (%)",
+      "dashboard": "AECi — Auth / Reviews / Moderation",
+      "description": "Datadog parity: 'Auth failure rate (%)'. Per hour, so the alert's single hourly number can be read in context.",
+      "tags": ["aeci", "managed-by:aeci-647"],
+      "display": "ActionsTable",
+      "query": "-- AECI-647 / PH-6. Source: observability/datadog/dashboard-auth-reviews.json widget 3.\nSELECT\n    toStartOfHour(m.timestamp) AS hour,\n    toInt(sum(m.value))        AS attempts,\n    round(100.0 * sumIf(m.value, m.attributes.outcome = 'failed')\n          / greatest(sum(m.value), 1), 1) AS failure_rate_pct\nFROM posthog.metrics AS m\nWHERE m.timestamp >= now() - INTERVAL 7 DAY\n  AND m.metric_name = 'aeci.auth.signin'\nGROUP BY hour\nORDER BY hour DESC\nLIMIT 200"
+    },
+    {
+      "name": "AECi — Reviews — submits by outcome",
+      "dashboard": "AECi — Auth / Reviews / Moderation",
+      "description": "Datadog parity: 'Review submits by outcome'. outcome ∈ ok / duplicate / product_not_found.",
+      "tags": ["aeci", "managed-by:aeci-647"],
+      "display": "ActionsTable",
+      "query": "-- AECI-647 / PH-6. Source: observability/datadog/dashboard-auth-reviews.json widget 4.\nSELECT\n    toStartOfDay(m.timestamp) AS day,\n    m.attributes.outcome      AS outcome,\n    toInt(sum(m.value))       AS submits\nFROM posthog.metrics AS m\nWHERE m.timestamp >= now() - INTERVAL 30 DAY\n  AND m.metric_name = 'aeci.review.submit'\nGROUP BY day, outcome\nORDER BY day DESC\nLIMIT 200"
+    },
+    {
+      "name": "AECi — Moderation — actions, bans and request moderation",
+      "dashboard": "AECi — Auth / Reviews / Moderation",
+      "description": "Datadog parity: 'Moderation actions by action / outcome'. Extended with aeci.moderation.ban (AECI-218/524, with the AECI-524 role tag) and aeci.request.moderation.action (AECI-216) — both shipped after the Datadog board was exported and were never added to it.",
+      "tags": ["aeci", "managed-by:aeci-647"],
+      "display": "ActionsTable",
+      "query": "-- AECI-647 / PH-6. Source: observability/datadog/dashboard-auth-reviews.json widget 5.\nSELECT\n    m.metric_name        AS metric,\n    m.attributes.action  AS action,\n    m.attributes.role    AS role,\n    m.attributes.outcome AS outcome,\n    toInt(sum(m.value))  AS actions\nFROM posthog.metrics AS m\nWHERE m.timestamp >= now() - INTERVAL 30 DAY\n  AND m.metric_name IN (\n      'aeci.moderation.action',\n      'aeci.moderation.ban',\n      'aeci.request.moderation.action')\nGROUP BY metric, action, role, outcome\nORDER BY metric, actions DESC"
+    },
+    {
+      "name": "AECi — Toxicity — scoring volume, error rate and latency",
+      "dashboard": "AECi — Auth / Reviews / Moderation",
+      "description": "Datadog parity: 'Toxicity scoring latency — p50/p95/p99' + 'Toxicity scoring error rate (%)', merged. Backed by Claude Haiku since AECI-258 (Perspective API sunset).",
+      "tags": ["aeci", "managed-by:aeci-647"],
+      "display": "ActionsTable",
+      "query": "-- AECI-647 / PH-6. Source: observability/datadog/dashboard-auth-reviews.json widgets 6 + 7.\nSELECT\n    toStartOfDay(m.timestamp) AS day,\n    toInt(sum(m.value))       AS calls,\n    round(100.0 * sumIf(m.value, m.attributes.outcome = 'failed')\n          / greatest(sum(m.value), 1), 1) AS error_rate_pct,\n    arrayStringConcat(groupUniqArrayIf(toString(m.attributes.reason),\n                                       m.attributes.outcome = 'failed'), ', ') AS failure_reasons\nFROM posthog.metrics AS m\nWHERE m.timestamp >= now() - INTERVAL 30 DAY\n  AND m.metric_name = 'aeci.toxicity.api'\nGROUP BY day\nORDER BY day DESC\nLIMIT 100"
+    },
+    {
+      "name": "AECi — Moderation — queue depth and oldest pending age",
+      "dashboard": "AECi — Auth / Reviews / Moderation",
+      "description": "Datadog parity: 'Moderation queue — oldest pending age (h) + depth'. Also carries the BACKLOG half of the dual Datadog monitor 'AECi — Moderation queue backlog (oldest pending > 48h)' — spec §5 routes the backlog half to dashboard/digest and the liveness half to the CI sweep. Old threshold: oldest pending > 48h over 1d.",
+      "tags": ["aeci", "managed-by:aeci-647"],
+      "display": "ActionsTable",
+      "query": "-- AECI-647 / PH-6. Source: observability/datadog/dashboard-auth-reviews.json widget 8.\n-- Gauges: read the LATEST sample per day, not a sum. The 06:00 UTC cron writes one\n-- sample per day, so argMax collapses to that sample.\nSELECT\n    toStartOfDay(m.timestamp) AS day,\n    argMaxIf(m.value, m.timestamp, m.metric_name = 'aeci.moderation.queue_depth')             AS queue_depth,\n    argMaxIf(m.value, m.timestamp, m.metric_name = 'aeci.moderation.queue_oldest_age_hours')  AS oldest_pending_hours\nFROM posthog.metrics AS m\nWHERE m.timestamp >= now() - INTERVAL 60 DAY\n  AND m.metric_name IN ('aeci.moderation.queue_depth', 'aeci.moderation.queue_oldest_age_hours')\nGROUP BY day\nORDER BY day DESC\nLIMIT 100"
+    },
+    {
+      "name": "AECi — Linear — issue creation by outcome and kind",
+      "dashboard": "AECi — Requests / Linear pipeline",
+      "description": "Datadog parity: 'Linear issue creation by outcome' + 'by kind', merged. outcome ∈ ok / failed / skipped_exists (an idempotent re-fire); kind ∈ claim / correction.",
+      "tags": ["aeci", "managed-by:aeci-647"],
+      "display": "ActionsTable",
+      "query": "-- AECI-647 / PH-6. Source: observability/datadog/dashboard-requests-moderation.json widgets 1 + 2.\nSELECT\n    m.attributes.kind    AS kind,\n    m.attributes.outcome AS outcome,\n    m.attributes.reason  AS failure_reason,\n    toInt(sum(m.value))  AS issues\nFROM posthog.metrics AS m\nWHERE m.timestamp >= now() - INTERVAL 30 DAY\n  AND m.metric_name = 'aeci.linear.issue'\nGROUP BY kind, outcome, failure_reason\nORDER BY issues DESC"
+    },
+    {
+      "name": "AECi — Linear — pipeline failure rate per hour (%)",
+      "dashboard": "AECi — Requests / Linear pipeline",
+      "description": "Datadog parity: 'Linear issue creation failure rate (%)' + 'Site→Linear sync' failure rate. Same numerator/denominator as the pipeline alert. The skipped_* outcomes are excluded from the denominator: an idempotent re-fire or a no-issue sync is not a terminal attempt.",
+      "tags": ["aeci", "managed-by:aeci-647"],
+      "display": "ActionsTable",
+      "query": "-- AECI-647 / PH-6. Source: observability/datadog/dashboard-requests-moderation.json widget 3.\nSELECT\n    toStartOfHour(m.timestamp) AS hour,\n    toInt(sum(m.value))        AS terminal_attempts,\n    round(100.0 * sumIf(m.value, m.attributes.outcome = 'failed')\n          / greatest(sum(m.value), 1), 1) AS failure_rate_pct\nFROM posthog.metrics AS m\nWHERE m.timestamp >= now() - INTERVAL 14 DAY\n  AND m.metric_name IN ('aeci.linear.issue', 'aeci.linear.sync')\n  AND m.attributes.outcome NOT IN ('skipped_exists', 'skipped_no_issue')\nGROUP BY hour\nORDER BY hour DESC\nLIMIT 200"
+    },
+    {
+      "name": "AECi — Linear — site→Linear sync by outcome and target status",
+      "dashboard": "AECi — Requests / Linear pipeline",
+      "description": "Datadog parity: 'Site→Linear sync by outcome' + 'by target status', merged. to_status ∈ resolved / rejected.",
+      "tags": ["aeci", "managed-by:aeci-647"],
+      "display": "ActionsTable",
+      "query": "-- AECI-647 / PH-6. Source: observability/datadog/dashboard-requests-moderation.json widgets 5 + 6.\nSELECT\n    m.attributes.to_status AS to_status,\n    m.attributes.kind      AS kind,\n    m.attributes.outcome   AS outcome,\n    toInt(sum(m.value))    AS syncs\nFROM posthog.metrics AS m\nWHERE m.timestamp >= now() - INTERVAL 30 DAY\n  AND m.metric_name = 'aeci.linear.sync'\nGROUP BY to_status, kind, outcome\nORDER BY syncs DESC"
+    },
+    {
+      "name": "AECi — Linear — issue and sync latency",
+      "dashboard": "AECi — Requests / Linear pipeline",
+      "description": "Datadog parity: 'Linear issue creation latency — p50/p95/p99' + 'Site→Linear sync latency — p50/p95/p99'.",
+      "tags": ["aeci", "managed-by:aeci-647"],
+      "display": "ActionsTable",
+      "query": "-- AECI-647 / PH-6. Source: observability/datadog/dashboard-requests-moderation.json widgets 4 + 7.\nWITH per_metric AS (\n    SELECT\n        m.metric_name                  AS metric,\n        sumForEach(m.histogram_counts) AS counts,\n        any(m.histogram_bounds)        AS bounds\n    FROM posthog.metrics AS m\n    WHERE m.timestamp >= now() - INTERVAL 14 DAY\n      AND m.metric_name IN ('aeci.linear.issue.duration_ms', 'aeci.linear.sync.duration_ms')\n    GROUP BY metric\n)\nSELECT\n    metric,\n    toInt(arraySum(counts)) AS calls,\n    arrayPushBack(bounds, 999999.0)[\n        greatest(indexOf(arrayMap(c -> c >= 0.95 * arraySum(counts), arrayCumSum(counts)), 1), 1)\n    ] AS p95_bucket_upper_ms\nFROM per_metric\nORDER BY metric"
+    },
+    {
+      "name": "AECi — Linear — inbound webhook receipts and HMAC failures",
+      "dashboard": "AECi — Requests / Linear pipeline",
+      "description": "Datadog parity: 'Linear webhook receipts by action' + 'Linear webhook HMAC failures'. HMAC failures also carry an alert (>3/1h) — this is the shape behind that number.",
+      "tags": ["aeci", "managed-by:aeci-647"],
+      "display": "ActionsTable",
+      "query": "-- AECI-647 / PH-6. Source: observability/datadog/dashboard-requests-moderation.json widgets 8 + 9.\nSELECT\n    toStartOfDay(m.timestamp) AS day,\n    m.metric_name             AS metric,\n    m.attributes.type         AS resource_type,\n    m.attributes.action       AS action,\n    toInt(sum(m.value))       AS events\nFROM posthog.metrics AS m\nWHERE m.timestamp >= now() - INTERVAL 30 DAY\n  AND m.metric_name IN ('aeci.webhooks.linear.receipt', 'aeci.webhooks.linear.hmac_failure')\nGROUP BY day, metric, resource_type, action\nORDER BY day DESC, events DESC\nLIMIT 200"
+    },
+    {
+      "name": "AECi — Linear — reconciliation backlog, attempts and alert emails",
+      "dashboard": "AECi — Requests / Linear pipeline",
+      "description": "Datadog parity: 'Reconciliation backlog — stuck rows (gauge)' + 'Reconciliation attempts by outcome' + 'Reconciliation persistent failures' + 'Admin-alert email seam by outcome'. reconcile.attempt / .persistent_failure submit the ROW COUNT as their value, so they are summed; .stuck is a gauge read with argMax.",
+      "tags": ["aeci", "managed-by:aeci-647"],
+      "display": "ActionsTable",
+      "query": "-- AECI-647 / PH-6. Source: observability/datadog/dashboard-requests-moderation.json widgets 10–13.\nSELECT\n    toStartOfHour(m.timestamp) AS hour,\n    argMaxIf(m.value, m.timestamp, m.metric_name = 'aeci.linear.reconcile.stuck')   AS backlog_stuck_rows,\n    toInt(sumIf(m.value, m.metric_name = 'aeci.linear.reconcile.attempt'))          AS retry_attempts,\n    toInt(sumIf(m.value, m.metric_name = 'aeci.linear.reconcile.persistent_failure')) AS persistent_failures,\n    toInt(sumIf(m.value, m.metric_name = 'aeci.linear.reconcile.email'))            AS admin_alert_emails\nFROM posthog.metrics AS m\nWHERE m.timestamp >= now() - INTERVAL 7 DAY\n  AND m.metric_name IN (\n      'aeci.linear.reconcile.stuck',\n      'aeci.linear.reconcile.attempt',\n      'aeci.linear.reconcile.persistent_failure',\n      'aeci.linear.reconcile.email')\nGROUP BY hour\nORDER BY hour DESC\nLIMIT 200"
+    },
+    {
+      "name": "AECi — Crons — last heartbeat per job (in-product mirror of the CI sweep)",
+      "dashboard": "AECi — Cron health & retention",
+      "description": "NEW. The in-product mirror of scripts/ci/posthog-liveness-sweep.sh. It is a MIRROR, not the mechanism: an insight cannot page on absence, and a check that lives inside the system it watches cannot detect its own death — which is exactly why the sweep runs on GitHub Actions instead. If a job is missing from this table entirely, that IS the absence.",
+      "tags": ["aeci", "managed-by:aeci-647"],
+      "display": "ActionsTable",
+      "query": "-- AECI-647 / PH-6. Same twelve heartbeat series as observability/posthog/project-config.json\n-- `liveness.crons[].metric`. Keep the two lists in step.\nSELECT\n    m.metric_name                                        AS heartbeat_metric,\n    max(m.timestamp)                                     AS last_seen,\n    dateDiff('minute', max(m.timestamp), now())          AS age_minutes,\n    toInt(count())                                       AS points_72h\nFROM posthog.metrics AS m\nWHERE m.timestamp >= now() - INTERVAL 72 HOUR\n  AND m.metric_name IN (\n      'aeci.metrics_snapshot.run',\n      'aeci.retention.prune',\n      'aeci.data_quality.job',\n      'aeci.analytics_digest.email',\n      'aeci.moderation.queue_depth',\n      'aeci.stats.compute',\n      'aeci.algolia.sync',\n      'aeci.algolia.index_drift',\n      'aeci.attestation.notify.job',\n      'aeci.entitlement.expiry.job',\n      'aeci.linear.reconcile.stuck',\n      'aeci.waf.poll')\nGROUP BY heartbeat_metric\nORDER BY age_minutes DESC"
+    },
+    {
+      "name": "AECi — Crons — failed runs by job (last 7 days)",
+      "dashboard": "AECi — Cron health & retention",
+      "description": "NEW. The breakdown behind the combined 'Cron job failed (any job)' alert: which job, on which day. Four Datadog monitors (Algolia sync / home stats / data quality / retention prune failed) collapsed into that one alert; this is where you find out which of them fired.",
+      "tags": ["aeci", "managed-by:aeci-647"],
+      "display": "ActionsTable",
+      "query": "-- AECI-647 / PH-6. Ports the four Datadog *-failed monitors as a breakdown.\nSELECT\n    toStartOfDay(m.timestamp) AS day,\n    m.metric_name             AS job_metric,\n    m.attributes.trigger      AS trigger,\n    toInt(sum(m.value))       AS failed_runs\nFROM posthog.metrics AS m\nWHERE m.timestamp >= now() - INTERVAL 7 DAY\n  AND m.attributes.outcome = 'failed'\n  AND m.metric_name IN (\n      'aeci.metrics_snapshot.run',\n      'aeci.retention.prune',\n      'aeci.data_quality.job',\n      'aeci.analytics_digest.email',\n      'aeci.stats.compute',\n      'aeci.stats.compute.key',\n      'aeci.algolia.sync',\n      'aeci.attestation.notify.job',\n      'aeci.entitlement.expiry.job',\n      'aeci.waf.poll')\nGROUP BY day, job_metric, trigger\nORDER BY day DESC, failed_runs DESC"
+    },
+    {
+      "name": "AECi — Data quality — findings by check and severity",
+      "dashboard": "AECi — Cron health & retention",
+      "description": "Carries the Datadog monitor 'AECi — Data quality check found WARN-severity issues (by check)', which spec §5 routes to the digest (non-paging). Old threshold: max value by check > 0 over 1d, severity:warn. The ERROR-severity half keeps a real alert. A check that THREW emits the sentinel -1.",
+      "tags": ["aeci", "managed-by:aeci-647"],
+      "display": "ActionsTable",
+      "query": "-- AECI-647 / PH-6. Source: observability/datadog/monitor-data-quality-check-warn.json\n-- (digest/report-only) + monitor-data-quality-check.json (alerted separately).\nSELECT\n    toStartOfDay(m.timestamp)    AS day,\n    m.attributes.check           AS check_id,\n    m.attributes.severity        AS severity,\n    argMax(m.value, m.timestamp) AS findings,\n    if(argMax(m.value, m.timestamp) < 0, 'CHECK THREW', '') AS note\nFROM posthog.metrics AS m\nWHERE m.timestamp >= now() - INTERVAL 14 DAY\n  AND m.metric_name = 'aeci.data_quality.check'\nGROUP BY day, check_id, severity\nORDER BY day DESC, severity, findings DESC\nLIMIT 300"
+    },
+    {
+      "name": "AECi — Retention — rows deleted, skipped and truncated runs",
+      "dashboard": "AECi — Cron health & retention",
+      "description": "Carries the Datadog monitor 'AECi — Retention prune skipped (metrics_daily gap)', which spec §5 routes to the digest (non-paging). Old threshold: sum of outcome:skipped > 0 over 1d. `skipped` is the one to watch: a day inside the page_views cut window with no metrics_daily row makes the prune refuse to delete from EITHER table. The runaway threshold (>5,000 rows/table/day) keeps a real alert.",
+      "tags": ["aeci", "managed-by:aeci-647"],
+      "display": "ActionsTable",
+      "query": "-- AECI-647 / PH-6. Sources: monitor-retention-prune-skipped.json (digest) +\n-- monitor-retention-prune-runaway.json (alerted separately).\nSELECT\n    toStartOfDay(m.timestamp) AS day,\n    m.attributes.table        AS target_table,\n    toInt(sumIf(m.value, m.metric_name = 'aeci.retention.rows_deleted'))       AS rows_deleted,\n    toInt(sumIf(m.value, m.metric_name = 'aeci.retention.prune.truncated'))    AS truncated_runs,\n    toInt(sumIf(m.value, m.metric_name = 'aeci.retention.prune'\n                         AND m.attributes.outcome = 'skipped'))                AS skipped_runs,\n    arrayStringConcat(groupUniqArrayIf(toString(m.attributes.reason),\n                                       m.attributes.outcome = 'skipped'), ', ') AS skip_reason\nFROM posthog.metrics AS m\nWHERE m.timestamp >= now() - INTERVAL 30 DAY\n  AND m.metric_name IN (\n      'aeci.retention.rows_deleted',\n      'aeci.retention.prune',\n      'aeci.retention.prune.truncated')\nGROUP BY day, target_table\nORDER BY day DESC\nLIMIT 200"
+    },
+    {
+      "name": "AECi — ALERT — Worker 5xx rate (1 h)",
+      "dashboard": "AECi — Alert signal sources",
+      "description": "Fires when 5xx responses exceed 1% of Worker-run requests across BOTH Workers in the last hour. Datadog evaluated the same ratio every 5 minutes; hourly is the PostHog floor (spec D3) and is the single largest cadence loss in this migration.",
+      "tags": ["aeci", "alert-source", "managed-by:aeci-647"],
+      "display": "ActionsTable",
+      "query": "-- AECI-647 / PH-6. Replaces observability/datadog/monitor-error-rate.json.\n-- Denominator floor of 50: at low traffic a single 5xx is >1% and would page on noise.\n-- Datadog's 5-minute window had the same exposure; the floor is new and deliberate.\n-- `count` is the OTLP histogram observation count — the exact analogue of Datadog's\n-- count:<distribution>. Note (§8.2) raw status_code was dropped from the render metric\n-- for cardinality; status_class survives and is what this reads.\nSELECT\n    if(sum(m.count) >= 50,\n       round(100.0 * sumIf(m.count, lower(m.attributes.status_class) = '5xx')\n             / greatest(sum(m.count), 1), 3),\n       0.0)                                                        AS error_rate_pct,\n    concat(toString(toInt(sum(m.count))), ' Worker-run requests in 1h; ',\n           toString(toInt(sumIf(m.count, lower(m.attributes.status_class) = '5xx'))),\n           ' were 5xx')                                            AS sample\nFROM posthog.metrics AS m\nWHERE m.timestamp >= now() - INTERVAL 1 HOUR\n  AND m.metric_name IN ('aeci.page.render.duration_ms', 'aeci.api.query.duration_ms')"
+    },
+    {
+      "name": "AECi — ALERT — Cron job failed (any of the twelve, 24 h)",
+      "dashboard": "AECi — Alert signal sources",
+      "description": "COMBINED. One alert covering every scheduled job's failure heartbeat; the breach message names which job(s) via label_column, so combining costs nothing an operator would have used. Replaces four separate Datadog monitors and adds coverage for six crons Datadog never watched.",
+      "tags": ["aeci", "alert-source", "managed-by:aeci-647"],
+      "display": "ActionsTable",
+      "query": "-- AECI-647 / PH-6. Replaces FOUR Datadog monitors:\n--   monitor-algolia-sync-failed.json, monitor-stats-compute-failed.json,\n--   monitor-data-quality-failed.json, monitor-retention-prune-failed.json\n-- and ADDS the six crons Datadog had no failure monitor for: metrics-snapshot,\n-- analytics-digest, attestation-notify, entitlement-expiry, waf-poll, and the\n-- per-key half of home-stats.\n--\n-- No `trigger:cron` predicate, deliberately: aeci.algolia.sync and aeci.stats.compute\n-- also fire on trigger:promote, and a promote-path failure is a real failure. Datadog's\n-- Algolia monitor was already trigger-agnostic; its stats monitor was not, and that gap\n-- is closed here.\n--\n-- The aggregate has no GROUP BY, so it ALWAYS returns exactly one row (0 / '') even on\n-- a totally empty window. That is the shape a threshold alert needs — a query that can\n-- return zero rows has nothing for the alert to evaluate.\nSELECT\n    sum(m.value)                                                   AS failed_runs,\n    arrayStringConcat(groupUniqArray(m.metric_name), ', ')         AS failing_jobs\nFROM posthog.metrics AS m\nWHERE m.timestamp >= now() - INTERVAL 24 HOUR\n  AND m.attributes.outcome = 'failed'\n  AND m.metric_name IN (\n      'aeci.metrics_snapshot.run',\n      'aeci.retention.prune',\n      'aeci.data_quality.job',\n      'aeci.analytics_digest.email',\n      'aeci.stats.compute',\n      'aeci.stats.compute.key',\n      'aeci.algolia.sync',\n      'aeci.attestation.notify.job',\n      'aeci.entitlement.expiry.job',\n      'aeci.waf.poll')"
+    },
+    {
+      "name": "AECi — ALERT — Data quality ERROR-severity findings (24 h)",
+      "dashboard": "AECi — Alert signal sources",
+      "description": "Fires when any error-severity data-quality check reports a non-zero finding count OR throws. Distinct from the cron-failure alert: the job succeeded, the DATA is wrong. Different runbook, so it keeps its own alert.",
+      "tags": ["aeci", "alert-source", "managed-by:aeci-647"],
+      "display": "ActionsTable",
+      "query": "-- AECI-647 / PH-6. Replaces observability/datadog/monitor-data-quality-check.json.\n-- abs(), not max(): a check that THREW emits the sentinel -1, and Datadog's\n-- `max:... by {check} > 0` could not see that — a thrown error-severity check was\n-- silently indistinguishable from a clean one. Taking abs() closes that hole.\nSELECT\n    max(abs(m.value))                                                              AS worst_finding,\n    arrayStringConcat(groupUniqArrayIf(toString(m.attributes.check), m.value != 0), ', ') AS failing_checks\nFROM posthog.metrics AS m\nWHERE m.timestamp >= now() - INTERVAL 24 HOUR\n  AND m.metric_name = 'aeci.data_quality.check'\n  AND m.attributes.severity = 'error'"
+    },
+    {
+      "name": "AECi — ALERT — Retention prune deleted an unexpected number of rows (24 h)",
+      "dashboard": "AECi — Alert signal sources",
+      "description": "The destructive-job safety valve. Kept as its own alert rather than folded into the combined cron-failure alert: a runaway prune is a SUCCESSFUL run with the wrong effect, and its runbook is 'check what was deleted before it ages out', not 'restart the job'.",
+      "tags": ["aeci", "alert-source", "managed-by:aeci-647"],
+      "display": "ActionsTable",
+      "query": "-- AECI-647 / PH-6. Replaces observability/datadog/monitor-retention-prune-runaway.json.\n-- aeci.retention.rows_deleted is emitted every run for every table, zeros included,\n-- which is what makes a threshold (rather than a presence) test possible at all.\nSELECT\n    max(rows_deleted)                                                           AS max_rows_deleted,\n    arrayStringConcat(groupUniqArrayIf(tbl, rows_deleted > 5000), ', ')         AS tables_over_budget\nFROM (\n    SELECT\n        toString(m.attributes.table) AS tbl,\n        sum(m.value)                 AS rows_deleted\n    FROM posthog.metrics AS m\n    WHERE m.timestamp >= now() - INTERVAL 24 HOUR\n      AND m.metric_name = 'aeci.retention.rows_deleted'\n    GROUP BY tbl\n)"
+    },
+    {
+      "name": "AECi — ALERT — Linear reconciliation persistent failures (1 h)",
+      "dashboard": "AECi — Alert signal sources",
+      "description": "A user-visible vendor request whose Linear issue creation has failed repeatedly. Kept separate from the combined cron alert: the sweep itself is healthy, a REQUEST is stuck, and the operator action is to look at that request.",
+      "tags": ["aeci", "alert-source", "managed-by:aeci-647"],
+      "display": "ActionsTable",
+      "query": "-- AECI-647 / PH-6. Replaces observability/datadog/monitor-linear-reconcile-stuck.json.\n-- The metric submits the ROW COUNT as its value, not 1 — so it is summed, not counted.\nSELECT\n    sum(m.value)                                          AS persistent_failures,\n    'vendor_requests stuck open with linear_issue_id=null after a retry' AS detail\nFROM posthog.metrics AS m\nWHERE m.timestamp >= now() - INTERVAL 1 HOUR\n  AND m.metric_name = 'aeci.linear.reconcile.persistent_failure'"
+    },
+    {
+      "name": "AECi — ALERT — Algolia orphan sweep hit its safety cap (24 h)",
+      "dashboard": "AECi — Alert signal sources",
+      "description": "The delete-only orphan sweep refused a large purge. Kept separate from the combined cron alert because the JOB SUCCEEDED — folding a success-with-a-caveat into 'job failed' would make that alert's meaning mushy.",
+      "tags": ["aeci", "alert-source", "managed-by:aeci-647"],
+      "display": "ActionsTable",
+      "query": "-- AECI-647 / PH-6. Replaces observability/datadog/monitor-algolia-orphan-sweep-capped.json.\n-- Emitted only when the cap actually refuses a purge, so a healthy window has no rows —\n-- which is why this reads through a subquery aggregate that still yields one row.\nSELECT\n    max(skipped)                                                        AS max_skipped,\n    arrayStringConcat(groupUniqArrayIf(idx, skipped > 0), ', ')         AS capped_indexes\nFROM (\n    SELECT\n        toString(m.attributes.index) AS idx,\n        max(m.value)                 AS skipped\n    FROM posthog.metrics AS m\n    WHERE m.timestamp >= now() - INTERVAL 24 HOUR\n      AND m.metric_name = 'aeci.algolia.orphans_skipped_cap'\n    GROUP BY idx\n)"
+    },
+    {
+      "name": "AECi — ALERT — Auth sign-in failure rate (1 h)",
+      "dashboard": "AECi — Alert signal sources",
+      "description": "Datadog evaluated this over 15 minutes; hourly is the PostHog floor. Threshold unchanged at 30%. A minimum-denominator floor of 5 attempts is NEW — at AECi's sign-in volume a 1-of-2 failure is 50% and would have paged.",
+      "tags": ["aeci", "alert-source", "managed-by:aeci-647"],
+      "display": "ActionsTable",
+      "query": "-- AECI-647 / PH-6. Replaces observability/datadog/monitor-auth-error-rate.json.\n-- Emitted from the SSR Worker at /auth/callback, so these points carry service=aeci-web.\nSELECT\n    if(sum(m.value) >= 5,\n       round(100.0 * sumIf(m.value, m.attributes.outcome = 'failed')\n             / greatest(sum(m.value), 1), 1),\n       0.0)                                                          AS failure_rate_pct,\n    concat(toString(toInt(sum(m.value))), ' sign-in completions in 1h') AS sample\nFROM posthog.metrics AS m\nWHERE m.timestamp >= now() - INTERVAL 1 HOUR\n  AND m.metric_name = 'aeci.auth.signin'"
+    },
+    {
+      "name": "AECi — ALERT — Toxicity scoring failure rate (1 h)",
+      "dashboard": "AECi — Alert signal sources",
+      "description": "Datadog evaluated over 15 minutes; hourly is the PostHog floor. Threshold unchanged at 50%. Minimum-denominator floor of 5 is new.",
+      "tags": ["aeci", "alert-source", "managed-by:aeci-647"],
+      "display": "ActionsTable",
+      "query": "-- AECI-647 / PH-6. Replaces observability/datadog/monitor-toxicity-outage.json.\n-- Backed by Claude Haiku since AECI-258 (Perspective API sunset) —\n-- apps/api/src/lib/toxicity.ts.\nSELECT\n    if(sum(m.value) >= 5,\n       round(100.0 * sumIf(m.value, m.attributes.outcome = 'failed')\n             / greatest(sum(m.value), 1), 1),\n       0.0)                                                        AS failure_rate_pct,\n    concat(toString(toInt(sum(m.value))), ' scoring calls in 1h; reasons: ',\n           arrayStringConcat(groupUniqArrayIf(toString(m.attributes.reason),\n                                              m.attributes.outcome = 'failed'), '/')) AS sample\nFROM posthog.metrics AS m\nWHERE m.timestamp >= now() - INTERVAL 1 HOUR\n  AND m.metric_name = 'aeci.toxicity.api'"
+    },
+    {
+      "name": "AECi — ALERT — page_views write failure rate (1 h)",
+      "dashboard": "AECi — Alert signal sources",
+      "description": "Datadog evaluated over 10 minutes; hourly is the PostHog floor. Threshold unchanged at 10%. Minimum-denominator floor of 20 is new — page_views is the highest-volume write in the system, so 20/hour is a low bar that still suppresses the 3-request-hour false positive.",
+      "tags": ["aeci", "alert-source", "managed-by:aeci-647"],
+      "display": "ActionsTable",
+      "query": "-- AECI-647 / PH-6. Replaces observability/datadog/monitor-pageviews-write-errors.json.\n-- ADR 0022: page_views is a derived/log-class write and is exempt from audit_log — this\n-- metric plus job_runs IS its observability.\nSELECT\n    if(sum(m.value) >= 20,\n       round(100.0 * sumIf(m.value, m.attributes.outcome = 'failed')\n             / greatest(sum(m.value), 1), 2),\n       0.0)                                                        AS error_rate_pct,\n    concat(toString(toInt(sum(m.value))), ' page-view writes in 1h') AS sample\nFROM posthog.metrics AS m\nWHERE m.timestamp >= now() - INTERVAL 1 HOUR\n  AND m.metric_name = 'aeci.pageviews.write'"
+    },
+    {
+      "name": "AECi — ALERT — Linear pipeline failure rate (1 h)",
+      "dashboard": "AECi — Alert signal sources",
+      "description": "Window unchanged at 1 h (Datadog already used last_1h); only the evaluation cadence moves to hourly. Threshold unchanged at 50%. Minimum-denominator floor of 3 is new.",
+      "tags": ["aeci", "alert-source", "managed-by:aeci-647"],
+      "display": "ActionsTable",
+      "query": "-- AECI-647 / PH-6. Replaces observability/datadog/monitor-linear-pipeline-failure.json.\n-- The skipped_* outcomes are excluded from the denominator, exactly as Datadog did:\n-- an idempotent re-fire (skipped_exists) or a no-issue sync (skipped_no_issue) is not a\n-- terminal attempt and counting it would dilute a real outage into invisibility.\nSELECT\n    if(sum(m.value) >= 3,\n       round(100.0 * sumIf(m.value, m.attributes.outcome = 'failed')\n             / greatest(sum(m.value), 1), 1),\n       0.0)                                                        AS failure_rate_pct,\n    concat(toString(toInt(sum(m.value))), ' terminal pipeline attempts in 1h') AS sample\nFROM posthog.metrics AS m\nWHERE m.timestamp >= now() - INTERVAL 1 HOUR\n  AND m.metric_name IN ('aeci.linear.issue', 'aeci.linear.sync')\n  AND m.attributes.outcome NOT IN ('skipped_exists', 'skipped_no_issue')"
+    },
+    {
+      "name": "AECi — ALERT — Linear webhook HMAC failures (1 h)",
+      "dashboard": "AECi — Alert signal sources",
+      "description": "Security signal, unchanged in every respect: same 1 h window, same threshold of 3, only the evaluation cadence moves to hourly.",
+      "tags": ["aeci", "alert-source", "managed-by:aeci-647"],
+      "display": "ActionsTable",
+      "query": "-- AECI-647 / PH-6. Replaces observability/datadog/monitor-webhook-hmac-failure.json.\n-- Emitted BEFORE the 401 when Linear-Signature is missing or invalid. A sustained\n-- non-zero series is either a rotated webhook secret or someone probing the endpoint.\nSELECT\n    sum(m.value)                                              AS hmac_failures,\n    'POST /api/webhooks/linear rejected before handling'      AS detail\nFROM posthog.metrics AS m\nWHERE m.timestamp >= now() - INTERVAL 1 HOUR\n  AND m.metric_name = 'aeci.webhooks.linear.hmac_failure'"
+    },
+    {
+      "name": "AECi — ALERT — WAF rate-limit / challenge volume (1 h)",
+      "dashboard": "AECi — Alert signal sources",
+      "description": "THRESHOLD RESCALED, deliberately: Datadog fired on >500 blocked events in 15 minutes; the equivalent hourly rate is 500 x 4 = 2,000. The underlying data is unchanged — the source is an HOURLY cron reading the previous clock hour from Cloudflare's GraphQL API, so Datadog's 15-minute window was always coarser than it looked.",
+      "tags": ["aeci", "alert-source", "managed-by:aeci-647"],
+      "display": "ActionsTable",
+      "query": "-- AECI-647 / PH-6. Replaces observability/datadog/monitor-waf-ratelimit-spike.json.\n-- aeci.waf.ratelimit.blocked submits the EVENT COUNT as its value, not 1 — summed.\n-- Scoped to this env's own host by the poll itself, so a shared zone is not counted\n-- under every env tag.\nSELECT\n    sum(m.value)                                                                     AS blocked_events,\n    concat('top rules: ',\n           arrayStringConcat(arraySlice(arraySort(groupUniqArray(toString(m.attributes.rule))), 1, 5), ', ')) AS sample\nFROM posthog.metrics AS m\nWHERE m.timestamp >= now() - INTERVAL 1 HOUR\n  AND m.metric_name = 'aeci.waf.ratelimit.blocked'"
+    },
+    {
+      "name": "AECi — ALERT — Detail page render p95, cache MISS (1 h)",
+      "dashboard": "AECi — Alert signal sources",
+      "description": "PORTED with a caveat — read the query comments. PostHog stores our distributions as OTLP explicit-bucket histograms, so there is no percentile function: this p95 is the UPPER BOUND of the bucket the 95th observation falls in. Conservative by at most one bucket width (the right direction for an alert) but UNVERIFIED UNTIL DATA FLOWS — README.md manual step 2.",
+      "tags": ["aeci", "alert-source", "managed-by:aeci-647"],
+      "display": "ActionsTable",
+      "query": "-- AECI-647 / PH-6. Replaces observability/datadog/monitor-detail-render-p95.json.\n--\n-- Bucket bounds are pinned by the transport (spec §2):\n--   [5,10,25,50,75,100,250,500,750,1000,1500,2500,5000,7500,10000] ms\n-- and histogram_counts carries bounds.length + 1 entries — the extra one is the +Inf\n-- overflow bucket. `arrayPushBack(bounds, 999999.0)` gives that overflow bucket an edge:\n-- without it a p95 above 10 s indexes past the end of `bounds`, ClickHouse returns the\n-- 0 default, and the WORST case would silently fail to fire.\n--\n-- sumForEach() sums the count arrays element-wise across every data point. It is only\n-- correct because every point shares one bound array; if a future metric ships different\n-- bounds under the same name the arrays misalign silently. Do not reuse this shape\n-- without re-checking that.\n--\n-- lower(cache_status): the SSR Worker emits the literal 'MISS' (server-runtime.ts:989).\n-- Datadog lowercased tag values on ingest and PostHog does not, so a copied\n-- `cache_status:miss` predicate would match nothing. See README.md §'Migration hazards'.\n--\n-- Under WC-8 a cache HIT skips the Worker entirely, so this series is MISS-only volume\n-- and can be sparse. The 20-observation floor keeps a quiet hour from producing a p95\n-- out of three samples.\nWITH agg AS (\n    SELECT\n        sumForEach(m.histogram_counts) AS counts,\n        any(m.histogram_bounds)        AS bounds\n    FROM posthog.metrics AS m\n    WHERE m.timestamp >= now() - INTERVAL 1 HOUR\n      AND m.metric_name = 'aeci.page.render.duration_ms'\n      AND m.attributes.route_class = 'detail'\n      AND lower(m.attributes.cache_status) = 'miss'\n),\nranked AS (\n    SELECT\n        arraySum(counts)                AS observations,\n        arrayPushBack(bounds, 999999.0) AS edges,\n        indexOf(arrayMap(c -> c >= 0.95 * arraySum(counts), arrayCumSum(counts)), 1) AS bucket_index\n    FROM agg\n)\nSELECT\n    if(observations < 20 OR bucket_index = 0, 0.0, edges[bucket_index]) AS p95_bucket_upper_ms,\n    concat(toString(toInt(observations)), ' MISS detail renders in 1h') AS sample\nFROM ranked"
+    }
+  ]
+}

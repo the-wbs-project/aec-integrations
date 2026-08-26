@@ -12,7 +12,7 @@ import { PromotePayloadSchema } from '@aeci/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { products } from '../db/schema';
-import { logToDatadog, submitCount } from '../datadog';
+import { logToPosthog, submitCount } from '../posthog';
 import type { Env } from '../env';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { fakeExecutionContext } from '../test/helpers';
@@ -26,8 +26,8 @@ import {
   type PromoteRunCtx,
 } from './promote';
 
-vi.mock('../datadog', () => ({
-  logToDatadog: vi.fn(),
+vi.mock('../posthog', () => ({
+  logToPosthog: vi.fn(),
   submitCount: vi.fn(),
   submitDistribution: vi.fn(),
   submitGauge: vi.fn(),
@@ -45,7 +45,7 @@ const uuid = (n: number) => `${String(n).padStart(8, '0')}-0000-4000-8000-000000
 let t: TestDb;
 beforeEach(async () => {
   t = await makeTestDb();
-  vi.mocked(logToDatadog).mockClear();
+  vi.mocked(logToPosthog).mockClear();
   vi.mocked(submitCount).mockClear();
 });
 afterEach(() => t.dispose());
@@ -71,10 +71,10 @@ async function promote(body: unknown) {
   return result.response;
 }
 
-/** The `logToDatadog` event whose message is the partial-skipped signal. */
+/** The `logToPosthog` event whose message is the partial-skipped signal. */
 function partialSkippedLog(): Record<string, unknown> | undefined {
   const call = vi
-    .mocked(logToDatadog)
+    .mocked(logToPosthog)
     .mock.calls.find(
       (c) => (c[3] as { message?: string })?.message === 'aeci.api.promote.partial_skipped',
     );
@@ -89,10 +89,10 @@ function skippedMetricCalls(): Array<{ value: number; tags: string[] }> {
     .map((c) => ({ value: c[4] as number, tags: c[5] as string[] }));
 }
 
-/** The `logToDatadog` event whose message is the stale-supabaseId signal (AECI-568). */
+/** The `logToPosthog` event whose message is the stale-supabaseId signal (AECI-568). */
 function staleIdLog(): Record<string, unknown> | undefined {
   const call = vi
-    .mocked(logToDatadog)
+    .mocked(logToPosthog)
     .mock.calls.find(
       (c) => (c[3] as { message?: string })?.message === 'aeci.api.promote.stale_supabase_id',
     );

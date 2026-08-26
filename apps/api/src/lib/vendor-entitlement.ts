@@ -4,7 +4,8 @@
  *
  * D1 has no interactive transactions — only atomic `db.batch([...])`. Like
  * `lib/audit.ts` and `lib/vendor-grant.ts`, each builder RETURNS the Drizzle
- * statements (plus the audit entry the caller forwards to Datadog post-commit)
+ * statements (plus the audit entry the caller forwards post-commit — §26.5, PostHog
+ * beside Datadog for the AECI-639 dual-run)
  * rather than executing them, so the entitlement row, the mirror flip, and the
  * `audit_log` row all commit or roll back as one unit (§26.1 — no state change
  * without an audit row).

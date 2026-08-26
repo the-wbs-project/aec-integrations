@@ -8,14 +8,15 @@
  * intake URLs, and the `env/app/service/worker/locale` tag vocabulary — lives in
  * the shared module and is shared with the API Worker (`apps/api/src/datadog.ts`).
  *
- * `shouldEmitRenderLog` below is web-only (the AECI-103 render-log gate) and
- * stays here — it is policy, not transport.
+ * **Not a call site surface any more (AECI-642).** The Worker imports its
+ * telemetry from `./server-posthog.ts`, which fans out to PostHog *and* to this
+ * module for the §3.1 dual-run window. This file stays a pure Datadog adapter so
+ * PH-final (AECI-651) can delete it outright. `shouldEmitRenderLog` moved to
+ * `./server-render-log.ts` — it is policy, not transport, and must outlive this
+ * file.
  */
 
 import { createDatadogClient } from '@aeci/shared/datadog';
-import { isPublicSite } from '@aeci/shared/deploy-env';
-
-import type { WebEnv } from './env';
 
 export type { DdLogEvent, DdLogLevel } from '@aeci/shared/datadog';
 
@@ -25,29 +26,5 @@ const client = createDatadogClient({
   ddSource: 'worker-angular',
 });
 
-export const { hostnameFromRequest, logToDatadog, submitDistribution, submitCount } = client;
-
-/**
- * Gate for the per-render `ssr.render` smoke-signal log (AECI-103).
- *
- * AECI-31 logged `ssr.render` on every SSR render to prove the
- * API↔Worker↔Datadog logs pipe end-to-end. At production traffic that's one
- * log line per page render — unbounded ingest volume/cost. The per-render
- * *volume* signal now lives in the bounded `aeci.ssr.render` count metric
- * (`server-runtime.ts`), so the log is demoted to a pipe-health/error smoke
- * signal:
- *
- *   - errors (`status >= 400`) are logged in every env — full fidelity; the
- *     non-cacheable branch's 404/5xx visibility leans on this,
- *   - all renders are logged off the public tiers (dev/preview/staging volume is
- *     tiny and the full stream is useful for verifying the pipe),
- *   - public-site (production + demo) 2xx renders are NOT logged — the count
- *     metric carries that signal at audience-traffic volume.
- *
- * Deterministic by design (no sampling): the count metric, not a log sample,
- * is the bounded public-tier heartbeat. See docs/OBSERVABILITY.md.
- */
-export function shouldEmitRenderLog(env: WebEnv, status: number): boolean {
-  if (status >= 400) return true;
-  return !isPublicSite(env.ENV);
-}
+export const { hostnameFromRequest, logToDatadog, submitDistribution, submitCount, submitGauge } =
+  client;

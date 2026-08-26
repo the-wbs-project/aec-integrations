@@ -82,7 +82,7 @@ describe('reportMissingVendors (AECI-115 — data-gap observability)', () => {
 
     reportMissingVendors(c, [withVendor, noVendor]);
 
-    // 1 missing product → 1 logToDatadog dispatch + 1 submitCount dispatch.
+    // 1 missing product → 1 logToPosthog dispatch + 1 submitCount dispatch.
     expect(waitUntil).toHaveBeenCalledTimes(2);
     fetchSpy.mockRestore();
   });

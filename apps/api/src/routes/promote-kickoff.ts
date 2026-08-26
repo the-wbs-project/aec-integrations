@@ -28,7 +28,7 @@ import {
   type PromotePayload,
 } from '@aeci/shared';
 
-import { submitCount } from '../datadog';
+import { submitCount } from '../posthog';
 import type { Env } from '../env';
 import { ApiError } from '../errors';
 import { json } from '../http';
@@ -126,7 +126,7 @@ export function createPromoteKickoffHandler(): (
  * event params are capped at 1 MiB and a curator with a very heavily-integrated product
  * must not hit a wall the protocol can avoid.
  *
- * `sourceUrl` rides along so the Workflow's Datadog logs keep the same `hostname` facet as
+ * `sourceUrl` rides along so the Workflow's logs keep the same `host` facet as
  * the request-originated ones.
  */
 async function buildParams(

@@ -10,7 +10,7 @@
  * workflow instance + genesis transition + the `review.submitted` audit row are a
  * single atomic `db.batch([...])` (the §26.1 invariant, AECI-249). Ids are
  * generated up front so nothing depends on batch return values. The best-effort
- * Datadog forwards run AFTER commit via `waitUntil`.
+ * §26.5 forwards run AFTER commit via `waitUntil`.
  *
  * The body is scored for toxicity via Anthropic Claude before the insert and the
  * result stored in `toxicity_score` (AECI-258, supersedes the AECI-198 / Phase
@@ -43,7 +43,7 @@ import type { ZodType } from 'zod';
 
 import { getDb } from '../db/client';
 import { products, reviews, workflowInstances } from '../db/schema';
-import { logToDatadog, submitCount } from '../datadog';
+import { logToPosthog, submitCount } from '../posthog';
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
@@ -67,11 +67,11 @@ function resolveLocale(headerValue: string | undefined): string {
   return value && KNOWN_LOCALES.has(value) ? value : DEFAULT_LOCALE;
 }
 
-/** Datadog forwarder for the audit write; no-op without `DD_API_KEY`. */
+/** Telemetry forwarder (PostHog + the dual-run Datadog leg) for the audit write; each vendor leg no-ops without its own key. */
 function makeForwarder(c: AuthContext): AuditLogForwarder | undefined {
-  if (!c.env.DD_API_KEY) return undefined;
+  if (!c.env.DD_API_KEY && !c.env.POSTHOG_PROJECT_KEY) return undefined;
   return (entry) => {
-    logToDatadog(c.executionCtx, c.env, c.req.raw, {
+    logToPosthog(c.executionCtx, c.env, c.req.raw, {
       level: 'info',
       message: `audit ${entry.action} ${entry.entityId ?? ''}`.trim(),
       action: entry.action,
@@ -82,11 +82,11 @@ function makeForwarder(c: AuthContext): AuditLogForwarder | undefined {
   };
 }
 
-/** Datadog forwarder for the workflow-transition write; no-op without `DD_API_KEY`. */
+/** Telemetry forwarder (PostHog + the dual-run Datadog leg) for the workflow-transition write; each vendor leg no-ops without its own key. */
 function makeWorkflowForwarder(c: AuthContext): WorkflowTransitionForwarder | undefined {
-  if (!c.env.DD_API_KEY) return undefined;
+  if (!c.env.DD_API_KEY && !c.env.POSTHOG_PROJECT_KEY) return undefined;
   return (entry) => {
-    logToDatadog(c.executionCtx, c.env, c.req.raw, {
+    logToPosthog(c.executionCtx, c.env, c.req.raw, {
       level: 'info',
       message: `workflow ${entry.fromState ?? '∅'}→${entry.toState} ${entry.workflowId}`.trim(),
       from_state: entry.fromState ?? undefined,

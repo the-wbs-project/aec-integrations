@@ -70,18 +70,33 @@ export class AuthService {
    * only from `afterNextRender`/user events, never from SSR.
    */
   async isSignedIn(): Promise<boolean> {
-    if (!this.isConfigured()) return false;
-    // Anonymous fast-path: no auth cookie → not signed in, and the browser SDK
-    // never loads. This is the cacheable detail-page case (and the Lighthouse
-    // measurement) where `ReviewCta` probes every load — so `@supabase/ssr`
-    // stays out of the detail-page JS budget (AECI-221). A logged-in visitor
-    // (cookie present) falls through and loads the SDK to verify the session.
-    if (!hasSupabaseAuthCookie()) return false;
+    return (await this.currentUserId()) !== null;
+  }
+
+  /**
+   * The signed-in visitor's Supabase user id, or `null` when there is no
+   * session (or auth is unconfigured, or the cookie is stale). Browser-only,
+   * same rules as {@link isSignedIn} — which is implemented on top of this, so
+   * the session is read once and the two answers can never disagree.
+   *
+   * The value is `auth.users.id`, i.e. the JWT `sub`. That identity matters
+   * beyond the UI: it is what `Analytics.identify()` sends to PostHog
+   * (`docs/ANALYTICS.md` §8) and what the API Worker records as
+   * `posthogDistinctId` on its logs, and the two only join if they are the same
+   * value. Anything else would mint a person that does not exist.
+   *
+   * Carries the same anonymous fast-path as before: with no auth cookie the
+   * ~58 kB `@supabase/ssr` SDK is never loaded (AECI-221) — the cacheable
+   * detail-page case, where `ReviewCta` probes on every load.
+   */
+  async currentUserId(): Promise<string | null> {
+    if (!this.isConfigured()) return null;
+    if (!hasSupabaseAuthCookie()) return null;
     const client = await this.requireClient();
     const {
       data: { session },
     } = await client.auth.getSession();
-    return session !== null;
+    return session?.user.id ?? null;
   }
 
   /**

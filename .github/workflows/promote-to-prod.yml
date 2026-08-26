@@ -198,11 +198,9 @@ jobs:
           # AUTH_AND_RLS.md §3.1 seams. Same must-be-mapped rule as the four below.
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           ANTHROPIC_API_KEY_PRODUCTION: ${{ secrets.ANTHROPIC_API_KEY_PRODUCTION }}
-          # AECI-280: POSTHOG_KEY_PRODUCTION (per-env suffixed) is pushed to the web
-          # Worker as POSTHOG_KEY by the step below — recommended/fail-open (absent →
-          # client analytics no-ops, no window.__AECI_POSTHOG__). Mapped here so the
-          # preflight VALUE check is real (parity with promote-to-demo.yml).
-          POSTHOG_KEY_PRODUCTION: ${{ secrets.POSTHOG_KEY_PRODUCTION }}
+          # AECI-640: POSTHOG_KEY_PRODUCTION is no longer mapped or checked — the
+          # publishable `phc_` token is a committed `vars.POSTHOG_PROJECT_KEY`
+          # entry in wrangler.jsonc, so there is no secret left to preflight.
           # These four are launch-only recommended secrets. They MUST be mapped
           # here (not just named in RECOMMENDED_SECRETS) — require-secrets.sh checks
           # the VALUE of each env var, so an unmapped name always reads empty and
@@ -235,17 +233,17 @@ jobs:
           # ping is a fail-open no-op without both creds, never blocking a promote.
           # AECI-262: CF_ANALYTICS_API_TOKEN (single shared, un-suffixed) backs the hourly WAF
           # firewall-event poll — recommended/fail-safe (absent → the poll no-ops
-          # outcome:skipped_no_creds), never a launch-critical surface. AECI-280:
-          # POSTHOG_KEY_PRODUCTION backs the web Worker's client analytics — recommended
-          # (warn-and-skip; absent → PostHog no-ops/fail-open), never blocking a promote.
-          # It also feeds the deferred trending PostHog join, so it is the one secret to
-          # set for the AECI-280 ~30d follow-up to have data. AECI-530:
+          # outcome:skipped_no_creds), never a launch-critical surface. AECI-640:
+          # POSTHOG_KEY_PRODUCTION is GONE from this list — the publishable `phc_` token
+          # is a committed wrangler var now, not a secret, so preflighting it would
+          # always false-warn. PostHog is not represented here at all by design: the
+          # Workers hold NO PostHog secret (POSTHOG_MIGRATION_SPEC.md §2). AECI-530:
           # SUPABASE_SERVICE_ROLE_KEY (single shared, un-suffixed) backs the
           # AUTH_AND_RLS.md §3.1 split-identity seams on the API Worker — recommended,
           # never REQUIRED, because every seam degrades rather than failing closed
           # (reviewer emails null, the erasure auth.users delete skipped, vendor-claim
           # resolution 'unavailable'). Prod therefore does NOT fail closed on it.
-          RECOMMENDED_SECRETS: 'ADMIN_PURGE_TOKEN DATADOG_API_KEY DD_APPLICATION_ID DD_CLIENT_TOKEN CF_ZONE_ID SUPABASE_ANON_KEY SUPABASE_SERVICE_ROLE_KEY ANTHROPIC_API_KEY_PRODUCTION RESEND_API_KEY INDEXNOW_KEY_PRODUCTION GOOGLE_INDEXING_SA_EMAIL_PRODUCTION GOOGLE_INDEXING_SA_PRIVATE_KEY_PRODUCTION CF_ANALYTICS_API_TOKEN POSTHOG_KEY_PRODUCTION'
+          RECOMMENDED_SECRETS: 'ADMIN_PURGE_TOKEN DATADOG_API_KEY DD_APPLICATION_ID DD_CLIENT_TOKEN CF_ZONE_ID SUPABASE_ANON_KEY SUPABASE_SERVICE_ROLE_KEY ANTHROPIC_API_KEY_PRODUCTION RESEND_API_KEY INDEXNOW_KEY_PRODUCTION GOOGLE_INDEXING_SA_EMAIL_PRODUCTION GOOGLE_INDEXING_SA_PRIVATE_KEY_PRODUCTION CF_ANALYTICS_API_TOKEN'
         run: bash scripts/require-secrets.sh
 
       # -----------------------------------------------------------------------
@@ -618,6 +616,34 @@ jobs:
           fi
           printf '%s' "$GOOGLE_INDEXING_SA_PRIVATE_KEY_VALUE" \
             | pnpm exec wrangler secret put GOOGLE_INDEXING_SA_PRIVATE_KEY --env production
+      # ─────────────────────────────────────────────────────────────────────
+      # PostHog source maps (AECI-646 / POSTHOG_MIGRATION_SPEC.md §AW5).
+      #
+      # ORDER MATTERS: this runs AFTER the build and BEFORE the deploy, because
+      # `sourcemap inject` rewrites the built JS (it appends the `//# chunkId=…`
+      # comment PostHog matches a minified frame against). Deploying the
+      # pre-inject bundle would upload maps that can never be matched.
+      #
+      # Angular emits HIDDEN maps (apps/web/angular.json) — `.map` files with no
+      # `//# sourceMappingURL=` comment in the served JS. The script uploads them
+      # and then DELETES them, on every exit path including the warn-skip: Worker
+      # assets are served verbatim, so a stray `.map` would publish the whole app
+      # source at a guessable URL.
+      #
+      # POSTHOG_CLI_API_KEY is a PERSONAL key (scopes: `error tracking write` +
+      # `organization read`). CI-only — it must never become a Worker secret; the
+      # Workers authenticate with the publishable `phc_` project token instead.
+      # Absent ⇒ warn-skip (stack traces stay minified) and the maps are still
+      # deleted. Never blocks a deploy.
+      # ─────────────────────────────────────────────────────────────────────
+      - name: PostHog source maps — inject + upload (production)
+        continue-on-error: true
+        env:
+          POSTHOG_CLI_API_KEY: ${{ secrets.POSTHOG_CLI_API_KEY }}
+          POSTHOG_CLI_PROJECT_ID: ${{ vars.POSTHOG_PROJECT_ID_PROD || '354071' }}
+          PH_SM_RELEASE_VERSION: ${{ inputs.commit_sha }}
+          PH_SM_RELEASE_NAME: aeci-web
+        run: bash scripts/ci/posthog-sourcemaps.sh
 
       - name: Deploy SSR (production)
         id: deploy_ssr
@@ -677,28 +703,18 @@ jobs:
           printf '%s' "$ALGOLIA_SEARCH_KEY_VALUE" \
             | pnpm exec wrangler secret put ALGOLIA_SEARCH_KEY --env production
 
-      # AECI-239/Phase 7.4: push the PUBLIC PostHog project key to the prod WEB
-      # Worker so SSR emits `window.__AECI_POSTHOG__` and the browser analytics
-      # layer can init (after consent). Web only; the project API key is
-      # publishable (client-exposed). POSTHOG_HOST is a plain `vars` entry (US
-      # Cloud), so only the key is pushed. Warn-and-skip (recommended, NOT
-      # launch-critical like search): a missing key just no-ops analytics
-      # (fail-open) rather than aborting the promote. Same idempotent
-      # deploy→secret order.
-      - name: Push PostHog key to web Worker (production)
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          POSTHOG_KEY_VALUE: ${{ secrets.POSTHOG_KEY_PRODUCTION }}
-        working-directory: apps/web
-        run: |
-          set -euo pipefail
-          if [ -z "$POSTHOG_KEY_VALUE" ]; then
-            echo "::warning::POSTHOG_KEY_PRODUCTION not set — skipping push. PostHog analytics no-ops (no window.__AECI_POSTHOG__) in production until it is provisioned."
-            exit 0
-          fi
-          printf '%s' "$POSTHOG_KEY_VALUE" \
-            | pnpm exec wrangler secret put POSTHOG_KEY --env production
+      # AECI-640: the "push POSTHOG_KEY to the web Worker" step that stood here
+      # is GONE. The `phc_` project token is publishable — it is rendered into
+      # the served HTML on every page — so it is now a committed per-env
+      # `vars.POSTHOG_PROJECT_KEY` entry in `apps/web/wrangler.jsonc` (and
+      # `apps/api/wrangler.jsonc`), not a CI-pushed secret. AECI-239 kept it out
+      # of git for tidiness; that is precisely what produced the weeks-dark
+      # production analytics of AECI-326 — the push step ran, the secret was
+      # absent, and the warn-and-skip path said so only in a log nobody read. A
+      # committed var has no provisioning step to forget.
+      #
+      # The `POSTHOG_KEY_STAGING` / `POSTHOG_KEY_PRODUCTION` GitHub secrets are
+      # now unused and should be deleted (operator step, AECI-640).
 
       # AECI-326: push the PUBLIC Datadog RUM credentials to the prod WEB Worker
       # so SSR emits `window.__AECI_DD__` and the browser RUM layer inits and
@@ -979,6 +995,28 @@ jobs:
                     ]
                   }')" || echo "::warning::Datadog rollback event POST failed (non-fatal)"
 
+      # ─────────────────────────────────────────────────────────────────────
+      # PostHog auto-rollback marker (AECI-640). The counterpart to the Datadog
+      # rollback event above — same trigger, same guard, PostHog side. Emitted as
+      # `deploy_kind: auto_rollback` so a HogQL query can separate releases from
+      # incidents, and annotated with 🔥 rather than 🚀 so a dashboard reader can
+      # tell them apart without hovering. Non-fatal like every marker: a PostHog
+      # outage must not make a bad situation worse.
+      # ─────────────────────────────────────────────────────────────────────
+      - name: PostHog auto-rollback marker (production)
+        if: failure() && steps.smoke.outcome == 'failure' && steps.deploy_api.outcome == 'success' && steps.deploy_ssr.outcome == 'success'
+        continue-on-error: true
+        env:
+          PH_EVENT_ENV: production
+          PH_SERVICE: both
+          PH_VERSION: ${{ inputs.commit_sha }}
+          PH_DEPLOY_KIND: auto_rollback
+          PH_PROJECT_KEY: phc_Ka6zXrunFnSKZS6jQTqG6GNQHKuya9RTMZzQvcY7reJ
+          PH_PROJECT_ID: ${{ vars.POSTHOG_PROJECT_ID_PROD || '354071' }}
+          POSTHOG_CLI_API_KEY: ${{ secrets.POSTHOG_CLI_API_KEY }}
+          PH_NOTE: prod smoke failed; rc=${{ steps.rollback.outputs.rollback_rc }}
+        run: bash scripts/ci/posthog-deploy-marker.sh
+
       # -----------------------------------------------------------------------
       # AECI-91: operator runbook on ANY failure of this job. Prints the manual
       # `wrangler rollback` commands and the Cloudflare D1 time-travel restore
@@ -1029,6 +1067,37 @@ jobs:
       # -----------------------------------------------------------------------
       # Summary.
       # -----------------------------------------------------------------------
+      # ─────────────────────────────────────────────────────────────────────
+      # PostHog deploy marker (AECI-640 / POSTHOG_MIGRATION_SPEC.md §AW5).
+      #
+      # Two legs: a project ANNOTATION (the vertical line across every insight —
+      # needs the personal `phx_` key) and a queryable `deployment` EVENT (what a
+      # HogQL query joins against — needs only the publishable `phc_` token). The
+      # annotation leg warn-skips until the operator provisions POSTHOG_CLI_API_KEY;
+      # the event leg works today because the project key is a committed var.
+      #
+      # `continue-on-error: true` AND the script always exits 0 — belt and braces.
+      # A PostHog outage must never fail or block a deploy.
+      #
+      # The `phc_` token below is the same publishable value committed in
+      # wrangler.jsonc and rendered into every served page — it is not a secret
+      # (see the AECI-640 note there). Project ids fall back to the literals so
+      # this works with zero provisioning; set the repo variables to repoint
+      # without a code change.
+      # ─────────────────────────────────────────────────────────────────────
+      - name: PostHog promote marker (production)
+        if: success()
+        continue-on-error: true
+        env:
+          PH_EVENT_ENV: production
+          PH_SERVICE: both
+          PH_VERSION: ${{ inputs.commit_sha }}
+          PH_DEPLOY_KIND: promote
+          PH_PROJECT_KEY: phc_Ka6zXrunFnSKZS6jQTqG6GNQHKuya9RTMZzQvcY7reJ
+          PH_PROJECT_ID: ${{ vars.POSTHOG_PROJECT_ID_PROD || '354071' }}
+          POSTHOG_CLI_API_KEY: ${{ secrets.POSTHOG_CLI_API_KEY }}
+        run: bash scripts/ci/posthog-deploy-marker.sh
+
       - name: Summary
         if: always()
         env:

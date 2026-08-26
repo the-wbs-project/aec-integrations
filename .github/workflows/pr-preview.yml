@@ -238,6 +238,34 @@ jobs:
             exit 1
           fi
           echo "Service binding rewritten to ${API_WORKER_NAME}"
+      # ─────────────────────────────────────────────────────────────────────
+      # PostHog source maps (AECI-646 / POSTHOG_MIGRATION_SPEC.md §AW5).
+      #
+      # ORDER MATTERS: this runs AFTER the build and BEFORE the deploy, because
+      # `sourcemap inject` rewrites the built JS (it appends the `//# chunkId=…`
+      # comment PostHog matches a minified frame against). Deploying the
+      # pre-inject bundle would upload maps that can never be matched.
+      #
+      # Angular emits HIDDEN maps (apps/web/angular.json) — `.map` files with no
+      # `//# sourceMappingURL=` comment in the served JS. The script uploads them
+      # and then DELETES them, on every exit path including the warn-skip: Worker
+      # assets are served verbatim, so a stray `.map` would publish the whole app
+      # source at a guessable URL.
+      #
+      # POSTHOG_CLI_API_KEY is a PERSONAL key (scopes: `error tracking write` +
+      # `organization read`). CI-only — it must never become a Worker secret; the
+      # Workers authenticate with the publishable `phc_` project token instead.
+      # Absent ⇒ warn-skip (stack traces stay minified) and the maps are still
+      # deleted. Never blocks a deploy.
+      # ─────────────────────────────────────────────────────────────────────
+      - name: PostHog source maps — inject + upload (preview)
+        continue-on-error: true
+        env:
+          POSTHOG_CLI_API_KEY: ${{ secrets.POSTHOG_CLI_API_KEY }}
+          POSTHOG_CLI_PROJECT_ID: ${{ vars.POSTHOG_PROJECT_ID_NONPROD || '525793' }}
+          PH_SM_RELEASE_VERSION: ${{ github.event.pull_request.head.sha }}
+          PH_SM_RELEASE_NAME: aeci-web
+        run: bash scripts/ci/posthog-sourcemaps.sh
 
       # ---------------------------------------------------------------------
       # Step 8: Deploy SSR Worker (PR-scoped name)
@@ -278,29 +306,20 @@ jobs:
           printf '%s' "$SUPABASE_ANON_KEY_VALUE" \
             | pnpm exec wrangler secret put SUPABASE_ANON_KEY --name "${PREVIEW_WORKER_NAME}"
 
-      # ---------------------------------------------------------------------
-      # Step 8c: Push POSTHOG_KEY to the per-PR web Worker (AECI-239)
-      #   The preview env's `vars.POSTHOG_HOST` (US Cloud) is inherited from
-      #   wrangler.jsonc; only the project key is a secret. We reuse the staging
-      #   value (shared PostHog project) so previews emit window.__AECI_POSTHOG__
-      #   and the analytics layer can init (after consent). Web Worker only.
-      #   Warn-and-skip: a missing key just no-ops analytics (fail-open). Same
-      #   printf-over-stdin idempotent pattern as the SUPABASE push above.
-      # ---------------------------------------------------------------------
-      - name: Push POSTHOG_KEY to per-PR web Worker
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          POSTHOG_KEY_VALUE: ${{ secrets.POSTHOG_KEY_STAGING }}
-        working-directory: apps/web
-        run: |
-          set -euo pipefail
-          if [ -z "$POSTHOG_KEY_VALUE" ]; then
-            echo "::warning::POSTHOG_KEY_STAGING not set — skipping push. This preview's PostHog analytics no-ops (no window.__AECI_POSTHOG__)."
-            exit 0
-          fi
-          printf '%s' "$POSTHOG_KEY_VALUE" \
-            | pnpm exec wrangler secret put POSTHOG_KEY --name "${PREVIEW_WORKER_NAME}"
+      # AECI-640: the "push POSTHOG_KEY to the per-PR web Worker" step that stood here
+      # is GONE. The `phc_` project token is publishable — it is rendered into
+      # the served HTML on every page — so it is now a committed per-env
+      # `vars.POSTHOG_PROJECT_KEY` entry in `apps/web/wrangler.jsonc` (and
+      # `apps/api/wrangler.jsonc`), not a CI-pushed secret. AECI-239 kept it out
+      # of git for tidiness; that is precisely what produced the weeks-dark
+      # production analytics of AECI-326 — the push step ran, the secret was
+      # absent, and the warn-and-skip path said so only in a log nobody read. A
+      # committed var has no provisioning step to forget.
+      # PR previews now get analytics automatically from the committed
+      # `preview` var — no push step, no dark window.
+      #
+      # The `POSTHOG_KEY_STAGING` / `POSTHOG_KEY_PRODUCTION` GitHub secrets are
+      # now unused and should be deleted (operator step, AECI-640).
 
       # ---------------------------------------------------------------------
       # Step 8d: Push the Datadog RUM credentials to the per-PR web Worker
@@ -430,6 +449,37 @@ jobs:
       # ---------------------------------------------------------------------
       # Step 12: Run summary
       # ---------------------------------------------------------------------
+      # ─────────────────────────────────────────────────────────────────────
+      # PostHog deploy marker (AECI-640 / POSTHOG_MIGRATION_SPEC.md §AW5).
+      #
+      # Two legs: a project ANNOTATION (the vertical line across every insight —
+      # needs the personal `phx_` key) and a queryable `deployment` EVENT (what a
+      # HogQL query joins against — needs only the publishable `phc_` token). The
+      # annotation leg warn-skips until the operator provisions POSTHOG_CLI_API_KEY;
+      # the event leg works today because the project key is a committed var.
+      #
+      # `continue-on-error: true` AND the script always exits 0 — belt and braces.
+      # A PostHog outage must never fail or block a deploy.
+      #
+      # The `phc_` token below is the same publishable value committed in
+      # wrangler.jsonc and rendered into every served page — it is not a secret
+      # (see the AECI-640 note there). Project ids fall back to the literals so
+      # this works with zero provisioning; set the repo variables to repoint
+      # without a code change.
+      # ─────────────────────────────────────────────────────────────────────
+      - name: PostHog deploy marker (PR preview)
+        continue-on-error: true
+        env:
+          PH_EVENT_ENV: preview
+          PH_SERVICE: both
+          PH_VERSION: ${{ github.event.pull_request.head.sha }}
+          PH_DEPLOY_KIND: preview
+          PH_PROJECT_KEY: phc_pY8FDQ9FNAmFUJFFd85jNKAAUCMvndUsyGMMV8TR97MD
+          PH_PROJECT_ID: ${{ vars.POSTHOG_PROJECT_ID_NONPROD || '525793' }}
+          POSTHOG_CLI_API_KEY: ${{ secrets.POSTHOG_CLI_API_KEY }}
+          PH_NOTE: PR #${{ github.event.pull_request.number }}
+        run: bash scripts/ci/posthog-deploy-marker.sh
+
       - name: Summary
         if: always()
         run: |

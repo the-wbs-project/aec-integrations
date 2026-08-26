@@ -15,7 +15,7 @@
 import type { Context } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 
-import { submitCount } from '../datadog';
+import { submitCount } from '../posthog';
 import type { Env } from '../env';
 import {
   parseRecipients,
@@ -40,8 +40,8 @@ import {
 
 // The `aeci.email.send` count + the `warn` log ride the shared transport; mock it
 // so we can assert per-branch outcome tags without a real Datadog intake.
-vi.mock('../datadog', () => ({
-  logToDatadog: vi.fn(),
+vi.mock('../posthog', () => ({
+  logToPosthog: vi.fn(),
   submitCount: vi.fn(),
   submitDistribution: vi.fn(),
   submitGauge: vi.fn(),
@@ -66,7 +66,7 @@ function lastBody(fetchSpy: MockInstance): Record<string, unknown> {
   >;
 }
 
-/** Minimal context the client reads: env (key/sender/site) + the Datadog triple.
+/** Minimal context the client reads: env (key/sender/site) + the telemetry triple.
  *  `RESEND_API_KEY` + `EMAIL_FROM` are set by default so sends go out. */
 function fakeContext(env: Partial<Env> = {}): EmailContext {
   return {

@@ -73,6 +73,10 @@
       "types": "./src/datadog.ts",
       "default": "./src/datadog.ts"
     },
+    "./posthog": {
+      "types": "./src/posthog.ts",
+      "default": "./src/posthog.ts"
+    },
     "./timing-safe-equal": {
       "types": "./src/timing-safe-equal.ts",
       "default": "./src/timing-safe-equal.ts"
@@ -103,6 +107,7 @@
     "lint:fix": "eslint . --fix"
   },
   "dependencies": {
+    "posthog-node": "^5.50.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {

@@ -83,7 +83,7 @@ import { Hono } from 'hono';
 import type { Context } from 'hono';
 
 import type { WebEnv } from './env';
-import { submitCount, submitDistribution } from './server-datadog';
+import { submitCount, submitDistribution } from './server-posthog';
 import { createServerApiClient, isServerApiError } from './server-api-client';
 import { buildCacheTags, cacheTagInputsForPath, type CacheTagInputs } from './server/cache-tags';
 import { createRequestContext, type AeciRequestContext } from './server/request-context';
@@ -691,12 +691,13 @@ function withCacheHeaders(
 type WaitUntilContext = { waitUntil(promise: Promise<unknown>): void };
 
 /**
- * Optional post-SSR hook. `server.ts` uses this to (a) inject the Datadog RUM
+ * Optional post-SSR hook. `server.ts` uses this to (a) inject the analytics
  * bootstrap `<script>` into the rendered HTML before it reaches the edge
  * cache, so the cached payload already carries deployment-scoped public
- * tokens, and (b) emit a per-render Datadog log so any SSR hit produces
- * visible signal in Datadog Logs. Kept generic (no Datadog vocabulary in this
- * file) so `createApp` remains a pure cache/cookie/SSR pipeline.
+ * tokens, and (b) emit a per-render log so any SSR hit produces visible
+ * signal. During the dual-run both legs fan out to PostHog and Datadog
+ * (ADR 0024); this file stays vendor-neutral so `createApp` remains a pure
+ * cache/cookie/SSR pipeline.
  *
  * Receives the request and the waitUntil-capable ctx so transforms can fan
  * out async side-effects (logging, metrics) without blocking the response.
@@ -971,22 +972,29 @@ async function handleSsr(
 
   // AECI-66 / Phase 2 §14 — emit `aeci.page.render.duration_ms` for cacheable
   // routes, tagged by `route_class` (detail/index/browse) + `cache_status` +
-  // `status_code` so the dashboard's 4xx/5xx widget can split on it. Under WC-3
+  // `status_class` so the dashboard's 4xx/5xx widget can split on it. Under WC-3
   // the Worker only runs on a native-cache MISS (edge HITs skip it), so the sole
   // `cache_status` value here is `MISS`; HIT-rate visibility moves to
   // `Cf-Cache-Status` + the Workers observability dashboard (WC-8). Non-cacheable
   // paths (the 404 wildcard, non-GET) have no route_class and are intentionally
   // excluded from this histogram — they're covered by the `aeci.ssr.render` count
   // metric (AECI-103, emitted on every branch). Documented in docs/OBSERVABILITY.md.
+  //
+  // The raw `status_code` tag was DROPPED (AECI-642/AECI-645, POSTHOG_MIGRATION_SPEC.md
+  // §3.5) — the same defect fixed on the API side in `metrics-middleware.ts`. It
+  // multiplied this metric's series by every distinct status observed per route
+  // class, and the §AW4 arithmetic already puts the catalogue at ~85% of PostHog's
+  // 1,000-series-per-window guardrail before resource attributes apply. The exact
+  // code lives on the error log for the same render, which is where a drill-down
+  // belongs; no new tag goes on this metric without redoing that arithmetic.
   const routeClass = cacheTagInputsForPath(localePath)?.route;
   const emitRenderMetric = (statusCode: number): void => {
     if (!routeClass) return;
-    // `status_class` (2xx/4xx/5xx) is what the error-rate widget + monitor split
-    // on — Datadog tag filters can't do numeric `>= 400` on `status_code`.
+    // `status_class` (2xx/4xx/5xx) is what the error-rate widget + alert split
+    // on — tag filters can't do a numeric `>= 400` comparison on a status code.
     submitDistribution(execCtx, env, request, 'aeci.page.render.duration_ms', Date.now() - start, [
       `route_class:${routeClass}`,
       'cache_status:MISS',
-      `status_code:${statusCode}`,
       `status_class:${Math.floor(statusCode / 100)}xx`,
     ]);
   };

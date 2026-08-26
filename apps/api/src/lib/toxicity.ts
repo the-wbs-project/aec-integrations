@@ -38,12 +38,12 @@
  * keeps review bodies inside the boundary.
  */
 
-import { logToDatadog, submitCount, submitDistribution } from '../datadog';
+import { logToPosthog, submitCount, submitDistribution } from '../posthog';
 import type { Env } from '../env';
 
 /**
  * Minimal context shape `scoreToxicity` needs: env (for the key) plus the
- * Datadog logging triple (`executionCtx`, `env`, `req.raw`). Typed structurally
+ * telemetry logging triple (`executionCtx`, `env`, `req.raw`). Typed structurally
  * rather than as `Context<{ Bindings: Env }>` so the handler's richer
  * `AuthContext` (which carries `Variables`) is assignable — Hono's `Context` is
  * invariant on its generic, so the nominal form would not accept it.
@@ -197,12 +197,12 @@ function emitToxicity(
   }
 }
 
-/** Best-effort `warn` to Datadog; wrapped so a missing ExecutionContext (test
+/** Best-effort `warn` to the observability plane; wrapped so a missing ExecutionContext (test
  *  harness) or absent `DD_API_KEY` can never turn a graceful `null` into a throw
  *  (mirrors `reportMissingVendors` in `handler-utils.ts`). */
 function warn(c: ScoreContext, message: string): void {
   try {
-    logToDatadog(c.executionCtx, c.env, c.req.raw, {
+    logToPosthog(c.executionCtx, c.env, c.req.raw, {
       level: 'warn',
       message,
       source: 'toxicity',

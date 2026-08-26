@@ -724,7 +724,7 @@ Verify the site handles expected launch traffic:
 Verify:
 - p95 latency stays under SLO (2 seconds)
 - Error rate stays under 1%
-- Algolia, Supabase, Datadog all stay healthy
+- Algolia, Supabase, and the telemetry intake all stay healthy
 - Cache hit rate above 60% on cacheable pages
 
 ### 12.3 Run target
@@ -844,7 +844,7 @@ Defined in `vitest.config.ts` `coverage.exclude`.
 ### 17.3 When traffic scales
 
 - Continuous load testing in staging
-- Performance regression alerts in Datadog
+- Performance regression alerts (Datadog today; build new ones on PostHog — ADR 0024)
 - Real User Monitoring SLO breach alerts
 
 Not pursued in Stage 1.

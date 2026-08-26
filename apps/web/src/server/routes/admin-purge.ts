@@ -54,7 +54,7 @@ import type { Context } from 'hono';
 import { z } from 'zod';
 
 import type { WebEnv } from '../../env';
-import { logToDatadog, submitCount } from '../../server-datadog';
+import { logToPosthog, submitCount } from '../../server-posthog';
 
 /**
  * Body schema for `POST /admin/purge`. Mirrors the native `ctx.cache.purge()`
@@ -201,7 +201,7 @@ function emitPurgeTelemetry(
     outcome: 'ok' | 'failed' | 'skipped';
   },
 ): void {
-  logToDatadog(ctx, env, request, {
+  logToPosthog(ctx, env, request, {
     message: 'aeci.cache.purge',
     level: fields.outcome === 'failed' ? 'warn' : 'info',
     source: fields.source,

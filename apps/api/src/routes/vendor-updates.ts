@@ -81,7 +81,7 @@ import {
   vendorRequests,
   vendors,
 } from '../db/schema';
-import { submitCount } from '../datadog';
+import { submitCount } from '../posthog';
 import { json } from '../http';
 import { ownedEndpointJoin } from '../lib/attestation-authority';
 import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';

@@ -41,7 +41,7 @@ import {
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from 'cloudflare:workers';
 import { NonRetryableError } from 'cloudflare:workflows';
 
-import { logToDatadog, submitCount, submitDistribution } from '../datadog';
+import { logToPosthog, submitCount, submitDistribution } from '../posthog';
 import type { Env } from '../env';
 import { ApiError } from '../errors';
 import {
@@ -79,7 +79,7 @@ const COMMIT_STEP_CONFIG = {
   timeout: '10 minutes',
 } as const;
 
-/** Fallback origin when `sourceUrl` is unusable — the Datadog `hostname` must never be empty. */
+/** Fallback origin when `sourceUrl` is unusable — the log `host` dimension must never be empty. */
 const FALLBACK_SOURCE_URL = 'https://aeci-api.internal/api/promote';
 
 /**
@@ -305,7 +305,7 @@ function emitJobOutcome(
       `outcome:${outcome}`,
     ]);
     if (error) {
-      logToDatadog(rc, rc.env, rc.request, {
+      logToPosthog(rc, rc.env, rc.request, {
         level: 'error',
         message: 'aeci.api.promote.job_failed',
         source: 'review-app-promote',

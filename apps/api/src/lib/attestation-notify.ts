@@ -69,7 +69,7 @@ import { VENDOR_ADMIN_ROLE } from './claimed-vendors';
 import { fetchAuthUserEmails } from './supabase-admin';
 import type { Db } from '../db/client';
 import { auditLog } from '../db/schema';
-import { logToDatadog } from '../datadog';
+import { logToPosthog } from '../posthog';
 import type { Env } from '../env';
 
 const DAY_MS = 86_400_000;
@@ -397,7 +397,7 @@ export async function runAttestationNotifySweep(
   if (result.capped > 0) {
     // Never truncate silently — an operator reading the dashboard must be able to
     // tell "nothing to send" from "we stopped early".
-    logToDatadog(c.executionCtx, c.env, c.req.raw, {
+    logToPosthog(c.executionCtx, c.env, c.req.raw, {
       level: 'warn',
       message: `aeci.attestation.notify.capped dropped=${result.capped} cap=${NOTIFY_BATCH_CAP}`,
       source: 'attestation-notify-cron',
@@ -466,7 +466,7 @@ async function flushLedger(
   try {
     await db.batch([...statements] as BatchTuple);
   } catch (error) {
-    logToDatadog(c.executionCtx, c.env, c.req.raw, {
+    logToPosthog(c.executionCtx, c.env, c.req.raw, {
       level: 'error',
       message: 'aeci.attestation.notify.ledger_failed',
       source: 'attestation-notify-cron',
@@ -477,7 +477,7 @@ async function flushLedger(
   }
   const forwarder = c.env.DD_API_KEY
     ? (entry: AuditLogEntry) => {
-        logToDatadog(c.executionCtx, c.env, c.req.raw, {
+        logToPosthog(c.executionCtx, c.env, c.req.raw, {
           level: 'info',
           message: `audit ${entry.action} ${entry.entityId ?? ''}`.trim(),
           action: entry.action,

@@ -100,7 +100,31 @@
                   "maximumError": "8kB"
                 }
               ],
-              "outputHashing": "all"
+              "outputHashing": "all",
+              // AECI-646 — HIDDEN source maps for PostHog Error Tracking.
+              // `hidden: true` emits the `.map` files but writes NO
+              // `//# sourceMappingURL=` comment into the served JS, so a browser
+              // devtools session cannot pull our source but PostHog can still
+              // symbolicate a minified stack trace. `scripts/ci/posthog-sourcemaps.sh`
+              // then runs `posthog-cli sourcemap inject` (which appends the
+              // `//# chunkId=…` comment PostHog matches on) followed by
+              // `upload --delete-after`, BEFORE the deploy — so the maps are
+              // uploaded and then removed from `dist/` and never served.
+              // The skip path in that script deletes them too; a `.map` reaching
+              // Worker assets would publish the whole app source at a guessable
+              // URL.
+              // `styles: false` / `vendor: false` keep the upload to our own
+              // scripts — the frames we actually need to read are ours.
+              // NOTE: this repo has no `staging` build configuration. It promotes
+              // ONE build by SHA across staging → demo → prod
+              // (docs/environments.md), so `production` IS the configuration every
+              // deployed tier is built with, and setting it here covers them all.
+              "sourceMap": {
+                "scripts": true,
+                "styles": false,
+                "hidden": true,
+                "vendor": false
+              }
             },
             "development": {
               "optimization": false,

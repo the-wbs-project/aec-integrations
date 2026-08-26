@@ -80,8 +80,8 @@
  *
  * Best-effort + observable: the work is **awaited** in the consumer (so a failure
  * is logged and the run isn't torn down mid-batch), while metric/log emission
- * rides `ctx.waitUntil` via the shared Datadog client. The job has no incoming
- * `Request`, so a synthetic one is passed to the Datadog helpers (used only to
+ * rides `ctx.waitUntil` via the shared telemetry client. The job has no incoming
+ * `Request`, so a synthetic one is passed to the telemetry helpers (used only to
  * derive the `host` tag, which falls back to the worker slug).
  */
 
@@ -90,7 +90,7 @@ import { and, asc, count, eq, inArray } from 'drizzle-orm';
 
 import { getDb } from './db/client';
 import { integrations, products, reviews, vendors } from './db/schema';
-import { logToDatadog, submitCount, submitDistribution, submitGauge } from './datadog';
+import { logToPosthog, submitCount, submitDistribution, submitGauge } from './posthog';
 import { forwardAuditLog, type AuditLogForwarder } from '@aeci/shared/audit-log';
 import type { ScheduledJob, ScheduledJobMessage, ScheduledJobMessageInput, Env } from './env';
 import {
@@ -226,7 +226,7 @@ function jobRunSink(ctx: ExecutionContext, env: Env): JobRunSink {
       `outcome:${event.outcome}`,
     ]);
     if (event.outcome === 'failed') {
-      logToDatadog(ctx, env, req, {
+      logToPosthog(ctx, env, req, {
         level: 'error',
         message: 'aeci.job_runs.write_failed',
         source: 'job-runs',
@@ -282,7 +282,7 @@ const WAF_POLL_METRIC = 'aeci.waf.poll';
  *  the RECORDER, not the job — see docs/OBSERVABILITY.md. */
 const JOB_RUN_WRITE_METRIC = 'aeci.job_runs.write';
 
-/** Synthetic request so the Datadog helpers can derive a `host` tag (the cron
+/** Synthetic request so the telemetry helpers can derive a `host` tag (the cron
  *  has no incoming Request; `hostnameFromRequest` uses the URL host or falls
  *  back to the worker slug). */
 function cronRequest(path: string): Request {
@@ -370,7 +370,7 @@ async function runAlgoliaSync(env: Env, ctx: ExecutionContext): Promise<JobRunRe
       'entity:all',
       'outcome:skipped_no_creds',
     ]);
-    logToDatadog(ctx, env, req, {
+    logToPosthog(ctx, env, req, {
       level: 'warn',
       message: 'aeci.algolia.sync.skipped_no_creds',
       source: 'algolia-sync-cron',
@@ -395,7 +395,7 @@ async function runAlgoliaSync(env: Env, ctx: ExecutionContext): Promise<JobRunRe
       'entity:all',
       'outcome:failed',
     ]);
-    logToDatadog(ctx, env, req, {
+    logToPosthog(ctx, env, req, {
       level: 'error',
       message: 'aeci.algolia.sync.crashed',
       source: 'algolia-sync-cron',
@@ -417,7 +417,7 @@ async function runAlgoliaSync(env: Env, ctx: ExecutionContext): Promise<JobRunRe
   emitAlgoliaSyncMetrics(metricSink(ctx, env, req), 'cron', result.entities, durationMs);
 
   for (const entity of result.entities) {
-    logToDatadog(ctx, env, req, {
+    logToPosthog(ctx, env, req, {
       level: entity.ok ? 'info' : 'error',
       message: `aeci.algolia.sync ${entity.entity} saved=${entity.saved} deleted=${entity.deleted}`,
       source: 'algolia-sync-cron',
@@ -450,7 +450,7 @@ async function runAlgoliaDrift(env: Env, ctx: ExecutionContext): Promise<JobRunR
   // Defensive no-op: production deploys are gated on these secrets
   // (verify-worker-secrets.sh), but local/preview may legitimately lack them.
   if (!env.ALGOLIA_APP_ID || !env.ALGOLIA_ADMIN_KEY) {
-    logToDatadog(ctx, env, req, {
+    logToPosthog(ctx, env, req, {
       level: 'warn',
       message: 'aeci.algolia.index_drift.skipped_no_creds',
       source: 'algolia-drift-cron',
@@ -485,7 +485,7 @@ async function runAlgoliaDrift(env: Env, ctx: ExecutionContext): Promise<JobRunR
           ]);
         },
         onDrift: (drifted: AlgoliaIndexDrift[]) =>
-          logToDatadog(ctx, env, req, {
+          logToPosthog(ctx, env, req, {
             level: 'error',
             message: `aeci.algolia.index_drift on ${ddEnv}: ${drifted
               .map((d) => `${d.indexName} ${d.drift > 0 ? '+' : ''}${d.drift}`)
@@ -503,7 +503,7 @@ async function runAlgoliaDrift(env: Env, ctx: ExecutionContext): Promise<JobRunR
     // The Algolia count (fetch) or the D1 counts can throw; log loudly,
     // never rethrow (a thrown cron just shows as a failed invocation with no
     // detail).
-    logToDatadog(ctx, env, req, {
+    logToPosthog(ctx, env, req, {
       level: 'error',
       message: 'aeci.algolia.index_drift.crashed',
       source: 'algolia-drift-cron',
@@ -549,7 +549,7 @@ async function runAlgoliaDrift(env: Env, ctx: ExecutionContext): Promise<JobRunR
     const capped = swept.entities.filter((e) => e.skippedBySafetyCap);
     const failed = swept.entities.filter((e) => !e.ok);
     if (swept.totalDeleted > 0 || capped.length > 0 || failed.length > 0) {
-      logToDatadog(ctx, env, req, {
+      logToPosthog(ctx, env, req, {
         level: capped.length > 0 || failed.length > 0 ? 'warn' : 'info',
         message: `aeci.algolia.orphans_removed on ${ddEnv}: removed ${swept.totalDeleted} orphan object(s)${
           capped.length > 0
@@ -572,7 +572,7 @@ async function runAlgoliaDrift(env: Env, ctx: ExecutionContext): Promise<JobRunR
       entities: swept.entities.map(toOrphanSweepEntity),
     };
   } catch (error) {
-    logToDatadog(ctx, env, req, {
+    logToPosthog(ctx, env, req, {
       level: 'error',
       message: 'aeci.algolia.orphans_sweep.crashed',
       source: 'algolia-drift-cron',
@@ -606,7 +606,7 @@ async function runHomeStatsJob(env: Env, ctx: ExecutionContext): Promise<JobRunR
     // Log loudly + count an outright failure; never rethrow (a thrown cron is an
     // opaque failed invocation with no detail).
     submitCount(ctx, env, req, 'aeci.stats.compute', 1, ['trigger:cron', 'outcome:failed']);
-    logToDatadog(ctx, env, req, {
+    logToPosthog(ctx, env, req, {
       level: 'error',
       message: 'aeci.stats.compute.crashed',
       source: 'stats-cron',
@@ -623,7 +623,7 @@ async function runHomeStatsJob(env: Env, ctx: ExecutionContext): Promise<JobRunR
   const skipped = result.keys.filter((k) => k.status === 'skipped').length;
 
   for (const k of result.keys) {
-    logToDatadog(ctx, env, req, {
+    logToPosthog(ctx, env, req, {
       level: k.status === 'failed' ? 'error' : 'info',
       message: `aeci.stats.compute ${k.key} status=${k.status}`,
       source: 'stats-cron',
@@ -638,7 +638,7 @@ async function runHomeStatsJob(env: Env, ctx: ExecutionContext): Promise<JobRunR
   // the run `outcome` from the per-key statuses so it can't drift from the log.
   const durationMs = Date.now() - started;
   emitHomeStatsMetrics(metricSink(ctx, env, req), 'cron', result, durationMs);
-  logToDatadog(ctx, env, req, {
+  logToPosthog(ctx, env, req, {
     level: failed > 0 ? 'warn' : 'info',
     message: `aeci.stats.computed keys_written=${written} keys_failed=${failed} keys_skipped=${skipped}`,
     source: 'stats-cron',
@@ -677,7 +677,7 @@ async function runMetricsSnapshotJob(env: Env, ctx: ExecutionContext): Promise<J
     result = await runMetricsSnapshot(db, day, new Date());
   } catch (error) {
     submitCount(ctx, env, req, 'aeci.metrics_snapshot.run', 1, ['trigger:cron', 'outcome:failed']);
-    logToDatadog(ctx, env, req, {
+    logToPosthog(ctx, env, req, {
       level: 'error',
       message: 'aeci.metrics_snapshot.crashed',
       source: 'metrics-snapshot-cron',
@@ -697,7 +697,7 @@ async function runMetricsSnapshotJob(env: Env, ctx: ExecutionContext): Promise<J
   const failed = result.metrics.filter((m) => m.status === 'failed');
 
   for (const m of failed) {
-    logToDatadog(ctx, env, req, {
+    logToPosthog(ctx, env, req, {
       level: 'error',
       message: `aeci.metrics_snapshot.metric ${m.metric} status=failed`,
       source: 'metrics-snapshot-cron',
@@ -709,7 +709,7 @@ async function runMetricsSnapshotJob(env: Env, ctx: ExecutionContext): Promise<J
 
   const durationMs = Date.now() - started;
   emitMetricsSnapshotMetrics(metricSink(ctx, env, req), result, durationMs);
-  logToDatadog(ctx, env, req, {
+  logToPosthog(ctx, env, req, {
     level: failed.length > 0 ? 'warn' : 'info',
     message: `aeci.metrics_snapshot.captured day=${day} metrics_written=${written} metrics_failed=${failed.length}`,
     source: 'metrics-snapshot-cron',
@@ -761,7 +761,7 @@ async function runRetentionPruneJob(env: Env, ctx: ExecutionContext): Promise<Jo
   const windows = resolveRetentionWindows(env, (table, reason) => {
     // An override we refused. Loud, because the operator who set it believes a
     // different window is in force than the one about to run.
-    logToDatadog(ctx, env, req, {
+    logToPosthog(ctx, env, req, {
       level: 'warn',
       message: 'aeci.retention.invalid_window_override',
       source: 'retention-prune-cron',
@@ -777,7 +777,7 @@ async function runRetentionPruneJob(env: Env, ctx: ExecutionContext): Promise<Jo
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     submitCount(ctx, env, req, RETENTION_RUN_METRIC, 1, ['trigger:cron', 'outcome:failed']);
-    logToDatadog(ctx, env, req, {
+    logToPosthog(ctx, env, req, {
       level: 'error',
       message: 'aeci.retention.crashed',
       source: 'retention-prune-cron',
@@ -790,7 +790,7 @@ async function runRetentionPruneJob(env: Env, ctx: ExecutionContext): Promise<Jo
   emitRetentionPruneMetrics(metricSink(ctx, env, req), result, durationMs);
 
   if (result.status === 'skipped') {
-    logToDatadog(ctx, env, req, {
+    logToPosthog(ctx, env, req, {
       level: 'error',
       message: `aeci.retention.skipped reason=${result.reason} missing_days=${result.missingCount}`,
       source: 'retention-prune-cron',
@@ -813,7 +813,7 @@ async function runRetentionPruneJob(env: Env, ctx: ExecutionContext): Promise<Jo
   }
 
   const truncated = result.tables.filter((t) => t.truncated);
-  logToDatadog(ctx, env, req, {
+  logToPosthog(ctx, env, req, {
     level: truncated.length > 0 ? 'warn' : 'info',
     message: `aeci.retention.pruned rows_deleted=${result.rowsDeleted}`,
     source: 'retention-prune-cron',
@@ -825,7 +825,7 @@ async function runRetentionPruneJob(env: Env, ctx: ExecutionContext): Promise<Jo
   if (result.auditEntry) {
     const entry = result.auditEntry;
     const forward: AuditLogForwarder = (e) => {
-      logToDatadog(ctx, env, req, {
+      logToPosthog(ctx, env, req, {
         level: 'info',
         message: `audit ${e.action}`,
         source: 'audit_log',
@@ -874,7 +874,7 @@ async function runModerationQueueMetrics(env: Env, ctx: ExecutionContext): Promi
       pendingCount,
       oldestPendingAgeHours: ageHours,
     });
-    logToDatadog(ctx, env, req, {
+    logToPosthog(ctx, env, req, {
       level: 'info',
       message: `aeci.moderation.queue depth=${pendingCount} oldest_age_hours=${ageHours.toFixed(2)}`,
       source: 'moderation-cron',
@@ -890,7 +890,7 @@ async function runModerationQueueMetrics(env: Env, ctx: ExecutionContext): Promi
   } catch (error) {
     // Mirror the drift/stats crash path: log loudly, never throw (a failed cron
     // must not tear down the invocation).
-    logToDatadog(ctx, env, req, {
+    logToPosthog(ctx, env, req, {
       level: 'error',
       message: 'aeci.moderation.queue.crashed',
       source: 'moderation-cron',
@@ -946,7 +946,7 @@ async function runDataQualityJob(env: Env, ctx: ExecutionContext): Promise<JobRu
     // The suite is itself best-effort, so a throw here is a pre-run crash (e.g. a
     // missing DB binding). Count the failure heartbeat + log; never rethrow.
     submitCount(ctx, env, req, DQ_JOB_METRIC, 1, ['trigger:cron', 'outcome:failed']);
-    logToDatadog(ctx, env, req, {
+    logToPosthog(ctx, env, req, {
       level: 'error',
       message: 'aeci.data_quality.crashed',
       source: 'data-quality-cron',
@@ -968,7 +968,7 @@ async function runDataQualityJob(env: Env, ctx: ExecutionContext): Promise<JobRu
       `check:${r.id}`,
       `severity:${r.severity}`,
     ]);
-    logToDatadog(ctx, env, req, {
+    logToPosthog(ctx, env, req, {
       level: r.error ? 'error' : r.count > 0 ? 'warn' : 'info',
       message: `aeci.data_quality.check ${r.id} count=${r.count}${r.skipped ? ' (skipped)' : ''}`,
       source: 'data-quality-cron',
@@ -998,7 +998,7 @@ async function runDataQualityJob(env: Env, ctx: ExecutionContext): Promise<JobRu
     html: digest.html,
   });
   submitCount(ctx, env, req, DQ_EMAIL_METRIC, 1, [`outcome:${emailOutcome}`]);
-  logToDatadog(ctx, env, req, {
+  logToPosthog(ctx, env, req, {
     level: emailOutcome === 'failed' ? 'error' : 'info',
     message: `aeci.data_quality.email outcome=${emailOutcome} recipients=${recipients.length}: ${digest.subject}`,
     source: 'data-quality-cron',
@@ -1047,7 +1047,7 @@ async function runAnalyticsDigestJob(env: Env, ctx: ExecutionContext): Promise<J
       html: digest.html,
     });
     submitCount(ctx, env, req, ANALYTICS_EMAIL_METRIC, 1, [`outcome:${outcome}`]);
-    logToDatadog(ctx, env, req, {
+    logToPosthog(ctx, env, req, {
       level: outcome === 'failed' ? 'error' : 'info',
       message: `aeci.analytics_digest.email outcome=${outcome} recipients=${recipients.length}: ${digest.subject}`,
       source: 'analytics-digest-cron',
@@ -1077,7 +1077,7 @@ async function runAnalyticsDigestJob(env: Env, ctx: ExecutionContext): Promise<J
     };
   } catch (error) {
     submitCount(ctx, env, req, ANALYTICS_EMAIL_METRIC, 1, ['outcome:failed']);
-    logToDatadog(ctx, env, req, {
+    logToPosthog(ctx, env, req, {
       level: 'error',
       message: 'aeci.analytics_digest.crashed',
       source: 'analytics-digest-cron',
@@ -1118,7 +1118,7 @@ async function runAttestationNotifyJob(env: Env, ctx: ExecutionContext): Promise
     submitDistribution(ctx, env, req, NOTIFY_DURATION_METRIC, Date.now() - started, [
       'trigger:cron',
     ]);
-    logToDatadog(ctx, env, req, {
+    logToPosthog(ctx, env, req, {
       level: result.failed > 0 ? 'warn' : 'info',
       message: `aeci.attestation.notify found=${result.found} sent=${result.sent} suppressed=${result.suppressed} failed=${result.failed} skipped=${result.skipped} capped=${result.capped}`,
       source: 'attestation-notify-cron',
@@ -1142,7 +1142,7 @@ async function runAttestationNotifyJob(env: Env, ctx: ExecutionContext): Promise
     };
   } catch (error) {
     submitCount(ctx, env, req, NOTIFY_JOB_METRIC, 1, ['trigger:cron', 'outcome:failed']);
-    logToDatadog(ctx, env, req, {
+    logToPosthog(ctx, env, req, {
       level: 'error',
       message: 'aeci.attestation.notify.crashed',
       source: 'attestation-notify-cron',
@@ -1188,7 +1188,7 @@ async function runEntitlementExpiryJob(env: Env, ctx: ExecutionContext): Promise
     submitDistribution(ctx, env, req, EXPIRY_DURATION_METRIC, Date.now() - started, [
       'trigger:cron',
     ]);
-    logToDatadog(ctx, env, req, {
+    logToPosthog(ctx, env, req, {
       level: result.batchFailures > 0 ? 'error' : 'info',
       message: `aeci.entitlement.expiry due=${result.due} suppressed=${result.suppressed} warned=${result.warned} capped=${result.capped} malformed=${result.malformed} batch_failures=${result.batchFailures}`,
       source: 'entitlement-expiry-cron',
@@ -1213,7 +1213,7 @@ async function runEntitlementExpiryJob(env: Env, ctx: ExecutionContext): Promise
     };
   } catch (error) {
     submitCount(ctx, env, req, EXPIRY_JOB_METRIC, 1, ['trigger:cron', 'outcome:failed']);
-    logToDatadog(ctx, env, req, {
+    logToPosthog(ctx, env, req, {
       level: 'error',
       message: 'aeci.entitlement.expiry.crashed',
       source: 'entitlement-expiry-cron',
@@ -1258,7 +1258,7 @@ async function runWafMetricsJob(env: Env, ctx: ExecutionContext): Promise<JobRun
   // and local/preview legitimately lack it — mirror the Algolia/email fail-safe.
   if (!creds.apiToken || !creds.zoneId || !host) {
     submitCount(ctx, env, req, WAF_POLL_METRIC, 1, ['trigger:cron', 'outcome:skipped_no_creds']);
-    logToDatadog(ctx, env, req, {
+    logToPosthog(ctx, env, req, {
       level: 'warn',
       message: 'aeci.waf.poll.skipped_no_creds',
       source: 'waf-metrics-cron',
@@ -1270,7 +1270,7 @@ async function runWafMetricsJob(env: Env, ctx: ExecutionContext): Promise<JobRun
   const outcome = await fetchWafFirewallEvents(fetch, creds, window);
   if (!outcome.ok) {
     submitCount(ctx, env, req, WAF_POLL_METRIC, 1, ['trigger:cron', 'outcome:failed']);
-    logToDatadog(ctx, env, req, {
+    logToPosthog(ctx, env, req, {
       level: 'error',
       message: 'aeci.waf.poll.failed',
       source: 'waf-metrics-cron',
@@ -1288,7 +1288,7 @@ async function runWafMetricsJob(env: Env, ctx: ExecutionContext): Promise<JobRun
   submitCount(ctx, env, req, WAF_POLL_METRIC, 1, ['trigger:cron', 'outcome:ok']);
 
   const events = outcome.groups.reduce((sum, g) => sum + g.count, 0);
-  logToDatadog(ctx, env, req, {
+  logToPosthog(ctx, env, req, {
     level: outcome.truncated ? 'warn' : 'info',
     message: `aeci.waf.poll host=${host} groups=${outcome.groups.length} events=${events}${
       outcome.truncated ? ' (truncated at the group limit — raise WAF_EVENTS_GROUP_LIMIT)' : ''
@@ -1484,7 +1484,7 @@ async function enqueueOrRun(env: Env, ctx: ExecutionContext, job: ScheduledJob):
       // with no detail — log loudly (as the job impls do) and fall through to
       // an inline run so the scheduled tick is never silently dropped.
       const log = enqueueFailureLog(job);
-      logToDatadog(ctx, env, cronRequest(log.path), {
+      logToPosthog(ctx, env, cronRequest(log.path), {
         level: 'error',
         message: log.message,
         source: log.source,

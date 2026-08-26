@@ -36,7 +36,7 @@ import {
 import { createLinearIssueForRequest, drizzleLinearStore } from './linear';
 import type { Db } from '../db/client';
 import { products, vendorRequests, vendors, workflowInstances } from '../db/schema';
-import { logToDatadog, submitCount, submitGauge } from '../datadog';
+import { logToPosthog, submitCount, submitGauge } from '../posthog';
 
 const MINUTE_MS = 60_000;
 
@@ -333,7 +333,7 @@ function log(
   entry: { level: 'info' | 'warn' | 'error'; message: string } & Record<string, unknown>,
 ): void {
   try {
-    logToDatadog(c.executionCtx, c.env, c.req.raw, { source: 'reconcile', ...entry });
+    logToPosthog(c.executionCtx, c.env, c.req.raw, { source: 'reconcile', ...entry });
   } catch {
     console[entry.level === 'error' ? 'error' : 'warn'](`reconcile: ${entry.message}`);
   }

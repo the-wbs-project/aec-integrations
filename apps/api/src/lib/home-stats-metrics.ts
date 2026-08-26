@@ -39,7 +39,7 @@ import type { HomeStatsResult } from './home-stats';
  *  touching the metric shape. */
 export type StatsComputeTrigger = 'cron' | 'promote';
 
-/** Datadog transport, narrowed to the two submitters this module needs. The
+/** Telemetry transport, narrowed to the two submitters this module needs. The
  *  caller binds `(ctx, env, request)` and forwards to the shared client's
  *  `submitCount` / `submitDistribution`. */
 export type StatsMetricSink = {

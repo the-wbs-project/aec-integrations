@@ -24,11 +24,11 @@
 
 import type { RequestKind, RequestTargetType } from '@aeci/shared';
 
-import { logToDatadog, submitCount } from '../datadog';
+import { logToPosthog, submitCount } from '../posthog';
 import type { Env } from '../env';
 import { sendStuckRequestAdminAlert } from './email';
 
-/** The slice of Hono's `Context` the Datadog helpers need, typed structurally so
+/** The slice of Hono's `Context` the telemetry helpers need, typed structurally so
  *  a cron-synthesised context (see `lib/reconciliation-sweep.ts`) fits — same
  *  shape as `lib/linear.ts`'s `LinearContext`. */
 export type AlertContext = {
@@ -104,7 +104,7 @@ function log(
   entry: { level: 'info' | 'warn' | 'error'; message: string } & Record<string, unknown>,
 ): void {
   try {
-    logToDatadog(c.executionCtx, c.env, c.req.raw, { source: 'reconcile', ...entry });
+    logToPosthog(c.executionCtx, c.env, c.req.raw, { source: 'reconcile', ...entry });
   } catch {
     console[entry.level === 'error' ? 'error' : 'warn'](`reconcile-alert: ${entry.message}`);
   }

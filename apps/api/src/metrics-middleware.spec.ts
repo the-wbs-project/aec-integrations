@@ -1,14 +1,16 @@
 import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { errorHandler } from './errors';
 import type { Env } from './env';
+import { errorHandler } from './errors';
 import { metricsMiddleware } from './metrics-middleware';
 
 function makeEnv(overrides: Partial<Env> = {}): Env {
   return {
     DD_API_KEY: 'secret-key',
     DD_SITE: 'us5.datadoghq.com',
+    POSTHOG_PROJECT_KEY: 'phc_test_token',
+    POSTHOG_HOST: 'https://us.i.posthog.com',
     ENV: 'preview',
     ...overrides,
   };
@@ -49,15 +51,32 @@ function makeApp() {
   return app;
 }
 
-function metricCalls(fetchSpy: ReturnType<typeof vi.fn>) {
+/** The PostHog OTLP metrics leg of the dual-run fan-out. */
+function posthogMetricCalls(fetchSpy: ReturnType<typeof vi.fn>) {
+  return fetchSpy.mock.calls.filter((c) => String(c[0]).endsWith('/i/v1/metrics'));
+}
+
+/** The Datadog leg of the dual-run fan-out (deleted at PH-final, AECI-651). */
+function datadogMetricCalls(fetchSpy: ReturnType<typeof vi.fn>) {
   return fetchSpy.mock.calls.filter((c) => String(c[0]).includes('/api/v1/distribution_points'));
+}
+
+type OtlpAttribute = { key: string; value: { stringValue?: string; doubleValue?: number } };
+
+function posthogPointTags(fetchSpy: ReturnType<typeof vi.fn>): Record<string, unknown> {
+  const call = posthogMetricCalls(fetchSpy)[0]!;
+  const body = JSON.parse(call[1]!.body as string);
+  const point = body.resourceMetrics[0].scopeMetrics[0].metrics[0].histogram.dataPoints[0];
+  return Object.fromEntries(
+    point.attributes.map((a: OtlpAttribute) => [a.key, a.value.doubleValue ?? a.value.stringValue]),
+  );
 }
 
 describe('metricsMiddleware (AECI-66)', () => {
   let fetchSpy: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
-    fetchSpy = vi.fn().mockResolvedValue(new Response('{}', { status: 202 }));
+    fetchSpy = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }));
     vi.stubGlobal('fetch', fetchSpy);
   });
 
@@ -66,7 +85,7 @@ describe('metricsMiddleware (AECI-66)', () => {
     vi.restoreAllMocks();
   });
 
-  it('emits aeci.api.query.duration_ms tagged by the matched route pattern + status', async () => {
+  it('emits aeci.api.query.duration_ms tagged by the matched route pattern + status_class', async () => {
     const { ctx, promises } = makeCtx();
     const res = await makeApp().fetch(
       new Request('http://api/api/products/procore'),
@@ -76,37 +95,67 @@ describe('metricsMiddleware (AECI-66)', () => {
     expect(res.status).toBe(200);
     await Promise.all(promises);
 
-    const calls = metricCalls(fetchSpy);
+    const calls = posthogMetricCalls(fetchSpy);
     expect(calls).toHaveLength(1);
-    const series = JSON.parse(calls[0]![1]!.body as string).series[0];
-    expect(series.metric).toBe('aeci.api.query.duration_ms');
+    const metric = JSON.parse(calls[0]![1]!.body as string).resourceMetrics[0].scopeMetrics[0]
+      .metrics[0];
+    expect(metric.name).toBe('aeci.api.query.duration_ms');
     // endpoint is the *pattern* (low cardinality), not the concrete slug
-    expect(series.tags).toEqual(
-      expect.arrayContaining(['endpoint:/api/products/:slug', 'status:200']),
-    );
+    expect(posthogPointTags(fetchSpy)).toEqual({
+      endpoint: '/api/products/:slug',
+      status_class: '2xx',
+    });
   });
 
-  it('still emits with status:500 when a handler throws (sub-router onError converts it first)', async () => {
+  it('drops the raw `status` tag — it is a cardinality multiplier (AECI-642 / §3.5)', async () => {
+    const { ctx, promises } = makeCtx();
+    await makeApp().fetch(new Request('http://api/api/products/procore'), makeEnv(), ctx as never);
+    await Promise.all(promises);
+
+    // The exact code lives on the error log for the same request; a per-code
+    // split of a duration histogram was never a real query.
+    expect(posthogPointTags(fetchSpy)).not.toHaveProperty('status');
+    const ddTags = JSON.parse(datadogMetricCalls(fetchSpy)[0]![1]!.body as string).series[0].tags;
+    expect(ddTags).not.toContain('status:200');
+  });
+
+  it('still emits with status_class:5xx when a handler throws (sub-router onError converts it first)', async () => {
     const { ctx, promises } = makeCtx();
     const res = await makeApp().fetch(new Request('http://api/api/boom'), makeEnv(), ctx as never);
     expect(res.status).toBe(500);
     await Promise.all(promises);
 
-    const calls = metricCalls(fetchSpy);
-    expect(calls).toHaveLength(1);
-    const series = JSON.parse(calls[0]![1]!.body as string).series[0];
-    expect(series.tags).toEqual(expect.arrayContaining(['endpoint:/api/boom', 'status:500']));
+    expect(posthogMetricCalls(fetchSpy)).toHaveLength(1);
+    expect(posthogPointTags(fetchSpy)).toEqual({
+      endpoint: '/api/boom',
+      status_class: '5xx',
+    });
   });
 
-  it('no-ops without DD_API_KEY (never posts a metric, never breaks the request)', async () => {
+  it('fans out to the Datadog leg too for the dual-run window', async () => {
+    const { ctx, promises } = makeCtx();
+    await makeApp().fetch(new Request('http://api/api/products/procore'), makeEnv(), ctx as never);
+    await Promise.all(promises);
+
+    const calls = datadogMetricCalls(fetchSpy);
+    expect(calls).toHaveLength(1);
+    const series = JSON.parse(calls[0]![1]!.body as string).series[0];
+    expect(series.metric).toBe('aeci.api.query.duration_ms');
+    expect(series.tags).toEqual(
+      expect.arrayContaining(['endpoint:/api/products/:slug', 'status_class:2xx']),
+    );
+  });
+
+  it('no-ops per vendor when its key is absent (never breaks the request)', async () => {
     const { ctx, promises } = makeCtx();
     const res = await makeApp().fetch(
       new Request('http://api/api/products/procore'),
-      makeEnv({ DD_API_KEY: undefined }),
+      makeEnv({ DD_API_KEY: undefined, POSTHOG_PROJECT_KEY: undefined }),
       ctx as never,
     );
     expect(res.status).toBe(200);
     await Promise.all(promises);
-    expect(metricCalls(fetchSpy)).toHaveLength(0);
+    expect(posthogMetricCalls(fetchSpy)).toHaveLength(0);
+    expect(datadogMetricCalls(fetchSpy)).toHaveLength(0);
   });
 });

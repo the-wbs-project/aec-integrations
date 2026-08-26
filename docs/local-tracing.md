@@ -154,8 +154,8 @@ A trace is the root span (`parent_id IS NULL`) plus its subtree. Request-level f
 status, CPU/wall time, trigger — live on the **root span's `attributes`**.
 
 `kind` values seen in this repo: `http` (handler invocations), `fetch` (outbound requests,
-including the `env.API` binding call, the D1 transport, and the Datadog `ctx.waitUntil`
-forwards), and `d1` (`d1_all` / `d1_run` / `d1_batch`).
+including the `env.API` binding call, the D1 transport, and the telemetry `ctx.waitUntil`
+forwards — PostHog and, until AECI-651, Datadog), and `d1` (`d1_all` / `d1_run` / `d1_batch`).
 
 ### Reading `attributes`
 
@@ -430,15 +430,35 @@ collector actually misbehaves.
 | Lifetime | Wiped when the dev server exits | 7–15 day retention |
 | Transport | None — never leaves the machine | HTTP intake, `ctx.waitUntil` |
 | Content | Every span of every local request | Curated `aeci.*` metric catalog + gated logs |
-| Configured by | Nothing — automatic | `wrangler.jsonc` vars + `DD_API_KEY` / `POSTHOG_KEY` secrets |
+| Configured by | Nothing — automatic | `wrangler.jsonc` vars. PostHog needs **no Worker secret at all** (the publishable `POSTHOG_PROJECT_KEY` is a committed var, AECI-640); Datadog still uses `DD_API_KEY` until AECI-651 |
 
 They are complementary, not alternatives. Do not add local-trace assumptions to a Datadog
 dashboard, and do not expect a local span to explain deployed behaviour.
 
-One overlap is worth knowing: because the Datadog forwards run through `ctx.waitUntil`, they
-show up in local traces as outbound `fetch` spans to `http-intake.logs.us5.datadoghq.com` and
-`api.us5.datadoghq.com`. That is a handy way to confirm the §26.5 forwards actually fire
-without reading any Datadog UI.
+One overlap is worth knowing: because the telemetry forwards run through `ctx.waitUntil`, they
+show up in local traces as **outbound `fetch` spans to the intake host**. That is a handy way to
+confirm the §26.5 forwards actually fire without reading any vendor UI.
+
+Which host you look for depends on which leg you are checking — during the ADR 0024 dual-run
+both fire from the same request:
+
+| Leg | Outbound span host | Status |
+|---|---|---|
+| PostHog (OTLP logs / metrics, events) | `us.i.posthog.com` | where this is going — the §26.5 forward re-targets here (§3.7) |
+| Datadog (Logs + metrics intake) | `http-intake.logs.us5.datadoghq.com`, `api.us5.datadoghq.com` | still live; deleted at AECI-651 |
+
+```sql
+SELECT name, json_extract(json(attributes), '$."url.full"') AS url, duration_ms
+FROM spans
+WHERE kind = 'fetch'
+  AND json_extract(json(attributes), '$."url.full"') LIKE '%posthog.com%'
+ORDER BY start_ms DESC LIMIT 20;
+```
+
+Two reminders that bite here. **Run this against the API store** (`:<API_PORT>`) for an
+API-Worker write — the two Workers keep separate trace stores. And a forward that failed still
+records `outcome = 'ok'`; read `error.type` / `http.response.status_code` out of `attributes`
+(§"Reading `attributes`") rather than filtering on `outcome`.
 
 ---
 

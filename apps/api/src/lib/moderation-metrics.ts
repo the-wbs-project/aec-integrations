@@ -25,7 +25,7 @@
  * / `fetch` / Datadog-key plumbing and is trivially unit-tested.
  */
 
-/** Datadog transport, narrowed to the gauge submitter this module needs. The
+/** Telemetry transport, narrowed to the gauge submitter this module needs. The
  *  caller binds `(ctx, env, request)` and forwards to the shared client's
  *  `submitGauge`. */
 export type ModerationMetricSink = {

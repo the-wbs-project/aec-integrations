@@ -1064,8 +1064,12 @@ describe('createApp render-duration metric (AECI-66, Phase 2 §14)', () => {
     const series = renderMetricSeries();
     expect(series?.metric).toBe('aeci.page.render.duration_ms');
     expect(series!.tags).toEqual(
-      expect.arrayContaining(['route_class:detail', 'cache_status:MISS', 'status_code:200']),
+      expect.arrayContaining(['route_class:detail', 'cache_status:MISS', 'status_class:2xx']),
     );
+    // The raw `status_code` tag was dropped as a cardinality multiplier
+    // (AECI-642/AECI-645, POSTHOG_MIGRATION_SPEC.md §3.5) — the exact code lives
+    // on the error log for the same render.
+    expect(series!.tags).not.toContain('status_code:200');
   });
 
   it('does not emit a render metric on non-cacheable routes (no route_class)', async () => {

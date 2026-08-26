@@ -76,7 +76,7 @@ import {
   vendors,
   workflowInstances,
 } from '../db/schema';
-import { logToDatadog, submitCount } from '../datadog';
+import { logToPosthog, submitCount } from '../posthog';
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
@@ -155,12 +155,12 @@ const ENTITLEMENT_GRANT_ACTION = 'vendor_entitlement.granted';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-/** Datadog forwarder for the audit write; no-op without `DD_API_KEY`. Tagged
+/** Telemetry forwarder (PostHog + the dual-run Datadog leg) for the audit write; each vendor leg no-ops without its own key. Tagged
  *  `source: admin-moderation`, matching `admin-requests.ts`. */
 function makeForwarder(c: ClaimContext): AuditLogForwarder | undefined {
-  if (!c.env.DD_API_KEY) return undefined;
+  if (!c.env.DD_API_KEY && !c.env.POSTHOG_PROJECT_KEY) return undefined;
   return (entry) => {
-    logToDatadog(c.executionCtx, c.env, c.req.raw, {
+    logToPosthog(c.executionCtx, c.env, c.req.raw, {
       level: 'info',
       message: `audit ${entry.action} ${entry.entityId ?? ''}`.trim(),
       action: entry.action,
@@ -171,11 +171,11 @@ function makeForwarder(c: ClaimContext): AuditLogForwarder | undefined {
   };
 }
 
-/** Datadog forwarder for the workflow-transition write; no-op without `DD_API_KEY`. */
+/** Telemetry forwarder (PostHog + the dual-run Datadog leg) for the workflow-transition write; each vendor leg no-ops without its own key. */
 function makeWorkflowForwarder(c: ClaimContext): WorkflowTransitionForwarder | undefined {
-  if (!c.env.DD_API_KEY) return undefined;
+  if (!c.env.DD_API_KEY && !c.env.POSTHOG_PROJECT_KEY) return undefined;
   return (entry) => {
-    logToDatadog(c.executionCtx, c.env, c.req.raw, {
+    logToPosthog(c.executionCtx, c.env, c.req.raw, {
       level: 'info',
       message: `workflow ${entry.fromState ?? '∅'}→${entry.toState} ${entry.workflowId}`.trim(),
       from_state: entry.fromState ?? undefined,
@@ -197,7 +197,7 @@ async function parseJsonBody<T>(c: ClaimContext, schema: ZodType<T>): Promise<T>
 }
 
 /** `aeci.claim.moderation.action` — one per moderation attempt, tagged by action
- *  and outcome. Fire-and-forget; no-op without `DD_API_KEY`. */
+ *  and outcome. Fire-and-forget; each vendor leg no-ops without its own key. */
 function emitClaimModeration(
   c: ClaimContext,
   action: 'approve' | 'reject',
@@ -289,7 +289,7 @@ async function purgeGrantTags(c: ClaimContext, tags: readonly string[]): Promise
   try {
     await queue.send({ tags: [...tags], source: 'moderation' });
   } catch (error) {
-    logToDatadog(c.executionCtx, c.env, c.req.raw, {
+    logToPosthog(c.executionCtx, c.env, c.req.raw, {
       level: 'warn',
       message: `Cache purge enqueue failed for ${tags.join(',')}`,
       outcome: error instanceof Error ? error.message : String(error),
@@ -539,7 +539,7 @@ async function approveClaim(
   const targetName = targets.get(existing.targetId)?.name ?? '';
 
   // Post-commit, best-effort (§3): purge the vendor + its products, send the
-  // claim-approved email (AECI-528 seam), forward audit + workflow to Datadog.
+  // claim-approved email (AECI-528 seam), forward audit + workflow to PostHog.
   const purgeTags = await vendorPurgeTags(db, vendor);
   c.executionCtx.waitUntil(purgeGrantTags(c, purgeTags));
   c.executionCtx.waitUntil(
@@ -553,7 +553,7 @@ async function approveClaim(
       identityOutcome,
     }).catch((error) => {
       try {
-        logToDatadog(c.executionCtx, c.env, c.req.raw, {
+        logToPosthog(c.executionCtx, c.env, c.req.raw, {
           level: 'warn',
           message: `claim-approved email failed for ${existing.id}`,
           error: error instanceof Error ? error.message : String(error),
@@ -659,7 +659,7 @@ async function rejectClaim(
       targetName,
     }).catch((error) => {
       try {
-        logToDatadog(c.executionCtx, c.env, c.req.raw, {
+        logToPosthog(c.executionCtx, c.env, c.req.raw, {
           level: 'warn',
           message: `claim-rejected email failed for ${existing.id}`,
           error: error instanceof Error ? error.message : String(error),

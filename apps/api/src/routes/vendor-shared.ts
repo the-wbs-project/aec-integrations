@@ -19,7 +19,7 @@ import type { ZodType } from 'zod';
 
 import type { Db } from '../db/client';
 import { productVendors, products, vendorRequests, vendors } from '../db/schema';
-import { logToDatadog } from '../datadog';
+import { logToPosthog } from '../posthog';
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import type { AuthzVariables } from '../lib/authz';
@@ -48,9 +48,9 @@ export function sessionVendorId(c: VendorContext): string {
 }
 
 export function makeForwarder(c: VendorContext): AuditLogForwarder | undefined {
-  if (!c.env.DD_API_KEY) return undefined;
+  if (!c.env.DD_API_KEY && !c.env.POSTHOG_PROJECT_KEY) return undefined;
   return (entry) => {
-    logToDatadog(c.executionCtx, c.env, c.req.raw, {
+    logToPosthog(c.executionCtx, c.env, c.req.raw, {
       level: 'info',
       message: `audit ${entry.action} ${entry.entityId ?? ''}`.trim(),
       action: entry.action,
@@ -83,7 +83,7 @@ export async function purgeTags(c: VendorContext, tags: readonly string[]): Prom
   try {
     await queue.send({ tags: [...tags], source: 'vendor' });
   } catch (error) {
-    logToDatadog(c.executionCtx, c.env, c.req.raw, {
+    logToPosthog(c.executionCtx, c.env, c.req.raw, {
       level: 'warn',
       message: `Cache purge enqueue failed for ${tags.join(',')}`,
       outcome: error instanceof Error ? error.message : String(error),
@@ -93,7 +93,7 @@ export async function purgeTags(c: VendorContext, tags: readonly string[]): Prom
 
 /**
  * The post-commit tail every vendor write shares: purge, then forward to
- * Datadog. Both best-effort, both outside the batch.
+ * PostHog. Both best-effort, both outside the batch.
  *
  * `entries` takes an array as well as a single entry because a write may emit
  * more than one `audit_log` row — AECI-301's `POST /api/vendor/claims` writes a

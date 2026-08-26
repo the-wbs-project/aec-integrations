@@ -105,7 +105,7 @@ Unsubscribe: {{unsubscribe_url}}
 - [ ] **Indexable** — `curl -sI https://www.aecintegrations.com/` (the served host) shows no `x-robots-tag: noindex`; `/robots.txt` + `/sitemap.xml` are present and reference `www.`; canonical/OG are absolute `www.` URLs (the apex 301s to `www.`, verified above).
 - [ ] **IndexNow fired** — a promote (or the first crawl-worthy write) records `aeci.indexnow.submit{source:promote,outcome:ok}`; the `<key>.txt` file resolves at the root.
 - [ ] **Analytics + email** — a PostHog pageview lands with `locale`/`theme` dims; a test transactional email sends via Resend; the 04:00 UTC data-quality digest arrives next cycle.
-- [ ] **RUM CWV** — Datadog RUM (the `aeci` app, us5) shows field LCP/CLS/INP within budget on real production traffic (re-read after a day of real sample — `PERFORMANCE_AUDIT.md`).
+- [ ] **Field CWV** — Datadog RUM (the `aeci` app, us5) shows field LCP/CLS/INP within budget on real production traffic (re-read after a day of real sample — `PERFORMANCE_AUDIT.md`). *(ADR 0024 dual-run: PostHog `$web_vitals` is the second source and the eventual sole one — captured on the Tier 2 anonymous slice, so it covers every visitor including DNT/GPC. Datadog RUM is deleted at AECI-651; read whichever is live.)*
 - [ ] **WAF** — `aeci.waf.ratelimit.blocked` reports for the `www.` host (the AECI-262 cron host-scopes on `PUBLIC_SITE_URL`); legitimate review/request submits are not throttled.
 - [ ] **Welcome banner** — arriving via a `?ref=waitlist&token=…` link shows the dismissible banner and logs attribution to `page_views`.
 

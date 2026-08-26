@@ -12,8 +12,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { fakeExecutionContext, TEST_ENV } from '../test/helpers';
 
-vi.mock('../datadog', () => ({
-  logToDatadog: vi.fn(),
+vi.mock('../posthog', () => ({
+  logToPosthog: vi.fn(),
   submitCount: vi.fn(),
 }));
 
@@ -21,7 +21,7 @@ vi.mock('./email', () => ({
   sendStuckRequestAdminAlert: vi.fn(),
 }));
 
-import { logToDatadog, submitCount } from '../datadog';
+import { logToPosthog, submitCount } from '../posthog';
 import { sendStuckRequestAdminAlert } from './email';
 import { sendAdminAlert, type AdminAlert } from './admin-alert';
 
@@ -88,7 +88,7 @@ describe('sendAdminAlert', () => {
       1,
       ['outcome:failed'],
     );
-    expect(logToDatadog).toHaveBeenCalledWith(
+    expect(logToPosthog).toHaveBeenCalledWith(
       expect.anything(),
       expect.anything(),
       expect.anything(),
@@ -105,7 +105,7 @@ describe('sendAdminAlert', () => {
       expect.anything(),
       expect.objectContaining({ to: undefined }),
     );
-    expect(logToDatadog).toHaveBeenCalledWith(
+    expect(logToPosthog).toHaveBeenCalledWith(
       expect.anything(),
       expect.anything(),
       expect.anything(),
@@ -116,7 +116,7 @@ describe('sendAdminAlert', () => {
   it('logs the recipient when ADMIN_ALERT_EMAIL is set', async () => {
     await sendAdminAlert(ctx({ ADMIN_ALERT_EMAIL: 'ops@aecintegrations.com' }), ALERT);
 
-    expect(logToDatadog).toHaveBeenCalledWith(
+    expect(logToPosthog).toHaveBeenCalledWith(
       expect.anything(),
       expect.anything(),
       expect.anything(),

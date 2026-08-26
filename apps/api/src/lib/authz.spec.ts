@@ -30,6 +30,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 import { profiles, vendorEntitlements, vendors } from '../db/schema';
 import type { Env } from '../env';
 import { ApiError, errorHandler } from '../errors';
+import { logToPosthog } from '../posthog';
 import { makeTestDb, type TestDb } from '../test/d1';
 import {
   auditActorType,
@@ -777,5 +778,114 @@ describe('auditActorType', () => {
   // `metadata.source = 'vendor-portal'` rather than a new actor_type.
   it('maps vendor_admin → user (no new actor_type, no migration)', () => {
     expect(auditActorType({ role: 'vendor_admin' })).toBe('user');
+  });
+});
+/**
+ * AECI-644 / §AW3 — the end-to-end pin: the guard registers the verified
+ * Supabase user id, and every log the request goes on to emit carries it as
+ * `posthogDistinctId`. Runs the REAL transport (fetch stubbed) rather than a
+ * mock, because the thing under test is precisely that the attribute reaches
+ * the wire. Datadog is unconfigured here, so exactly one intake call happens.
+ */
+describe('posthogDistinctId threading', () => {
+  const TELEMETRY_ENV = {
+    SUPABASE_URL,
+    POSTHOG_PROJECT_KEY: 'phc_test_token',
+    POSTHOG_HOST: 'https://us.i.posthog.com',
+    ENV: 'preview',
+  } as Env;
+
+  let fetchSpy: ReturnType<typeof vi.fn>;
+  let waited: Promise<unknown>[];
+
+  beforeEach(() => {
+    waited = [];
+    fetchSpy = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }));
+    vi.stubGlobal('fetch', fetchSpy);
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function execCtx(): ExecutionContext {
+    return {
+      waitUntil: (p: Promise<unknown>) => {
+        waited.push(p);
+      },
+      passThroughOnException: () => undefined,
+      props: {},
+    } as unknown as ExecutionContext;
+  }
+
+  /**
+   * `/api/account` behind `requireAuth()` and an UNGUARDED `/api/public`, both
+   * emitting a log from the handler. `logClientErrors` is on so the banned-403
+   * branch emits one too.
+   */
+  function makeLoggingApp() {
+    const app = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
+    app.onError(errorHandler({ logClientErrors: true, source: 'test' }));
+    const emit = (c: AuthzContext) => {
+      logToPosthog(c.executionCtx, c.env, c.req.raw, { message: 'handler ran' });
+      return c.json({ ok: true });
+    };
+    app.delete('/api/account', requireAuth({ getKey, dbFor }), emit);
+    app.get('/api/public', emit as never);
+    return app;
+  }
+
+  /** Log-record attributes from the single PostHog OTLP body, as a map. */
+  async function logAttributes(): Promise<Record<string, unknown>> {
+    await Promise.all(waited);
+    const call = fetchSpy.mock.calls.find((c) => c[0] === 'https://us.i.posthog.com/i/v1/logs') as [
+      string,
+      { body: string },
+    ];
+    const body = JSON.parse(call[1].body) as {
+      resourceLogs: {
+        scopeLogs: {
+          logRecords: { attributes: { key: string; value: { stringValue?: string } }[] }[];
+        }[];
+      }[];
+    };
+    return Object.fromEntries(
+      body.resourceLogs[0]!.scopeLogs[0]!.logRecords[0]!.attributes.map((a) => [
+        a.key,
+        a.value.stringValue,
+      ]),
+    );
+  }
+
+  it('stamps the verified token sub on a log emitted by an authed handler', async () => {
+    await seedProfile('user-abc', REVIEWER);
+    const token = await mintToken({ sub: 'user-abc' });
+    const res = await makeLoggingApp().request(
+      '/api/account',
+      { method: 'DELETE', headers: bearer(token) },
+      TELEMETRY_ENV,
+      execCtx(),
+    );
+    expect(res.status).toBe(200);
+    expect(await logAttributes()).toHaveProperty('posthogDistinctId', 'user-abc');
+  });
+
+  it('omits the key entirely on an anonymous request', async () => {
+    const res = await makeLoggingApp().request('/api/public', {}, TELEMETRY_ENV, execCtx());
+    expect(res.status).toBe(200);
+    // Key ABSENCE — never `null`, `''`, or a synthesized stand-in.
+    expect(Object.keys(await logAttributes())).not.toContain('posthogDistinctId');
+  });
+
+  it('stamps the banned-403 error log too — identity is verified even when authorization fails', async () => {
+    await seedProfile('user-banned', BANNED);
+    const token = await mintToken({ sub: 'user-banned' });
+    const res = await makeLoggingApp().request(
+      '/api/account',
+      { method: 'DELETE', headers: bearer(token) },
+      TELEMETRY_ENV,
+      execCtx(),
+    );
+    expect(res.status).toBe(403);
+    expect(await logAttributes()).toHaveProperty('posthogDistinctId', 'user-banned');
   });
 });

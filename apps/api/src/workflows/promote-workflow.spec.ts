@@ -205,7 +205,7 @@ describe('runPromoteWorkflow', () => {
     // The bookmark is only knowable after the commit, so the run fills the ctx holder in
     // before dispatching — otherwise the hooks' re-reads could hit a lagging replica.
     expect(rc.bookmark()).toBe(result.bookmark);
-    // Datadog `hostname` continuity: the synthetic request carries the kick-off's origin.
+    // Log `host` continuity: the synthetic request carries the kick-off's origin.
     expect(rc.request.url).toBe(SOURCE_URL);
   });
 

@@ -29,6 +29,7 @@ import { Component, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { BrnPopover, BrnPopoverContent, BrnPopoverTrigger } from '@spartan-ng/brain/popover';
 
+import { Analytics } from '../analytics/analytics';
 import { AuthService } from '../auth/auth.service';
 import { signOutAndGoHome } from '../auth/sign-out';
 import { VendorStatus } from '../vendor/vendor-status';
@@ -118,6 +119,7 @@ import { VendorStatus } from '../vendor/vendor-status';
 export class UserMenu {
   protected readonly vendorStatus = inject(VendorStatus);
   private readonly auth = inject(AuthService);
+  private readonly analytics = inject(Analytics);
 
   protected readonly signOutFailed = signal(false);
 
@@ -125,7 +127,7 @@ export class UserMenu {
     this.signOutFailed.set(false);
     // On success the browser navigates to "/" (hard redirect); on failure keep
     // the menu open and surface a retryable notice.
-    const ok = await signOutAndGoHome(this.auth);
+    const ok = await signOutAndGoHome(this.auth, this.analytics);
     if (!ok) this.signOutFailed.set(true);
   }
 }
