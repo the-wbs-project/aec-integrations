@@ -277,7 +277,7 @@ At go-live there is no separate marketing page: when the apex flips from the sta
 **Tabs:** Each tab is a separately addressable URL using route segments (see Section 4.2.1 for full URL strategy).
 
 1. **Overview** (`/products/:slug` or `/products/:slug/overview`) — description, website link, key features, supported phases/audiences
-2. **Integrations** (`/products/:slug/integrations`) — table of integrations grouped by source/target with mechanism badges
+2. **Integrations** (`/products/:slug/integrations`) — table of integrations with mechanism badges. **"Grouped by source/target" is superseded** (`STAGE_1_5_SPEC.md` §7.1): the two buckets interleave into one list ordered alphabetically by partner name, because the source/target split is invisible in the rendered row.
 3. **Reviews** (`/products/:slug/reviews`) — individual reviews from review 1, aggregate score shown only at ≥5 reviews
 4. **Details** (`/products/:slug/details`) — vendor info, API docs link, marketplace link, founded year, headquarters
 
@@ -342,13 +342,15 @@ Each tab gets its own `<title>`, `<meta name="description">`, OpenGraph, and Sch
 - Built by (vendor) and Powered by (product) if applicable
 - "Report an error" link
 
-### 4.5 Category/Audience/Phase pages
+### 4.5 Category/Audience/Phase/Trade pages
 
-Same layout pattern for all three:
+Same layout pattern for all four (trades became the fourth facet in AECI-544 — see §5.5a):
 - Header: name + description
 - Filter sidebar: cross-filter by other taxonomies
 - Product grid with sort options (alphabetical, most integrations, most reviewed)
 - Pagination
+
+**As built (AECI-657).** The grid slot leads with `aec-listing-toolbar` — the same sort `<select>` + cards/table toggle `/products` carries — and defaults to the `ProductCardGrid` card view, with the table available at `?view=table`. All six product sort keys are offered, including the three named above; `integrations` ("Most integrations") was added by the same issue, having existed nowhere before it. AECI-190's redesign was scoped to `/products` and gave these pages only its upgraded table row, so between AECI-190 and AECI-657 they shipped a table with no sort control at all — `?sort=` worked by hand-typed URL the whole time, since `createPaginatedIndex` reads it off the URL, but nothing surfaced it.
 
 ### 4.6 Search results (`/search`)
 

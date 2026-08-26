@@ -32,8 +32,8 @@ import { BrowseLayout } from '../../layouts/browse-layout';
           <article class="rounded-lg border border-(--border-default) p-6">
             <p class="font-display text-lg font-semibold">Card {{ i }}</p>
             <p class="mt-2 text-sm text-(--text-secondary)">
-              Card content goes here. Real browse pages project ProductCard / VendorCard /
-              IntegrationCard primitives into this slot.
+              Card content goes here. Real browse pages project ProductCardGrid tiles or ProductCard
+              rows into this slot.
             </p>
           </article>
         }

@@ -408,6 +408,12 @@ export const productDetailConfig = {
     productPhases: { columns: {}, with: { phase: { columns: taxonomyLinkColumns } } },
     // Sparse by design (§5.5a) — most products resolve to `[]` here.
     productTrades: { columns: {}, with: { trade: { columns: taxonomyLinkColumns } } },
+    // Deliberately unordered. The detail page interleaves these two buckets
+    // into ONE list sorted alphabetically by partner name (`product-detail.ts`,
+    // `STAGE_1_5_SPEC.md` §7.1) — an order SQL can't express from here: a
+    // relation `orderBy` only reaches columns of `integrations`, and the partner
+    // name is on the joined product. Sorting each bucket wouldn't interleave
+    // them either. Adding an `orderBy` here buys nothing the client reads.
     sourceIntegrations: productDetailIntegrationConfig,
     targetIntegrations: productDetailIntegrationConfig,
     // Edges this product powers as the connector/mechanism (Stage 1.5

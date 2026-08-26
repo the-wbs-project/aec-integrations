@@ -670,9 +670,11 @@
         // (AECI-637) and reports to `aec-integrations-dev` (525793).
         "POSTHOG_PROJECT_KEY": "phc_pY8FDQ9FNAmFUJFFd85jNKAAUCMvndUsyGMMV8TR97MD",
         // AECI-240: EMAIL_FROM + PUBLIC_SITE_URL shape any mail this tier composes.
-        // RESEND_API_KEY is deliberately NOT provisioned here (docs/environments.md
-        // §10), so every send is a fail-open `'skipped'` — these vars exist so the
-        // absolute links are right if email testing is switched on later.
+        // RESEND_API_KEY was PROVISIONED 2026-08-24 for claim-decision email testing
+        // (docs/environments.md §10.6) — this tier now sends REAL mail to real
+        // addresses, so these vars are load-bearing, not just placeholders. Remove
+        // the secret when that test is done and sends go back to a fail-open
+        // `'skipped'`.
         "EMAIL_FROM": "AEC Integrations <notifications@aecintegrations.com>",
         "PUBLIC_SITE_URL": "https://stage2.aecintegrations.com",
         "ADMIN_ALERT_EMAIL": "chrisw@thewbsproject.com",

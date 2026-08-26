@@ -18,6 +18,14 @@ describe('resolveProductSort (§7.4 default-direction rule + AECI-99 tiebreaker)
   it('maps `reviews` to `[{ reviewCount: "desc" }, { id: "asc" }]`', () => {
     expect(resolveProductSort('reviews')).toEqual([{ reviewCount: 'desc' }, { id: 'asc' }]);
   });
+  // AECI-657 — the third sort STAGE_1_SPEC.md §4.5 named ("most integrations"),
+  // built last. DESC on the denormalized counter, no visibility gate.
+  it('maps `integrations` to `[{ integrationCount: "desc" }, { id: "asc" }]`', () => {
+    expect(resolveProductSort('integrations')).toEqual([
+      { integrationCount: 'desc' },
+      { id: 'asc' },
+    ]);
+  });
 });
 
 describe('resolveVendorSort (§"Sort & direction": name → company_name + AECI-99 tiebreaker)', () => {
@@ -54,6 +62,7 @@ describe('AECI-99 tiebreaker shape', () => {
     ['product/updated', resolveProductSort('updated')],
     ['product/rating', resolveProductSort('rating')],
     ['product/reviews', resolveProductSort('reviews')],
+    ['product/integrations', resolveProductSort('integrations')],
     ['vendor/created', resolveVendorSort('created')],
     ['vendor/name', resolveVendorSort('name')],
     ['vendor/updated', resolveVendorSort('updated')],

@@ -896,10 +896,22 @@ printf '%s' "$ADMIN_PURGE_TOKEN" | pnpm exec wrangler secret put ADMIN_PURGE_TOK
 
 #### 10.6 Two secrets to leave OFF, and why
 
-- **`SUPABASE_SERVICE_ROLE_KEY` — omit** unless you are specifically testing claim approval. Under ADR 0017 one auth project backs **every** tier including production, and this is the project-wide GoTrue Admin key: it can enumerate every real user, mint a session for any address, and delete identities. `DELETE /api/account` on this throwaway tier would delete the **real production** `auth.users` row. Without it the seams degrade exactly as documented in §Secrets — reviewer emails read `null`, claim approval 503s, and everything else works.
+- **`SUPABASE_SERVICE_ROLE_KEY` — omit** unless you are specifically testing claim approval. Under ADR 0017 one auth project backs **every** tier including production, and this is the project-wide GoTrue Admin key: it can enumerate every real user, mint a session for any address, and delete identities. `DELETE /api/account` on this throwaway tier would delete the **real production** `auth.users` row. Without it the seams degrade exactly as documented in §Secrets — reviewer emails read `null`, the admin claim queue's **Claimant account** signal reads "Account status unknown" for every row (`has_auth_account: null`, AECI-527 — the lookup is skipped, NOT a claim that no account exists), claim approval 503s, and everything else works.
 - **`RESEND_API_KEY` — omit** unless you are specifically testing email. It is a single shared key and sends real mail to real addresses; absent, every send is a fail-open `'skipped'`. (This tier runs no crons, so the nightly digests that would otherwise mail on their own cannot fire either — belt and braces.)
 
 If you do provision either one, note it here with a date and remove it the moment that test is finished.
+
+> **Provisioned 2026-08-24** (all three by hand; each `wrangler secret put` cuts a new `Secret Change` version, so the
+> Worker picks them up immediately — no redeploy):
+>
+> | Secret | Version | Why |
+> |---|---|---|
+> | `SUPABASE_SERVICE_ROLE_KEY` | `f54f8421` (02:49:51Z) | Claim-approval / claimant-identity testing (AECI-519/527). **This tier can now delete real production `auth.users` rows via `DELETE /api/account` — see the bullet above.** |
+> | `RESEND_API_KEY` | `2a0a37c7` (02:50:41Z) | Claim-decision email testing (AECI-528). **This tier now sends real mail to real addresses.** |
+> | `LINEAR_API_KEY` | `0794898d` (02:51:00Z) | The form→Linear request pipeline. Not in §10.5's list — it is fail-open when absent, so add it only when testing that pipeline; it writes to the **shared team tracker**. |
+>
+> Claims submitted BEFORE 02:49:51Z were reviewed with the seam absent — that is the documented
+> "Account status unknown" degrade, not a defect. **Remove all three when Stage 2 claim/email testing is done.**
 
 #### 10.7 Migrate, seed, deploy
 

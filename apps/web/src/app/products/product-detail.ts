@@ -707,11 +707,24 @@ export class ProductDetailPage {
   }
 
   /**
-   * Normalized integration list. Each entry pairs the integration with the
-   * *other* product (the one that isn't this page's product), so the
-   * template can render both endpoints with the other product's link.
-   * Source and target buckets are concatenated; the spec doesn't require a
-   * particular ordering.
+   * Normalized integration list, ordered alphabetically by partner name.
+   *
+   * Each entry pairs the integration with the *other* product (the one that
+   * isn't this page's product), so the template can render both endpoints with
+   * the other product's link.
+   *
+   * The two buckets **interleave** rather than concatenate: the source/target
+   * split is invisible in the rendered table (every row shows the
+   * server-precomputed, context-relative `context_direction`, never its
+   * bucket), so concatenating them would surface a distinction the reader
+   * can't see as an unexplained break in the alphabet.
+   *
+   * Sorting has to happen here rather than in SQL. The `sourceIntegrations` /
+   * `targetIntegrations` relations (`productDetailIntegrationConfig`) can only
+   * `ORDER BY` columns of `integrations` itself — the partner name lives on the
+   * joined product — and ordering the two buckets separately still wouldn't
+   * interleave them. Client-side is also where the full list exists before the
+   * 20-row `@defer` cut below, so the cut lands on the alphabet.
    */
   protected readonly integrations = computed<
     ReadonlyArray<{
@@ -734,7 +747,18 @@ export class ProductDetailPage {
     for (const integration of p.integrations_as_target) {
       items.push({ integration, other: integration.source });
     }
-    return items;
+    // Partner name is the column visitors scan, so it carries the sort.
+    // `localeCompare` (not `<`) so casing and accents fold the way a reader
+    // expects, matching the sibling powered-hub sort. The tail comparisons make
+    // the order TOTAL: a partner reachable by more than one mechanism would
+    // otherwise tie, and `Array#sort` stability would pin those rows to the
+    // arbitrary DB order this sort exists to remove.
+    return items.sort(
+      (x, y) =>
+        x.other.name.localeCompare(y.other.name) ||
+        x.integration.name.localeCompare(y.integration.name) ||
+        x.integration.id.localeCompare(y.integration.id),
+    );
   });
 
   /** First 20 integrations — rendered in the initial response. */
