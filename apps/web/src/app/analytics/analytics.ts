@@ -175,6 +175,8 @@ export class Analytics {
   searchPerformed(input: {
     query: string;
     results_count: number;
+    results_products: number;
+    results_vendors: number;
     filters_applied: readonly string[];
     status: string;
     duration_ms: number;
@@ -183,6 +185,8 @@ export class Analytics {
     this.capture('search_performed', {
       query: input.query,
       results_count: input.results_count,
+      results_products: input.results_products,
+      results_vendors: input.results_vendors,
       filters_applied: [...input.filters_applied],
       status: input.status,
       duration_ms: input.duration_ms,

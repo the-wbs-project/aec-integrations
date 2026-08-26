@@ -69,6 +69,8 @@ const captured = (client: { capture: ReturnType<typeof vi.fn> }): string[] =>
 const SEARCH_INPUT = {
   query: 'revit',
   results_count: 8,
+  results_products: 6,
+  results_vendors: 2,
   filters_applied: ['categories'],
   status: 'ok',
   duration_ms: 7,

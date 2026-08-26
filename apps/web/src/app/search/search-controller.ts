@@ -214,11 +214,28 @@ type Connector<S, P> = (renderFn: Renderer<S>, unmountFn?: () => void) => (param
  *     so `results_bucket` buckets `results_count` (products + vendors) through
  *     the same `resultsBucket()` helper, and `duration_ms` is the root
  *     (products) index's `processingTimeMS`.
+ *
+ * The per-index narrowing is largely closed by `results_products` /
+ * `results_vendors` (AECI-649 follow-up), which carry each index's own
+ * `nbHits` on the SAME event. That deliberately is NOT the RUM shape: RUM fired
+ * once *per index*, so restoring it literally would mean two events per search
+ * and `search_performed` would stop meaning "a search" — which is the first step
+ * of the activation funnel (`docs/ANALYTICS.md` §6). One event with per-index
+ * counts answers the question RUM's `index` dimension answered ("which entity
+ * type did this query find?") without changing what the event counts.
+ *
+ * Note there are only TWO indexes here, not three: this controller runs the
+ * products (root) and vendors indexes. Integrations are not searched from
+ * `/search`, so there is no `results_integrations`.
  */
 export interface SearchPerformedEvent {
   readonly query: string;
   /** Best-effort federated total (products + vendors `nbHits`). */
   readonly results_count: number;
+  /** The products index's own `nbHits` — the per-index split RUM used to carry. */
+  readonly results_products: number;
+  /** The vendors index's own `nbHits`. */
+  readonly results_vendors: number;
   /** Distinct facet attributes with an active refinement at search time. */
   readonly filters_applied: readonly string[];
   /** Whether the query settled or the multi-query failed as a unit. */
@@ -481,10 +498,14 @@ export class SearchController {
     // the user performed, so they'd pollute the funnel.
     if (!query || query === this.lastSearchEmittedFor) return;
     this.lastSearchEmittedFor = query;
-    const resultsCount = this.products.nbHits() + this.vendors.nbHits();
+    const productHits = this.products.nbHits();
+    const vendorHits = this.vendors.nbHits();
+    const resultsCount = productHits + vendorHits;
     this.onSearch({
       query,
       results_count: resultsCount,
+      results_products: productHits,
+      results_vendors: vendorHits,
       filters_applied: this.appliedFilters(),
       status: 'ok',
       duration_ms: durationMs,
@@ -507,6 +528,11 @@ export class SearchController {
     this.onSearch({
       query,
       results_count: 0,
+      // The multi-query failed as a unit, so neither index reported hits.
+      // Zero rather than omitted, so a reader never has to distinguish "no
+      // results" from "property missing on the error rows".
+      results_products: 0,
+      results_vendors: 0,
       filters_applied: this.appliedFilters(),
       status: 'error',
       // Not meaningful for a failure; latency reads filter on `status:'ok'`.

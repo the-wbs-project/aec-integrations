@@ -548,9 +548,22 @@ the **per-index split is gone**, not merely the unconsented traffic, and the
 two Phase-3 dashboard widgets that used it are regrouped by `results_bucket`
 and by day (AECI-647).
 
-Recovering it would mean adding an `index` property to a shipped event, which
-§1 of `docs/ANALYTICS.md` allows (adding a property is not renaming an event) —
-but it is a deliberate future change, not something the migration did quietly.
+**Largely closed, after the fact.** `search_performed` now carries
+`results_products` and `results_vendors` — each index's own `nbHits` on the same
+event. Adding a property is not renaming an event, so §1 of
+`docs/ANALYTICS.md` permits it.
+
+It is deliberately **not** the RUM shape. RUM fired once *per index*; emitting
+per index here would mean two events per search, and `search_performed` would
+stop meaning "a search" — which is the first step of the activation funnel
+(`ANALYTICS.md` §6). One event with per-index counts answers the question the
+`index` dimension answered ("which entity type did this query find?") without
+changing what the event counts.
+
+Two things still differ from RUM and are accepted: `duration_ms` remains the
+root (products) index's `processingTimeMS` rather than per-index, and there are
+only **two** indexes — `/search` runs products and vendors, so there is no
+`results_integrations`.
 
 ### §8.11 "Dashboards in both projects" — how it was resolved
 
