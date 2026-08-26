@@ -691,9 +691,12 @@ create table profiles (
   display_name text,
   role text not null default 'reviewer' check (role in ('reviewer', 'admin', 'vendor_admin')),
   vendor_id uuid references vendors(id), -- null for Stage 1, used in Stage 2 vendor portal
-  -- Set true by the AECI-664 invite redeem: the account proved control of an
-  -- address on the vendor's own domain (the gate ran at invite time). Nothing
-  -- else has ever written it.
+  -- Set true by the AECI-664 invite redeem when the redeemed address is on the
+  -- vendor's own registrable domain (computeDomainMatch, evaluated at REDEEM time
+  -- since the invite-time domain gate was removed — STAGE_2_VENDOR_PORTAL_SPEC
+  -- §11a.3). An off-domain redeem leaves it alone; it is never cleared. Read by a
+  -- human on the admin claim queue as "does this person really work there?", so it
+  -- must track the address, not the mere fact of a redeem. Nothing else writes it.
   work_email_verified boolean not null default false,
   -- The owner/admin distinction (AECI-664 / STAGE_2_VENDOR_PORTAL_SPEC §11a).
   -- Meaningful ONLY on a vendor_admin row. true = may invite colleagues and

@@ -155,7 +155,7 @@ describe('batch shapes', () => {
     expect(batch.auditEntry.action).toBe('vendor_seat.invite_revoked');
   });
 
-  it('accept: seat is NOT an owner, and work_email_verified is set', () => {
+  it('accept: seat is NOT an owner, and an on-domain redeem sets work_email_verified', () => {
     const batch = acceptInviteStatements(t.db, {
       inviteId: INVITE,
       vendorId: VENDOR,
@@ -163,12 +163,16 @@ describe('batch shapes', () => {
       userId: USER,
       actorType: 'user',
       now: NOW,
+      domainMatched: true,
       profileBefore: null,
     });
     const [upsert, spend, audit] = sqlOf(batch.stmts);
     // An invited seat that could invite would let one AECi-reviewed human seed an
     // unbounded chain of seats no reviewer ever saw.
-    expect(batch.auditEntry.afterState).toMatchObject({ seat_owner: false });
+    expect(batch.auditEntry.afterState).toMatchObject({
+      seat_owner: false,
+      work_email_verified: true,
+    });
     expect(upsert).toContain('profiles');
     expect(upsert).toContain('on conflict');
     // Single-use: two concurrent redeems must produce one seat, not two.
@@ -185,12 +189,54 @@ describe('batch shapes', () => {
       userId: USER,
       actorType: 'user',
       now: NOW,
-      profileBefore: { role: 'reviewer', vendorId: null, seatOwner: false },
+      domainMatched: true,
+      profileBefore: {
+        role: 'reviewer',
+        vendorId: null,
+        seatOwner: false,
+        workEmailVerified: false,
+      },
     });
     for (const sql of sqlOf(batch.stmts)) {
       expect(sql).not.toContain('update "vendors"');
       expect(sql).not.toContain('vendor_entitlements');
     }
+  });
+
+  it('accept: an OFF-DOMAIN redeem leaves work_email_verified false', () => {
+    // Since §11a.3 removed the invite-time domain gate, "they redeemed" no longer
+    // implies "they work there". The column is read by a human on the §5 claim
+    // queue, so it tracks the address, not the redeem.
+    const batch = acceptInviteStatements(t.db, {
+      inviteId: INVITE,
+      vendorId: VENDOR,
+      email: 'dana@gmail.com',
+      userId: USER,
+      actorType: 'user',
+      now: NOW,
+      domainMatched: false,
+      profileBefore: null,
+    });
+    expect(batch.auditEntry.afterState).toMatchObject({ work_email_verified: false });
+  });
+
+  it('accept: an off-domain redeem never CLEARS an earned work_email_verified', () => {
+    const batch = acceptInviteStatements(t.db, {
+      inviteId: INVITE,
+      vendorId: VENDOR,
+      email: 'dana@gmail.com',
+      userId: USER,
+      actorType: 'user',
+      now: NOW,
+      domainMatched: false,
+      profileBefore: {
+        role: 'vendor_admin',
+        vendorId: VENDOR,
+        seatOwner: false,
+        workEmailVerified: true,
+      },
+    });
+    expect(batch.auditEntry.afterState).toMatchObject({ work_email_verified: true });
   });
 
   it('accept: redeeming NEVER demotes an existing owner (last-owner safety)', () => {
@@ -205,7 +251,13 @@ describe('batch shapes', () => {
       userId: USER,
       actorType: 'user',
       now: NOW,
-      profileBefore: { role: 'vendor_admin', vendorId: VENDOR, seatOwner: true },
+      domainMatched: true,
+      profileBefore: {
+        role: 'vendor_admin',
+        vendorId: VENDOR,
+        seatOwner: true,
+        workEmailVerified: true,
+      },
     });
     const [upsert] = sqlOf(batch.stmts);
     expect(batch.auditEntry.afterState).toMatchObject({ seat_owner: true });

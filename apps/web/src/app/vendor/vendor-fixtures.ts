@@ -39,7 +39,7 @@ function term(
   return { id: `tax-${slug}`, slug, name, description: null, display_order, product_count };
 }
 
-/** The category/audience/phase vocabulary the product editor picks from. */
+/** The category/audience/phase/trade vocabulary the product editor picks from. */
 export const VENDOR_TAXONOMY_FIXTURE: TaxonomyResponse = {
   categories: [
     term('project-management', 'Project management', 1, 18),
@@ -89,6 +89,9 @@ const PRIMARY_PRODUCT: VendorProduct = {
   category_slugs: ['bim-authoring', 'document-control'],
   audience_slugs: ['architects', 'structural-engineers'],
   phase_slugs: ['design', 'construction'],
+  // Sparse by design: a multidiscipline coordination tool is horizontal, so it
+  // carries no trades. This is the COMMON case, and the fixture models it.
+  trade_slugs: [],
   product_role: 'application',
   integration_count: 14,
   review_count: 6,
@@ -108,6 +111,8 @@ const SECONDARY_PRODUCT: VendorProduct = {
   category_slugs: ['field-reporting'],
   audience_slugs: ['general-contractors', 'project-managers'],
   phase_slugs: ['construction'],
+  // The uncommon case, so the chips render in at least one fixture path.
+  trade_slugs: ['hvac-mechanical', 'electrical'],
   product_role: 'application',
   integration_count: 3,
   review_count: 0,
@@ -254,6 +259,53 @@ export const VENDOR_ME_DOWNGRADED_FIXTURE: VendorMeResponse = {
   },
 };
 
+/**
+ * A vendor whose catalog is big enough to need the search box.
+ *
+ * The two-product fixture above is the honest shape of the seeded vendor and is
+ * right for every OTHER case, but it tells you nothing about the control the
+ * Products nav menu exists for: a picker over two options is a picker over two
+ * options whether or not it can filter. Reviewing "can I find the one I came
+ * for" needs a list you cannot take in at a glance, which is the case the real
+ * vendors are in and the fixtures never were.
+ *
+ * Deliberately unsorted here, so the menu's alphabetical ordering is visible
+ * rather than accidental.
+ */
+const LARGE_CATALOG_NAMES: readonly string[] = [
+  'Summit Model Coordination',
+  'Summit Field Issues',
+  'Summit Cost Control',
+  'Summit Punch',
+  'Summit Handover',
+  'Summit Reality Capture',
+  'Summit Schedule Link',
+  'Summit RFI Desk',
+  'Summit Submittal Desk',
+  'Summit Drawing Register',
+  'Summit Asset Register',
+  'Summit Commissioning',
+  'Summit Quantity Takeoff',
+  'Summit Site Diary',
+  'Summit Safety Observations',
+  'Summit Change Orders',
+  'Summit Daily Reports',
+  'Summit Equipment Log',
+  'Summit Warranty Tracker',
+  'Summit Closeout',
+];
+
+export const VENDOR_ME_LARGE_CATALOG_FIXTURE: VendorMeResponse = {
+  ...VENDOR_ME_FIXTURE,
+  products: LARGE_CATALOG_NAMES.map((name, i) => ({
+    ...(i === 0 ? PRIMARY_PRODUCT : SECONDARY_PRODUCT),
+    id: `00000000-0000-4000-8000-0000000053${String(i).padStart(2, '0')}`,
+    slug: name.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+    name,
+    is_primary: i === 0,
+  })),
+};
+
 /** The seat roster for the verified vendor: the viewer (an OWNER, so the preview
  *  exercises the invite/remove controls), a member, and a banned seat with an
  *  unresolved email (the local/preview degrade-to-null case). */
@@ -334,7 +386,7 @@ export const VENDOR_DATA_OBJECTS_FIXTURE: readonly DataObjectOption[] = [
   },
   {
     slug: 'punch-lists',
-    name: 'Punch lists',
+    name: 'Punch Lists',
     description: 'Closeout items tracked to completion in the field.',
   },
   {
@@ -520,7 +572,7 @@ const INTEGRATION_BOTH_ENDPOINTS: VendorIntegration = {
       id: '00000000-0000-4000-8000-000000005331',
       integration_id: '00000000-0000-4000-8000-000000005311',
       data_object_slug: 'punch-lists',
-      data_object_name: 'Punch lists',
+      data_object_name: 'Punch Lists',
       direction: 'both',
       // TWO attestations, ONE voter: the agreement engine dedupes by attesting
       // vendor, so owning both endpoints cannot manufacture `confirmed`.

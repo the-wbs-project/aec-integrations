@@ -529,7 +529,28 @@ Run axe on:
   `vendor_admin` persona and waits for the first integration card (or the empty
   state) before analyzing. It is the most interactive vendor-facing surface, so
   this is the run that covers the combobox/listbox wiring end to end — the unit
-  specs deliberately never open a CDK overlay (§4.3a).
+  specs deliberately never open a CDK overlay (§4.3a), **with one carve-out, below.**
+- `/preview/vendor-dashboard` — the **portal nav and its Products dropdown**, in
+  the new `preview-vendor-portal-nav.spec.ts`
+  (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.4). Two runs, **closed and open**, because a
+  new always-present nav dropdown is exactly the kind of change that invalidates a
+  prior pass, and an empty `role="listbox"` (`aria-required-children`) only exists
+  in the open state. It runs on the PREVIEW route deliberately: that surface mounts
+  the same shell and section routes with fixture data and **no session**, so unlike
+  `vendor-dashboard.spec.ts` it does not skip-green in CI — and its path contains no
+  `/vendor/` segment, so the zone WAF cannot 403 it. Open the panel with the
+  **keyboard**, not a click: a click moves the pointer over the host first, which on
+  a hover-opening neighbour toggles it back shut (`phase2-a11y.spec.ts` records the
+  same workaround).
+  - **The carve-out to "unit specs never open a CDK overlay":**
+    `vendor-products-menu.component.spec.ts` does, and can. Opening `AecSelect`
+    means going through Aria's own combobox toggle and its activedescendant commit,
+    which is jsdom-hostile; opening this one is a plain `<button>` click writing a
+    plain signal into `cdkConnectedOverlayOpen`, and under jsdom there is no Popover
+    API so CDK downgrades `usePopover` to the body-level `.cdk-overlay-container`
+    (query `document`, not the host, and sweep the container in `afterEach`). What
+    stays e2e-only is unchanged: Aria's ArrowDown → `aria-activedescendant` → Enter
+    commit, a real outside click, and real focus order out of the top layer.
   - **The live region is no longer part of that subtree** (AECI-631 /
     `STAGE_2_REALTIME_SPEC.md` §6.3). The portal has exactly ONE **persistent**
     polite live region, and it now lives in the dashboard SHELL — an `sr-only`

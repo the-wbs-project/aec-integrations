@@ -159,19 +159,21 @@ describe('POST /api/vendor/seats/invites', () => {
     expect((rows[0]!.metadata as { source: string }).source).toBe('vendor-portal');
   });
 
-  it('REFUSES a non-matching domain, writing nothing and sending nothing', async () => {
+  it('invites an OFF-DOMAIN address — the domain gate was removed (§11a.3)', async () => {
+    // The case the gate used to refuse: an agency, a contractor, a subsidiary, or
+    // simply someone whose mail is not on the corporate domain. The owner is the
+    // one who knows who maintains the listing.
     const res = await invite('dana@gmail.com');
-    expect(res.status).toBe(422);
-    expect(res.body.error.code).toBe('INVITE_DOMAIN_MISMATCH');
-    expect(await t.db.select().from(vendorSeatInvites)).toHaveLength(0);
-    expect(sent).not.toHaveBeenCalled();
+    expect(res.status).toBe(201);
+    expect(res.body.invite.email).toBe('dana@gmail.com');
+    expect(sent).toHaveBeenCalledOnce();
   });
 
-  it('refuses when the vendor has no website to match against', async () => {
+  it('invites even when the vendor has no website on file', async () => {
     await t.db.update(vendors).set({ website: null }).where(eq(vendors.id, VENDOR));
-    // `computeDomainMatch` returns `manual_review`, which is NOT `match` — the
-    // fallback is the human claim queue, not a guess.
-    expect((await invite('dana@acme.com')).status).toBe(422);
+    // Used to be a 422 (`manual_review` is not `match`), which punished a vendor
+    // for a gap in OUR catalog data.
+    expect((await invite('dana@acme.com')).status).toBe(201);
   });
 
   it('REFUSES a non-owner seat (403), not just hides the button', async () => {
@@ -234,6 +236,8 @@ describe('GET/POST /api/seat-invites/:token', () => {
   });
 
   it('accepts, attaching a NON-owner seat and spending the invite', async () => {
+    // `dana@acme.com` IS on `https://www.acme.com`, so this redeem earns
+    // `work_email_verified` — see the off-domain case below for the other half.
     await seedInvite();
     const res = await call('/api/seat-invites/tok-1/accept', { method: 'POST' }, redeemer);
     expect(res.status).toBe(200);
@@ -248,6 +252,50 @@ describe('GET/POST /api/seat-invites/:token', () => {
     });
     const [row] = await t.db.select().from(vendorSeatInvites);
     expect(row!.acceptedAt).not.toBeNull();
+  });
+
+  it('an OFF-DOMAIN redeem does NOT set work_email_verified', async () => {
+    // The bit is a signal a human reads on the §5 claim queue ("does this person
+    // really work there?"), so it has to track the address actually redeemed. With
+    // no invite-time domain gate, setting it on every redeem would make it mean
+    // "someone accepted an invite" — which is not a claim about employment.
+    await seedInvite({ email: 'dana@gmail.com' });
+    const outside = session({
+      userId: uuid(320),
+      email: 'dana@gmail.com',
+      role: 'reviewer',
+      vendorId: null,
+    });
+    expect((await call('/api/seat-invites/tok-1/accept', { method: 'POST' }, outside)).status).toBe(
+      200,
+    );
+
+    const [seat] = await t.db.select().from(profiles).where(eq(profiles.id, outside.userId));
+    expect(seat).toMatchObject({
+      role: 'vendor_admin',
+      vendorId: VENDOR,
+      workEmailVerified: false,
+    });
+  });
+
+  it('an off-domain redeem never CLEARS a bit the profile already earned', async () => {
+    await seedInvite({ email: 'dana@gmail.com' });
+    const known = uuid(321);
+    await t.db
+      .insert(profiles)
+      .values({ id: known, role: 'reviewer', vendorId: null, workEmailVerified: true });
+    expect(
+      (
+        await call(
+          '/api/seat-invites/tok-1/accept',
+          { method: 'POST' },
+          session({ userId: known, email: 'dana@gmail.com', role: 'reviewer', vendorId: null }),
+        )
+      ).status,
+    ).toBe(200);
+
+    const [seat] = await t.db.select().from(profiles).where(eq(profiles.id, known));
+    expect(seat!.workEmailVerified).toBe(true);
   });
 
   it('an existing owner who redeems keeps their owner bit (never demotes)', async () => {

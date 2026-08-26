@@ -309,6 +309,26 @@ h3 {
   border-color: var(--border-default);
 }
 
+/* Tab-style nav items: the vendor portal's section row (`vendor-nav.ts`).
+   The rule directly above sets `border-color` on `*` OUTSIDE any cascade layer,
+   and an unlayered rule beats every layered rule regardless of specificity — so
+   Tailwind's `border-transparent` and `border-(--accent-primary)` silently never
+   reach a `border-b-2` tab and its underline comes out `--border-default` grey
+   in BOTH states. (Same trap the anchor-color note below records; it bites every
+   border-color utility in the app, not just here.) A class is unlayered too and
+   outranks `*`, so it can express what the utilities cannot.
+
+   `aria-current` is the state, in both spellings the row uses: `page` on the
+   four routed links (from `routerLinkActive`) and `true` on the Products
+   disclosure button, which has no `routerLink` to hang the directive on. */
+.aec-nav-tab {
+  border-bottom-color: transparent;
+}
+
+.aec-nav-tab[aria-current] {
+  border-bottom-color: var(--accent-primary);
+}
+
 hr {
   border-color: var(--border-default);
 }

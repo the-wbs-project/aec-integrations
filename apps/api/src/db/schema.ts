@@ -697,6 +697,17 @@ export const profiles = sqliteTable(
     displayName: text('display_name'),
     role: text('role').notNull().default('reviewer'),
     vendorId: text('vendor_id').references(() => vendors.id),
+    /**
+     * "This account proved control of an address on the vendor's own registrable
+     * domain." Written ONLY by the seat-invite redeem (`routes/seat-invites.ts`),
+     * which evaluates `computeDomainMatch` against the address actually being
+     * redeemed — at REDEEM time, because the invite-time domain gate was removed
+     * (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11a.3) and an invited address may now
+     * legitimately be off-domain. An off-domain redeem leaves it alone; nothing
+     * ever clears it. Read by a human on the admin claim queue while deciding
+     * whether a claimant really works there, which is why it must track the
+     * address rather than the mere fact that a redeem happened.
+     */
     workEmailVerified: integer('work_email_verified', { mode: 'boolean' }).notNull().default(false),
     /**
      * The owner/admin distinction `STAGE_2_VENDOR_PORTAL_SPEC.md` §11 deferred,

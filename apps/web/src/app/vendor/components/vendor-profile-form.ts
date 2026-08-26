@@ -114,7 +114,7 @@ interface FieldConfig {
           i18n="@@vendor.profile.readOnly"
         >
           Editing is paused while your verification is not active. Everything below stays published
-          and is here to read. The verification panel on your dashboard has the renewal path.
+          and is here to read. The verification panel on Vendor Overview has the renewal path.
         </p>
       }
 

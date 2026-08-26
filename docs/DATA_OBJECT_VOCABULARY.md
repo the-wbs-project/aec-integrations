@@ -13,9 +13,10 @@ Everything downstream seeds from it:
 - **"I8"** — the main app's D1 `taxonomy_data_objects` table + `apps/api/seed/data-objects.sql`
   are seeded from this list.
 - **AECI-606** — the vocabulary's first **wire surface**: `GET /api/vendor/data-objects` serves the
-  seeded rows to the vendor dashboard's `data_object` picker
+  seeded rows to the vendor portal's `data_object` picker
   (`STAGE_2_ATTESTATIONS_SPEC.md` §6). It carries `slug` / `name` / `description` only — see §3 for
-  why `aliases` stays server-side.
+  why `aliases` stays server-side. The endpoint serves `display_order`; **the picker itself renders
+  the terms alphabetically** — see §4.1.
 
 ## 1. What a `data_object` is
 
@@ -110,6 +111,32 @@ the two confirmed additions (`commitments`, `meetings`).
 | 180 | `time-labor` | Time & Labor | Timesheets and labor hours. | Timesheets, Timesheet, Labor, Time Tracking, Timecards, Crew Hours, Manpower |
 | 190 | `documents` | Documents | General project documents and files under document management. | Document, Files, Project Documents, Document Management, Attachments |
 | 200 | `directory-contacts` | Directory & Contacts | The project / company directory of people and companies. | Directory, Contacts, Contact, Company Directory, Project Directory, People, Companies |
+
+### 4.1 `display_order` is a *reading* order — the picker sorts alphabetically
+
+`display_order` is the **project-lifecycle sequence** (design documents → procurement → cost →
+schedule → field → records), not an arbitrary index. That order is what the `data_object` **claim
+lanes** render in, on both the public product-PAIR page and the vendor portal's Integrations tab
+(`apps/api/src/routes/vendor-attestations.ts`), and it is the order
+`GET /api/vendor/data-objects` serves — see `listDataObjectTerms` in
+`apps/api/src/lib/data-object-vocabulary.ts`, whose NULLs-last clause exists to keep the two
+identical.
+
+**The "Add a data flow" picker deliberately diverges and renders the terms alphabetically by
+`name`** (`dataObjectOptions` in
+`apps/web/src/app/vendor/components/vendor-add-claim-form.ts`). The two lists do different jobs:
+
+- A **lane list is read.** The lifecycle grouping is the information — it says what kind of
+  integration this is.
+- A **picker is searched.** The vendor arrives already knowing they want "Submittals", and
+  `AecSelect` is a non-editable Aria combobox with no type-to-filter, so an unfamiliar semantic
+  order turns finding a known label into a 20-item linear scan with no anchor.
+
+Two properties of that divergence matter to anyone editing it. It is **client-side only** — the wire
+order is unchanged and still pinned by `apps/api/src/routes/vendor-data-objects.spec.ts`, so a
+future consumer that renders these rows *as lanes* still gets lifecycle order for free. And the sort
+key is the **rendered `name`** through `localeCompare`, not the slug and not a SQL `ORDER BY`,
+because the terms are translatable copy (§2) and alphabetical order is per-locale.
 
 ## 5. Seeding conventions (for the downstream consumers)
 

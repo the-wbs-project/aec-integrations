@@ -101,7 +101,7 @@ export class VendorPage {
     // Success path only: private surface → noindex + a real title. The not-found
     // path's head is owned by the resolver (`setNotFoundMeta`), so leave it.
     if (initial) {
-      this.titleSvc.setTitle($localize`:@@vendor.metaTitle:Vendor dashboard · AEC Integrations`);
+      this.titleSvc.setTitle($localize`:@@vendor.metaTitle:Vendor portal · AEC Integrations`);
       this.metaSvc.updateTag({ name: 'robots', content: 'noindex' });
 
       // AECI-629 — the revalidation loop, browser-only and success-path only.

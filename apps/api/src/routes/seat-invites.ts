@@ -50,6 +50,7 @@ import { json } from '../http';
 import { auditActorType, type AuthzVariables } from '../lib/authz';
 import type { BatchTuple } from '../lib/audit';
 import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
+import { computeDomainMatch } from '../lib/domain-match';
 import { acceptInviteStatements, inviteRedeemState } from '../lib/vendor-seat-invites';
 import { afterVendorWrite } from './vendor-shared';
 
@@ -88,6 +89,9 @@ async function loadInvite(db: ReturnType<DbFactory>['db'], token: string) {
       revokedAt: vendorSeatInvites.revokedAt,
       vendorSlug: vendors.slug,
       vendorName: vendors.companyName,
+      // Not displayed anywhere — it feeds `computeDomainMatch` on the accept path
+      // (see `work_email_verified` below). Free here: the join is already made.
+      vendorWebsite: vendors.website,
     })
     .from(vendorSeatInvites)
     .innerJoin(vendors, eq(vendors.id, vendorSeatInvites.vendorId))
@@ -158,7 +162,7 @@ export function createAcceptSeatInviteHandler(
     // to one vendor — a multi-vendor person uses separate accounts. Both are
     // EXPLICIT errors, never a silent overwrite of an existing linkage.
     const before = await db.query.profiles.findFirst({
-      columns: { role: true, vendorId: true, seatOwner: true },
+      columns: { role: true, vendorId: true, seatOwner: true, workEmailVerified: true },
       where: eq(profiles.id, auth.userId),
     });
     if (before?.role === 'admin') {
@@ -176,6 +180,14 @@ export function createAcceptSeatInviteHandler(
       );
     }
 
+    // `work_email_verified` is decided HERE rather than by the invite handler,
+    // because since §11a.3 dropped the invite-time domain gate an invited address
+    // may legitimately be off-domain (an agency, a subsidiary, a contractor). The
+    // bit means "this account proved control of an address on the vendor's own
+    // domain" and is read by a human on the §5 claim queue, so it has to track the
+    // address actually redeemed — not the mere fact that a redeem happened.
+    const domainMatched = computeDomainMatch(invite.email, invite.vendorWebsite) === 'match';
+
     const batch = acceptInviteStatements(db, {
       inviteId: invite.id,
       vendorId: invite.vendorId,
@@ -183,8 +195,14 @@ export function createAcceptSeatInviteHandler(
       userId: auth.userId,
       actorType: auditActorType(auth),
       now,
+      domainMatched,
       profileBefore: before
-        ? { role: before.role, vendorId: before.vendorId, seatOwner: before.seatOwner }
+        ? {
+            role: before.role,
+            vendorId: before.vendorId,
+            seatOwner: before.seatOwner,
+            workEmailVerified: before.workEmailVerified,
+          }
         : null,
     });
     await db.batch(batch.stmts as BatchTuple);

@@ -8,14 +8,26 @@ import { VendorPortalStore } from '../vendor-portal-store';
  * The invite form on the Seats section (AECI-664 /
  * `STAGE_2_VENDOR_PORTAL_SPEC.md` §11a) — owner-only, one address at a time.
  *
+ * It is the **body** of {@link VendorSeatInviteDialog}, which owns the trigger,
+ * the heading ("Invite a colleague") and the explanatory hint — so this file is
+ * the field, the submit and the outcome, nothing else. It is not rendered
+ * anywhere else; the owner-only gate lives on the dialog's trigger.
+ *
+ * ── ANY ADDRESS ─────────────────────────────────────────────────────────────
+ * The original build restricted invites to the vendor's own email domain and
+ * that restriction is gone (§11a.3). An owner already knows who maintains their
+ * listing, and in practice that includes people who will never have a corporate
+ * address — an agency, a subsidiary, a parent company, a contractor. So the copy
+ * asks for "their email", not "their work email", and the form no longer has a
+ * refusal to explain that the person typing could not have predicted.
+ *
  * ── WHY THE ERRORS GET INDIVIDUAL COPY ──────────────────────────────────────
- * Every refusal this endpoint can return is ACTIONABLE, and a generic "something
- * went wrong" would waste that. A domain mismatch has a specific next step (the
- * public claim form) that the person typing cannot guess; a duplicate means the
- * invite is already sitting in their colleague's inbox, which changes what they
- * do next from "retry" to "go ask them"; a rate limit is temporary and needs to
- * say so. Mapping the codes is the difference between a form that explains
- * itself and one that makes people email support.
+ * Every refusal this endpoint can still return is ACTIONABLE, and a generic
+ * "something went wrong" would waste that. A duplicate means the invite is
+ * already sitting in their colleague's inbox, which changes what they do next
+ * from "retry" to "go ask them"; a rate limit is temporary and needs to say so.
+ * Mapping the codes is the difference between a form that explains itself and one
+ * that makes people email support.
  *
  * Pessimistic, not optimistic: `STAGE_2_REALTIME_SPEC.md` keeps forms
  * pessimistic on purpose (only toggles are optimistic), and an invite that
@@ -25,25 +37,11 @@ import { VendorPortalStore } from '../vendor-portal-store';
 @Component({
   selector: 'aec-vendor-seat-invite-form',
   template: `
-    <form
-      class="mt-6 rounded-(--radius-md) border border-(--border-default) p-4"
-      (submit)="submit($event)"
-    >
-      <h3
-        class="font-label text-sm font-semibold text-(--text-primary)"
-        i18n="@@vendor.seats.invite.heading"
-      >
-        Invite a colleague
-      </h3>
-      <p class="mt-1 text-sm text-(--text-secondary)" i18n="@@vendor.seats.invite.hint">
-        Use their work email on your company's domain. They'll get a link, and the seat is added
-        when they sign in.
-      </p>
-
-      <div class="mt-3 flex flex-wrap items-start gap-2">
+    <form (submit)="submit($event)">
+      <div class="flex flex-wrap items-start gap-2">
         <div class="min-w-[16rem] flex-1">
           <label class="sr-only" for="seat-invite-email" i18n="@@vendor.seats.invite.label">
-            Work email
+            Email address
           </label>
           <input
             id="seat-invite-email"
@@ -133,8 +131,6 @@ function messageFor(err: unknown): string {
       ? ((err.error as { error?: { code?: string } } | null)?.error?.code ?? null)
       : null;
   switch (code) {
-    case 'INVITE_DOMAIN_MISMATCH':
-      return $localize`:@@vendor.seats.invite.error.domain:That address isn't on your company's domain. Ask them to open your listing and choose "Request access to this listing", and we'll review it.`;
     case 'GRANT_CONFLICT':
       return $localize`:@@vendor.seats.invite.error.duplicate:That address already has a pending invite. It's sitting in their inbox.`;
     case 'RATE_LIMITED':

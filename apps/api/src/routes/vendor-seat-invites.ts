@@ -19,6 +19,24 @@
  * 3. A `vendor_id` filter on every statement. There is no RLS (ADR 0016), so this
  *    IS the authorization, not a belt on top of one.
  *
+ * ── DELIBERATELY NOT DOMAIN-GATED ───────────────────────────────────────────
+ * Invites shipped restricted to the vendor's own `website` domain and that
+ * restriction has been REMOVED (§11a.3). It was gatekeeping the wrong party:
+ * whoever holds an owner seat has already been reviewed by AECi, and they are the
+ * one person who knows which addresses maintain their listing — routinely an
+ * agency, a subsidiary, a parent company, or a contractor, none of which are on
+ * the corporate domain. The gate did not make the flow safer, it just pushed the
+ * legitimate cases into the §5 claim queue with a refusal the owner could not act
+ * on themselves.
+ *
+ * What actually bounds this is unchanged and is not the domain: only an owner may
+ * invite (gate 2), a new invited seat is never itself an owner
+ * (`acceptInviteStatements`), the redeem requires control of the invited mailbox,
+ * and {@link INVITE_DAILY_LIMIT} caps the mail. `computeDomainMatch` still runs —
+ * at REDEEM time, in `routes/seat-invites.ts`, to set `work_email_verified` as a
+ * SIGNAL for the §5 reviewer. Recording whether an address is on-domain and
+ * refusing everything that isn't are different features; we keep the first.
+ *
  * ── DELIBERATELY NOT ENTITLEMENT-GATED ──────────────────────────────────────
  * No `requireCapability` call anywhere in this file. Seats are not a paid feature
  * — there is no seat capability in the frozen registry and no seat cap — and §3
@@ -41,7 +59,6 @@ import { profiles, vendorSeatInvites, vendors } from '../db/schema';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
 import { auditActorType } from '../lib/authz';
-import { computeDomainMatch } from '../lib/domain-match';
 import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
 import { VENDOR_ADMIN_ROLE } from '../lib/claimed-vendors';
 import {
@@ -126,26 +143,21 @@ export function createSeatInviteHandler(
     const email = normalizeInviteEmail(input.email);
 
     const vendor = await db.query.vendors.findFirst({
-      columns: { id: true, companyName: true, website: true },
+      columns: { id: true, companyName: true },
       where: eq(vendors.id, vendorId),
     });
     // The guard proved the session's `vendor_id`; a missing row here is a broken
     // FK, not a caller error.
     if (!vendor) throw notFoundError('vendor', { id: vendorId });
 
-    // ── The domain gate (§11a). `match` is the ONLY self-serve outcome. ──────
-    // `no_match` and `manual_review` (a freemail address, an agency, a subsidiary,
-    // or a vendor with no `website` on file) both fall back to the existing §5
-    // claim queue, where a human already weighs exactly this question. Refusing
-    // here writes NO row and sends NO mail, so a rejected attempt leaves nothing
-    // behind to clean up.
-    if (computeDomainMatch(email, vendor.website) !== 'match') {
-      throw new ApiError(
-        422,
-        ApiErrorCode.INVITE_DOMAIN_MISMATCH,
-        'Seat invites are limited to email addresses on your own company domain',
-      );
-    }
+    // NOTE: there is deliberately NO domain gate here. See the docblock — an owner
+    // knows who maintains their listing, and the addresses that need a seat are
+    // routinely off-domain (an agency, a subsidiary, a contractor, a parent
+    // company). The invite still grants nothing on its own: the redeem binds to
+    // the invited mailbox, so the owner is vouching for a person they can already
+    // reach, not minting access. `computeDomainMatch` still runs at REDEEM time —
+    // to decide `profiles.work_email_verified`, which is a signal for the §5
+    // reviewer rather than a gate (`routes/seat-invites.ts`).
 
     // A second LIVE invite for one address is a no-op dressed as an action.
     //

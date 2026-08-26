@@ -392,6 +392,22 @@ describe('writes require an active entitlement', () => {
     expect(product.body.product.category_slugs).toEqual(['bim']);
   });
 
+  it('gates a trade-only edit the same as any other facet', async () => {
+    // Worth pinning separately: trades are the highest-leverage discovery facet
+    // (a trade tag can publish a whole browse page and a sitemap entry), so it
+    // is the one a lapsed vendor has the most reason to try. It is gated because
+    // `trade_slugs` is in FACETS, not because anything names it — this test is
+    // what would catch a future facet added to the schema but not to that table.
+    const { status, body } = await call(
+      `/api/vendor/products/${PRODUCT_LAPSED}`,
+      'PATCH',
+      SEAT_LAPSED,
+      { trade_slugs: ['electrical'] },
+    );
+    expect(status).toBe(403);
+    expect(body.error.code).toBe(ApiErrorCode.ENTITLEMENT_REQUIRED);
+  });
+
   it('gates a taxonomy-ONLY edit, which writes no product column at all', async () => {
     // The facet arrays are join rewrites, not columns, so `splitPatch`'s field
     // axis cannot see them — without an explicit check a lapsed vendor could

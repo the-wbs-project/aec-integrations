@@ -69,8 +69,10 @@ const tradeRecordColumns = { name: true, aliases: true } as const;
  * window read.
  *
  * Freshness note for trades: the nightly window is keyed on `products.updated_at`,
- * and `product_trades` rows are written only by the promote flow (AECI-542),
- * which touches the product row — so a re-promote carries its trade tags into the
+ * and both writers of `product_trades` bump that column in the same batch — the
+ * promote flow (AECI-542), and `PATCH /api/vendor/products/:id` (AECI-665), which
+ * stamps `updated_at` even for a taxonomy-only edit precisely so this sync can
+ * see it. So a re-promote or a vendor's own trade edit carries its tags into the
  * index on the next sync. A bulk backfill that writes the join table WITHOUT
  * bumping `products.updated_at` would be invisible to the incremental sync and
  * needs a forced full reindex (`apps/datatool/src/algolia-reindex.ts`).

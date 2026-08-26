@@ -46,7 +46,7 @@ This doc is the contract for the AECI-514 sub-issues. Each opens with
 | §3 | AECI-604 | Promote coexistence — stop clobbering vendor attestations |
 | §4 | AECI-605 | Agreement engine: `single_source` + the conflict / one-sided read path |
 | §5 | AECI-301 | Vendor attestation authoring API (`/api/vendor/*`) |
-| §6 | AECI-606 | Vendor dashboard — Integrations / attestations tab |
+| §6 | AECI-606 | Vendor portal — Integrations / attestations tab |
 | §7 | AECI-302 | Detector + notification pipeline (email-only) |
 | §8 | AECI-607 | Product-version model (**migration 2**) |
 | §9 | AECI-303 | Version-diff timeline + per-product version selectors |
@@ -845,7 +845,7 @@ pre-existing spec passes **unmodified**.
 
 ---
 
-## 6. Vendor dashboard — Integrations tab (AECI-606)
+## 6. Vendor portal — Integrations tab (AECI-606)
 
 **Needs §5.** The authoring surface, added to the existing tabbed dashboard.
 
@@ -867,7 +867,7 @@ pre-existing spec passes **unmodified**.
   `[formField]`.
 - **Copy discipline:** no instant-search promise (§5.2); no implication that attesting affects
   ranking or placement; "Verified" framed as an account status.
-- Design checklist as in §4.3 — same anchor site as the rest of the vendor dashboard, light theme
+- Design checklist as in §4.3 — same anchor site as the rest of the vendor portal, light theme
   only, axe clean, all strings `$localize`d.
 
 ### 6.1 As built (AECI-606 — 2026-08-18)
@@ -904,9 +904,21 @@ Decisions taken at build that §6 did not pre-specify:
   takes one, and `display_order` because the array arrives ordered.
 - **The ordering is NULLs-last, matching the claim sort.** `createListVendorIntegrationsHandler`
   coerces a null `display_order` to `MAX_SAFE_INTEGER` in JS; SQLite sorts NULLs *first*. Without
-  the explicit `IS NULL` term the picker's rows and the tab's lanes would disagree on any
+  the explicit `IS NULL` term the endpoint's rows and the tab's lanes would disagree on any
   hand-inserted row — invisible today, since all 20 seeded terms carry an order, which is what would
   make it expensive later. Pinned by a test in both the route and lib specs.
+- **The picker renders the vocabulary ALPHABETICALLY, not in `display_order` (2026-08-26).** A
+  later change, and the one place in the portal that re-sorts the vocabulary — `dataObjectOptions`
+  in `vendor-add-claim-form.ts`. The bullet above still holds for the wire and for the lanes; only
+  this control diverges. The lanes are **read**, and `display_order`'s project-lifecycle sequence
+  (Models → Drawings → … → Directory & Contacts) is the information in them. The picker is
+  **searched**: the vendor already knows they want "Submittals", and `AecSelect` is a non-editable
+  Aria combobox with no type-to-filter, so an unfamiliar semantic order makes finding a known label
+  a 20-item linear scan with no anchor. Sorted client-side on the rendered `name` via
+  `localeCompare` rather than in SQL, because the terms are translatable copy and alphabetical order
+  is per-locale. Both halves are pinned — sorted in the component spec, unsorted in the route spec —
+  so "restoring" the wire order in the picker fails rather than quietly reverting the decision.
+  Recorded in `docs/DATA_OBJECT_VOCABULARY.md` §4.1.
 - **An unseeded vocabulary is `200 { data_objects: [] }`, never a 500** — a fresh local D1 without
   `seed/data-objects.sql` would otherwise take the whole tab down. The UI degrades the
   "add a data flow" affordance instead. **No audit row** (a pure read), no `Cache-Tag`, no purge.
