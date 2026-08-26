@@ -314,10 +314,18 @@ function auditLogEvent(entry: Omit<AuditLogEntry, 'metadata'>): DdLogEvent {
  * hook is survivable; losing the invocation is what turned this into a silent
  * outage across ~8% of production promotes.
  *
- * 30s is comfortably above the slowest healthy hook (the Algolia batch) and
- * safely inside the `waitUntil` budget.
+ * 20s, not 30s: `waitUntil` is documented to extend execution for *up to* 30s
+ * after the response, so a 30s watchdog races the platform tearing the
+ * invocation down and the warning — the whole point — might never be emitted.
+ * 20s is ~20x the slowest healthy hook (a few D1 reads plus 1-3 Algolia batch
+ * calls) and comfortably inside the budget.
+ *
+ * Note the watchdog also suppresses the hang *detector* for its whole duration:
+ * a pending timer means the event loop is not empty, which is the condition the
+ * runtime kills on. So the invocation ends cleanly on the timeout path rather
+ * than being cancelled part-way through the other hooks.
  */
-const HOOK_SETTLE_TIMEOUT_MS = 30_000;
+const HOOK_SETTLE_TIMEOUT_MS = 20_000;
 
 /**
  * Hand `task` to `waitUntil` behind a watchdog: whichever way it ends, the

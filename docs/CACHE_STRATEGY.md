@@ -159,7 +159,7 @@ Callers of `/admin/purge`:
 > cancelled the stalled responses into promises that never settle, and the purge was
 > abandoned with **no log line anywhere** — not even the `aeci.cache.purge{outcome:cf_failed}`
 > count, because the transport's `catch` never fired. Bodies are now released
-> (`discardResponseBody`) and each hook runs behind a 30s watchdog that warns rather
+> (`discardResponseBody`) and each hook runs behind a 20s watchdog that warns rather
 > than hanging the invocation. Practical consequence for anything promoted on or
 > before 2026-08-26: a stale edge cache may not have been purged and would only have
 > self-healed on TTL. If you are chasing stale content from that window, purge by tag

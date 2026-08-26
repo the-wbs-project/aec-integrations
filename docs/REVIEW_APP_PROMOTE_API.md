@@ -594,7 +594,7 @@ rejected; you don't need to plumb the response body anywhere else.
 > `fetch` promises that never settle, so forwards were dropped with no error and no
 > warning anywhere — the failure mode this section's promise is specifically meant
 > to rule out. The audit forwards are now a single batched request, every transport
-> releases its response body, and a hook that stays unsettled for 30s is abandoned
+> releases its response body, and a hook that stays unsettled for 20s is abandoned
 > with a `console.warn` visible in Cloudflare Workers Observability rather than
 > hanging the invocation. If you are diagnosing a promote from before that fix
 > landed, treat "no Datadog record" as inconclusive, not as "it didn't happen" —

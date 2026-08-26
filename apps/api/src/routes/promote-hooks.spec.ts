@@ -145,7 +145,7 @@ describe('dispatchPromoteHooks — a wedged hook cannot hang the invocation', ()
     const neverSettles: PromoteAlgoliaSync = () => new Promise<void>(() => {});
 
     dispatchPromoteHooks(rc, makeResult(), makeDeps({ syncAlgolia: neverSettles }));
-    await vi.advanceTimersByTimeAsync(30_000);
+    await vi.advanceTimersByTimeAsync(20_000);
 
     // The promise handed to `waitUntil` resolves anyway — that is what keeps the
     // runtime from killing the invocation as hung.

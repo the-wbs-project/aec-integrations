@@ -172,7 +172,7 @@ tail: Algolia upserts, cache purges, IndexNow/Google pings, audit forwards. Sile
 3. **Google Indexing publishes in waves of 6** rather than opening up to 100
    connections at once — it has no batch endpoint, so bounding concurrency is the
    only lever.
-4. **Each hook is dispatched behind a 30s watchdog** (`dispatchHook`). A hook that
+4. **Each hook is dispatched behind a 20s watchdog** (`dispatchHook`). A hook that
    never settles is abandoned with a `console.warn` instead of wedging `waitUntil`
    until the runtime kills the invocation. Losing one hook is survivable; losing the
    invocation takes every *other* in-flight hook with it, which is what turned a
