@@ -210,6 +210,17 @@ export type Env = {
    */
   CF_ANALYTICS_API_TOKEN?: string;
   /**
+   * PeeringDB API key for the weekly `asn_registry` refresh (AECI-661). Free
+   * account, `Authorization: Api-Key <key>`.
+   *
+   * Optional + fail-open: absent → the fetch stays anonymous and behaves exactly
+   * as it did before. It is worth setting because anonymous whole-list reads are
+   * throttled aggressively: production's only run of this job (2026-08-23) came
+   * back `429` and `asn_registry` has held 0 rows ever since, so every read-time
+   * ASN annotation silently resolves to nothing.
+   */
+  PEERINGDB_API_KEY?: string;
+  /**
    * PostHog **personal** API key scoped to `query:read`, used by the daily digest
    * to report a human LOWER bound beside the D1 upper bound (AECI-660, completing
    * the AECI-239 join). Set as a Wrangler secret on the API Worker.
@@ -225,17 +236,6 @@ export type Env = {
    * reports the D1 figure alone plus a short "unavailable" note, exactly as it
    * did before this shipped.
    */
-  /**
-   * PeeringDB API key for the weekly `asn_registry` refresh (AECI-661). Free
-   * account, `Authorization: Api-Key <key>`.
-   *
-   * Optional + fail-open: absent → the fetch stays anonymous and behaves exactly
-   * as it did before. It is worth setting because anonymous whole-list reads are
-   * throttled aggressively: production's only run of this job (2026-08-23) came
-   * back `429` and `asn_registry` has held 0 rows ever since, so every read-time
-   * ASN annotation silently resolves to nothing.
-   */
-  PEERINGDB_API_KEY?: string;
   POSTHOG_QUERY_API_KEY?: string;
   /** Numeric PostHog project id the query runs against (e.g. `354071`). Paired
    *  with `POSTHOG_QUERY_API_KEY`; absent → the same graceful skip. */
