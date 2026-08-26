@@ -431,16 +431,34 @@ today, before any operator step). Verified live: the event arrives with
 
 ### §8.7 Operator prerequisites — current state
 
+**Re-checked live 2026-08-26.** Error tracking and web vitals are now enabled on
+**both** projects, so §6(4)'s `$web_vitals` check and browser exception capture
+are unblocked. Two collection surfaces remain open, both privacy-facing rather
+than functional:
+
+| Surface | prod (354071) | non-prod (525793) |
+|---|---|---|
+| Session replay | **enabled** ❗ | **enabled** ❗ (was off) |
+| Heatmaps | **enabled** ❗ | off |
+
+D5 says replay is off at v0 pending a separate privacy review. Today that is
+held *only* by `disable_session_recording: true` in `posthog-client.ts` — one
+line, no test covering it, and any other PostHog client pointed at these
+projects (the toolbar, a future integration) would not inherit it. Turning both
+off at the project level makes D5 belt-and-braces.
+
+The table below is the original list; rows marked ✅ are done.
+
 Live check, 2026-08-24. None of these block the code; each gates a capability.
 
 | Prerequisite | State |
 |---|---|
-| Personal `phx_` key → `POSTHOG_CLI_API_KEY` | **Not provisioned.** Deploy annotations and source-map upload warn-skip until it exists. Needs the §8.3 union of scopes. |
+| Personal `phx_` key → `POSTHOG_CLI_API_KEY` | ✅ **Created 2026-08-26** (GH secret + `apply.sh` run pending). Was: not provisioned. Deploy annotations and source-map upload warn-skip until it exists. Needs the §8.3 union of scopes. |
 | `POSTHOG_PROJECT_ID_PROD` / `_NONPROD` repo variables | **Not set.** The workflows fall back to the literals `354071` / `525793`, so this is a repoint convenience, not a prerequisite. |
-| Error tracking (exception autocapture) | **Disabled on both projects.** Browser and Worker exception capture has nowhere to land until it is enabled. Dashboard-only — the API key available here lacks `product_enablement:write`. |
+| Error tracking (exception autocapture) | ✅ **Enabled on both, 2026-08-26.** Was: disabled on both. Browser and Worker exception capture has nowhere to land until it is enabled. Dashboard-only — the API key available here lacks `product_enablement:write`. |
 | Internal-user exclusion | **Not configured.** Until it is, production product analytics carry operator traffic while `page_views` excludes it via verified admin session — so the two surfaces disagree for a reason that looks like a bug. |
 | `POSTHOG_KEY_STAGING` / `POSTHOG_KEY_PRODUCTION` GH secrets | **Now unused** — delete. |
-| Web vitals (`capturePerformance.web_vitals`) | **On in prod, OFF in non-prod.** Enable on 525793 or `$web_vitals` is untestable on every tier you would test on (§8.8). |
+| Web vitals (`capturePerformance.web_vitals`) | ✅ **Enabled on both, 2026-08-26.** Was: on in prod, off in non-prod. Enable on 525793 or `$web_vitals` is untestable on every tier you would test on (§8.8). |
 | Session replay at the **project** level | **Enabled on prod**, off on non-prod. D5 says replay is off; today only the client's `disable_session_recording` enforces that on production. Turn it off at the project level too. |
 | Heatmaps at the **project** level | **Enabled on prod.** Same class as replay — a collection surface D5's privacy review never covered. |
 

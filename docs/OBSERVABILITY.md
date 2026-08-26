@@ -1357,25 +1357,35 @@ auto-repairs — the job is report-only.
 ## Browser search telemetry (`aeci.search.query` → `search_performed`)
 
 > **This signal is mid-migration and the two halves are not equivalent.** The RUM
-> action below still fires and is the number to read today. Since AECI-643 the same
-> four fields also ride the **`search_performed` PostHog event** — including a
-> `status: 'error'` row, without which the search error rate would be unrecoverable.
-> At AECI-651 the RUM action and its two Phase-3 dashboard widgets are deleted and
-> the event is all that remains.
+> action below still fires and is the number to read today. Since AECI-643 its
+> `status` / `duration_ms` / `results_bucket` also ride the **`search_performed`
+> PostHog event** — including a `status: 'error'` row, without which the search
+> error rate would be unrecoverable. At AECI-651 the RUM action and its two
+> Phase-3 dashboard widgets are deleted and the event is all that remains.
 >
-> **The narrowing is real, is deliberate, and is recorded as a known loss (§3.8/§3.9):**
-> the RUM action is consent-independent and saw *every* search; `search_performed`
-> is Tier 3 and sees the **consented slice only**. Search volume read from PostHog
-> after the cutover is a funnel, not a census. `docs/ANALYTICS.md` §5 is the general
+> **One narrowing is real and permanent (§3.8/§3.9):** the RUM action is
+> consent-independent and saw *every* search; `search_performed` is Tier 3 and
+> sees the **consented slice only**. Search volume read from PostHog after the
+> cutover is a funnel, not a census. `docs/ANALYTICS.md` §5 is the general
 > statement of this rule; this is the one place where the migration actually
 > *changed* what a number means rather than where it lives.
 >
+> **The per-index narrowing has since been closed** (spec §8.10). RUM's `index`
+> dimension has no direct successor — the event fires once per *search*, not once
+> per index — but `search_performed` now carries `results_products` and
+> `results_vendors`, which answer the question `index` answered ("which entity
+> type did this query find?") without turning one search into two events. Two
+> residual differences stay accepted: `duration_ms` is the root (products)
+> index's `processingTimeMS` rather than per-index, and `/search` runs only the
+> products and vendors indexes, so RUM's `integrations` value has no successor
+> at all.
+>
 > Two re-homed insights already exist on the PostHog Search dashboard, sourced from
 > `events` rather than `posthog.metrics`. Note that `search_performed` in production
-> currently carries only `query` / `results_count` / `filters_applied` — the three
-> new properties are on the `searchPerformed()` signature in source but had not
-> reached the production taxonomy when AECI-647 landed, so PostHog's taxonomy
-> warning on those columns is the expected pre-deploy state, not a broken query.
+> currently carries only `query` / `results_count` / `filters_applied` — the five
+> newer properties are on the `searchPerformed()` signature in source but have not
+> reached the production taxonomy yet, so PostHog's taxonomy warning on those
+> columns is the expected pre-deploy state, not a broken query.
 
 ### The RUM action, as it stands today (AECI-174)
 
