@@ -141,6 +141,13 @@
       "when": 1787057611962,
       "tag": "0019_easy_sandman",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1787728681768,
+      "tag": "0020_sad_the_professor",
+      "breakpoints": true
     }
   ]
 }

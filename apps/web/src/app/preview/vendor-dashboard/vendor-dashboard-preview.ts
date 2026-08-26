@@ -26,6 +26,8 @@ const SINGLE_SEAT_FIXTURE: readonly VendorSeat[] = [
     email: 'sam@northwind.example.com',
     banned: false,
     created_at: '2026-07-10T12:00:00.000Z',
+    is_self: true,
+    owner: true,
   },
 ];
 

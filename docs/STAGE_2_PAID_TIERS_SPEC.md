@@ -368,7 +368,7 @@ After this epic there are three distinct "take it away" actions, and an admin cl
 | Action | Endpoint | Scope | Effect | Touches `vendors.verified`? |
 |---|---|---|---|---|
 | **Ban a seat** | `PATCH /api/admin/reviewers/:id` | one `profiles` row | that seat 403s on every `/api/vendor/*` call; other seats unaffected | **No** |
-| **Revoke a seat** | *(none — `revokeSeatStatements` still has no HTTP surface)* | one `profiles` row | drops the seat to `reviewer`, unlinks `vendor_id` | **No** |
+| **Revoke a seat** | `DELETE /api/vendor/seats/:userId` (AECI-664; owner-only, **not** capability-gated) | one `profiles` row | drops the seat to `reviewer`, unlinks `vendor_id`, clears `seat_owner` | **No** |
 | **Clear an entitlement** | `PATCH /api/admin/vendors/:id/entitlement` | the vendor | badge goes away; **seats, logins and dashboard survive, read-only** | **Yes** (via the mirror) |
 
 **Clearing an entitlement does not revoke seats** — this answers AECI-532's open question. It is consistent with `STAGE_2_SPEC.md` §8.3(2) ("un-verifying a vendor is a separate entitlement action, not a ban") and it is what makes the §4 gate's launch behaviour concrete and testable: writes 403, reads work, the dashboard renders read-only with a renewal notice.

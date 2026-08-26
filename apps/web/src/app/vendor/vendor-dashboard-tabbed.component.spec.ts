@@ -79,7 +79,9 @@ beforeEach(() => {
       {
         provide: VendorApi,
         useValue: {
-          getSeats: vi.fn().mockResolvedValue({ seats: [] }),
+          getSeats: vi
+            .fn()
+            .mockResolvedValue({ seats: [], pending_invites: [], can_manage_seats: false }),
           getTaxonomy: vi.fn().mockResolvedValue({
             categories: [],
             audiences: [],

@@ -106,6 +106,21 @@ export const VENDOR_ROUTES: Routes = [
     canActivate: [vendorHomeRedirectGuard],
     loadComponent: () => import('../not-found/not-found').then((m) => m.NotFound),
   },
+  /**
+   * AECI-664 — seat-invite redemption. MUST stay ahead of `:vendorSlug`, or the
+   * literal `invite` segment is captured as a vendor slug and the resolver 404s
+   * the one page a non-vendor is supposed to reach.
+   *
+   * Deliberately OUTSIDE the `:vendorSlug` layout route: everything under it is
+   * behind `vendorMeResolver`, which 404s anyone `requireVendor()` rejects — i.e.
+   * exactly the audience of an invite. It stays under `/vendor/` so the
+   * worker-level anon gate still bounces a signed-out visitor to
+   * `/auth/login?return=<this path>` with the token intact, which IS the flow.
+   */
+  {
+    path: 'invite/:token',
+    loadComponent: () => import('./vendor-invite-page').then((m) => m.VendorInvitePage),
+  },
   {
     path: ':vendorSlug',
     loadComponent: () => import('./vendor-page').then((m) => m.VendorPage),

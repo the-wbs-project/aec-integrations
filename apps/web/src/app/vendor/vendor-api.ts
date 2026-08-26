@@ -26,6 +26,7 @@ import type {
   ListProductVersionsResponse,
   ListVendorIntegrationsResponse,
   ListVendorNotificationsResponse,
+  CreateSeatInviteResponse,
   ListVendorSeatsResponse,
   TaxonomyResponse,
   UpdateVendorProductInput,
@@ -88,6 +89,25 @@ export class VendorApi {
    *  first paint because it needs the Supabase email lookup. */
   getSeats(): Promise<ListVendorSeatsResponse> {
     return firstValueFrom(this.http.get<ListVendorSeatsResponse>('/api/vendor/seats'));
+  }
+
+  /** `POST /api/vendor/seats/invites` — invite a colleague (AECI-664 / §11a).
+   *  Owner-only and domain-gated server-side; a refusal is an `ApiError` the
+   *  caller renders, never something this client pre-empts. */
+  inviteSeat(email: string): Promise<CreateSeatInviteResponse> {
+    return firstValueFrom(
+      this.http.post<CreateSeatInviteResponse>('/api/vendor/seats/invites', { email }),
+    );
+  }
+
+  /** `DELETE /api/vendor/seats/invites/:id` — revoke a pending invite (204). */
+  revokeInvite(inviteId: string): Promise<void> {
+    return firstValueFrom(this.http.delete<void>(`/api/vendor/seats/invites/${inviteId}`));
+  }
+
+  /** `DELETE /api/vendor/seats/:userId` — remove a colleague's seat (204). */
+  removeSeat(userId: string): Promise<void> {
+    return firstValueFrom(this.http.delete<void>(`/api/vendor/seats/${userId}`));
   }
 
   /** `PATCH /api/vendor/profile` — edit own vendor content within guard-rails.

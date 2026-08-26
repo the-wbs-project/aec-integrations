@@ -2,6 +2,7 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { Injectable } from '@angular/core';
 
 import type {
+  CreateSeatInviteResponse,
   AgreementAttestation,
   CreateVendorClaimInput,
   ListDataObjectsResponse,
@@ -30,6 +31,7 @@ import {
   VENDOR_PRODUCT_VERSIONS_FIXTURE,
   VENDOR_SEATS_FIXTURE,
   VENDOR_TAXONOMY_FIXTURE,
+  VENDOR_SEAT_INVITES_FIXTURE,
 } from '../../vendor/vendor-fixtures';
 
 function clone<T>(value: T): T {
@@ -145,8 +147,33 @@ export class PreviewVendorApi extends VendorApi {
   }
 
   override async getSeats(): Promise<ListVendorSeatsResponse> {
-    return { seats: clone(this.seats) };
+    // `can_manage_seats` is true here so the preview exercises the §11a owner
+    // controls (invite form, revoke, remove) — reviewing a surface with its
+    // primary actions hidden is reviewing a different surface.
+    return {
+      seats: clone(this.seats),
+      pending_invites: clone([...VENDOR_SEAT_INVITES_FIXTURE]),
+      can_manage_seats: true,
+    };
   }
+
+  /** The §11a writes, fixture-side: no-ops that resolve, so the preview can click
+   *  through the controls without a vendor session or a live D1. */
+  override async inviteSeat(email: string): Promise<CreateSeatInviteResponse> {
+    return {
+      invite: {
+        id: 'preview-invite',
+        email,
+        invited_by: 'Dana Ruiz',
+        expires_at: '2099-01-01T00:00:00.000Z',
+        created_at: '2026-08-26T00:00:00.000Z',
+      },
+    };
+  }
+
+  override async revokeInvite(): Promise<void> {}
+
+  override async removeSeat(): Promise<void> {}
 
   /** The freshness cursor, frozen. See {@link PREVIEW_UPDATES}. */
   override async getUpdates(): Promise<VendorUpdatesResponse> {

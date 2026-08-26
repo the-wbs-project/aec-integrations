@@ -30,7 +30,9 @@ const settle = () => new Promise<void>((resolve) => setTimeout(resolve));
 
 function apiStub(): Partial<VendorApi> {
   return {
-    getSeats: vi.fn().mockResolvedValue({ seats: [] }),
+    getSeats: vi
+      .fn()
+      .mockResolvedValue({ seats: [], pending_invites: [], can_manage_seats: false }),
     getTaxonomy: vi
       .fn()
       .mockResolvedValue({ categories: [], audiences: [], phases: [], trades: [] }),

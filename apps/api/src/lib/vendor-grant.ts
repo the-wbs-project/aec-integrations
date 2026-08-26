@@ -140,6 +140,14 @@ export interface RevokeSeatParams {
   now: string;
   profileBefore: SeatProfileBefore | null;
   reason?: string | null;
+  /**
+   * `metadata.source` on the audit row. Defaults to the admin-moderation tag this
+   * module was written for; AECI-664's vendor-side revoke passes `'vendor-portal'`
+   * so the trail distinguishes "AECi un-granted a seat" from "the vendor removed
+   * a colleague" — the actor_type is `'user'` for both a reviewer and a vendor
+   * admin, so the tag is the only thing that separates them.
+   */
+  source?: string;
 }
 
 /** The statements + audit entry a seat revoke produces (no workflow transition —
@@ -225,12 +233,22 @@ export function grantSeatStatements(db: Db, p: GrantSeatParams): ClaimBatch {
   };
 
   const stmts: BatchStmt[] = [
+    // `seatOwner: true` (AECI-664 / §11a) — a seat granted through the §5 admin
+    // claim review IS the owner event: a human reviewer confirmed this person
+    // represents this vendor, which is exactly the authority an invite delegates.
+    // A seat created by ACCEPTING an invite gets `false` instead
+    // (`lib/vendor-seat-invites.ts`), which is what bounds the invite chain.
     db
       .insert(profiles)
-      .values({ id: p.userId, role: VENDOR_ADMIN_ROLE, vendorId: p.vendorId })
+      .values({ id: p.userId, role: VENDOR_ADMIN_ROLE, vendorId: p.vendorId, seatOwner: true })
       .onConflictDoUpdate({
         target: profiles.id,
-        set: { role: VENDOR_ADMIN_ROLE, vendorId: p.vendorId, updatedAt: p.resolvedAt },
+        set: {
+          role: VENDOR_ADMIN_ROLE,
+          vendorId: p.vendorId,
+          seatOwner: true,
+          updatedAt: p.resolvedAt,
+        },
       }),
     db
       .update(vendorRequests)
@@ -346,7 +364,7 @@ export function rejectClaimStatements(db: Db, p: RejectClaimParams): ClaimBatch 
  */
 export function revokeSeatStatements(db: Db, p: RevokeSeatParams): RevokeBatch {
   const metadata = {
-    source: CLAIM_AUDIT_SOURCE,
+    source: p.source ?? CLAIM_AUDIT_SOURCE,
     vendor_id: p.vendorId,
     seat_user_id: p.userId,
     // Explicit in the trail: a seat revoke deliberately leaves the vendor verified.
@@ -364,14 +382,17 @@ export function revokeSeatStatements(db: Db, p: RevokeSeatParams): RevokeBatch {
       role: p.profileBefore?.role ?? null,
       vendor_id: p.profileBefore?.vendorId ?? null,
     },
-    afterState: { role: REVIEWER_ROLE, vendor_id: null },
+    afterState: { role: REVIEWER_ROLE, vendor_id: null, seat_owner: false },
     metadata,
   };
 
   const stmts: BatchStmt[] = [
+    // `seatOwner: false` rides along (AECI-664): the column is meaningless off a
+    // `vendor_admin` row, and leaving a stale `true` behind would silently make
+    // the account an owner again the moment any future grant re-links it.
     db
       .update(profiles)
-      .set({ role: REVIEWER_ROLE, vendorId: null, updatedAt: p.now })
+      .set({ role: REVIEWER_ROLE, vendorId: null, seatOwner: false, updatedAt: p.now })
       .where(
         and(
           eq(profiles.id, p.userId),

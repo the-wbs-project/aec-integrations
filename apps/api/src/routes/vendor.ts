@@ -65,6 +65,7 @@ import {
   type VendorProduct,
   type VendorRequestSummary,
   type VendorSeat,
+  type VendorSeatInvite,
 } from '@aeci/shared';
 import { type AuditLogEntry } from '@aeci/shared/audit-log';
 import {
@@ -73,7 +74,8 @@ import {
   type Capability,
   type EntitlementTier,
 } from '@aeci/shared/entitlements';
-import { and, asc, count, eq, inArray } from 'drizzle-orm';
+import { and, asc, count, eq, gt, inArray } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/sqlite-core';
 
 import { getDb, type Db } from '../db/client';
 import {
@@ -87,6 +89,7 @@ import {
   taxonomyCategories,
   taxonomyPhases,
   vendorRequests,
+  vendorSeatInvites,
   vendors,
 } from '../db/schema';
 import type { Env } from '../env';
@@ -97,6 +100,7 @@ import { auditActorType, entitlementRequired, requireCapability } from '../lib/a
 import { VENDOR_ADMIN_ROLE } from '../lib/claimed-vendors';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import { fetchAuthUserEmails } from '../lib/supabase-admin';
+import { pendingInvitesFor } from '../lib/vendor-seat-invites';
 import {
   AUDIT_SOURCE,
   afterVendorWrite,
@@ -506,10 +510,41 @@ export function createVendorSeatsHandler(
     const { db } = dbFor(c.env);
 
     const rows = await db.query.profiles.findMany({
-      columns: { id: true, displayName: true, bannedAt: true, createdAt: true },
+      columns: {
+        id: true,
+        displayName: true,
+        bannedAt: true,
+        createdAt: true,
+        seatOwner: true,
+      },
       where: seatsOf(vendorId),
       orderBy: [asc(profiles.createdAt)],
     });
+
+    // The pending invites (AECI-664 / §11a), joined to their sender for a display
+    // name. `invitedBy` is a LEFT join: the FK is `ON DELETE SET NULL`, so an
+    // invite outlives the account that sent it and an inner join would silently
+    // drop it from the roster.
+    //
+    // NOTE the expiry filter is in SQL, not TS: `pendingInvitesFor` covers only
+    // the two terminal columns, and an invite that merely aged out is still
+    // `accepted_at IS NULL AND revoked_at IS NULL`. Showing it as pending would
+    // offer a revoke button for something already dead.
+    const invitedBy = alias(profiles, 'invited_by_profile');
+    const inviteRows = await db
+      .select({
+        id: vendorSeatInvites.id,
+        email: vendorSeatInvites.email,
+        expiresAt: vendorSeatInvites.expiresAt,
+        createdAt: vendorSeatInvites.createdAt,
+        invitedByName: invitedBy.displayName,
+      })
+      .from(vendorSeatInvites)
+      .leftJoin(invitedBy, eq(invitedBy.id, vendorSeatInvites.invitedById))
+      .where(
+        and(pendingInvitesFor(vendorId), gt(vendorSeatInvites.expiresAt, new Date().toISOString())),
+      )
+      .orderBy(asc(vendorSeatInvites.createdAt));
 
     // Degrades to `email: null` when SUPABASE_SERVICE_ROLE_KEY is absent — the
     // roster must stay usable in local dev and PR previews, never 500.
@@ -526,8 +561,25 @@ export function createVendorSeatsHandler(
           email: emails.get(row.id) ?? null,
           banned: row.bannedAt !== null,
           created_at: row.createdAt,
+          is_self: row.id === c.get('auth').userId,
+          owner: row.seatOwner,
         }),
       ),
+      pending_invites: inviteRows.map(
+        (row): VendorSeatInvite => ({
+          id: row.id,
+          email: row.email,
+          invited_by: row.invitedByName,
+          expires_at: row.expiresAt,
+          created_at: row.createdAt,
+        }),
+      ),
+      // Server-computed from the CALLER's own row, which the roster read already
+      // has in hand. Shipped rather than re-derived in the browser so the UI's
+      // enabled state and the 403 its write would get cannot disagree — the same
+      // reason `GET /api/vendor/me` ships resolved `capabilities` instead of a
+      // tier the client re-ladders (`vendor-capabilities.ts`).
+      can_manage_seats: rows.some((row) => row.id === c.get('auth').userId && row.seatOwner),
     };
 
     validateResponseInDev(c.env, () => ListVendorSeatsResponseSchema.parse(body));
