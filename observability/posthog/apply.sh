@@ -153,9 +153,21 @@ body_snippet() {
 # not three consecutive failed runs. Each probe is a cheap GET against the endpoint the
 # applier will later write to — which also validates the PATH, not just the scope, and
 # path drift is at least as likely as scope drift.
+# The third field of each probe is `required` or `optional`, and it is LOAD-BEARING:
+#
+#   required — this applier cannot do its job without it. Block the project.
+#   optional — probed so a missing scope is reported ONCE, here, instead of being
+#              discovered later by whoever needs it. It must NOT block, because
+#              nothing in this file uses it. Annotations are written by
+#              `scripts/ci/posthog-deploy-marker.sh`, and log alerts are a §5
+#              re-home path that is deliberately unused (recipe 4).
+#
+# The first version of this function collected every miss into one list and
+# returned 1 if the list was non-empty, which made `optional` decorative and
+# skipped BOTH projects over two scopes this script never calls. Keep the split.
 preflight() {
   local project_id="$1" project_key="$2"
-  local missing="" probe path status label
+  local blocking="" advisory="" probe path status label required note
 
   echo "  preflight [$project_key / $project_id]"
 
@@ -170,21 +182,36 @@ preflight() {
   do
     path="${probe%%|*}"
     label="$(printf '%s' "$probe" | cut -d'|' -f2)"
+    required="$(printf '%s' "$probe" | cut -d'|' -f3)"
     status="$(api GET "$path")"
     case "$status" in
-      200|201) echo "    ok    ${label}" ;;
-      401|403) missing="${missing}      - ${label}  (HTTP ${status} on ${path})
+      200|201) echo "    ok    ${label}"; continue ;;
+      404)     note="      - ${label}  (HTTP 404 — endpoint moved or product not enabled: ${path})
 " ;;
-      404)     missing="${missing}      - ${label}  (HTTP 404 — endpoint moved or product not enabled: ${path})
-" ;;
-      *)       missing="${missing}      - ${label}  (HTTP ${status} on ${path})
+      *)       note="      - ${label}  (HTTP ${status} on ${path})
 " ;;
     esac
+    if [ "$required" = "required" ]; then
+      blocking="${blocking}${note}"
+    else
+      advisory="${advisory}${note}"
+    fi
   done
 
-  if [ -n "$missing" ]; then
-    echo "    ---- SCOPE / ENDPOINT PROBLEMS (all of them, in one list) ----"
-    printf '%s' "$missing"
+  if [ -n "$advisory" ]; then
+    echo "    ---- NOT AVAILABLE, NOT BLOCKING (nothing in this applier uses these) ----"
+    printf '%s' "$advisory"
+    echo "      Add these scopes only if you want the capability they gate:"
+    echo "        annotation write  -> deploy markers draw a line on every insight"
+    echo "                             (scripts/ci/posthog-deploy-marker.sh, same key)."
+    echo "                             Without it the marker's EVENT leg still works."
+    echo "        log alerts        -> the §5 tighter-cadence re-home path. Unused"
+    echo "                             today (recipe 4); safe to leave off."
+  fi
+
+  if [ -n "$blocking" ]; then
+    echo "    ---- BLOCKING: this applier cannot run without these ----"
+    printf '%s' "$blocking"
     echo "    Fix the personal key at ${APP_HOST}/settings/user-api-keys, then re-run."
     echo "    Required scope union (spec §7 + §8.3): insight write, dashboard write,"
     echo "    alert write, project read — plus error tracking write + organization read"

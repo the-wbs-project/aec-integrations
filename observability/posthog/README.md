@@ -354,3 +354,21 @@ Created 2026-08-24 from this committed JSON. Production is empty pending manual 
 | AECi — Alert signal sources | 2025791 | <https://us.posthog.com/project/525793/dashboard/2025791> |
 
 43 insights, ids `11280545`–`11280671`. No alerts exist in 525793 by design.
+
+## Preflight: required vs optional scopes
+
+`preflight()` probes six endpoints and classifies each as **required** or
+**optional**. Only required misses block a project.
+
+| Probe | Class | Why |
+|---|---|---|
+| project read | required | every lookup needs it |
+| dashboard read+write | required | this applier creates dashboards |
+| insight read+write | required | this applier creates insights |
+| alert read+write | optional | alerts are prod-only; a miss surfaces as a per-object failure in the summary rather than skipping the whole project |
+| annotation write | **optional** | **nothing here writes annotations.** Deploy markers do, from `scripts/ci/posthog-deploy-marker.sh`, using the same key. Probed so a missing scope is reported once, here, instead of being found later by CI |
+| log-alert read+write | **optional** | the §5 tighter-cadence re-home path, deliberately unused (recipe 4) |
+
+The first version collected every miss into one list and failed on any of them,
+which made the classification decorative and skipped **both** projects over two
+scopes the applier never calls. If you add a probe, set its class deliberately.
