@@ -246,6 +246,41 @@ export class AdminOverview {
     () => $localize`:@@admin.overview.caption.day:UTC day ${this.windowDay()}:DAY:`,
   );
 
+  /**
+   * The measurement envelope for the headline number (AECI-683), in the caption
+   * rather than in a fifth tile.
+   *
+   * §5.1 calls this page "the analytics digest as a live page", and the 05:00
+   * email prints these two figures directly beside its headline — a tile of their
+   * own would separate them from the number they qualify, which is the exact
+   * arrangement that let a figure ~8x too high read as authoritative for weeks.
+   * The `visitorsCaption` below already carries a definition of comparable
+   * length, so this costs no layout: the tiles are `h-full` in one grid row and
+   * already size to that caption.
+   *
+   * Phrased with the counts as trailing values (`…: 9.`) rather than inline
+   * (`9 views`) so no sentence needs singular/plural inflection — `$localize`
+   * tagged templates carry no ICU, and the alternative is a branch per
+   * cardinality combination.
+   *
+   * The CAVEATS live in `aec-admin-notes` above, as
+   * `corroborated_is_a_referrer_floor` and `operator_leak_is_an_inference`; only
+   * the shortest form of each is repeated here, next to the number.
+   */
+  protected readonly pageViewsCaption = computed(() => {
+    const t = this.overview()?.traffic;
+    const parts = [
+      $localize`:@@admin.overview.caption.pageViews:UTC day ${this.windowDay()}:DAY:. An upper bound: page views are counted server-side on every full-document load, so a crawler that never runs our JavaScript is still in this number.`,
+      $localize`:@@admin.overview.caption.corroborated:Arrivals carrying an external search or social referrer: ${t?.corroborated_views ?? 0}:VIEWS:, from distinct visitors: ${t?.corroborated_visitors ?? 0}:VISITORS:. A floor, and built on a claim the request made.`,
+    ];
+    if ((t?.operator_leak_excluded ?? 0) > 0) {
+      parts.push(
+        $localize`:@@admin.overview.caption.operatorLeak:Excluded as operator self-traffic on a lapsed session: ${t?.operator_leak_excluded ?? 0}:VIEWS:.`,
+      );
+    }
+    return parts.join(' ');
+  });
+
   protected readonly visitorsCaption = computed(
     () =>
       $localize`:@@admin.overview.caption.visitors:UTC day ${this.windowDay()}:DAY:. A visitor is a distinct browser-and-network pair; it over-counts when a browser updates and under-counts behind a shared network.`,

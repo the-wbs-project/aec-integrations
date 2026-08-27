@@ -170,6 +170,11 @@ describe('GET /api/admin/overview — digest parity (the AECI-574 acceptance cri
     expect(body.traffic.top_sources).toEqual(
       metrics.referrers.map((r) => ({ source: r.source, views: r.views })),
     );
+    // AECI-683's three figures come off the same collector, so the panel cannot
+    // grow a second definition of "corroborated" or of the operator-pair leak.
+    expect(body.traffic.corroborated_views).toBe(metrics.corroboratedViews.day);
+    expect(body.traffic.corroborated_visitors).toBe(metrics.corroboratedVisitors);
+    expect(body.traffic.operator_leak_excluded).toBe(metrics.operatorLeakViews);
 
     // And the email really does carry those figures — 3 humans (two operator
     // views + one Google arrival) plus the unclassified row = 4, 1 crawler.

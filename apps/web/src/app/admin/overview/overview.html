@@ -84,7 +84,7 @@
       i18n-label="@@admin.overview.tile.pageViews"
       label="Human page views"
       [value]="o.traffic.page_views_human.total"
-      [caption]="dayCaption()"
+      [caption]="pageViewsCaption()"
       [deltas]="pageViewDeltas()"
       [sparklineValues]="humanSeries()"
       [sparklineLabel]="pageViewsSparklineLabel"

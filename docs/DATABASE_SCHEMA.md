@@ -877,7 +877,20 @@ Server-side page view log with Cloudflare header enrichment. Privacy-respecting 
 
 **`path` holds public routes only** (AECI-575 / `ADMIN_PANEL_SPEC.md` §9.6). Neither writer records the operator-only prefixes in `@aeci/shared` `UNTRACKED_ROUTE_PREFIXES` (`/admin`, `/account`) — the admin console must not write into the table it reads. Rows captured before that shipped are still present, and every read applies the same exclusion, so query this table with `path not in ('/admin','/account') and path not like '/admin/%' and path not like '/account/%'` if you want numbers that match the daily digest. (The match is on an exact prefix boundary — a bare `path not like '/admin%'` would wrongly drop look-alike public routes like `/administrators`, which the digest still counts.)
 
-**That path rule is only half of "not the operator"** (§13 **D13**). It catches the operator while they are standing on `/admin/*`; it cannot catch them browsing `/products/procore` to check their own work, which is indistinguishable from a visitor doing the same. `is_operator` is the other half, so a hand-written query that wants digest-matching numbers needs **both** clauses: add `and (is_operator is null or is_operator = 0)`. Both live together in one predicate in code (`NOT_INTERNAL`, `apps/api/src/lib/analytics-digest.ts`) precisely so no reader applies one and forgets the other.
+**That path rule is only a third of "not the operator"** (§13 **D13** + **D15**). It catches the operator while they are standing on `/admin/*`; it cannot catch them browsing `/products/procore` to check their own work, which is indistinguishable from a visitor doing the same. `is_operator` is the second part — and it is written once at ingest and **fails open on an expired token**, so it misses a contiguous run of the operator's rows every time their session lapses mid-browse (22 of them in one gap on 2026-08-26). The third part is a retro-join on the `(user_agent_hash, cf_asn)` visitor pair. A hand-written query that wants digest-matching numbers needs **all three** clauses:
+
+```sql
+  and path not in ('/admin','/account') and path not like '/admin/%' and path not like '/account/%'
+  and (is_operator is null or is_operator = 0)
+  and not exists (select 1 from page_views op
+                   where op.is_operator = 1
+                     and op.user_agent_hash = page_views.user_agent_hash
+                     and op.cf_asn = page_views.cf_asn
+                     and op.created_at >= strftime('%Y-%m-%dT%H:%M:%fZ', page_views.created_at, '-30 days')
+                     and op.created_at <= strftime('%Y-%m-%dT%H:%M:%fZ', page_views.created_at, '+30 days'))
+```
+
+All three live together in one predicate in code (`NOT_INTERNAL`, `apps/api/src/lib/analytics-digest.ts`) precisely so no reader applies some and forgets the rest — a hand-written query is now the only place they can come apart. Two details of the third clause are load-bearing. The `strftime` format string reproduces the stored ISO shape exactly; bare `datetime()` returns `'YYYY-MM-DD HH:MM:SS'`, and a space sorts before `T`, so the comparison would be silently wrong at the boundary. And `not exists` — rather than the tempting `not (hash = ? and asn = ?)` — is what keeps it NULL-safe: with a NULL `user_agent_hash` the latter evaluates to NULL and the `where` clause *drops the row*, which is the opposite of the correct reading (an unidentifiable row is not evidence of anything).
 
 **`path` vs `concrete_path` (AECI-585).** `path` is the route the *writer* named: the pattern (`/products/:slug`) when it knows one — an SSR resolver attached `ctx.pageView` — and the concrete path otherwise (the browser tracker, an SSR cache HIT). It has always been that mix; nothing changed about it. `concrete_path` is new and is *always* the real URL path, locale-stripped and without query or hash. Both are stored because they answer different questions: grouping "top pages" wants the pattern, naming an individual row wants the concrete path. Product and vendor rows could always recover a name through their FK; taxonomy rows could not, which is what made this column necessary.
 
@@ -967,7 +980,15 @@ create table page_views (
   -- answer (pinned to any one of those it misses the rest and over-excludes strangers).
   -- Null = unknown and reads as NOT operator, so history is unchanged; not backfillable,
   -- since nothing stored on an older row implies a session.
-  is_operator integer,  -- 1 = verified admin session, 0 = not, null = pre-D13 (treated as visitor)
+  --
+  -- IT ALSO FAILS OPEN, AND THAT IS THE POINT OF §13 D15. isOperatorRequest resolves
+  -- every failure to false — including an EXPIRED access token — deliberately, so an
+  -- auth hiccup costs a flag rather than the page-view row. The consequence is that an
+  -- operator browsing across a token expiry writes flagged rows, then unflagged rows,
+  -- then flagged rows again, and a 0 here is indistinguishable from a visitor.
+  -- Do not read `is_operator = 0` as "not the operator": read NOT_INTERNAL, whose third
+  -- half recovers those rows by (user_agent_hash, cf_asn) pair (AECI-683).
+  is_operator integer,  -- 1 = verified admin session, 0 = not-or-unverifiable, null = pre-D13 (treated as visitor)
 
   -- ─── Request-shape signals (AECI-658, migration 0018) ──────────────────────────
   -- How browser-shaped the request was, written at ingest by
@@ -1029,10 +1050,19 @@ create index page_views_bot_idx on page_views(is_bot, created_at); -- digest hum
 -- The six AECI-658 request-shape columns are unindexed for the same reason: the swarm
 -- detector groups on user_agent_hash (already covered by the window predicate) and reads
 -- client_verdict only as a conditional SUM inside that group, never as a filter.
--- is_operator is likewise unindexed even though every read filters on it (AECI-585's
--- rule holds for a different reason here): it is a near-constant column — almost every
--- row is 0 or null — so an index on it selects nearly the whole table and no planner
--- would use it. The existing path / bot / created_at indexes still drive these queries.
+-- A plain index on is_operator is still pointless for the same reason it always was:
+-- it is a near-constant column (almost every row is 0 or null), so an index on it
+-- selects nearly the whole table and no planner would use it. The PARTIAL index below
+-- is the opposite case and is exactly the "add one with the read that needs it" the
+-- rule reserves.
+create index page_views_operator_pair_idx
+  on page_views(user_agent_hash, cf_asn, created_at)
+  where is_operator = 1; -- AECI-683: serves NOT_INTERNAL's operator-pair retro-join
+-- Partial, so SQLite stores an entry only for operator rows — a few hundred out of
+-- ~27k in production — and the write cost on the anonymous traffic that dominates this
+-- table is zero. The key order matches the correlated subquery: seek on
+-- (user_agent_hash, cf_asn), then range-scan created_at. Verify with EXPLAIN QUERY PLAN;
+-- it should read `SEARCH op USING COVERING INDEX page_views_operator_pair_idx`.
 ```
 
 **Migration `0014` is the repo's first table recreate** — every `ALTER` before it is an `ADD`. SQLite refuses `DROP COLUMN` on a column carrying an index **or** a `FOREIGN KEY` clause, and `user_id` had both (`page_views_user_idx` + the FK to `profiles`), so the drop is a `__new_page_views` copy-and-rename; `session_id` and `profile_role` ride along in it for free. Two things about that file are load-bearing: the copy lists `id` explicitly, so the autoincrement PK survives (the Activity feed paginates on `(created_at DESC, id DESC)` and would repeat or skip rows otherwise), and drizzle-kit's emitted `PRAGMA foreign_keys=OFF` was **hand-replaced with `PRAGMA defer_foreign_keys = true`**, which is the lever D1 supports. Regenerating that migration reintroduces the wrong pragma. See `docs/migrations.md`.

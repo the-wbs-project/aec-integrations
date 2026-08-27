@@ -39,12 +39,27 @@
  *   - pending moderation: `reviews` where `status='pending'` (a live snapshot).
  */
 
-import { and, count, desc, eq, gte, isNotNull, isNull, lt, notLike, or } from 'drizzle-orm';
+import {
+  and,
+  count,
+  desc,
+  eq,
+  gte,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  not,
+  notLike,
+  or,
+  sql,
+} from 'drizzle-orm';
 
 import { UNTRACKED_ROUTE_PREFIXES } from '@aeci/shared';
 
 import type { Db } from '../db/client';
 import { pageViews, products, profiles, reviews } from '../db/schema';
+import { NAMED_REFERRER_SOURCES } from './referrer-classification';
 
 /** A single UTC-day window plus the immediately-preceding day (for day-over-day deltas). */
 export interface DigestWindow {
@@ -130,6 +145,32 @@ export interface AnalyticsMetrics {
   referrers: ReferrerCount[];
   /** Every bot/crawler active in the reported day, most crawls first. */
   botActivity: BotActivity[];
+  /**
+   * Human views carrying a NAMED external referrer (`NAMED_REFERRER_SOURCES`) in
+   * the reported day / prior day — the digest's CORROBORATED population
+   * (AECI-683).
+   *
+   * A third figure beside the server-side upper bound and the PostHog lower
+   * bound, and the only one of the three that a rotating-proxy pool cannot
+   * inflate: it sends no `Referer` at all. It is a floor, not a truth — see
+   * {@link NAMED_REFERRER_SOURCES} for the two caveats that must be printed
+   * beside it.
+   */
+  corroboratedViews: DailyCount;
+  /** DISTINCT `(user_agent_hash, cf_asn)` — §9.8 "visitors" — behind
+   *  `corroboratedViews.day`. The number the operator actually wants: on
+   *  2026-08-26 it was 7, behind 8 corroborated views, against a headline of 102. */
+  corroboratedVisitors: number;
+  /**
+   * Human views the operator-pair retro-join removed from the reported day
+   * ({@link OPERATOR_PAIR_MATCH}, AECI-683) — i.e. rows a lapsed admin session
+   * left unflagged.
+   *
+   * Reported rather than silently subtracted because, unlike the path and session
+   * halves of {@link NOT_INTERNAL}, this half is an inference about identity.
+   * A number that quietly moved would be the same failure mode the headline had.
+   */
+  operatorLeakViews: number;
 }
 
 const TOP_PRODUCTS_LIMIT = 5;
@@ -147,7 +188,107 @@ export const HUMAN = or(isNull(pageViews.isBot), eq(pageViews.isBot, false));
 export const BOT = eq(pageViews.isBot, true);
 
 /**
- * Excludes the operator's own traffic. Two independent halves, deliberately one
+ * How far either side of a row the retro-join will look for an `is_operator = 1`
+ * anchor on the same visitor pair. A documented launch tunable
+ * (`POST_LAUNCH_MONITORING.md` §3) — raise it only against measured evidence.
+ *
+ * Symmetric on purpose: a lapse can sit before the operator's first flagged row
+ * of a session as easily as after their last. On 2026-08-26 the anchors were on
+ * BOTH sides of the gap (02:48-04:42 and 07:33 onward, with 05:46-07:32 dark).
+ */
+export const OPERATOR_PAIR_LOOKBACK_DAYS = 30;
+
+/** `'-30 days'` / `'+30 days'`, bound as ordinary parameters rather than inlined.
+ *  Two parameters for the whole predicate, no matter how many pairs exist. */
+const LOOKBACK_BACK = `-${OPERATOR_PAIR_LOOKBACK_DAYS} days`;
+const LOOKBACK_FWD = `+${OPERATOR_PAIR_LOOKBACK_DAYS} days`;
+
+/**
+ * "This row shares a `(user_agent_hash, cf_asn)` pair with a VERIFIED operator
+ * row nearby in time" — the read-side repair for the operator session-lapse leak
+ * (AECI-683).
+ *
+ * ─── The defect it closes ───────────────────────────────────────────────────
+ *
+ * `is_operator` is decided once, at ingest, and `lib/operator-session.ts` resolves
+ * every failure to `false` — deliberately, so an auth hiccup costs a flag rather
+ * than the row. An **expired** access token is one of those failures. So an
+ * operator who browses across a token expiry writes flagged rows, then unflagged
+ * rows, then flagged rows again, and nothing on the unflagged ones distinguishes
+ * them from a visitor. On 2026-08-26 that was 22 views in one 105-minute gap
+ * (ending on `/auth/login`, which is what a lapse looks like from the outside),
+ * inside a 102-view "human" day whose corroborated population was 8 views from
+ * 7 visitors.
+ *
+ * ─── Why the PAIR, and not either half ──────────────────────────────────────
+ *
+ * Measured on production 2026-08-19 and recorded in
+ * `scripts/ops/2026-08-operator-page-view-backfill/operator-pairs.sql`:
+ *
+ *   - **The UA hash alone is wrong.** The operator's second browser hash
+ *     `d37ac4d2…` — the very hash that leaked here — spans 6 ASNs across 5
+ *     countries. A UA hash is a browser BUILD, shared with strangers; flagging it
+ *     outright would delete real visitors in four countries.
+ *   - **The ASN alone is wrong.** "Everything from Indonesia" was 44% false
+ *     positives and 50% recall. That is the objection §13 D10 already recorded
+ *     against `ANALYTICS_INTERNAL_ASNS`.
+ *   - **The pair is right**, and is also exactly the tuple §9.8 already calls a
+ *     "visitor" — so this excludes operator VISITORS in the same terms the panel
+ *     counts everyone else in.
+ *
+ * ─── Why the anchors come from `is_operator = 1` only ───────────────────────
+ *
+ * The ops backfill could also prove a pair from an `/admin*` row, because no
+ * visitor reaches one. That is no longer available: since AECI-575's write-side
+ * guard (`server-runtime.ts`, `page-view-tracker.ts`) untracked routes are not
+ * written AT ALL, so there are no such rows to harvest from any recent window.
+ * `/account` would be the wrong source regardless — every signed-in user reaches
+ * it, so harvesting there would exclude ordinary members' public browsing.
+ *
+ * ─── Two properties that must not be refactored away ────────────────────────
+ *
+ * **NULL-safe by construction.** A row with a NULL `user_agent_hash` or `cf_asn`
+ * makes the inner `=` NULL, the subquery matches nothing, and `NOT EXISTS` is
+ * TRUE — the row is KEPT. The tempting `NOT (hash = ? AND asn = ?)` form does the
+ * opposite: SQL's three-valued logic turns it NULL and the `WHERE` drops the row.
+ * Do not rewrite it that way.
+ *
+ * **The `strftime` format string is load-bearing.** `created_at` is
+ * `new Date().toISOString()` — `2026-08-26T05:46:00.000Z`. Bare `datetime(…)`
+ * returns `2026-07-27 05:46:00`, and a space sorts BEFORE `T`, so comparing the
+ * two shapes is silently wrong at the boundary. `%Y-%m-%dT%H:%M:%fZ` reproduces
+ * the stored format exactly.
+ *
+ * Exported in its POSITIVE form so the count of what the clause removes and the
+ * clause itself are the same expression and cannot drift.
+ */
+export const OPERATOR_PAIR_MATCH = sql`exists (
+    select 1 from ${pageViews} as op
+     where op.is_operator = 1
+       and op.user_agent_hash = ${pageViews.userAgentHash}
+       and op.cf_asn = ${pageViews.cfAsn}
+       and op.created_at >= strftime('%Y-%m-%dT%H:%M:%fZ', ${pageViews.createdAt}, ${LOOKBACK_BACK})
+       and op.created_at <= strftime('%Y-%m-%dT%H:%M:%fZ', ${pageViews.createdAt}, ${LOOKBACK_FWD})
+  )`;
+
+/**
+ * The path + flag halves WITHOUT the retro-join — the population the digest
+ * counted before AECI-683.
+ *
+ * Exists only so `operatorLeakViews` can report exactly what the retro-join
+ * removed. Nothing else should read it: a caller that wants "not the operator"
+ * wants {@link NOT_INTERNAL}.
+ */
+const NOT_INTERNAL_BEFORE_RETRO_JOIN = and(
+  ...UNTRACKED_ROUTE_PREFIXES.flatMap((prefix) => [
+    notLike(pageViews.path, prefix),
+    notLike(pageViews.path, `${prefix}/%`),
+  ]),
+  or(isNull(pageViews.isOperator), eq(pageViews.isOperator, false)),
+);
+
+/**
+ * Excludes the operator's own traffic. Three independent halves, deliberately one
  * predicate:
  *
  *   - **Operator-only PATHS** (`/admin/*`, `/account`) — the read-side half of
@@ -157,30 +298,50 @@ export const BOT = eq(pageViews.isBot, true);
  *     `lib/operator-session.ts`). The path half never saw these: standing on
  *     `/products/procore` is indistinguishable from a visitor doing the same,
  *     and on 2026-08-19 that was 15% of all human public-page views.
+ *   - **Operator VISITOR PAIRS** ({@link OPERATOR_PAIR_MATCH}, AECI-683) — the
+ *     rows a lapsed session left unflagged. The session half cannot see these
+ *     either: `is_operator` is decided once at ingest and an expired token reads
+ *     exactly like an anonymous request.
  *
  * They live in one constant because they answer one question — "is this row the
- * operator?" — and because a caller that remembered one and forgot the other
- * would report a number that is half-corrected, which is worse than either
+ * operator?" — and because a caller that remembered one and forgot the others
+ * would report a number that is partly corrected, which is worse than any
  * consistent alternative. NULL-safe on `is_operator`: every row written before
  * D13 shipped is NULL and counts as a visitor, so history keeps reading exactly
  * as it did rather than shifting under a column it never had.
  *
-
- * The tracker no longer writes these rows, but rows captured BEFORE that shipped
- * are indistinguishable from real traffic once they're in the table, so filtering
- * only at the write side would leave every pre-fix day permanently inflated and
- * inconsistent with every post-fix day. Applying it here makes the whole history
- * read the same way. This is deliberately silent: the digest does not report an
- * "internal views excluded" count the way it does for bots, because these rows
- * were never visitor traffic in the first place.
+ * **The third half is an INFERENCE, and is therefore reported.** The first two
+ * are facts about the request — a path no visitor reaches, a signature that
+ * verified — so the digest excludes them silently: they were never visitor
+ * traffic. A pair match is a judgement about identity, and `ANALYTICS_BASELINE.md`
+ * is explicit that the pair cohort must not be read as equivalent to the live
+ * flag. So `AnalyticsMetrics.operatorLeakViews` counts what it removed and the
+ * email prints it. Silence would be the same failure the headline number itself
+ * was guilty of.
+ *
+ * The tracker no longer writes the path rows, but rows captured BEFORE that
+ * shipped are indistinguishable from real traffic once they're in the table, so
+ * filtering only at the write side would leave every pre-fix day permanently
+ * inflated and inconsistent with every post-fix day. Applying it here makes the
+ * whole history read the same way.
  *
  * Prefix list comes from `@aeci/shared` so the read side can't drift from the two
  * write-side guards. `path` is NOT NULL, so `NOT LIKE` is safe here (no
  * three-valued-logic surprise), and `page_views_path_idx` covers the column.
  *
- * Exported because three other read surfaces must exclude the same rows or they
+ * **Kept a static constant on purpose.** The retro-join is written as a
+ * self-contained correlated subquery anchored on each row's OWN timestamp rather
+ * than as a `notInternalFor(window)` function, so all five read surfaces below
+ * keep sharing one expression instead of each remembering to thread a window
+ * through. It also binds a fixed two parameters regardless of how many operator
+ * pairs exist — a JS-resolved pair list would bind two per pair and scale with
+ * the data, which is precisely the D1 bound-parameter hazard the better-sqlite3
+ * test harness cannot fail on (`TESTING_STRATEGY.md` §6.3).
+ *
+ * Exported because four other read surfaces must exclude the same rows or they
  * diverge from the digest they are meant to mirror: the admin panel
- * (`lib/admin-analytics.ts` + `routes/admin-overview.ts`, AECI-574), and the
+ * (`lib/admin-analytics.ts` + `routes/admin-overview.ts`, AECI-574), the
+ * `metrics_daily` snapshot that reaches D1 through the first of those, and the
  * public home page's trending card (`lib/home-stats.ts`). Both panel modules
  * import it as `EXCLUDE_OPERATOR_TRAFFIC`, to stay distinct from that module's
  * unrelated `ANALYTICS_INTERNAL_ASNS` "internal" filter — the alias says *traffic*
@@ -190,14 +351,12 @@ export const BOT = eq(pageViews.isBot, true);
  * D12 recorded it as immune to the path half (an `/admin/*` row has no
  * `product_id`) — which is true and does not extend to an operator session, which
  * carries the FK like any other product view.
+ *
+ * One structural caveat: the correlated subquery names `"page_views"` columns
+ * directly, so a caller that ALIASES `pageViews` would silently break the
+ * correlation. No caller does today; keep it that way.
  */
-export const NOT_INTERNAL = and(
-  ...UNTRACKED_ROUTE_PREFIXES.flatMap((prefix) => [
-    notLike(pageViews.path, prefix),
-    notLike(pageViews.path, `${prefix}/%`),
-  ]),
-  or(isNull(pageViews.isOperator), eq(pageViews.isOperator, false)),
-);
+export const NOT_INTERNAL = and(NOT_INTERNAL_BEFORE_RETRO_JOIN, not(OPERATOR_PAIR_MATCH));
 
 /** `COUNT(*)` of human or bot `page_views` in `[startIso, endIso)`. */
 async function countPageViews(
@@ -294,6 +453,72 @@ async function botActivityInWindow(
   return rows.map((r) => ({ name: r.name ?? 'Other bot', crawls: r.crawls }));
 }
 
+/** `COUNT(*)` of human views in `[startIso, endIso)` carrying a NAMED external
+ *  referrer. Deliberately `IN (named)` rather than `!= 'Direct'`: `Other` is an
+ *  open bucket a forger controls, and `Direct` swallows every stripped referral. */
+async function countCorroboratedViews(db: Db, startIso: string, endIso: string): Promise<number> {
+  const [row] = await db
+    .select({ value: count() })
+    .from(pageViews)
+    .where(
+      and(
+        gte(pageViews.createdAt, startIso),
+        lt(pageViews.createdAt, endIso),
+        HUMAN,
+        NOT_INTERNAL,
+        inArray(pageViews.referrerSource, [...NAMED_REFERRER_SOURCES]),
+      ),
+    );
+  return row?.value ?? 0;
+}
+
+/** DISTINCT `(user_agent_hash, cf_asn)` behind {@link countCorroboratedViews}.
+ *
+ *  `coalesce` on both halves is not decoration: `count(distinct a || '|' || b)`
+ *  over a NULL-bearing tuple yields NULL for the whole concatenation and the row
+ *  vanishes from the count. Same expression the panel uses for §9.8 visitors, so
+ *  the two cannot disagree about what a visitor is. */
+async function countCorroboratedVisitors(
+  db: Db,
+  startIso: string,
+  endIso: string,
+): Promise<number> {
+  const [row] = await db
+    .select({
+      value: sql<number>`count(distinct coalesce(${pageViews.userAgentHash}, '') || '|' || coalesce(${pageViews.cfAsn}, ''))`,
+    })
+    .from(pageViews)
+    .where(
+      and(
+        gte(pageViews.createdAt, startIso),
+        lt(pageViews.createdAt, endIso),
+        HUMAN,
+        NOT_INTERNAL,
+        inArray(pageViews.referrerSource, [...NAMED_REFERRER_SOURCES]),
+      ),
+    );
+  return Number(row?.value ?? 0);
+}
+
+/** `COUNT(*)` of the rows {@link OPERATOR_PAIR_MATCH} removes from the human
+ *  population — the positive form of the same expression `NOT_INTERNAL` negates,
+ *  so the reported figure and the exclusion cannot drift. */
+async function countOperatorLeakViews(db: Db, startIso: string, endIso: string): Promise<number> {
+  const [row] = await db
+    .select({ value: count() })
+    .from(pageViews)
+    .where(
+      and(
+        gte(pageViews.createdAt, startIso),
+        lt(pageViews.createdAt, endIso),
+        HUMAN,
+        NOT_INTERNAL_BEFORE_RETRO_JOIN,
+        OPERATOR_PAIR_MATCH,
+      ),
+    );
+  return row?.value ?? 0;
+}
+
 /** Run every read for the digest concurrently. Report-only; never mutates. */
 export async function collectAnalyticsMetrics(
   db: Db,
@@ -311,6 +536,10 @@ export async function collectAnalyticsMetrics(
     topProducts,
     referrers,
     botActivity,
+    corroboratedDay,
+    corroboratedPrior,
+    corroboratedVisitors,
+    operatorLeakViews,
   ] = await Promise.all([
     countPageViews(db, window.startIso, window.endIso, 'human'),
     countPageViews(db, window.priorStartIso, window.startIso, 'human'),
@@ -323,6 +552,10 @@ export async function collectAnalyticsMetrics(
     topProductsByViews(db, window.startIso, window.endIso),
     referrerBreakdown(db, window.startIso, window.endIso),
     botActivityInWindow(db, window.startIso, window.endIso),
+    countCorroboratedViews(db, window.startIso, window.endIso),
+    countCorroboratedViews(db, window.priorStartIso, window.startIso),
+    countCorroboratedVisitors(db, window.startIso, window.endIso),
+    countOperatorLeakViews(db, window.startIso, window.endIso),
   ]);
   return {
     pageViews: { day: humanViewsDay, prior: humanViewsPrior },
@@ -333,6 +566,9 @@ export async function collectAnalyticsMetrics(
     topProducts,
     referrers,
     botActivity,
+    corroboratedViews: { day: corroboratedDay, prior: corroboratedPrior },
+    corroboratedVisitors,
+    operatorLeakViews,
   };
 }
 
@@ -472,7 +708,7 @@ function buildSubject(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): 
  * as an upper bound since launch; until AECI-658 the email never said so, which
  * is how a number that was ~10x high read as authoritative for weeks.
  */
-function boundsLines(opts: AnalyticsDigestOptions): string[] {
+function boundsLines(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): string[] {
   const lines = [
     'Page views above are an UPPER bound on humans: they are counted server-side on every',
     'full-document load, so any crawler that does not run JavaScript is still in the number.',
@@ -487,7 +723,44 @@ function boundsLines(opts: AnalyticsDigestOptions): string[] {
   } else if (opts.posthogUnavailable) {
     lines.push(`PostHog lower bound unavailable (${opts.posthogUnavailable}).`);
   }
+  lines.push(...corroboratedLines(metrics));
+  if (metrics.operatorLeakViews > 0) {
+    lines.push(
+      `${plural(metrics.operatorLeakViews, 'view')} were excluded as operator self-traffic that a ` +
+        `lapsed admin session left unflagged: same browser and network as a verified operator ` +
+        `session within ${OPERATOR_PAIR_LOOKBACK_DAYS} days. That is an inference about identity, ` +
+        `not a verified session, which is why it is stated rather than silently subtracted.`,
+    );
+  }
   return lines;
+}
+
+/**
+ * The corroborated-human sentences (AECI-683), shared by both renderings.
+ *
+ * Both caveats are mandatory and neither is boilerplate. It is a FLOOR because
+ * Referrer-Policy strips real referrals into `Direct`; and a referrer is a CLAIM,
+ * unverifiable by construction now that only the host is stored (§9.7) — prod
+ * holds one confirmed forgery. A number this small reads as precise unless the
+ * text says otherwise, and the whole point of this digest change is to stop
+ * numbers reading as more certain than they are.
+ */
+function corroboratedLines(metrics: AnalyticsMetrics): string[] {
+  const { day } = metrics.corroboratedViews;
+  if (day === 0) {
+    return [
+      'No arrival carried an external search or social referrer, so nothing in the day is',
+      'positively corroborated as a person. That is common at this volume, not an outage.',
+    ];
+  }
+  const visitors = metrics.corroboratedVisitors;
+  return [
+    `Of those, ${plural(day, 'view')} from ${plural(visitors, 'visitor')} arrived with an external ` +
+      `search or social referrer — the strongest positive evidence of a person we hold ` +
+      `server-side, because a proxy pool sends no Referer at all.`,
+    'Read it as a FLOOR: privacy tools strip the header, so real referrals land in Direct.',
+    'And a referrer is a claim, not a verified fact — only the host is stored.',
+  ];
 }
 
 function buildText(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): string {
@@ -507,6 +780,15 @@ function buildText(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): str
     t.push(
       `PostHog page views: ${opts.posthog.pageviews} from ${opts.posthog.people} ` +
         `${opts.posthog.people === 1 ? 'person' : 'people'}  [lower bound]`,
+    );
+  }
+  t.push(
+    `Corroborated by an external referrer: ${metrics.corroboratedViews.day} from ` +
+      `${plural(metrics.corroboratedVisitors, 'visitor')}  [floor]`,
+  );
+  if (metrics.operatorLeakViews > 0) {
+    t.push(
+      `  (${plural(metrics.operatorLeakViews, 'view')} excluded as operator self-traffic on a lapsed session)`,
     );
   }
   if (opts.swarmNote) {
@@ -555,7 +837,7 @@ function buildText(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): str
     t.push('No bot/crawler activity.');
   }
 
-  t.push('', ...boundsLines(opts));
+  t.push('', ...boundsLines(metrics, opts));
 
   t.push(
     '',
@@ -657,6 +939,19 @@ function buildHtml(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): str
     : opts.posthogUnavailable
       ? `<p style="margin:8px 0 0;font-size:13px;color:${HTML.muted}">PostHog lower bound unavailable (${escapeHtml(opts.posthogUnavailable)}).</p>`
       : '';
+  // The corroborated figure sits ON the tile beside the two bounds, not in the
+  // footnote, for the same reason the upper-bound caption does: a number the
+  // operator has to scroll to find is a number they will read the headline
+  // instead of.
+  const corroboratedLine =
+    `<p style="margin:8px 0 0;font-size:13px;color:${HTML.muted}">` +
+    `<strong style="color:${HTML.ink}">${metrics.corroboratedViews.day}</strong> view${metrics.corroboratedViews.day === 1 ? '' : 's'} ` +
+    `from <strong style="color:${HTML.ink}">${metrics.corroboratedVisitors}</strong> ${metrics.corroboratedVisitors === 1 ? 'visitor' : 'visitors'} ` +
+    `arrived with an external search or social referrer &mdash; a <strong>corroborated floor</strong>.</p>`;
+  const operatorLeakLine =
+    metrics.operatorLeakViews > 0
+      ? `<p style="margin:6px 0 0;font-size:13px;color:${HTML.muted}">${metrics.operatorLeakViews} view${metrics.operatorLeakViews === 1 ? '' : 's'} excluded as operator self-traffic on a lapsed session.</p>`
+      : '';
   const swarmLine = opts.swarmNote
     ? `<p style="margin:10px 0 0;padding:10px 12px;border-left:3px solid ${HTML.accent};background:${HTML.accentSoft};font-size:13px;color:${HTML.ink}">` +
       `<strong>Automation signal.</strong> ${escapeHtml(opts.swarmNote)}</p>`
@@ -666,6 +961,8 @@ function buildHtml(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): str
     primaryStat(pv.day, pv.day === 1 ? 'human page view' : 'human page views', deltaText(pv)) +
     `<p style="margin:6px 0 0;font-size:13px;color:${HTML.muted}">Counted server-side on every full-document load, so this is an <strong>upper bound</strong> on humans.</p>` +
     posthogLine +
+    corroboratedLine +
+    operatorLeakLine +
     swarmLine +
     (bot.day > 0
       ? `<p style="margin:6px 0 0;font-size:13px;color:${HTML.muted}">${bot.day} bot/crawler view${bot.day === 1 ? '' : 's'} excluded — see <strong>Crawler activity</strong> below.</p>`
@@ -725,7 +1022,7 @@ function buildHtml(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): str
   const footer =
     // Same prose as the plain-text body, from the same helper: the two bounds
     // only help if both renderings of the email explain them identically.
-    `${escapeHtml(boundsLines(opts).join(' '))} ` +
+    `${escapeHtml(boundsLines(metrics, opts).join(' '))} ` +
     `Human vs. bot is classified at capture from User-Agent + network (ASN) — a maintained heuristic, not exact. ` +
     `Traffic sources come from the Referer header (best-effort — privacy tools strip it, so external sources are under-counted; stripped arrivals fall into Direct). ` +
     `Report-only: counts are read from the app database; the window is the full prior UTC day.`;

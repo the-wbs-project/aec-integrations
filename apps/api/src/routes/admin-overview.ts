@@ -167,7 +167,12 @@ export function createAdminOverviewHandler(
       countAll(db, vendorRequests, eq(vendorRequests.status, 'open')),
       catalogTotals(db),
       statsFreshness(db, now),
-      trafficNotes(db, dayW, { unique: true, sources: true }),
+      trafficNotes(db, dayW, {
+        unique: true,
+        sources: true,
+        corroborated: true,
+        operatorLeak: true,
+      }),
     ]);
 
     const allNotes: AdminNote[] = [...notes, internalFilterNote(filter)];
@@ -210,6 +215,14 @@ export function createAdminOverviewHandler(
           slug: p.slug,
           views: p.views,
         })),
+        // Straight off `collectAnalyticsMetrics`, like `top_products` above and
+        // for the same reason: recomputing them here would put a second
+        // definition of "corroborated" in the codebase, and §6.10's parity
+        // guarantee is only structural while the panel reads the digest's own
+        // numbers rather than its own reimplementation of them.
+        corroborated_views: metrics.corroboratedViews.day,
+        corroborated_visitors: metrics.corroboratedVisitors,
+        operator_leak_excluded: metrics.operatorLeakViews,
       },
       audience: {
         new_sign_ins: computeDelta(metrics.newUsers),

@@ -83,7 +83,7 @@ A green board here means all eleven fired on schedule (ten daily/sub-daily, plus
 | `15 0 * * *` | `metrics_daily` snapshot of the prior complete UTC day (AECI-581 / `ADMIN_PANEL_SPEC.md` §7.1) — 19 metrics, the admin panel's long memory | `metrics-snapshot` | `aeci.metrics_snapshot.run` heartbeat (no dedicated monitor yet — **worth one**: it is queue-less, so a failed run is not retried, and the *stock* metrics of a missed day are unrecoverable. Flow metrics recover via `pnpm --filter @aeci/api ops:backfill-metrics-daily`) |
 | `0 3 * * *` | §7.4 retention prune (AECI-584 / `ADMIN_PANEL_SPEC.md` §7.4) — the system's only scheduled `DELETE`: `page_views` past 400 days, `job_runs` past 90, in bounded chunks, with one `retention.pruned` audit row per run. **Deletes nothing until ~2026-11 (`job_runs`) / ~2027-07 (`page_views`)**, so for now a healthy run is a zero-row run | `retention-prune` | prune-skipped / prune-runaway / prune-failed / prune-not-running (AECI-584) |
 | `0 4 * * *` | Data-quality suite (10 §23.1 checks) + email digest | `data-quality` | check-error / check-warn / failed / not-running |
-| `0 5 * * *` | Operator analytics digest (AECI-526) — **human** page views + top products, sign-ins, moderation depth, and a Crawler-activity breakdown (human/bot split classified at ingest by UA + ASN) | `analytics-digest` | `aeci.analytics_digest.email` heartbeat (no dedicated monitor yet) |
+| `0 5 * * *` | Operator analytics digest (AECI-526) — **human** page views (an upper bound) + a PostHog lower bound + an AECI-683 corroborated floor, top products, sign-ins, moderation depth, and a Crawler-activity breakdown (human/bot split classified at ingest by UA + ASN) | `analytics-digest` | `aeci.analytics_digest.email` heartbeat (no dedicated monitor yet) |
 | `0 6 * * *` | Moderation queue snapshot | `moderation-snapshot` | moderation-queue-age (threshold + no-data) |
 | `0 7 * * *` | Home-stats compute | `home-stats` | stats-compute-failed / stats-not-running |
 | `0 8 * * *` | Algolia incremental sync | `algolia-sync` | sync-failed / sync-not-running |
@@ -199,11 +199,24 @@ behind it:
 >   arrivals never ran our JavaScript. Needs `POSTHOG_QUERY_API_KEY` + `POSTHOG_PROJECT_ID`; absent,
 >   the email says the floor is unavailable and never prints a fabricated `0`.
 > - An **Automation signal** line appears when the swarm detector (below) flags anything.
+> - Since **AECI-683** a **corroborated floor** is printed beside the two bounds: human views that
+>   arrived with a NAMED external search or social referrer, and the §9.8 visitors behind them.
+>   It is the only one of the three figures a rotating-proxy pool cannot inflate — a proxy sends
+>   no `Referer` at all. Read it as a floor (Referrer-Policy strips real referrals into `Direct`)
+>   and remember it rests on a **claim** (§9.7 — production holds one confirmed forgery).
 >
 > The worked example that forced this: on **2026-08-23** the digest emailed "48 human views."
 > PostHog for the same day recorded **5 pageviews from 1 person**, and those five were the
 > operator's own session, which the digest had already excluded. The 48 produced **zero**
 > client-side events.
+>
+> **And the example that forced AECI-683, three days later.** On **2026-08-26** the digest emailed
+> "up to 102 human views" and the PostHog floor read "47 page views from 1 person" — so it looked
+> like the pair was working. It was not: that *one person was the operator*, whose client tracker
+> has no operator suppression. Decomposed against prod D1, the 102 were ~22 operator views a
+> **lapsed admin session** left unflagged, 26 correctly-flagged swarm, ~35-40 automation sitting
+> under the thresholds, and **8 views from 7 visitors** that a named external referrer corroborates.
+> Both bounds were measuring the operator; only the third figure tracked people.
 
 #### The rotating-proxy swarm detector (AECI-658)
 
@@ -216,12 +229,92 @@ pages from nine different countries on nine different networks and never repeati
 seven. It is the same join AECI-582's backfill used retroactively (`recover-ua-names.sql`), pointed
 forward at live traffic.
 
+#### The user-agent rotator detector — the exact inverse (AECI-683)
+
+A grouping is blind to whatever it groups **on**. Rotate the user-agent instead of the IP and the
+detector above collapses: on **2026-08-26**, AS47544 (IQ PL Sp. z o.o., Poland) read five product
+pages under **four distinct UA hashes**, so every group was a singleton, every one was under
+`SWARM_MIN_VIEWS`, and the day counted five visitors.
+
+`detectAsnRotators` is the mirror image — group by `cf_asn`, flag one network serving nearly a new
+fingerprint per request. Between them the two groupings cover both ways a client dilutes itself:
+many networks behind one fingerprint, or many fingerprints behind one network.
+
+**The request-shape verdict is a HARD GATE here, and that is the difference.** For a UA hash,
+spanning many networks is anomalous on its own and `nonBrowserViews` is corroboration a reader
+weighs. For an ASN it is the reverse — a high UA-hash ratio is the *normal* shape of any shared
+network (an office NAT, a campus, a café), so cardinality alone would flag real people constantly.
+A rotator cannot launder the shape of its own requests. Without the gate this is a
+shared-connection detector wearing a bot detector's name.
+
+`swarmFlaggedViews` is a **union** across both groupings, never a sum: a view can match both shapes,
+and adding the two totals would report more suspicious views than the day contained.
+
 **Launch-tunable thresholds** (§3 rules apply — change them here and in the module together):
 
 | Constant | Value | Why |
 |---|---|---|
 | `SWARM_MIN_VIEWS` | `4` | Below this the ratios are noise; one view is trivially "1 ASN for 1 view". |
 | `SWARM_MIN_ASN_RATIO` | `0.8` | "Nearly every view came from a different network." A real browser sits on one network; a proxy pool cannot. |
+| `ASN_ROTATOR_MIN_VIEWS` | `4` | Same floor, same reason. A separate constant even though the values match: the two groupings have different false-positive profiles and will be tuned apart. |
+| `ASN_ROTATOR_MIN_UA_RATIO` | `0.8` | "Nearly every request wore a different fingerprint." A UA changes on browser update, not between page loads. **Validated at exactly this value**: the AS47544 shape is 4 hashes over 5 views = 0.80, so `0.85` would have missed it. |
+| `SWARM_MAX_CANDIDATES` | `25` | Caps each candidate list, because the union count binds one parameter per flagged hash/ASN and D1's parameter ceiling is far below stock SQLite's. `swarmNote` says when it bit; the cap is never silent. |
+| `OPERATOR_PAIR_LOOKBACK_DAYS` | `30` | How far either side of a row the operator retro-join looks for an `is_operator = 1` anchor on the same `(user_agent_hash, cf_asn)` pair (below). Symmetric, because a lapse can precede the session's first flagged row as easily as follow its last. |
+
+**Measured false-positive rate, and the honest caveat on it.** Swept across production for the 30
+days to 2026-08-27, the ASN detector fires **exactly once** — AS47544 on 2026-08-26 — and flags no
+other network. But `client_verdict` did not exist before the AECI-658 deploy landed on **2026-08-26**
+(0 rows carry one on 08-25, 877 of 918 on 08-26), and the gate treats a NULL verdict as *no
+evidence*. So that sweep is really **two days of evidence, not thirty**. Re-run it after a month of
+verdict coverage before concluding the thresholds are right.
+
+```bash
+cd apps/api && pnpm exec wrangler d1 execute aeci-app-production --env production --remote \
+  --command "WITH pop AS (SELECT * FROM page_views WHERE created_at >= date('now','-30 days')
+                 AND is_bot = 0 AND path NOT LIKE '/admin%' AND path NOT LIKE '/account%'
+                 AND (is_operator IS NULL OR is_operator = 0))
+             SELECT substr(created_at,1,10) d, cf_asn, max(cf_as_organization) org, count(*) views,
+                    count(DISTINCT user_agent_hash) uas,
+                    sum(CASE WHEN client_verdict IN ('inconsistent','non-browser') THEN 1 ELSE 0 END) nb
+               FROM pop WHERE cf_asn IS NOT NULL GROUP BY 1,2
+              HAVING views >= 4 AND (uas*1.0/views) >= 0.8 AND nb > views/2.0 ORDER BY 1 DESC"
+```
+
+#### The operator session-lapse retro-join (AECI-683)
+
+`is_operator` is decided **once, at ingest**, and `lib/operator-session.ts` resolves every failure to
+`false` — deliberately, so an auth hiccup costs a flag rather than the page-view row. **An expired
+access token is one of those failures.** An operator browsing across a token expiry therefore writes
+flagged rows, then unflagged rows, then flagged rows again, and nothing on the unflagged ones
+distinguishes them from a visitor. On 2026-08-26 that was **22 views in one 105-minute gap**, ending
+on `/auth/login` — which is what a lapse looks like from the outside.
+
+`NOT_INTERNAL` (`lib/analytics-digest.ts`) now carries a third half: a correlated `NOT EXISTS` that
+excludes a row sharing a `(user_agent_hash, cf_asn)` pair with a verified operator row within
+`OPERATOR_PAIR_LOOKBACK_DAYS`. Four things about it are load-bearing:
+
+- **The pair, never either half.** Measured 2026-08-19 (`operator-pairs.sql`): the operator's second
+  browser hash spans **6 ASNs across 5 countries**, so flagging the hash deletes real visitors in
+  four countries; and "everything from Indonesia" was 44% false positives at 50% recall. The pair is
+  also exactly the tuple §9.8 already calls a "visitor".
+- **Anchors come from `is_operator = 1` only.** The ops backfill could also prove a pair from an
+  `/admin*` row, because no visitor reaches one. That is gone: since AECI-575's write-side guard,
+  untracked routes are not written **at all**. `/account` would be wrong regardless — every
+  signed-in member reaches it.
+- **It is an INFERENCE, so it is reported.** The path and session halves are facts about the request
+  and are excluded silently. This one is a judgement about identity, so the digest prints
+  `operatorLeakViews`, `job_runs` records it, and `/admin/overview` returns
+  `operator_leak_excluded` with an `operator_leak_is_an_inference` note. Silence here would be the
+  same failure the headline number itself was guilty of.
+- **It does not reach every leaked row, by design.** On 2026-08-26 the decomposition put ~26 views on
+  the operator; the rule recovers **22**. The other four sit on UA hashes that never carried an
+  `is_operator = 1` row of their own, so no pair proves them. Recovering those would mean widening to
+  the ASN, which is the rule measured to be wrong in both directions.
+
+It is served by the partial index `page_views_operator_pair_idx` (`(user_agent_hash, cf_asn,
+created_at) WHERE is_operator = 1`), which stores entries only for operator rows — a few hundred of
+~27k — so the write cost on the app's hottest table is effectively zero. Confirm with
+`EXPLAIN QUERY PLAN`; it should read `SEARCH op USING COVERING INDEX page_views_operator_pair_idx`.
 
 **Known ceiling — it works because we are small.** A `user_agent_hash` is a browser *build*
 fingerprint, not a person: thousands of unrelated people share "Chrome 128 on Windows 10" exactly, so
@@ -258,9 +351,13 @@ worth censusing; it does not replace the judgement.
 ```bash
 cd apps/api && pnpm exec wrangler d1 execute aeci-app-production --env production --remote \
   --command "SELECT cf_asn, COUNT(*) n, COUNT(DISTINCT user_agent_hash) uas, COUNT(DISTINCT path) paths
-             FROM page_views WHERE created_at >= date('now','-7 days') AND is_bot = 0
+             FROM page_views pv WHERE created_at >= date('now','-7 days') AND is_bot = 0
                AND path NOT IN ('/admin','/account') AND path NOT LIKE '/admin/%' AND path NOT LIKE '/account/%'
                AND (is_operator IS NULL OR is_operator = 0)
+               AND NOT EXISTS (SELECT 1 FROM page_views op WHERE op.is_operator = 1
+                                AND op.user_agent_hash = pv.user_agent_hash AND op.cf_asn = pv.cf_asn
+                                AND op.created_at >= strftime('%Y-%m-%dT%H:%M:%fZ', pv.created_at, '-30 days')
+                                AND op.created_at <= strftime('%Y-%m-%dT%H:%M:%fZ', pv.created_at, '+30 days'))
              GROUP BY 1 ORDER BY n DESC LIMIT 40"
 # then, per suspicious ASN:
 curl -s "https://stat.ripe.net/data/as-overview/data.json?resource=AS47007" | jq -r .data.holder
@@ -275,6 +372,12 @@ ASN is the single most likely "one ASN dominating the day"** and misreading it a
 residential ISP ends up in `DATACENTER_ASNS` — the exact false positive the membership rule below
 forbids. It only covers rows written from 2026-08-19 onward; on older windows the operator's own
 network will still show up near the top and must be recognised rather than listed.
+
+The `NOT EXISTS` clause beside it is the AECI-683 retro-join, and it matters here for the same
+reason and then some: the rows it catches are the operator's, they carry no flag saying so, and a
+census that counts them will rank the operator's ISP first on exactly the days their session
+lapsed. Both clauses, always — `NOT_INTERNAL` is one predicate in code precisely so a hand-written
+query is the only place they can come apart.
 
 **Widening the list** (the fix): add `[asn, 'Datacenter (Holder)']` to `DATACENTER_ASNS`, then regenerate
 `scripts/ops/backfill-page-view-bots.sql` to match — `bot-classification.spec.ts` parses that SQL and fails

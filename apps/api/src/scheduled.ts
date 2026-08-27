@@ -1093,8 +1093,16 @@ async function runAnalyticsDigestJob(env: Env, ctx: ExecutionContext): Promise<J
           posthogPageViews: posthog.ok ? posthog.traffic.pageviews : null,
           posthogPeople: posthog.ok ? posthog.traffic.people : null,
           posthogSkipped: posthog.ok ? null : posthog.reason,
-          swarmCandidates: swarm.candidates.length,
+          swarmCandidates: swarm.uaCandidates.length,
+          asnRotatorCandidates: swarm.asnCandidates.length,
           swarmFlaggedViews: swarm.flaggedViews,
+          swarmTruncated: swarm.truncated,
+          // AECI-683. Recorded beside the headline so a leak that starts growing
+          // (or a pair rule that starts over-reaching) is visible in `job_runs`
+          // history rather than only in one morning's email.
+          operatorLeakViews: metrics.operatorLeakViews,
+          corroboratedViews: metrics.corroboratedViews.day,
+          corroboratedVisitors: metrics.corroboratedVisitors,
         },
       },
     };

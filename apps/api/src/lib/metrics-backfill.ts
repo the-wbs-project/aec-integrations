@@ -63,6 +63,7 @@ import {
 } from '@aeci/shared';
 
 import { shiftDay } from './admin-analytics';
+import { OPERATOR_PAIR_LOOKBACK_DAYS } from './analytics-digest';
 
 /** Rows per multi-VALUES `INSERT`. Small enough to keep each statement well
  *  inside D1's per-statement limits, large enough that a 400-day range is ~16
@@ -103,15 +104,39 @@ export function daysInRange(range: BackfillRange): string[] {
 }
 
 /**
- * `page_views.path` exclusion for the operator-only routes (§9.6 / AECI-575),
- * built from the same `UNTRACKED_ROUTE_PREFIXES` the write side and
- * `analytics-digest.ts`'s `NOT_INTERNAL` use, so the three cannot drift.
+ * Raw-SQL restatement of `analytics-digest.ts`'s `NOT_INTERNAL`, for the ops
+ * script's hand-built statements. All three halves.
+ *
+ * This is the one place in the codebase that cannot import the Drizzle predicate
+ * — the backfill emits SQL text for `wrangler d1 execute` — so it is also the one
+ * place that can silently drift, and it HAD drifted: it carried only the §9.6
+ * path exclusion and none of the `is_operator` half, from the day §13 D13 shipped
+ * (2026-08-19) until AECI-683. Any range re-backfilled in that period would have
+ * written operator traffic into `metrics_daily`, which is retained indefinitely.
+ *
+ * `metrics-backfill.spec.ts` now asserts every clause is present. If you add a
+ * fourth half to `NOT_INTERNAL`, add it here in the same change.
+ *
+ * The `NOT EXISTS` retro-join (AECI-683) is reproduced verbatim rather than
+ * approximated: on rows predating D13 `is_operator` is NULL everywhere, so the
+ * pair join is the ONLY half that can reach the operator's historical public
+ * browsing at all — which is exactly the population
+ * `scripts/ops/2026-08-operator-page-view-backfill/` was written to flag by hand.
  */
 function notInternalSql(): string {
-  return UNTRACKED_ROUTE_PREFIXES.flatMap((prefix) => [
+  const paths = UNTRACKED_ROUTE_PREFIXES.flatMap((prefix) => [
     `"path" NOT LIKE ${q(prefix)}`,
     `"path" NOT LIKE ${q(`${prefix}/%`)}`,
-  ]).join(' AND ');
+  ]);
+  return [
+    ...paths,
+    `("is_operator" IS NULL OR "is_operator" = 0)`,
+    `NOT EXISTS (SELECT 1 FROM page_views AS op WHERE op."is_operator" = 1 ` +
+      `AND op."user_agent_hash" = page_views."user_agent_hash" ` +
+      `AND op."cf_asn" = page_views."cf_asn" ` +
+      `AND op."created_at" >= strftime('%Y-%m-%dT%H:%M:%fZ', page_views."created_at", ${q(`-${OPERATOR_PAIR_LOOKBACK_DAYS} days`)}) ` +
+      `AND op."created_at" <= strftime('%Y-%m-%dT%H:%M:%fZ', page_views."created_at", ${q(`+${OPERATOR_PAIR_LOOKBACK_DAYS} days`)}))`,
+  ].join(' AND ');
 }
 
 /** `is_bot IS NOT 1`, the digest's NULL-safe human predicate — pre-classification

@@ -1399,6 +1399,15 @@ the digest's own (`windowsForDay(dailyWindows(now).dayLabel)`), so
 `GET /api/admin/overview` with no params reports exactly what the 05:00 email
 reported. `admin-overview.spec.ts` asserts this against a seeded fixture.
 
+That parity extends to AECI-683's three additions — `corroborated_views`,
+`corroborated_visitors` and `operator_leak_excluded` all come straight off the same
+collector, so neither surface can grow its own definition of "corroborated" or of the
+operator-pair leak. The corollary is the trap: a figure computed in `scheduled.ts`
+beside the digest (as `swarmNote` is) reaches the **email only** — it is not in
+`AnalyticsMetrics`, so no panel screen and no `metrics_daily` key can see it. Put a
+number in `AnalyticsMetrics` when both surfaces should report it, and in `scheduled.ts`
+only when it is genuinely email-shaped prose.
+
 **Status strip and `?recompute=1` (§13 D8).** The first three items are cheap
 D1/env reads and are always present. The last two need the network — the
 data-quality suite HTTP-probes logo URLs, and drift queries three Algolia indexes
@@ -1435,7 +1444,7 @@ storage swap behind an unchanged shape, which is why the metric keys are §7.1's
 
 ```typescript
 export const AdminMetricKeySchema = z.enum([
-  'traffic.page_views_human',      // page_views, is_bot IS NOT 1 (the digest predicate)
+  'traffic.page_views_human',      // page_views, is_bot IS NOT 1 AND NOT_INTERNAL (the digest predicate — since AECI-683 that includes the operator-pair retro-join, so rows snapshotted before 2026-08-27 read slightly high)
   'traffic.page_views_bot',        // page_views, is_bot = 1
   'traffic.unique_visitors',       // DISTINCT (user_agent_hash, cf_asn) per day, HUMANS only
   // basis=additions (default): audit_log action='<entity>.created'

@@ -438,6 +438,42 @@ describe('computeTrendingProducts', () => {
     expect(result.map((r) => r.id)).toEqual([U.p1]);
   });
 
+  // AECI-683. The public card is the surface where the operator-pair leak does
+  // real damage: `TRENDING_MIN_VIEWS` is 3 against a human population of roughly
+  // 2,100 all-time views, so a handful of self-checks during a lapsed session put
+  // a product on the home page for everyone.
+  it('excludes operator views that a LAPSED session left unflagged (AECI-683)', async () => {
+    await seedProduct({ id: U.p1, slug: 'a', name: 'A' });
+    await seedProduct({ id: U.p2, slug: 'b', name: 'B' });
+    for (let i = 0; i < 3; i++) await seedPageView(U.p1, within7d, false);
+    // One verified operator row anchors the pair...
+    await t.db.insert(pageViews).values({
+      path: '/x',
+      productId: U.p2,
+      createdAt: within7d,
+      isBot: false,
+      userAgentHash: 'operator-ua',
+      cfAsn: 23700,
+      isOperator: true,
+    });
+    // ...and four more from the same browser and network, unflagged because the
+    // token had expired. Without the retro-join these clear the floor and p-2
+    // out-ranks the real product.
+    for (let i = 0; i < 4; i++) {
+      await t.db.insert(pageViews).values({
+        path: '/x',
+        productId: U.p2,
+        createdAt: within7d,
+        isBot: false,
+        userAgentHash: 'operator-ua',
+        cfAsn: 23700,
+        isOperator: false,
+      });
+    }
+    const result = await computeTrendingProducts(t.db, NOW);
+    expect(result.map((r) => r.id)).toEqual([U.p1]);
+  });
+
   // The digest's NULL-safe `is_bot IS NOT 1`: rows captured before the classifier
   // existed still count, so the card did not go blank the day the filter landed.
   it('still counts unclassified (null is_bot) views as human', async () => {

@@ -66,6 +66,9 @@ function makeOverview(over: Partial<AdminOverviewResponse> = {}): AdminOverviewR
         { source: null, views: 12 },
       ],
       top_products: [{ name: 'Procore', slug: 'procore', views: 25 }],
+      corroborated_views: 9,
+      corroborated_visitors: 6,
+      operator_leak_excluded: 26,
     },
     audience: {
       new_sign_ins: { current: 3, prior: 1, diff: 2, pct: 200 },
@@ -287,6 +290,55 @@ describe('AdminOverview', () => {
         }),
       );
       expect(el.textContent).toContain('No change vs the prior day');
+    });
+
+    it('carries the measurement envelope on the human page-views tile (AECI-683)', async () => {
+      // The figures that qualify the headline sit ON the headline's tile, the way
+      // the 05:00 email prints them beside its own. A separate tile would put the
+      // caveat somewhere the number is not.
+      const { el } = await setup(makeApiMock());
+      const tile = [...el.querySelectorAll('aec-stat-tile')].find((t) =>
+        t.textContent?.includes('Human page views'),
+      )!;
+      expect(tile.textContent).toContain('upper bound');
+      expect(tile.textContent).toContain('external search or social referrer: 9');
+      expect(tile.textContent).toContain('distinct visitors: 6');
+      expect(tile.textContent).toContain('lapsed session: 26');
+    });
+
+    it('omits the operator-leak sentence entirely when nothing leaked', async () => {
+      // Zero is the healthy state, and "excluded: 0" reads like a finding.
+      const base = makeOverview();
+      const { el } = await setup(
+        makeApiMock({ ...base, traffic: { ...base.traffic, operator_leak_excluded: 0 } }),
+      );
+      const tile = [...el.querySelectorAll('aec-stat-tile')].find((t) =>
+        t.textContent?.includes('Human page views'),
+      )!;
+      expect(tile.textContent).not.toContain('lapsed session');
+      expect(tile.textContent).toContain('external search or social referrer: 9');
+    });
+
+    it('renders the two AECI-683 caveats in the honesty envelope', async () => {
+      const { el } = await setup(
+        makeApiMock({
+          ...makeOverview(),
+          notes: [
+            {
+              code: 'corroborated_is_a_referrer_floor',
+              severity: 'info',
+              message: 'server copy is ignored',
+            },
+            {
+              code: 'operator_leak_is_an_inference',
+              severity: 'info',
+              message: 'server copy is ignored',
+            },
+          ],
+        }),
+      );
+      expect(el.textContent).toContain('Read it as a floor, not a count of people');
+      expect(el.textContent).toContain('inference about who the visitor was');
     });
 
     it('invents no delta for the snapshot tiles (subscribers, catalog)', async () => {

@@ -82,6 +82,8 @@ export type AdminWindow = z.infer<typeof AdminWindowSchema>;
  * | `referrer_source_is_unverified` | `Referer` is client-supplied and unverifiable, so a source is what the request CLAIMED. Emitted unconditionally with any source breakdown, and deliberately not gated on detecting a forgery — a forged referrer is indistinguishable from a real one once §9.7 has reduced it to a host, so "none detected" would be a claim the rows cannot support (AECI-624) |
  * | `direct_is_mixed_bucket` | a `Direct` bucket is present; `PageViewTracker` POSTs on every SPA navigation and the same-origin `Referer` classifies as `Direct`, so in-app hops and true direct arrivals are indistinguishable. AECI-585 stores a `navigation` flag at ingest, but no endpoint groups on it yet and rows written before it cannot be separated at all |
  * | `visitor_definition_approximate` | `unique_visitors` is `DISTINCT (user_agent_hash, cf_asn)` — over-counts on browser update, under-counts behind shared NAT (§9.8) |
+ * | `corroborated_is_a_referrer_floor` | `corroborated_views` counts arrivals with a NAMED external referrer (AECI-683). Emitted unconditionally with the figure: it UNDER-counts (Referrer-Policy strips real referrals into `Direct`) and it is forgeable UPWARD, since it rests on the same unverified `Referer` as `referrer_source_is_unverified` |
+ * | `operator_leak_is_an_inference` | `operator_leak_excluded` rows were matched by `(user_agent_hash, cf_asn)` against a verified operator session within `OPERATOR_PAIR_LOOKBACK_DAYS` (AECI-683). Unlike the `is_operator` flag itself, that is a judgement about identity, not a verified session |
  * | `catalog_series_is_additions_only` | a `catalog.*` series counts `*.created` events, never net totals — rows can vanish without per-row audit (§4). `basis=additions` only |
  * | `catalog_series_starts_at` | the window starts before the earliest `audit_log` row, so the leading segment reads zero for want of data, not for want of activity. `basis=additions` only |
  * | `catalog_series_is_surviving_rows` | `basis=net`: the series counts rows PRESENT NOW, bucketed by `created_at`. A row removed later is subtracted from the bucket it was ADDED in, not the bucket it was removed in, so past buckets restate downwards over time. That restatement is what makes the series sum to the live catalog (AECI-686) |
@@ -107,6 +109,8 @@ export const AdminNoteCodeSchema = z.enum([
   'referrer_source_is_unverified',
   'direct_is_mixed_bucket',
   'visitor_definition_approximate',
+  'corroborated_is_a_referrer_floor',
+  'operator_leak_is_an_inference',
   'catalog_series_is_additions_only',
   'catalog_series_starts_at',
   // AECI-686 — the `basis=net` counterparts of the two above.
@@ -411,6 +415,34 @@ export const AdminOverviewTrafficSchema = z.object({
   series_30d: z.array(AdminTrafficPointSchema),
   top_sources: z.array(AdminSourceCountSchema),
   top_products: z.array(AdminProductViewsSchema),
+  /**
+   * Human views in the window that arrived with a NAMED external search or social
+   * referrer, and the §9.8 visitors behind them (AECI-683). The digest's own
+   * numbers — the third figure it prints beside the server-side upper bound and
+   * the PostHog lower bound.
+   *
+   * A plain count rather than an {@link AdminCountSchema} on purpose: there is no
+   * ASN-filtered variant of it, and a nullable `excluding_internal` that is always
+   * null would imply a second number exists.
+   *
+   * **This is a FLOOR and it is built on a CLAIM.** Referrer-Policy strips real
+   * referrals into `Direct`, so it under-counts; and nothing verifies a `Referer`
+   * (§9.7 — production holds a confirmed forgery). The UI must print both caveats
+   * beside it, exactly as the email does. The value is still the most useful of
+   * the three, because a rotating-proxy pool sends no `Referer` at all.
+   */
+  corroborated_views: z.number().int().nonnegative(),
+  corroborated_visitors: z.number().int().nonnegative(),
+  /**
+   * Human views excluded because they share a `(user_agent_hash, cf_asn)` pair
+   * with a verified operator session nearby in time — the rows a lapsed admin
+   * session left unflagged (AECI-683, `analytics-digest.ts` `OPERATOR_PAIR_MATCH`).
+   *
+   * Surfaced rather than silently netted off because, unlike the path and session
+   * halves of the same exclusion, this one is an INFERENCE about identity. The
+   * panel and the email report the same figure.
+   */
+  operator_leak_excluded: z.number().int().nonnegative(),
 });
 export type AdminOverviewTraffic = z.infer<typeof AdminOverviewTrafficSchema>;
 
