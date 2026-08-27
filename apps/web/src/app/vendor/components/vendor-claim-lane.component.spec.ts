@@ -59,6 +59,7 @@ function create(
   const fixture = TestBed.createComponent(VendorClaimLane);
   fixture.componentRef.setInput('claim', claim);
   fixture.componentRef.setInput('otherProductName', otherProductName);
+  fixture.componentRef.setInput('contextProductId', PROCORE.context_product.id);
   fixture.componentRef.setInput('vendorName', 'Summit BIM');
   fixture.componentRef.setInput('canWrite', canWrite);
   fixture.componentRef.setInput('versions', []);
@@ -182,6 +183,7 @@ describe('VendorClaimLane — the duplicate-claim highlight', () => {
     const fixture = TestBed.createComponent(VendorClaimLane);
     fixture.componentRef.setInput('claim', SINGLE_SOURCE);
     fixture.componentRef.setInput('otherProductName', 'Procore');
+    fixture.componentRef.setInput('contextProductId', PROCORE.context_product.id);
     fixture.componentRef.setInput('vendorName', 'Summit BIM');
     fixture.componentRef.setInput('canWrite', true);
     fixture.componentRef.setInput('versions', []);

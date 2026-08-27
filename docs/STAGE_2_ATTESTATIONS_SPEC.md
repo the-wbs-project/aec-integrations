@@ -857,6 +857,17 @@ pre-existing spec passes **unmodified**.
   section is now one entry in `vendor/vendor-nav.ts` plus one lazy child route in
   `vendor/vendor.routes.ts`. The shell is still presentational and still takes only `me`, and the
   section component itself is unchanged.)*
+  *(**And moved again** — `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.5, 2026-08-27: Integrations is no
+  longer a vendor-level tab at all. It is a section of a PRODUCT
+  (`…/products/:productSlug/integrations`), listed in `VENDOR_PRODUCT_NAV_ITEMS`. Three
+  consequences for this spec: `GET /api/vendor/integrations` emits **one entry per owned
+  endpoint** rather than one per integration, so `id` is no longer unique in the response and the
+  key is `(id, context_product.id)`; an owns-both integration is listed under **both** products,
+  framed each way, still sharing ONE position (`slots`/`mine`/`counterparty`/`agreement` identical
+  on both, per §2.1 and §4); and the §5 write paths take an optional `context_product_id`, which
+  is load-bearing on `POST /api/vendor/claims` because the old endpoint-A default stored the
+  reverse flow for a vendor authoring from its other product's tab. The read is still ONE
+  vendor-wide call — only the view narrows.)*
 - **Per integration:** the counterpart product, the mechanism, and each `data_object` claim lane
   with the caller's control (**Affirm / Deny / Clear**) alongside the counterparty's current state.
   A conflict must be legible from the vendor's side, with the counterparty's position shown.
@@ -975,6 +986,14 @@ Decisions taken at build that §6 did not pre-specify:
   prominently a stale "Vendors disagree" nudge would sit above a lane whose badge reads `confirmed`.
   The ops-only `aeci-denied` detector is filtered defensively even though its ledger rows carry
   `vendorId: null` and can never match a caller.
+  *(**Relocated by `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.5**, 2026-08-27: it moved out of the
+  Integrations tab — which followed the product down a level — into the new vendor-level
+  **Messages** section, alongside claim/correction status. So §7.2's "surfaced on the §6 tab" now
+  reads "surfaced on the Messages section". Still a collapsed disclosure, still a session-scoped
+  "N new" count, still no banner, badge, auto-expand or mark-as-read: giving the archive a findable
+  home is a findability change, not a promotion of historical rows to live assertions, which is
+  what `STAGE_2_REALTIME_SPEC.md` §6.2 actually forbids. Nothing about the endpoint, the
+  `audit_log` ledger, or decision §1.3(6) changes.)*
 - **No new Mobbin anchor was picked, deliberately** — the same call `ADMIN_PANEL_SPEC.md` §9.10 made
   for the operator console. The tab inherits the vendor dashboard's own language (bordered
   `--surface-raised` cards, eyebrow-then-heading headers, the `vendor-profile-form.ts` field

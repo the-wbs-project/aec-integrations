@@ -259,6 +259,15 @@ export class VendorAddClaimForm {
   private readonly store = inject(VendorPortalStore);
 
   readonly integrationId = input.required<string>();
+  /**
+   * WHICH of the caller's endpoints this form's `direction` is relative to
+   * (AECI-666) — the `context_product.id` of the listing this card renders. Sent
+   * as `context_product_id` so the server frames the write against the endpoint
+   * the vendor is authoring from, not its endpoint-A fallback. Load-bearing for a
+   * vendor that owns BOTH endpoints and authors from the endpoint-B product's tab:
+   * without it "outbound" is stored as the reverse flow.
+   */
+  readonly contextProductId = input.required<string>();
   readonly otherProductName = input.required<string>();
   readonly dataObjects = input.required<readonly DataObjectOption[]>();
   readonly versions = input.required<readonly ProductVersion[]>();
@@ -399,6 +408,7 @@ export class VendorAddClaimForm {
   private draft(): unknown {
     return {
       integration_id: this.integrationId(),
+      context_product_id: this.contextProductId(),
       data_object: this.dataObjectSlug() ?? '',
       direction: this.direction() ?? '',
       note: this.note().trim() || null,

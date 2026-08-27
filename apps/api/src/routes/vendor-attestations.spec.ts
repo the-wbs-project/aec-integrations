@@ -266,8 +266,69 @@ describe('GET /api/vendor/integrations', () => {
 
   it('gives a both-endpoints owner both slots', async () => {
     const { body } = await call('/api/vendor/integrations', {}, AUTH_BOTH);
-    expect(body.integrations).toHaveLength(1);
-    expect(body.integrations[0].slots).toEqual(['vendor_a', 'vendor_b']);
+    for (const integration of body.integrations) {
+      // `slots` is "what may I write", not "which side am I looking from" — it
+      // stays the full owned set on every entry, because a write fills all of them.
+      expect(integration.slots).toEqual(['vendor_a', 'vendor_b']);
+    }
+  });
+
+  // ── AECI-666: one entry per owned endpoint ─────────────────────────────────
+  // The portal files integrations under the product they touch, so an integration
+  // whose endpoints the caller owns BOTH is listed once under each — the old
+  // behaviour pinned it to endpoint A, which left it unrenderable (directions
+  // reversed) under the other product's tab.
+  it('lists an owns-both integration ONCE PER ENDPOINT, framed each way', async () => {
+    const { body } = await call('/api/vendor/integrations', {}, AUTH_BOTH);
+    const owned = body.integrations.filter((i: JsonBody) => i.id === I_INTRA);
+    expect(owned).toHaveLength(2);
+
+    const contexts = owned.map((i: JsonBody) => i.context_product.slug).sort();
+    const others = owned.map((i: JsonBody) => i.other_product.slug).sort();
+    // The two entries are mirror images: each one's context is the other's counterpart.
+    expect(contexts).toEqual(others);
+    // ...and they are genuinely the two DIFFERENT endpoints, not the same one twice.
+    expect(new Set(contexts).size).toBe(2);
+  });
+
+  it('mirrors claim direction between the two entries of an owns-both integration', async () => {
+    // `C_INTRA` is `both`, which reads `both` from either side and so cannot show
+    // a mirror. Add a DIRECTIONAL claim — that is the case the old A-pinned frame
+    // rendered backwards under one of the two products.
+    await t.db.insert(claims).values({
+      id: uuid(42),
+      integrationId: I_INTRA,
+      dataObjectId: DO_SUBMITTALS,
+      direction: 'a_to_b',
+    });
+
+    const { body } = await call('/api/vendor/integrations', {}, AUTH_BOTH);
+    const owned = body.integrations.filter((i: JsonBody) => i.id === I_INTRA);
+    expect(owned).toHaveLength(2);
+
+    const directionFor = (entry: JsonBody) =>
+      entry.claims.find((cl: JsonBody) => cl.data_object_slug === 'submittals').direction;
+    // One stored `a_to_b`, read from both ends: outbound from A, inbound from B.
+    expect(owned.map(directionFor).sort()).toEqual(['inbound', 'outbound']);
+    // The `both` claim stays `both` from either side — mirroring is not negation.
+    const bothFor = (entry: JsonBody) =>
+      entry.claims.find((cl: JsonBody) => cl.data_object_slug === 'rfis').direction;
+    expect(owned.map(bothFor)).toEqual(['both', 'both']);
+  });
+
+  it('shares ONE position across both entries — same agreement, mine, counterparty', async () => {
+    const { body } = await call('/api/vendor/integrations', {}, AUTH_BOTH);
+    const owned = body.integrations.filter((i: JsonBody) => i.id === I_INTRA);
+    expect(owned).toHaveLength(2);
+
+    const [a, b] = owned;
+    // §4 dedupes voters by vendor, and a write fills every owned slot, so one
+    // company is one voter however many endpoints it owns. Rendering it twice is
+    // a view of one fact — the two entries must never disagree about that fact.
+    expect(a.claims[0].agreement).toBe(b.claims[0].agreement);
+    expect(a.claims[0].mine).toEqual(b.claims[0].mine);
+    expect(a.claims[0].counterparty).toEqual(b.claims[0].counterparty);
+    expect(a.slots).toEqual(b.slots);
   });
 
   it('omits integrations the caller touches neither endpoint of', async () => {
@@ -461,6 +522,91 @@ describe('POST /api/vendor/claims', () => {
     const rows = await liveAttestations(res.claim.id);
     expect(rows.map((r) => r.source).sort()).toEqual(['vendor_a', 'vendor_b']);
     expect(rows.every((r) => r.attestedByVendorId === VENDOR_BOTH)).toBe(true);
+  });
+
+  // ── AECI-666: context_product_id decides the frame on the write path ───────
+  // Only load-bearing for an owns-both caller: "outbound" means opposite things
+  // from the two sides, and the old A-pinned guess stored the REVERSE flow for a
+  // vendor authoring from its other product's tab.
+  it('stores the direction relative to context_product_id, not always endpoint A', async () => {
+    const fromA = await sendJson(
+      'POST',
+      '/api/vendor/claims',
+      {
+        integration_id: I_INTRA,
+        data_object: 'submittals',
+        direction: 'outbound',
+        context_product_id: P_OWN_A,
+      },
+      AUTH_BOTH,
+    );
+    const fromB = await sendJson(
+      'POST',
+      '/api/vendor/claims',
+      {
+        integration_id: I_INTRA,
+        data_object: 'rfis',
+        direction: 'outbound',
+        context_product_id: P_OWN_B,
+      },
+      AUTH_BOTH,
+    );
+    expect(fromA.status).toBe(201);
+    expect(fromB.status).toBe(201);
+
+    const stored = async (id: string) =>
+      (await t.db.select().from(claims).where(eq(claims.id, id)))[0].direction;
+    // Same word from the caller, opposite stored flows — which is the whole point.
+    expect(await stored(fromA.body.claim.id)).toBe('a_to_b');
+    expect(await stored(fromB.body.claim.id)).toBe('b_to_a');
+  });
+
+  it('echoes the claim framed against the context product it was authored from', async () => {
+    const { body: res } = await sendJson(
+      'POST',
+      '/api/vendor/claims',
+      {
+        integration_id: I_INTRA,
+        data_object: 'submittals',
+        direction: 'outbound',
+        context_product_id: P_OWN_B,
+      },
+      AUTH_BOTH,
+    );
+    // The client splices this echo into the tab it wrote from, so it has to read
+    // the way that tab does — outbound in, outbound back.
+    expect(res.claim.direction).toBe('outbound');
+  });
+
+  it('defaults to endpoint A when context_product_id is omitted', async () => {
+    const { body: res } = await sendJson(
+      'POST',
+      '/api/vendor/claims',
+      { integration_id: I_INTRA, data_object: 'submittals', direction: 'outbound' },
+      AUTH_BOTH,
+    );
+    const [row] = await t.db.select().from(claims).where(eq(claims.id, res.claim.id));
+    expect(row.direction).toBe('a_to_b');
+  });
+
+  it('400s a context_product_id the caller does not own on this integration', async () => {
+    const { status, body: res } = await sendJson(
+      'POST',
+      '/api/vendor/claims',
+      {
+        integration_id: I_INTRA,
+        data_object: 'submittals',
+        direction: 'outbound',
+        // A real product, but not an endpoint of I_INTRA — framing against it
+        // would invert the stored flow against the vendor's intent.
+        context_product_id: P_SOURCE,
+      },
+      AUTH_BOTH,
+    );
+    expect(status).toBe(400);
+    expect(res.error.code).toBe('VALIDATION_FAILED');
+    expect(res.error.field).toBe('context_product_id');
+    expect(await auditRows()).toHaveLength(0);
   });
 
   it('404s — not 403 — for an integration the caller touches neither endpoint of', async () => {

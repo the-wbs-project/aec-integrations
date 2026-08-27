@@ -82,6 +82,7 @@ import { VendorClaimLane } from './vendor-claim-lane';
               aec-vendor-claim-lane
               [claim]="claim"
               [otherProductName]="integration().other_product.name"
+              [contextProductId]="integration().context_product.id"
               [vendorName]="vendorName()"
               [canWrite]="canWrite()"
               [versions]="versions()"
@@ -96,6 +97,7 @@ import { VendorClaimLane } from './vendor-claim-lane';
       @if (canWrite()) {
         <aec-vendor-add-claim-form
           [integrationId]="integration().id"
+          [contextProductId]="integration().context_product.id"
           [otherProductName]="integration().other_product.name"
           [dataObjects]="dataObjects()"
           [versions]="versions()"

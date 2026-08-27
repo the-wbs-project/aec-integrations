@@ -66,10 +66,14 @@ afterEach(() => {
   document.querySelectorAll('.cdk-overlay-container').forEach((n) => n.remove());
 });
 
-async function create(verified = true): Promise<ComponentFixture<VendorIntegrationsSection>> {
+async function create(
+  verified = true,
+  contextProductId: string | null = null,
+): Promise<ComponentFixture<VendorIntegrationsSection>> {
   const fixture = TestBed.createComponent(VendorIntegrationsSection);
   fixture.componentRef.setInput('verified', verified);
   fixture.componentRef.setInput('vendorName', 'Summit BIM');
+  fixture.componentRef.setInput('contextProductId', contextProductId);
   fixture.detectChanges();
   await flush();
   fixture.detectChanges();
@@ -307,5 +311,40 @@ describe('VendorIntegrationsSection — copy discipline', () => {
 
     expect(text(fixture)).toContain(`${claims.length}`);
     expect(text(fixture)).toContain(`${awaiting} waiting on your confirmation`);
+  });
+});
+
+// ─── AECI-666: the tab is filed under a product ──────────────────────────────
+
+describe('VendorIntegrationsSection — per-product scoping', () => {
+  const cards = (fixture: ComponentFixture<VendorIntegrationsSection>) =>
+    el(fixture).querySelectorAll('aec-vendor-integration-card');
+
+  it('shows the whole vendor-wide surface when unscoped', async () => {
+    // `null` is what the single-page concept passes: it has no product selection
+    // to narrow by, and AECI-606 requires it not to silently lose the section.
+    expect(cards(await create(true, null))).toHaveLength(
+      VENDOR_INTEGRATIONS_FIXTURE.integrations.length,
+    );
+  });
+
+  it('shows only the entries filed under the given product', async () => {
+    const scope = VENDOR_INTEGRATIONS_FIXTURE.integrations[0].context_product.id;
+    const expected = VENDOR_INTEGRATIONS_FIXTURE.integrations.filter(
+      (i) => i.context_product.id === scope,
+    ).length;
+
+    const fixture = await create(true, scope);
+    expect(cards(fixture)).toHaveLength(expected);
+    expect(expected).toBeLessThan(VENDOR_INTEGRATIONS_FIXTURE.integrations.length);
+  });
+
+  it('still issues ONE vendor-wide read, not one per product', async () => {
+    // The AECI-627 freshness cursor scopes `integrations` with the vendor-wide
+    // predicate, and a cursor whose predicate differs from its list's is worse
+    // than no cursor. So the narrowing is a VIEW concern; the request is not.
+    await create(true, VENDOR_INTEGRATIONS_FIXTURE.integrations[0].context_product.id);
+    expect(api.getIntegrations).toHaveBeenCalledTimes(1);
+    expect(api.getIntegrations).toHaveBeenCalledWith();
   });
 });

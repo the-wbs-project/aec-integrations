@@ -4,6 +4,7 @@ import { CLAIM_DIRECTIONS, type ClaimDirection } from './api/promote';
 import {
   attestorForContext,
   claimDirectionForContext,
+  mirrorContextDirection,
   claimDirectionFromContext,
   contextDirectionFromClaims,
   defaultIntegrationContext,
@@ -218,5 +219,33 @@ describe('effectiveContextDirection', () => {
       ],
     };
     expect(effectiveContextDirection(null, [disputed], true)).toBe('outbound');
+  });
+});
+
+describe('mirrorContextDirection (AECI-666)', () => {
+  it('swaps inbound and outbound', () => {
+    expect(mirrorContextDirection('inbound')).toBe('outbound');
+    expect(mirrorContextDirection('outbound')).toBe('inbound');
+  });
+
+  it('leaves `both` alone — mirroring is not negation', () => {
+    expect(mirrorContextDirection('both')).toBe('both');
+  });
+
+  it('is its own inverse', () => {
+    for (const d of ['inbound', 'outbound', 'both'] as const) {
+      expect(mirrorContextDirection(mirrorContextDirection(d))).toBe(d);
+    }
+  });
+
+  it('agrees with re-framing the stored direction against the other endpoint', () => {
+    // The client only ever has the context-relative value, so this is the
+    // property that makes the shortcut sound: mirroring a framed direction must
+    // equal framing the STORED direction from the opposite endpoint.
+    for (const stored of ['a_to_b', 'b_to_a', 'both'] as const) {
+      const fromA = claimDirectionForContext(stored, true);
+      const fromB = claimDirectionForContext(stored, false);
+      expect(mirrorContextDirection(fromA)).toBe(fromB);
+    }
   });
 });

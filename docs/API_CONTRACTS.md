@@ -3235,7 +3235,13 @@ Stage 2 (AECI-301, `STAGE_2_ATTESTATIONS_SPEC.md` §5). The surface a Verified v
 
 **A vendor owning both endpoints writes both slots.** `product_vendors` is many-to-many, so one company can hold both. Every write fills every slot the caller owns, so its position cannot self-contradict and `DELETE` genuinely clears. It makes no difference to a reader: `confirmed` requires two **distinct** `attested_by_vendor_id` values, so one company is one voter and still renders `single_source`.
 
-**Direction is caller-relative on the wire, canonical in the DB.** The vendor sends `inbound` / `outbound` / `both` relative to its own product; `claims.direction` stores `a_to_b` / `b_to_a` / `both` relative to the integration row's own endpoints (`STAGE_1_5_SPEC.md` §3.2). `claimDirectionForContext` / `claimDirectionFromContext` (`@aeci/shared`) are the two halves. A caller owning both endpoints is framed from endpoint A.
+**Direction is caller-relative on the wire, canonical in the DB.** The vendor sends `inbound` / `outbound` / `both` relative to its own product; `claims.direction` stores `a_to_b` / `b_to_a` / `both` relative to the integration row's own endpoints (`STAGE_1_5_SPEC.md` §3.2). `claimDirectionForContext` / `claimDirectionFromContext` (`@aeci/shared`) are the two halves.
+
+**Which endpoint the caller is framed from is a parameter (AECI-666).** It used to be pinned to endpoint A, including for a caller owning both. That became wrong when the portal filed Integrations under a product (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.5): an owns-both integration listed under its endpoint-B product would read every direction backwards.
+
+- **On the READ**, `GET /api/vendor/integrations` emits **one entry per owned endpoint**, each framed against the endpoint it is filed under. So **`id` is not unique in the response** — the key is `(id, context_product.id)` — and an owns-both integration appears twice with mirrored `direction`. The two entries are one *position*: `slots`, `mine`, `counterparty` and `agreement` are identical on both.
+- **On the WRITE**, `POST /api/vendor/claims` and `PUT /api/vendor/claims/:claimId/attestation` accept an optional `context_product_id`. On `POST` it decides what is **stored** — "outbound" means opposite things from the two sides — so omitting it for an owns-both caller silently keeps the old endpoint-A default. On `PUT` it only frames the echoed claim. A product the caller does not own **on that integration** is a `400 VALIDATION_FAILED` with `field: "context_product_id"`, never a silent re-frame. Omitted keeps the endpoint-A default, which is unambiguous whenever the caller owns exactly one endpoint.
+- **`mirrorContextDirection`** (`@aeci/shared`) re-frames an already-caller-relative direction against the other endpoint. It exists for the client, which holds only the framed value and has to splice a write echo into the same integration's *other* listing.
 
 **`GET` is not verified-gated**, matching the product-version list: authoring is the Verified capability, reading your own surface is not, so the dashboard renders a read-only tab and explains what verification unlocks.
 
@@ -3257,7 +3263,7 @@ export const VendorIntegrationSchema = z.object({
   name: z.string().nullable(),
   mechanism_kind: IntegrationMechanismKindSchema.nullable(),
   mechanism_name: z.string().nullable(),
-  context_product: ProductLinkSchema,   // the caller's endpoint (A when it owns A)
+  context_product: ProductLinkSchema,   // the endpoint THIS entry is filed under
   other_product: ProductLinkSchema,
   slots: z.array(VendorAttestationSlotSchema).min(1),   // 'vendor_a' | 'vendor_b'
   claims: z.array(VendorClaimSchema),
@@ -3271,6 +3277,9 @@ export const CreateVendorClaimSchema = z.object({
   integration_id: z.string().uuid(),
   data_object: dataObjectRef,                 // trim, 1..100 — slug OR alias
   direction: ContextDirectionSchema,
+  // Which of the caller's endpoints `direction` is relative to. Omitted =
+  // endpoint A. Load-bearing only when the caller owns BOTH endpoints.
+  context_product_id: z.string().uuid().nullable().optional(),
   note: attestationNote.nullable().optional(), // trim, max 2000
   introduced_version_id: versionId.nullable().optional(),
   deprecated_version_id: versionId.nullable().optional(),
@@ -3278,6 +3287,7 @@ export const CreateVendorClaimSchema = z.object({
 
 export const UpsertVendorAttestationSchema = z.object({
   asserted: z.boolean(),                       // required — a PUT states a position
+  context_product_id: z.string().uuid().nullable().optional(),  // frames the ECHO only
   note: attestationNote.nullable().optional(),
   introduced_version_id: versionId.nullable().optional(),
   deprecated_version_id: versionId.nullable().optional(),

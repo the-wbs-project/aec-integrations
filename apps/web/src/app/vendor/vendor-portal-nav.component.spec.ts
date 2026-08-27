@@ -24,7 +24,7 @@ import { VENDOR_ME_FIXTURE } from './vendor-fixtures';
 import { VendorPortalNav } from './vendor-portal-nav';
 
 const PRODUCTS = VENDOR_ME_FIXTURE.products;
-const NAV_LABELS = ['Vendor Overview', 'Profile', 'Products', 'Integrations', 'Seats'];
+const NAV_LABELS = ['Vendor Overview', 'Profile', 'Products', 'Messages', 'Seats'];
 
 /** Set before each mount; the host is created by the router, so there is no
  *  fixture instance to write to. */
@@ -56,7 +56,7 @@ async function mount(products: readonly VendorProduct[] = PRODUCTS, url = '/port
             { path: 'profile', children: [] },
             { path: 'products', children: [] },
             { path: 'products/:productSlug', children: [] },
-            { path: 'integrations', children: [] },
+            { path: 'messages', children: [] },
             { path: 'seats', children: [] },
           ],
         },
@@ -94,7 +94,7 @@ describe('VendorPortalNav', () => {
     const harness = await mount();
 
     expect([...root(harness).querySelectorAll('nav a')].map((a) => a.getAttribute('href'))).toEqual(
-      ['/portal/overview', '/portal/profile', '/portal/integrations', '/portal/seats'],
+      ['/portal/overview', '/portal/profile', '/portal/messages', '/portal/seats'],
     );
   });
 

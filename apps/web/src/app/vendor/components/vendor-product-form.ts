@@ -70,17 +70,23 @@ const MAX_TERMS_PER_FACET = 10;
   selector: 'aec-vendor-product-form',
   template: `
     <div class="space-y-6">
-      <!-- Read-only identity: rename is a correction request, not a vendor edit. -->
-      <div class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) p-4">
-        <p class="font-display text-lg text-(--text-primary)">{{ product().name }}</p>
-        <p class="mt-1 text-xs text-(--text-secondary)">
-          <span class="font-mono">/{{ product().slug }}</span>
-        </p>
-        <p class="mt-2 text-xs text-(--text-secondary)" i18n="@@vendor.product.renameHint">
-          To change the product name, file a correction request. Renaming would break its links and
-          search entry.
-        </p>
-      </div>
+      <!-- Read-only identity: rename is a correction request, not a vendor edit.
+           Suppressed on the Taxonomy tab, where the product's name is already the
+           page heading directly above and repeating it reads as a second product. -->
+      @if (showFields()) {
+        <div
+          class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) p-4"
+        >
+          <p class="font-display text-lg text-(--text-primary)">{{ product().name }}</p>
+          <p class="mt-1 text-xs text-(--text-secondary)">
+            <span class="font-mono">/{{ product().slug }}</span>
+          </p>
+          <p class="mt-2 text-xs text-(--text-secondary)" i18n="@@vendor.product.renameHint">
+            To change the product name, file a correction request. Renaming would break its links
+            and search entry.
+          </p>
+        </div>
+      }
 
       <form class="space-y-6" novalidate (submit)="$event.preventDefault(); onSave()">
         @if (updatedElsewhere()) {
@@ -113,7 +119,7 @@ const MAX_TERMS_PER_FACET = 10;
           </p>
         }
 
-        @for (cfg of textFields; track cfg.key) {
+        @for (cfg of showFields() ? textFields : []; track cfg.key) {
           <div class="space-y-1.5">
             <label [for]="fieldId(cfg.key)" [class]="labelClass">{{ cfg.label }}</label>
             @if (cfg.control === 'textarea') {
@@ -156,7 +162,7 @@ const MAX_TERMS_PER_FACET = 10;
         }
 
         <!-- Taxonomy: assign existing terms only, via aria-pressed toggle chips. -->
-        @for (facet of facets; track facet.key) {
+        @for (facet of showTaxonomy() ? facets : []; track facet.key) {
           <fieldset class="space-y-2 border-0 p-0">
             <legend [class]="labelClass">{{ facet.legend }}</legend>
             @if (facet.hint; as hint) {
@@ -238,6 +244,29 @@ export class VendorProductForm {
    */
   readonly canEdit = input<boolean>(true);
   readonly canEditTaxonomy = input<boolean>(true);
+
+  /**
+   * WHICH half of the form to render (AECI-666) — the product row's Profile and
+   * Taxonomy tabs are two projections of this ONE component, not two components.
+   *
+   * Splitting it for real would mean two dirty-diff implementations racing on one
+   * endpoint, and `PATCH /api/vendor/products/:id` both requires ≥1 changed field
+   * and re-asserts `product.taxonomy.edit` when facet arrays ride along — so a
+   * second implementation is two chances to send an empty PATCH and two places
+   * for the field-level gate to drift. Projecting instead keeps one `patch()`,
+   * one baseline, one reconciliation.
+   *
+   * That the hidden half cannot go dirty is what makes the PATCH carry only the
+   * visible section: `patch()` diffs against the baseline, and a field with no
+   * control on screen is never edited, so it never appears in the body.
+   *
+   * `'all'` is the default and is what `vendor-dashboard-single.ts` (the
+   * single-page concept, which has no product nav to split along) keeps using.
+   */
+  readonly section = input<'all' | 'profile' | 'taxonomy'>('all');
+
+  protected readonly showFields = computed(() => this.section() !== 'taxonomy');
+  protected readonly showTaxonomy = computed(() => this.section() !== 'profile');
 
   protected readonly textFields: readonly FieldConfig[] = [
     {

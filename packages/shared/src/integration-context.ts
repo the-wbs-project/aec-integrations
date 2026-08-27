@@ -116,6 +116,26 @@ export function claimDirectionFromContext(
 }
 
 /**
+ * Re-frame an ALREADY context-relative direction against the integration's other
+ * endpoint (AECI-666).
+ *
+ * The other two functions here translate between the stored frame and a context;
+ * this one moves between the two *contexts* without the stored value in hand —
+ * which is the only form available on the client, where a write's echo arrives
+ * framed against the tab that sent it and has to be spliced into the SAME
+ * integration's listing under the vendor's other product.
+ *
+ * It lives here rather than in the dashboard for the reason this module's header
+ * gives: direction framing has exactly one home, and the two surfaces drifted
+ * once already (`STAGE_1_5_SPEC.md` §7.1). Note `both` is a fixed point —
+ * mirroring is not negation.
+ */
+export function mirrorContextDirection(direction: ContextDirection): ContextDirection {
+  if (direction === 'both') return 'both';
+  return direction === 'outbound' ? 'inbound' : 'outbound';
+}
+
+/**
  * Aggregate a mechanism's `data_object` claim directions (each stored relative to
  * the row's source/target — §3.2) into ONE context-relative direction: any
  * `both` claim, or any pair of opposing flows across claims, reads `both`;

@@ -55,7 +55,7 @@ import { VENDOR_SECTION_ROUTES } from './vendor.routes';
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve));
 
 const SLUG = VENDOR_ME_FIXTURE.vendor.slug;
-const NAV_LABELS = ['Vendor Overview', 'Profile', 'Products', 'Integrations', 'Seats'];
+const NAV_LABELS = ['Vendor Overview', 'Profile', 'Products', 'Messages', 'Seats'];
 
 /**
  * Stands in for `VendorPage`: the surface owner that binds the shell's `me` to
@@ -158,7 +158,9 @@ const navLabels = (harness: RouterTestingHarness) =>
   [...navItems(harness)].map((el) => el.textContent?.trim());
 
 describe('VendorDashboardTabbed — the routed section nav', () => {
-  it('lists the five sections, with Integrations between Products and Seats', async () => {
+  it('lists the five sections, with Messages between Products and Seats', async () => {
+    // AECI-666: Integrations left this row for the product row; Messages took
+    // its slot. `vendor-product-nav.component.spec.ts` pins the other one.
     expect(navLabels(await open())).toEqual(NAV_LABELS);
   });
 
@@ -169,24 +171,34 @@ describe('VendorDashboardTabbed — the routed section nav', () => {
     // own — the addresses it produces are pinned in
     // `vendor-products-menu.component.spec.ts`.
     expect([...root(harness).querySelectorAll('nav a')].map((a) => a.getAttribute('href'))).toEqual(
-      ['overview', 'profile', 'integrations', 'seats'].map((p) => `/vendor/${SLUG}/${p}`),
+      ['overview', 'profile', 'messages', 'seats'].map((p) => `/vendor/${SLUG}/${p}`),
     );
   });
 
   it('does not render the Integrations section until its route is active', async () => {
     // A section is a lazy route, so the heavier read only happens when a vendor
-    // asks for it — the property the `@switch` used to provide.
+    // asks for it — the property the `@switch` used to provide. It now lives two
+    // levels down, under a product (AECI-666).
     expect(root(await open()).querySelector('aec-vendor-integrations-section')).toBeNull();
   });
 
   it('renders the section and moves aria-current on navigation', async () => {
-    const harness = await open('integrations');
+    const harness = await open('messages');
+    const el = root(harness);
+
+    expect(el.querySelector('aec-vendor-messages-page')).not.toBeNull();
+    expect(navLink(harness, 'Messages').getAttribute('aria-current')).toBe('page');
+    expect(navLink(harness, 'Vendor Overview').getAttribute('aria-current')).toBeNull();
+    expect(el.querySelector('h2')?.textContent?.trim()).toBe('Messages');
+  });
+
+  it('reaches the Integrations section under a product, not off the portal row', async () => {
+    const harness = await open('products/summit-field-issues/integrations');
     const el = root(harness);
 
     expect(el.querySelector('aec-vendor-integrations-section')).not.toBeNull();
-    expect(navLink(harness, 'Integrations').getAttribute('aria-current')).toBe('page');
-    expect(navLink(harness, 'Vendor Overview').getAttribute('aria-current')).toBeNull();
-    expect(el.querySelector('h2')?.textContent?.trim()).toBe('Integrations');
+    // The portal row keeps Products current; the product row owns Integrations.
+    expect(navLink(harness, 'Products').getAttribute('aria-current')).toBe('true');
   });
 
   it('marks Products current on the bare path AND on a chosen product', async () => {
@@ -205,7 +217,15 @@ describe('VendorDashboardTabbed — the routed section nav', () => {
   });
 
   it('passes the verified flag down rather than gating in the shell', async () => {
-    const el = root(await open('integrations', VENDOR_ME_UNVERIFIED_FIXTURE));
+    // The stock unverified fixture carries an EMPTY catalog, and Integrations
+    // now lives under a product (AECI-666) — so it is given one here. The claim
+    // under test is about the read-only copy an unverified vendor sees, not about
+    // having no products.
+    const unverifiedWithProduct = {
+      ...VENDOR_ME_UNVERIFIED_FIXTURE,
+      products: VENDOR_ME_FIXTURE.products,
+    };
+    const el = root(await open('products/summit-field-issues/integrations', unverifiedWithProduct));
 
     // The shell stays presentational: the section renders either way and
     // decides for itself what to withhold.
@@ -313,7 +333,10 @@ describe('VendorDashboardTabbed — a refetched `me` (§6.1)', () => {
   });
 
   it('opens the Integrations controls, because `verified` is a mirror of the same row', async () => {
-    const harness = await open('integrations', VENDOR_ME_DOWNGRADED_FIXTURE);
+    const harness = await open(
+      'products/summit-field-issues/integrations',
+      VENDOR_ME_DOWNGRADED_FIXTURE,
+    );
     const el = root(harness);
     expect(el.textContent).toContain('once your account is verified');
 
@@ -423,7 +446,7 @@ describe('VendorDashboardTabbed — the one live region (§6.3)', () => {
   it('stays at exactly one with the Integrations section open', async () => {
     // The section's loading/failure paragraphs and the card's pivot notice are
     // deliberately not live regions.
-    expect(liveRegions(await open('integrations'))).toHaveLength(1);
+    expect(liveRegions(await open('products/summit-field-issues/integrations'))).toHaveLength(1);
   });
 
   it('survives a section change — the region is in the shell, not in a section', async () => {
