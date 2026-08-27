@@ -27,6 +27,9 @@
  *     from the directory (`promotion_status` retracted/rejected).
  */
 
+import { mapWithConcurrency, WORKER_CONNECTION_LIMIT } from '@aeci/shared/concurrency';
+import { discardResponseBody } from '@aeci/shared/response-drain';
+
 import type { AlgoliaIndexDrift } from './algolia-drift';
 import {
   and,
@@ -271,23 +274,31 @@ export async function checkLogo404Sample(
     )
     .slice(0, sampleSize);
 
-  const probes = await Promise.all(
-    candidates.map(async (c) => {
-      try {
-        const res = await fetchImpl(c.url, {
-          method: 'HEAD',
-          signal: AbortSignal.timeout(LOGO_FETCH_TIMEOUT_MS),
-        });
-        return res.status === 404 ? `${c.label}: ${c.url} → 404` : null;
-      } catch {
-        // Network error / timeout — not a definitive 404, so don't flag it.
-        return null;
-      }
-    }),
-  );
+  // Bounded, not a bare `Promise.all` (AECI-666): `sampleSize` defaults to 20,
+  // more than three times what a Worker invocation may hold open at once. The
+  // probes still all run — six at a time — so the sample is unchanged; only the
+  // burst is. Each response is drained too: only `res.status` is inspected, and
+  // an unread body holds its connection open.
+  const probes = await mapWithConcurrency(candidates, WORKER_CONNECTION_LIMIT, async (c) => {
+    try {
+      const res = await fetchImpl(c.url, {
+        method: 'HEAD',
+        signal: AbortSignal.timeout(LOGO_FETCH_TIMEOUT_MS),
+      });
+      discardResponseBody(res);
+      return res.status === 404 ? `${c.label}: ${c.url} → 404` : null;
+    } catch {
+      // Network error / timeout — not a definitive 404, so don't flag it.
+      return null;
+    }
+  });
 
   return {
-    lines: probes.filter((line): line is string => line !== null),
+    // `mapWithConcurrency` never rejects, so a settled result is always
+    // `fulfilled` here — the callback swallows its own failures.
+    lines: probes
+      .map((p) => (p.status === 'fulfilled' ? p.value : null))
+      .filter((line): line is string => line !== null),
     note: `sampled ${candidates.length} logo URL(s)`,
   };
 }

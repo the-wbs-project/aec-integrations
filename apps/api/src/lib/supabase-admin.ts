@@ -25,6 +25,8 @@
  * distinguish from a successful "no such user" result.
  */
 
+import { mapWithConcurrency, WORKER_CONNECTION_LIMIT } from '@aeci/shared/concurrency';
+import { discardResponseBody } from '@aeci/shared/response-drain';
 import type { Env } from '../env';
 
 /**
@@ -84,7 +86,10 @@ export async function deleteAuthUser(env: Env, userId: string): Promise<DeleteAu
       headers: adminHeaders(cfg.key),
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
-    if (res.ok || res.status === 404) return { ok: true, status: res.status };
+    if (res.ok || res.status === 404) {
+      discardResponseBody(res); // Nothing to read; release the connection (AECI-666).
+      return { ok: true, status: res.status };
+    }
     return { ok: false, status: res.status, error: await res.text().catch(() => '') };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
@@ -105,21 +110,26 @@ export async function fetchAuthUserEmails(
   const ids = [...new Set(userIds)].filter((id) => id.length > 0);
   if (!cfg || ids.length === 0) return out;
 
-  await Promise.all(
-    ids.map(async (id) => {
-      try {
-        const res = await fetch(`${cfg.url}/auth/v1/admin/users/${encodeURIComponent(id)}`, {
-          headers: adminHeaders(cfg.key),
-          signal: AbortSignal.timeout(TIMEOUT_MS),
-        });
-        if (!res.ok) return;
-        const user = (await res.json()) as { email?: unknown };
-        if (typeof user.email === 'string' && user.email) out.set(id, user.email);
-      } catch {
-        /* degrade — leave this id absent from the map */
+  // Bounded, not a bare `Promise.all` (AECI-666): GoTrue has no by-id batch
+  // endpoint, so this is one GET per reviewer and the request count scales with
+  // the admin page size. An unbounded fan-out from one invocation is how the
+  // promote hooks deadlocked — see `mapWithConcurrency`.
+  await mapWithConcurrency(ids, WORKER_CONNECTION_LIMIT, async (id) => {
+    try {
+      const res = await fetch(`${cfg.url}/auth/v1/admin/users/${encodeURIComponent(id)}`, {
+        headers: adminHeaders(cfg.key),
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+      });
+      if (!res.ok) {
+        discardResponseBody(res);
+        return;
       }
-    }),
-  );
+      const user = (await res.json()) as { email?: unknown };
+      if (typeof user.email === 'string' && user.email) out.set(id, user.email);
+    } catch {
+      /* degrade — leave this id absent from the map */
+    }
+  });
   return out;
 }
 
@@ -280,10 +290,18 @@ export async function createAuthUser(env: Env, email: string): Promise<CreateAut
  * `false`. That distinction is the whole point of the tri-state: a failed lookup
  * must not read to the reviewer as "this claimant has no account".
  *
- * Uncapped fan-out, deliberately: `perPage` caps the page at 100
- * (`PageQuerySchema`), `fetchAuthUserEmails` already fans out page-wide at the
- * same magnitude, and a cap would make "signal suppressed" indistinguishable
- * from "creds absent".
+ * **Every address is still looked up** — `perPage` caps the page at 100
+ * (`PageQuerySchema`) and none of those lookups is dropped, because a truncated
+ * sweep would make "signal suppressed" indistinguishable from "creds absent"
+ * and the tri-state above depends on that distinction.
+ *
+ * What IS capped is how many run at once (AECI-666). A Worker invocation may
+ * hold only {@link WORKER_CONNECTION_LIMIT} connections waiting for response
+ * headers, so a bare `Promise.all` over a full page opened ~17x that from a
+ * single request; past the limit the runtime cancels the stalled responses into
+ * `fetch` promises that never settle, and the whole lookup vanishes with no
+ * error. `mapWithConcurrency` runs the same 100 lookups in waves of six, so the
+ * result set is identical and only the burst is gone.
  */
 export async function fetchAuthAccountsByEmail(
   env: Env,
@@ -304,14 +322,16 @@ export async function fetchAuthAccountsByEmail(
   }
   if (groups.size === 0) return out;
 
-  await Promise.all(
-    [...groups].map(async ([normalized, spellings]) => {
+  await mapWithConcurrency(
+    [...groups],
+    WORKER_CONNECTION_LIMIT,
+    async ([normalized, spellings]) => {
       const res = await findAuthUserByEmail(env, normalized);
       // `!ok` or `skipped` → leave the group absent so the caller reports
       // "unknown" rather than asserting the account does not exist.
       if (!res.ok || res.skipped) return;
       for (const spelling of spellings) out.set(spelling, res.user !== null);
-    }),
+    },
   );
   return out;
 }

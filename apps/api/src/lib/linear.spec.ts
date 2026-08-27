@@ -6,6 +6,7 @@ import { fakeExecutionContext, TEST_ENV } from '../test/helpers';
 // a real DD_API_KEY (the real helpers no-op without one — we want to see calls).
 vi.mock('../posthog', () => ({
   logToPosthog: vi.fn(),
+  logBatchToPosthog: vi.fn(),
   submitCount: vi.fn(),
   submitDistribution: vi.fn(),
 }));

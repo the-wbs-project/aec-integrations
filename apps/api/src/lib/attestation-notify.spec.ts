@@ -24,10 +24,12 @@ import {
 import { auditLog, profiles, vendors } from '../db/schema';
 import type { Env } from '../env';
 import { makeTestDb, type TestDb } from '../test/d1';
+import { logBatchToPosthog } from '../posthog';
 import { fakeExecutionContext } from '../test/helpers';
 
 vi.mock('../posthog', () => ({
   logToPosthog: vi.fn(),
+  logBatchToPosthog: vi.fn(),
   submitCount: vi.fn(),
   submitDistribution: vi.fn(),
   submitGauge: vi.fn(),
@@ -388,5 +390,43 @@ describe('runAttestationNotifySweep — metrics', () => {
     expect(gauge).toHaveBeenCalledWith('aeci.attestation.detector', -1, [
       'detector:silent-counterparty',
     ]);
+  });
+});
+
+// ─── AECI-666: the §26.5 forwards are batched, and ungated ───────────────────
+
+describe('runAttestationNotifySweep — audit forwarding', () => {
+  it('forwards a chunk of ledger rows in ONE batched call, not one per row', async () => {
+    // This used to be `Promise.all(entries.map(forwardAuditLog))`, and because
+    // the §3.1 dual-run fans that call site out to PostHog AND Datadog, a
+    // multi-row flush opened 2N simultaneous connections from one cron
+    // invocation. Past the per-invocation limit the runtime cancels the stalled
+    // responses into `fetch` promises that never settle, so the forwards vanish
+    // with no error and the sweep is eventually killed as hung.
+    const found = await sweep([
+      finding({ detector: 'stale-version', claimId: u(3001) }),
+      finding({ detector: 'stale-version', claimId: u(3002) }),
+      finding({ detector: 'open-conflict', claimId: u(3003) }),
+    ]);
+    expect(found.sent).toBeGreaterThan(0);
+
+    const calls = vi.mocked(logBatchToPosthog).mock.calls;
+    expect(calls).toHaveLength(1);
+    expect(calls[0][3]).toHaveLength((await ledgerRows()).length);
+    expect(calls[0][3][0]).toMatchObject({
+      level: 'info',
+      source: 'attestation-notify-cron',
+    });
+  });
+
+  it('forwards with no DD_API_KEY configured — each leg self-gates', async () => {
+    // The old forwarder gated BOTH legs on `DD_API_KEY`, so on any tier without
+    // a Datadog key (which is every tier after PH-final, AECI-651) it silently
+    // forwarded nothing at all.
+    await sweep([finding({ detector: 'stale-version', claimId: u(3004) })], {
+      env: { DD_API_KEY: undefined },
+    });
+
+    expect(logBatchToPosthog).toHaveBeenCalledTimes(1);
   });
 });

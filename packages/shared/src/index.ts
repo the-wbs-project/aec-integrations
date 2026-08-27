@@ -2,10 +2,12 @@ export * from './agreement';
 export * from './api';
 export * from './audit-log';
 export * from './cache-purge';
+export * from './concurrency';
 export * from './datadog';
 export * from './deploy-env';
 export * from './errors';
 export * from './integration-context';
+export * from './response-drain';
 // NOTE: `./posthog` is deliberately NOT re-exported from this barrel (AECI-642).
 // Unlike every module here it has a real npm dependency (`posthog-node/edge`),
 // and this barrel is imported by browser code — the exact shape of the 327 kB

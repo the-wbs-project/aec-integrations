@@ -43,6 +43,7 @@ import {
 // so we can assert per-branch outcome tags without a real Datadog intake.
 vi.mock('../posthog', () => ({
   logToPosthog: vi.fn(),
+  logBatchToPosthog: vi.fn(),
   submitCount: vi.fn(),
   submitDistribution: vi.fn(),
   submitGauge: vi.fn(),
@@ -644,6 +645,96 @@ describe('sendEmail', () => {
     expect(
       await sendEmail({ RESEND_API_KEY: 'k' }, MSG, fetchImpl as unknown as typeof fetch, silent),
     ).toBe('failed');
+  });
+});
+
+// ─── AECI-666: both Resend senders release their response body ───────────────
+//
+// An unread body holds its connection, and a Worker invocation may hold only a
+// bounded number. Past that the runtime cancels the stalled responses into
+// `fetch` promises that never settle — which is exactly the shape a digest cron
+// sending a run of emails hits.
+
+function trackedResponse(status: number, body = '{}'): { res: Response; drained: () => boolean } {
+  let cancelled = false;
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode(body));
+    },
+    cancel() {
+      cancelled = true;
+    },
+  });
+  return { res: new Response(stream, { status }), drained: () => cancelled };
+}
+
+const settled = () => new Promise((r) => setTimeout(r, 0));
+
+describe('Resend transports release the response body', () => {
+  it('sendTransactionalEmail drains on 2xx', async () => {
+    const { res, drained } = trackedResponse(200);
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(res);
+
+    await sendTransactionalEmail(fakeContext(), {
+      to: 'r@example.com',
+      subject: 'Hi',
+      text: 'Body',
+      template: 'review-submitted',
+    });
+    await settled();
+
+    expect(drained()).toBe(true);
+  });
+
+  it('sendTransactionalEmail drains on a non-2xx too (neither branch reads it)', async () => {
+    const { res, drained } = trackedResponse(422, 'rejected');
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(res);
+
+    await sendTransactionalEmail(fakeContext(), {
+      to: 'r@example.com',
+      subject: 'Hi',
+      text: 'Body',
+      template: 'review-submitted',
+    });
+    await settled();
+
+    expect(drained()).toBe(true);
+  });
+
+  it('sendEmail drains on 2xx', async () => {
+    const { res, drained } = trackedResponse(200);
+    const fetchImpl = vi.fn(async () => res);
+
+    const out = await sendEmail(
+      { RESEND_API_KEY: 'k' },
+      MSG,
+      fetchImpl as unknown as typeof fetch,
+      silent,
+    );
+    await settled();
+
+    expect(out).toBe('sent');
+    expect(drained()).toBe(true);
+  });
+
+  it('sendEmail still reads the error body on a non-2xx (drain must not steal it)', async () => {
+    // The failure branch logs the upstream detail, so this sender drains on the
+    // SUCCESS path only — an unconditional cancel would throw that detail away.
+    const error = vi.fn();
+    const fetchImpl = vi.fn(async () => new Response('domain not verified', { status: 403 }));
+
+    const out = await sendEmail(
+      { RESEND_API_KEY: 'k' },
+      MSG,
+      fetchImpl as unknown as typeof fetch,
+      {
+        warn: vi.fn(),
+        error,
+      },
+    );
+
+    expect(out).toBe('failed');
+    expect(error).toHaveBeenCalledWith(expect.stringContaining('domain not verified'));
   });
 });
 
