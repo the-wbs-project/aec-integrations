@@ -8,6 +8,7 @@ import { VendorIntegrationsSection } from './components/vendor-integrations-sect
 import { VendorPlanPanel } from './components/vendor-plan-panel';
 import { VendorProfileForm } from './components/vendor-profile-form';
 import { VendorProductsSection } from './components/vendor-products-section';
+import { VendorNotificationsList } from './components/vendor-notifications-list';
 import { VendorRequestStatus } from './components/vendor-request-status';
 import { VendorSeatInviteDialog } from './components/vendor-seat-invite-dialog';
 import { VendorSeatRoster } from './components/vendor-seat-roster';
@@ -25,6 +26,7 @@ import { VendorSeatRoster } from './components/vendor-seat-roster';
   selector: 'aec-vendor-dashboard-single',
   imports: [
     VendorPlanPanel,
+    VendorNotificationsList,
     VendorRequestStatus,
     VendorProfileForm,
     VendorProductsSection,
@@ -109,7 +111,17 @@ import { VendorSeatRoster } from './components/vendor-seat-roster';
           >
             Integrations
           </h2>
-          <div class="mt-4">
+          <div class="mt-4 space-y-6">
+            <!--
+              Rendered explicitly here (AECI-666). It used to live INSIDE
+              vendor-integrations-section.ts; on the tabbed concept it moved to
+              the Messages section, which this single-page concept has no
+              equivalent of. Without this line the concept would silently lose a
+              surface the tabbed one has, which is the thing AECI-606 added it to
+              both concepts to prevent. Leaving contextProductId unset likewise
+              keeps the vendor-wide list this concept is built around.
+            -->
+            <aec-vendor-notifications-list />
             <aec-vendor-integrations-section
               [verified]="m.vendor.verified"
               [vendorName]="m.vendor.company_name"

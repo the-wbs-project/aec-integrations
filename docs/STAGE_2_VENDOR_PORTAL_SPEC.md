@@ -319,7 +319,7 @@ Design work runs the `apps/web` UI checklist (`CLAUDE.md` §"Design checklist"):
 
 Shipped as the Angular `/vendor` surface (singular — the public `/vendors/:slug` detail is a different, cacheable route). Files under `apps/web/src/app/vendor/`. Decisions taken at build:
 
-- **IA — tabbed.** Both a tabbed and a single-page concept were built as live-toggleable previews (`/preview/vendor-dashboard`, the AECI-270 precedent); the PO chose **tabbed** (`vendor-dashboard-tabbed.ts`: a side-nav — Overview / Profile / Products / Seats — over one content panel). It was originally an in-page `@switch` with **no child routes**, so the concept could render identically in the preview and on the real page; **§6.2 replaced that with real child routes** and the same relative-link trick keeps the preview working. **§6.4 replaced the side-nav with a horizontal tab row** and turned Products into a filterable dropdown; the nav lives in `vendor-portal-nav.ts` now, not in the shell. The single-page concept (`vendor-dashboard-single.ts`) stays in the tree behind the preview. The presentational pieces (`components/vendor-{verified-status,request-status,seat-roster,profile-form,product-form,products-section}.ts`) are shared by both. **AECI-606** (`STAGE_2_ATTESTATIONS_SPEC.md` §6) adds an Integrations tab and its components (`components/vendor-{integrations-section,integration-card,claim-lane,attestation-control,add-claim-form,notifications-list,attestation-labels}.ts`) to **both** concepts, so the single-page concept does not silently lose a section the tabbed one has.
+- **IA — tabbed.** Both a tabbed and a single-page concept were built as live-toggleable previews (`/preview/vendor-dashboard`, the AECI-270 precedent); the PO chose **tabbed** (`vendor-dashboard-tabbed.ts`: a side-nav — Overview / Profile / Products / Seats — over one content panel). It was originally an in-page `@switch` with **no child routes**, so the concept could render identically in the preview and on the real page; **§6.2 replaced that with real child routes** and the same relative-link trick keeps the preview working. **§6.4 replaced the side-nav with a horizontal tab row** and turned Products into a filterable dropdown; the nav lives in `vendor-portal-nav.ts` now, not in the shell. **§6.5 then moved Integrations down a level, under the selected product** (alongside a new Taxonomy tab), gave a product its own nav row (`vendor-product-nav.ts`), and put **Messages** in the slot Integrations vacated. The single-page concept (`vendor-dashboard-single.ts`) stays in the tree behind the preview. The presentational pieces (`components/vendor-{verified-status,request-status,seat-roster,profile-form,product-form,products-section}.ts`) are shared by both. **AECI-606** (`STAGE_2_ATTESTATIONS_SPEC.md` §6) adds an Integrations tab and its components (`components/vendor-{integrations-section,integration-card,claim-lane,attestation-control,add-claim-form,notifications-list,attestation-labels}.ts`) to **both** concepts, so the single-page concept does not silently lose a section the tabbed one has.
 - **Gate = the `/admin` pattern.** `vendorMeResolver` (`vendor-me.resolver.ts`) calls `GET /api/vendor/me`; a **401/403/404 → 404 render** (`<aec-not-found/>` + `RESPONSE_INIT.status = 404` + noindex), a 200 → the portal, a 5xx rethrows. `requireVendor()` rejects anon, reviewers, banned seats, null-`vendor_id` seats, **and site admins** — all surface as the same 404. Non-cacheable + `Cache-Tag`-free by the fail-closed classifier (no `server-runtime.ts` change; the worker login-bounce for anon `/vendor` already shipped with AECI-520). The page sets `robots: noindex`.
 - **Edits.** `vendor-profile-form.ts` / `vendor-product-form.ts` are dirty-diff editors validated **live against the shared `UpdateVendorProfile*`/`UpdateVendorProduct*` schemas** (single source of truth; a single-key parse per field). Only changed fields are PATCHed (the endpoint requires ≥1; Save is disabled until a real change); the echo re-seeds the baseline so the form settles clean. **Optimistic + on-demand revalidation, no socket.** Save-confirmation copy never promises instant search — it says the listing updates now and search refreshes within a day (§8.3(5) / AECI-529). Product taxonomy is assigned via `aria-pressed` toggle chips fed by `GET /api/taxonomy` (existing terms only); `name`/`slug` are read-only with a "rename = correction request" hint. `public_private` uses the Angular Aria single-select listbox stand-in (ADR 0010).
 - **Header entry point.** A role-gated "Vendor portal" link in the signed-in user menu (`layout/user-menu.ts` + `layout/nav-menu.ts`), driven by `VendorStatus` (`vendor/vendor-status.ts`): it reads the cheap `GET /api/account` `role` (never `/api/vendor/*`) and stays `false` during SSR, so the door never reaches cached header HTML.
@@ -341,7 +341,11 @@ Overview. This change gives the surface the browser's navigation model.
 **URL shape — `/vendor/:vendorSlug/<section>`.** The vendor slug comes first, the
 section after it: `/vendor/acme/overview`, `/vendor/acme/profile`,
 `/vendor/acme/products`, `/vendor/acme/products/:productSlug`,
-`/vendor/acme/integrations`, `/vendor/acme/seats`. Naming the vendor is not
+`/vendor/acme/integrations`, `/vendor/acme/seats`.
+**Superseded in part by §6.5 (2026-08-27):** `/vendor/acme/integrations` is gone —
+Integrations is now `/vendor/acme/products/:productSlug/integrations`, joined by
+`…/profile` and `…/taxonomy` under the same product, and `/vendor/acme/messages`
+takes the vacated top-level slot. Naming the vendor is not
 decoration — today one seat maps to exactly one `vendor_id`, so the slug is
 derivable, but §11's deferred multi-vendor seat is precisely the case where the
 address has to say which company is being edited, and putting it in now means that
@@ -595,6 +599,128 @@ check that would catch an empty `role="listbox"`. The preview's fixture switcher
 gains a 20-product entry, because a search box over two options tells you nothing.
 
 ---
+
+### 6.5 As built — Integrations moves under the product, Messages takes its slot (2026-08-27)
+
+§6.4 made Products a menu that routes to `…/products/:productSlug`. This change makes
+a product a **place** rather than a parameter, and moves the Integrations tab into it.
+
+**The portal row is now:** Vendor Overview · Profile · Products ▾ · **Messages** · Seats.
+**A product gains its own row:** Profile · Taxonomy · Integrations.
+
+Both rows come from `vendor/vendor-nav.ts` (`VENDOR_NAV_ITEMS` and the new
+`VENDOR_PRODUCT_NAV_ITEMS`) and share `VENDOR_NAV_ITEM_CLASS`, so they cannot drift
+into looking like a nav and an imitation of one. The second row is rendered by
+`vendor/vendor-product-nav.ts` and is a **second nav landmark**, named for its product
+("Summit Field Issues sections") — two landmarks both called "Portal sections" would
+make the landmark list useless. Its `aria-label` is built with `$localize` at the call
+site, not as an `i18n-aria-label` attribute, because an *interpolated* `i18n-*`
+attribute emits no attribute at all in this toolchain.
+
+#### Why Integrations moved
+
+An integration is a thing that happens *to a product*, and a vendor with a dozen
+products was reading one flat list to answer a per-product question.
+
+The blocker was that `GET /api/vendor/integrations` framed each integration against
+**one** endpoint — `context_product` pinned to endpoint A *including when the caller
+owns both* ("arbitrary, but it has to be something"). Under a product tab that is not
+arbitrary at all: an owns-both integration filed under its endpoint-B product would
+render every direction backwards.
+
+**Resolution — the list unfolds.** The handler now emits **one entry per owned
+endpoint** rather than one per integration, each framed against the endpoint it is
+filed under. Consequences, all deliberate:
+
+- **`id` is no longer unique in the response.** The key is `(id, context_product.id)`.
+  `vendor-integrations-section.ts` tracks by exactly that; anything tracking or
+  splicing by `id` alone collapses or cross-wires the pair.
+- **An owns-both integration is listed under BOTH products**, directions mirrored.
+- **It is still ONE position.** `slots`, `mine`, `counterparty` and `agreement` are
+  identical on both entries, because a write fills every slot the caller owns (§2.1,
+  and filling one only was rejected: it cannot retract the sibling row and leaves
+  `DELETE` unable to clear) and §4 dedupes voters by vendor. Rendering it twice is a
+  view of one fact, not two.
+- **The write paths take an optional `context_product_id`.** On `POST /api/vendor/claims`
+  it is load-bearing: "outbound" means opposite things from the two sides, so the old
+  endpoint-A guess stored the *reverse* flow for a vendor authoring from its other
+  product's tab. On `PUT …/attestation` it only frames the echo. A product the caller
+  does not own on that integration is a `400` naming the field, never a silent
+  re-frame. Omitted keeps the endpoint-A default, which is unambiguous for the common
+  single-endpoint case. **The portal always sends it:** both write components source it
+  from the listing they render (`vendor-integration-card.ts` passes
+  `integration.context_product.id` into `vendor-add-claim-form.ts` and, via
+  `vendor-claim-lane.ts`, into `vendor-attestation-control.ts`), so the server frames the
+  write against the endpoint the vendor is authoring from rather than the fallback — the
+  fallback is API robustness for a caller that omits it, not the portal's path.
+- **The client mirrors on splice.** Because the write carries `context_product_id`, its
+  echo comes back framed against the tab it was authored from; splicing it verbatim into
+  the same integration's *other* entry
+  would render that flow backwards. `mirrorContextDirection` (`packages/shared/src/
+  integration-context.ts`, beside its two siblings — direction framing has one home)
+  re-frames it.
+
+**The READ stays vendor-wide.** One `GET /api/vendor/integrations`, one `integrations`
+cursor scope, one `VendorPortalStore` resource; only the *view* narrows, via the
+section's new `contextProductId` input. Fetching per product would break
+`STAGE_2_REALTIME_SPEC.md` §2.2's invariant ("every cursor query reuses the scoping
+predicate of the handler it is a cursor for") and turn one call into one per product,
+for a payload already bounded by the vendor's own catalog.
+
+#### Messages (the vendor-level slot)
+
+Nothing new is collected. It **consolidates two surfaces that already shipped in
+unrelated places**: claim/correction status (`vendor-request-status.ts`, previously on
+Vendor Overview) and the notification archive (`vendor-notifications-list.ts`,
+previously *inside* the Integrations tab, which is where you would look for it last).
+
+**This does not reverse §6.2 of `STAGE_2_REALTIME_SPEC.md`.** That rule — "new
+notifications are a count, never a banner" — is about not promoting *historical* rows
+to *live assertions*, because a three-week-old "Vendors disagree" row sitting above a
+lane now reading `confirmed` makes the surface contradict itself. All of that holds:
+no banner, no unread badge, no auto-expand, no "mark as read", and the "N new" count
+stays session-scoped inside the disclosure's summary line
+(`vendor-notification-baseline.ts` is unchanged). Giving the archive a findable home
+is not the same as asserting it is current state.
+
+Requests are shown above the archive because they are different in kind: `vendor_requests`
+rows **are** current state, ride `GET /api/vendor/me`, and carry a status the vendor acts on.
+
+#### Taxonomy is a projection, not a second form
+
+`vendor-product-form.ts` gains a `section: 'all' | 'profile' | 'taxonomy'` input and is
+rendered twice rather than split. `PATCH /api/vendor/products/:id` requires ≥1 changed
+field and re-asserts `product.taxonomy.edit` when facet arrays ride along, so two form
+components would mean two dirty-diff implementations racing on one endpoint — two
+chances to send an empty PATCH and two places for the field-level gate to drift. A
+field with no control on screen is never edited, so it never enters `patch()`; that is
+what makes each tab's PATCH carry only its own section. `'all'` remains the default and
+is what `vendor-dashboard-single.ts` keeps using.
+
+The Taxonomy tab is **not** route-gated on `product.taxonomy.edit`: a vendor without it
+sees its own facets read-only with the copy explaining what verification unlocks, per
+the ownership-reads / capability-writes split. Routing it away would hide owned data.
+
+#### Consequences elsewhere
+
+- **`…/products` (bare) redirects** to the default product's Profile. It cannot be an
+  Angular `redirectTo` — the target depends on the vendor's catalog, known only after
+  `GET /api/vendor/me` resolves — and it cannot be a guard either, because a child
+  `canActivate` runs *before* the parent route's resolver. So it is an `effect` in
+  `vendor-products-page.ts` with `replaceUrl`.
+- **`/vendor/:vendorSlug/integrations` no longer exists.** The portal is private,
+  noindex and non-cacheable, used by a handful of accounts, so a stale bookmark landing
+  on a 404 was accepted rather than adding a resolve-and-redirect hop.
+- **`vendor-dashboard-single.ts`** (the single-page concept, which has no product
+  selection) renders `aec-vendor-notifications-list` explicitly and leaves
+  `contextProductId` unset, keeping the vendor-wide list. Without that it would have
+  silently lost a surface the tabbed concept has — the thing AECI-606 added it to both
+  concepts to prevent.
+- **`vendor-product-context.ts`** is the one implementation of "which product is this
+  page about", shared by the shell and all three sections so they cannot disagree. It
+  combines every level's `paramMap` **observable** (not snapshots): picking a product is
+  a same-route navigation, so a snapshot read would pin each section to whichever
+  product was selected when it first rendered.
 
 ---
 

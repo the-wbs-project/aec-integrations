@@ -190,8 +190,15 @@ export class VendorApi {
   upsertAttestation(
     claimId: string,
     position: VendorAttestationPosition,
+    contextProductId?: string | null,
   ): Promise<VendorClaimResponse> {
-    const body = position satisfies UpsertVendorAttestationInput;
+    // `context_product_id` frames the echoed claim only (AECI-666); it is not part
+    // of the stored position, so it rides the wire body without joining
+    // `VendorAttestationPosition`.
+    const body = {
+      ...position,
+      context_product_id: contextProductId ?? null,
+    } satisfies UpsertVendorAttestationInput;
     return firstValueFrom(
       this.http.put<VendorClaimResponse>(
         `/api/vendor/claims/${encodeURIComponent(claimId)}/attestation`,

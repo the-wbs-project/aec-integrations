@@ -1,75 +1,75 @@
-import { Component, computed, inject } from '@angular/core';
-import { toSignal } from '@angular/core/rxjs-interop';
-import { ActivatedRoute } from '@angular/router';
-import { map } from 'rxjs';
+import { Component, computed, effect, inject, untracked } from '@angular/core';
+import { ActivatedRoute, Router, RouterOutlet } from '@angular/router';
 
-import { VendorProductsSection } from '../components/vendor-products-section';
-import { vendorCan } from '../vendor-capabilities';
+import { VendorProductNav } from '../vendor-product-nav';
 import { VendorPortalStore } from '../vendor-portal-store';
 
+import { vendorProductContext } from './vendor-product-context';
+
 /**
- * `…/products` and `…/products/:productSlug` — the vendor's own catalog entries,
- * ONE at a time, chosen from the Products menu in the portal nav.
+ * `…/products/:productSlug` — the SHELL for one product (AECI-666), and the bare
+ * `…/products` path that redirects into it.
  *
- * ── WHY A PICKER REPLACED THE STACK, AND WHY IT THEN MOVED ──────────────────
- * The section used to render every owned product as a collapsed `<details>`.
- * That reads fine for the three-product vendor the fixtures were built from and
- * falls apart for the real ones: a vendor with a hundred products got a hundred
- * disclosures, with the one they came to edit somewhere in the middle and no way
- * to name it. A picker turned "find my product" from a scroll into a choice — and
- * because the choice is a URL segment, it is also a bookmark, a back button, and
- * a link a colleague can be sent.
+ * ── WHY THIS IS A SHELL NOW ─────────────────────────────────────────────────
+ * It used to be a leaf that rendered one product's whole form. A product has more
+ * than one thing to say about it — its listing copy, its taxonomy, and the
+ * integrations that touch it — and stacking all of them on one page put the
+ * integration list (the longest surface in the portal) below two forms. So the
+ * product became a place rather than a parameter: heading, a nav row, an outlet,
+ * exactly the shape the portal itself has one level up.
  *
- * That picker lived here, beside the heading, as an `<aec-select>`. It now lives
- * in the portal nav (`vendor/vendor-products-menu.ts`), with a search box on top
- * of it: a vendor had to be ON this page to change which product they were
- * editing, and a non-editable listbox gives a hundred-product catalog nothing but
- * first-letter typeahead. One control, in the nav, reachable from every section.
- * This page keeps everything that decides WHICH product is shown; it just no
- * longer owns the control that changes it.
+ * ── WHY THE BARE PATH REDIRECTS RATHER THAN RENDERING ───────────────────────
+ * The nav's Products item has no product in hand, so `…/products` has to resolve
+ * to something real. It cannot be an Angular `redirectTo`: the target depends on
+ * the vendor's catalog, which is only known after `GET /api/vendor/me` resolves.
+ * So the redirect happens here, once `me` lands, with `replaceUrl` so the bare
+ * path never becomes a Back-button stop the user bounces off.
+ *
+ * It is an `effect` rather than a resolver or guard for a specific reason: a
+ * child `canActivate` runs BEFORE the parent route's resolver, so the store is
+ * not seeded yet at guard time and a guard would have to re-fetch the very
+ * payload the portal is built around fetching exactly once.
  *
  * ── WHICH PRODUCT IS SHOWN ───────────────────────────────────────────────────
- * The `:productSlug` segment when it names a product this vendor owns; otherwise
- * the primary product, else the first. The nav links to the bare path (it has no
- * product in hand), so the bare path must resolve to something real rather than
- * to an empty frame.
- *
- * A slug that names NO owned product is called out rather than silently
- * redirected to the default: the URL asserts a specific product, and quietly
- * rendering a different one under it is how a vendor edits the wrong listing.
- * Ownership is enforced server-side regardless — `PATCH /api/vendor/products/:id`
- * proves it against the session — so this is a clarity guard, not the gate.
+ * {@link vendorProductContext} owns that rule and is shared with the three
+ * section components, so the shell and its children can never disagree about
+ * which product the page is about.
  */
 @Component({
   selector: 'aec-vendor-products-page',
-  imports: [VendorProductsSection],
+  imports: [RouterOutlet, VendorProductNav],
   template: `
-    @if (me(); as m) {
+    @if (me()) {
       <div>
-        <h2
-          class="font-display text-xl font-semibold text-(--text-primary)"
-          i18n="@@vendor.section.products"
-        >
-          Your products
-        </h2>
-
-        @if (unknownProduct()) {
+        @if (ctx.unknownProduct()) {
           <p
-            class="mt-4 rounded-(--radius-md) border border-(--border-default)
+            class="rounded-(--radius-md) border border-(--border-default)
               bg-(--surface-raised) p-4 text-sm leading-relaxed text-(--text-primary)"
             i18n="@@vendor.products.unknown"
           >
             That product isn't linked to your vendor. Pick one from the Products menu.
           </p>
+        } @else if (ctx.product(); as product) {
+          <h2
+            class="font-display text-xl font-semibold text-(--text-primary)"
+            i18n="@@vendor.section.product"
+          >
+            {{ product.name }}
+          </h2>
+
+          <aec-vendor-product-nav [productName]="product.name" />
+
+          <router-outlet />
         } @else {
-          <div class="mt-4">
-            <aec-vendor-products-section
-              [products]="m.products"
-              [selectedSlug]="selectedSlug()"
-              [canEdit]="canEdit()"
-              [canEditTaxonomy]="canEditTaxonomy()"
-            />
-          </div>
+          <!-- Claimed vendor, empty catalog. Not an error: promote has simply not
+               landed a product against this vendor yet. -->
+          <p
+            class="rounded-(--radius-md) border border-(--border-default)
+              bg-(--surface-raised) p-4 text-sm leading-relaxed text-(--text-primary)"
+            i18n="@@vendor.products.empty"
+          >
+            No products are linked to your vendor yet.
+          </p>
         }
       </div>
     }
@@ -78,32 +78,35 @@ import { VendorPortalStore } from '../vendor-portal-store';
 })
 export class VendorProductsPage {
   private readonly store = inject(VendorPortalStore);
+  private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
 
   protected readonly me = this.store.me;
-  protected readonly canEdit = vendorCan(this.store, 'product.edit');
-  protected readonly canEditTaxonomy = vendorCan(this.store, 'product.taxonomy.edit');
+  protected readonly ctx = vendorProductContext();
 
-  /** The `:productSlug` segment, or `null` on the bare path. Read reactively:
-   *  picking a product is a same-route navigation, which changes params without
-   *  re-creating this component. */
-  private readonly routeSlug = toSignal(
-    this.route.paramMap.pipe(map((p) => p.get('productSlug'))),
-    { initialValue: this.route.snapshot.paramMap.get('productSlug') },
-  );
-
-  private readonly products = computed(() => this.me()?.products ?? []);
-
-  /** A URL that names a product this vendor does not own. */
-  protected readonly unknownProduct = computed(() => {
-    const wanted = this.routeSlug();
-    return wanted !== null && !this.products().some((p) => p.slug === wanted);
+  /** The bare `…/products` path, once the catalog is known. */
+  private readonly redirectTarget = computed(() => {
+    if (this.ctx.routeSlug() !== null) return null;
+    return this.ctx.product()?.slug ?? null;
   });
 
-  protected readonly selectedSlug = computed<string | null>(() => {
-    const wanted = this.routeSlug();
-    const products = this.products();
-    if (wanted !== null) return products.some((p) => p.slug === wanted) ? wanted : null;
-    return (products.find((p) => p.is_primary) ?? products[0])?.slug ?? null;
-  });
+  constructor() {
+    effect(() => {
+      const slug = this.redirectTarget();
+      if (!slug) return;
+      // `..` is the portal's section-parent — `/vendor/:vendorSlug` on the real
+      // surface, `/preview/vendor-dashboard` in the concept preview — so the one
+      // expression serves both, the way every relative link in this feature does.
+      //
+      // `untracked` so the navigation's own param change cannot re-enter this
+      // effect; `replaceUrl` so `…/products` is not a Back-button stop the user
+      // bounces off on the way back out of the portal.
+      untracked(() => {
+        void this.router.navigate(['..', 'products', slug], {
+          relativeTo: this.route,
+          replaceUrl: true,
+        });
+      });
+    });
+  }
 }

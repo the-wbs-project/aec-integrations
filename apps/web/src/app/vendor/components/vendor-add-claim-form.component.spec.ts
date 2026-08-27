@@ -70,6 +70,7 @@ function create(
 ): ComponentFixture<VendorAddClaimForm> {
   const fixture = TestBed.createComponent(VendorAddClaimForm);
   fixture.componentRef.setInput('integrationId', INTEGRATION.id);
+  fixture.componentRef.setInput('contextProductId', INTEGRATION.context_product.id);
   fixture.componentRef.setInput('otherProductName', INTEGRATION.other_product.name);
   fixture.componentRef.setInput('dataObjects', dataObjects);
   fixture.componentRef.setInput('versions', []);
@@ -191,6 +192,9 @@ describe('VendorAddClaimForm — the closed vocabulary', () => {
     expect(createClaim).toHaveBeenCalledWith(
       expect.objectContaining({
         integration_id: INTEGRATION.id,
+        // The frame the direction is relative to (AECI-666) — the listing's own
+        // endpoint, so an owns-both caller does not fall back to endpoint A.
+        context_product_id: INTEGRATION.context_product.id,
         data_object: 'documents',
         // Never `a_to_b` / `b_to_a`: the wire speaks the caller's frame.
         direction: 'inbound',

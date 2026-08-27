@@ -139,6 +139,7 @@ import {
     @if (canWrite()) {
       <aec-vendor-attestation-control
         [claim]="claim()"
+        [contextProductId]="contextProductId()"
         [versions]="versions()"
         (changed)="changed.emit($event)"
         (retracted)="retracted.emit($event)"
@@ -149,6 +150,11 @@ import {
 export class VendorClaimLane {
   readonly claim = input.required<VendorClaim>();
   readonly otherProductName = input.required<string>();
+  /** The `context_product.id` of the listing this lane belongs to (AECI-666),
+   *  passed to the attestation control so its write frames the echoed claim
+   *  against the endpoint the vendor is authoring from rather than the server's
+   *  endpoint-A fallback. */
+  readonly contextProductId = input.required<string>();
   readonly vendorName = input.required<string>();
   /** `false` for an unverified vendor: the lane still renders its real data, but
    *  the authoring control is withheld (`GET` is not Verified-gated; authoring

@@ -31,6 +31,9 @@ import { VendorAttestationControl } from './vendor-attestation-control';
 
 /** The `rfis` lane: affirmed, with a note AND an introduced-version stamp. */
 const STAMPED_CLAIM = VENDOR_INTEGRATIONS_FIXTURE.integrations[0].claims[1];
+/** The listing this control is filed under — sent as `context_product_id`
+ *  (AECI-666) so the echo comes back framed against the tab it was authored in. */
+const CONTEXT_PRODUCT_ID = VENDOR_INTEGRATIONS_FIXTURE.integrations[0].context_product.id;
 /** The AECi-seeded `models` lane: no position of the caller's at all. */
 const UNVOTED_CLAIM = VENDOR_INTEGRATIONS_FIXTURE.integrations[0].claims[0];
 /** The owns-both lane: one company, two slots, still one voter. */
@@ -73,6 +76,7 @@ function create(
 ): ComponentFixture<VendorAttestationControl> {
   const fixture = TestBed.createComponent(VendorAttestationControl);
   fixture.componentRef.setInput('claim', claim);
+  fixture.componentRef.setInput('contextProductId', CONTEXT_PRODUCT_ID);
   fixture.componentRef.setInput('versions', versions);
   fixture.detectChanges();
   return fixture;
@@ -129,12 +133,16 @@ describe('VendorAttestationControl — PUT replaces, it does not patch', () => {
 
     // Not `{ asserted: false }`. Every field, every time — anything less erases
     // what the vendor already recorded.
-    expect(upsertAttestation).toHaveBeenCalledWith(STAMPED_CLAIM.id, {
-      asserted: false,
-      note: 'Only for RFIs created after 2025.',
-      introduced_version_id: STAMPED_CLAIM.mine[0].introduced_version_id,
-      deprecated_version_id: null,
-    });
+    expect(upsertAttestation).toHaveBeenCalledWith(
+      STAMPED_CLAIM.id,
+      {
+        asserted: false,
+        note: 'Only for RFIs created after 2025.',
+        introduced_version_id: STAMPED_CLAIM.mine[0].introduced_version_id,
+        deprecated_version_id: null,
+      },
+      CONTEXT_PRODUCT_ID,
+    );
   });
 
   it('sends the whole position on Affirm too', async () => {
@@ -143,12 +151,16 @@ describe('VendorAttestationControl — PUT replaces, it does not patch', () => {
     button(fixture, 'Affirm').click();
     await flush();
 
-    expect(upsertAttestation).toHaveBeenCalledWith(STAMPED_CLAIM.id, {
-      asserted: true,
-      note: 'Only for RFIs created after 2025.',
-      introduced_version_id: STAMPED_CLAIM.mine[0].introduced_version_id,
-      deprecated_version_id: null,
-    });
+    expect(upsertAttestation).toHaveBeenCalledWith(
+      STAMPED_CLAIM.id,
+      {
+        asserted: true,
+        note: 'Only for RFIs created after 2025.',
+        introduced_version_id: STAMPED_CLAIM.mine[0].introduced_version_id,
+        deprecated_version_id: null,
+      },
+      CONTEXT_PRODUCT_ID,
+    );
   });
 
   it('sends an explicit null when the vendor clears the note', async () => {

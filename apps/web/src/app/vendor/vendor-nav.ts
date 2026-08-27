@@ -1,6 +1,13 @@
 /**
  * The vendor portal's information architecture as data — the single source of
- * truth for the dashboard side-nav.
+ * truth for the dashboard's nav rows.
+ *
+ * **Two rows since AECI-666**: {@link VENDOR_NAV_ITEMS} is the vendor-level row
+ * under the company name, and {@link VENDOR_PRODUCT_NAV_ITEMS} is the row that
+ * appears beneath it once a product is selected. They share the item classes
+ * below so the two read as one system rather than as a nav and an imitation of
+ * one; they do NOT share a list, because their paths resolve against different
+ * routes.
  *
  * Mirrors `admin/admin-nav.ts`. The paths are **relative**, deliberately: the
  * shell renders them with `routerLink` from a component whose `ActivatedRoute`
@@ -34,16 +41,43 @@ export interface VendorNavItem {
 }
 
 /**
- * The portal's five sections, in nav order. Adding a section is one entry here
- * plus its child route in `vendor.routes.ts` — the two files are read together
- * and nothing else lists the sections.
+ * The portal's five VENDOR-level sections, in nav order. Adding a section is one
+ * entry here plus its child route in `vendor.routes.ts` — the two files are read
+ * together and nothing else lists the sections.
+ *
+ * ── WHY INTEGRATIONS IS NOT HERE ANY MORE (AECI-666) ────────────────────────
+ * It moved down a level, to {@link VENDOR_PRODUCT_NAV_ITEMS}. An integration is
+ * a thing that happens *to a product*, and a vendor with a dozen products was
+ * reading one flat list to answer a per-product question. Its slot in the row is
+ * taken by Messages, which is the surface that genuinely is vendor-wide: claim
+ * approvals, seat changes and attestation nudges are addressed to the company,
+ * not to one of its products.
  */
 export const VENDOR_NAV_ITEMS: readonly VendorNavItem[] = [
   { path: 'overview', label: $localize`:@@vendor.nav.overview:Vendor Overview` },
   { path: 'profile', label: $localize`:@@vendor.nav.profile:Profile` },
   { path: 'products', label: $localize`:@@vendor.nav.products:Products`, hasProductsMenu: true },
-  { path: 'integrations', label: $localize`:@@vendor.nav.integrations:Integrations` },
+  { path: 'messages', label: $localize`:@@vendor.nav.messages:Messages` },
   { path: 'seats', label: $localize`:@@vendor.nav.seats:Seats` },
+];
+
+/**
+ * The PRODUCT-level sections (AECI-666) — a second row, rendered only once a
+ * product is selected, i.e. on `…/products/:productSlug/*`.
+ *
+ * Paths are relative to the product route, so the same two-file rule holds one
+ * level down: an entry here plus a child route under `products/:productSlug`.
+ *
+ * "Profile" and not "Product Profile": unlike the vendor row — whose Overview
+ * item names its scope because several overview-ish surfaces exist for one
+ * signed-in operator — this row sits directly beneath a heading that is the
+ * product's own name, and inside a nav labelled for that product. The scope is
+ * already said twice; saying it a third time is noise, not clarity.
+ */
+export const VENDOR_PRODUCT_NAV_ITEMS: readonly VendorNavItem[] = [
+  { path: 'profile', label: $localize`:@@vendor.productNav.profile:Profile` },
+  { path: 'taxonomy', label: $localize`:@@vendor.productNav.taxonomy:Taxonomy` },
+  { path: 'integrations', label: $localize`:@@vendor.productNav.integrations:Integrations` },
 ];
 
 /**

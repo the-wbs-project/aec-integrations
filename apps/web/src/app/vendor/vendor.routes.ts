@@ -24,11 +24,29 @@ import { vendorMeResolver } from './vendor-me.resolver';
  * ── WHY `products` IS TWO ENTRIES ────────────────────────────────────────────
  * A product picker that changes the URL needs a slug segment, but the section is
  * reachable from the nav (which has no product in hand), so the bare path has to
- * render too and pick a default. Angular has no optional path segment, so this is
- * two `Route`s onto one component. The cost is that stepping from the bare path
- * to a slugged one re-creates the component (different `routeConfig`, so the
- * default `shouldReuseRoute` says no) and re-fetches the public taxonomy once;
- * every subsequent product change reuses the same route and does not.
+ * resolve too. Angular has no optional path segment, so this is two `Route`s onto
+ * one component.
+ *
+ * Since AECI-666 the two entries do DIFFERENT jobs, and only the slugged one has
+ * children: the bare path exists solely to pick a default and redirect into the
+ * slugged one (`vendor-products-page.ts` explains why that redirect cannot be a
+ * `redirectTo`, and why it is not a guard either). The cost is unchanged —
+ * stepping from the bare path to a slugged one re-creates the component (a
+ * different `routeConfig`, so the default `shouldReuseRoute` says no) and
+ * re-fetches the public taxonomy once; every subsequent product change reuses the
+ * same route and does not.
+ *
+ * ── WHY INTEGRATIONS IS NOT A TOP-LEVEL SECTION ──────────────────────────────
+ * An integration is a thing that happens *to a product*, so it is filed under
+ * one: `…/products/:productSlug/integrations`. The API supports this by emitting
+ * one entry per owned endpoint, which means an integration whose two endpoints
+ * the vendor owns is listed under BOTH of them, framed each way. The read itself
+ * stays vendor-wide — one `GET /api/vendor/integrations`, one `integrations`
+ * cursor scope — because the AECI-627 freshness cursor must reuse its handler's
+ * scoping predicate; only the VIEW narrows.
+ *
+ * Its slot in the portal row went to `messages`, which is the surface that
+ * genuinely is vendor-wide.
  */
 export const VENDOR_SECTION_ROUTES: Routes = [
   { path: '', pathMatch: 'full', redirectTo: 'overview' },
@@ -47,15 +65,45 @@ export const VENDOR_SECTION_ROUTES: Routes = [
     loadComponent: () =>
       import('./sections/vendor-products-page').then((m) => m.VendorProductsPage),
   },
+  /**
+   * The product LAYOUT route (AECI-666). `VendorProductsPage` was a leaf; it is
+   * now a shell — heading, the product-level nav row, and an outlet — with the
+   * three product sections as its children, exactly the shape the portal itself
+   * has one level up.
+   *
+   * Its children are section routes, so a product is now a place you can be
+   * rather than a parameter on one page, and `…/products/revit/integrations` is
+   * linkable, bookmarkable and back-navigable like every other section.
+   */
   {
     path: 'products/:productSlug',
     loadComponent: () =>
       import('./sections/vendor-products-page').then((m) => m.VendorProductsPage),
+    children: [
+      { path: '', pathMatch: 'full', redirectTo: 'profile' },
+      {
+        path: 'profile',
+        loadComponent: () =>
+          import('./sections/vendor-product-profile-page').then((m) => m.VendorProductProfilePage),
+      },
+      {
+        path: 'taxonomy',
+        loadComponent: () =>
+          import('./sections/vendor-product-taxonomy-page').then(
+            (m) => m.VendorProductTaxonomyPage,
+          ),
+      },
+      {
+        path: 'integrations',
+        loadComponent: () =>
+          import('./sections/vendor-integrations-page').then((m) => m.VendorIntegrationsPage),
+      },
+    ],
   },
   {
-    path: 'integrations',
+    path: 'messages',
     loadComponent: () =>
-      import('./sections/vendor-integrations-page').then((m) => m.VendorIntegrationsPage),
+      import('./sections/vendor-messages-page').then((m) => m.VendorMessagesPage),
   },
   {
     path: 'seats',

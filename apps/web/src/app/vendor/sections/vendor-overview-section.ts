@@ -1,7 +1,6 @@
 import { Component, computed, inject } from '@angular/core';
 
 import { VendorPlanPanel } from '../components/vendor-plan-panel';
-import { VendorRequestStatus } from '../components/vendor-request-status';
 import { VendorPortalStore } from '../vendor-portal-store';
 
 /**
@@ -19,7 +18,7 @@ import { VendorPortalStore } from '../vendor-portal-store';
  */
 @Component({
   selector: 'aec-vendor-overview-section',
-  imports: [VendorPlanPanel, VendorRequestStatus],
+  imports: [VendorPlanPanel],
   template: `
     @if (me(); as m) {
       <div class="space-y-8">
@@ -76,18 +75,6 @@ import { VendorPortalStore } from '../vendor-portal-store';
             </dd>
           </div>
         </dl>
-
-        <div>
-          <h2
-            class="font-display text-xl font-semibold text-(--text-primary)"
-            i18n="@@vendor.section.requests"
-          >
-            Claim &amp; correction status
-          </h2>
-          <div class="mt-4">
-            <aec-vendor-request-status [requests]="m.requests" />
-          </div>
-        </div>
       </div>
     }
   `,

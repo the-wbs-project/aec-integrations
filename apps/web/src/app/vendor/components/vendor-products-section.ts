@@ -70,6 +70,7 @@ import { VendorProductForm } from './vendor-product-form';
               [taxonomy]="taxonomy()"
               [canEdit]="canEdit()"
               [canEditTaxonomy]="canEditTaxonomy()"
+              [section]="section()"
             />
           </div>
         }
@@ -97,6 +98,7 @@ import { VendorProductForm } from './vendor-product-form';
                   [taxonomy]="taxonomy()"
                   [canEdit]="canEdit()"
                   [canEditTaxonomy]="canEditTaxonomy()"
+                  [section]="section()"
                 />
               </div>
             </details>
@@ -121,6 +123,11 @@ export class VendorProductsSection {
    *  sees every product and every value, just not the controls to change them. */
   readonly canEdit = input<boolean>(true);
   readonly canEditTaxonomy = input<boolean>(true);
+
+  /** Which projection of `vendor-product-form.ts` to render — see its `section`
+   *  input. Passed straight through so the product row's Profile and Taxonomy
+   *  tabs can share this section without it knowing what a tab is. */
+  readonly section = input<'all' | 'profile' | 'taxonomy'>('all');
 
   protected readonly selectedProduct = computed(() => {
     const slug = this.selectedSlug();
