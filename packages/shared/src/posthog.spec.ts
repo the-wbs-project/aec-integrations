@@ -751,3 +751,137 @@ describe('createPosthogClient — isFeatureEnabled', () => {
     expect(warn).toHaveBeenCalledWith('isFeatureEnabled: evaluation failed', expect.any(Error));
   });
 });
+
+// ─── AECI-666: connection hygiene + batched log forwarding ───────────────────
+
+/**
+ * A `Response` whose stream reports cancellation — the observable for "the
+ * connection was released". An unread body keeps holding its connection, and
+ * enough of those get the runtime to cancel the response into a `fetch` promise
+ * that never settles (AECI-666). The Datadog sibling of this block lives in
+ * `datadog.spec.ts`; during the §3.1 dual-run BOTH transports fire from every
+ * call site, so a leak here costs the same budget twice.
+ */
+function trackedResponse(status: number, body = '{}'): { res: Response; drained: () => boolean } {
+  let cancelled = false;
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode(body));
+    },
+    cancel() {
+      cancelled = true;
+    },
+  });
+  return { res: new Response(stream, { status }), drained: () => cancelled };
+}
+
+describe('createPosthogClient — response bodies are always released', () => {
+  it('cancels the body of a successful logs POST', async () => {
+    const { res, drained } = trackedResponse(200);
+    fetchSpy.mockResolvedValue(res);
+    const { ctx, promises } = makeCtx();
+
+    client.logToPosthog(ctx, makeEnv(), makeRequest(), { message: 'hello' });
+    await Promise.all(promises);
+
+    expect(drained()).toBe(true);
+  });
+
+  it('cancels the body of a successful metrics POST', async () => {
+    const { res, drained } = trackedResponse(200);
+    fetchSpy.mockResolvedValue(res);
+    const { ctx, promises } = makeCtx();
+
+    client.submitCount(ctx, makeEnv(), makeRequest(), 'aeci.test.count', 1);
+    await Promise.all(promises);
+
+    expect(drained()).toBe(true);
+  });
+
+  it('consumes the body of a rejected intake POST (and still warns)', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    fetchSpy.mockResolvedValue(new Response('No token provided', { status: 401 }));
+    const { ctx, promises } = makeCtx();
+
+    client.logToPosthog(ctx, makeEnv(), makeRequest(), { message: 'hello' });
+    await Promise.all(promises);
+
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('intake rejected 401'),
+      expect.stringContaining('No token provided'),
+    );
+  });
+});
+
+describe('createPosthogClient — logBatchToPosthog', () => {
+  /* eslint-disable @typescript-eslint/no-explicit-any */
+  function logRecords(): any[] {
+    return (lastBody() as any).resourceLogs[0].scopeLogs[0].logRecords;
+  }
+  /* eslint-enable @typescript-eslint/no-explicit-any */
+
+  it('forwards N events in ONE request, not N', async () => {
+    const { ctx, promises } = makeCtx();
+    const events: PosthogLogEvent[] = Array.from({ length: 12 }, (_, i) => ({
+      message: `audit ${i}`,
+    }));
+
+    client.logBatchToPosthog(ctx, makeEnv(), makeRequest(), events);
+    await Promise.all(promises);
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(logRecords()).toHaveLength(12);
+  });
+
+  it('gives every record the same envelope logToPosthog would', async () => {
+    const { ctx, promises } = makeCtx();
+    const event: PosthogLogEvent = {
+      message: 'audit product.created',
+      level: 'info',
+      entity_id: 'p1',
+    };
+
+    client.logToPosthog(ctx, makeEnv(), makeRequest(), event);
+    await Promise.all(promises);
+    const single = logRecords()[0];
+
+    const batched = makeCtx();
+    client.logBatchToPosthog(batched.ctx, makeEnv(), makeRequest(), [event]);
+    await Promise.all(batched.promises);
+    const fromBatch = logRecords()[0];
+
+    // Timestamps are wall-clock, so compare everything else structurally.
+    const { timeUnixNano: _a, observedTimeUnixNano: _b, ...singleRest } = single;
+    const { timeUnixNano: _c, observedTimeUnixNano: _d, ...batchRest } = fromBatch;
+    expect(batchRest).toEqual(singleRest);
+    expect(batchRest.severityText).toBe('INFO');
+    expect(attributeMap(batchRest.attributes)).toMatchObject({ entity_id: 'p1' });
+  });
+
+  it('posts to the logs intake, not the metrics intake', async () => {
+    const { ctx, promises } = makeCtx();
+
+    client.logBatchToPosthog(ctx, makeEnv(), makeRequest(), [{ message: 'x' }]);
+    await Promise.all(promises);
+
+    expect(fetchSpy.mock.calls[0][0]).toBe('https://us.i.posthog.com/i/v1/logs');
+  });
+
+  it('never posts an empty batch', () => {
+    const { ctx } = makeCtx();
+
+    client.logBatchToPosthog(ctx, makeEnv(), makeRequest(), []);
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('no-ops without POSTHOG_PROJECT_KEY', () => {
+    const { ctx } = makeCtx();
+
+    client.logBatchToPosthog(ctx, makeEnv({ POSTHOG_PROJECT_KEY: undefined }), makeRequest(), [
+      { message: 'x' },
+    ]);
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
