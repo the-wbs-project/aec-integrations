@@ -132,7 +132,9 @@ test.describe('vendor portal products menu (preview)', () => {
     await expect(searchBox(page)).toHaveAttribute('aria-activedescendant', /.+/);
     await page.keyboard.press('Enter');
 
-    await expect(page).toHaveURL(new RegExp(`${PATH}/products/summit-warranty-tracker$`));
+    // The product route is a shell now (AECI-666): committing a product lands on
+    // `…/products/:slug`, which redirects to its default section, `…/profile`.
+    await expect(page).toHaveURL(new RegExp(`${PATH}/products/summit-warranty-tracker/profile$`));
     await expect(productsTrigger(page)).toHaveAttribute('aria-current', 'true');
     await expect(searchBox(page)).toHaveCount(0);
   });

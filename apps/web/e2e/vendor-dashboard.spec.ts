@@ -84,6 +84,27 @@ function section(page: Page, name: string) {
     .first();
 }
 
+/**
+ * Navigate to a product's Integrations section (AECI-666). Integrations is no
+ * longer a vendor-level tab — it lives under `…/products/:productSlug/integrations`,
+ * in the product's own nav row. Bare `…/products` redirects into the default
+ * product's shell (which carries the product nav), and `Integrations` is a link
+ * that now exists ONLY in that row, so a bare `getByRole('link', 'Integrations')`
+ * is unambiguous.
+ */
+async function gotoIntegrations(page: Page) {
+  await page.goto('/vendor');
+  await expect(page).toHaveURL(/\/vendor\/[a-z0-9-]+\/overview$/);
+  await page.goto(`${page.url().replace(/\/overview.*$/, '')}/products`);
+  // Bare `…/products` redirects into the default product's shell (`…/:slug/profile`).
+  // Wait for the SLUGGED url before clicking: the product nav's relative links only
+  // resolve to `…/:slug/integrations` from the slugged route, not the bare one.
+  await expect(page).toHaveURL(/\/products\/[a-z0-9-]+\/profile$/);
+  await page.getByRole('link', { name: 'Integrations', exact: true }).click();
+  await expect(page).toHaveURL(/\/products\/[a-z0-9-]+\/integrations$/);
+  await expect(page.locator('aec-vendor-integrations-section')).toBeAttached();
+}
+
 const ANNOUNCER = '[role="status"].sr-only';
 
 let sessionCookies: Awaited<ReturnType<typeof mintSessionCookies>> = null;
@@ -152,11 +173,7 @@ test.describe('vendor dashboard — authed /vendor (AECI-522)', () => {
     page,
   }) => {
     const capture = attachConsoleCapture(page);
-    await page.goto('/vendor');
-    await expect(page.locator('aec-vendor-dashboard-tabbed')).toBeAttached();
-
-    await section(page, 'Integrations').click();
-    await expect(page.locator('aec-vendor-integrations-section')).toBeAttached();
+    await gotoIntegrations(page);
     // Wait for the list itself, not just the section: the a11y contract under
     // test (the cards' labelled regions, the lanes' controls, the live region)
     // does not exist until `GET /api/vendor/integrations` lands.
@@ -188,9 +205,7 @@ test.describe('vendor dashboard — authed /vendor (AECI-522)', () => {
   test('affirming and clearing a claim round-trips through /api/vendor/claims', async ({
     page,
   }) => {
-    await page.goto('/vendor');
-    await section(page, 'Integrations').click();
-    await expect(page.locator('aec-vendor-integrations-section')).toBeAttached();
+    await gotoIntegrations(page);
 
     const lane = page.locator('[aec-vendor-claim-lane]').first();
     // Fixture-gated, like `phase2-a11y.spec.ts`: skip rather than fail when the
@@ -257,8 +272,10 @@ test.describe('vendor dashboard — authed /vendor (AECI-522)', () => {
     // The region is in the shell, so it survives every section navigation. A
     // region that lived in a section would be destroyed mid-announcement when
     // the outlet swapped — and a duplicate would appear if a section declared
-    // its own.
-    for (const name of ['Profile', 'Products', 'Integrations', 'Seats', 'Vendor Overview']) {
+    // its own. Integrations moved under a product (AECI-666), so it is no longer a
+    // portal section; Messages took its slot. The shell-level invariant this test
+    // guards is unchanged by that move.
+    for (const name of ['Profile', 'Products', 'Messages', 'Seats', 'Vendor Overview']) {
       await section(page, name).click();
       await expect(page.locator(ANNOUNCER)).toHaveCount(1);
     }
