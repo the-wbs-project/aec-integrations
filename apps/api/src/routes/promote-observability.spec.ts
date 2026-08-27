@@ -28,6 +28,7 @@ import {
 
 vi.mock('../datadog', () => ({
   logToDatadog: vi.fn(),
+  logBatchToDatadog: vi.fn(),
   submitCount: vi.fn(),
   submitDistribution: vi.fn(),
   submitGauge: vi.fn(),

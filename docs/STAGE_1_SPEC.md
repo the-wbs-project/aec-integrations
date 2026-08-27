@@ -1841,6 +1841,10 @@ Every `audit_log` and `workflow_transitions` entry is also forwarded to Datadog 
 
 **Implementation:** the `appendAuditLog()` helper writes to Supabase AND emits a Datadog log event with the same payload in one call. Failures to forward to Datadog are logged but do not fail the audit write — Supabase is the source of truth.
 
+**Batch the forwards when a single write produces many entries (AECI-666).** A promote commits one `audit_log` row per created/updated entity, and the post-commit tail used to issue one Datadog request *per row*, all dispatched simultaneously. A Worker invocation may hold only a bounded number of open connections, so a fat bundle exhausted that budget; the runtime then cancelled the stalled responses, and a cancelled `fetch` returns a promise that **never settles** — no resolve, no reject, so the transport's own `catch` never fired. The forwards were lost silently and the invocation was eventually killed as hung, taking the other post-commit hooks (Algolia, cache purge, IndexNow) with it.
+
+Use `logBatchToDatadog` (`@aeci/shared/datadog`) for any caller with N related entries: the v2 logs intake accepts an array, so N entries cost **one** request. Never loop `logToDatadog` over a collection. Every transport must also release its response body — see the `CLAUDE.md` constraint and `packages/shared/src/response-drain.ts`.
+
 **Log structure:**
 
 ```json

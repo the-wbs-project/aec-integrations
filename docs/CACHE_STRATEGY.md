@@ -153,6 +153,18 @@ Callers of `/admin/purge`:
 
 **(b) The promote ingest on the API Worker** — purges **directly** (no `/admin/purge` hop) after a promote commits, using the same shared transport and its **own** `CF_PURGE_API_TOKEN` + `CF_ZONE_ID`. This replaced the original api→web `WEB` service binding; see **ADR 0010** (`docs/adr/0010-promote-purges-cloudflare-directly.md`). The purge is best-effort, post-commit (`ctx.waitUntil`), and a graceful no-op when the API Worker's CF credentials are unset (local dev, PR previews). The entity/index/pair/taxonomy tags are derived by `cacheTagsForPromote` (`promote-cache-tags.ts`) and fired in one concurrent task. **Since AECI-563 / ADR 0021 this fires from the promote Workflow, not the request** (`dispatchPromoteHooks`, dispatched after the commit step resolves) — same transport, same tags, same best-effort semantics; only the invoking context changed, and because the hooks are dispatched *after* the step rather than inside it, a step replay cannot double-purge.
 
+> **AECI-666 — "best-effort" was silently droppable until 2026-08-27.** The promote's
+> post-commit hooks all fired at once and none of them released their `fetch` response
+> body, so a fat bundle exhausted the invocation's connection budget; the runtime
+> cancelled the stalled responses into promises that never settle, and the purge was
+> abandoned with **no log line anywhere** — not even the `aeci.cache.purge{outcome:cf_failed}`
+> count, because the transport's `catch` never fired. Bodies are now released
+> (`discardResponseBody`) and each hook runs behind a 20s watchdog that warns rather
+> than hanging the invocation. Practical consequence for anything promoted on or
+> before 2026-08-26: a stale edge cache may not have been purged and would only have
+> self-healed on TTL. If you are chasing stale content from that window, purge by tag
+> manually via `POST /admin/purge` rather than assuming the promote did it.
+
 The home page's `index:home` tag is the one deliberate exception: it is **not** in `cacheTagsForPromote`, because the home banner reads `home.*` `stats_cache` counts that the promote must **recompute first** (via `runHomeStats`). So the home refresh+purge is its own ordered post-commit task (`refreshHomeStatsAfterPromote` in `promote.ts`, AECI-305): recompute `stats_cache`, **then** purge `index:home`. Adding `index:home` to the concurrent set would let the purge race ahead of the recompute and re-cache stale HTML for another edge TTL. The `stats_cache` recompute runs in every environment; only the `index:home` purge is CF-credential-gated.
 
 Automated callers beyond promote (e.g. a Supabase webhook on row update) are Phase 4+. A Cloudflare Queue fronting the shared transport is the documented evolution once several cross-Worker producers or bulk-purge volume justify it (ADR 0010, Option C).

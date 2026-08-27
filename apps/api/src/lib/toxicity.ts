@@ -38,6 +38,7 @@
  * keeps review bodies inside the boundary.
  */
 
+import { discardResponseBody } from '@aeci/shared/response-drain';
 import { logToDatadog, submitCount, submitDistribution } from '../datadog';
 import type { Env } from '../env';
 
@@ -119,6 +120,7 @@ export async function scoreToxicity(c: ScoreContext, body: string): Promise<numb
     });
 
     if (!res.ok) {
+      discardResponseBody(res); // Unread body → held connection (AECI-666).
       warn(c, `Anthropic toxicity API returned ${res.status}`);
       emitToxicity(c, 'failed', Date.now() - started, 'http_error');
       return null;

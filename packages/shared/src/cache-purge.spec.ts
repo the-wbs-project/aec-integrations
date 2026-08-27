@@ -78,4 +78,33 @@ describe('callCloudflarePurge', () => {
   it('exposes the Pro-plan per-call tag ceiling', () => {
     expect(CF_PURGE_MAX_TAGS).toBe(30);
   });
+
+  it('releases the response body on success (AECI-666)', async () => {
+    const { res, drained } = trackedResponse(200);
+    const fetchMock = vi.fn().mockResolvedValue(res);
+
+    const outcome = await callCloudflarePurge(fetchMock as unknown as typeof fetch, CREDS, ['t']);
+
+    expect(outcome).toEqual({ ok: true, status: 200 });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(drained()).toBe(true);
+  });
 });
+
+/**
+ * A `Response` whose stream reports cancellation. An unread body keeps holding
+ * its connection open, and enough of those get the runtime to cancel the
+ * response into a `fetch` promise that never settles (AECI-666).
+ */
+function trackedResponse(status: number): { res: Response; drained: () => boolean } {
+  let cancelled = false;
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode('{}'));
+    },
+    cancel() {
+      cancelled = true;
+    },
+  });
+  return { res: new Response(stream, { status }), drained: () => cancelled };
+}

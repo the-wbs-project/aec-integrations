@@ -588,6 +588,18 @@ This is promote-specific — the public read endpoints stay silent on 4xx to avo
 log noise. So "look in Datadog" is the authoritative way to see why a promote was
 rejected; you don't need to plumb the response body anywhere else.
 
+> **This invariant did not hold before AECI-666.** The post-commit tail issued one
+> Datadog request per `audit_log` row, all at once, which exhausted the
+> invocation's connection budget. The runtime cancelled the stalled responses into
+> `fetch` promises that never settle, so forwards were dropped with no error and no
+> warning anywhere — the failure mode this section's promise is specifically meant
+> to rule out. The audit forwards are now a single batched request, every transport
+> releases its response body, and a hook that stays unsettled for 20s is abandoned
+> with a `console.warn` visible in Cloudflare Workers Observability rather than
+> hanging the invocation. If you are diagnosing a promote from before that fix
+> landed, treat "no Datadog record" as inconclusive, not as "it didn't happen" —
+> the `promote_jobs` ledger in D1 is the authoritative record of what committed.
+
 ### 6.4 Partial promotes (`skipped[]`) are logged too
 
 A `complete` job with a non-empty `result.skipped[]` (§4) is a **partial** promote —

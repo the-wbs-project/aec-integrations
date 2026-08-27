@@ -18,6 +18,8 @@
  * mock without monkey-patching the global.
  */
 
+import { discardResponseBody } from '@aeci/shared/response-drain';
+
 /** IndexNow aggregator endpoint — fans out to all participating engines. */
 export const INDEXNOW_ENDPOINT = 'https://api.indexnow.org/indexnow';
 
@@ -77,7 +79,11 @@ export async function callIndexNow(
     });
     // IndexNow returns 200 (accepted) or 202 (received, pending validation) on
     // success — both are `res.ok`.
-    if (res.ok) return { ok: true, status: res.status };
+    if (res.ok) {
+      // Success carries nothing we read; release the connection (AECI-666).
+      discardResponseBody(res);
+      return { ok: true, status: res.status };
+    }
     let message = res.statusText || 'indexnow_failed';
     try {
       const body = (await res.text()).trim();

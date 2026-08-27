@@ -76,11 +76,7 @@ import {
   type UsefulnessGroup,
 } from '@aeci/shared';
 import { type AlgoliaEnv } from '@aeci/shared/algolia';
-import {
-  forwardAuditLog,
-  type AuditLogEntry,
-  type AuditLogForwarder,
-} from '@aeci/shared/audit-log';
+import { type AuditLogEntry } from '@aeci/shared/audit-log';
 import { disambiguateSlug, SlugReservedError, slugify } from '@aeci/shared/slug';
 import { eq, inArray, sql, type Table } from 'drizzle-orm';
 import { type SQLiteColumn } from 'drizzle-orm/sqlite-core';
@@ -105,7 +101,13 @@ import {
   taxonomyTrades,
   vendors,
 } from '../db/schema';
-import { logToDatadog, submitCount, submitDistribution } from '../datadog';
+import {
+  logBatchToDatadog,
+  logToDatadog,
+  submitCount,
+  submitDistribution,
+  type DdLogEvent,
+} from '../datadog';
 import type { Env } from '../env';
 import { ApiError } from '../errors';
 import { syncPromoteTargets } from '../lib/algolia-sync';
@@ -283,18 +285,77 @@ function integrationEditableData(intg: PromoteIntegration): Record<string, unkno
   });
 }
 
-function makeForwarder(rc: PromoteRunCtx): AuditLogForwarder | undefined {
-  if (!rc.env.DD_API_KEY) return undefined;
-  return (entry) => {
-    logToDatadog(rc, rc.env, rc.request, {
-      level: 'info',
-      message: `audit ${entry.action} ${entry.entityId ?? ''}`.trim(),
-      action: entry.action,
-      entity_type: entry.entityType ?? undefined,
-      entity_id: entry.entityId ?? undefined,
-      source: 'review-app-promote',
-    });
+/**
+ * The §26.5 Datadog envelope for one `audit_log` row. Split out from the old
+ * `AuditLogForwarder` closure so the whole set can be posted in ONE request —
+ * see the `logBatchToDatadog` call in {@link dispatchPromoteHooks}.
+ */
+function auditLogEvent(entry: Omit<AuditLogEntry, 'metadata'>): DdLogEvent {
+  return {
+    level: 'info',
+    message: `audit ${entry.action} ${entry.entityId ?? ''}`.trim(),
+    action: entry.action,
+    entity_type: entry.entityType ?? undefined,
+    entity_id: entry.entityId ?? undefined,
+    source: 'review-app-promote',
   };
+}
+
+/**
+ * Ceiling on how long a post-commit hook may stay unsettled before this gives up
+ * on it (AECI-666).
+ *
+ * Not a request timeout — the hooks are already fire-and-forget and nothing is
+ * waiting on them. It exists because a `fetch` the runtime cancels for holding a
+ * connection too long returns a promise that **never settles at all**: no
+ * resolve, no reject, so the transport's own `catch` cannot see it. Left
+ * unguarded, that promise sits in `waitUntil` until the runtime kills the whole
+ * invocation as hung, taking every *other* in-flight hook with it. Losing one
+ * hook is survivable; losing the invocation is what turned this into a silent
+ * outage across ~8% of production promotes.
+ *
+ * 20s, not 30s: `waitUntil` is documented to extend execution for *up to* 30s
+ * after the response, so a 30s watchdog races the platform tearing the
+ * invocation down and the warning — the whole point — might never be emitted.
+ * 20s is ~20x the slowest healthy hook (a few D1 reads plus 1-3 Algolia batch
+ * calls) and comfortably inside the budget.
+ *
+ * Note the watchdog also suppresses the hang *detector* for its whole duration:
+ * a pending timer means the event loop is not empty, which is the condition the
+ * runtime kills on. So the invocation ends cleanly on the timeout path rather
+ * than being cancelled part-way through the other hooks.
+ */
+const HOOK_SETTLE_TIMEOUT_MS = 20_000;
+
+/**
+ * Hand `task` to `waitUntil` behind a watchdog: whichever way it ends, the
+ * promise `waitUntil` sees always settles.
+ *
+ * The timeout branch is the whole point — it converts a wedged transport from an
+ * invocation-killing hang into one `console.warn` line in Workers Observability,
+ * which is the signal that was missing while this failure mode ran undetected.
+ */
+function dispatchHook(rc: PromoteRunCtx, name: string, task: Promise<unknown>): void {
+  rc.waitUntil(
+    new Promise<void>((resolve) => {
+      const timer = setTimeout(() => {
+        console.warn(
+          `promote hook "${name}" did not settle within ${HOOK_SETTLE_TIMEOUT_MS}ms — abandoning it`,
+        );
+        resolve();
+      }, HOOK_SETTLE_TIMEOUT_MS);
+      task
+        .catch((error: unknown) => {
+          // The transports swallow their own failures, so reaching here means an
+          // unexpected throw. Never let it become an unhandled rejection.
+          console.warn(`promote hook "${name}" threw`, error);
+        })
+        .finally(() => {
+          clearTimeout(timer);
+          resolve();
+        });
+    }),
+  );
 }
 
 const AUDIT_META = { source: 'review-app-promote' } as const;
@@ -1987,18 +2048,17 @@ export function dispatchPromoteHooks(
   const refreshHomeStats = deps.refreshHomeStats ?? defaultHomeStatsRefresh;
   const { response, removedTradeSlugs, auditEntries, staleSupabaseIds } = result;
 
-  // Best-effort §26.5 audit forwards AFTER the commit. Only scheduled when
-  // Datadog is configured — the forwarder is a no-op otherwise, so there is
-  // nothing to await.
-  const forward = makeForwarder(rc);
-  if (forward && auditEntries.length) {
-    rc.waitUntil(Promise.all(auditEntries.map((entry) => forwardAuditLog(entry, forward))));
-  }
+  // Best-effort §26.5 audit forwards AFTER the commit, as ONE request carrying
+  // every entry (AECI-666). This used to loop `logToDatadog` per entry, so a fat
+  // bundle opened a dozen-plus simultaneous connections from a single invocation
+  // — on its own enough to exhaust the connection budget and start losing the
+  // other hooks below. `logBatchToDatadog` no-ops without `DD_API_KEY`.
+  logBatchToDatadog(rc, rc.env, rc.request, auditEntries.map(auditLogEvent));
 
   // AECI-105: purge the edge-cache tags this promote invalidated. Best-effort,
   // post-commit; no-ops without CF creds.
   if (rc.env.CF_PURGE_API_TOKEN && rc.env.CF_ZONE_ID) {
-    rc.waitUntil(purgeAfterPromote(rc, response, removedTradeSlugs));
+    dispatchHook(rc, 'cache-purge', purgeAfterPromote(rc, response, removedTradeSlugs));
   }
 
   // AECI-305: refresh the `home.*` `stats_cache` keys the home page reads, then
@@ -2008,13 +2068,13 @@ export function dispatchPromoteHooks(
   // all-skipped promote changed nothing); best-effort, post-commit — the seam
   // never throws and self-gates the purge on CF creds.
   if (result.wrote) {
-    rc.waitUntil(refreshHomeStats(rc));
+    dispatchHook(rc, 'home-stats', refreshHomeStats(rc));
   }
 
   // AECI-139: push the promoted records to Algolia immediately (independent
   // best-effort task). No-ops without the Algolia secrets.
   if (rc.env.ALGOLIA_APP_ID && rc.env.ALGOLIA_ADMIN_KEY) {
-    rc.waitUntil(syncAlgolia(rc, response));
+    dispatchHook(rc, 'algolia-sync', syncAlgolia(rc, response));
   }
 
   // AECI-546: resolve the publication floor for any touched trade ONCE, shared
@@ -2035,7 +2095,7 @@ export function dispatchPromoteHooks(
   // (alongside `ALLOW_INDEXING=true`): pinging IndexNow for a noindex'd site is
   // a correctness bug, so the secret's absence is the gate.
   if (rc.env.INDEXNOW_KEY && rc.env.PUBLIC_SITE_URL) {
-    rc.waitUntil(notifyIndexNow(rc, response, tradeUrls));
+    dispatchHook(rc, 'indexnow', notifyIndexNow(rc, response, tradeUrls));
   }
 
   // AECI-263: best-effort Google Indexing API ping for the SAME affected URLs
@@ -2048,7 +2108,7 @@ export function dispatchPromoteHooks(
     rc.env.GOOGLE_INDEXING_SA_PRIVATE_KEY &&
     rc.env.PUBLIC_SITE_URL
   ) {
-    rc.waitUntil(notifyGoogleIndexing(rc, response, tradeUrls));
+    dispatchHook(rc, 'google-indexing', notifyGoogleIndexing(rc, response, tradeUrls));
   }
 
   // Surface any `skipped[]` entries (§4) in Datadog: a completed job with skips is

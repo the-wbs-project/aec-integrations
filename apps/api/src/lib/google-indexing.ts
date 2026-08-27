@@ -23,6 +23,8 @@
  * mock without monkey-patching the global.
  */
 
+import { mapWithConcurrency, WORKER_CONNECTION_LIMIT } from '@aeci/shared/concurrency';
+import { discardResponseBody } from '@aeci/shared/response-drain';
 import { SignJWT, importPKCS8 } from 'jose';
 
 /** Google OAuth2 token endpoint — exchanges the signed JWT for an access token. */
@@ -39,6 +41,14 @@ export const GOOGLE_INDEXING_SCOPE = 'https://www.googleapis.com/auth/indexing';
  * approach this — the slice is a guard, never a real truncation.
  */
 export const GOOGLE_INDEXING_MAX_URLS = 100;
+
+/**
+ * Publish requests in flight at once (AECI-666) — the Cloudflare per-invocation
+ * connection limit, so anything above it is queued by the runtime anyway. Keeps
+ * the pipe full without parking the whole URL list on the invocation's
+ * connection budget alongside the other post-commit hooks.
+ */
+export const GOOGLE_INDEXING_CONCURRENCY = WORKER_CONNECTION_LIMIT;
 
 export type GoogleServiceAccount = {
   /** Service-account email (`client_email` in the SA JSON) — the JWT `iss`. */
@@ -126,17 +136,32 @@ export async function callGoogleIndexing(
 
   // 2. Publish each URL independently. A per-URL non-2xx (or a network rejection)
   //    counts as `failed` but never aborts the rest or throws.
-  const results = await Promise.allSettled(
-    urlList.slice(0, GOOGLE_INDEXING_MAX_URLS).map((url) =>
-      fetchImpl(publishEndpoint, {
-        method: 'POST',
-        headers: {
-          authorization: `Bearer ${accessToken}`,
-          'content-type': 'application/json',
-        },
-        body: JSON.stringify({ url, type: 'URL_UPDATED' }),
-      }).then((res) => res.ok),
-    ),
+  //
+  //    Published in bounded waves rather than all at once (AECI-666): the API is
+  //    one-notification-per-URL with no batch endpoint, so this is the only hook
+  //    whose request count scales with the payload. A single `Promise.allSettled`
+  //    over the whole list would open up to `GOOGLE_INDEXING_MAX_URLS` (100)
+  //    connections from one invocation, which on its own can exhaust the
+  //    invocation's connection budget and get responses cancelled into `fetch`
+  //    promises that never settle.
+  const publish = (url: string): Promise<boolean> =>
+    fetchImpl(publishEndpoint, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${accessToken}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ url, type: 'URL_UPDATED' }),
+    }).then((res) => {
+      // Neither path reads the body — release it or the connection stays held.
+      discardResponseBody(res);
+      return res.ok;
+    });
+
+  const results = await mapWithConcurrency(
+    urlList.slice(0, GOOGLE_INDEXING_MAX_URLS),
+    GOOGLE_INDEXING_CONCURRENCY,
+    publish,
   );
 
   let submitted = 0;
