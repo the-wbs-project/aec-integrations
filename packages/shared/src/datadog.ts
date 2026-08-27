@@ -26,6 +26,8 @@
  * vocabulary as the logs `ddtags` string. See docs/OBSERVABILITY.md §14.
  */
 
+import { discardResponseBody } from './response-drain';
+
 export type DdLogLevel = 'debug' | 'info' | 'warn' | 'error';
 
 export type DdLogEvent = {
@@ -63,6 +65,12 @@ type WaitUntilContext = { waitUntil(promise: Promise<unknown>): void };
 export type DatadogClient = {
   hostnameFromRequest(request: Request): string;
   logToDatadog(ctx: WaitUntilContext, env: DatadogEnv, request: Request, event: DdLogEvent): void;
+  logBatchToDatadog(
+    ctx: WaitUntilContext,
+    env: DatadogEnv,
+    request: Request,
+    events: DdLogEvent[],
+  ): void;
   submitDistribution(
     ctx: WaitUntilContext,
     env: DatadogEnv,
@@ -145,6 +153,13 @@ export function createDatadogClient(config: DatadogClientConfig): DatadogClient 
    *     a rejected key dropped every log/metric with no indication at all. Without
    *     the `res.ok` check "the secret is set but nothing reaches Datadog" is
    *     undiagnosable.
+   *
+   * Every path releases the response body (`discardResponseBody`). The success
+   * path has nothing to read, but an unread body holds its connection open, and
+   * a Worker invocation that parks too many of those gets its stalled responses
+   * cancelled — into `fetch` promises that never settle (AECI-666). Since this
+   * transport fires once per log line and once per metric point, it is the
+   * highest-volume `fetch` caller in either Worker and the first to hit it.
    */
   function postToIntake(
     ctx: WaitUntilContext,
@@ -164,15 +179,20 @@ export function createDatadogClient(config: DatadogClientConfig): DatadogClient 
             },
             body: JSON.stringify(payload),
           });
-          if (!res.ok) {
-            let snippet = '';
-            try {
-              snippet = (await res.text()).slice(0, 512);
-            } catch {
-              // Body already consumed / unreadable — the status alone still names it.
-            }
-            console.warn(`${label}: intake rejected ${res.status}`, snippet);
+          if (res.ok) {
+            // Nothing to read on success — but an unread body keeps holding its
+            // connection, and enough of those deadlock the invocation (AECI-666).
+            discardResponseBody(res);
+            return;
           }
+          let snippet = '';
+          try {
+            snippet = (await res.text()).slice(0, 512);
+          } catch {
+            // Body already consumed / unreadable — the status alone still names it.
+            discardResponseBody(res);
+          }
+          console.warn(`${label}: intake rejected ${res.status}`, snippet);
         } catch (error) {
           // Swallow — observability MUST NOT break the request path.
           console.warn(`${label}: forward failed`, error);
@@ -210,6 +230,54 @@ export function createDatadogClient(config: DatadogClientConfig): DatadogClient 
     const url = `https://http-intake.logs.${site}/api/v2/logs`;
 
     postToIntake(ctx, apiKey, url, payload, 'logToDatadog');
+  }
+
+  /**
+   * Forward N log events in ONE request (AECI-666).
+   *
+   * The v2 logs intake accepts an array, so a caller with a batch of related
+   * lines — the promote's §26.5 audit forwards being the motivating case, one
+   * entry per created/updated row — must not loop `logToDatadog`. That issued
+   * one `fetch` per entry, all dispatched simultaneously into `waitUntil`, and
+   * a fat promote bundle was enough on its own to exhaust the invocation's
+   * connection budget and start losing hooks silently.
+   *
+   * Same envelope per event as {@link logToDatadog}, same swallow-and-warn
+   * failure handling, and a no-op on an empty array (never post `[]`).
+   */
+  function logBatchToDatadog(
+    ctx: WaitUntilContext,
+    env: DatadogEnv,
+    request: Request,
+    events: DdLogEvent[],
+  ): void {
+    const apiKey = env.DD_API_KEY;
+    if (!apiKey || events.length === 0) return;
+
+    const hostname = hostnameFromRequest(request);
+    const ddEnv = env.ENV ?? 'development';
+    const ddtags = `env:${ddEnv},app:${APP},worker:${worker},locale:${LOCALE}`;
+    const payload = events.map((event) => {
+      const { message, level, ...rest } = event;
+      return {
+        ...rest,
+        message,
+        status: level ?? 'info',
+        service,
+        hostname,
+        ddsource: ddSource,
+        ddtags,
+      };
+    });
+
+    const site = env.DD_SITE || DEFAULT_SITE;
+    postToIntake(
+      ctx,
+      apiKey,
+      `https://http-intake.logs.${site}/api/v2/logs`,
+      payload,
+      'logBatchToDatadog',
+    );
   }
 
   /**
@@ -307,5 +375,12 @@ export function createDatadogClient(config: DatadogClientConfig): DatadogClient 
     postMetric(ctx, apiKey, url, payload);
   }
 
-  return { hostnameFromRequest, logToDatadog, submitDistribution, submitCount, submitGauge };
+  return {
+    hostnameFromRequest,
+    logToDatadog,
+    logBatchToDatadog,
+    submitDistribution,
+    submitCount,
+    submitGauge,
+  };
 }

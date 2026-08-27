@@ -12,14 +12,14 @@
  * is read or written; and a miss is a **404, not a 403**.
  */
 
-import { forwardAuditLog, type AuditLogForwarder } from '@aeci/shared/audit-log';
+import { type AuditLogEntry } from '@aeci/shared/audit-log';
 import { and, eq, inArray, or, type SQL, type SQLWrapper } from 'drizzle-orm';
 import type { Context } from 'hono';
 import type { ZodType } from 'zod';
 
 import type { Db } from '../db/client';
 import { productVendors, products, vendorRequests, vendors } from '../db/schema';
-import { logToPosthog } from '../posthog';
+import { logBatchToPosthog, logToPosthog, type PosthogLogEvent } from '../posthog';
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import type { AuthzVariables } from '../lib/authz';
@@ -47,17 +47,19 @@ export function sessionVendorId(c: VendorContext): string {
   return vendorId;
 }
 
-export function makeForwarder(c: VendorContext): AuditLogForwarder | undefined {
-  if (!c.env.DD_API_KEY && !c.env.POSTHOG_PROJECT_KEY) return undefined;
-  return (entry) => {
-    logToPosthog(c.executionCtx, c.env, c.req.raw, {
-      level: 'info',
-      message: `audit ${entry.action} ${entry.entityId ?? ''}`.trim(),
-      action: entry.action,
-      entity_type: entry.entityType ?? undefined,
-      entity_id: entry.entityId ?? undefined,
-      source: AUDIT_SOURCE,
-    });
+/**
+ * The §26.5 log envelope for one vendor-portal `audit_log` row. A pure mapper
+ * rather than the old `AuditLogForwarder` closure so a write's whole entry set
+ * can be posted in ONE request per vendor — see {@link afterVendorWrite}.
+ */
+export function vendorAuditLogEvent(entry: Omit<AuditLogEntry, 'metadata'>): PosthogLogEvent {
+  return {
+    level: 'info',
+    message: `audit ${entry.action} ${entry.entityId ?? ''}`.trim(),
+    action: entry.action,
+    entity_type: entry.entityType ?? undefined,
+    entity_id: entry.entityId ?? undefined,
+    source: AUDIT_SOURCE,
   };
 }
 
@@ -103,15 +105,19 @@ export async function purgeTags(c: VendorContext, tags: readonly string[]): Prom
 export function afterVendorWrite(
   c: VendorContext,
   tags: readonly string[],
-  entries:
-    | Parameters<typeof forwardAuditLog>[0]
-    | ReadonlyArray<Parameters<typeof forwardAuditLog>[0]>,
+  entries: AuditLogEntry | readonly AuditLogEntry[],
 ): void {
-  const list = Array.isArray(entries) ? entries : [entries];
-  const forwarder = makeForwarder(c);
-  c.executionCtx.waitUntil(
-    Promise.all([purgeTags(c, tags), ...list.map((entry) => forwardAuditLog(entry, forwarder))]),
-  );
+  const list = Array.isArray(entries) ? entries : [entries as AuditLogEntry];
+  // ONE request per vendor for the whole entry set, not one per entry
+  // (AECI-666). This used to be `Promise.all([purge, ...list.map(forward)])`,
+  // and since the §3.1 dual-run fires both legs from the same call site, a claim
+  // create — `claim.created` plus one `attestation.created` per owned slot —
+  // opened 2N simultaneous connections *alongside* the queue send in the same
+  // array. Past the per-invocation connection limit the runtime cancels the
+  // stalled responses into `fetch` promises that never settle, so the forwards
+  // are lost with no error at all. Each leg self-gates on its own key.
+  logBatchToPosthog(c.executionCtx, c.env, c.req.raw, list.map(vendorAuditLogEvent));
+  c.executionCtx.waitUntil(purgeTags(c, tags));
 }
 
 // ─── Scoping predicates shared by a handler and its freshness cursor ─────────

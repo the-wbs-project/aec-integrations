@@ -171,7 +171,7 @@ Callers of `/admin/purge`:
 - CI (`promote-to-prod.yml` purges `taxonomy` + `route:browse` after the reference-data seed) — inherits the native backend automatically (it only checks the HTTP status)
 - Future admin tooling (Phase 6) — direct call from admin Workers, not n8n
 
-**(b) `POST /api/promote` + review moderation on the API Worker** — since WC-5, these **enqueue** onto `aeci-cache-purge-{env}` (producer binding `CACHE_PURGE_QUEUE`) after the write commits — for promote, from `dispatchPromoteHooks` *after* the Workflow commit step resolves rather than from the request (AECI-563 / ADR 0021), so a step replay cannot double-enqueue; the SSR consumer issues the `ctx.cache.purge()`. Best-effort, post-commit (`ctx.waitUntil`), a graceful no-op when the queue binding is unset (local dev, PR previews), and never fails the committed write (a `queue.send` rejection is logged and swallowed). The promote's entity/index/pair/taxonomy tags are derived by `cacheTagsForPromote` (`promote-cache-tags.ts`); review moderation enqueues `product:{slug}`; the **vendor-claim grant** (`PATCH /api/admin/claims/:id`, AECI-519) enqueues the vendor **and its products** — `{ tags: ['vendor:{slug}', 'product:{slug}'…, 'index:products'], source: 'moderation' }` — because it flips `vendors.verified` (unlike plain request-moderation, which purges nothing). One message per ≤1000-tag batch (`CACHE_PURGE_QUEUE_MAX_TAGS`, vs. the HTTP transport's 30). This supersedes the ADR-0010 direct HTTP purge (which is inert against Workers Cache); the message is async, so there is still no api→web service binding.
+**(b) `POST /api/promote` + review moderation on the API Worker** — since WC-5, these **enqueue** onto `aeci-cache-purge-{env}` (producer binding `CACHE_PURGE_QUEUE`) after the write commits — for promote, from `dispatchPromoteHooks` *after* the Workflow commit step resolves rather than from the request (AECI-563 / ADR 0021), so a step replay cannot double-enqueue; the SSR consumer issues the `ctx.cache.purge()`. Best-effort, post-commit (`ctx.waitUntil`), a graceful no-op when the queue binding is unset (local dev, PR previews), and never fails the committed write (a `queue.send` rejection is logged and swallowed). The promote's entity/index/pair/taxonomy tags are derived by `cacheTagsForPromote` (`promote-cache-tags.ts`); review moderation enqueues `product:{slug}`; the **vendor-claim grant** (`PATCH /api/admin/claims/:id`, AECI-519) enqueues the vendor **and its products** — `{ tags: ['vendor:{slug}', 'product:{slug}'…, 'index:products'], source: 'moderation' }` — because it flips `vendors.verified` (unlike plain request-moderation, which purges nothing). One message per ≤1000-tag batch (`CACHE_PURGE_QUEUE_MAX_TAGS`, vs. the HTTP transport's 30), and every batch goes in **one `queue.sendBatch()`** rather than a concurrent `send()` per batch — a Queue producer call counts against the same per-invocation connection budget as `fetch` (AECI-666 / ADR 0020 §3). This supersedes the ADR-0010 direct HTTP purge (which is inert against Workers Cache); the message is async, so there is still no api→web service binding.
 
 **(b1) entitlement set / clear (Stage 2 paid tiers, AECI-532)** — `PATCH
 /api/admin/vendors/:id/entitlement` enqueues **the same tag set as the claim grant
@@ -279,23 +279,40 @@ The home page's `index:home` tag is the one deliberate exception: it is **not** 
 
 **(c) datatool bulk purge on the datatool Worker** — after a copy/seed/reindex, `apps/datatool` (a third Worker; `apps/datatool/src/cache-purge.ts`) enqueues a single `{ purgeEverything: true, source: 'datatool' }` `CachePurgeMessage` onto the **target tier's** `aeci-cache-purge-{env}` queue (per-tier producer bindings `CACHE_PURGE_QUEUE_{STAGING,DEMO,PRODUCTION}` — it binds all three at once since it has no wrangler `env.*` blocks, and `targets.ts` selects one per request). The target tier's own SSR consumer evicts its whole cache. `purgeEverything` — not a tag list — because a full clone/seed invalidates everything and it avoids a tag-coverage gap. Best-effort / graceful no-op when the tier has no queue (preview / local), and never fails the D1 write. **WC-7 ([AECI-321](https://linear.app/aec-integrations/issue/AECI-321)) landed** this, replacing the datatool's old `BROAD_CACHE_TAGS` HTTP `callCloudflarePurge`; under per-Worker caches a purge no longer bleeds across tiers.
 
+> **AECI-666 — "best-effort" was silently *droppable* until 2026-08-27.** The promote's
+> post-commit hooks all fired at once and none of them released its `fetch` response
+> body, so a fat bundle exhausted the invocation's connection budget; the runtime
+> cancelled the stalled responses into promises that never settle, and the purge was
+> abandoned with **no log line anywhere** — not even the
+> `aeci.cache.purge{outcome:*}` count, because that is emitted by the SSR *consumer*
+> and the message never reached the queue, while the producer's own
+> `cache_purge_enqueue_failed` warn never fired either (the `catch` cannot see a
+> promise that never settles). Bodies are now released (`discardResponseBody`), the
+> enqueue is one `sendBatch()`, and each hook runs behind a 20s watchdog that warns
+> rather than hanging the invocation. **Practical consequence for anything promoted
+> on or before 2026-08-26:** a stale edge cache may not have been purged and would
+> only have self-healed on TTL. If you are chasing stale content from that window,
+> purge by tag manually via `POST /admin/purge` rather than assuming the promote did
+> it.
+
 Automated callers beyond promote/moderation (e.g. a Supabase webhook on row update) are Phase 4+. The Cloudflare Queue fronting cross-Worker purge — the "Option C" ADR 0010 deferred — **landed in WC-5**.
 
 Implementation of the endpoint shape, rate-limit handling, and telemetry wiring landed in [AECI-56](https://linear.app/aec-integrations/issue/AECI-56) (Phase 2.10); the promote→purge wiring in [AECI-105](https://linear.app/aec-integrations/issue/AECI-105); the cross-Worker queue purge in [AECI-319](https://linear.app/aec-integrations/issue/AECI-319) (WC-5).
 
 **Cloudflare API token scoping:** every purge surface now presents **no** CF token — promote/moderation go through the queue, `/admin/purge` uses native `ctx.cache.purge()`, and the `retract-product` CLI prints the `POST /admin/purge` command for an operator to run. The zone `Zone.Cache Purge` token `CF_PURGE_API_TOKEN` was retired on both Workers in WC-10 ([AECI-324](https://linear.app/aec-integrations/issue/AECI-324)); `CF_ZONE_ID` is retained solely for the AECI-262 WAF firewall-event poll.
 
-### 5a. Provisioning (how the three secrets get onto the Workers)
+### 5a. Provisioning (how the purge secrets get onto the Workers)
 
-Purge needs three values, and *all three* are pushed by CI on every deploy/promote (`deploy.yml` → staging, `promote-to-demo.yml` → demo, `promote-to-prod.yml` → production). Set the GitHub Actions secret; the next deploy wires the Worker.
+Purge needs two values, and both are pushed by CI on every deploy/promote (`deploy.yml` → staging, `promote-to-demo.yml` → demo, `promote-to-prod.yml` → production). Set the GitHub Actions secret; the next deploy wires the Worker.
 
 | Secret | Where it lands | What it does | Absent ⇒ |
 | --- | --- | --- | --- |
 | `ADMIN_PURGE_TOKEN` | web Worker | bearer the **caller** of `POST /admin/purge` presents | endpoint returns **401** for every request |
-| `CF_PURGE_API_TOKEN` | web **and** API Worker | the token the handler/ingest uses to call Cloudflare | web: `/admin/purge` authenticates then returns **502**; API: promote purge is a silent no-op |
-| `CF_ZONE_ID` | web **and** API Worker | the zone purge targets (also the zone the AECI-262 WAF poll queries) | same as above, plus the WAF poll reports `skipped_no_creds` |
+| `CF_ZONE_ID` | web **and** API Worker | the zone the AECI-262 WAF poll queries | the WAF poll reports `skipped_no_creds` |
 
-All three are **recommended, not required** (`RECOMMENDED_SECRETS`, warn-and-skip): a missing purge credential degrades invalidation to TTL self-heal (≤5 min browse, ≤1 hr nav) — it never blocks a release.
+**`CF_PURGE_API_TOKEN` was retired in WC-10 (AECI-324)** along with `callCloudflarePurge` — no purge path uses a Cloudflare API token any more. `ctx.cache.purge()` needs no credential at all, and the API Worker reaches the SSR cache through the `CACHE_PURGE_QUEUE` **binding**, not a token. What gates a purge now is the *binding*, not a secret: with `CACHE_PURGE_QUEUE` unbound (local dev, PR previews) the enqueue is a graceful no-op. `CF_ZONE_ID` survives only because the WAF poll still reads it — it no longer has anything to do with caching.
+
+Both are **recommended, not required** (`RECOMMENDED_SECRETS`, warn-and-skip): a missing one degrades invalidation to TTL self-heal (≤5 min browse, ≤1 hr nav) — it never blocks a release.
 
 **Ordering matters in CI.** `promote-to-prod.yml`'s taxonomy purge step runs *after* the SSR deploy and *after* the cache-purge secret push, because `POST /admin/purge` authenticates against the Worker's `ADMIN_PURGE_TOKEN`. It used to run right after the D1 migration — before any secret push — which 401'd deterministically. Keep it last.
 

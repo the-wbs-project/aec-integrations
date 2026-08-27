@@ -11,6 +11,7 @@ import { beforeAll, describe, expect, it, vi } from 'vitest';
 
 import {
   callGoogleIndexing,
+  GOOGLE_INDEXING_CONCURRENCY,
   GOOGLE_INDEXING_MAX_URLS,
   GOOGLE_PUBLISH_ENDPOINT,
   GOOGLE_TOKEN_ENDPOINT,
@@ -192,4 +193,69 @@ describe('callGoogleIndexing', () => {
   it('exposes the per-request URL ceiling', () => {
     expect(GOOGLE_INDEXING_MAX_URLS).toBe(100);
   });
+
+  // ── AECI-666: connection hygiene ──────────────────────────────────────────
+
+  it('releases every publish response body, success or failure', async () => {
+    const drained: Array<() => boolean> = [];
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url === GOOGLE_TOKEN_ENDPOINT) return Promise.resolve(tokenOk());
+      // Alternate 200/429 so both branches of the publish `.then` are covered.
+      const tracked = trackedResponse(drained.length % 2 === 0 ? 200 : 429);
+      drained.push(tracked.drained);
+      return Promise.resolve(tracked.res);
+    });
+
+    const outcome = await callGoogleIndexing(fetchMock as unknown as typeof fetch, {
+      serviceAccount: sa(),
+      urlList: URLS,
+    });
+
+    expect(outcome).toEqual({ ok: true, submitted: 1, failed: 1 });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(drained).toHaveLength(2);
+    expect(drained.every((wasDrained) => wasDrained())).toBe(true);
+  });
+
+  it('publishes in bounded waves rather than opening every connection at once', async () => {
+    let inFlight = 0;
+    let peakInFlight = 0;
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url === GOOGLE_TOKEN_ENDPOINT) return Promise.resolve(tokenOk());
+      inFlight++;
+      peakInFlight = Math.max(peakInFlight, inFlight);
+      return new Promise<Response>((resolve) =>
+        setTimeout(() => {
+          inFlight--;
+          resolve(ok());
+        }, 1),
+      );
+    });
+
+    const urlList = Array.from({ length: 20 }, (_, i) => `https://aecintegrations.com/p/${i}`);
+    const outcome = await callGoogleIndexing(fetchMock as unknown as typeof fetch, {
+      serviceAccount: sa(),
+      urlList,
+    });
+
+    expect(outcome).toEqual({ ok: true, submitted: 20, failed: 0 });
+    expect(peakInFlight).toBeLessThanOrEqual(GOOGLE_INDEXING_CONCURRENCY);
+  });
 });
+
+/**
+ * A `Response` whose stream reports cancellation — the observable for "the
+ * connection was released" (AECI-666).
+ */
+function trackedResponse(status: number): { res: Response; drained: () => boolean } {
+  let cancelled = false;
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode('{}'));
+    },
+    cancel() {
+      cancelled = true;
+    },
+  });
+  return { res: new Response(stream, { status }), drained: () => cancelled };
+}

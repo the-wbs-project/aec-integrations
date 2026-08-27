@@ -40,7 +40,6 @@
  */
 
 import type { AttestationDetector, AuditLogEntry, NotificationProductRef } from '@aeci/shared';
-import { forwardAuditLog } from '@aeci/shared';
 import { and, eq, gte } from 'drizzle-orm';
 
 import { auditInsert, type BatchStmt, type BatchTuple } from './audit';
@@ -69,7 +68,7 @@ import { VENDOR_ADMIN_ROLE } from './claimed-vendors';
 import { fetchAuthUserEmails } from './supabase-admin';
 import type { Db } from '../db/client';
 import { auditLog } from '../db/schema';
-import { logToPosthog } from '../posthog';
+import { logBatchToPosthog, logToPosthog } from '../posthog';
 import type { Env } from '../env';
 
 const DAY_MS = 86_400_000;
@@ -475,17 +474,30 @@ async function flushLedger(
     });
     return;
   }
-  const forwarder = c.env.DD_API_KEY
-    ? (entry: AuditLogEntry) => {
-        logToPosthog(c.executionCtx, c.env, c.req.raw, {
-          level: 'info',
-          message: `audit ${entry.action} ${entry.entityId ?? ''}`.trim(),
-          action: entry.action,
-          entity_type: entry.entityType ?? undefined,
-          entity_id: entry.entityId ?? undefined,
-          source: 'attestation-notify-cron',
-        });
-      }
-    : undefined;
-  c.executionCtx.waitUntil(Promise.all(entries.map((entry) => forwardAuditLog(entry, forwarder))));
+  // ONE request per vendor for the whole chunk, not one per entry (AECI-666).
+  // This was `Promise.all(entries.map(forwardAuditLog))`, and because the §3.1
+  // dual-run fires both legs from the same call site a `LEDGER_CHUNK`-sized
+  // flush opened 2N simultaneous connections from a single cron invocation.
+  // Past the per-invocation limit the runtime cancels the stalled responses into
+  // `fetch` promises that never settle, so the forwards vanish with no error and
+  // the invocation is eventually killed as hung — taking the rest of the sweep
+  // with it.
+  //
+  // The old `DD_API_KEY` gate is gone with it, and that fixes a second defect:
+  // it gated BOTH legs on the Datadog key, so on a tier with no Datadog key
+  // (which is every tier after PH-final, AECI-651) this forwarded nothing at
+  // all. `logBatchToPosthog` self-gates per leg.
+  logBatchToPosthog(
+    c.executionCtx,
+    c.env,
+    c.req.raw,
+    entries.map((entry) => ({
+      level: 'info' as const,
+      message: `audit ${entry.action} ${entry.entityId ?? ''}`.trim(),
+      action: entry.action,
+      entity_type: entry.entityType ?? undefined,
+      entity_id: entry.entityId ?? undefined,
+      source: 'attestation-notify-cron',
+    })),
+  );
 }

@@ -2104,31 +2104,42 @@ describe('runPromoteIngest — replace-by-origin claim coexistence (AECI-604)', 
 
 describe('cache purge after promote (AECI-105 → WC-5 / AECI-319)', () => {
   /** Run a promote with a mock `CACHE_PURGE_QUEUE` producer binding; drain the
-   *  post-commit `waitUntil` tasks so the enqueue is observable. Returns the `send`
-   *  spy (the enqueued `CachePurgeMessage`s). */
-  async function promoteWithPurge(body: unknown, send = vi.fn().mockResolvedValue(undefined)) {
+   *  post-commit `waitUntil` tasks so the enqueue is observable. Returns the
+   *  `sendBatch` spy — since AECI-666 the producer enqueues every batch in ONE
+   *  `sendBatch()` call rather than a concurrent `send()` per batch, because a
+   *  Queue producer call counts against the same per-invocation connection budget
+   *  as `fetch`. */
+  async function promoteWithPurge(body: unknown, sendBatch = vi.fn().mockResolvedValue(undefined)) {
     const env: Env = {
       ...baseEnv,
-      CACHE_PURGE_QUEUE: { send } as unknown as Env['CACHE_PURGE_QUEUE'],
+      CACHE_PURGE_QUEUE: {
+        send: vi.fn().mockResolvedValue(undefined),
+        sendBatch,
+      } as unknown as Env['CACHE_PURGE_QUEUE'],
     };
     const execCtx = fakeExecutionContext();
     const res = await buildApp().request('/api/promote', post(body), env, execCtx);
     await Promise.all(vi.mocked(execCtx.waitUntil).mock.calls.map((c) => c[0]));
-    return { res, execCtx, send };
+    return { res, execCtx, sendBatch };
   }
 
+  /** The first enqueued `CachePurgeMessage` out of a `sendBatch()` call. */
+  function firstMessage(sendBatch: ReturnType<typeof vi.fn>): CachePurgeMessage {
+    return (sendBatch.mock.calls[0][0] as { body: CachePurgeMessage }[])[0].body;
+  }
   it('enqueues the expected tag set (source:promote) for a representative create', async () => {
-    const { res, execCtx, send } = await promoteWithPurge({
+    const { res, execCtx, sendBatch } = await promoteWithPurge({
       vendors: [{ ref: 'v1', companyName: 'Autodesk' }],
       product: { ref: 'p1', name: 'Revit', categories: ['BIM'], audiences: ['Architecture'] },
     });
 
     expect(res.status).toBe(200);
     // Two post-commit tasks on a write: the purge enqueue + the AECI-305 home-stats
-    // refresh (a no-op seam here). Only the purge enqueues, so `send` sees one call.
+    // refresh (a no-op seam here). Only the purge enqueues, and it does so in a
+    // single `sendBatch` call (AECI-666).
     expect(execCtx.waitUntil).toHaveBeenCalledTimes(2);
-    expect(send).toHaveBeenCalledTimes(1);
-    const msg = send.mock.calls[0][0] as CachePurgeMessage;
+    expect(sendBatch).toHaveBeenCalledTimes(1);
+    const msg = firstMessage(sendBatch);
     expect(msg.source).toBe('promote');
     expect(new Set(msg.tags)).toEqual(
       new Set([
@@ -2149,7 +2160,7 @@ describe('cache purge after promote (AECI-105 → WC-5 / AECI-319)', () => {
     await seedProduct(target, 'navisworks', 'Navisworks');
     await seedDataObject(uuid(20), 'rfis', 'RFIs');
 
-    const { res, send } = await promoteWithPurge({
+    const { res, sendBatch } = await promoteWithPurge({
       product: { ref: 'p1', name: 'Revit' },
       integrations: [
         {
@@ -2168,7 +2179,7 @@ describe('cache purge after promote (AECI-105 → WC-5 / AECI-319)', () => {
     });
 
     expect(res.status).toBe(200);
-    const msg = send.mock.calls[0][0] as CachePurgeMessage;
+    const msg = firstMessage(sendBatch);
     // Alphabetically-first slug is the pair context: navisworks < revit.
     expect(msg.tags).toContain('pair:navisworks__revit');
   });
@@ -2188,10 +2199,35 @@ describe('cache purge after promote (AECI-105 → WC-5 / AECI-319)', () => {
   });
 
   it('still returns 200 when the enqueue rejects (never fails the promote)', async () => {
-    const send = vi.fn().mockRejectedValue(new Error('queue unavailable'));
-    const { res } = await promoteWithPurge({ product: { ref: 'p1', name: 'Revit' } }, send);
+    const sendBatch = vi.fn().mockRejectedValue(new Error('queue unavailable'));
+    const { res } = await promoteWithPurge({ product: { ref: 'p1', name: 'Revit' } }, sendBatch);
     expect(res.status).toBe(200);
-    expect(send).toHaveBeenCalledTimes(1);
+    expect(sendBatch).toHaveBeenCalledTimes(1);
+  });
+
+  it('enqueues every batch in ONE sendBatch call, never a send() per batch (AECI-666)', async () => {
+    // A Queue producer call counts against the same per-invocation connection
+    // budget as `fetch`, and the promote's post-commit tail is already close to
+    // it. Latent today (`CACHE_PURGE_QUEUE_MAX_TAGS` is 1000, so a promote is one
+    // batch) — this locks the shape so it stays fixed if that cap ever moves.
+    const send = vi.fn().mockResolvedValue(undefined);
+    const sendBatch = vi.fn().mockResolvedValue(undefined);
+    const env: Env = {
+      ...baseEnv,
+      CACHE_PURGE_QUEUE: { send, sendBatch } as unknown as Env['CACHE_PURGE_QUEUE'],
+    };
+    const execCtx = fakeExecutionContext();
+    const res = await buildApp().request(
+      '/api/promote',
+      post({ product: { ref: 'p1', name: 'Revit' } }),
+      env,
+      execCtx,
+    );
+    await Promise.all(vi.mocked(execCtx.waitUntil).mock.calls.map((c) => c[0]));
+
+    expect(res.status).toBe(200);
+    expect(sendBatch).toHaveBeenCalledTimes(1);
+    expect(send).not.toHaveBeenCalled();
   });
 });
 

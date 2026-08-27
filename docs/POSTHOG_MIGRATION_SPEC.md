@@ -85,7 +85,8 @@ each Worker ships a thin adapter pinning identity (`aeci-api`/`aeci-api`/`worker
 `aeci-web`/`aeci-web`/`worker-angular`). One shared factory, never two copies.
 **Rename-only call-site surface:** `logToDatadog` → `logToPosthog`; `submitCount` /
 `submitGauge` / `submitDistribution` / `hostnameFromRequest` keep signatures. New:
-`captureEvent`, `captureException`, `isFeatureEnabled`.
+`captureEvent`, `captureException`, `isFeatureEnabled`, and — since AECI-666 —
+`logBatchToPosthog` (§8.12).
 
 **Three pipes, two mechanisms:** events + exceptions via `posthog-node`'s workerd export
 (`posthog-node/edge`); logs + metrics via hand-rolled OTLP/HTTP JSON to `{host}/i/v1/logs`
@@ -114,6 +115,12 @@ publishable `phc_` project token → **Worker telemetry secrets 4 → 0**;
 - `fetchRetryCount: 0` — retry-with-backoff inside `waitUntil` is the wrong trade.
 - `disableGeoip: true` — else every server event geo-resolves to the Worker egress
   datacentre.
+- **Release the intake response body on every path** (`discardResponseBody`,
+  `@aeci/shared/response-drain`) — including the `!res.ok` path, which only reads a
+  snippet. An unread body holds an open connection, a Worker invocation may hold only
+  ~6, and past that the runtime cancels the stalled responses into `fetch` promises
+  that **never settle** — so the `res.ok` guard above and its `catch` both go unrun
+  and the outage is completely silent. See §8.12 (AECI-666).
 
 ### OTLP payload details (copy verbatim)
 
@@ -220,7 +227,11 @@ variables `POSTHOG_PROJECT_ID_PROD=354071` / `POSTHOG_PROJECT_ID_NONPROD=525793`
 ### §3.7 Audit forward (O7)
 
 `forwardAuditLog` / `forwardWorkflowTransition` keep the injected-forwarder seam, wired
-to `logToPosthog` (OTLP logs) with the same entry attributes. The §26.1
+to `logToPosthog` (OTLP logs) with the same entry attributes. **A caller emitting N
+entries at once uses `logBatchToPosthog` instead** and drops the forwarder closure
+entirely — one request per vendor rather than N (§8.12 / AECI-666). All three such
+callers (`routes/promote.ts`, `lib/attestation-notify.ts`, `routes/vendor-shared.ts`)
+are batched; the single-entry callers are unchanged. The §26.1
 audit-row-in-the-same-batch invariant is untouched — forwarding is post-commit only.
 `STAGE_1_SPEC.md` §26.5, ADR 0022's wording, and CLAUDE.md's constraint bullet update in
 §AW7 under ADR 0024's authority.
@@ -642,3 +653,48 @@ The one exception, made knowingly: AECI-649's two **product** insights and the
 a funnel over `search_performed → product_viewed → external_link_clicked` is
 meaningless against an empty project and the production events already exist.
 Saved insights page nobody; alerts do. That is the line drawn.
+
+### §8.12 "Emit per call" gains one exception: batched logs (AECI-666)
+
+The transport decision above says **emit per call** — no client-side aggregation,
+because `posthog-node`'s metrics client buffers over a 10 s window and a Worker
+isolate is gone long before that closes. That reasoning is about *time-windowed*
+buffering and it stands. It does **not** cover a caller that already holds N related
+lines in hand.
+
+Production found the difference the hard way. A Worker invocation may hold only ~6
+connections waiting for response headers, and **the dual-run spends two per
+emission** — one PostHog, one Datadog, from the same call site. The promote's §26.5
+audit forwards issued one emission per `audit_log` row, so a fat bundle opened 2N
+simultaneous connections; past the limit the runtime cancels the stalled responses,
+and a cancelled `fetch` returns a promise that **never settles**. Neither the `res.ok`
+guard nor the `catch` runs, nothing is logged, and the invocation is eventually killed
+as hung — taking every other in-flight hook with it. Measured 2026-08-26: 745 stall
+warnings across a 63-promote backfill, 5 invocations killed.
+
+**The exception.** `logBatchToPosthog(ctx, env, request, events[])` posts N
+`logRecords` in one OTLP envelope, and `apps/api/src/posthog.ts` fans it out to
+`logBatchToDatadog` exactly as the single-event path does. It shares one record
+builder with `logToPosthog`, so the per-record envelope is identical by construction
+rather than by convention — and the batch carries **one** `timeUnixNano` for all
+records, which is correct here because these rows were committed by a single
+`db.batch()`.
+
+**Scope of the exception, deliberately narrow:**
+
+- **Logs only.** Metrics are unchanged — still one point per call, still no client
+  aggregation. Nothing about the 10 s-window reasoning is revisited.
+- **Only when the caller already has the whole set.** This is not a buffer and there
+  is no flush timer; it takes an array and posts it. No isolate-lifetime hazard.
+- **Never post an empty array** — both senders no-op on `[]` and on a missing key.
+
+Where an upstream has no batch endpoint at all, bound the fan-out instead:
+`mapWithConcurrency(items, WORKER_CONNECTION_LIMIT, fn)` (`@aeci/shared/concurrency`).
+Batching beats bounding; bounding beats nothing.
+
+**PH-final (AECI-651) is unaffected.** `logBatchToPosthog` collapses by deleting its
+one `logBatchToDatadog` line, exactly like every other function in the adapter — and
+the connection pressure this section describes halves the moment that leg goes away.
+
+Full incident record and the non-telemetry half of the fix: ADR 0021's 2026-08-27
+amendment.
