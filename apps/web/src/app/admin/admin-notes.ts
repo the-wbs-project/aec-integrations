@@ -114,6 +114,12 @@ const NOTE_PROSE: Record<AdminNoteCode, (params: NoteParams) => string> = {
   visitor_definition_approximate: () =>
     $localize`:@@admin.notes.visitorDefinitionApproximate:A visitor is a distinct browser-and-network pair within the window. It over-counts when a browser updates and under-counts behind a shared network.`,
 
+  corroborated_is_a_referrer_floor: () =>
+    $localize`:@@admin.notes.corroboratedIsAReferrerFloor:Corroborated arrivals are those carrying a named external search or social referrer. Read it as a floor, not a count of people: privacy tools strip the header, so real referrals land in Direct. It also rests on the same unverified claim as the Source column.`,
+
+  operator_leak_is_an_inference: () =>
+    $localize`:@@admin.notes.operatorLeakIsAnInference:Views excluded as operator self-traffic on a lapsed session are matched by browser-and-network pair against a verified operator session nearby in time. That is an inference about who the visitor was, not a verified session.`,
+
   catalog_series_is_additions_only: () =>
     $localize`:@@admin.notes.catalogSeriesIsAdditionsOnly:This series counts creation events from the audit log: additions per day, not a net total. Rows removed later still count on the day they were added.`,
 

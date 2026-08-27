@@ -173,9 +173,30 @@ export interface AnalyticsDigestSummary {
   /** Why the PostHog read was skipped, when it was. Null on success. */
   posthogSkipped?: string | null;
   /** Rotating-proxy read-out for the same window (AECI-658): how many UA hashes
-   *  were flagged and how many of the reported human views they account for. */
+   *  were flagged and how many of the reported human views they account for.
+   *  `swarmFlaggedViews` is a UNION across both groupings, never a sum. */
   swarmCandidates?: number;
   swarmFlaggedViews?: number;
+  /** The inverse grouping (AECI-683): networks serving a new user-agent almost
+   *  every request. Recorded separately from `swarmCandidates` because the two
+   *  detect opposite shapes and tuning one must not look like tuning the other. */
+  asnRotatorCandidates?: number;
+  /** Whether either candidate list hit `SWARM_MAX_CANDIDATES`. A silent cap would
+   *  make a partial read look complete. */
+  swarmTruncated?: boolean;
+  /**
+   * Human views the operator-pair retro-join removed (AECI-683).
+   *
+   * The single most useful number for deciding whether
+   * `OPERATOR_PAIR_LOOKBACK_DAYS` is tuned right: it should track the operator's
+   * actual browsing and drop to 0 on days they did not use the site. A figure
+   * that stays high on a quiet day means the pair rule is over-reaching.
+   */
+  operatorLeakViews?: number;
+  /** Human views carrying a NAMED external referrer, and the §9.8 visitors behind
+   *  them — the corroborated floor the email prints beside the two bounds. */
+  corroboratedViews?: number;
+  corroboratedVisitors?: number;
 }
 
 /**

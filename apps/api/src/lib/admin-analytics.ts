@@ -889,6 +889,8 @@ const SEVERITY: Record<AdminNoteCode, 'info' | 'warn'> = {
   referrer_source_is_unverified: 'info',
   direct_is_mixed_bucket: 'info',
   visitor_definition_approximate: 'info',
+  corroborated_is_a_referrer_floor: 'info',
+  operator_leak_is_an_inference: 'info',
   catalog_series_is_additions_only: 'warn',
   catalog_series_starts_at: 'info',
   internal_filter_unavailable: 'info',
@@ -967,7 +969,14 @@ export async function earliestAuditDay(db: Db): Promise<string | null> {
 export async function trafficNotes(
   db: Db,
   w: UtcWindow,
-  opts: { unique?: boolean; sources?: boolean } = {},
+  opts: {
+    unique?: boolean;
+    sources?: boolean;
+    /** Emit the caveats for the AECI-683 corroborated-human figure. */
+    corroborated?: boolean;
+    /** Emit the caveat for the AECI-683 operator-pair retro-join. */
+    operatorLeak?: boolean;
+  } = {},
 ): Promise<AdminNote[]> {
   const out: AdminNote[] = [];
 
@@ -1014,6 +1023,29 @@ export async function trafficNotes(
         // row written before it ever can be. Narrowing the note to "only rows
         // before <date>" would claim a split the response does not perform.
         'Direct mixes true direct arrivals with in-app SPA navigation (the same-origin Referer classifies as Direct). Rows captured since AECI-585 store a navigation flag that separates them; this breakdown does not use it yet, and earlier rows cannot be separated at all.',
+      ),
+    );
+  }
+
+  if (opts.corroborated) {
+    // Unconditional whenever the corroborated figure is rendered, and for the
+    // same reason `referrer_source_is_unverified` is: the number is small enough
+    // to read as precise, and it is built on the one column §9.7 says is a claim
+    // rather than a fact. Both halves of the caveat matter — it under-counts
+    // (stripped headers land in Direct) AND it is forgeable upward.
+    out.push(
+      note(
+        'corroborated_is_a_referrer_floor',
+        'Corroborated views are those that arrived with a named external search or social referrer. It is a floor, not a count of people: privacy tools strip the header, so real referrals land in Direct. It is also built on an unverified claim — see referrer_source_is_unverified.',
+      ),
+    );
+  }
+
+  if (opts.operatorLeak) {
+    out.push(
+      note(
+        'operator_leak_is_an_inference',
+        'Views excluded as operator self-traffic on a lapsed session are matched by (user_agent_hash, cf_asn) against a verified operator session nearby in time. That is an inference about identity, not a verified session like is_operator itself.',
       ),
     );
   }

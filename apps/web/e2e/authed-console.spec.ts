@@ -82,7 +82,13 @@ test.describe('authed console health — Phase 5 gated pages (AECI-235)', () => 
     expectConsoleClean(capture, 'GET /admin');
   });
 
-  test('/admin/overview hydrates with no console errors', async ({ page }) => {
+  // AECI-683 added the measurement-envelope caption to the human page-views tile,
+  // so the axe pass belongs here for the same reason the Traffic one does: the
+  // tiles render nothing until the authorized read resolves, and an axe run on the
+  // unauthenticated route would only ever audit the redirect.
+  test('/admin/overview hydrates with no console errors and zero axe violations', async ({
+    page,
+  }) => {
     const capture = attachConsoleCapture(page);
     const res = await page.goto('/admin/overview');
     expect(res?.status()).toBe(200);
@@ -92,6 +98,20 @@ test.describe('authed console health — Phase 5 gated pages (AECI-235)', () => 
     // `GET /api/admin/overview` came back, so this asserts the authed read too.
     await expect(page.locator('aec-status-strip')).toBeAttached();
     await waitForHydrationSettle(page);
+    // The caption under test only exists once the traffic block has resolved.
+    await expect(page.locator('aec-stat-tile').first()).toBeVisible();
+
+    const results = await new AxeBuilder({ page })
+      .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
+      .exclude('aec-site-header')
+      .analyze();
+    expect(
+      results.violations,
+      results.violations
+        .map((v) => `[${v.impact ?? '?'}] ${v.id}: ${v.help} (${v.nodes.length} node(s))`)
+        .join('\n'),
+    ).toEqual([]);
+
     expectConsoleClean(capture, 'GET /admin/overview');
   });
 

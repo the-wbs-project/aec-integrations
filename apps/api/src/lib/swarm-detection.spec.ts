@@ -15,9 +15,13 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { pageViews } from '../db/schema';
 import { makeTestDb, type TestDb } from '../test/d1';
 import {
+  ASN_ROTATOR_MIN_UA_RATIO,
+  ASN_ROTATOR_MIN_VIEWS,
+  detectAsnRotators,
   detectSwarms,
   isCorroboratedByRequestShape,
   swarmNote,
+  SWARM_MAX_CANDIDATES,
   SWARM_MIN_ASN_RATIO,
   SWARM_MIN_VIEWS,
   type SwarmCandidate,
@@ -75,8 +79,8 @@ describe('detectSwarms', () => {
 
     const summary = await detectSwarms(t.db, DAY_START, DAY_END);
 
-    expect(summary.candidates).toHaveLength(1);
-    const [candidate] = summary.candidates;
+    expect(summary.uaCandidates).toHaveLength(1);
+    const [candidate] = summary.uaCandidates;
     expect(candidate.userAgentHash).toBe('ua-swarm-01');
     expect(candidate.views).toBe(9);
     expect(candidate.distinctAsns).toBe(9);
@@ -105,7 +109,7 @@ describe('detectSwarms', () => {
     );
 
     const summary = await detectSwarms(t.db, DAY_START, DAY_END);
-    expect(summary.candidates).toEqual([]);
+    expect(summary.uaCandidates).toEqual([]);
     expect(summary.flaggedViews).toBe(0);
     expect(summary.totalHumanViews).toBe(5);
   });
@@ -125,7 +129,7 @@ describe('detectSwarms', () => {
     );
     expect(SWARM_MIN_VIEWS).toBeGreaterThan(3);
     const summary = await detectSwarms(t.db, DAY_START, DAY_END);
-    expect(summary.candidates).toEqual([]);
+    expect(summary.uaCandidates).toEqual([]);
   });
 
   it('never sees a self-identifying crawler, because bots are excluded upstream', async () => {
@@ -148,7 +152,7 @@ describe('detectSwarms', () => {
       ),
     );
     const summary = await detectSwarms(t.db, DAY_START, DAY_END);
-    expect(summary.candidates).toEqual([]);
+    expect(summary.uaCandidates).toEqual([]);
     expect(summary.totalHumanViews).toBe(0);
   });
 
@@ -167,7 +171,7 @@ describe('detectSwarms', () => {
       ),
     );
     const summary = await detectSwarms(t.db, DAY_START, DAY_END);
-    expect(summary.candidates).toEqual([]);
+    expect(summary.uaCandidates).toEqual([]);
     expect(summary.totalHumanViews).toBe(0);
   });
 
@@ -185,7 +189,7 @@ describe('detectSwarms', () => {
       ),
     );
     const summary = await detectSwarms(t.db, DAY_START, DAY_END);
-    expect(summary.candidates).toEqual([]);
+    expect(summary.uaCandidates).toEqual([]);
     // They are still real human views, so the denominator must include them.
     expect(summary.totalHumanViews).toBe(6);
   });
@@ -201,7 +205,7 @@ describe('detectSwarms', () => {
     );
     await t.db.insert(pageViews).values(rows);
     const summary = await detectSwarms(t.db, DAY_START, DAY_END);
-    expect(summary.candidates).toEqual([]);
+    expect(summary.uaCandidates).toEqual([]);
     expect(summary.totalHumanViews).toBe(0);
   });
 
@@ -227,10 +231,143 @@ describe('detectSwarms', () => {
         createdAt: '2026-08-23T04:00:00.000Z',
       }),
     ]);
-    const [candidate] = (await detectSwarms(t.db, DAY_START, DAY_END)).candidates;
+    const [candidate] = (await detectSwarms(t.db, DAY_START, DAY_END)).uaCandidates;
     expect(candidate.views).toBe(4);
     expect(candidate.nonBrowserViews).toBe(3);
     expect(isCorroboratedByRequestShape(candidate)).toBe(true);
+  });
+});
+
+describe('detectAsnRotators (the inverse grouping, AECI-683)', () => {
+  let t: TestDb;
+  beforeEach(async () => {
+    t = await makeTestDb();
+  });
+  afterEach(() => t.dispose());
+
+  /** The AS47544 shape from production 2026-08-26: one network, a new fingerprint
+   *  every request, headers that do not look like a browser. */
+  const rotatorRows = (verdict: string) =>
+    ['/products/a', '/products/b', '/products/c', '/products/d', '/products/e'].map((p, i) =>
+      view({
+        path: p,
+        concretePath: p,
+        userAgentHash: `ua-rot-${i}`,
+        cfAsn: 47544,
+        cfAsOrganization: 'Example Hosting',
+        cfCountry: 'PL',
+        clientVerdict: verdict,
+        createdAt: `2026-08-23T0${i}:00:00.000Z`,
+      }),
+    );
+
+  it('reassembles a user-agent rotator that the UA-hash grouping cannot see', async () => {
+    await t.db.insert(pageViews).values(rotatorRows('inconsistent'));
+
+    // The whole point: grouped by UA hash these are five singletons, every one of
+    // them under SWARM_MIN_VIEWS, so the original detector reports nothing.
+    const summary = await detectSwarms(t.db, DAY_START, DAY_END);
+    expect(summary.uaCandidates).toEqual([]);
+
+    expect(summary.asnCandidates).toHaveLength(1);
+    const [candidate] = summary.asnCandidates;
+    expect(candidate.cfAsn).toBe(47544);
+    expect(candidate.asOrganization).toBe('Example Hosting');
+    expect(candidate.views).toBe(5);
+    expect(candidate.distinctUaHashes).toBe(5);
+    expect(candidate.uaRatio).toBe(1);
+    expect(candidate.nonBrowserViews).toBe(5);
+    expect(summary.flaggedViews).toBe(5);
+  });
+
+  it('does NOT flag a shared network whose requests look like real browsers', async () => {
+    // The false positive that makes the request-shape verdict a hard gate here:
+    // an office NAT, a campus, or a cafe is five devices on one ASN at ratio 1.0.
+    // Cardinality alone would flag every shared connection on the internet.
+    await t.db.insert(pageViews).values(rotatorRows('browser'));
+
+    const summary = await detectSwarms(t.db, DAY_START, DAY_END);
+    expect(summary.asnCandidates).toEqual([]);
+    expect(summary.flaggedViews).toBe(0);
+  });
+
+  it('treats a NULL client_verdict as no evidence, not as corroboration', async () => {
+    // Every row written before AECI-658 has a null verdict. Reading those as
+    // non-browser would retroactively flag months of ordinary shared networks.
+    await t.db.insert(pageViews).values(rotatorRows('unknown'));
+    expect(await detectAsnRotators(t.db, DAY_START, DAY_END)).toEqual([]);
+  });
+
+  it('ignores an ASN whose visitors reuse fingerprints, however many views', async () => {
+    // A busy real network: 8 views, 2 browsers. Ratio 0.25.
+    await t.db.insert(pageViews).values(
+      Array.from({ length: 8 }, (_, i) =>
+        view({
+          userAgentHash: i % 2 === 0 ? 'ua-x' : 'ua-y',
+          cfAsn: 7922,
+          clientVerdict: 'non-browser',
+          createdAt: `2026-08-23T0${i}:00:00.000Z`,
+        }),
+      ),
+    );
+    expect(await detectAsnRotators(t.db, DAY_START, DAY_END)).toEqual([]);
+  });
+
+  it('does not bucket rows with a NULL ASN into one synthetic network', async () => {
+    await t.db.insert(pageViews).values(
+      Array.from({ length: 6 }, (_, i) =>
+        view({
+          userAgentHash: `ua-${i}`,
+          cfAsn: null,
+          clientVerdict: 'non-browser',
+          createdAt: `2026-08-23T0${i}:00:00.000Z`,
+        }),
+      ),
+    );
+    expect(await detectAsnRotators(t.db, DAY_START, DAY_END)).toEqual([]);
+  });
+
+  it('counts views flagged by BOTH groupings once, not twice', async () => {
+    // One ASN, five distinct hashes, and one of those hashes ALSO spans four
+    // networks — so it is a UA-hash candidate and its AS47544 view is an ASN
+    // candidate too. Summing the two candidate lists would report 9 of 8.
+    await t.db.insert(pageViews).values([
+      ...rotatorRows('non-browser'),
+      // `ua-rot-0` again, on three more networks — now 4 views / 4 ASNs.
+      ...[100, 200, 300].map((asn, i) =>
+        view({
+          path: `/categories/c${i}`,
+          concretePath: `/categories/c${i}`,
+          userAgentHash: 'ua-rot-0',
+          cfAsn: asn,
+          clientVerdict: 'non-browser',
+          createdAt: `2026-08-23T1${i}:00:00.000Z`,
+        }),
+      ),
+    ]);
+
+    const summary = await detectSwarms(t.db, DAY_START, DAY_END);
+    expect(summary.uaCandidates.map((c) => c.userAgentHash)).toEqual(['ua-rot-0']);
+    expect(summary.asnCandidates.map((c) => c.cfAsn)).toEqual([47544]);
+    // 5 on AS47544 + 3 elsewhere on ua-rot-0 = 8 distinct views. The naive sum
+    // (4 from the UA candidate + 5 from the ASN candidate) would be 9.
+    expect(summary.totalHumanViews).toBe(8);
+    expect(summary.flaggedViews).toBe(8);
+  });
+
+  it('excludes bots and operator traffic, exactly like the UA-hash grouping', async () => {
+    await t.db.insert(pageViews).values([
+      ...rotatorRows('non-browser').map((r) => ({ ...r, isBot: true, botName: 'Bingbot' })),
+      ...rotatorRows('non-browser').map((r, i) => ({
+        ...r,
+        cfAsn: 23700,
+        isOperator: true,
+        createdAt: `2026-08-23T1${i}:00:00.000Z`,
+      })),
+    ]);
+    const summary = await detectSwarms(t.db, DAY_START, DAY_END);
+    expect(summary.asnCandidates).toEqual([]);
+    expect(summary.totalHumanViews).toBe(0);
   });
 });
 
@@ -247,12 +384,22 @@ describe('swarmNote', () => {
   });
 
   it('is null when nothing was flagged, so the digest stays quiet', () => {
-    expect(swarmNote({ candidates: [], flaggedViews: 0, totalHumanViews: 40 })).toBeNull();
+    expect(
+      swarmNote({
+        uaCandidates: [],
+        asnCandidates: [],
+        truncated: false,
+        flaggedViews: 0,
+        totalHumanViews: 40,
+      }),
+    ).toBeNull();
   });
 
   it('frames the finding as a proportion of the reported number', () => {
     const note = swarmNote({
-      candidates: [candidate(9), candidate(5)],
+      uaCandidates: [candidate(9), candidate(5)],
+      asnCandidates: [],
+      truncated: false,
       flaggedViews: 14,
       totalHumanViews: 48,
     });
@@ -261,19 +408,108 @@ describe('swarmNote', () => {
   });
 
   it('singularizes a lone client', () => {
-    const note = swarmNote({ candidates: [candidate(9)], flaggedViews: 9, totalHumanViews: 48 });
+    const note = swarmNote({
+      uaCandidates: [candidate(9)],
+      asnCandidates: [],
+      truncated: false,
+      flaggedViews: 9,
+      totalHumanViews: 48,
+    });
     expect(note).toContain('1 client');
   });
 
   it('hedges rather than asserting, because this is a heuristic', () => {
-    const note = swarmNote({ candidates: [candidate(9)], flaggedViews: 9, totalHumanViews: 48 });
+    const note = swarmNote({
+      uaCandidates: [candidate(9)],
+      asnCandidates: [],
+      truncated: false,
+      flaggedViews: 9,
+      totalHumanViews: 48,
+    });
     expect(note).toContain('may not be people');
   });
 
+  it("names the second shape in its own words, not the first shape's", () => {
+    // The two findings must not read alike: one is many networks behind one
+    // fingerprint, the other is many fingerprints behind one network, and an
+    // operator deciding what to do needs to know which they are looking at.
+    const rotator = {
+      cfAsn: 47544,
+      asOrganization: 'Example Hosting',
+      views: 5,
+      distinctUaHashes: 5,
+      distinctCountries: 1,
+      distinctPaths: 5,
+      nonBrowserViews: 5,
+      uaRatio: 1,
+      pathRatio: 1,
+    };
+    const note = swarmNote({
+      uaCandidates: [],
+      asnCandidates: [rotator],
+      truncated: false,
+      flaggedViews: 5,
+      totalHumanViews: 40,
+    });
+    expect(note).toContain('5 of 40');
+    expect(note).toContain('1 network');
+    expect(note).toContain('rotating its user-agent');
+    expect(note).not.toContain('rotating proxy pool');
+
+    const both = swarmNote({
+      uaCandidates: [candidate(9)],
+      asnCandidates: [rotator],
+      truncated: false,
+      flaggedViews: 13,
+      totalHumanViews: 40,
+    });
+    expect(both).toContain('rotating proxy pool');
+    expect(both).toContain('rotating its user-agent');
+    expect(both).toContain('; and ');
+  });
+
+  it('says so when a candidate list was capped, rather than capping silently', () => {
+    const note = swarmNote({
+      uaCandidates: [candidate(9)],
+      asnCandidates: [],
+      truncated: true,
+      flaggedViews: 9,
+      totalHumanViews: 48,
+    });
+    expect(note).toContain(`Only the ${SWARM_MAX_CANDIDATES} largest`);
+  });
+
   it('is plain ASCII so it renders in the plain-text email', () => {
-    const note = swarmNote({ candidates: [candidate(9)], flaggedViews: 9, totalHumanViews: 48 });
-    // eslint-disable-next-line no-control-regex
-    expect(note).toMatch(/^[\x00-\x7F]*$/);
+    // Every branch, not just the first: the AECI-683 clause was written with an
+    // em dash and this assertion, scoped to a UA-only summary, would not have
+    // caught it.
+    const rotator = {
+      cfAsn: 47544,
+      asOrganization: 'Example Hosting',
+      views: 5,
+      distinctUaHashes: 5,
+      distinctCountries: 1,
+      distinctPaths: 5,
+      nonBrowserViews: 5,
+      uaRatio: 1,
+      pathRatio: 1,
+    };
+    for (const summary of [
+      { uaCandidates: [candidate(9)], asnCandidates: [] },
+      { uaCandidates: [], asnCandidates: [rotator] },
+      { uaCandidates: [candidate(9)], asnCandidates: [rotator] },
+    ]) {
+      for (const truncated of [false, true]) {
+        const note = swarmNote({
+          ...summary,
+          truncated,
+          flaggedViews: 9,
+          totalHumanViews: 48,
+        });
+        // eslint-disable-next-line no-control-regex
+        expect(note).toMatch(/^[\x00-\x7F]*$/);
+      }
+    }
   });
 });
 
@@ -298,5 +534,10 @@ describe('thresholds', () => {
   it('documents the tunables the runbook refers to', () => {
     expect(SWARM_MIN_VIEWS).toBe(4);
     expect(SWARM_MIN_ASN_RATIO).toBe(0.8);
+    // Separate constants even though the values match today: the two groupings
+    // have different false-positive profiles and will be tuned apart.
+    expect(ASN_ROTATOR_MIN_VIEWS).toBe(4);
+    expect(ASN_ROTATOR_MIN_UA_RATIO).toBe(0.8);
+    expect(SWARM_MAX_CANDIDATES).toBe(25);
   });
 });

@@ -1022,6 +1022,18 @@ export const pageViews = sqliteTable(
       .where(sql`"product_id" IS NOT NULL`),
     // Serves the digest's human/bot split + crawler grouping over a day window.
     index('page_views_bot_idx').on(t.isBot, t.createdAt),
+    // Serves the operator-pair retro-join (AECI-683): `NOT_INTERNAL`'s correlated
+    // subquery seeks on `(user_agent_hash, cf_asn)` and then ranges on
+    // `created_at`, which is exactly this key order.
+    //
+    // PARTIAL on purpose. The rule below says to add an index only with the read
+    // that needs it, because `page_views` is the hottest write path and D1 bills
+    // indexes as rows written. `WHERE is_operator = 1` means SQLite stores an
+    // entry only for operator rows — a few hundred out of ~27k in production — so
+    // the write cost for the anonymous traffic that dominates this table is zero.
+    index('page_views_operator_pair_idx')
+      .on(t.userAgentHash, t.cfAsn, t.createdAt)
+      .where(sql`"is_operator" = 1`),
     // No index on the AECI-585 columns: nothing groups or filters on them yet, and
     // `page_views` is the hottest write path in the app (D1 bills rows written,
     // indexes included). Add one with the read that needs it, not before.

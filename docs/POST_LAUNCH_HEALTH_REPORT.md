@@ -27,7 +27,7 @@ nil-to-negligible. The value is a known zero to accrue against.
 | Request → Linear pipeline | ✅ live | `aeci.linear.*`, `aeci.webhooks.linear.*` |
 | Authoritative signups | ✅ live | `mailing_list` D1 + `aeci.email.send{template:landing-signup}`; `/admin/audience` |
 | Server pageviews / entry pages | ✅ live | `page_views` D1 via the admin panel's read endpoints (`API_CONTRACTS.md` §6.10) |
-| Whether a "human" page view really is one | ⚠️ **partial, and now says so** | `is_bot` is a hand-maintained ASN list written once at ingest. Since AECI-624 the panel annotates each row with what the network is *registered as* (`ADMIN_PANEL_SPEC.md` §7.6) without altering `is_bot` — but PeeringDB has no usable signal for ~25% of our traffic, so this narrows the question rather than closing it |
+| Whether a "human" page view really is one | ⚠️ **partial, and now says so out loud** | `is_bot` is a hand-maintained ASN list written once at ingest. Since AECI-624 the panel annotates each row with what the network is *registered as* (`ADMIN_PANEL_SPEC.md` §7.6) without altering `is_bot` — but PeeringDB has no usable signal for ~25% of our traffic. Since **AECI-683** the digest and `/admin/overview` print a **corroborated floor** (named external referrer) beside the upper and lower bounds, and report what the operator-pair retro-join removed. On the one day decomposed so far, the honest figure was **8 views / 7 visitors against a headline of 102** — so this row is closer to answered than it has ever been, and the answer is that the headline is roughly an order of magnitude high |
 | Algolia query latency / error rate | ⚠️ live but low-sample | browser RUM `aeci.search.query` |
 | **PostHog** pageviews + signup funnel | ✅ live | `__AECI_POSTHOG__` injected in prod HTML since 2026-08-12 |
 | **RUM Core Web Vitals** (field LCP/CLS/INP) | ✅ live | `__AECI_DD__` injected in prod HTML since 2026-08-12 |
@@ -59,6 +59,62 @@ nil-to-negligible. The value is a known zero to accrue against.
 ---
 
 ## Entries
+
+## 2026-08-27 — AECI-683: decomposing one digest day, and what it cost the numbers
+
+Scope: a **single-day forensic**, not a weekly sweep. UTC day **2026-08-26** — the first day the
+AECI-658/660 instrumentation was live end to end, and therefore the first day the digest could be
+checked against itself.
+
+**What the email said:** "up to **102** human views", an Automation-signal line flagging 26, and a
+PostHog floor of "**47** page views from **1 person**". Read casually, a 102/47 bracket looks like
+the two bounds working.
+
+**What the day actually was**, decomposed against prod D1 + prod PostHog:
+
+| Bucket | Views | How it was identified |
+|---|---|---|
+| Operator self-traffic that leaked | ~26 | UA hash `d37ac4d2…` on AS23700 was `is_operator=1` at 02:48–04:42 and again from 07:33; the 05:46–07:32 burst (**22 views**, ending on `/auth/login`) was unflagged because the admin session had lapsed. Four more AS23700 one-offs on other hashes. |
+| Flagged swarm (reported correctly) | 26 | 5 UA hashes at ≥4 views, ASN-ratio ≥0.8. |
+| Automation under the thresholds | ~35–40 | AS47544 (PL) took 5 product pages under 4 UA hashes; two more hashes at 3 views with ASN-ratio 1.0; ~13 one-hit `/` knocks from singleton hashes across 8 countries. |
+| **Plausible real visitors** | **8 views / 7 visitors** | Every one a US-residential arrival with a named external referrer (Google → leap-crm, clearsync-ap, raken ×2, /vendors/illoca, jobtread; Bing → 2 integration pages). |
+
+**The finding that matters most: the PostHog floor was the operator.** Person `174286d5…`, South
+Tangerang ID, active 02:44–23:25 — matching the `is_operator` windows in D1 exactly. The client
+tracker has no operator suppression, so on a low-traffic day the "lower bound" measures the operator
+and not a visitor. **A bracket whose ends are both the same person is not a bracket.**
+
+**Threshold tuning:** three new constants, all documented in `POST_LAUNCH_MONITORING.md` §3b —
+`ASN_ROTATOR_MIN_VIEWS` 4, `ASN_ROTATOR_MIN_UA_RATIO` 0.8, `OPERATOR_PAIR_LOOKBACK_DAYS` 30. The UA
+ratio is **validated at exactly 0.8**: the AS47544 shape is 4 hashes over 5 views = 0.80, so 0.85
+would have missed the very case it was built for. No existing threshold changed.
+
+**Measured effect on the numbers.** The retro-join removes **22** of the day's 102 (102 → 80). It
+deliberately does not reach the other four leaked views — they sit on UA hashes that never carried
+an `is_operator = 1` row, so no pair proves them, and reaching them would mean widening to the ASN,
+the rule measured wrong in both directions in 2026-08-19's entry. Across the 30 days to 2026-08-27
+the ASN-rotator detector fires **once** (AS47544) and flags no other network.
+
+**The caveat on that clean false-positive record, stated because it is easy to over-read.**
+`client_verdict` did not exist before 2026-08-26 — 0 of 1,026 rows carry one on 08-25, 877 of 918 on
+08-26 — and the detector's hard gate treats a NULL verdict as *no evidence*. So the 30-day sweep is
+**two days of evidence**. Re-run it after a month of verdict coverage before calling the thresholds
+settled.
+
+**Traffic / signups:** the honest read for 2026-08-26 is **8 corroborated views from 7 visitors**,
+against a headline of 102. Every prior day in this log that quotes a digest "human" figure is high
+by the operator-leak component, which recurs whenever the session cookie expires mid-browse. The
+2026-08-13 entry's ~2,100-page-view baseline for the site's first seven weeks is *further* an
+over-count for the same reason, by an amount nobody has measured.
+
+**Actions / follow-ups:** `metrics_daily` rows written before today keep the old definition and
+`/api/admin/metrics/timeseries` serves snapshot-first, so a chart steps at the boundary until
+`ops:backfill-metrics-daily` is re-run — filed, not done. Two more spun out and deferred: reporting
+singleton `/`-only Direct hits as "door-knocks", and fixing the lapse at its source (the SSR
+passthrough forwards an expired access token rather than refreshing it, so this change corrects the
+rows on read but does not stop them being written).
+
+---
 
 ## 2026-08-14 — Phase 8.3 admin-panel epic (AECI-572) closeout
 
