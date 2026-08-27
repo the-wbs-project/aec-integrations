@@ -28,6 +28,7 @@ import {
 
 vi.mock('../posthog', () => ({
   logToPosthog: vi.fn(),
+  logBatchToPosthog: vi.fn(),
   submitCount: vi.fn(),
   submitDistribution: vi.fn(),
   submitGauge: vi.fn(),

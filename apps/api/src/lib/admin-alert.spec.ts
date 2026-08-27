@@ -14,6 +14,7 @@ import { fakeExecutionContext, TEST_ENV } from '../test/helpers';
 
 vi.mock('../posthog', () => ({
   logToPosthog: vi.fn(),
+  logBatchToPosthog: vi.fn(),
   submitCount: vi.fn(),
 }));
 

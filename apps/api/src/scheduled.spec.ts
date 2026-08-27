@@ -18,6 +18,7 @@ import { makeTestDb, type TestDb } from './test/d1';
 
 vi.mock('./posthog', () => ({
   logToPosthog: vi.fn(),
+  logBatchToPosthog: vi.fn(),
   submitCount: vi.fn(),
   submitDistribution: vi.fn(),
   submitGauge: vi.fn(),

@@ -67,6 +67,8 @@ A new **Cloudflare Queue** (e.g. `aeci-cache-purge-{env}`) decouples purge produ
 
 This is exactly ADR 0010's deferred **Option C**, now justified: `ctx.cache.purge()` is entrypoint-scoped, the zone HTTP purge is inert, and there is more than one cross-Worker producer (promote + datatool). The Queue adds retry/DLQ durability and back-pressure for bulk purges.
 
+> **Load-bearing consequence for producers (AECI-666):** a Queue `send()` counts against the **same per-invocation connection budget as `fetch`** — a Worker invocation may hold only a bounded number of connections waiting for response headers, and `fetch`, KV, R2, Cache API, Queues and outbound WebSockets all draw on it. So a producer that enqueues more than one message must use **`queue.sendBatch()`**, not a concurrent `send()` per message; the promote's post-commit tail already sits close to the limit and is where this first bit. Today every producer sends exactly one message (`CACHE_PURGE_QUEUE_MAX_TAGS` is 1000, so a promote's whole tag set fits in one), which makes this latent rather than active — but it stops being latent the moment that cap moves, so `purgeAfterPromote` is written with `sendBatch()` regardless. `sendBatch` itself caps at 100 messages / 256 KB per call. See ADR 0021's [2026-08-27 amendment](0021-async-promote-ingest-via-workflows.md#amendment-2026-08-27--bounded-hook-dispatch-aeci-666) for why exceeding the budget is not merely slow: past it the runtime cancels stalled responses, and a cancelled `fetch` returns a promise that never settles.
+
 ### 4. `POST /admin/purge` (WC-6) and datatool (WC-7)
 
 `/admin/purge` (manual/incident + CI surface) is migrated to enqueue onto the same purge Queue (or call `ctx.cache.purge()` directly if it lives on the SSR Worker's `Renderer` context). Datatool's broad post-copy/seed/reindex purge (`BROAD_CACHE_TAGS`) enqueues a `purgeEverything` (or broad-tag) message. The HTTP transport (`callCloudflarePurge`) and its `CF_PURGE_API_TOKEN` were retired in WC-10 (AECI-324) once all callers were off it.
@@ -109,6 +111,7 @@ Grounded in the Cloudflare Workers Cache docs (overview / configuration / cache-
 - ➖ **New infra:** a Cloudflare Queue (producers on API/datatool, consumer on SSR) and a **two-entrypoint** SSR Worker (gateway + `Renderer`). More moving parts than a single fetch handler.
 - ➖ **Reverses ADR 0010's "no web↔api coupling"** — reintroduces a cross-Worker dependency, but **asynchronously** via the Queue (not a binding cycle).
 - ➖ **Purge discipline is now entrypoint-bound:** every purge must originate from the `Renderer` entrypoint or it silently no-ops. This is a new, easy-to-get-wrong invariant to test (WC-9).
+- ➖ **Producers spend the invocation's connection budget:** `queue.send()` draws on the same bounded pool as `fetch`, so a multi-message producer must batch (`sendBatch()`) — see §3 (AECI-666).
 - ➖ **Cache-warmth vs deploy-freshness tradeoff** is now an explicit knob (`cross_version_cache`); defaulting to per-version means each deploy re-warms the cache.
 - ➖ **Billing shift:** cache HITs consume no CPU, but static-asset requests and worker-to-worker (loopback) invocations become billable once caching is enabled.
 - ➖ **Local-dev gap:** front-of-Worker HIT/MISS isn't reliably reproducible under miniflare; parts of the model can only be verified on a deployed preview (WC-9).

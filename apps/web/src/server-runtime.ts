@@ -79,6 +79,7 @@ import {
 } from '@aeci/shared';
 import type { IntegrationDetail, PageViewPayload } from '@aeci/shared';
 import { isPublicSite } from '@aeci/shared/deploy-env';
+import { discardResponseBody } from '@aeci/shared/response-drain';
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 
@@ -409,7 +410,8 @@ const ROUTE_CACHE_PATTERNS: readonly RoutePattern[] = [
   // is dropped from the cache key; UTM still survives in the real browser URL for
   // `buildAttribution` at submit time (same as every other lead-capture surface).
   { match: (p) => p === '/updates', ttl: { edge: 86_400, browser: 3_600 } },
-  // /roadmap — coming-soon placeholder behind the header "More" menu. Static and
+  // /roadmap — coming-soon placeholder, linked from the footer's Company column
+  // (it sat behind the header "More" menu until that was retired). Static and
   // visitor-state-neutral like /about, so the same static-page TTL. It is
   // `robots: noindex` (component-set) and absent from sitemap.xml; neither
   // affects cacheability.
@@ -887,7 +889,15 @@ function firePageView(
         body: JSON.stringify(body),
       }),
     )
-      .then(() => undefined)
+      .then((res) => {
+        // Nothing here reads the body, and an unread body holds its stream open
+        // (AECI-666). This is a service binding rather than an outbound network
+        // `fetch`, so it is not the connection class that caused the promote
+        // incident — but this fires on EVERY full-document arrival, which makes
+        // it the highest-frequency unread response in the codebase, and
+        // releasing it costs nothing.
+        discardResponseBody(res);
+      })
       .catch(() => undefined),
   );
 }

@@ -8,12 +8,16 @@
  *
  * ── `pending_reviews` on the read shapes (AECI-617) ─────────────────────────────
  * `GET`/`PATCH` return the moderation-queue count for `role === 'admin'` (`null`
- * otherwise) so the header's admin probe (`apps/web/.../admin/admin-status.ts`)
+ * otherwise) so the header's role probe (`apps/web/.../auth/role-status.ts`)
  * gets role + badge count in one round trip rather than chaining
  * `GET /api/admin/summary`. That second hop repeated the JWKS verify and the
- * `profiles` read, and its latency was the visible lag before the "More" menu's
- * Admin section appeared. `routes/admin-summary.ts` is unchanged — it stays the
+ * `profiles` read, and its latency was the visible lag before the header's Admin
+ * affordance appeared. `routes/admin-summary.ts` is unchanged — it stays the
  * `/admin` SSR resolver's gate and the in-shell badge feed.
+ *
+ * That one probe also answers the vendor portal's door (`role === 'vendor_admin'`),
+ * so a signed-in page load makes a single request here however many role-gated
+ * affordances the header carries.
  *
  * ── Erasure (DELETE), split across the identity seam ────────────────────────────
  * `profiles(id)` has seven inbound FKs; five are NO ACTION, so they must be nulled

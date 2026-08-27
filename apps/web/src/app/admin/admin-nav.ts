@@ -3,9 +3,11 @@
  * every surface that lists admin screens.
  *
  * Extracted from `admin-shell.ts` when the site header's "More" menu gained a
- * full Admin section: the in-shell sidebar (`admin-shell.ts`) and the header
- * overflow menu (`layout/nav-more-trigger.ts`, `layout/nav-menu.ts`) now render
- * the SAME array, so the two lists cannot drift as screens are added.
+ * full Admin section, so the two lists could not drift. That menu is gone and
+ * the header no longer restates this IA at all — it offers a single "Admin
+ * portal" door (`layout/user-menu.ts`) and the console owns its own navigation.
+ * So the array is back to ONE consumer, `admin-shell.ts`, which is the point:
+ * eleven screens across three groups is a sidebar, not a dropdown column.
  *
  * Groups and order mirror `docs/ADMIN_PANEL_SPEC.md` §5. Only routes that
  * **exist** are listed — nothing links to a 404, and no entry is rendered
@@ -35,8 +37,7 @@ export interface AdminNavGroup {
  * `/admin/traffic` with AECI-578, `/admin/catalog` with AECI-579, `/admin/system`
  * with AECI-580, `/admin/audience` with AECI-586). `/admin/claims` arrives from
  * Stage 2 (AECI-521) — it was a hand-rolled entry in `admin-shell.ts` on
- * `stage-2` and folded into this array at the AECI-619 reconciliation, so the
- * shell sidebar and the header "More" menu list it from the same place.
+ * `stage-2` and folded into this array at the AECI-619 reconciliation.
  */
 export const ADMIN_NAV_GROUPS: readonly AdminNavGroup[] = [
   {

@@ -110,7 +110,7 @@ URL scheme: `/docs/<section>/<slug>`, kebab-case. Roughly 18 pages.
 
 1. Which portal moments get a "Learn more" link — claim form, attestation lanes, plan panel, notification list?
 2. Does the vendor guide organize by task (leaning yes) or by tier?
-3. Header nav entry or footer-only at launch?
+3. ~~Header nav entry or footer-only at launch?~~ **Answered: footer-only.** The header's primary row is public-directory-only, width-budgeted and closed, and its `More▾` overflow menu was retired — a new *secondary* destination now goes to the footer by rule, not by preference (`DESIGN.md` §Navigation → The Overflow Rule). `/docs` is exactly such a destination. Promoting it into the row later is possible but is a deliberate re-measure at 1024px, not a default.
 4. What does the FAQ actually need? Collect the real questions from the first concierge cohort rather than inventing them.
 
 ## 8. Epic decomposition sketch — **not final, do not build from this**

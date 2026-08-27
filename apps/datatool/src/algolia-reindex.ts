@@ -21,6 +21,7 @@
  * zero-downtime `replaceAllObjects` needs the Node SDK).
  */
 import { type AlgoliaEnv, indexNamesFor, mechanismRank } from '@aeci/shared/algolia';
+import { discardResponseBody } from '@aeci/shared/response-drain';
 import {
   ALGOLIA_BATCH_MAX,
   type AlgoliaBatchCredentials,
@@ -230,6 +231,11 @@ async function clearIndex(
         'content-type': 'application/json',
       },
     });
+    // NEITHER branch reads the body, and an unread body holds its connection
+    // open; a Worker invocation may hold only a bounded number, and past that
+    // the runtime cancels the stalled responses into `fetch` promises that never
+    // settle (AECI-666). A bulk reindex calls this once per entity.
+    discardResponseBody(res);
     return res.ok
       ? { ok: true, status: res.status }
       : { ok: false, status: res.status, message: res.statusText || 'algolia_clear_failed' };

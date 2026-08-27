@@ -90,6 +90,8 @@
 
 import { PostHog } from 'posthog-node/edge';
 
+import { discardResponseBody } from './response-drain';
+
 export type PosthogLogLevel = 'debug' | 'info' | 'warn' | 'error';
 
 export type PosthogLogEvent = {
@@ -142,6 +144,12 @@ export type PosthogClient = {
     env: PosthogEnv,
     request: Request,
     event: PosthogLogEvent,
+  ): void;
+  logBatchToPosthog(
+    ctx: WaitUntilContext,
+    env: PosthogEnv,
+    request: Request,
+    events: PosthogLogEvent[],
   ): void;
   submitDistribution(
     ctx: WaitUntilContext,
@@ -473,6 +481,15 @@ export function createPosthogClient(config: PosthogClientConfig): PosthogClient 
    *     drops every log and metric with no indication at all. AECi has already
    *     lived that incident once on the Datadog transport; without the `res.ok`
    *     check "the key is set but nothing reaches PostHog" is undiagnosable.
+   *
+   * Every path releases the response body (`discardResponseBody`). The success
+   * path has nothing to read, but an unread body holds its connection open, and
+   * a Worker invocation that parks too many of those gets its stalled responses
+   * cancelled — into `fetch` promises that never settle (AECI-666). This
+   * transport fires once per log line and once per metric point, and during the
+   * §3.1 dual-run every call site fires it AND its Datadog twin, so it is the
+   * highest-volume `fetch` caller in either Worker and the first to hit the
+   * limit.
    */
   function postToIntake(
     ctx: WaitUntilContext,
@@ -492,15 +509,20 @@ export function createPosthogClient(config: PosthogClientConfig): PosthogClient 
             },
             body: JSON.stringify(payload),
           });
-          if (!res.ok) {
-            let snippet = '';
-            try {
-              snippet = (await res.text()).slice(0, 512);
-            } catch {
-              // Body already consumed / unreadable — the status alone still names it.
-            }
-            console.warn(`${label}: intake rejected ${res.status}`, snippet);
+          if (res.ok) {
+            // Nothing to read on success — but an unread body keeps holding its
+            // connection, and enough of those deadlock the invocation (AECI-666).
+            discardResponseBody(res);
+            return;
           }
+          let snippet = '';
+          try {
+            snippet = (await res.text()).slice(0, 512);
+          } catch {
+            // Body already consumed / unreadable — the status alone still names it.
+            discardResponseBody(res);
+          }
+          console.warn(`${label}: intake rejected ${res.status}`, snippet);
         } catch (error) {
           // Swallow — observability MUST NOT break the request path.
           console.warn(`${label}: forward failed`, error);
@@ -534,6 +556,44 @@ export function createPosthogClient(config: PosthogClientConfig): PosthogClient 
     postToIntake(ctx, projectKey, `${ingestHost(env)}${METRICS_PATH}`, payload, label);
   }
 
+  /**
+   * One OTLP `logRecord` for one event. Extracted so the single-event and
+   * batched senders below build a byte-identical record and can never drift
+   * (AECI-666) — the batch is literally the same records in one envelope.
+   */
+  function logRecordFor(request: Request, event: PosthogLogEvent, timeUnixNano: string) {
+    const { message, level, ...rest } = event;
+    const severity = SEVERITY[level ?? 'info'];
+    return {
+      timeUnixNano,
+      observedTimeUnixNano: timeUnixNano,
+      severityNumber: severity.number,
+      severityText: severity.text,
+      body: { stringValue: message },
+      // `withDistinctId` is the ONLY writer of `posthogDistinctId`
+      // (AECI-644 / §AW3): present iff this request carries a
+      // JWKS-verified Supabase user id, absent otherwise. Never
+      // synthesize one here — see the function's docblock.
+      attributes: toAttributes(withDistinctId(request, rest)),
+    };
+  }
+
+  /** Wrap N `logRecord`s in the resource/scope envelope the logs intake expects. */
+  function logsPayload(
+    env: PosthogEnv,
+    request: Request,
+    logRecords: ReturnType<typeof logRecordFor>[],
+  ) {
+    return {
+      resourceLogs: [
+        {
+          resource: { attributes: logResourceAttributes(env, request) },
+          scopeLogs: [{ scope: { name: SCOPE_NAME }, logRecords }],
+        },
+      ],
+    };
+  }
+
   function logToPosthog(
     ctx: WaitUntilContext,
     env: PosthogEnv,
@@ -543,38 +603,43 @@ export function createPosthogClient(config: PosthogClientConfig): PosthogClient 
     const projectKey = env.POSTHOG_PROJECT_KEY;
     if (!projectKey) return;
 
-    const { message, level, ...rest } = event;
-    const severity = SEVERITY[level ?? 'info'];
-    const timeUnixNano = nowUnixNano();
-
-    const payload = {
-      resourceLogs: [
-        {
-          resource: { attributes: logResourceAttributes(env, request) },
-          scopeLogs: [
-            {
-              scope: { name: SCOPE_NAME },
-              logRecords: [
-                {
-                  timeUnixNano,
-                  observedTimeUnixNano: timeUnixNano,
-                  severityNumber: severity.number,
-                  severityText: severity.text,
-                  body: { stringValue: message },
-                  // `withDistinctId` is the ONLY writer of `posthogDistinctId`
-                  // (AECI-644 / §AW3): present iff this request carries a
-                  // JWKS-verified Supabase user id, absent otherwise. Never
-                  // synthesize one here — see the function's docblock.
-                  attributes: toAttributes(withDistinctId(request, rest)),
-                },
-              ],
-            },
-          ],
-        },
-      ],
-    };
-
+    const payload = logsPayload(env, request, [logRecordFor(request, event, nowUnixNano())]);
     postToIntake(ctx, projectKey, `${ingestHost(env)}${LOGS_PATH}`, payload, 'logToPosthog');
+  }
+
+  /**
+   * Forward N log events in ONE request (AECI-666).
+   *
+   * OTLP's `logRecords` is an array, so a caller with a batch of related lines —
+   * the promote's §26.5 audit forwards being the motivating case, one entry per
+   * created/updated row — must not loop {@link logToPosthog}. That issued one
+   * `fetch` per entry, all dispatched simultaneously into `waitUntil`, and
+   * because the §3.1 dual-run fires the Datadog twin from the same call site it
+   * was **2N** connections, not N. A fat promote bundle was enough on its own to
+   * exhaust the invocation's connection budget and start losing hooks silently.
+   *
+   * Same envelope per event as {@link logToPosthog} — they share
+   * {@link logRecordFor} — same swallow-and-warn failure handling, and a no-op
+   * on an empty array (never post an empty `logRecords`).
+   */
+  function logBatchToPosthog(
+    ctx: WaitUntilContext,
+    env: PosthogEnv,
+    request: Request,
+    events: PosthogLogEvent[],
+  ): void {
+    const projectKey = env.POSTHOG_PROJECT_KEY;
+    if (!projectKey || events.length === 0) return;
+
+    // One timestamp for the whole batch: these rows were committed by a single
+    // `db.batch()`, so they genuinely share an observation instant.
+    const timeUnixNano = nowUnixNano();
+    const payload = logsPayload(
+      env,
+      request,
+      events.map((event) => logRecordFor(request, event, timeUnixNano)),
+    );
+    postToIntake(ctx, projectKey, `${ingestHost(env)}${LOGS_PATH}`, payload, 'logBatchToPosthog');
   }
 
   /**
@@ -830,6 +895,7 @@ export function createPosthogClient(config: PosthogClientConfig): PosthogClient 
   return {
     hostnameFromRequest,
     logToPosthog,
+    logBatchToPosthog,
     submitDistribution,
     submitCount,
     submitGauge,

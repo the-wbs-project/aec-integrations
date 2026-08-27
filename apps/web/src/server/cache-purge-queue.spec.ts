@@ -8,6 +8,7 @@ import type { WebEnv } from '../env';
 vi.mock('../server-posthog', () => ({
   submitCount: vi.fn(),
   logToPosthog: vi.fn(),
+  logBatchToPosthog: vi.fn(),
 }));
 
 import { logToPosthog, submitCount } from '../server-posthog';

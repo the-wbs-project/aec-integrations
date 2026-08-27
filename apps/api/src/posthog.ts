@@ -44,6 +44,7 @@
 import { createPosthogClient, type PosthogEnv, type PosthogLogEvent } from '@aeci/shared/posthog';
 
 import {
+  logBatchToDatadog,
   logToDatadog,
   submitCount as submitCountToDatadog,
   submitDistribution as submitDistributionToDatadog,
@@ -103,6 +104,30 @@ export function logToPosthog(
 ): void {
   client.logToPosthog(ctx, env, request, event);
   logToDatadog(ctx, env, request, event); // DUAL-RUN: delete at PH-final (AECI-651).
+}
+
+/**
+ * N related structured logs → ONE request per vendor (AECI-666).
+ *
+ * The batched sibling of {@link logToPosthog}, for a caller whose line count
+ * scales with its payload — the promote's §26.5 audit forwards, one entry per
+ * created/updated row. Looping the single-event helper issued one `fetch` per
+ * entry **per vendor**, all at once into `waitUntil`; a Worker invocation may
+ * hold only a bounded number of open connections, and past it the runtime
+ * cancels the stalled responses into `fetch` promises that never settle. The
+ * work then vanishes with no error and the invocation is killed as hung.
+ *
+ * Each leg still self-gates on its own key, so this no-ops exactly where
+ * {@link logToPosthog} does.
+ */
+export function logBatchToPosthog(
+  ctx: WaitUntilContext,
+  env: TelemetryEnv,
+  request: Request,
+  events: PosthogLogEvent[],
+): void {
+  client.logBatchToPosthog(ctx, env, request, events);
+  logBatchToDatadog(ctx, env, request, events); // DUAL-RUN: delete at PH-final (AECI-651).
 }
 
 /** Count metric → PostHog OTLP sum (+ Datadog count for the dual-run window). */

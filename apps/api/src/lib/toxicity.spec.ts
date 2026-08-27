@@ -20,6 +20,7 @@ import { scoreToxicity } from './toxicity';
 // file also imports `logToPosthog` (the `warn` path).
 vi.mock('../posthog', () => ({
   logToPosthog: vi.fn(),
+  logBatchToPosthog: vi.fn(),
   submitCount: vi.fn(),
   submitDistribution: vi.fn(),
   submitGauge: vi.fn(),

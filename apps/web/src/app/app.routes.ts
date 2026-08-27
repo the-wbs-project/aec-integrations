@@ -370,8 +370,9 @@ export const routes: Routes = [
     path: 'updates',
     loadComponent: () => import('./updates/updates').then((m) => m.UpdatesPage),
   },
-  // The header "More" menu's roadmap entry — a coming-soon placeholder. Static +
-  // CACHEABLE on the same static-page TTL as /about and /updates, but NOINDEX
+  // /roadmap — a coming-soon placeholder, reached from the footer's Company
+  // column (it was behind the header "More" menu until that was retired). Static
+  // + CACHEABLE on the same static-page TTL as /about and /updates, but NOINDEX
   // (thin placeholder content) and deliberately absent from `sitemap.xml`.
   {
     path: 'roadmap',
