@@ -541,4 +541,175 @@ describe('CatalogCoverage', () => {
       }
     }
   });
+
+  // ─── The Daily / Monthly panel ─────────────────────────────────────────────
+
+  /**
+   * Monthly is a client-side calendar-month rollup of the SAME daily series
+   * (`interval` has one wire value), reached over a 12-month window that the
+   * 30-day one never requests. Three things about that are worth pinning:
+   * the wide fetch is lazy, its rollup is exact, and its caveats are its own —
+   * the 12-month window reaches back past the audit log where the 30-day one
+   * does not, so sharing one notes list would either hide the caveat on
+   * Monthly or fabricate it on Daily.
+   */
+  describe('the Daily / Monthly tabs', () => {
+    const STARTS_AT_NOTE: AdminNote = {
+      code: 'catalog_series_starts_at',
+      severity: 'info',
+      message: 'WIRE FALLBACK — untranslated operator message',
+      params: { earliest_day: '2026-05-01' },
+    };
+
+    /** A response whose points are given, rather than the fixture's two days. */
+    function seriesOver(
+      points: Array<{ day: string; value: number }>,
+      notes: AdminNote[] = [ADDITIONS_NOTE],
+    ): AdminTimeseriesResponse {
+      return {
+        ...makeSeries(notes),
+        points: points.map((p) => ({
+          ...p,
+          value_excluding_internal: null,
+          reconstructed: false,
+        })),
+      };
+    }
+
+    function tabs(el: HTMLElement): HTMLElement[] {
+      return [...additionsSection(el).querySelectorAll('[role="tab"]')] as HTMLElement[];
+    }
+
+    /** Clicks a tab and drains the lazy fetch + the deferred panel render. */
+    async function openTab(
+      fixture: Awaited<ReturnType<typeof setup>>['fixture'],
+      el: HTMLElement,
+      label: string,
+    ): Promise<void> {
+      const tab = tabs(el).find((t) => (t.textContent ?? '').trim() === label);
+      if (!tab) throw new Error(`No tab "${label}"`);
+      tab.click();
+      fixture.detectChanges();
+      await fixture.whenStable();
+      await settle();
+      fixture.detectChanges();
+    }
+
+    it('does not fetch the 12-month window until Monthly is opened', async () => {
+      const { api } = await setup(makeApiMock());
+
+      // Four series, one window. The wide fetch is not paid for on arrival at a
+      // screen most operators open for the gap lists.
+      expect(api.timeseries).toHaveBeenCalledTimes(4);
+    });
+
+    it('fetches a month-aligned window under the 400-day cap when Monthly opens', async () => {
+      const { fixture, el, api } = await setup(makeApiMock());
+      await openTab(fixture, el, 'Monthly');
+
+      expect(api.timeseries).toHaveBeenCalledTimes(8);
+      const [, from, to] = api.timeseries.mock.calls[4];
+      // A month bucket has to start on a month boundary, or the earliest row is
+      // a partial month rendered as a whole one.
+      expect(from).toMatch(/^\d{4}-\d{2}-01$/);
+      const days = (Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000;
+      expect(days).toBeLessThan(400);
+      expect(days).toBeGreaterThan(300);
+    });
+
+    it('does not refetch when Monthly is re-selected', async () => {
+      const { fixture, el, api } = await setup(makeApiMock());
+      await openTab(fixture, el, 'Monthly');
+      await openTab(fixture, el, 'Daily');
+      await openTab(fixture, el, 'Monthly');
+
+      // `ngTabContent` destroys the inactive panel, so a load keyed off render
+      // would refetch on every switch back. It is keyed off selection instead.
+      expect(api.timeseries).toHaveBeenCalledTimes(8);
+    });
+
+    it('sums the daily points into calendar months, newest month first', async () => {
+      const timeseries = vi.fn(async () =>
+        seriesOver([
+          { day: '2026-07-30', value: 1 },
+          { day: '2026-07-31', value: 2 },
+          { day: '2026-08-01', value: 4 },
+          { day: '2026-08-02', value: 3 },
+        ]),
+      );
+      const { fixture, el } = await setup(makeApiMock({ timeseries }));
+      await openTab(fixture, el, 'Monthly');
+
+      const section = additionsSection(el);
+      const months = [...section.querySelectorAll('tbody tr th')].map((c) =>
+        (c.textContent ?? '').trim(),
+      );
+      expect(months).toEqual(['2026-08', '2026-07']);
+
+      // 4 + 3 in August, 1 + 2 in July, per series.
+      const august = [...(section.querySelectorAll('tbody tr')[0]?.querySelectorAll('td') ?? [])];
+      expect(august.map((c) => (c.textContent ?? '').trim())).toEqual(['7', '7', '7', '7']);
+    });
+
+    it("keeps each window's caveats on its own tab", async () => {
+      let call = 0;
+      const timeseries = vi.fn(async () => {
+        call += 1;
+        // Calls 1-4 are the 30-day window; 5-8 are the 12-month one, which
+        // reaches back past the audit log and says so.
+        return call <= 4
+          ? makeSeries([ADDITIONS_NOTE])
+          : makeSeries([ADDITIONS_NOTE, STARTS_AT_NOTE]);
+      });
+      const { fixture, el } = await setup(makeApiMock({ timeseries }));
+
+      expect(additionsSection(el).textContent).not.toContain('The audit log begins');
+
+      await openTab(fixture, el, 'Monthly');
+      const monthly = additionsSection(el).textContent ?? '';
+      expect(monthly).toContain('The audit log begins 2026-05-01');
+      // The load-bearing banner rides on BOTH windows.
+      expect(monthly).toContain('not a net total');
+
+      await openTab(fixture, el, 'Daily');
+      expect(additionsSection(el).textContent).not.toContain('The audit log begins');
+    });
+
+    it('fails Monthly without disturbing Daily or the gap lists', async () => {
+      let call = 0;
+      const timeseries = vi.fn(async () => {
+        call += 1;
+        if (call > 4) throw new Error('timeseries 503');
+        return makeSeries();
+      });
+      const { fixture, el } = await setup(makeApiMock({ timeseries }));
+      await openTab(fixture, el, 'Monthly');
+
+      expect(additionsSection(el).textContent).toContain("couldn't load the additions series");
+      // The actionable half of the screen is untouched.
+      expect(gapCard(el, 'No logo')).not.toBeNull();
+
+      await openTab(fixture, el, 'Daily');
+      const daily = additionsSection(el);
+      expect(daily.querySelector('table')).not.toBeNull();
+      expect(daily.textContent).not.toContain("couldn't load the additions series");
+    });
+
+    it('exposes two tabs and exactly one live panel', async () => {
+      const { fixture, el } = await setup(makeApiMock());
+
+      const labels = tabs(el).map((t) => (t.textContent ?? '').trim());
+      expect(labels).toEqual(['Daily', 'Monthly']);
+      expect(tabs(el).map((t) => t.getAttribute('aria-selected'))).toEqual(['true', 'false']);
+
+      await openTab(fixture, el, 'Monthly');
+      expect(tabs(el).map((t) => t.getAttribute('aria-selected'))).toEqual(['false', 'true']);
+
+      // Only the selected panel holds content; the other is torn down.
+      const rendered = [...additionsSection(el).querySelectorAll('[role="tabpanel"]')].filter(
+        (p) => (p.textContent ?? '').trim() !== '',
+      );
+      expect(rendered).toHaveLength(1);
+    });
+  });
 });

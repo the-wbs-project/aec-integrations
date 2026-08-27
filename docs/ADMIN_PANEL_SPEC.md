@@ -239,7 +239,7 @@ Two smaller notes. The breakdowns group **signups inside the window**, matching 
 **SHIPPED 2026-08-13 (AECI-579 / P1.5)** — `/admin/catalog`, the console's first screen.
 
 - **Counts over time** — products / integrations / vendors / claims (§7.1), with the pre-snapshot segment visually marked as an audit-log approximation.
-- **Additions per day** from `audit_log` `*.created` events.
+- **Additions per day** from `audit_log` `*.created` events, in a **Daily / Monthly tabbed panel** (see note (4)).
 - **Promotion funnel** — `pending → ready → promoted → retracted / rejected` from `products.promotion_status`.
 - **Coverage gaps as actionable lists** — products without a vendor, without a logo (171 today), without a description, untagged per facet (`product_trades` is 0), missing API docs, `research_status` distribution.
 - **Taxonomy usage** per facet, plus the trades publication gate (`TRADES_VOCABULARY.md`).
@@ -247,13 +247,25 @@ Two smaller notes. The breakdowns group **signups inside the window**, matching 
 
 This is the section that steers daily catalog work, and the one whose underlying data is richest today.
 
-**Three things this section says that the build had to correct or sharpen (AECI-579):**
+**Four things this section says that the build had to correct or sharpen (AECI-579, and (4) after it):**
 
 **(1) The gap lists cannot link out to the review app, and do not.** An earlier draft of this section, and the "Read-only, emphatically" framing below it, both required every gap row to be *"a link out to the review app, not an edit surface"*. The read-only half stands and is absolute. The link half is **not constructible**: **ADR 0021 deliberately kept the curation key out of D1** — `REVIEW_APP_PROMOTE_API.md` states plainly that *"AECi does **not** store your Airtable/record IDs"*, and that ADR vetoed `airtable_record_id` on `products` as "no curation-tool key in the public schema". There is therefore no identifier in D1 from which a per-row review-app URL could be built, and adding one would reopen a settled decision for a convenience link. **Sample rows link to the AECi product page** (`/products/:slug`) instead, which is the honest available target and is also the more useful one for verifying a gap: it shows the operator exactly what a visitor sees. Nothing about the read-only rule changes — there is no edit affordance anywhere on the screen.
 
 **(2) "Counts over time" and "additions per day" are one series, and it is not this endpoint's.** Both bullets are served by `GET /api/admin/metrics/timeseries` with the `catalog.*` metric keys, which P1.1 already shipped complete with `catalog_series_is_additions_only`. `GET /api/admin/catalog/coverage` deliberately does not carry a second copy. Until §7.1's snapshot exists there is exactly one honest series here — **additions**, from the event stream — and the screen renders it as such with the approximation banner attached, rather than drawing a cumulative curve that §4 shows would be wrong (827 `integration.created` events against 496 live rows).
 
 **(3) The untagged-trade count is not a backlog.** This section lists "untagged per facet (`product_trades` is 0)" alongside missing logos and missing vendors. Those are not the same kind of number. `TRADES_VOCABULARY.md` §1.1 tags a product **only** where it has trade-*specific* value, so horizontal platforms (Procore, Autodesk Build, Bluebeam) correctly carry zero rows — the join is sparse by design and most of the catalog will never be tagged. The count is still worth surfacing (nothing at all is tagged today), but it ships with a `trade_facet_sparse_by_design` note. Presenting it as a to-do list without that caveat would make the screen actively misleading.
+
+**(4) "Additions per day" is now a Daily / Monthly tabbed panel, and Monthly is a rollup rather than a second series.** Thirty rows answers *"what happened this week"* and not *"how is the catalog trending"*, so the table sits in an Angular Aria tablist (ADR 0010; the first tabs under `/admin`) with **Daily** — the unchanged trailing 30 UTC days — as tab one and **Monthly** — the trailing 12 UTC calendar months — as tab two.
+
+Monthly adds nothing to the API. `GET /api/admin/metrics/timeseries` zero-fills every day in a window and `catalog.*` values are plain additive counts, so summing the daily points by `YYYY-MM` is **exact, not approximate**, and the rollup runs client-side. `interval` keeps its single wire value `day`; the `AdminTimeseriesQuerySchema` comment calling week/month roll-ups *"a later additive extension, not a reshape"* is still true and still unimplemented on the server. Nothing in the endpoint, the schema, `metrics_daily`, or the 00:15 snapshot cron changed.
+
+Three consequences a reader should not have to rediscover:
+
+- **The caveats are per tab, not per section.** The 12-month window starts before the earliest `audit_log` row on most tiers, so it carries `catalog_series_starts_at` where the 30-day window never does. One shared notes list would either hide that on Monthly or fabricate it on Daily, so each tab renders its own window's notes. The load-bearing `catalog_series_is_additions_only` banner rides on **both** — note (2) applies to Monthly exactly as it does to Daily.
+- **Monthly is lazy.** Its four requests fire the first time the tab is opened, never on arrival, because most operators come to this screen for the gap lists. Re-selecting the tab does not refetch; the retry button does.
+- **The window is month-aligned**, starting on the 1st of the earliest month rather than 365 days back, so the oldest row is a whole month rather than a partial one rendered as whole. Twelve consecutive calendar months is 365 or 366 days, inside `ADMIN_METRICS_MAX_DAYS` (400). Buckets render as their raw keys (`2026-08-13` / `2026-08`), and the current month is partial by construction — the monthly `<caption>` says so, which is a fact about the view rather than a claim about the data, so it does not displace the API's own `partial_day` note.
+
+This does not change the P2.1 retirement path. When `ADMIN_SNAPSHOT_STOCK_METRIC_KEYS` gives §5.5 true stocks, there are simply two views to fill instead of one.
 
 ### 5.6 System — SHIPPED (AECI-580, 2026-08-13; completed by AECI-583, 2026-08-13)
 

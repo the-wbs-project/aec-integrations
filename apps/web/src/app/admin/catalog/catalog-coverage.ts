@@ -1,4 +1,5 @@
 import { Component, afterNextRender, computed, inject, signal } from '@angular/core';
+import { Tab, TabContent, TabList, TabPanel, Tabs } from '@angular/aria/tabs';
 import { RouterLink } from '@angular/router';
 
 import type {
@@ -12,10 +13,15 @@ import type {
 } from '@aeci/shared';
 
 import { AdminNotes } from '../admin-notes';
+import { AdditionsTable, type AdditionsRow } from './additions-table';
 import { AdminCatalogApi } from './admin-catalog-api';
 
-/** Days of catalog additions shown, matching the overview's 30-day traffic chart. */
+/** Days on the Daily tab, matching the overview's 30-day traffic chart. */
 const SERIES_DAYS = 30;
+/** Calendar months on the Monthly tab, including the current (partial) one.
+ *  Twelve consecutive calendar months is 365 or 366 days, comfortably inside
+ *  the API's `ADMIN_METRICS_MAX_DAYS` (400). */
+const SERIES_MONTHS = 12;
 const DAY_MS = 86_400_000;
 
 /** The four `catalog.*` additions series, in the order §5.5 names them. */
@@ -26,11 +32,18 @@ const SERIES_METRICS: readonly AdminMetricKey[] = [
   'catalog.claims_created',
 ];
 
-/** One row of the additions table: a UTC day and the four series' values. */
-export interface AdditionsRow {
-  day: string;
-  values: readonly number[];
+/** Which window the additions panel is showing. */
+type AdditionsTab = 'daily' | 'monthly';
+
+/** One window's worth of the additions panel: the zipped rows and the caveats
+ *  the API attached to that window. They travel together because they describe
+ *  each other. */
+interface SeriesData {
+  rows: readonly AdditionsRow[];
+  notes: readonly AdminNote[];
 }
+
+const EMPTY_SERIES: SeriesData = { rows: [], notes: [] };
 
 /**
  * AECI-579 / Phase 8.3 P1.5 — the §5.5 catalog screen at `/admin/catalog`, the
@@ -63,15 +76,30 @@ export interface AdditionsRow {
  * count — the "everything is broken" shape must not look like a failure, because
  * it is simply the state of the catalog.
  *
- * **Additions are not totals.** The table is fed by
+ * **Additions are not totals.** The panel is fed by
  * `GET /api/admin/metrics/timeseries`, whose `catalog_series_is_additions_only`
- * note is rendered directly above it. That banner is load-bearing (§4: 827
- * `integration.created` events back 496 live rows) and is the thing most likely
- * to be quietly dropped in a refactor — hence its own component spec.
+ * note is rendered directly above each table. That banner is load-bearing (§4:
+ * 827 `integration.created` events back 496 live rows) and is the thing most
+ * likely to be quietly dropped in a refactor — hence its own component spec.
+ *
+ * ─── Daily / Monthly (AECI-668) ──────────────────────────────────────────────
+ *
+ * The panel is two tabs over the same four series. Monthly is a **client-side
+ * calendar-month rollup of the daily points**, not a new endpoint and not a new
+ * `interval`: the API zero-fills every day in a window and `catalog.*` values
+ * are plain additive counts, so summing by `YYYY-MM` is exact. `interval=day`
+ * remains the only wire value.
+ *
+ * Two things this costs, both handled below. The 12-month window reaches back
+ * further than the audit log does on most tiers, so it can carry a
+ * `catalog_series_starts_at` caveat the 30-day window never sees — which is why
+ * **notes are held per tab** rather than shared. And the wide fetch is four more
+ * requests, so it fires **lazily**, the first time Monthly is opened, rather than
+ * on every arrival at a screen most operators read for the gap lists.
  */
 @Component({
   selector: 'aec-catalog-coverage',
-  imports: [AdminNotes, RouterLink],
+  imports: [AdditionsTable, AdminNotes, RouterLink, Tab, TabContent, TabList, TabPanel, Tabs],
   templateUrl: './catalog-coverage.html',
 })
 export class CatalogCoverage {
@@ -81,19 +109,28 @@ export class CatalogCoverage {
   protected readonly loading = signal(true);
   protected readonly loadFailed = signal(false);
 
-  /** The additions table is a second request set and fails independently — a
+  /** The additions panel is a second request set and fails independently — a
    *  timeseries outage must not blank the gap lists, which are the actionable
-   *  half of this screen. */
-  protected readonly additionsRows = signal<readonly AdditionsRow[]>([]);
-  protected readonly additionsNotes = signal<readonly AdminNote[]>([]);
-  protected readonly additionsLoading = signal(true);
-  protected readonly additionsFailed = signal(false);
+   *  half of this screen. Each tab fails independently of the other, too. */
+  protected readonly tab = signal<AdditionsTab>('daily');
+
+  protected readonly daily = signal<SeriesData>(EMPTY_SERIES);
+  protected readonly dailyLoading = signal(true);
+  protected readonly dailyFailed = signal(false);
+
+  protected readonly monthly = signal<SeriesData>(EMPTY_SERIES);
+  /** Starts false, not true: nothing is in flight until the tab is opened. */
+  protected readonly monthlyLoading = signal(false);
+  protected readonly monthlyFailed = signal(false);
+  /** Set the moment the first monthly fetch starts, so re-selecting the tab is
+   *  free. `loadMonthly()` ignores it, which is what makes the retry button work. */
+  private monthlyRequested = false;
 
   protected readonly notes = computed<readonly AdminNote[]>(() => this.coverage()?.notes ?? []);
   protected readonly gaps = computed(() => this.coverage()?.gaps ?? []);
   protected readonly taxonomy = computed(() => this.coverage()?.taxonomy ?? []);
 
-  /** Column headers for the additions table, in `SERIES_METRICS` order. */
+  /** Column headers for the additions tables, in `SERIES_METRICS` order. */
   protected readonly seriesLabels: readonly string[] = [
     $localize`:@@admin.catalog.series.products:Products`,
     $localize`:@@admin.catalog.series.integrations:Integrations`,
@@ -101,21 +138,10 @@ export class CatalogCoverage {
     $localize`:@@admin.catalog.series.claims:Claims`,
   ];
 
-  /** Column totals, so the table has a footer an operator can read at a glance. */
-  protected readonly seriesTotals = computed<readonly number[]>(() =>
-    SERIES_METRICS.map((_, i) =>
-      this.additionsRows().reduce((acc, r) => acc + (r.values[i] ?? 0), 0),
-    ),
-  );
-
-  /** True when nothing was added in the whole window — common on a quiet catalog
-   *  and worth saying, rather than showing 30 rows of zeros. */
-  protected readonly additionsEmpty = computed(() => this.seriesTotals().every((v) => v === 0));
-
   constructor() {
     afterNextRender(() => {
       void this.load();
-      void this.loadAdditions();
+      void this.loadDaily();
     });
   }
 
@@ -132,60 +158,96 @@ export class CatalogCoverage {
   }
 
   /**
-   * The four `catalog.*` series, fetched in parallel and zipped into one table.
-   * Every response is zero-filled across the same window by the API, so the day
-   * spines align by construction and the zip needs no key matching beyond the
-   * index.
+   * The four `catalog.*` series over one inclusive UTC window, fetched in
+   * parallel and zipped into one table. Every response is zero-filled across the
+   * same window by the API, so the day spines align by construction and the zip
+   * needs no key matching beyond the index.
    *
-   * The window is the trailing {@link SERIES_DAYS} UTC days INCLUDING today. The
-   * API's `from`/`to` are inclusive calendar dates.
+   * Returns rows **ascending**; callers reverse after any rollup.
    */
-  private async loadAdditions(): Promise<void> {
-    this.additionsFailed.set(false);
-    this.additionsLoading.set(true);
-    const now = Date.now();
-    const to = utcDay(now);
-    const from = utcDay(now - (SERIES_DAYS - 1) * DAY_MS);
-    try {
-      const responses = await Promise.all(
-        SERIES_METRICS.map((metric) => this.api.timeseries(metric, from, to)),
-      );
+  private async fetchSeries(from: string, to: string): Promise<SeriesData> {
+    const responses = await Promise.all(
+      SERIES_METRICS.map((metric) => this.api.timeseries(metric, from, to)),
+    );
 
+    const days = responses[0]?.points.map((p) => p.day) ?? [];
+    const rows = days.map((bucket, i) => ({
+      bucket,
+      values: responses.map((r) => r.points[i]?.value ?? 0),
+    }));
+
+    // One note per code across the four responses — they share a window, so the
+    // caveats are identical and repeating them four times is noise.
+    const seen = new Set<string>();
+    const notes = responses
+      .flatMap((r) => r.notes)
+      .filter((n) => (seen.has(n.code) ? false : (seen.add(n.code), true)));
+
+    return { rows, notes };
+  }
+
+  /**
+   * The trailing {@link SERIES_DAYS} UTC days INCLUDING today. The API's
+   * `from`/`to` are inclusive calendar dates.
+   */
+  protected async loadDaily(): Promise<void> {
+    this.dailyFailed.set(false);
+    this.dailyLoading.set(true);
+    const now = Date.now();
+    try {
+      const { rows, notes } = await this.fetchSeries(
+        utcDay(now - (SERIES_DAYS - 1) * DAY_MS),
+        utcDay(now),
+      );
       // Newest day first — the operator reads the most recent additions at the
       // top, not after scrolling 30 rows. The API returns points ascending.
-      const days = responses[0]?.points.map((p) => p.day) ?? [];
-      this.additionsRows.set(
-        days
-          .map((day, i) => ({
-            day,
-            values: responses.map((r) => r.points[i]?.value ?? 0),
-          }))
-          .reverse(),
-      );
-
-      // One note per code across the four responses — they share a window, so the
-      // caveats are identical and repeating them four times is noise.
-      const seen = new Set<string>();
-      this.additionsNotes.set(
-        responses
-          .flatMap((r) => r.notes)
-          .filter((n) => (seen.has(n.code) ? false : (seen.add(n.code), true))),
-      );
+      this.daily.set({ rows: [...rows].reverse(), notes });
     } catch {
-      this.additionsFailed.set(true);
-      this.additionsRows.set([]);
-      this.additionsNotes.set([]);
+      this.dailyFailed.set(true);
+      this.daily.set(EMPTY_SERIES);
     } finally {
-      this.additionsLoading.set(false);
+      this.dailyLoading.set(false);
     }
+  }
+
+  /**
+   * The trailing {@link SERIES_MONTHS} UTC calendar months, from the 1st of the
+   * earliest through today. Requested per day and rolled up here, because
+   * `interval` has exactly one wire value.
+   */
+  protected async loadMonthly(): Promise<void> {
+    this.monthlyRequested = true;
+    this.monthlyFailed.set(false);
+    this.monthlyLoading.set(true);
+    const now = Date.now();
+    try {
+      const { rows, notes } = await this.fetchSeries(
+        utcMonthStart(now, SERIES_MONTHS - 1),
+        utcDay(now),
+      );
+      this.monthly.set({ rows: toMonthlyRows(rows).reverse(), notes });
+    } catch {
+      this.monthlyFailed.set(true);
+      this.monthly.set(EMPTY_SERIES);
+    } finally {
+      this.monthlyLoading.set(false);
+    }
+  }
+
+  /**
+   * `ngTabList` writes its `selectedTab` model and emits here. The fetch hangs
+   * off this event rather than off panel render because `ngTabContent` destroys
+   * the inactive panel: keying the load off rendering would refetch on every
+   * switch back.
+   */
+  protected selectTab(value: string | undefined): void {
+    const next: AdditionsTab = value === 'monthly' ? 'monthly' : 'daily';
+    this.tab.set(next);
+    if (next === 'monthly' && !this.monthlyRequested) void this.loadMonthly();
   }
 
   protected retry(): void {
     void this.load();
-  }
-
-  protected retryAdditions(): void {
-    void this.loadAdditions();
   }
 
   // ─── Labels ────────────────────────────────────────────────────────────────
@@ -292,4 +354,37 @@ export class CatalogCoverage {
  *  browser's local timezone never enters the query. */
 function utcDay(ms: number): string {
   return new Date(ms).toISOString().slice(0, 10);
+}
+
+/**
+ * `YYYY-MM-DD` for the first UTC day of the month `back` calendar months before
+ * the month containing `ms`. Calendar arithmetic, not `back * 30 * DAY_MS` — the
+ * Monthly tab's buckets are months, so its window has to start on a month
+ * boundary or the earliest row would be a partial month masquerading as a whole
+ * one. `Date.UTC` rolls a negative month index into the previous year.
+ */
+function utcMonthStart(ms: number, back: number): string {
+  const d = new Date(ms);
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() - back, 1))
+    .toISOString()
+    .slice(0, 10);
+}
+
+/**
+ * Sum ascending daily rows into `YYYY-MM` buckets, preserving ascending order.
+ *
+ * Exact rather than approximate: the API zero-fills every day in the window, so
+ * a month's bucket is the sum of every day it contains, with no gaps to infer.
+ * Insertion order follows the day spine, so the caller's `reverse()` yields
+ * newest month first — matching the Daily tab.
+ */
+function toMonthlyRows(daily: readonly AdditionsRow[]): AdditionsRow[] {
+  const buckets = new Map<string, number[]>();
+  for (const row of daily) {
+    const key = row.bucket.slice(0, 7);
+    const acc = buckets.get(key) ?? row.values.map(() => 0);
+    row.values.forEach((v, i) => (acc[i] += v));
+    buckets.set(key, acc);
+  }
+  return [...buckets].map(([bucket, values]) => ({ bucket, values }));
 }
