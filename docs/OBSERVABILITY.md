@@ -49,6 +49,20 @@ Five pipes across two vendors. Every one of them is fire-and-forget
 when its credential is absent** — keyless local dev is the design, not a degraded
 mode.
 
+> **They also spend a shared, bounded resource (AECI-666).** A Worker invocation may
+> hold only ~6 connections waiting for response headers — `fetch`, KV, R2, Cache API,
+> Queues `send()` and outbound WebSockets all draw on the same pool. **The dual-run
+> doubles the cost of every emission**: one `logToPosthog` call is two connections
+> while the Datadog leg still runs beside PostHog, which is what makes "Emit per
+> call" below a budget question and not just a batching-strategy one. Two rules
+> follow, and both are enforced in review: every transport **releases its response
+> body** on every path (`discardResponseBody`), and a caller whose line count scales
+> with its payload uses the **batched** sender (`logBatchToPosthog` /
+> `logBatchToDatadog`, N entries → one request per vendor) rather than a loop. Where
+> an upstream has no batch endpoint, bound the fan-out with
+> `mapWithConcurrency(items, WORKER_CONNECTION_LIMIT, fn)`. Exceeding the budget is
+> not merely slow — see the troubleshooting section below for why it is silent.
+
 ### PostHog — three pipes, two mechanisms (AECI-642 / §AW1)
 
 The intake facts below were **probed live** against `aec-integrations-dev`
@@ -754,7 +768,10 @@ that the review app's copy of that id had gone stale, which is the same divergen
 `scripts/ops/2026-08-promote-strand-audit/` sweeps for offline.
 
 All of it is fire-and-forget over the shared transports (each leg a no-op without its own config —
-`POSTHOG_PROJECT_KEY`, `DD_API_KEY`) and never affects the response. This is deliberately scoped to
+`POSTHOG_PROJECT_KEY`, `DD_API_KEY`) and never affects the response. **Fire-and-forget is not
+fire-and-ignore:** until AECI-666 the tail could exhaust the invocation's connection budget and lose
+every hook silently, so each is now dispatched behind a 20s watchdog and the audit forwards go as one
+batched request per vendor (ADR 0021's 2026-08-27 amendment). This is deliberately scoped to
 promote — the high-traffic public read endpoints stay silent on 4xx to keep log volume down.
 
 For a `500` (an unhandled throw — e.g. a `db.batch` rejection in promote), the log now also carries a
@@ -832,6 +849,33 @@ What each status means here:
   `POSTHOG_PROJECT_KEY` absent is a **total** no-op by design (invariant 3), which
   is the correct behaviour locally and on a keyless preview and is indistinguishable
   from a broken pipe if you are not expecting it.
+
+### A third silent-loss mode: the invocation ran out of connections
+
+Both symptoms above assume the `fetch` *settled*. There is a third failure in which it
+never does. Until AECI-666 the transports left their **success-path response body
+unread**. Each unread body holds an open connection; a Worker invocation may hold only
+a bounded number of those (and the dual-run spends two per emission); past the limit
+the runtime cancels the stalled responses — into `fetch` promises that **never
+settle**, so neither the `res.ok` check nor the `catch` above ever runs. Nothing is
+logged at all, and if the invocation is still waiting when the event loop empties it
+is killed outright.
+
+The tell is not a vendor symptom. It is a burst of Cloudflare runtime warnings:
+
+```bash
+# Any hit here means some caller is opening more connections than it releases.
+wrangler tail aeci-api-production --format pretty | grep -i "stalled HTTP response"
+
+# Often followed by, on the same invocation:
+#   "your Worker's code had hung and would never generate a response"
+```
+
+Both transports now release every body, and both expose a batched sender so a caller
+with N related lines — the promote's §26.5 audit forwards — costs one request per
+vendor instead of N. A promote hook that stays unsettled for 20s is additionally
+abandoned with `promote hook "<name>" did not settle within 20000ms`, which is the
+signal that was missing entirely while this ran undetected.
 
 One PostHog-only trap worth naming separately: `captureEvent` / `captureException`
 go through `posthog-node`, which **batches**. Their failures surface as
