@@ -104,100 +104,68 @@
     <h3
       id="admin-catalog-additions-heading"
       class="text-base font-bold text-(--text-primary)"
-      i18n="@@admin.catalog.additions.heading"
+      i18n="@@admin.catalog.additions.headingOverTime"
     >
-      Additions over the last 30 days
+      Additions over time
     </h3>
 
-    <!-- THE APPROXIMATION BANNER (§5.5 / AECI-579 AC). Driven by the API's
-           `catalog_series_is_additions_only` note, never by hardcoded prose, so
-           it retires itself the day the daily snapshot (P2.1) makes exact totals
-           available. Do not remove: without it this table reads as a running
-           total, which §4 shows it is not. -->
-    <div class="mt-4">
-      <aec-admin-notes [notes]="additionsNotes()" />
-    </div>
+    <!-- Daily is the whole story on most days; Monthly exists for the arc.
+           Monthly's four requests fire on first open, never on arrival, and its
+           caveats are its own: the wider window reaches back past the audit log
+           on most tiers, which the 30-day window never does. -->
+    <div ngTabs class="mt-4">
+      <ul
+        ngTabList
+        [selectedTab]="tab()"
+        (selectedTabChange)="selectTab($event)"
+        class="flex list-none gap-8 border-b border-(--border-default) p-0"
+      >
+        <li
+          ngTab
+          value="daily"
+          class="-mb-px cursor-pointer border-b-2 border-transparent px-1 pb-3 text-sm font-medium tracking-wide text-(--text-secondary) transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-(--accent-primary) aria-selected:border-(--accent-primary) aria-selected:text-(--text-primary)"
+          i18n="@@admin.catalog.additions.tab.daily"
+        >
+          Daily
+        </li>
+        <li
+          ngTab
+          value="monthly"
+          class="-mb-px cursor-pointer border-b-2 border-transparent px-1 pb-3 text-sm font-medium tracking-wide text-(--text-secondary) transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-(--accent-primary) aria-selected:border-(--accent-primary) aria-selected:text-(--text-primary)"
+          i18n="@@admin.catalog.additions.tab.monthly"
+        >
+          Monthly
+        </li>
+      </ul>
 
-    @if (additionsLoading()) {
-    <p class="mt-4 text-sm text-(--text-secondary)" i18n="@@admin.catalog.additions.loading">
-      Loading additions…
-    </p>
-    } @else if (additionsFailed()) {
-    <div class="mt-4 space-y-3">
-      <p
-        class="text-sm font-medium text-(--text-primary)"
-        role="alert"
-        i18n="@@admin.catalog.additions.loadFailed"
-      >
-        We couldn't load the additions series.
-      </p>
-      <button
-        type="button"
-        (click)="retryAdditions()"
-        class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-raised) px-5 py-2.5 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-        i18n="@@admin.catalog.additions.retry"
-      >
-        Try again
-      </button>
+      <section ngTabPanel value="daily" class="pt-6">
+        <ng-template ngTabContent>
+          <aec-additions-table
+            granularity="day"
+            [seriesLabels]="seriesLabels"
+            [rows]="daily().rows"
+            [notes]="daily().notes"
+            [loading]="dailyLoading()"
+            [failed]="dailyFailed()"
+            (retry)="loadDaily()"
+          />
+        </ng-template>
+      </section>
+
+      <section ngTabPanel value="monthly" class="pt-6">
+        <ng-template ngTabContent>
+          <aec-additions-table
+            granularity="month"
+            [seriesLabels]="seriesLabels"
+            [rows]="monthly().rows"
+            [notes]="monthly().notes"
+            [loading]="monthlyLoading()"
+            [failed]="monthlyFailed()"
+            (retry)="loadMonthly()"
+          />
+        </ng-template>
+      </section>
     </div>
-    } @else if (additionsEmpty()) {
-    <p class="mt-4 text-sm text-(--text-secondary)" i18n="@@admin.catalog.additions.empty">
-      Nothing was added to the catalog in this window.
-    </p>
-    } @else {
-    <div class="mt-4 overflow-x-auto">
-      <table class="w-full min-w-[32rem] border-collapse text-sm">
-        <caption class="sr-only" i18n="@@admin.catalog.additions.caption">
-          Records added per day, by type, over the last 30 UTC days.
-        </caption>
-        <thead>
-          <tr class="border-b border-(--border-strong)">
-            <th
-              scope="col"
-              class="py-2 pe-4 text-start text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-              i18n="@@admin.catalog.additions.day"
-            >
-              Day (UTC)
-            </th>
-            @for (label of seriesLabels; track label) {
-            <th
-              scope="col"
-              class="py-2 ps-4 text-end text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-            >
-              {{ label }}
-            </th>
-            }
-          </tr>
-        </thead>
-        <tbody>
-          @for (row of additionsRows(); track row.day) {
-          <tr class="border-b border-(--border-default)">
-            <th scope="row" class="py-1.5 pe-4 text-start font-medium text-(--text-secondary)">
-              {{ row.day }}
-            </th>
-            @for (v of row.values; track $index) {
-            <td class="py-1.5 ps-4 text-end tabular-nums text-(--text-primary)">{{ v }}</td>
-            }
-          </tr>
-          }
-        </tbody>
-        <tfoot>
-          <tr class="border-t-2 border-(--border-strong)">
-            <th
-              scope="row"
-              class="py-2 pe-4 text-start font-bold text-(--text-primary)"
-              i18n="@@admin.catalog.additions.total"
-            >
-              Added in window
-            </th>
-            @for (t of seriesTotals(); track $index) {
-            <td class="py-2 ps-4 text-end font-bold tabular-nums text-(--text-primary)">{{ t }}</td>
-            }
-          </tr>
-        </tfoot>
-      </table>
-    </div>
-    }
   </section>
 
   <!-- ─── Promotion funnel ────────────────────────────────────────────── -->
