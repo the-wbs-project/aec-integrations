@@ -126,6 +126,12 @@ const NOTE_PROSE: Record<AdminNoteCode, (params: NoteParams) => string> = {
   catalog_series_starts_at: (p) =>
     $localize`:@@admin.notes.catalogSeriesStartsAt:The audit log begins ${str(p, 'earliest_day')}:EARLIEST_DAY:. Days before that read zero for want of data, not for want of activity.`,
 
+  catalog_series_is_surviving_rows: () =>
+    $localize`:@@admin.notes.catalogSeriesIsSurvivingRows:These are the records in the catalog now, counted against the period they were added in, so removals are netted off and the columns add up to the totals above. Nothing records when a record was removed, so a removal comes off the period it was added in: earlier figures can fall as records are removed later.`,
+
+  catalog_claims_recreated_by_promote: () =>
+    $localize`:@@admin.notes.catalogClaimsRecreatedByPromote:Every promote rewrites the claims on an integration, so a claim is dated by the last promote rather than by when it first appeared. Read Claims as a count of live claims, not as a history of when they arrived.`,
+
   internal_filter_unavailable: () =>
     $localize`:@@admin.notes.internalFilterUnavailable:Internal-traffic filtering is not available, so every figure here is unfiltered.`,
 

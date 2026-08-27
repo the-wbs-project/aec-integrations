@@ -84,8 +84,10 @@ export type AdminWindow = z.infer<typeof AdminWindowSchema>;
  * | `visitor_definition_approximate` | `unique_visitors` is `DISTINCT (user_agent_hash, cf_asn)` — over-counts on browser update, under-counts behind shared NAT (§9.8) |
  * | `corroborated_is_a_referrer_floor` | `corroborated_views` counts arrivals with a NAMED external referrer (AECI-683). Emitted unconditionally with the figure: it UNDER-counts (Referrer-Policy strips real referrals into `Direct`) and it is forgeable UPWARD, since it rests on the same unverified `Referer` as `referrer_source_is_unverified` |
  * | `operator_leak_is_an_inference` | `operator_leak_excluded` rows were matched by `(user_agent_hash, cf_asn)` against a verified operator session within `OPERATOR_PAIR_LOOKBACK_DAYS` (AECI-683). Unlike the `is_operator` flag itself, that is a judgement about identity, not a verified session |
- * | `catalog_series_is_additions_only` | a `catalog.*` series counts `*.created` events, never net totals — rows can vanish without per-row audit (§4) |
- * | `catalog_series_starts_at` | the window starts before the earliest `audit_log` row, so the leading segment reads zero for want of data, not for want of activity |
+ * | `catalog_series_is_additions_only` | a `catalog.*` series counts `*.created` events, never net totals — rows can vanish without per-row audit (§4). `basis=additions` only |
+ * | `catalog_series_starts_at` | the window starts before the earliest `audit_log` row, so the leading segment reads zero for want of data, not for want of activity. `basis=additions` only |
+ * | `catalog_series_is_surviving_rows` | `basis=net`: the series counts rows PRESENT NOW, bucketed by `created_at`. A row removed later is subtracted from the bucket it was ADDED in, not the bucket it was removed in, so past buckets restate downwards over time. That restatement is what makes the series sum to the live catalog (AECI-686) |
+ * | `catalog_claims_recreated_by_promote` | `basis=net` on `catalog.claims_created`: promote REPLACES an integration's claims on every push (delete + re-insert with fresh ids), so `claims.created_at` is the last promote of its integration, not when the claim first appeared. The column is a valid count of live rows and a poor arrival history (AECI-604 is the fix) |
  * | `internal_filter_unavailable` | `ANALYTICS_INTERNAL_ASNS` is unset, so `excluding_internal` is null everywhere (the shipped default) |
  * | `internal_filter_applied` | the filter ran; both numbers are present and the excluded ASNs are in `params.asns` |
  * | `requires_recompute` | an expensive status item was omitted from the default `/overview` or `/system`; re-request with `?recompute=1` |
@@ -111,6 +113,9 @@ export const AdminNoteCodeSchema = z.enum([
   'operator_leak_is_an_inference',
   'catalog_series_is_additions_only',
   'catalog_series_starts_at',
+  // AECI-686 — the `basis=net` counterparts of the two above.
+  'catalog_series_is_surviving_rows',
+  'catalog_claims_recreated_by_promote',
   'internal_filter_unavailable',
   'internal_filter_applied',
   'requires_recompute',
@@ -483,10 +488,10 @@ export type AdminOverviewResponse = z.infer<typeof AdminOverviewResponseSchema>;
  * The metric vocabulary, using §7.1's `namespace.metric` convention so P2.1's
  * `metrics_daily` keys are these strings verbatim.
  *
- * `catalog.*` are **additions**, sourced from `audit_log` `*.created` events per
- * §5.5 — deliberately not net totals, which §4 shows are unrecoverable (827
- * `integration.created` events back 496 live rows). Every `catalog.*` response
- * carries `catalog_series_is_additions_only` so the chart cannot be misread.
+ * A `catalog.*` key names a SERIES, not a source: {@link AdminMetricBasisSchema}
+ * picks which of the two readings of "how many were added" the response carries.
+ * The key stays `*_created` under both because it is `metrics_daily.metric`
+ * verbatim (§7.1) and renaming it would orphan every stored row.
  */
 export const ADMIN_METRIC_KEYS = [
   'traffic.page_views_human',
@@ -505,6 +510,53 @@ export const ADMIN_METRIC_KEYS = [
 
 export const AdminMetricKeySchema = z.enum(ADMIN_METRIC_KEYS);
 export type AdminMetricKey = z.infer<typeof AdminMetricKeySchema>;
+
+/**
+ * Which reading of a `catalog.*` series to serve (AECI-686). **`catalog.*` only** —
+ * `basis=net` on any other metric is a 400, because neither `page_views` nor
+ * `profiles` has the delete problem this dimension exists to answer.
+ *
+ * ─── `additions` — creation EVENTS (the original, still the default) ─────────
+ *
+ * Counts `audit_log` `*.created` rows in the bucket. An event outlives the row it
+ * describes, so this over-reports whenever anything is removed: in production
+ * 11,827 `claim.created` events back 1,691 live claims, and 1,275
+ * `integration.created` events back 944. It is the honest answer to "how much
+ * work happened", and it does not reconcile with a live `count(*)`.
+ *
+ * ─── `net` — rows PRESENT NOW, bucketed by `created_at` ──────────────────────
+ *
+ * Counts the rows still in the catalog, attributed to the day they arrived. This
+ * is the requested net delta: 20 added and 5 removed reads 15.
+ *
+ * Two properties follow from that and are stated in the response's notes rather
+ * than left to inference:
+ *
+ * **It restates.** A removal is subtracted from the bucket the row was *added*
+ * in, not the bucket it was removed in — the only attribution available, because
+ * nothing records deletions (there is no `*.deleted` audit action, and every
+ * delete path is raw SQL outside the Worker; `lib/retract-product.ts` documents
+ * this). So a past bucket falls as its rows die. That is exactly what makes the
+ * series sum to the live total, which is the property §5.5 wanted.
+ *
+ * **It is never snapshotted.** A retroactive value must not be frozen into
+ * `metrics_daily`, so `basis=net` bypasses the snapshot entirely and always
+ * reports `source: 'live'` with `reconstructed: false` on every point — the rows
+ * exist, so nothing is being approximated.
+ *
+ * `additions` remains the default because it is the shipped behaviour and because
+ * churn is real information that `net` cannot show: a month that created and
+ * destroyed 300 integrations reads 0 net and 300 additions.
+ */
+export const AdminMetricBasisSchema = z.enum(['additions', 'net']);
+export type AdminMetricBasis = z.infer<typeof AdminMetricBasisSchema>;
+
+/** True for the four keys that accept `basis=net` — the ones backed by a catalog
+ *  table with a `created_at` a live row still carries. Exported so the API's
+ *  validation and the UI's request-building agree on one predicate. */
+export function metricSupportsNetBasis(metric: AdminMetricKey): boolean {
+  return metric.startsWith('catalog.');
+}
 
 /**
  * The **stock** half of the `metrics_daily` vocabulary (P2.1 / §7.1): an
@@ -631,12 +683,16 @@ const utcDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Expected YYYY-MM-DD');
  *
  * `interval` has one value today. `metrics_daily` (P2.1) stores per-day rows, so
  * week/month roll-ups are a later additive extension, not a reshape.
+ *
+ * `basis` defaults to `additions`, which is the pre-AECI-686 behaviour — an
+ * omitted param must not change an existing caller's numbers.
  */
 export const AdminTimeseriesQuerySchema = z.object({
   metric: AdminMetricKeySchema,
   from: utcDate,
   to: utcDate,
   interval: z.enum(['day']).default('day'),
+  basis: AdminMetricBasisSchema.default('additions'),
   exclude_internal: z
     .enum(['0', '1'])
     .default('0')
@@ -655,6 +711,9 @@ export type AdminTimeseriesQuery = z.infer<typeof AdminTimeseriesQuerySchema>;
  * `integration.created` events back 496 live rows). False means it was measured
  * — either snapshotted on the day, or aggregated live from rows that still
  * exist. Blending the two without saying so is what §1.1 forbids.
+ *
+ * Always false under `basis=net`, which reads the surviving rows themselves and
+ * so has nothing to approximate.
  */
 export const AdminTimeseriesPointSchema = z.object({
   day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -726,6 +785,9 @@ export type AdminAsnAnnotation = z.infer<typeof AdminAsnAnnotationSchema>;
 export const AdminTimeseriesResponseSchema = z.object({
   metric: AdminMetricKeySchema,
   interval: z.enum(['day']),
+  /** Echoed so a caller can never mistake which reading it received — the two
+   *  differ by an order of magnitude on `catalog.claims_created`. */
+  basis: AdminMetricBasisSchema,
   window: AdminWindowSchema,
   generated_at: z.string().datetime(),
   source: AdminMetricSourceSchema,

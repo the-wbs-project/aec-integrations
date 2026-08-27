@@ -106,6 +106,8 @@ The four questions that motivated this document, answered against §3.
 - `products` has **no `promoted_at`** column. §13 **D6** adds one — but not for the reason a first reading suggests, and the difference decides how it is implemented (see the correction below).
 - `audit_log` *is* a genuine event stream (`product.created` 131, `integration.created` 827, `vendor.created` 94, since 2026-06-26), so **additions** are chartable. But **net totals are not**: 827 `integration.created` events against 496 live rows, because the 2026-07-25 `catalog.integrations_reset` removed rows without per-row audit; ~40 products predate the log entirely; and 5,375 `claim.created` events back 915 live claims because promote re-creates the claim spine.
 
+> **Sharpened (AECI-686, 2026-08-27).** "Net totals are not chartable" remains true of a **past total** — how many integrations existed on 2026-07-01 is unrecoverable and always will be, because nothing records when a row was removed. It is **not** true of the question §5.5 actually asks. "How many of the rows in the catalog today were added in month M" has an exact answer in `created_at`, it sums to the live total by construction, and `basis=net` serves it. What that trades away is a fixed past: the answer restates as rows are removed. See §5.5 (5) for the full derivation, the production figures, and why per-row deletion tombstones are the durable fix.
+
 > **Correction (AECI-573).** An earlier draft of this section claimed that "a row sits at `promotion_status='ready'` before going live, so `created_at` is not a go-live date." **That describes the review app's lifecycle, not AECi's D1.** In D1: `POST /api/promote` is the only INSERT path into `products` and it sets `promotion_status='promoted'` on both its insert and update branches; nothing in the repo ever writes `'ready'`, `'pending'`, `'retracted'`, or `'rejected'` to D1 (`'ready'` is an Airtable-side status that never crosses the promote boundary); and retraction is a **hard delete** (`lib/retract-product.ts`), not a status transition. So **`products.created_at` is already the first-promote timestamp, exactly** — Drizzle stamps it at insert and a re-promote never touches it. The census agrees: all 171 products read `promoted`.
 >
 > Two consequences. **(1)** `promoted_at` (§13 D6) is adopted as *future-proofing* — it becomes load-bearing only if a Tier-1 retract endpoint ever introduces a genuine un-promote → re-promote cycle — and its backfill is therefore **exact** (`promoted_at := created_at` for every row), not a reconstruction. **(2)** Because promote re-asserts `'promoted'` on the update branch too, and `product.updated` (358) outnumbers `product.created` (131) ~2.7:1, a naive `promotedAt: now` in that `.set()` would mean *last* promoted and buy nothing over `updated_at`. Set-once is mandatory — `COALESCE("promoted_at", ?)` inside the same batch.
@@ -247,11 +249,11 @@ Two smaller notes. The breakdowns group **signups inside the window**, matching 
 
 This is the section that steers daily catalog work, and the one whose underlying data is richest today.
 
-**Four things this section says that the build had to correct or sharpen (AECI-579, and (4) after it):**
+**Five things this section says that the build had to correct or sharpen (AECI-579, then (4) and (5) after it):**
 
 **(1) The gap lists cannot link out to the review app, and do not.** An earlier draft of this section, and the "Read-only, emphatically" framing below it, both required every gap row to be *"a link out to the review app, not an edit surface"*. The read-only half stands and is absolute. The link half is **not constructible**: **ADR 0021 deliberately kept the curation key out of D1** — `REVIEW_APP_PROMOTE_API.md` states plainly that *"AECi does **not** store your Airtable/record IDs"*, and that ADR vetoed `airtable_record_id` on `products` as "no curation-tool key in the public schema". There is therefore no identifier in D1 from which a per-row review-app URL could be built, and adding one would reopen a settled decision for a convenience link. **Sample rows link to the AECi product page** (`/products/:slug`) instead, which is the honest available target and is also the more useful one for verifying a gap: it shows the operator exactly what a visitor sees. Nothing about the read-only rule changes — there is no edit affordance anywhere on the screen.
 
-**(2) "Counts over time" and "additions per day" are one series, and it is not this endpoint's.** Both bullets are served by `GET /api/admin/metrics/timeseries` with the `catalog.*` metric keys, which P1.1 already shipped complete with `catalog_series_is_additions_only`. `GET /api/admin/catalog/coverage` deliberately does not carry a second copy. Until §7.1's snapshot exists there is exactly one honest series here — **additions**, from the event stream — and the screen renders it as such with the approximation banner attached, rather than drawing a cumulative curve that §4 shows would be wrong (827 `integration.created` events against 496 live rows).
+**(2) "Counts over time" and "additions per day" are one series, and it is not this endpoint's.** Both bullets are served by `GET /api/admin/metrics/timeseries` with the `catalog.*` metric keys. `GET /api/admin/catalog/coverage` deliberately does not carry a second copy. P1.1 shipped that series on the event stream with `catalog_series_is_additions_only` attached; **AECI-686 moved the screen off it — see (5)** — but the one-implementation rule is unchanged and is why the fix landed in the timeseries endpoint rather than in coverage.
 
 **(3) The untagged-trade count is not a backlog.** This section lists "untagged per facet (`product_trades` is 0)" alongside missing logos and missing vendors. Those are not the same kind of number. `TRADES_VOCABULARY.md` §1.1 tags a product **only** where it has trade-*specific* value, so horizontal platforms (Procore, Autodesk Build, Bluebeam) correctly carry zero rows — the join is sparse by design and most of the catalog will never be tagged. The count is still worth surfacing (nothing at all is tagged today), but it ships with a `trade_facet_sparse_by_design` note. Presenting it as a to-do list without that caveat would make the screen actively misleading.
 
@@ -261,11 +263,44 @@ Monthly adds nothing to the API. `GET /api/admin/metrics/timeseries` zero-fills 
 
 Three consequences a reader should not have to rediscover:
 
-- **The caveats are per tab, not per section.** The 12-month window starts before the earliest `audit_log` row on most tiers, so it carries `catalog_series_starts_at` where the 30-day window never does. One shared notes list would either hide that on Monthly or fabricate it on Daily, so each tab renders its own window's notes. The load-bearing `catalog_series_is_additions_only` banner rides on **both** — note (2) applies to Monthly exactly as it does to Daily.
+- **The caveats are per tab, not per section.** The API derives every note from the window it actually served, so two windows can carry different caveats — one shared notes list would eventually either hide a caveat on Monthly or fabricate it on Daily. Each tab therefore renders its own window's notes, and the load-bearing provenance banner rides on **both**. (Under the pre-AECI-686 `additions` basis this difference was live: the 12-month window reached back past the earliest `audit_log` row and carried `catalog_series_starts_at` where the 30-day window did not. On the `net` basis the two currently agree; the per-tab wiring stays because the property that produced the difference has not gone away.)
 - **Monthly is lazy.** Its four requests fire the first time the tab is opened, never on arrival, because most operators come to this screen for the gap lists. Re-selecting the tab does not refetch; the retry button does.
 - **The window is month-aligned**, starting on the 1st of the earliest month rather than 365 days back, so the oldest row is a whole month rather than a partial one rendered as whole. Twelve consecutive calendar months is 365 or 366 days, inside `ADMIN_METRICS_MAX_DAYS` (400). Buckets render as their raw keys (`2026-08-13` / `2026-08`), and the current month is partial by construction — the monthly `<caption>` says so, which is a fact about the view rather than a claim about the data, so it does not displace the API's own `partial_day` note.
 
 This does not change the P2.1 retirement path. When `ADMIN_SNAPSHOT_STOCK_METRIC_KEYS` gives §5.5 true stocks, there are simply two views to fill instead of one.
+
+**(5) The panel now reads `basis=net`, so its columns reconcile with the Catalog totals cards above them (AECI-686, 2026-08-27).**
+
+Both tables sit directly beneath the five totals cards, and on the `additions` basis none of the four columns summed to the card above it. Production on 2026-08-27:
+
+| series | additions (event count) | live `COUNT(*)` |
+|---|---|---|
+| products | 204 | 247 |
+| integrations | 1,275 | 944 |
+| vendors | 133 | 165 |
+| claims | 11,827 | 1,691 |
+
+The gaps run in **both** directions and have two distinct causes, which is why no single note could explain them. Over-counting is §4's own finding, now larger than §4 recorded: an `*.created` event outlives the row it describes, the 2026-07-25 `catalog.integrations_reset` removed 309 integrations with no per-row audit, and promote **replaces** an integration's claims on every push (`routes/promote.ts` — delete, then re-insert with fresh ids), so 11,827 claim creations back 1,691 live claims. Under-counting is the mirror: 43 products and 32 vendors were created before the audit log's first row on 2026-06-26 and are invisible to it entirely.
+
+**A true created-minus-removed delta is not computable, and that is a data-model gap rather than a UI one.** There is no `*.deleted` action in the vocabulary — `select count(*) from audit_log where action like '%delete%'` returns 0 across all of production — and every path that removes catalog rows is raw SQL running outside the Worker, where `lib/audit.ts`'s batch builders cannot reach; `lib/retract-product.ts` documents this in its own header. Restoring per-row tombstones is the durable fix and is tracked separately.
+
+What **is** exactly computable is the surviving cohort: rows present now, bucketed by their own `created_at`. `AdminMetricBasisSchema` adds `basis=net` for it, and §5.5 requests it explicitly on all four series. It sums to the live catalog by construction:
+
+| month (UTC) | products | integrations | vendors | claims |
+|---|---|---|---|---|
+| 2026-08 | 125 | 561 | 82 | 1,691 |
+| 2026-07 | 61 | 383 | 40 | 0 |
+| 2026-06 | 61 | 0 | 43 | 0 |
+| **total** | **247** | **944** | **165** | **1,691** |
+
+Four things follow, all of them stated on the wire rather than left to inference:
+
+- **It restates.** A removal is subtracted from the bucket the row was *added* in, not the one it was removed in — the only attribution available without tombstones — so a past bucket falls as its rows die. That restatement is precisely what makes the series reconcile. `catalog_series_is_surviving_rows` says so on every `net` response.
+- **It is never snapshotted.** A retroactive value must not be frozen into `metrics_daily`, so `net` bypasses the snapshot read entirely and always reports `source: 'live'` with `reconstructed: false`. The 00:15 cron keeps writing the `additions` reading to `metrics_daily`; that storage path is untouched.
+- **Claims are a valid count and a poor history.** Because promote rewrites them, a claim's `created_at` is the last promote of its integration — every live claim dates from 2026-08-09 or later, which is why the table reads 1,691 in August and zero before. `catalog_claims_recreated_by_promote` carries this, on the claims series only. The real fix is to upsert claims by identity so `created_at` survives a re-promote (AECI-604's territory).
+- **`additions` is retained and remains the endpoint default.** It is not wrong, it answers a different question, and it is the only one of the two that can show churn: a month that created and destroyed 300 integrations reads 0 net and 300 additions. An omitted `basis` param therefore changes nothing for an existing caller. §5.5 passes it explicitly for exactly that reason — silently inheriting the default would restore the mismatch.
+
+This supersedes the note under (2) that called additions *"exactly one honest series here"*. Both are honest; they answer different questions, and §5.5's question is the one the totals cards ask.
 
 ### 5.6 System — SHIPPED (AECI-580, 2026-08-13; completed by AECI-583, 2026-08-13)
 
@@ -301,7 +336,7 @@ All endpoints are `GET`, admin-gated, read-only. They register on the existing `
 |---|---|---|
 | `GET /api/admin/overview` | The §5.1 bundle | One round trip; **calls** `collectAnalyticsMetrics` (see the P1.1 note below). `?day=YYYY-MM-DD` picks a UTC day, default the digest's prior complete day; `?recompute=1` runs the two network-dependent status items (pure read; sends no email) |
 | `GET /api/admin/page-views` | §5.2 feed | Paginated + filtered; entity-hydrated `LinkRef` |
-| `GET /api/admin/metrics/timeseries` | `?metric=&from=&to=&interval=day` | Serves `metrics_daily` (§7.1); falls back to live aggregation pre-snapshot |
+| `GET /api/admin/metrics/timeseries` | `?metric=&from=&to=&interval=day&basis=additions\|net` | Serves `metrics_daily` (§7.1); falls back to live aggregation pre-snapshot. `basis=net` (AECI-686, `catalog.*` only) counts surviving rows by `created_at`, bypasses the snapshot, and is a 400 on any other metric |
 | `GET /api/admin/traffic/breakdown` | `?dimension=source\|country\|path\|product\|bot` | Grouped counts over a window |
 | `GET /api/admin/catalog/coverage` | §5.5 gap lists + funnel | Capped sample rows, exact counts. `?sample=` (0–50, default 10); `0` returns counts only. **No `window`** — see the P1.5 notes below |
 | `GET /api/admin/audience` | §5.4 aggregates — **SHIPPED (AECI-586)** | Subscribers, churn, UTM, geo. `?from=&to=` (both inclusive) + `?breakdown_limit=` (1–50, default 8). Derived **live** from `mailing_list`, not from `metrics_daily` — see §5.4 note (1) |

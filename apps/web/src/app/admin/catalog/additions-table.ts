@@ -14,12 +14,17 @@
  * ─── The banner is load-bearing ──────────────────────────────────────────────
  *
  * `notes` is rendered ABOVE the table on every branch, including the empty one.
- * It carries the API's `catalog_series_is_additions_only` caveat, which §4 shows
- * is the difference between reading this table correctly and reading it as a
- * running total (827 `integration.created` events back 496 live rows). It is
- * never hardcoded prose: it retires itself the day the daily snapshot (P2.1)
- * makes exact totals available. Do not drop it, and do not hoist it above the
- * tabs, because the windows differ and so do their caveats.
+ * Since AECI-686 the parent requests `basis=net`, so the banner carries
+ * `catalog_series_is_surviving_rows`: these are the records in the catalog now,
+ * counted against the period they arrived in, which is why the columns reconcile
+ * with the totals cards and why an earlier period's figure can fall later. On
+ * `catalog.claims_created` it also carries the caveat that promote rewrites
+ * claims, so their dates are last-promote dates.
+ *
+ * None of that is hardcoded here — the API derives each note from the window it
+ * actually served, so a note retires itself when it stops being true. Do not drop
+ * the banner, and do not hoist it above the tabs: the windows differ and so do
+ * their caveats.
  */
 import { Component, computed, input, output } from '@angular/core';
 
@@ -68,8 +73,8 @@ export interface AdditionsRow {
         </button>
       </div>
     } @else if (empty()) {
-      <p class="mt-4 text-sm text-(--text-secondary)" i18n="@@admin.catalog.additions.empty">
-        Nothing was added to the catalog in this window.
+      <p class="mt-4 text-sm text-(--text-secondary)" i18n="@@admin.catalog.additions.emptyNet">
+        Nothing currently in the catalog was added in this window.
       </p>
     } @else {
       <div class="mt-4 overflow-x-auto">
@@ -114,9 +119,9 @@ export interface AdditionsRow {
               <th
                 scope="row"
                 class="py-2 pe-4 text-start font-bold text-(--text-primary)"
-                i18n="@@admin.catalog.additions.total"
+                i18n="@@admin.catalog.additions.totalNet"
               >
-                Added in window
+                In catalog from this window
               </th>
               @for (t of totals(); track $index) {
                 <td class="py-2 ps-4 text-end font-bold tabular-nums text-(--text-primary)">
@@ -166,7 +171,7 @@ export class AdditionsTable {
    *  still rides in the banner above. */
   protected readonly caption = computed(() =>
     this.granularity() === 'month'
-      ? $localize`:@@admin.catalog.additions.captionMonth:Records added per calendar month, by type, over the last 12 UTC months. The current month is still filling.`
-      : $localize`:@@admin.catalog.additions.caption:Records added per day, by type, over the last 30 UTC days.`,
+      ? $localize`:@@admin.catalog.additions.captionMonthNet:Records now in the catalog, by type, counted against the calendar month they were added in, over the last 12 UTC months. The current month is still filling.`
+      : $localize`:@@admin.catalog.additions.captionNet:Records now in the catalog, by type, counted against the day they were added, over the last 30 UTC days.`,
   );
 }

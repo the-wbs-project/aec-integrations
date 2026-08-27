@@ -1288,8 +1288,10 @@ export const AdminNoteCodeSchema = z.enum([
   'referrer_source_is_unverified',     // Referer is client-supplied; a source is a CLAIM (AECI-624)
   'direct_is_mixed_bucket',            // Direct mixes SPA hops with real arrivals
   'visitor_definition_approximate',    // §9.8 (user_agent_hash, cf_asn)
-  'catalog_series_is_additions_only',  // catalog.* are events, never net totals (§4)
-  'catalog_series_starts_at',          // window predates the audit log
+  'catalog_series_is_additions_only',  // basis=additions: catalog.* are events, not net totals (§4)
+  'catalog_series_starts_at',          // basis=additions: window predates the audit log
+  'catalog_series_is_surviving_rows',  // basis=net: rows present NOW; past buckets restate
+  'catalog_claims_recreated_by_promote', // basis=net on claims: created_at is a last-promote date
   'internal_filter_unavailable',
   'internal_filter_applied',
   'requires_recompute',                // an expensive status item was omitted
@@ -1445,12 +1447,17 @@ export const AdminMetricKeySchema = z.enum([
   'traffic.page_views_human',      // page_views, is_bot IS NOT 1 AND NOT_INTERNAL (the digest predicate — since AECI-683 that includes the operator-pair retro-join, so rows snapshotted before 2026-08-27 read slightly high)
   'traffic.page_views_bot',        // page_views, is_bot = 1
   'traffic.unique_visitors',       // DISTINCT (user_agent_hash, cf_asn) per day, HUMANS only
-  'catalog.products_created',      // audit_log action='product.created'
+  // basis=additions (default): audit_log action='<entity>.created'
+  // basis=net:                  live rows, bucketed by their own created_at
+  'catalog.products_created',
   'catalog.integrations_created',
   'catalog.vendors_created',
   'catalog.claims_created',
   'accounts.sign_ins_new',         // profiles.created_at
 ]);
+
+/** Which reading of a `catalog.*` series to serve (AECI-686). `catalog.*` only. */
+export const AdminMetricBasisSchema = z.enum(['additions', 'net']);
 
 export const ADMIN_METRICS_MAX_DAYS = 400;   // = §7.4 page_views retention
 
@@ -1459,12 +1466,14 @@ export const AdminTimeseriesQuerySchema = z.object({
   from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),   // INCLUSIVE UTC date
   to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),     // INCLUSIVE UTC date (from === to is legal)
   interval: z.enum(['day']).default('day'),
+  basis: AdminMetricBasisSchema.default('additions'),   // 400 if 'net' on a non-catalog metric
   exclude_internal: z.enum(['0', '1']).default('0').transform((v) => v === '1'),
 });
 
 export const AdminTimeseriesResponseSchema = z.object({
   metric: AdminMetricKeySchema,
   interval: z.enum(['day']),
+  basis: AdminMetricBasisSchema,   // echoed: the two differ by ~7x on claims
   window: AdminWindowSchema,
   generated_at: z.string().datetime(),
   source: z.enum(['live', 'snapshot', 'mixed']),
@@ -1509,13 +1518,41 @@ One consequence worth stating, because it looks like a bug otherwise:
 that agrees with the chart the caller is drawing; the window-distinct figure is
 `/api/admin/overview`'s `unique_visitors`, which is explicitly scoped to one day.
 
-`catalog.*` count **additions**, never net totals: §4 shows totals are
-unrecoverable (827 `integration.created` events back 496 live rows after the
-2026-07-25 reset), so every `catalog.*` response carries
-`catalog_series_is_additions_only`. `exclude_internal` applies only to `traffic.*`
-— there is no ASN on a catalog or profile row — and a request that asks anyway
-gets `value_excluding_internal: null` plus an `internal_filter_unavailable` note
-naming the metric.
+**`basis` picks which reading of a `catalog.*` series you get (AECI-686).** It is
+rejected with a 400 (`field: 'basis'`) on any non-`catalog.*` metric rather than
+silently downgraded — neither `page_views` nor `profiles` has the delete problem
+this dimension exists to answer, and returning a different reading than the caller
+asked for, unremarked, is the failure mode this endpoint's envelope is shaped
+against.
+
+| | `additions` (default) | `net` |
+|---|---|---|
+| source | `audit_log` `*.created` events | live rows, bucketed by `created_at` |
+| answers | how much work happened | how many records are still here |
+| reconciles with `COUNT(*)` | no | yes, by construction |
+| shows churn | yes | no (300 created + 300 destroyed reads 0) |
+| past values | fixed | **restate** as rows are removed |
+| `metrics_daily` | read and written | bypassed; always `source: 'live'` |
+| `reconstructed` | possible | always `false` |
+| note | `catalog_series_is_additions_only` (+ `catalog_series_starts_at`) | `catalog_series_is_surviving_rows` |
+
+`additions` over-reports whatever has since been deleted — 11,827 `claim.created`
+events back 1,691 live claims in production, because promote **replaces** an
+integration's claims on every push — and under-reports anything created before the
+audit log's first row. `net` has neither problem, and pays for it by attributing a
+removal to the bucket the row was *added* in: nothing records **when** a row was
+removed (there is no `*.deleted` action, and every delete path is raw SQL outside
+the Worker), so that is the only attribution available. `catalog_series_is_surviving_rows`
+states it on every `net` response.
+
+`basis=net` on `catalog.claims_created` additionally carries
+`catalog_claims_recreated_by_promote`: because promote rewrites claim rows, their
+`created_at` is a last-promote date, so the column is a valid count of live claims
+and a poor history of when they arrived.
+
+`exclude_internal` applies only to `traffic.*` — there is no ASN on a catalog or
+profile row — and a request that asks anyway gets `value_excluding_internal: null`
+plus an `internal_filter_unavailable` note naming the metric.
 
 Errors: `VALIDATION_FAILED` (400) for an unknown `metric`, a non-existent date, a
 reversed range (`to < from`), or a window longer than `ADMIN_METRICS_MAX_DAYS`.
@@ -1831,9 +1868,14 @@ one would be the false precision §1.1 forbids. The rest of the envelope
 
 **The catalog time series lives elsewhere.** §5.5's "counts over time" and
 "additions per day" are served by `GET /api/admin/metrics/timeseries` with the
-`catalog.*` metric keys — which already carry `catalog_series_is_additions_only`
-and `catalog_series_starts_at`. This endpoint deliberately does **not** duplicate
-that series; the UI calls both.
+`catalog.*` metric keys, which carry their own provenance notes. This endpoint
+deliberately does **not** duplicate that series; the UI calls both.
+
+The screen requests those four series at **`basis=net`** (AECI-686), so each
+column of the table sums to the matching `totals` figure above it for records
+added in the window. The `basis` param is passed explicitly rather than inherited:
+the endpoint defaults to `additions`, which counts audit events and does not
+reconcile.
 
 ##### Gaps — exact counts, capped samples
 

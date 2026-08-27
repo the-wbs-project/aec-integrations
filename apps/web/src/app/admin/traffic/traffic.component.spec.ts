@@ -33,6 +33,7 @@ function makeTimeseries(over: Partial<AdminTimeseriesResponse> = {}): AdminTimes
   return {
     metric: 'traffic.page_views_human',
     interval: 'day',
+    basis: 'additions',
     window: WINDOW,
     generated_at: '2026-08-13T17:30:00.000Z',
     source: 'live',

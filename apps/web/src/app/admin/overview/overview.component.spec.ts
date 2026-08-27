@@ -141,6 +141,7 @@ function makeTimeseries(metric: AdminTimeseriesResponse['metric']): AdminTimeser
   return {
     metric,
     interval: 'day',
+    basis: 'additions',
     window: {
       from: '2026-07-14T00:00:00.000Z',
       to: '2026-08-13T00:00:00.000Z',

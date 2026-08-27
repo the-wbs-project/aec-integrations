@@ -32,13 +32,25 @@
  * days, and `series_partly_reconstructed` states it in prose — a chart that
  * silently blends reconstructed and measured data is what §1.1 forbids.
  *
- * **`catalog.*` are additions, never totals.** They count `audit_log` `*.created`
- * events. §4 shows net totals are not recoverable — 827 `integration.created`
- * events back 496 live rows, because the 2026-07-25 reset removed rows without
- * per-row audit. Every `catalog.*` response therefore carries
- * `catalog_series_is_additions_only`, and a window reaching back past the audit
- * log's own first row additionally carries `catalog_series_starts_at` so a
- * leading run of zeros is not misread as a quiet period.
+ * **`catalog.*` says which reading it is (`basis`, AECI-686).** The default,
+ * `additions`, counts `audit_log` `*.created` events and carries
+ * `catalog_series_is_additions_only` — plus `catalog_series_starts_at` when the
+ * window reaches back past the log's own first row, so a leading run of zeros is
+ * not misread as a quiet period. It over-reports whatever has since been deleted
+ * (827 `integration.created` events back 496 live rows) and so does not reconcile
+ * with a live `COUNT(*)`.
+ *
+ * `basis=net` is the other reading: rows still present, bucketed by `created_at`,
+ * which nets removals off and therefore DOES reconcile. It bypasses the snapshot
+ * (the value is retroactive — see `catalogRowsPerDay`), reports `source: 'live'`
+ * with `reconstructed: false` throughout, and swaps both audit-log notes for
+ * `catalog_series_is_surviving_rows`. It is rejected outright on a non-`catalog.*`
+ * metric rather than silently downgraded.
+ *
+ * What §4 declared unrecoverable is a past *total*, and it still is: `net` cannot
+ * tell you how many integrations existed on 2026-07-01, only how many of today's
+ * were added by then. The difference is that the second question has an exact
+ * answer and the first does not.
  *
  * **`from`/`to` are inclusive dates, and the response says what that became.**
  * `from=to` is a legal single-day range. The `window` block reports the resulting
@@ -50,6 +62,7 @@
 import {
   AdminTimeseriesQuerySchema,
   AdminTimeseriesResponseSchema,
+  metricSupportsNetBasis,
   type AdminMetricSource,
   type AdminNote,
   type AdminTimeseriesPoint,
@@ -59,6 +72,7 @@ import type { Context } from 'hono';
 
 import { getDb } from '../db/client';
 import type { Env } from '../env';
+import { ApiError } from '../errors';
 import { json } from '../http';
 import {
   earliestAuditDay,
@@ -105,14 +119,29 @@ export function createAdminTimeseriesHandler(
     const w = utcRangeWindow(query.from, query.to);
     const filter = resolveInternalFilter(c.env, query.exclude_internal);
 
+    // `net` answers "how many of these rows are still here", which only means
+    // something for a table rows are removed from. Rejected rather than silently
+    // downgraded to `additions`: a caller that asked for one reading and received
+    // the other, unremarked, is the §1.1 failure this whole endpoint is shaped
+    // against.
+    const net = query.basis === 'net';
+    if (net && !metricSupportsNetBasis(query.metric)) {
+      throw new ApiError(
+        400,
+        'VALIDATION_FAILED',
+        `basis=net applies only to catalog.* metrics; ${query.metric} has no removable rows to net off`,
+        { field: 'basis' },
+      );
+    }
+
     const days = enumerateDays(w);
 
     // Snapshot first, live for the rest. `filter.applied` skips the snapshot
     // entirely — see the module header for why a stored row cannot carry a
-    // config-dependent figure.
-    const snapshot: Map<string, SnapshotPoint> = filter.applied
-      ? new Map()
-      : await snapshotSeries(db, query.metric, w);
+    // config-dependent figure. `net` skips it for a different reason: the value
+    // is retroactive, so a stored row would freeze a number that is meant to move.
+    const snapshot: Map<string, SnapshotPoint> =
+      filter.applied || net ? new Map() : await snapshotSeries(db, query.metric, w);
     const uncovered = days.filter((day) => !snapshot.has(day));
 
     // One live query covering the whole window, run only when something is
@@ -120,7 +149,7 @@ export function createAdminTimeseriesHandler(
     // common case rather than the exception.
     const live =
       uncovered.length > 0
-        ? await metricSeries(db, query.metric, w, filter)
+        ? await metricSeries(db, query.metric, w, filter, query.basis)
         : { perDay: new Map<string, number>(), perDayFiltered: null };
     const { perDay, perDayFiltered } = live;
 
@@ -160,7 +189,7 @@ export function createAdminTimeseriesHandler(
         ...(await trafficNotes(db, w, { unique: query.metric === 'traffic.unique_visitors' })),
       );
     }
-    if (query.metric.startsWith('catalog.')) {
+    if (query.metric.startsWith('catalog.') && !net) {
       notes.push(
         note(
           'catalog_series_is_additions_only',
@@ -175,6 +204,26 @@ export function createAdminTimeseriesHandler(
             'catalog_series_starts_at',
             `The audit log begins ${earliest}; days before that read zero for want of data, not for want of activity.`,
             { earliest_day: earliest },
+          ),
+        );
+      }
+    }
+
+    if (net) {
+      // Neither audit-log note applies: `net` never reads that table, so its floor
+      // is the catalog's own first row and its bias is restatement, not omission.
+      notes.push(
+        note(
+          'catalog_series_is_surviving_rows',
+          'This series counts records that are in the catalog now, bucketed by when they were added — so it nets removals off. Nothing records WHEN a record was removed, so a removal is subtracted from the bucket it was added in: past buckets can fall as records are removed later.',
+          { metric: query.metric },
+        ),
+      );
+      if (query.metric === 'catalog.claims_created') {
+        notes.push(
+          note(
+            'catalog_claims_recreated_by_promote',
+            'Promote replaces the claims on an integration every push, so a claim is dated by the last promote of its integration rather than by when it first appeared. Read the claims column as a count of live claims, not as their arrival history.',
           ),
         );
       }
@@ -219,6 +268,7 @@ export function createAdminTimeseriesHandler(
     const body: AdminTimeseriesResponse = {
       metric: query.metric,
       interval: query.interval,
+      basis: query.basis,
       window: toAdminWindow(w),
       generated_at: now.toISOString(),
       source,
