@@ -2,6 +2,7 @@ export * from './agreement';
 export * from './api';
 export * from './audit-log';
 export * from './cache-purge';
+export * from './concurrency';
 export * from './datadog';
 export * from './deploy-env';
 export * from './errors';

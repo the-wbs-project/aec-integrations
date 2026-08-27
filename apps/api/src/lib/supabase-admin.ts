@@ -13,6 +13,8 @@
  * Neither throws — the caller decides how to surface a failure.
  */
 
+import { mapWithConcurrency, WORKER_CONNECTION_LIMIT } from '@aeci/shared/concurrency';
+import { discardResponseBody } from '@aeci/shared/response-drain';
 import type { Env } from '../env';
 
 function adminConfig(env: Env): { url: string; key: string } | null {
@@ -45,7 +47,10 @@ export async function deleteAuthUser(env: Env, userId: string): Promise<DeleteAu
       method: 'DELETE',
       headers: adminHeaders(cfg.key),
     });
-    if (res.ok || res.status === 404) return { ok: true, status: res.status };
+    if (res.ok || res.status === 404) {
+      discardResponseBody(res); // Nothing to read; release the connection (AECI-666).
+      return { ok: true, status: res.status };
+    }
     return { ok: false, status: res.status, error: await res.text().catch(() => '') };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
@@ -66,19 +71,24 @@ export async function fetchAuthUserEmails(
   const ids = [...new Set(userIds)].filter((id) => id.length > 0);
   if (!cfg || ids.length === 0) return out;
 
-  await Promise.all(
-    ids.map(async (id) => {
-      try {
-        const res = await fetch(`${cfg.url}/auth/v1/admin/users/${encodeURIComponent(id)}`, {
-          headers: adminHeaders(cfg.key),
-        });
-        if (!res.ok) return;
-        const user = (await res.json()) as { email?: unknown };
-        if (typeof user.email === 'string' && user.email) out.set(id, user.email);
-      } catch {
-        /* degrade — leave this id absent from the map */
+  // Bounded, not a bare `Promise.all` (AECI-666): GoTrue has no by-id batch
+  // endpoint, so this is one GET per reviewer and the request count scales with
+  // the admin page size. An unbounded fan-out from one invocation is how the
+  // promote hooks deadlocked — see `mapWithConcurrency`.
+  await mapWithConcurrency(ids, WORKER_CONNECTION_LIMIT, async (id) => {
+    try {
+      const res = await fetch(`${cfg.url}/auth/v1/admin/users/${encodeURIComponent(id)}`, {
+        headers: adminHeaders(cfg.key),
+      });
+      if (!res.ok) {
+        discardResponseBody(res);
+        return;
       }
-    }),
-  );
+      const user = (await res.json()) as { email?: unknown };
+      if (typeof user.email === 'string' && user.email) out.set(id, user.email);
+    } catch {
+      /* degrade — leave this id absent from the map */
+    }
+  });
   return out;
 }

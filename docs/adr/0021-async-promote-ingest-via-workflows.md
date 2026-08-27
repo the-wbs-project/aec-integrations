@@ -180,8 +180,17 @@ tail: Algolia upserts, cache purges, IndexNow/Google pings, audit forwards. Sile
 
 **The rule this establishes.** Any code that fans out `fetch` from a single
 invocation must (a) release bodies it does not read, and (b) prefer one batched
-request over N concurrent ones. Recorded as a non-negotiable constraint in
-`CLAUDE.md`.
+request over N concurrent ones — falling back to
+`mapWithConcurrency(items, WORKER_CONNECTION_LIMIT, fn)` only when the upstream
+has no batch endpoint. Recorded as a non-negotiable constraint in `CLAUDE.md`.
+
+**The same defect existed outside the promote path** and was fixed in the same
+change: `lib/email.ts` (Resend — leaked on *both* branches, so a digest cron
+sending a run of emails was exposed), `lib/toxicity.ts` (the non-2xx branch),
+and `lib/supabase-admin.ts` — where `fetchAuthUserEmails` was additionally a bare
+`Promise.all` of one GoTrue GET per reviewer id, scaling with the admin
+moderation page size. That one was the promote bug in miniature, on a surface
+nobody had connected to it.
 
 **Still open.** The promote path issues ~20 further Datadog requests per run from
 individual `submitCount` / `logToDatadog` call sites. With bodies drained these queue

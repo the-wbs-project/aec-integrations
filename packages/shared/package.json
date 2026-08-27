@@ -57,6 +57,10 @@
       "types": "./src/cache-purge.ts",
       "default": "./src/cache-purge.ts"
     },
+    "./concurrency": {
+      "types": "./src/concurrency.ts",
+      "default": "./src/concurrency.ts"
+    },
     "./response-drain": {
       "types": "./src/response-drain.ts",
       "default": "./src/response-drain.ts"

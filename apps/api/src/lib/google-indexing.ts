@@ -23,6 +23,7 @@
  * mock without monkey-patching the global.
  */
 
+import { mapWithConcurrency, WORKER_CONNECTION_LIMIT } from '@aeci/shared/concurrency';
 import { discardResponseBody } from '@aeci/shared/response-drain';
 import { SignJWT, importPKCS8 } from 'jose';
 
@@ -42,13 +43,12 @@ export const GOOGLE_INDEXING_SCOPE = 'https://www.googleapis.com/auth/indexing';
 export const GOOGLE_INDEXING_MAX_URLS = 100;
 
 /**
- * Publish requests in flight at once (AECI-666). A Worker invocation may hold
- * only six connections waiting for response headers, so anything above that is
- * queued by the runtime anyway — six keeps the pipe full without parking the
- * whole URL list on the invocation's connection budget at the same time as the
- * other post-commit hooks.
+ * Publish requests in flight at once (AECI-666) — the Cloudflare per-invocation
+ * connection limit, so anything above it is queued by the runtime anyway. Keeps
+ * the pipe full without parking the whole URL list on the invocation's
+ * connection budget alongside the other post-commit hooks.
  */
-export const GOOGLE_INDEXING_CONCURRENCY = 6;
+export const GOOGLE_INDEXING_CONCURRENCY = WORKER_CONNECTION_LIMIT;
 
 export type GoogleServiceAccount = {
   /** Service-account email (`client_email` in the SA JSON) — the JWT `iss`. */
@@ -158,17 +158,17 @@ export async function callGoogleIndexing(
       return res.ok;
     });
 
-  const targets = urlList.slice(0, GOOGLE_INDEXING_MAX_URLS);
+  const results = await mapWithConcurrency(
+    urlList.slice(0, GOOGLE_INDEXING_MAX_URLS),
+    GOOGLE_INDEXING_CONCURRENCY,
+    publish,
+  );
+
   let submitted = 0;
   let failed = 0;
-  for (let i = 0; i < targets.length; i += GOOGLE_INDEXING_CONCURRENCY) {
-    const wave = await Promise.allSettled(
-      targets.slice(i, i + GOOGLE_INDEXING_CONCURRENCY).map(publish),
-    );
-    for (const result of wave) {
-      if (result.status === 'fulfilled' && result.value) submitted++;
-      else failed++;
-    }
+  for (const result of results) {
+    if (result.status === 'fulfilled' && result.value) submitted++;
+    else failed++;
   }
   return { ok: true, submitted, failed };
 }

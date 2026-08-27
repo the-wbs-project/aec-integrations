@@ -34,6 +34,7 @@
  * (`source: 'email'`). Telemetry is wrapped so it can never turn a send into a throw.
  */
 
+import { discardResponseBody } from '@aeci/shared/response-drain';
 import { logToDatadog, submitCount } from '../datadog';
 import type { Env } from '../env';
 import type { StuckRequestSummary } from './admin-alert';
@@ -121,6 +122,9 @@ export async function sendTransactionalEmail(
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
 
+    // Neither branch reads the body, and an unread body holds its connection —
+    // which deadlocks a cron that sends a run of emails (AECI-666).
+    discardResponseBody(res);
     if (!res.ok) {
       warn(c, `Resend ${input.template} returned ${res.status}`);
       emit(c, 'failed', input.template);
