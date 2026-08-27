@@ -79,6 +79,7 @@ import {
 } from '@aeci/shared';
 import type { IntegrationDetail, PageViewPayload } from '@aeci/shared';
 import { isPublicSite } from '@aeci/shared/deploy-env';
+import { discardResponseBody } from '@aeci/shared/response-drain';
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 
@@ -887,7 +888,15 @@ function firePageView(
         body: JSON.stringify(body),
       }),
     )
-      .then(() => undefined)
+      .then((res) => {
+        // Nothing here reads the body, and an unread body holds its stream open
+        // (AECI-666). This is a service binding rather than an outbound network
+        // `fetch`, so it is not the connection class that caused the promote
+        // incident — but this fires on EVERY full-document arrival, which makes
+        // it the highest-frequency unread response in the codebase, and
+        // releasing it costs nothing.
+        discardResponseBody(res);
+      })
       .catch(() => undefined),
   );
 }

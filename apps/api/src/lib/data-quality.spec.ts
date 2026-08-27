@@ -9,6 +9,8 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { WORKER_CONNECTION_LIMIT } from '@aeci/shared/concurrency';
+
 import type { AlgoliaIndexDrift } from './algolia-drift';
 import {
   integrations,
@@ -299,6 +301,54 @@ describe('checkLogo404Sample', () => {
       throw new Error('network down');
     }) as unknown as typeof fetch;
     expect((await checkLogo404Sample(t.db, throwingFetch, 20)).lines).toEqual([]);
+  });
+
+  // ── AECI-666: connection hygiene ────────────────────────────────────────────
+
+  it('probes in bounded waves, never all at once', async () => {
+    // `DEFAULT_LOGO_SAMPLE` is 20, more than three times what a Worker
+    // invocation may hold open at once. A bare `Promise.all` over the sample
+    // opened all of them; past the limit the runtime cancels the stalled
+    // responses into `fetch` promises that never settle.
+    // The sample is split evenly between products and vendors (`half`), so seed
+    // both to reach a full 20-URL candidate set.
+    for (let i = 0; i < 10; i++) {
+      await seedProduct({ id: `p${i}`, name: `P${i}`, logoUrl: `https://logo/p${i}.png` });
+      await seedVendor({ id: `v${i}`, companyName: `V${i}`, logoUrl: `https://logo/v${i}.png` });
+    }
+
+    let inFlight = 0;
+    let peak = 0;
+    const slowFetch = (async () => {
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      await new Promise((r) => setTimeout(r, 1));
+      inFlight -= 1;
+      return new Response(null, { status: 200 });
+    }) as unknown as typeof fetch;
+
+    const { note } = await checkLogo404Sample(t.db, slowFetch, 20);
+    expect(note).toContain('sampled 20');
+    expect(peak).toBeLessThanOrEqual(WORKER_CONNECTION_LIMIT);
+  });
+
+  it('releases the probe response body', async () => {
+    await seedProduct({ id: 'p1', name: 'Logo', logoUrl: 'https://logo/x.png' });
+    let cancelled = false;
+    const stream = new ReadableStream<Uint8Array>({
+      start: (c) => c.enqueue(new TextEncoder().encode('x')),
+      cancel: () => {
+        cancelled = true;
+      },
+    });
+    const bodyFetch = (async () =>
+      new Response(stream, { status: 200 })) as unknown as typeof fetch;
+
+    await checkLogo404Sample(t.db, bodyFetch, 20);
+    await new Promise((r) => setTimeout(r, 0));
+    // Only `res.status` is inspected, so nothing reads this body — an unread
+    // body keeps holding its connection (AECI-666).
+    expect(cancelled).toBe(true);
   });
 });
 

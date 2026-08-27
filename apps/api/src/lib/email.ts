@@ -35,6 +35,7 @@
  */
 
 import { orderedPairSlugs, type RequestTargetType } from '@aeci/shared';
+import { discardResponseBody } from '@aeci/shared/response-drain';
 
 import { logToPosthog, submitCount } from '../posthog';
 import type { Env } from '../env';
@@ -165,6 +166,9 @@ export async function sendTransactionalEmail(
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
 
+    // Neither branch reads the body, and an unread body holds its connection —
+    // which deadlocks a cron that sends a run of emails (AECI-666).
+    discardResponseBody(res);
     if (!res.ok) {
       warn(c, `Resend ${input.template} returned ${res.status}`);
       emit(c, 'failed', input.template);
@@ -1153,6 +1157,11 @@ export async function sendEmail(
       );
       return 'failed';
     }
+    // Only the success path drains: the `!res.ok` branch above reads the body
+    // for the error detail, and cancelling first would throw that away. An
+    // unread body holds its connection, which is what deadlocks a cron sending
+    // a run of emails (AECI-666).
+    discardResponseBody(res);
     return 'sent';
   } catch (error) {
     logger.error(`email: send threw — ${error instanceof Error ? error.message : String(error)}`);
