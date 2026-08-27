@@ -65,15 +65,15 @@ test.describe(`${PATH} — AECI-536`, () => {
     );
   });
 
-  test('is reachable from the header Primary nav', async ({ page }) => {
+  test('is reachable from the footer Company column', async ({ page }) => {
     await page.goto('/');
     await expect(page.locator('app-root')).toBeAttached();
 
-    // Updates moved out of the primary row into the "More" overflow menu, whose
-    // panel is `[hidden]` until opened — so open it before clicking the link.
-    const primary = page.getByRole('navigation', { name: 'Primary' });
-    await primary.getByRole('button', { name: 'More menu' }).hover();
-    await primary.getByRole('link', { name: 'Updates', exact: true }).click();
+    // Updates left the primary row for the "More" overflow menu, and left that
+    // for the footer when the menu was retired. The footer is now its only
+    // site-wide entry point, so this is the link that has to keep working.
+    const company = page.getByRole('navigation', { name: 'Company' });
+    await company.getByRole('link', { name: 'Updates', exact: true }).click();
 
     await expect(page).toHaveURL(new RegExp(`${PATH}$`));
     await expect(page.getByRole('heading', { level: 1 })).toHaveText(HEADING);

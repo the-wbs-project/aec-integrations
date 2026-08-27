@@ -615,16 +615,74 @@ Rules that ride with it:
 - **Style:** Atkinson Hyperlegible label scale, sentence case, text-primary color, transparent background.
 - **Default → hover:** color shifts to `accent-primary`. No underline-on-hover for top-level nav (reserved for inline body links).
 - **Active route:** color = `accent-primary`, paired with a 2px bottom border in `accent-primary` for primary nav. Border on the *element*, not as a side stripe (forbidden — see Do's and Don'ts). In a horizontal ROUTER nav the concrete form is `-mb-px border-b-2` on the item over the row's `border-b`, so the item's own border replaces the hairline beneath it rather than stacking above it; narrow viewports scroll the row (`overflow-x-auto whitespace-nowrap`) rather than wrapping, which would break the underline across two lines. Shipped twice: the `/search` entity tabs and the vendor portal's section row. Watch the cascade trap recorded under "Vendor portal (Stage 2)" — `border-color` on `*` is unlayered in `styles.css`, so a border-color *utility* cannot set this colour.
-- **The row:** `Home · Products · Categories▾ · Trades▾ · Audiences▾ · Phases▾ · More▾`. The four taxonomy facets are the directory's spine and lead; `More▾` is the overflow menu and always sits last.
-- **Mobile:** collapses into a CDK-overlay dropdown with focus trap. No hamburger-as-mystery — the toggle is labeled. It carries the same seven entries, with the facets and `More` as tap-to-expand disclosures.
-- **All five dropdowns in this row behave identically** — hover opens, mouseleave closes, the trigger button toggles for keyboard, Escape closes and returns focus, and focus leaving the host closes. That contract is a shared base (`layout/nav-disclosure.ts`); a new dropdown **in the public primary nav** extends it rather than reimplementing it. A row where one dropdown opens on hover and its neighbour only on click reads as a bug.
+- **The row:** `Home · Products · Categories▾ · Trades▾ · Audiences▾ · Phases▾`. The four taxonomy facets are the directory's spine and lead. The row is **public-only** — every item is a public directory surface, and it renders identically for every viewer. It used to end in a `More▾` overflow menu; that was retired (see The Overflow Rule below).
+- **Mobile:** collapses into a CDK-overlay dropdown with focus trap. No hamburger-as-mystery — the toggle is labeled. It carries the same six entries, with the four facets as tap-to-expand disclosures, plus search and the account block. Below `lg` the hamburger is the only menu control, so it also carries the pending-review badge.
+- **All four dropdowns in this row behave identically** — hover opens, mouseleave closes, the trigger button toggles for keyboard, Escape closes and returns focus, and focus leaving the host closes. That contract is a shared base (`layout/nav-disclosure.ts`); a new dropdown **in the public primary nav** extends it rather than reimplementing it. A row where one dropdown opens on hover and its neighbour only on click reads as a bug. (It had a fifth implementor, `More▾`, until that menu was retired.)
   - **The exception, and why it is one.** A dropdown whose panel contains a **text field** does not hover-open: a panel you are typing into must not evaporate because the pointer strayed. It also cannot use `NavDisclosure` mechanically — that base closes on `focusout` by asking `host.contains(relatedTarget)`, and a panel in the browser's top layer is not a DOM descendant of the host, so every focus move *into* the panel would read as "focus left" and slam it shut. The vendor portal's Products menu is the first of these (`vendor/vendor-products-menu.ts`): click to open, focus into the search box, Escape or Tab closes and returns focus to the trigger, outside click closes. Keep that set identical for any future search-bearing dropdown.
-- **Handover breakpoint:** the inline primary nav appears at `lg` and up; below that the hamburger carries it (`aec-nav-menu` is `lg:hidden`). Moved up from `md` when Trades became the fourth taxonomy flyout (AECI-544): seven items plus the wordmark and sign-in CTA no longer fit a 768px header, and clipping nav items out of the viewport is worse than deferring to a labeled overlay that already lists every facet. The header search input appears at `xl`. Adding a further top-level nav item needs a re-measure, not just an insert.
-- **Dropdown panel type hierarchy — three levels, and a panel item pins its own weight.** Inside any nav dropdown: a **column title** is 600, sentence case, 14px, `text-primary`; a **group label** is the overline (600, uppercase, 12px, `text-secondary`); a **destination** is **400**, 14px, `text-primary`. Panel destinations set `font-normal` explicitly rather than inheriting — the primary row carries `font-medium`, so an unpinned item renders at 500 inside the flyout and 400 inside the mobile overlay (the same component, two weights), and at 500 it sits too close to the 600 label above it for a reader to tell a header from a link. Pin the weight at the list component; never let the row's weight reach a panel.
+- **Handover breakpoint:** the inline primary nav appears at `lg` and up; below that the hamburger carries it (`aec-nav-menu` is `lg:hidden`). Moved up from `md` when Trades became the fourth taxonomy flyout (AECI-544): seven items plus the wordmark and sign-in CTA no longer fit a 768px header, and clipping nav items out of the viewport is worse than deferring to a labeled overlay that already lists every facet. The header search input appears at `xl`. Adding a further top-level nav item needs a re-measure, not just an insert. **Retiring `More▾` gave a slot back, which may make `md` viable again — but that is a re-measure at 768px, not an assumption**, so the breakpoint stays at `lg` until someone does it (**AECI-669**). Whichever way that lands, record the measured number here so it is not re-litigated.
+- **Dropdown panel type hierarchy — three levels, and a panel item pins its own weight.** Inside any nav dropdown: a **column title** is 600, sentence case, 14px, `text-primary`; a **group label** is the overline (600, uppercase, 12px, `text-secondary`); a **destination** is **400**, 14px, `text-primary`. Panel destinations set `font-normal` explicitly rather than inheriting — the primary row carries `font-medium`, so an unpinned item renders at 500 inside the flyout and 400 inside the mobile overlay (the same component, two weights), and at 500 it sits too close to the 600 label above it for a reader to tell a header from a link. Pin the weight at the list component; never let the row's weight reach a panel. Only the facet flyouts (`nav-flyout-list.ts`) use this now — the grouped, multi-level form went with `More▾` — but it is the contract any future panel inherits.
 
-- **Dropdown panel grouping is carried by vertical rhythm, never by indentation.** Inside a grouped panel, a destination sits on the **same left rail as its own group label** (`px-3` on both) — what separates one group from the next is space: roughly **12px between items and 26px at a group boundary**, a >2:1 ratio, so proximity alone tells a reader where a group ends. The admin sidebar (`admin/admin-shell.ts`) renders the same array on the same principle (`space-y-6` between groups vs `space-y-1` within), and the two must not drift. **Do not indent panel items under their label.** Two reasons: the admin variant stacks a column title over a group label over its items, so indenting the items would give that column three left rails against the public column's two and the halves would stop aligning row-for-row across the divider; and an indent reads as *tree depth*, which these non-clickable eyebrow labels do not have — it invites a click on the label. If a grouped panel reads as flat, the fix is the group gap, not a horizontal step.
+- **Grouped nav lists are separated by vertical rhythm, never by indentation.** In a grouped list, a destination sits on the **same left rail as its own group label** (`px-3` on both) — what separates one group from the next is space: roughly **12px between items and 26px at a group boundary**, a >2:1 ratio, so proximity alone tells a reader where a group ends. The live instance is the admin sidebar (`admin/admin-shell.ts`: `space-y-6` between groups vs `space-y-1` within). **Do not indent items under their label**: an indent reads as *tree depth*, which these non-clickable eyebrow labels do not have, and it invites a click on the label. If a grouped list reads as flat, the fix is the group gap, not a horizontal step. (This rule was written when the header's `More▾` panel rendered the same array as that sidebar and the two had to stay aligned row-for-row. The panel is gone; the rule survives it because it is about how a grouped list reads, not about that pairing.)
 
-**The Overflow Rule.** The primary row is width-budgeted and closed. A new *secondary* destination goes into `More▾`, not into the row — the row is reserved for the directory's primary surfaces. `More▾` holds a **General** group (the forward-looking and company pages — Updates, Roadmap, About, Contact), a **Legal** group, and — for an admin only — the complete `/admin` section, grouped exactly as the admin sidebar groups it (one shared array, `admin/admin-nav.ts`). **Every group in the panel carries its overline**, the lead group included: an unlabelled first group reads as orphan items floating above the first header, not as a section. Admin navigation belongs with site navigation; the account menu is for the *person* (Account, Sign out), not for operator surfaces. The panel is one column for a visitor and two for an admin so a seventeen-entry menu still fits a 768px-tall viewport, and it is `end`-anchored because it is the last item in the row. Its "Admin" column title is a **label**, not an overline — the groups beneath it are overlines, and two stacked overlines read as one flat level. Promoting something *out* of `More▾` into the row is a deliberate decision that requires re-measuring at 1024px.
+**The Overflow Rule.** The primary row is width-budgeted, **public-only**, and closed. It carries the directory's primary surfaces and nothing else.
+
+- **A new *secondary* destination goes to the footer**, not into the row and not into a header menu. The footer is server-rendered on every page, so a link there is as reachable and as crawlable as one in the header. See "The footer" below.
+- **A new *primary* destination is a re-measure at 1024px**, not an insert.
+- **A role-gated surface gets one door in the account menu** (`layout/user-menu.ts` at `lg+`, the overlay's account block below). Never a row item.
+
+> **This supersedes the previous rule, which put secondary destinations in a `More▾` overflow menu and the complete `/admin` section inside it.** Two things were wrong with that. Its public half was ~83% duplicated by the footer — of twelve links, ten were already there, and only Updates and Roadmap were unique. And its admin half restated the eleven-screen `/admin` IA that `admin/admin-shell.ts` already renders from the same `ADMIN_NAV_GROUPS` array, which is why the panel had to grow to a two-column `34rem` grid for an admin. A portal owns its own navigation; the header's job is to offer **one door** to it.
+
+**Why the doors are in the account menu, not the row.** The old rule said *"admin navigation belongs with site navigation; the account menu is for the person, not for operator surfaces."* That reasoning was about eleven screens of navigation, and it does not carry to a single door. The sharper line: **the row is the site; the avatar is you and what you can operate.** The row renders on cached, URL-keyed, indexable pages and must look the same to everyone — a private, `noindex`, role-gated door in it would make the row's width depend on who is looking (seven items for an admin, six for a visitor), against the closed width budget above. The account menu is *already* the viewer-dependent region: it only mounts when signed in, and it already held the Vendor portal door. Putting Admin beside it makes the two portals symmetric and the header legible.
+
+**Both doors are one link each** — "Admin portal" → `/admin`, "Vendor portal" → `/vendor` — in sentence case, matching the rule that user-facing copy says *portal*, never *dashboard* (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.3). Neither restates its portal's sections. The pending-review badge sits on the account-menu trigger, following the Admin door.
+
+**Nothing role-gated may reach server-rendered HTML.** Both doors are gated on the shared, browser-only role probe (`auth/role-status.ts`), which reports `null` during SSR — so no `/admin` or `/vendor` href is ever baked into the URL-keyed cached header. This is the header-side complement to `/admin/*` being non-cacheable.
+
+### The footer
+
+Never specified until the Overflow Rule made it load-bearing: it is now the home
+for every secondary destination, and the only site-wide entry point for several
+of them. Source: `apps/web/src/app/layout/site-footer.ts`; the columns are pinned
+by `site-footer.component.spec.ts`, because a link quietly dropping out is a
+regression rather than a tidy-up.
+
+**Anchor:** Stripe — a brand region (wordmark + one-line tagline) beside a nav
+group of three labelled `<nav>` columns, over a bottom strip carrying copyright,
+separated by a `border-default` hairline. The nav group is its own responsive
+grid (2 columns on mobile, 3 from `sm`) so the columns stay balanced instead of
+the brand eating a quarter-column and leaving a dead zone at tablet widths. From
+`lg` the brand sits left, the nav group right.
+
+**The three columns, and why each holds what it does:**
+
+| Column | Holds | Why |
+|---|---|---|
+| **Directory** | Home, Products, Categories, Audiences, Trades, Phases | The primary surfaces, in **server-rendered HTML**. The header's facet values render client-side and its mobile overlay never reaches SSR, so this is where a crawler meets the taxonomy. |
+| **Legal** | Terms, Privacy, Review guidelines, Listing accuracy | Trust-first positioning means the legal set is one click from every page, not buried. |
+| **Company** | About, Contact, Updates, Roadmap | Who we are and where we are going. Updates and Roadmap arrived here when `More▾` was retired; the header links neither, so this is their sole site-wide entry. |
+
+**Rules.**
+
+- **Every column is a `<nav>` with an `aria-label`.** Three unlabelled navs in one
+  landmark are indistinguishable in a screen reader's landmark list.
+- **The footer is visitor-neutral, absolutely.** It sits inside URL-keyed cached
+  HTML and holds no session state — no portal door, no account link, no badge.
+  That is what lets it render identically for everyone. Role-gated affordances
+  live in the account menu (the Overflow Rule).
+- **Column labels are overlines**; links are `text-secondary` rising to
+  `text-primary` on hover — quieter than header nav on purpose, because this is a
+  reference surface, not a wayfinding one.
+- **Vendors / Integrations are deliberately absent** (AECI-160, PO decision;
+  AECI-165 removed the index pages, which now 301 to `/products`). Their detail
+  pages stay reachable via product links, `sitemap.xml`, and search.
+- **i18n ids are shared, not duplicated.** Several links reuse `@@app.nav.*` /
+  `@@app.footer.*` ids that other surfaces also emit. Keep the tight
+  `<ng-container i18n>` wrap so the extracted source string stays byte-identical —
+  an identical source under a shared id is one translation unit; a differing one
+  is a collision.
+- **Adding a column** is a re-measure at `sm`, where three become two. Prefer
+  growing an existing column: four to six items read fine, and the Company column
+  absorbed two without a layout change.
 
 ### Layout shells
 

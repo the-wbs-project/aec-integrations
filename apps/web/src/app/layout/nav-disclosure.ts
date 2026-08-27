@@ -1,11 +1,12 @@
 import { Directive, signal } from '@angular/core';
 
 /**
- * Open/close behaviour shared by every dropdown in the desktop primary nav —
- * the four taxonomy flyouts (`nav-flyout-trigger.ts`) and the "More" overflow
- * menu (`nav-more-trigger.ts`). Factored out so all five behave identically; a
- * row where one dropdown opens on hover and another only on click reads as a
- * bug.
+ * Open/close behaviour shared by every dropdown in the desktop primary nav — the
+ * four taxonomy flyouts (`nav-flyout-trigger.ts`). Factored out so all four
+ * behave identically; a row where one dropdown opens on hover and another only
+ * on click reads as a bug. It had a fifth implementor, the "More" overflow menu,
+ * until that menu was retired; the base stays because the contract is what keeps
+ * the four facets consistent, and a future row dropdown must extend it.
  *
  * The contract:
  *   - pointer: hovering the host opens, leaving closes (each panel keeps a
