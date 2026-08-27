@@ -117,7 +117,8 @@ export class AdminShell {
   private readonly metaSvc = inject(Meta);
   private readonly summaryStore = inject(AdminSummaryStore);
 
-  /** The §5 IA, shared with the header's "More" menu — see `./admin-nav.ts`. */
+  /** The §5 IA — see `./admin-nav.ts`. This shell is its only consumer: the
+   *  header offers one "Admin portal" door and never restates these screens. */
   protected readonly navGroups = ADMIN_NAV_GROUPS;
 
   /** Resolved data. `adminSummaryResolver` runs server-side and on hydration

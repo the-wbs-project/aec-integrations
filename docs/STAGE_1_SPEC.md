@@ -204,7 +204,7 @@ A Figma file ("AEC Integrations — Design System") maintains canonical color st
 | `/search` | Algolia-powered search results | No cache |
 | `/about` | About AEC Integrations | 24 hr edge |
 | `/updates` | Mailing-list signup page (AECI-536) — focused first-party subscribe destination for external links | 24 hr edge |
-| `/roadmap` | Public roadmap — **coming-soon placeholder**: hero + the shared mailing-list band. `robots: noindex` and deliberately **absent from `sitemap.xml`** (thin placeholder content); cacheable all the same, since indexability and cacheability are independent. Reached from the header "More" menu | 24 hr edge |
+| `/roadmap` | Public roadmap — **coming-soon placeholder**: hero + the shared mailing-list band. `robots: noindex` and deliberately **absent from `sitemap.xml`** (thin placeholder content); cacheable all the same, since indexability and cacheability are independent. Reached from the **footer** (Company column) — it was behind the header "More" menu until that was retired | 24 hr edge |
 | `/contact` | Contact form | No cache |
 | `/legal/terms` | Terms of Service | 24 hr edge |
 | `/legal/privacy` | Privacy Policy | 24 hr edge |

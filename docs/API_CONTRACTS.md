@@ -963,7 +963,7 @@ web client reads it to decide whether to surface admin affordances.
 `pending_reviews` (AECI-617) is the moderation-queue count — the same aggregate
 `GET /api/admin/summary` serves — and is non-null **only** for `role === 'admin'`;
 a non-admin gets `null` and the `reviews` table is never counted. It rides along
-here so the header's "More" menu resolves "am I an admin, and how many reviews are
+here so the header's account menu resolves "am I an admin, and how many reviews are
 waiting?" in ONE round trip. The former `/api/account` → `/api/admin/summary`
 chain paid two JWKS verifies and two `profiles` reads, and the second hop's
 latency was the visible lag before the Admin section appeared. `GET
@@ -1140,7 +1140,9 @@ export type AdminSummaryResponse = z.infer<typeof AdminSummaryResponseSchema>;
 
 Source of truth: `packages/shared/src/api/admin.ts`. Implemented in `apps/api/src/routes/admin-summary.ts` (a Drizzle/D1 count of `reviews` where `status = 'pending'`). Read-only — no audit log.
 
-**Callers (AECI-617).** This endpoint serves the `/admin` SSR resolver (its 200/403 IS the gate) and the in-shell badge. It is **no longer** the header's badge feed: `AdminStatus` used to chain `GET /api/account` → here, paying a second JWKS verify and a second `profiles` read whose latency showed as lag before the "More" menu's Admin section appeared. The same count now rides on `GET /api/account` as `pending_reviews` (§6.8), so the header needs one round trip. Both surfaces seed the same client-side `AdminSummaryStore`, so the number stays consistent.
+**Callers (AECI-617).** This endpoint serves the `/admin` SSR resolver (its 200/403 IS the gate) and the in-shell badge. It is **no longer** the header's badge feed: the header's role probe used to chain `GET /api/account` → here, paying a second JWKS verify and a second `profiles` read whose latency showed as lag before the Admin affordance appeared. The same count now rides on `GET /api/account` as `pending_reviews` (§6.8), so the header needs one round trip. Both surfaces seed the same client-side `AdminSummaryStore`, so the number stays consistent.
+
+The header's caller is the shared `RoleStatus` probe (`apps/web/src/app/auth/role-status.ts`), which is also what resolves the vendor portal's door — one `GET /api/account` answers both role questions, so a signed-in page load makes one account request, not two.
 
 #### `GET /api/admin/reviews`
 

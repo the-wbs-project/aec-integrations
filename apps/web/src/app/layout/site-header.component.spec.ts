@@ -74,12 +74,11 @@ describe('SiteHeader auth affordance', () => {
   });
 
   /**
-   * The row is width-budgeted (DESIGN.md §Navigation): four taxonomy flyouts
-   * plus the overflow menu is what fits at `lg`. Pin the item set and its order
-   * so a new top-level entry can't slip in without the re-measure that rule
-   * requires — and so Updates stays where it moved to, inside "More".
+   * The row is width-budgeted (DESIGN.md §Navigation): two links plus four
+   * taxonomy flyouts is what fits at `lg`. Pin the item set and its order so a
+   * new top-level entry can't slip in without the re-measure that rule requires.
    */
-  it('renders exactly the six primary destinations plus the More overflow menu', () => {
+  it('renders exactly the six primary destinations and nothing else', () => {
     const el = render().nativeElement as HTMLElement;
     const nav = el.querySelector('nav[aria-label="Primary"]')!;
 
@@ -88,20 +87,23 @@ describe('SiteHeader auth affordance', () => {
         ? child.textContent?.trim()
         : (child.querySelector('a, button')?.textContent?.trim() ?? child.tagName.toLowerCase()),
     );
-    expect(topLevel).toEqual([
-      'Home',
-      'Products',
-      'Categories',
-      'Trades',
-      'Audiences',
-      'Phases',
-      'More',
-    ]);
+    expect(topLevel).toEqual(['Home', 'Products', 'Categories', 'Trades', 'Audiences', 'Phases']);
+  });
 
-    expect(nav.querySelector('aec-nav-more-trigger')).not.toBeNull();
-    // Updates is no longer a top-level link — it lives inside the More panel,
-    // which renders server-side (hidden, not unmounted) so it stays crawlable.
-    expect(nav.querySelector(':scope > a[href="/updates"]')).toBeNull();
-    expect(nav.querySelector('aec-nav-more-trigger a[href="/updates"]')).not.toBeNull();
+  /**
+   * The row is public-only: secondary destinations live in the footer and the
+   * portal doors live in the account menu. Nothing role-gated may render here,
+   * because the header is server-rendered into URL-keyed cached HTML — an
+   * `/admin` href in the row would leak to the next visitor of that URL.
+   */
+  it('keeps secondary and role-gated destinations out of the row', () => {
+    const el = render().nativeElement as HTMLElement;
+    const nav = el.querySelector('nav[aria-label="Primary"]')!;
+
+    for (const href of ['/updates', '/roadmap', '/about', '/contact']) {
+      expect(nav.querySelector(`a[href="${href}"]`), href).toBeNull();
+    }
+    expect(el.querySelectorAll('a[href^="/admin"]').length).toBe(0);
+    expect(el.querySelectorAll('a[href^="/vendor"]').length).toBe(0);
   });
 });
