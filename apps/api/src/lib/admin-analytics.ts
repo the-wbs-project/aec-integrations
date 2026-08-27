@@ -37,6 +37,7 @@ import {
   type AdminBreakdownRow,
   type AdminCount,
   type AdminInternalFilter,
+  type AdminMetricBasis,
   type AdminMetricKey,
   type AdminNote,
   type AdminNoteCode,
@@ -59,9 +60,19 @@ import {
   sql,
   type SQL,
 } from 'drizzle-orm';
+import type { AnySQLiteColumn } from 'drizzle-orm/sqlite-core';
 
 import type { Db } from '../db/client';
-import { auditLog, metricsDaily, pageViews, products, profiles } from '../db/schema';
+import {
+  auditLog,
+  claims,
+  integrations,
+  metricsDaily,
+  pageViews,
+  products,
+  profiles,
+  vendors,
+} from '../db/schema';
 import type { Env } from '../env';
 import { ApiError } from '../errors';
 import { BOT, HUMAN, NOT_INTERNAL as EXCLUDE_OPERATOR_TRAFFIC } from './analytics-digest';
@@ -380,6 +391,47 @@ async function auditEventsPerDay(
   return new Map(rows.map((r) => [r.day, r.value]));
 }
 
+/**
+ * The `basis=net` counterpart of {@link auditEventsPerDay} (AECI-686): rows that
+ * are in the table RIGHT NOW, bucketed by their own `created_at`.
+ *
+ * The difference from the audit path is the whole point. An `*.created` event is
+ * immortal, so the additions series counts rows that were deleted years ago; this
+ * counts the survivors, which is why it reconciles with a live `COUNT(*)` and the
+ * additions series cannot. What it buys with that is a **retroactive** number: a
+ * row removed tomorrow leaves today's bucket smaller than it reads today.
+ *
+ * That attribution — subtracting a removal from the bucket the row was ADDED in
+ * rather than the one it was removed in — is not a modelling preference, it is
+ * the only option available. Nothing records deletions: there is no `*.deleted`
+ * action in the vocabulary, and every path that removes catalog rows is raw SQL
+ * running outside the Worker where the `lib/audit.ts` batch builders cannot reach
+ * (`lib/retract-product.ts` says so in its header). Restore per-row tombstones
+ * and a true removed-on-day-D series becomes computable; until then this is the
+ * closest honest thing, and the response says so via
+ * `catalog_series_is_surviving_rows`.
+ *
+ * `created_at` is untouched by promote's upsert path (`routes/promote.ts` never
+ * writes `createdAt`), so a re-promoted product keeps its original arrival date.
+ * The one exception is `claims`, which promote deletes and re-inserts wholesale —
+ * hence the separate `catalog_claims_recreated_by_promote` caveat.
+ */
+async function catalogRowsPerDay(
+  db: Db,
+  w: UtcWindow,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- same shape as `countAll` above: one bucketer over four unrelated tables, each call site fixed by CATALOG_NET_SOURCE.
+  table: any,
+  createdAt: AnySQLiteColumn,
+): Promise<Map<string, number>> {
+  const day = sql<string>`substr(${createdAt}, 1, 10)`;
+  const rows = await db
+    .select({ day, value: count() })
+    .from(table)
+    .where(and(gte(createdAt, w.startIso), lt(createdAt, w.endIso)))
+    .groupBy(day);
+  return new Map(rows.map((r) => [r.day, r.value]));
+}
+
 async function profilesPerDay(db: Db, w: UtcWindow): Promise<Map<string, number>> {
   const rows = await db
     .select({ day: profileDay, value: count() })
@@ -414,6 +466,24 @@ const CATALOG_ACTION: Partial<Record<AdminMetricKey, string>> = {
   'catalog.claims_created': 'claim.created',
 };
 
+/**
+ * The `basis=net` counterpart of {@link CATALOG_ACTION} (AECI-686): the live table
+ * behind each `catalog.*` series, and the timestamp a surviving row is bucketed by.
+ *
+ * Deliberately a mirror of the map above rather than a field on it — the two are
+ * different readings of the same key, and a reader comparing them side by side is
+ * exactly how the additions/net distinction stays legible.
+ */
+const CATALOG_NET_SOURCE: Partial<
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the table half is passed to `catalogRowsPerDay`, which is `any`-typed for the same reason `countAll` is.
+  Record<AdminMetricKey, { table: any; createdAt: AnySQLiteColumn }>
+> = {
+  'catalog.products_created': { table: products, createdAt: products.createdAt },
+  'catalog.integrations_created': { table: integrations, createdAt: integrations.createdAt },
+  'catalog.vendors_created': { table: vendors, createdAt: vendors.createdAt },
+  'catalog.claims_created': { table: claims, createdAt: claims.createdAt },
+};
+
 /** Metrics that read `page_views` and can therefore be ASN-filtered. Everything
  *  else returns a null `excluding_internal` — there is no ASN on a catalog row to
  *  filter against, and pretending otherwise would be the "silently substituted
@@ -429,8 +499,27 @@ export async function metricSeries(
   metric: AdminMetricKey,
   w: UtcWindow,
   filter: InternalFilterState,
+  basis: AdminMetricBasis = 'additions',
 ): Promise<{ perDay: Map<string, number>; perDayFiltered: Map<string, number> | null }> {
   const filterable = metricSupportsInternalFilter(metric) && filter.applied;
+
+  // `net` is resolved BEFORE the per-metric branches below, so it can never fall
+  // through to the audit-log path and quietly serve additions under a `net` label.
+  // The route rejects `net` on a non-catalog metric, so an unmapped key here is a
+  // programming error rather than a caller's.
+  if (basis === 'net') {
+    const source = CATALOG_NET_SOURCE[metric];
+    /* c8 ignore next 5 -- unreachable: the route rejects `net` outside `catalog.*`. */
+    if (!source) {
+      throw new ApiError(400, 'VALIDATION_FAILED', `basis=net is not available for ${metric}`, {
+        field: 'basis',
+      });
+    }
+    return {
+      perDay: await catalogRowsPerDay(db, w, source.table, source.createdAt),
+      perDayFiltered: null,
+    };
+  }
 
   if (metric === 'traffic.unique_visitors') {
     // Distinct-visitor counts do not sum across days, so each bucket is its own
@@ -891,6 +980,13 @@ const SEVERITY: Record<AdminNoteCode, 'info' | 'warn'> = {
   visitor_definition_approximate: 'info',
   catalog_series_is_additions_only: 'warn',
   catalog_series_starts_at: 'info',
+  // AECI-686. `info`: under `basis=net` the figures ARE the live catalog, so a
+  // reader who misses the note still reads them correctly — it only explains why
+  // last month's number may be smaller next week. The claims caveat is a `warn`
+  // on the standard test: a reader who misses it concludes no claims existed
+  // before August, which is false. Promote rewrites the rows, not the history.
+  catalog_series_is_surviving_rows: 'info',
+  catalog_claims_recreated_by_promote: 'warn',
   internal_filter_unavailable: 'info',
   internal_filter_applied: 'info',
   requires_recompute: 'info',

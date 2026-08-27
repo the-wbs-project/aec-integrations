@@ -5,6 +5,7 @@ import { RouterLink } from '@angular/router';
 import type {
   AdminCatalogCoverageResponse,
   AdminCoverageGapKey,
+  AdminMetricBasis,
   AdminMetricKey,
   AdminNote,
   AdminPromotionStatus,
@@ -24,7 +25,20 @@ const SERIES_DAYS = 30;
 const SERIES_MONTHS = 12;
 const DAY_MS = 86_400_000;
 
-/** The four `catalog.*` additions series, in the order §5.5 names them. */
+/**
+ * Which reading of the four series this screen asks for (AECI-686).
+ *
+ * `net` — records still in the catalog, bucketed by when they arrived — not the
+ * endpoint's `additions` default. The table sits directly beneath the Catalog
+ * totals cards, so a column that does not sum to the card above it reads as a
+ * bug in one of the two numbers. `additions` cannot sum to it: an `*.created`
+ * event outlives the row, so the audit log carries 11,827 claim creations behind
+ * 1,691 live claims. See `AdminMetricBasisSchema` for what `net` gives up in
+ * exchange (churn, and a fixed past).
+ */
+const SERIES_BASIS: AdminMetricBasis = 'net';
+
+/** The four `catalog.*` series, in the order §5.5 names them. */
 const SERIES_METRICS: readonly AdminMetricKey[] = [
   'catalog.products_created',
   'catalog.integrations_created',
@@ -76,11 +90,18 @@ const EMPTY_SERIES: SeriesData = { rows: [], notes: [] };
  * count — the "everything is broken" shape must not look like a failure, because
  * it is simply the state of the catalog.
  *
- * **Additions are not totals.** The panel is fed by
- * `GET /api/admin/metrics/timeseries`, whose `catalog_series_is_additions_only`
- * note is rendered directly above each table. That banner is load-bearing (§4:
- * 827 `integration.created` events back 496 live rows) and is the thing most
- * likely to be quietly dropped in a refactor — hence its own component spec.
+ * **The columns must reconcile with the cards above them (AECI-686).** The panel
+ * is fed by `GET /api/admin/metrics/timeseries` at `basis=net`, so each column
+ * sums to the matching Catalog total for records added in the window. It did not
+ * always: the endpoint's default `additions` basis counts `audit_log` `*.created`
+ * events, which outlive the rows they describe, and in production that put 11,827
+ * claim creations under a card reading 1,691.
+ *
+ * What `net` costs is stated in the banner rather than hidden: it attributes a
+ * removal to the period the record was ADDED in, because nothing records when a
+ * record was removed, so an earlier figure can fall as records are removed later.
+ * That banner is load-bearing and is the thing most likely to be quietly dropped
+ * in a refactor — hence its own component spec.
  *
  * ─── Daily / Monthly (AECI-668) ──────────────────────────────────────────────
  *
@@ -167,7 +188,7 @@ export class CatalogCoverage {
    */
   private async fetchSeries(from: string, to: string): Promise<SeriesData> {
     const responses = await Promise.all(
-      SERIES_METRICS.map((metric) => this.api.timeseries(metric, from, to)),
+      SERIES_METRICS.map((metric) => this.api.timeseries(metric, from, to, SERIES_BASIS)),
     );
 
     const days = responses[0]?.points.map((p) => p.day) ?? [];
