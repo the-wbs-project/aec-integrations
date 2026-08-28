@@ -22,6 +22,7 @@ import {
   ListPendingReviewsResponseSchema,
   ModerateReviewResponseSchema,
   ModerateReviewSchema,
+  REPEAT_OFFENDER_THRESHOLD,
   type ListPendingReviewsResponse,
   type ModerateReviewResponse,
   type RepeatOffenderPrompt,
@@ -61,8 +62,6 @@ import { recomputeProductCounts } from '../lib/recompute-counts';
 import { fetchAuthUserEmails } from '../lib/supabase-admin';
 
 type AdminContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
-
-const REPEAT_OFFENDER_THRESHOLD = 3;
 
 /** Injected reviewer-email seam (seam #2). Default hits the GoTrue Admin API. */
 export type FetchReviewerEmails = (
