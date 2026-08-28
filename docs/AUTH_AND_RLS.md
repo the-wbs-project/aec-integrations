@@ -109,10 +109,19 @@ outside it must use a JWT-scoped path.
 | Seam | Operation | Code | GoTrue endpoint | Degrade when creds absent |
 |---|---|---|---|---|
 | **#1** provisioning | Idempotent D1 `profiles` create on the first authenticated request. The **primary** creator under D1 (no `handle_new_user` trigger). | `routes/auth-profile.ts` | *none — D1 only, no service role* | n/a |
-| **#2** `auth.users` email reads | Reviewer emails for the admin moderation queue. | `lib/supabase-admin.ts` → `fetchAuthUserEmails` | `GET /auth/v1/admin/users/:id` | `reviewer_email: null`; the queue stays usable |
+| **#2** `auth.users` account reads | Emails for the admin moderation queue, the claim queue, the vendor seat roster and `/admin/vendors`; **plus `last_sign_in_at` / `created_at` / `email_confirmed_at`** for `/admin/users` (AECI-692). | `lib/supabase-admin.ts` → `fetchAuthUserEmails` (bare map), `fetchAuthUserEmailsResult` (+availability), `fetchAuthUserRecords` (+the three timestamps) | `GET /auth/v1/admin/users/:id` | Every auth-derived field `null` **and the surface says so** — the `Result`/record forms carry `available` + `reason`, so a page renders "unavailable" rather than asserting "no email on file". The queue stays usable |
 | **#3** GDPR erasure | Delete the `auth.users` row **after** the D1 erasure batch commits (§8). | `lib/supabase-admin.ts` → `deleteAuthUser` | `DELETE /auth/v1/admin/users/:id` | **Skipped** — the D1 erasure already completed, but the `auth.users` row **survives** and needs manual cleanup (§8 step 4) |
 | **#4a** claimant lookup | Resolve a vendor claim's `submitter_email` → an `auth.users` id so the grant can link a `profiles` row. Also batched for the admin claim queue's `has_auth_account` reviewer signal. | `lib/supabase-admin.ts` → `findAuthUserByEmail`, `fetchAuthAccountsByEmail` | `GET /auth/v1/admin/users?filter=` | Resolution reports `unavailable` and the grant refuses rather than half-granting; the reviewer signal reports `null` (unknown) |
 | **#4b** claimant provisioning | Create an `auth.users` row when the claimant has no account yet. | `lib/supabase-admin.ts` → `createAuthUser` | `POST /auth/v1/admin/users` | as #4a |
+
+Seam **#2 has one fan-out, three projections.** All three exported forms call one private
+`fanOutAuthUsers` (`lib/supabase-admin.ts`), so the rules that make it correct — bounded
+concurrency at `WORKER_CONNECTION_LIMIT` (AECI-666), `discardResponseBody` on every unread
+body, a 404 is **not** a seam failure, and `reason: 'error'` if **any** id failed — are
+written once. GoTrue has no by-id batch endpoint, so the request count scales with the
+admin page size; that is why `/admin/users` caps `perPage` well below the shared maximum.
+The bare-map `fetchAuthUserEmails` keeps a **byte-identical signature** because four
+structural type aliases inject it as their default.
 
 Seams **#4a/#4b** are composed with a single D1 `profiles` read in
 `lib/claimant-identity.ts` (`resolveClaimantIdentity`), which returns the
