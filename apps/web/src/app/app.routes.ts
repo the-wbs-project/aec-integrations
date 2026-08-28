@@ -299,6 +299,19 @@ export const routes: Routes = [
         path: 'claims',
         loadComponent: () => import('./admin/claims/claim-queue').then((m) => m.ClaimQueue),
       },
+      // AECI-652 — the §5.6 vendor surface. The list is the way into a vendor that
+      // never filed a claim (which the claim queue structurally cannot reach), and
+      // the detail page is where the entitlement control now lives. Two flat
+      // children rather than a nested layout: the detail page's four sections are
+      // read together, so a route per tab would buy nothing but resolvers.
+      {
+        path: 'vendors',
+        loadComponent: () => import('./admin/vendors/vendor-list').then((m) => m.VendorList),
+      },
+      {
+        path: 'vendors/:id',
+        loadComponent: () => import('./admin/vendors/vendor-detail').then((m) => m.VendorDetail),
+      },
       {
         path: 'reviewers',
         loadComponent: () => import('./admin/reviewers/reviewer-bans').then((m) => m.ReviewerBans),

@@ -20,8 +20,6 @@ import type {
   ListVendorClaimsResponse,
   ModerateClaimInput,
   ModerateClaimResponse,
-  SetVendorEntitlementInput,
-  VendorEntitlementResponse,
 } from '@aeci/shared';
 
 @Injectable({ providedIn: 'root' })
@@ -43,28 +41,6 @@ export class AdminClaimsApi {
   moderate(id: string, input: ModerateClaimInput): Promise<ModerateClaimResponse> {
     return firstValueFrom(
       this.http.patch<ModerateClaimResponse>(`/api/admin/claims/${encodeURIComponent(id)}`, input),
-    );
-  }
-
-  /**
-   * `PATCH /api/admin/vendors/:id/entitlement` — set / renew / clear the vendor's
-   * paid entitlement (AECI-532 / `STAGE_2_PAID_TIERS_SPEC.md` §5).
-   *
-   * Takes a VENDOR id, not a claim id: a product claim's entitlement belongs to that
-   * product's primary vendor, which is why the row carries a resolved
-   * `entitlement_vendor`. `verified` is never sent — it is a mirror of the entitlement
-   * row, written server-side in the same batch (§2.1), and comes back on the response
-   * as a read-only readout.
-   */
-  setEntitlement(
-    vendorId: string,
-    input: SetVendorEntitlementInput,
-  ): Promise<VendorEntitlementResponse> {
-    return firstValueFrom(
-      this.http.patch<VendorEntitlementResponse>(
-        `/api/admin/vendors/${encodeURIComponent(vendorId)}/entitlement`,
-        input,
-      ),
     );
   }
 }

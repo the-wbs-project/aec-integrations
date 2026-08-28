@@ -18,11 +18,12 @@ import type { Context } from 'hono';
 import type { ZodType } from 'zod';
 
 import type { Db } from '../db/client';
-import { productVendors, products, vendorRequests, vendors } from '../db/schema';
+import { productVendors, products, profiles, vendorRequests, vendors } from '../db/schema';
 import { logBatchToPosthog, logToPosthog, type PosthogLogEvent } from '../posthog';
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import type { AuthzVariables } from '../lib/authz';
+import { VENDOR_ADMIN_ROLE } from '../lib/claimed-vendors';
 
 export type VendorContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
 
@@ -140,6 +141,23 @@ export function afterVendorWrite(
  * would double that. Both express `product_vendors WHERE vendor_id = ?`; this is
  * the form that composes into another statement.
  */
+/**
+ * "The seats on this vendor" — a granted vendor-portal seat is a `profiles` row
+ * with BOTH `vendor_id = <vendor>` and `role = 'vendor_admin'`. Shared by the
+ * dashboard's `seat_count`, the portal roster and the admin vendor page so the
+ * three can never disagree: a `reviewer` profile that happens to carry a
+ * `vendor_id` is not a seat.
+ *
+ * **Banned seats are included** — a ban is a per-seat lock, not a removal, and
+ * every one of these surfaces needs to show WHY a colleague cannot sign in.
+ * `loadExistingSeats` in `admin-claims.ts` deliberately excludes them instead,
+ * because its question is narrower ("does this vendor already have working
+ * admins?" — a first-claim vs second-seat signal), not "who is on this account".
+ */
+export function seatsOf(vendorId: string): SQL | undefined {
+  return and(eq(profiles.vendorId, vendorId), eq(profiles.role, VENDOR_ADMIN_ROLE));
+}
+
 export function ownedProductIds(db: Db, vendorId: string) {
   return db
     .select({ productId: productVendors.productId })

@@ -99,6 +99,7 @@ describe('AdminShell', () => {
         '/admin/reviews',
         '/admin/requests',
         '/admin/claims',
+        '/admin/vendors',
         '/admin/reviewers',
         '/admin/system',
       ]);
@@ -112,6 +113,10 @@ describe('AdminShell', () => {
       expect(operations.textContent).toContain('Reviewer bans');
       // Stage 2's claim queue (AECI-521) joins them, from the same array.
       expect(operations.textContent).toContain('Vendor claims');
+      // As does the AECI-652 vendor surface — placed between claims and reviewer
+      // bans because claims → vendors → reviewers is the escalation order an
+      // operator actually walks.
+      expect(operations.textContent).toContain('Vendors');
     });
 
     it('links nothing that has no route yet — a nav entry is never a 404', () => {
@@ -129,6 +134,7 @@ describe('AdminShell', () => {
         '/admin/reviews',
         '/admin/requests',
         '/admin/claims',
+        '/admin/vendors',
         '/admin/reviewers',
         '/admin/system',
       ]);

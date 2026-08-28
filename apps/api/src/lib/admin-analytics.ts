@@ -67,6 +67,7 @@ import { ApiError } from '../errors';
 import { BOT, HUMAN, NOT_INTERNAL as EXCLUDE_UNTRACKED_ROUTES } from './analytics-digest';
 import { resolveRequestTargets } from './drizzle-helpers';
 import { excludeInternalAsns, parseInternalAsns } from './internal-asns';
+import { likeContains } from './sql-like';
 
 const DAY_MS = 86_400_000;
 
@@ -673,18 +674,6 @@ export async function breakdown(
  */
 const VISITOR_HASH_CHARS = 8;
 
-/**
- * Escape the SQL `LIKE` metacharacters so operator input matches literally.
- *
- * Without this, a `path_contains` of `%` matches every row and `_` matches any
- * character — the filter would silently behave as a pattern language nobody
- * documented. Paired with an explicit `ESCAPE '\'` clause at the call site, since
- * Drizzle's `like()` helper emits no `ESCAPE`.
- */
-function escapeLike(value: string): string {
-  return value.replace(/[\\%_]/g, (ch) => `\\${ch}`);
-}
-
 /** The feed's user-facing column filters, straight off the parsed query. */
 export interface PageViewFilterInput {
   source?: string;
@@ -720,9 +709,7 @@ export function pageViewFilterPredicate(f: PageViewFilterInput): SQL | undefined
         : eq(pageViews.cfCountry, f.country);
 
   const path =
-    f.path_contains === undefined
-      ? undefined
-      : sql`${pageViews.path} like ${`%${escapeLike(f.path_contains)}%`} escape '\\'`;
+    f.path_contains === undefined ? undefined : likeContains(pageViews.path, f.path_contains);
 
   return and(source, country, path);
 }

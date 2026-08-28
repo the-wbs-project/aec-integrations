@@ -55,7 +55,7 @@ That last point is the immediate trigger for this work. On 2026-08-10 the digest
 
 - Any public or vendor-facing analytics. Vendor-visible stats are Stage 2 (`STAGE_2_SPEC.md`).
 - Replacing the observability plane (Datadog today, PostHog after AECI-651). The panel **links out**; it does not re-implement metrics dashboards, error tracking, or funnels.
-- Editing catalog data. Promotion remains the review-app → `POST /api/promote` path (`REVIEW_APP_PROMOTE_API.md`).
+- Editing catalog data. Promotion remains the review-app → `POST /api/promote` path (`REVIEW_APP_PROMOTE_API.md`). **The §5.7 vendor page does not breach this**: an entitlement change and a seat revoke are *account* writes, not catalog writes — they touch `vendor_entitlements` and `profiles`, never a catalog column. There is still no admin vendor-edit endpoint, which is also why §5.7 does not close the `STAGE_2_PAID_TIERS_SPEC.md` §5.4 lockout.
 - Real-time / streaming updates. **Still out of scope after Stage 2 answered the question for the vendor portal** (AECI-516 / ADR 0023, 2026-08-19): that answer is *polling a per-vendor freshness cursor*, and `STAGE_2_REALTIME_SPEC.md` §8 explicitly excludes `/admin` from it. This console's manual **Recompute** button (§7) is a deliberate design decision, not a placeholder for a live feed.
 - De-anonymizing visitors (§9.7).
 
@@ -123,7 +123,7 @@ The four questions that motivated this document, answered against §3.
 
 ## 5. Information architecture
 
-Nine routes under the existing `AdminShell` (`app/admin/admin-shell.ts`). The shell's `h1` changes from "Moderation" to "Admin" and its flat nav becomes three groups.
+Eleven routes under the existing `AdminShell` (`app/admin/admin-shell.ts`). The shell's `h1` changes from "Moderation" to "Admin" and its flat nav becomes three groups.
 
 ```
 /admin                     → redirect to /admin/overview
@@ -137,6 +137,9 @@ Nine routes under the existing `AdminShell` (`app/admin/admin-shell.ts`). The sh
   Operations
     /admin/reviews         existing (Phase 5.13)
     /admin/requests        existing (Phase 6.10)
+    /admin/claims          existing (Stage 2, AECI-521)
+    /admin/vendors         §5.7  (list)
+    /admin/vendors/:id     §5.7  (detail — nav links the list only)
     /admin/reviewers       existing (Phase 6.11)
     /admin/system          §5.6
 ```
@@ -281,6 +284,21 @@ Effectively the daily procedure in `POST_LAUNCH_MONITORING.md` turned into one s
 | Everything else | Live: version, the ten checks on demand, drift on demand, the watermark, per-table row counts, `stats_cache` freshness. | The ten checks now **default to the last stored 04:00 result** (`source` + `computed_at` say so); drift stays recompute-only. The rest unchanged. |
 
 Two decisions worth carrying forward. **The recompute is opt-in, matching §6's "Overview and System keep the same convention"** — the checks HTTP-probe logo URLs and query three Algolia indexes, and a screen an operator refreshes should not do that on load; the button is the affordance. And **the nav gained a flat "System status" item** rather than pulling P1.2's three-group restructure forward; AECI-576 still owns that and the `h1` rename.
+
+### 5.7 Vendors — SHIPPED (AECI-652, 2026-08-27)
+
+The one section of this console that is not read-only, and the reason is that it is not really *this* epic's section: it is `STAGE_2_PAID_TIERS_SPEC.md` **§5.6**, which owns the contract in full. Recorded here because the route, the nav entry and the IA are this doc's business, and `ADMIN_NAV_GROUPS` must agree with the tree above.
+
+- **`/admin/vendors`** — every vendor in the catalog, paginated, searchable by name or slug, filterable by verified state. This is the screen whose absence was the problem: until it existed the only route to a vendor's entitlement ran through an `/admin/claims` card, so a vendor that never filed a claim was unreachable and concierge onboarding could not be done at all.
+- **`/admin/vendors/:id`** — four sections in one screen: basics + counts, the entitlement control (**moved here** from the claim card, so the §5.2/§5.3/§5.4 copy invariants live in one file), the seat roster with an admin revoke, and the first `audit_log` viewer the platform has ever had.
+
+Three IA notes:
+
+- **Operations, not Catalog.** A vendor is a catalog entity, but what this screen *does* is account administration — entitlement, seats, audit — which is the Operations group's business. It sits between `/admin/claims` and `/admin/reviewers` because claims → vendors → reviewers is the escalation order an operator actually walks.
+- **The detail route is not in the nav.** Only reachable destinations belong there (§5's "an unbuilt route is omitted, not disabled" has a sibling rule: a parameterised route has no nav-able URL).
+- **No live updates**, per §2 — the audit trail and the roster refresh on action or on reload, deliberately.
+
+Per §9.3 the three GETs emit no `audit_log` row; the revoke does, in the same `db.batch` as its write, via the shared `revokeSeatStatements` builder.
 
 ---
 

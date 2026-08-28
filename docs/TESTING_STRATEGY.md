@@ -521,6 +521,14 @@ Run axe on:
   authorized `afterNextRender` reads resolve, so an axe run on the unauthenticated
   route would only ever audit the loading state. That spec is the one place with a
   real minted session; it waits for the stat tiles before analyzing.
+- `/admin/vendors` — the **admin vendor list**, in `authed-console.spec.ts`
+  (AECI-652), for the same reason as `/admin/traffic`: the rows do not exist until
+  the authorized `GET /api/admin/vendors` resolves, so the spec waits for a real
+  row before analyzing. The list rather than the detail page, deliberately — the
+  list is where the new layout primitives are (a search field, an Aria combobox
+  filter, a card list and the paginator), while the detail page's most complex
+  sub-tree is `EntitlementControl`, whose heading and live-region contract is
+  asserted structurally in its own component spec.
 - `/vendor/:vendorSlug/integrations` — the **Integrations section**, in
   `vendor-dashboard.spec.ts` (AECI-606), for the
   same reason and with the same shape: it authorizes server-side via

@@ -5,6 +5,7 @@ export * from './admin-entitlements';
 export * from './admin-panel';
 export * from './admin-requests';
 export * from './admin-reviewers';
+export * from './admin-vendors';
 export * from './common';
 export * from './integrations';
 export * from './landing';

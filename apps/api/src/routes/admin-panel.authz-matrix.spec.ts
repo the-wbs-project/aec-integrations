@@ -9,9 +9,10 @@
  * gate is verified end-to-end and a future registration that forgets
  * `requireAdmin()` fails here.
  *
- * Extended by AECI-579 with `GET /api/admin/catalog/coverage`, and by AECI-586
- * with the Audience pair. Every read endpoint the epic adds belongs in
- * {@link ROUTES} — that is the point of the file.
+ * Extended by AECI-579 with `GET /api/admin/catalog/coverage`, by AECI-586 with
+ * the Audience pair, and by AECI-652 with the three `/api/admin/vendors` reads.
+ * Every read endpoint the epic adds belongs in {@link ROUTES} — that is the point
+ * of the file.
  *
  * The matrix, per `AUTH_AND_RLS.md` / `ADMIN_PANEL_SPEC.md` §9.1:
  *   anon (no token)   → 401
@@ -25,7 +26,7 @@
 import { Hono } from 'hono';
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { profiles } from '../db/schema';
+import { profiles, vendors } from '../db/schema';
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
 import { requireAdmin, type AuthzVariables } from '../lib/authz';
@@ -40,6 +41,11 @@ import { createAdminOverviewHandler } from './admin-overview';
 import { createAdminPageViewsHandler } from './admin-page-views';
 import { createAdminSystemHandler } from './admin-system';
 import { createAdminTrafficBreakdownHandler } from './admin-traffic';
+import {
+  createAdminVendorAuditHandler,
+  createAdminVendorDetailHandler,
+  createAdminVendorsListHandler,
+} from './admin-vendors';
 
 const SUPABASE_URL = 'https://test-project.supabase.co';
 const ENV = { ENV: 'preview', SUPABASE_URL } as Env;
@@ -48,6 +54,10 @@ const u = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}
 const REVIEWER = u(900);
 const ADMIN = u(901);
 const ADMIN_BANNED = u(902);
+/** A real vendor row, because the two `/api/admin/vendors/:id` routes 404 on an
+ *  unknown id — and this file asserts **200** for an admin, so an empty `vendors`
+ *  table would fail the matrix for a reason that has nothing to do with the gate. */
+const VENDOR = u(950);
 
 const NOW = new Date('2026-08-11T05:00:00.000Z');
 
@@ -74,6 +84,12 @@ const ROUTES = [
     url: '/api/admin/audience?from=2026-08-10&to=2026-08-10',
   },
   { name: 'GET /api/admin/feedback', url: '/api/admin/feedback' },
+  // AECI-652 — the §5.6 vendor surface. The DELETE is covered by
+  // `admin-vendors.spec.ts` instead: this file is `get()`-shaped, and a write
+  // route belongs with the rest of its write semantics.
+  { name: 'GET /api/admin/vendors', url: '/api/admin/vendors' },
+  { name: 'GET /api/admin/vendors/:id', url: `/api/admin/vendors/${VENDOR}` },
+  { name: 'GET /api/admin/vendors/:id/audit', url: `/api/admin/vendors/${VENDOR}/audit` },
 ] as const;
 
 let jwks: TestJwks;
@@ -85,6 +101,9 @@ const tokenFor = (sub: string) => jwks.mintToken({ sub, supabaseUrl: SUPABASE_UR
 let t: TestDb;
 beforeEach(async () => {
   t = await makeTestDb();
+  await t.db
+    .insert(vendors)
+    .values({ id: VENDOR, slug: 'authz-matrix-vendor', companyName: 'Authz Matrix Vendor' });
   await t.db.insert(profiles).values([
     { id: REVIEWER, role: 'reviewer' },
     { id: ADMIN, role: 'admin' },
@@ -122,6 +141,25 @@ function makeApp() {
   app.get('/api/admin/system', requireAdmin(guard), createAdminSystemHandler(t.factory, clock));
   app.get('/api/admin/audience', requireAdmin(guard), createAdminAudienceHandler(t.factory, clock));
   app.get('/api/admin/feedback', requireAdmin(guard), createAdminFeedbackHandler(t.factory, clock));
+  // The vendor reads take no clock; the detail/audit handlers take the email seam
+  // second, and its default would reach GoTrue. Stub it — this file is about the
+  // gate, not the seam.
+  const noEmails = async () => ({
+    available: true,
+    emails: new Map<string, string>(),
+    reason: 'ok' as const,
+  });
+  app.get('/api/admin/vendors', requireAdmin(guard), createAdminVendorsListHandler(t.factory));
+  app.get(
+    '/api/admin/vendors/:id',
+    requireAdmin(guard),
+    createAdminVendorDetailHandler(t.factory, noEmails),
+  );
+  app.get(
+    '/api/admin/vendors/:id/audit',
+    requireAdmin(guard),
+    createAdminVendorAuditHandler(t.factory, noEmails),
+  );
   return app;
 }
 
