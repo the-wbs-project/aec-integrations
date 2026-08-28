@@ -197,6 +197,10 @@ describe('cacheControlForRoute', () => {
     '/admin',
     '/admin/reviews',
     '/admin/overview',
+    // AECI-692 — the user surface renders names, email addresses and ban state.
+    // If any /admin route were ever cacheable this is the one that would hurt
+    // most, so it is pinned here alongside the others.
+    '/admin/users',
     '/search',
     '/does-not-exist',
     '/products/procore/extra',
@@ -238,6 +242,10 @@ describe('isCacheableRoute', () => {
     expect(isCacheableRoute(new URL('https://x/admin/overview'))).toBe(false);
     expect(isCacheableRoute(new URL('https://x/admin/traffic'))).toBe(false);
     expect(isCacheableRoute(new URL('https://x/admin/reviews'))).toBe(false);
+    expect(isCacheableRoute(new URL('https://x/admin/users'))).toBe(false);
+    expect(
+      isCacheableRoute(new URL('https://x/admin/users/00000000-0000-4000-8000-000000000700')),
+    ).toBe(false);
     // Including under a locale prefix, since matching strips it first.
     expect(isCacheableRoute(new URL('https://x/en-US/admin/overview'))).toBe(false);
   });

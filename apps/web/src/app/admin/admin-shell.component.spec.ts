@@ -100,7 +100,7 @@ describe('AdminShell', () => {
         '/admin/requests',
         '/admin/claims',
         '/admin/vendors',
-        '/admin/reviewers',
+        '/admin/users',
         '/admin/system',
       ]);
     });
@@ -110,13 +110,17 @@ describe('AdminShell', () => {
       const operations = root.querySelector('ul[aria-labelledby="admin-nav-operations"]')!;
       expect(operations.textContent).toContain('Review queue');
       expect(operations.textContent).toContain('Requests');
-      expect(operations.textContent).toContain('Reviewer bans');
+      expect(operations.textContent).toContain('Users');
       // Stage 2's claim queue (AECI-521) joins them, from the same array.
       expect(operations.textContent).toContain('Vendor claims');
-      // As does the AECI-652 vendor surface — placed between claims and reviewer
-      // bans because claims → vendors → reviewers is the escalation order an
-      // operator actually walks.
+      // As does the AECI-652 vendor surface — placed between claims and people
+      // because claims → vendors → people is the escalation order an operator
+      // actually walks. AECI-692 took the slot "Reviewer bans" held: it listed
+      // only `banned_at IS NOT NULL`, which `/admin/users?banned=true` now does
+      // with filters, search and paging, so one entry replaced the other rather
+      // than joining it.
       expect(operations.textContent).toContain('Vendors');
+      expect(operations.textContent).not.toContain('Reviewer bans');
     });
 
     it('links nothing that has no route yet — a nav entry is never a 404', () => {
@@ -135,7 +139,7 @@ describe('AdminShell', () => {
         '/admin/requests',
         '/admin/claims',
         '/admin/vendors',
-        '/admin/reviewers',
+        '/admin/users',
         '/admin/system',
       ]);
       // And nothing ships as a disabled/dead entry either.

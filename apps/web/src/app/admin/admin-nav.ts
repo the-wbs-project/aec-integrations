@@ -67,7 +67,13 @@ export const ADMIN_NAV_GROUPS: readonly AdminNavGroup[] = [
       { path: '/admin/requests', label: $localize`:@@admin.shell.nav.requests:Requests` },
       { path: '/admin/claims', label: $localize`:@@admin.shell.nav.claims:Vendor claims` },
       { path: '/admin/vendors', label: $localize`:@@admin.shell.nav.vendors:Vendors` },
-      { path: '/admin/reviewers', label: $localize`:@@admin.shell.nav.reviewers:Reviewer bans` },
+      // AECI-692 takes the slot "Reviewer bans" held. `/admin/users?banned=true`
+      // is the same `banned_at IS NOT NULL` set with filters, search and paging,
+      // and the detail page is now where ban and reinstate happen — so one entry
+      // replaces the other rather than sitting beside it. The recorded ordering
+      // rationale survives intact: claims → vendors → people is the escalation
+      // order an operator actually walks.
+      { path: '/admin/users', label: $localize`:@@admin.shell.nav.users:Users` },
       { path: '/admin/system', label: $localize`:@@admin.shell.nav.system:System status` },
     ],
   },

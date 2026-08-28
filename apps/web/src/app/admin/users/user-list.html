@@ -1,0 +1,228 @@
+<section aria-labelledby="admin-users-heading">
+  <div class="flex flex-wrap items-end justify-between gap-4">
+    <h2
+      id="admin-users-heading"
+      class="text-lg font-bold text-(--text-primary)"
+      i18n="@@admin.users.heading"
+    >
+      Users
+    </h2>
+
+    <div class="flex flex-wrap items-center gap-3">
+      <form novalidate (submit)="$event.preventDefault(); submitSearch()" class="flex gap-2">
+        <label for="admin-users-search" class="sr-only" i18n="@@admin.users.search.label">
+          Search by name, or by full email address
+        </label>
+        <input
+          id="admin-users-search"
+          type="search"
+          [value]="searchDraft()"
+          (input)="onSearchInput($event)"
+          i18n-placeholder="@@admin.users.search.placeholder"
+          placeholder="Name or full email"
+          class="w-56 rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        />
+        <button
+          type="submit"
+          class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-raised) px-4 py-2 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          i18n="@@admin.users.search.submit"
+        >
+          Search
+        </button>
+        @if (search()) {
+        <button
+          type="button"
+          (click)="clearSearch()"
+          class="inline-flex items-center rounded-(--radius-md) px-3 py-2 text-sm font-medium text-(--text-secondary) transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          i18n="@@admin.users.search.clear"
+        >
+          Clear
+        </button>
+        }
+      </form>
+
+      <aec-select
+        i18n-label="@@admin.users.filter.role.label"
+        label="Role"
+        [options]="roleOptions"
+        [value]="role()"
+        idPrefix="admin-users-role"
+        (changed)="onRoleChange($event)"
+      />
+      <aec-select
+        i18n-label="@@admin.users.filter.banned.label"
+        label="Ban state"
+        [options]="bannedOptions"
+        [value]="banned()"
+        idPrefix="admin-users-banned"
+        (changed)="onBannedChange($event)"
+      />
+      <aec-select
+        i18n-label="@@admin.users.filter.seat.label"
+        label="Vendor access"
+        [options]="seatOptions"
+        [value]="hasSeat()"
+        idPrefix="admin-users-seat"
+        (changed)="onSeatChange($event)"
+      />
+    </div>
+  </div>
+
+  <!--
+    Says what this screen is FOR. Reviewer bans could only reach someone already
+    banned; this reaches everyone, which is what looking a person up requires.
+  -->
+  <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@admin.users.intro">
+    Everyone with an account, including people who have never been banned, reviewed, or claimed a
+    vendor. Open one to see their account, their vendor access, and to ban or reinstate them.
+  </p>
+
+  <p class="sr-only" role="status" aria-live="polite">{{ liveMessage() }}</p>
+
+  <!--
+    Absent service-role credentials are the NORMAL state on local dev and PR
+    previews, so this is a note rather than an error — but it has to be said. A
+    column of "Unavailable" with no explanation is exactly what let a genuinely
+    misconfigured key look like ordinary missing data for a day.
+  -->
+  @if (!authAvailable()) {
+  <p
+    class="mt-4 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-3 text-sm text-(--text-secondary)"
+    i18n="@@admin.users.authUnavailable"
+  >
+    Email and last sign-in are unavailable — the account service could not be reached. Everything
+    else on this page is accurate.
+  </p>
+  }
+
+  <!--
+    A seam-down email search returning nothing must never be read as "no such
+    user". That false negative is the reason this surface exists.
+  -->
+  @if (emailSearch() === 'unavailable') {
+  <p
+    role="alert"
+    class="mt-4 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-3 text-sm text-(--text-primary)"
+    i18n="@@admin.users.emailSearchUnavailable"
+  >
+    Email search could not run, so these results match names only. This is not a "no such person"
+    answer.
+  </p>
+  } @else if (emailSearch() === 'no_match') {
+  <p class="mt-4 text-sm text-(--text-secondary)" i18n="@@admin.users.emailSearchNoMatch">
+    No account owns that address. Email search needs the full address — a partial like
+    "&#64;acme.com" will not match.
+  </p>
+  } @if (loading()) {
+  <p class="mt-8 text-sm text-(--text-secondary)" i18n="@@admin.users.loading">Loading people…</p>
+  } @else if (loadFailed()) {
+  <div
+    role="alert"
+    class="mt-8 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-4"
+  >
+    <p class="text-sm font-medium text-(--text-primary)" i18n="@@admin.users.error">
+      We couldn't load the user list. Your session may have expired.
+    </p>
+    <button
+      type="button"
+      (click)="retry()"
+      class="mt-3 inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-2 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      i18n="@@admin.users.retry"
+    >
+      Try again
+    </button>
+  </div>
+  } @else if (isEmpty()) {
+  <p class="mt-8 text-sm text-(--text-secondary)" i18n="@@admin.users.empty">
+    No people match these filters.
+  </p>
+  } @else {
+  <ul role="list" class="mt-6 space-y-3">
+    @for (person of users(); track person.id) {
+    <li>
+      <article
+        class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-4"
+        [attr.aria-labelledby]="'admin-user-' + person.id + '-name'"
+      >
+        <div class="flex flex-wrap items-start justify-between gap-3">
+          <div class="min-w-0">
+            <h3 [id]="'admin-user-' + person.id + '-name'" class="text-base font-bold">
+              <a
+                [routerLink]="['/admin/users', person.id]"
+                class="text-(--text-primary) underline decoration-(--border-strong) underline-offset-4 transition-colors hover:decoration-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              >
+                @if (person.display_name) { {{ person.display_name }} } @else {
+                <span i18n="@@admin.users.noName">Unnamed account</span>
+                }
+              </a>
+            </h3>
+            <p
+              class="mt-1 text-xs"
+              [class]="hasAuthValue(person) ? 'text-(--text-secondary)' : 'italic text-(--text-secondary)'"
+            >
+              {{ emailLabel(person) }}
+            </p>
+          </div>
+
+          <div class="flex shrink-0 flex-wrap items-center gap-2">
+            @if (person.banned_at) {
+            <span
+              class="inline-flex items-center rounded-full border border-(--border-strong) bg-(--surface-sunken) px-2.5 py-0.5 text-xs font-medium text-(--text-primary)"
+              i18n="@@admin.users.badge.banned"
+            >
+              Banned
+            </span>
+            }
+            <span
+              class="inline-flex items-center rounded-full border border-(--border-default) px-2.5 py-0.5 text-xs font-medium text-(--text-secondary)"
+            >
+              {{ roleLabel(person) }}
+            </span>
+          </div>
+        </div>
+
+        <dl class="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-xs text-(--text-secondary)">
+          @if (person.seat) {
+          <div class="flex gap-1">
+            <dt i18n="@@admin.users.stat.seat">Vendor</dt>
+            <dd class="font-medium text-(--text-primary)">
+              {{ person.seat.company_name }}
+              <!--
+                `seat_owner` is what decides whether this person can invite
+                colleagues and remove seats, so it belongs next to the vendor,
+                not buried on the detail page.
+              -->
+              @if (person.seat.owner) {
+              <span class="font-normal text-(--text-secondary)" i18n="@@admin.users.stat.seatOwner">
+                (owner)
+              </span>
+              }
+            </dd>
+          </div>
+          }
+          <div class="flex gap-1">
+            <dt i18n="@@admin.users.stat.lastSignIn">Last sign-in</dt>
+            <dd [class]="hasAuthValue(person) ? 'font-medium text-(--text-primary)' : 'italic'">
+              {{ lastSignInLabel(person) }}
+            </dd>
+          </div>
+          <div class="flex gap-1">
+            <dt i18n="@@admin.users.stat.created">Profile created</dt>
+            <dd class="font-medium text-(--text-primary)">{{ person.created_at }}</dd>
+          </div>
+        </dl>
+      </article>
+    </li>
+    }
+  </ul>
+
+  <div class="mt-6">
+    <aec-admin-paginator
+      [page]="page()"
+      [perPage]="perPage"
+      [total]="total()"
+      (pageChange)="goToPage($event)"
+    />
+  </div>
+  }
+</section>
