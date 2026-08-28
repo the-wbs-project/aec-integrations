@@ -137,8 +137,8 @@ test.describe('authed console health — Phase 5 gated pages (AECI-235)', () => 
   // AECI-652 / `STAGE_2_PAID_TIERS_SPEC.md` §5.6 — the vendor surface. The LIVE
   // axe pass for this feature runs HERE rather than on the detail page: the list
   // is where the new layout primitives are (a filter bar with a search field and
-  // an Aria combobox, a card list, and the paginator), and the detail page's most
-  // structurally complex sub-tree is `EntitlementControl`, whose heading and
+  // an Aria combobox, a sortable-header table, and the paginator), and the detail
+  // page's most structurally complex sub-tree is `EntitlementControl`, whose heading and
   // live-region contract is asserted in its own component spec. Same reasoning as
   // `/admin/traffic`: an axe run on the unauthenticated route would only ever
   // audit the loading state, so it has to run where a real session exists.
@@ -150,10 +150,10 @@ test.describe('authed console health — Phase 5 gated pages (AECI-235)', () => 
     expect(res?.status()).toBe(200);
     await expect(page.locator('aec-admin-shell')).toBeAttached();
     await expect(page.locator('aec-vendor-list')).toBeAttached();
-    // Wait for a REAL row, not the shell: the list body renders only once the
+    // Wait for a REAL row, not the shell: the table body renders only once the
     // authorized `GET /api/admin/vendors` resolves, and auditing the loading
     // state would pass while telling us nothing.
-    await expect(page.locator('article').first()).toBeVisible();
+    await expect(page.locator('aec-vendor-list tbody tr').first()).toBeVisible();
     await waitForHydrationSettle(page);
 
     const results = await new AxeBuilder({ page })
@@ -192,8 +192,8 @@ test.describe('authed console health — Phase 5 gated pages (AECI-235)', () => 
   // AECI-692 / `ADMIN_PANEL_SPEC.md` §5.8 — the user surface. The LIVE axe pass
   // runs on the LIST for the same reason as `/admin/vendors`: that is where this
   // feature's new layout primitives are (a search field plus THREE Aria comboboxes
-  // in one filter bar — the densest control cluster in the console — a card list
-  // and the paginator). Running it on the unauthenticated route would only ever
+  // in one filter bar — the densest control cluster in the console — a sortable-header
+  // table and the paginator). Running it on the unauthenticated route would only ever
   // audit the loading state.
   test('/admin/users hydrates with no console errors and zero axe violations', async ({ page }) => {
     const capture = attachConsoleCapture(page);
@@ -203,7 +203,7 @@ test.describe('authed console health — Phase 5 gated pages (AECI-235)', () => 
     await expect(page.locator('aec-user-list')).toBeAttached();
     // Wait for a REAL row, not the shell. There is always at least one — the
     // account this spec is signed in as.
-    await expect(page.locator('article').first()).toBeVisible();
+    await expect(page.locator('aec-user-list tbody tr').first()).toBeVisible();
     await waitForHydrationSettle(page);
 
     const results = await new AxeBuilder({ page })
