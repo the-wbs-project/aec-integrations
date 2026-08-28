@@ -438,7 +438,9 @@ describe('ClaimQueue', () => {
       );
       const card = cardFor(el, 'Procore');
       expect(card.textContent).toContain('Verified: entitlement active');
-      expect(card.textContent).toContain('2027-09-01');
+      // Formatted, and formatted the SAME way as `/admin/vendors/:id` — both
+      // readouts share `entitlementTermLabel` so they cannot drift (AECI-694).
+      expect(card.textContent).toContain('Sep 1, 2027');
       expect(card.textContent).toContain('PO-4471'); // the arrangement is admin-side
     });
 

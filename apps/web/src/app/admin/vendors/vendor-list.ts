@@ -1,10 +1,13 @@
-import { Component, afterNextRender, computed, inject, signal } from '@angular/core';
+import { DatePipe } from '@angular/common';
+import { Component, LOCALE_ID, afterNextRender, computed, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
-import type { AdminVendorRow } from '@aeci/shared';
+import type { AdminVendorRow, VendorSort } from '@aeci/shared';
 
 import { AdminPaginator } from '../admin-paginator';
 import { AecSelect, type AecSelectOption } from '../../shared/aec-select/aec-select';
+import { SortHeader } from '../../shared/sort-header/sort-header';
+import { formatTermDate } from '../entitlement/entitlement-term';
 import { AdminVendorsApi } from './admin-vendors-api';
 
 const PAGE_SIZE = 25;
@@ -38,14 +41,32 @@ type VerifiedFilter = 'any' | 'true' | 'false';
  * Every filter change resets to page 1 — the same rule the Activity feed
  * documents. Without it, narrowing a filter while on page 6 lands the operator on
  * an empty page that looks like "no results".
+ *
+ * ── A TABLE, AND ONLY TWO SORTABLE COLUMNS (AECI-694) ───────────────────────
+ * The rows were cards. Every field here is short and every row has the same
+ * fields, which is the case a table is for: an operator comparing entitlement
+ * state across a page of vendors is scanning a column, and cards made them read
+ * a paragraph per row.
+ *
+ * Sorting is server-side or not offered at all. `AdminVendorsListQuerySchema`
+ * takes `VendorSortSchema` (`created | name | updated`), there is no `order`
+ * parameter, and `created_at` is not on `AdminVendorRowSchema` so it has no
+ * column to hang off. That leaves exactly two sortable headers, Vendor and
+ * Updated, and the other five stay plain `<th>` text with no hover state. A
+ * header that looked clickable and reordered the 25 rows on this page while
+ * leaving the other four thousand alone would be worse than no control: the
+ * operator would read "sorted by products" and get a ranking of one page. If
+ * more columns should sort, the fix is on the API (`resolveVendorOrderBy` plus
+ * the query schema), not here.
  */
 @Component({
   selector: 'aec-vendor-list',
-  imports: [RouterLink, AdminPaginator, AecSelect],
+  imports: [RouterLink, AdminPaginator, AecSelect, SortHeader, DatePipe],
   templateUrl: './vendor-list.html',
 })
 export class VendorList {
   private readonly api = inject(AdminVendorsApi);
+  private readonly locale = inject(LOCALE_ID);
 
   protected readonly vendors = signal<readonly AdminVendorRow[]>([]);
   protected readonly total = signal(0);
@@ -63,6 +84,19 @@ export class VendorList {
   protected readonly search = signal('');
   protected readonly searchDraft = signal('');
   protected readonly verified = signal<VerifiedFilter>('any');
+
+  /**
+   * The active sort key. Component state, not a URL parameter, matching the
+   * console's existing convention (`user-list.ts` documents why its filters do
+   * not write back to the URL: a `Router.navigate` per control turns the back
+   * button into a walk through the operator's own filter history). `/admin` is
+   * never edge-cached, so nothing about the sort forks a cache key either.
+   *
+   * Alphabetical rather than the API's `created` default: this is a lookup
+   * surface, and an operator arriving to find one vendor starts by scanning
+   * names.
+   */
+  protected readonly sort = signal<VendorSort>('name');
 
   protected readonly verifiedOptions: readonly AecSelectOption[] = [
     { value: 'any', label: $localize`:@@admin.vendors.filter.verified.any:Any status` },
@@ -90,6 +124,13 @@ export class VendorList {
   protected clearSearch(): void {
     this.searchDraft.set('');
     this.search.set('');
+    this.refilter();
+  }
+
+  /** Direction is fixed per key on the server, so this selects a sort rather
+   *  than toggling one. See `shared/sort-header/sort-header.ts`. */
+  protected onSortChange(key: string): void {
+    this.sort.set(key as VendorSort);
     this.refilter();
   }
 
@@ -122,7 +163,7 @@ export class VendorList {
       const response = await this.api.listVendors({
         page: this.page(),
         perPage: this.perPage,
-        sort: 'name',
+        sort: this.sort(),
         ...(search ? { search } : {}),
         ...(verified === 'any' ? {} : { verified }),
       });
@@ -149,6 +190,20 @@ export class VendorList {
    * it: `verified` is the denormalized mirror, and showing both is how an operator
    * spots drift between them.
    */
+  /**
+   * The term end, formatted.
+   *
+   * NOT the `date` pipe: `period_end` is legally a bare `YYYY-MM-DD` (the admin
+   * form is an `<input type="date">`), and a date-only string handed to the pipe
+   * with `'UTC'` is parsed as LOCAL midnight and then shifted, so west of UTC a
+   * term ending on the 1st renders as the 31st. `formatTermDate` pins the
+   * calendar case to UTC midnight first. Shared with the two entitlement
+   * readouts so all three agree.
+   */
+  protected termEnds(row: AdminVendorRow): string {
+    return row.period_end ? formatTermDate(row.period_end, this.locale) : '';
+  }
+
   protected entitlementLabel(row: AdminVendorRow): string {
     switch (row.status) {
       case 'active':

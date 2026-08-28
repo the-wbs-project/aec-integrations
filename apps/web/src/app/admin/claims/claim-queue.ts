@@ -1,6 +1,6 @@
 import { DatePipe } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
-import { Component, afterNextRender, computed, inject, signal } from '@angular/core';
+import { Component, LOCALE_ID, afterNextRender, computed, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
 import type {
@@ -11,6 +11,7 @@ import type {
 } from '@aeci/shared';
 
 import { AdminClaimsApi } from './admin-claims-api';
+import { entitlementTermLabel } from '../entitlement/entitlement-term';
 
 /** One request covers a launch-scale claim backlog. The API caps `perPage` at 100;
  *  we load the max and surface a note if the server reports more. */
@@ -75,6 +76,7 @@ type FormMode = 'approve' | 'reject';
 })
 export class ClaimQueue {
   private readonly api = inject(AdminClaimsApi);
+  private readonly locale = inject(LOCALE_ID);
 
   /** The loaded claims (server order: newest-first). */
   private readonly claims = signal<readonly AdminClaim[]>([]);
@@ -373,10 +375,10 @@ export class ClaimQueue {
   }
 
   /** The term readout. `null` `period_end` is PERPETUAL (what the §2.4 backfill
-   *  wrote), never "unknown" — so it must not render as a blank. */
+   *  wrote), never "unknown" — so it must not render as a blank. Shared with
+   *  `<aec-entitlement-control>` so the two copies cannot drift, and formatted
+   *  rather than interpolated raw (AECI-694). */
   protected entitlementTerm(e: VendorEntitlementResponse): string {
-    return e.period_end
-      ? $localize`:@@admin.claims.ent.termEnds2:Term ends ${e.period_end}:DATE:`
-      : $localize`:@@admin.claims.ent.termPerpetual2:No end date on record`;
+    return entitlementTermLabel(e.period_end, this.locale);
   }
 }

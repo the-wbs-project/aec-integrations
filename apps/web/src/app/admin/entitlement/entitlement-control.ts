@@ -1,9 +1,10 @@
 import { HttpErrorResponse } from '@angular/common/http';
-import { Component, computed, inject, input, output, signal } from '@angular/core';
+import { Component, LOCALE_ID, computed, inject, input, output, signal } from '@angular/core';
 
 import type { LinkRef, SetVendorEntitlementInput, VendorEntitlementResponse } from '@aeci/shared';
 
 import { AdminEntitlementApi } from './admin-entitlement-api';
+import { entitlementTermLabel } from './entitlement-term';
 
 /** The three verbs of `PATCH /api/admin/vendors/:id/entitlement` (§5.1). */
 export type EntitlementMode = SetVendorEntitlementInput['action'];
@@ -53,6 +54,7 @@ export type EntitlementMode = SetVendorEntitlementInput['action'];
 })
 export class EntitlementControl {
   private readonly api = inject(AdminEntitlementApi);
+  private readonly locale = inject(LOCALE_ID);
 
   /** The vendor the action addresses. On a claim card this is the RESOLVED target
    *  vendor — a product claim's entitlement belongs to that product's primary
@@ -106,13 +108,11 @@ export class EntitlementControl {
   });
 
   /** The term readout. A `null` `period_end` is PERPETUAL (what the §2.4 backfill
-   *  wrote), never "unknown" — so it must not render as a blank. */
+   *  wrote), never "unknown" — so it must not render as a blank. Shared with
+   *  `/admin/claims` so the two copies of this sentence cannot drift. */
   protected readonly termLabel = computed(() => {
     const e = this.entitlement();
-    if (!e) return null;
-    return e.period_end
-      ? $localize`:@@admin.claims.ent.termEnds:Term ends ${e.period_end}:DATE:`
-      : $localize`:@@admin.claims.ent.termPerpetual:No end date on record`;
+    return e ? entitlementTermLabel(e.period_end, this.locale) : null;
   });
 
   protected openForm(mode: EntitlementMode): void {

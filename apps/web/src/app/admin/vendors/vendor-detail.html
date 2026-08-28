@@ -74,13 +74,25 @@
             Verified
           </span>
           }
+          <!--
+            A plain href with `target="_blank"`, not a `routerLink`: an operator
+            opens the public page to CHECK something against the admin record, so
+            navigating away from the record is the wrong outcome. `rel="noopener"`
+            because a new browsing context otherwise gets a handle on this one.
+            The new tab is announced rather than discovered.
+          -->
           <a
-            [routerLink]="['/vendors', v.slug]"
+            [href]="'/vendors/' + v.slug"
+            target="_blank"
+            rel="noopener"
             class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-1.5 text-xs font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-            i18n="@@admin.vendors.detail.viewPublic"
+            i18n="@@admin.vendors.detail.viewPage"
           >
-            View public page
+            View Page
           </a>
+          <span class="sr-only" i18n="@@admin.vendors.detail.viewPage.newTab">
+            (opens in a new tab)
+          </span>
         </div>
       </div>
 
@@ -124,7 +136,9 @@
           <dt class="text-(--text-secondary)" i18n="@@admin.vendors.detail.updatedAt">
             Record updated
           </dt>
-          <dd class="font-medium text-(--text-primary)">{{ v.updated_at }}</dd>
+          <dd class="font-medium text-(--text-primary)">
+            {{ v.updated_at | date: 'medium' : 'UTC' }}
+          </dd>
         </div>
       </dl>
 
@@ -220,120 +234,185 @@
       are complete; only their addresses are missing.
     </p>
     }
-    <ul role="list" class="mt-3 space-y-2">
-      @for (seat of seats(); track seat.user_id) {
-      <li class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-3">
-        <div class="flex flex-wrap items-start justify-between gap-3">
-          <div class="min-w-0">
-            <p class="text-sm font-medium text-(--text-primary)">{{ seatName(seat) }}</p>
-            <p class="mt-0.5 text-xs text-(--text-secondary)">{{ seatEmail(seat) }}</p>
-            <div class="mt-1.5 flex flex-wrap gap-1.5">
-              <span
-                class="inline-flex items-center rounded-full border border-(--border-default) px-2.5 py-0.5 text-xs font-medium text-(--text-secondary)"
-              >
-                {{ seat.role }}
-              </span>
-              @if (seat.owner) {
-              <span
-                class="inline-flex items-center rounded-full border border-(--border-default) px-2.5 py-0.5 text-xs font-medium text-(--text-secondary)"
-                i18n="@@admin.vendors.detail.seats.owner"
-              >
-                Can manage seats
-              </span>
-              } @if (seat.work_email_verified) {
-              <span
-                class="inline-flex items-center rounded-full border border-(--border-default) px-2.5 py-0.5 text-xs font-medium text-(--text-secondary)"
-                i18n="@@admin.vendors.detail.seats.workEmail"
-              >
-                Work email verified
-              </span>
-              } @if (seat.banned) {
-              <span
-                class="inline-flex items-center rounded-full border border-(--accent-secondary) bg-(--accent-warm) px-2.5 py-0.5 text-xs font-medium text-(--text-primary)"
-                i18n="@@admin.vendors.detail.seats.banned"
-              >
-                Banned
-              </span>
-              }
-            </div>
+    <div class="mt-3 overflow-x-auto">
+      <table class="w-full min-w-[48rem] border-collapse text-sm">
+        <caption class="sr-only" i18n="@@admin.vendors.detail.seats.caption">
+          People with portal access to this vendor
+        </caption>
+        <thead>
+          <tr class="border-b border-(--border-strong)">
+            <th
+              scope="col"
+              class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+              i18n="@@admin.vendors.detail.seats.col.person"
+            >
+              Person
+            </th>
+            <th
+              scope="col"
+              class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+              i18n="@@admin.vendors.detail.seats.col.role"
+            >
+              Role
+            </th>
+            <th
+              scope="col"
+              class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+              i18n="@@admin.vendors.detail.seats.col.flags"
+            >
+              Flags
+            </th>
             <!--
               `profiles.created_at` is when the ACCOUNT was created, not when the
-              seat was granted — `updated_at` is no better, it moves on any
-              profile edit. The grant itself is a `vendor_claim.granted` row in
-              the audit trail below, so the label says what the value is.
+              seat was granted; `updated_at` is no better, it moves on any profile
+              edit. The grant itself is a `vendor_claim.granted` row in the audit
+              trail below, so the header says what the value is.
             -->
-            <p class="mt-1.5 text-xs text-(--text-secondary)">
-              <span i18n="@@admin.vendors.detail.seats.accountCreated">Account created</span>: {{
-              seat.created_at }}
-            </p>
-          </div>
+            <th
+              scope="col"
+              class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+              i18n="@@admin.vendors.detail.seats.col.created"
+            >
+              Account created
+            </th>
+            <th
+              scope="col"
+              class="py-2 text-end font-bold text-(--text-secondary)"
+              i18n="@@admin.vendors.detail.seats.col.actions"
+            >
+              Actions
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (seat of seats(); track seat.user_id) {
+          <tr class="border-b border-(--border-default) align-top">
+            <th scope="row" class="py-2.5 pe-4 text-start font-bold text-(--text-primary)">
+              {{ seatName(seat) }}
+              <span class="block text-xs font-normal text-(--text-tertiary)">
+                {{ seatEmail(seat) }}
+              </span>
+            </th>
 
-          <div class="flex shrink-0 flex-wrap gap-2">
-            <!--
-              Was `routerLink="/admin/reviewers"` and labelled "Ban this person",
-              which was a broken promise in both halves: that page listed only
-              already-banned people and its single control was Unban, so for an
-              unbanned seat it landed on a screen that neither contained them nor
-              could ban anyone. AECI-692 points it at the person instead.
-            -->
-            <a
-              [routerLink]="['/admin/users', seat.user_id]"
-              class="inline-flex items-center rounded-(--radius-md) px-3 py-1.5 text-xs font-medium text-(--text-secondary) underline decoration-(--border-strong) underline-offset-4 transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-              i18n="@@admin.vendors.detail.seats.userLink"
-            >
-              Open user page
-            </a>
-            <button
-              type="button"
-              (click)="askRevoke(seat.user_id)"
-              [disabled]="revokePendingId() === seat.user_id"
-              class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-1.5 text-xs font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
-              i18n="@@admin.vendors.detail.seats.remove"
-            >
-              Remove seat
-            </button>
-          </div>
-        </div>
+            <td class="py-2.5 pe-4 text-(--text-secondary)">{{ seat.role }}</td>
 
-        @if (revokeConfirmId() === seat.user_id) {
-        <div class="mt-3 border-t border-(--border-default) pt-3">
-          <p class="text-sm text-(--text-primary)" i18n="@@admin.vendors.detail.seats.confirmCopy">
-            Remove this seat? They lose portal access immediately and keep their AECi account. Only
-            a fresh grant restores it — there is no undo on this screen.
-          </p>
-          <div class="mt-3 flex flex-wrap gap-3">
-            <button
-              type="button"
-              (click)="confirmRevoke(seat)"
-              [disabled]="revokePendingId() === seat.user_id"
-              class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--text-primary) bg-(--text-primary) px-5 py-2 text-sm font-bold text-(--surface-base) transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              @if (revokePendingId() === seat.user_id) {
-              <span i18n="@@admin.vendors.detail.seats.working">Working…</span>
-              } @else {
-              <span i18n="@@admin.vendors.detail.seats.confirm">Confirm removal</span>
+            <td class="py-2.5 pe-4">
+              <div class="flex flex-wrap gap-1.5">
+                @if (seat.owner) {
+                <span
+                  class="inline-flex items-center rounded-full border border-(--border-default) px-2.5 py-0.5 text-xs font-medium text-(--text-secondary)"
+                  i18n="@@admin.vendors.detail.seats.owner"
+                >
+                  Can manage seats
+                </span>
+                } @if (seat.work_email_verified) {
+                <span
+                  class="inline-flex items-center rounded-full border border-(--border-default) px-2.5 py-0.5 text-xs font-medium text-(--text-secondary)"
+                  i18n="@@admin.vendors.detail.seats.workEmail"
+                >
+                  Work email verified
+                </span>
+                } @if (seat.banned) {
+                <span
+                  class="inline-flex items-center rounded-full border border-(--accent-secondary) bg-(--accent-warm) px-2.5 py-0.5 text-xs font-medium text-(--text-primary)"
+                  i18n="@@admin.vendors.detail.seats.banned"
+                >
+                  Banned
+                </span>
+                } @if (!seat.owner && !seat.work_email_verified && !seat.banned) {
+                <span
+                  class="text-(--text-tertiary)"
+                  i18n-aria-label="@@admin.vendors.detail.seats.noFlags"
+                  aria-label="No flags on this seat"
+                  >&ndash;</span
+                >
+                }
+              </div>
+            </td>
+
+            <td class="py-2.5 pe-4 text-(--text-secondary)">
+              {{ seat.created_at | date: 'mediumDate' : 'UTC' }}
+            </td>
+
+            <td class="py-2.5 text-end">
+              <div class="flex flex-wrap justify-end gap-2">
+                <!--
+                  Was `routerLink="/admin/reviewers"` and labelled "Ban this
+                  person", which was a broken promise in both halves: that page
+                  listed only already-banned people and its single control was
+                  Unban, so for an unbanned seat it landed on a screen that
+                  neither contained them nor could ban anyone. AECI-692 points it
+                  at the person instead.
+                -->
+                <a
+                  [routerLink]="['/admin/users', seat.user_id]"
+                  class="inline-flex items-center rounded-(--radius-md) px-3 py-1.5 text-xs font-medium text-(--text-secondary) underline decoration-(--border-strong) underline-offset-4 transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                  i18n="@@admin.vendors.detail.seats.userLink"
+                >
+                  Open user page
+                </a>
+                <button
+                  type="button"
+                  (click)="askRevoke(seat.user_id)"
+                  [disabled]="revokePendingId() === seat.user_id"
+                  class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-1.5 text-xs font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+                  i18n="@@admin.vendors.detail.seats.remove"
+                >
+                  Remove seat
+                </button>
+              </div>
+            </td>
+          </tr>
+
+          <!--
+            The two-step confirm is a full-width row directly under its seat, so
+            it stays adjacent to the row it acts on in both the visual and the
+            accessibility tree.
+          -->
+          @if (revokeConfirmId() === seat.user_id) {
+          <tr class="border-b border-(--border-default)">
+            <td colspan="5" class="bg-(--surface-sunken) px-3 py-3">
+              <p
+                class="text-sm text-(--text-primary)"
+                i18n="@@admin.vendors.detail.seats.confirmCopy"
+              >
+                Remove this seat? They lose portal access immediately and keep their AECi account.
+                Only a fresh grant restores it — there is no undo on this screen.
+              </p>
+              <div class="mt-3 flex flex-wrap gap-3">
+                <button
+                  type="button"
+                  (click)="confirmRevoke(seat)"
+                  [disabled]="revokePendingId() === seat.user_id"
+                  class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--text-primary) bg-(--text-primary) px-5 py-2 text-sm font-bold text-(--surface-base) transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  @if (revokePendingId() === seat.user_id) {
+                  <span i18n="@@admin.vendors.detail.seats.working">Working…</span>
+                  } @else {
+                  <span i18n="@@admin.vendors.detail.seats.confirm">Confirm removal</span>
+                  }
+                </button>
+                <button
+                  type="button"
+                  (click)="cancelRevoke()"
+                  [disabled]="revokePendingId() === seat.user_id"
+                  class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-5 py-2 text-sm font-medium text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+                  i18n="@@admin.vendors.detail.seats.cancel"
+                >
+                  Cancel
+                </button>
+              </div>
+              @if (revokeFailedMessage()) {
+              <p class="mt-3 text-sm font-medium text-(--text-primary)" role="alert">
+                {{ revokeFailedMessage() }}
+              </p>
               }
-            </button>
-            <button
-              type="button"
-              (click)="cancelRevoke()"
-              [disabled]="revokePendingId() === seat.user_id"
-              class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-5 py-2 text-sm font-medium text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
-              i18n="@@admin.vendors.detail.seats.cancel"
-            >
-              Cancel
-            </button>
-          </div>
-          @if (revokeFailedMessage()) {
-          <p class="mt-3 text-sm font-medium text-(--text-primary)" role="alert">
-            {{ revokeFailedMessage() }}
-          </p>
-          }
-        </div>
-        }
-      </li>
-      }
-    </ul>
+            </td>
+          </tr>
+          } }
+        </tbody>
+      </table>
+    </div>
     } @if (v.pending_invites && v.pending_invites.length > 0) {
     <div class="mt-4">
       <p
@@ -342,15 +421,62 @@
       >
         Pending invites
       </p>
-      <ul role="list" class="mt-2 space-y-1">
-        @for (invite of v.pending_invites; track invite.id) {
-        <li class="text-xs text-(--text-secondary)">
-          {{ invite.email }} —
-          <span i18n="@@admin.vendors.detail.invites.expires">expires</span>
-          {{ invite.expires_at }}
-        </li>
-        }
-      </ul>
+      <div class="mt-2 overflow-x-auto">
+        <table class="w-full min-w-[32rem] border-collapse text-sm">
+          <caption class="sr-only" i18n="@@admin.vendors.detail.invites.caption">
+            Seat invitations that have not been accepted, revoked, or expired
+          </caption>
+          <thead>
+            <tr class="border-b border-(--border-strong)">
+              <th
+                scope="col"
+                class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+                i18n="@@admin.vendors.detail.invites.col.email"
+              >
+                Email
+              </th>
+              <th
+                scope="col"
+                class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+                i18n="@@admin.vendors.detail.invites.col.invitedBy"
+              >
+                Invited by
+              </th>
+              <th
+                scope="col"
+                class="py-2 text-start font-bold text-(--text-secondary)"
+                i18n="@@admin.vendors.detail.invites.col.expires"
+              >
+                Expires
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (invite of v.pending_invites; track invite.id) {
+            <tr class="border-b border-(--border-default)">
+              <th scope="row" class="py-2 pe-4 text-start font-medium text-(--text-primary)">
+                {{ invite.email }}
+              </th>
+              <td class="py-2 pe-4 text-(--text-secondary)">
+                @if (invite.invited_by) { {{ invite.invited_by }} } @else {
+                <!-- The sender FK is ON DELETE SET NULL, so an invite outlives
+                     the account that sent it. -->
+                <span
+                  class="text-(--text-tertiary)"
+                  i18n-aria-label="@@admin.vendors.detail.invites.senderGone"
+                  aria-label="The sending account no longer exists"
+                  >&ndash;</span
+                >
+                }
+              </td>
+              <td class="py-2 text-(--text-secondary)">
+                {{ invite.expires_at | date: 'medium' : 'UTC' }}
+              </td>
+            </tr>
+            }
+          </tbody>
+        </table>
+      </div>
     </div>
     }
   </section>
@@ -393,128 +519,20 @@
     </div>
 
     <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@admin.vendors.audit.intro">
-      Every recorded change, newest first. This is a read — opening it records nothing.
+      Every recorded change, newest first. This is a read: opening it records nothing.
     </p>
 
-    @if (auditLoading()) {
-    <p class="mt-4 text-sm text-(--text-secondary)" i18n="@@admin.vendors.audit.loading">
-      Loading the audit trail…
-    </p>
-    } @else if (auditFailed()) {
-    <div
-      role="alert"
-      class="mt-4 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-4"
-    >
-      <p class="text-sm font-medium text-(--text-primary)" i18n="@@admin.vendors.audit.error">
-        We couldn't load the audit trail.
-      </p>
-      <button
-        type="button"
-        (click)="retryAudit()"
-        class="mt-3 inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-2 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-        i18n="@@admin.vendors.audit.retry"
-      >
-        Try again
-      </button>
-    </div>
-    } @else if (auditEmpty()) {
-    <p class="mt-4 text-sm text-(--text-secondary)" i18n="@@admin.vendors.audit.empty">
-      Nothing recorded for this scope.
-    </p>
-    } @else {
-    <ul role="list" class="mt-4 space-y-2">
-      @for (row of auditRows(); track row.id) {
-      <li class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-3">
-        <div class="flex flex-wrap items-start justify-between gap-3">
-          <div class="min-w-0">
-            <p class="font-mono text-sm font-medium text-(--text-primary)">{{ row.action }}</p>
-            <p class="mt-1 text-xs text-(--text-secondary)">
-              {{ actorLabel(row) }} · {{ row.actor_type }} · {{ row.created_at }}
-            </p>
-            @if (row.entity_type) {
-            <p class="mt-0.5 font-mono text-xs text-(--text-secondary)">
-              {{ row.entity_type }} {{ row.entity_id }}
-            </p>
-            }
-          </div>
-
-          @if (diffRows(row).length > 0) {
-          <button
-            type="button"
-            (click)="toggleDiff(row.id)"
-            [attr.aria-expanded]="isDiffOpen(row.id)"
-            [attr.aria-controls]="'audit-diff-' + row.id"
-            class="inline-flex shrink-0 items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-3 py-1 text-xs font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-          >
-            @if (isDiffOpen(row.id)) {
-            <span i18n="@@admin.vendors.audit.diff.hide">Hide changes</span>
-            } @else {
-            <span i18n="@@admin.vendors.audit.diff.show">Show changes</span>
-            }
-          </button>
-          }
-        </div>
-
-        @if (isDiffOpen(row.id)) {
-        <div [id]="'audit-diff-' + row.id" class="mt-3 border-t border-(--border-default) pt-3">
-          <table class="w-full text-start text-xs">
-            <thead>
-              <tr class="text-(--text-secondary)">
-                <th scope="col" class="pb-1 pe-3 font-bold" i18n="@@admin.vendors.audit.diff.field">
-                  Field
-                </th>
-                <th
-                  scope="col"
-                  class="pb-1 pe-3 font-bold"
-                  i18n="@@admin.vendors.audit.diff.before"
-                >
-                  Before
-                </th>
-                <th scope="col" class="pb-1 pe-3 font-bold" i18n="@@admin.vendors.audit.diff.after">
-                  After
-                </th>
-                <th
-                  scope="col"
-                  class="pb-1 font-bold"
-                  i18n="@@admin.vendors.audit.diff.changeHeader"
-                >
-                  Change
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              @for (d of diffRows(row); track d.key) {
-              <tr class="align-top">
-                <th scope="row" class="py-1 pe-3 font-mono font-medium text-(--text-primary)">
-                  {{ d.key }}
-                </th>
-                <td class="py-1 pe-3 font-mono break-all text-(--text-secondary)">
-                  {{ d.before ?? '—' }}
-                </td>
-                <td class="py-1 pe-3 font-mono break-all text-(--text-primary)">
-                  {{ d.after ?? '—' }}
-                </td>
-                <!-- The change is stated in words, never by colour alone. -->
-                <td class="py-1 text-(--text-secondary)">{{ changeLabel(d.change) }}</td>
-              </tr>
-              }
-            </tbody>
-          </table>
-        </div>
-        }
-      </li>
-      }
-    </ul>
-
-    <div class="mt-4">
-      <aec-admin-paginator
-        [page]="auditPage()"
-        [perPage]="auditPerPage"
-        [total]="auditTotal()"
-        (pageChange)="goToAuditPage($event)"
-      />
-    </div>
-    }
+    <aec-audit-trail
+      [rows]="auditRows()"
+      [page]="auditPage()"
+      [perPage]="auditPerPage"
+      [total]="auditTotal()"
+      [loading]="auditLoading()"
+      [failed]="auditFailed()"
+      [emailsAvailable]="auditEmailsAvailable()"
+      (pageChange)="goToAuditPage($event)"
+      (retry)="retryAudit()"
+    />
   </section>
   }
 </section>

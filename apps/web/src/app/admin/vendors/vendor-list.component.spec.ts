@@ -9,6 +9,12 @@
  * The filter cases carry the weight. This screen exists so an operator can find a
  * vendor that never filed a claim, so "search finds nothing" and "the Unverified
  * filter returns verified vendors" are both failures of the whole point.
+ *
+ * AECI-694 turned the cards into a table with two sortable headers, so the
+ * structural assertions target `tbody tr` rather than `article`, and the sort
+ * cases pin the thing that could silently become a lie: the request must carry
+ * the key, because a control that reordered only the 25 rows on this page would
+ * present a page as a ranking.
  */
 import { provideZonelessChangeDetection } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
@@ -72,6 +78,17 @@ function lastQuery(api: ApiMock): Record<string, unknown> {
   return api.listVendors.mock.calls.at(-1)![0] as Record<string, unknown>;
 }
 
+function bodyRows(el: HTMLElement): HTMLTableRowElement[] {
+  return [...el.querySelectorAll<HTMLTableRowElement>('tbody tr')];
+}
+
+/** The `<th>` whose button carries this label, from the header row. */
+function header(el: HTMLElement, label: string): HTMLTableCellElement | undefined {
+  return [...el.querySelectorAll<HTMLTableCellElement>('thead th')].find((th) =>
+    th.textContent?.trim().startsWith(label),
+  );
+}
+
 describe('VendorList', () => {
   beforeEach(() => TestBed.resetTestingModule());
   afterEach(() => vi.restoreAllMocks());
@@ -87,14 +104,14 @@ describe('VendorList', () => {
         }),
       ]),
     );
-    expect(el.querySelectorAll('article')).toHaveLength(2);
+    expect(bodyRows(el)).toHaveLength(2);
     expect(el.textContent).toContain('Autodesk, Inc.');
     expect(el.textContent).toContain('bluebeam');
   });
 
   it('links each row to its detail page by id', async () => {
     const { el } = await setup(makeApiMock([makeRow()]));
-    const link = el.querySelector('h3 a') as HTMLAnchorElement;
+    const link = el.querySelector('tbody th[scope="row"] a') as HTMLAnchorElement;
     expect(link.getAttribute('href')).toBe(`/admin/vendors/${VENDOR_ID}`);
   });
 
@@ -111,10 +128,22 @@ describe('VendorList', () => {
 
   it('renders per-row product and integration counts', async () => {
     const { el } = await setup(makeApiMock([makeRow({ product_count: 4, integration_count: 2 })]));
-    const card = el.querySelector('article') as HTMLElement;
-    expect(card.textContent).toContain('Products');
-    expect(card.textContent).toContain('4');
-    expect(card.textContent).toContain('Integrations built');
+    expect(header(el, 'Products')).toBeTruthy();
+    expect(header(el, 'Integrations')).toBeTruthy();
+    const cells = [...bodyRows(el)[0]!.querySelectorAll('td')].map((td) => td.textContent?.trim());
+    expect(cells).toContain('4');
+    expect(cells).toContain('2');
+  });
+
+  it('renders a date-only term end on the day it actually ends', async () => {
+    // `period_end` is legally a bare `YYYY-MM-DD` (`EntitlementTermDateSchema`
+    // is a union, and the admin form is an `<input type="date">`). Handing that
+    // to `DatePipe` with `'UTC'` parses it as LOCAL midnight and then shifts it,
+    // so west of UTC a term ending on 1 September renders as 31 August. This
+    // asserts the day, which is the part an operator would take to a supplier.
+    const { el } = await setup(makeApiMock([makeRow({ period_end: '2027-09-01' })]));
+    expect(el.textContent).toContain('Sep 1, 2027');
+    expect(el.textContent).not.toContain('Aug 31, 2027');
   });
 
   it('sends the search term only on submit, not on every keystroke', async () => {
@@ -172,7 +201,7 @@ describe('VendorList', () => {
   it('renders the empty state when nothing matches', async () => {
     const { el } = await setup(makeApiMock([]));
     expect(el.textContent).toContain('No vendors match this search');
-    expect(el.querySelectorAll('article')).toHaveLength(0);
+    expect(el.querySelector('table')).toBeNull();
   });
 
   it('shows a retryable state when the load fails, then recovers', async () => {
@@ -190,11 +219,53 @@ describe('VendorList', () => {
     fixture.detectChanges();
 
     expect(el.querySelector('[role="alert"]')).toBeNull();
-    expect(el.querySelectorAll('article')).toHaveLength(1);
+    expect(bodyRows(el)).toHaveLength(1);
+  });
+
+  describe('sorting (AECI-694)', () => {
+    it('defaults to alphabetical, because this is a lookup surface', async () => {
+      const { api } = await setup(makeApiMock([makeRow()]));
+      expect(lastQuery(api)['sort']).toBe('name');
+    });
+
+    it('sends the key to the API rather than reordering the page in place', async () => {
+      const { el, fixture, api } = await setup(makeApiMock([makeRow()], 200));
+      header(el, 'Updated')?.querySelector('button')?.click();
+      await settle();
+      fixture.detectChanges();
+      expect(lastQuery(api)['sort']).toBe('updated');
+      // A sort is a filter change: staying on page 6 of a reordered set lands on
+      // rows the operator did not ask for.
+      expect(lastQuery(api)['page']).toBe(1);
+    });
+
+    it('marks exactly the active column with aria-sort, in the direction the server uses', async () => {
+      const { el, fixture } = await setup(makeApiMock([makeRow()]));
+      expect(header(el, 'Vendor')?.getAttribute('aria-sort')).toBe('ascending');
+      expect(header(el, 'Updated')?.getAttribute('aria-sort')).toBe('none');
+
+      header(el, 'Updated')?.querySelector('button')?.click();
+      await settle();
+      fixture.detectChanges();
+
+      // `updated` descends on the server (`resolveVendorOrderBy`), so that is
+      // what `aria-sort` has to report.
+      expect(header(el, 'Updated')?.getAttribute('aria-sort')).toBe('descending');
+      expect(header(el, 'Vendor')?.getAttribute('aria-sort')).toBe('none');
+    });
+
+    it('gives the unsortable columns no control at all', async () => {
+      const { el } = await setup(makeApiMock([makeRow()]));
+      // The API takes `created | name | updated` and no direction, so a control
+      // on Products or Term ends could only ever sort one page of results.
+      for (const label of ['Verified', 'Entitlement', 'Products', 'Integrations', 'Term ends']) {
+        expect(header(el, label)?.querySelector('button')).toBeFalsy();
+      }
+    });
   });
 
   describe('accessibility (structural)', () => {
-    it('nests headings without skipping levels (shell owns h1; h2 → h3 per card)', async () => {
+    it('nests headings without skipping levels (shell owns h1; the screen owns the only h2)', async () => {
       const { el } = await setup(
         makeApiMock([
           makeRow(),
@@ -203,8 +274,18 @@ describe('VendorList', () => {
       );
       expect(el.querySelectorAll('h1')).toHaveLength(0);
       expect(el.querySelectorAll('h2')).toHaveLength(1);
-      expect(el.querySelectorAll('h3')).toHaveLength(2);
-      expect(el.querySelector('h4, h5, h6')).toBeNull();
+      // Rows are `th[scope=row]`, not headings: a table of 25 vendors would
+      // otherwise put 25 h3s between the screen's h2 and anything after it.
+      expect(el.querySelector('h3, h4, h5, h6')).toBeNull();
+    });
+
+    it('gives the table a name and scopes every header cell', async () => {
+      const { el } = await setup(makeApiMock([makeRow()]));
+      expect(el.querySelector('caption')?.textContent?.trim()).toBeTruthy();
+      for (const th of el.querySelectorAll('thead th')) {
+        expect(th.getAttribute('scope')).toBe('col');
+      }
+      expect(bodyRows(el)[0]?.querySelector('th')?.getAttribute('scope')).toBe('row');
     });
 
     it('labels the search input', async () => {
