@@ -12,8 +12,8 @@
  * (`auth-session.ts`) and visits every gated page with it, asserting zero console
  * `error` / `pageerror` via the shared, single-sourced `console-capture.ts`
  * helpers (warnings stay reported-not-gated — AC #2). AECI-579 added
- * `/admin/catalog` to the set, AECI-586 `/admin/audience`, and AECI-652 the
- * `/admin/vendors` list + detail pair.
+ * `/admin/catalog` to the set, AECI-586 `/admin/audience`, AECI-652 the
+ * `/admin/vendors` list + detail pair, and AECI-692 the `/admin/users` pair.
  *
  * Skips when the session can't be minted (no anon key / no `SUPABASE_TEST_USER_*`
  * creds / sign-in fails) — same posture as `auth-whoami.spec.ts`. The pages
@@ -37,6 +37,16 @@ const PRODUCT_SLUG = 'fixture-procore';
  *  The admin vendor page is addressed by ID, not slug, so the detail case needs a
  *  known id rather than a lookup. */
 const VENDOR_FIXTURE_ID = '00000000-0000-4000-8000-000000000061';
+/**
+ * The seeded admin profile itself (`apps/api/seed/auth-fixtures.sql`) — the same
+ * account this spec signs in as.
+ *
+ * Unlike the vendor fixture this needs NO presence probe: the row is seeded
+ * unconditionally (it is what makes `requireAdmin()` pass at all), so if the
+ * session minted, this id resolves. Using the operator's own account is also the
+ * cheapest way to guarantee the detail page has an auth block to render.
+ */
+const ADMIN_PROFILE_ID = '519f1e77-6e60-440e-81a9-3354d06be0b6';
 
 let sessionCookies: Awaited<ReturnType<typeof mintSessionCookies>> = null;
 let reviewFixturePresent = false;
@@ -177,6 +187,71 @@ test.describe('authed console health — Phase 5 gated pages (AECI-235)', () => 
     await expect(page.getByRole('heading', { name: 'Audit trail' })).toBeVisible();
     await waitForHydrationSettle(page);
     expectConsoleClean(capture, 'GET /admin/vendors/:id');
+  });
+
+  // AECI-692 / `ADMIN_PANEL_SPEC.md` §5.8 — the user surface. The LIVE axe pass
+  // runs on the LIST for the same reason as `/admin/vendors`: that is where this
+  // feature's new layout primitives are (a search field plus THREE Aria comboboxes
+  // in one filter bar — the densest control cluster in the console — a card list
+  // and the paginator). Running it on the unauthenticated route would only ever
+  // audit the loading state.
+  test('/admin/users hydrates with no console errors and zero axe violations', async ({ page }) => {
+    const capture = attachConsoleCapture(page);
+    const res = await page.goto('/admin/users');
+    expect(res?.status()).toBe(200);
+    await expect(page.locator('aec-admin-shell')).toBeAttached();
+    await expect(page.locator('aec-user-list')).toBeAttached();
+    // Wait for a REAL row, not the shell. There is always at least one — the
+    // account this spec is signed in as.
+    await expect(page.locator('article').first()).toBeVisible();
+    await waitForHydrationSettle(page);
+
+    const results = await new AxeBuilder({ page })
+      .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
+      .exclude('aec-site-header')
+      .analyze();
+    expect(
+      results.violations,
+      results.violations
+        .map((v) => `[${v.impact ?? '?'}] ${v.id}: ${v.help} (${v.nodes.length} node(s))`)
+        .join('\n'),
+    ).toEqual([]);
+
+    expectConsoleClean(capture, 'GET /admin/users');
+  });
+
+  // The folded `/admin/reviewers` route. Asserting the REDIRECT rather than the
+  // old screen: it has to arrive at the banned FILTER, not the bare list, because
+  // a string `redirectTo` would have produced a literal `?`-containing path and
+  // landed unfiltered — a regression that would look like a working page.
+  test('/admin/reviewers redirects to the banned filter on /admin/users', async ({ page }) => {
+    const capture = attachConsoleCapture(page);
+    const res = await page.goto('/admin/reviewers');
+    expect(res?.status()).toBe(200);
+    await expect(page.locator('aec-user-list')).toBeAttached();
+    await waitForHydrationSettle(page);
+    expect(new URL(page.url()).pathname).toBe('/admin/users');
+    expect(new URL(page.url()).searchParams.get('banned')).toBe('true');
+    expectConsoleClean(capture, 'GET /admin/reviewers (redirect)');
+  });
+
+  // The detail page. Console-clean here is a real signal that the authorized read
+  // resolved through the SSR `/api/*` passthrough with the session cookie —
+  // including the GoTrue enrichment, which in CI is deliberately DEGRADED
+  // (`pr-preview.yml` withholds `SUPABASE_SERVICE_ROLE_KEY`), so this also proves
+  // the tri-state's "unavailable" path renders without erroring. That is the path
+  // CI can prove; the seam-up path is post-merge verification on staging.
+  test('/admin/users/:id hydrates with no console errors', async ({ page }) => {
+    const capture = attachConsoleCapture(page);
+    const res = await page.goto(`/admin/users/${ADMIN_PROFILE_ID}`);
+    expect(res?.status()).toBe(200);
+    await expect(page.locator('aec-admin-shell')).toBeAttached();
+    await expect(page.locator('aec-user-detail')).toBeAttached();
+    // A heading that exists only on the loaded branch — the sections do not
+    // render until `GET /api/admin/users/:id` resolves.
+    await expect(page.getByRole('heading', { name: 'Moderation' })).toBeVisible();
+    await waitForHydrationSettle(page);
+    expectConsoleClean(capture, 'GET /admin/users/:id');
   });
 
   // AECI-580 / Phase 8.3 P1.6 — the §5.6 System screen. Beyond console health,
