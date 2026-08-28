@@ -110,7 +110,7 @@ a durable first-party identifier, and it is precisely the *absence* of one — a
 dead columns (`user_id`, `session_id`, `profile_role`) were dropped rather than
 filled — AECI-585 removed them in migration `0014`. The table can no longer hold
 user linkage at all, which is also the strongest form of the GDPR erasure story:
-account deletion has nothing to erase here (`AUTH_AND_RLS.md` §12).
+account deletion has nothing to erase here (`AUTH_AND_RLS.md` §8).
 
 The per-visit feed added by AECI-577 holds that line where it would be easiest to
 cross: it exposes **eight characters** of the UA hash, truncated in SQL so the

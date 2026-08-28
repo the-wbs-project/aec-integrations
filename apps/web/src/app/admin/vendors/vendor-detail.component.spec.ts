@@ -296,18 +296,25 @@ describe('VendorDetail', () => {
       expect(el.textContent).not.toContain('Email unavailable');
     });
 
-    it('offers Remove seat and NO ban control — ban lives on /admin/reviewers', async () => {
+    it('offers Remove seat and NO ban control — ban lives on the user page', async () => {
       // The scope boundary, asserted so a later PR cannot quietly cross it. A
       // revoke un-grants one vendor's access; a ban locks the human out of AECi
       // entirely. Peer buttons would invite the wrong one.
+      //
+      // AECI-692 moved only the DESTINATION. The old link pointed at
+      // `/admin/reviewers`, which listed only already-banned people and whose one
+      // control was Unban — so "Ban this person" for an unbanned seat landed on a
+      // page that neither contained them nor could ban anyone. It now points at
+      // the person. The "no ban control HERE" half is unchanged and is the part
+      // that matters.
       const { el } = await setup(makeApiMock(makeVendor()));
       expect(buttonByText(el, 'Remove seat')).toBeTruthy();
       expect(buttonByText(el, 'Ban')).toBeUndefined();
-      expect(buttonByText(el, 'Ban this person')).toBeUndefined();
-      const banLink = [...el.querySelectorAll('a')].find(
-        (a) => a.textContent?.trim() === 'Ban this person',
+      expect(buttonByText(el, 'Open user page')).toBeUndefined();
+      const userLink = [...el.querySelectorAll('a')].find(
+        (a) => a.textContent?.trim() === 'Open user page',
       );
-      expect(banLink?.getAttribute('href')).toBe('/admin/reviewers');
+      expect(userLink?.getAttribute('href')).toBe(`/admin/users/${SEAT_ID}`);
     });
 
     it('confirms before revoking, and says the removal has no undo here', async () => {

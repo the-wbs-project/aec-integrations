@@ -197,12 +197,13 @@
     <!--
       Removing a seat is not banning its holder, and the two are deliberately not
       peer buttons here: a revoke un-grants one vendor's access, a ban locks the
-      human out everywhere. Ban lives on /admin/reviewers, which owns that policy.
+      human out everywhere. Ban lives on the person's own page (AECI-692), which
+      is also where the rest of their account is legible.
     -->
     <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@admin.vendors.detail.seats.intro">
       People with portal access to this vendor. Removing a seat does not change the entitlement, the
       Verified badge, or anything the vendor's other colleagues can do. To lock one person out of
-      AECi entirely, ban them from Banned reviewers instead.
+      AECi entirely, open their user page and ban them there instead.
     </p>
 
     @if (seatsUnavailable()) {
@@ -268,12 +269,19 @@
           </div>
 
           <div class="flex shrink-0 flex-wrap gap-2">
+            <!--
+              Was `routerLink="/admin/reviewers"` and labelled "Ban this person",
+              which was a broken promise in both halves: that page listed only
+              already-banned people and its single control was Unban, so for an
+              unbanned seat it landed on a screen that neither contained them nor
+              could ban anyone. AECI-692 points it at the person instead.
+            -->
             <a
-              routerLink="/admin/reviewers"
+              [routerLink]="['/admin/users', seat.user_id]"
               class="inline-flex items-center rounded-(--radius-md) px-3 py-1.5 text-xs font-medium text-(--text-secondary) underline decoration-(--border-strong) underline-offset-4 transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-              i18n="@@admin.vendors.detail.seats.banLink"
+              i18n="@@admin.vendors.detail.seats.userLink"
             >
-              Ban this person
+              Open user page
             </a>
             <button
               type="button"

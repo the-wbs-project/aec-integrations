@@ -1045,7 +1045,7 @@ create table vendor_entitlements (
   invoice_ref text,
   notes text,
 
-  granted_by uuid references profiles(id) on delete set null, -- the SEVENTH inbound FK to profiles
+  granted_by uuid references profiles(id) on delete set null, -- one of the 8 inbound FKs to profiles (AUTH_AND_RLS.md §8)
   granted_at timestamptz not null default now(),
   ended_at timestamptz,             -- stamped when status leaves 'active'
   expiry_notice_sent_at timestamptz, -- the expiry cron's idempotency fence

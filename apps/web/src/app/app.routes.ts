@@ -1,4 +1,5 @@
-import { Routes } from '@angular/router';
+import { inject } from '@angular/core';
+import { Router, Routes } from '@angular/router';
 
 import { CONTEXT_VERSION_PARAM, OTHER_VERSION_PARAM } from '@aeci/shared/version-diff';
 
@@ -312,9 +313,33 @@ export const routes: Routes = [
         path: 'vendors/:id',
         loadComponent: () => import('./admin/vendors/vendor-detail').then((m) => m.VendorDetail),
       },
+      // AECI-692 — the §5.8 user surface. Same two-flat-children shape as vendors
+      // and the same reasoning: the detail page's sections are read together, so
+      // a route per tab would buy nothing but resolvers.
+      {
+        path: 'users',
+        loadComponent: () => import('./admin/users/user-list').then((m) => m.UserList),
+      },
+      {
+        path: 'users/:id',
+        loadComponent: () => import('./admin/users/user-detail').then((m) => m.UserDetail),
+      },
+      // `/admin/reviewers` folded into `/admin/users?banned=true` (AECI-692): it
+      // listed exactly `banned_at IS NOT NULL`, loaded `perPage=100` once with no
+      // paginator, and could only ever un-ban. Kept as a REDIRECT rather than
+      // deleted because runbooks and `AUTH_AND_RLS.md` §7 name the old path, and
+      // a 404 on a documented URL is worse than a hop. The endpoint it used
+      // (`GET /api/admin/reviewers`) is untouched.
+      //
+      // A FUNCTIONAL `redirectTo` returning a `UrlTree`, not the string form: a
+      // string `redirectTo` is parsed as path segments, so `'users?banned=true'`
+      // would redirect to a literal path containing a `?` rather than applying
+      // the filter — and landing on an unfiltered user list is precisely the
+      // regression this redirect exists to avoid.
       {
         path: 'reviewers',
-        loadComponent: () => import('./admin/reviewers/reviewer-bans').then((m) => m.ReviewerBans),
+        pathMatch: 'full',
+        redirectTo: () => inject(Router).parseUrl('/admin/users?banned=true'),
       },
       // AECI-578 — Phase 8.3 P1.4, the §5.3 Traffic section. Renders the two
       // AECI-574 read endpoints; inherits the parent's gate and non-cacheable

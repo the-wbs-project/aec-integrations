@@ -31,6 +31,7 @@ import {
   createAdminVendorDetailHandler,
   createAdminVendorsListHandler,
 } from './routes/admin-vendors';
+import { createAdminUserDetailHandler, createAdminUsersListHandler } from './routes/admin-users';
 import {
   createAdminRequestsListHandler,
   createModerateRequestHandler,
@@ -342,7 +343,13 @@ app.route('/', authAccount);
 //     claim grants a `vendor_admin` seat + flips `vendors.verified` in one batch,
 //     rather than a plain resolve. The `/admin/claims` LIST is AECI-521.
 //   - GET   /api/admin/reviewers    (6.11) — paginated currently-banned reviewers.
-//   - PATCH /api/admin/reviewers/:id(6.11) — ban/unban a reviewer.
+//     SUPERSEDED AS A SCREEN by `GET /api/admin/users?banned=true` (AECI-692),
+//     which is the same `banned_at IS NOT NULL` predicate with filters, search
+//     and paging. Kept as an endpoint; `/admin/reviewers` now redirects.
+//   - PATCH /api/admin/reviewers/:id(6.11) — ban/unban a reviewer. Unchanged by
+//     AECI-692 and still the SOLE writer of `profiles.banned_at` anywhere —
+//     `/admin/users/:id` is now the surface that calls it, but it added no
+//     second writer (`banned-at-writers.spec.ts` asserts this at the source).
 //   - PATCH /api/admin/vendors/:id/entitlement (S2 §5, AECI-532) — set / renew /
 //     clear a vendor's paid entitlement. The ONLY writer that can take
 //     `vendors.verified` back down, and it does so through the entitlement row:
@@ -373,6 +380,22 @@ app.route('/', authAccount);
 //     `vendor_claim.seat_revoked` row rides the same `db.batch` and NO statement
 //     names `vendors`: revoking a seat is orthogonal to the entitlement and never
 //     moves the mirror (§5.2). Ban/unban stays on `/api/admin/reviewers/:id`.
+//   - GET    /api/admin/users                     (AP §5.8, AECI-692) — paginated
+//     PROFILES-first user list; filters `role` / `banned` / `has_seat`, search by
+//     display name and (only when the term contains `@`) by exact email.
+//     Profiles-first because ONE Supabase project backs every environment
+//     (ADR 0017), so GoTrue's own user list rendered on prod would include
+//     staging and preview signups. `perPage` caps at 50, not the shared 100:
+//     each row costs one GoTrue GET in waves of WORKER_CONNECTION_LIMIT.
+//   - GET    /api/admin/users/:id                 (AP §5.8, AECI-692) — profile,
+//     auth account, the ONE vendor seat, live pending invites, and counts
+//     (reviews by status, invites sent, entitlements granted, best-effort
+//     request matches). Three round trips in a forced order: D1, then the seam
+//     to learn the address, then the two reads keyed BY that address — invites
+//     and requests are addressed to an email, not a user id, so without the seam
+//     they are genuinely unknowable and report `null`, never `[]` or `0`.
+//     No page-view stats, ever: AECI-585 dropped the join column and
+//     `ADMIN_PANEL_SPEC.md` §9 item 7 forbids visitor↔account correlation.
 //
 // Phase 8.3 (AECI-574 P1.1, AECI-577 P1.3) adds the admin panel's READ endpoints
 // to the same router — no new gate, `requireAdmin()` stays the single enforcement
@@ -469,6 +492,13 @@ authAdmin.delete(
   requireAdmin(),
   createAdminRevokeSeatHandler(),
 );
+// AECI-692: the admin user surface (§5.8). Two READS and nothing else — ban and
+// reinstate reuse `PATCH /api/admin/reviewers/:id` above completely unchanged, so
+// there is still exactly one writer of `profiles.banned_at` in the codebase, and
+// seat revoke stays on the vendor roster where the blast radius is visible.
+// Literal segment before the bare `/:id`, matching the vendors block.
+authAdmin.get('/api/admin/users', requireAdmin(), createAdminUsersListHandler());
+authAdmin.get('/api/admin/users/:id', requireAdmin(), createAdminUserDetailHandler());
 // Admin panel reads (AECI-574, AECI-577, AECI-579, AECI-580, AECI-586).
 // Registered after the moderation routes; no path collides with
 // `/api/admin/re*` or `/api/admin/summary`.

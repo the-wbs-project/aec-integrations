@@ -109,10 +109,19 @@ outside it must use a JWT-scoped path.
 | Seam | Operation | Code | GoTrue endpoint | Degrade when creds absent |
 |---|---|---|---|---|
 | **#1** provisioning | Idempotent D1 `profiles` create on the first authenticated request. The **primary** creator under D1 (no `handle_new_user` trigger). | `routes/auth-profile.ts` | *none — D1 only, no service role* | n/a |
-| **#2** `auth.users` email reads | Reviewer emails for the admin moderation queue. | `lib/supabase-admin.ts` → `fetchAuthUserEmails` | `GET /auth/v1/admin/users/:id` | `reviewer_email: null`; the queue stays usable |
+| **#2** `auth.users` account reads | Emails for the admin moderation queue, the claim queue, the vendor seat roster and `/admin/vendors`; **plus `last_sign_in_at` / `created_at` / `email_confirmed_at`** for `/admin/users` (AECI-692). | `lib/supabase-admin.ts` → `fetchAuthUserEmails` (bare map), `fetchAuthUserEmailsResult` (+availability), `fetchAuthUserRecords` (+the three timestamps) | `GET /auth/v1/admin/users/:id` | Every auth-derived field `null` **and the surface says so** — the `Result`/record forms carry `available` + `reason`, so a page renders "unavailable" rather than asserting "no email on file". The queue stays usable |
 | **#3** GDPR erasure | Delete the `auth.users` row **after** the D1 erasure batch commits (§8). | `lib/supabase-admin.ts` → `deleteAuthUser` | `DELETE /auth/v1/admin/users/:id` | **Skipped** — the D1 erasure already completed, but the `auth.users` row **survives** and needs manual cleanup (§8 step 4) |
 | **#4a** claimant lookup | Resolve a vendor claim's `submitter_email` → an `auth.users` id so the grant can link a `profiles` row. Also batched for the admin claim queue's `has_auth_account` reviewer signal. | `lib/supabase-admin.ts` → `findAuthUserByEmail`, `fetchAuthAccountsByEmail` | `GET /auth/v1/admin/users?filter=` | Resolution reports `unavailable` and the grant refuses rather than half-granting; the reviewer signal reports `null` (unknown) |
 | **#4b** claimant provisioning | Create an `auth.users` row when the claimant has no account yet. | `lib/supabase-admin.ts` → `createAuthUser` | `POST /auth/v1/admin/users` | as #4a |
+
+Seam **#2 has one fan-out, three projections.** All three exported forms call one private
+`fanOutAuthUsers` (`lib/supabase-admin.ts`), so the rules that make it correct — bounded
+concurrency at `WORKER_CONNECTION_LIMIT` (AECI-666), `discardResponseBody` on every unread
+body, a 404 is **not** a seam failure, and `reason: 'error'` if **any** id failed — are
+written once. GoTrue has no by-id batch endpoint, so the request count scales with the
+admin page size; that is why `/admin/users` caps `perPage` well below the shared maximum.
+The bare-map `fetchAuthUserEmails` keeps a **byte-identical signature** because four
+structural type aliases inject it as their default.
 
 Seams **#4a/#4b** are composed with a single D1 `profiles` read in
 `lib/claimant-identity.ts` (`resolveClaimantIdentity`), which returns the
@@ -224,12 +233,14 @@ returns **`503 DEPENDENCY_FAILURE`** — it refuses to half-grant. The seat upse
 **no-clobber**: on conflict it sets only `role` / `vendor_id` / `updated_at`, never touching
 `display_name`, `theme_preference`, trust tier, or the ban columns.
 
-**Revoke & ban are per-seat and never un-verify.** Revoke (`revokeSeatStatements` — wired to `DELETE /api/vendor/seats/:userId` by AECI-664, owner-only,
+**Revoke & ban are per-seat and never un-verify.** Revoke (`revokeSeatStatements`,
 `lib/vendor-grant.ts`) drops the seat back to `role = 'reviewer'` and nulls `vendor_id`,
-scoped to one active seat; the batch builder ships (AECI-519) but **no HTTP endpoint is wired
-yet** — un-granting is the separate, explicit revoke action that stays with **AECI-519**,
-deliberately kept **out** of AECI-524's scope (the 2026-07-24 epic re-scope: AECI-524 is the
-ban/unban action only). A **ban** sets `profiles.banned_at` / `ban_reason` on the seat
+scoped to one active seat. The batch builder shipped with **AECI-519**; it now has **two**
+HTTP surfaces — `DELETE /api/vendor/seats/:userId` (owner-only, the vendor's own roster,
+AECI-664) and `DELETE /api/admin/vendors/:id/seats/:userId` (admin, AECI-652). Un-granting is
+the separate, explicit revoke action, deliberately kept **out** of AECI-524's scope (the
+2026-07-24 epic re-scope: AECI-524 is the ban/unban action only). A **ban** sets
+`profiles.banned_at` / `ban_reason` on the seat
 and is checked **before** the role check in the Layer-1 guard (§4.2 / §4.4). Both are
 per-seat — they touch one `profiles` row and **never** touch `vendors.verified`, which is a
 vendor-level paid state. **Un-verifying is a separate entitlement action** (`STAGE_2_SPEC.md`
@@ -240,7 +251,7 @@ vendor keeps portal access, read-only — reads still return 200 and writes 403
 `ENTITLEMENT_REQUIRED`. There are therefore **three orthogonal "take it away" actions**, and
 confusing them is a foreseeable incident: **ban a seat** (one `profiles` row, that seat 403s,
 mirror untouched), **revoke a seat** (one `profiles` row, drops to `reviewer`, mirror
-untouched, still no HTTP surface), and **clear an entitlement** (vendor-level, badge goes away,
+untouched), and **clear an entitlement** (vendor-level, badge goes away,
 seats and logins survive). Banning or revoking one abusive seat leaves the vendor
 verified and its other seats working. Grant and revoke each emit their `audit_log` row in the
 same batch (§4.3) and are fully reversible. Full contract:
@@ -392,7 +403,8 @@ await db.batch([
 | `PATCH /api/admin/vendors/:id/entitlement` (AECI-532) | Hard-required | `admin` | `vendor_entitlement.set` / `.renewed` / `.cleared` (`entity_type: 'vendor_entitlement'`, `entity_id` = the **vendor** id, `metadata.source: 'admin-entitlement'`) — set/renew/clear the offline arrangement. **The only writer that takes `vendors.verified` back down**, and it does so through the entitlement row, never by writing the mirror. `verified` is never in the request body; it appears on the response as a read-only readout. **No `workflow_instances` row** (that CHECK is closed; `audit_log` is the ledger). Clearing does **not** revoke seats. |
 | `GET /api/admin/vendors`, `/:id`, `/:id/audit` (AECI-652) | Hard-required | `admin` | No (reads only). The audit read is the FIRST reader `audit_log` has ever had — reading the ledger is not a domain-state write, so it emits nothing of its own. Its `entity` scope is three OR'd disjuncts because `entity_id = <vendor>` misses a rejected claim (no `vendor_id` in its metadata) and a revoked seat (whose `profiles.vendor_id` is already null); `STAGE_2_PAID_TIERS_SPEC.md` §5.6.2 has the query. `/:id` reports `seat_emails_available` so an unreachable GoTrue seam renders as "unavailable" rather than as an empty roster |
 | `DELETE /api/admin/vendors/:id/seats/:userId` (AECI-652) | Hard-required | `admin`; the target must be a `vendor_admin` seat **on that vendor** — a cross-vendor id is a flat **404** | `vendor_claim.seat_revoked` with `metadata.source: 'admin-moderation'` (vs `vendor-portal` for the owner-side revoke). The admin-side sibling of `DELETE /api/vendor/seats/:userId`; composes the same `revokeSeatStatements`, so **no statement names `vendors`** and the mirror is untouched. No self-removal guard (an admin holds no seat) and **no last-owner guard** — that guard exists because only an AECi grant can rescue an unadministrable account, and this IS that grant's operator. Banning stays `PATCH /api/admin/reviewers/:id` |
-| `PATCH /api/admin/reviewers/:id` (AECI-218 / AECI-524) | Hard-required | `admin` | `reviewer.banned` / `vendor_admin.banned` / `.unbanned` — bans/unbans any non-admin `profiles` row (reviewer **or** `vendor_admin` seat); role-agnostic UPDATE, role-aware audit, per-seat, never touches `vendors.verified` |
+| `PATCH /api/admin/reviewers/:id` (AECI-218 / AECI-524) | Hard-required | `admin` | `reviewer.banned` / `vendor_admin.banned` / `.unbanned` — bans/unbans any non-admin `profiles` row (reviewer **or** `vendor_admin` seat); role-agnostic UPDATE, role-aware audit, per-seat, never touches `vendors.verified`. **The sole writer of `profiles.banned_at` anywhere** — AECI-692 gave it a second caller (`/admin/users/:id`) and no second writer; `routes/banned-at-writers.spec.ts` asserts that at the source level |
+| `GET /api/admin/users` + `/:id` (AECI-692) | Hard-required | `admin` | — reads only, no `audit_log` row (ADR 0022). Profiles-first because one auth project backs every env (ADR 0017). Every GoTrue-derived field is tri-state: `auth_available: false` = seam down, an absent account = orphaned profile, a `null` field = genuinely empty. `ADMIN_PANEL_SPEC.md` §5.8 |
 | `GET /api/vendor/me`, `/seats` | Hard-required | `vendor_admin` + non-null `vendor_id`, not banned. **Never capability-gated** (§4.2b) | No (reads only). `/seats` also ships `pending_invites` + the caller's `can_manage_seats`; the invite **token is never on this payload** — every seat can read it, and a token there would let any seat redeem another person's invite |
 | `POST /api/vendor/seats/invites` (AECI-664) | Hard-required | same **+ `profiles.seat_owner`**, re-read from D1 this request. **Not** capability-gated — seats are not a paid feature, and gating removal on a live entitlement would stop a lapsed vendor revoking a departed employee (§11a). **Not domain-gated either** (§11a.3): the owner may invite any address, and what bounds the endpoint is owner-only + a non-owner invited seat + the redeem's mailbox binding + the 10/24h cap | `vendor_seat.invited` (`metadata.source: 'vendor-portal'`). **The token never reaches the audit row** — audit is admin-readable and forwarded to PostHog Logs (§26.5) |
 | `DELETE /api/vendor/seats/invites/:id` (AECI-664) | Hard-required | same **+ `seat_owner`**; a spent or cross-vendor id is a flat **404** | `vendor_seat.invite_revoked` — SOFT delete (`revoked_at`), never a row delete |
@@ -702,7 +714,7 @@ Enforced at the **Worker layer** (Layer 1) — the only authorization layer for 
 
 **RLS (historical defense in depth, dead for app tables):** the former `public.is_active_user()` helper returned false for banned users, and the `reviews: owner read own` policy used it so a banned user couldn't read their own pending reviews via PostgREST. That policy lived on Postgres; under D1 the equivalent visibility is enforced in the Worker's review-read handler. Approved reviews stay readable — banning does not retroactively hide past content.
 
-Bans are applied by an admin through `PATCH /api/admin/reviewers/:id` (the `/admin/reviewers` UI, AECI-218) — which since AECI-524 covers `vendor_admin` seats as well as reviewers: the `UPDATE` is role-agnostic (only admins and self are exempt) and the audit action is role-aware (`reviewer.banned` / `vendor_admin.banned` / `.unbanned`). A banned `vendor_admin` seat then fails every `/api/vendor/*` call via the §4.2 per-request ban check; the ban is per-seat and never touches `vendors.verified`. Direct SQL against the per-environment **D1** database remains a fallback.
+Bans are applied by an admin through `PATCH /api/admin/reviewers/:id` — since **AECI-692** from **`/admin/users/:id`**, which is now the ban/reinstate home (`/admin/users?banned=true` is the banned list, and `/admin/reviewers` redirects there; the endpoint itself is unchanged and remains this column's only writer anywhere) — which since AECI-524 covers `vendor_admin` seats as well as reviewers: the `UPDATE` is role-agnostic (only admins and self are exempt) and the audit action is role-aware (`reviewer.banned` / `vendor_admin.banned` / `.unbanned`). A banned `vendor_admin` seat then fails every `/api/vendor/*` call via the §4.2 per-request ban check; the ban is per-seat and never touches `vendors.verified`. Direct SQL against the per-environment **D1** database remains a fallback.
 
 ---
 
@@ -727,7 +739,7 @@ the Anthropic org behind `ANTHROPIC_API_KEY` **must** have zero data retention
 window (~30 days) outside this boundary. Confirm ZDR before provisioning a real
 key; the absent-key path (a silent no-op) sends nothing.
 
-**The FK trap (AECI-202).** There are **seven** inbound FKs to `profiles(id)` in D1.
+**The FK trap (AECI-202).** There are **eight** inbound FKs to `profiles(id)` in D1.
 Five are `ON DELETE NO ACTION`, so any `DELETE FROM profiles` **FK-fails**
 unless every one of them is nulled first. A real reviewer always trips at least
 `audit_log.actor_id` (every `review.submitted` writes an `audit_log` row). The
@@ -742,6 +754,7 @@ full list:
 | `workflow_transitions.actor_id` | NO ACTION | nulled |
 | `audit_log.actor_id` | NO ACTION | nulled (severs the actor link; rows survive) |
 | `vendor_entitlements.granted_by` | SET NULL | nulled (explicit too, matching `reviews.reviewer_id`; the entitlement row survives — only the granting admin's link is severed) — AECI-609 |
+| `vendor_seat_invites.invited_by_id` | SET NULL | nulled (explicit too; the **invite survives its sender's erasure** — a pending invite is the invitee's to redeem, so only the sender's link is severed) — AECI-664 |
 
 There used to be one more — `page_views.user_id`, nulled in the same batch.
 AECI-585 **dropped that column** (`ADMIN_PANEL_SPEC.md` §13 D7): it was never
@@ -757,7 +770,7 @@ and no `apps/api/src/prisma.ts`:
 
 1. User confirms Delete in `/account` → `DELETE /api/account`.
 2. **D1 erasure — one atomic `db.batch([...])`** (`apps/api/src/routes/account.ts`):
-   in order, null all seven inbound references above, write the `account.deleted`
+   in order, null all eight inbound references above, write the `account.deleted`
    audit row, then delete the `profiles` row. All commit or roll back as a unit.
 3. The `account.deleted` audit row has **`actorId = null`** — the profile is deleted
    in the same batch and `audit_log.actor_id` is `NO ACTION`, so a non-null actor

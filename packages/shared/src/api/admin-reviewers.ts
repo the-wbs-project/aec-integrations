@@ -16,9 +16,14 @@ import { PageQuerySchema, paginatedResponseSchema } from './common';
  *
  * `:id` is the profile id (= `auth.users.id` = `reviews.reviewer_id`). The
  * reviewer's email is admin-only and lives only in `auth.users.email` (no column
- * on `profiles`), so the list resolves it with the same privileged `$queryRaw`
- * the moderation queue uses (`routes/admin-reviews.ts`); it degrades to `null` on
- * a lookup failure, never a 500.
+ * on `profiles`), so the list resolves it through the **GoTrue Admin API seam**
+ * (`fetchAuthUserEmails`, `lib/supabase-admin.ts` — `AUTH_AND_RLS.md` §3.1 seam
+ * #2), the same seam the moderation queue uses; it degrades to `null` on a lookup
+ * failure, never a 500.
+ *
+ * The banned-only LIST is superseded as a screen by `/admin/users?banned=true`
+ * (AECI-692) but kept as an endpoint; the PATCH stays the sole writer of
+ * `profiles.banned_at` for every surface.
  *
  * i18n note: this package is framework-agnostic (no `$localize`) — any strings
  * here are for API consumers / logs, never rendered by the Angular admin shell.

@@ -20,9 +20,9 @@
  * affordances the header carries.
  *
  * ── Erasure (DELETE), split across the identity seam ────────────────────────────
- * `profiles(id)` has seven inbound FKs; five are NO ACTION, so they must be nulled
+ * `profiles(id)` has eight inbound FKs; five are NO ACTION, so they must be nulled
  * before the profile delete. Under D1 that erasure is ONE atomic `db.batch([...])`
- * (null the 7 refs + the PII-free `account.deleted` audit + delete the profile).
+ * (null the 8 refs + the PII-free `account.deleted` audit + delete the profile).
  * The `auth.users` row then goes via the GoTrue Admin API (seam #3,
  * `lib/supabase-admin.ts`) AFTER the batch commits — an HTTP call can't join the
  * D1 transaction. The D1 data erasure is the GDPR-load-bearing step; if the auth
@@ -205,15 +205,16 @@ export function createDeleteAccountHandler(
       metadata: { source: 'account', initiated_by_self: true },
     };
 
-    // One atomic unit: null every inbound reference (five NO ACTION + the two SET NULL
-    // refs — `reviews.reviewer_id` and `vendor_entitlements.granted_by` — made
-    // explicit) → PII-free audit → delete the profile.
+    // One atomic unit: null every inbound reference (five NO ACTION + the three SET NULL
+    // refs — `reviews.reviewer_id`, `vendor_entitlements.granted_by` and
+    // `vendor_seat_invites.invited_by_id` — made explicit) → PII-free audit → delete
+    // the profile.
     //
     // `page_views` is deliberately absent (AECI-585 / §13 D7). It used to be nulled
     // here, but `page_views.user_id` was never written by any code path and has now
     // been dropped along with `session_id` and `profile_role`. That strengthens this
     // handler rather than weakening it: the table can no longer hold user linkage at
-    // all, so there is nothing here to erase (`AUTH_AND_RLS.md` §12).
+    // all, so there is nothing here to erase (`AUTH_AND_RLS.md` §8).
     const stmts: BatchStmt[] = [
       db
         .update(reviews)
@@ -239,18 +240,19 @@ export function createDeleteAccountHandler(
         .set({ actorId: null })
         .where(eq(workflowTransitions.actorId, userId)),
       db.update(auditLog).set({ actorId: null }).where(eq(auditLog.actorId, userId)),
-      // AECI-609 / R6: the SEVENTH inbound FK. It is `ON DELETE SET NULL`, so SQLite
-      // would cover it, but it is nulled explicitly like `reviews.reviewer_id` so the
-      // erasure test asserts it directly rather than trusting the cascade. The
-      // entitlement ROW survives — only the granting admin's link is severed.
+      // AECI-609 / R6: one of the eight inbound FKs to `profiles.id`
+      // (`AUTH_AND_RLS.md` §8). It is `ON DELETE SET NULL`, so SQLite would cover it,
+      // but it is nulled explicitly like `reviews.reviewer_id` so the erasure test
+      // asserts it directly rather than trusting the cascade. The entitlement ROW
+      // survives — only the granting admin's link is severed.
       db
         .update(vendorEntitlements)
         .set({ grantedBy: null })
         .where(eq(vendorEntitlements.grantedBy, userId)),
-      // AECI-664: the NINTH inbound FK, same treatment and same reason. The INVITE
-      // survives its sender's erasure — a pending invite is the invitee's to
-      // redeem, and deleting it would silently break a colleague's link because
-      // someone else closed their account. Only the sender's link is severed.
+      // AECI-664: another of the eight (`AUTH_AND_RLS.md` §8), same treatment and same
+      // reason. The INVITE survives its sender's erasure — a pending invite is the
+      // invitee's to redeem, and deleting it would silently break a colleague's link
+      // because someone else closed their account. Only the sender's link is severed.
       db
         .update(vendorSeatInvites)
         .set({ invitedById: null })

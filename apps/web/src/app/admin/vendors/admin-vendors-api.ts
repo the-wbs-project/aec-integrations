@@ -67,7 +67,7 @@ export class AdminVendorsApi {
    *
    * A seat revoke is NOT an entitlement change and NOT a ban (§5.2): the badge,
    * the entitlement row and `vendors.verified` are all untouched, and banning a
-   * person is `/admin/reviewers`. It only un-grants this one person's access.
+   * person is `/admin/users/:id`. It only un-grants this one person's access.
    */
   revokeSeat(vendorId: string, userId: string): Promise<void> {
     return firstValueFrom(

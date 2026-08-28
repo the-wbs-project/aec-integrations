@@ -27,6 +27,7 @@ import {
   fetchAuthAccountsByEmail,
   fetchAuthUserEmails,
   fetchAuthUserEmailsResult,
+  fetchAuthUserRecords,
   findAuthUserByEmail,
 } from './supabase-admin';
 
@@ -589,5 +590,129 @@ describe('fetchAuthUserEmailsResult (seam #2, AECI-652)', () => {
     const result = await fetchAuthUserEmailsResult(ENV_WITH_CREDS, [USER_ID]);
 
     expect(bare).toEqual(result.emails);
+  });
+});
+
+describe('fetchAuthUserRecords (seam #2, record form, AECI-692)', () => {
+  const OTHER_ID = '00000000-0000-4000-8000-00000000a002';
+
+  /** A realistic GoTrue by-id payload — more fields than we project, on purpose. */
+  function account(overrides: Record<string, unknown> = {}): Response {
+    return jsonResponse({
+      id: USER_ID,
+      email: 'jane@acme.com',
+      last_sign_in_at: '2026-08-20T09:00:00.000Z',
+      created_at: '2026-01-05T12:00:00.000Z',
+      email_confirmed_at: '2026-01-05T12:04:00.000Z',
+      phone: '',
+      role: 'authenticated',
+      ...overrides,
+    });
+  }
+
+  it('projects the four account fields the admin user surface renders', async () => {
+    // The whole point of the issue: `last_sign_in_at` has always been on this
+    // response and every caller until now threw it away.
+    stubFetch(() => account());
+
+    const result = await fetchAuthUserRecords(ENV_WITH_CREDS, [USER_ID]);
+
+    expect(result).toMatchObject({ available: true, reason: 'ok' });
+    expect(result.records.get(USER_ID)).toEqual({
+      email: 'jane@acme.com',
+      last_sign_in_at: '2026-08-20T09:00:00.000Z',
+      created_at: '2026-01-05T12:00:00.000Z',
+      email_confirmed_at: '2026-01-05T12:04:00.000Z',
+    });
+  });
+
+  it('maps a missing or empty field to null, not undefined', async () => {
+    // An account that has never signed in and never confirmed. `null` is the wire
+    // contract (R10 required-nullable); `undefined` would drop the key entirely
+    // and fail the response schema.
+    stubFetch(() => account({ last_sign_in_at: null, email_confirmed_at: undefined, email: '' }));
+
+    const record = (await fetchAuthUserRecords(ENV_WITH_CREDS, [USER_ID])).records.get(USER_ID);
+
+    expect(record).toEqual({
+      email: null,
+      last_sign_in_at: null,
+      created_at: '2026-01-05T12:00:00.000Z',
+      email_confirmed_at: null,
+    });
+  });
+
+  it('reports no_credentials — available:false, empty map, no request, warns ONCE', async () => {
+    // Absent creds are the NORMAL state on local dev and PR previews. The warn
+    // fires once before the fan-out, not once per id, or a 24-row admin page
+    // buries the log it exists to produce.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const fetchSpy = stubFetch(() => account());
+
+    const result = await fetchAuthUserRecords(TEST_ENV, [USER_ID, OTHER_ID]);
+
+    expect(result).toEqual({ available: false, records: new Map(), reason: 'no_credentials' });
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('fetchAuthUserRecords degraded: no_credentials'),
+      expect.anything(),
+    );
+  });
+
+  it('leaves a 404 id ABSENT from the map while staying available — an orphaned profile', async () => {
+    // The three-state contract: absent + available:true means "no auth.users row
+    // for this profile", which is a real data defect and NOT the same as a seam
+    // failure. A caller must be able to tell them apart.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(account())
+      .mockResolvedValueOnce(new Response('not found', { status: 404 }));
+
+    const result = await fetchAuthUserRecords(ENV_WITH_CREDS, [USER_ID, OTHER_ID]);
+
+    expect(result).toMatchObject({ available: true, reason: 'ok' });
+    expect(result.records.has(USER_ID)).toBe(true);
+    expect(result.records.has(OTHER_ID)).toBe(false);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('reports error page-wide when ANY id fails, keeping the ids that succeeded', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(account())
+      .mockResolvedValueOnce(new Response('boom', { status: 500 }));
+
+    const result = await fetchAuthUserRecords(ENV_WITH_CREDS, [USER_ID, OTHER_ID]);
+
+    expect(result).toMatchObject({ available: false, reason: 'error' });
+    expect(result.records.get(USER_ID)?.email).toBe('jane@acme.com');
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('fetchAuthUserRecords degraded: http_500'),
+      expect.anything(),
+    );
+  });
+
+  it('treats zero ids as ok, not a degrade, and makes no request', async () => {
+    const fetchSpy = stubFetch(() => account());
+
+    const result = await fetchAuthUserRecords(ENV_WITH_CREDS, []);
+
+    expect(result).toEqual({ available: true, records: new Map(), reason: 'ok' });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('shares one fan-out with the email form — same ids, same availability', async () => {
+    // `fetchAuthUserEmailsResult` is implemented ON this function. The projection
+    // is the only difference, so an account with no email must be PRESENT here and
+    // ABSENT there — that asymmetry is why both forms exist.
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => account({ email: null }));
+
+    const records = await fetchAuthUserRecords(ENV_WITH_CREDS, [USER_ID]);
+    const emails = await fetchAuthUserEmailsResult(ENV_WITH_CREDS, [USER_ID]);
+
+    expect(records.available).toBe(emails.available);
+    expect(records.records.has(USER_ID)).toBe(true);
+    expect(emails.emails.has(USER_ID)).toBe(false);
   });
 });

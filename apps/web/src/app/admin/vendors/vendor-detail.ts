@@ -41,11 +41,11 @@ export interface DiffRow {
  * would multiply.
  *
  * ── WHAT THIS SCREEN DELIBERATELY CANNOT DO ──────────────────────────────────
- * **Ban a person.** Ban/unban lives on `/admin/reviewers` (AECI-524 owns that
- * policy) and each seat row links there. Revoking a seat and banning its holder
- * are different actions with different blast radii — a revoke un-grants one
- * vendor's access, a ban locks the human out everywhere — and putting them
- * side-by-side as peer buttons would invite the wrong one.
+ * **Ban a person.** Ban/unban lives on `/admin/users/:id` (AECI-524 owns the
+ * policy; AECI-692 built the surface) and each seat row links there. Revoking a
+ * seat and banning its holder are different actions with different blast radii —
+ * a revoke un-grants one vendor's access, a ban locks the human out everywhere —
+ * and putting them side-by-side as peer buttons would invite the wrong one.
  *
  * **Edit the catalog record.** There is no admin vendor-edit endpoint, which is
  * also why this page does not close the §5.4 lockout. Catalog data still flows
