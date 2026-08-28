@@ -40,7 +40,7 @@
  *
  * Spec: `STAGE_1_SPEC.md` §4.6 (page UX), §7.1 (record shapes), §7.2 (facets),
  * §7.5 (integration); §9.2 (no facet-in-URL). Mirrors the browser-only,
- * dynamic-import discipline of `apps/web/src/app/datadog.provider.ts`.
+ * dynamic-import discipline of `apps/web/src/app/analytics/posthog-client.ts`.
  */
 import { type Signal, type WritableSignal, signal } from '@angular/core';
 
@@ -51,13 +51,7 @@ import type { RefinementItem } from '../shared/facets/refinement-item';
 
 import type { AlgoliaPublicConfig } from './algolia-config';
 import { orderFacetItems } from './search-facet-order';
-import {
-  emitSearchQuery,
-  resultsBucket,
-  type ResultsBucket,
-  type SearchQueryEmitter,
-  type SearchStatus,
-} from './search-rum';
+import { resultsBucket, type ResultsBucket, type SearchStatus } from './search-telemetry';
 
 // ─── Public signal-backed view models ───────────────────────────────────────
 
@@ -147,10 +141,10 @@ export interface InstantSearchInstance extends WidgetHost {
   start(): void;
   dispose(): void;
   /**
-   * Subscribe to the instance error event (AECI-174). A failed search surfaces
-   * here, not through any connector render, so this is the only hook for the
-   * `status: 'error'` RUM emit. `instantsearch.js` emits `'error'` with the
-   * thrown error on the payload.
+   * Subscribe to the instance error event. A failed search surfaces here, not
+   * through any connector render, so this is the only hook for the
+   * `status: 'error'` emit. `instantsearch.js` emits `'error'` with the thrown
+   * error on the payload.
    */
   on(event: 'error', handler: (payload: { error: Error }) => void): void;
 }
@@ -166,7 +160,7 @@ export interface HitsRenderState {
 }
 export interface StatsRenderState {
   nbHits: number;
-  /** Algolia server-side processing time, ms — the `aeci.search.query` duration. */
+  /** Algolia server-side processing time, ms — `search_performed.duration_ms`. */
   processingTimeMS: number;
 }
 export interface PaginationRenderState {
@@ -203,9 +197,10 @@ type Connector<S, P> = (renderFn: Renderer<S>, unmountFn?: () => void) => (param
  * Payload for the PostHog `search_performed` event (§14.1, AECI-239).
  *
  * `status` / `duration_ms` / `results_bucket` were re-homed here from the
- * retired `aeci.search.query` Datadog RUM action (AECI-643,
- * `docs/POSTHOG_MIGRATION_SPEC.md` §3.9). The RUM emit itself is UNCHANGED and
- * still fires alongside — Datadog RUM stays live until §AW-final.
+ * `aeci.search.query` Datadog RUM action (AECI-643,
+ * `docs/POSTHOG_MIGRATION_SPEC.md` §3.9). AECI-651 then deleted that action
+ * along with the rest of the Datadog leg, so this event is now the ONLY carrier
+ * of the signal.
  *
  * Two accepted narrowings, both recorded in §3.8 rather than discovered later:
  *   - the RUM action saw EVERY search; this event only reaches the consented
@@ -385,8 +380,6 @@ export class SearchController {
      * page resolves the `?sort=` token → index name before passing it here.
      */
     initialSort: Partial<Record<'products' | 'vendors', string>> = {},
-    /** RUM emit seam (AECI-174); injectable so tests assert without the SDK. */
-    private readonly emit: SearchQueryEmitter = emitSearchQuery,
     /** PostHog `search_performed` emit seam (AECI-239); defaults to a no-op so
      *  the controller stays decoupled from Angular DI (the page wires it). */
     private readonly onSearch: SearchPerformedEmitter = () => undefined,
@@ -438,22 +431,10 @@ export class SearchController {
     // `this.search` by `wireIndex`) + the one nested index widget.
     this.search.addWidgets([searchBox, vendorsHost as IsWidget]);
 
-    // AECI-174 — a failed search never reaches a connector render, so the
-    // `status:'error'` RUM signal is emitted from the instance error event. The
-    // batched products+vendors multi-query fails as a unit ⇒ one `federated`
-    // emit. `duration_ms` isn't meaningful for a failure (the latency widget
-    // filters `status:ok`), so it is 0.
-    this.search.on('error', () => {
-      this.emit({
-        index: 'federated',
-        status: 'error',
-        duration_ms: 0,
-        results_bucket: 'none',
-      });
-      // AECI-643 / §3.9 — the same failure, on the PostHog side. The RUM emit
-      // above is untouched and stays live until §AW-final.
-      this.emitSearchFailed();
-    });
+    // A failed search never reaches a connector render, so the `status:'error'`
+    // signal is emitted from the instance error event. The batched
+    // products+vendors multi-query fails as a unit ⇒ one event per failure.
+    this.search.on('error', () => this.emitSearchFailed());
   }
 
   /** Construct + run the initial search. Idempotent. */
@@ -606,23 +587,16 @@ export class SearchController {
       })({}),
       lib.connectStats((state, isFirstRender) => {
         nbHits.set(state.nbHits);
-        // AECI-174 — emit the per-index `aeci.search.query` RUM action once a
-        // search RESPONSE has settled. Like `connectHits` above, the init render
-        // (isFirstRender) fires synchronously on start() before any network, so
-        // it is skipped; every later render corresponds to a real Algolia query.
-        if (!isFirstRender) {
-          this.emit({
-            index: entity,
-            status: 'ok',
-            duration_ms: Math.round(state.processingTimeMS),
-            results_bucket: resultsBucket(state.nbHits),
-          });
-          // §14.1 `search_performed`: one event per distinct settled query. Gated
-          // to the root (products) index so a batched products+vendors response
-          // emits once, not per index. Carries the re-homed RUM fields (§3.9).
-          if (entity === 'products') {
-            this.maybeEmitSearchPerformed(Math.round(state.processingTimeMS));
-          }
+        // Like `connectHits` above, the init render (isFirstRender) fires
+        // synchronously on start() before any network, so it is skipped; every
+        // later render corresponds to a real Algolia query.
+        //
+        // §14.1 `search_performed`: one event per distinct settled query. Gated
+        // to the root (products) index so a batched products+vendors response
+        // emits once, not per index. Carries the fields re-homed from the
+        // retired `aeci.search.query` RUM action (§3.9).
+        if (!isFirstRender && entity === 'products') {
+          this.maybeEmitSearchPerformed(Math.round(state.processingTimeMS));
         }
       })({}),
       lib.connectPagination((state) => {

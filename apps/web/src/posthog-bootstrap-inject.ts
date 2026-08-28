@@ -4,8 +4,8 @@
  *
  * The browser analytics layer needs the project API key + ingestion host at
  * hydration. Both are explicitly client-exposed (the project API key is a
- * publishable key — same security class as the Datadog `clientToken` and the
- * Algolia search key) but they vary per deployment environment. We read them
+ * publishable key — same security class as the Algolia search key) but they
+ * vary per deployment environment. We read them
  * from the SSR Worker's `env` and inline a tiny `window.__AECI_POSTHOG__ = {...}`
  * snippet before `</head>` so the Angular bundle finds them on hydration (see
  * `app/analytics/posthog-config.ts`).
@@ -20,7 +20,7 @@
  * No-op contract: when `POSTHOG_PROJECT_KEY` is absent (bare `wrangler dev`
  * with no vars, or any env where analytics is intentionally off), the helper
  * returns the response unchanged. The browser reader mirrors the same defensive
- * check so missing config never throws — mirrors `injectDatadogBootstrap`.
+ * check so missing config never throws — mirrors the other bootstrap injectors.
  *
  * AECI-640 renamed `POSTHOG_KEY` → `POSTHOG_PROJECT_KEY` and moved it from a
  * CI-pushed secret to a committed per-env `vars` entry. The `phc_` token ships

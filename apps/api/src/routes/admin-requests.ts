@@ -120,7 +120,7 @@ const noopSyncToLinear: SyncRequestToLinear = async () => {};
 /** Telemetry forwarder (PostHog + the dual-run Datadog leg) for the audit write; each vendor leg no-ops without its own key. Mirrors
  *  `routes/admin-reviews.ts`, tagged `source: admin-moderation`. */
 function makeForwarder(c: AdminContext): AuditLogForwarder | undefined {
-  if (!c.env.DD_API_KEY && !c.env.POSTHOG_PROJECT_KEY) return undefined;
+  if (!c.env.POSTHOG_PROJECT_KEY) return undefined;
   return (entry) => {
     logToPosthog(c.executionCtx, c.env, c.req.raw, {
       level: 'info',
@@ -134,9 +134,9 @@ function makeForwarder(c: AdminContext): AuditLogForwarder | undefined {
 }
 
 /** Telemetry forwarder (PostHog + the dual-run Datadog leg) for the workflow-transition write; no-op without
- *  `DD_API_KEY`. Mirrors `makeForwarder`, tagged `source: admin-moderation`. */
+ *  `POSTHOG_PROJECT_KEY`. Mirrors `makeForwarder`, tagged `source: admin-moderation`. */
 function makeWorkflowForwarder(c: AdminContext): WorkflowTransitionForwarder | undefined {
-  if (!c.env.DD_API_KEY && !c.env.POSTHOG_PROJECT_KEY) return undefined;
+  if (!c.env.POSTHOG_PROJECT_KEY) return undefined;
   return (entry) => {
     logToPosthog(c.executionCtx, c.env, c.req.raw, {
       level: 'info',

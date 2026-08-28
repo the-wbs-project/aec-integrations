@@ -3,7 +3,7 @@
  * init in AECI-643 / `docs/POSTHOG_MIGRATION_SPEC.md` §3.3, decision D2) — the
  * typed PostHog event API the app calls, plus the boot of the SDK.
  *
- * Shape (mirrors `datadog.provider.ts` + the `search-rum.ts` seam):
+ * Shape (the injectable-SDK-seam idiom used across the app):
  *   - The SDK is reached only through the injectable `POSTHOG_CLIENT_FACTORY`
  *     (default = the real dynamic
  *     `import('posthog-js/dist/module.full.no-external')` — the self-contained
@@ -72,8 +72,9 @@ const BROWSE_ROOTS = new Set(['products', 'vendors', 'integrations', 'categories
 /**
  * The Tier 2 liveness beacon (§3.3). Fired once per page load for every
  * visitor, so "did the browser plane reach PostHog at all?" is answerable
- * without waiting for an organic error. The Datadog RUM twin
- * (`aeci.app_started`, `datadog.provider.ts`) stays live through the dual-run.
+ * without waiting for an organic error. It had a Datadog RUM twin
+ * (`aeci.app_started`) until AECI-651 removed the Datadog leg; this is now the
+ * only browser-plane heartbeat.
  */
 export const APP_STARTED_EVENT = 'app_started';
 

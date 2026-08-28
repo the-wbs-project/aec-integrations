@@ -22,13 +22,12 @@ into a health report, or the report will silently mix a census with a funnel.
 
 | Surface | Authoritative for | Not authoritative for |
 |---|---|---|
-| **Datadog** (org `us5`, `app:aeci`, `env:production`, email `@chrisw@thewbsproject.com`) | **Everything that pages today.** All 26 monitors are live here. Field Core Web Vitals (RUM). Browser search latency/error rate. Production metric history predating the PostHog transport | Anything person-linked; anything after AECI-651 |
 | **PostHog** (`aec-integrations`, **354071**, production only) | Person-linked logs (`posthogDistinctId`), `$exception` grouping, deploy `deployment` events, and the product funnels in `ANALYTICS.md` | **Alerts — none are applied to production yet.** Dashboards are applied to the **non-production** project (525793) only. Do not read a prod number off a 525793 board |
 | **`/admin/*`** (`job_runs`, `page_views`, `metrics_daily`) | Cron run records, the consent-independent traffic count, D1 footprint | Absence ("it never ran" writes no row, by construction) |
 | **The CI liveness sweep** (`posthog-liveness-sweep.yml`, every 3 h) | Cron **absence**, across all twelve crons — **already running** and worth reading during the dual-run | Anything about *why* a cron failed |
 | **Cloudflare** (Workers observability, Security → Events) | Edge cache HIT-rate, absolute request volume, per-IP WAF detail | Application-level anything |
 
-The rule for this pass: **read Datadog for production numbers, read the liveness sweep
+The rule for this pass: **read PostHog for production numbers, read the liveness sweep
 for cron absence, and read PostHog to build confidence in the plane you are about to
 switch to.** A number present in one telemetry plane and absent in the other is a
 finding — that is what the dual-run window is *for*.
@@ -67,7 +66,7 @@ gate"):
 - **Web vitals** must be enabled in **project settings** on both projects.
   `posthog-js` fetches `/array/{token}/config` on init and that response **overrides**
   the client's `capture_performance: { web_vitals: true }`. So `$web_vitals` does not
-  fire yet, and **field Core Web Vitals are Datadog-RUM-only today.** This is the one
+  fire yet. This is the one
   signal where letting AECI-651 run before the toggle is flipped would leave a real
   hole.
 - **Error tracking (exception autocapture)** must be enabled on both projects too.
@@ -90,7 +89,7 @@ healthy day — the point is to catch a regression before an alert's sustained-w
 **That framing matters more now than it did:** PostHog alerts evaluate **hourly**, so the daily
 eyeball is the compensating control for a detection window that got four to twelve times longer.
 
-The "Where to look" column names the Datadog surface first because that is what carries production
+The "Where to look" column names the PostHog surface because that is what carries production
 data today, with the PostHog successor in brackets.
 
 | # | Signal | Where to look | Healthy | Fires as |
@@ -105,12 +104,12 @@ data today, with the PostHog successor in brackets.
 | 6a | **The CI liveness sweep itself** | GitHub Actions → `posthog-liveness-sweep` (every 3 h). Read the **latest run's conclusion**, not just the alert inbox | green | **exit 1** = a heartbeat MISSING or STALE, with a `::error::` naming the cron. **exit 2** = the sweep could not run — "UNCHECKED, **not** a pass". Expect exit 2 on every run until the `phx_` key is provisioned (§0a) |
 | 7 | **Request → Linear pipeline** | Phase 6 — Requests / Moderation; `aeci.linear.issue`/`.sync`/`.reconcile.*`, `aeci.webhooks.linear.hmac_failure` *(PostHog: "AECi — Requests / Linear pipeline")* | failure rate < 50%; no persistent stuck; no HMAC burst | pipeline-failure / reconcile-stuck / reconcile-no-data / hmac monitors |
 | 8 | **Moderation queue** | Phase 5 & 6 dashboards; `aeci.moderation.queue_depth` / `queue_oldest_age_hours`; `GET /api/admin/summary` (`pending_reviews`), `GET /api/admin/requests` | oldest pending < 48h (target 24h, §17) | `AECi — Moderation queue backlog` (>48h) — ⚠️ **this stops alerting at AECI-651** and becomes a dashboard read. **This row is why it is safe to drop the alert; do not skip it** |
-| 9 | **Field Core Web Vitals** | Datadog **RUM → Optimize Vitals**, `aeci` app, `env:production` (p75 LCP / CLS / INP) | LCP ≤ 2.5s · CLS ≤ 0.1 · INP ≤ 200ms (`STAGE_1_PHASE_2_SPEC.md` §12) | *(no alert — read manually; see §2)*. ⚠️ **Datadog-only today**: PostHog `$web_vitals` is blocked by the project-settings toggle (§0a) |
+| 9 | **Field Core Web Vitals** | PostHog **Web vitals** (production project 354071; p75 LCP / CLS / INP) | LCP ≤ 2.5s · CLS ≤ 0.1 · INP ≤ 200ms (`STAGE_1_PHASE_2_SPEC.md` §12) | *(no alert — read manually; see §2)*. The Datadog RUM source was deleted at AECI-651; `$web_vitals` has been live on every tier since the project toggle was flipped 2026-08-26 |
 | 10 | **Deploy markers line up with step changes** | PostHog — the annotation line across every insight (once the `phx_` key exists), or a HogQL query over the `deployment` event, which works **today** on the publishable token | a step change in any of the above coincides with a marker | *(no alert)*. `deploy_kind: auto_rollback` is an **incident** marker, not a release one — if you see one you did not expect, start there |
 
-> **Datadog UI gotcha:** the org has three RUM apps (`aeci`, `pm-empower`, `earned-value`) and the UI
-> defaults to the wrong one — select **`aeci`** (us5). CWV live under RUM → Optimize Vitals, not the
-> Phase-2 dashboard (that tracks SSR `aeci.page.render.duration_ms`, not field CWV).
+> **Don't confuse field CWV with the SSR render metric.** PostHog's Web vitals page is field
+> data from real browsers; `aeci.page.render.duration_ms` on the Traffic dashboard is the
+> Worker's own render time. They answer different questions and will not agree.
 
 > **PostHog UI gotcha, the same shape:** the org has **five** projects. `aec-integrations`
 > (**354071**) is production; `aec-integrations-dev` (**525793**) carries preview, staging, demo and
@@ -138,7 +137,7 @@ row that `/admin/system` renders (see the split below).
 > `stats_cache` side effect can show an *Inferred* timestamp, which proves the job **ran**, not that
 > it **succeeded**. Full reconciliation in `OBSERVABILITY.md`.
 >
-> **What owns absence, today and after.** Today: Datadog's six `notify_no_data` monitors. After
+> **What owns absence.** Formerly Datadog's six `notify_no_data` monitors; since AECI-651,
 > AECI-651 — and **already running now** — the CI liveness sweep, which watches all **twelve**. It
 > runs outside the Worker on purpose; a liveness check hosted inside the API Worker cannot detect
 > the API Worker being dead. **PostHog alerts are explicitly not the answer:** no PostHog tier has
@@ -185,14 +184,13 @@ either in isolation.
 2. **Review the launch-tunable thresholds** (§3) against the week's data — tighten any that missed a real
    issue, relax any that proved noisy. **Only the enforcement/threshold changes** — never relax a budget
    to make a signal pass (`TESTING_STRATEGY.md` §10.4).
-3. **Core Web Vitals read**: Datadog RUM → Optimize Vitals for the `aeci` app,
+3. **Core Web Vitals read**: PostHog → Web vitals, production project,
    `env:production`, p75 LCP / CLS / INP per page type, against the §12 budgets. The pre-launch lab audit
    ([`PERFORMANCE_AUDIT.md`](./PERFORMANCE_AUDIT.md)) flagged **CLS on detail/browse/taxonomy (0.145–0.326)**
    and **detail-page JS ~227 KB** as the likely field offenders — confirm whether the lab headroom (owned
-   by **AECI-221**) actually surfaces in the field before acting. **Datadog is the only source for this
-   today** — PostHog `$web_vitals` is blocked by the project-settings toggle (§0a), so this row is the
-   standing reason not to let AECI-651 run before that toggle is flipped and a week of `$web_vitals` has
-   landed.
+   by **AECI-221**) actually surfaces in the field before acting. If Web vitals is empty, check the
+   project-settings toggle first (§0a) — it gates `$web_vitals` server-side and there is no longer a
+   Datadog RUM fallback.
 4. **Audit the digest's human/bot split** (§3b) — the "Traffic (humans)" number is only as good as the
    ASN table behind it. One query, and widen the list when it turns up hosting networks reading as human.
 5. **Glance at the D1 footprint** on **`/admin/system`** — total size and per-table row counts, which
@@ -206,29 +204,32 @@ either in isolation.
 
 ### Dual-run additions (drop these once AECI-651 has run)
 
-These four exist only for the migration window and are the evidence base for deciding it is safe to
-close. They are not permanent procedure.
+These were the migration-window checks. AECI-651 has since closed the window, so items 7–8 are
+retained as **standing sanity checks** (the histogram-p95 reconstruction never got validated against
+the Datadog original) and 9–10 as ordinary procedure.
 
-7. **Spot-check the reconstructed histogram p95 against Datadog's.** This is the one piece of
-   arithmetic in the whole PostHog plane that has never seen real data. Compare
-   `p95:aeci.page.render.duration_ms{route_class:detail,cache_status:miss,env:production}` in Datadog
-   against the insight `AECi — ALERT — Detail page render p95, cache MISS (1 h)`. **PostHog should
-   read ≥ Datadog and within one bucket width** (bounds `5,10,25,50,75,100,250,500,750,1000,1500,2500,5000,7500,10000` ms).
-   Lower, or 0 while Datadog shows traffic, means the reconstruction is wrong — check the
-   `lower(cache_status)` predicate first, then whether `histogram_bounds` is uniform across points.
-   **AECI-651 must not delete the Datadog monitor until this has been checked at least once against
-   real traffic.**
-8. **Compare one metric per plane, weekly, and record both numbers.** Pick something with volume
-   (`aeci.api.query.duration_ms` by `endpoint`, or `aeci.ssr.render`). Divergence is the finding; the
-   most likely causes are a `lower()`-casing miss, a query reading the wrong PostHog **project**, or a
-   metric whose value is a row count being counted rather than summed.
+7. **Sanity-check the reconstructed histogram p95.** This is the one piece of arithmetic in the
+   whole PostHog plane that never got validated against the Datadog original before that plane was
+   deleted (AECI-651 ran ahead of this check). Read the insight
+   `AECi — ALERT — Detail page render p95, cache MISS (1 h)` against the dashboard widget
+   *Traffic — SSR render latency distribution (histogram buckets)*, which is a raw bucket read with
+   no reconstruction: the alert value should land within one bucket width above where the raw
+   buckets put the 95th observation (bounds `5,10,25,50,75,100,250,500,750,1000,1500,2500,5000,7500,10000` ms).
+   Implausibly low, or 0 while the widget shows traffic, means the reconstruction is wrong — check
+   the `lower(cache_status)` predicate first, then whether `histogram_bounds` is uniform across
+   points.
+8. **Sanity-check one high-volume metric weekly and record the number.** Pick
+   `aeci.api.query.duration_ms` by `endpoint`, or `aeci.ssr.render`. A number that moves for no
+   deploy-shaped reason is the finding; the most likely causes are a `lower()`-casing miss, a query
+   reading the wrong PostHog **project**, or a metric whose value is a row count being counted
+   rather than summed.
 9. **Read the liveness sweep's run history**, not just its notifications — specifically for **exit 2**
    runs, which mean cron liveness was *unchecked* for that window. A string of them is a provisioning
    or GitHub Actions problem, not a healthy period.
-10. **Confirm the fan-out is still two-legged.** A regression that silently drops one leg looks
-    exactly like a healthy system on the other. The cheapest check is the deploy markers: every deploy
-    should produce **both** a Datadog `/api/v1/events` marker and a PostHog `deployment` event for the
-    same SHA. One without the other means a leg went dark.
+10. **Confirm telemetry is still arriving at all.** With one vendor there is no second plane to
+    cross-check against, so a silent transport failure looks exactly like a quiet system. The
+    cheapest check is the deploy marker: every deploy should produce a PostHog `deployment` event
+    for that SHA. No marker means the pipe is down, not that nothing deployed.
 
 ---
 
@@ -238,24 +239,21 @@ Every threshold below is a documented **launch placeholder** — set before real
 each weekly. Full rationale per alert is in [`OBSERVABILITY.md`](./OBSERVABILITY.md#alerts); the complete
 26-row disposition with old thresholds is in [`RUNBOOKS.md`](./RUNBOOKS.md).
 
-> **While the dual-run lasts, a threshold change is TWO edits.** Change the Datadog monitor JSON and
-> re-apply (§5), **and** change `observability/posthog/alerts.json` and re-run `apply.sh`. Editing one
-> and not the other leaves the two planes disagreeing about what "unhealthy" means — which will read
-> as a PostHog bug at exactly the moment you are trying to decide whether PostHog is trustworthy.
-> Never edit a PostHog alert in the UI: `apply.sh` is idempotent by name and the next run will not
-> know.
+> **A threshold change is one edit: `observability/posthog/alerts.json`, then re-run `apply.sh`.**
+> Never edit a PostHog alert in the UI — `apply.sh` is idempotent by name and the next run will
+> silently revert you.
 
-| Alert | Datadog today | PostHog after AECI-651 | Retune signal |
+| Alert | Retired Datadog threshold | PostHog (live) | Retune signal |
 |---|---|---|---|
 | Worker error rate high | > 1% / 5m | > 1% / **1 h** | raise the floor only if single failures dominate at low volume. **The cadence, not the threshold, is the thing to watch here** |
 | Detail render slow | > 1.5s / 10m (MISS) | > 1,500 ms / 1 h, **≥20-observation floor** | tighten if p95 settles well below. Verify the reconstruction first (§2.7) |
 | page_views write errors | > 10% / 10m | > 10% / 1 h, **≥20-write floor** | lower toward 1% as volume grows |
 | Auth sign-in error rate | > 30% / 15m | > 30% / 1 h, **≥5-attempt floor** | lower once sign-in volume is non-trivial. The floor already removes the "1 of 2 failed = 50%" false page |
 | Toxicity scoring outage | > 50% / 15m | > 50% / 1 h, **≥5-call floor** | lower once review volume is non-trivial |
-| Moderation queue backlog | > 48h | **no alert** — dashboard + daily checklist row 8 | tighten toward the 24h internal target (§17); move cron hourly if needed. **Once it stops alerting, the daily read is the only control** |
+| Moderation queue backlog | > 48h | **no alert** — dashboard + daily checklist row 8 | tighten toward the 24h internal target (§17); move cron hourly if needed. **The daily read is the only control** |
 | Linear pipeline failure | > 50% / 1h | > 50% / 1 h, **≥3-attempt floor** | lower once baseline request volume is known |
 | Linear webhook HMAC failures | > 3 / 1h | > 3 / 1 h, unchanged | fine as-is (security signal) |
-| WAF rate-limit spike | > 500 / 15m | **> 2,000 / 1 h** — the only rescaled threshold | set once baseline mitigation volume is known. **Keep the 4× ratio between the two planes** while both are live, or they will disagree about what a spike is |
+| WAF rate-limit spike | > 500 / 15m | **> 2,000 / 1 h** — the only rescaled threshold | set once baseline mitigation volume is known. The 4× is the window rescale, not a policy change — keep that in mind when re-tuning |
 | Retention prune runaway | > 5,000 rows / table / 1d | unchanged | leave it until the prune actually starts deleting (~2026-11) |
 | Data-quality check (warn) | any > 0, **non-paging** (AECI-279) | **no alert** — dashboard + digest | mute/relax individual warn checks that prove noisy (e.g. known duplicate candidates) |
 | *(new)* Cron job failed — combined | n/a | any failure heartbeat > 0, hourly | do not add a floor. A cron failing once is a real event, and the `label_column` tells you which |
@@ -460,25 +458,6 @@ API call: **dashboard tile layout** (positions carry no contract) and **non-emai
 **Not yet run against production (354071)** — that is operator step 3 in
 `observability/posthog/README.md`, and it needs the `phx_` key. Until then the production PostHog
 project has dashboards and alerts only in JSON.
-
-### Datadog — the live object is the truth
-
-Monitors are committed JSON **for record**; the live monitor is what pages. Apply via the curl recipe
-in [`OBSERVABILITY.md` → Applying dashboards and alerts](./OBSERVABILITY.md#applying-dashboards-and-alerts)
-(substitute `@NOTIFICATION_CHANNEL_TBD` → `@chrisw@thewbsproject.com` at apply time), and **re-export
-any UI edit back into `observability/datadog/`** or the record goes stale.
-
-**AECI-279 changed/added three monitors — apply these:**
-
-- `monitor-data-quality-check.json` — *edited*, now scoped `severity:error` (was all severities).
-- `monitor-data-quality-check-warn.json` — *new*, `severity:warn`, informational. Uses the
-  `@NOTIFICATION_CHANNEL_LOW_TBD` placeholder: substitute a low-urgency handle when one exists, or leave
-  it literal so the monitor stays **UI-only / non-paging** (the daily digest already carries these rows).
-- `monitor-waf-poll-no-data.json` — *new*, liveness for the hourly WAF poll (`aeci.waf.poll{outcome:ok}`).
-  **Precondition:** the poll only emits `outcome:ok` once `CF_ANALYTICS_API_TOKEN` (+ `CF_ZONE_ID`) is
-  provisioned for the env; until then it emits `outcome:skipped_no_creds` every hour and never `outcome:ok`,
-  so this no-data monitor will fire continuously. Apply it after the token is set (or expect it to fire
-  meanwhile).
 
 ### At AECI-651 — what "delete Datadog" actually means
 

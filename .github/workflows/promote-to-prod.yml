@@ -34,7 +34,6 @@
 #      - Deploys API FIRST, then SSR (so any brief mismatch lands API-ahead-of-SSR);
 #        both `wrangler deploy` lines pass `--var COMMIT_SHA --var DEPLOYED_AT`
 #        per CLAUDE.md non-negotiable, then pushes the Worker runtime secrets.
-#      - Datadog deployment marker per docs/CICD_PLAN.md §9.1.
 #      - Polls `prod.aecintegrations.com` (Access-gated until launch — ADR 0017;
 #        the smoke step passes the `aeci-gh-actions` service-token headers, a
 #        no-op if the host is public) until BOTH Workers report
@@ -49,8 +48,7 @@
 # fails the run immediately — nothing is deployed and the DB is never touched.
 # After deploy, `scripts/verify-worker-secrets.sh` asserts the prod API Worker
 # actually carries REVIEW_APP_TOKEN + the Algolia keys. Recommended-but-optional
-# secrets (ADMIN_PURGE_TOKEN, DATADOG_API_KEY, CF_ZONE_ID)
-# only warn. See docs/environments.md §Secrets.
+# secrets (ADMIN_PURGE_TOKEN, CF_ZONE_ID) only warn. See docs/environments.md §Secrets.
 #
 # Required GH Actions secrets. The app DB is Cloudflare D1 (ADR 0016) and auth is
 # the single shared Supabase project (ADR 0017), so the promote needs NO Postgres
@@ -79,12 +77,6 @@
 #                            value as the Worker's `ADMIN_PURGE_TOKEN` Wrangler
 #                            secret; docs/CACHE_STRATEGY.md §5). Purges the taxonomy
 #                            cache tags after the D1 taxonomy seed. Recommended.
-#   DATADOG_API_KEY          Datadog deploy-marker intake (docs/CICD_PLAN.md §9.1). Recommended.
-#   DD_APPLICATION_ID        Public Datadog RUM application id (client-exposed).
-#   DD_CLIENT_TOKEN          Public Datadog RUM client token (client-exposed). Both
-#                            shared un-suffixed (single "aeci" app on us5); pushed to
-#                            the prod web Worker so RUM reports Core Web Vitals
-#                            (AECI-326). Fail-open — absent → RUM no-ops.
 #   SUPABASE_SERVICE_ROLE_KEY
 #                            GoTrue Admin API key for the AUTH_AND_RLS.md §3.1
 #                            split-identity seams (AECI-530, reconciling CI with ADR
@@ -165,7 +157,7 @@ jobs:
       #   here and nothing destructive runs. Required = every secret the promote
       #   and the prod Workers' runtime need (Worker REVIEW_APP_TOKEN + Algolia
       #   keys are pushed in deploy-prod-workers from the GH secrets asserted here).
-      #   Recommended-but-optional (Datadog / cache-purge) only warn. Keep in
+      #   Recommended-but-optional (cache-purge) only warn. Keep in
       #   sync with apps/api/src/env.ts + docs/environments.md §Secrets.
       # -----------------------------------------------------------------------
       - name: Preflight — required secrets present (production)
@@ -176,13 +168,10 @@ jobs:
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
           CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
           ADMIN_PURGE_TOKEN: ${{ secrets.ADMIN_PURGE_TOKEN }}
-          DATADOG_API_KEY: ${{ secrets.DATADOG_API_KEY }}
           # The RUM pair is un-suffixed + shared across envs (one "aeci" app on
           # us5) and IS pushed to the web Worker below. Mapped here so the VALUE
           # check is real — named-but-unmapped always reads empty and false-warns
           # "not set" on every promote even though the GH secrets exist.
-          DD_APPLICATION_ID: ${{ secrets.DD_APPLICATION_ID }}
-          DD_CLIENT_TOKEN: ${{ secrets.DD_CLIENT_TOKEN }}
           CF_ZONE_ID: ${{ secrets.CF_ZONE_ID }}
           CF_ANALYTICS_API_TOKEN: ${{ secrets.CF_ANALYTICS_API_TOKEN }}
           # Algolia (AECI-139): REQUIRED on production. Search is a launch-critical
@@ -243,7 +232,7 @@ jobs:
           # never REQUIRED, because every seam degrades rather than failing closed
           # (reviewer emails null, the erasure auth.users delete skipped, vendor-claim
           # resolution 'unavailable'). Prod therefore does NOT fail closed on it.
-          RECOMMENDED_SECRETS: 'ADMIN_PURGE_TOKEN DATADOG_API_KEY DD_APPLICATION_ID DD_CLIENT_TOKEN CF_ZONE_ID SUPABASE_ANON_KEY SUPABASE_SERVICE_ROLE_KEY ANTHROPIC_API_KEY_PRODUCTION RESEND_API_KEY INDEXNOW_KEY_PRODUCTION GOOGLE_INDEXING_SA_EMAIL_PRODUCTION GOOGLE_INDEXING_SA_PRIVATE_KEY_PRODUCTION CF_ANALYTICS_API_TOKEN'
+          RECOMMENDED_SECRETS: 'ADMIN_PURGE_TOKEN CF_ZONE_ID SUPABASE_ANON_KEY SUPABASE_SERVICE_ROLE_KEY ANTHROPIC_API_KEY_PRODUCTION RESEND_API_KEY INDEXNOW_KEY_PRODUCTION GOOGLE_INDEXING_SA_EMAIL_PRODUCTION GOOGLE_INDEXING_SA_PRIVATE_KEY_PRODUCTION CF_ANALYTICS_API_TOKEN'
         run: bash scripts/require-secrets.sh
 
       # -----------------------------------------------------------------------
@@ -529,7 +518,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "$CF_ANALYTICS_API_TOKEN_VALUE" ]; then
-            echo "::warning::CF_ANALYTICS_API_TOKEN not set — skipping push. The WAF→Datadog poll will no-op in production (outcome:skipped_no_creds) until it is provisioned (AECI-262)."
+            echo "::warning::CF_ANALYTICS_API_TOKEN not set — skipping push. The WAF→PostHog poll will no-op in production (outcome:skipped_no_creds) until it is provisioned (AECI-262)."
             exit 0
           fi
           printf '%s' "$CF_ANALYTICS_API_TOKEN_VALUE" \
@@ -549,7 +538,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "$CF_ZONE_ID_VALUE" ]; then
-            echo "::warning::CF_ZONE_ID not set — skipping. The WAF→Datadog poll no-ops on production (outcome:skipped_no_creds, AECI-262)."
+            echo "::warning::CF_ZONE_ID not set — skipping. The WAF→PostHog poll no-ops on production (outcome:skipped_no_creds, AECI-262)."
             exit 0
           fi
           printf '%s' "$CF_ZONE_ID_VALUE" \
@@ -715,40 +704,6 @@ jobs:
       #
       # The `POSTHOG_KEY_STAGING` / `POSTHOG_KEY_PRODUCTION` GitHub secrets are
       # now unused and should be deleted (operator step, AECI-640).
-
-      # AECI-326: push the PUBLIC Datadog RUM credentials to the prod WEB Worker
-      # so SSR emits `window.__AECI_DD__` and the browser RUM layer inits and
-      # reports Core Web Vitals. Web only; both are client-exposed (rendered into
-      # HTML). `vars.DD_SITE` (us5) is inherited from wrangler.jsonc. A single
-      # "aeci" RUM app on us5 — the per-env `env` field separates prod from
-      # staging, so the same un-suffixed DD_APPLICATION_ID/DD_CLIENT_TOKEN are
-      # used everywhere (like DATADOG_API_KEY). Warn-and-skip (recommended, NOT
-      # launch-critical): a missing cred just no-ops RUM (fail-open) rather than
-      # aborting the promote. Same idempotent deploy→secret order.
-      - name: Push Datadog RUM credentials to web Worker (production)
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          DD_APPLICATION_ID_VALUE: ${{ secrets.DD_APPLICATION_ID }}
-          DD_CLIENT_TOKEN_VALUE: ${{ secrets.DD_CLIENT_TOKEN }}
-        working-directory: apps/web
-        run: |
-          set -euo pipefail
-          if [ -z "$DD_APPLICATION_ID_VALUE" ] || [ -z "$DD_CLIENT_TOKEN_VALUE" ]; then
-            echo "::warning::DD_APPLICATION_ID / DD_CLIENT_TOKEN not set — skipping push. Datadog RUM no-ops (no window.__AECI_DD__, no Core Web Vitals) in production until they are provisioned."
-            exit 0
-          fi
-          printf '%s' "$DD_APPLICATION_ID_VALUE" \
-            | pnpm exec wrangler secret put DD_APPLICATION_ID --env production
-          printf '%s' "$DD_CLIENT_TOKEN_VALUE" \
-            | pnpm exec wrangler secret put DD_CLIENT_TOKEN --env production
-
-      # AECI-236/§20.2: push the SAME INDEXNOW_KEY to the prod WEB Worker so it
-      # serves the `{key}.txt` verification file at the site root (search engines
-      # fetch it to confirm host ownership before honoring the API Worker's IndexNow
-      # submissions). Must MATCH the API Worker's INDEXNOW_KEY pushed above.
-      # Warn-and-skip (fail-open): absent → the key file 404s and IndexNow no-ops,
-      # never aborting the promote. Same idempotent deploy→secret order.
       - name: Push INDEXNOW_KEY to web Worker (production)
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -829,53 +784,6 @@ jobs:
           REQUIRED_WORKER_SECRETS: 'REVIEW_APP_TOKEN ALGOLIA_APP_ID ALGOLIA_ADMIN_KEY'
         working-directory: apps/api
         run: bash ../../scripts/verify-worker-secrets.sh
-
-      # -----------------------------------------------------------------------
-      # Datadog deployment marker (docs/CICD_PLAN.md §9.1). Markers show as
-      # vertical lines on dashboards so any post-deploy regression is easy to
-      # correlate with the release.
-      # -----------------------------------------------------------------------
-      - name: Datadog deployment marker
-        env:
-          DATADOG_API_KEY: ${{ secrets.DATADOG_API_KEY }}
-          INPUT_SHA: ${{ inputs.commit_sha }}
-        run: |
-          set -euo pipefail
-          curl -fsS -X POST "https://api.datadoghq.com/api/v1/events" \
-            -H "DD-API-KEY: ${DATADOG_API_KEY}" \
-            -H "Content-Type: application/json" \
-            -d "$(jq -nc \
-                  --arg sha "$INPUT_SHA" \
-                  --arg actor "${{ github.actor }}" \
-                  '{
-                    title: "Production deployment",
-                    text: ("Deployed commit " + $sha + " by " + $actor),
-                    tags: [
-                      "env:production",
-                      "service:aeci-ssr",
-                      ("commit:" + $sha)
-                    ]
-                  }')"
-
-      # -----------------------------------------------------------------------
-      # Smoke test: poll production until the release is fully healthy, or fail
-      # after the 60s budget. Two gates, both required:
-      #   - verify-version.sh: BOTH the API (/api/version) and the SSR Worker's
-      #     own (/_version, AECI-92) report the promoted SHA. /api/version is
-      #     proxied raw to the API Worker, so on its own it can't catch a stale
-      #     SSR deploy.
-      #   - verify-health.sh: /api/health returns {"ok":true,"db":"ok"}, proving
-      #     the prod API Worker can actually reach the D1 database (via its `DB`
-      #     binding). The version gate reads vars, not the DB, so without this a
-      #     Worker whose D1 binding is misconfigured would pass green while every
-      #     DB endpoint 500s and /categories 404s. A failure here trips the
-      #     auto-rollback below (smoke.outcome == 'failure').
-      # Production is gated by Cloudflare Access until launch (ADR 0017), so the
-      # service-token headers are required to reach it from CI; both scripts
-      # attach them when CF_ACCESS_* are set. At launch, dropping the prod Access
-      # app makes these a harmless no-op (the scripts only add the headers when
-      # the vars are present) — no workflow change needed.
-      # -----------------------------------------------------------------------
       - name: Smoke test production (API + SSR at SHA, DB healthy)
         id: smoke
         env:
@@ -926,14 +834,13 @@ jobs:
       # Guard: roll back only when the SMOKE step itself failed AND both deploys
       # succeeded this run. Gating on `steps.smoke.outcome == 'failure'` (not a
       # bare `failure()`) means an unrelated post-deploy step failure — e.g. the
-      # informational Datadog deploy MARKER above erroring on a Datadog outage —
+      # informational PostHog deploy MARKER above erroring on a PostHog outage —
       # does NOT roll back an otherwise-healthy release. And a Worker whose own
       # deploy FAILED still has its last-good version live, so rolling it back
       # would regress it BELOW the last release — never do that.
       #
       # `set -uo pipefail` (NOT -e) + never exiting non-zero: we attempt both
-      # rollbacks, capture the result, and let the Datadog-alert + runbook steps
-      # run. The job stays red from the original smoke failure regardless.
+      # rollbacks, capture the result, and let the alert + runbook steps run. The job stays red from the original smoke failure regardless.
       # -----------------------------------------------------------------------
       - name: Auto-rollback production Workers (smoke/post-deploy failure)
         id: rollback
@@ -955,54 +862,6 @@ jobs:
             echo "::error::One or more Worker rollbacks failed — see the failure runbook in the job summary for manual commands"
           fi
           echo "rollback_rc=${rc}" >> "$GITHUB_OUTPUT"
-
-      # -----------------------------------------------------------------------
-      # AECI-91: alert-grade Datadog EVENT on rollback (Slack was intentionally
-      # dropped from Phase 1 — docs/CICD_PLAN.md §9.2; Datadog is the prod alert
-      # channel). Distinct from the informational deploy MARKER above via
-      # alert_type:error + the event:auto_rollback tag. Reuses DATADOG_API_KEY
-      # already in this job. `set +e` so a Datadog outage can't break the run.
-      # -----------------------------------------------------------------------
-      - name: Datadog rollback alert
-        if: failure() && steps.smoke.outcome == 'failure' && steps.deploy_api.outcome == 'success' && steps.deploy_ssr.outcome == 'success'
-        env:
-          DATADOG_API_KEY: ${{ secrets.DATADOG_API_KEY }}
-          INPUT_SHA: ${{ inputs.commit_sha }}
-          ACTOR: ${{ github.actor }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          ROLLBACK_RC: ${{ steps.rollback.outputs.rollback_rc }}
-        run: |
-          set +e
-          curl -fsS -X POST "https://api.datadoghq.com/api/v1/events" \
-            -H "DD-API-KEY: ${DATADOG_API_KEY}" \
-            -H "Content-Type: application/json" \
-            -d "$(jq -nc \
-                  --arg sha "$INPUT_SHA" \
-                  --arg actor "$ACTOR" \
-                  --arg run "$RUN_URL" \
-                  --arg rc "${ROLLBACK_RC:-unknown}" \
-                  '{
-                    title: "Production AUTO-ROLLBACK (prod smoke failed)",
-                    text: ("Prod smoke failed for commit " + $sha + " (promoted by " + $actor + "). Workers auto-rolled-back (rc=" + $rc + "). DB NOT auto-restored — operator runbook in the run summary: " + $run),
-                    alert_type: "error",
-                    priority: "normal",
-                    tags: [
-                      "env:production",
-                      "service:aeci-ssr",
-                      "service:aeci-api",
-                      "event:auto_rollback",
-                      ("commit:" + $sha)
-                    ]
-                  }')" || echo "::warning::Datadog rollback event POST failed (non-fatal)"
-
-      # ─────────────────────────────────────────────────────────────────────
-      # PostHog auto-rollback marker (AECI-640). The counterpart to the Datadog
-      # rollback event above — same trigger, same guard, PostHog side. Emitted as
-      # `deploy_kind: auto_rollback` so a HogQL query can separate releases from
-      # incidents, and annotated with 🔥 rather than 🚀 so a dashboard reader can
-      # tell them apart without hovering. Non-fatal like every marker: a PostHog
-      # outage must not make a bad situation worse.
-      # ─────────────────────────────────────────────────────────────────────
       - name: PostHog auto-rollback marker (production)
         if: failure() && steps.smoke.outcome == 'failure' && steps.deploy_api.outcome == 'success' && steps.deploy_ssr.outcome == 'success'
         continue-on-error: true

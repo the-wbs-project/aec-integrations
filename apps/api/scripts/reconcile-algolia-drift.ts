@@ -31,7 +31,7 @@
  *   pnpm --filter @aeci/api db:reconcile-algolia-drift -- --local
  *
  * Emits the gauges `aeci.algolia.index_drift` (signed, per entity — the existing
- * §23.1 monitor) and `aeci.algolia.orphans_removed` (per entity) when DD_API_KEY is
+ * §23.1 check) and `aeci.algolia.orphans_removed` (per entity) when POSTHOG_PROJECT_KEY is
  * set, mirroring the Worker `submitGauge` payload (that helper is ctx/Request-bound).
  */
 
@@ -70,7 +70,7 @@ function readValueFlag(argv: string[], name: string): string | undefined {
 }
 
 interface Target {
-  /** Datadog `env:` tag + display label. */
+  /** Telemetry `env` dimension + display label. */
   label: string;
   /** D1 database name (`wrangler.jsonc` `d1_databases[].database_name`). */
   db: string;
@@ -160,50 +160,77 @@ function wranglerPromotedIds(target: Target): PromotedIdProvider {
   };
 }
 
-// ─── Datadog ─────────────────────────────────────────────────────────────────
+// ─── PostHog ─────────────────────────────────────────────────────────────────
 
-/** POST the per-entity `aeci.algolia.index_drift` (signed `promoted − indexed`,
- *  the existing §23.1 monitor) and `aeci.algolia.orphans_removed` gauges. The
- *  shared `submitGauge` needs a Worker ctx/Request, so the CLI posts directly with
- *  the same v2-series payload. Best-effort: observability never fails the run. */
+/**
+ * POST the per-entity `aeci.algolia.index_drift` (signed `promoted − indexed`)
+ * and `aeci.algolia.orphans_removed` gauges to the PostHog OTLP metrics intake.
+ *
+ * The shared `submitGauge` (`packages/shared/src/posthog.ts`) is bound to a
+ * Worker `ctx`/`Request`, so the CLI posts directly with the same OTLP envelope.
+ * `aeci.algolia.index_drift` is one of the twelve heartbeat series the AECI-647
+ * liveness sweep watches (`observability/posthog/project-config.json`), so this
+ * emit is load-bearing, not decorative — dropping it turns the `algolia-drift`
+ * liveness check red.
+ *
+ * Auth is the publishable `phc_` project token (`POSTHOG_PROJECT_KEY`).
+ * Best-effort: observability never fails the run.
+ */
 async function emitGauges(result: OrphanSweepResult, env: string): Promise<void> {
-  const apiKey = process.env.DD_API_KEY;
-  if (!apiKey) return;
-  const site = process.env.DD_SITE || 'us5.datadoghq.com';
-  const ts = Math.floor(Date.now() / 1000);
-  const baseTags = [
-    'app:aeci',
-    'service:aeci-api',
-    'worker:aeci-api',
-    `env:${env}`,
-    'source:reconcile',
-  ];
-  const series = result.entities.flatMap((e) => {
-    const tags = [...baseTags, `entity:${e.entity}`, `index:${e.indexName}`];
-    return [
-      {
-        metric: 'aeci.algolia.index_drift',
-        type: 3,
-        points: [{ timestamp: ts, value: e.promotedCount - e.indexCount }],
-        tags,
-      },
-      {
-        metric: 'aeci.algolia.orphans_removed',
-        type: 3,
-        points: [{ timestamp: ts, value: e.deleted }],
-        tags,
-      },
-    ];
+  const projectKey = process.env.POSTHOG_PROJECT_KEY;
+  if (!projectKey) return;
+  const host = (process.env.POSTHOG_HOST || 'https://us.i.posthog.com').replace(/\/+$/, '');
+  const timeUnixNano = `${Date.now() * 1_000_000}`;
+  const attr = (key: string, stringValue: string) => ({ key, value: { stringValue } });
+  const point = (value: number, entity: string, indexName: string) => ({
+    startTimeUnixNano: timeUnixNano,
+    timeUnixNano,
+    asDouble: value,
+    attributes: [attr('source', 'reconcile'), attr('entity', entity), attr('index', indexName)],
   });
+  const metrics = [
+    {
+      name: 'aeci.algolia.index_drift',
+      gauge: {
+        dataPoints: result.entities.map((e) =>
+          point(e.promotedCount - e.indexCount, e.entity, e.indexName),
+        ),
+      },
+    },
+    {
+      name: 'aeci.algolia.orphans_removed',
+      gauge: {
+        dataPoints: result.entities.map((e) => point(e.deleted, e.entity, e.indexName)),
+      },
+    },
+  ];
+  const payload = {
+    resourceMetrics: [
+      {
+        resource: {
+          attributes: [
+            attr('service.name', 'aeci-api'),
+            attr('env', env),
+            attr('app', 'aeci'),
+            attr('service', 'aeci-api'),
+            attr('worker', 'aeci-api'),
+            attr('source', 'worker'),
+            attr('locale', 'en-US'),
+          ],
+        },
+        scopeMetrics: [{ scope: { name: 'aeci-worker' }, metrics }],
+      },
+    ],
+  };
   try {
-    const res = await fetch(`https://api.${site}/api/v2/series`, {
+    const res = await fetch(`${host}/i/v1/metrics`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'dd-api-key': apiKey },
-      body: JSON.stringify({ series }),
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${projectKey}` },
+      body: JSON.stringify(payload),
     });
-    if (!res.ok) console.warn(`Datadog gauge POST returned ${res.status}.`);
+    if (!res.ok) console.warn(`PostHog gauge POST returned ${res.status}.`);
   } catch (err) {
-    console.warn(`Datadog gauge POST failed: ${(err as Error).message}`);
+    console.warn(`PostHog gauge POST failed: ${(err as Error).message}`);
   }
 }
 
@@ -289,7 +316,7 @@ export async function main(argv: string[]): Promise<number> {
     return 0;
   }
   // Dry-run with orphans: report-only (exit 0 preserves the non-blocking CI
-  // contract; the Datadog gauges/monitor are the alert). Re-run with --apply.
+  // contract; the PostHog gauges + liveness sweep are the alert). Re-run with --apply.
   console.log(
     `Found ${result.totalOrphans} orphan object(s) (dry-run). Re-run with --apply to remove them.`,
   );

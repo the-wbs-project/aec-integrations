@@ -13,9 +13,11 @@
   // binding via Drizzle (ADR 0016) — no external proxy, no Accelerate, and no
   // Node-compat polyfills for the DB path (intentionally not enabled here).
   //
+  // Observability (ADR 0024) needs no secret: the publishable `phc_`
+  // POSTHOG_PROJECT_KEY is a committed per-env var (AECI-640) and authenticates
+  // all three PostHog intakes. DD_API_KEY retired with AECI-651.
+  //
   // Secrets (set via `wrangler secret put`):
-  //   DD_API_KEY  — Datadog Logs HTTP intake key (AECI-31). `logToDatadog()`
-  //                 no-ops when this is unset, so non-DD envs are unaffected.
   //   CF_ZONE_ID  — Cloudflare zone id for aecintegrations.com. Public value;
   //                 provision per env. Consumed (as the GraphQL zoneTag) by the
   //                 AECI-262 WAF firewall-event poll, paired with CF_ANALYTICS_API_TOKEN.
@@ -151,7 +153,6 @@
   },
   "vars": {
     "ENV": "preview",
-    "DD_SITE": "us5.datadoghq.com",
     // AECI-74: overridden at dev/deploy time via `wrangler --var COMMIT_SHA:<sha> --var DEPLOYED_AT:<iso>`.
     "COMMIT_SHA": "unknown",
     "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
@@ -217,7 +218,6 @@
       // graceful-degradation path (Option B; see the top comment).
       "vars": {
         "ENV": "preview",
-        "DD_SITE": "us5.datadoghq.com",
         // AECI-74: overridden at dev/deploy time via `wrangler --var COMMIT_SHA:<sha> --var DEPLOYED_AT:<iso>`.
         "COMMIT_SHA": "unknown",
         "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
@@ -297,7 +297,6 @@
       // CACHE_PURGE_QUEUE (aeci-cache-purge-{env}) — no WEB binding, no CF purge token.
       "vars": {
         "ENV": "staging",
-        "DD_SITE": "us5.datadoghq.com",
         // AECI-74: overridden at deploy time via `wrangler --var COMMIT_SHA:<sha> --var DEPLOYED_AT:<iso>`.
         "COMMIT_SHA": "unknown",
         "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
@@ -498,7 +497,6 @@
       // enqueueing onto the CACHE_PURGE_QUEUE (aeci-cache-purge-{env}) — no WEB binding, no CF token.
       "vars": {
         "ENV": "demo",
-        "DD_SITE": "us5.datadoghq.com",
         // AECI-74: overridden at deploy time via `wrangler --var COMMIT_SHA:<sha> --var DEPLOYED_AT:<iso>`.
         "COMMIT_SHA": "unknown",
         "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
@@ -672,7 +670,6 @@
       "workers_dev": false,
       "vars": {
         "ENV": "stage2",
-        "DD_SITE": "us5.datadoghq.com",
         // AECI-74: overridden at deploy time via `wrangler --var COMMIT_SHA:<sha> --var DEPLOYED_AT:<iso>`.
         "COMMIT_SHA": "unknown",
         "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
@@ -748,7 +745,6 @@
       // CACHE_PURGE_QUEUE (aeci-cache-purge-{env}) — no WEB binding, no CF purge token.
       "vars": {
         "ENV": "production",
-        "DD_SITE": "us5.datadoghq.com",
         // AECI-74: overridden at deploy time via `wrangler --var COMMIT_SHA:<sha> --var DEPLOYED_AT:<iso>`.
         "COMMIT_SHA": "unknown",
         "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",

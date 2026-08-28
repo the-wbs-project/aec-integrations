@@ -419,12 +419,12 @@ describe('runAttestationNotifySweep — audit forwarding', () => {
     });
   });
 
-  it('forwards with no DD_API_KEY configured — each leg self-gates', async () => {
-    // The old forwarder gated BOTH legs on `DD_API_KEY`, so on any tier without
+  it('forwards with no telemetry key configured — the transport self-gates', async () => {
+    // The old forwarder gated the forward on `DD_API_KEY`, so on any tier without
     // a Datadog key (which is every tier after PH-final, AECI-651) it silently
     // forwarded nothing at all.
     await sweep([finding({ detector: 'stale-version', claimId: u(3004) })], {
-      env: { DD_API_KEY: undefined },
+      env: { POSTHOG_PROJECT_KEY: undefined },
     });
 
     expect(logBatchToPosthog).toHaveBeenCalledTimes(1);

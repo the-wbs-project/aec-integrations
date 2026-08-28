@@ -77,10 +77,6 @@
       "types": "./src/algolia-batch.ts",
       "default": "./src/algolia-batch.ts"
     },
-    "./datadog": {
-      "types": "./src/datadog.ts",
-      "default": "./src/datadog.ts"
-    },
     "./posthog": {
       "types": "./src/posthog.ts",
       "default": "./src/posthog.ts"

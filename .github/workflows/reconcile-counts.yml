@@ -7,9 +7,8 @@
 # `wrangler d1 execute --remote`: it recomputes the expected values from the
 # `integrations` / `reviews` source rows and exits non-zero if any product's
 # stored columns have drifted — which fails the job and notifies. The script
-# also emits a Datadog gauge `aeci.product_counts.drift` (count of drifted
-# products; 0 when clean) when DD_API_KEY is set, so a monitor can alert
-# independently of the GitHub run.
+# also emits a PostHog gauge `aeci.product_counts.drift` (count of drifted
+# products; 0 when clean), so an alert can fire independently of the GitHub run.
 #
 # Drift means a write path mutated integrations/reviews without the post-batch
 # `recomputeProductCounts()` landing (under D1 that recompute is a separate,
@@ -32,7 +31,11 @@
 #
 # Required secrets:
 #   CLOUDFLARE_API_TOKEN     scoped to Account → D1 → Read (CICD_PLAN §7.1)
-#   DATADOG_API_KEY          Datadog API key (mapped to the script's DD_API_KEY)
+#
+# No observability secret: the script POSTs its gauge with the publishable `phc_`
+# POSTHOG_PROJECT_KEY, selected per matrix target below (prod project for
+# `production`, the shared dev project otherwise) — the same values committed in
+# apps/api/wrangler.jsonc.
 
 name: reconcile-counts
 
@@ -85,8 +88,8 @@ jobs:
           # authenticates the remote D1 query.
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           RECONCILE_ENV: ${{ matrix.target }}
-          DD_API_KEY: ${{ secrets.DATADOG_API_KEY }}
-          DD_ENV: ${{ matrix.target }}
+          POSTHOG_PROJECT_KEY: ${{ matrix.target == 'production' && 'phc_Ka6zXrunFnSKZS6jQTqG6GNQHKuya9RTMZzQvcY7reJ' || 'phc_pY8FDQ9FNAmFUJFFd85jNKAAUCMvndUsyGMMV8TR97MD' }}
+          TELEMETRY_ENV: ${{ matrix.target }}
         run: |
           if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
             echo "::error::CLOUDFLARE_API_TOKEN secret is empty. Configure it under repo Settings → Secrets and variables → Actions."

@@ -1,5 +1,16 @@
 # PostHog Migration Spec — Datadog → PostHog (dual-run)
 
+> **Status: complete (2026-08-28).** Every sub-issue including **AECI-651** has shipped, so this
+> document is now a **build record**, not an in-flight contract. `docs/OBSERVABILITY.md` is
+> canonical for the live plane, which is PostHog only.
+>
+> Two deviations from what this spec specified, both deliberate and both the operator's call:
+> the decommission landed on the **`stage-2` line only** (`main` still runs Datadog-only code
+> until the branches merge), and the **2–4 week prod soak in §AW-final was waived** — PostHog
+> had never run as production's observability plane when Datadog was removed, so §AW6's
+> histogram-p95 spot-check never happened against the original. It survives as a standing check
+> in `POST_LAUNCH_MONITORING.md` §2.7.
+
 **Status:** Build contract for epic **AECI-639** (sub-issues AECI-640…651). Committed by
 AECI-641 (kickoff). Decisions ratified with Chris 2026-08-24; design rationale in
 [ADR 0024](./adr/0024-observability-migrates-to-posthog.md).

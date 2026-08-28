@@ -67,7 +67,7 @@ import { createLinearIssueForRequest, drizzleLinearStore } from '../lib/linear';
 /** Telemetry forwarder (PostHog + the dual-run Datadog leg) for the audit write; each vendor leg no-ops without its own key. Tagged
  *  `source: request-form`. */
 function makeForwarder(c: Context<{ Bindings: Env }>): AuditLogForwarder | undefined {
-  if (!c.env.DD_API_KEY && !c.env.POSTHOG_PROJECT_KEY) return undefined;
+  if (!c.env.POSTHOG_PROJECT_KEY) return undefined;
   return (entry) => {
     logToPosthog(c.executionCtx, c.env, c.req.raw, {
       level: 'info',
@@ -81,11 +81,11 @@ function makeForwarder(c: Context<{ Bindings: Env }>): AuditLogForwarder | undef
 }
 
 /** Telemetry forwarder (PostHog + the dual-run Datadog leg) for the workflow-transition write; no-op without
- *  `DD_API_KEY`. Mirrors `makeForwarder`, tagged `source: request-form`. */
+ *  `POSTHOG_PROJECT_KEY`. Mirrors `makeForwarder`, tagged `source: request-form`. */
 function makeWorkflowForwarder(
   c: Context<{ Bindings: Env }>,
 ): WorkflowTransitionForwarder | undefined {
-  if (!c.env.DD_API_KEY && !c.env.POSTHOG_PROJECT_KEY) return undefined;
+  if (!c.env.POSTHOG_PROJECT_KEY) return undefined;
   return (entry) => {
     logToPosthog(c.executionCtx, c.env, c.req.raw, {
       level: 'info',

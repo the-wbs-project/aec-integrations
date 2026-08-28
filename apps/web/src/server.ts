@@ -22,7 +22,6 @@ import type { ApiError } from '@aeci/shared';
 
 import { injectAlgoliaBootstrap } from './algolia-bootstrap-inject';
 import { injectPostHogBootstrap } from './posthog-bootstrap-inject';
-import { injectDatadogBootstrap } from './server-bootstrap-inject';
 import { logToPosthog } from './server-posthog';
 import { shouldEmitRenderLog } from './server-render-log';
 import { injectHtmlLangDir } from './server-html-dir-inject';
@@ -69,9 +68,8 @@ const app = createApp({
   transformResponse: async (res, env, request, ctx) => {
     // Chain the bootstrap injections: each operates on the previous one's
     // output so all `<script>` tags land before `</head>`. Each is a no-op
-    // when its public config is absent (AECI-31 / AECI-134 / AECI-194 / AECI-239).
-    const ddInjected = await injectDatadogBootstrap(res, env);
-    const algoliaInjected = await injectAlgoliaBootstrap(ddInjected, env);
+    // when its public config is absent (AECI-134 / AECI-194 / AECI-239).
+    const algoliaInjected = await injectAlgoliaBootstrap(res, env);
     const supabaseInjected = await injectSupabaseBootstrap(algoliaInjected, env);
     const posthogInjected = await injectPostHogBootstrap(supabaseInjected, env);
     // Rewrite `<html lang/dir>` from the request's locale prefix (AECI-153).

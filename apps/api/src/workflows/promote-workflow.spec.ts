@@ -299,7 +299,7 @@ describe('runPromoteWorkflow', () => {
     // staged-load failure is the only thing that runs before the throw on this path, so a
     // waitUntil dispatch proves the `errored` outcome telemetry fired rather than the error
     // escaping the run silently — the gap the emit-then-rethrow guard closes.
-    env.DD_API_KEY = 'dd-test-key';
+    env.POSTHOG_PROJECT_KEY = 'phc_test_token';
     kv.store.set(promotePayloadKey(JOB_ID), '{ not json');
     const { promise, ctx } = run({ payload: undefined, payloadRef: 'kv' });
 

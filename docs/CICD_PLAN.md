@@ -9,7 +9,7 @@
 > pre-launch and had drifted from what the workflows actually do. Corrected in this pass:
 > the Supabase-project topology (one shared project, not per-env), production's Access +
 > indexing state (launched — public and indexable), `deploy-staging`'s real step list (D1
-> migrations, no Datadog marker, no Playwright smoke, no approval-request step), and the
+> migrations, no deploy marker, no Playwright smoke, no approval-request step), and the
 > removal of every Slack reference. Claims below were verified against
 > `.github/workflows/*.yml`, `apps/web/wrangler.jsonc`, and live HTTP probes.
 
@@ -96,7 +96,7 @@ Spun up per PR by [`pr-preview.yml`](../.github/workflows/pr-preview.yml) (AECI-
 - Auto-deletes when the PR is closed or merged (cleanup job in the same workflow).
 - **DB:** the shared `aeci-api-preview` Worker reaches Cloudflare D1 via its native `DB` binding (ADR 0016) — no Prisma Accelerate, no per-PR Supabase branches (see `docs/environments.md` §"PR previews" for the trade-off and decision history).
 - Fronted by the "AECi Non-Prod" Cloudflare Access app — service token for CI, OTP-to-email for humans (see `docs/access.md`).
-- Datadog, Resend, and Linear behaviour for previews is shared with staging (preview Workers don't have their own integrations — they ride on whatever the shared `aeci-api-preview` is wired to). **PostHog is now the second exception:** since AECI-640 the publishable `phc_` token is a committed `env.preview` wrangler var pointing at `aec-integrations-dev` (525793), so **every PR preview gets analytics and error tracking for free** — no secret push, nothing to provision. Previews also post a PostHog `deployment` marker (`deploy_kind: preview`) and upload hidden source maps. **Algolia is the other exception:** previews use their own dedicated `preview_*` index set (and `preview` scoped keys), per §7.5 — so preview/local search can't poison staging data. Local `pnpm dev:bound` (`ENV=preview`) rides the same `preview_*` set.
+- Resend and Linear behaviour for previews is shared with staging (preview Workers don't have their own integrations — they ride on whatever the shared `aeci-api-preview` is wired to). **PostHog is now the second exception:** since AECI-640 the publishable `phc_` token is a committed `env.preview` wrangler var pointing at `aec-integrations-dev` (525793), so **every PR preview gets analytics and error tracking for free** — no secret push, nothing to provision. Previews also post a PostHog `deployment` marker (`deploy_kind: preview`) and upload hidden source maps. **Algolia is the other exception:** previews use their own dedicated `preview_*` index set (and `preview` scoped keys), per §7.5 — so preview/local search can't poison staging data. Local `pnpm dev:bound` (`ENV=preview`) rides the same `preview_*` set.
 
 ### 2.2 Staging environment
 
@@ -105,7 +105,7 @@ Mirror of production, but with test data and isolated from real users.
 - Always reflects the latest `main` branch
 - Own D1 database (`aeci-app-staging`); shares the single Supabase **auth** project with every other tier (ADR 0017)
 - Algolia connects to dedicated staging indexes (`staging_*`; physical naming per §7.5)
-- Datadog under `env:staging` tag; PostHog under the non-prod project `aec-integrations-dev` (525793), separated from the other non-prod tiers by `$host` / `env`
+- PostHog under the non-prod project `aec-integrations-dev` (525793), separated from the other non-prod tiers by `$host` / `env`
 - Resend sends real emails but only to allowlisted internal addresses
 - Linear creates real issues in a "Staging Test" project
 - Used for smoke tests, manual QA, and demos
@@ -117,7 +117,7 @@ The public showcase tier (`demo.aecintegrations.com`), inserted between staging 
 
 - Public (no Cloudflare Access), but `ALLOW_INDEXING="false"` (no-index) like production.
 - **Shares the prod Supabase auth project** (one admin login works on demo + prod; the app DB is Cloudflare D1 per ADR 0016), but has its **own** D1 (`aeci-app-demo`), KV, queues (`aeci-*-demo`), and Algolia (`demo_*`) index set.
-- `ENV=demo` → Datadog `env:demo` tag, `demo_*` Algolia prefix. Recognised as a public site by `isPublicSite()` alongside production (blocks `/preview/*` etc.).
+- `ENV=demo` → PostHog `env` dimension `demo`, `demo_*` Algolia prefix. Recognised as a public site by `isPublicSite()` alongside production (blocks `/preview/*` etc.).
 - **PostHog: the non-prod project** (`aec-integrations-dev`, 525793) since AECI-640. Before that, `promote-to-demo.yml` pushed `POSTHOG_KEY_PRODUCTION` to the demo Worker, so synthetic demo traffic landed in the **production** project and skewed every production number. Events in 354071 from before that change carry mixed tiers — filter by `$host` when reading history.
 - Touches no Postgres on promote — `promote-to-demo.yml` is the light sibling of promote-to-prod.
 
@@ -129,7 +129,7 @@ The real site. **Launched** — the AECI-247/277 apex cutover is done, so produc
 - Manual approval gate in GitHub Environments (Chris clicks "Approve" button on the `deploy-prod-workers` job in `.github/workflows/promote-to-prod.yml`)
 - Own D1 (`aeci-app-production`); shares the single Supabase auth project (ADR 0017)
 - Production Algolia indexes (`production_*`)
-- Datadog under `env:production` tag, with deployment markers — **still the live alerting plane** (ADR 0024 dual-run; retired at AECI-651)
+- PostHog under the production project `aec-integrations` (354071), with deployment markers — the live alerting plane (ADR 0024; the Datadog plane was retired at AECI-651)
 - **PostHog: the only tier on the production project** `aec-integrations` (**354071**). Every other tier reports to `aec-integrations-dev` (525793), which is what makes a production number a production number
 - **Public and indexable.** `ALLOW_INDEXING="true"` (`apps/web/wrangler.jsonc` `env.production`) — no `X-Robots-Tag: noindex`, and `robots.txt` / `sitemap.xml` are crawlable
 - Resend sends to real users
@@ -271,7 +271,7 @@ Re-runs all PR checks against the merged code (in case of merge conflicts), then
 4. Apply **Cloudflare D1** migrations — `scripts/d1-apply-migrations.sh aeci-app-staging staging`. *(Not Supabase: the app DB is D1 per ADR 0016 and the `supabase db push` path was decommissioned in AECI-278 — see §5.)*
 5. `wrangler deploy --env staging` for the API Worker, then push its runtime secrets (`REVIEW_APP_TOKEN`, Algolia, `ANTHROPIC_API_KEY`, `RESEND_API_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `CF_ANALYTICS_API_TOKEN` — the optional ones warn-and-skip)
    - **5b — PostHog source maps** (`scripts/ci/posthog-sourcemaps.sh`, AECI-646) — runs **after the build and before the SSR deploy**, and that order is load-bearing: `posthog-cli sourcemap inject` rewrites the built JS to add the `//# chunkId=…` comment PostHog matches on, so deploying the pre-inject bundle would upload maps that can never be matched. Angular's `production` configuration emits **hidden** maps (no `sourceMappingURL` comment in the served JS), and **every exit path of the script deletes the `.map` files** — including the warn-skip when `POSTHOG_CLI_API_KEY` is absent. That deletion is the safety property, not a tidy-up: `dist/browser` is uploaded verbatim as Worker assets, so a surviving `.map` would publish the whole app source at a guessable URL.
-6. `wrangler deploy --env staging` for the SSR Worker, then push its public config (`SUPABASE_ANON_KEY`, Algolia public config, Datadog RUM credentials). **No PostHog push step** — AECI-640 deleted all four of them; the publishable `phc_` token is a committed `vars.POSTHOG_PROJECT_KEY` in `wrangler.jsonc`
+6. `wrangler deploy --env staging` for the SSR Worker, then push its public config (`SUPABASE_ANON_KEY`, Algolia public config). **No observability push step at all** — AECI-640 deleted the four PostHog ones and AECI-651 deleted the Datadog RUM credential push; the publishable `phc_` token is a committed `vars.POSTHOG_PROJECT_KEY` in `wrangler.jsonc`
    - **6b — PostHog deploy marker** (`scripts/ci/posthog-deploy-marker.sh`, `deploy_kind: deploy`, non-prod project) — see §9.1
 7. `scripts/verify-worker-secrets.sh` — assert the staging API Worker has the required set
 8. Smoke test: poll until **both** Workers report the deployed SHA and `/api/health` is `db:ok` (`scripts/verify-version.sh` + `verify-health.sh`, §9.2). This is a version/health poll, **not** a Playwright suite
@@ -283,8 +283,8 @@ Re-runs all PR checks against the merged code (in case of merge conflicts), then
    blocking the deploy. The scheduled (daily 09:00 UTC = 04:00 EST) drift check runs as the API Worker
    cron (`apps/api/src/scheduled.ts`, §23.1); this step is the immediate post-deploy check.
 
-> **Three steps this section used to list do not exist.** There is **no Datadog deployment
-> marker** on `deploy-staging` — Datadog markers are posted only by `promote-to-prod.yml` and
+> **Three steps this section used to list do not exist.** There was **no Datadog deployment
+> marker** on `deploy-staging` — Datadog markers were posted only by `promote-to-prod.yml` and
 > `promote-to-demo.yml` (§9.1). *(The **PostHog** marker is different: since AECI-640 it runs on
 > all four deploy paths, staging included — steps 5b/6b above.)* There is **no Slack notification** anywhere in the repo (§3.3).
 > And there is **no "open GitHub Environment approval request" step** — promotion is a separate
@@ -307,13 +307,13 @@ Triggered by Chris (workflow_dispatch with `commit_sha` + `confirm=PROMOTE` inpu
 2. Apply the app DB migrations to **Cloudflare D1** + reconcile the D1 taxonomy seed via `scripts/d1-apply-migrations.sh aeci-app-production production` (wraps `wrangler d1 migrations apply … --remote` + the two `wrangler d1 execute … --file=seed/*.sql` reconciles, **retrying each on a transient Cloudflare D1 `[code: 7500]` internal error** — safe because all three are idempotent), then purge the taxonomy cache tags. This is the **only** data migration — the app DB is D1 (ADR 0016); the promote touches no Supabase Postgres (auth is the single shared project, ADR 0017, whose auth-only baseline is maintained out of band). No pg_dump → R2 snapshot, no `supabase db push`, no drift/RLS gate (mirrors `promote-to-demo.yml` — AECI-256/278)
 3. Deploy `apps/api` with `--env production --var COMMIT_SHA --var DEPLOYED_AT`, then push the Worker runtime secrets
 4. Deploy `apps/web` with `--env production --var COMMIT_SHA --var DEPLOYED_AT`, then push the Worker runtime secrets
-5. Post the deployment markers — **both vendors** during the dual-run: the Datadog `/api/v1/events` marker and the PostHog annotation + `deployment` event (§9.1). Source maps were injected + uploaded earlier, before the SSR deploy (§3.2 step 5b)
+5. Post the deployment marker — the PostHog annotation + `deployment` event (§9.1). (A Datadog `/api/v1/events` marker ran alongside it until AECI-651.) Source maps were injected + uploaded earlier, before the SSR deploy (§3.2 step 5b)
 6. Poll both `prod.aecintegrations.com/api/version` (API Worker) and `/_version` (SSR Worker, AECI-92) until **both** return the promoted SHA **and** `/api/health` is `db:ok` (60s budget) via `scripts/verify-version.sh` + `scripts/verify-health.sh`; a smoke failure auto-rolls-back both Workers
 7. Write summary (commit, DEPLOYED_AT, actor)
 
 The **demo** tier is deployed by the light sibling [`promote-to-demo.yml`](../.github/workflows/promote-to-demo.yml): validate `confirm` → assert **staging** is at the SHA → (GH Environment `demo`) provision `aeci-*-demo` queues (the six-queue scheduled-job set, incl. the AECI-302 `aeci-attestation-notify-demo`, + the WC-5 `aeci-cache-purge-demo` queue) → apply `aeci-app-demo` D1 migrations (`scripts/d1-apply-migrations.sh`, which retries a transient D1 `[code: 7500]` internal error) → deploy `aeci-{api,web}-demo` → push demo Worker secrets → smoke `demo.aecintegrations.com` → auto-rollback on smoke failure. The `demo` GH Environment has no required reviewer by default (add one to gate it). It touches no Postgres (demo shares the prod Supabase project, which production owns).
 
-Algolia index updates **are** wired (step 9 of `deploy-staging` above, and the equivalent in both promote workflows). **Slack was dropped from the project entirely**, not deferred — there is no Slack integration anywhere in `.github/workflows/` or `scripts/` (the only mention is a comment in `promote-to-prod.yml:890` recording that an alert-grade Datadog *event* replaced it on rollback). Release-tag automation remains unbuilt — see §3.4.
+Algolia index updates **are** wired (step 9 of `deploy-staging` above, and the equivalent in both promote workflows). **Slack was dropped from the project entirely**, not deferred — there is no Slack integration anywhere in `.github/workflows/` or `scripts/` (the only mention was a comment recording that an alert-grade Datadog *event* replaced it on rollback — removed with the Datadog leg at AECI-651). Release-tag automation remains unbuilt — see §3.4.
 
 ### 3.4 On release tag (e.g. `v1.0.0`) — **NOT IMPLEMENTED**
 
@@ -489,8 +489,8 @@ Stored in GitHub Settings → Secrets and Variables → Actions. Scoped per envi
 | `ALGOLIA_APP_ID` | Algolia application id. **Single value shared across all envs** (one app; only indexes/keys differ). Pushed to both Workers. | All |
 | ~~`POSTHOG_KEY_STAGING` / `_PRODUCTION`~~ — **retired (AECI-640)** | **No longer read by any workflow.** The publishable `phc_` project token is now a committed per-env `vars.POSTHOG_PROJECT_KEY` in both `wrangler.jsonc` files, and all four CI push steps are deleted. The token ships in the served HTML on every page, so keeping it a secret bought nothing and cost the weeks-dark prod analytics of AECI-326. **Operator action: delete both GH secrets.** | — |
 | `POSTHOG_CLI_API_KEY` | Personal `phx_` key. **CI-only — never a Worker secret** (a personal key reaches the whole org). Used by `posthog-sourcemaps.sh` (§9.1a) and the deploy marker's annotation leg (§9.1). Needs the union of `error tracking write` + `organization read` and insight/dashboard/alert write + project read (for the AECI-647 `apply.sh`). Optional + warn-and-skip everywhere. Not in `RECOMMENDED_SECRETS` — the scripts self-warn, which is the right gate for a step that must never block a deploy. | CI (all deploy paths) |
-| `DATADOG_API_KEY` | RUM and APM. **Still live** — production alerting runs on Datadog for the whole ADR 0024 dual-run. Deleted at AECI-651. | All |
-| `DATADOG_APP_KEY` | Deployment markers. Same dual-run caveat. | staging, production |
+| ~~`DATADOG_API_KEY`~~ | **Retired at AECI-651** — no longer read by any workflow. Delete from GH secrets (manual, WC-10 precedent). | — |
+| ~~`DATADOG_APP_KEY`~~ | **Retired at AECI-651.** Same. | — |
 | `RESEND_API_KEY` | Resend key for transactional email (AECI-240, §11.1). **Single shared, un-suffixed key** — one Resend account/key spans every env (like `SUPABASE_ANON_KEY`); pushed to the API Worker as `RESEND_API_KEY` by `deploy.yml` (staging), `promote-to-demo.yml` (demo), and `promote-to-prod.yml` (production). **Optional + fail-open on every env** (warn-and-skip): a missing key makes every send a silent `'skipped'` and the triggering action still succeeds. Pairs with the `EMAIL_FROM` var (sender). See `docs/email.md`. | staging, demo, production |
 | `LINEAR_API_TOKEN` | Issue creation | All |
 | `LINEAR_WEBHOOK_SECRET` | Webhook signature verification | All |
@@ -740,8 +740,8 @@ Two properties, both worth stating:
   new single point of failure and an accepted one; it is called out in ADR 0024's
   re-open triggers.
 
-Until AECI-647 lands, the eight Datadog no-data monitors are still the live absence
-detection.
+AECI-647 has landed, and AECI-651 removed the eight Datadog no-data monitors it replaced.
+The sweep is now the only absence detection.
 
 ### 9.2 Smoke tests
 

@@ -105,7 +105,6 @@ function build(
   initialSort: Partial<Record<'products' | 'vendors', string>> = {},
 ) {
   const fake = makeFakeLib();
-  const emit = vi.fn();
   const onSearch = vi.fn();
   const controller = new SearchController(
     fake.lib,
@@ -113,10 +112,9 @@ function build(
     CONFIG,
     initialQuery,
     initialSort,
-    emit,
     onSearch,
   );
-  return { ...fake, controller, emit, onSearch };
+  return { ...fake, controller, onSearch };
 }
 
 afterEach(() => vi.useRealTimers());
@@ -357,44 +355,6 @@ describe('SearchController query + lifecycle', () => {
     controller.dispose();
     controller.dispose();
     expect(instance.disposed).toBe(1);
-  });
-});
-
-describe('SearchController — AECI-174 RUM emit', () => {
-  it('emits a per-index ok action on a non-initial stats render (products)', () => {
-    const { calls, emit } = build();
-    calls.stats[0].renderFn({ nbHits: 3, processingTimeMS: 12.7 }, false);
-    expect(emit).toHaveBeenCalledExactlyOnceWith({
-      index: 'products',
-      status: 'ok',
-      duration_ms: 13, // rounded
-      results_bucket: '1-5',
-    });
-  });
-
-  it('tags the emit with the vendors index for the nested stats connector', () => {
-    const { calls, emit } = build();
-    calls.stats[1].renderFn({ nbHits: 0, processingTimeMS: 5 }, false);
-    expect(emit).toHaveBeenCalledExactlyOnceWith(
-      expect.objectContaining({ index: 'vendors', status: 'ok', results_bucket: 'none' }),
-    );
-  });
-
-  it('does NOT emit on the synchronous init (isFirstRender) stats render', () => {
-    const { calls, emit } = build();
-    calls.stats[0].renderFn({ nbHits: 0, processingTimeMS: 0 }, true);
-    expect(emit).not.toHaveBeenCalled();
-  });
-
-  it('emits one federated error action from the instance error event', () => {
-    const { instance, emit } = build();
-    instance.triggerError();
-    expect(emit).toHaveBeenCalledExactlyOnceWith({
-      index: 'federated',
-      status: 'error',
-      duration_ms: 0,
-      results_bucket: 'none',
-    });
   });
 });
 

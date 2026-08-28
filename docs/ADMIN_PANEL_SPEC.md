@@ -54,7 +54,7 @@ That last point is the immediate trigger for this work. On 2026-08-10 the digest
 **Out of scope**
 
 - Any public or vendor-facing analytics. Vendor-visible stats are Stage 2 (`STAGE_2_SPEC.md`).
-- Replacing the observability plane (Datadog today, PostHog after AECI-651). The panel **links out**; it does not re-implement metrics dashboards, error tracking, or funnels.
+- Replacing the observability plane (PostHog). The panel **links out**; it does not re-implement metrics dashboards, error tracking, or funnels.
 - Editing catalog data. Promotion remains the review-app → `POST /api/promote` path (`REVIEW_APP_PROMOTE_API.md`). **Neither the §5.7 vendor page nor the §5.8 user page breaches this**: an entitlement change, a seat revoke and a ban are *account* writes, not catalog writes — they touch `vendor_entitlements` and `profiles`, never a catalog column. The §5.8 ban additionally introduces **no new writer at all**: it calls the AECI-218 endpoint that has always owned `profiles.banned_at`, which stays that column's only writer anywhere (asserted at the source level by `apps/api/src/routes/banned-at-writers.spec.ts`). There is still no admin vendor-edit endpoint, which is also why §5.7 does not close the `STAGE_2_PAID_TIERS_SPEC.md` §5.4 lockout.
 - Real-time / streaming updates. **Still out of scope after Stage 2 answered the question for the vendor portal** (AECI-516 / ADR 0023, 2026-08-19): that answer is *polling a per-vendor freshness cursor*, and `STAGE_2_REALTIME_SPEC.md` §8 explicitly excludes `/admin` from it. This console's manual **Recompute** button (§7) is a deliberate design decision, not a placeholder for a live feed.
 - De-anonymizing visitors (§9.7).

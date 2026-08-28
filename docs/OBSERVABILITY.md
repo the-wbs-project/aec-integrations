@@ -11,57 +11,60 @@ Governing specs: `docs/STAGE_1_PHASE_2_SPEC.md` §14 for the catalogue itself, a
 [`POSTHOG_MIGRATION_SPEC.md`](./POSTHOG_MIGRATION_SPEC.md) + [ADR
 0024](./adr/0024-observability-migrates-to-posthog.md) for the vendor migration.
 Implemented in AECI-66 on top of the Datadog plumbing from AECI-31; re-pointed at
-PostHog by the AECI-639 epic (AECI-640…650).
+PostHog by the AECI-639 epic (AECI-640…650) and made single-vendor by **AECI-651**,
+which deleted the Datadog leg.
 
-## Read this first — the dual-run, and which console to open
+## Read this first — PostHog is the only plane
 
-**Datadog is still live, and it is still the thing that pages on production.**
-PostHog is the destination and is canonical for everything already built — the
-Worker transport, the browser plane, the dashboards, the alert set, the liveness
-sweep — but **AECI-651 has not run.** It is gated on `stage-2 → main` plus a 2–4
-week prod soak (spec D1 / §AW-final). Until then both planes emit from the same
-call sites, and a doc that said "we use PostHog" full stop would send an on-call
-reader to the wrong console mid-incident.
+**There is one observability vendor: PostHog.** The AECI-639 dual-run ran the
+PostHog transport beside Datadog so the swap could be verified against live
+traffic; AECI-651 then deleted the Datadog leg — the two per-Worker adapters, the
+browser RUM SDK, the `observability/datadog/` monitor + dashboard JSON, every
+`DD_*` variable, and the CSP grants to the two `browser-intake-*` hosts.
 
-| Question | Where to look **today** | Where it lands after AECI-651 |
-|---|---|---|
-| "My phone buzzed — what fired?" | **A Datadog monitor.** All 26 are applied and live on us5, notifying `@chrisw@thewbsproject.com`. | One of 13 PostHog alerts (hourly), production project only |
-| "Did the 08:00 cron actually run?" | A Datadog `notify_no_data` monitor — **six** crons watched | The **CI liveness sweep** (`.github/workflows/posthog-liveness-sweep.yml`) — **twelve** crons watched, and already running |
-| "What does this metric mean?" | This document | This document |
-| "Show me the graph" | Either. Datadog's 5 dashboards are live and populated; PostHog's 7 are applied to the **non-production project only** | PostHog (after the operator runs `apply.sh` against 354071) |
-| "Read the error log for this request" | Either. Both transports fire from the same call site on every request | The PostHog Logs explorer |
-| "Which person hit this 500?" | **PostHog only.** `posthogDistinctId` is a PostHog-leg log attribute (AECI-644); the Datadog payload stays byte-identical | PostHog |
-| "Core Web Vitals in the field" | **Datadog RUM** today. PostHog `$web_vitals` is coded, correct and — since the project toggle was flipped on 2026-08-26 — **live on every tier** (see "The remote-config gate") | PostHog web vitals |
+| Question | Where to look |
+|---|---|
+| "My phone buzzed — what fired?" | One of the 13 PostHog alerts (hourly cadence), production project only |
+| "Did the 08:00 cron actually run?" | The **CI liveness sweep** (`.github/workflows/posthog-liveness-sweep.yml`), every 3 h, **twelve** crons watched. It runs OUTSIDE the Worker, which is what lets it detect a dead Worker |
+| "What does this metric mean?" | This document |
+| "Show me the graph" | PostHog — 7 dashboards, 43 insights, applied from `observability/posthog/insights.json` |
+| "Read the error log for this request" | The PostHog Logs explorer |
+| "Which person hit this 500?" | PostHog — `posthogDistinctId` is a log attribute (AECI-644) |
+| "Core Web Vitals in the field" | PostHog web vitals (`$web_vitals`), live on every tier since the project toggle was flipped 2026-08-26 |
 
-What the dual-run actually costs: **doubled telemetry egress per request** for the
-window. Bounded and accepted (§3.1). What it buys: a rollback that is a config
-decision rather than an outage, and a live A/B for the histogram-p95
-reconstruction that has never seen real data (`observability/posthog/README.md`
-manual step 2).
+### Two things the decommission changed that a reader will notice
 
-**Do not delete a Datadog leg because "we use PostHog now."** That is AECI-651's
-job and it deletes them together, after the soak.
+1. **Alert cadence is hourly, not 5-minutely.** PostHog's alert engine checks
+   hourly on our plan; the retired Datadog monitors checked every 5–15 minutes.
+   This is the single biggest degradation in the swap and it was accepted
+   knowingly (ADR 0024 decision 2). The per-monitor thresholds that were NOT
+   ported one-to-one are preserved in the disposition table in
+   [`RUNBOOKS.md`](./RUNBOOKS.md) — that table is the only surviving record of
+   them now that `observability/datadog/` is deleted.
+2. **Absence detection is not a vendor feature any more.** PostHog has no
+   `notify_no_data` equivalent at any tier, so the eight monitors that did nothing
+   but detect silence became one scheduled-CI sweep. See "Absence detection moved
+   out of the vendor entirely".
 
 ## Pipes
 
-Five pipes across two vendors. Every one of them is fire-and-forget
+Three pipes, one vendor. Every one of them is fire-and-forget
 (`ctx.waitUntil` on the server), never blocks the response, and **no-ops entirely
 when its credential is absent** — keyless local dev is the design, not a degraded
 mode.
 
 > **They also spend a shared, bounded resource (AECI-666).** A Worker invocation may
 > hold only ~6 connections waiting for response headers — `fetch`, KV, R2, Cache API,
-> Queues `send()` and outbound WebSockets all draw on the same pool. **The dual-run
-> doubles the cost of every emission**: one `logToPosthog` call is two connections
-> while the Datadog leg still runs beside PostHog, which is what makes "Emit per
-> call" below a budget question and not just a batching-strategy one. Two rules
+> Queues `send()` and outbound WebSockets all draw on the same pool. Retiring the
+> Datadog leg (AECI-651) **halved** the cost of every emission — one `logToPosthog`
+> call is now one connection, not two — but the budget is still a budget. Two rules
 > follow, and both are enforced in review: every transport **releases its response
 > body** on every path (`discardResponseBody`), and a caller whose line count scales
-> with its payload uses the **batched** sender (`logBatchToPosthog` /
-> `logBatchToDatadog`, N entries → one request per vendor) rather than a loop. Where
-> an upstream has no batch endpoint, bound the fan-out with
-> `mapWithConcurrency(items, WORKER_CONNECTION_LIMIT, fn)`. Exceeding the budget is
-> not merely slow — see the troubleshooting section below for why it is silent.
+> with its payload uses the **batched** sender (`logBatchToPosthog`, N entries → one
+> request) rather than a loop. Where an upstream has no batch endpoint, bound the
+> fan-out with `mapWithConcurrency(items, WORKER_CONNECTION_LIMIT, fn)`. Exceeding
+> the budget is not merely slow — see the troubleshooting section below for why it
+> is silent.
 
 ### PostHog — three pipes, two mechanisms (AECI-642 / §AW1)
 
@@ -95,30 +98,6 @@ Three facts about those intakes that cost time to discover and are cheap to stat
 The SDK's own metrics client is deliberately unused: it aggregates in memory over
 a 10-second window, and a Worker isolate is gone long before that window closes.
 Emit per call.
-
-### Datadog — the three pipes still running beside them
-
-Live until AECI-651. AECI-31 stood up the first two; AECI-66 added the third.
-
-| Pipe | Where | Intake | Auth |
-|---|---|---|---|
-| Browser RUM | `apps/web` client (`app/datadog.provider.ts`) | `@datadog/browser-rum` | `DD_CLIENT_TOKEN` + `DD_APPLICATION_ID` (client-exposed) |
-| Worker logs | both Workers (`logToDatadog`) | `https://http-intake.logs.{site}/api/v2/logs` | `DD_API_KEY` |
-| Worker metrics (AECI-66) | both Workers (`submitDistribution` / `submitCount`) | `https://api.{site}/api/v1/distribution_points`, `https://api.{site}/api/v2/series` | `DD_API_KEY` |
-
-**The fan-out is proven end to end, not asserted.** In one local run (§8.9), the
-same set of call sites produced `us.i.posthog.com/i/v1/{logs,metrics}` → **200**
-*and* `api.us5.datadoghq.com` + `http-intake.logs.us5.datadoghq.com` → **202**,
-concurrently. The vendor-neutral adapters (`apps/api/src/posthog.ts`,
-`apps/web/src/server-posthog.ts`) are the only modules that know two vendors
-exist; each leg keeps independent no-op-without-config and independent failure
-swallowing, so AECI-651 is one marked line per function.
-
-The Worker-logs pipe's per-render `ssr.render` line is **gated** (AECI-103,
-policy now in the vendor-neutral `server-render-log.ts`) so prod 2xx traffic
-doesn't flood either logs intake — see "The `ssr.render` log is a gated smoke
-signal" below. The bounded render-volume signal is the `aeci.ssr.render` count
-metric.
 
 ## The attribute vocabulary
 
@@ -191,20 +170,17 @@ document — do not conflate the two.**
 | Lifetime | Wiped when the dev server exits | 7–15 day retention |
 | Transport | **None** — never leaves the machine | HTTP intake, `ctx.waitUntil` |
 | Content | Every span of every local request | Curated `aeci.*` catalogue + gated logs |
-| Configured by | Nothing — automatic | Wrangler vars + `POSTHOG_PROJECT_KEY` / `DD_API_KEY` |
+| Configured by | Nothing — automatic | Wrangler vars + `POSTHOG_PROJECT_KEY` |
 
-Consequences worth stating plainly: a local span **never** reaches PostHog or Datadog, so it
+Consequences worth stating plainly: a local span **never** reaches PostHog, so it
 can neither pollute a dashboard nor be used as evidence about deployed behaviour; and nothing
 in the metric catalogue below has a local-dev equivalent. Full schema, guardrails, and the
 debugging recipes live in **`docs/local-tracing.md`**.
 
 The one place they touch: because the §26.5 forwards run through `ctx.waitUntil`, they appear
-in local traces as outbound `fetch` spans — now to `us.i.posthog.com/i/v1/logs` and
-`/i/v1/metrics` **as well as** `http-intake.logs.us5.datadoghq.com` and
-`api.us5.datadoghq.com`, since both legs fire from the same call site. That is a cheap way to
-confirm a forward actually fires without opening either console, and during the dual-run it is
-also the cheapest way to confirm the **fan-out** itself: seeing exactly one of the two host
-families is the tell that one leg is silently keyless.
+in local traces as outbound `fetch` spans to `us.i.posthog.com/i/v1/logs` and `/i/v1/metrics`.
+That is a cheap way to confirm a forward actually fires without opening the console at all. (Two
+host families used to appear here, one per vendor; the Datadog family went away with AECI-651.)
 
 ## Custom metric catalogue (Phase 2 §14)
 
@@ -261,13 +237,13 @@ than a Worker metric.
 | `aeci.linear.reconcile.stuck` | gauge | `apps/api/src/lib/reconciliation-sweep.ts` (`runReconciliationSweep`, AECI-214 — the every-15-min sweep) | — (backlog: count of `open`/unlinked `vendor_requests` older than the stuck threshold; **0 on a clean run**) |
 | `aeci.linear.reconcile.attempt` | count | `apps/api/src/lib/reconciliation-sweep.ts` (`runReconciliationSweep`, AECI-214) | `outcome` (cleared / still_failing) — submits the **row count** as the value, so query with `sum:` |
 | `aeci.linear.reconcile.persistent_failure` | count | `apps/api/src/lib/reconciliation-sweep.ts` (`runReconciliationSweep`, AECI-214) | — (count of requests stuck past the persistent threshold AND still failing after a retry; the alert signal — submits the row count, query with `sum:`) |
-| `aeci.linear.reconcile.email` | count | `apps/api/src/lib/admin-alert.ts` (`sendAdminAlert`, AECI-214; transport AECI-240) | `outcome` (sent / failed / skipped) — sends via Resend; `skipped` when `RESEND_API_KEY` / `ADMIN_ALERT_EMAIL` are absent (the seam is fail-open and the **alert** is the backstop — the Datadog monitor today, its PostHog successor after AECI-651) |
+| `aeci.linear.reconcile.email` | count | `apps/api/src/lib/admin-alert.ts` (`sendAdminAlert`, AECI-214; transport AECI-240) | `outcome` (sent / failed / skipped) — sends via Resend; `skipped` when `RESEND_API_KEY` / `ADMIN_ALERT_EMAIL` are absent (the seam is fail-open and the **alert** is the backstop) |
 | `aeci.request.moderation.action` | count | `apps/api/src/routes/admin-requests.ts` (`emitRequestModeration`, AECI-216 / Phase 6.9 — the `PATCH /api/admin/requests/:id` resolve/reject handler) | `action` (`resolve` / `reject`), `outcome` (`ok` / `invalid_state`) — one count per moderation attempt; `invalid_state` is the §6.9 preload guard (422 when the target isn't `open`/`in_review`) |
 | `aeci.email.send` | count | `apps/api/src/lib/email.ts` (the Resend transactional client, AECI-240 / Phase 7.5, extended by every epic that added a template) | `outcome` (sent / failed / skipped), `template` — **the tag list is the `EmailTemplate` union in `lib/email.ts`, and `docs/email.md`'s catalogue is its prose mirror; keep all three in step.** Currently: `review-submitted` / `review-approved` / `review-rejected` / `account-deleted` / `mailing-list-welcome` / `stuck-request-alert` / `landing-signup` / `landing-feedback` / `claim-approved` / `claim-rejected` / `attestation-silent-counterparty` / `attestation-open-conflict` / `attestation-stale-version` / `attestation-ops-alert` / `entitlement-expiring` / `entitlement-expiring-admin`. Fail-open; `skipped` when `RESEND_API_KEY` / `EMAIL_FROM` / the recipient are absent (see `docs/email.md`) — for the two vendor-addressed sweeps (`attestation-*`, `entitlement-expiring`) that also covers an absent `SUPABASE_SERVICE_ROLE_KEY`, which is the expected local / PR-preview state |
 | `aeci.data_quality.job` | count | `apps/api/src/scheduled.ts` (`runDataQualityJob`, daily 04:00 UTC cron, AECI-241 / Phase 7.6) | `trigger` (cron), `outcome` (success / failed) — one heartbeat per completed run (incl. the pre-run crash path); `outcome:failed` is the failure signal, the always-emitted `{trigger:cron}` series is the liveness signal |
 | `aeci.data_quality.job.duration_ms` | distribution | `apps/api/src/scheduled.ts` (`runDataQualityJob`, daily cron) | `trigger` (cron) |
 | `aeci.data_quality.check` | gauge | `apps/api/src/scheduled.ts` (`runDataQualityJob`, daily cron, AECI-241) | `check` (the check id, e.g. `products_without_vendor` / `broken_integration_refs` / `reviews_missing_anonymized_at` / `algolia_index_drift` / `entitlement_mirror_drift`), `severity` (error / warn) — **value is the issue count or 0** (emitted every run so a monitor can break down by check and detect no-data); a check that threw emits the sentinel **-1**. **`entitlement_mirror_drift` (severity `error`, AECI-609) is Guard 2 of the `vendors.verified` mirror invariant** (`STAGE_2_PAID_TIERS_SPEC.md` §2.1): it counts vendors where `verified = 1` XOR an `active` `vendor_entitlements` row exists. Non-zero means something wrote the mirror outside `lib/vendor-entitlement.ts` — hand-written D1 SQL, the `apps/datatool` Worker, or (the likely one) a §2.4 backfill that ran on one tier and not another. It rides the existing gauge deliberately, so it needed no new metric and no new monitor |
-| `aeci.data_quality.email` | count | `apps/api/src/scheduled.ts` (`runDataQualityJob` → `lib/email.ts` `sendEmail`, AECI-241) | `outcome` (sent / failed / skipped) — **`skipped`** when `RESEND_API_KEY` / `DATA_QUALITY_EMAIL_{FROM,TO}` are unset (fail-open; the **alerts** are the delivery backstop — Datadog's today, PostHog's after AECI-651) |
+| `aeci.data_quality.email` | count | `apps/api/src/scheduled.ts` (`runDataQualityJob` → `lib/email.ts` `sendEmail`, AECI-241) | `outcome` (sent / failed / skipped) — **`skipped`** when `RESEND_API_KEY` / `DATA_QUALITY_EMAIL_{FROM,TO}` are unset (fail-open; the **alerts** are the delivery backstop) |
 | `aeci.attestation.detector` | gauge | `apps/api/src/lib/attestation-notify-metrics.ts` (`emitDetectorMetrics`, from the daily 10:00 UTC §7 attestation sweep in `apps/api/src/scheduled.ts` `runAttestationNotifyJob`, AECI-302) | `detector` (`silent-counterparty` / `open-conflict` / `stale-version` / `aeci-denied`) — **value is the finding count or 0**, emitted for every detector in the union on **every** run (a detector dropped from the registry flatlines at 0 rather than vanishing); a detector that threw emits the sentinel **-1**, the same idiom as `aeci.data_quality.check`. **This zero series is the job's only liveness signal until vendors start attesting** — the detectors match nothing while every attestation in D1 is still `source='aeci'` |
 | `aeci.attestation.notify.job` | count | `apps/api/src/scheduled.ts` (`runAttestationNotifyJob`, daily 10:00 UTC cron, AECI-302) | `trigger` (cron), `outcome` (success / failed) — one heartbeat per run. Unlike the read-only gauge jobs this one **rethrows** after emitting `outcome:failed`, so the queue consumer retries |
 | `aeci.attestation.notify.job.duration_ms` | distribution | `apps/api/src/scheduled.ts` (`runAttestationNotifyJob`, daily cron) | `trigger` (cron) |
@@ -438,9 +414,9 @@ is not a matter of taste:
 - **Something outside the Worker owns absence.** A job that does not run writes no
   `job_runs` row either, so its absence is invisible in D1 *by construction*. "The
   08:00 sync stopped firing" can only be answered by a checker that is not itself
-  the thing that died. **Today that is Datadog's `notify_no_data` monitors; after
-  AECI-651 it is the CI liveness sweep** (`scripts/ci/posthog-liveness-sweep.sh`,
-  already running). It is emphatically **not** a PostHog alert — no PostHog tier
+  the thing that died. **That is the CI liveness sweep**
+  (`scripts/ci/posthog-liveness-sweep.sh`), which took the job over from Datadog's
+  `notify_no_data` monitors at AECI-651. It is emphatically **not** a PostHog alert — no PostHog tier
   has `notify_no_data`, and an alert that evaluates "count < 1" over an empty
   window returns no rows rather than a breach.
 - **`job_runs` owns the record.** Outcome, duration, and a per-job payload, in
@@ -535,7 +511,7 @@ browse every objectID, diff against the authoritative promoted-id set from D1, a
 can't see to delete). `orphans_removed` is a per-`entity`/`index` gauge (0 on a clean run);
 `orphans_skipped_cap` is emitted **only** when the safety cap (≤50 objects and ≤20% of an
 index per pass) refuses an unexpectedly large purge — the `AECi — Algolia orphan sweep capped`
-monitor (`observability/datadog/monitor-algolia-orphan-sweep-capped.json`) pages on a non-zero
+alert (PostHog — "Algolia orphan sweep capped") pages on a non-zero
 value, and the operator runs `db:reconcile-algolia-drift --apply --force` after confirming it's
 intended. The sweep is delete-only; **positive** drift (records missing from the index) stays
 repaired by the 08:00 incremental sync, not here. The next day's `index_drift` reads 0 once
@@ -655,7 +631,7 @@ gauge** (count of `open`/unlinked `vendor_requests` past the stuck threshold; 0 
 no-data monitor distinguishes "ran clean" from "didn't run"). `aeci.linear.reconcile.attempt`
 (`outcome:cleared|still_failing`) and `aeci.linear.reconcile.persistent_failure` (still failing past
 the persistent threshold) ride the same `source:reconcile` logs; the persistent-failure count + its
-`level:error` log are **the alert signal** — `observability/datadog/monitor-linear-reconcile-stuck.json`
+`level:error` log are **the alert signal** — the PostHog alert "Linear reconciliation: persistent stuck requests"
 today, and `AECi — Linear reconcile: persistent stuck request` in
 `observability/posthog/alerts.json` after the cutover (it stays a **separate** alert on merit:
 the sweep is healthy, a user-visible vendor request is not).
@@ -702,7 +678,7 @@ admin sets/clears `profiles.banned_at` + `ban_reason`) emits one count per ban/u
 reversible `reviewer_ban` `workflow_transition`. Phase 5 (AECI-197) only *enforces* an existing ban on
 review submit; the *write* path is this Phase 6 handler (the ban *action* is raised from the moderation
 queue's repeat-offender prompt — `docs/STAGE_1_PHASE_6_SPEC.md` §9). It rides the Phase 6 dashboard +
-monitors shipped by AECI-219 / Phase 6.12 (`observability/datadog/`).
+monitors shipped by AECI-219 / Phase 6.12, now the PostHog alerts in `observability/posthog/alerts.json`.
 
 `aeci.waf.ratelimit.blocked` / `aeci.waf.poll` (AECI-262, §15.1) surface the Cloudflare WAF
 rate-limit + scraper-challenge mitigations (`docs/waf-rate-limits.md`) as metrics. Enterprise
@@ -727,10 +703,9 @@ worth a panel).
 **Review-app promote observability** (`POST /api/promote`, `docs/REVIEW_APP_PROMOTE_API.md`
 §6.1–6.2) makes the **logs plane** the authoritative record of a promotion push's problems, so the
 AECi operator diagnoses a failed push without the review app plumbing the HTTP response body
-anywhere. Which console: Datadog today, PostHog Logs after AECI-651 — the attributes, the
-`source`, and the `trace_id` correlation are identical on both, so only the query syntax differs
-(a Datadog `service:aeci-api` search is an attribute filter on the OTLP resource attribute
-`service.name` in PostHog).
+anywhere. The console is the PostHog Logs explorer; `service` is the OTLP resource attribute
+`service.name` (`aeci-api` / `aeci-web`), and `trace_id` correlation works the same way it did
+under Datadog.
 The promote endpoint runs on its own Hono sub-router whose `errorHandler({ logClientErrors: true,
 source: 'review-app-promote' })` (`apps/api/src/index.ts` / `apps/api/src/errors.ts`) logs **every**
 rejection — not just the unknown-500 branch every other route logs — under `source:review-app-promote`:
@@ -784,33 +759,10 @@ aeci-api-production` surfaces it live before either telemetry console is consult
 
 ## Troubleshooting: the key is set but nothing arrives
 
-Both transports have the same shape and the same historical bug, so they have the
-same triage. Read the Datadog entry first — it is where the failure mode was
-discovered — and then the PostHog sibling, which differs only in the status code
-and the label.
-
-### `DD_API_KEY` is set but no Worker logs/metrics appear
-
-The shared transport (`packages/shared/src/datadog.ts`) fires each log/metric via `ctx.waitUntil(fetch(intake))`
-and previously only caught a *thrown* fetch. A Datadog intake that **rejects** the request — a `403`
-from an invalid/mis-scoped `DD_API_KEY`, a `413` (payload too large), a plan/exclusion drop — resolves
-the `fetch` with a non-2xx status, so the throw-only `catch` never fired and **every log and metric was
-discarded silently**. That is the "the secret is clearly set (see the Worker's Variables & Secrets) but
-nothing reaches Datadog" failure. The transport now checks `res.ok` and, on a non-2xx, emits
-`console.warn('<label>: intake rejected <status>', <body snippet>)` (still swallowed — observability must
-never break the request path). So when a Worker's logs go missing despite `DD_API_KEY` being present:
-
-```bash
-# Watch the live Worker log stream and re-trigger the endpoint (e.g. a promote):
-wrangler tail aeci-api-production --format pretty
-# then look for:  logToDatadog: intake rejected 403   /   submitMetric: intake rejected 403
-```
-
-A `403` there means the key value is wrong for the `DD_SITE` org (rotate/replace the `DD_API_KEY`
-Worker secret — it is NOT CI-pushed; set it manually per `docs/environments.md` §6). No `intake
-rejected` / `forward failed` line means the intake accepted the payload and the gap is Datadog-side
-(wrong index/service filter, an exclusion filter, or the RUM-vs-Logs view) — broaden the query to
-`service:aeci-api` / `service:aeci-web`.
+The transport swallows its own failures by design, so "the key is set and nothing
+arrives" is the normal shape of a misconfiguration. The triage below was originally
+written against the Datadog intake, where the failure mode was discovered; it
+applies unchanged to PostHog, which is now the only intake.
 
 ### `POSTHOG_PROJECT_KEY` is set but nothing appears in PostHog
 
@@ -936,32 +888,6 @@ the flush never happened — which is exactly what `captureImmediate` /
 11. **The remote-config gate** — the newest and least-guessable one. See its own
     section below.
 
-### Datadog (the plane still operating)
-
-1. **Datadog lowercases tag values.** `cache_status:HIT` is stored and queried as
-   `cache_status:hit`; `status_class:5xx` stays `5xx`. All Datadog dashboard/monitor
-   queries use lowercase. **This is the one that does not transfer** — see PostHog
-   gotcha 6.
-2. **Distribution percentiles must be enabled.** `aeci.page.render.duration_ms`,
-   `aeci.api.query.duration_ms`, `aeci.algolia.sync.duration_ms`,
-   `aeci.stats.compute.duration_ms`, `aeci.stats.compute.key.duration_ms`,
-   `aeci.toxicity.api.duration_ms`, `aeci.linear.issue.duration_ms`, and
-   `aeci.linear.sync.duration_ms` are
-   distribution metrics — to query `p50/p95/p99` you must enable percentile aggregations
-   under **Metrics → Summary → (metric) → Manage distribution metrics → Add percentile
-   aggregations**. Done once per metric. **No PostHog equivalent:** distributions
-   arrive as OTLP explicit-bucket histograms and percentiles are reconstructed in
-   HogQL from `histogram_bounds` / `histogram_counts`.
-3. **Count metrics whose value isn't 1 need `sum:`, not `count:`.** `count:` counts the
-   number of submitted points; `sum:` sums their values. Most count metrics here submit
-   `value 1` (so the two coincide — e.g. `count:aeci.cache.purge`), but
-   `aeci.algolia.sync.records` and `aeci.api.promote.skipped` submit the actual record /
-   skip count and must be queried as `sum:aeci.algolia.sync.records` /
-   `sum:aeci.api.promote.skipped` (and `sum:…{}.as_count()` in monitors). **This
-   gotcha dies with the migration** — see "Value-bearing counts map to OTLP monotonic
-   sums" above — but the *values* still differ per metric, so a PostHog query over
-   those series must `sum`, not `count`, rows.
-
 ### The remote-config gate — a server-side switch the client cannot override
 
 > **Dated correction — 2026-08-26, re-fetched live.** **The toggles have since been turned
@@ -999,9 +925,10 @@ Both are operator toggles, not code, and both are needed on **both** projects.
 
 Two consequences worth stating plainly:
 
-1. **This is why `$web_vitals` is currently absent from PostHog** while Datadog RUM
-   still carries field Core Web Vitals. The code is correct; the toggle is off.
-   Do not "fix" the client config.
+1. **A missing `$web_vitals` is this toggle, not the client config.** The toggle was
+   flipped on 2026-08-26 and web vitals are live on every tier. If they ever go
+   quiet, check the project setting before touching code — and note there is no
+   longer a Datadog RUM fallback carrying field Core Web Vitals.
 2. **Manual capture is NOT gated.** `posthog.captureException(...)` — the path
    `PosthogErrorHandler` uses, and the load-bearing one, since Angular swallows
    application errors before `window.onerror` — delivers `$exception` events even
@@ -1075,14 +1002,19 @@ design. Where each signal lives now:
 
 ## Dashboards
 
-Two sets exist. **Datadog's five are live and populated; PostHog's seven are
-applied to the non-production project only** and are empty in production until the
-operator runs `apply.sh` there. Read Datadog for real production numbers today.
+**Seven PostHog dashboards, 43 insights.** They are applied from
+`observability/posthog/insights.json` via `apply.sh`. Datadog's five boards were
+deleted with the rest of the plane at AECI-651.
+
+> **Operator step still outstanding:** the boards are applied to the **non-production**
+> project; running `apply.sh` against the production project (354071) is a manual step.
+> Until it runs, production dashboards are empty — and there is no longer a Datadog
+> board to read instead.
 
 ### PostHog — 7 dashboards, 43 insights (AECI-647 / §AW6)
 
 **Source of truth: `observability/posthog/`.** Query text and thresholds live in
-that directory as JSON, the same way `observability/datadog/` held them — do not
+that directory as JSON, the same way the retired `observability/datadog/` held them — do not
 duplicate either here, or the two will drift and the doc will lose.
 
 | File | What it is |
@@ -1117,75 +1049,6 @@ projects when AECI-647 landed. Correct *shape* is proven; correct *numbers* are
 not, and the histogram-p95 reconstruction in particular has never seen a real
 histogram. That spot-check is the reason the dual-run window exists
 (`observability/posthog/README.md` manual step 2).
-
-### Datadog — the five live dashboards
-
-`observability/datadog/*.json` is the for-record export; the live dashboards are
-the source of truth and are what carries real production data today. All of them,
-and the directory, are deleted at AECI-651.
-
-#### `AECi Phase 2 — Traffic`
-
-- **Definition (for record):** `observability/datadog/dashboard.json`
-- **Live URL:** https://us5.datadoghq.com/dashboard/b5b-edd-gva/aeci-phase-2--traffic _(applied 2026-06-12 — AECI-222, the AECI-66/AECI-161 live-apply)._
-
-Widgets: top routes by request count · **HIT-rate note** (edge HIT-rate → Cloudflare Workers
-observability / `Cf-Cache-Status`; the old `cache_status:hit` widget was retired in WC-8) ·
-p50/p95/p99 render per `route_class` · p95 API query per endpoint · 4xx/5xx error rate over
-time · purge events by source.
-
-#### `AECi Phase 3 — Search`
-
-- **Definition (for record):** `observability/datadog/dashboard-search.json`
-- **Live URL:** https://us5.datadoghq.com/dashboard/fci-6sf-yvn/aeci-phase-3--search _(applied 2026-06-12 — AECI-222, the AECI-141 live-apply)._
-
-Widgets (Worker-side search/sync health): sync runs by `outcome` · sync runs by
-`entity`/`trigger` · sync duration p50/p95/p99 by `trigger` · records pushed per
-`entity` (`op:saved`/`deleted`, queried with `sum:`) · index drift per `index` (the
-AECI-140 `aeci.algolia.index_drift` gauge), **plus** the two browser-side RUM widgets AECI-174
-added once a search UI existed (query latency p50/p95/p99 and error rate over
-`aeci.search.query`). Those two are the ones that **do not survive** the cutover as-is — see
-"Browser search telemetry" below; their PostHog replacements read `search_performed` from
-`events` and therefore see the consented slice only.
-
-#### `AECi Phase 4 — Home / Stats`
-
-- **Definition (for record):** `observability/datadog/dashboard-home-stats.json`
-- **Live URL:** https://us5.datadoghq.com/dashboard/3bi-9a9-6hz/aeci-phase-4--home--stats _(applied 2026-06-12 — AECI-222)._
-
-Widgets (Worker-side home-stats + page_views health, AECI-180): stats compute runs by
-`outcome` · stats compute duration p50/p95/p99 · per-key compute outcome by `key`/`outcome`
-(which `home.*` key failed) · per-key compute duration p95 by `key` · page-view writes by
-`outcome` · page-view write error rate (`100 × failed / total`, with a 10% marker).
-
-#### `AECi Phase 5 — Auth / Reviews`
-
-- **Definition (for record):** `observability/datadog/dashboard-auth-reviews.json`
-- **Live URL:** _TBD — filled in after the AECI-233 live apply; runbook + sign-off table in [`docs/PHASE_5_OPERATIONAL_VERIFICATION.md`](./PHASE_5_OPERATIONAL_VERIFICATION.md) (Part D)._
-
-Widgets (Phase 5.15 auth + reviews health, AECI-206): sign-ins by `outcome` · sign-ins by
-`method` · auth failure rate (`100 × failed / total`, with a 30% marker) · review submits by
-`outcome` · moderation actions by `action`/`outcome` · toxicity scoring latency p50/p95/p99 ·
-toxicity scoring error rate (`100 × failed / total`, with a 50% marker) · moderation queue
-oldest-pending age (h) + depth (with a 48h backlog marker). Note the sign-in widgets read
-`aeci.auth.signin`, which carries `service:aeci-web` (the SSR Worker), unlike the rest of the
-Phase 5 metrics on `aeci-api`.
-
-#### `AECi Phase 6 — Requests / Moderation`
-
-- **Definition (for record):** `observability/datadog/dashboard-requests-moderation.json`
-- **Live URL:** https://us5.datadoghq.com/dashboard/k86-25g-8rx/aeci-phase-6--requests--moderation _(applied 2026-06-20 — AECI-219; the 3 Phase 6 monitors were applied in the same pass with `@chrisw@thewbsproject.com` substituted for the placeholder)._
-
-Widgets (Phase 6.12 requests/moderation health, AECI-219 — all `aeci-api`, already emitted by the
-6.4–6.7 feature issues): Linear issue creation by `outcome` · by `kind` · issue-creation failure rate
-(`100 × failed / terminal`, `skipped_exists` excluded, 50% marker) · issue-creation latency p50/p95/p99 ·
-site→Linear sync by `outcome` · by `to_status` · sync latency p50/p95/p99 · webhook receipts by `action` ·
-webhook HMAC failures (`sum:`, 3/1h marker) · reconciliation backlog gauge (`aeci.linear.reconcile.stuck`) ·
-reconciliation attempts by `outcome` (`sum:`) · persistent failures (`sum:`, any > 0 pages) · admin-alert
-email seam by `outcome`. **No ban-action widget** — `aeci.moderation.ban` is deferred to AECI-218 / Phase
-6.11 (see the catalogue note above). The two duration distributions need percentile aggregations
-enabled (**Datadog** gotcha 2); `…reconcile.attempt`/`…persistent_failure` submit row counts, so they
-use `sum:` (**Datadog** gotcha 3).
 
 ## Alerts
 
@@ -1264,226 +1127,46 @@ The per-cron windows in `project-config.json` carry margin for the sweep's own
 lateness (26 h for daily jobs, 90 min for the 15-minute reconcile). `job_runs`,
 `/admin/system` and the two daily digest emails remain an independent second record.
 
-### The 26 live Datadog monitors
+## Browser search telemetry (`search_performed`)
 
-Live and paging **today**. Everything below is present-tense until AECI-651 deletes
-both the JSON and the live objects in the UI.
+Search is queried **client-side**, direct to Algolia with the search-only key
+injected as `window.__AECI_ALGOLIA__` (`apps/web/src/algolia-bootstrap-inject.ts`),
+so its latency and error rate were never a Worker metric. From AECI-174 they were a
+Datadog **RUM** action, `aeci.search.query`. AECI-643 re-homed `status` /
+`duration_ms` / `results_bucket` onto the **`search_performed` PostHog event**
+(including a `status: 'error'` row, without which the search error rate would be
+unrecoverable), and **AECI-651 deleted the RUM action and its two Phase-3 dashboard
+widgets**. The event is now the only carrier.
 
-Each monitor's `message` links the matching runbook in `docs/RUNBOOKS.md` and routes to
-the team notification channel. The committed JSON keeps the `@NOTIFICATION_CHANNEL_TBD`
-placeholder (env-agnostic for record); substitute the real handle **at apply time**. The
-resolved handle is `@chrisw@thewbsproject.com` (Datadog email notification; AECI-222) — the
-then-nine monitors were applied 2026-06-12 with that substitution; the Phase 3–7 monitors were
-applied in their own phase passes, AECI-279 (Phase 8.1) added two more (bringing the set to 23),
-and AECI-584 (Phase 8.3 P3.2) added four for the retention prune; **WC-8 (AECI-322) retired the
-cache-hit-rate monitor**, leaving the committed set at **26**. One exception to the handle rule: the informational
-`monitor-data-quality-check-warn.json` (AECI-279) uses a distinct `@NOTIFICATION_CHANNEL_LOW_TBD`
-placeholder — substitute a low-urgency handle, or leave it literal to keep that warn monitor
-**UI-only / non-paging** (the daily digest already carries its rows).
+Property contract, emit sites and the naming rules live in
+[`ANALYTICS.md`](./ANALYTICS.md) §4; the payload type is `SearchPerformedEvent` in
+`apps/web/src/app/search/search-controller.ts`, and the shared vocabulary
+(`SearchStatus`, `ResultsBucket`, `resultsBucket()`) is
+`apps/web/src/app/search/search-telemetry.ts`.
 
-| Monitor | Condition | Definition |
-|---|---|---|
-| Detail render slow | p95 detail render (cache MISS) > 1.5s sustained 10m | `observability/datadog/monitor-detail-render-p95.json` |
-| Worker error rate high | combined SSR+API 5xx rate > 1% over 5m | `observability/datadog/monitor-error-rate.json` |
-| Algolia index drift | any index's \|drift\| > 0 (daily); or no data for 48h | `observability/datadog/monitor-algolia-index-drift.json` |
-| Algolia sync failed | any `outcome:failed` push in the last 1d | `observability/datadog/monitor-algolia-sync-failed.json` |
-| Algolia sync not running | no successful (`outcome:ok`) cron push for 48h | `observability/datadog/monitor-algolia-sync-no-data.json` |
-| Algolia orphan sweep capped | any `aeci.algolia.orphans_skipped_cap` > 0 (the safety cap refused a large orphan purge) | `observability/datadog/monitor-algolia-orphan-sweep-capped.json` |
-| Home stats compute failed | any `aeci.stats.compute.key{outcome:failed}` or job-level `aeci.stats.compute{outcome:failed}` (the latter covers a pre-compute crash) in the last 1d | `observability/datadog/monitor-stats-compute-failed.json` |
-| Home stats not running | no `aeci.stats.compute{trigger:cron}` heartbeat for ~26h | `observability/datadog/monitor-stats-compute-no-data.json` |
-| page_views write errors | write error rate > 10% over 10m | `observability/datadog/monitor-pageviews-write-errors.json` |
-| Auth sign-in error rate | sign-in failure rate > 30% over 15m (`service:aeci-web`) | `observability/datadog/monitor-auth-error-rate.json` |
-| Toxicity scoring outage | Toxicity-scoring failure rate > 50% over 15m | `observability/datadog/monitor-toxicity-outage.json` |
-| Moderation queue backlog | oldest pending review > 48h (daily); or no snapshot for ~26h | `observability/datadog/monitor-moderation-queue-age.json` |
-| Linear pipeline failure | Linear write failure rate (`issue` + `sync`, terminal attempts) > 50% over 1h | `observability/datadog/monitor-linear-pipeline-failure.json` |
-| Linear webhook HMAC failures | `aeci.webhooks.linear.hmac_failure` > 3 over 1h | `observability/datadog/monitor-webhook-hmac-failure.json` |
-| Linear reconciliation: persistent stuck requests | any `aeci.linear.reconcile.persistent_failure` in the last 1h | `observability/datadog/monitor-linear-reconcile-stuck.json` |
-| Linear reconciliation sweep not running | no `aeci.linear.reconcile.stuck` gauge for ~1h (no-data liveness) | `observability/datadog/monitor-linear-reconcile-no-data.json` |
-| Data quality check — error severity | any `severity:error` check (`broken_integration_refs`, `reviews_missing_anonymized_at`) reports issues > 0 (daily) | `observability/datadog/monitor-data-quality-check.json` |
-| Data quality check — warn severity (informational) | any `severity:warn` check reports issues > 0 (daily); **non-paging** (AECI-279 split) | `observability/datadog/monitor-data-quality-check-warn.json` |
-| Data quality job failed | job-level `aeci.data_quality.job{outcome:failed}` > 0 in the last 1d | `observability/datadog/monitor-data-quality-failed.json` |
-| Data quality job not running | no `aeci.data_quality.job{trigger:cron}` heartbeat for ~26h | `observability/datadog/monitor-data-quality-no-data.json` |
-| WAF rate-limit / challenge spike | `sum:aeci.waf.ratelimit.blocked` (`.as_count()`) > 500 over 15m (`env:production`) | `observability/datadog/monitor-waf-ratelimit-spike.json` |
-| WAF poll not running | no successful `aeci.waf.poll{outcome:ok,trigger:cron}` for ~3h (no-data liveness) | `observability/datadog/monitor-waf-poll-no-data.json` |
-| Retention prune skipped (metrics_daily gap) | any `aeci.retention.prune{outcome:skipped}` > 0 (daily) — a day in the cut window has no snapshot, so nothing was deleted. **Non-paging**, but the long memory is at risk | `observability/datadog/monitor-retention-prune-skipped.json` |
-| Retention prune deleted an unexpected number of rows | `sum:aeci.retention.rows_deleted` by `table` > 5,000 over 1d (`env:production`) — the §7.4 runaway guard. **Pages** | `observability/datadog/monitor-retention-prune-runaway.json` |
-| Retention prune failed | `aeci.retention.prune{outcome:failed}` > 0 in the last 1d | `observability/datadog/monitor-retention-prune-failed.json` |
-| Retention prune not running | no `aeci.retention.prune{trigger:cron}` heartbeat for ~26h | `observability/datadog/monitor-retention-prune-no-data.json` |
+### What the swap changed about the numbers
 
-**Where each of these lands after the cutover** — with its old threshold recorded, so
-re-promoting one is a config change and not archaeology — is the 26-row table in
-[`RUNBOOKS.md`](./RUNBOOKS.md) and `observability/posthog/README.md`. Those two are the
-only places the thresholds survive once `observability/datadog/` is deleted.
+Three differences are permanent and are the reason a pre-AECI-651 search chart does
+not line up with a post- one:
 
-The **cache-hit-rate monitor was retired in WC-8 (AECI-322).** Under native Workers Cache a HIT
-skips the Worker, so its `cache_status:hit` numerator is permanently ~0 — it would fire "cache hit
-rate low" forever. Its JSON was deleted from `observability/datadog/`; **the live Datadog monitor
-must also be deleted in the UI** (the committed JSON is for-record; the live monitor is source of
-truth). Edge HIT-rate now lives on the Cloudflare Workers observability dashboard — see
-"Front-of-Worker cache: HIT observability" above.
+1. **Consent.** The RUM action was consent-independent and saw *every* search;
+   `search_performed` is Tier 3 and sees the **consented slice only**. Search volume
+   read from PostHog is a funnel, not a census. `docs/ANALYTICS.md` §5 is the general
+   statement of this rule; this is the one place the migration changed what a number
+   *means* rather than where it lives.
+2. **One event per search, not per index.** RUM emitted once per index. The event
+   fires once per search and carries `results_products` / `results_vendors`, which
+   answer the question RUM's `index` dimension answered ("which entity type did this
+   query find?") without turning one search into two events (spec §8.10). Residual:
+   `duration_ms` is the root (products) index's `processingTimeMS` rather than
+   per-index, and RUM's `integrations` value has no successor — `/search` never
+   queried that index.
+3. **The header autocomplete is no longer measured at all.** It had no PostHog emit,
+   only the RUM one, so deleting the RUM leg left it dark. Tracked as a follow-up;
+   see the "Known limitations" section.
 
-The p95-detail monitor is scoped to `cache_status:miss` on purpose: HITs are served
-from the edge and would mask a genuinely slow render (and under native Workers Cache a MISS is
-exactly "the Worker ran", so this monitor is unaffected by the front-of-Worker migration).
-
-Algolia sync health is intentionally **two** monitors. "Sync failed" alerts on `outcome:failed`
-and must **not** use `notify_no_data` — that series is empty on a healthy run, so a no-data
-alert there fires constantly. The "sync not running" liveness monitor instead watches the
-`outcome:ok{trigger:cron}` series (which reports every healthy run) via `notify_no_data`, the
-same always-reports pattern that lets the index-drift monitor's no-data mean "the cron didn't
-run." Keep the failure and liveness concerns on separate metrics — don't fold them back together.
-
-Home stats (AECI-180) follow the **same failure + liveness split**. "Home stats compute failed"
-alerts when either the per-key `aeci.stats.compute.key{outcome:failed}` count or the job-level
-`aeci.stats.compute{outcome:failed}` count is non-zero (no `notify_no_data` — both are empty on a
-healthy run). The per-key term names the offending `home.*` key; the job-level term also catches a
-**pre-compute crash** (a DB-client-init throw before `runHomeStats`), which emits the job-level
-`outcome:failed` heartbeat but no per-key points. That term is load-bearing — the crash also emits
-the `{trigger:cron}` liveness heartbeat, which keeps the "not running" monitor green, so without the
-job-level failure term a total crash would slip past **both** monitors. "Home stats not running" is the
-freshness/liveness monitor: it watches the always-emitted `aeci.stats.compute{trigger:cron}`
-heartbeat (one point per completed run, **any** outcome) via `notify_no_data`, `no_data_timeframe`
-1560 (~26h = a missed daily run + grace). It deliberately watches the outcome-agnostic heartbeat,
-not `outcome:success`, so a persistently-`partial` run still counts as "ran." Reading `stats_cache`'s
-`computed_at` directly isn't an option for the missed-run case — a run that never fired can't emit
-its own timestamp — so no-data on the heartbeat **is** the staleness signal (the AC's "computed_at
-older than ~26h").
-
-The page_views write monitor is the one **deliberate exception** to the liveness pattern. It alerts
-on the error **rate** (`aeci.pageviews.write` `outcome:failed / total`) and must **not** use
-`notify_no_data`: page_views is **traffic-driven**, not a fixed-cadence cron, so zero writes (no
-visitors) is normal at pre-launch and a liveness/no-data alert would fire constantly. Only the
-failure ratio is meaningful. The 10% threshold is a launch-tunable starting point (§14.3 cites 1%
-for request error rate; page_views runs at far lower volume, so the floor is higher to avoid
-single-failure noise) — retune once production traffic is known.
-
-The Phase 5 monitors (AECI-206) split the same way. **"Auth sign-in error rate"** and **"Toxicity
-scoring outage"** are **traffic-driven error-rate** monitors — like page_views, no `notify_no_data` (zero
-sign-ins / zero review-submits is normal at pre-launch and a no-data alert would be constant noise);
-only the failure ratio matters, and both thresholds (30% / 50%) are launch-tunable starting points
-(at low volume a single failure can dominate the ratio). The auth monitor is the only one scoped to
-`service:aeci-web` (the SSR Worker emits `aeci.auth.signin`). **"Moderation queue backlog"** is the
-**fixed-cadence** one and behaves like the stats freshness monitor: the 06:00 UTC moderation cron emits
-`aeci.moderation.queue_oldest_age_hours` (and `…queue_depth`) on **every** run — 0 for an empty queue —
-so the same series carries both the threshold alert (oldest pending > 48h → backlog) **and**, via
-`notify_no_data` (`no_data_timeframe` 1560 ≈ 26h), the cron-liveness check (no snapshot → the cron
-stopped). Because the snapshot is **daily**, detection lags up to ~24h on top of the 48h threshold; the
-cron can move to hourly post-launch if a tighter moderation SLA is needed.
-
-The Phase 6 monitors (AECI-219) follow the **same failure + liveness split**, across two surfaces.
-**"Linear pipeline failure"** is a **traffic-driven error-rate** monitor (like the Phase 5 pair): the
-combined `aeci.linear.issue` + `aeci.linear.sync` `outcome:failed` rate over **terminal** attempts
-(`skipped_exists` / `skipped_no_issue` excluded from the denominator so an idempotent re-fire or a
-no-issue sync can't dilute the ratio), no `notify_no_data` (the pipeline is traffic-driven and the
-absent-key path emits nothing, so zero is healthy). It catches **systemic** breakage (revoked key,
-drifted board ids, Linear down) earlier than the per-row reconcile backstop, and is the **only** alert
-covering the outbound **sync** path, which has no reconciliation retry. **"Linear webhook HMAC failures"**
-is also error-driven (count `> 3`/1h, no `notify_no_data` — a bad signature is the only thing that emits
-it): a security/mis-config signal where a sudden burst paired with a drop in `aeci.webhooks.linear.receipt`
-means the signing secret rotated out of sync. The reconciliation sweep keeps the AECI-214 failure monitor
-(**"persistent stuck requests"**, `aeci.linear.reconcile.persistent_failure > 0`, no `notify_no_data` — the
-§6.2 backstop alert) and now gains its **fixed-cadence liveness** companion (**"sweep not running"**): the
-every-15-min sweep emits the `aeci.linear.reconcile.stuck` gauge on **every** run (0 on a clean run), so a
-`notify_no_data` check (`no_data_timeframe` ~60m ≈ 4 missed sweeps) means the cron stalled and stuck rows
-are no longer retried. That monitor's value threshold is intentionally unsatisfiable (the gauge is ≥ 0) —
-its sole job is the no-data heartbeat; the backlog *value* is alerted by the persistent-failure monitor.
-Same rule as Algolia/stats: keep the failure and liveness concerns on separate metrics. Thresholds
-(50% / 3-per-hour / ~1h) are launch-tunable starting points. The Phase 6 **ban-action** metric
-(`aeci.moderation.ban`) and its monitor are deferred to AECI-218 / Phase 6.11 (the feature is unbuilt).
-
-**"WAF rate-limit / challenge spike"** (AECI-262) is a single **threshold** monitor on
-`sum:aeci.waf.ratelimit.blocked{env:production}.as_count() > 500 / 15m`, **no** `notify_no_data` —
-a quiet hour emits nothing (no attacks = healthy), so a no-data alert would be constant noise, and
-the metric is value-bearing so it uses `sum:` + `.as_count()` (Datadog gotcha 3). Detection lags up to ~1h
-because the source is an hourly poll. Cron-liveness is intentionally **not** folded in here — it
-rides the separate always-emitted `aeci.waf.poll{outcome:ok}` heartbeat (same failure + liveness
-split as Algolia/stats). **AECI-279 (Phase 8.1) added that liveness monitor** —
-`monitor-waf-poll-no-data.json`, `notify_no_data` on `aeci.waf.poll{outcome:ok,trigger:cron}` over a
-3h window (~2 missed hourly polls) — so a silently-dead poll now pages instead of going unnoticed. The
-500/15m threshold is a launch-tunable placeholder — set it once baseline mitigation volume is known.
-
-The **data-quality monitors** (AECI-241, Phase 7.6) follow the same failure + liveness split, plus a
-**severity split added by AECI-279** (Phase 8.1). The daily 04:00 UTC job emits `aeci.data_quality.check`
-per check (0 = clean, **-1** = the check threw) tagged with both `check:` and `severity:`
-(`error` | `warn`). **"Data quality check — error severity"** pages on the two integrity checks
-(`broken_integration_refs`, `reviews_missing_anonymized_at`); **"Data quality check — warn severity"** is
-the informational, non-paging companion for the eight hygiene checks (it carries the
-`@NOTIFICATION_CHANNEL_LOW_TBD` placeholder, and the daily email digest already delivers the rows). Before
-the split, a warn finding (e.g. a known duplicate candidate) paged identically to a broken-integration
-ref; the split lets warn checks be muted or tuned independently — the AECI-279 "tighten warn-level alerts"
-tuning. **"Data quality job failed"** (`outcome:failed`, no `notify_no_data`) catches a thrown check or a
-pre-run crash; **"Data quality job not running"** is the `{trigger:cron}` no-data liveness (~26h). None
-auto-repairs — the job is report-only.
-
-## Browser search telemetry (`aeci.search.query` → `search_performed`)
-
-> **This signal is mid-migration and the two halves are not equivalent.** The RUM
-> action below still fires and is the number to read today. Since AECI-643 its
-> `status` / `duration_ms` / `results_bucket` also ride the **`search_performed`
-> PostHog event** — including a `status: 'error'` row, without which the search
-> error rate would be unrecoverable. At AECI-651 the RUM action and its two
-> Phase-3 dashboard widgets are deleted and the event is all that remains.
->
-> **One narrowing is real and permanent (§3.8/§3.9):** the RUM action is
-> consent-independent and saw *every* search; `search_performed` is Tier 3 and
-> sees the **consented slice only**. Search volume read from PostHog after the
-> cutover is a funnel, not a census. `docs/ANALYTICS.md` §5 is the general
-> statement of this rule; this is the one place where the migration actually
-> *changed* what a number means rather than where it lives.
->
-> **The per-index narrowing has since been closed** (spec §8.10). RUM's `index`
-> dimension has no direct successor — the event fires once per *search*, not once
-> per index — but `search_performed` now carries `results_products` and
-> `results_vendors`, which answer the question `index` answered ("which entity
-> type did this query find?") without turning one search into two events. Two
-> residual differences stay accepted: `duration_ms` is the root (products)
-> index's `processingTimeMS` rather than per-index, and `/search` runs only the
-> products and vendors indexes, so RUM's `integrations` value has no successor
-> at all.
->
-> Two re-homed insights already exist on the PostHog Search dashboard, sourced from
-> `events` rather than `posthog.metrics`. Note that `search_performed` in production
-> currently carries only `query` / `results_count` / `filters_applied` — the five
-> newer properties are on the `searchPerformed()` signature in source but have not
-> reached the production taxonomy yet, so PostHog's taxonomy warning on those
-> columns is the expected pre-deploy state, not a broken query.
-
-### The RUM action, as it stands today (AECI-174)
-
-§14.3 lists "Algolia query latency and error rate" as a dashboard signal. Search is
-queried **client-side**, direct to Algolia with the search-only key injected as
-`window.__AECI_ALGOLIA__` (`apps/web/src/algolia-bootstrap-inject.ts`), so this latency is
-a **browser RUM** signal, not a Worker metric. AECI-141 documented this contract and deferred
-the emit until a search-results UI existed; AECI-142 (`/search`) and AECI-144 (the header
-autocomplete) shipped that UI, and **AECI-174 implements the emit + the two dashboard widgets**.
-
-- **Action:** `datadogRum.addAction('aeci.search.query', {...})` on every query that resolves
-  or errors. The dynamic-import, fire-and-forget emit lives in
-  `apps/web/src/app/search/search-rum.ts` (`emitSearchQuery`, pattern:
-  `apps/web/src/app/datadog.provider.ts`); it's injected into each controller as a
-  `SearchQueryEmitter` seam so the unit tests assert the context without loading the SDK.
-- **Context (low-cardinality only — no raw query text):**
-  - `index` — `products` | `vendors` | `integrations` | `federated`
-  - `status` — `ok` | `error`
-  - `duration_ms` — number (Algolia `processingTimeMS`, or the client round-trip)
-  - `results_bucket` — `none` | `1-5` | `6-20` | `21+`
-- **Emit sites & `index` mapping:**
-  - `/search` (`search-controller.ts`) runs one batched products+vendors multi-query per
-    keystroke; each index's `connectStats` render emits `status:ok` **per index**
-    (`index:'products'` / `index:'vendors'`, `duration_ms` = that index's `processingTimeMS`,
-    `results_bucket` from its `nbHits`). A failed batched request emits ONE `index:'federated'`
-    `status:'error'` from the InstantSearch instance `error` event.
-  - The header autocomplete (`autocomplete-controller.ts`, a single federated `searchForHits`)
-    emits ONE `index:'federated'` per query — `status:'ok'` with the client round-trip
-    `duration_ms` and `results_bucket` from the true total `nbHits`, or `status:'error'` on reject.
-  - `integrations` is a reserved enum value — not queried by either surface today (the
-    `/search` integrations index is intentionally disabled; see `search-controller.ts`).
-- **Widgets in `AECi Phase 3 — Search`** (`observability/datadog/dashboard-search.json`, both
-  `data_source: "rum"`): query latency p50/p95/p99 over `@context.duration_ms` (filtered
-  `@context.status:ok`); error rate = `@context.status:error` count / **one-action-per-query**
-  count. The denominator filters `@context.index:(products OR federated)` (not all actions):
-  a successful `/search` query emits two `ok` actions (one per index) while a failed query emits
-  one `federated` error, so counting every action would halve the apparent `/search` error rate.
+Two re-homed insights exist on the PostHog Search dashboard, sourced from `events`
+rather than `posthog.metrics`.
 
 ## The browser plane (AECI-239 → AECI-643)
 
@@ -1501,8 +1184,8 @@ and the loading mechanism both halves share.
 | **2 — browser operational** | **every visitor, DNT/GPC included** | `$exception`, `$web_vitals`, `app_started` | **memory only** — no identifier, no localStorage, no cookie | not gated |
 | **3 — product analytics** | consented visitors only | `$pageview` + the event catalogue, `identify`, groups | localStorage | banner-gated; DNT/GPC are a hard deny |
 
-Tier 2 is the direct replacement for today's consent-independent Datadog RUM, and
-that equivalence is the whole justification for running it un-gated: it is
+Tier 2 is the direct replacement for the consent-independent Datadog RUM it retired,
+and that equivalence is the whole justification for running it un-gated: it is
 operational telemetry with no identifier attached, which is opt-out-exempt in normal
 practice, and it is disclosed in the privacy policy. Tier 3 **upgrades the same
 client in place** on consent, so the anonymous id and queued state carry across
@@ -1579,26 +1262,13 @@ observability-shaped view of it.
 the browser and both Workers use the same publishable `POSTHOG_PROJECT_KEY`, which
 is why the SSR bootstrap injection (§3.2) can hand it to the client directly.
 
-### Datadog — live until AECI-651
-
-| Credential | Used by | Where it lives | Notes |
-|---|---|---|---|
-| `DD_API_KEY` | Worker runtime — logs **and** metric submission | Wrangler secret (both Workers, all envs) | Already provisioned (AECI-31). Metric submission needs only this key. **Not CI-pushed** — set manually per `docs/environments.md` §6. |
-| `DD_APP_KEY` | **Operator only** — creating/reading dashboards + monitors | Local shell / CI secret at apply time | **Never** a Worker secret; never in `wrangler.jsonc` / `.dev.vars`. |
-| `DD_SITE` | both | Wrangler `vars` | `us5.datadoghq.com`. The metrics host is `api.{DD_SITE}`. |
-| `DD_APPLICATION_ID` + `DD_CLIENT_TOKEN` | `apps/web` **browser RUM** (client-exposed) | Wrangler secret on the **web Worker only**, CI-pushed from the shared un-suffixed GH secrets | AECI-326. The single `aeci` RUM app on us5; the per-env `env` field separates envs, so one pair is reused everywhere. Absent → no `window.__AECI_DD__`, so RUM — **including the field Core Web Vitals nobody else is measuring today** — no-ops (fail-open). |
-| `DATADOG_API_KEY` | CI — the deploy-marker event | GitHub secret | Used by the promote workflows to POST `/api/v1/events` markers. |
-
-**Do not remove any of these as part of PostHog work.** AECI-651 deletes them
-together, after the prod soak, along with the live monitors and dashboards in the
-Datadog UI.
-
 ## Deploy markers
 
-Every deploy path emits **two** markers, in both vendors, both best-effort. Neither
-can fail a deploy: `scripts/ci/posthog-deploy-marker.sh` always exits 0 and every
-skip prints a GitHub `::warning::` that lands on the job page rather than only in
-the log body — the AECI-326 failure mode in reverse.
+Every deploy path emits a best-effort PostHog marker. It cannot fail a deploy:
+`scripts/ci/posthog-deploy-marker.sh` always exits 0 and every skip prints a GitHub
+`::warning::` that lands on the job page rather than only in the log body — the
+AECI-326 failure mode in reverse. (A second, Datadog `/api/v1/events` marker fired
+alongside it until AECI-651 deleted it.)
 
 The PostHog marker has **two legs, and one of them works without any operator step**
 (§8.6):
@@ -1616,9 +1286,6 @@ switches the annotation emoji for it, because **an auto-rollback is an incident
 marker, not a release marker** and a HogQL query needs to be able to separate the
 two. It also sets `$process_person_profile: false`: a deploy is not a user, and
 minting a person per deploy would corrupt every person-linked view.
-
-The Datadog `/api/v1/events` marker (`CICD_PLAN.md` §9.1, tagged `env`, `service`,
-`commit`) still fires alongside it and is deleted at AECI-651.
 
 ## Applying dashboards and alerts
 
@@ -1651,33 +1318,7 @@ delivery** (`subscribed_users` is the only channel wired; Slack/webhook delivery
 a separate `cdp-functions` object, and AECi has no Slack). Both are numbered manual
 steps in `observability/posthog/README.md`.
 
-### Datadog (live objects, for-record JSON) — until AECI-651
 
-Author/own them in the Datadog UI; the committed JSON in `observability/datadog/` is
-the export. To (re)create from it via the API (site `us5`):
-
-```bash
-export DD_API_KEY=...   # the existing Worker key works for reads/writes
-export DD_APP_KEY=...    # operator app key (NOT a Worker secret)
-DD=https://api.us5.datadoghq.com
-
-# Dashboard
-curl -sX POST "$DD/api/v1/dashboard" \
-  -H "DD-API-KEY: $DD_API_KEY" -H "DD-APPLICATION-KEY: $DD_APP_KEY" \
-  -H 'Content-Type: application/json' \
-  -d @observability/datadog/dashboard.json
-
-# Each monitor
-for m in observability/datadog/monitor-*.json; do
-  curl -sX POST "$DD/api/v1/monitor" \
-    -H "DD-API-KEY: $DD_API_KEY" -H "DD-APPLICATION-KEY: $DD_APP_KEY" \
-    -H 'Content-Type: application/json' -d @"$m"
-done
-```
-
-Substitute `@NOTIFICATION_CHANNEL_TBD` → `@chrisw@thewbsproject.com` at apply time.
-After creating, paste the returned dashboard URL into the **Live URL** field above
-and re-export any UI edits back into `observability/datadog/`.
 
 ## Post-deploy pipe verification
 
@@ -1690,7 +1331,7 @@ code.
 **Generate traffic first:**
 
 ```bash
-DATADOG_TRAFFIC_GEN=1 PLAYWRIGHT_BASE_URL=https://<staging-url> \
+TELEMETRY_TRAFFIC_GEN=1 PLAYWRIGHT_BASE_URL=https://<staging-url> \
   pnpm --filter @aeci/web exec playwright test e2e/traffic-gen.spec.ts
 ```
 
@@ -1712,12 +1353,12 @@ pass 2 adds no second datapoint anywhere. Confirm the HIT via the
 | 7 | **A promote run:** kick-off + job metrics and the `job_failed` / `partial_skipped` / `replay_detected` log paths visible | ❌ not run — needs `REVIEW_APP_TOKEN`, absent from local `.dev.vars` |
 | 8 | **The liveness sweep drill:** simulate a missing heartbeat, watch the workflow fail red | ✅ drilled against a stub speaking the real query envelope — fresh → exit 0; missing → exit 1; stale → exit 1; PostHog 5xx / no key → exit 2 |
 | 9 | **An email/side-effect pipe:** trigger one; the metric and any mirrored event arrive with the expected `outcome` + `template` | ❌ not run **deliberately** — local `.dev.vars` holds a live Resend key, so triggering it sends real mail |
-| 10 | **`pnpm dev:agent` boots and serves an SSR 200** — separately from `pnpm build` (the pnpm strict-layout trap: a green build does **not** prove dev resolves) | ✅ SSR 200, `/api/health` 200, `__AECI_POSTHOG__` injected with the committed key, `__AECI_DD__` still injected |
+| 10 | **`pnpm dev:agent` boots and serves an SSR 200** — separately from `pnpm build` (the pnpm strict-layout trap: a green build does **not** prove dev resolves) | ✅ SSR 200, `/api/health` 200, `__AECI_POSTHOG__` injected with the committed key (`__AECI_DD__` was still injected at the time of this pass; AECI-651 removed it) |
 
-**The dual-run fan-out is proven end to end.** In that same run, one set of call
-sites produced `us.i.posthog.com/i/v1/{logs,metrics}` → **200** *and*
-`api.us5.datadoghq.com` + `http-intake.logs.us5.datadoghq.com` → **202**,
-concurrently.
+**The fan-out was proven end to end during the dual-run.** In one run, a single set of
+call sites produced `us.i.posthog.com/i/v1/{logs,metrics}` → **200** *and* the two
+Datadog intakes → **202**, concurrently — which is the evidence that the PostHog leg
+carried everything the Datadog leg did before AECI-651 removed the latter.
 
 **Harness note for whoever re-runs check 4.** `posthog-js` batches captures and
 flushes on the visible→hidden transition. An automation tab that was *never* visible
@@ -1725,13 +1366,13 @@ never makes that transition and its timers are throttled, so events sit in the q
 and the check looks like a failure. Dispatch a `pagehide` event on `window` to force
 the flush.
 
-**Still check Datadog too, for the whole dual-run.** Metrics Explorer:
-`aeci.page.render.duration_ms` (split by `cache_status` — expect `MISS` only — and
-`route_class`), `aeci.api.query.duration_ms` (split by `endpoint`),
-`aeci.cache.purge`. The dashboard should show data on the render / API / error-rate
+**What to look at.** `aeci.page.render.duration_ms` (split by `cache_status` — expect
+`MISS` only — and `route_class`), `aeci.api.query.duration_ms` (split by `endpoint`),
+`aeci.cache.purge`. The dashboards should show data on the render / API / error-rate
 / purge widgets; the HIT-rate slot is a note pointing at the Cloudflare Workers
-observability dashboard (WC-8). **A number present in one vendor and absent in the
-other is the finding** — that is what the window is for.
+observability dashboard (WC-8). With one vendor there is no cross-check any more, so
+a metric that is simply *absent* is the finding — see check 1 on why "the intake
+accepted it" is the strongest available evidence for the metrics plane.
 
 ## Known limitations
 
@@ -1757,7 +1398,7 @@ each was accepted with its eyes open (spec §3.8).
   rather than a UI chart. The dual-run window and the independence of `job_runs`
   are the two mitigations; both are deliberate.
 - **No APM, no distributed tracing.** None was ever provisioned in Datadog either,
-  so nothing is lost — but PostHog has no answer here, so this is the permanent
+  so nothing was lost in the swap — but PostHog has no answer here, so this is the permanent
   state rather than a gap awaiting a fix. `trace_id` in the API error envelope is a
   `crypto.randomUUID()`, not an APM span id. Local `wrangler dev` OTel tracing is
   unaffected (`docs/local-tracing.md`).
@@ -1765,9 +1406,14 @@ each was accepted with its eyes open (spec §3.8).
   evaluation is genuinely unavailable rather than unimplemented: it would require a
   personal API key inside the client, and that must never become a Worker secret.
   See `ANALYTICS.md` §10.5.
-- **Browser search telemetry becomes consent-scoped.** The RUM action saw every
-  search; `search_performed` sees the consented slice. The only place the migration
-  changed what a number *means* — see "Browser search telemetry" above.
+- **Browser search telemetry is consent-scoped.** The RUM action saw every search;
+  `search_performed` sees the consented slice. The only place the migration changed
+  what a number *means* — see "Browser search telemetry" above.
+- **The header autocomplete emits no telemetry at all.** Its only signal was the
+  Datadog RUM action, and `/search`'s `search_performed` does not cover it (that
+  event fires from `search-controller.ts`, not `autocomplete-controller.ts`). So
+  autocomplete latency and error rate are currently unmeasured. This is a *new* hole
+  opened by AECI-651, not an accepted narrowing — tracked as **AECI-717**.
 - **`$web_vitals` and exception *autocapture* are gated on project settings**, not
   code. Manual `captureException` is not gated. See "The remote-config gate".
 - ~~**Field Core Web Vitals currently live only in Datadog RUM.**~~ **Resolved

@@ -112,8 +112,8 @@ If the spec is wrong, that's also a defect — flag it. Do not silently work aro
 ### Observability
 
 > **Two vendors are live right now** (ADR 0024 dual-run). PostHog is where the migration is
-> going; **Datadog is what is alerting on production today** and is deleted only by AECI-651.
-> A PR that removes a Datadog leg "because we use PostHog now" is wrong until that issue ships.
+> going. **AECI-651 has since deleted the Datadog leg**, so PostHog is the only plane; a PR
+> that reintroduces a Datadog dependency is wrong.
 
 - Telemetry dispatched **without** `ctx.waitUntil(...)` — a forward must never block the response
 - A forwarding failure that can **throw**. Every transport leg must `console.warn` and swallow;

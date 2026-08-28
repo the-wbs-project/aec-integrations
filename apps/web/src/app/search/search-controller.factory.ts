@@ -10,7 +10,7 @@
  * module scope, so a static top-level import would crash SSR. They are reached
  * ONLY through the `import()` calls below, which the caller (`SearchPage`) runs
  * inside `afterNextRender` — browser-only by construction. Mirrors the
- * dynamic-import discipline in `apps/web/src/app/datadog.provider.ts`.
+ * dynamic-import discipline in `apps/web/src/app/analytics/posthog-client.ts`.
  *
  * Subpath imports (`instantsearch.js/es`, `.../es/widgets`, `.../es/connectors`)
  * pull only the connectors + the `index`/`configure` widgets we use, dropping

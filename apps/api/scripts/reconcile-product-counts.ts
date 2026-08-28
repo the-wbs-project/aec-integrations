@@ -27,9 +27,10 @@
  *   # against the local seeded D1 (no token; for testing the query):
  *   pnpm --filter @aeci/api db:reconcile-counts -- --local
  *
- * Emits the Datadog gauge `aeci.product_counts.drift` (count of drifted products;
- * 0 on a clean run) when DD_API_KEY is set, mirroring the Worker `submitGauge`
- * payload (packages/shared/src/datadog.ts) since that helper is ctx/Request-bound.
+ * Emits the PostHog gauge `aeci.product_counts.drift` (count of drifted products;
+ * 0 on a clean run) when POSTHOG_PROJECT_KEY is set, mirroring the Worker
+ * `submitGauge` OTLP payload (packages/shared/src/posthog.ts) since that helper
+ * is ctx/Request-bound.
  */
 
 import { spawnSync } from 'node:child_process';
@@ -112,7 +113,7 @@ export function evaluateDrift(rows: RawDriftRow[]): ProductCountDrift[] {
 // ─── Target resolution ───────────────────────────────────────────────────────
 
 interface Target {
-  /** Datadog `env:` tag + display label. */
+  /** Telemetry `env` dimension + display label. */
   label: string;
   /** D1 database name (`wrangler.jsonc` `d1_databases[].database_name`). */
   db: string;
@@ -124,7 +125,7 @@ interface Target {
 function resolveTarget(argv: string[]): Target {
   if (argv.includes('--local')) {
     return {
-      label: process.env.DD_ENV ?? 'preview',
+      label: process.env.TELEMETRY_ENV ?? 'preview',
       db: 'aeci-app-preview',
       flags: ['--local'],
       remote: false,
@@ -201,42 +202,74 @@ function applyFix(target: Target, productIds: string[]): void {
   if (res.status !== 0) throw new Error(`--fix recompute failed (wrangler exit ${res.status}).`);
 }
 
-// ─── Datadog ─────────────────────────────────────────────────────────────────
+// ─── PostHog ─────────────────────────────────────────────────────────────────
 
-/** POST the `aeci.product_counts.drift` gauge (count of drifted products). The
- * shared `submitGauge` (packages/shared/src/datadog.ts) needs a Worker
- * ctx/Request, so the CLI posts directly with the same v2-series payload shape.
- * Best-effort: observability never fails the reconcile. */
+/**
+ * POST the `aeci.product_counts.drift` gauge (count of drifted products) to the
+ * PostHog OTLP metrics intake.
+ *
+ * The shared `submitGauge` (`packages/shared/src/posthog.ts`) is bound to a
+ * Worker `ctx`/`Request`, so the CLI posts directly with the same OTLP envelope:
+ * a `gauge` (no `aggregationTemporality` — OTLP gauges are temporality-free),
+ * `asDouble` on the data point, `stringValue` on the attributes, and the same
+ * resource dimensions the Worker sends so the series lines up in PostHog.
+ *
+ * Auth is the publishable `phc_` project token (`POSTHOG_PROJECT_KEY`), the same
+ * key that authenticates all three intakes — there is no secret to provision.
+ * Best-effort: observability never fails the reconcile.
+ */
 async function emitDriftGauge(value: number, env: string): Promise<void> {
-  const apiKey = process.env.DD_API_KEY;
-  if (!apiKey) return;
-  const site = process.env.DD_SITE || 'us5.datadoghq.com';
+  const projectKey = process.env.POSTHOG_PROJECT_KEY;
+  if (!projectKey) return;
+  const host = (process.env.POSTHOG_HOST || 'https://us.i.posthog.com').replace(/\/+$/, '');
+  const timeUnixNano = `${Date.now() * 1_000_000}`;
+  const attr = (key: string, stringValue: string) => ({ key, value: { stringValue } });
   const payload = {
-    series: [
+    resourceMetrics: [
       {
-        metric: 'aeci.product_counts.drift',
-        type: 3, // gauge — DD_METRIC_TYPE_GAUGE in packages/shared/src/datadog.ts
-        points: [{ timestamp: Math.floor(Date.now() / 1000), value }],
-        tags: [
-          'app:aeci',
-          'service:aeci-api',
-          'worker:aeci-api',
-          'locale:en-US',
-          `env:${env}`,
-          'source:reconcile',
+        resource: {
+          attributes: [
+            attr('service.name', 'aeci-api'),
+            attr('env', env),
+            attr('app', 'aeci'),
+            attr('service', 'aeci-api'),
+            attr('worker', 'aeci-api'),
+            attr('source', 'worker'),
+            attr('locale', 'en-US'),
+          ],
+        },
+        scopeMetrics: [
+          {
+            scope: { name: 'aeci-worker' },
+            metrics: [
+              {
+                name: 'aeci.product_counts.drift',
+                gauge: {
+                  dataPoints: [
+                    {
+                      startTimeUnixNano: timeUnixNano,
+                      timeUnixNano,
+                      asDouble: value,
+                      attributes: [attr('source', 'reconcile')],
+                    },
+                  ],
+                },
+              },
+            ],
+          },
         ],
       },
     ],
   };
   try {
-    const res = await fetch(`https://api.${site}/api/v2/series`, {
+    const res = await fetch(`${host}/i/v1/metrics`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'dd-api-key': apiKey },
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${projectKey}` },
       body: JSON.stringify(payload),
     });
-    if (!res.ok) console.warn(`Datadog gauge POST returned ${res.status}.`);
+    if (!res.ok) console.warn(`PostHog gauge POST returned ${res.status}.`);
   } catch (err) {
-    console.warn(`Datadog gauge POST failed: ${(err as Error).message}`);
+    console.warn(`PostHog gauge POST failed: ${(err as Error).message}`);
   }
 }
 

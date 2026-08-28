@@ -1,6 +1,14 @@
 # ADR 0024 — Observability migrates from Datadog to PostHog (dual-run)
 
-**Status:** Accepted (2026-08-24; epic AECI-639, kickoff AECI-641)
+**Status:** Accepted (2026-08-24; epic AECI-639, kickoff AECI-641) — **implemented; the
+dual-run is over.** AECI-651 removed the Datadog leg on **2026-08-28**, so the decision below
+describes a completed migration rather than an in-flight one. Two things the reader should
+carry forward: the decommission ran on the **`stage-2` line only** (`main`, which deploys
+production, still carries Datadog-only code until the branches merge), and it ran **without the
+2–4 week prod soak this ADR made a precondition** — the operator waived that gate knowingly,
+accepting that the histogram-p95 reconstruction (§AW6 manual step 2) was never validated against
+the Datadog original. That validation is now a standing sanity check in
+`POST_LAUNCH_MONITORING.md` §2.7 rather than a gate.
 **Build contract:** [`docs/POSTHOG_MIGRATION_SPEC.md`](../POSTHOG_MIGRATION_SPEC.md)
 **Builds on:** ADR 0016 (D1/Drizzle topology), ADR 0021 (promote Workflow — whose
 observability contract must survive the swap), ADR 0022 (audit-invariant scope — its

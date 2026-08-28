@@ -465,7 +465,6 @@ export class SearchPage implements OnDestroy {
             config,
             this.initialQuery,
             this.initialSort(config),
-            undefined, // keep the default RUM emitter
             (event) => this.analytics.searchPerformed(event),
           );
           controller.start();

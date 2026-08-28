@@ -6,7 +6,7 @@
  *     an `EmailOutcome`. Absent `RESEND_API_KEY`/`EMAIL_FROM` or empty recipient →
  *     silent `'skipped'` (no fetch); 2xx → `'sent'`; non-2xx/network/timeout →
  *     `'failed'` (logged, never thrown). Each template helper POSTs the right
- *     `to`/subject/body. Global `fetch` is stubbed; `DD_API_KEY` is unset so the
+ *     `to`/subject/body. Global `fetch` is stubbed; `POSTHOG_PROJECT_KEY` is unset so the
  *     `warn`/metric paths are no-ops. Mirrors `toxicity.spec.ts`.
  *   - Low-level transport (AECI-241): `sendEmail` + `parseRecipients` with a faked
  *     `fetch` — skip/sent/failed outcomes and the never-throw guarantee.
@@ -73,7 +73,7 @@ function lastBody(fetchSpy: MockInstance): Record<string, unknown> {
 function fakeContext(env: Partial<Env> = {}): EmailContext {
   return {
     env: {
-      DD_API_KEY: undefined,
+      POSTHOG_PROJECT_KEY: undefined,
       RESEND_API_KEY: 'rk_test',
       EMAIL_FROM: 'AEC Integrations <notifications@aecintegrations.com>',
       ...env,

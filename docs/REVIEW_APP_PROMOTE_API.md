@@ -709,8 +709,8 @@ rejected promote — synchronous or on the job — emits a detailed structured l
 `source:review-app-promote`, so the AECi operator can find and triage it from the
 log console alone:
 
-> **Which console.** Datadog today; **PostHog Logs** once the ADR 0024 migration completes
-> (Datadog is deleted at AECI-651). The **contract below is unchanged by the swap** — the same
+> **Which console.** **PostHog Logs** (ADR 0024; the Datadog leg was deleted at AECI-651).
+> The **contract below was unchanged by the swap** — the same
 > attributes, the same `source`, the same `trace_id` correlation. Only the query syntax differs:
 > a Datadog `service:aeci-api source:review-app-promote` search becomes an attribute filter on
 > the OTLP resource attribute `service.name` plus the `source` attribute. Nothing the review app

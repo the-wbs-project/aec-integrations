@@ -104,7 +104,7 @@ import {
   logToPosthog,
   submitCount,
   submitDistribution,
-  type DdLogEvent,
+  type PosthogLogEvent,
 } from '../posthog';
 import type { Env } from '../env';
 import { ApiError } from '../errors';
@@ -298,7 +298,7 @@ function integrationEditableData(intg: PromoteIntegration): Record<string, unkno
  * `AuditLogForwarder` closure so the whole set can be posted in ONE request per
  * vendor — see the `logBatchToPosthog` call in {@link dispatchPromoteHooks}.
  */
-function auditLogEvent(entry: Omit<AuditLogEntry, 'metadata'>): DdLogEvent {
+function auditLogEvent(entry: Omit<AuditLogEntry, 'metadata'>): PosthogLogEvent {
   return {
     level: 'info',
     message: `audit ${entry.action} ${entry.entityId ?? ''}`.trim(),
@@ -784,7 +784,7 @@ export async function refreshHomeStatsAfterPromote(rc: PromoteRunCtx, db: Db): P
  * counts, and an `aeci.api.promote.skipped` count (value = per-kind skip count,
  * so query with `sum:`; `kind` tag ∈ integration/extension/usefulness/claim/trade)
  * as the alertable signal. Best-effort + fire-and-forget: the transport self-gates
- * on `DD_API_KEY` and dispatches via `ctx.waitUntil`, so this never affects the
+ * on `POSTHOG_PROJECT_KEY` and dispatches via `ctx.waitUntil`, so this never affects the
  * committed promote. No-op when nothing was skipped.
  */
 function logPromoteSkips(rc: PromoteRunCtx, skipped: PromoteSkipped[]): void {

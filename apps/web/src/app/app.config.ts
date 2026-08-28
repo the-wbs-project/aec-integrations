@@ -11,7 +11,6 @@ import { provideRouter, withInMemoryScrolling } from '@angular/router';
 import { PosthogErrorHandler } from './analytics/posthog-error-handler';
 import { providePostHog } from './analytics/posthog.provider';
 import { routes } from './app.routes';
-import { provideDatadogRum } from './datadog.provider';
 
 export const appConfig: ApplicationConfig = {
   providers: [
@@ -56,7 +55,6 @@ export const appConfig: ApplicationConfig = {
       // docs/CACHE_STRATEGY.md §6 and AECI-130.
       withHttpTransferCacheOptions({ includePostRequests: false }),
     ),
-    provideDatadogRum(),
     providePostHog(),
   ],
 };

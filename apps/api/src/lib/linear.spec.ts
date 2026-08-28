@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fakeExecutionContext, TEST_ENV } from '../test/helpers';
 
 // Mock the Datadog adapter so we can assert outcome metrics + error logs without
-// a real DD_API_KEY (the real helpers no-op without one — we want to see calls).
+// a real POSTHOG_PROJECT_KEY (the real helpers no-op without one — we want to see calls).
 vi.mock('../posthog', () => ({
   logToPosthog: vi.fn(),
   logBatchToPosthog: vi.fn(),

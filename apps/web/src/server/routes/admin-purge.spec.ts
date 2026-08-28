@@ -334,18 +334,18 @@ describe('POST /admin/purge — native cache purge', () => {
   });
 });
 
-describe('POST /admin/purge — Datadog logging + metric', () => {
+describe('POST /admin/purge — telemetry log + metric', () => {
   it('forwards both a log and a count metric via ctx.waitUntil (source=manual default)', async () => {
     const app = makeApp();
     const { ctx } = ctxWithPurge();
 
     await app.fetch(
       purgeRequest({ token: ADMIN_TOKEN, body: { tags: ['product:procore'] } }),
-      makeEnv({ DD_API_KEY: 'fake-dd-key' }),
+      makeEnv({ POSTHOG_PROJECT_KEY: 'phc_test_token' }),
       ctx,
     );
 
-    // Two fire-and-forget forwards: the structured log (AECI-31) and the
+    // Two fire-and-forget forwards: the structured log and the
     // `aeci.cache.purge` count metric (AECI-66).
     expect(ctx.waitUntil).toHaveBeenCalledTimes(2);
   });
@@ -356,7 +356,7 @@ describe('POST /admin/purge — Datadog logging + metric', () => {
 
     await app.fetch(
       purgeRequest({ token: ADMIN_TOKEN, body: { tags: ['product:procore'] } }),
-      makeEnv({ DD_API_KEY: 'fake-dd-key' }),
+      makeEnv({ POSTHOG_PROJECT_KEY: 'phc_test_token' }),
       ctx,
     );
 
@@ -364,21 +364,21 @@ describe('POST /admin/purge — Datadog logging + metric', () => {
   });
 
   it('reflects ?source=webhook in both the log and the count metric', async () => {
-    // Spy on global fetch to capture the Datadog payloads. The purge goes via
-    // the ctx.cache.purge mock, so global fetch only sees the DD POSTs: one to
-    // the logs intake (/api/v2/logs), one to the metrics intake (/api/v2/series).
+    // Spy on global fetch to capture the PostHog OTLP payloads. The purge goes
+    // via the ctx.cache.purge mock, so global fetch only sees the two intake
+    // POSTs: the logs intake (/i/v1/logs) and the metrics intake (/i/v1/metrics).
     const app = makeApp();
 
     const originalFetch = globalThis.fetch;
-    const ddCalls: { url: string; body: Record<string, unknown> }[] = [];
+    const posted: { url: string; body: Record<string, unknown> }[] = [];
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       if (init?.body) {
-        ddCalls.push({ url: String(input), body: JSON.parse(init.body as string) });
+        posted.push({ url: String(input), body: JSON.parse(init.body as string) });
       }
       return new Response('{}', { status: 202 });
     }) as typeof fetch;
 
-    // Native cache enabled, with a real waitUntil so the DD fetches actually fire.
+    // Native cache enabled, with a real waitUntil so the forwards actually fire.
     const purge = vi
       .fn()
       .mockResolvedValue({ success: true, errors: [] } satisfies CachePurgeResult);
@@ -400,7 +400,7 @@ describe('POST /admin/purge — Datadog logging + metric', () => {
           body: { tags: ['product:procore'] },
           search: '?source=webhook',
         }),
-        makeEnv({ DD_API_KEY: 'fake-dd-key' }),
+        makeEnv({ POSTHOG_PROJECT_KEY: 'phc_test_token' }),
         ctx,
       );
       await Promise.all(pending);
@@ -408,23 +408,54 @@ describe('POST /admin/purge — Datadog logging + metric', () => {
       globalThis.fetch = originalFetch;
     }
 
-    const log = ddCalls.find((c) => c.url.includes('/api/v2/logs'))?.body;
-    expect(log).toMatchObject({
-      message: 'aeci.cache.purge',
+    type OtlpAttribute = { key: string; value: { stringValue?: string; doubleValue?: number } };
+    const attrMap = (attributes: OtlpAttribute[]) =>
+      Object.fromEntries(
+        attributes.map((a) => [a.key, a.value.doubleValue ?? a.value.stringValue]),
+      );
+
+    const logBody = posted.find((c) => c.url.endsWith('/i/v1/logs'))?.body as
+      | {
+          resourceLogs: {
+            scopeLogs: {
+              logRecords: { body: { stringValue: string }; attributes: OtlpAttribute[] }[];
+            }[];
+          }[];
+        }
+      | undefined;
+    expect(logBody).toBeDefined();
+    const record = logBody!.resourceLogs[0]!.scopeLogs[0]!.logRecords[0]!;
+    expect(record.body.stringValue).toBe('aeci.cache.purge');
+    expect(attrMap(record.attributes)).toMatchObject({
       source: 'webhook',
       mode: 'tags',
       tags_count: 1,
       outcome: 'ok',
     });
 
-    const metric = ddCalls.find((c) => c.url.includes('/api/v2/series'))?.body as
-      | { series: { metric: string; type: number; tags: string[] }[] }
+    const metricBody = posted.find((c) => c.url.endsWith('/i/v1/metrics'))?.body as
+      | {
+          resourceMetrics: {
+            scopeMetrics: {
+              metrics: {
+                name: string;
+                sum: { isMonotonic: boolean; dataPoints: { attributes: OtlpAttribute[] }[] };
+              }[];
+            }[];
+          }[];
+        }
       | undefined;
-    expect(metric).toBeDefined();
-    expect(metric!.series[0]!.metric).toBe('aeci.cache.purge');
-    expect(metric!.series[0]!.type).toBe(1); // count
-    expect(metric!.series[0]!.tags).toEqual(
-      expect.arrayContaining(['source:webhook', 'outcome:ok', 'mode:tags']),
-    );
+    expect(metricBody).toBeDefined();
+    const metric = metricBody!.resourceMetrics[0]!.scopeMetrics[0]!.metrics[0]!;
+    expect(metric.name).toBe('aeci.cache.purge');
+    expect(metric.sum.isMonotonic).toBe(true); // a count, not a gauge
+    expect(attrMap(metric.sum.dataPoints[0]!.attributes)).toMatchObject({
+      source: 'webhook',
+      outcome: 'ok',
+      mode: 'tags',
+    });
+
+    // No second vendor: the Datadog leg was deleted in AECI-651.
+    expect(posted.some((c) => c.url.includes('datadoghq'))).toBe(false);
   });
 });

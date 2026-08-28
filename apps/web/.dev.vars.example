@@ -4,22 +4,12 @@
 
 ENV=preview
 
-# ─── Datadog (AECI-31) ─────────────────────────────────────────────────────
-# DD_APPLICATION_ID + DD_CLIENT_TOKEN are explicitly client-exposed (rendered
-# into the SSR HTML so @datadog/browser-rum can pick them up). Stored as
-# secrets here only to keep values out of git — the SSR Worker inlines them
-# into HTML so they reach the browser at hydration time.
-# DD_API_KEY is server-only (Datadog Logs HTTP intake).
-# All three no-op when empty, so dev boots cleanly without a Datadog account.
-# In deployed envs the two RUM creds (DD_APPLICATION_ID + DD_CLIENT_TOKEN) are
-# CI-pushed per env from the shared un-suffixed GH secrets of the same name
-# (AECI-326) — single "aeci" RUM app on us5, separated by the per-env ENV field.
-DD_APPLICATION_ID=
-DD_CLIENT_TOKEN=
-DD_API_KEY=
-# Optional. Defaults to datadoghq.com. Use datadoghq.eu / us3.datadoghq.com /
-# us5.datadoghq.com / ap1.datadoghq.com as appropriate for the DD region.
-DD_SITE=datadoghq.com
+# ─── Observability (ADR 0024) ──────────────────────────────────────────────
+# Nothing to set. The browser and Worker planes both run on PostHog, which
+# authenticates with the publishable `phc_` POSTHOG_PROJECT_KEY — a committed
+# per-env `vars` entry in wrangler.jsonc, not a secret (AECI-640). The four
+# DD_* Datadog credentials were deleted in AECI-651; if you have them in a
+# local `.dev.vars`, drop them.
 
 # ─── Cache-tag purge (AECI-56) ─────────────────────────────────────────────
 # ADMIN_PURGE_TOKEN: bearer the caller of POST /admin/purge must present.

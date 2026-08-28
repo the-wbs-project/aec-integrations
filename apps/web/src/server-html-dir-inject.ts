@@ -12,7 +12,8 @@
  * (including that prefix) — so baking them into the cached HTML is cache-safe
  * (§9.1a / §7a.3a).
  *
- * Modeled on `injectDatadogBootstrap`, with three deliberate differences:
+ * Modeled on the bootstrap injectors (`algolia-bootstrap-inject.ts` et al.),
+ * with three deliberate differences:
  *   - Gated on `content-type: text/html` ONLY, not on status — so Angular's
  *     full-document 404 also gets correct `lang`/`dir`. (The cheap-text 404
  *     emitted by the runtime has no `<html>` tag and is a safe no-op below.)
