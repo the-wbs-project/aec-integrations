@@ -277,10 +277,17 @@
         </div>
 
         <!--
-          Entitlement (AECI-532 / §5). Deliberately OUTSIDE the `isActionable` block:
-          renewing or clearing a vendor granted months ago is the ordinary case, and
-          those rows are terminal claims. Acts on the RESOLVED target vendor, so a
-          product claim points at that product's primary vendor.
+          Entitlement (AECI-532 §5) — a READOUT plus a link, since AECI-652 §5.6.
+          The set/renew/clear control moved to `/admin/vendors/:id`, which is the
+          surface that can reach every vendor rather than only the ones that filed
+          a claim. Keeping a second copy here would mean two copies of the §5.2 /
+          §5.3 / §5.4 copy invariants, and those are the sentences whose drift
+          causes an incident rather than a typo.
+
+          Still deliberately OUTSIDE the `isActionable` block: renewing or clearing
+          a vendor granted months ago is the ordinary case, and those rows are
+          terminal claims. Points at the RESOLVED target vendor, so a product claim
+          links to that product's primary vendor.
         -->
         <div
           class="mt-4 rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) p-4"
@@ -299,212 +306,28 @@
               </p>
               @if (r.entitlement_vendor) {
               <p class="mt-1 text-xs text-(--text-secondary)">
-                <span i18n="@@admin.claims.ent.vendor">Vendor</span>: {{ r.entitlement_vendor.name
+                <span i18n="@@admin.claims.ent.vendor2">Vendor</span>: {{ r.entitlement_vendor.name
                 }}
               </p>
               } @if (r.entitlement; as e) {
               <p class="mt-1 text-xs text-(--text-secondary)">{{ entitlementTerm(e) }}</p>
               @if (e.invoice_ref) {
               <p class="mt-1 text-xs text-(--text-secondary)">
-                <span i18n="@@admin.claims.ent.invoice">Invoice / PO</span>: {{ e.invoice_ref }}
+                <span i18n="@@admin.claims.ent.invoice2">Invoice / PO</span>: {{ e.invoice_ref }}
               </p>
               } }
             </div>
 
-            @if (r.entitlement_vendor) {
-            <div class="flex shrink-0 flex-wrap gap-2">
-              @if (isEntitled(r)) {
-              <button
-                type="button"
-                (click)="openEntitlementForm(r, 'renew')"
-                [disabled]="entPendingVendorId() === r.entitlement_vendor.id"
-                class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-raised) px-4 py-1.5 text-xs font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
-                i18n="@@admin.claims.ent.renew"
-              >
-                Renew term
-              </button>
-              <button
-                type="button"
-                (click)="openEntitlementForm(r, 'clear')"
-                [disabled]="entPendingVendorId() === r.entitlement_vendor.id"
-                class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-raised) px-4 py-1.5 text-xs font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
-                i18n="@@admin.claims.ent.clear"
-              >
-                Clear entitlement
-              </button>
-              } @else {
-              <button
-                type="button"
-                (click)="openEntitlementForm(r, 'set')"
-                [disabled]="entPendingVendorId() === r.entitlement_vendor.id"
-                class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-raised) px-4 py-1.5 text-xs font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
-                i18n="@@admin.claims.ent.set"
-              >
-                Grant entitlement
-              </button>
-              }
-            </div>
+            @if (r.entitlement_vendor; as v) {
+            <a
+              [routerLink]="['/admin/vendors', v.id]"
+              class="inline-flex shrink-0 items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-raised) px-4 py-1.5 text-xs font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              i18n="@@admin.claims.ent.manage"
+            >
+              Manage entitlement
+            </a>
             }
           </div>
-
-          <!-- Set / renew: term + paperwork. The money detail is admin-side only. -->
-          @if (entFormOpenId() === r.id && entFormMode() !== 'clear' && r.entitlement_vendor) {
-          <form
-            novalidate
-            (submit)="$event.preventDefault(); submitEntitlement(r)"
-            class="mt-4 space-y-3 border-t border-(--border-default) pt-4"
-          >
-            <div class="grid gap-3 sm:grid-cols-2">
-              <div>
-                <label
-                  [attr.for]="'ent-end-' + r.id"
-                  class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-                  i18n="@@admin.claims.ent.form.periodEnd"
-                >
-                  Term end date (optional)
-                </label>
-                <input
-                  [id]="'ent-end-' + r.id"
-                  type="date"
-                  [value]="entPeriodEnd()"
-                  (input)="onEntPeriodEndInput($event)"
-                  class="mt-1 w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-                />
-              </div>
-              <div>
-                <label
-                  [attr.for]="'ent-invoice-' + r.id"
-                  class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-                  i18n="@@admin.claims.ent.form.invoice"
-                >
-                  Invoice / PO reference (optional)
-                </label>
-                <input
-                  [id]="'ent-invoice-' + r.id"
-                  type="text"
-                  [value]="entInvoiceRef()"
-                  (input)="onEntInvoiceRefInput($event)"
-                  class="mt-1 w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-                />
-              </div>
-            </div>
-            <div>
-              <label
-                [attr.for]="'ent-note-' + r.id"
-                class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-                i18n="@@admin.claims.ent.form.notes"
-              >
-                Arrangement notes (optional)
-              </label>
-              <textarea
-                [id]="'ent-note-' + r.id"
-                rows="2"
-                [value]="entNote()"
-                (input)="onEntNoteInput($event)"
-                class="mt-1 w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-              ></textarea>
-            </div>
-            <!-- Verification is an account status, and search is nightly (§5.3 / R2). -->
-            <p class="text-xs text-(--text-secondary)" i18n="@@admin.claims.ent.form.setHelp">
-              Granting an entitlement shows the Verified badge and unlocks the vendor's portal
-              editing. It is an account status, never an endorsement, and it never affects search
-              ranking or placement. Search results catch up within a day.
-            </p>
-            <div class="flex flex-wrap gap-3 pt-1">
-              <button
-                type="submit"
-                [disabled]="entPendingVendorId() === r.entitlement_vendor.id"
-                class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--accent-primary) bg-(--accent-primary) px-5 py-2 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                @if (entPendingVendorId() === r.entitlement_vendor.id) {
-                <span i18n="@@admin.claims.ent.working">Working…</span>
-                } @else if (entFormMode() === 'renew') {
-                <span i18n="@@admin.claims.ent.confirmRenew">Confirm renewal</span>
-                } @else {
-                <span i18n="@@admin.claims.ent.confirmSet">Confirm grant</span>
-                }
-              </button>
-              <button
-                type="button"
-                (click)="closeEntitlementForm()"
-                [disabled]="entPendingVendorId() === r.entitlement_vendor.id"
-                class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-5 py-2 text-sm font-medium text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
-                i18n="@@admin.claims.ent.cancel"
-              >
-                Cancel
-              </button>
-            </div>
-          </form>
-          }
-
-          <!--
-            Clear: the copy carries §5.2 (this is not a seat revoke and not a ban) and
-            the §5.4 lockout escape hatch, because an admin who assumes otherwise
-            creates an incident, not a typo.
-          -->
-          @if (entFormOpenId() === r.id && entFormMode() === 'clear' && r.entitlement_vendor) {
-          <form
-            novalidate
-            (submit)="$event.preventDefault(); submitEntitlement(r)"
-            class="mt-4 space-y-3 border-t border-(--border-default) pt-4"
-          >
-            <p class="text-sm text-(--text-primary)" i18n="@@admin.claims.ent.clear.keepsAccess">
-              Clearing removes the Verified badge and blocks portal editing. It does not remove
-              anyone's seat: the vendor's team keeps their logins and their portal, read-only. To
-              ban one person instead, use Banned reviewers.
-            </p>
-            <p class="text-xs text-(--text-secondary)" i18n="@@admin.claims.ent.clear.lockout">
-              While an entitlement is cleared, a vendor whose team still holds seats can't be edited
-              by anyone — the portal blocks them and catalog promotion skips claimed vendors. To
-              make a change, grant the entitlement again, edit, then clear it.
-            </p>
-            <div>
-              <label
-                [attr.for]="'ent-reason-' + r.id"
-                class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-                i18n="@@admin.claims.ent.clear.reasonLabel"
-              >
-                Internal reason (optional)
-              </label>
-              <p class="text-xs text-(--text-secondary)" i18n="@@admin.claims.ent.clear.reasonHelp">
-                Recorded in the audit log. The vendor is not emailed about this.
-              </p>
-              <textarea
-                [id]="'ent-reason-' + r.id"
-                rows="2"
-                [value]="entNote()"
-                (input)="onEntNoteInput($event)"
-                class="mt-1 w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-              ></textarea>
-            </div>
-            <div class="flex flex-wrap gap-3 pt-1">
-              <button
-                type="submit"
-                [disabled]="entPendingVendorId() === r.entitlement_vendor.id"
-                class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--text-primary) bg-(--text-primary) px-5 py-2 text-sm font-bold text-(--surface-base) transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                @if (entPendingVendorId() === r.entitlement_vendor.id) {
-                <span i18n="@@admin.claims.ent.working2">Working…</span>
-                } @else {
-                <span i18n="@@admin.claims.ent.confirmClear">Confirm clear</span>
-                }
-              </button>
-              <button
-                type="button"
-                (click)="closeEntitlementForm()"
-                [disabled]="entPendingVendorId() === r.entitlement_vendor.id"
-                class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-5 py-2 text-sm font-medium text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
-                i18n="@@admin.claims.ent.cancel2"
-              >
-                Cancel
-              </button>
-            </div>
-          </form>
-          } @if (entFailedId() === r.id) {
-          <p class="mt-3 text-sm font-medium text-(--text-primary)" role="alert">
-            {{ entFailedMessage() }}
-          </p>
-          }
         </div>
 
         <!-- Source link -->

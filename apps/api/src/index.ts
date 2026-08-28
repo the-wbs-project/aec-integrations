@@ -26,6 +26,12 @@ import { createGetAccountReviewsHandler } from './routes/account-reviews';
 import { createAdminClaimsListHandler, createModerateClaimHandler } from './routes/admin-claims';
 import { createSetVendorEntitlementHandler } from './routes/admin-entitlements';
 import {
+  createAdminRevokeSeatHandler,
+  createAdminVendorAuditHandler,
+  createAdminVendorDetailHandler,
+  createAdminVendorsListHandler,
+} from './routes/admin-vendors';
+import {
   createAdminRequestsListHandler,
   createModerateRequestHandler,
 } from './routes/admin-requests';
@@ -345,6 +351,28 @@ app.route('/', authAccount);
 //     no `workflow_instances` row, because that CHECK is closed (§1.2). Clearing
 //     is NOT a seat revoke and NOT a ban (§5.2): seats, logins and the dashboard
 //     survive, read-only.
+//   - GET    /api/admin/vendors                   (S2 §5.6, AECI-652) — paginated
+//     vendor list + name/slug search. The way in for a vendor that never filed a
+//     claim; before this the entitlement control could only be reached through a
+//     `/admin/claims` card, which made concierge onboarding unreachable.
+//   - GET    /api/admin/vendors/:id               (S2 §5.6, AECI-652) — basics,
+//     entitlement, the seat roster + pending invites, and product / integration /
+//     claim counts. Two D1 round trips: a 404 gate, then ONE `db.batch` of six
+//     reads (a batch for the round trip, not for atomicity — and deliberately not
+//     a `UNION`, which D1 caps at 5 compound terms).
+//   - GET    /api/admin/vendors/:id/audit         (S2 §5.6, AECI-652) — the FIRST
+//     read surface `audit_log` has ever had, and the first reader of
+//     `audit_log_entity_idx`. `?scope=all|entity|actor`. Entity scope is four
+//     OR'd disjuncts because `entity_id = <vendor>` misses more than it catches:
+//     a rejected claim's metadata carries no `vendor_id`, a revoked seat's row
+//     files under the seat's `profiles.id` — which no longer points at the vendor
+//     by the time anyone reads it — and a seat ban/unban files under the seat's
+//     `profiles.id` with no `vendor_id` either. See `auditScopeWhere`.
+//   - DELETE /api/admin/vendors/:id/seats/:userId (S2 §5.6, AECI-652) — revoke one
+//     seat, AECi-side. Composes `revokeSeatStatements` unchanged, so the
+//     `vendor_claim.seat_revoked` row rides the same `db.batch` and NO statement
+//     names `vendors`: revoking a seat is orthogonal to the entitlement and never
+//     moves the mirror (§5.2). Ban/unban stays on `/api/admin/reviewers/:id`.
 //
 // Phase 8.3 (AECI-574 P1.1, AECI-577 P1.3) adds the admin panel's READ endpoints
 // to the same router — no new gate, `requireAdmin()` stays the single enforcement
@@ -424,6 +452,22 @@ authAdmin.patch(
   '/api/admin/vendors/:id/entitlement',
   requireAdmin(),
   createSetVendorEntitlementHandler(),
+);
+// Stage 2 / AECI-652: the admin vendor surface (§5.6). Three reads plus one seat
+// revoke. Registered AFTER the entitlement PATCH so the literal `/entitlement`
+// and `/seats/:userId` segments are unambiguous against the bare `/:id`; Hono's
+// trie separates them by segment count anyway, but the order documents intent.
+// The GETs write nothing — reads emit no `audit_log` row (§9.3). The DELETE does
+// write, and reuses `revokeSeatStatements`, so its audit row rides the same
+// `db.batch` and NO statement names `vendors` — a seat revoke is orthogonal to
+// the entitlement and never moves the mirror (§5.2).
+authAdmin.get('/api/admin/vendors', requireAdmin(), createAdminVendorsListHandler());
+authAdmin.get('/api/admin/vendors/:id', requireAdmin(), createAdminVendorDetailHandler());
+authAdmin.get('/api/admin/vendors/:id/audit', requireAdmin(), createAdminVendorAuditHandler());
+authAdmin.delete(
+  '/api/admin/vendors/:id/seats/:userId',
+  requireAdmin(),
+  createAdminRevokeSeatHandler(),
 );
 // Admin panel reads (AECI-574, AECI-577, AECI-579, AECI-580, AECI-586).
 // Registered after the moderation routes; no path collides with

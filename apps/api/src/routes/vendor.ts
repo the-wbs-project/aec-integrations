@@ -99,7 +99,6 @@ import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
 import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
 import { auditActorType, entitlementRequired, requireCapability } from '../lib/authz';
-import { VENDOR_ADMIN_ROLE } from '../lib/claimed-vendors';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import { fetchAuthUserEmails } from '../lib/supabase-admin';
 import { pendingInvitesFor } from '../lib/vendor-seat-invites';
@@ -108,6 +107,7 @@ import {
   afterVendorWrite,
   parseJsonBody,
   requireOwnedProduct,
+  seatsOf,
   sessionVendorId,
   vendorRequestsWhere,
   type ProductRow,
@@ -123,16 +123,6 @@ export type FetchSeatEmails = (
 ) => Promise<Map<string, string>>;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-
-/**
- * "The seats on this vendor" — a granted vendor-portal seat is a `profiles` row
- * with BOTH `vendor_id = <vendor>` and `role = 'vendor_admin'`. Shared by the
- * dashboard's `seat_count` and the roster so the two can never disagree: a
- * `reviewer` profile that happens to carry a `vendor_id` is not a seat.
- */
-function seatsOf(vendorId: string) {
-  return and(eq(profiles.vendorId, vendorId), eq(profiles.role, VENDOR_ADMIN_ROLE));
-}
 
 /**
  * Tags a product edit invalidates.

@@ -23,6 +23,12 @@
  * None throws — the caller decides how to surface a failure. The single-shot
  * seams flag the absent-creds case as `skipped: true`, which callers MUST
  * distinguish from a successful "no such user" result.
+ *
+ * Since AECI-652 every degrade also `console.warn`s its reason (see
+ * {@link warnSeam}), and the batched email seam has a `Result` form
+ * ({@link fetchAuthUserEmailsResult}) that reports availability alongside the
+ * map. Graceful degradation without a log line is how a bad service-role key
+ * spent a day looking exactly like "this claimant has no account".
  */
 
 import { mapWithConcurrency, WORKER_CONNECTION_LIMIT } from '@aeci/shared/concurrency';
@@ -56,6 +62,45 @@ function adminHeaders(key: string): Record<string, string> {
  */
 function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
+}
+
+/**
+ * Say out loud why a seam degraded.
+ *
+ * Every seam in this module swallows its failure by design — a missing
+ * service-role key is a legitimate state in local dev and PR previews, and an
+ * admin queue must render rather than 500. What was NOT by design is that the
+ * status code and error text went with it: on 2026-08-24 the claim queue read
+ * "Account status unknown" for every row on `stage2`, first because the key was
+ * absent and then because it carried a bad value, and there was nothing in any
+ * log to tell those two apart from a genuine "this claimant has no account".
+ *
+ * `console.warn` rather than the `logToPosthog` helpers used elsewhere
+ * (`lib/email.ts`, `lib/toxicity.ts`): those need `(executionCtx, env, request)`
+ * and every function here takes only `env`. Threading a Hono context in would
+ * change four structural type aliases that exist precisely so these functions
+ * can be swapped for fakes in tests. Workers Observability captures `console.*`,
+ * and the callers — which do hold a context — turn the returned `reason` into
+ * structured telemetry.
+ */
+function warnSeam(seam: string, reason: string, detail?: unknown): void {
+  console.warn(`[supabase-admin] ${seam} degraded: ${reason}`, detail === undefined ? '' : detail);
+}
+
+/**
+ * The result of a batched email lookup, with the "why" the bare map cannot
+ * carry (AECI-652).
+ *
+ * `available: false` means the SEAM failed — creds absent, or GoTrue errored —
+ * so an absent key says nothing about the account. `available: true` with an
+ * absent key means that account genuinely has no email on file. A surface that
+ * cannot tell those apart has to render "unknown" for everything, which is how
+ * a configuration error hid in plain sight for a day.
+ */
+export interface AuthEmailLookup {
+  available: boolean;
+  emails: Map<string, string>;
+  reason: 'ok' | 'no_credentials' | 'error';
 }
 
 /** A blank or garbage `filter=` would match every user, so reject before the
@@ -97,18 +142,34 @@ export async function deleteAuthUser(env: Env, userId: string): Promise<DeleteAu
 }
 
 /**
- * Resolve emails for the given auth user ids via the GoTrue Admin API (seam #2).
+ * Resolve emails for the given auth user ids via the GoTrue Admin API (seam #2),
+ * reporting whether the seam itself worked.
+ *
  * Parallel per-id GETs; degrades to a partial/empty map on any failure or absent
- * creds (the admin queue then shows `reviewer_email: null` rather than 500ing).
+ * creds (the admin queue then shows `email: null` rather than 500ing) — but
+ * unlike the bare-map {@link fetchAuthUserEmails} wrapper, this says WHY, so a
+ * surface can render "unavailable" instead of asserting "no email on file". See
+ * {@link AuthEmailLookup}.
+ *
+ * `reason: 'error'` is reported if ANY id failed, even when others succeeded: a
+ * partial map is still a degraded answer, and a caller labelling a per-row blank
+ * as authoritative would be wrong for exactly the rows that failed.
  */
-export async function fetchAuthUserEmails(
+export async function fetchAuthUserEmailsResult(
   env: Env,
   userIds: readonly string[],
-): Promise<Map<string, string>> {
-  const out = new Map<string, string>();
+): Promise<AuthEmailLookup> {
+  const emails = new Map<string, string>();
   const cfg = adminConfig(env);
   const ids = [...new Set(userIds)].filter((id) => id.length > 0);
-  if (!cfg || ids.length === 0) return out;
+  if (!cfg) {
+    warnSeam('fetchAuthUserEmails', 'no_credentials', 'SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY');
+    return { available: false, emails, reason: 'no_credentials' };
+  }
+  // No ids is not a degrade — there was nothing to look up, and the seam is fine.
+  if (ids.length === 0) return { available: true, emails, reason: 'ok' };
+
+  let failed = false;
 
   // Bounded, not a bare `Promise.all` (AECI-666): GoTrue has no by-id batch
   // endpoint, so this is one GET per reviewer and the request count scales with
@@ -122,15 +183,48 @@ export async function fetchAuthUserEmails(
       });
       if (!res.ok) {
         discardResponseBody(res);
+        // A 404 is a genuine "no such auth user", not a seam failure — it is the
+        // expected answer for a profile whose Supabase account was erased.
+        if (res.status !== 404) {
+          failed = true;
+          warnSeam('fetchAuthUserEmails', `http_${res.status}`, { userId: id });
+        }
         return;
       }
       const user = (await res.json()) as { email?: unknown };
-      if (typeof user.email === 'string' && user.email) out.set(id, user.email);
-    } catch {
+      if (typeof user.email === 'string' && user.email) emails.set(id, user.email);
+    } catch (error) {
+      failed = true;
+      warnSeam('fetchAuthUserEmails', 'error', {
+        userId: id,
+        message: error instanceof Error ? error.message : String(error),
+      });
       /* degrade — leave this id absent from the map */
     }
   });
-  return out;
+
+  return failed
+    ? { available: false, emails, reason: 'error' }
+    : { available: true, emails, reason: 'ok' };
+}
+
+/**
+ * Bare-map form of {@link fetchAuthUserEmailsResult} (seam #2).
+ *
+ * **Keep this signature byte-identical.** It is not merely a convenience: four
+ * structural type aliases — `FetchReviewerEmails` (`routes/admin-reviews.ts`)
+ * and `FetchSeatEmails` (`routes/vendor.ts`, `lib/entitlement-expiry.ts`,
+ * `lib/attestation-notify.ts`) — are declared as
+ * `(env, ids) => Promise<Map<string, string>>` and take this function as their
+ * injection default, so every spec that swaps in a fake is typed against it.
+ * Callers that need to distinguish "seam unavailable" from "no email on file"
+ * use the `Result` form directly.
+ */
+export async function fetchAuthUserEmails(
+  env: Env,
+  userIds: readonly string[],
+): Promise<Map<string, string>> {
+  return (await fetchAuthUserEmailsResult(env, userIds)).emails;
 }
 
 /** The slice of a GoTrue `auth.users` row the identity seams surface. */
@@ -309,7 +403,14 @@ export async function fetchAuthAccountsByEmail(
 ): Promise<Map<string, boolean>> {
   const out = new Map<string, boolean>();
   const cfg = adminConfig(env);
-  if (!cfg) return out;
+  if (!cfg) {
+    warnSeam(
+      'fetchAuthAccountsByEmail',
+      'no_credentials',
+      'SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY',
+    );
+    return out;
+  }
 
   // normalized address → every original spelling that produced it.
   const groups = new Map<string, string[]>();
@@ -328,8 +429,18 @@ export async function fetchAuthAccountsByEmail(
     async ([normalized, spellings]) => {
       const res = await findAuthUserByEmail(env, normalized);
       // `!ok` or `skipped` → leave the group absent so the caller reports
-      // "unknown" rather than asserting the account does not exist.
-      if (!res.ok || res.skipped) return;
+      // "unknown" rather than asserting the account does not exist. Warn on the
+      // way past: this is where the status and error text used to vanish, which
+      // is what made a bad service-role key indistinguishable from a claimant
+      // who genuinely has no account.
+      if (!res.ok || res.skipped) {
+        warnSeam(
+          'fetchAuthAccountsByEmail',
+          res.skipped ? 'no_credentials' : `http_${res.status ?? 'error'}`,
+          res.error,
+        );
+        return;
+      }
       for (const spelling of spellings) out.set(spelling, res.user !== null);
     },
   );

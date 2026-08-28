@@ -66,6 +66,7 @@ export const ADMIN_NAV_GROUPS: readonly AdminNavGroup[] = [
       },
       { path: '/admin/requests', label: $localize`:@@admin.shell.nav.requests:Requests` },
       { path: '/admin/claims', label: $localize`:@@admin.shell.nav.claims:Vendor claims` },
+      { path: '/admin/vendors', label: $localize`:@@admin.shell.nav.vendors:Vendors` },
       { path: '/admin/reviewers', label: $localize`:@@admin.shell.nav.reviewers:Reviewer bans` },
       { path: '/admin/system', label: $localize`:@@admin.shell.nav.system:System status` },
     ],

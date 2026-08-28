@@ -26,6 +26,7 @@ import {
   deleteAuthUser,
   fetchAuthAccountsByEmail,
   fetchAuthUserEmails,
+  fetchAuthUserEmailsResult,
   findAuthUserByEmail,
 } from './supabase-admin';
 
@@ -477,5 +478,116 @@ describe('fetchAuthUserEmails (seam #2)', () => {
 
     expect((await fetchAuthUserEmails(ENV_WITH_CREDS, [])).size).toBe(0);
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The availability-reporting form (AECI-652).
+ *
+ * The bare map cannot distinguish "the seam is down" from "this account has no
+ * email", and on 2026-08-24 that gap made an absent service-role key look exactly
+ * like a claimant with no account — for a day, with nothing in any log. These
+ * cases pin the distinction, and the last one pins that the bare-map wrapper is
+ * unchanged, because four structural type aliases take it as an injection
+ * default.
+ */
+describe('fetchAuthUserEmailsResult (seam #2, AECI-652)', () => {
+  const OTHER_ID = '00000000-0000-4000-8000-00000000a002';
+
+  it('reports no_credentials — available:false, empty map, no request', async () => {
+    const fetchSpy = stubFetch(jsonResponse({ email: 'jane@acme.com' }));
+
+    const result = await fetchAuthUserEmailsResult(TEST_ENV, [USER_ID]);
+
+    expect(result).toEqual({ available: false, emails: new Map(), reason: 'no_credentials' });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('warns with the reason when creds are absent', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    await fetchAuthUserEmailsResult(TEST_ENV, [USER_ID]);
+
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('no_credentials'), expect.anything());
+  });
+
+  it('reports ok with the full map on success', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) =>
+      jsonResponse({ email: String(input).endsWith(USER_ID) ? 'jane@acme.com' : 'bob@acme.com' }),
+    );
+
+    const result = await fetchAuthUserEmailsResult(ENV_WITH_CREDS, [USER_ID, OTHER_ID]);
+
+    expect(result.available).toBe(true);
+    expect(result.reason).toBe('ok');
+    expect(result.emails.get(USER_ID)).toBe('jane@acme.com');
+  });
+
+  it('reports ok — not error — when an id 404s, and warns nothing', async () => {
+    // A 404 is a genuine "no such auth user" (an erased account), not a seam
+    // failure. Reporting it as unavailable would relabel every row on the page.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(jsonResponse({ email: 'jane@acme.com' }))
+      .mockResolvedValueOnce(new Response('not found', { status: 404 }));
+
+    const result = await fetchAuthUserEmailsResult(ENV_WITH_CREDS, [USER_ID, OTHER_ID]);
+
+    expect(result).toMatchObject({ available: true, reason: 'ok' });
+    expect(result.emails.size).toBe(1);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('reports error — with the status logged — on a non-2xx, even if others succeed', async () => {
+    // A partial map is still a degraded answer: a caller labelling a per-row blank
+    // as authoritative would be wrong for exactly the rows that failed.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(jsonResponse({ email: 'jane@acme.com' }))
+      .mockResolvedValueOnce(new Response('boom', { status: 500 }));
+
+    const result = await fetchAuthUserEmailsResult(ENV_WITH_CREDS, [USER_ID, OTHER_ID]);
+
+    expect(result).toMatchObject({ available: false, reason: 'error' });
+    expect(result.emails.get(USER_ID)).toBe('jane@acme.com');
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('http_500'), expect.anything());
+  });
+
+  it('reports error and logs the message on a network failure', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new TypeError('network down'));
+
+    const result = await fetchAuthUserEmailsResult(ENV_WITH_CREDS, [USER_ID]);
+
+    expect(result.reason).toBe('error');
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('error'),
+      expect.objectContaining({ message: 'network down' }),
+    );
+  });
+
+  it('an empty id list is ok, not a degrade — there was nothing to look up', async () => {
+    expect(await fetchAuthUserEmailsResult(ENV_WITH_CREDS, [])).toEqual({
+      available: true,
+      emails: new Map(),
+      reason: 'ok',
+    });
+  });
+
+  it("the bare-map wrapper returns exactly the Result form's map", async () => {
+    // `FetchReviewerEmails` and `FetchSeatEmails` (×3) are declared as
+    // `(env, ids) => Promise<Map<string, string>>` and take `fetchAuthUserEmails`
+    // as their default. Changing that signature breaks every spec that injects a
+    // fake, which is why the wrapper exists rather than the callers migrating.
+    // `mockImplementation`, not `mockResolvedValue`: a Response body can only be
+    // read once, so a single shared instance makes the second call fail.
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
+      jsonResponse({ email: 'jane@acme.com' }),
+    );
+
+    const bare = await fetchAuthUserEmails(ENV_WITH_CREDS, [USER_ID]);
+    const result = await fetchAuthUserEmailsResult(ENV_WITH_CREDS, [USER_ID]);
+
+    expect(bare).toEqual(result.emails);
   });
 });

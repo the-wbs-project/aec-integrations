@@ -1438,6 +1438,198 @@ Errors:
   (and not an exact re-grant), or a claimed product has no vendor.
 - `NOT_FOUND` (404) — unknown request id, or the resolved vendor is missing.
 
+#### `GET /api/admin/vendors` (Stage 2 — AECI-652)
+
+The operator's **vendor list** — paginated, with name/slug search and a tri-state
+verified filter. Behind `requireAdmin()`. This is the way in to a vendor that never
+filed a claim; before it, the only route to a vendor's entitlement ran through an
+`/admin/claims` card, which made concierge onboarding structurally unreachable.
+Source of truth: `packages/shared/src/api/admin-vendors.ts`,
+`apps/api/src/routes/admin-vendors.ts`; model: `STAGE_2_PAID_TIERS_SPEC.md` §5.6.
+
+```typescript
+export const AdminVendorsListQuerySchema = PageQuerySchema.extend({
+  sort: VendorSortSchema,
+  search: z.string().optional(),          // matches company_name OR slug, substring
+  // NOT `z.coerce.boolean()` — `Boolean("false") === true`, so the public
+  // `VendorsListQuerySchema` shape would filter for VERIFIED here (AECI-691).
+  verified: z.enum(['true', 'false']).transform((v) => v === 'true').optional(),
+});
+
+export const AdminVendorRowSchema = z.object({
+  id: z.string().uuid(),
+  slug: z.string().min(1),
+  company_name: z.string().min(1),
+  verified: z.boolean(),                          // the `vendors.verified` mirror, as-is
+  tier: EntitlementTierSchema.nullable(),         // null = NO entitlement row at all
+  status: EntitlementStatusSchema.nullable(),     // …not the same as a cleared one
+  period_end: z.string().nullable(),
+  product_count: z.number().int().min(0),
+  integration_count: z.number().int().min(0),
+  updated_at: z.string(),
+});
+
+export const AdminVendorsListResponseSchema = paginatedResponseSchema(AdminVendorRowSchema);
+// { data: AdminVendorRow[], page, perPage, total }
+```
+
+**`verified` and the entitlement are both reported, and neither is derived from the
+other.** `verified` is a denormalized mirror of "an active entitlement row exists"
+(§2.1); rendering only one of them would hide drift, which is the failure mode
+`entitlement_mirror_drift` exists to catch.
+
+**Search escapes `LIKE` metacharacters.** A literal `%` or `_` in the operator's box
+matches literally — `likeContains` (`apps/api/src/lib/sql-like.ts`) escapes and emits an
+explicit `ESCAPE '\'`, because Drizzle's `like()` emits none. The leading `%` means this
+cannot use `vendors_company_name_idx`; at AECi's cardinality that is the right trade.
+
+Errors: the shared `requireAdmin()` 401/403, plus `400 VALIDATION_FAILED` for a
+`verified` value other than `true`/`false` or a `perPage` above 100.
+
+#### `GET /api/admin/vendors/:id` (Stage 2 — AECI-652)
+
+One vendor: basics, entitlement, the seat roster with pending invites, and the
+product / integration / claim counts. Behind `requireAdmin()`.
+
+**Not to be confused with the *rejected* `PATCH /api/admin/vendors/:id`** documented
+under the entitlement endpoint below — AECI-532's original shape, refused because it
+would have made a second direct writer of `vendors.verified`. This is a GET. **AECI-652
+adds no vendor-edit endpoint**, which is why it does not close the §5.4 lockout.
+
+```typescript
+export const AdminVendorSeatRowSchema = VendorSeatSchema.omit({ is_self: true }).extend({
+  role: z.string(),                 // plain string: `profiles_role_check` can gain a value
+  work_email_verified: z.boolean(),
+});
+// NOTE `created_at` is ACCOUNT creation, not seat grant. The grant is a
+// `vendor_claim.granted` audit row; `updated_at` moves on any profile edit. The UI
+// labels this "Account created" — do not relabel it.
+
+export const AdminVendorDetailSchema = z.object({
+  id, slug, company_name, description, website, headquarters, logo_url,
+  verified: z.boolean(),
+  promotion_status: z.string(), maintained_by: z.string(),
+  last_reviewed_at: z.string().nullable(),
+  created_at: z.string(), updated_at: z.string(),
+
+  entitlement: VendorEntitlementResponseSchema.nullable(),   // null = none on record
+
+  seats: AdminVendorSeatRowSchema.array().nullable(),        // null = UNAVAILABLE, [] = none
+  seat_emails_available: z.boolean(),
+  pending_invites: VendorSeatInviteSchema.array().nullable(),
+
+  product_count: z.number().int().min(0),
+  integration_count: z.number().int().min(0),
+  claim_counts: z.object({                                   // ALL FOUR statuses
+    open: z.number().int().min(0),
+    in_review: z.number().int().min(0),
+    resolved: z.number().int().min(0),
+    rejected: z.number().int().min(0),
+  }),
+});
+```
+
+**`seat_emails_available` is not decoration.** `false` means the GoTrue seam was
+unreachable, so every blank `email` is the seam's fault; `true` with a blank means the
+account genuinely has none. Without the flag a surface can only say "unknown" for
+everything — which is exactly how an absent `SUPABASE_SERVICE_ROLE_KEY` hid in plain
+sight for a day on 2026-08-24. **Absent creds render "unavailable", never an empty
+roster.** The `seats: null` case is the separate "the roster query itself degraded"
+state; `[]` means the vendor genuinely has no seats.
+
+**Four claim buckets, not three.** `vendor_requests_status_check` allows
+`open | in_review | resolved | rejected`; reporting three gives numbers that fail to
+sum. Counts are scoped to the vendor **and the products it owns** — a product claim's
+`target_id` is a product id, so a naive `target_type='vendor'` test misses it.
+
+Errors: `404 NOT_FOUND` on an unknown vendor id, plus the shared 401/403.
+
+#### `GET /api/admin/vendors/:id/audit` (Stage 2 — AECI-652)
+
+**The first read surface `audit_log` has ever had**, and the first reader of
+`audit_log_entity_idx`. Paginated, newest first, read-only — **no `audit_log` row of its
+own** (see the read-only conventions below). Behind `requireAdmin()`.
+
+```typescript
+export const AdminVendorAuditQuerySchema = PageQuerySchema.extend({
+  scope: z.enum(['all', 'entity', 'actor']).default('all'),
+});
+
+export const AdminAuditRowSchema = z.object({
+  id: z.string().uuid(),
+  action: z.string(),                                  // plain string, never an enum
+  actor: z.object({ id, display_name: nullable, email: nullable }).nullable(),
+  actor_type: z.string(),
+  entity_type: z.string().nullable(),
+  entity_id: z.string().nullable(),
+  created_at: z.string(),
+  before_state: z.unknown().nullable(),                // see below
+  after_state: z.unknown().nullable(),
+});
+
+export const AdminVendorAuditResponseSchema =
+  paginatedResponseSchema(AdminAuditRowSchema).extend({ actor_emails_available: z.boolean() });
+```
+
+**Two scopes, plus their union.** `entity` = what was done *to* this vendor; `actor` =
+what its people did, including edits to their products. `all` is the default, because
+that is the operator's actual question. **Entity scope is four OR'd disjuncts, not
+one** — `entity_id = <vendor>` misses a rejected claim (whose audit metadata carries no
+`vendor_id` at all), a revoked seat (whose `profiles.vendor_id` is null by the time
+anyone reads it, so the actor scope misses it too), and a seat ban/unban (which files
+under the seat's `profiles.id` with no `vendor_id`, matched instead through the current
+seat roster). `STAGE_2_PAID_TIERS_SPEC.md` §5.6.2 has the full query and why each leg is
+load-bearing.
+
+**`before_state` / `after_state` are `z.unknown().nullable()` deliberately.** They are
+free-form JSON snapshots written by ~34 call sites across the life of the schema, with
+no shared contract, in a table nothing prunes — so a reader today is parsing rows
+written by code that no longer exists. `z.unknown()` is non-optional in Zod 4, so a
+*missing* key is still rejected (R10) while any present value is accepted; a
+`z.record(...)` would make `validateResponseInDev` throw on a historical scalar
+snapshot. `action` and `entity_type` are plain strings for the same reason —
+`entity_type` carries no CHECK by design, and an enum here would turn a new writer
+elsewhere into a 500 on this screen.
+
+**A null `actor` means "not a person"** (a cron, the promote Workflow), not "person
+unknown" — `actor_type` says which. `actor_emails_available` carries the same GoTrue
+tri-state as the detail endpoint.
+
+Errors: `404 NOT_FOUND` on an unknown vendor id (an empty 200 would read as "this
+vendor has no history"), plus the shared 401/403.
+
+#### `DELETE /api/admin/vendors/:id/seats/:userId` (Stage 2 — AECI-652)
+
+Revoke one seat, AECi-side. `204 No Content`. Behind `requireAdmin()`. The admin-side
+sibling of the portal's owner-only `DELETE /api/vendor/seats/:userId` (AECI-664), which
+cannot help here: it is scoped to the caller's own session vendor.
+
+Composes `revokeSeatStatements` (`apps/api/src/lib/vendor-grant.ts`) **unchanged**, so:
+the `vendor_claim.seat_revoked` row lands in the SAME `db.batch` as the profile write
+(§26.1), its metadata carries `vendor_id` (which is what makes the row reachable from
+the audit viewer after `profiles.vendor_id` is nulled), and **no statement names
+`vendors`** — enforced by an ESLint rule and a generated-SQL assertion. **A seat revoke
+is orthogonal to the entitlement** (`STAGE_2_PAID_TIERS_SPEC.md` §5.2): the badge, the
+entitlement row and `vendors.verified` are all untouched. No cache purge — nothing a
+revoke changes is rendered on a cached page.
+
+**Three deliberate differences from the portal endpoint:** `vendorId` comes from the
+path and scopes the target read (so a stray seat cannot be un-granted by naming the
+wrong vendor); there is no self-removal guard (an admin holds no seat); and **the
+last-owner guard is not carried over** — its rationale is that only an AECi grant can
+rescue an unadministrable account, and the admin *is* that rescue.
+
+**Banning a person is a different endpoint.** `PATCH /api/admin/reviewers/:id` owns that
+(AECI-524); the admin vendor page deep-links to it rather than offering it as a peer
+button.
+
+Errors:
+
+| Status | Code | When |
+|---|---|---|
+| 404 | `NOT_FOUND` | Unknown vendor id, or `:userId` is not a `vendor_admin` seat **on that vendor** — a cross-vendor id is indistinguishable from a nonexistent one |
+| 400 | `VALIDATION_FAILED` | Missing path parameter |
+
 #### `PATCH /api/admin/vendors/:id/entitlement` (Stage 2 — AECI-532)
 
 Set, renew or clear a vendor's paid entitlement. Behind `requireAdmin()`. **This is the

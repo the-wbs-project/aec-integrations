@@ -31,6 +31,7 @@ This doc is the contract for the AECI-515 sub-issues. Each opens with `**Spec se
 | §3 | AECI-610 | Capability registry + the ranking firewall |
 | §4 | AECI-611 | The entitlement gate — tier on the session, `requireCapability()`, the field allow-list |
 | §5 | AECI-532 | Admin entitlement action — set / renew / clear (re-scoped at this review) |
+| §5.6 | AECI-652 | The `/admin/vendors` surface — vendor list + detail, the entitlement control's new home, the seat roster + admin revoke, and the first `audit_log` viewer (**added 2026-08-27**, after the epic closed) |
 | §6 | AECI-612 | Claim-grant integration — the AECI-519 refactor |
 | §7 | AECI-613 | Term expiry — warn, never auto-lapse |
 | §8 | AECI-614 | Vendor-facing entitlement surface |
@@ -359,7 +360,7 @@ Shipped as specified: the `leftJoin` on the `vendor_admin` guard branch only, `e
 
 Implementation is the nine-move `createBanReviewerHandler` clone: preload gate (404 on unknown vendor) → guardrail → **422 `INVALID_STATE_TRANSITION`** idempotency gate (`clear` on an already-inactive entitlement, `set` on an already-`active` one) → derive from/to → build the audit entry (`vendor_entitlement.set` / `.renewed` / `.cleared`, `entity_type: 'vendor_entitlement'`, `entity_id: <vendor_id>`, `actor_type: 'admin'`) → one `db.batch` with the guarded UPDATEs → metric `aeci.entitlement.action` → post-commit `waitUntil` forwards + purge → `validateResponseInDev`. **No `workflow_instances` row** (§1.2). Zod in `packages/shared/src/api/admin-entitlements.ts`; documented in `API_CONTRACTS.md` §6.10.
 
-**UI.** An entitlement column on the existing `/admin/claims` rows plus an inline set/clear control, following the `/admin/reviewers` ban-control precedent — not a new admin section. (A standalone `/admin/vendors` entitlement browser is §11.)
+**UI — superseded by §5.6 (AECI-652).** As originally shipped, this was an entitlement column on the existing `/admin/claims` rows plus an inline set/clear control, following the `/admin/reviewers` ban-control precedent and explicitly *not* a new admin section. That held only as long as the operator's every route to a vendor ran through a claim — and it does not: a vendor that never filed one had no row to hang the control on, which made concierge onboarding (where AECi approaches the vendor) unreachable. **§5.6 moves the control to `/admin/vendors/:id`**; the claim card keeps a read-only readout plus a link out. The endpoint, the payload and the mirror invariant are unchanged.
 
 ### 5.2 Entitlement vs seat-revoke vs ban — three orthogonal actions
 
@@ -368,7 +369,7 @@ After this epic there are three distinct "take it away" actions, and an admin cl
 | Action | Endpoint | Scope | Effect | Touches `vendors.verified`? |
 |---|---|---|---|---|
 | **Ban a seat** | `PATCH /api/admin/reviewers/:id` | one `profiles` row | that seat 403s on every `/api/vendor/*` call; other seats unaffected | **No** |
-| **Revoke a seat** | `DELETE /api/vendor/seats/:userId` (AECI-664; owner-only, **not** capability-gated) | one `profiles` row | drops the seat to `reviewer`, unlinks `vendor_id`, clears `seat_owner` | **No** |
+| **Revoke a seat** | `DELETE /api/vendor/seats/:userId` (AECI-664; owner-only, **not** capability-gated) — or `DELETE /api/admin/vendors/:id/seats/:userId` (AECI-652 §5.6, admin-side) | one `profiles` row | drops the seat to `reviewer`, unlinks `vendor_id`, clears `seat_owner` | **No** |
 | **Clear an entitlement** | `PATCH /api/admin/vendors/:id/entitlement` | the vendor | badge goes away; **seats, logins and dashboard survive, read-only** | **Yes** (via the mirror) |
 
 **Clearing an entitlement does not revoke seats** — this answers AECI-532's open question. It is consistent with `STAGE_2_SPEC.md` §8.3(2) ("un-verifying a vendor is a separate entitlement action, not a ban") and it is what makes the §4 gate's launch behaviour concrete and testable: writes 403, reads work, the dashboard renders read-only with a renewal notice.
@@ -398,6 +399,77 @@ Shipped as the nine-move `createBanReviewerHandler` clone. Contracts in `package
 - **A builder returning nothing after the 422 gate is a 500-class bug, and fails loudly.** The gate rules out every no-op branch, so an empty batch means the gate and the builders have drifted apart. The handler throws rather than committing nothing and returning 200 on a write that never happened.
 - **The `/admin/claims` row carries the control, and needed a resolved vendor to do it.** `AdminClaim` gained `entitlement_vendor` (required-nullable) because `target_id` on a *product* claim is a product id and cannot address the endpoint; `entitlement` (also required-nullable) is the same readout the PATCH returns, so a successful action drops into the row with no refetch.
 - **Fixed in passing:** `admin-claims.spec.ts` inserted a `vendorId` key into `products`, which has no such column. Drizzle drops unknown keys at runtime, so the test passed; `tsc` caught it.
+
+### 5.6 The `/admin/vendors` surface (AECI-652)
+
+**This section reverses §11's deferral of "a standalone `/admin/vendors` entitlement browser."** Not because the deferral was lazy — §5's reasoning was sound for what it knew — but because it rested on an assumption that turned out to be false: that every vendor an operator needs to act on has a claim row to act *through*. Three consequences made that untenable:
+
+1. **A vendor that never filed a claim was unreachable.** There was no row to hang the control on, so an operator could not view, grant, renew or clear it. That is exactly the concierge-onboarding case, where AECi approaches the vendor rather than the reverse.
+2. **Seats were visible only incidentally**, as the "existing seats" reviewer signal on a claim card for that same vendor.
+3. **`audit_log` had no read surface at all.** It is written in the same atomic `db.batch` as every domain-state write and is hard-excluded from the retention prune, but it was read in only four places — aggregate counts in `lib/admin-analytics.ts`, the attestation-notify dedupe, the AECI-516 freshness cursor, and the vendor's own notification feed. None was a viewer, and `audit_log_entity_idx` had **no reader at all**. §2.1 called that index the entitlement history ledger; nothing had ever read it.
+
+**No schema change, no migration.** Every read here is served by an index that already exists: `audit_log_entity_idx`, `audit_log_action_idx`, `audit_log_actor_idx`, `vendor_requests_target_idx`, `vendor_entitlements_vendor_key`, `profiles_vendor_idx`, `product_vendors_vendor_idx`.
+
+#### 5.6.1 Endpoints
+
+Four, all on the existing `authAdmin` sub-router behind `requireAdmin()` (`apps/api/src/routes/admin-vendors.ts`; contracts in `packages/shared/src/api/admin-vendors.ts`; wire shapes in `API_CONTRACTS.md` §6.10):
+
+| Endpoint | What |
+|---|---|
+| `GET /api/admin/vendors` | Paginated list + name/slug search + a **tri-state** verified filter. One round trip: a plain `db.select().leftJoin(vendor_entitlements)` (the relational builder cannot be used — §2.5's no-relation decision is what forbids it) plus a `count()`, in one `db.batch`. Per-row product/integration counts reuse `vendorListConfig.extras`, the same correlated subqueries the public list already ships. |
+| `GET /api/admin/vendors/:id` | Basics, entitlement, the seat roster + pending invites, and product / integration / claim counts. Two D1 round trips: a 404 gate, then **one `db.batch` of six reads** — a batch for the round trip, not for atomicity, the same use `GET /api/vendor/updates` documents. Deliberately **not** a `UNION`: D1 caps compound selects at five, which the admin System screen already got bitten by. |
+| `GET /api/admin/vendors/:id/audit` | The `audit_log` viewer. `?scope=all\|entity\|actor`, default `all`, newest first. See §5.6.2 — the query is the interesting part. |
+| `DELETE /api/admin/vendors/:id/seats/:userId` | Revoke one seat, AECi-side. **The only write this issue adds.** |
+
+**The entitlement write is unchanged.** `PATCH /api/admin/vendors/:id/entitlement` (§5.1) stays the sole writer that can take `vendors.verified` back down, and it still does so through the entitlement row. **No new writer of `vendors.verified` anywhere** — the seat revoke composes `revokeSeatStatements` (`lib/vendor-grant.ts`), which an ESLint rule and a generated-SQL assertion both prove never names `vendors` at all.
+
+**The three GETs emit no `audit_log` row.** Reads write nothing (`ADMIN_PANEL_SPEC.md` §9.3, `API_CONTRACTS.md` §6.10 conventions). ADR 0022 scopes the §26.1 invariant, but it is a write-side document — cite those two as the direct authority.
+
+#### 5.6.2 The audit query: why `entity_id = <vendor>` is not enough
+
+The obvious filter misses more than it catches, and the gaps are silent. Entity scope is therefore **four OR'd disjuncts**, each index-usable, each load-bearing:
+
+1. `entity_type IN ('vendor','vendor_entitlement') AND entity_id = :vendorId` → `audit_log_entity_idx`. Serves `vendor.created/.updated`, `promote.blocked`, and the whole `vendor_entitlement.*` ledger — which works only because §2.1 made the entitlement rows' `entity_id` the **vendor** id rather than the entitlement row id.
+2. `entity_type = 'vendor_request' AND entity_id IN (SELECT id FROM vendor_requests WHERE <vendorRequestsWhere>)`. **Required**, because `rejectClaimStatements` builds its metadata with `claimMetadata(p, {})`, which emits no `vendor_id` — and `RejectClaimParams` does not even carry one. Widening that writer would fix only rows written after the deploy; the subquery is retroactive, and reusing `vendorRequestsWhere` gets the vendor-arm / product-arm split right (a product claim's `target_id` is a **product** id).
+3. `action IN (<claim + seat lifecycle actions>) AND json_extract(metadata,'$.vendor_id') = :vendorId` → `audit_log_action_idx` with the JSON test as a filter. Also required: it is the **only** path that reaches `vendor_claim.seat_revoked`, which files under `entity_type='profile'` with the seat's user id — and by the time anyone reads it the revoke has nulled that profile's `vendor_id`, so the actor scope misses it too. That is precisely the row an operator asking "why did this vendor lose access?" wants.
+4. `action IN ('vendor_admin.banned','vendor_admin.unbanned') AND entity_id IN (SELECT id FROM profiles WHERE <seatsOf>)`. The ban/unban rows file under `entity_type='profile'` with the seat's user id and carry **no** `metadata.vendor_id` (`admin-reviewers.ts` writes `{ source, reason? }`), so none of legs 1–3 reach them — yet the roster shows ban state, so the audit tab has to explain it. A ban does not null `vendor_id`, so the seat is still in `seatsOf`; matching through the current roster is retroactive over rows already written, unlike stamping `vendor_id` into the writer. A seat banned and *then* revoked drops out of this leg (the revoke nulls `vendor_id`), but its `vendor_claim.seat_revoked` row stays reachable via leg 3, so "lost access" is never lost.
+
+Actor scope is one statement with a **subquery**, not a resolved id list: `inArray(auditLog.actorId, db.select(...).from(profiles).where(seatsOf(vendorId)))`. `ID_CHUNK` / `SEAT_LOOKUP_CHUNK` exist elsewhere because D1 caps **bound parameters** per query, not statements — so an id set SQL can derive belongs in SQL. As a subquery there is no cap to hit, no chunking (which would break a single `ORDER BY … LIMIT/OFFSET` anyway), and no extra round trip. Both partial indexes still apply; SQLite proves `actor_id IS NOT NULL` from the `IN`.
+
+Ordering is `created_at DESC, id DESC`. The tiebreak is not decoration: `created_at` is an ISO string stamped in JS, two rows from one `db.batch` routinely share a millisecond, and without a second key a page boundary is unstable.
+
+**The viewer renders tolerantly.** `before_state` / `after_state` are free-form JSON written by ~34 call sites across the life of the schema, with no shared contract, in a table nothing prunes — so today's reader is parsing rows written by code that no longer exists. The wire types are `z.unknown().nullable()` (which in Zod 4 still rejects a *missing* key, satisfying R10) and `action` / `entity_type` are plain strings. An enum would turn a new writer elsewhere into a 500 on this screen.
+
+#### 5.6.3 Seats: revoke, but never ban
+
+The roster lists every seat via the shared `seatsOf` predicate (moved to `routes/vendor-shared.ts` so the dashboard count, the portal roster and this page can never disagree), **including banned ones** — a ban is a per-seat lock, not a removal, and hiding it leaves nobody able to see why a colleague cannot sign in.
+
+The page can **revoke** a seat and deliberately **cannot ban** a person; each row deep-links to `/admin/reviewers`, which owns that policy (AECI-524). The two have different blast radii — a revoke un-grants one vendor's access, a ban locks the human out of AECi entirely — and peer buttons would invite the wrong one.
+
+The admin revoke is a near-clone of the portal's owner-only `DELETE /api/vendor/seats/:userId` with three differences: `vendorId` comes from the path (and scopes the target read), there is no self-removal guard (an admin holds no seat), and **the last-owner guard is not carried over**. That guard's stated rationale is that a vendor cannot self-rescue from an unadministrable account and "only an AECi grant can rescue it" — the admin *is* that rescue, so keeping it would block only the operator who exists to undo it.
+
+**Emails are a tri-state, and that is the whole point.** `seat_emails_available: false` means the GoTrue seam was unreachable, so a blank email says nothing about the account; `true` with a blank means the account genuinely has none. On 2026-08-24 the claim queue read "Account status unknown" for every row because `SUPABASE_SERVICE_ROLE_KEY` was absent and then carried a bad value, and the seam discarded both the HTTP status and the error text — so there was nothing to debug from. AECI-652 fixed that at the source: `fetchAuthUserEmailsResult` reports `{ available, emails, reason }`, `fetchAuthUserEmails` stays a byte-identical wrapper (four structural type aliases take it as an injection default), and every swallow point now `console.warn`s its reason. **Absent creds must render "unavailable", never an empty seat list.**
+
+#### 5.6.4 What this section does NOT do
+
+- **It does not close the §5.4 lockout.** No admin vendor-edit endpoint is added, so a cleared-but-still-seated vendor is still uneditable and the re-activate → edit → clear escape hatch is still the answer. §11 keeps that bullet.
+- **It adds no live updates.** `STAGE_2_REALTIME_SPEC.md` §8 excludes `/admin` from revalidation, and `ADMIN_PANEL_SPEC.md` §5 makes manual refresh a deliberate decision, not a placeholder.
+- **It is not a global audit browser.** The viewer here is vendor-scoped; a general `/admin/audit` is useful well beyond vendors and should be its own issue.
+
+### 5.7 As built (AECI-652 — 2026-08-27)
+
+Shipped as specified above. Decisions this section did not pre-settle:
+
+- **The entitlement control MOVED rather than being shared.** §5.6 could have kept a copy on the claim card and extracted a shared component; it does not. The control is `admin/entitlement/entitlement-control`, mounted only on `/admin/vendors/:id`, and `/admin/claims` keeps a read-only readout plus a **"Manage entitlement"** link. Two mounts would have meant two places for the §5.2 / §5.3 / §5.4 copy invariants to drift, and those are the sentences whose divergence produces an incident rather than a typo. The wire contract is untouched — `AdminClaim.entitlement_vendor` / `.entitlement` still ship, now feeding a readout and a link.
+- **The extracted control renders no heading and no live region.** Both were in the inline block and both are wrong once it is reusable. The `<h4>` was correct inside a claim card (shell `h1` → page `h2` → card `h3` → `h4`) and would skip a level on the vendor page, where the section heading is `h3`; the live region would multiply on `/admin/claims`, which mounts one control per row — and a `querySelector('[role="status"]')` assertion would keep passing on the first one, so the regression would have been invisible. The host owns both; announcements leave through an `announce` output. Asserted in both specs.
+- **`setEntitlement` moved off `AdminClaimsApi` to a new `AdminEntitlementApi`.** It was always an outlier there — it takes a **vendor** id and hits `/api/admin/vendors/:id/…` — and a vendors page reaching through a claims service would be the wrong dependency edge.
+- **The verified filter could not reuse the public query schema.** `VendorsListQuerySchema.verified` is `z.coerce.boolean()`, and `Boolean("false") === true`, so `?verified=false` filters for **verified**. The public directory never sends `false` (its facet is a one-way toggle), so the bug has never tripped; this surface needs a real tri-state, so its schema uses `z.enum(['true','false']).transform(...)`. The public defect is **AECI-691** — a separate, separately-reviewable public-contract change, not something to bury in a new admin surface.
+- **`escapeLike` was hoisted to `lib/sql-like.ts`.** It was module-private in `admin-analytics.ts` with one call site, and the escaping is only correct paired with an explicit `ESCAPE '\'` clause (Drizzle's `like()` emits none) — exactly the shape that drifts when a second caller appears. Both call sites now share `likeContains`.
+- **Claim counts report all FOUR statuses.** `vendor_requests_status_check` allows `open | in_review | resolved | rejected`; three would give an operator numbers that quietly fail to sum. Worth noting the same hole still exists on `/admin/claims`, whose `status` filter enum omits `in_review` — not fixed here, but named.
+- **The seat timestamp is labelled "Account created", not "granted".** `profiles.created_at` is when the Supabase user first got a profile row, and `updated_at` moves on any profile edit; the real grant is a `vendor_claim.granted` audit row. Labelling it "granted at" — as the issue's scope line did — would have put a confidently wrong date in front of an operator. The copy says what the value is and points at the audit trail for the rest.
+- **The detail page is one component with four sections, not four child routes.** An operator reads them together (the entitlement state explains the seats; the audit trail explains both), and a route per tab would have cost three resolvers and a URL nobody bookmarks.
+- **The audit diff states its changes in words.** Added / removed / changed are rendered as text next to each field rather than by colour, and the diff walks the **union** of both snapshots' keys so a field present on only one side is visible rather than dropped.
+- **`seatsOf` moved from `routes/vendor.ts` to `routes/vendor-shared.ts`.** Its documented purpose is that its readers "can never disagree"; a third reader hand-rolling the predicate would have defeated it. Note it deliberately differs from `admin-claims.ts`'s `loadExistingSeats`, which excludes banned seats — that helper answers a narrower question ("does this vendor already have working admins?", the first-claim vs second-seat signal), not "who is on this account".
 
 ---
 
@@ -539,7 +611,8 @@ Land last, once §2–§8 have settled the details. Each doc gets the sections n
 | `STAGE_2_VENDOR_PORTAL_SPEC.md` | its three hand-off lines (§3's unowned un-verify, §6.1's deferred paid-tier display, §11's deferral bullet) already name this doc; verify they still resolve |
 | `STAGE_2_ATTESTATIONS_SPEC.md` | §9.3/§9.4 — the version-diff gate is built and both ⚠️ notes are resolved; AECI-304 moves off the deferred list |
 | `ANGULAR_STYLE_GUIDE.md` §24 | the mirror sole-writer rule's exemption list drops to **one** file; the `version-diff.ts` no-zod block joins the package-local guards; the `@aeci/shared/entitlements` SSR boundary is recorded as **not built** and restated as a viewer-tier ban |
-| `TESTING_STRATEGY.md` | new §3.6 — the §10 invariant tests, and what makes one different from a coverage test |
+| `TESTING_STRATEGY.md` | new §3.6 — the §10 invariant tests, and what makes one different from a coverage test; §8.2 — the `/admin/vendors` axe row (§5.6) |
+| `ADMIN_PANEL_SPEC.md` | §5 — the route tree gains `/admin/vendors` (§5.6); new §5.7; §2 — one line clarifying that an entitlement/seat write is not a *catalog* write |
 | `CLAUDE.md` | the design checklist's `impeccable detect` step — scan the rendered surface, because a file-path scan cannot see inline Angular templates and passes vacuously |
 
 ---
@@ -586,7 +659,7 @@ Plus, per issue: the second-seat no-op matrix (§2.3) against the in-memory D1 h
 - **Dunning / auto-lapse / renewal automation** — §7 warns only, by decision.
 - **Queryable term history** — the audit log is the ledger (§2.1); an append-only `vendor_entitlement_periods` child table is the additive escape hatch if finance ever needs one.
 - **Per-seat entitlements** — entitlement is vendor-level; seats are individually granted and individually bannable (§5.2).
-- **A standalone `/admin/vendors` entitlement browser** — §5 attaches the control to `/admin/claims`.
+- ~~**A standalone `/admin/vendors` entitlement browser** — §5 attaches the control to `/admin/claims`.~~ **SHIPPED** (AECI-652, 2026-08-27) as **§5.6**. The deferral rested on an assumption that proved false — that every vendor an operator needs to act on has a claim row to act through. A vendor that never filed one had nothing to hang the control on, which made concierge onboarding unreachable. The control did not merely gain a second home: it **moved**, so the §5.2/§5.3/§5.4 copy invariants still live in exactly one file.
 - **Closing the §5.4 lockout properly** (exempt lapsed-but-seated vendors from the promote block, or add an admin vendor-edit endpoint).
 - **Viewer-pays anything** — far-future, out of scope (§8.1(4)).
 
@@ -609,6 +682,8 @@ Plus, per issue: the second-seat no-op matrix (§2.3) against the in-memory D1 h
 | Lint rule-to-constraint map | `ANGULAR_STYLE_GUIDE.md` §24 (§2.1, §3.3c) |
 | The version-diff seam AECI-304 gates | `STAGE_2_ATTESTATIONS_SPEC.md` §9.3/§9.4 (§11) |
 | Invariant tests, and what makes one | `TESTING_STRATEGY.md` §3.6 (§10) |
+| The operator console the §5.6 surface joins (IA, nav, the no-live-updates rule) | `ADMIN_PANEL_SPEC.md` §5, §9 (§5.6) |
+| `audit_log` shape + the indexes the §5.6 viewer reads | `DATABASE_SCHEMA.md` §8.4 — **unchanged by AECI-652**; every read is served by an existing index |
 
 ---
 
