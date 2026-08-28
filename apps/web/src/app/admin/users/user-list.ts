@@ -1,4 +1,5 @@
-import { Component, afterNextRender, computed, inject, signal } from '@angular/core';
+import { DatePipe, formatDate } from '@angular/common';
+import { Component, LOCALE_ID, afterNextRender, computed, inject, signal } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 
 import { ADMIN_USERS_DEFAULT_PER_PAGE, type AdminUserRow } from '@aeci/shared';
@@ -44,12 +45,13 @@ type RoleFilter = 'any' | 'reviewer' | 'vendor_admin' | 'admin';
  */
 @Component({
   selector: 'aec-user-list',
-  imports: [RouterLink, AdminPaginator, AecSelect],
+  imports: [RouterLink, AdminPaginator, AecSelect, DatePipe],
   templateUrl: './user-list.html',
 })
 export class UserList {
   private readonly api = inject(AdminUsersApi);
   private readonly route = inject(ActivatedRoute);
+  private readonly locale = inject(LOCALE_ID);
 
   protected readonly users = signal<readonly AdminUserRow[]>([]);
   protected readonly total = signal(0);
@@ -232,7 +234,9 @@ export class UserList {
   protected lastSignInLabel(row: AdminUserRow): string {
     if (!this.authAvailable()) return $localize`:@@admin.users.auth.unavailable:Unavailable`;
     if (!row.auth) return $localize`:@@admin.users.auth.noAccount:No account`;
-    return row.auth.last_sign_in_at ?? $localize`:@@admin.users.auth.neverSignedIn:Never signed in`;
+    return row.auth.last_sign_in_at
+      ? formatDate(row.auth.last_sign_in_at, 'medium', this.locale, 'UTC')
+      : $localize`:@@admin.users.auth.neverSignedIn:Never signed in`;
   }
 
   /** True when the cell above is a real value rather than one of the "we don't

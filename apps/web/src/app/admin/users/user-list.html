@@ -208,7 +208,9 @@
           </div>
           <div class="flex gap-1">
             <dt i18n="@@admin.users.stat.created">Profile created</dt>
-            <dd class="font-medium text-(--text-primary)">{{ person.created_at }}</dd>
+            <dd class="font-medium text-(--text-primary)">
+              {{ person.created_at | date: 'medium' : 'UTC' }}
+            </dd>
           </div>
         </dl>
       </article>

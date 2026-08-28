@@ -110,7 +110,7 @@
       <dt class="text-(--text-secondary)" i18n="@@admin.users.detail.profileCreated">
         Profile created
       </dt>
-      <dd class="font-medium text-(--text-primary)">{{ u.created_at }}</dd>
+      <dd class="font-medium text-(--text-primary)">{{ u.created_at | date: 'medium' : 'UTC' }}</dd>
     </div>
     <div class="flex gap-2">
       <dt class="text-(--text-secondary)" i18n="@@admin.users.detail.trustTier">Trust tier</dt>
@@ -189,7 +189,9 @@
       >
         {{ invite.vendor_name }}
       </a>
-      <span i18n="@@admin.users.detail.inviteExpires">— expires {{ invite.expires_at }}</span>
+      <span i18n="@@admin.users.detail.inviteExpires"
+        >— expires {{ invite.expires_at | date: 'medium' : 'UTC' }}</span
+      >
     </li>
     }
   </ul>
@@ -270,7 +272,7 @@
   @if (u.banned_at) {
   <div class="mt-3 rounded-(--radius-md) border border-(--border-strong) bg-(--surface-raised) p-4">
     <p class="text-sm font-medium text-(--text-primary)" i18n="@@admin.users.ban.bannedSince">
-      Banned since {{ u.banned_at }}.
+      Banned since {{ u.banned_at | date: 'medium' : 'UTC' }}.
     </p>
     @if (u.ban_reason) {
     <p class="mt-1 text-sm text-(--text-secondary)">{{ u.ban_reason }}</p>

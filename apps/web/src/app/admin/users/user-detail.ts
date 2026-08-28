@@ -1,4 +1,5 @@
-import { Component, afterNextRender, computed, inject, signal } from '@angular/core';
+import { DatePipe, formatDate } from '@angular/common';
+import { Component, LOCALE_ID, afterNextRender, inject, signal } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 
 import type { AdminUserDetail } from '@aeci/shared';
@@ -45,7 +46,7 @@ import { AdminUsersApi } from './admin-users-api';
  */
 @Component({
   selector: 'aec-user-detail',
-  imports: [RouterLink],
+  imports: [RouterLink, DatePipe],
   templateUrl: './user-detail.html',
 })
 export class UserDetail {
@@ -53,6 +54,7 @@ export class UserDetail {
   /** The ban writer's client — reused, not re-implemented. */
   private readonly bans = inject(ReviewerBansApi);
   private readonly route = inject(ActivatedRoute);
+  private readonly locale = inject(LOCALE_ID);
 
   protected readonly userId = signal(this.route.snapshot.paramMap.get('id') ?? '');
 
@@ -72,12 +74,6 @@ export class UserDetail {
   protected readonly banReason = signal('');
   protected readonly actionPending = signal(false);
   protected readonly actionFailed = signal('');
-
-  protected readonly isBanned = computed(() => this.user()?.banned_at !== null);
-
-  /** `null` = the seam could not be reached, so nothing on the auth block says
-   *  anything about the account. Distinct from an account that has no email. */
-  protected readonly authAvailable = computed(() => this.user()?.auth_available !== false);
 
   constructor() {
     afterNextRender(() => {
@@ -232,7 +228,9 @@ export class UserDetail {
     if (!u) return '';
     if (!u.auth_available) return $localize`:@@admin.users.auth.unavailable:Unavailable`;
     if (!u.auth) return $localize`:@@admin.users.auth.noAccount:No account`;
-    return u.auth.last_sign_in_at ?? $localize`:@@admin.users.auth.neverSignedIn:Never signed in`;
+    return u.auth.last_sign_in_at
+      ? this.formatTs(u.auth.last_sign_in_at)
+      : $localize`:@@admin.users.auth.neverSignedIn:Never signed in`;
   }
 
   protected emailConfirmedLabel(): string {
@@ -240,7 +238,16 @@ export class UserDetail {
     if (!u) return '';
     if (!u.auth_available) return $localize`:@@admin.users.auth.unavailable:Unavailable`;
     if (!u.auth) return $localize`:@@admin.users.auth.noAccount:No account`;
-    return u.auth.email_confirmed_at ?? $localize`:@@admin.users.auth.notConfirmed:Not confirmed`;
+    return u.auth.email_confirmed_at
+      ? this.formatTs(u.auth.email_confirmed_at)
+      : $localize`:@@admin.users.auth.notConfirmed:Not confirmed`;
+  }
+
+  /** Locale-aware, UTC — matches the `| date: 'medium' : 'UTC'` the rest of the
+   *  admin console uses. Applied in TS (not the template) because these methods
+   *  return a timestamp OR a status word, and only the timestamp gets formatted. */
+  private formatTs(iso: string): string {
+    return formatDate(iso, 'medium', this.locale, 'UTC');
   }
 
   protected roleLabel(): string {
