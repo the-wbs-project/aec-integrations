@@ -141,6 +141,13 @@ function buttonByText(root: HTMLElement, text: string): HTMLButtonElement | unde
     | undefined;
 }
 
+/** The expanded diff, which lives in the row the toggle controls. Scoped rather
+ *  than `querySelector('table')`: since AECI-694 the seats, the invites and the
+ *  audit trail are all tables, and the first one on the page is the seats table. */
+function diffTable(el: HTMLElement): HTMLTableElement | null {
+  return el.querySelector('[id^="audit-diff-"] table');
+}
+
 describe('VendorDetail', () => {
   beforeEach(() => TestBed.resetTestingModule());
   afterEach(() => vi.restoreAllMocks());
@@ -224,6 +231,22 @@ describe('VendorDetail', () => {
       fixture.componentInstance['onAnnounce']('Entitlement granted.');
       fixture.detectChanges();
       expect(el.querySelector('[role="status"]')?.textContent).toContain('Entitlement granted.');
+    });
+  });
+
+  describe('the public-page link (AECI-694)', () => {
+    it('opens the public page in a new tab, and says so', async () => {
+      // An operator opens it to CHECK something against the admin record, so
+      // navigating away from the record is the wrong outcome. That is also why
+      // it is an href rather than a `routerLink`: an in-app navigation cannot
+      // meaningfully open a second tab.
+      const { el } = await setup(makeApiMock(makeVendor()));
+      const link = [...el.querySelectorAll('a')].find((a) => a.textContent?.trim() === 'View Page');
+      expect(link?.getAttribute('href')).toBe('/vendors/autodesk');
+      expect(link?.getAttribute('target')).toBe('_blank');
+      // Without `noopener` the new browsing context gets a handle on this one.
+      expect(link?.getAttribute('rel')).toContain('noopener');
+      expect(el.textContent).toContain('opens in a new tab');
     });
   });
 
@@ -431,7 +454,7 @@ describe('VendorDetail', () => {
       buttonByText(el, 'Show changes')!.click();
       fixture.detectChanges();
 
-      const text = el.querySelector('table')?.textContent ?? '';
+      const text = diffTable(el)?.textContent ?? '';
       expect(text).toContain('status');
       expect(text).toContain('changed');
       // A key present only on one side must still appear — dropping it would hide
@@ -450,7 +473,7 @@ describe('VendorDetail', () => {
       );
       buttonByText(el, 'Show changes')!.click();
       fixture.detectChanges();
-      expect(el.querySelector('table')?.textContent).toContain('changed');
+      expect(diffTable(el)?.textContent).toContain('changed');
     });
 
     it('renders a SCALAR snapshot as a single value row instead of throwing', async () => {
@@ -463,7 +486,7 @@ describe('VendorDetail', () => {
       );
       buttonByText(el, 'Show changes')!.click();
       fixture.detectChanges();
-      const text = el.querySelector('table')?.textContent ?? '';
+      const text = diffTable(el)?.textContent ?? '';
       expect(text).toContain('value');
       expect(text).toContain('a bare string');
       expect(text).toContain('42');
@@ -483,9 +506,45 @@ describe('VendorDetail', () => {
       const { el } = await setup(makeApiMock(makeVendor(), [makeAuditRow()]));
       expect(el.textContent).toContain('opening it records nothing');
     });
+
+    it('says what happened in English, and still shows the raw token (AECI-694)', async () => {
+      // The description is what makes the ledger readable by someone who has not
+      // memorised the vocabulary; the token is what makes a row greppable against
+      // a log line. Both, not either.
+      const { el } = await setup(makeApiMock(makeVendor(), [makeAuditRow()]));
+      expect(el.textContent).toContain('Entitlement set');
+      expect(el.textContent).toContain('vendor_entitlement.set');
+    });
   });
 
   describe('accessibility (structural)', () => {
+    it('renders seats, invites and the audit trail as named, scoped tables (AECI-694)', async () => {
+      const { el } = await setup(
+        makeApiMock(
+          makeVendor({
+            pending_invites: [
+              {
+                id: '00000000-0000-4000-8000-0000000009f1',
+                email: 'new@autodesk.com',
+                invited_by: 'Ada Lovelace',
+                expires_at: '2026-09-10T00:00:00.000Z',
+                created_at: '2026-08-20T00:00:00.000Z',
+              },
+            ],
+          }),
+          [makeAuditRow()],
+        ),
+      );
+      const tables = [...el.querySelectorAll('table')];
+      expect(tables.length).toBeGreaterThanOrEqual(3);
+      for (const table of tables) {
+        expect(table.querySelector('caption')?.textContent?.trim()).toBeTruthy();
+        for (const th of table.querySelectorAll('thead th')) {
+          expect(th.getAttribute('scope')).toBe('col');
+        }
+      }
+    });
+
     it('nests headings without skipping levels (shell owns h1; h2 → h3 sections)', async () => {
       const { el } = await setup(makeApiMock(makeVendor(), [makeAuditRow()]));
       expect(el.querySelectorAll('h1')).toHaveLength(0);

@@ -2,10 +2,11 @@ import { DatePipe, formatDate } from '@angular/common';
 import { Component, LOCALE_ID, afterNextRender, computed, inject, signal } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 
-import { ADMIN_USERS_DEFAULT_PER_PAGE, type AdminUserRow } from '@aeci/shared';
+import { ADMIN_USERS_DEFAULT_PER_PAGE, type AdminUserRow, type AdminUsersSort } from '@aeci/shared';
 
 import { AdminPaginator } from '../admin-paginator';
 import { AecSelect, type AecSelectOption } from '../../shared/aec-select/aec-select';
+import { SortHeader } from '../../shared/sort-header/sort-header';
 import { AdminUsersApi } from './admin-users-api';
 
 /** Every boolean filter is a TRI-state, never a toggle: an operator needs "show
@@ -42,10 +43,24 @@ type RoleFilter = 'any' | 'reviewer' | 'vendor_admin' | 'admin';
  * the claim-queue two-step form on every row; and the issue's own premise is that
  * ban lacked a *user anchor*, which is the detail page. Asserted in the spec so a
  * later PR cannot quietly add one.
+ *
+ * ── A TABLE, AND LAST SIGN-IN IS NOT SORTABLE (AECI-694) ────────────────────
+ * Rows were cards; they are a table for the same reason `/admin/vendors` is.
+ *
+ * `AdminUsersSortSchema` is `created | updated` and there is no `order`
+ * parameter, so those are the only two sortable headers. Everything else is
+ * plain `<th>` text with no hover state, and **Last sign-in will never join
+ * them** (`ADMIN_PANEL_SPEC.md` §5.8, and `resolveAdminUserOrderBy` says the
+ * same in the API): it lives in GoTrue and is fetched per-id AFTER the ORDER BY
+ * has already chosen the page, so a control would reorder 24 arbitrary rows and
+ * present it as a ranking. Email is unsortable for the same reason.
+ *
+ * The Updated column exists so the second supported key is reachable at all;
+ * `updated_at` was already on `AdminUserRowSchema` and simply had nowhere to go.
  */
 @Component({
   selector: 'aec-user-list',
-  imports: [RouterLink, AdminPaginator, AecSelect, DatePipe],
+  imports: [RouterLink, AdminPaginator, AecSelect, SortHeader, DatePipe],
   templateUrl: './user-list.html',
 })
 export class UserList {
@@ -82,6 +97,11 @@ export class UserList {
    *  one containing `@` would also cost a GoTrue round trip. */
   protected readonly search = signal('');
   protected readonly searchDraft = signal('');
+
+  /** The active sort key. Component state, not a URL parameter: this screen
+   *  already reads its filters from the query string ONE WAY and deliberately
+   *  does not write back, and a sort control is no different. */
+  protected readonly sort = signal<AdminUsersSort>('created');
 
   protected readonly role = signal<RoleFilter>('any');
   protected readonly banned = signal<TriFilter>('any');
@@ -148,6 +168,13 @@ export class UserList {
     this.refilter();
   }
 
+  /** Direction is fixed per key on the server, so this selects a sort rather
+   *  than toggling one. See `shared/sort-header/sort-header.ts`. */
+  protected onSortChange(key: string): void {
+    this.sort.set(key as AdminUsersSort);
+    this.refilter();
+  }
+
   protected onRoleChange(value: string | null): void {
     this.role.set((value as RoleFilter | null) ?? 'any');
     this.refilter();
@@ -191,6 +218,7 @@ export class UserList {
       const response = await this.api.listUsers({
         page: this.page(),
         perPage: this.perPage,
+        sort: this.sort(),
         ...(search ? { search } : {}),
         ...(role === 'any' ? {} : { role }),
         ...(banned === 'any' ? {} : { banned }),

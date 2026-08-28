@@ -144,7 +144,11 @@ describe('EntitlementControl', () => {
   it('offers Renew + Clear when it is active, and shows the term and paperwork', async () => {
     const { el } = await setup(makeApiMock(), activeEntitlement());
     expect(el.textContent).toContain('Verified: entitlement active');
-    expect(el.textContent).toContain('2027-09-01');
+    // Formatted, not the raw ISO the readout used to interpolate (AECI-694).
+    // The date input below still round-trips `2027-09-01`, which is the format
+    // `<input type="date">` requires — asserted separately.
+    expect(el.textContent).toContain('Sep 1, 2027');
+    expect(el.textContent).not.toContain('2027-09-01T');
     expect(el.textContent).toContain('PO-4471');
     expect(buttonByText(el, 'Renew term')).toBeTruthy();
     expect(buttonByText(el, 'Clear entitlement')).toBeTruthy();

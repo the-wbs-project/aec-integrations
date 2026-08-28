@@ -1,3 +1,4 @@
+import { DatePipe } from '@angular/common';
 import { Component, afterNextRender, computed, inject, signal } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 
@@ -9,19 +10,11 @@ import type {
   VendorEntitlementResponse,
 } from '@aeci/shared';
 
-import { AdminPaginator } from '../admin-paginator';
+import { AuditTrail } from '../audit/audit-trail';
 import { EntitlementControl } from '../entitlement/entitlement-control';
 import { AdminVendorsApi } from './admin-vendors-api';
 
 const AUDIT_PAGE_SIZE = 25;
-
-/** One row of a `before_state` → `after_state` diff. */
-export interface DiffRow {
-  readonly key: string;
-  readonly before: string | null;
-  readonly after: string | null;
-  readonly change: 'added' | 'removed' | 'changed' | 'same';
-}
 
 /**
  * `/admin/vendors/:id` — the operator's vendor page (AECI-652 /
@@ -50,10 +43,17 @@ export interface DiffRow {
  * **Edit the catalog record.** There is no admin vendor-edit endpoint, which is
  * also why this page does not close the §5.4 lockout. Catalog data still flows
  * from the review app through `POST /api/promote`.
+ *
+ * ── THE AUDIT TRAIL LIVES IN A SHARED COMPONENT (AECI-694) ───────────────
+ * `<aec-audit-trail>` owns the table, the collapsed diffs and the paginator.
+ * What stays here is the fetching and the SCOPE control, because scope is
+ * vendor-specific (four OR'd disjuncts server-side, over this vendor's rows, its
+ * requests, its metadata references and its seat roster) and a future
+ * user-scoped or product-scoped trail would need a different one, or none.
  */
 @Component({
   selector: 'aec-vendor-detail',
-  imports: [RouterLink, AdminPaginator, EntitlementControl],
+  imports: [RouterLink, AuditTrail, EntitlementControl, DatePipe],
   templateUrl: './vendor-detail.html',
 })
 export class VendorDetail {
@@ -84,10 +84,6 @@ export class VendorDetail {
   protected readonly auditLoading = signal(true);
   protected readonly auditFailed = signal(false);
   protected readonly auditEmailsAvailable = signal(true);
-  /** Ids of the rows whose before/after diff is expanded. Collapsed by default —
-   *  most rows are scanned, not read, and an always-open diff would bury the
-   *  chronology the operator came for. */
-  protected readonly openDiffIds = signal<ReadonlySet<string>>(new Set());
 
   protected readonly scopeOptions: ReadonlyArray<{ key: AdminVendorAuditScope; label: string }> = [
     { key: 'all', label: $localize`:@@admin.vendors.audit.scope.all:Everything` },
@@ -101,9 +97,6 @@ export class VendorDetail {
   /** `null` seats means the roster query itself degraded — distinct from `[]`,
    *  which means the vendor genuinely has no seats. */
   protected readonly seatsUnavailable = computed(() => this.vendor()?.seats === null);
-  protected readonly auditEmpty = computed(
-    () => !this.auditLoading() && this.auditRows().length === 0,
-  );
 
   constructor() {
     afterNextRender(() => {
@@ -236,18 +229,6 @@ export class VendorDetail {
     void this.loadAudit();
   }
 
-  protected toggleDiff(id: string): void {
-    this.openDiffIds.update((open) => {
-      const next = new Set(open);
-      if (!next.delete(id)) next.add(id);
-      return next;
-    });
-  }
-
-  protected isDiffOpen(id: string): boolean {
-    return this.openDiffIds().has(id);
-  }
-
   private async loadAudit(): Promise<void> {
     const id = this.vendorId();
     if (!id) return;
@@ -270,101 +251,6 @@ export class VendorDetail {
       this.auditLoading.set(false);
     }
   }
-
-  /**
-   * Who did it.
-   *
-   * A `null` actor is not "unknown" — it is a `system` or `workflow` row (a cron,
-   * the promote Workflow), which has no person behind it. Saying "System" is the
-   * honest rendering; saying "Unknown" would suggest a lookup failed.
-   */
-  protected actorLabel(row: AdminAuditRow): string {
-    if (!row.actor) {
-      return row.actor_type === 'workflow'
-        ? $localize`:@@admin.vendors.audit.actor.workflow:Automated workflow`
-        : $localize`:@@admin.vendors.audit.actor.system:System`;
-    }
-    return (
-      row.actor.display_name ??
-      row.actor.email ??
-      $localize`:@@admin.vendors.audit.actor.unnamed:Unnamed account`
-    );
-  }
-
-  /**
-   * The before → after diff for one row.
-   *
-   * Walks the UNION of both objects' keys so an added or removed field is visible
-   * rather than silently dropped. Handles the non-object case deliberately: these
-   * snapshots are free-form JSON written by ~34 call sites over the life of the
-   * schema, with no shared contract and no retention prune, so today's reader is
-   * parsing rows written by code that no longer exists. A scalar or an array
-   * renders as a single `value` row instead of throwing.
-   */
-  protected diffRows(row: AdminAuditRow): readonly DiffRow[] {
-    const before = row.before_state;
-    const after = row.after_state;
-    if (before == null && after == null) return [];
-
-    const beforeObj = asRecord(before);
-    const afterObj = asRecord(after);
-    if (!beforeObj && !afterObj) {
-      return [
-        {
-          key: 'value',
-          before: before == null ? null : format(before),
-          after: after == null ? null : format(after),
-          change: changeOf(before, after),
-        },
-      ];
-    }
-
-    const keys = [...new Set([...Object.keys(beforeObj ?? {}), ...Object.keys(afterObj ?? {})])];
-    keys.sort();
-    return keys.map((key): DiffRow => {
-      const b = beforeObj?.[key];
-      const a = afterObj?.[key];
-      return {
-        key,
-        before: b === undefined ? null : format(b),
-        after: a === undefined ? null : format(a),
-        change: changeOf(b, a),
-      };
-    });
-  }
-
-  protected changeLabel(change: DiffRow['change']): string {
-    switch (change) {
-      case 'added':
-        return $localize`:@@admin.vendors.audit.diff.added:added`;
-      case 'removed':
-        return $localize`:@@admin.vendors.audit.diff.removed:removed`;
-      case 'changed':
-        return $localize`:@@admin.vendors.audit.diff.changed:changed`;
-      case 'same':
-        return $localize`:@@admin.vendors.audit.diff.same:unchanged`;
-    }
-  }
-}
-
-/** `true` only for a plain JSON object — an array is data, not a field bag, and
- *  diffing it key-by-index would produce nonsense rows. */
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
-}
-
-function format(value: unknown): string {
-  if (value === null) return 'null';
-  if (typeof value === 'string') return value;
-  return JSON.stringify(value) ?? String(value);
-}
-
-function changeOf(before: unknown, after: unknown): DiffRow['change'] {
-  if (before === undefined && after !== undefined) return 'added';
-  if (before !== undefined && after === undefined) return 'removed';
-  return JSON.stringify(before ?? null) === JSON.stringify(after ?? null) ? 'same' : 'changed';
 }
 
 /** Structural, not `instanceof`: the admin bundle is lazily split, so an

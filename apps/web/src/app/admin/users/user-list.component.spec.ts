@@ -11,6 +11,11 @@
  *     with that query, so seeding from the URL is load-bearing, not a nicety.
  *  3. **No ban control on the list.** Asserted so a later PR cannot quietly add
  *     one — ban needs a reason, and its home is the detail page.
+ *  4. **Last sign-in has no sort control, and must never get one** (AECI-694).
+ *     It is fetched from GoTrue per id AFTER the ORDER BY has chosen the page,
+ *     so a control there would reorder 24 arbitrary rows and present it as a
+ *     ranking. That is a promise about the seam, not a styling preference, which
+ *     is why it is a test.
  */
 
 import { provideZonelessChangeDetection } from '@angular/core';
@@ -68,6 +73,17 @@ function makeApiMock(page: AdminUsersListResponse = makePage()): ApiMock {
 /** Drains `afterNextRender`'s async load. */
 function settle(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve));
+}
+
+function bodyRows(el: HTMLElement): HTMLTableRowElement[] {
+  return [...el.querySelectorAll<HTMLTableRowElement>('tbody tr')];
+}
+
+/** The header cell whose text starts with this label. */
+function header(el: HTMLElement, label: string): HTMLTableCellElement | undefined {
+  return [...el.querySelectorAll<HTMLTableCellElement>('thead th')].find((th) =>
+    th.textContent?.trim().startsWith(label),
+  );
 }
 
 async function setup(api: ApiMock = makeApiMock(), queryParams: Record<string, string> = {}) {
@@ -264,6 +280,69 @@ describe('UserList', () => {
     expect(labels).not.toContain('Ban');
     expect(labels).not.toContain('Ban this account');
     expect(labels).not.toContain('Reinstate');
+  });
+
+  describe('sorting (AECI-694)', () => {
+    it('sends the API default, newest profiles first', async () => {
+      const { api } = await setup();
+      expect(api.listUsers.mock.calls[0]?.[0]?.sort).toBe('created');
+    });
+
+    it('sends the key to the API rather than reordering the page in place', async () => {
+      const { el, fixture, api } = await setup();
+      header(el, 'Updated')?.querySelector('button')?.click();
+      await settle();
+      fixture.detectChanges();
+      const sent = api.listUsers.mock.calls.at(-1)?.[0] ?? {};
+      expect(sent.sort).toBe('updated');
+      // A sort is a filter change: staying on page 4 of a reordered set lands on
+      // rows the operator did not ask for.
+      expect(sent.page).toBe(1);
+    });
+
+    it('reports the fixed server direction through aria-sort', async () => {
+      // `resolveAdminUserOrderBy` descends on both keys and takes no `order`
+      // param, so clicking selects a sort and never flips one.
+      const { el } = await setup();
+      expect(header(el, 'Profile created')?.getAttribute('aria-sort')).toBe('descending');
+      expect(header(el, 'Updated')?.getAttribute('aria-sort')).toBe('none');
+    });
+
+    it('gives Last sign-in no sort control, and never will', async () => {
+      const { el } = await setup();
+      expect(header(el, 'Last sign-in')).toBeTruthy();
+      expect(header(el, 'Last sign-in')?.querySelector('button')).toBeFalsy();
+      // Email is unsortable for the same reason and is not even its own column.
+      for (const label of ['Person', 'Role', 'Vendor', 'Status']) {
+        expect(header(el, label)?.querySelector('button')).toBeFalsy();
+      }
+    });
+  });
+
+  describe('table structure (AECI-694)', () => {
+    it('renders one row per person, with the person as the row header', async () => {
+      const { el } = await setup();
+      expect(bodyRows(el)).toHaveLength(1);
+      const rowHeader = bodyRows(el)[0]?.querySelector('th[scope="row"]');
+      expect(rowHeader?.textContent).toContain('Rita Reviewer');
+      expect(rowHeader?.querySelector('a')?.getAttribute('href')).toBe(`/admin/users/${USER_ID}`);
+    });
+
+    it('names the table and scopes every header cell', async () => {
+      const { el } = await setup();
+      expect(el.querySelector('caption')?.textContent?.trim()).toBeTruthy();
+      for (const th of el.querySelectorAll('thead th')) {
+        expect(th.getAttribute('scope')).toBe('col');
+      }
+    });
+
+    it('keeps the screen to a single h2 and no per-row headings', async () => {
+      // 24 rows as h3s would put 24 headings between the screen's h2 and
+      // anything after it, which is what `th[scope=row]` avoids.
+      const { el } = await setup();
+      expect(el.querySelectorAll('h2')).toHaveLength(1);
+      expect(el.querySelector('h1, h3, h4, h5, h6')).toBeNull();
+    });
   });
 
   it('announces the result count in the polite live region', async () => {
