@@ -36,10 +36,10 @@
  */
 
 import { RATING_VISIBILITY_MIN_REVIEWS } from '@aeci/shared';
-import type { IntegrationSort, ProductSort, VendorSort } from '@aeci/shared';
+import type { AdminUsersSort, IntegrationSort, ProductSort, VendorSort } from '@aeci/shared';
 import { asc, desc, sql, type SQL } from 'drizzle-orm';
 
-import { integrations, products, vendors } from '../db/schema';
+import { integrations, products, profiles, vendors } from '../db/schema';
 
 type Direction = 'asc' | 'desc';
 
@@ -94,6 +94,26 @@ export function resolveVendorOrderBy(sort: VendorSort): SQL[] {
       return [asc(vendors.companyName), asc(vendors.id)];
     case 'updated':
       return [desc(vendors.updatedAt), asc(vendors.id)];
+    default:
+      return sort satisfies never;
+  }
+}
+
+/**
+ * Order for the admin user list (AECI-692).
+ *
+ * **D1 columns only, and that is a contract not an omission.** There is no
+ * `last_sign_in` case: last sign-in lives in GoTrue and is fetched per-id AFTER
+ * this ORDER BY has already chosen the page, so a "sort by last login" control
+ * would reorder 24 arbitrary rows and call it a ranking. Adding one means
+ * pulling every profile in the environment through the seam first.
+ */
+export function resolveAdminUserOrderBy(sort: AdminUsersSort): SQL[] {
+  switch (sort) {
+    case 'created':
+      return [desc(profiles.createdAt), asc(profiles.id)];
+    case 'updated':
+      return [desc(profiles.updatedAt), asc(profiles.id)];
     default:
       return sort satisfies never;
   }

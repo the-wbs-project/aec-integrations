@@ -46,6 +46,7 @@ import {
   createAdminVendorDetailHandler,
   createAdminVendorsListHandler,
 } from './admin-vendors';
+import { createAdminUserDetailHandler, createAdminUsersListHandler } from './admin-users';
 
 const SUPABASE_URL = 'https://test-project.supabase.co';
 const ENV = { ENV: 'preview', SUPABASE_URL } as Env;
@@ -90,6 +91,13 @@ const ROUTES = [
   { name: 'GET /api/admin/vendors', url: '/api/admin/vendors' },
   { name: 'GET /api/admin/vendors/:id', url: `/api/admin/vendors/${VENDOR}` },
   { name: 'GET /api/admin/vendors/:id/audit', url: `/api/admin/vendors/${VENDOR}/audit` },
+  // AECI-692 — the §5.8 user surface. Two reads; ban/reinstate is not here at
+  // all, it reuses `PATCH /api/admin/reviewers/:id` unchanged, so this file
+  // stays `get()`-shaped. The detail 404s on an unknown id and this matrix
+  // asserts 200 for an admin, so it addresses a SEEDED profile — REVIEWER, who
+  // exists for the deny cases anyway.
+  { name: 'GET /api/admin/users', url: '/api/admin/users' },
+  { name: 'GET /api/admin/users/:id', url: `/api/admin/users/${REVIEWER}` },
 ] as const;
 
 let jwks: TestJwks;
@@ -159,6 +167,24 @@ function makeApp() {
     '/api/admin/vendors/:id/audit',
     requireAdmin(guard),
     createAdminVendorAuditHandler(t.factory, noEmails),
+  );
+  // AECI-692. Same reasoning as `noEmails`: the record seam's default would
+  // reach GoTrue, and `available: true` with an empty map is the "seam up, no
+  // account" branch — the cheapest one that still 200s.
+  const noRecords = async () => ({
+    available: true,
+    records: new Map<string, never>(),
+    reason: 'ok' as const,
+  });
+  app.get(
+    '/api/admin/users',
+    requireAdmin(guard),
+    createAdminUsersListHandler(t.factory, noRecords),
+  );
+  app.get(
+    '/api/admin/users/:id',
+    requireAdmin(guard),
+    createAdminUserDetailHandler(t.factory, noRecords),
   );
   return app;
 }
