@@ -1738,6 +1738,122 @@ force while the portal's writes now 403 — **nobody can edit that vendor.** Un-
 deliberate, so the accepted launch mitigation is: re-activate → edit → clear again, or use
 `apps/datatool`. Closing it properly is deferred (`STAGE_2_PAID_TIERS_SPEC.md` §11).
 
+#### `GET /api/admin/users` (AECI-692)
+
+The operator's user list — **profiles-first**, behind `requireAdmin()`, emitting no
+`audit_log` row (`ADMIN_PANEL_SPEC.md` §5.8, which owns this contract in full).
+
+Profiles-first is a decision, not a convenience: GoTrue's own `GET /admin/users`
+would answer "every account with an auth row", but one Supabase project backs
+**every** environment (ADR 0017), so an auth-first list on production would include
+staging and preview signups and its "no profile" rows would be ambiguous across
+tiers. `profiles` is the per-environment truth; the seam (`AUTH_AND_RLS.md` §3.1
+seam #2, `fetchAuthUserRecords`) enriches the page D1 already chose.
+
+```typescript
+// packages/shared/src/api/admin-users.ts
+AdminUsersListQuerySchema = PageQuerySchema.extend({
+  perPage: …default 24, max 50,           // NOT the shared 100 — see below
+  sort:    z.enum(['created', 'updated']), // D1 columns ONLY
+  search:  z.string().optional(),
+  role:    z.enum(['reviewer', 'admin', 'vendor_admin']).optional(),
+  banned:  z.enum(['true', 'false']).transform((v) => v === 'true').optional(),
+  has_seat: z.enum(['true', 'false']).transform((v) => v === 'true').optional(),
+});
+
+AdminUsersListResponse = PaginatedResponse<AdminUserRow> & {
+  auth_available: boolean;                                    // did the seam run at all
+  email_search: 'matched' | 'no_match' | 'unavailable' | null; // what the @-leg did
+};
+```
+
+- **Every boolean filter is an enum-plus-transform, never `z.coerce.boolean()`.**
+  `Boolean("false") === true` — the live AECI-691 defect on the public vendors
+  endpoint. Here it would mean `?banned=false` returning the *banned* users, on a
+  moderation surface. An omitted filter is a genuine third state and stays
+  `undefined`.
+- **`role` is an enum on the request and a plain string on the response.** The two
+  directions want opposite failure modes: a typo'd filter should `400` rather than
+  return a confidently empty page, while a list that `500`s on a role the DB CHECK
+  gained without this file would be worse than one that shows it.
+- **`perPage` caps at 50, not 100.** Each row costs one GoTrue round trip, run in
+  waves of `WORKER_CONNECTION_LIMIT` (6) with a 5s timeout, and nothing caches in
+  front of the seam. 24 is exactly four waves; 100 would be ~17.
+- **`sort` takes D1 columns only.** `last_sign_in_at` lives in GoTrue and is fetched
+  *after* the `ORDER BY` has chosen the page, so sorting by it would reorder the
+  current page and call it a ranking. It is not sortable and will not become so.
+- **`search` matches `display_name` as an escaped substring** (`likeContains` —
+  operator-typed `%`/`_` are escaped, not honoured) and, **only when the term
+  contains `@`**, also resolves it as an **exact** email through seam #4a.
+  GoTrue's `?filter=` is a case-*sensitive* substring over email or display name
+  and `findAuthUserByEmail` narrows it to an exact lowercased equality
+  client-side, so `?search=@acme.com` finds nothing by email — `email_search`
+  reports which of the three things happened. **`'unavailable'` is the important
+  one**: an empty page from a seam-down email search reads as "no such user",
+  which is the false negative this surface exists to eliminate.
+
+#### `GET /api/admin/users/:id` (AECI-692)
+
+One person. `404` on an unknown id — never a successful page of zeroes.
+
+Three round trips in a forced order: D1 first (profile, seat, and the counts that
+need no address), then the seam to learn the address, then the two reads *keyed by*
+that address. Pending invites and request matches are addressed to an email, not a
+user id — `vendor_seat_invites.email` deliberately has no `profiles` FK (an invitee
+usually has no account yet) and `vendor_requests` has no submitter FK at all
+(submission is anonymous) — so with the seam down they are genuinely unknowable.
+
+```typescript
+AdminUserDetail = {
+  …profile fields (role, trust_tier, work_email_verified, seat_owner,
+                   banned_at, ban_reason, created_at, updated_at),
+  auth: AdminUserAuthAccount | null,   // email, last_sign_in_at, created_at,
+  auth_available: boolean,             //   email_confirmed_at — all nullable
+  seat: AdminUserSeat | null,          // at most ONE, by construction
+  pending_invites: AdminUserPendingInvite[] | null,
+  counts: {
+    reviews: { pending, approved, rejected, archived },   // all four, so they sum
+    seat_invites_sent: number,
+    entitlements_granted: number,
+    requests_by_email: number | null,                     // best effort — see below
+  },
+  repeat_offender: boolean,
+};
+```
+
+- **The tri-state, spelled out.** `auth_available: false` ⇒ the seam was
+  unreachable and every `auth` says nothing about the accounts. `true` with
+  `auth: null` ⇒ there is no `auth.users` row: an **orphaned profile**, a real data
+  defect. `auth` present with a `null` field ⇒ the account exists and genuinely has
+  no such timestamp. `auth.created_at` is the **auth user's** creation and is not
+  `created_at` on the enclosing object, which is the profile's; both ship.
+- **`null` is not `[]` and not `0`.** `pending_invites: null` means the address
+  could not be resolved, so the set is unknown; `[]` means resolved and empty.
+  `requests_by_email: null` means the match could not be attempted; `0` would
+  assert "this person filed none".
+- **`seat` is single-valued by construction.** There is no `vendor_users` table — a
+  seat *is* `role = 'vendor_admin' AND vendor_id IS NOT NULL` on the `profiles` row
+  (`AUTH_AND_RLS.md` §3.2 exclusivity), and a `reviewer` row carrying a stale
+  `vendor_id` is **not** a seat. This agrees with `seatsOf()`, which is what
+  `GET /api/vendor/seats` uses; the two surfaces must not disagree about who has
+  access.
+- **`requests_by_email` is best-effort and the UI labels it so.**
+  `vendor_requests` records only `submitter_email`, compared case-insensitively
+  (the column is `.trim()`-ed but *not* lowercased on write, so a bare `=` would
+  miss `Jane@Acme.com`). A shared mailbox attributes to the wrong person; a request
+  filed from a second address is missed.
+- **`repeat_offender`** is `counts.reviews.rejected >= REPEAT_OFFENDER_THRESHOLD`,
+  computed server-side from the same shared constant the moderation queue uses, so
+  the two surfaces cannot label the same person differently.
+- **No per-user page views, ever.** AECI-585 dropped `page_views.user_id` /
+  `session_id` / `profile_role` and `ADMIN_PANEL_SPEC.md` §9 item 7 forbids
+  visitor↔account correlation. There is no join column to reconstruct.
+
+**Ban and reinstate are not here.** They are `PATCH /api/admin/reviewers/:id`
+(below), reused unchanged — still the sole writer of `profiles.banned_at` anywhere.
+Seat revoke is likewise not here; it stays
+`DELETE /api/admin/vendors/:id/seats/:userId`.
+
 #### `GET /api/admin/reviewers`
 
 Lists the currently-banned reviewers (newest ban first). Implemented in AECI-218
