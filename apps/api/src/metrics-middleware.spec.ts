@@ -7,8 +7,6 @@ import { metricsMiddleware } from './metrics-middleware';
 
 function makeEnv(overrides: Partial<Env> = {}): Env {
   return {
-    DD_API_KEY: 'secret-key',
-    DD_SITE: 'us5.datadoghq.com',
     POSTHOG_PROJECT_KEY: 'phc_test_token',
     POSTHOG_HOST: 'https://us.i.posthog.com',
     ENV: 'preview',
@@ -51,14 +49,9 @@ function makeApp() {
   return app;
 }
 
-/** The PostHog OTLP metrics leg of the dual-run fan-out. */
+/** The PostHog OTLP metrics intake — the only telemetry destination (AECI-651). */
 function posthogMetricCalls(fetchSpy: ReturnType<typeof vi.fn>) {
   return fetchSpy.mock.calls.filter((c) => String(c[0]).endsWith('/i/v1/metrics'));
-}
-
-/** The Datadog leg of the dual-run fan-out (deleted at PH-final, AECI-651). */
-function datadogMetricCalls(fetchSpy: ReturnType<typeof vi.fn>) {
-  return fetchSpy.mock.calls.filter((c) => String(c[0]).includes('/api/v1/distribution_points'));
 }
 
 type OtlpAttribute = { key: string; value: { stringValue?: string; doubleValue?: number } };
@@ -115,8 +108,6 @@ describe('metricsMiddleware (AECI-66)', () => {
     // The exact code lives on the error log for the same request; a per-code
     // split of a duration histogram was never a real query.
     expect(posthogPointTags(fetchSpy)).not.toHaveProperty('status');
-    const ddTags = JSON.parse(datadogMetricCalls(fetchSpy)[0]![1]!.body as string).series[0].tags;
-    expect(ddTags).not.toContain('status:200');
   });
 
   it('still emits with status_class:5xx when a handler throws (sub-router onError converts it first)', async () => {
@@ -132,30 +123,23 @@ describe('metricsMiddleware (AECI-66)', () => {
     });
   });
 
-  it('fans out to the Datadog leg too for the dual-run window', async () => {
+  it('reaches no Datadog intake — the leg is gone, not merely unconfigured (AECI-651)', async () => {
     const { ctx, promises } = makeCtx();
     await makeApp().fetch(new Request('http://api/api/products/procore'), makeEnv(), ctx as never);
     await Promise.all(promises);
 
-    const calls = datadogMetricCalls(fetchSpy);
-    expect(calls).toHaveLength(1);
-    const series = JSON.parse(calls[0]![1]!.body as string).series[0];
-    expect(series.metric).toBe('aeci.api.query.duration_ms');
-    expect(series.tags).toEqual(
-      expect.arrayContaining(['endpoint:/api/products/:slug', 'status_class:2xx']),
-    );
+    expect(fetchSpy.mock.calls.some((c) => String(c[0]).includes('datadoghq'))).toBe(false);
   });
 
-  it('no-ops per vendor when its key is absent (never breaks the request)', async () => {
+  it('no-ops when the key is absent (never breaks the request)', async () => {
     const { ctx, promises } = makeCtx();
     const res = await makeApp().fetch(
       new Request('http://api/api/products/procore'),
-      makeEnv({ DD_API_KEY: undefined, POSTHOG_PROJECT_KEY: undefined }),
+      makeEnv({ POSTHOG_PROJECT_KEY: undefined }),
       ctx as never,
     );
     expect(res.status).toBe(200);
     await Promise.all(promises);
     expect(posthogMetricCalls(fetchSpy)).toHaveLength(0);
-    expect(datadogMetricCalls(fetchSpy)).toHaveLength(0);
   });
 });

@@ -81,7 +81,7 @@ describe('afterVendorWrite', () => {
 
   it('dispatches with no vendor key configured — each leg self-gates', () => {
     // The old forwarder returned `undefined` (dropping every forward) unless
-    // `DD_API_KEY || POSTHOG_PROJECT_KEY` was set. The transport gates itself
+    // `POSTHOG_PROJECT_KEY` was set. The transport gates itself
     // now, so the call site must not re-add that.
     const { c } = makeCtx();
 

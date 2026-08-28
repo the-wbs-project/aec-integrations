@@ -1,8 +1,8 @@
 /**
  * Injects the public Algolia search config `<script>` into the SSR HTML
- * response (AECI-134 / Phase 3.1). Mirrors `server-bootstrap-inject.ts` (the
- * Datadog RUM bootstrap) exactly — same status / content-type / `</head>` /
- * content-length guards.
+ * response (AECI-134 / Phase 3.1). Mirrors the other bootstrap injectors
+ * (`supabase-bootstrap-inject.ts`, `posthog-bootstrap-inject.ts`) exactly —
+ * same status / content-type / `</head>` / content-length guards.
  *
  * InstantSearch (3.9, the consumer) needs an `appId`, a query-only `searchKey`,
  * and the physical index names at app boot. The search key is explicitly

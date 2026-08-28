@@ -25,12 +25,10 @@
  * Edge cache, KV, and cookie-stripping middleware land in subsequent
  * Phase 1 issues.
  *
- * Datadog (AECI-31) — secrets, NOT vars, so values stay out of git. Push per
- * env with `wrangler secret put <KEY> --env <preview|production>`:
- *   DD_APPLICATION_ID   client-exposed RUM application id (rendered into HTML)
- *   DD_CLIENT_TOKEN     client-exposed RUM client token   (rendered into HTML)
- *   DD_API_KEY          server-only; Datadog Logs HTTP intake
- *   DD_SITE             public; defaults to datadoghq.com when unset
+ * Observability (ADR 0024) holds NO secret: the publishable `phc_`
+ * POSTHOG_PROJECT_KEY is a committed per-env var below (AECI-640) and
+ * authenticates all three PostHog intakes. The four DD_* Datadog secrets this
+ * block used to document were retired with the Datadog leg in AECI-651.
  *
  * Cache purge (AECI-56 / Phase 2.10; native Workers Cache since WC-6 / AECI-320):
  *   ADMIN_PURGE_TOKEN   secret; bearer the caller of POST /admin/purge presents.
@@ -125,7 +123,6 @@
         // set the indexable env's value to "true". Do NOT key off ENV:
         // production is the pre-launch demo.
         "ALLOW_INDEXING": "false",
-        "DD_SITE": "us5.datadoghq.com",
         "COMMIT_SHA": "unknown",
         "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
         // AECI-193 / ADR 0017: Supabase base URL (public). The SINGLE shared
@@ -160,7 +157,6 @@
         "ENV": "staging",
         // See the preview env's note. Staging is behind Access AND non-indexable.
         "ALLOW_INDEXING": "false",
-        "DD_SITE": "us5.datadoghq.com",
         "COMMIT_SHA": "unknown",
         "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
         "SUPABASE_URL": "https://ktuhnlypztujpsseujzx.supabase.co",
@@ -209,7 +205,6 @@
         // Public (NOT behind Access), pre-launch — no-index. Keep "false". See
         // the preview env's note; `indexingAllowed` keys off this, not `ENV`.
         "ALLOW_INDEXING": "false",
-        "DD_SITE": "us5.datadoghq.com",
         "COMMIT_SHA": "unknown",
         "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
         // ADR 0017: the single shared auth project (same value in every env).
@@ -280,7 +275,6 @@
         "ENV": "stage2",
         // See the preview env's note. stage2 is behind Access AND non-indexable.
         "ALLOW_INDEXING": "false",
-        "DD_SITE": "us5.datadoghq.com",
         "COMMIT_SHA": "unknown",
         "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
         // ADR 0017: the single shared auth project (same value in every env).
@@ -311,7 +305,6 @@
         // launch-only SEO secrets (INDEXNOW_KEY, GOOGLE_INDEXING_SA_*) at the same
         // time — pinging for a noindex site is a bug (docs/launch-cutover-runbook.md).
         "ALLOW_INDEXING": "true",
-        "DD_SITE": "us5.datadoghq.com",
         "COMMIT_SHA": "unknown",
         "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
         "SUPABASE_URL": "https://ktuhnlypztujpsseujzx.supabase.co",

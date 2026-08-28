@@ -320,42 +320,6 @@ jobs:
       #
       # The `POSTHOG_KEY_STAGING` / `POSTHOG_KEY_PRODUCTION` GitHub secrets are
       # now unused and should be deleted (operator step, AECI-640).
-
-      # ---------------------------------------------------------------------
-      # Step 8d: Push the Datadog RUM credentials to the per-PR web Worker
-      #   (AECI-326). Shared un-suffixed values (single "aeci" app on us5; the
-      #   per-env `env` field separates preview from prod). `vars.DD_SITE` is
-      #   inherited from wrangler.jsonc. Emits window.__AECI_DD__ so RUM inits and
-      #   reports Core Web Vitals. Warn-and-skip: missing creds just no-op RUM
-      #   (fail-open). Same printf-over-stdin idempotent pattern as POSTHOG above.
-      # ---------------------------------------------------------------------
-      - name: Push Datadog RUM credentials to per-PR web Worker
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          DD_APPLICATION_ID_VALUE: ${{ secrets.DD_APPLICATION_ID }}
-          DD_CLIENT_TOKEN_VALUE: ${{ secrets.DD_CLIENT_TOKEN }}
-        working-directory: apps/web
-        run: |
-          set -euo pipefail
-          if [ -z "$DD_APPLICATION_ID_VALUE" ] || [ -z "$DD_CLIENT_TOKEN_VALUE" ]; then
-            echo "::warning::DD_APPLICATION_ID / DD_CLIENT_TOKEN not set — skipping push. This preview's Datadog RUM no-ops (no window.__AECI_DD__)."
-            exit 0
-          fi
-          printf '%s' "$DD_APPLICATION_ID_VALUE" \
-            | pnpm exec wrangler secret put DD_APPLICATION_ID --name "${PREVIEW_WORKER_NAME}"
-          printf '%s' "$DD_CLIENT_TOKEN_VALUE" \
-            | pnpm exec wrangler secret put DD_CLIENT_TOKEN --name "${PREVIEW_WORKER_NAME}"
-
-      # ---------------------------------------------------------------------
-      # Step 9: Verify the preview reports the PR head SHA on BOTH Workers
-      #   /api/version (proxied raw to the API Worker) AND /_version (the SSR
-      #   Worker's own signal, AECI-92). /api/version alone can't catch a stale
-      #   SSR deploy because the SSR Worker forwards it untouched to the API
-      #   Worker. Cloudflare Access fronts the wildcard
-      #   *.aec-integrations.workers.dev (docs/access.md :42), so
-      #   verify-version.sh sends the service-token headers (CF_ACCESS_* below).
-      # ---------------------------------------------------------------------
       - name: Verify preview (API + SSR at PR head SHA)
         env:
           EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}

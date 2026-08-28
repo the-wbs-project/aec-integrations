@@ -609,7 +609,7 @@ export async function runEntitlementExpirySweep(
 
 /** Post-commit §26.5 forward. Best-effort and off the critical path. */
 function forwardEntry(c: ExpiryContext, entry: AuditLogEntry): void {
-  const forwarder = c.env.DD_API_KEY
+  const forwarder = c.env.POSTHOG_PROJECT_KEY
     ? (e: AuditLogEntry) => {
         logToPosthog(c.executionCtx, c.env, c.req.raw, {
           level: 'info',

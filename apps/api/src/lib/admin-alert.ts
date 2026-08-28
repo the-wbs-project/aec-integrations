@@ -88,7 +88,7 @@ export async function sendAdminAlert(
 }
 
 /** Emit the `aeci.linear.reconcile.email` outcome count. Wrapped so a missing
- *  `DD_API_KEY` / ExecutionContext can never turn the no-op into a throw. */
+ *  `POSTHOG_PROJECT_KEY` / ExecutionContext can never turn the no-op into a throw. */
 function emitEmailMetric(c: AlertContext, outcome: AdminAlertOutcome): void {
   try {
     submitCount(c.executionCtx, c.env, c.req.raw, 'aeci.linear.reconcile.email', 1, [

@@ -4,12 +4,11 @@
  *
  * `posthog-js` is a browser-only SDK whose module-level code touches `window`,
  * so it is reached ONLY through a dynamic `import()` inside a browser-gated
- * caller (`Analytics`) — the same discipline as `datadog.provider.ts` /
- * `search-rum.ts`, keeping the SDK out of the SSR bundle entirely.
+ * caller (`Analytics`), keeping the SDK out of the SSR bundle entirely.
  *
  * `createPostHogClient` is exposed behind the `POSTHOG_CLIENT_FACTORY`
- * injection token so unit tests swap a fake client (the `SearchQueryEmitter` /
- * `SEARCH_ENGINE_FACTORY` seam idiom): the `Analytics` service injects the
+ * injection token so unit tests swap a fake client (the `SEARCH_ENGINE_FACTORY`
+ * seam idiom): the `Analytics` service injects the
  * token, never imports the SDK directly, and tests assert `capture(...)` calls
  * on a `vi.fn()` without loading `posthog-js`.
  *

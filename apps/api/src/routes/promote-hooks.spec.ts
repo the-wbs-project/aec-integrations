@@ -108,7 +108,7 @@ afterEach(() => vi.useRealTimers());
 
 describe('dispatchPromoteHooks — audit forwards', () => {
   it('forwards N audit entries in ONE batched call, not N', () => {
-    const { rc } = makeRc({ ENV: 'preview', DD_API_KEY: 'k' });
+    const { rc } = makeRc({ ENV: 'preview', POSTHOG_PROJECT_KEY: 'phc_test_token' });
     const auditEntries = Array.from({ length: 14 }, (_, i) => auditEntry(i));
 
     dispatchPromoteHooks(rc, makeResult({ auditEntries }), makeDeps());
@@ -119,7 +119,7 @@ describe('dispatchPromoteHooks — audit forwards', () => {
   });
 
   it('keeps the §26.5 envelope for each entry', () => {
-    const { rc } = makeRc({ ENV: 'preview', DD_API_KEY: 'k' });
+    const { rc } = makeRc({ ENV: 'preview', POSTHOG_PROJECT_KEY: 'phc_test_token' });
 
     dispatchPromoteHooks(rc, makeResult({ auditEntries: [auditEntry(1)] }), makeDeps());
 
@@ -134,7 +134,7 @@ describe('dispatchPromoteHooks — audit forwards', () => {
   });
 
   // stage-2 only: the pre-fix code gated the whole forward on
-  // `DD_API_KEY || POSTHOG_PROJECT_KEY`. Batching removed it because each leg
+  // `POSTHOG_PROJECT_KEY`. Batching removed it because the leg
   // self-gates inside the transport — this locks that in, so a re-added gate
   // (which would silently drop every forward on a key-less tier) fails here.
   it('dispatches the batch without any vendor key configured — each leg self-gates', () => {

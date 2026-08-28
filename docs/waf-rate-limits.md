@@ -318,7 +318,7 @@ rules are live there.
 - **CF Security Events (free on Pro):** every Block / Managed Challenge appears in
   **Security → Events**, filterable by rule, action, host, and IP. This is the
   operator surface for live triage — the per-IP / per-request detail the metrics plane does
-  **not** carry. That is true of Datadog today and of PostHog after AECI-651: the
+  **not** carry. That is true of PostHog: the
   aggregation below is a count per mitigation group, not per request.
 - **The metrics plane (AECI-262):** a scheduled **CF GraphQL Analytics → `submitCount`** shim
   surfaces the same events as a metric so they sit alongside the `aeci.*` catalog
@@ -335,8 +335,9 @@ rules are live there.
   - **`aeci.waf.poll`** (count) — a per-run heartbeat, `outcome:ok|failed|skipped_no_creds`;
     the always-emitted `outcome:ok` series is the cron-liveness signal.
 
-  The live alert is the Datadog monitor **AECi — WAF rate-limit / challenge spike**
-  (`observability/datadog/monitor-waf-ratelimit-spike.json`, >500/15m), which fires on a
+  The live alert is the PostHog alert **AECi — WAF rate-limit / challenge spike**
+  (`observability/posthog/alerts.json`, >2,000/1 h — the retired Datadog monitor's
+  500/15 m rescaled for the hourly window), which fires on a
   sustained spike. Under ADR 0024 it ports to a PostHog alert at **hourly** cadence
   (`POSTHOG_MIGRATION_SPEC.md` §5) — a real, accepted loss of detection speed on this
   signal. Its liveness half is different: `aeci.waf.poll`'s no-data monitor has no PostHog

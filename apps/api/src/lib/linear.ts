@@ -607,7 +607,7 @@ function buildDuplicateNote(input: LinearIssueInput): string {
 // ─── Telemetry ───────────────────────────────────────────────────────────────
 
 /** Emit the `aeci.linear.issue` outcome count (+ duration distribution on a
- *  terminal create attempt). Wrapped so a missing `DD_API_KEY` / ExecutionContext
+ *  terminal create attempt). Wrapped so a missing `POSTHOG_PROJECT_KEY` / ExecutionContext
  *  can never turn a graceful path into a throw (mirrors `toxicity.ts`). */
 function emit(
   c: LinearContext,
@@ -669,7 +669,7 @@ function emitSync(
  *  Mirrors `routes/webhooks.ts`'s `makeWorkflowForwarder`, tagged
  *  `source: site-linear-sync`. */
 function makeSyncForwarder(c: LinearContext): WorkflowTransitionForwarder | undefined {
-  if (!c.env.DD_API_KEY && !c.env.POSTHOG_PROJECT_KEY) return undefined;
+  if (!c.env.POSTHOG_PROJECT_KEY) return undefined;
   return (entry) => {
     logToPosthog(c.executionCtx, c.env, c.req.raw, {
       level: 'info',

@@ -5,7 +5,7 @@
  * The contract under test: the call NEVER throws and fails open to `null` for
  * every failure mode (absent key, non-2xx, network error, timeout, malformed /
  * unparseable payload), and maps the model's reply to a clamped 0–100 integer.
- * Global `fetch` is stubbed; `DD_API_KEY` is unset so the `warn` path is a no-op.
+ * Global `fetch` is stubbed; `POSTHOG_PROJECT_KEY` is unset so the `warn` path is a no-op.
  */
 
 import type { Context } from 'hono';
@@ -52,7 +52,7 @@ beforeEach(() => {
 /** Minimal context the function reads: env + the telemetry logging triple. */
 function fakeContext(env: Partial<Env> = {}): ScoreContext {
   return {
-    env: { DD_API_KEY: undefined, ...env } as Env,
+    env: { POSTHOG_PROJECT_KEY: undefined, ...env } as Env,
     executionCtx: { waitUntil: () => {}, passThroughOnException: () => {} },
     req: { raw: new Request('https://api.test/api/reviews', { method: 'POST' }) },
   } as unknown as ScoreContext;

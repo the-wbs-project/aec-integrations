@@ -43,7 +43,7 @@ describe('applySeoHeaders', () => {
 });
 
 describe('CONTENT_SECURITY_POLICY', () => {
-  it('allows inline scripts (cache-safe theme + Datadog + Angular event-replay)', () => {
+  it('allows inline scripts (cache-safe theme + bootstraps + Angular event-replay)', () => {
     expect(CONTENT_SECURITY_POLICY).toContain("script-src 'self' 'unsafe-inline'");
   });
 
@@ -52,18 +52,10 @@ describe('CONTENT_SECURITY_POLICY', () => {
     expect(CONTENT_SECURITY_POLICY).toContain('https://fonts.gstatic.com');
   });
 
-  it('allows the Datadog RUM intake hosts (US1 + US5) on connect-src', () => {
-    // The v7 browser SDK beacons to a per-DD_SITE browser-intake-* host, each a
-    // separate registrable domain — a `*.datadoghq.com` wildcard would NOT match.
-    // US1 (browser-intake-datadoghq.com) is the local .dev.vars default; US5
-    // (browser-intake-us5-datadoghq.com) is the deployed preview/staging/prod
-    // site (DD_SITE=us5.datadoghq.com in wrangler.jsonc). AECI-162 caught the
-    // missing US5 host — RUM was CSP-blocked in every deployed env.
-    expect(CONTENT_SECURITY_POLICY).toContain(
-      "connect-src 'self' https://browser-intake-datadoghq.com",
-    );
-    expect(CONTENT_SECURITY_POLICY).toContain('https://browser-intake-us5-datadoghq.com');
-    expect(CONTENT_SECURITY_POLICY).not.toContain('*.datadoghq.com');
+  it('carries no Datadog intake host on connect-src (AECI-651)', () => {
+    // The Datadog leg is gone; a lingering `browser-intake-*` allowlist entry
+    // would be a live CSP grant to a vendor the app no longer talks to.
+    expect(CONTENT_SECURITY_POLICY).not.toContain('datadoghq');
   });
 
   it('allows the Algolia search origins on connect-src (AECI-136)', () => {

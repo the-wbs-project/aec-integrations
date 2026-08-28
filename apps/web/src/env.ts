@@ -3,22 +3,14 @@
  *
  * Cloudflare injects `env` per request. Service bindings (`ASSETS`, `API`) are
  * fetcher RPC handles configured in `wrangler.jsonc`. `ENV` is a public `vars`
- * value. Datadog credentials are set with `wrangler secret put`:
+ * value.
  *
- *   - DD_APPLICATION_ID, DD_CLIENT_TOKEN — explicitly client-exposed per
- *     AECI-31 acceptance criteria. They are rendered into the SSR HTML by
- *     `injectDatadogBootstrap` so `@datadog/browser-rum` can pick them up at
- *     hydration. We still store them as secrets (not `vars`) so the values do
- *     not live in git.
- *   - DD_API_KEY — server-only, and Datadog-only. Since AECI-642 the Worker
- *     reaches PostHog through `logToPosthog()` in `server-posthog.ts`, which
- *     fans out to BOTH vendors for the AECI-639 dual-run and needs no secret
- *     on the PostHog side (the publishable project key authenticates all
- *     three intakes). This key backs only the Datadog leg. Used by (see
- *     `./server-datadog.ts`) to POST logs to the Datadog HTTP intake. Never
- *     rendered into HTML.
- *   - DD_SITE — public, the Datadog site host (`datadoghq.com`,
- *     `datadoghq.eu`, etc.). Defaults to `datadoghq.com` when absent.
+ * Observability holds NO Worker secret: the Worker reaches PostHog through
+ * `logToPosthog()` in `server-posthog.ts`, and the publishable `phc_`
+ * `POSTHOG_PROJECT_KEY` — a committed per-env wrangler var, not a secret
+ * (AECI-640) — authenticates all three intakes. The four `DD_*` Datadog
+ * credentials this file used to carry were removed with the Datadog leg in
+ * AECI-651.
  *
  * Cache-tag purge surface (AECI-56 / Phase 2.10):
  *
@@ -38,24 +30,16 @@
  *     (not `vars`) only to keep values out of git.
  *   - The Algolia ADMIN/management key is **never** part of `WebEnv` — it must
  *     never reach the browser (review gate). It lives on the API Worker only
- *     (`apps/api/src/env.ts`). Mirrors the DD `DD_API_KEY` server-only rule.
+ *     (`apps/api/src/env.ts`) — a server-only key never reaches the browser.
  *
- * All Datadog, purge, and Algolia fields are optional so the Worker boots
- * cleanly in local dev before secrets have been provisioned — the RUM provider
- * and the Datadog leg of `logToPosthog` no-op when missing; the purge endpoint reports a
+ * The purge and Algolia fields are optional so the Worker boots cleanly in
+ * local dev before secrets have been provisioned — the purge endpoint reports a
  * `skipped: 'cache_disabled'` no-op when native Workers Cache is off on the
  * entrypoint (local / miniflare); the Algolia bootstrap injects nothing (no
  * `window.__AECI_ALGOLIA__`).
  */
 
 import type { AlgoliaIndexNames } from '@aeci/shared/algolia';
-
-export type DatadogPublicConfig = {
-  applicationId: string;
-  clientToken: string;
-  site: string;
-  env: string;
-};
 
 /**
  * Public Algolia config rendered into the SSR HTML for the browser
@@ -86,8 +70,8 @@ export type SupabasePublicConfig = {
  * Public PostHog config rendered into the SSR HTML for the browser
  * (`window.__AECI_POSTHOG__`, AECI-239 / §14.1). Carries the project API key
  * and the ingestion host — both client-exposed by design (the project API key
- * is a publishable key, same security class as `ALGOLIA_SEARCH_KEY` /
- * `DD_CLIENT_TOKEN`). Consumed at hydration by `app/analytics/posthog-config.ts`
+ * is a publishable key, same security class as `ALGOLIA_SEARCH_KEY`).
+ * Consumed at hydration by `app/analytics/posthog-config.ts`
  * → the `Analytics` service. Absent → the bootstrap injects nothing and the
  * browser analytics layer no-ops (fail-open).
  */
@@ -102,7 +86,7 @@ export type WebEnv = {
   /**
    * Deployment environment label. Each wrangler env block sets this explicitly
    * (`preview`/`staging`/`demo`/`production`); when unset (bare `wrangler dev`,
-   * tests) Datadog logs/metrics and the RUM bootstrap report `development` —
+   * tests) the logs/metrics tags and the browser bootstrap report `development` —
    * matching the API Worker's `/api/version` convention (AECI-119). `demo` +
    * `production` are the two public, non-Access-gated tiers (see
    * `@aeci/shared/deploy-env`). `stage2` is the TEMPORARY Stage 2 test tier
@@ -131,10 +115,6 @@ export type WebEnv = {
    */
   COMMIT_SHA?: string;
   DEPLOYED_AT?: string;
-  DD_APPLICATION_ID?: string;
-  DD_CLIENT_TOKEN?: string;
-  DD_API_KEY?: string;
-  DD_SITE?: string;
   ADMIN_PURGE_TOKEN?: string;
   /**
    * IndexNow verification key (AECI-236 / §20.2). The plaintext key served as the

@@ -8,7 +8,7 @@
  * injection and NO platform guard, so it is unit-testable under plain Node
  * Vitest (no `window`, no TestBed). The browser-vs-server and consent decisions
  * live at the call site (`Analytics`), mirroring how `algolia-config.ts` /
- * `datadog.provider.ts` keep the reader pure and guard the platform separately.
+ * the bootstrap readers keep the reader pure and guard the platform separately.
  *
  * `null` is the **graceful-degradation** signal: it means the config is absent
  * (local dev without a PostHog key, or an env where analytics is not yet

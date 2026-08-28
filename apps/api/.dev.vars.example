@@ -105,7 +105,7 @@ LINEAR_WEBHOOK_SIGNING_SECRET=
 # purge was retired in WC-10.)
 CF_ZONE_ID=
 
-# ─── WAF firewall-event poll → Datadog (AECI-262 / §15.1) ──────────────────
+# ─── WAF firewall-event poll → PostHog (AECI-262 / §15.1) ──────────────────
 # The hourly WAF poll reads the zone's firewallEventsAdaptiveGroups over the
 # Cloudflare GraphQL Analytics API and emits aeci.waf.ratelimit.blocked (the free
 # Pro-plan alternative to Enterprise Logpush). Reuses CF_ZONE_ID above as the
@@ -117,7 +117,7 @@ CF_ZONE_ID=
 # outcome:skipped_no_creds and no-ops. See docs/waf-rate-limits.md §5.
 CF_ANALYTICS_API_TOKEN=
 
-# ─── Observability: PostHog is the destination, Datadog is the dual-run ──────
+# ─── Observability: PostHog ─────────────────────────────────────────────────
 # PostHog needs NO secret here. All three intakes (OTLP logs, OTLP metrics,
 # events) authenticate with the publishable `phc_` project token, which is a
 # committed per-env `vars.POSTHOG_PROJECT_KEY` in wrangler.jsonc — so on a
@@ -125,12 +125,8 @@ CF_ANALYTICS_API_TOKEN=
 # it, and a bare `wrangler dev` has none, which makes the transport a total
 # no-op. That is the intended local default (AECI-642).
 #
-# DD_API_KEY is the Datadog Logs/metrics intake key. Datadog runs BESIDE PostHog
-# for the dual-run window and is deleted by AECI-651 — until then both legs emit
-# and each no-ops independently without its own config. Leave DD_API_KEY empty
-# locally; nothing breaks.
-DD_API_KEY=
-DD_SITE=datadoghq.com
+# There is nothing else to set: the Datadog leg (DD_API_KEY / DD_SITE) was
+# deleted in AECI-651. If you have those in a local `.dev.vars`, drop them.
 
 # ─── Algolia (AECI-134) ────────────────────────────────────────────────────
 # Optional until the sync pipeline lands (3.5/3.6) — the Worker reads neither at

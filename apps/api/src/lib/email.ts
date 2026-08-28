@@ -1264,7 +1264,7 @@ function escapeHtml(value: string): string {
     .replace(/"/g, '&quot;');
 }
 
-/** Emit the `aeci.email.send` outcome count. Wrapped so a missing `DD_API_KEY` /
+/** Emit the `aeci.email.send` outcome count. Wrapped so a missing `POSTHOG_PROJECT_KEY` /
  *  ExecutionContext can never turn a send into a throw. */
 function emit(c: EmailContext, outcome: EmailOutcome, template: EmailTemplate): void {
   try {

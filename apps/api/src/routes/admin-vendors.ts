@@ -110,7 +110,7 @@ function parseQuery<T>(c: AdminVendorContext, schema: { parse: (input: unknown) 
  *  from the vendor's own in the trail, since `actor_type` is `'admin'` here but
  *  `'user'` for both a reviewer and a vendor admin elsewhere. */
 function makeForwarder(c: AdminVendorContext): AuditLogForwarder | undefined {
-  if (!c.env.DD_API_KEY && !c.env.POSTHOG_PROJECT_KEY) return undefined;
+  if (!c.env.POSTHOG_PROJECT_KEY) return undefined;
   return (entry) => {
     logToPosthog(c.executionCtx, c.env, c.req.raw, {
       level: 'info',

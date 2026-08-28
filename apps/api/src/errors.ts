@@ -251,7 +251,7 @@ export function errorHandler<E extends { Bindings: Env }>(
  * queryable in Datadog under the SAME `trace_id` the caller receives in the
  * response envelope. Level scales with status: 5xx → `error`, everything else →
  * `warn` (a client-fixable 4xx isn't a server fault, but must still be findable).
- * No-op without `DD_API_KEY` (the transport self-gates). Only reached when the
+ * No-op without `POSTHOG_PROJECT_KEY` (the transport self-gates). Only reached when the
  * router opts in via `errorHandler({ logClientErrors: true })`.
  */
 function logRequestError<E extends { Bindings: Env }>(

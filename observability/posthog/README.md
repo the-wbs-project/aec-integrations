@@ -1,8 +1,9 @@
 # PostHog observability plane (AECI-647 / PH-6)
 
 Spec: `docs/POSTHOG_MIGRATION_SPEC.md` §AW6 (+ §3.4, §5, §8). This directory is the
-committed source of truth for the PostHog dashboards, insights and alerts that replace
-`observability/datadog/`. The disposition table below is mirrored in
+committed source of truth for the PostHog dashboards, insights and alerts. It replaced
+`observability/datadog/`, which **AECI-651 deleted** — so the disposition table below is
+now the only record of the retired monitors' thresholds anywhere in the repo. The disposition table below is mirrored in
 `docs/RUNBOOKS.md` (lifted there by AECI-648) — **this file is the origin**, so
 change it here first and carry the edit across; keep the table clean and liftable.
 
@@ -17,12 +18,12 @@ change it here first and carry the edit across; keep the table clean and liftabl
 
 ---
 
-## Monitor disposition — all 26 live Datadog monitors
+## Monitor disposition — all 26 retired Datadog monitors
 
 Every monitor that landed anywhere **other** than a PostHog alert keeps its old Datadog
 threshold in this table, so re-promoting one is a config change and not archaeology.
-This table is the only place those thresholds survive once `observability/datadog/` is
-deleted at AECI-651.
+`observability/datadog/` was deleted at AECI-651, so this table (mirrored in
+`docs/RUNBOOKS.md`) is the only place those thresholds survive.
 
 | # | Datadog monitor | Old threshold | New home | Why |
 |---|---|---|---|---|

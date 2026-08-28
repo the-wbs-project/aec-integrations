@@ -878,7 +878,7 @@ Defined in `vitest.config.ts` `coverage.exclude`.
 ### 17.3 When traffic scales
 
 - Continuous load testing in staging
-- Performance regression alerts (Datadog today; build new ones on PostHog — ADR 0024)
+- Performance regression alerts (build them on PostHog — ADR 0024)
 - Real User Monitoring SLO breach alerts
 
 Not pursued in Stage 1.

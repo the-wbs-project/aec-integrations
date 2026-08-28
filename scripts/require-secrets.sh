@@ -37,7 +37,7 @@ set -euo pipefail
 # Warn on each missing recommended secret (deploy still proceeds).
 for name in ${RECOMMENDED_SECRETS:-}; do
   if [ -z "${!name:-}" ]; then
-    echo "::warning::[$ENV_LABEL] recommended secret '$name' is not set — the deploy proceeds, but a feature is degraded (Datadog observability / cache-tag purge). See docs/environments.md §Secrets."
+    echo "::warning::[$ENV_LABEL] recommended secret '$name' is not set — the deploy proceeds, but a feature is degraded (cache-tag purge). See docs/environments.md §Secrets."
   fi
 done
 

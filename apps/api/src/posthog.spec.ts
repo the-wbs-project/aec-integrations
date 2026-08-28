@@ -7,15 +7,14 @@ import { logToPosthog, submitCount, submitDistribution, submitGauge } from './po
 
 // The transport mechanics (no-op without key, intake URLs, ctx.waitUntil,
 // error swallowing, OTLP payload shapes) are covered canonically in
-// packages/shared/src/posthog.spec.ts. These tests pin two things this module
-// owns: the *API Worker's* config wiring (service/source/worker = aeci-api),
-// and the §3.1 DUAL-RUN fan-out — every call must reach BOTH vendors, and one
-// leg's config being absent must not suppress the other.
+// packages/shared/src/posthog.spec.ts. These tests pin what this module owns:
+// the *API Worker's* config wiring (service/source/worker = aeci-api) and the
+// `posthogDistinctId` stamp. This adapter fanned out to a second vendor during
+// the AECI-639 dual-run; AECI-651 removed that leg, so PostHog is the only
+// intake a call may reach — asserted explicitly below.
 
 function makeEnv(overrides: Partial<Env> = {}): Env {
   return {
-    DD_API_KEY: 'dd-secret-key',
-    DD_SITE: 'us5.datadoghq.com',
     POSTHOG_PROJECT_KEY: 'phc_test_token',
     POSTHOG_HOST: 'https://us.i.posthog.com',
     ENV: 'preview',
@@ -90,18 +89,6 @@ describe('API Worker telemetry adapter (config wiring)', () => {
       version: 'abc123',
     });
   });
-
-  it('tags Datadog logs with service=aeci-api, ddsource=worker (dual-run leg)', async () => {
-    const { ctx, promises } = makeCtx();
-    logToPosthog(ctx as never, makeEnv({ ENV: 'staging' }), makeRequest(), { message: 'health' });
-    await Promise.all(promises);
-
-    expect(bodyFor('https://http-intake.logs.us5.datadoghq.com/api/v2/logs')).toMatchObject({
-      service: 'aeci-api',
-      ddsource: 'worker',
-      ddtags: 'env:staging,app:aeci,worker:aeci-api,locale:en-US',
-    });
-  });
 });
 
 describe('API Worker telemetry adapter (posthogDistinctId, AECI-644 / §AW3)', () => {
@@ -118,7 +105,7 @@ describe('API Worker telemetry adapter (posthogDistinctId, AECI-644 / §AW3)', (
     return Object.fromEntries(attributes.map((a) => [a.key, a.value.stringValue]));
   }
 
-  it('stamps the PostHog leg only — the Datadog leg stays untouched', async () => {
+  it('stamps the log record with the registered distinct id', async () => {
     const request = makeRequest('http://localhost:8787/api/admin/claims');
     rememberPosthogDistinctId(request, 'user-abc');
 
@@ -127,11 +114,6 @@ describe('API Worker telemetry adapter (posthogDistinctId, AECI-644 / §AW3)', (
     await Promise.all(promises);
 
     expect(posthogLogAttributes()).toHaveProperty('posthogDistinctId', 'user-abc');
-    // PH-final must stay a one-line deletion: the dual-run Datadog payload is
-    // byte-identical to what it was before this issue.
-    expect(bodyFor('https://http-intake.logs.us5.datadoghq.com/api/v2/logs')).not.toHaveProperty(
-      'posthogDistinctId',
-    );
   });
 
   it('omits the key on an unregistered request (cron, queue, Workflow, anonymous)', async () => {
@@ -143,68 +125,52 @@ describe('API Worker telemetry adapter (posthogDistinctId, AECI-644 / §AW3)', (
   });
 });
 
-describe('API Worker telemetry adapter (dual-run fan-out)', () => {
-  it('logToPosthog reaches BOTH the PostHog and the Datadog intake', async () => {
+describe('API Worker telemetry adapter (single vendor, AECI-651)', () => {
+  it('logToPosthog reaches the PostHog logs intake and nothing else', async () => {
     const { ctx, promises } = makeCtx();
     logToPosthog(ctx as never, makeEnv(), makeRequest(), { message: 'health' });
     await Promise.all(promises);
 
-    expect(urls()).toEqual([
-      'https://us.i.posthog.com/i/v1/logs',
-      'https://http-intake.logs.us5.datadoghq.com/api/v2/logs',
-    ]);
+    expect(urls()).toEqual(['https://us.i.posthog.com/i/v1/logs']);
   });
 
   it.each([
     ['submitCount', submitCount],
     ['submitGauge', submitGauge],
     ['submitDistribution', submitDistribution],
-  ])('%s reaches both metric intakes', async (_name, submit) => {
+  ])('%s reaches the PostHog metrics intake and nothing else', async (_name, submit) => {
     const { ctx, promises } = makeCtx();
     submit(ctx as never, makeEnv(), makeRequest(), 'aeci.metric', 1, ['outcome:ok']);
     await Promise.all(promises);
 
-    expect(urls()).toContain('https://us.i.posthog.com/i/v1/metrics');
-    expect(urls().some((u) => u.startsWith('https://api.us5.datadoghq.com/'))).toBe(true);
+    expect(urls()).toEqual(['https://us.i.posthog.com/i/v1/metrics']);
   });
 
-  it('emits only the PostHog leg when DD_API_KEY is absent', async () => {
+  it('never reaches a Datadog intake — the leg is gone, not merely unconfigured', async () => {
     const { ctx, promises } = makeCtx();
-    logToPosthog(ctx as never, makeEnv({ DD_API_KEY: undefined }), makeRequest(), { message: 'x' });
+    logToPosthog(ctx as never, makeEnv(), makeRequest(), { message: 'x' });
+    submitCount(ctx as never, makeEnv(), makeRequest(), 'aeci.metric', 1);
     await Promise.all(promises);
-    expect(urls()).toEqual(['https://us.i.posthog.com/i/v1/logs']);
+
+    expect(urls().some((u) => u.includes('datadoghq'))).toBe(false);
   });
 
-  it('emits only the Datadog leg when POSTHOG_PROJECT_KEY is absent', async () => {
-    const { ctx, promises } = makeCtx();
+  it('emits nothing at all when POSTHOG_PROJECT_KEY is absent', () => {
+    const { ctx } = makeCtx();
     logToPosthog(ctx as never, makeEnv({ POSTHOG_PROJECT_KEY: undefined }), makeRequest(), {
       message: 'x',
     });
-    await Promise.all(promises);
-    expect(urls()).toEqual(['https://http-intake.logs.us5.datadoghq.com/api/v2/logs']);
-  });
-
-  it('emits nothing at all when neither vendor is configured', () => {
-    const { ctx } = makeCtx();
-    logToPosthog(
-      ctx as never,
-      makeEnv({ DD_API_KEY: undefined, POSTHOG_PROJECT_KEY: undefined }),
-      makeRequest(),
-      { message: 'x' },
-    );
     expect(ctx.waitUntil).not.toHaveBeenCalled();
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it('a failure on one leg does not stop the other (both are swallowed)', async () => {
-    // First dispatch is the PostHog leg — reject it.
+  it('swallows a transport failure rather than throwing into the request path', async () => {
     fetchSpy.mockRejectedValueOnce(new Error('posthog down'));
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const { ctx, promises } = makeCtx();
     logToPosthog(ctx as never, makeEnv(), makeRequest(), { message: 'x' });
 
     await expect(Promise.all(promises)).resolves.not.toThrow();
-    expect(urls()).toContain('https://http-intake.logs.us5.datadoghq.com/api/v2/logs');
     expect(warn).toHaveBeenCalledWith('logToPosthog: forward failed', expect.any(Error));
   });
 });

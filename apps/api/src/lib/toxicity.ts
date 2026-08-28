@@ -173,7 +173,7 @@ function isTimeoutError(err: unknown): boolean {
  * Emit the toxicity-scoring observability pair (AECI-206 / Phase 5.15, repointed
  * to Anthropic by AECI-258): the `aeci.toxicity.api` outcome count (the
  * error-rate / outage signal) and the `aeci.toxicity.api.duration_ms` latency
- * distribution. Wrapped so a missing `DD_API_KEY` / ExecutionContext can never
+ * distribution. Wrapped so a missing `POSTHOG_PROJECT_KEY` / ExecutionContext can never
  * turn a graceful `null` into a throw (same ethos as `warn`). `reason` tags the
  * failure cause; success omits it.
  */
@@ -201,7 +201,7 @@ function emitToxicity(
 }
 
 /** Best-effort `warn` to the observability plane; wrapped so a missing ExecutionContext (test
- *  harness) or absent `DD_API_KEY` can never turn a graceful `null` into a throw
+ *  harness) or absent `POSTHOG_PROJECT_KEY` can never turn a graceful `null` into a throw
  *  (mirrors `reportMissingVendors` in `handler-utils.ts`). */
 function warn(c: ScoreContext, message: string): void {
   try {

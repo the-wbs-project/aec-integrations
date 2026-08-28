@@ -69,7 +69,7 @@ function resolveLocale(headerValue: string | undefined): string {
 
 /** Telemetry forwarder (PostHog + the dual-run Datadog leg) for the audit write; each vendor leg no-ops without its own key. */
 function makeForwarder(c: AuthContext): AuditLogForwarder | undefined {
-  if (!c.env.DD_API_KEY && !c.env.POSTHOG_PROJECT_KEY) return undefined;
+  if (!c.env.POSTHOG_PROJECT_KEY) return undefined;
   return (entry) => {
     logToPosthog(c.executionCtx, c.env, c.req.raw, {
       level: 'info',
@@ -84,7 +84,7 @@ function makeForwarder(c: AuthContext): AuditLogForwarder | undefined {
 
 /** Telemetry forwarder (PostHog + the dual-run Datadog leg) for the workflow-transition write; each vendor leg no-ops without its own key. */
 function makeWorkflowForwarder(c: AuthContext): WorkflowTransitionForwarder | undefined {
-  if (!c.env.DD_API_KEY && !c.env.POSTHOG_PROJECT_KEY) return undefined;
+  if (!c.env.POSTHOG_PROJECT_KEY) return undefined;
   return (entry) => {
     logToPosthog(c.executionCtx, c.env, c.req.raw, {
       level: 'info',

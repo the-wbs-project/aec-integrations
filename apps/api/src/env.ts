@@ -128,7 +128,7 @@ export type Env = {
   /**
    * Deployment environment label. Each wrangler env block sets this explicitly
    * (`preview`/`staging`/`demo`/`production`); when unset (bare `wrangler dev`,
-   * tests) both `/api/version` and Datadog tags report `development` — one
+   * tests) both `/api/version` and the telemetry tags report `development` — one
    * convention for the unset state (AECI-119). `demo` + `production` are the two
    * public, non-Access-gated tiers (see `@aeci/shared/deploy-env`). `stage2` is
    * the TEMPORARY Stage 2 test tier (AECI-637) — Access-gated, so deliberately
@@ -148,13 +148,6 @@ export type Env = {
    * `/api/version` reports the Unix epoch (a valid ISO datetime sentinel).
    */
   DEPLOYED_AT?: string;
-  /**
-   * Datadog Logs HTTP intake credentials (AECI-31). `DD_API_KEY` is required
-   * for `logToPosthog()` to forward; absent → helper is a no-op so dev boots
-   * cleanly without a Datadog account. `DD_SITE` defaults to `datadoghq.com`.
-   */
-  DD_API_KEY?: string;
-  DD_SITE?: string;
   /**
    * PostHog transport config (AECI-642 / `docs/POSTHOG_MIGRATION_SPEC.md` §AW1).
    *
@@ -467,7 +460,7 @@ export type Env = {
    * Recipient for the persistent-failure admin alert raised by the reconciliation
    * sweep (AECI-214 / Phase 6.7) — the `To:` address of the §6.2 admin email now
    * wired through Resend (`lib/email.ts`, AECI-240). Absent → the sweep's
-   * `sendAdminAlert()` seam returns `'skipped'` and the **Datadog alert**
+   * `sendAdminAlert()` seam returns `'skipped'` and the **PostHog alert**
    * (`aeci.linear.reconcile.persistent_failure` + the `source:reconcile` error log)
    * is the guaranteed backstop (§6.2). Set as a plain wrangler var per env.
    */

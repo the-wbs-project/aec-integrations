@@ -254,7 +254,7 @@ Centralized error middleware:
 - Catches all other errors as `INTERNAL_ERROR` (logs the full stack to the observability plane)
 - Adds `trace_id` to every response and emits it on the matching log line, so a caller-reported `trace_id` pivots straight to the log
 
-> **`trace_id` is not an APM trace id.** It is `crypto.randomUUID()`, minted per request in `apps/api/src/errors.ts` — there has never been distributed tracing here. The pre-launch note that it would become a Datadog APM trace id is void: **no APM was ever in use and PostHog has no equivalent**, so nothing changes at the ADR 0024 cutover. Correlate on `trace_id`, not on a span.
+> **`trace_id` is not an APM trace id.** It is `crypto.randomUUID()`, minted per request in `apps/api/src/errors.ts` — there has never been distributed tracing here. The pre-launch note that it would become a Datadog APM trace id is void: **no APM was ever in use and PostHog has no equivalent**, so nothing changed at the ADR 0024 cutover. Correlate on `trace_id`, not on a span.
 
 ### 4.3 Localization
 
@@ -2348,7 +2348,7 @@ run — an isolate reclaimed mid-flight — renders as *In flight*, never as a p
 mirrors the stored column, and inventing a wire value with no storage counterpart
 would have the API assert an outcome for a run that has none. It is null on
 `derived` and `unknown` rows, where the question does not apply. There is no
-`'stalled'` member: that needs a per-job threshold, and the external absence check (Datadog's no-data monitors today, the AECI-647 CI liveness sweep after)
+`'stalled'` member: that needs a per-job threshold, and the external absence check (the AECI-647 CI liveness sweep, which replaced Datadog's no-data monitors)
 remain the alerting authority for a job that stops finishing.
 
 Everything crossing the `job_runs` boundary is treated as untrusted — another

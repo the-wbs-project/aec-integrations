@@ -38,8 +38,7 @@ decision record; no separate ADR.
   `source: 'email'`. Telemetry is wrapped so it can never turn a send into a throw.
   **Every send is fail-open, so the telemetry is the only evidence a send was
   attempted at all** — a `'skipped'` outcome leaves no other trace. That backstop is
-  currently **Datadog** (the live plane) and is moving to **PostHog** under ADR 0024;
-  during the dual-run both receive it, and Datadog goes away at AECI-651. Whichever
+  **PostHog** (ADR 0024; the Datadog leg was removed at AECI-651). Whichever
   console you are in, the query is the same shape: the `aeci.email.send` count broken
   down by `outcome` and `template`.
 - **Recipient emails** for reviewers come from `fetchAuthUserEmails()`

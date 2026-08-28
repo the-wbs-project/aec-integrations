@@ -1026,6 +1026,49 @@ describe('createApp 404 handling (AC: §9.1b, not the pinned-404 trap)', () => {
 // the native cache consumes is still covered here — Cache-Control (buildCacheControl,
 // cacheControlForRoute), Cache-Tag emission, cookie-strip, and the 404 short-TTL.
 
+/**
+ * Reads one metric out of the PostHog OTLP metrics intake by NAME.
+ *
+ * Both the render distribution (histogram) and the `ssr.render` count (sum)
+ * POST to the same `/i/v1/metrics` endpoint, so a URL probe cannot tell them
+ * apart the way the old two-URL Datadog intake could (AECI-651). The returned
+ * `tags` are the data point's attributes flattened back to `key:value` strings
+ * so the existing tag assertions read unchanged.
+ */
+function otlpMetric(
+  fetchSpy: ReturnType<typeof vi.fn>,
+  name: string,
+): { metric: string; type: number; tags: string[] } | undefined {
+  type Attr = { key: string; value: { stringValue?: string; doubleValue?: number } };
+  type Point = { attributes: Attr[] };
+  type Metric = {
+    name: string;
+    sum?: { dataPoints: Point[] };
+    gauge?: { dataPoints: Point[] };
+    histogram?: { dataPoints: Point[] };
+  };
+  for (const call of fetchSpy.mock.calls) {
+    if (!String(call[0]).endsWith('/i/v1/metrics')) continue;
+    const body = JSON.parse(call[1]!.body as string) as {
+      resourceMetrics: { scopeMetrics: { metrics: Metric[] }[] }[];
+    };
+    for (const rm of body.resourceMetrics) {
+      for (const sm of rm.scopeMetrics) {
+        for (const m of sm.metrics) {
+          if (m.name !== name) continue;
+          const points = m.sum?.dataPoints ?? m.gauge?.dataPoints ?? m.histogram?.dataPoints ?? [];
+          const tags = (points[0]?.attributes ?? []).map(
+            (a) => `${a.key}:${a.value.doubleValue ?? a.value.stringValue}`,
+          );
+          // `type: 1` mirrors the old count assertion: a monotonic sum.
+          return { metric: m.name, type: m.sum ? 1 : m.gauge ? 3 : 0, tags };
+        }
+      }
+    }
+  }
+  return undefined;
+}
+
 describe('createApp render-duration metric (AECI-66, Phase 2 §14)', () => {
   let fetchSpy: ReturnType<typeof vi.fn>;
 
@@ -1041,21 +1084,17 @@ describe('createApp render-duration metric (AECI-66, Phase 2 §14)', () => {
     vi.restoreAllMocks();
   });
 
-  function envWithDatadog(): Bindings {
+  function envWithTelemetry(): Bindings {
     const { binding } = recordingApiBinding();
     return {
       ...binding,
-      DD_API_KEY: 'secret-key',
-      DD_SITE: 'us5.datadoghq.com',
+      POSTHOG_PROJECT_KEY: 'phc_test_token',
       ENV: 'preview',
     } as unknown as Bindings;
   }
 
   function renderMetricSeries(): { metric: string; tags: string[] } | undefined {
-    const call = fetchSpy.mock.calls.find((c) =>
-      String(c[0]).includes('/api/v1/distribution_points'),
-    );
-    return call ? JSON.parse(call[1]!.body as string).series[0] : undefined;
+    return otlpMetric(fetchSpy, 'aeci.page.render.duration_ms');
   }
 
   it('emits aeci.page.render.duration_ms with cache_status:MISS + route_class on a cacheable miss', async () => {
@@ -1066,7 +1105,7 @@ describe('createApp render-duration metric (AECI-66, Phase 2 §14)', () => {
     });
     await app.fetch(
       new Request('https://www.aecintegrations.com/products/procore'),
-      envWithDatadog(),
+      envWithTelemetry(),
       fakeExecutionContext(),
     );
     const series = renderMetricSeries();
@@ -1091,7 +1130,7 @@ describe('createApp render-duration metric (AECI-66, Phase 2 §14)', () => {
     });
     await app.fetch(
       new Request('https://www.aecintegrations.com/account/settings'),
-      envWithDatadog(),
+      envWithTelemetry(),
       fakeExecutionContext(),
     );
     expect(renderMetricSeries()).toBeUndefined();
@@ -1115,26 +1154,23 @@ describe('createApp ssr.render count metric (AECI-103)', () => {
     vi.restoreAllMocks();
   });
 
-  function envWithDatadog(): Bindings {
+  function envWithTelemetry(): Bindings {
     const { binding } = recordingApiBinding();
     return {
       ...binding,
-      DD_API_KEY: 'secret-key',
-      DD_SITE: 'us5.datadoghq.com',
+      POSTHOG_PROJECT_KEY: 'phc_test_token',
       ENV: 'preview',
     } as unknown as Bindings;
   }
 
-  // The count metric POSTs to /api/v2/series; the render distribution POSTs to
-  // /api/v1/distribution_points, so the two are unambiguous on the same fetch spy.
+  // Both pipes POST to the one OTLP metrics intake, so they are told apart by
+  // metric NAME (and by `sum` vs `histogram`), not by URL.
   function ssrRenderCountSeries(): { metric: string; type: number; tags: string[] } | undefined {
-    const call = fetchSpy.mock.calls.find((c) => String(c[0]).includes('/api/v2/series'));
-    const series = call ? JSON.parse(call[1]!.body as string).series[0] : undefined;
-    return series?.metric === 'aeci.ssr.render' ? series : undefined;
+    return otlpMetric(fetchSpy, 'aeci.ssr.render');
   }
 
   function distributionCalled(): boolean {
-    return fetchSpy.mock.calls.some((c) => String(c[0]).includes('/api/v1/distribution_points'));
+    return otlpMetric(fetchSpy, 'aeci.page.render.duration_ms') !== undefined;
   }
 
   it('emits aeci.ssr.render with cache_status:miss on a cacheable miss', async () => {
@@ -1145,7 +1181,7 @@ describe('createApp ssr.render count metric (AECI-103)', () => {
     });
     await app.fetch(
       new Request('https://www.aecintegrations.com/products/procore'),
-      envWithDatadog(),
+      envWithTelemetry(),
       fakeExecutionContext(),
     );
     const series = ssrRenderCountSeries();
@@ -1165,7 +1201,7 @@ describe('createApp ssr.render count metric (AECI-103)', () => {
     });
     await app.fetch(
       new Request('https://www.aecintegrations.com/account/settings'),
-      envWithDatadog(),
+      envWithTelemetry(),
       fakeExecutionContext(),
     );
     expect(ssrRenderCountSeries()!.tags).toEqual(

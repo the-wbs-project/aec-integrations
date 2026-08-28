@@ -1045,11 +1045,11 @@ Each tool has a job. Use the right tool for each question.
 | Question | Tool |
 |---|---|
 | "Are users succeeding at submitting reviews?" | PostHog funnels — **consented slice only**, so it is a funnel, not a census (`ANALYTICS.md` §6) |
-| "Is the site working fast and without errors?" | The observability layer (§14.3): **Datadog today**, PostHog after AECI-651 |
+| "Is the site working fast and without errors?" | The observability layer (§14.3): **PostHog** |
 | "How many page views per country last week?" | page_views (SQL) |
 | "Which colocation served the most traffic?" | page_views (SQL) |
 | "What was the audit history of this product?" | audit_log (SQL) — or the forwarded logs (§26.5) |
-| "Is there a suspicious pattern of rejected reviews?" | An alert on the forwarded audit logs — Datadog today (5–15 min), PostHog hourly after |
+| "Is there a suspicious pattern of rejected reviews?" | An alert on the forwarded audit logs — PostHog, hourly |
 | "What is our cache hit rate by route?" | The **Cloudflare** dashboard (`Cf-Cache-Status`), not the render metrics — WC-8 |
 | "How many people actually visited?" | page_views (SQL). **Never** PostHog — it sees only consented visitors |
 | "Which deploy introduced this error?" | The PostHog `deployment` event / annotation (AECI-640) joined against the error |
@@ -1505,7 +1505,7 @@ Output: email summary to Chris and Bill at 04:30 UTC. No automatic remediation �
 > trailing the 08:00 UTC incremental sync by one hour so it reads a settled index. (Decoupled
 > from the 04:00 UTC slot of the broader §23.1 data-quality job, which remains unbuilt.) It compares
 > promoted-row counts to Algolia object counts per entity and emits the `aeci.algolia.index_drift`
-> gauge; the **alert is the Datadog monitor** (`observability/datadog/monitor-algolia-index-drift.json`) — live today; under ADR 0024 its value half becomes a digest/dashboard read and its no-data half moves to the AECI-647 liveness sweep,
+> gauge. Under ADR 0024 there is **no threshold alert**: the value half is a digest/dashboard read and the no-data half is the AECI-647 liveness sweep,
 > not the email summary (the full §23.1 email + the other nine checks remain to be built). A
 > report-only (dry-run) post-deploy check also runs in `deploy-staging` (CICD §3.2).
 >
@@ -1687,7 +1687,7 @@ Figma color styles, text styles, and spacing tokens mirror Tailwind config exact
 
 ## 26. Audit Trail & Workflows
 
-Comprehensive logging of state-changing events and multi-step approval flows. All audit data is also forwarded to the log plane for unified observability and ad-hoc querying — Datadog today, PostHog Logs under ADR 0024 (§26.5).
+Comprehensive logging of state-changing events and multi-step approval flows. All audit data is also forwarded to the log plane for unified observability and ad-hoc querying — PostHog Logs under ADR 0024 (§26.5).
 
 ### 26.1 Audit log table
 
@@ -1804,10 +1804,9 @@ This ensures the audit trail is complete regardless of where the action originat
 
 ### 26.5 Audit-log forwarding
 
-> **Vendor (ADR 0024).** This forward is migrating from **Datadog** to **PostHog Logs**. It is a
-> **dual-run**: Datadog is still live and still operating production, and its leg is deleted only
-> by **AECI-651** after a prod soak. PostHog is the destination this section now describes; where
-> a distinction matters below, both are named. The build contract is
+> **Vendor (ADR 0024).** This forward targets **PostHog Logs**. It ran as a dual-run beside
+> Datadog until **AECI-651** deleted the Datadog leg (2026-08-28, on the `stage-2` line — `main`
+> still carries the Datadog-only code until the branches merge). The build contract is
 > `docs/POSTHOG_MIGRATION_SPEC.md` §3.7.
 
 Every `audit_log` and `workflow_transitions` entry is **also** forwarded to the observability plane as a structured log event. This enables:
@@ -1855,7 +1854,7 @@ Use **`logBatchToPosthog`** (`apps/api/src/posthog.ts`, which fans out to `logBa
 
 **Stage 1: indefinite retention in D1.** Audit and workflow tables grow with platform activity but remain small (estimate: thousands of rows in year one). No archiving or pruning at launch.
 
-When the table becomes large enough to materially affect performance or storage cost (signaled by the daily data quality job in Section 23.1), introduce a retention policy. Likely approach: archive entries older than 1 year to R2 as Parquet, keeping the most recent year hot in D1. Log-plane retention is governed by the vendor's plan separately (Datadog today, PostHog after AECI-651) — it is not a substitute for the D1 table. Note that D1 Time Travel recovers roughly 30 days, so anything pruned beyond that window is permanent.
+When the table becomes large enough to materially affect performance or storage cost (signaled by the daily data quality job in Section 23.1), introduce a retention policy. Likely approach: archive entries older than 1 year to R2 as Parquet, keeping the most recent year hot in D1. Log-plane retention is governed by the vendor's plan separately (PostHog) — it is not a substitute for the D1 table. Note that D1 Time Travel recovers roughly 30 days, so anything pruned beyond that window is permanent.
 
 This decision is intentionally deferred — easier to introduce retention later than to recover data deleted prematurely.
 
