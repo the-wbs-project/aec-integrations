@@ -224,12 +224,14 @@ returns **`503 DEPENDENCY_FAILURE`** — it refuses to half-grant. The seat upse
 **no-clobber**: on conflict it sets only `role` / `vendor_id` / `updated_at`, never touching
 `display_name`, `theme_preference`, trust tier, or the ban columns.
 
-**Revoke & ban are per-seat and never un-verify.** Revoke (`revokeSeatStatements` — wired to `DELETE /api/vendor/seats/:userId` by AECI-664, owner-only,
+**Revoke & ban are per-seat and never un-verify.** Revoke (`revokeSeatStatements`,
 `lib/vendor-grant.ts`) drops the seat back to `role = 'reviewer'` and nulls `vendor_id`,
-scoped to one active seat; the batch builder ships (AECI-519) but **no HTTP endpoint is wired
-yet** — un-granting is the separate, explicit revoke action that stays with **AECI-519**,
-deliberately kept **out** of AECI-524's scope (the 2026-07-24 epic re-scope: AECI-524 is the
-ban/unban action only). A **ban** sets `profiles.banned_at` / `ban_reason` on the seat
+scoped to one active seat. The batch builder shipped with **AECI-519**; it now has **two**
+HTTP surfaces — `DELETE /api/vendor/seats/:userId` (owner-only, the vendor's own roster,
+AECI-664) and `DELETE /api/admin/vendors/:id/seats/:userId` (admin, AECI-652). Un-granting is
+the separate, explicit revoke action, deliberately kept **out** of AECI-524's scope (the
+2026-07-24 epic re-scope: AECI-524 is the ban/unban action only). A **ban** sets
+`profiles.banned_at` / `ban_reason` on the seat
 and is checked **before** the role check in the Layer-1 guard (§4.2 / §4.4). Both are
 per-seat — they touch one `profiles` row and **never** touch `vendors.verified`, which is a
 vendor-level paid state. **Un-verifying is a separate entitlement action** (`STAGE_2_SPEC.md`
@@ -240,7 +242,7 @@ vendor keeps portal access, read-only — reads still return 200 and writes 403
 `ENTITLEMENT_REQUIRED`. There are therefore **three orthogonal "take it away" actions**, and
 confusing them is a foreseeable incident: **ban a seat** (one `profiles` row, that seat 403s,
 mirror untouched), **revoke a seat** (one `profiles` row, drops to `reviewer`, mirror
-untouched, still no HTTP surface), and **clear an entitlement** (vendor-level, badge goes away,
+untouched), and **clear an entitlement** (vendor-level, badge goes away,
 seats and logins survive). Banning or revoking one abusive seat leaves the vendor
 verified and its other seats working. Grant and revoke each emit their `audit_log` row in the
 same batch (§4.3) and are fully reversible. Full contract:
@@ -727,7 +729,7 @@ the Anthropic org behind `ANTHROPIC_API_KEY` **must** have zero data retention
 window (~30 days) outside this boundary. Confirm ZDR before provisioning a real
 key; the absent-key path (a silent no-op) sends nothing.
 
-**The FK trap (AECI-202).** There are **seven** inbound FKs to `profiles(id)` in D1.
+**The FK trap (AECI-202).** There are **eight** inbound FKs to `profiles(id)` in D1.
 Five are `ON DELETE NO ACTION`, so any `DELETE FROM profiles` **FK-fails**
 unless every one of them is nulled first. A real reviewer always trips at least
 `audit_log.actor_id` (every `review.submitted` writes an `audit_log` row). The
@@ -742,6 +744,7 @@ full list:
 | `workflow_transitions.actor_id` | NO ACTION | nulled |
 | `audit_log.actor_id` | NO ACTION | nulled (severs the actor link; rows survive) |
 | `vendor_entitlements.granted_by` | SET NULL | nulled (explicit too, matching `reviews.reviewer_id`; the entitlement row survives — only the granting admin's link is severed) — AECI-609 |
+| `vendor_seat_invites.invited_by_id` | SET NULL | nulled (explicit too; the **invite survives its sender's erasure** — a pending invite is the invitee's to redeem, so only the sender's link is severed) — AECI-664 |
 
 There used to be one more — `page_views.user_id`, nulled in the same batch.
 AECI-585 **dropped that column** (`ADMIN_PANEL_SPEC.md` §13 D7): it was never
@@ -757,7 +760,7 @@ and no `apps/api/src/prisma.ts`:
 
 1. User confirms Delete in `/account` → `DELETE /api/account`.
 2. **D1 erasure — one atomic `db.batch([...])`** (`apps/api/src/routes/account.ts`):
-   in order, null all seven inbound references above, write the `account.deleted`
+   in order, null all eight inbound references above, write the `account.deleted`
    audit row, then delete the `profiles` row. All commit or roll back as a unit.
 3. The `account.deleted` audit row has **`actorId = null`** — the profile is deleted
    in the same batch and `audit_log.actor_id` is `NO ACTION`, so a non-null actor

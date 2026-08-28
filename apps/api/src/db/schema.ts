@@ -913,10 +913,10 @@ export const vendorRequests = sqliteTable(
  * `workflow_instances_type_check` (below) is a CLOSED check and opening it on SQLite
  * is a full table rebuild (§1.2 / R1). Settled here so §5 never has to discover it.
  *
- * `granted_by` is the EIGHTH inbound FK to `profiles.id` — `ON DELETE SET NULL` AND
- * nulled explicitly in the `DELETE /api/account` erasure batch (`routes/account.ts`;
- * `docs/AUTH_AND_RLS.md` §8). Miss either and account deletion FK-fails for any admin
- * who ever granted an entitlement (R6).
+ * `granted_by` is one of the eight inbound FKs to `profiles.id` — `ON DELETE SET NULL`
+ * AND nulled explicitly in the `DELETE /api/account` erasure batch (`routes/account.ts`;
+ * `docs/AUTH_AND_RLS.md` §8, which is the live register). Miss either and account
+ * deletion FK-fails for any admin who ever granted an entitlement (R6).
  */
 export const vendorEntitlements = sqliteTable(
   'vendor_entitlements',
@@ -1002,11 +1002,11 @@ export const vendorEntitlements = sqliteTable(
  * (`vendor_seat.invite_accepted`, `actor_id` = the redeemer), not here — which
  * keeps `profiles` at its existing inbound-FK count plus one rather than plus two.
  *
- * `invited_by_id` IS that one: the NINTH inbound FK to `profiles.id`. Like
+ * `invited_by_id` IS that one — one of the eight inbound FKs to `profiles.id`. Like
  * `vendor_entitlements.granted_by` it is `ON DELETE SET NULL` **and** nulled
  * explicitly in the `DELETE /api/account` erasure batch (`routes/account.ts`;
- * `docs/AUTH_AND_RLS.md` §8) — miss either and account deletion FK-fails for
- * anyone who ever sent an invite.
+ * `docs/AUTH_AND_RLS.md` §8, which is the live register) — miss either and account
+ * deletion FK-fails for anyone who ever sent an invite.
  */
 export const vendorSeatInvites = sqliteTable(
   'vendor_seat_invites',
@@ -1284,7 +1284,7 @@ export const pageViews = sqliteTable(
     // consent-independent today. `user_id` is reachable on the browser POST but never
     // on the SSR arrival path, so it would have been right half the time. `page_views`
     // now holds no user linkage at all, which is also the strongest form of the GDPR
-    // erasure story (`AUTH_AND_RLS.md` §12). Do not reintroduce them.
+    // erasure story (`AUTH_AND_RLS.md` §8). Do not reintroduce them.
 
     createdAt: createdAt(),
   },

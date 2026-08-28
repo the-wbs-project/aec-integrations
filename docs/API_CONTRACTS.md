@@ -1742,10 +1742,17 @@ deliberate, so the accepted launch mitigation is: re-activate → edit → clear
 
 Lists the currently-banned reviewers (newest ban first). Implemented in AECI-218
 (Phase 6.11). The ban *action* is triggered from the review-queue's 3rd-rejection
-prompt; this list is the home for **unbanning**. `reviewer_email` is admin-only
-(read from `auth.users.email` via the same privileged `$queryRaw` the moderation
-queue uses) and degrades to `null` on a lookup failure. Source of truth:
+prompt. `reviewer_email` is admin-only — `profiles` has no email column, so it is
+read through the **GoTrue Admin API seam** (`fetchAuthUserEmails` over
+`GET /auth/v1/admin/users/:id`, `AUTH_AND_RLS.md` §3.1 seam #2), and degrades to
+`null` on a lookup failure, never a 500. Source of truth:
 `packages/shared/src/api/admin-reviewers.ts`, `apps/api/src/routes/admin-reviewers.ts`.
+
+**Superseded as a screen (AECI-692).** `GET /api/admin/users?banned=true` returns the
+same set with filtering, search and paging, and `/admin/users/:id` is now the
+ban/reinstate home. This endpoint is **kept** and still serves that filtered view's
+predicate; `PATCH /api/admin/reviewers/:id` remains the **sole writer** of
+`profiles.banned_at` for both surfaces.
 
 ```typescript
 export const ListBannedReviewersQuerySchema = PageQuerySchema; // page/perPage
