@@ -65,6 +65,12 @@ Every Stage 1.5 issue opens with `**Spec section:** §X.Y (docs/STAGE_1_5_SPEC.m
 | §11.6 | AECI-344 | GSC measurement loop — gate + quarterly tier review |
 | §12 | — | Addendum B — connector-role product detail: powered integrations (`integrations_as_connector` + hub view) |
 | §12.7 | — | Catalog-scope note under both populated integration lists |
+| §13 | AECI-708 | Addendum C — connector presentation contract (this addendum) |
+| §13.2 / §13.3 | AECI-713 | Endpoint Integrations split — direct lane + "Via {connector}" groups |
+| §13.4 | AECI-713 | Contract additions the split needs (`powered_by` on the detail embed; self-exclusion) |
+| §13.5 | AECI-721 | Count invariants — §12.5 resolved as B; the ten-site lockstep |
+| §13.6 | AECI-707 | Connector / hybrid role-varied product-detail template |
+| §13.7 | AECI-715 / AECI-716 | Connector coverage surface + reachable-lane publication boundary |
 
 Prototypes (AECI-289) gate §7/§8 — build the production pair page and claim rendering **against the approved I3 prototype**. The §11 rows are **post-launch Addendum A** work (project "Pair-Page Search Intent (pSEO)"), not part of the original 1.5 critical path.
 
@@ -464,6 +470,11 @@ pointer. Rejected, deliberately:
   (no claims join — the pair page owns claim depth).
 - **The API stays a flat edge list.** Grouping is a presentation concern (§12.3), so no shape churn
   if the presentation changes.
+- **Amended by §13.4(2) — the relation has no self-exclusion.** `poweredIntegrations` selects on
+  `powered_by_product_id` alone, so an edge whose connector is also one of its own endpoints (the
+  review app's Convention A, §13.2a) is hydrated into **both** this bucket and the endpoint
+  buckets, and renders twice on that connector's page. Latent while `powered_by` is un-backfilled
+  (§12.6); **AECI-706 activates it.** §13.4(2) is the governing rule.
 
 ### 12.3 Presentation: the grouped hub view
 
@@ -561,6 +572,14 @@ the Algolia products reindex (custom ranking + numeric facet buckets + sort repl
 `docs/SEARCH_RANKING.md`) happens once. `affectedProducts` in `promote.ts` is deliberately
 **unchanged** here.
 
+✅ **Resolved by §13.5 (Addendum C, 2026-08-31): option B, scheduled into the AECI-721 migration**
+rather than shipped ahead of it, so the numbers move once and the Algolia reindex happens once —
+which is what the recommendation above was asking for. Two things this section did not anticipate
+are recorded there: B **is** a ranking change (it lifts connectors up `desc(integration_count)` on
+both indices), and the count rule is duplicated across **ten** sites that must move in lockstep —
+including the Algolia *vendor* count, which is a different rule, and the `metrics_daily` cron,
+which is a time series.
+
 ### 12.6 Known data state
 
 At time of writing only **5 of 421** prod integrations carry `powered_by_product_id`; all ~13 Agave
@@ -569,6 +588,10 @@ path is complete; Agave's hub view fills in when the FK is backfilled in **Airta
 (the durable path — no D1 stopgap). Separately tracked follow-ups: 22 exact-duplicate integration
 rows; connector discovery in search/browse (`product_role` on Algolia records, a Connectors facet,
 `RoleBadge` on search cards).
+
+**Superseded as a snapshot by §13.9** (2026-08-30/31), which carries the current connector-lane
+figures. This paragraph stays as the historical record of what Addendum B shipped against — and the
+discovery follow-ups named in it are still open.
 
 ### 12.7 Catalog-scope note on both integration lists (2026-08-05)
 
@@ -607,3 +630,318 @@ overstatement.
   branch (each linking the correction drawer) and that neither renders on an empty list. The
   connector page was re-run through the Phase 2 axe (WCAG AA) sweep with both notes present: zero
   violations.
+
+---
+
+## 13. Addendum C — Connector presentation contract (AECI-708, 2026-08-31)
+
+**Status:** Approved — the build contract for AECI-707 / 713 / 715 / 716, none of which is built.
+**Extends** §12 (Addendum B) and the endpoint-table presentation inherited from `STAGE_1_SPEC.md`
+§7.5 / §3.1. **Amends** §12.2 / §12.3 with the self-exclusion rule of §13.4(2). **Resolves** §12.5's open
+count decision. Nothing in §3–§12 is superseded.
+
+**Why this exists.** Addendum B gave a **connector** its own page. This addendum governs the
+mirror-image surface — what an **endpoint**'s page says about the connectors that reach it — plus
+the role-varied template and the boundary around the reachable tier. The four issues above each
+open with *"governed by the Stage 1.5 addendum"* and, until now, pointed at nothing; the recurring
+code-review finding on this repo is docs trailing the build, and a contract written after the build
+is a description, not a contract.
+
+**Scope boundary — this repo renders, the review app curates.** Connector catalogues, stubs and
+stub↔product mappings live in `aec-integrations-review` (`docs/connector-vendors.md` is their
+source of truth, and the epic is AECI-695, spanning all three repos). Addendum C governs
+**presentation in this repo only**, and names the app-DB contract elements the presentation needs.
+
+**Two of the originating issue's own premises are corrected here rather than transcribed** — the
+split key (§13.2a) and the "no ranking change" cross-reference (§13.5). Both corrections are
+load-bearing; each is argued where it lands.
+
+### 13.1 The three-tier vocabulary
+
+The spine every other subsection references. It is written down because it existed only in session
+notes, and the words were already drifting between issues.
+
+| Tier | What it asserts | Where it lives | Counts as an integration? |
+|---|---|---|---|
+| **Delivered** | A working integration exists **today**. Two sub-kinds: *accountable-party* — a vendor or SI built it and maintains it — and *via-connector* — an iPaaS ships a listing covering both sides | `integrations`; after AECI-721, also the connector lane's **evidenced pairs** | **Yes — both sub-kinds** |
+| **Reachable** | Both sides appear in the same connector's catalogue, so a connector **could** deliver it with configuration and no code. Computed from stub↔product mappings; **never stored as delivered** | derived pairs (AECI-714) | **No, ever** |
+| **Buildable** | Both sides expose an API, so somebody **could** write it. True of very nearly every pair in the catalog | nowhere — deliberately not modelled | **No** |
+
+- **Delivered is a tier, not a column.** There is **no `integrations.status`** and no delivered
+  flag anywhere in the schema; `recompute-counts.ts` counts with no status predicate at all.
+  Membership in `integrations` **is** the delivered assertion. Read "delivered-only" throughout
+  this addendum as *"the delivered tier"*, never as a filter to be added — no migration is implied
+  or wanted.
+- **Buildable is named specifically so it can be refused.** It is the claim connector marketing
+  makes, and it is the reason AECI-670 separated capability from delivery. Publishing it would make
+  AECi a larger directory and a worse one: an answer true of every pair answers nothing.
+- **Reachable is publishable, but only when labelled.** Reach evidence scraped from a published
+  spec is *spec-published*, not *exercised* — a schema page proves a connector published a spec,
+  not that the connector has ever run for that pair. Every reachable-tier claim therefore renders
+  with visible provenance and an "as of" date. **An incomplete coverage list is acceptable; an
+  unlabelled one is not.**
+
+### 13.2 The split rule — routing a delivered edge to a lane
+
+Two phases, with the boundary named, because the routing key has a **known expiry** and a doc that
+describes only one side of that boundary is stale whichever way the work sequences.
+
+**Phase 1 — today until AECI-721.** Three clauses, applied in order:
+
+- **(a) Self-reference carve-out. An edge whose `powered_by_product_id` equals *either of its own
+  endpoints* stays in the DIRECT list.** Review-side **Convention A** (settled 2026-08-27,
+  `record-integrity-checks` I10) stores *"product X ships a connector on platform C"* as **one**
+  edge — source `X`, target `C`, `powered_by` = `C` — and the self-reference is deliberate, not
+  dirt. That is roughly **152 of the 308** `iPaaS` rows (57 Zapier/Make/Workato/Boomi/Celigo, 43
+  Aquifer, 52 Kroo). Without this clause each routes into a "Via C" group whose only partner *is*
+  C, rendering **"Via Aquifer → Aquifer"**. Half the connector rows, misfiled.
+- **(b) Otherwise, the Via lane is `powered_by_product_id IS NOT NULL` OR
+  `mechanism_kind = 'iPaaS'`.** The FK leads deliberately. `mechanism_kind` is the dirty column —
+  nullable with no default (`apps/api/src/db/schema.ts`), and AECI-712 counts 478 unset-or-`partner`
+  rows, 19% of the review catalogue. The FK is the fact; the kind is an annotation.
+- **(c) Everything else is direct**, explicitly including an **unset-mechanism edge carrying no
+  `powered_by`**. Unset is not a kind (AECI-698); filing it under "Via" would invent an attribution
+  the data does not make. An `iPaaS` edge with a null `powered_by` (4 known) groups under an
+  unnamed **"Via a connector"** heading — **never invent a connector name**. That group being
+  non-empty is a data-integrity signal, not a design state, and should be watched rather than
+  styled.
+
+**The `powered_by` ≠ `iPaaS` residue is recorded here as OPEN, not settled.** The two sets differ
+in both directions: ~326 edges carry `powered_by` against 308 marked `iPaaS`. The ~20-row
+difference is real and **accountable** — AnyWare Apps' two Ramp↔Sage edges are `marketplace-app`
+**with** a `powered_by`, built and maintained by Cherry Bekaert. AECI-721 says both that it
+"migrates the ~326 `powered_by` edges" **and** that "`integrations` keeps only accountable-party
+edges"; those two clauses disagree about exactly this residue, and this addendum does not get to
+settle a question inside another issue's scope. **If the residue stays behind, the Via lane
+composes two sources after the migration, not one** — which changes §13.3's sourcing, so AECI-721
+must answer it before AECI-713 finalises.
+
+**Phase 2 — after AECI-721.** The lane **is** the source table: direct = `integrations`, via =
+evidenced connector pairs. No key, no heuristic, no dirty column — the structure carries what the
+predicate used to. `mechanism_kind` will no longer contain `iPaaS` (AECI-698's 2026-08-29
+revision), so clause (b) becomes unreachable and clause (a) becomes moot for the migrated rows.
+
+**A hard prerequisite under both phases: AECI-706**, the prod `powered_by` backfill. Splitting on a
+half-populated FK misfiles connector edges as direct, which is worse than today's honest mixed list.
+
+### 13.3 Presentation: the split endpoint Integrations section
+
+Deliberately written **source-agnostically**, so that Phase 2 changes nothing in this subsection.
+`#integrations` stays **one** section with one anchor and one section-nav entry; the split is
+within it.
+
+- **Order: the direct lane first, then one group per connector.** Connector groups sort by row
+  count desc, then connector name. Direct-first because an accountable-party integration is a
+  stronger answer to *"does A integrate with B"* than a configurable one — someone is on the hook
+  for it.
+- **Group heading: "Via {connector}"**, the connector name linking `/products/{connectorSlug}`.
+  That link is the return path into Addendum B's hub, mirroring §12.3's linked hub heading in the
+  opposite direction. No "Via" copy exists in the app today; the new ids belong beside the
+  single-sourced labels in `apps/web/src/app/search/mechanism-labels.ts`, not inline.
+- **Row identity is per lane.** The direct lane keeps today's **one row per edge**, unchanged. Via
+  groups collapse to **one row per (connector, partner)** — the same pair collapse
+  `powered-hub-grouping.ts` already performs, inverted: grouped by the connector the edge names
+  rather than by a derived hub. §12.3's reasons for collapsing (duplicate rows, several mechanisms
+  between one pair) apply identically.
+- **The heading count `N` is the rows actually rendered, across both lanes**, with per-group
+  sub-counts that sum to it. This is §12.3's "the count and the rendered rows are provably the same
+  set" rule applied to a split section — a reader counting rows must never find fewer than the
+  heading promised. It remains the delivered tier only.
+- **Reachable pairs are never enumerated here.** They get one summary line (§13.7) and nothing else.
+- **Accessibility: one `<table>` per lane**, not group-header rows interleaved into a single
+  `<tbody>`. A header row inside a table body has no accessible name relationship to the rows
+  beneath it, so a screen-reader user gets the grouping visually and not at all otherwise. Each
+  table keeps the existing Direction / Integrates with / Connection columns, the `md` column
+  collapse, and the per-row pair-page link.
+- **The `@defer (on viewport)` cut applies to the flattened render order**, so it still lands after
+  20 visible rows rather than 20 rows into each lane.
+- **The §12.7 catalog-scope note renders once per section** on the populated branch — not once per
+  group. The boundary it describes is the same for every lane, and repeating it per group would
+  turn a scope note into chrome.
+- **Empty state unchanged**, and the section-nav label stays `Integrations` — one section, two
+  lanes, one anchor, so no link, sitemap or cache-tag churn.
+
+### 13.4 Contract elements the split needs and does not have
+
+Named here because each is a real gap in shipped code, and a build issue that discovers them
+mid-flight will make a local decision about a cross-cutting contract.
+
+1. **`ProductIntegrationItem` carries no connector, so the split is not implementable on today's
+   payload.** `IntegrationListItemSchema` (`packages/shared/src/api/integrations.ts`) carries
+   `mechanism_kind` / `mechanism_name` / `direction` / `source` / `target` and **no `powered_by`**;
+   only `IntegrationDetailSchema` and the pair-page read have it. On product detail the FK is
+   expressed *implicitly* — by an edge appearing in `integrations_as_connector`, which is the
+   **connector's** own page, not the endpoint's. **Contract:** add
+   `powered_by_product: ProductLink | null` to **`ProductIntegrationItemSchema`** — the
+   product-detail embed — and **not** to the bare list item, which `/api/integrations` and the home
+   rail do not need. Hydration: add `poweredByProduct: { columns: productLinkColumns }` to
+   `productDetailIntegrationConfig.with` (`apps/api/src/lib/drizzle-helpers.ts`), which today reuses
+   `integrationListConfig` and omits it. `API_CONTRACTS.md` moves in the same PR. Still no
+   migration — the column and its partial index have existed since `0000_init`.
+2. **Self-exclusion — a latent double-render that AECI-706 is about to switch on.** This amends
+   §12.2 / §12.3. `poweredIntegrations` (`apps/api/src/db/schema.ts`) is a plain `many(...)` with
+   **no `where`**: it selects on `powered_by_product_id` alone. A Convention-A edge (§13.2a) has the
+   connector as **both** an endpoint and the `powered_by` target, so on that connector's page it
+   lands in `sourceIntegrations`/`targetIntegrations` **and** in `poweredIntegrations` — rendering
+   **twice**, once in `#integrations` and once in `#powered-integrations`. Production is blind to
+   this today only because `powered_by` is un-backfilled (§12.6: 5 of 421 rows). **AECI-706 turns it
+   on**, and 706 lands *before* AECI-721 removes the class — Aquifer's 43 and Kroo's 52 duplicate on
+   the day the backfill ships. **Rule: the powered section excludes edges where the page product is
+   also an endpoint.** Those edges belong to the endpoint lane, where §13.2(a) already keeps them
+   direct. Stated in the spec rather than in a build issue because it governs a surface that is
+   already live.
+3. **Cache-tag composition — the connector becomes a rendered entity on the endpoint's page.**
+   `product-detail.resolver.ts` pushes `integration:{id}` plus the partner's `product:{slug}` for
+   endpoint edges. A linked "Via {connector}" heading renders the connector, so it must push
+   `product:{connectorSlug}` too — otherwise editing a connector leaves every endpoint page naming
+   it stale until TTL. This is `CACHE_STRATEGY.md` §3's embedded-entity rule applied, not a new
+   rule, and it is §12.4's first bullet pointing the other way.
+4. **No promote-deriver change is needed.** `promote-cache-tags.ts` already emits
+   `product:{poweredBySlug}` (§12.4), which covers the reverse purge.
+
+### 13.5 Count invariants
+
+- **The section count** is §13.3's: rows rendered across both lanes, delivered tier only.
+- **`integration_count` semantics do not change — and that is a requirement, not an observation.**
+  It is endpoint-only and entirely unfiltered (`apps/api/src/lib/recompute-counts.ts`: "integrations
+  where the product is source OR target"), so a delivered-via-connector edge **already counts for
+  its two endpoints today** and must keep counting after the split and after the migration. Stated
+  as the invariant that survives both: **`integration_count` counts delivered edges regardless of
+  which table holds them.**
+- **§12.5 is resolved: option B**, counting powered edges toward the **connector's own** count, is
+  adopted — **and scheduled into the AECI-721 migration** rather than shipped before it, so the
+  numbers move once and the Algolia products reindex happens once, which is exactly what §12.5's
+  recommendation asked for. Post-migration the expression becomes AECI-713's recorded rule:
+  headline = direct + evidenced-connector. The code site is the `affectedProducts` comment in
+  `apps/api/src/routes/promote.ts`, which currently cites this decision as open; it updates when B
+  lands.
+  - **Evidenced only, never derived.** Only the delivered tier reaches a count. MindCloud's
+    catalogue alone is ~3,411 stubs, and the `integration_count` facet buckets
+    (`0 / 1–10 / 11–50 / 51+`) were calibrated against a catalogue topping out near 52 — letting
+    derived pairs into the count would not so much shift the numbers as destroy the scale.
+- **Correction to this addendum's originating issue: §12.5-B *is* a ranking change.** AECI-708
+  cross-referenced `SEARCH_RANKING.md` as "no ranking change". That is true of Addendum C in
+  isolation — §4's `MECHANISM_RANK` / `mechanism_rank` are untouched here — and **false of option
+  B**, which lifts connectors up `desc(integration_count)` on **both** the products and vendors
+  indices, in a numeric facet and in two sort replicas. The `SEARCH_RANKING.md` edit belongs to
+  AECI-721, alongside AECI-698's enum revision and the removal of `iPaaS` from §4's rank table
+  (where it currently sits at 4). Ranking stays purely algorithmic throughout — this is a change in
+  a signal's inputs, never in who can buy position.
+- **The lockstep set is TEN sites.** Migrating powered edges out of `integrations` without moving
+  every one of them silently drops ~326 edges and re-ranks the catalog as a side effect of a data
+  migration. Enumerated so it cannot be half-done:
+  1. `apps/api/src/lib/recompute-counts.ts` — `computeExpected`, the canonical definition.
+  2. and 3. **the same rule as raw SQL, twice**, in `apps/api/scripts/reconcile-product-counts.ts`
+     (`DRIFT_QUERY` and `RECOMPUTE_SQL`). Miss these and the daily `reconcile-counts.yml` cron
+     reports 100% drift every morning and `--fix` silently reverts the new rule.
+  4. `apps/datatool/src/prune-integrations.ts` — the prune-path repair copy.
+  5. `apps/api/src/lib/algolia-transforms.ts` — the product record (reads the denormalized column).
+  6. **The Algolia *vendor* count is a different rule** — a correlated subquery on
+     `built_by_vendor_id` (`algolia-transforms.ts` and, independently,
+     `apps/datatool/src/algolia-reindex.ts`). It is not downstream of the product column, so it
+     drops every migrated edge on its own and connector vendors' counts collapse. Named nowhere
+     before this addendum.
+  7. `apps/datatool/src/algolia-reindex.ts` — datatool's independent copy of the *product* rule.
+  8. Four expressions in `apps/api/src/lib/home-stats.ts`: the total, the added-in-30-days figure,
+     most-active-category, and the recent-integrations rail.
+  9. `apps/api/src/lib/admin-catalog.ts` — `integrations_total` / `_with_claims` /
+     `_without_claims` on the operator console. Named nowhere before this addendum.
+  10. **`apps/api/src/lib/metrics-snapshot.ts` — `catalog.integrations_total`**, written daily into
+      `metrics_daily` by cron (AECI-581). This one is a **time series**: an unadjusted migration
+      writes a permanent, unexplained step-change into recorded history, and it is the only site on
+      this list where the damage cannot be repaired after the fact. Backfill or annotate the series
+      deliberately as part of the migration.
+
+  Plus two things that are not `integration_count` but move with it: the rendered section heading
+  (computed from the payload, not the stored column — §13.3), and the Algolia settings themselves —
+  custom ranking on both indices, the numeric facet, both sort replicas
+  (`packages/shared/src/algolia.ts`, `docs/SEARCH_RANKING.md` §5a).
+- **Reachable never counts** — not in the heading, not in `integration_count`, not in a facet, not
+  in the home stats. Publishing the tail buries the products with real integrations underneath it.
+
+### 13.6 Role-varied product detail for `connector` / `hybrid` (AECI-707)
+
+- **Section order — `connector` only.** Today the body renders
+  `about → how-teams-use-it → integrations → powered-integrations → reviews`. On
+  `product_role = 'connector'` the two integration sections **swap**, so "Integrations it powers"
+  leads: for a pure connector the endpoint table is legitimately sparse and the powered set is the
+  page's entire subject. **`hybrid` keeps today's order**, and the catalog settles that more
+  cleanly than `STAGE_2_SPEC.md` §8.8's hybrid-counts-as-endpoint analogy does: there are exactly **two** hybrids
+  catalog-wide — AnyWare Apps (2 endpoint edges, both `native` first-party apps; 2 powered) and
+  Datagrid (3 endpoint, 0 powered). Swapping hybrids too would demote a surface that is half of
+  AnyWare's real content and unambiguously its own product. A data-driven "swap when powered
+  exceeds endpoint" rule was also rejected: at 2 vs 2 the only page it exists for does not trip it,
+  while the cost — page order changing under readers as data moves — applies catalog-wide.
+  `application` is unchanged. **Section-nav follows render order and no anchor ids change**, so
+  there is no link, sitemap or cache-tag churn.
+- **Hero.** `RoleBadge` is already there (§12.3). Add one data-derived line — "Connects N products
+  in the AECi catalog" — where `N` counts **distinct endpoint products**, not pairs, and excludes
+  self-references per §13.4(2). It renders only when `N > 0` and carries §12.7's catalog-scope
+  framing rather than implying the vendor's full partner set.
+- **Meta description variant.** `product-detail.resolver.ts` sets one shape for every role. The
+  connector variant targets *"«connector» for construction"*-class queries. **Pair-shaped queries
+  stay on pair pages**, which Addendum A §11.2 owns — stated as a boundary so the two addenda do
+  not compete for the same SERP with two different pages.
+- **Explicitly not in scope: a `/connectors/:slug` namespace or a separate entity.** Connectors stay
+  products. Dual reviews, claims, vendor linkage and Algolia records all hang off `products`, and
+  forking the entity breaks all four. §12.3's compatibility-matrix archetype remains a possible
+  later evolution, and §12.6's discovery follow-up remains open — **`product_role` is on no Algolia
+  record today**, so a Connectors facet and a `RoleBadge` on search cards are still unbuilt.
+
+### 13.7 The reachable-lane boundary (AECI-715 / AECI-716)
+
+Presentation only; the data lands in AECI-714 and the curation in the review app.
+
+- **One line on the endpoint page**, below the Integrations section: *"N more pairs reachable via
+  connectors"*, linking **our** filtered view. Never a list, never a table row, never part of the
+  §13.3 heading count.
+- **Never link out to a connector's own generated pair pages.** MindCloud publishes 104,186 of them;
+  they carry no attribution, no comparison and nothing the reader cannot get better from us.
+- **Which reachable pairs publish** — the selection rule AECI-716 asks this addendum to own. A pair
+  publishes only when all four hold: **(a)** both products are in the AECi catalog; **(b)** the pair
+  is undelivered — a delivered edge takes the page over the moment one ships; **(c)** it clears
+  Addendum A §11.4's "meaningful no" bar, deliberately reusing that scoring rather than standing up
+  a second parallel bar for the same thin-content risk; and **(d)** it carries §13.1's provenance
+  and "as of" label.
+- **Comparison requires at least two connectors.** A one-column comparison is an advertisement, and
+  publishing one would undercut the no-pay-for-placement posture on the exact surface where a
+  connector has the most to gain. This is why AECI-716 blocks on the second catalogue (AECI-701).
+- **The coverage surface (AECI-715) is bounded by our catalog, not the connector's marketing
+  graph** — expressed as **apps reached, not pairs possible** (linear in the catalog, where the
+  pair cross-product is quadratic), and linking into the filtered pair view rather than enumerating.
+
+### 13.8 Cross-references and no-change declarations
+
+Stated explicitly so a reviewer can check them rather than infer them:
+
+- **`DATABASE_SCHEMA.md` — no schema change in this addendum.** §13.4's additions are a Drizzle read
+  config plus a Zod field; no DDL, no migration. The AECI-721 migration is governed by AECI-714 and
+  rides the `stage-2` migration lane after that set settles (a D1 CHECK change is a destructive
+  table recreate).
+- **`SEARCH_RANKING.md` — no ranking *rule* change from Addendum C**, with the §12.5-B correction
+  recorded in §13.5 rather than the originating issue's blanket claim. §4's rank table changes with
+  AECI-698 / AECI-721.
+- **`CACHE_STRATEGY.md`** — §13.4(3) applies its existing §3 embedded-entity rule; no new rule.
+- **`API_CONTRACTS.md`** — changes with AECI-713 (the §13.4(1) field), not with this addendum.
+- **`REVIEW_APP_PROMOTE_API.md`** — unchanged here; the connector-coverage payload extension is
+  AECI-714's.
+
+### 13.9 Known data state (2026-08-30/31)
+
+Dated like §12.6, because every number here moves. Figures are **review-catalogue** (pipeline-side),
+which is materially larger than the promoted app DB — the *ratios* are the durable claim:
+
+- **308 of 2,428** integration edges are `mechanism_kind = 'iPaaS'` (12.7%); ~**326** carry
+  `powered_by_product_id`. The two sets are not the same set (§13.2).
+- ≈**152** of the `iPaaS` rows are Convention-A self-references (57 Zapier/Make/Workato/Boomi/Celigo,
+  43 Aquifer, 52 Kroo) — the rows §13.2(a) and §13.4(2) exist for.
+- ~**20** accountable `marketplace-app`-with-`powered_by` rows are the open residue of §13.2;
+  **4** `iPaaS` rows carry no `powered_by`.
+- **86** connector-role products, of which **8 promoted + 2 `on_hold`** are in play; **2** hybrids
+  catalog-wide (§13.6); **144** curated reachable pairs (§13.7).
+
+The prod app-DB subset is gated on **AECI-706** (the `powered_by` backfill) and **AECI-700** (the
+Zapier/Workato `on_hold` decision — 110 and 44 powered edges respectively ride on parked products).
+Until AECI-700 resolves, the "Via" lane reads mostly-Agave; that is expected, not a defect in the
+split. This supersedes §12.6's snapshot (5 of 421 prod edges carrying `powered_by`), which stays in
+place as the historical record of what Addendum B shipped against.
