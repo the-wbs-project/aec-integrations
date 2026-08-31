@@ -68,9 +68,20 @@ const CLAIM_AB = uuid(40);
 const CLAIM_BC = uuid(41);
 
 /** Well before anything a test writes, so any movement is unambiguous. */
-const SEEDED = '2026-01-01T00:00:00.000Z';
-const MOVED = '2026-06-01T12:00:00.000Z';
-const MOVED_LATER = '2026-06-02T12:00:00.000Z';
+// Fixture instants are anchored RELATIVE to now, never to fixed literals. The
+// `notifications` scope filters on a rolling 90-day window
+// (`NOTIFICATION_HISTORY_DAYS` in `vendor-notifications.ts`), so a hard-coded
+// past date silently ages OUT of that window and the notifications-cursor
+// assertions begin failing ~90 days after the literal — which is exactly what
+// happened (the former `MOVED` of 2026-06-01 fell out of the window once the
+// wall clock passed 2026-08-30, and `MOVED_LATER` was a day from doing the
+// same). These offsets keep every fixture comfortably inside the 90-day window
+// while staying far older than the 60s `VENDOR_UPDATES_CHANGE_WINDOW_MS`, so the
+// baseline still reads `changed:none`. Order is preserved: SEEDED < MOVED < MOVED_LATER.
+const DAY_MS = 86_400_000;
+const SEEDED = new Date(Date.now() - 30 * DAY_MS).toISOString();
+const MOVED = new Date(Date.now() - 20 * DAY_MS).toISOString();
+const MOVED_LATER = new Date(Date.now() - 19 * DAY_MS).toISOString();
 
 let t: TestDb;
 

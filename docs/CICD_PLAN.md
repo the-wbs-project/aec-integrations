@@ -166,8 +166,11 @@ Runs in parallel where possible to minimize wall time. Goal: under 10 minutes to
 > list to maintain. It is safe because `deploy-staging` is independently gated on
 > `push` + `refs/heads/main` (plus `vars.STAGING_ENABLED`), so a non-`main` PR runs
 > `lint-and-types` / `unit-tests` / `build-web` / `e2e-and-integration` and **deploys nothing**.
-> The `paths-ignore` (docs-only) and `paths` (auth/JWKS input set) filters are unchanged and
-> remain the real cost control.
+> The `pull_request` trigger carries **no `paths-ignore`** (removed — a docs-only skip starved the
+> required checks and deadlocked the merge; see the §8 resolution note): the three required jobs run
+> on every PR, and the docs-only cost control now lives on the non-required `e2e-and-integration`
+> job via the `changes` job. The `push` `paths-ignore` (docs-only) and the `paths` (auth/JWKS input
+> set) filter are unchanged.
 
 **Job: `lint-and-types`** (~2 min)
 1. Checkout
@@ -622,14 +625,19 @@ The "human reviewer" requirement is enforced by GitHub branch protection on `mai
 > line above is aspirational, not enforced. Both leave **`enforce_admins: false`** — an admin can
 > still merge past red or missing checks.
 >
-> **Known quirk — a `paths-ignore`-skipped run reports nothing, and "nothing" is not "green."**
-> A docs-only PR skips `deploy.yml` entirely (§3.1), so the three required contexts never arrive
-> and GitHub blocks the merge pending checks that will never run. This already happens on `main`
-> — PR #518 (docs-only, 2026-08-13) merged with an empty check list purely on the
-> `enforce_admins: false` admin bypass — and now applies to `stage-2` identically. Live with the
-> bypass, or fix it properly by moving the path filtering from the workflow-level `paths-ignore`
-> into job-level conditions so the jobs always report (a no-op green on docs-only PRs). Not done
-> here; it is a separate change.
+> **Resolved — the required checks now always report, even on docs-only PRs.** Previously a
+> docs-only PR skipped `deploy.yml` entirely via the workflow-level `pull_request` `paths-ignore`,
+> so the three required contexts (`Lint & typecheck` / `Unit tests` / `Build SSR Worker`) never
+> arrived and GitHub blocked the merge pending checks that would never run — a skipped *workflow*
+> reports nothing, and "nothing" is not "green." It bit both `main` (PR #518, docs-only,
+> 2026-08-13, merged only on the `enforce_admins: false` admin bypass) and `stage-2` (PR #586).
+> The fix removed the `paths-ignore` from the `pull_request` trigger so the three required jobs
+> **always run and report**, and moved the docs-skip onto the individual expensive, **non-required**
+> job (`e2e-and-integration`), gated by a new `changes` job (`dorny/paths-filter`) that flags any
+> non-markdown/non-`docs/` change. Required checks are isolated from `changes` (they do not
+> `needs:` it), so even a failure of that job cannot re-block a merge. The `push` `paths-ignore` is
+> retained — post-merge runs are not merge-gating. (The base-branch-agnostic note under §3.1 and the
+> §"cost control" caveat below are updated to match.)
 
 ---
 
@@ -865,14 +873,17 @@ build ──────────┘
 
 ### 11.3 Selective testing
 
-For very small PRs (e.g. doc-only changes), skip downstream jobs via `paths-ignore` in workflow triggers.
+For very small PRs (e.g. doc-only changes), skip only the **non-required** downstream jobs — never
+gate a required check behind a workflow-level `paths-ignore`.
 
-> **Caveat now that `main` and `stage-2` have required checks:** a workflow skipped by
+> **Do NOT skip required checks via a `pull_request` `paths-ignore`.** A workflow skipped by
 > `paths-ignore` reports *nothing*, and GitHub treats a missing required context as pending, not
 > passing — so a docs-only PR blocks on checks that will never run and needs the
-> `enforce_admins: false` bypass to merge. See the §8 quirk note. The clean fix is job-level path
-> conditions (jobs always run and report a no-op green) rather than a workflow-level
-> `paths-ignore`.
+> `enforce_admins: false` bypass to merge (this was the §8 quirk; see its resolution note). The
+> implemented pattern: the three required jobs run on every PR (no `pull_request` `paths-ignore`),
+> and the docs-skip lives on the expensive non-required jobs (`e2e-and-integration`), gated by the
+> `changes` job's `code` output. The `push` `paths-ignore` stays — post-merge runs are not
+> merge-gating.
 
 ---
 
