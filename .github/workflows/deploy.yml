@@ -131,13 +131,18 @@ on:
     # lint-and-types / unit-tests / build-web / e2e-and-integration and deploys
     # nothing.
     #
-    # Skip the full CI suite for docs-only changes (markdown + docs/). A PR that
-    # also touches code still runs — paths-ignore only skips when EVERY changed
-    # file matches. `main` has no required status checks, so a skipped run can't
-    # deadlock a merge.
-    paths-ignore:
-      - '**/*.md'
-      - 'docs/**'
+    # NO workflow-level `paths-ignore` on `pull_request` — DELIBERATELY REMOVED.
+    # Both `main` AND `stage-2` require the three status checks `Lint & typecheck`
+    # / `Unit tests` / `Build SSR Worker`. A workflow skipped by a path filter
+    # never CREATES those check runs, so on a docs-only PR they sit `Pending`
+    # forever and the required-check gate BLOCKS the merge with no way to clear it
+    # (a skipped *workflow* ≠ a skipped *job*; only the latter reports as passed).
+    # The earlier comment here claimed "`main` has no required status checks" —
+    # that was wrong, and it deadlocked the first docs-only PR into `stage-2`.
+    # The docs-skip optimization is preserved where it is safe: it now lives on
+    # the individual expensive, NON-required jobs (`e2e-and-integration`), gated
+    # by the `changes` job below, so the required checks always report while the
+    # heavy E2E lane still skips for markdown/docs-only changes.
   push:
     # `push` DOES keep a branch list: a post-merge run only makes sense for the
     # branches that accumulate merges (the production line + the long-lived
@@ -168,6 +173,28 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
 jobs:
+  # Detect whether the PR touches anything other than markdown / docs. Used to
+  # skip the expensive, NON-required jobs (E2E) on docs-only changes WITHOUT
+  # starving the required checks: the three required jobs always run and report,
+  # while the heavy lanes gate on `needs.changes.outputs.code`. On `push` this
+  # job still runs but nothing downstream reads its output there.
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          # `code` is true when at least one changed file is NOT markdown and
+          # NOT under docs/. A docs-only PR yields `code == 'false'`.
+          filters: |
+            code:
+              - '**'
+              - '!**/*.md'
+              - '!docs/**'
+
   lint-and-types:
     name: Lint & typecheck
     runs-on: ubuntu-latest
@@ -254,7 +281,13 @@ jobs:
     # downloads build-web's `web-dist` artifact and boots dev:bound ONCE, then
     # runs Playwright e2e + the edge-cache extras script against the same server.
     runs-on: ubuntu-latest
-    needs: [build-web]
+    # NON-required job — safe to skip on docs-only PRs. It is gated on the
+    # `changes` filter (not a workflow-level `paths-ignore`) so the REQUIRED
+    # checks above still always run and report. `build-web` is itself skipped on
+    # docs-only PRs' `push` runs via the retained push `paths-ignore`; on PRs it
+    # always runs, so this job only needs its own `code` guard.
+    needs: [changes, build-web]
+    if: needs.changes.outputs.code == 'true'
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
