@@ -43,6 +43,19 @@
  * fail-safe choice §4.5 made when it resolved a self-contradicting voter to
  * `unverified` rather than guessing.
  *
+ * ── WHAT AECI-721 CHANGES, AND WHAT IT DOES NOT ─────────────────────────────
+ * `integrator` joins `iPaaS` in the kind disjunct (see `CONNECTOR_MECHANISM_KINDS`).
+ * The table above is UNCHANGED by that: zero rows carry `integrator` today, because
+ * the app-DB CHECK still refuses it — which is exactly why the enum addition and
+ * this line ship together.
+ *
+ * The FK disjunct also shrinks in meaning once AECI-721's migration runs: 19 of the
+ * 79 FK-carrying prod edges LEAVE `integrations` for `connector_evidenced_pairs`,
+ * so they stop reaching this predicate at all — an evidenced pair is structurally
+ * connector-delivered and has no attestation seat to gate. The 60 that remain are
+ * Convention-A self-references (Aquifer 31, Kroo 29), which keep their `powered_by`
+ * and keep matching here.
+ *
  * ── WHY THERE IS NO SQL FORM OF THIS ────────────────────────────────────────
  * Deliberately a pure predicate with **no Drizzle `SQL` fragment**: every caller
  * (the three §5 write handlers via `AttestationAuthority`, the §5 list handler,
@@ -55,8 +68,27 @@
  * questions and stay separate.
  */
 
-/** The one `mechanism_kind` that means a third party delivers the connection. */
-const CONNECTOR_MECHANISM_KIND = 'iPaaS';
+/**
+ * The `mechanism_kind` values that mean a third party delivers the connection.
+ *
+ * `iPaaS` — a connector platform generates it. `integrator` (AECI-698, which
+ * replaces `partner`) — an SI or consultancy built and maintains it, and the
+ * rubric's test is verbatim *"neither vendor did"*, which is this predicate's
+ * question word for word. It is listed here in the SAME change that adds it to
+ * the enums (AECI-721 PR-A) rather than later: an `integrator` edge carries no
+ * `powered_by` by definition, so without this it would fall through both
+ * disjuncts, and the ~117 rows waiting on the upstream re-key would start
+ * prompting endpoint vendors to attest to work an SI did. Zero rows carry it
+ * today, so the change is inert now and correct at re-key time.
+ *
+ * Deliberately NOT here: `partner`. It is the dumping ground AECI-698 exists to
+ * empty (a sample of six held an app-center listing, a support tutorial and a
+ * directory page), so treating it as third-party delivery would suppress
+ * attestation on edges an endpoint vendor really did build. The rows become
+ * `integrator` — or `native`, or `marketplace-app` — one at a time, upstream,
+ * under the rubric.
+ */
+const CONNECTOR_MECHANISM_KINDS: readonly string[] = ['iPaaS', 'integrator'];
 
 /**
  * Whether neither endpoint vendor built this edge's plumbing, and so neither may
@@ -71,5 +103,8 @@ export function isConnectorPoweredEdge(edge: {
   poweredByProductId: string | null;
   mechanismKind: string | null;
 }): boolean {
-  return edge.poweredByProductId !== null || edge.mechanismKind === CONNECTOR_MECHANISM_KIND;
+  return (
+    edge.poweredByProductId !== null ||
+    (edge.mechanismKind !== null && CONNECTOR_MECHANISM_KINDS.includes(edge.mechanismKind))
+  );
 }

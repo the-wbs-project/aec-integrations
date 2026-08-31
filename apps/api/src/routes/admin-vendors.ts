@@ -61,6 +61,7 @@ import type { Context } from 'hono';
 import { getDb, type Db } from '../db/client';
 import {
   auditLog,
+  connectorEvidencedPairs,
   integrations,
   productVendors,
   profiles,
@@ -274,57 +275,74 @@ export function createAdminVendorDetailHandler(
     const invitedBy = alias(profiles, 'invited_by_profile');
     const now = new Date().toISOString();
 
-    const [entitlementRows, seatRows, inviteRows, productCounts, integrationCounts, claimRows] =
-      await db.batch([
-        db.select().from(vendorEntitlements).where(eq(vendorEntitlements.vendorId, vendorId)),
-        db
-          .select({
-            id: profiles.id,
-            displayName: profiles.displayName,
-            role: profiles.role,
-            workEmailVerified: profiles.workEmailVerified,
-            seatOwner: profiles.seatOwner,
-            bannedAt: profiles.bannedAt,
-            createdAt: profiles.createdAt,
-          })
-          .from(profiles)
-          .where(seatsOf(vendorId))
-          .orderBy(asc(profiles.createdAt)),
-        // The expiry filter is in SQL because `pendingInvitesFor` covers only the
-        // two terminal columns — an invite that merely aged out is still
-        // `accepted_at IS NULL AND revoked_at IS NULL`, and showing it as pending
-        // would misreport the account's live invitations.
-        db
-          .select({
-            id: vendorSeatInvites.id,
-            email: vendorSeatInvites.email,
-            expiresAt: vendorSeatInvites.expiresAt,
-            createdAt: vendorSeatInvites.createdAt,
-            invitedByName: invitedBy.displayName,
-          })
-          .from(vendorSeatInvites)
-          .leftJoin(invitedBy, eq(invitedBy.id, vendorSeatInvites.invitedById))
-          .where(and(pendingInvitesFor(vendorId), gt(vendorSeatInvites.expiresAt, now)))
-          .orderBy(asc(vendorSeatInvites.createdAt)),
-        db
-          .select({ value: count() })
-          .from(productVendors)
-          .where(eq(productVendors.vendorId, vendorId)),
-        db
-          .select({ value: count() })
-          .from(integrations)
-          .where(eq(integrations.builtByVendorId, vendorId)),
-        db
-          .select({ status: vendorRequests.status, value: count() })
-          .from(vendorRequests)
-          .where(
-            and(
-              eq(vendorRequests.kind, 'claim'),
-              vendorRequestsWhere(vendorId, ownedProductIds(db, vendorId)),
-            ),
-          )
-          .groupBy(vendorRequests.status),
-      ]);
+    const [
+      entitlementRows,
+      seatRows,
+      inviteRows,
+      productCounts,
+      integrationCounts,
+      evidencedCounts,
+      claimRows,
+    ] = await db.batch([
+      db.select().from(vendorEntitlements).where(eq(vendorEntitlements.vendorId, vendorId)),
+      db
+        .select({
+          id: profiles.id,
+          displayName: profiles.displayName,
+          role: profiles.role,
+          workEmailVerified: profiles.workEmailVerified,
+          seatOwner: profiles.seatOwner,
+          bannedAt: profiles.bannedAt,
+          createdAt: profiles.createdAt,
+        })
+        .from(profiles)
+        .where(seatsOf(vendorId))
+        .orderBy(asc(profiles.createdAt)),
+      // The expiry filter is in SQL because `pendingInvitesFor` covers only the
+      // two terminal columns — an invite that merely aged out is still
+      // `accepted_at IS NULL AND revoked_at IS NULL`, and showing it as pending
+      // would misreport the account's live invitations.
+      db
+        .select({
+          id: vendorSeatInvites.id,
+          email: vendorSeatInvites.email,
+          expiresAt: vendorSeatInvites.expiresAt,
+          createdAt: vendorSeatInvites.createdAt,
+          invitedByName: invitedBy.displayName,
+        })
+        .from(vendorSeatInvites)
+        .leftJoin(invitedBy, eq(invitedBy.id, vendorSeatInvites.invitedById))
+        .where(and(pendingInvitesFor(vendorId), gt(vendorSeatInvites.expiresAt, now)))
+        .orderBy(asc(vendorSeatInvites.createdAt)),
+      db
+        .select({ value: count() })
+        .from(productVendors)
+        .where(eq(productVendors.vendorId, vendorId)),
+      // The vendor-detail `integration_count` — the third copy of the
+      // `built_by_vendor_id` rule (AECI-721 / §13.5 item 6, which names only the
+      // two Algolia copies). Written as a where-clause rather than a correlated
+      // subquery, but the same rule, so it needs the same second table: an
+      // operator opening Agave's vendor page must not read 0 while its product
+      // page renders twelve pairs.
+      db
+        .select({ value: count() })
+        .from(integrations)
+        .where(eq(integrations.builtByVendorId, vendorId)),
+      db
+        .select({ value: count() })
+        .from(connectorEvidencedPairs)
+        .where(eq(connectorEvidencedPairs.builtByVendorId, vendorId)),
+      db
+        .select({ status: vendorRequests.status, value: count() })
+        .from(vendorRequests)
+        .where(
+          and(
+            eq(vendorRequests.kind, 'claim'),
+            vendorRequestsWhere(vendorId, ownedProductIds(db, vendorId)),
+          ),
+        )
+        .groupBy(vendorRequests.status),
+    ]);
 
     // One bounded GoTrue fan-out, AFTER the batch so it never widens the D1 hop.
     const lookup = await fetchEmails(
@@ -377,7 +395,7 @@ export function createAdminVendorDetailHandler(
         }),
       ),
       product_count: productCounts[0]?.value ?? 0,
-      integration_count: integrationCounts[0]?.value ?? 0,
+      integration_count: (integrationCounts[0]?.value ?? 0) + (evidencedCounts[0]?.value ?? 0),
       claim_counts: claimCounts,
     };
 

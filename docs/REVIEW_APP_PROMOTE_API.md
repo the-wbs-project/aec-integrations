@@ -307,13 +307,29 @@ endpoints**. The other endpoint must already be promoted (reference it by
 | `targetProduct` | `{ ref }` \| `{ supabaseId }` | ✅ | The other endpoint. |
 | `builtByVendor` | `{ ref }` \| `{ supabaseId }` \| null | — | `ref` must name a vendor in `vendors[]`; otherwise use `supabaseId`. |
 | `poweredByProduct` | `{ ref }` \| `{ supabaseId }` \| null | — | |
-| `mechanismKind` | `"native"` \| `"iPaaS"` \| `"marketplace-app"` \| `"api"` \| `"webhook"` \| `"partner"` \| null | — | |
+| `mechanismKind` | `"native"` \| `"iPaaS"` \| `"marketplace-app"` \| `"api"` \| `"webhook"` \| `"partner"` \| `"integrator"` \| null | — | `integrator` added by AECI-721 — see the note below before sending it. |
 | `direction` | `"one-way"` \| `"bidirectional"` \| null | — | |
 | `mechanismName`, `description`, `listingUrl`, `docsUrl`, `website`, `mechanismUrl`, `pricingModel`, `maturity`, `notes` | string \| null | — | |
 | `claims` | `Claim[]` | — | Data-object claims carried by this integration. Defaults to `[]`. See **`claims` shape & resolution** below. |
 | `lastReviewedAt` | ISO-8601 string \| null | — | **The review signal (AECI-616).** Send ONLY when a human actually re-checked this record. **Omitting it leaves the stored value untouched.** See §3.6. |
 
 Direction is meaningful: `sourceProduct → targetProduct`.
+
+**`integrator` (AECI-698 / AECI-721) — one sequencing rule, and it matters.** `integrator` replaces
+`partner`: an SI or consultancy built and maintains the edge, neither endpoint vendor did. Two
+things follow for the sender:
+
+- **`partner` is still accepted**, and stays accepted until the review app has re-keyed its rows and
+  re-promoted them. Removing it from the wire enum first would make the very push that carries the
+  re-key fail validation.
+- **Do not send `integrator` until AECI-721's migration has landed in the target environment.** The
+  wire schema accepts it from AECI-721 PR-A, but the app-DB `integrations_mechanism_kind_check`
+  only accepts it after PR-B's migration. In between, an `integrator` payload passes Zod and then
+  fails the CHECK **inside the promote Workflow's non-retried commit step** — a job failure rather
+  than a clean `400`. `GET /api/version` reporting a commit at or after the migration is the signal
+  that it is safe.
+
+`iPaaS` also remains accepted, and its scope is narrowing rather than gone — see §3.4a.
 
 **`claims` shape & resolution (Stage 1.5).** A **claim** asserts that a particular
 `dataObject` (e.g. RFIs, Models, Budgets) flows in a particular `direction` through
@@ -350,6 +366,42 @@ too — they migrate when that integration does.
 **`claims[]` replaces AECi curation only, not the whole claim set** — vendors author
 claims and attestations of their own, and those survive a re-push. Read §5.2 before
 relying on omission to remove a claim.
+
+### 3.4a Connector-delivered edges leave `integrations` (AECI-721)
+
+**Nothing in the payload changes. Where the row lands does.**
+
+An integration whose `poweredByProduct` resolves to a product that is **neither of its own
+endpoints** is a *connector-delivered* edge, and after AECI-721's migration it is stored in
+`connector_evidenced_pairs` — the delivered tier's second table (`STAGE_1_5_SPEC.md` §13.1) — rather
+than in `integrations`. Keep sending it exactly as you do today; the app routes it.
+
+Four consequences worth knowing:
+
+- **A `poweredByProduct` equal to one of the edge's own endpoints stays in `integrations`.**
+  Review-side Convention A stores *"product X ships a connector on platform C"* as one edge whose
+  `powered_by` **is** C, and that self-reference is deliberate, not dirt (~152 catalogue rows;
+  60 promoted). Routing it would render "Via Aquifer → Aquifer", and the destination table's
+  `connector_evidenced_pairs_distinct_connector` CHECK refuses it outright.
+- **The connector must be a promoted product.** `connector_evidenced_pairs.connector_product_id` is
+  NOT NULL, so an edge naming an unpromoted connector cannot be routed. Zapier and Workato are
+  `on_hold` (AECI-700) and stay that way, so those edges remain in `integrations` with a NULL
+  `powered_by` — the population AECI-730 makes observable.
+- **`direction` is re-encoded, losslessly.** The destination canonicalises the pair
+  (`product_a_id < product_b_id`) and stores orientation as `a_to_b | b_to_a | both`, because once
+  the pair is ordered `one-way` no longer says which way. You keep sending
+  `one-way | bidirectional`.
+- **Claims still ride with their integration**, unchanged. The migration preserves each edge's id
+  verbatim as the evidenced pair's id, so a claim's stored anchor value never moves — only which
+  table it points at.
+- **Re-sending a routed edge is an in-place UPDATE, and gaining a connector moves the row for you.**
+  Because the id is preserved, you keep sending a migrated edge's `supabaseId` exactly as before:
+  promote resolves it against **both** tables, so a re-promote of an already-routed edge updates the
+  evidenced row in place (it does not mint a duplicate and collide on the `(connector, a, b)` unique
+  index). And an edge you promoted earlier as an accountable-party integration that now names a
+  third-party `poweredByProduct` is **moved** by that push — inserted into `connector_evidenced_pairs`
+  under its existing id, its claims and their vendor attestations re-homed with it, and the old
+  `integrations` row dropped. No payload change and no separate call is needed for either.
 
 ### 3.5 Vendor-only (or integration-only) push
 

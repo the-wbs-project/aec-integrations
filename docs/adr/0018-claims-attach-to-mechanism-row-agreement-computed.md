@@ -72,3 +72,50 @@ Decision 2 stands; the **state set** it produces has widened. `docs/STAGE_2_ATTE
 A companion predicate `isClaimRefuted()` ships alongside, because `unverified` conflates "nobody
 voted" with "every vendor denies" — and only the latter may stop a claim contributing its direction
 to the product-detail integrations table.
+
+---
+
+## Amendment — 2026-08-31 (AECI-721): the mechanism row lives in two tables
+
+**Decision 1 stands; the word "integration" in it narrows to "mechanism row".**
+
+Stage 1.5 Addendum C (`STAGE_1_5_SPEC.md` §13.1) split the **delivered** tier across two tables:
+`integrations` for accountable-party edges, and `connector_evidenced_pairs` for edges an iPaaS
+delivers. AECI-721 migrated the connector-powered edges out of the first and into the second, which
+means a claim's anchor can now be a row of either.
+
+**What changed.** `claims` carries two nullable anchor FKs — `integration_id` and
+`connector_evidenced_pair_id` — with `claims_anchor_check` asserting exactly one is set, and a
+STORED generated `anchor_id = coalesce(integration_id, connector_evidenced_pair_id)`. The identity
+triple becomes `(anchor_id, data_object_id, direction)`.
+
+**What did not change, and why this is an amendment rather than a reversal:**
+
+- **The anchor is still the mechanism row, and still not the pair.** Two mechanisms moving the same
+  `data_object` between the same two products are still two independent claims. The pair page is
+  still a query-time grouping — it just now composes two source tables instead of one.
+- **The identity is still immutable.** Migration `0022` inserts each moved edge into
+  `connector_evidenced_pairs` with its `integrations.id` **verbatim**, so all 85 production claims
+  kept the same `anchor_id` *value*; only the column holding it moved. No id was reissued, and every
+  existing `audit_log` row, PostHog log line and attestation still resolves.
+- **Decision 2 (agreement computed, never stored) is untouched.**
+
+**Why a generated column rather than a plain nullable FK in the index.** A nullable `integration_id`
+inside `claims_identity_key` would have silently broken the immutability this ADR asserts: SQLite
+treats NULLs as **distinct**, so two claims differing only in a NULL anchor would both be accepted
+and the unique index would stop being unique for exactly the rows that had just moved. Coalescing to
+one non-null column before indexing is what preserves the guarantee. The cost is that `claims` can
+only ever be *recreated* into this shape — SQLite refuses to `ALTER TABLE ADD COLUMN` a STORED
+generated column — which is why this rode the one destructive migration rather than an additive one.
+
+**Why the exactly-one-anchor rule is a DB CHECK here**, when the sibling `origin` /
+`created_by_vendor_id` biconditional is application-enforced: those two are deliberately not a CHECK
+because an `ON DELETE SET NULL` would re-evaluate the constraint and make deleting an unrelated
+vendor fail. Both anchors here **cascade**, so a claim disappears with its anchor rather than being
+re-evaluated against it. Nothing can make this CHECK fail a delete.
+
+**Consequence for attestation.** A claim anchored on a connector-evidenced pair is not attestable —
+an evidenced pair is connector-delivered by construction, and §14 of
+`STAGE_2_ATTESTATIONS_SPEC.md` already forbids attestation on connector-delivered edges. The
+authority read and the detector sweep therefore scope themselves to `integration_id IS NOT NULL`
+explicitly, so the exclusion is a stated decision rather than an emergent property of an inner join.

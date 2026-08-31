@@ -18,7 +18,7 @@ import type { AlgoliaEnv } from '@aeci/shared/algolia';
 import { and, count, eq, inArray } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
-import { integrations, products, vendors } from '../db/schema';
+import { connectorEvidencedPairs, integrations, products, vendors } from '../db/schema';
 import type { Env } from '../env';
 import {
   createAlgoliaCounter,
@@ -59,24 +59,40 @@ export function drizzleDriftCounter(db: Db): DriftCount {
         )[0]?.value ?? 0,
     },
     integration: {
+      // Counts BOTH tables behind the `integrations` index (AECI-721 / §13.5, an
+      // unnamed 14th lockstep site). This is a LIVE ALARM SURFACE, which is why it
+      // ships in PR-A rather than with the migration: it compares D1 to Algolia,
+      // so between PR-B's migration and the full reindex the two are legitimately
+      // in flux, and a counter that knew about only one table would report drift
+      // that is an artifact of its own definition.
+      //
+      // The membership rule must stay byte-for-byte the rule `buildIntegrationRequests`
+      // applies in `algolia-sync.ts` — both endpoints promoted, connector not
+      // considered. Any divergence between the two IS the alarm this check raises.
       count: async ({ where }) => {
         const promoted = db
           .select({ id: products.id })
           .from(products)
           .where(eq(products.promotionStatus, where.sourceProduct.promotionStatus));
-        return (
-          (
-            await db
-              .select({ value: count() })
-              .from(integrations)
-              .where(
-                and(
-                  inArray(integrations.sourceProductId, promoted),
-                  inArray(integrations.targetProductId, promoted),
-                ),
-              )
-          )[0]?.value ?? 0
-        );
+        const [direct] = await db
+          .select({ value: count() })
+          .from(integrations)
+          .where(
+            and(
+              inArray(integrations.sourceProductId, promoted),
+              inArray(integrations.targetProductId, promoted),
+            ),
+          );
+        const [evidenced] = await db
+          .select({ value: count() })
+          .from(connectorEvidencedPairs)
+          .where(
+            and(
+              inArray(connectorEvidencedPairs.productAId, promoted),
+              inArray(connectorEvidencedPairs.productBId, promoted),
+            ),
+          );
+        return (direct?.value ?? 0) + (evidenced?.value ?? 0);
       },
     },
   };

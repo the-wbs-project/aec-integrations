@@ -377,15 +377,23 @@ export const IntegrationListItemSchema = z.object({
   id: z.string().uuid(),
   name: z.string().min(1),
   mechanism_kind: z
-    .enum(['native', 'iPaaS', 'marketplace-app', 'api', 'webhook', 'partner'])
+    .enum(['native', 'iPaaS', 'marketplace-app', 'api', 'webhook', 'partner', 'integrator'])
     .nullable(), // null when the column is unset (AECI-115); an out-of-enum non-null value is rejected (500) server-side
+                 // ALSO null, structurally, on every row where `via` is set — see below.
   mechanism_name: z.string().nullable(),
   direction: z.enum(['one-way', 'bidirectional']).nullable(), // the stored connector-level direction, verbatim
   source: ProductLinkSchema,
   target: ProductLinkSchema,
+  via: ProductLinkSchema.nullable().default(null), // the connector, on a connector-evidenced pair only (AECI-721)
   created_at: z.string().datetime(),
   updated_at: z.string().datetime(),
 });
+
+**`via` — one shape, two storage tables (AECI-721).** Since the connector-lane migration a list item is either a row of `integrations` (an accountable-party edge) or a row of `connector_evidenced_pairs` (an edge an iPaaS delivers, `STAGE_1_5_SPEC.md` §13.1's delivered tier). `via` is the discriminant and names the connector; it is non-null **only** on the second kind. Three consequences worth reading before consuming the field:
+
+- **`mechanism_kind` is `null` whenever `via` is set, structurally.** `connector_evidenced_pairs` has no such column — once an edge is filed under the connector that delivers it, "which mechanism" is answered by the lane. Do not synthesise a kind to fill the gap, and do not read a null kind as "unknown" on these rows.
+- **`via` is not the same field as `IntegrationDetail.powered_by_product`.** They are the same *fact* about rows in different tables, and are never both set: a self-referential Convention-A edge (`powered_by` equal to one of its own endpoints, ~152 catalog-wide) stays in `integrations` and keeps `powered_by_product` with `via: null`. `ProductPairMechanismSchema` carries both for exactly this reason, and the pair page's byline renders the union.
+- **`source`/`target` are the ORIENTED frame, always.** An evidenced pair is stored canonically (`product_a_id < product_b_id`, a CHECK) with orientation on `direction`; the API re-orients before serialising, so the browser never sees a canonical slot and never re-derives one.
 
 // Product-detail embed (`ProductDetail.integrations_as_*`). Adds the effective,
 // claims-aware direction relative to the page's product (Stage 1.5 §3.2 / §7.1):
@@ -555,7 +563,9 @@ export const IntegrationsListQuerySchema = PageQuerySchema.extend({
   search: z.string().optional(),
   sourceProductId: z.string().uuid().optional(),
   targetProductId: z.string().uuid().optional(),
-  mechanism_kind: z.enum(['native', 'iPaaS', 'marketplace-app', 'api', 'webhook', 'partner']).optional(),
+  mechanism_kind: z.enum(['native', 'iPaaS', 'marketplace-app', 'api', 'webhook', 'partner', 'integrator']).optional(),
+                                                   // narrows to `integrations` by definition: an evidenced pair carries no kind,
+                                                   // so it matches no value of this filter and is excluded rather than returned with null (AECI-721)
   direction: z.enum(['one-way', 'bidirectional']).optional(),
 });
 
@@ -644,6 +654,10 @@ export const ProductPairMechanismSchema = z.object({
   docs_url: z.string().url().nullable(),
   built_by_vendor: VendorLinkSchema.nullable(),
   powered_by_product: ProductLinkSchema.nullable(),
+  via: ProductLinkSchema.nullable().default(null),   // the connector, when this mechanism is a
+                                        // `connector_evidenced_pairs` row (AECI-721). Never set
+                                        // together with `powered_by_product`; the byline renders
+                                        // the union of the two.
   claims: z.array(ProductPairClaimSchema).default([]),   // Layer B: [] for an unseeded mechanism
 });
 
@@ -3748,7 +3762,7 @@ Stage 2 (AECI-301, `STAGE_2_ATTESTATIONS_SPEC.md` §5). The surface a Verified v
 | `DELETE` | `/api/vendor/claims/:claimId/attestation` | authority **+ verified** — **no edge gate**, deliberately | `204` (no body) |
 | `GET` | `/api/vendor/data-objects` | guard only — **no authority, no verified** | `200 { data_objects }` |
 
-**The edge gate: a connector-powered integration is not attestable (AECI-705 / `STAGE_2_ATTESTATIONS_SPEC.md` §14).** An edge carrying `powered_by_product_id`, or typed `mechanism_kind = 'iPaaS'`, was built by a connector rather than by either endpoint vendor, and the connector holds no attestation seat — so `POST` and `PUT` answer **`403 FORBIDDEN`** on it whatever the caller's tier. Three things about that:
+**The edge gate: a connector-powered integration is not attestable (AECI-705 / `STAGE_2_ATTESTATIONS_SPEC.md` §14).** An edge carrying `powered_by_product_id`, or typed `mechanism_kind` `'iPaaS'` **or `'integrator'`** (AECI-721 — an SI or consultancy built it, which is the same "neither endpoint vendor did"), was built by someone other than either endpoint vendor, and that party holds no attestation seat — so `POST` and `PUT` answer **`403 FORBIDDEN`** on it whatever the caller's tier. Three things about that:
 
 - **403, not 404.** The §6.14 non-disclosure rule has already been satisfied by the time this runs — the caller proved it owns an endpoint — and powered-ness is public on the pair page, so there is nothing left to conceal. It reuses `FORBIDDEN` rather than minting a code: the portal already knows from `attestable: false`, so the 403 is a backstop for direct API callers and a new code would need a §4 row no reader would consume.
 - **The order is authority → `404`, edge → `403`, verified → `403`.** Reversed, an unverified vendor on a powered edge is told to get verified in order to author, which verification will never deliver. The connector 403's copy names the connector and never mentions verification, ranking or placement.
@@ -3855,7 +3869,7 @@ It is the **one `/api/vendor/*` route with no `vendor_id` filter**, and that is 
 
 **`aliases` is deliberately absent from the wire.** The picker submits a canonical slug, which always resolves, so alias matching buys nothing here; shipping them would invite a client-side match that reimplements `safeSlugify`, and a second matcher is the drift `lib/data-object-vocabulary.ts` was extracted to eliminate. They are resolver metadata ("ITB", "P6", "AP"), not translatable copy. `id` is absent because nothing on the surface takes one, and `display_order` because the array arrives ordered. An unseeded vocabulary is `200 { data_objects: [] }`, never a 500 — the dashboard degrades the add affordance rather than losing the tab. *Errors: none beyond the guard's.*
 
-**A duplicate claim identity is a `400` carrying `details.claim_id`.** `claims_identity_key` is `(integration_id, data_object_id, direction)`, so the collision is narrow — claims anchor to the *mechanism row*, and two mechanisms moving the same data object between the same products are two independent claims. The existing id is returned so the UI can pivot to `PUT` rather than dead-ending.
+**A duplicate claim identity is a `400` carrying `details.claim_id`.** `claims_identity_key` is `(anchor_id, data_object_id, direction)` — where `anchor_id` is the claim's mechanism row in whichever delivered-tier table holds it (AECI-721) — so the collision is narrow — claims anchor to the *mechanism row*, and two mechanisms moving the same data object between the same products are two independent claims. The existing id is returned so the UI can pivot to `PUT` rather than dead-ending.
 
 **`PUT` replaces; it does not patch.** Supersession is **retract-then-insert** (§2.1), never an `UPDATE` — the old row keeps its `id` and gains `retracted_at`, because AECI-303's version-diff timeline reads the append-only history. There is therefore no prior row to leave a field alone on: an omitted `note` or version stamp lands as `null`. The retract clears whatever holds a slot the caller owns (the partial unique index makes that last-write-wins); `DELETE` retracts only the caller's **own** rows, so withdrawing your position never withdraws someone else's.
 

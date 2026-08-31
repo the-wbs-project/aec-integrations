@@ -77,6 +77,7 @@ function pairFixture(overrides: Partial<ProductPairResponse> = {}): ProductPairR
           verified: false,
         },
         powered_by_product: { id: 'p9', name: 'Connector', slug: 'connector', logo_url: null },
+        via: null,
         claims: [],
       },
     ],

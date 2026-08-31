@@ -430,7 +430,7 @@ word survives.**
 Promote's merge-by-replacement stays, but scoped:
 
 1. **Upsert claims by identity, don't delete-and-reinsert.** Use the existing
-   `claims_identity_key` unique index `(integration_id, data_object_id, direction)` as the
+   `claims_identity_key` unique index `(anchor_id, data_object_id, direction)` — the anchor being the mechanism row in either delivered-tier table since AECI-721 — as the
    `ON CONFLICT` target so a surviving claim keeps its id — and therefore keeps the attestations
    hanging off it. This alone fixes the id churn.
 2. **Delete only AECi claims the payload dropped** — `WHERE integration_id = ? AND origin = 'aeci'
@@ -483,10 +483,14 @@ pre-specify:
   `claims_identity_key` as the `ON CONFLICT` target, and the insert does — but D1 has no
   interactive transactions and `db.batch` cannot feed one statement's result into the next, so the
   surviving claim's **id** has to be known before the batch is built or the attestation inserts
-  have nothing to point at. One batched read up front (`inArray` over the integration ids,
-  chunked) is what actually delivers id stability; the `onConflictDoUpdate` is a race guard behind
-  it. Integrations this promote *created* are excluded from the read, so a first-time promote pays
-  nothing.
+  have nothing to point at. One batched read up front (`inArray` over the **anchor** ids, chunked —
+  `integration` ids before AECI-721 made the anchor polymorphic) is what actually delivers id
+  stability; the `onConflictDoUpdate` is a race guard behind it. Mechanism rows this promote
+  *created* are excluded from the read, so a first-time promote pays nothing.
+  - **The `ON CONFLICT` target had to move with the index** (AECI-721). `claims_identity_key` is
+    now `(anchor_id, …)`, and `anchor_id` is a generated column — so targeting `integration_id`
+    would name no index at all and SQLite would reject the statement rather than degrade to an
+    insert. The race guard would have become a hard batch failure on the first genuine race.
 - **An identity match emits no claim statement at all** — not even an `UPDATE`. The claim row's
   content *is* its identity; there is no other editable column, so an update would move
   `updated_at` and nothing else while adding an audit row per claim per promote. Production
@@ -1999,7 +2003,7 @@ edges render the AECi-curated state unchanged.
 ```ts
 // apps/api/src/lib/connector-powered.ts
 isConnectorPoweredEdge({ poweredByProductId, mechanismKind })
-  === (poweredByProductId !== null || mechanismKind === 'iPaaS')
+  === (poweredByProductId !== null || ['iPaaS', 'integrator'].includes(mechanismKind))
 ```
 
 Two columns describe connector delivery and **nothing cross-validates them**:
@@ -2030,6 +2034,27 @@ built on an iPaaS (Autodesk's Forma Construction Connect on Workato); those vend
 attestation they could legitimately have made. That is the accepted direction: over-inclusion costs
 coverage, under-inclusion breaks the acceptance criterion. It is the same fail-safe choice §4.5 made
 when it resolved a self-contradicting voter to `unverified` rather than guessing.
+
+**`integrator` joined the kind disjunct in AECI-721, before it had a single row.** AECI-698 defines
+it as *"an SI/consultancy built and maintains it, **neither vendor did**"* — this predicate's
+question, word for word — and such an edge carries no `powered_by` by definition, because there is no
+connector platform to name. So it would fall through both halves. It was added in the same change
+that added the value to the enums rather than afterwards, because the app-DB CHECK is what currently
+refuses `integrator`: the day AECI-721's migration lifts that and the review app promotes its ~117
+re-keyed `partner` rows, an unguarded gate starts asking endpoint vendors to confirm work an
+integrator did. Zero impact on the numbers above; correct at re-key time.
+
+**`partner` is deliberately NOT in the disjunct.** It is the dumping ground AECI-698 exists to empty
+— a sample of six held a Concur app-center listing, a Procore support tutorial and a partnerpage.io
+directory entry — so treating it as third-party delivery would suppress attestation on 55 production
+edges an endpoint vendor may well have built. Those rows earn `integrator`, or `native`, or
+`marketplace-app`, one at a time, upstream, under the rubric. They do not inherit it by proximity.
+
+**AECI-721 also shrinks the FK disjunct's population, without changing the rule.** 19 of the 79
+FK-carrying prod edges leave `integrations` for `connector_evidenced_pairs`, so they stop reaching
+this predicate at all — an evidenced pair is structurally connector-delivered and has no attestation
+seat to gate. The 60 that remain are Convention-A self-references (Aquifer 31, Kroo 29), which keep
+their `powered_by` and keep matching here.
 
 **There is no SQL form of the predicate, and that is deliberate.** Every caller already holds the
 integration row, so nothing filters *on* it in a `WHERE`. Two forms of one rule is how the direction

@@ -90,24 +90,32 @@ export const PRESERVED_UNCONVERTED_CLAIM =
   'AECi curation withdrawn; claim kept for its vendor attestation but not converted (attesting vendor unknown)';
 export const PRESERVED_VENDOR_ATTESTATIONS = 'vendor attestations kept on a re-curated claim';
 
-/** One resolved integration's claim work. */
+/** One resolved mechanism row's claim work. */
 export interface ClaimIngestItem {
-  /** The integration row these claims attach to. */
-  integrationId: string;
+  /**
+   * The MECHANISM ROW these claims attach to (§3.1, ADR 0018 as amended by
+   * AECI-721) — a row of `integrations` OR of `connector_evidenced_pairs`. The id
+   * is the anchor either way, and it is what `claims.anchor_id` holds, so the
+   * planner keys on it without caring which table it names.
+   */
+  anchorId: string;
+  /** Which table `anchorId` names. Decides which of the two nullable FK columns an
+   *  INSERT fills; `claims_anchor_check` refuses a row that fills both or neither. */
+  anchorKind: 'integration' | 'evidenced_pair';
   /** The payload `ref` of the enclosing integration — how claims are addressed in
    *  `skipped[]` / `preserved[]`, since a claim has no `ref` of its own. */
   ref: string;
   /** The payload's claims for this integration. */
   claims: readonly PromoteClaim[];
   /**
-   * True when the integration row was CREATED by this promote, so nothing can
+   * True when the mechanism row was CREATED by this promote, so nothing can
    * pre-exist and the pre-read is skipped entirely.
    *
    * Passed in rather than derived from `supabaseId`: a stale `supabaseId` takes
    * promote's create branch and mints a brand-new id (AECI-568), so the only
    * honest source is the caller's resolved `operation`.
    */
-  isNewIntegration: boolean;
+  isNewAnchor: boolean;
 }
 
 /** The statements + side-channel reports for one payload's claims. */
@@ -132,15 +140,15 @@ export interface ClaimIngestPlan {
 /** A pre-existing claim plus its live attestations. */
 interface ExistingClaim {
   id: string;
-  integrationId: string;
+  anchorId: string;
   dataObjectId: string;
   direction: string;
   origin: string;
   attestations: { source: string; attestedByVendorId: string | null }[];
 }
 
-const identityKey = (integrationId: string, dataObjectId: string, direction: string) =>
-  `${integrationId}|${dataObjectId}|${direction}`;
+const identityKey = (anchorId: string, dataObjectId: string, direction: string) =>
+  `${anchorId}|${dataObjectId}|${direction}`;
 
 /**
  * Load the claims already on these integrations, with their live attestations.
@@ -152,21 +160,26 @@ const identityKey = (integrationId: string, dataObjectId: string, direction: str
  */
 async function loadExistingClaims(
   db: Db,
-  integrationIds: readonly string[],
+  anchorIds: readonly string[],
 ): Promise<Map<string, ExistingClaim[]>> {
-  const byIntegration = new Map<string, ExistingClaim[]>();
-  if (!integrationIds.length) return byIntegration;
+  const byAnchor = new Map<string, ExistingClaim[]>();
+  if (!anchorIds.length) return byAnchor;
 
-  for (const chunk of chunked(integrationIds)) {
+  for (const chunk of chunked(anchorIds)) {
     const rows = await db.query.claims.findMany({
       columns: {
         id: true,
-        integrationId: true,
+        // The generated `coalesce(integration_id, connector_evidenced_pair_id)`
+        // (AECI-721). Reading the anchor rather than either FK is what lets one
+        // planner serve both delivered-tier tables — and it is the same column
+        // `claims_identity_key` is built on, so this read and the upsert target
+        // cannot drift apart.
+        anchorId: true,
         dataObjectId: true,
         direction: true,
         origin: true,
       },
-      where: inArray(claims.integrationId, chunk),
+      where: inArray(claims.anchorId, chunk),
       with: {
         attestations: {
           columns: { source: true, attestedByVendorId: true },
@@ -175,12 +188,16 @@ async function loadExistingClaims(
       },
     });
     for (const row of rows) {
-      const list = byIntegration.get(row.integrationId);
-      if (list) list.push(row);
-      else byIntegration.set(row.integrationId, [row]);
+      // `anchor_id` is generated from two nullable columns, so Drizzle types it
+      // nullable. `claims_anchor_check` makes exactly one of them non-null, so it
+      // is total in practice; skip defensively rather than assert.
+      if (row.anchorId === null) continue;
+      const list = byAnchor.get(row.anchorId);
+      if (list) list.push({ ...row, anchorId: row.anchorId });
+      else byAnchor.set(row.anchorId, [{ ...row, anchorId: row.anchorId }]);
     }
   }
-  return byIntegration;
+  return byAnchor;
 }
 
 /**
@@ -218,13 +235,13 @@ export async function planClaimIngest(
   // insert, so the last entry won); an id-reusing planner would instead emit two
   // inserts for one identity and fail the batch on `claims_identity_key`. Keep
   // last-wins, and attribute reports to that last entry's `ref`.
-  const byIntegrationId = new Map<string, ClaimIngestItem>();
-  for (const item of items) byIntegrationId.set(item.integrationId, item);
-  const plannedItems = [...byIntegrationId.values()];
+  const byAnchorId = new Map<string, ClaimIngestItem>();
+  for (const item of items) byAnchorId.set(item.anchorId, item);
+  const plannedItems = [...byAnchorId.values()];
 
-  const existingByIntegration = await loadExistingClaims(
+  const existingByAnchor = await loadExistingClaims(
     db,
-    plannedItems.filter((i) => !i.isNewIntegration).map((i) => i.integrationId),
+    plannedItems.filter((i) => !i.isNewAnchor).map((i) => i.anchorId),
   );
 
   // Built separately and concatenated so the FK-safe ordering is structural rather
@@ -255,10 +272,10 @@ export async function planClaimIngest(
   const aeciAttestationsToClear: string[] = [];
 
   for (const item of plannedItems) {
-    const existing = existingByIntegration.get(item.integrationId) ?? [];
+    const existing = existingByAnchor.get(item.anchorId) ?? [];
     const existingByIdentity = new Map<string, ExistingClaim>();
     for (const row of existing) {
-      existingByIdentity.set(identityKey(row.integrationId, row.dataObjectId, row.direction), row);
+      existingByIdentity.set(identityKey(row.anchorId, row.dataObjectId, row.direction), row);
     }
 
     /** Identities this payload asserts — anything else on the integration was dropped. */
@@ -274,7 +291,7 @@ export async function planClaimIngest(
         });
         continue;
       }
-      const key = identityKey(item.integrationId, dataObject.id, claim.direction);
+      const key = identityKey(item.anchorId, dataObject.id, claim.direction);
       // Collapse identity duplicates within the payload; first occurrence wins.
       // Without this the second copy would collide with the first on
       // `claims_identity_key` and fail the whole batch.
@@ -306,7 +323,10 @@ export async function planClaimIngest(
             .insert(claims)
             .values({
               id: claimId,
-              integrationId: item.integrationId,
+              // Exactly one anchor column — `claims_anchor_check` refuses both or
+              // neither, so the ternary is the constraint expressed in code.
+              integrationId: item.anchorKind === 'integration' ? item.anchorId : null,
+              connectorEvidencedPairId: item.anchorKind === 'evidenced_pair' ? item.anchorId : null,
               dataObjectId: dataObject.id,
               direction: claim.direction,
               // Never assemble the provenance pair by hand — the helper makes
@@ -317,7 +337,11 @@ export async function planClaimIngest(
             // promote that inserted this identity first turns what would be a
             // constraint failure into a no-op update.
             .onConflictDoUpdate({
-              target: [claims.integrationId, claims.dataObjectId, claims.direction],
+              // The identity index is on the GENERATED anchor column, so the
+              // conflict target must name it too — targeting `integration_id`
+              // would name no index at all and the race guard would become a
+              // hard constraint failure.
+              target: [claims.anchorId, claims.dataObjectId, claims.direction],
               set: { updatedAt: new Date().toISOString() },
             }),
         );
@@ -373,7 +397,7 @@ export async function planClaimIngest(
 
     // ── Reconcile what the payload dropped ────────────────────────────────────
     for (const row of existing) {
-      const key = identityKey(row.integrationId, row.dataObjectId, row.direction);
+      const key = identityKey(row.anchorId, row.dataObjectId, row.direction);
       if (payloadIdentities.has(key)) continue;
 
       if (row.origin === 'vendor') {
@@ -397,7 +421,9 @@ export async function planClaimIngest(
           entityType: 'claim',
           entityId: row.id,
           beforeState: {
-            integrationId: row.integrationId,
+            // The anchor id, whichever table holds it — the audit row records what
+            // the claim pointed AT, which is the durable fact.
+            anchorId: row.anchorId,
             dataObjectId: row.dataObjectId,
             direction: row.direction,
             origin: row.origin,

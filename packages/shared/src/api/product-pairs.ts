@@ -239,6 +239,17 @@ export const ProductPairMechanismSchema = z.object({
   docs_url: z.string().url().nullable(),
   built_by_vendor: VendorLinkSchema.nullable(),
   powered_by_product: ProductLinkSchema.nullable(),
+  /**
+   * The connector that delivers this mechanism — non-null **only** when the row
+   * came from `connector_evidenced_pairs` rather than `integrations` (AECI-721).
+   *
+   * The pair page composes both tables: after the migration, 19 production pairs
+   * exist ONLY as evidenced pairs, and a pair read that queried `integrations`
+   * alone would render "no integrations" for a pair that plainly has one. Renders
+   * through the same "Powered by {connector}" byline as `powered_by_product` — the
+   * two are the same fact about rows in different tables, and never both set.
+   */
+  via: ProductLinkSchema.nullable().default(null),
   // Data-object claims on this mechanism (§8). `[]` for a mechanism with no
   // claims yet (Layer A / pre-AECI-299 seeding); `.default([])` keeps parsing
   // lenient for callers that predate Layer B while the output type carries it.

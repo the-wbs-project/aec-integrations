@@ -101,6 +101,7 @@ function buildPair(overrides: Partial<ProductPairResponse> = {}): ProductPairRes
         docs_url: null,
         built_by_vendor: null,
         powered_by_product: null,
+        via: null,
         claims: [],
       },
     ],
@@ -426,11 +427,12 @@ describe('ProductsPairPage', () => {
     function buildPairWithProvenance(
       built_by_vendor: typeof agaveVendor | null,
       powered_by_product: typeof agaveProduct | null,
+      via: typeof agaveProduct | null = null,
     ): ProductPairResponse {
       const base = buildPair();
       return {
         ...base,
-        mechanisms: [{ ...base.mechanisms[0]!, built_by_vendor, powered_by_product }],
+        mechanisms: [{ ...base.mechanisms[0]!, built_by_vendor, powered_by_product, via }],
       };
     }
 
@@ -453,6 +455,19 @@ describe('ProductsPairPage', () => {
       expect(el.querySelector('a[href="/vendors/agave"]')).toBeTruthy();
       expect(el.textContent).not.toContain('Powered by');
       expect(el.querySelector('a[href="/products/agave-erp-sync"]')).toBeNull();
+    });
+
+    it('renders the connector byline from `via` on a connector-evidenced pair (AECI-721)', () => {
+      // After the migration these 19 production pairs live in
+      // `connector_evidenced_pairs`, where the connector is `via` and
+      // `powered_by_product` is null by construction. Reading only
+      // `powered_by_product` would silently drop the byline — the pair page would
+      // name no connector for an edge that exists ONLY because of one.
+      const { el } = setup(buildPairWithProvenance(null, null, agaveProduct));
+
+      expect(el.textContent).toContain('Powered by');
+      expect(el.querySelector('a[href="/products/agave-erp-sync"]')).toBeTruthy();
+      expect(el.textContent).not.toContain('Built by');
     });
 
     it('renders no byline when neither field is set', () => {

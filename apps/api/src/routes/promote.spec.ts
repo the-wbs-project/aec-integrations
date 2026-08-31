@@ -20,6 +20,7 @@ import {
   attestations,
   auditLog,
   claims,
+  connectorEvidencedPairs,
   integrations,
   productCategories,
   products,
@@ -1606,14 +1607,256 @@ describe('runPromoteIngest — claims ingest (AECI-297)', () => {
 
     expect(res.status).toBe(200);
     const b = (await res.json()) as {
-      integrations: { ref: string; poweredBySlug?: string }[];
+      integrations: { ref: string; id: string; poweredBySlug?: string }[];
     };
     // The connector's slug rides back so the cache-tag deriver can purge its own
     // product page — it is neither endpoint, so no other tag reaches it.
     expect(b.integrations[0]).toMatchObject({ poweredBySlug: 'agave-erp-sync' });
 
+    // AECI-721: the edge is ROUTED, not written to `integrations`. Without this the
+    // migration undoes itself — the next promote of either endpoint would put every
+    // migrated edge straight back, and both tables are summed, so it would then be
+    // counted twice.
+    expect(await t.db.select().from(integrations)).toEqual([]);
+    const pairs = await t.db.select().from(connectorEvidencedPairs);
+    expect(pairs).toHaveLength(1);
+    expect(pairs[0]).toMatchObject({
+      id: b.integrations[0]!.id,
+      connectorProductId: connector,
+      // `mechanism_kind` has nowhere to go — the table has no such column, because
+      // the lane answers "which mechanism".
+      mechanismName: null,
+    });
+  });
+
+  it('routes a connector-powered edge to the evidenced tier, canonicalised (AECI-721)', async () => {
+    const target = uuid(1);
+    const connector = uuid(2);
+    await seedProduct(target, 'navisworks', 'Navisworks');
+    await seedProduct(connector, 'agave-erp-sync', 'Agave ERP Sync', { productRole: 'connector' });
+
+    const res = await promote({
+      product: { ref: 'p1', name: 'Revit' },
+      integrations: [
+        {
+          ref: 'i1',
+          sourceProduct: { ref: 'p1' },
+          targetProduct: { supabaseId: target },
+          poweredByProduct: { supabaseId: connector },
+          mechanismKind: 'marketplace-app',
+          mechanismName: 'Agave ERP Sync',
+          direction: 'one-way',
+          listingUrl: 'https://useagave.com/x',
+          claims: [],
+        },
+      ],
+    });
+    expect(res.status).toBe(200);
+
+    const [pair] = await t.db.select().from(connectorEvidencedPairs);
+    // Canonical order is a CHECK, so the planner sorts the endpoints and moves the
+    // orientation into `direction` — using claims' vocabulary, because once the pair
+    // is ordered `one-way` no longer says which way.
+    const sourceId = (await t.db.select().from(products).where(eq(products.slug, 'revit')))[0]!.id;
+    const [a, b2] = [sourceId, target].sort();
+    expect(pair).toMatchObject({
+      productAId: a,
+      productBId: b2,
+      direction: sourceId < target ? 'a_to_b' : 'b_to_a',
+      listingUrl: 'https://useagave.com/x',
+      mechanismName: 'Agave ERP Sync',
+    });
+  });
+
+  it('keeps a Convention-A self-referential edge in `integrations` (§13.2a)', async () => {
+    // `powered_by` equal to one of its own endpoints — ~60 production rows (Aquifer,
+    // Kroo). Routing it would render "Via Aquifer → Aquifer", and the destination's
+    // distinct-connector CHECK refuses it outright.
+    const connector = uuid(2);
+    await seedProduct(connector, 'aquifer', 'Aquifer', { productRole: 'connector' });
+
+    const res = await promote({
+      product: { ref: 'p1', name: 'ADP Workforce Now' },
+      integrations: [
+        {
+          ref: 'i1',
+          sourceProduct: { ref: 'p1' },
+          targetProduct: { supabaseId: connector },
+          poweredByProduct: { supabaseId: connector },
+          mechanismKind: 'iPaaS',
+          claims: [],
+        },
+      ],
+    });
+    expect(res.status).toBe(200);
+
+    expect(await t.db.select().from(connectorEvidencedPairs)).toEqual([]);
     const rows = await t.db.select().from(integrations);
-    expect(rows[0]).toMatchObject({ poweredByProductId: connector });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ poweredByProductId: connector, mechanismKind: 'iPaaS' });
+  });
+
+  it("anchors a routed edge's claims on the evidenced pair, not on `integrations`", async () => {
+    const target = uuid(1);
+    const connector = uuid(2);
+    await seedProduct(target, 'navisworks', 'Navisworks');
+    await seedProduct(connector, 'agave-erp-sync', 'Agave ERP Sync', { productRole: 'connector' });
+    await seedDataObject(uuid(3), 'rfis', 'RFIs');
+
+    const res = await promote({
+      product: { ref: 'p1', name: 'Revit' },
+      integrations: [
+        {
+          ref: 'i1',
+          sourceProduct: { ref: 'p1' },
+          targetProduct: { supabaseId: target },
+          poweredByProduct: { supabaseId: connector },
+          claims: [{ dataObject: 'rfis', direction: 'a_to_b', attestations: [] }],
+        },
+      ],
+    });
+    expect(res.status).toBe(200);
+
+    const [pair] = await t.db.select().from(connectorEvidencedPairs);
+    const claimRows = await t.db.select().from(claims);
+    expect(claimRows).toHaveLength(1);
+    // "Nothing silently dropped" — the claim rides the edge into the other table
+    // rather than being orphaned or skipped, and `anchor_id` is what carries its
+    // identity across.
+    expect(claimRows[0]).toMatchObject({
+      integrationId: null,
+      connectorEvidencedPairId: pair!.id,
+      anchorId: pair!.id,
+    });
+  });
+
+  it('re-promotes an already-routed evidenced pair as an UPDATE, not a duplicate (AECI-721)', async () => {
+    // The migration preserves an edge's id when it moves it to the evidenced tier,
+    // so the review app keeps re-sending that id as the integration's `supabaseId`.
+    // A pre-read that consulted only `integrations` would find nothing, route the
+    // edge to a fresh-id INSERT, and collide on `connector_evidenced_pairs_pair_idx`
+    // — turning a routine re-promote of any of the 19 migrated production edges into
+    // a failed batch (an outage), which is exactly what the routing comment warns of.
+    const target = uuid(1);
+    const connector = uuid(2);
+    await seedProduct(target, 'navisworks', 'Navisworks');
+    await seedProduct(connector, 'agave-erp-sync', 'Agave ERP Sync', { productRole: 'connector' });
+
+    const intg = {
+      ref: 'i1',
+      sourceProduct: { ref: 'p1' },
+      targetProduct: { supabaseId: target },
+      poweredByProduct: { supabaseId: connector },
+      mechanismName: 'Agave ERP Sync',
+      claims: [],
+    };
+
+    const first = await promote({ product: { ref: 'p1', name: 'Revit' }, integrations: [intg] });
+    expect(first.status).toBe(200);
+    const pairId = ((await first.json()) as { integrations: { id: string }[] }).integrations[0]!.id;
+
+    // Second push: the review app hands back the id the migration preserved.
+    const second = await promote({
+      product: { ref: 'p1', name: 'Revit' },
+      integrations: [{ ...intg, supabaseId: pairId, mechanismName: 'Agave ERP Sync v2' }],
+    });
+    expect(second.status).toBe(200);
+    expect(
+      ((await second.json()) as { integrations: { id: string; operation: string }[] })
+        .integrations[0],
+    ).toMatchObject({ id: pairId, operation: 'updated' });
+
+    // One row, updated in place — no duplicate, no collision.
+    const pairs = await t.db.select().from(connectorEvidencedPairs);
+    expect(pairs).toHaveLength(1);
+    expect(pairs[0]).toMatchObject({ id: pairId, mechanismName: 'Agave ERP Sync v2' });
+    expect(await t.db.select().from(integrations)).toEqual([]);
+  });
+
+  it('moves an existing `integrations` edge into the evidenced tier, preserving its claims and vendor attestations (AECI-721)', async () => {
+    // A curator adds a third-party connector to an edge that was already promoted as
+    // an accountable-party integration. The edge must MOVE tables with its id intact,
+    // and its claims (and their vendor attestations) must ride along — a naive
+    // "UPDATE the evidenced row then DELETE the integrations row" writes nothing while
+    // the `ON DELETE CASCADE` takes the claim and its attestations with it.
+    const target = uuid(1);
+    const connector = uuid(2);
+    const vendor = uuid(4);
+    await seedProduct(target, 'navisworks', 'Navisworks');
+    await seedProduct(connector, 'agave-erp-sync', 'Agave ERP Sync', { productRole: 'connector' });
+    await seedVendor(vendor, 'acme', 'Acme');
+    await seedDataObject(uuid(3), 'rfis', 'RFIs');
+
+    // First push: a plain integration (no connector) carrying one claim.
+    const claim = {
+      dataObject: 'rfis',
+      direction: 'a_to_b' as const,
+      attestations: [{ source: 'aeci' as const, asserted: true }],
+    };
+    const first = await promote({
+      product: { ref: 'p1', name: 'Revit' },
+      integrations: [
+        {
+          ref: 'i1',
+          sourceProduct: { ref: 'p1' },
+          targetProduct: { supabaseId: target },
+          claims: [claim],
+        },
+      ],
+    });
+    expect(first.status).toBe(200);
+    const [intgRow] = await t.db.select().from(integrations);
+    const [claimRow] = await t.db.select().from(claims);
+    expect(intgRow?.poweredByProductId).toBeNull();
+
+    // A vendor has independently attested to that claim — promote can never write
+    // this, so seed it directly; it is the row a cascade would silently destroy.
+    await t.db.insert(attestations).values({
+      id: uuid(5),
+      claimId: claimRow!.id,
+      source: 'vendor_a',
+      asserted: true,
+      attestedByVendorId: vendor,
+    });
+
+    // Second push: the same edge, now powered by the connector → routes to evidenced.
+    const second = await promote({
+      product: { ref: 'p1', name: 'Revit' },
+      integrations: [
+        {
+          ref: 'i1',
+          supabaseId: intgRow!.id,
+          sourceProduct: { ref: 'p1' },
+          targetProduct: { supabaseId: target },
+          poweredByProduct: { supabaseId: connector },
+          claims: [claim],
+        },
+      ],
+    });
+    expect(second.status).toBe(200);
+
+    // The edge left `integrations` and landed in the evidenced tier with its id kept.
+    expect(await t.db.select().from(integrations)).toEqual([]);
+    const pairs = await t.db.select().from(connectorEvidencedPairs);
+    expect(pairs).toHaveLength(1);
+    expect(pairs[0]!.id).toBe(intgRow!.id);
+
+    // The claim rode along: same row id, re-anchored, not cascade-deleted.
+    const claimRows = await t.db.select().from(claims);
+    expect(claimRows).toHaveLength(1);
+    expect(claimRows[0]).toMatchObject({
+      id: claimRow!.id,
+      integrationId: null,
+      connectorEvidencedPairId: intgRow!.id,
+    });
+
+    // The vendor attestation survived the move — the whole point of re-homing before
+    // the delete rather than after.
+    const vendorAtts = (await t.db.select().from(attestations)).filter(
+      (a) => a.source === 'vendor_a',
+    );
+    expect(vendorAtts).toHaveLength(1);
+    expect(vendorAtts[0]).toMatchObject({ claimId: claimRow!.id, attestedByVendorId: vendor });
   });
 
   it('omits poweredBySlug when the integration names no powered-by product', async () => {
@@ -2153,6 +2396,40 @@ describe('cache purge after promote (AECI-105 → WC-5 / AECI-319)', () => {
       ]),
     );
     expect(msg.tags?.some((tag) => tag.startsWith('route:'))).toBe(false);
+  });
+
+  it('purges the pair page AND the connector for a ROUTED edge (AECI-721)', async () => {
+    // `deriveCacheTags` iterates `response.integrations` to emit `pair:{a}__{b}` and
+    // `product:{connectorSlug}`. A routed edge leaves the `integrations` table, so if
+    // the routing branch failed to push its result into that array the tags would
+    // vanish with it — and the pair page plus the connector's own hub would stay
+    // stale until TTL, invisibly. §13.4(4)'s "no promote-deriver change is needed"
+    // holds only because this stays true.
+    const target = uuid(1);
+    const connector = uuid(2);
+    await seedProduct(target, 'navisworks', 'Navisworks');
+    await seedProduct(connector, 'agave-erp-sync', 'Agave ERP Sync', { productRole: 'connector' });
+
+    const { res, sendBatch } = await promoteWithPurge({
+      product: { ref: 'p1', name: 'Revit' },
+      integrations: [
+        {
+          ref: 'i1',
+          sourceProduct: { ref: 'p1' },
+          targetProduct: { supabaseId: target },
+          poweredByProduct: { supabaseId: connector },
+          claims: [],
+        },
+      ],
+    });
+
+    expect(res.status).toBe(200);
+    const tags = new Set(firstMessage(sendBatch).tags);
+    // The pair page for the two endpoints…
+    expect(tags.has('pair:navisworks__revit')).toBe(true);
+    // …and the connector's own page, which renders the edge in its "Integrations it
+    // powers" hub and is reached by no other tag (it is neither endpoint).
+    expect(tags.has('product:agave-erp-sync')).toBe(true);
   });
 
   it('enqueues the pair tag for an integration carrying claims (AECI-297)', async () => {

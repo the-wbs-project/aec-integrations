@@ -42,6 +42,26 @@ import {
   type StoredProductCounts,
 } from '../src/lib/recompute-counts';
 
+// ─── The delivered-edge count, as raw SQL ────────────────────────────────────
+// `integration_count` counts DELIVERED edges regardless of which table holds them
+// (`STAGE_1_5_SPEC.md` §13.5), so both expressions below sum two subqueries:
+// `integrations` where the product is an endpoint, plus `connector_evidenced_pairs`
+// where it is an endpoint in either canonical slot OR the connector (§12.5 option B).
+//
+// These two are sites 2 and 3 of the fourteen-site lockstep, and they are the pair
+// with the sharpest failure mode. `reconcile-counts.yml` runs this script daily: miss
+// them and it reports 100% drift every morning, and `--fix` SILENTLY REVERTS the new
+// rule across the whole catalogue — the recompute writing the old answer back over
+// the right one. Kept as raw SQL (not Drizzle) because the script runs against a
+// remote D1 through wrangler, so any change here has to be made twice on purpose;
+// `computeExpected` in `../src/lib/recompute-counts.ts` is the definition being
+// mirrored, and its header carries the reasoning.
+const EVIDENCED_COUNT_SQL = (productIdExpr: string) => `(SELECT COUNT(*)
+     FROM "connector_evidenced_pairs" cep
+     WHERE cep."product_a_id" = ${productIdExpr}
+        OR cep."product_b_id" = ${productIdExpr}
+        OR cep."connector_product_id" = ${productIdExpr})`;
+
 // ─── Drift query ─────────────────────────────────────────────────────────────
 // Per-product: the STORED aggregates alongside the EXPECTED values recomputed
 // from source rows. The comparison (counts exact; averages 2dp/0.005 tolerance,
@@ -50,8 +70,9 @@ import {
 const DRIFT_QUERY = `SELECT
   p."id" AS product_id,
   p."integration_count" AS stored_integration_count,
-  (SELECT COUNT(*) FROM "integrations" i
-     WHERE i."source_product_id" = p."id" OR i."target_product_id" = p."id") AS expected_integration_count,
+  ((SELECT COUNT(*) FROM "integrations" i
+     WHERE i."source_product_id" = p."id" OR i."target_product_id" = p."id")
+   + ${EVIDENCED_COUNT_SQL('p."id"')}) AS expected_integration_count,
   p."review_count" AS stored_review_count,
   (SELECT COUNT(*) FROM "reviews" r
      WHERE r."product_id" = p."id" AND r."status" = 'approved') AS expected_review_count,
@@ -67,8 +88,9 @@ FROM "products" p;`;
 // Same aggregation as DRIFT_QUERY's expected columns + the seed-reviews
 // RECOMPUTE_PRODUCTS block. `__IDS__` is replaced with a quoted id list.
 const RECOMPUTE_SQL = `UPDATE "products" SET
-  "integration_count" = (SELECT COUNT(*) FROM "integrations" i
-     WHERE i."source_product_id" = "products"."id" OR i."target_product_id" = "products"."id"),
+  "integration_count" = ((SELECT COUNT(*) FROM "integrations" i
+     WHERE i."source_product_id" = "products"."id" OR i."target_product_id" = "products"."id")
+   + ${EVIDENCED_COUNT_SQL('"products"."id"')}),
   "review_count" = (SELECT COUNT(*) FROM "reviews" r
      WHERE r."product_id" = "products"."id" AND r."status" = 'approved'),
   "rating_overall_avg" = (SELECT ROUND(AVG(r."rating_overall"), 2) FROM "reviews" r

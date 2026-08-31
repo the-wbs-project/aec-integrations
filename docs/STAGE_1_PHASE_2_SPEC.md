@@ -398,7 +398,13 @@ In addition to caching headers, every cacheable response carries:
 Every page sets:
 
 - `<title>` — page-specific, formatted as `"{entity name} — AEC Integrations"` for details, `"{Taxonomy term} tools — AEC Integrations"` for browse
-- `<meta name="description">` — pulled from the entity's description, truncated to ~155 chars
+- `<meta name="description">` — pulled from the entity's description, truncated to ~155 chars.
+  **One exception since AECI-707 (2026-08-31):** a product whose `product_role` is `connector` and
+  which reaches at least one catalog product gets a computed, reach-shaped variant instead, so the
+  page targets *"«connector» for construction"*-class queries its vendor-written description does
+  not. Everything else — every other role, and a connector with nothing to count — keeps the rule
+  above. The JSON-LD `description` is **not** varied with it. Governing contract:
+  `docs/STAGE_1_5_SPEC.md` §13.6.
 - `<link rel="canonical">` — the canonical URL for this entity (no query params). The base is the **serving origin** (self-referential, multi-host), **not** a hardcoded apex: each host canonicalises to itself. `MetaService` builds it via `apps/web/src/app/core/canonical.ts` → `canonicalUrl()` (server: SSR `REQUEST` origin; client: `location.origin`; canonical `www.` host only as the no-request fallback — ADR 0011 amendment 2026-07-05). See **ADR 0011** for the rationale (future-proofs the pre-launch `demo.aecintegrations.com` → apex/www promotion; non-prod hosts are Cloudflare-Access-gated so their self-canonicals never reach the public index). Exceptions: the 404 page self-references the requested URL, and the `/preview/*` design samples keep a fixed `www.` canonical.
 - Open Graph: `og:title`, `og:description`, `og:url` (same serving-origin canonical as above), `og:type`, `og:image` (logo where available, otherwise default OG image)
 - Twitter card equivalents
