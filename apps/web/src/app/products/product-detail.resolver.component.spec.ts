@@ -206,4 +206,90 @@ describe('productDetailResolver — product-specific', () => {
       'https://aecintegrations.com/products/procore',
     );
   });
+
+  /**
+   * Stage 1.5 Addendum C §13.6 (AECI-707) — the role-varied meta description.
+   * Every role but `connector` keeps the Phase 2 §9.1 default (the entity's own
+   * description); a connector page targets "«connector» for construction"-class
+   * queries instead, which its vendor-written description almost never does.
+   */
+  const poweredEdge = (sourceSlug: string, targetSlug: string) => ({
+    id: `int-${sourceSlug}-${targetSlug}`,
+    name: `${sourceSlug} ↔ ${targetSlug}`,
+    mechanism_kind: 'iPaaS' as const,
+    mechanism_name: null,
+    direction: null,
+    source: { id: `s-${sourceSlug}`, name: sourceSlug, slug: sourceSlug, logo_url: null },
+    target: { id: `t-${targetSlug}`, name: targetSlug, slug: targetSlug, logo_url: null },
+    created_at: '2024-01-01T00:00:00.000Z',
+    updated_at: '2024-01-01T00:00:00.000Z',
+  });
+
+  const resolvedDescription = async (product: ProductDetail): Promise<unknown> => {
+    const setEntityMeta = vi.fn();
+    const ctx = createRequestContext(buildClient(async () => product));
+    const { run } = setup({
+      platform: 'server',
+      ctx,
+      responseInit: { status: 200 },
+      request: new Request('https://aecintegrations.com/products/procore'),
+      meta: { setEntityMeta, setProductJsonLd: vi.fn() } as Partial<MetaService>,
+    });
+    await run();
+    return setEntityMeta.mock.calls[0]![0].description;
+  };
+
+  it('gives a connector page a reach-shaped meta description', async () => {
+    expect(
+      await resolvedDescription(
+        buildProduct({
+          product_role: 'connector',
+          integrations_as_connector: [poweredEdge('d', 'e'), poweredEdge('d', 'f')],
+        }),
+      ),
+    ).toBe(
+      'Procore connects 3 construction and AEC products. See the integrations it powers and reviews from the teams using them.',
+    );
+  });
+
+  it('counts reach from the RAW edge list, so a Convention-A connector is not zero', () => {
+    // §13.4(2) excludes these edges from the rendered section, but the page
+    // product IS reaching those three products; the snippet must say so.
+    return expect(
+      resolvedDescription(
+        buildProduct({
+          product_role: 'connector',
+          integrations_as_connector: [
+            poweredEdge('d', 'procore'),
+            poweredEdge('e', 'procore'),
+            poweredEdge('f', 'procore'),
+          ],
+        }),
+      ),
+    ).resolves.toBe(
+      'Procore connects 3 construction and AEC products. See the integrations it powers and reviews from the teams using them.',
+    );
+  });
+
+  it('falls back to the product description for a connector with no reach', async () => {
+    // Nothing to count, so the variant would assert less than the real
+    // description does.
+    expect(await resolvedDescription(buildProduct({ product_role: 'connector' }))).toBe(
+      'Construction management platform.',
+    );
+  });
+
+  it('leaves hybrid and application pages on the default description', async () => {
+    for (const role of ['hybrid', 'application'] as const) {
+      expect(
+        await resolvedDescription(
+          buildProduct({
+            product_role: role,
+            integrations_as_connector: [poweredEdge('d', 'e')],
+          }),
+        ),
+      ).toBe('Construction management platform.');
+      TestBed.resetTestingModule();
+    }
+  });
 });
