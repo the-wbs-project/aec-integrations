@@ -196,7 +196,7 @@ The initial epics seeded by AECI-282 (in the `Stage 2 Build` project — renamed
 | Dark Theme Reintroduction | §2.5 | Token-block + toggle; AECI-226 deferral |
 | Product Docs / Help Center | §2.6 | **AECI-634**, added 2026-08-19 (not an AECI-282 seed). In-SPA `/docs`, not a separate site. Kickoff draft only — decompose after portal testing. **Scope outline:** `STAGE_2_PRODUCT_DOCS_SPEC.md` |
 | Stage-1 Deferrals & Carryover | §5 | **AECI-518**, reviewed 2026-08-20. One buildable item of three: pair-page JSON-LD **shipped** (decisions in §8.7); the sitemap split (AECI-560, re-parented here) and the RTL follow-through are **condition-gated with named triggers**. No companion build spec — §5 + §8.7 are the contract |
-| Connector Lane | §8.8 | **AECI-695**, added 2026-08-28 (not an AECI-282 seed). Connector-vendor modelling and the per-iPaaS stub-catalogue ingest; spans the review app, `main`, and `stage-2`. Its **commercial** question is settled in §8.8 (AECI-702), which gates AECI-704. No companion build spec on this branch yet |
+| Connector Lane | §8.8 | **AECI-695**, added 2026-08-28 (not an AECI-282 seed). Connector-vendor modelling and the per-iPaaS stub-catalogue ingest; spans the review app, `main`, and `stage-2`. Its **commercial** question is settled in §8.8 (AECI-702), which gates AECI-704. Its **presentation** half — the endpoint Integrations split, the role-varied connector template, and the delivered/reachable/buildable boundary — is `STAGE_1_5_SPEC.md` **§13 (Addendum C)**, the contract AECI-707/713/715/716 anchor to. The connector-lane *data* model (stubs, mappings, evidenced pairs) still has no companion build spec on this branch — it lands with AECI-714 |
 | Workers Cache Migration | §6 | **Already exists** — AECI-314 |
 
 ---
