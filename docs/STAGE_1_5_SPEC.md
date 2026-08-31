@@ -977,6 +977,12 @@ only a lane freeze if AECi's copy is complete, and because those rows **are** AE
 queue. One page is one complete ADR 0021 job; there is no atomicity across pages, and every
 statement is an idempotent upsert keyed on the review record id.
 
+**The `managed_by` cutoff is enforced (AECI-720, 2026-08-31).** The sync no longer writes
+`managed_by` at all — the field left the wire, so a catalogue starts `review` by column default and only
+`PATCH /api/admin/connector-catalogs/:id` moves it. While it reads `vendor` the planner refuses every page
+for that catalogue with `CATALOG_VENDOR_MANAGED`, before building a statement. This is what makes the
+handover a lane freeze rather than a data migration, per the full-mirror argument above.
+
 **Nothing renders it yet, and nothing counts it.** The sync dispatches no Algolia sync, no
 IndexNow or Google ping, no home-stats refresh and no cache purge — §13.5 holds unchanged. When
 §13.7's summary line ships, `CACHE_STRATEGY.md` §3 rule 4 now names the tag set it will need.

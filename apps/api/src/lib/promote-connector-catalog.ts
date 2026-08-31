@@ -44,10 +44,11 @@ import type {
   PromoteConnectorTableCounts,
   PromoteSkipped,
 } from '@aeci/shared';
-import { CONNECTOR_DECISION_STATUSES } from '@aeci/shared';
+import { ApiErrorCode, CONNECTOR_DECISION_STATUSES } from '@aeci/shared';
 import { eq, inArray } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
+import { ApiError } from '../errors';
 import {
   connectorCatalogs,
   connectorCatalogSurfaces,
@@ -219,6 +220,36 @@ export async function planConnectorCatalogPage(
     existingPairs,
   } = await preread(db, page);
 
+  // ── the AECI-720 cutoff ────────────────────────────────────────────────────
+  // A vendor-managed catalogue is frozen to the review lane: refuse the whole page.
+  //
+  // ORDERING IS LOAD-BEARING — this runs BEFORE the unpromoted-connector skip below,
+  // not after. A vendor-managed catalogue whose platform happens to be unpromoted
+  // (Zapier and Workato are `on_hold` review-side, AECI-700 — the live case) would
+  // otherwise come back as a re-sendable `skipped[]` entry, telling the caller "try
+  // again later" when the answer is permanently no. A policy refusal must not depend on
+  // unrelated resolution state.
+  //
+  // It is a THROW and not a skip for the same reason: `REVIEW_APP_PROMOTE_API.md` §3a
+  // binds all four connector skip kinds to *"this could not be resolved yet"* and
+  // *"all four are re-sendable"*, and this is neither. Throwing here — before a single
+  // statement is built — is also what makes the refusal write nothing: no rows, no
+  // `promote_jobs` ledger row, and no `audit_log` row, because nothing changed.
+  //
+  // Refusing the PAGE is complete cover. Every child row below binds the page-level
+  // `catalogId` rather than a caller-supplied one (and `mappings[].catalogId` is
+  // deliberately not on the wire), so one page can only ever write one catalogue's rows.
+  if (existingCatalog?.['managedBy'] === 'vendor') {
+    throw new ApiError(
+      409,
+      ApiErrorCode.CATALOG_VENDOR_MANAGED,
+      `Connector catalogue "${catalogId}" is vendor-managed on AECi; the review lane is ` +
+        `frozen for it and this page was not written. Re-sending will not help. If the ` +
+        `catalogue should return to review authorship, an AECi operator flips it back ` +
+        `via PATCH /api/admin/connector-catalogs/:id.`,
+    );
+  }
+
   // A catalogue whose connector platform is not promoted cannot be stored at all —
   // `connector_product_id` is NOT NULL. Zapier and Workato are `on_hold` review-side
   // (AECI-700), so this is the live case, not a hypothetical. The whole page is
@@ -275,10 +306,15 @@ export async function planConnectorCatalogPage(
   // Its foreign-key children are safe either way: an unchanged catalogue is by
   // definition already stored, and a new or changed one is upserted here, ahead of
   // them, in the same batch.
+  //
+  // `managedBy` is NOT here (AECI-720). Promote does not own the flag, so it must not
+  // write it — on create the column default supplies `review`, and the admin flip is the
+  // only other writer. Its absence from `catalogValues` also keeps it out of the
+  // `unchanged()` comparison, which is right: a value promote does not own must never
+  // make a page look dirty.
   const catalogValues = {
     connectorProductId,
     connectorAuthorship: page.catalog.connectorAuthorship ?? null,
-    managedBy: page.catalog.managedBy,
     notes: page.catalog.notes ?? null,
   };
   if (tally(counts.catalogs, existingCatalog, catalogValues) !== 'unchanged') {

@@ -15,7 +15,7 @@ import { PromotePayloadSchema, type PromotePayload, type PromoteResponse } from 
 import { NonRetryableError } from 'cloudflare:workflows';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { auditLog, products, promoteJobs, vendors } from '../db/schema';
+import { auditLog, connectorCatalogs, products, promoteJobs, vendors } from '../db/schema';
 import type { Env } from '../env';
 import { ApiError } from '../errors';
 import { promotePayloadKey, promoteResultKey } from '../lib/promote-jobs';
@@ -378,7 +378,7 @@ describe('runPromoteWorkflow — connector arm (AECI-714)', () => {
 
   function connectorPage() {
     return {
-      catalog: { id: 'rec76C362381D6CDF', connectorProductId: CONNECTOR_ID, managedBy: 'review' },
+      catalog: { id: 'rec76C362381D6CDF', connectorProductId: CONNECTOR_ID },
       page: { index: 0, of: 1 },
       surfaces: [],
       stubs: [{ id: 'recStubProcore01', slug: 'procore', ...STAMPS }],
@@ -442,6 +442,31 @@ describe('runPromoteWorkflow — connector arm (AECI-714)', () => {
     const mirrored = kv.store.get(`promote:result:${JOB_ID}`);
     expect(mirrored).toBeDefined();
     expect(JSON.parse(mirrored!).kind).toBe('connector');
+  });
+
+  it('surfaces the AECI-720 refusal on the job with its OWN code, not INTERNAL_ERROR', async () => {
+    // The whole point of adding CATALOG_VENDOR_MANAGED to `ApiErrorCode`:
+    // `promoteJobErrorCode` whitelists the error `name` against
+    // `Object.values(ApiErrorCode)`, so a code missing from that object degrades to
+    // INTERNAL_ERROR on the poll — the AC would fail without anything failing. This
+    // runs the REAL ingest end to end rather than a mock, so it covers the whole chain:
+    // planner throw -> toNonRetryable -> NonRetryableError.name.
+    await t.db
+      .insert(products)
+      .values({ id: CONNECTOR_ID, slug: 'mindcloud', name: 'MindCloud', productRole: 'connector' });
+    await t.db.insert(connectorCatalogs).values({
+      id: 'rec76C362381D6CDF',
+      connectorProductId: CONNECTOR_ID,
+      managedBy: 'vendor',
+    });
+
+    const { promise } = runConnector();
+    await expect(promise).rejects.toBeInstanceOf(NonRetryableError);
+    await expect(promise).rejects.toMatchObject({ name: 'CATALOG_VENDOR_MANAGED' });
+
+    // Nothing committed — including no ledger row, because the throw precedes the batch.
+    expect((await t.db.select().from(promoteJobs)).length).toBe(0);
+    expect((await t.db.select().from(auditLog)).length).toBe(0);
   });
 
   it('keeps treating params with NO kind as a product promote', async () => {
