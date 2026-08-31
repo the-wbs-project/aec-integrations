@@ -3541,10 +3541,16 @@ Stage 2 (AECI-301, `STAGE_2_ATTESTATIONS_SPEC.md` §5). The surface a Verified v
 | Method | Path | Gate | Success |
 |---|---|---|---|
 | `GET` | `/api/vendor/integrations` | authority | `200 { integrations }` |
-| `POST` | `/api/vendor/claims` | authority **+ verified** | `201 { claim }` |
-| `PUT` | `/api/vendor/claims/:claimId/attestation` | authority **+ verified** | `200 { claim }` |
-| `DELETE` | `/api/vendor/claims/:claimId/attestation` | authority **+ verified** | `204` (no body) |
+| `POST` | `/api/vendor/claims` | authority **+ attestable edge + verified** | `201 { claim }` |
+| `PUT` | `/api/vendor/claims/:claimId/attestation` | authority **+ attestable edge + verified** | `200 { claim }` |
+| `DELETE` | `/api/vendor/claims/:claimId/attestation` | authority **+ verified** — **no edge gate**, deliberately | `204` (no body) |
 | `GET` | `/api/vendor/data-objects` | guard only — **no authority, no verified** | `200 { data_objects }` |
+
+**The edge gate: a connector-powered integration is not attestable (AECI-705 / `STAGE_2_ATTESTATIONS_SPEC.md` §14).** An edge carrying `powered_by_product_id`, or typed `mechanism_kind = 'iPaaS'`, was built by a connector rather than by either endpoint vendor, and the connector holds no attestation seat — so `POST` and `PUT` answer **`403 FORBIDDEN`** on it whatever the caller's tier. Three things about that:
+
+- **403, not 404.** The §6.14 non-disclosure rule has already been satisfied by the time this runs — the caller proved it owns an endpoint — and powered-ness is public on the pair page, so there is nothing left to conceal. It reuses `FORBIDDEN` rather than minting a code: the portal already knows from `attestable: false`, so the 403 is a backstop for direct API callers and a new code would need a §4 row no reader would consume.
+- **The order is authority → `404`, edge → `403`, verified → `403`.** Reversed, an unverified vendor on a powered edge is told to get verified in order to author, which verification will never deliver. The connector 403's copy names the connector and never mentions verification, ranking or placement.
+- **`DELETE` is exempt on purpose.** An edge can *become* powered after a vendor has attested (promote sets `powered_by_product_id` late). Gating retract would trap a vendor with a position it can no longer withdraw. Withdrawing is always allowed; only taking a new position is not.
 
 **Authority is the §6.14 ownership rule, one grain up.** `PATCH /api/vendor/products/:id` asks "do you own this product"; these ask "do you own an *endpoint* of this integration", because an integration has **two** vendor-writable slots — `vendor_a` for endpoint A (`integrations.source_product_id`), `vendor_b` for endpoint B. `resolveAttestationSlots` / `resolveClaimAuthority` (`apps/api/src/lib/attestation-authority.ts`) are the single implementation; no handler re-derives the table. A caller owning neither endpoint gets **`404`**, and it is indistinguishable from a resource that does not exist — collapsed into one join result rather than two branches that must be kept identical, so the endpoint cannot be walked as an existence oracle. See `AUTH_AND_RLS.md` §4.2a.
 
@@ -3561,6 +3567,8 @@ Stage 2 (AECI-301, `STAGE_2_ATTESTATIONS_SPEC.md` §5). The surface a Verified v
 - **`mirrorContextDirection`** (`@aeci/shared`) re-frames an already-caller-relative direction against the other endpoint. It exists for the client, which holds only the framed value and has to splice a write echo into the same integration's *other* listing.
 
 **`GET` is not verified-gated**, matching the product-version list: authoring is the Verified capability, reading your own surface is not, so the dashboard renders a read-only tab and explains what verification unlocks.
+
+**`GET` is not edge-gated either — powered edges are flagged, never filtered.** They ship with `attestable: false` and `powered_by` (the connector as a `ProductLink`, `null` on the ~40% whose connector is not a promoted product, where the client falls back to `mechanism_name`). Filtering them would change this endpoint's scoping predicate, and `GET /api/vendor/updates`'s `integrations` cursor must reuse that predicate exactly — with no RLS behind `/api/vendor/*`, that `WHERE` clause *is* the authorization. It would also contradict the vendor's own public pair page, which still shows the edge.
 
 ```typescript
 export const VendorClaimSchema = z.object({
@@ -3583,6 +3591,12 @@ export const VendorIntegrationSchema = z.object({
   context_product: ProductLinkSchema,   // the endpoint THIS entry is filed under
   other_product: ProductLinkSchema,
   slots: z.array(VendorAttestationSlotSchema).min(1),   // 'vendor_a' | 'vendor_b'
+  // AECI-705. Server-computed; the client never re-derives the predicate.
+  // `.default()` because SSR and API deploy per-commit but not atomically, so
+  // this must still parse a response from an API Worker that predates the field.
+  attestable: z.boolean().default(true),
+  powered_by: ProductLinkSchema.nullable().default(null),  // null when the
+                                        // connector is not a promoted product
   claims: z.array(VendorClaimSchema),
 });
 

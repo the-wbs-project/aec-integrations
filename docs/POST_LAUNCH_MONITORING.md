@@ -394,6 +394,14 @@ attestation, and nothing in D1 has one yet (promote only ever writes `source='ae
 fire on **zero rows** until the vendor portal is genuinely in use. Do not tighten anything on the
 evidence of a quiet first month.
 
+**And read them against a corpus roughly 14% smaller than the catalogue.** Since AECI-705
+(`STAGE_2_ATTESTATIONS_SPEC.md` §14) a **connector-powered** edge — `powered_by_product_id` set, or
+`mechanism_kind = 'iPaaS'`, which was 132 of 946 production edges on 2026-08-31 — can neither be
+attested nor generate a vendor nudge. Those edges never enter the funnel at all, so the first three
+constants below govern a smaller population than a naive `claims` count suggests: on the numbers at
+merge that is **179 claims across 67 edges and 41 vendors** that will never appear in any of them.
+Ops-routed findings are unaffected.
+
 | Constant | File | Current | Retune signal |
 |---|---|---|---|
 | `SILENT_COUNTERPARTY_DAYS` | `lib/attestation-detectors.ts` | 14 | How long a claim may sit `single_source` before the silent side is nudged. Lower if vendors are responsive and the lag is the bottleneck; raise if nudges land before vendors have plausibly seen the portal. |

@@ -37,6 +37,15 @@
  *   - The `attestations_slot_key` partial unique index makes two accounts on the same
  *     vendor last-write-wins on a slot instead of stacking duplicate votes.
  *
+ * **Ownership is not the whole gate.** Since AECI-705 a §5 write also asks whether
+ * the EDGE may be attested at all — a connector-powered edge is refused with a 403
+ * because neither endpoint built the plumbing (`lib/connector-powered.ts`, §14).
+ * That is deliberately a second question asked after this one, not a narrowing of
+ * the join: `ownedEndpointJoin` is the scoping predicate the AECI-627 freshness
+ * cursor must match exactly, and narrowing it here would silently change what a
+ * vendor's portal considers fresh. The two columns it reads ride along on
+ * `AttestationAuthority` so the caller pays no extra D1 hop.
+ *
  * Every §5 write path and every §7 detector resolves through this module; nothing
  * re-derives the rule inline. That includes the *inverse* lookup §7 needs (slot → which
  * vendors occupy it, for notification recipients): `vendorsForIntegrationSlots`
@@ -92,6 +101,19 @@ export interface AttestationAuthority {
    * whether the flip is a no-op.
    */
   maintainedBy: string;
+  /**
+   * The two columns `isConnectorPoweredEdge` reads (AECI-705 / §14). Carried for
+   * exactly the reason the endpoint ids above are: every §5 write path has to ask
+   * "may this edge be attested at all?" immediately after resolving authority,
+   * and re-reading the integration row would be a second D1 hop on the Worker.
+   *
+   * They are NOT part of the authority *rule* — ownership decides the slots, and
+   * attestability is a separate question asked one step later. Folding the two
+   * together would change `ownedEndpointJoin`, which the AECI-627 cursor must
+   * match exactly (`STAGE_2_REALTIME_SPEC.md` §2.2).
+   */
+  poweredByProductId: string | null;
+  mechanismKind: string | null;
   /** Never empty: an entry only exists when the vendor owns at least one endpoint. */
   slots: readonly AttestationSlot[];
 }
@@ -160,6 +182,8 @@ async function loadAuthorities(
       sourceProductId: integrations.sourceProductId,
       targetProductId: integrations.targetProductId,
       maintainedBy: integrations.maintainedBy,
+      poweredByProductId: integrations.poweredByProductId,
+      mechanismKind: integrations.mechanismKind,
       ownedProductId: productVendors.productId,
     })
     .from(integrations)
@@ -184,6 +208,8 @@ async function loadAuthorities(
       sourceProductId: row.sourceProductId,
       targetProductId: row.targetProductId,
       maintainedBy: row.maintainedBy,
+      poweredByProductId: row.poweredByProductId,
+      mechanismKind: row.mechanismKind,
       slots: slotsForOwnership(
         productIds.has(row.sourceProductId),
         productIds.has(row.targetProductId),
@@ -354,6 +380,8 @@ export async function resolveClaimAuthority(
       sourceProductId: integrations.sourceProductId,
       targetProductId: integrations.targetProductId,
       maintainedBy: integrations.maintainedBy,
+      poweredByProductId: integrations.poweredByProductId,
+      mechanismKind: integrations.mechanismKind,
       ownedProductId: productVendors.productId,
     })
     .from(claims)
@@ -383,6 +411,8 @@ export async function resolveClaimAuthority(
       sourceProductId: first.sourceProductId,
       targetProductId: first.targetProductId,
       maintainedBy: first.maintainedBy,
+      poweredByProductId: first.poweredByProductId,
+      mechanismKind: first.mechanismKind,
       slots: slotsForOwnership(
         ownedProductIds.has(first.sourceProductId),
         ownedProductIds.has(first.targetProductId),

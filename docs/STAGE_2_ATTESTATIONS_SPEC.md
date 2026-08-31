@@ -52,6 +52,7 @@ This doc is the contract for the AECI-514 sub-issues. Each opens with
 | §9 | AECI-303 | Version-diff timeline + per-product version selectors |
 | §10 | AECI-608 | Docs: attestation authz + API/schema contract sweep |
 | §13 | AECI-616 | Maintenance marker: real `last_reviewed_at` + vendor-maintained branch (**migration 3**) |
+| §14 | AECI-705 | Connector-powered edges are not attestable (gate over the shipped epic; no migration) |
 
 **Build order.**
 
@@ -68,6 +69,9 @@ This doc is the contract for the AECI-514 sub-issues. Each opens with
 §10 docs sweep (608) — runs alongside
 
 §13 maintenance marker (616) ── needs §5's write path to light its vendor branch
+
+§14 connector gate (705) ────── a review-and-gate pass over §2/§5/§6/§7 once all
+                                four had shipped; MUST land before Stage 2 launch
 ```
 
 > **Release gate.** §4 changes what a *reader* sees. §5 is what first creates a vendor
@@ -247,6 +251,13 @@ endpoint-B vendors", where **A = `integrations.source_product_id`** and **B =
 | the integration's `target_product_id` | may attest **`vendor_b`** |
 | **both** endpoints | may attest **both slots** — but see the distinct-identity rule below |
 | neither | **404**, not 403 |
+
+**Ownership is necessary, not sufficient (AECI-705 / §14).** A second question runs immediately
+after this one: *may this EDGE be attested at all?* A **connector-powered** edge — `powered_by_product_id`
+set, or `mechanism_kind = 'iPaaS'` — answers no with a **403**, because neither endpoint built the
+plumbing. It is deliberately not folded into the table above or into `ownedEndpointJoin`: that join
+is the scoping predicate the AECI-627 freshness cursor must match exactly, and narrowing it would
+silently change what a vendor's portal considers fresh.
 
 **404, not 403** is the AECI-520 non-disclosure rule (`apps/api/src/routes/vendor.ts` header): a
 vendor must not be able to probe for the existence of another vendor's integration. The check runs
@@ -693,6 +704,10 @@ The last row shipped with §6/AECI-606, not with AECI-301; §5.4 remains an accu
 AECI-301 built. It lives in this table because §5.1 is the epic's only inventory of the
 `/api/vendor/*` attestation surface.
 
+**`POST` and `PUT` additionally answer 403 on a connector-powered edge** (AECI-705 / §14); `DELETE`
+and the two `GET`s do not. Retract stays open because an edge can *become* powered after a vendor has
+attested, and a vendor must always be able to withdraw a position it holds.
+
 Shapes, Zod schemas and error codes go in `packages/shared/src/api/` and are documented in
 `docs/API_CONTRACTS.md` (new subsection alongside the AECI-520 `/api/vendor/*` section).
 
@@ -707,6 +722,10 @@ Shapes, Zod schemas and error codes go in `packages/shared/src/api/` and are doc
   the caller touches neither endpoint of is a **404**.
 - **Verified gate.** Authoring requires `vendors.verified` (§1). Unverified → `403 FORBIDDEN` with
   copy that points at the claim/verification flow, never at ranking.
+- **Connector gate, and it runs FIRST of the two 403s** (AECI-705 / §14). A connector-powered edge is
+  `403 FORBIDDEN` on `POST` / `PUT` whatever the caller's tier, with copy that points at the
+  connector and never at verification — verification will never unlock it. Order:
+  authority → 404, powered → 403, verified → 403.
 - **Direction is stored canonically** (`a_to_b` / `b_to_a` / `both`, relative to the integration
   row's own endpoints — `STAGE_1_5_SPEC.md` §3.2) and translated to the caller's frame at the API
   boundary. The vendor UI speaks "inbound/outbound"; the DB never does.
@@ -1061,6 +1080,12 @@ Run as one daily sweep. Each yields `(claim, recipient vendor, detector kind)`.
 > false-positive floor, and a detector operators learn to ignore is worse than none. Recorded in
 > §11 as an explicit deferral, not silently omitted. **Nothing undefined shipped** (the §7 AC).
 
+**Every vendor-addressed finding on a connector-powered edge is dropped (AECI-705 / §14)**, by one
+filter in `runAttestationDetectors` rather than four edits inside four detectors. The **ops-routed**
+findings survive — `aeci-denied` entirely, and `open-conflict`'s AECi finding alongside its two
+suppressed vendor nudges — because those are AECi's correction signal on its own curation, not a
+nudge to a vendor who built nothing.
+
 Thresholds (`N`) are launch-tunable constants, documented in `docs/POST_LAUNCH_MONITORING.md`
 alongside the other tunables.
 
@@ -1140,10 +1165,12 @@ ADR 0024 it is an **external CI liveness sweep** (AECI-647), because PostHog has
   same product who never voted is not party to the dispute. An orphaned vote
   (`attested_by_vendor_id` nulled by `ON DELETE SET NULL`) has nobody to notify and is skipped —
   the ops finding still fires, which is precisely why §7.1 pairs the two.
-- **`silent-counterparty` is silent in two cases, both correct.** One company owning both
+- **`silent-counterparty` is silent in ~~two~~ THREE cases, all correct.** One company owning both
   endpoints affirms both slots → §4.5 collapses it to one voter, so the state *is* `single_source`
-  but there is no silent slot and nobody to nudge. And a silent product with no `product_vendors`
-  row has no seat to email — that is AECi's outreach problem, not a nudge.
+  but there is no silent slot and nobody to nudge. A silent product with no `product_vendors`
+  row has no seat to email — that is AECi's outreach problem, not a nudge. And, **since AECI-705**,
+  the edge is connector-powered, so the silent slot's vendor is silent about plumbing it did not
+  build (§14.4). The third is the only one of the three enforced *outside* the detector.
 - **`aeci-denied` uses `isClaimRefuted`, not an `unverified` check**, and excludes
   `origin = 'vendor'` claims: a vendor denying a claim it created itself is a self-correction the
   §5 retract path handles, not an error in AECi's curation.
@@ -1735,6 +1762,13 @@ consolidated list that enumerates them. Grep for the artifact across `**/*.md`, 
   (`STAGE_1_5_SPEC.md` §9); attestation state does not reach search in this epic.
 - **Self-serve seat invite/revoke**, **dark theme**, **a public/partner write API** — unchanged
   deferrals from `STAGE_2_VENDOR_PORTAL_SPEC.md` §11 and `STAGE_2_SPEC.md` §9.
+- **A `powered_by`-vendor attestation seat** — the connector's own voice on the edges it delivers.
+  AECI-705 (§14) gates endpoint vendors off those edges precisely *because* no such seat exists; it
+  deliberately does not invent one. Owned by **AECI-704** / `STAGE_2_SPEC.md` §8.8(2), and bounded by
+  two constraints: `vendors.verified` mirrors off `vendor_entitlements.status` rather than `tier`, so
+  "a seat but no badge" is not expressible through the entitlement table as built; and a per-edge
+  operator override — for the ~10 edges an endpoint vendor genuinely built on an iPaaS, which §14.2's
+  union over-includes on purpose — is a separate, untracked opportunity rather than part of the seat.
 - **Trust scoring / weighting attestations by vendor reputation** — Stage 3.
 
 ---
@@ -1753,6 +1787,7 @@ consolidated list that enumerates them. Grep for the artifact across `**/*.md`, 
 | Cron → queue → consumer | ADR 0013; `apps/api/src/scheduled.ts` |
 | Migration workflow (drizzle-kit + `wrangler d1`) | `migrations.md` |
 | Branch model (post-launch `main` / `stage-2`) | ADR 0019; `CICD_PLAN.md` §10 |
+| Connector lane, `product_role`, the powered hub, who pays | `STAGE_1_5_SPEC.md` §12 Addendum B; `STAGE_2_SPEC.md` §8.8 |
 
 ---
 
@@ -1926,3 +1961,245 @@ and a no-`$onUpdate` regression), `vendor-attestations.spec.ts` (8 cases: both f
 integration-grain vs claim-grain, counterparty survival, the no-op-no-audit rule),
 `product-pair.spec.ts` (5 aggregate cases including the branch-scoped date), `products.spec.ts` /
 `vendors.spec.ts` (detail surfaces), and `packages/shared` (`lastReviewedAt` validation).
+
+---
+
+## 14. Connector-powered edges are not attestable (AECI-705)
+
+> Numbered §14 for the same reason §13 is numbered §13 — §11/§12 were taken and §1.1's anchors are
+> what the Linear issues cite. AECI-705's own `**Spec section:** §2.4 (docs/STAGE_2_SPEC.md)` line
+> predates this doc; §2.4 defers the whole pillar here, and this is where the contract lives.
+>
+> **This is a review-and-gate pass over a shipped epic, not a rebuild.** No migration, no new
+> endpoint, no new binding or cron, no change to `computeAgreement` or to any public render path.
+
+### 14.1 The gap
+
+§2.1 derives attestation authority from `product_vendors` on the edge's `source_product_id` /
+`target_product_id`, and §4.2 makes `confirmed` require two *distinct* vendor identities. Both
+presume the edge has **two accountable endpoint vendors**. On a **connector-powered** edge it does
+not: Zapier, Workato or Agave built the plumbing, the connector holds no attestation seat, and the
+endpoint vendor's honest answer is "not ours". `STAGE_2_SPEC.md` §8.8(5) records the same gap from
+the commercial side and names this issue as its owner.
+
+Opening the portal without a rule fails in two directions at once:
+
+- **False prompts.** `silent-counterparty` (§7.1) emails an endpoint vendor asking it to confirm a
+  Zapier connection it never wrote, and the tab's own summary line counts that claim as "waiting on
+  your confirmation".
+- **Rendered conflicts on true facts.** An endpoint vendor denying a real connector-powered edge
+  drops the claim from the product-detail direction column (`isClaimRefuted`, §4.5) and fires the
+  `aeci-denied` ops signal against curation that was correct.
+
+**Acceptance:** no vendor is ever prompted to confirm or deny plumbing it did not build, and powered
+edges render the AECi-curated state unchanged.
+
+### 14.2 The predicate — a union, and why neither half alone
+
+```ts
+// apps/api/src/lib/connector-powered.ts
+isConnectorPoweredEdge({ poweredByProductId, mechanismKind })
+  === (poweredByProductId !== null || mechanismKind === 'iPaaS')
+```
+
+Two columns describe connector delivery and **nothing cross-validates them**:
+`integrations.mechanism_kind` is a property of the **edge**, `products.product_role` a property of
+the **product**, and `powered_by_product_id` is the only link between them. Measured against
+**production D1 on 2026-08-31** (946 edges):
+
+| predicate | edges | share |
+|---|---|---|
+| `powered_by_product_id IS NOT NULL` | 79 | 8.4% |
+| `mechanism_kind = 'iPaaS'` | 114 | 12.1% |
+| both | 61 | 6.4% |
+| **union — the rule** | **132** | **14.0%** |
+
+- **53 edges are `iPaaS` with a NULL FK** — Zapier (23), Workato, n8n, Make, Boomi, Trimble
+  AppXchange. The FK is NULL because the review app only sends `poweredByProduct` once the connector
+  is itself a promoted product, and these are not. **AECI-706's sweep puts `backfillable` at 0**: the
+  gap is promotion coverage blocked on the `on_hold` connector decision, not a data defect any script
+  can repair. An FK-only gate — which is what AECI-705's scope line proposed — would therefore keep
+  prompting on exactly the edges where "we didn't build it" is least arguable, and would keep doing
+  it indefinitely.
+- **18 edges carry the FK but are typed `marketplace-app` (17) or `partner` (1).** All 79 FK targets
+  are `product_role` `connector` (77) or `hybrid` (2), so those are provably connector-powered
+  whatever the edge is typed. An `iPaaS`-only gate misses every one.
+
+**The union over-includes, deliberately.** Roughly ten edges are an endpoint vendor's own product
+built on an iPaaS (Autodesk's Forma Construction Connect on Workato); those vendors lose an
+attestation they could legitimately have made. That is the accepted direction: over-inclusion costs
+coverage, under-inclusion breaks the acceptance criterion. It is the same fail-safe choice §4.5 made
+when it resolved a self-contradicting voter to `unverified` rather than guessing.
+
+**There is no SQL form of the predicate, and that is deliberate.** Every caller already holds the
+integration row, so nothing filters *on* it in a `WHERE`. Two forms of one rule is how the direction
+helpers drifted once already (`STAGE_1_5_SPEC.md` §7.1), and a SQL form would invite folding this
+into `ownedEndpointJoin` — which is the exact predicate the AECI-627 freshness cursor must match
+(`STAGE_2_REALTIME_SPEC.md` §2.2). **Ownership and attestability are separate questions and stay
+separate.**
+
+### 14.3 The write gate
+
+`AttestationAuthority` (§2.3) gains `poweredByProductId` / `mechanismKind`, carried for the same
+reason the two endpoint ids and `maintainedBy` already are: every §5 caller needs them immediately,
+and re-reading the integration row would be a second D1 hop on the Worker.
+
+`assertAttestableEdge(authority)` in `routes/vendor-attestations.ts` throws **403 `FORBIDDEN`**:
+
+| Endpoint | Gated? |
+|---|---|
+| `POST /api/vendor/claims` | **yes** |
+| `PUT /api/vendor/claims/:claimId/attestation` | **yes** |
+| `DELETE /api/vendor/claims/:claimId/attestation` | **no — see below** |
+| `GET /api/vendor/integrations` | no; rows are flagged, not filtered (§14.5) |
+
+Three properties of that table are load-bearing.
+
+1. **403, not the 404 §2.1 returns.** The non-disclosure rule exists so a vendor cannot probe for
+   another vendor's integration — but by the time this runs the caller has already proven it owns an
+   endpoint, and powered-ness is public on the pair page. There is nothing left to conceal, and a 404
+   would be a lie the caller can disprove by loading its own page. It reuses the existing `FORBIDDEN`
+   code rather than minting a new one: the portal already knows from `attestable: false`, so the 403
+   is a backstop for direct API callers and a new code would cost an `API_CONTRACTS.md` §4 row for no
+   reader.
+2. **The order is authority → 404, powered → 403, verified → 403.** Reversed, an unverified vendor on
+   a powered edge is told to get verified in order to author — a promise verification will never
+   keep, because the edge stays closed to it afterwards. The copy points at the connector and never
+   at verification, ranking or placement (§5.2).
+3. **`DELETE` stays open.** An edge can *become* powered after a vendor has attested: promote sets
+   `powered_by_product_id` late, and AECI-706's `backfill.sh` writes it onto rows that already exist.
+   Gating retract would trap a vendor holding a position it can no longer withdraw, which is a worse
+   failure than the one the gate prevents. **Withdrawing is always allowed; only taking a new
+   position is not.**
+
+### 14.4 The prompt gate — one filter, at the registry
+
+`loadDetectorClaims` (§7) hydrates the two columns, and `runAttestationDetectors` drops every
+**vendor-addressed** finding on a powered edge:
+
+```
+drop when  finding.vendorId !== null && poweredEdges.has(finding.integrationId)
+```
+
+One post-filter at the registry rather than four edits inside four detectors. It is a literal
+transcription of the acceptance criterion, any detector added later inherits it without anyone
+remembering to, and the property is checkable by reading one function.
+
+**`vendorId === null` means AECi ops, and those findings survive on purpose.** `aeci-denied` is
+ops-routed by definition (§7.1) and `open-conflict` raises an ops finding alongside its two vendor
+nudges. Those are AECi's correction signal on its *own* curation, not a nudge to someone who built
+nothing — suppressing them would hide precisely the case an operator needs to see, which is a vendor
+disputing an edge that became powered after it attested.
+
+The filter runs **inside** the registry's `try`, so the per-detector gauge
+(`aeci.attestation.detector`, `docs/OBSERVABILITY.md`) reports what is actually sent rather than what
+was found. `attestation-notify.ts`, the email templates and the §7.3 ledger need no change at all —
+they act on findings.
+
+### 14.5 The portal — read-only, not hidden
+
+`VendorIntegrationSchema` gains `attestable: z.boolean().default(true)` and
+`powered_by: ProductLinkSchema.nullable().default(null)`. Powered rows stay in
+`GET /api/vendor/integrations`; the card renders read-only with one line naming the connector.
+
+- **Hiding was rejected on three grounds**, in order of weight: filtering would change the list's
+  scoping predicate and force a matching edit to the `/api/vendor/updates` `integrations` cursor,
+  which — with no RLS behind `/api/vendor/*` — *is* the authorization boundary; the vendor's own
+  public pair page still shows the edge, so a hole in the portal reads as data loss; and §5.4 already
+  set the precedent for unverified vendors ("renders read-only and explains … rather than 403-ing a
+  vendor out of its own data").
+- **The server computes `attestable`; the client never re-derives it.** The union is non-obvious, and
+  a browser-side copy would drift and show controls that collect a 403.
+- **`powered_by` is a `ProductLink`, not a raw id** (§4.5, "attribution is a display concern"). It is
+  `null` on 53 of the 132 production edges, where the copy falls back to the free-text
+  `mechanism_name` — that fallback is the majority path, not an edge case.
+- **`.default(true)`, not `false`.** The SSR and API Workers deploy per-commit but not atomically
+  (the same reason `sync_headline.single_source` carries `.default(0)`, §4.5). `true` is what an
+  older API implies, so the skew window degrades to pre-AECI-705 behaviour instead of blanking the
+  tab; the write is refused server-side regardless.
+- **The "waiting on your confirmation" count excludes powered edges** while the total does not. The
+  total is what is *readable*; only an attestable edge can be waiting on anyone. That phrase is the
+  in-portal half of the prompt this issue forbids.
+- **The per-card explanation is silent when the vendor is merely unverified.** The section already
+  states that reason once, above the list; a second per-card reason would read as two separate
+  problems. The card answers only the question the section cannot: why *this* integration stays
+  read-only even after verification.
+
+### 14.6 What deliberately did NOT change
+
+- **`computeAgreement` and every public render path.** Powered edges keep whatever attestations exist
+  — which is none, anywhere, today — and render exactly as they do now. A connector concept inside a
+  claim-grain engine would leak an edge-level column into shared code for no reader.
+- **`ownedEndpointJoin` and the `/api/vendor/updates` `integrations` cursor.** Unchanged by
+  construction, because the list is not filtered. **Accepted consequence:** the cursor keys off
+  `claims.updated_at` ∪ `attestations.updated_at`, so a promote that flips `powered_by_product_id`
+  moves neither and an open tab keeps offering the controls until reload. The write is still refused
+  server-side; only the affordance is stale. Widening the cursor to notice it would mean editing the
+  authorization boundary, which is the trade §14.5 already declined.
+- **`vendor.authz-matrix.spec.ts` cells.** That matrix is role × endpoint; this gate is
+  resource-scoped, so it adds no cell. The powered variants of "non-owner still gets 404" and "the
+  unverified vendor gets the *connector* 403" live in `vendor-attestations.spec.ts`, where the
+  fixtures can make an edge powered.
+- **`attestation.author` remains a declared capability with no server-side consumer**
+  (`STAGE_2_REALTIME_SPEC.md` §6.1). This issue does not promote it.
+
+### 14.7 Out of scope — the connector attestation seat
+
+A `powered_by`-vendor attestation seat is **explicitly future work**, recorded in §11 and owned by
+**AECI-704** / `STAGE_2_SPEC.md` §8.8(2). Two constraints bind whoever builds it: `vendors.verified`
+mirrors off `vendor_entitlements.status`, not `tier`, so "a seat but no badge" is not expressible
+through the entitlement table as built; and a per-edge operator override (for the ~10 vendor-built
+iPaaS edges §14.2 over-includes) is a separate, untracked opportunity, not part of that seat.
+
+### 14.8 Acceptance
+
+- The union predicate has one implementation, unit-tested across the full FK × `mechanism_kind`
+  truth table including the nullable kind.
+- `POST` and `PUT` answer 403 on a powered edge by **either** signal; `DELETE` still answers 204 on
+  an edge that became powered after the attestation.
+- A non-owning vendor on a powered edge still gets a flat 404, indistinguishable from a resource that
+  does not exist.
+- An unverified vendor on a powered edge gets the **connector** 403, not the verified one.
+- No vendor-addressed detector finding survives on a powered edge, for any of the three vendor
+  detectors; the `aeci-denied` and `open-conflict` **ops** findings do.
+- The portal renders a powered card with no attestation control and no add-claim form, names the
+  connector (or falls back to `mechanism_name`), and excludes its claims from the awaiting count —
+  while the direct cards beside it stay fully writable.
+
+### 14.9 As built (AECI-705 — 2026-08-31)
+
+Shipped on `stage-2` with **no migration**. New module `apps/api/src/lib/connector-powered.ts`
+(the predicate and the census that justifies it); `AttestationAuthority` widened in
+`lib/attestation-authority.ts`; `assertAttestableEdge` plus the two response fields in
+`routes/vendor-attestations.ts`; the registry filter in `lib/attestation-detectors.ts`; the wire
+fields in `packages/shared/src/api/vendor-attestations.ts`; and the read-only branch in
+`apps/web/src/app/vendor/components/vendor-integration-card.ts` +
+`vendor-integrations-section.ts`.
+
+Notes worth keeping:
+
+- **Production held 0 non-`aeci` attestations at merge** (1,697 claims / 1,697 attestations), so the
+  gate is **purely prospective**: no backfill, no retraction sweep, no render migration. The volume
+  it suppresses is **179 claims across 67 edges and 41 distinct vendors**, every one of which has a
+  `product_vendors` row on an endpoint — so all 179 would have become live prompts on the day the
+  portal opened.
+- **The route-spec fixtures make an edge powered by each signal separately**, and the `fk` case
+  deliberately sets a *non*-`iPaaS` mechanism alongside the FK. Setting both signals together would
+  let the tests pass against either half of the union and prove nothing about the union itself.
+- **The detector tests assert on `runAttestationDetectors`, never on a detector directly.** Calling a
+  detector in isolation bypasses the gate — which is exactly the property that lets the ops findings
+  survive it — so a direct-call test would be asserting the wrong thing.
+- **`toEqual` on `AttestationAuthority` broke in two places** in `attestation-authority.spec.ts` when
+  the interface widened. That is the assertion doing its job: the shape is part of the seam's
+  contract, and two more fields on it is a change a reader should see.
+
+**Test coverage:** `lib/connector-powered.spec.ts` (5 — the truth table, both real production
+populations, the nullable kind); `lib/attestation-detectors.spec.ts` (+6 — both signals on
+silent-counterparty, the open-conflict ops survivor, the `aeci-denied` survivor, stale-version, and a
+direct edge left alone); `routes/vendor-attestations.spec.ts` (+9 — POST and PUT 403 by both signals,
+the DELETE carve-out, the gate order against an unverified vendor, the non-owner 404, and the two
+list shapes); `packages/shared/src/api/vendor-attestations.spec.ts` (+2 — the fields and their
+skew-window defaults); `vendor-integrations-section.component.spec.ts` (+6 — read-only card, both
+copy fallbacks, the neighbouring direct cards still writable, and the awaiting count). Suites green
+at merge: `apps/api` 123 files / 2,335 tests, `packages/shared` 34 / 639, `apps/web` 155 / 1,632
+under `ng test` plus 45 / 773 under plain Vitest.

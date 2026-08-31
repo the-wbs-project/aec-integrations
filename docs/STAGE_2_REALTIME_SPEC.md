@@ -155,7 +155,23 @@ Every value is an **ISO-8601 string or `null`**; `null` means *this scope has no
 | `profile` | `vendors.updated_at` for the session vendor (also moves on the `verified` mirror flip, since the mirror is written in the same batch as the entitlement — `STAGE_2_PAID_TIERS_SPEC.md` §2.1) |
 | `entitlement` | `MAX(vendor_entitlements.updated_at)` for the vendor (`vendor_id` is UNIQUE → ≤1 row, so the `MAX` is a formality that keeps the query shape uniform) |
 | `products` | `MAX(products.updated_at)` over `product_vendors.vendor_id = ?` — the shared `ownedProductIds(db, vendorId)` subquery (`apps/api/src/routes/vendor-shared.ts:137`) |
-| `integrations` | `MAX` over `claims.updated_at` ∪ `attestations.updated_at` for integrations whose `source_product_id` **or** `target_product_id` is in the owned set — the shared `ownedEndpointJoin(vendorId)` predicate (`apps/api/src/lib/attestation-authority.ts:127`), which is also what `resolveClaimAuthority` and `createListVendorIntegrationsHandler` join on |
+| `integrations` | `MAX` over `claims.updated_at` ∪ `attestations.updated_at` for integrations whose `source_product_id` **or** `target_product_id` is in the owned set — the shared `ownedEndpointJoin(vendorId)` predicate (`apps/api/src/lib/attestation-authority.ts`), which is also what `resolveClaimAuthority` and `createListVendorIntegrationsHandler` join on |
+
+> **AECI-705 left this predicate deliberately alone (2026-08-31).** The connector gate
+> (`STAGE_2_ATTESTATIONS_SPEC.md` §14) makes ~14% of edges non-attestable, and the obvious
+> implementation — filter them out of `GET /api/vendor/integrations` — would have forced a matching
+> narrowing here. That was the decisive argument against filtering: behind `/api/vendor/*` there is
+> no RLS, so this `WHERE` clause **is** the authorization, and it is the highest-risk edit available
+> on this surface. Powered edges are therefore **flagged, not filtered** (`attestable: false`), the
+> list's scoping predicate is byte-identical to before, and the §2.2 invariant holds with no change.
+>
+> **One accepted consequence.** `attestable` is derived from `integrations.powered_by_product_id` /
+> `mechanism_kind`, and neither moves `claims.updated_at` or `attestations.updated_at`. So a promote
+> that flips an edge to powered does **not** move this cursor, and an open tab keeps offering the
+> controls until it reloads. The write is still refused server-side with a 403 — only the affordance
+> is stale, which is the cheap half of the failure. Widening the cursor to notice it would mean
+> touching the authorization boundary for a cosmetic gain, which is the trade the paragraph above
+> already declines.
 | `notifications` | `MAX(audit_log.created_at)` under the **exact** predicate the list endpoint uses — `vendorNotificationLedgerWhere(vendorId)` (`apps/api/src/routes/vendor-notifications.ts:83`): `action = 'notification.sent'` + the 90-day window + `json_extract(metadata, '$.vendorId') = ?` |
 | `requests` | `MAX(COALESCE(resolved_at, created_at))` under the **exact** predicate `GET /api/vendor/me` uses — `vendorRequestsWhere(vendorId, ownedProductIds(...))` (`apps/api/src/routes/vendor-shared.ts:155`): requests targeting the vendor itself, plus those targeting any product it owns. `COALESCE` because **`vendor_requests` has no `updated_at`** — a resolution is the only post-creation mutation that matters here |
 

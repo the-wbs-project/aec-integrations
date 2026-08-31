@@ -55,6 +55,9 @@ import { VendorClaimLane } from './vendor-claim-lane';
             <span i18n="@@vendor.attest.ownsBoth">You own both sides of this integration</span>
           }
         </p>
+        @if (connectorNotice(); as notice) {
+          <p class="mt-2 max-w-prose text-xs text-(--text-secondary)">{{ notice }}</p>
+        }
       </header>
 
       @if (pivotNotice(); as message) {
@@ -84,7 +87,7 @@ import { VendorClaimLane } from './vendor-claim-lane';
               [otherProductName]="integration().other_product.name"
               [contextProductId]="integration().context_product.id"
               [vendorName]="vendorName()"
-              [canWrite]="canWrite()"
+              [canWrite]="canAttest()"
               [versions]="versions()"
               [highlighted]="highlightClaimId() === claim.id"
               (changed)="onClaimChanged($event)"
@@ -94,7 +97,7 @@ import { VendorClaimLane } from './vendor-claim-lane';
         </ul>
       }
 
-      @if (canWrite()) {
+      @if (canAttest()) {
         <aec-vendor-add-claim-form
           [integrationId]="integration().id"
           [contextProductId]="integration().context_product.id"
@@ -129,6 +132,40 @@ export class VendorIntegrationCard {
   protected readonly pivotNotice = signal<string | null>(null);
 
   protected readonly ownsBothEndpoints = computed(() => this.integration().slots.length === 2);
+
+  /**
+   * Whether this card may author at all: the vendor-level Verified capability
+   * AND this edge being attestable (AECI-705 / §14).
+   *
+   * `attestable` is read straight off the wire and never re-derived here. The
+   * server's predicate is a union over two columns that nothing cross-validates
+   * (`apps/api/src/lib/connector-powered.ts`), so a browser-side copy would drift
+   * and would show controls that collect a 403.
+   */
+  protected readonly canAttest = computed(() => this.canWrite() && this.integration().attestable);
+
+  /**
+   * Why this card is read-only when the vendor is otherwise able to write.
+   *
+   * Deliberately silent when the vendor cannot write for the ORDINARY reason
+   * (unverified): the section already states that once, above the list, and
+   * repeating a second explanation per card would read as two separate problems.
+   * This line answers only the question the section cannot: why THIS integration
+   * stays read-only even after verification.
+   *
+   * Names the connector when it is a promoted product, falls back to the
+   * free-text `mechanism_name`, and stays generic otherwise. On production that
+   * fallback carries 53 of the 132 powered edges, so it is the common path, not
+   * an edge case.
+   */
+  protected readonly connectorNotice = computed(() => {
+    const integration = this.integration();
+    if (integration.attestable || !this.canWrite()) return null;
+    const connector = integration.powered_by?.name ?? integration.mechanism_name;
+    return connector
+      ? $localize`:@@vendor.attest.card.connector.named:Delivered through ${connector}:connector:. AEC Integrations maintains these data flows, so neither product vendor confirms them.`
+      : $localize`:@@vendor.attest.card.connector:Delivered through a connector. AEC Integrations maintains these data flows, so neither product vendor confirms them.`;
+  });
 
   protected readonly mechanismLabel = computed(() => {
     const { mechanism_kind, mechanism_name } = this.integration();
