@@ -295,9 +295,24 @@ export const integrations = sqliteTable(
     index('integrations_powered_by_idx')
       .on(t.poweredByProductId)
       .where(sql`"powered_by_product_id" IS NOT NULL`),
+    // AECI-721 adds `integrator` (AECI-698's replacement for `partner`: an SI or
+    // consultancy built and maintains it, neither endpoint vendor did). A CHECK
+    // change on D1 is a destructive table recreate, so this is the ONE migration
+    // that gets to touch this constraint for now.
+    //
+    // `iPaaS` and `partner` both STAY, deliberately, against this issue's original
+    // scope. 53 production edges are `iPaaS` with a NULL `powered_by` — their
+    // connector is unpromoted and AECI-700 parks Zapier and Workato permanently —
+    // so they cannot migrate (`connector_product_id` is NOT NULL) and they are 53
+    // of the 132 edges `isConnectorPoweredEdge` gates; nulling their kind would
+    // silently re-open AECI-705's attestation prompts on every one. `partner` is
+    // the dumping ground AECI-698 exists to empty one row at a time upstream, under
+    // its rubric — the app DB re-keying 55 rows wholesale would invent exactly the
+    // classification that rubric exists to prevent. Each retirement is its own
+    // later recreate.
     check(
       'integrations_mechanism_kind_check',
-      sql`"mechanism_kind" IN ('native', 'iPaaS', 'marketplace-app', 'api', 'webhook', 'partner')`,
+      sql`"mechanism_kind" IN ('native', 'iPaaS', 'marketplace-app', 'api', 'webhook', 'partner', 'integrator')`,
     ),
     check('integrations_direction_check', sql`"direction" IN ('one-way', 'bidirectional')`),
     check('integrations_distinct_endpoints_check', sql`"source_product_id" <> "target_product_id"`),
@@ -453,11 +468,29 @@ export const productVersions = sqliteTable(
 // STAGE_2_ATTESTATIONS_SPEC.md §2 / AECI-603)
 // ===========================================================================
 
-// A claim asserts a `data_object` flows in a `direction` through one integration
-// (mechanism) row — the integration row is the anchor (§3.1, ADR 0018). `direction`
-// is stored relative to the row's own endpoints (A = source_product, B = target_product,
-// §3.2). The unique `(integration_id, data_object_id, direction)` index is the claim's
-// immutable identity AND the promote-ingest upsert target (§6.2).
+// A claim asserts a `data_object` flows in a `direction` through one MECHANISM row —
+// the mechanism row is the anchor (§3.1, ADR 0018). `direction` is stored relative to
+// the row's own endpoints (A = source_product, B = target_product, §3.2). The unique
+// `(anchor_id, data_object_id, direction)` index is the claim's immutable identity AND
+// the promote-ingest upsert target (§6.2).
+//
+// ── THE ANCHOR IS POLYMORPHIC SINCE AECI-721 (ADR 0018, amended) ────────────────
+// "The mechanism row" now means a row of EITHER delivered-tier table: `integrations`
+// for an accountable-party edge, `connector_evidenced_pairs` for one an iPaaS
+// delivers (`STAGE_1_5_SPEC.md` §13.1). Both anchor columns are nullable, exactly one
+// is set (`claims_anchor_check`), and `anchor_id` is a STORED generated column holding
+// whichever it is.
+//
+// The generated column is load-bearing, not sugar. Put a nullable `integration_id`
+// straight into `claims_identity_key` and the index stops working for the moved rows:
+// SQLite treats NULLs as DISTINCT, so two claims differing only in a NULL anchor would
+// both be accepted and the identity that ADR 0018 calls immutable would silently stop
+// being unique. Coalescing into one non-null column before indexing is what preserves it.
+//
+// The migration passes each moved edge's `integrations.id` VERBATIM as the evidenced
+// pair's id, so `anchor_id` keeps the same value across the move — 85 production claims
+// re-home without their stored identity changing, and every existing `audit_log` row,
+// PostHog log line and attestation keeps resolving.
 //
 // `origin` + `created_by_vendor_id` are the Stage 2 provenance pair
 // (STAGE_2_ATTESTATIONS_SPEC.md §2.2). They exist for WRITE ARBITRATION — promote
@@ -471,9 +504,15 @@ export const claims = sqliteTable(
   'claims',
   {
     id: uuidPk(),
-    integrationId: text('integration_id')
-      .notNull()
-      .references(() => integrations.id, { onDelete: 'cascade' }),
+    // Nullable since AECI-721 — see the header. Cascade is retained on BOTH anchors:
+    // `retract-product.ts` and the AECI-627 freshness cursor lean on it.
+    integrationId: text('integration_id').references(() => integrations.id, {
+      onDelete: 'cascade',
+    }),
+    connectorEvidencedPairId: text('connector_evidenced_pair_id').references(
+      () => connectorEvidencedPairs.id,
+      { onDelete: 'cascade' },
+    ),
     dataObjectId: text('data_object_id')
       .notNull()
       .references(() => taxonomyDataObjects.id, { onDelete: 'restrict' }),
@@ -484,16 +523,38 @@ export const claims = sqliteTable(
     createdByVendorId: text('created_by_vendor_id').references(() => vendors.id, {
       onDelete: 'set null',
     }),
+    /**
+     * Whichever anchor is set — the claim's identity column (see the header).
+     * Generated rather than written so it can never disagree with the two FKs it
+     * derives from; there is no code path that could set it wrongly.
+     */
+    anchorId: text('anchor_id').generatedAlwaysAs(
+      sql`coalesce("integration_id", "connector_evidenced_pair_id")`,
+      { mode: 'stored' },
+    ),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
   (t) => [
-    uniqueIndex('claims_identity_key').on(t.integrationId, t.dataObjectId, t.direction),
-    // Pair-page read by data object (§8). Integration-id lookups are already served by
-    // the leftmost prefix of `claims_identity_key`, so no separate integration index.
+    // STORED, not virtual: a virtual generated column cannot be the leading column of a
+    // usable index on every SQLite build, and this one carries the identity key.
+    // It is also why `claims` can only ever be RECREATED, never `ALTER TABLE ADD COLUMN`ed
+    // into this shape — SQLite refuses to add a STORED generated column.
+    uniqueIndex('claims_identity_key').on(t.anchorId, t.dataObjectId, t.direction),
+    // Pair-page read by data object (§8). Anchor lookups are already served by the
+    // leftmost prefix of `claims_identity_key`, so no separate anchor index.
     index('claims_data_object_idx').on(t.dataObjectId),
     check('claims_direction_check', sql`"direction" IN ('a_to_b', 'b_to_a', 'both')`),
     check('claims_origin_check', sql`"origin" IN ('aeci', 'vendor')`),
+    // Exactly one anchor. Unlike the `origin`/`created_by_vendor_id` biconditional next
+    // door — and unlike `connector_stub_mappings`' two-column rule — this one IS a DB
+    // CHECK, because neither anchor is ever nulled by an `ON DELETE SET NULL`: both
+    // cascade, so the row disappears with its anchor rather than being re-evaluated
+    // against it. Nothing can make this CHECK fail an unrelated delete.
+    check(
+      'claims_anchor_check',
+      sql`("integration_id" IS NOT NULL) <> ("connector_evidenced_pair_id" IS NOT NULL)`,
+    ),
   ],
 );
 
@@ -2053,6 +2114,13 @@ export const vendorsRelations = relations(vendors, ({ many }) => ({
   // reachable from two different tables here, same as the built-by disambiguation above.
   createdClaims: many(claims, { relationName: 'ClaimCreatedByVendor' }),
   attestationsMade: many(attestations, { relationName: 'AttestationAttestedByVendor' }),
+  // The ~20-row accountable residue §13.2 records: an evidenced pair may name a
+  // builder (AnyWare's two Ramp↔Sage edges are Cherry Bekaert's). Inverse of
+  // `connectorEvidencedPairs.builtByVendor`, and the read side of the vendor
+  // `integration_count` rule, which counts BOTH tables after AECI-721.
+  builtEvidencedPairs: many(connectorEvidencedPairs, {
+    relationName: 'EvidencedPairBuiltByVendor',
+  }),
 }));
 
 export const productsRelations = relations(products, ({ many }) => ({
@@ -2071,7 +2139,59 @@ export const productsRelations = relations(products, ({ many }) => ({
   // Addendum B) — the inverse of `integrations.poweredByProduct`, so the
   // product detail query can hydrate a connector's edges.
   poweredIntegrations: many(integrations, { relationName: 'IntegrationPoweredByProduct' }),
+  // ── Connector-evidenced pairs (AECI-721) ──────────────────────────────────
+  // The three inverse entries the §"connector lane" note above reserved for
+  // "whichever issue builds the first read config". A product appears in this
+  // table in one of two unrelated capacities and they must not be conflated:
+  // as the CONNECTOR that delivers a pair, or as one of the two ENDPOINTS.
+  //
+  // The endpoint side needs two relations rather than one because the pair is
+  // canonicalised (`product_a_id < product_b_id`), so which slot a product
+  // occupies carries no meaning — a reader wanting "every evidenced pair this
+  // product is an endpoint of" must union both, exactly as it unions
+  // `sourceIntegrations` + `targetIntegrations` today.
+  evidencedPairsAsConnector: many(connectorEvidencedPairs, {
+    relationName: 'EvidencedPairConnector',
+  }),
+  evidencedPairsAsA: many(connectorEvidencedPairs, { relationName: 'EvidencedPairProductA' }),
+  evidencedPairsAsB: many(connectorEvidencedPairs, { relationName: 'EvidencedPairProductB' }),
 }));
+
+/**
+ * AECI-721 — the first read config over the connector lane, which is what the
+ * §"connector lane" note on the `schema` export makes the trigger for adding
+ * relations. Endpoints and vendor only; `claims` joins here in AECI-721 PR-B,
+ * once `claims.connector_evidenced_pair_id` exists.
+ */
+export const connectorEvidencedPairsRelations = relations(
+  connectorEvidencedPairs,
+  ({ one, many }) => ({
+    connectorProduct: one(products, {
+      fields: [connectorEvidencedPairs.connectorProductId],
+      references: [products.id],
+      relationName: 'EvidencedPairConnector',
+    }),
+    productA: one(products, {
+      fields: [connectorEvidencedPairs.productAId],
+      references: [products.id],
+      relationName: 'EvidencedPairProductA',
+    }),
+    productB: one(products, {
+      fields: [connectorEvidencedPairs.productBId],
+      references: [products.id],
+      relationName: 'EvidencedPairProductB',
+    }),
+    builtByVendor: one(vendors, {
+      fields: [connectorEvidencedPairs.builtByVendorId],
+      references: [vendors.id],
+      relationName: 'EvidencedPairBuiltByVendor',
+    }),
+    // The claims anchored HERE rather than on `integrations` (AECI-721 PR-B). Same
+    // relation `integrations` has had since Stage 1.5 §6.1 — the anchor is
+    // polymorphic, so both tables carry it.
+    claims: many(claims),
+  }),
+);
 
 export const integrationsRelations = relations(integrations, ({ one, many }) => ({
   sourceProduct: one(products, {
@@ -2274,14 +2394,16 @@ export const schema = {
   // Every other ops/ledger table here (auditLog, pageViews, statsCache, vendorRequests)
   // has no relations entry either.
   //
-  // The six `connector*` tables (AECI-714) also have none, but for a weaker reason —
-  // deferral, not prohibition. Nothing reads them until AECI-715 / 716 / 722, and the
-  // sync's own bounded pre-reads use `db.select()`. Whichever issue builds the first
-  // read config adds the relations and the inverse entries on `productsRelations`.
+  // Five of the six `connector*` tables (AECI-714) also have none, but for a weaker
+  // reason — deferral, not prohibition. Nothing reads them until AECI-715 / 716 / 722,
+  // and the sync's own bounded pre-reads use `db.select()`. AECI-721 built the first
+  // read config, so `connectorEvidencedPairs` now HAS relations (plus the inverse
+  // entries on `productsRelations` / `vendorsRelations`); the other five still do not.
   // relations
   vendorsRelations,
   productsRelations,
   integrationsRelations,
+  connectorEvidencedPairsRelations,
   taxonomyCategoriesRelations,
   taxonomyAudiencesRelations,
   taxonomyPhasesRelations,

@@ -44,7 +44,7 @@ import {
   type AttestationDetector,
   type NotificationProductRef,
 } from '@aeci/shared';
-import { and, inArray, isNull, ne } from 'drizzle-orm';
+import { and, inArray, isNotNull, isNull, ne } from 'drizzle-orm';
 
 import {
   vendorsForIntegrationSlots,
@@ -134,15 +134,26 @@ export interface DetectorResult {
  * `liveAttestationsWhere` (not a fresh `isNull(...)`) is the §2.5/§4 predicate:
  * retracted rows neither vote nor render, and there is one definition of that.
  */
-export function loadDetectorClaims(db: Db) {
+export async function loadDetectorClaims(db: Db) {
   const vendorAttestedClaimIds = db
     .select({ claimId: attestations.claimId })
     .from(attestations)
     .where(and(isNull(attestations.retractedAt), ne(attestations.source, 'aeci')));
 
-  return db.query.claims.findMany({
+  const rows = await db.query.claims.findMany({
     columns: { id: true, integrationId: true, direction: true, origin: true },
-    where: inArray(claims.id, vendorAttestedClaimIds),
+    // `integration_id IS NOT NULL` scopes this to claims anchored on `integrations`
+    // (AECI-721 made the anchor polymorphic — `STAGE_1_5_SPEC.md` §13.1). It excludes
+    // nothing reachable: every detector keys off a live NON-`aeci` attestation, and a
+    // vendor cannot attest to a claim on a connector-evidenced pair — the §14 gate
+    // answers 403 on connector-delivered edges, and an evidenced pair is
+    // connector-delivered by construction. So the intersection is empty by
+    // definition, not by filtering.
+    //
+    // Written explicitly rather than left to the inner join it would otherwise
+    // become, so the exclusion is a stated decision a reader can check, and so the
+    // narrowing below is honest rather than a cast.
+    where: and(inArray(claims.id, vendorAttestedClaimIds), isNotNull(claims.integrationId)),
     with: {
       dataObject: { columns: { slug: true, name: true } },
       integration: {
@@ -181,6 +192,17 @@ export function loadDetectorClaims(db: Db) {
       },
     },
   });
+
+  // The `where` above makes this total; the relational query builder cannot express
+  // that in the type, so narrow once here rather than at fourteen use sites.
+  return rows.filter(
+    (
+      row,
+    ): row is typeof row & {
+      integrationId: string;
+      integration: NonNullable<(typeof row)['integration']>;
+    } => row.integration !== null,
+  );
 }
 
 export type DetectorClaim = Awaited<ReturnType<typeof loadDetectorClaims>>[number];

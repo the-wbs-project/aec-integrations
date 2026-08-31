@@ -208,7 +208,10 @@ describe('claims / attestations spine (AECI-293)', () => {
     expect(row?.direction).toBe('a_to_b');
     expect(row?.dataObject.slug).toBe('rfis');
     expect(row?.dataObject.aliases).toEqual(['RFI']);
-    expect(row?.integration.id).toBe('i1');
+    expect(row?.integration?.id).toBe('i1');
+    // AECI-721: the anchor is polymorphic, so the relation is nullable. This claim
+    // is integration-anchored, so `anchor_id` mirrors `integration_id`.
+    expect(row?.anchorId).toBe('i1');
     expect(row?.attestations).toHaveLength(1);
     expect(row?.attestations[0]?.source).toBe('aeci');
     expect(row?.attestations[0]?.asserted).toBe(true);

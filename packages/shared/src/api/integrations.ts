@@ -11,6 +11,10 @@ import {
  * Integration mechanism enum. Mirrors the `mechanism_kind` column on the
  * `integrations` table (docs/DATABASE_SCHEMA.md §3) and stays in lockstep with
  * the directory editorial taxonomy in PRODUCT.md.
+ *
+ * `integrator` replaces `partner` (AECI-698); both are listed while the review app
+ * re-keys. A **connector-evidenced pair** carries no kind at all and serialises
+ * `mechanism_kind: null` — see `via` on `IntegrationListItemSchema`.
  */
 export const IntegrationMechanismKindSchema = z.enum([
   'native',
@@ -19,6 +23,7 @@ export const IntegrationMechanismKindSchema = z.enum([
   'api',
   'webhook',
   'partner',
+  'integrator',
 ]);
 
 export type IntegrationMechanismKind = z.infer<typeof IntegrationMechanismKindSchema>;
@@ -53,6 +58,13 @@ export type IntegrationSort = z.infer<typeof IntegrationSortSchema>;
  * `ProductDetail.integrations_as_source` / `integrations_as_target`. Source
  * and target products are hydrated as `ProductLink` (id + name + slug + logo)
  * per Phase 2 Spec §7.2.
+ *
+ * **Two storage tables, one shape (AECI-721).** A list item is either a row of
+ * `integrations` — an accountable-party edge — or a row of
+ * `connector_evidenced_pairs`, a delivered edge an iPaaS ships a listing for
+ * (`STAGE_1_5_SPEC.md` §13.1). `via` is what tells them apart, and the shape is
+ * deliberately common so the split is a sourcing question, not a rendering one
+ * (§13.3 is written source-agnostically for exactly this reason).
  */
 export const IntegrationListItemSchema = z.object({
   id: z.string().uuid(),
@@ -61,11 +73,26 @@ export const IntegrationListItemSchema = z.object({
   // sibling `direction`. An absent value surfaces as `null` and the UI renders
   // an empty state, rather than silently coercing to `'native'`. An out-of-enum
   // *non-null* value is a data-integrity violation the mapper throws on.
+  //
+  // ALWAYS `null` when `via` is set: `connector_evidenced_pairs` has no
+  // `mechanism_kind` column, because the lane answers "which mechanism". Read
+  // `via` for that, never a synthesised kind.
   mechanism_kind: IntegrationMechanismKindSchema.nullable(),
   mechanism_name: z.string().nullable(),
   direction: IntegrationDirectionSchema.nullable(),
   source: ProductLinkSchema,
   target: ProductLinkSchema,
+  /**
+   * The connector that delivers this edge — non-null **only** on a
+   * connector-evidenced pair, and the discriminant for which table the row came
+   * from (AECI-721 / §13.1's delivered tier).
+   *
+   * Distinct from `IntegrationDetail.powered_by_product`, which is the same fact
+   * about a row still living in `integrations`: a self-referential Convention-A
+   * edge (`powered_by` = one of its own endpoints, ~152 catalog-wide) stays put
+   * and keeps `powered_by_product` with `via: null`. Both may not be set at once.
+   */
+  via: ProductLinkSchema.nullable().default(null),
   created_at: z.string().datetime(),
   updated_at: z.string().datetime(),
 });

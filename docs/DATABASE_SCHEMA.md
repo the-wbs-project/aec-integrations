@@ -324,7 +324,7 @@ create table integrations (
   constraint source_target_differ check (source_product_id <> target_product_id),
 
   -- Mechanism
-  mechanism_kind text check (mechanism_kind in ('native', 'iPaaS', 'marketplace-app', 'api', 'webhook', 'partner')),
+  mechanism_kind text check (mechanism_kind in ('native', 'iPaaS', 'marketplace-app', 'api', 'webhook', 'partner', 'integrator')),
   mechanism_name text,
   direction text check (direction in ('one-way', 'bidirectional')),
 
@@ -485,26 +485,36 @@ The integration **claim spine** (AECI-293; `STAGE_1_5_SPEC.md` §3/§6.1). A *cl
 ```sql
 create table claims (
   id uuid primary key default gen_random_uuid(),
-  integration_id uuid not null references integrations(id) on delete cascade,
+  -- The anchor is POLYMORPHIC since AECI-721: exactly one of these two is set.
+  integration_id uuid references integrations(id) on delete cascade,
+  connector_evidenced_pair_id uuid references connector_evidenced_pairs(id) on delete cascade,
   data_object_id uuid not null references taxonomy_data_objects(id) on delete restrict,
   direction text not null check (direction in ('a_to_b', 'b_to_a', 'both')),
   origin text not null default 'aeci' check (origin in ('aeci', 'vendor')),
   created_by_vendor_id uuid references vendors(id) on delete set null,
+  anchor_id uuid generated always as
+    (coalesce(integration_id, connector_evidenced_pair_id)) stored,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  constraint claims_anchor_check
+    check ((integration_id is not null) <> (connector_evidenced_pair_id is not null))
 );
 
 -- Claim identity (§3.1) AND the promote-ingest upsert target (§6.2). Integration-id
 -- lookups ride the leftmost prefix of this unique index, so no separate index is needed.
-create unique index claims_identity_key on claims(integration_id, data_object_id, direction);
+create unique index claims_identity_key on claims(anchor_id, data_object_id, direction);
 create index claims_data_object_idx on claims(data_object_id);
 ```
 
 - **`direction`** is stored relative to the integration row's own endpoints (**A = `source_product_id`**, **B = `target_product_id`**; §3.2). This canonical value is never rewritten; the API translates it to a context-relative `inbound`/`outbound` view per pair page — outward for every read, and inward on `POST /api/vendor/claims`, which is the one path where a *caller* speaks the context frame. `claimDirectionForContext` / `claimDirectionFromContext` (`packages/shared/src/integration-context.ts`) are the two halves, and they are round-trip tested against each other.
 - **`direction` is part of claim identity**, so one integration can carry `rfis a_to_b`, `rfis b_to_a` and `rfis both` as three separate claims. Claims also anchor to the **mechanism row**, not the product pair (§3.1, ADR 0018) — two mechanisms moving the same `data_object` between the same two products are two independent claims, by design.
+- **The anchor is polymorphic (AECI-721), and `anchor_id` is why the identity still works.** "The mechanism row" now means a row of *either* delivered-tier table: `integrations` for an accountable-party edge, `connector_evidenced_pairs` for one an iPaaS delivers (`STAGE_1_5_SPEC.md` §13.1). Three properties make that safe:
+  - **A STORED generated column carries the identity index, not a nullable FK.** Put a nullable `integration_id` straight into `claims_identity_key` and it stops working for the moved rows: SQLite treats NULLs as **distinct**, so two claims differing only in a NULL anchor would both be accepted and an identity ADR 0018 calls immutable would silently stop being unique. Coalescing into one non-null column before indexing preserves it. It also means `claims` can only ever be **recreated** into this shape — SQLite refuses to `ALTER TABLE ADD COLUMN` a STORED generated column.
+  - **`claims_anchor_check` is a real DB CHECK**, unlike the `origin` / `created_by_vendor_id` biconditional next door and unlike `connector_stub_mappings`' two-column rule. Those are application-enforced because an `ON DELETE SET NULL` would re-evaluate them and make deleting an unrelated row fail. Here **both** anchors cascade, so a claim disappears with its anchor rather than being re-evaluated against it — nothing can make this CHECK fail a delete.
+  - **The migration preserved ids**, so re-homing changed no stored value. `0022` inserts each moved edge into `connector_evidenced_pairs` with its `integrations.id` verbatim, so all 85 production claims kept the same `anchor_id` — no unique violations, and every existing `audit_log` row, PostHog log line and attestation still resolves.
 - **`origin` is write arbitration, not a trust badge.** It exists so promote can replace AECi curation without touching vendor-created rows (`STAGE_2_ATTESTATIONS_SPEC.md` §3) and so AECi ops can see where a claim came from. A vendor-created claim renders through exactly the same computed agreement states as an AECi-seeded one — nothing reader-facing keys off `origin`. Every row that predates migration 1 backfilled to `'aeci'` via the column default, which is correct: they all came from promote.
 - **`origin = 'vendor'` ⟺ `created_by_vendor_id is not null`** is a two-column invariant enforced in **application code**, not by a DB CHECK — deliberately, so the rule lives in one place: `claimProvenance()` / `assertClaimProvenance()` in `apps/api/src/lib/attestation-authority.ts` (§2.2).
-- **Cascade/restrict/set-null.** Deleting an integration removes its claims; a `data_object` referenced by any claim cannot be deleted; deleting a **vendor** nulls `created_by_vendor_id` and leaves the claim standing for AECi to re-curate.
+- **Cascade/restrict/set-null.** Deleting an integration **or a connector-evidenced pair** removes its claims; a `data_object` referenced by any claim cannot be deleted; deleting a **vendor** nulls `created_by_vendor_id` and leaves the claim standing for AECi to re-curate.
 
 ### 5a.2 `attestations`
 
@@ -1370,7 +1380,7 @@ readable through the timeseries endpoint today (the stocks await §5.4/§5.5):
 | `accounts.sign_ins_new` | flow | `profiles.created_at` | measured |
 | `catalog.products_promoted` | stock | `products` where `promotion_status='promoted'` | not backfilled |
 | `catalog.vendors_promoted` | stock | `vendors` where `promotion_status='promoted'` | not backfilled |
-| `catalog.integrations_total` | stock | `integrations` | not backfilled |
+| `catalog.integrations_total` | stock | `integrations` **+ `connector_evidenced_pairs`** (AECI-721 — see below) | not backfilled, and **no backfill needed** |
 | `catalog.claims_total` | stock | `claims` | not backfilled |
 | `catalog.reviews_approved` | stock | `reviews` where `status='approved'` | not backfilled |
 | `accounts.profiles_total` | stock | `profiles` | not backfilled |
@@ -1379,6 +1389,19 @@ readable through the timeseries endpoint today (the stocks await §5.4/§5.5):
 | `audience.feedback_total` | stock | `feedback` | not backfilled |
 | `queue.reviews_pending` | stock | `reviews` where `status='pending'` | not backfilled |
 | `queue.requests_open` | stock | `vendor_requests` where `status='open'` | not backfilled |
+
+**`catalog.integrations_total` spans both delivered-tier tables, and that is what makes the
+AECI-721 migration invisible to this series.** `STAGE_1_5_SPEC.md` §13.5 flagged this producer as
+the one lockstep site whose damage "cannot be repaired after the fact": it is written once a day
+by cron, so an unadjusted migration would stamp a permanent, unexplained step-change into recorded
+history.
+
+It was resolved by making the expression `count(integrations) + count(connector_evidenced_pairs)`
+rather than by editing the series. The migration **moves** rows between two tables that are already
+summed and creates none, so the series is continuous across it — there is no step to annotate and
+no history to rewrite. That is the honest half of §13.5's "backfill or annotate deliberately": a
+retroactive edit to `metrics_daily` would have made the numbers look right by changing what we
+recorded, which is the opposite of what this table is for.
 
 Stocks are captured from day one but never reconstructed: a past *total* is
 unrecoverable (§4), so a cumulative sum of `*.created` events would be wrong
@@ -1486,8 +1509,9 @@ create unique index connector_catalogs_product_idx on connector_catalogs(connect
 
 - `connector_product_id` is **NOT NULL**. A catalogue whose connector platform is not promoted is
   reported in the sync's `skipped[]` rather than stored half-formed — the live case, since Zapier
-  and Workato are `promotion_status: on_hold` review-side (AECI-700). Whether an unpromoted
-  connector may ever be named is AECI-721's open question.
+  and Workato are `promotion_status: on_hold` review-side (AECI-700). **AECI-721 answered the
+  open question as NO** — an evidenced pair may not name an unpromoted connector either (§9a.6
+  "As built"), so those edges stay in `integrations` and keep `mechanism_kind = 'iPaaS'`.
 - `connector_authorship` matters because Zapier inverts what the rest of the lane assumes: its app
   vendors write the connectors, not Zapier. A reader defaulting to `platform` would attribute nine
   thousand connectors to the wrong party.
@@ -1686,9 +1710,28 @@ create index connector_pairs_stub_b_idx on connector_pairs(stub_b_id);
 ### 9a.6 `connector_evidenced_pairs`
 
 The **delivered** tier for connector-delivered edges (§13.1). The one table here with no
-review-side counterpart, and the destination AECI-721 migrates the ~326
-`integrations.powered_by_product_id` edges into. **AECI-714 creates it empty and nothing writes
-it** — the sync never emits a statement against it.
+review-side counterpart, and the destination AECI-721 migrates the connector-powered
+`integrations.powered_by_product_id` edges into. AECI-714 created it empty; **AECI-721 filled it**
+(migration `0022_powerful_killraven.sql`) and made `POST /api/promote` route new
+connector-powered edges here instead of into `integrations`. The connector-catalogue sync still
+never emits a statement against it — reachability and delivery stay separate lanes.
+
+**As built (AECI-721, 2026-08-31).** 19 production edges moved, not the ~326 this section
+originally anticipated: that figure is review-catalogue-side, and the prod gap is promotion
+coverage (AECI-730 reconciles it as 79 promoted + 62 connector-unpromoted + 184 never promoted).
+Three rules decided which rows moved:
+
+- **The routing key is the FK, not the kind**: `powered_by_product_id IS NOT NULL AND <> source
+  AND <> target`, regardless of `mechanism_kind`. §13.2 left the ~20-row `marketplace-app`-with-
+  `powered_by` residue open and AECI-721 settled it *into* this table — which is what
+  `built_by_vendor_id` was put here on day one to allow. 17 of the 19 are that residue.
+- **Convention-A self-references stayed** in `integrations` (60 prod rows — Aquifer 31, Kroo 29),
+  as `connector_evidenced_pairs_distinct_connector` requires.
+- **An edge whose connector is unpromoted stayed too** — `connector_product_id` is NOT NULL, and
+  AECI-700 parks Zapier and Workato permanently. 53 prod `iPaaS` rows are in that state. This is
+  the answer to the open question §9a.1 records: **no, an evidenced pair may not name an
+  unpromoted connector**, and the consequence is that those edges keep `mechanism_kind = 'iPaaS'`
+  — which is why `iPaaS` did NOT leave the `integrations` CHECK.
 
 ```sql
 create table connector_evidenced_pairs (

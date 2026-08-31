@@ -296,6 +296,14 @@ export function replicaNamesFor(env: AlgoliaEnv): string[] {
  * or unknown kind ranks last (`0`). String-keyed (not typed to the enum) so this
  * file imports nothing; `IntegrationMechanismKindSchema` in `./api/integrations`
  * remains the source of truth for the *set* of valid kinds.
+ *
+ * `integrator` (AECI-698 / AECI-721) ties `partner` at 1 ON PURPOSE. It REPLACES
+ * `partner` — an SI or consultancy built and maintains the edge, neither endpoint
+ * vendor did — so the upstream re-key of ~117 rows is a CLASSIFICATION change, and
+ * a classification-only migration must not silently re-rank the catalog
+ * (`STAGE_1_5_SPEC.md` §13.5's own principle). Tying also means no existing weight
+ * is renumbered, so no full reindex is forced for rank alone. Promoting
+ * `integrator` above `partner` later is a separate, deliberate decision.
  */
 export const MECHANISM_RANK: Readonly<Record<string, number>> = {
   native: 6,
@@ -304,7 +312,24 @@ export const MECHANISM_RANK: Readonly<Record<string, number>> = {
   api: 3,
   webhook: 2,
   partner: 1,
+  integrator: 1,
 };
+
+/**
+ * Ranking weight for a **connector-evidenced pair** — a delivered edge that lives in
+ * `connector_evidenced_pairs` rather than `integrations` (AECI-721 / §13.1's delivered
+ * tier). Those rows carry no `mechanism_kind` at all: the table has no such column,
+ * because once an edge is filed under the connector that delivers it, "which mechanism"
+ * is answered by the lane rather than by a value.
+ *
+ * Fixed at `4` — the weight `iPaaS` carries — rather than falling through
+ * `mechanismRank(null)` to `0`. Connector delivery is precisely what these rows ARE, so
+ * ranking them as unknown would be wrong twice over: it would drop every migrated edge
+ * to last place, and it would do so silently, as an artifact of an internal storage move.
+ * Prod effect is bounded and named: the 1 migrating `iPaaS` row is rank-neutral, and the
+ * 17 migrating `marketplace-app` rows demote 5 → 4 (`SEARCH_RANKING.md` §4).
+ */
+export const CONNECTOR_EVIDENCED_MECHANISM_RANK = 4;
 
 /** Ranking weight for a `mechanism_kind`; `null`/`undefined`/unknown → `0`. */
 export function mechanismRank(kind: string | null | undefined): number {
