@@ -67,7 +67,8 @@ Every Stage 1.5 issue opens with `**Spec section:** §X.Y (docs/STAGE_1_5_SPEC.m
 | §12.7 | — | Catalog-scope note under both populated integration lists |
 | §13 | AECI-708 | Addendum C — connector presentation contract (this addendum) |
 | §13.2 / §13.3 | AECI-713 | Endpoint Integrations split — direct lane + "Via {connector}" groups |
-| §13.4 | AECI-713 | Contract additions the split needs (`powered_by` on the detail embed; self-exclusion) |
+| §13.4(1) | AECI-713 | Contract addition the split needs (`powered_by` on the product-detail embed) |
+| §13.4(2) | AECI-707 *(done)* | Powered-section self-exclusion — shipped with the role-varied template, because 707 promotes that section to the top of a connector page |
 | §13.5 | AECI-721 | Count invariants — §12.5 resolved as B; the ten-site lockstep |
 | §13.6 | AECI-707 | Connector / hybrid role-varied product-detail template |
 | §13.7 | AECI-715 / AECI-716 | Connector coverage surface + reachable-lane publication boundary |
@@ -475,6 +476,13 @@ pointer. Rejected, deliberately:
   review app's Convention A, §13.2a) is hydrated into **both** this bucket and the endpoint
   buckets, and renders twice on that connector's page. Latent while `powered_by` is un-backfilled
   (§12.6); **AECI-706 activates it.** §13.4(2) is the governing rule.
+- ✅ **Fixed by AECI-707 (2026-08-31) at the PRESENTATION layer, not here.** The field still carries
+  every powered edge, unchanged; `groupPoweredIntegrations(edges, selfSlug)`
+  (`apps/web/src/app/products/powered-hub-grouping.ts`) drops the self-referencing ones on the way
+  into the section. That split is required, not stylistic: §13.6's hero count reads the **raw** list
+  (a Convention-A connector reaches 43 products while sitting in the middle of 0 pairs), so filtering
+  in the payload would destroy the number the hero renders. **`API_CONTRACTS.md` and
+  `DATABASE_SCHEMA.md` are therefore unchanged**, and so is `pushEmbedded`'s cache-tag walk.
 
 ### 12.3 Presentation: the grouped hub view
 
@@ -522,6 +530,23 @@ between `#integrations` and `#reviews`, with a matching "Integrations it powers"
   Connector/hybrid always show the section (empty state included — "none recorded yet" is
   information, and Agave's own edges are un-backfilled today); an application shows it only when
   it actually powers edges, a data-driven safety net for a mis-roled product.
+  - ⚠️ **Amended by AECI-707 (2026-08-31): a third branch sits FIRST, and one case now hides the
+    section.** The condition is evaluated against the **post-§13.4(2)** view, in this order:
+    *(1)* the view renders anything → show, whatever the role; *(2)* the view is empty **but the raw
+    `integrations_as_connector` is not** → **hide**; *(3)* the raw list is empty too → the empty
+    state above, for connector/hybrid.
+    Branch 2 is the Convention-A case. Those edges were not lost, they are rendering in
+    `#integrations`, where §13.2(a) keeps them direct — so the empty state's claim ("no integrations
+    are recorded as running on this connector yet") would be false, and its correction CTA would be
+    soliciting data already on the page. Worse, §13.6's hero line sits directly above it: *"Connects
+    43 products in the AECi catalog"* over *"powers 0, none recorded yet"* is a plain-English
+    contradiction. This is not a corner: **every one of Aquifer's 43 and Kroo's 44 powered edges is
+    Convention A**, and both are promoted.
+    The rule this preserves is §12.3's own. The always-render rule exists so a connector page never
+    reads as "integrates with nothing"; on a page whose endpoint table carries every one of those
+    edges, that purpose is already met. Branch 3 keeps the empty state exactly where it still earns
+    its place — a connector that genuinely powers nothing (Extractus by Smoothx, MYOB Connector by
+    0link), where inviting a correction is the right ask.
 - **Empty state** mirrors the endpoint one, with connector wording and the same `aecRequestTrigger`
   suggest-a-correction link (`@@products.detail.body.powers.empty`). The **populated** branch
   carries the catalog-scope note of §12.7.
@@ -635,7 +660,8 @@ overstatement.
 
 ## 13. Addendum C — Connector presentation contract (AECI-708, 2026-08-31)
 
-**Status:** Approved — the build contract for AECI-707 / 713 / 715 / 716, none of which is built.
+**Status:** Approved — the build contract for AECI-707 / 713 / 715 / 716. **AECI-707 shipped
+2026-08-31** (§13.6 plus §13.4(2)); 713 / 715 / 716 are unbuilt.
 **Extends** §12 (Addendum B) and the endpoint-table presentation inherited from `STAGE_1_SPEC.md`
 §7.5 / §3.1. **Amends** §12.2 / §12.3 with the self-exclusion rule of §13.4(2). **Resolves** §12.5's open
 count decision. Nothing in §3–§12 is superseded.
@@ -692,9 +718,12 @@ describes only one side of that boundary is stale whichever way the work sequenc
   endpoints* stays in the DIRECT list.** Review-side **Convention A** (settled 2026-08-27,
   `record-integrity-checks` I10) stores *"product X ships a connector on platform C"* as **one**
   edge — source `X`, target `C`, `powered_by` = `C` — and the self-reference is deliberate, not
-  dirt. That is roughly **152 of the 308** `iPaaS` rows (57 Zapier/Make/Workato/Boomi/Celigo, 43
-  Aquifer, 52 Kroo). Without this clause each routes into a "Via C" group whose only partner *is*
+  dirt. That is roughly **144 of the 308** `iPaaS` rows (57 Zapier/Make/Workato/Boomi/Celigo, 43
+  Aquifer, 44 Kroo). Without this clause each routes into a "Via C" group whose only partner *is*
   C, rendering **"Via Aquifer → Aquifer"**. Half the connector rows, misfiled.
+  *(Corrected 2026-08-31, AECI-707: this read "152 … 52 Kroo". `list_integrations({powered_by_product_id: Kroo})`
+  returns `total: 44`, and a Convention-A row carries `powered_by` by definition, so 52 was not
+  reachable. The ratio claim is unaffected; the arithmetic is 57 + 43 + 44.)*
 - **(b) Otherwise, the Via lane is `powered_by_product_id IS NOT NULL` OR
   `mechanism_kind = 'iPaaS'`.** The FK leads deliberately. `mechanism_kind` is the dirty column —
   nullable with no default (`apps/api/src/db/schema.ts`), and AECI-712 counts 478 unset-or-`partner`
@@ -785,11 +814,23 @@ mid-flight will make a local decision about a cross-cutting contract.
    lands in `sourceIntegrations`/`targetIntegrations` **and** in `poweredIntegrations` — rendering
    **twice**, once in `#integrations` and once in `#powered-integrations`. Production is blind to
    this today only because `powered_by` is un-backfilled (§12.6: 5 of 421 rows). **AECI-706 turns it
-   on**, and 706 lands *before* AECI-721 removes the class — Aquifer's 43 and Kroo's 52 duplicate on
+   on**, and 706 lands *before* AECI-721 removes the class — Aquifer's 43 and Kroo's 44 duplicate on
    the day the backfill ships. **Rule: the powered section excludes edges where the page product is
    also an endpoint.** Those edges belong to the endpoint lane, where §13.2(a) already keeps them
    direct. Stated in the spec rather than in a build issue because it governs a surface that is
    already live.
+
+   ✅ **Shipped by AECI-707 (2026-08-31), in the WEB layer.** `groupPoweredIntegrations` takes the
+   page slug as a **required** second argument and drops self-referencing edges before the pair
+   collapse (`apps/web/src/app/products/powered-hub-grouping.ts`); required rather than optional so
+   the rule cannot be dropped by a future caller. **The payload is deliberately untouched** — no
+   `where` was added to the Drizzle relation, and `ProductDetail.integrations_as_connector` keeps its
+   §12.2 contract — because §13.6's hero count reads the raw list: a Convention-A connector reaches
+   43 products while sitting in the middle of 0 renderable pairs, and both numbers are true of the
+   same edges. Filtering server-side would collapse them into one and lose the useful one. Two
+   consequences this addendum promised and kept: `API_CONTRACTS.md` / `DATABASE_SCHEMA.md` are
+   unchanged (§13.8), and §12.4's cache-tag walk still sees every powered edge. Applying it also
+   forced a third branch into §12.3's render condition — see the amendment there.
 3. **Cache-tag composition — the connector becomes a rendered entity on the endpoint's page.**
    `product-detail.resolver.ts` pushes `integration:{id}` plus the partner's `product:{slug}` for
    endpoint edges. A linked "Via {connector}" heading renders the connector, so it must push
@@ -874,14 +915,52 @@ mid-flight will make a local decision about a cross-cutting contract.
   while the cost — page order changing under readers as data moves — applies catalog-wide.
   `application` is unchanged. **Section-nav follows render order and no anchor ids change**, so
   there is no link, sitemap or cache-tag churn.
+  - ⚠️ **Amended in build (AECI-707, 2026-08-31): the swap is guarded on the powered section having
+    content** — `leadWithPowered = product_role === 'connector' && poweredView().pairCount > 0`.
+    Written unguarded, this bullet leads with an **empty section on four of the eight promoted
+    connector pages** (§13.9): Aquifer and Kroo are emptied by §13.4(2), and Extractus and MYOB 0link
+    carry no powered edges at all. On Aquifer the empty state would sit directly beneath this
+    section's own hero line reading *"Connects 43 products in the AECi catalog"*, above a populated
+    endpoint table.
+    This is **not** the data-driven rule rejected above. That one was *comparative* — powered versus
+    endpoint, re-ordering a populated page as counts move, which is the churn the paragraph objects
+    to. This is the degenerate empty/non-empty case, and a section with nothing in it cannot lead a
+    page under any reading of "the powered set is the page's entire subject". Under the guard the
+    only pages that swap are the four this bullet was written for.
+    Implementation note: the section is declared once as an `<ng-template>` and placed by an
+    `ngTemplateOutlet` on whichever side wins, so the swap moves **real DOM order**. CSS `order`
+    would leave screen readers and crawlers on the old sequence (WCAG 1.3.2).
 - **Hero.** `RoleBadge` is already there (§12.3). Add one data-derived line — "Connects N products
   in the AECi catalog" — where `N` counts **distinct endpoint products**, not pairs, and excludes
   self-references per §13.4(2). It renders only when `N > 0` and carries §12.7's catalog-scope
   framing rather than implying the vendor's full partner set.
+  - **`N` is computed over the RAW edge list** (`connectedProductCount`, `powered-hub-grouping.ts`):
+    the distinct union of both endpoints across `integrations_as_connector`, minus the page product.
+    Not over the §13.4(2)-filtered set the section renders — and that difference is exactly why
+    "excludes self-references" is in this bullet. Under Convention A the distinct-endpoint set is
+    `{43 partners} ∪ {Aquifer}`, so dropping the self-reference turns **44 into 43**, not into 0.
+    The two figures answer different questions about the same edges — *how many products does this
+    reach* (hero) versus *how many pairs does it sit in the middle of* (section heading, §12.3) —
+    and on a Convention-A connector the honest answers are 43 and 0.
+  - **No role gate.** This bullet states only the `N > 0` condition and the build honours that
+    literally: a mis-roled `application` that powers edges is described just as accurately by the
+    line, which is the same data-driven reading §12.3's render condition already takes. Contrast the
+    order bullet above, which is `connector`-only and says so.
 - **Meta description variant.** `product-detail.resolver.ts` sets one shape for every role. The
   connector variant targets *"«connector» for construction"*-class queries. **Pair-shaped queries
   stay on pair pages**, which Addendum A §11.2 owns — stated as a boundary so the two addenda do
   not compete for the same SERP with two different pages.
+  - **Gated on `product_role === 'connector' && N > 0`.** Unlike the hero line this one *is*
+    role-scoped, as written, and it reduces to a decision about a single page: Datagrid has no
+    powered edges so it never trips `N > 0`, leaving AnyWare Apps as the only hybrid in range — and
+    AnyWare is half first-party `native` apps, which connector-shaped SERP copy would misrepresent.
+    The `N > 0` half is a quality floor: with nothing to count, the variant asserts less than the
+    vendor's own description, so it falls back to the `STAGE_1_PHASE_2_SPEC.md` §9.1 default.
+  - **The JSON-LD is deliberately NOT varied.** `buildProductJsonLd` keeps `product.description` as
+    `SoftwareApplication.description`: that is a factual entity property, this is a SERP snippet.
+    (§7.3's pair page reuses one string for both, because a pair has no vendor-written description to
+    diverge from.) `STAGE_1_PHASE_2_SPEC.md` §9.1 carries a pointer back here, since it is the doc
+    that says descriptions come from the entity.
 - **Explicitly not in scope: a `/connectors/:slug` namespace or a separate entity.** Connectors stay
   products. Dual reviews, claims, vendor linkage and Algolia records all hang off `products`, and
   forking the entity breaks all four. §12.3's compatibility-matrix archetype remains a possible
@@ -923,6 +1002,8 @@ Stated explicitly so a reviewer can check them rather than infer them:
   AECI-698 / AECI-721.
 - **`CACHE_STRATEGY.md`** — §13.4(3) applies its existing §3 embedded-entity rule; no new rule.
 - **`API_CONTRACTS.md`** — changes with AECI-713 (the §13.4(1) field), not with this addendum.
+  Confirmed by AECI-707: it shipped §13.4(2) **and** §13.6 with no edit here, because the
+  self-exclusion landed in the web layer rather than in the payload (see §13.4(2)).
 - **`REVIEW_APP_PROMOTE_API.md`** — unchanged *by this addendum*; the connector-coverage payload
   extension was AECI-714's, and it **landed 2026-08-31** as §3a of that document. See §13.10.
 
@@ -933,8 +1014,17 @@ which is materially larger than the promoted app DB — the *ratios* are the dur
 
 - **308 of 2,428** integration edges are `mechanism_kind = 'iPaaS'` (12.7%); ~**326** carry
   `powered_by_product_id`. The two sets are not the same set (§13.2).
-- ≈**152** of the `iPaaS` rows are Convention-A self-references (57 Zapier/Make/Workato/Boomi/Celigo,
-  43 Aquifer, 52 Kroo) — the rows §13.2(a) and §13.4(2) exist for.
+- ≈**144** of the `iPaaS` rows are Convention-A self-references (57 Zapier/Make/Workato/Boomi/Celigo,
+  43 Aquifer, 44 Kroo) — the rows §13.2(a) and §13.4(2) exist for. *(Kroo re-counted 2026-08-31; see
+  §13.2(a).)*
+- **Of the 8 promoted connector-role products, §13.4(2) empties the powered section on two and finds
+  it already empty on two more** — the count that decided §13.6's order guard. Agave ERP Sync (12
+  powered edges, 0 Convention A), NetSuite Connector by Appficiency (2/0), ClearSync: AP (2/0) and
+  Be.Smart Connector (1/0) keep a populated section; Aquifer (43/43) and Kroo Connector (44/44) are
+  emptied by self-exclusion; Extractus by Smoothx and MYOB AccountRight / Business Connector by 0link
+  carry no powered edges at all. These are review-catalogue figures — the app DB only holds an edge
+  once **both** endpoints are promoted, so prod's numbers are smaller. The *structure* (powered = 0,
+  direct > 0) is what the guard keys on, and it is invariant under that gap.
 - ~**20** accountable `marketplace-app`-with-`powered_by` rows are the open residue of §13.2;
   **4** `iPaaS` rows carry no `powered_by`.
 - **86** connector-role products, of which **8 promoted + 2 `on_hold`** are in play; **2** hybrids

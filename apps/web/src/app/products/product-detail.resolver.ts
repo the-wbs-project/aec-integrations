@@ -6,6 +6,8 @@
  * specifics: the fetch fn, `applyMeta` (head tags + JSON-LD, runs on SSR and
  * on client navigations), and `pushEmbedded` (server-only Cache-Tag entities).
  *
+ * The meta description is role-varied (§13.6) — see `productMetaDescription`.
+ *
  * On success → set page meta + JSON-LD; push embedded cache tags
  * (`vendor:{slug}` + `integration:{id}` + `product:{slug}` for each shown
  * integration's partner product) onto `ctx.embedded` so `Cache-Tag` covers
@@ -15,6 +17,36 @@ import type { ProductDetail } from '@aeci/shared';
 
 import { fetchProductBySlug } from '../core/api/products';
 import { createDetailResolver } from '../core/create-detail-resolver';
+
+import { connectedProductCount } from './powered-hub-grouping';
+
+/**
+ * `<meta name="description">` for a product page, role-varied per Stage 1.5
+ * Addendum C §13.6 (AECI-707).
+ *
+ * Every role except `connector` keeps the Phase 2 §9.1 default: the entity's own
+ * description, truncated to ~155 chars by `MetaService`. A connector page
+ * instead targets *"«connector» for construction"*-class queries, which its
+ * vendor-written description almost never does. **Pair-shaped queries stay on
+ * pair pages** (Addendum A §11.2) so the two addenda never compete for one SERP
+ * with two different pages.
+ *
+ * Gated on `N > 0` as well as the role: with nothing to count the variant would
+ * assert less than the real description does, so it falls back. `N` is
+ * `connectedProductCount`'s catalog-reach figure, the same number the hero line
+ * renders, so the snippet and the page agree.
+ *
+ * `SoftwareApplication.description` in the JSON-LD is deliberately NOT varied
+ * (`buildProductJsonLd` reads `product.description` directly): the structured
+ * data states a factual entity property, while this is a SERP snippet.
+ */
+function productMetaDescription(product: ProductDetail): string | null {
+  if (product.product_role !== 'connector') return product.description;
+  const count = connectedProductCount(product.integrations_as_connector, product.slug);
+  if (count === 0) return product.description;
+  const name = product.name;
+  return $localize`:@@products.detail.meta.connector:${name}:name: connects ${count}:count: construction and AEC products. See the integrations it powers and reviews from the teams using them.`;
+}
 
 export const productDetailResolver = createDetailResolver<ProductDetail>({
   statePrefix: 'aeci.product-detail:',
@@ -26,7 +58,7 @@ export const productDetailResolver = createDetailResolver<ProductDetail>({
     meta.setEntityMeta({
       entity: 'product',
       name: product.name,
-      description: product.description,
+      description: productMetaDescription(product),
       canonical,
       ogImage: product.logo_url ?? undefined,
     });

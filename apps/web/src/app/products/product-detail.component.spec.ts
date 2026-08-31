@@ -324,7 +324,10 @@ describe('ProductDetailPage powered-integrations hub', () => {
   });
 
   it('still renders the section for an application that powers edges (data-driven safety net)', () => {
-    const { el } = setup(buildProduct({ integrations_as_connector: [edge(procore, acumatica)] }));
+    // A THIRD-PARTY pair: `buildProduct` is Procore, and an edge naming Procore
+    // as an endpoint would be a Convention-A self-reference that §13.4(2)
+    // excludes (covered in its own describe below), not a powered edge.
+    const { el } = setup(buildProduct({ integrations_as_connector: [edge(sage, acumatica)] }));
 
     expect(el.querySelector('#powered-integrations')).toBeTruthy();
     expect(el.querySelector('aec-section-nav')!.textContent).toContain('Integrations it powers');
@@ -600,5 +603,217 @@ describe('ProductDetailPage claim CTA', () => {
 
     expect(section.textContent).toContain('Claim this listing');
     expect(section.textContent).not.toContain('Already managed by a verified vendor');
+  });
+});
+
+/**
+ * Stage 1.5 Addendum C §13.6 (AECI-707) — the role-varied template: section
+ * order, the hero reach line, and the §13.4(2) self-exclusion that decides
+ * whether the powered section renders at all.
+ */
+const bodySectionIds = (el: HTMLElement): string[] =>
+  [...el.querySelectorAll('[slot="body"] > [id]')].map((n) => n.id);
+
+const navIds = (el: HTMLElement): string[] => {
+  const nav = el.querySelector('aec-section-nav');
+  if (!nav) return [];
+  return [...nav.querySelectorAll<HTMLAnchorElement>('a')].map(
+    (a) => a.getAttribute('href')!.split('#')[1]!,
+  );
+};
+
+/** A Convention-A edge (§13.2a): the page product is itself an endpoint. */
+const selfEdge = (partner: ProductLink, self: ProductLink) => edge(partner, self);
+
+describe('ProductDetailPage role-varied section order (§13.6)', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  it('leads with the powered section on a connector that has one', () => {
+    const { el } = setup(
+      connector({
+        integrations_as_connector: [edge(procore, acumatica), edge(sage, procore)],
+      }),
+    );
+
+    // Real DOM order, not CSS order: this is what screen readers and crawlers
+    // read, and it is why the section is placed by an ngTemplateOutlet.
+    expect(bodySectionIds(el)).toEqual([
+      'about',
+      'powered-integrations',
+      'integrations',
+      'reviews',
+    ]);
+    // §13.6: "section-nav follows render order".
+    expect(navIds(el)).toEqual(['about', 'powered-integrations', 'integrations', 'reviews']);
+    // Anchor ids are unchanged, so no link / sitemap / cache-tag churn.
+    expect(el.querySelector('#powered-integrations')).toBeTruthy();
+    expect(el.querySelector('#integrations')).toBeTruthy();
+  });
+
+  it('keeps today order for a hybrid, even with powered edges', () => {
+    // There are exactly two hybrids catalog-wide, and AnyWare Apps is half
+    // first-party native apps; swapping would demote its own product surface.
+    const { el } = setup(
+      connector({
+        product_role: 'hybrid',
+        integrations_as_connector: [edge(procore, acumatica), edge(sage, procore)],
+      }),
+    );
+
+    expect(bodySectionIds(el)).toEqual([
+      'about',
+      'integrations',
+      'powered-integrations',
+      'reviews',
+    ]);
+    expect(navIds(el)).toEqual(['about', 'integrations', 'powered-integrations', 'reviews']);
+  });
+
+  it('keeps today order for an application that powers edges', () => {
+    // Third-party pair, for the same reason as the safety-net case above.
+    const { el } = setup(buildProduct({ integrations_as_connector: [edge(sage, acumatica)] }));
+
+    expect(bodySectionIds(el)).toEqual([
+      'about',
+      'integrations',
+      'powered-integrations',
+      'reviews',
+    ]);
+  });
+
+  it('does not swap a connector whose powered section is empty', () => {
+    // Nothing to lead with, so leading with it would put an empty state at the
+    // top of the page.
+    const { el } = setup(connector());
+
+    expect(bodySectionIds(el)).toEqual([
+      'about',
+      'integrations',
+      'powered-integrations',
+      'reviews',
+    ]);
+  });
+});
+
+describe('ProductDetailPage self-exclusion (§13.4(2))', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  const agave = link('agave-erp-sync', 'Agave ERP Sync');
+
+  it('drops a Convention-A edge from the powered section, count included', () => {
+    const { el } = setup(
+      connector({
+        integrations_as_connector: [
+          selfEdge(procore, agave),
+          edge(sage, acumatica),
+          edge(sage, vista),
+        ],
+      }),
+    );
+
+    const section = el.querySelector('#powered-integrations')!;
+    // Two third-party pairs render; the self-referencing edge does not, so it
+    // cannot appear here AND in #integrations for the same fact.
+    expect(section.querySelector('h2')!.textContent).toContain('Integrations it powers (2)');
+    expect(section.textContent).not.toContain('Agave ERP Sync');
+  });
+
+  it('suppresses the section and its nav entry when self-exclusion empties it', () => {
+    // The live Aquifer / Kroo shape: every powered edge is Convention A, so the
+    // same edges are already rendered by the endpoint table. An empty state here
+    // would contradict the hero line directly above it.
+    const { el } = setup(
+      connector({
+        integrations_as_connector: [
+          selfEdge(procore, agave),
+          selfEdge(acumatica, agave),
+          selfEdge(sage, agave),
+        ],
+        integrations_as_target: [
+          { ...selfEdge(procore, agave), context_direction: null },
+          { ...selfEdge(acumatica, agave), context_direction: null },
+          { ...selfEdge(sage, agave), context_direction: null },
+        ],
+      }),
+    );
+
+    expect(el.querySelector('#powered-integrations')).toBeNull();
+    expect(navIds(el)).not.toContain('powered-integrations');
+    expect(el.querySelector('aec-section-nav')!.textContent).not.toContain(
+      'Integrations it powers',
+    );
+    // The endpoint table carries every one of those edges, so the page still
+    // answers "what does this connect".
+    expect(el.querySelector('#integrations')!.querySelector('h2')!.textContent).toContain(
+      'Integrations (3)',
+    );
+  });
+
+  it('keeps the empty state for a connector that genuinely powers nothing', () => {
+    // Extractus / MYOB 0link: nothing was excluded, so "no record of it powering
+    // anything" is a true claim worth inviting a correction for.
+    const { el } = setup(connector());
+
+    const section = el.querySelector('#powered-integrations')!;
+    expect(section.textContent).toContain('No integrations are recorded as running');
+    expect(navIds(el)).toContain('powered-integrations');
+  });
+});
+
+describe('ProductDetailPage hero reach line (§13.6)', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  const agave = link('agave-erp-sync', 'Agave ERP Sync');
+
+  it('counts distinct endpoint products, not pairs', () => {
+    const { el } = setup(
+      connector({
+        integrations_as_connector: [
+          edge(procore, acumatica),
+          edge(procore, sage),
+          edge(procore, vista),
+        ],
+      }),
+    );
+
+    // Four distinct products across three pairs.
+    expect(el.querySelector('[slot="hero"]')!.textContent).toContain(
+      'Connects 4 products in the AECi catalog',
+    );
+  });
+
+  it('reports reach for a Convention-A connector whose powered section is suppressed', () => {
+    // The number the grouped view cannot give: the hero reads the RAW edge list
+    // minus the page product, so 4 distinct endpoints become 3 rather than 0.
+    const { el } = setup(
+      connector({
+        integrations_as_connector: [
+          selfEdge(procore, agave),
+          selfEdge(acumatica, agave),
+          selfEdge(sage, agave),
+        ],
+      }),
+    );
+
+    expect(el.querySelector('[slot="hero"]')!.textContent).toContain(
+      'Connects 3 products in the AECi catalog',
+    );
+    expect(el.querySelector('#powered-integrations')).toBeNull();
+  });
+
+  it('singularizes at one product', () => {
+    const { el } = setup(connector({ integrations_as_connector: [selfEdge(procore, agave)] }));
+
+    expect(el.querySelector('[slot="hero"]')!.textContent).toContain(
+      'Connects 1 product in the AECi catalog',
+    );
+  });
+
+  it('renders nothing at zero, on a connector or an application', () => {
+    for (const product of [connector(), buildProduct()]) {
+      const { el } = setup(product);
+      expect(el.querySelector('[slot="hero"]')!.textContent).not.toContain('Connects');
+      TestBed.resetTestingModule();
+    }
   });
 });

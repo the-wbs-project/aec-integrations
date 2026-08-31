@@ -1,13 +1,22 @@
 import type { IntegrationListItem, ProductLink } from '@aeci/shared';
 import { describe, expect, it } from 'vitest';
 
-import { groupPoweredIntegrations } from './powered-hub-grouping';
+import { connectedProductCount, groupPoweredIntegrations } from './powered-hub-grouping';
 
 /**
  * Unit tests for the Addendum B hub-grouping heuristic. Pure function, so these
  * run under the plain Vitest runner (no TestBed) — the component's rendering is
  * covered by `product-detail.component.spec.ts`.
  */
+
+/**
+ * The page product whose view is being grouped. Every fixture below is a
+ * third-party pair, so this slug never appears as an endpoint and the §13.4(2)
+ * self-exclusion is a no-op for the pre-existing cases; the Convention-A cases
+ * at the bottom of the file are the ones that exercise it.
+ */
+const CONNECTOR = 'agave-erp-sync';
+
 const link = (slug: string, name = slug): ProductLink => ({
   id: `id-${slug}`,
   slug,
@@ -43,17 +52,20 @@ describe('groupPoweredIntegrations', () => {
   const roofr = link('roofr', 'Roofr');
 
   it('returns an empty view for an empty edge list', () => {
-    expect(groupPoweredIntegrations([])).toEqual({ groups: [], others: [], pairCount: 0 });
+    expect(groupPoweredIntegrations([], CONNECTOR)).toEqual({
+      groups: [],
+      others: [],
+      pairCount: 0,
+    });
   });
 
   it('files every pair under the globally more frequent endpoint, regardless of orientation', () => {
     // Procore appears in all three edges; the stored orientation flips between
     // them, which must not change which side is the hub.
-    const { groups, others, pairCount } = groupPoweredIntegrations([
-      edge(procore, acumatica),
-      edge(sage, procore),
-      edge(procore, vista),
-    ]);
+    const { groups, others, pairCount } = groupPoweredIntegrations(
+      [edge(procore, acumatica), edge(sage, procore), edge(procore, vista)],
+      CONNECTOR,
+    );
 
     expect(groups).toHaveLength(1);
     expect(others).toEqual([]);
@@ -70,12 +82,15 @@ describe('groupPoweredIntegrations', () => {
     // The live Agave ERP Sync shape, and the regression this rewrite exists for.
     // Deciding a hub per EDGE made ACC win `ACC↔QuickBooks` and QuickBooks win
     // `QuickBooks↔Roofr`, so QuickBooks rendered as a partner AND as a hub.
-    const { groups, others, pairCount } = groupPoweredIntegrations([
-      edge(acc, acumatica),
-      edge(acc, link('cmic', 'CMiC')),
-      edge(acc, quickbooks),
-      edge(roofr, quickbooks),
-    ]);
+    const { groups, others, pairCount } = groupPoweredIntegrations(
+      [
+        edge(acc, acumatica),
+        edge(acc, link('cmic', 'CMiC')),
+        edge(acc, quickbooks),
+        edge(roofr, quickbooks),
+      ],
+      CONNECTOR,
+    );
 
     expect(pairCount).toBe(4);
     expect(groups.map((g) => g.hub.slug)).toEqual(['autodesk-construction-cloud']);
@@ -94,7 +109,10 @@ describe('groupPoweredIntegrations', () => {
   });
 
   it('leaves a lone pair hubless instead of inventing a one-partner hub', () => {
-    const { groups, others, pairCount } = groupPoweredIntegrations([edge(procore, acumatica)]);
+    const { groups, others, pairCount } = groupPoweredIntegrations(
+      [edge(procore, acumatica)],
+      CONNECTOR,
+    );
 
     expect(groups).toEqual([]);
     expect(pairCount).toBe(1);
@@ -109,12 +127,15 @@ describe('groupPoweredIntegrations', () => {
     // pair duplicated. The heading counts `pairCount`, so it must read 2.
     const projectSosAed = link('projectsos-aed', 'ProjectSOS for Architecture');
     const projectSosCon = link('projectsos-construction', 'ProjectSOS for Construction');
-    const { groups, pairCount } = groupPoweredIntegrations([
-      edge(projectSosAed, procore, 'marketplace-app', 'bidirectional'),
-      edge(projectSosCon, procore, 'marketplace-app', 'bidirectional'),
-      edge(projectSosAed, procore, 'marketplace-app', 'bidirectional'),
-      edge(projectSosCon, procore, 'marketplace-app', 'bidirectional'),
-    ]);
+    const { groups, pairCount } = groupPoweredIntegrations(
+      [
+        edge(projectSosAed, procore, 'marketplace-app', 'bidirectional'),
+        edge(projectSosCon, procore, 'marketplace-app', 'bidirectional'),
+        edge(projectSosAed, procore, 'marketplace-app', 'bidirectional'),
+        edge(projectSosCon, procore, 'marketplace-app', 'bidirectional'),
+      ],
+      CONNECTOR,
+    );
 
     expect(pairCount).toBe(2);
     expect(groups).toHaveLength(1);
@@ -129,11 +150,14 @@ describe('groupPoweredIntegrations', () => {
   });
 
   it('gathers distinct mechanism kinds for one pair in enum order', () => {
-    const { groups } = groupPoweredIntegrations([
-      edge(procore, acumatica, 'iPaaS'),
-      edge(acumatica, procore, 'native'),
-      edge(procore, sage, 'native'),
-    ]);
+    const { groups } = groupPoweredIntegrations(
+      [
+        edge(procore, acumatica, 'iPaaS'),
+        edge(acumatica, procore, 'native'),
+        edge(procore, sage, 'native'),
+      ],
+      CONNECTOR,
+    );
 
     expect(groups[0]!.hub.slug).toBe('procore');
     const acumaticaRow = groups[0]!.partners.find((p) => p.partner.slug === 'acumatica');
@@ -146,11 +170,14 @@ describe('groupPoweredIntegrations', () => {
     // `one-way` flows source → target. Procore is the hub in both rows, but is
     // the source in one and the target in the other, so the hub-relative
     // direction must come out opposite.
-    const { groups } = groupPoweredIntegrations([
-      edge(procore, acumatica, 'native', 'one-way'),
-      edge(sage, procore, 'native', 'one-way'),
-      edge(procore, vista, 'native', 'bidirectional'),
-    ]);
+    const { groups } = groupPoweredIntegrations(
+      [
+        edge(procore, acumatica, 'native', 'one-way'),
+        edge(sage, procore, 'native', 'one-way'),
+        edge(procore, vista, 'native', 'bidirectional'),
+      ],
+      CONNECTOR,
+    );
 
     const byPartner = new Map(groups[0]!.partners.map((p) => [p.partner.slug, p.hubDirection]));
     expect(groups[0]!.hub.slug).toBe('procore');
@@ -160,35 +187,44 @@ describe('groupPoweredIntegrations', () => {
   });
 
   it('merges two opposing one-way edges for the same pair into a round trip', () => {
-    const { groups } = groupPoweredIntegrations([
-      edge(procore, acumatica, 'native', 'one-way'),
-      edge(acumatica, procore, 'iPaaS', 'one-way'),
-      edge(procore, sage, 'native', 'one-way'),
-    ]);
+    const { groups } = groupPoweredIntegrations(
+      [
+        edge(procore, acumatica, 'native', 'one-way'),
+        edge(acumatica, procore, 'iPaaS', 'one-way'),
+        edge(procore, sage, 'native', 'one-way'),
+      ],
+      CONNECTOR,
+    );
 
     const acumaticaRow = groups[0]!.partners.find((p) => p.partner.slug === 'acumatica');
     expect(acumaticaRow!.hubDirection).toBe('both');
   });
 
   it('leaves direction null when no collapsed edge carried one', () => {
-    const { groups } = groupPoweredIntegrations([edge(procore, acumatica), edge(procore, sage)]);
+    const { groups } = groupPoweredIntegrations(
+      [edge(procore, acumatica), edge(procore, sage)],
+      CONNECTOR,
+    );
     expect(groups[0]!.partners.every((p) => p.hubDirection === null)).toBe(true);
   });
 
   it('sorts groups by partner count descending; partners by name', () => {
     const bluebeam = link('bluebeam', 'Bluebeam');
     const extra = link('extra-platform', 'Extra Platform');
-    const { groups } = groupPoweredIntegrations([
-      // ACC hub: 3 partners.
-      edge(acc, acumatica),
-      edge(acc, vista),
-      edge(acc, sage),
-      // Procore hub: 4 partners → sorts first despite being authored second.
-      edge(procore, bluebeam),
-      edge(procore, extra),
-      edge(procore, quickbooks),
-      edge(procore, roofr),
-    ]);
+    const { groups } = groupPoweredIntegrations(
+      [
+        // ACC hub: 3 partners.
+        edge(acc, acumatica),
+        edge(acc, vista),
+        edge(acc, sage),
+        // Procore hub: 4 partners → sorts first despite being authored second.
+        edge(procore, bluebeam),
+        edge(procore, extra),
+        edge(procore, quickbooks),
+        edge(procore, roofr),
+      ],
+      CONNECTOR,
+    );
 
     expect(groups.map((g) => g.hub.slug)).toEqual(['procore', 'autodesk-construction-cloud']);
     expect(groups[0]!.partners.map((p) => p.partner.name)).toEqual([
@@ -207,26 +243,100 @@ describe('groupPoweredIntegrations', () => {
   it('breaks an equal-degree hub tie on slug, and an equal-size group tie on hub name', () => {
     const zed = link('zed-platform', 'Zed Platform');
     const able = link('able-platform', 'Able Platform');
-    const { groups } = groupPoweredIntegrations([
-      edge(zed, link('w-one', 'W One')),
-      edge(zed, link('w-two', 'W Two')),
-      edge(able, link('x-one', 'X One')),
-      edge(able, link('x-two', 'X Two')),
-    ]);
+    const { groups } = groupPoweredIntegrations(
+      [
+        edge(zed, link('w-one', 'W One')),
+        edge(zed, link('w-two', 'W Two')),
+        edge(able, link('x-one', 'X One')),
+        edge(able, link('x-two', 'X Two')),
+      ],
+      CONNECTOR,
+    );
 
     expect(groups.map((g) => g.hub.name)).toEqual(['Able Platform', 'Zed Platform']);
     expect(groups.every((g) => g.partners.length === 2)).toBe(true);
   });
 
   it('skips a corrupt self-edge instead of emitting a self-referencing row', () => {
-    const { groups, others, pairCount } = groupPoweredIntegrations([
-      edge(procore, procore),
-      edge(procore, acumatica),
-    ]);
+    const { groups, others, pairCount } = groupPoweredIntegrations(
+      [edge(procore, procore), edge(procore, acumatica)],
+      CONNECTOR,
+    );
 
     expect(pairCount).toBe(1);
     expect(groups).toEqual([]);
     expect(others).toHaveLength(1);
     expect(others[0]!.key).toBe('acumatica::procore');
+  });
+
+  /**
+   * §13.4(2). The Drizzle relation selects on `powered_by_product_id` alone, so
+   * a Convention-A edge (§13.2a: "X ships a connector on platform C" stored as
+   * source X, target C, powered_by C) is hydrated into the endpoint buckets AND
+   * this one. Rendering it here would duplicate it: once in `#integrations`,
+   * once in `#powered-integrations`.
+   */
+  it('excludes a Convention-A edge that names the page product as an endpoint', () => {
+    const self = link(CONNECTOR, 'Agave ERP Sync');
+    const { groups, others, pairCount } = groupPoweredIntegrations(
+      [edge(procore, self), edge(acumatica, self), edge(procore, acumatica)],
+      CONNECTOR,
+    );
+
+    // Only the third-party pair survives; the two self-referencing edges belong
+    // to the endpoint lane, where §13.2(a) keeps them direct.
+    expect(pairCount).toBe(1);
+    expect(groups).toEqual([]);
+    expect(others.map((o) => o.key)).toEqual(['acumatica::procore']);
+  });
+
+  it('empties the view entirely when every edge is Convention A (the Aquifer / Kroo shape)', () => {
+    const self = link(CONNECTOR, 'Agave ERP Sync');
+    const view = groupPoweredIntegrations(
+      [edge(procore, self), edge(acumatica, self), edge(sage, self)],
+      CONNECTOR,
+    );
+
+    // This is what `showPowered` reads to suppress the section rather than
+    // render an empty state contradicting the hero line.
+    expect(view).toEqual({ groups: [], others: [], pairCount: 0 });
+  });
+});
+
+/**
+ * The hero line's catalog-reach figure (§13.6). Deliberately reads the RAW edge
+ * list, unlike the grouping above, so a Convention-A connector reports the
+ * products it reaches rather than the zero pairs it sits in the middle of.
+ */
+describe('connectedProductCount', () => {
+  const procore = link('procore', 'Procore');
+  const acumatica = link('acumatica', 'Acumatica');
+  const sage = link('sage-intacct', 'Sage Intacct');
+  const self = link(CONNECTOR, 'Agave ERP Sync');
+
+  it('is 0 for an empty edge list', () => {
+    expect(connectedProductCount([], CONNECTOR)).toBe(0);
+  });
+
+  it('counts distinct endpoint products, not pairs and not edges', () => {
+    // Procore appears in two pairs and Acumatica in two edges of the same pair;
+    // three distinct products are reached.
+    expect(
+      connectedProductCount(
+        [edge(procore, acumatica), edge(acumatica, procore, 'iPaaS'), edge(procore, sage)],
+        CONNECTOR,
+      ),
+    ).toBe(3);
+  });
+
+  it('drops the page product itself, so Convention A reports reach rather than zero', () => {
+    // The Aquifer shape at small scale: every edge names the connector as an
+    // endpoint. A naive distinct-endpoint count returns 4 (three partners plus
+    // the connector); §13.6 excludes the self-reference, so it is 3 -- and NOT
+    // the 0 the grouped view reports for the same input.
+    const edges = [edge(procore, self), edge(acumatica, self), edge(sage, self)];
+
+    expect(connectedProductCount(edges, CONNECTOR)).toBe(3);
+    expect(groupPoweredIntegrations(edges, CONNECTOR).pairCount).toBe(0);
   });
 });

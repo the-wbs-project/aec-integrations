@@ -139,6 +139,25 @@ function freeze(c: MutableConnection): PoweredConnection {
  * Collapse a connector's powered edges into distinct pairs, then bucket those
  * pairs into hub cards.
  *
+ * **`selfSlug` is required, and it is the §13.4(2) self-exclusion.** The Drizzle
+ * relation behind `integrations_as_connector` selects on `powered_by_product_id`
+ * alone (`apps/api/src/db/schema.ts`), with no `where`. The review app's
+ * **Convention A** (`STAGE_1_5_SPEC.md` §13.2a) stores *"product X ships a
+ * connector on platform C"* as ONE edge: source `X`, target `C`,
+ * `powered_by = C`. On C's own page that edge is hydrated into the endpoint
+ * buckets AND this one, so without the filter it renders twice: once in
+ * `#integrations`, once in `#powered-integrations`. Those edges belong to the
+ * endpoint lane, where §13.2(a) keeps them direct.
+ *
+ * It is required rather than optional so the rule cannot be forgotten by a
+ * future caller: this function's whole output type is the powered section's
+ * view, and §13.4(2) governs that section. Live data makes it load-bearing, not
+ * theoretical: every one of Aquifer's 43 and Kroo's 44 powered edges is
+ * Convention A.
+ *
+ * Distinct from the `source.slug === target.slug` guard below, which defends
+ * against a corrupt true self-edge (the promote handler rejects those).
+ *
  * **Why a hub is picked per PRODUCT, not per edge.** Source/target orientation
  * on a powered edge is arbitrary — it records how the row was authored, not a
  * hub/spoke truth — so the hub has to be derived. The original heuristic did
@@ -168,10 +187,14 @@ function freeze(c: MutableConnection): PoweredConnection {
  */
 export function groupPoweredIntegrations(
   integrations: readonly IntegrationListItem[],
+  selfSlug: string,
 ): PoweredHubView {
   // 1 ─ collapse edges into distinct, canonically-oriented pairs.
   const pairs = new Map<string, MutableConnection>();
   for (const i of integrations) {
+    // §13.4(2): the page product is an endpoint of its own powered edge
+    // (Convention A). That edge is already rendered by the endpoint table.
+    if (i.source.slug === selfSlug || i.target.slug === selfSlug) continue;
     if (i.source.slug === i.target.slug) continue;
 
     const [aSlug] = orderedPairSlugs(i.source.slug, i.target.slug);
@@ -261,4 +284,35 @@ export function groupPoweredIntegrations(
     others,
     pairCount: pairs.size,
   };
+}
+
+/**
+ * How many distinct catalog products this connector reaches: the hero line's
+ * `N` in "Connects N products in the AECi catalog" (`STAGE_1_5_SPEC.md` §13.6).
+ *
+ * **Reads the RAW edge list, unlike `groupPoweredIntegrations` above**, and that
+ * asymmetry is the whole point. §13.6 defines `N` as the distinct *endpoint
+ * products* of the connector's edges, excluding self-references. Under
+ * Convention A (§13.2a) a connector's edges name the connector itself as one
+ * endpoint, so the distinct-endpoint set is `{ 43 partners } union { Aquifer }`
+ * and dropping the page product turns 44 into **43**, not into 0. Filtering the
+ * edges first (what the section does) would answer a different question: "how
+ * many pairs does this connector sit in the middle of", which for a
+ * Convention-A connector is legitimately zero even though it reaches 43
+ * products.
+ *
+ * Counts products, not pairs, and not edges: a partner joined by three
+ * mechanisms is one product.
+ */
+export function connectedProductCount(
+  integrations: readonly IntegrationListItem[],
+  selfSlug: string,
+): number {
+  const slugs = new Set<string>();
+  for (const i of integrations) {
+    slugs.add(i.source.slug);
+    slugs.add(i.target.slug);
+  }
+  slugs.delete(selfSlug);
+  return slugs.size;
 }
