@@ -3,10 +3,10 @@
 **Version:** 0.1 — **scope outline, not a build contract**
 **Date:** August 2026
 **Status:** Kickoff draft (2026-08-24 planning session). This is the Stage 3 equivalent of `STAGE_2_SPEC.md` at its v0.1 — the pillars, the backlog triage, and the open decisions. It is **not** decomposed into buildable issues; each pillar grows its own companion spec before build (as every Stage 2 pillar did).
-**Inherits from:** Stage 1 (`STAGE_1_SPEC.md`), Stage 1.5 (`STAGE_1_5_SPEC.md`), Stage 2 (`STAGE_2_SPEC.md` + its five build/scope companion docs), and Stage 2.5 (`docs/STAGE_2_5_SPEC.md`).
+**Inherits from:** Stage 1 (`STAGE_1_SPEC.md`), Stage 1.5 (`STAGE_1_5_SPEC.md`), Stage 2 (`STAGE_2_SPEC.md` + its five build/scope companion docs), Stage 2.1 (`docs/STAGE_2_1_SPEC.md`), and Stage 2.5 (`docs/STAGE_2_5_SPEC.md`).
 **Supersedes:** the scattered "Stage 3" forward references — `STAGE_2_SPEC.md` §9's "trust scoring beyond basic anti-abuse (Stage 3)" and `STAGE_1_SPEC.md`'s review-translation note (§ Phase 5, "Stage 3+").
 
-> **Preconditions.** Stage 3 opens when (a) `stage-2 → main` has merged and deployed (the Stage 2 ship gate) — **including the Product Docs / Help Center (AECI-634)**, which is Stage 2 work sequenced last (after portal testing settles) precisely because vendors being asked to do the work and pay must be supportable through it — and (b) the Stage 2.5 exit criteria (`STAGE_2_5_SPEC.md` §7) are green — in particular the search-ranking overhaul, because two Stage 3 pillars (trust ladder, pSEO) build directly on `evidence_tier` and the published ranking mechanism.
+> **Preconditions.** Stage 3 opens when (a) `stage-2 → main` has merged and deployed (the Stage 2 ship gate — a **dark launch**: vendor surfaces live but no seats granted) — **including the Product Docs / Help Center (AECI-634)**, which is Stage 2 work sequenced last (after portal testing settles) precisely because vendors being asked to do the work and pay must be supportable through it — (b) the Stage 2.1 exit criteria (`STAGE_2_1_SPEC.md` §5, added 2026-08-31) are green — vendors actually seated and live — and (c) the Stage 2.5 exit criteria (`STAGE_2_5_SPEC.md` §7) are green — in particular the search-ranking overhaul, because two Stage 3 pillars (trust ladder, pSEO) build directly on `evidence_tier` and the published ranking mechanism.
 
 ---
 
@@ -68,8 +68,9 @@ Every open, stage-less or misplaced issue, with its proposed destination. Market
 | AECI-559 Procurement category | no project | **Stage 2.5 §4** |
 | AECI-595 promote retract | no project | **Stage 2.5 §4** |
 | AECI-592 unreachable DQ check | no project | **Stage 2.5 §4** |
-| AECI-623 capability convergence | Stage 2 Build | **Stage 2.5 §5** |
-| AECI-633 + AECI-244 SR passes | Stage 2 Build / Stage 1 Build | **Stage 2.5 §5** (one combined pass) |
+| AECI-623 capability convergence | Stage 2 Build | **Stage 2.1 §3.3** (moved forward from 2.5 §5 on 2026-08-31 — gates seat-granting) |
+| AECI-633 vendor-portal SR pass | Stage 2 Build | **Stage 2.1 §3.3** (moved forward from 2.5 §5 on 2026-08-31 — gates seat-granting) |
+| AECI-244 public-site SR pass | Stage 1 Build | **Stage 2.5 §5** (may share a sitting with AECI-633) |
 | AECI-598 / 599 / 600 / 601 docs | no project | **Stage 2.5 §6** |
 | AECI-281 moderation refinement | Stage 2 Build | **Stage 3 §2.1** |
 | AECI-340 / 341 / 342 / 343 / 344 | pSEO project | **Stage 3 §2.2** (project adopted as the pillar) |
@@ -91,7 +92,7 @@ Every open, stage-less or misplaced issue, with its proposed destination. Market
 1. **Pillar sequencing.** Recommended: 2.1 rung 2 + the queue first (it feeds pair-page content quality), 2.2 immediately after the preconditions clear, 2.4 continuous; 2.3 waits on decision (3). Confirm or reorder.
 2. **Rung-2 operating cost.** AECi-verified is human work; decide the weekly verification budget and whether the queue surfaces in the admin panel (relates to the admin-panel track, AECI-572).
 3. **Stack-aware discovery: Stage 3 stretch or Stage 4 anchor?** It is the largest net-new surface on the list and the only one needing a reader-side account model beyond reviews.
-4. **Linear mechanics.** Proposed: a **"Stage 2.5 Hardening"** project (the §3 moves) and a **"Stage 3"** project seeded with epic parents per pillar; the pSEO project either folds in or gains a Stage 3 label and stays standalone. Epic branches per the Stage 2 convention only where a pillar carries a companion spec.
+4. **Linear mechanics.** Proposed: a **"Stage 2.1 Vendor Activation"** project (`STAGE_2_1_SPEC.md`), a **"Stage 2.5 Hardening"** project (the §3 moves) and a **"Stage 3"** project seeded with epic parents per pillar; the pSEO project either folds in or gains a Stage 3 label and stays standalone. Epic branches per the Stage 2 convention only where a pillar carries a companion spec.
 5. **Branch model.** Does Stage 3 reuse the long-lived `stage-2`-style integration branch (ADR 0019 pattern → a `stage-3` branch after the Stage 2 merge), or move to trunk-ish now that prod promotes by SHA? Default: repeat ADR 0019 with `stage-3`.
 
 ---

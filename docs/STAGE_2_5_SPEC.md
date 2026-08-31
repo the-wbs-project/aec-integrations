@@ -2,7 +2,8 @@
 
 **Version:** 0.1 — **proposal, not yet seeded into Linear**
 **Date:** August 2026
-**Status:** Kickoff draft from the 2026-08-24 Stage 3 planning session. Stage 2.5 is a deliberately small, **finishable** interlude between Stage 2 (all six epics Done on `stage-2`) and Stage 3 (growth & trust — `docs/STAGE_3_SPEC.md`). Nothing here is a new feature.
+**Status:** Kickoff draft from the 2026-08-24 Stage 3 planning session. Stage 2.5 is a deliberately small, **finishable** interlude between **Stage 2.1** (vendor activation — `docs/STAGE_2_1_SPEC.md`, inserted 2026-08-31) and Stage 3 (growth & trust — `docs/STAGE_3_SPEC.md`). Nothing here is a new feature.
+**Precondition:** Stage 2.5 opens when the Stage 2.1 exit criteria (`STAGE_2_1_SPEC.md` §5 — vendors live) are green. The ordering is a deliberate discipline firewall: vendor-management polish finishes before this stage's work may compete for attention. The pull runs one way — a 2.5 item may move *forward* into 2.1 only when it demonstrably blocks seat-granting (recorded in both docs); nothing moves the other way.
 **Inherits from:** Stage 1 / 1.5 / 2 — every constraint carries; this doc adds none.
 
 ## 1. Purpose and admission test
@@ -59,10 +60,11 @@ Build sequence (from the issue, unchanged):
 
 ## 5. Stage 2 close-out debt
 
+Two items moved forward to Stage 2.1 on 2026-08-31 (both are vendor-portal polish and gate seat-granting): **AECI-623** (capability convergence) and **AECI-633** (the vendor-portal screen-reader pass) — see `STAGE_2_1_SPEC.md` §3.3. What remains here:
+
 | Issue | What it closes | Priority |
 |---|---|---|
-| **AECI-623** | Converge `assertVerifiedVendor` onto `requireCapability('attestation.author')` — the one seam the Paid Tiers epic left duplicated. | Medium |
-| **AECI-633** + **AECI-244** | The two outstanding **manual screen-reader passes** (vendor portal live-updating surface; the Stage-1 Phase 7.10 public-site pass that never ran), executed together per `docs/a11y-manual-testing-checklist.md` and logged. | Medium |
+| **AECI-244** | The outstanding **manual screen-reader pass** over the public site (the Stage-1 Phase 7.10 pass that never ran), per `docs/a11y-manual-testing-checklist.md` and logged. May be run in the same sitting as AECI-633 (Stage 2.1) if calendars align — the former pairing was a scheduling convenience, not a dependency. | Medium |
 
 ## 6. Docs & process de-stale sweep
 
@@ -74,7 +76,7 @@ Per the standing review finding — most code-review noise is stale docs. One fo
 - [ ] `curl` of `/products` + one page per taxonomy type on production returns product links and no error string (AECI-618 AC), locked by an e2e assertion.
 - [ ] `POST /admin/purge` succeeds on every tier; GDPR erasure deletes or loudly fails; the reconcile sweep writes audit rows.
 - [ ] Procurement category live; retract semantics shipped; the invariant guard can fire.
-- [ ] Both screen-reader passes logged; the four-doc de-stale sweep merged.
+- [ ] The public-site screen-reader pass (AECI-244) logged; the four-doc de-stale sweep merged.
 
 ## 8. Out of scope
 
