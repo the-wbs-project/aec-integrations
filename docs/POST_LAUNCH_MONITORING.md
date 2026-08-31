@@ -83,7 +83,7 @@ A green board here means all eleven fired on schedule (ten daily/sub-daily, plus
 | `15 0 * * *` | `metrics_daily` snapshot of the prior complete UTC day (AECI-581 / `ADMIN_PANEL_SPEC.md` §7.1) — 19 metrics, the admin panel's long memory | `metrics-snapshot` | `aeci.metrics_snapshot.run` heartbeat (no dedicated monitor yet — **worth one**: it is queue-less, so a failed run is not retried, and the *stock* metrics of a missed day are unrecoverable. Flow metrics recover via `pnpm --filter @aeci/api ops:backfill-metrics-daily`) |
 | `0 3 * * *` | §7.4 retention prune (AECI-584 / `ADMIN_PANEL_SPEC.md` §7.4) — the system's only scheduled `DELETE`: `page_views` past 400 days, `job_runs` past 90, in bounded chunks, with one `retention.pruned` audit row per run. **Deletes nothing until ~2026-11 (`job_runs`) / ~2027-07 (`page_views`)**, so for now a healthy run is a zero-row run | `retention-prune` | prune-skipped / prune-runaway / prune-failed / prune-not-running (AECI-584) |
 | `0 4 * * *` | Data-quality suite (10 §23.1 checks) + email digest | `data-quality` | check-error / check-warn / failed / not-running |
-| `0 5 * * *` | Operator analytics digest (AECI-526) — **human** page views (an upper bound) + a PostHog lower bound + an AECI-683 corroborated floor, top products, sign-ins, moderation depth, and a Crawler-activity breakdown (human/bot split classified at ingest by UA + ASN) | `analytics-digest` | `aeci.analytics_digest.email` heartbeat (no dedicated monitor yet) |
+| `0 5 * * *` | Operator analytics digest (AECI-526) — **human page views after automation** (AECI-741 headline) over the raw server-side count (an upper bound), plus a PostHog lower bound + an AECI-683 corroborated floor, top products, sign-ins, moderation depth, and a Crawler-activity breakdown (human/bot split classified at ingest by UA + ASN) | `analytics-digest` | `aeci.analytics_digest.email` heartbeat (no dedicated monitor yet) |
 | `0 6 * * *` | Moderation queue snapshot | `moderation-snapshot` | moderation-queue-age (threshold + no-data) |
 | `0 7 * * *` | Home-stats compute | `home-stats` | stats-compute-failed / stats-not-running |
 | `0 8 * * *` | Algolia incremental sync | `algolia-sync` | sync-failed / sync-not-running |
@@ -186,13 +186,26 @@ behind it:
 
 ### 3b. Traffic classification — auditing the digest's "humans" (AECI-526 follow-up)
 
-> **Read the digest's human figure as an UPPER bound — and since 2026-08-26 the email says so
+> **Since AECI-741 the digest's HEADLINE is the post-automation figure**, not the raw
+> server-side count. Subject and primary stat both read *"N human views after automation"*, with
+> the raw count demoted to a sub-line beside it. Read the sections below with that in mind: where
+> they say "the headline is an upper bound" they now describe the **sub-line**.
+>
+> **Two properties of the new headline that are load-bearing.** Its day-over-day delta is computed
+> **filtered-against-filtered** — `detectSwarms` runs over the prior day too, because comparing a
+> filtered day against an unfiltered prior day would print a fabricated collapse every morning.
+> And "the detector ran and flagged nothing" renders differently from "the detector did not run":
+> the second prints the raw count *plus an explicit UNFILTERED warning*, because a failed detector
+> must never be able to look like a clean day.
+>
+> **The raw figure remains an UPPER bound — and since 2026-08-26 the email says so
 > itself.** AECI-658 / AECI-660 changed three things, so the number no longer has to be mentally
 > corrected by whoever reads it:
 >
-> - The subject line now says **"up to N human views"**, and the body labels the count an upper
->   bound. `page_views` is written server-side on every full-document load, so any crawler that
->   does not run JavaScript is still in it.
+> - The subject line qualifies the raw count (**"(N raw)"**, or **"up to N human views"** when the
+>   filter did not run), and the body labels it an upper bound. `page_views` is written
+>   server-side on every full-document load, so any crawler that does not run JavaScript is still
+>   in it.
 > - A **lower bound** is reported beside it: the PostHog count for the same UTC day and host
 >   (`lib/posthog-query.ts`). PostHog fires only when JS runs *and* the visitor consented, so a real
 >   person who declines is invisible. The truth is between the two, and a large gap means most

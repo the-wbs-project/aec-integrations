@@ -591,18 +591,71 @@ export interface AnalyticsDigestOptions {
    *  join is visible in the email rather than only in `job_runs`. */
   posthogUnavailable?: string | null;
   /**
-   * Pre-rendered rotating-proxy note for the same window (AECI-658), or null when
-   * nothing was flagged.
+   * The rotating-proxy / user-agent-rotation filter for this window and the one
+   * before it (AECI-658, AECI-683), or null/absent when the detector did not run.
    *
-   * Passed in ALREADY RENDERED rather than as a `SwarmSummary`, for two reasons.
+   * Passed in ALREADY SUMMARIZED rather than as a `SwarmSummary`, for two reasons.
    * The formatter stays pure — it has always taken data and options and reached
    * for nothing — and, more practically, `swarm-detection` imports this module's
    * `HUMAN` / `NOT_INTERNAL` predicates, so importing its renderer back here
    * would close a runtime import cycle. It would happen to work today (the
    * predicates are only dereferenced inside a function body) and would break the
-   * first time either module grew a top-level use. The caller renders; we print.
+   * first time either module grew a top-level use. The caller detects; we print.
    */
-  swarmNote?: string | null;
+  automation?: AutomationFilter | null;
+}
+
+/**
+ * What the caller measured about automated traffic in the reported day — the
+ * input behind the digest's headline number (AECI-741).
+ *
+ * `note` being null means "the detector ran and flagged nothing", which is a
+ * RESULT. The whole object being null/absent means "the detector did not run",
+ * which is an OUTAGE. The two render differently on purpose: the first is a
+ * headline equal to the raw count, the second is a headline equal to the raw
+ * count *plus a warning that it is unfiltered*. Collapsing them into one
+ * nullable string — which is what the previous `swarmNote` option did — makes a
+ * failed detector look like a clean day, and a clean day is exactly what a
+ * failed detector must never be allowed to look like.
+ */
+export interface AutomationFilter {
+  /**
+   * Human views attributable to a flagged automated client, in the reported day
+   * and the prior day.
+   *
+   * `prior` is not decoration. The headline is now the count remaining AFTER
+   * this filter, so its day-over-day delta has to subtract from both sides.
+   * Comparing a filtered day against an unfiltered prior day would manufacture a
+   * large fake drop on the first morning and a wrong delta every morning after.
+   */
+  flagged: DailyCount;
+  /** The pre-rendered `swarmNote(...)` sentence, or null when nothing was flagged. */
+  note: string | null;
+}
+
+/**
+ * The digest's HEADLINE population: human page views left after the automation
+ * filter, for the reported day and the prior day.
+ *
+ * Exported so the admin panel can lead with the same figure rather than
+ * re-deriving the subtraction — the §6.10 parity guarantee is only structural
+ * while both surfaces read one definition.
+ *
+ * Clamped at zero defensively. `flagged` is a subset of the same
+ * `HUMAN`+`NOT_INTERNAL` population `pageViews` counts, computed from the same
+ * predicates over the same window, so it cannot legitimately exceed it — but a
+ * negative headline would be a far worse failure than a zero one if that ever
+ * stopped being true.
+ */
+export function humanViewsAfterAutomation(
+  metrics: AnalyticsMetrics,
+  automation: AutomationFilter | null | undefined,
+): DailyCount {
+  if (!automation) return metrics.pageViews;
+  return {
+    day: Math.max(0, metrics.pageViews.day - automation.flagged.day),
+    prior: Math.max(0, metrics.pageViews.prior - automation.flagged.prior),
+  };
 }
 
 export interface EmailDigest {
@@ -679,13 +732,19 @@ export function buildAnalyticsDigest(
 function buildSubject(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): string {
   const { pageViews: pv, botPageViews: bot, newUsers, topProducts } = metrics;
   const topName = topProducts[0]?.name;
-  // "up to" rather than a bare count (AECI-658). The subject line is the number
-  // the operator actually reads, and for weeks it asserted a figure that was an
-  // order of magnitude high with nothing to qualify it. ASCII, not a "<=" glyph,
-  // so it survives every mail client's subject rendering.
+  const net = humanViewsAfterAutomation(metrics, opts.automation);
+  // The subject line is the number the operator actually reads, so it carries
+  // the filtered figure with the raw one in parentheses (AECI-741) rather than
+  // the reverse. Without the filter it keeps the AECI-658 "up to" hedge: for
+  // weeks the subject asserted a figure that was an order of magnitude high with
+  // nothing to qualify it. ASCII, not a "<=" glyph, so it survives every mail
+  // client's subject rendering.
+  const headline = opts.automation
+    ? `${plural(net.day, 'human view')} after automation (${pv.day} raw)`
+    : `up to ${plural(pv.day, 'human view')}`;
   return (
     `AECi daily digest (${opts.env}) — ${opts.dayLabel}: ` +
-    `up to ${plural(pv.day, 'human view')}, ${plural(newUsers.day, 'new user')}` +
+    `${headline}, ${plural(newUsers.day, 'new user')}` +
     (topName ? ` · top: ${topName}` : '') +
     (bot.day > 0 ? ` · ${plural(bot.day, 'crawl')}` : '')
   );
@@ -707,18 +766,34 @@ function buildSubject(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): 
  * bound. `POST_LAUNCH_MONITORING.md` §3 has instructed reading the server figure
  * as an upper bound since launch; until AECI-658 the email never said so, which
  * is how a number that was ~10x high read as authoritative for weeks.
+ *
+ * Since AECI-741 the RAW server-side figure is no longer the headline, so these
+ * lines have to say which number they are bounding. Describing the headline as
+ * an upper bound when it is a filtered estimate would be the same class of error
+ * in the opposite direction.
  */
 function boundsLines(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): string[] {
-  const lines = [
-    'Page views above are an UPPER bound on humans: they are counted server-side on every',
-    'full-document load, so any crawler that does not run JavaScript is still in the number.',
-  ];
+  const lines = opts.automation
+    ? [
+        `The headline is the ${metrics.pageViews.day} views counted server-side less the`,
+        `${opts.automation.flagged.day} attributed to automated clients. The raw server-side figure is an`,
+        'UPPER bound: it is written on every full-document load, so any crawler that does not run',
+        'JavaScript is still in it. The filter is a maintained heuristic over a small sample, so the',
+        'headline is an estimate — it is not a census, and it can be wrong in both directions.',
+      ]
+    : [
+        'The automation filter did not run for this day, so the headline is UNFILTERED and is an',
+        'UPPER bound on humans: page views are counted server-side on every full-document load,',
+        'so any crawler that does not run JavaScript is still in the number.',
+      ];
   if (opts.posthog) {
     const { pageviews, people } = opts.posthog;
     lines.push(
       `PostHog (client-side, consented only) saw ${plural(pageviews, 'page view')} from ` +
         `${people} ${people === 1 ? 'person' : 'people'} the same day: a LOWER bound.`,
-      'The truth is between the two. A large gap means most arrivals never ran our JavaScript.',
+      opts.automation
+        ? 'The truth is between that floor and the raw server-side figure; the headline is our best estimate inside that range.'
+        : 'The truth is between the two. A large gap means most arrivals never ran our JavaScript.',
     );
   } else if (opts.posthogUnavailable) {
     lines.push(`PostHog lower bound unavailable (${opts.posthogUnavailable}).`);
@@ -774,8 +849,24 @@ function buildText(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): str
     `Generated: ${opts.generatedAt.toISOString()}`,
     '',
     '== Traffic (humans) ==',
-    `Page views: ${pv.day} (${deltaText(pv)})  [upper bound]`,
   ];
+  // Headline first, raw second, indented under it (AECI-741). The operator asked
+  // for the post-automation figure to be the number they SEE; ordering is most of
+  // what makes that true in a plain-text mail client, where there is no type
+  // scale to lean on.
+  const net = humanViewsAfterAutomation(metrics, opts.automation);
+  if (opts.automation) {
+    t.push(
+      `Human page views after automation: ${net.day} (${deltaText(net)})  [headline]`,
+      `  from ${pv.day} counted server-side (${deltaText(pv)}), less ` +
+        `${plural(opts.automation.flagged.day, 'view')} flagged as automation  [upper bound]`,
+    );
+  } else {
+    t.push(
+      `Page views: ${pv.day} (${deltaText(pv)})  [upper bound]`,
+      '  (automation filter did not run this day — this figure is UNFILTERED)',
+    );
+  }
   if (opts.posthog) {
     t.push(
       `PostHog page views: ${opts.posthog.pageviews} from ${opts.posthog.people} ` +
@@ -791,8 +882,8 @@ function buildText(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): str
       `  (${plural(metrics.operatorLeakViews, 'view')} excluded as operator self-traffic on a lapsed session)`,
     );
   }
-  if (opts.swarmNote) {
-    t.push(`Automation signal: ${opts.swarmNote}`);
+  if (opts.automation?.note) {
+    t.push(`Automation signal: ${opts.automation.note}`);
   }
   if (bot.day > 0) {
     t.push(
@@ -952,14 +1043,34 @@ function buildHtml(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): str
     metrics.operatorLeakViews > 0
       ? `<p style="margin:6px 0 0;font-size:13px;color:${HTML.muted}">${metrics.operatorLeakViews} view${metrics.operatorLeakViews === 1 ? '' : 's'} excluded as operator self-traffic on a lapsed session.</p>`
       : '';
-  const swarmLine = opts.swarmNote
+  const swarmLine = opts.automation?.note
     ? `<p style="margin:10px 0 0;padding:10px 12px;border-left:3px solid ${HTML.accent};background:${HTML.accentSoft};font-size:13px;color:${HTML.ink}">` +
-      `<strong>Automation signal.</strong> ${escapeHtml(opts.swarmNote)}</p>`
+      `<strong>Automation signal.</strong> ${escapeHtml(opts.automation.note)}</p>`
     : '';
+  // AECI-741. The big number is the post-automation count; the raw server-side
+  // figure survives as a muted sub-line because it is still the upper bound and
+  // still the thing every prior email reported. Demoted, not deleted — an
+  // operator comparing this morning against last week needs to be able to see
+  // both, and a number that silently changed meaning is the failure mode
+  // AECI-658 already had to fix once.
+  const net = humanViewsAfterAutomation(metrics, opts.automation);
+  const headlineStat = opts.automation
+    ? primaryStat(
+        net.day,
+        net.day === 1 ? 'human page view after automation' : 'human page views after automation',
+        deltaText(net),
+      ) +
+      `<p style="margin:6px 0 0;font-size:13px;color:${HTML.muted}">` +
+      `From <strong style="color:${HTML.ink}">${pv.day}</strong> counted server-side ` +
+      `(${escapeHtml(deltaText(pv))}), less <strong style="color:${HTML.ink}">${opts.automation.flagged.day}</strong> ` +
+      `flagged as automation. The raw figure is an <strong>upper bound</strong>; the headline is a ` +
+      `heuristic estimate, not a census.</p>`
+    : primaryStat(pv.day, pv.day === 1 ? 'human page view' : 'human page views', deltaText(pv)) +
+      `<p style="margin:6px 0 0;font-size:13px;color:${HTML.muted}">Counted server-side on every full-document load, so this is an <strong>upper bound</strong> on humans. ` +
+      `<strong style="color:${HTML.danger}">The automation filter did not run for this day</strong>, so nothing has been removed.</p>`;
   const traffic =
     sectionTitle('Traffic (humans)') +
-    primaryStat(pv.day, pv.day === 1 ? 'human page view' : 'human page views', deltaText(pv)) +
-    `<p style="margin:6px 0 0;font-size:13px;color:${HTML.muted}">Counted server-side on every full-document load, so this is an <strong>upper bound</strong> on humans.</p>` +
+    headlineStat +
     posthogLine +
     corroboratedLine +
     operatorLeakLine +
