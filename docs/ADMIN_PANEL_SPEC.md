@@ -461,7 +461,10 @@ publish 'this connector does nothing' about most of the catalogue."* The row car
 created empty and nothing writes it until AECI-721. Showing `0` would claim a measurement nobody
 took — §5.1's rule — so the lane carries a `connector_evidenced_pairs_empty` advisory instead. The
 two lanes are two `<table>`s, per §13.3: a group-header row inside one `<tbody>` has no accessible
-name relationship to the rows beneath it.
+name relationship to the rows beneath it. Each lane distinguishes a **failed** fetch from an empty
+one — an alert with a retry, not the empty state — for the same reason §5.1 keeps a failed section
+from blanking the page: rendering a load error as "nothing delivered" would be the exact
+zero-as-measurement misread this advisory exists to prevent.
 
 **(5) No cache tag, and that is now settled twice over.** `/admin/*` is deliberately uncacheable
 (`CACHE_STRATEGY.md` §4), so an admin-only reader renders nothing cacheable and the connector

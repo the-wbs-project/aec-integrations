@@ -310,6 +310,21 @@ describe('ConnectorDetail', () => {
     expect(el.textContent).toContain('could not load the listings');
   });
 
+  it('shows an error with retry for a failed pairs load, never the empty state', async () => {
+    // A failed fetch must not read as "nothing delivered" — that is exactly the
+    // loaded misreading the connector_evidenced_pairs_empty advisory guards
+    // against, so both lanes surface an alert + retry like the other sections.
+    const { el } = await setup(
+      makeApiMock({ listPairs: vi.fn(async () => Promise.reject(new Error('nope'))) }),
+    );
+    const pairsSection = el.querySelector('section[aria-labelledby="admin-connector-pairs"]')!;
+    expect(pairsSection.querySelectorAll('[role="alert"]')).toHaveLength(2);
+    expect(pairsSection.textContent).toContain('could not load the delivered pairs');
+    expect(pairsSection.textContent).toContain('could not load these pages');
+    expect(pairsSection.textContent).not.toContain('Nothing has been recorded as delivered');
+    expect(pairsSection.textContent).not.toContain('publishes no pair pages');
+  });
+
   describe('accessibility (structural)', () => {
     it('uses one h2 and no h1, with sections below it', async () => {
       const { el } = await setup(makeApiMock());

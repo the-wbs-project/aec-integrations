@@ -477,6 +477,23 @@
     <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@admin.connectors.pairs.loading">
       Loading pairs…
     </p>
+    } @else if (evidencedFailed()) {
+    <div
+      role="alert"
+      class="mt-2 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-4"
+    >
+      <p class="text-sm text-(--text-primary)" i18n="@@admin.connectors.pairs.deliveredError">
+        We could not load the delivered pairs.
+      </p>
+      <button
+        type="button"
+        class="mt-3 cursor-pointer rounded-(--radius-sm) border border-(--border-default) px-3 py-2 text-sm font-medium text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        (click)="retryEvidenced()"
+        i18n="@@admin.connectors.pairs.deliveredRetry"
+      >
+        Try again
+      </button>
+    </div>
     } @else if (evidencedPairs().length === 0) {
     <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@admin.connectors.pairs.noDelivered">
       Nothing has been recorded as delivered through this connector yet.
@@ -550,6 +567,23 @@
     <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@admin.connectors.pairs.loadingTwo">
       Loading pages…
     </p>
+    } @else if (reachableFailed()) {
+    <div
+      role="alert"
+      class="mt-2 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-4"
+    >
+      <p class="text-sm text-(--text-primary)" i18n="@@admin.connectors.pairs.reachableError">
+        We could not load these pages.
+      </p>
+      <button
+        type="button"
+        class="mt-3 cursor-pointer rounded-(--radius-sm) border border-(--border-default) px-3 py-2 text-sm font-medium text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        (click)="retryReachable()"
+        i18n="@@admin.connectors.pairs.reachableRetry"
+      >
+        Try again
+      </button>
+    </div>
     } @else if (reachablePairs().length === 0) {
     <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@admin.connectors.pairs.noReachable">
       This connector publishes no pair pages we have recorded.

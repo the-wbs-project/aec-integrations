@@ -276,6 +276,14 @@ export class ConnectorDetail {
     void this.loadEvidenced();
   }
 
+  protected retryReachable(): void {
+    void this.loadReachable();
+  }
+
+  protected retryEvidenced(): void {
+    void this.loadEvidenced();
+  }
+
   private async loadReachable(): Promise<void> {
     const id = this.catalogId();
     if (!id) return;
@@ -298,6 +306,7 @@ export class ConnectorDetail {
       this.reachableFailed.set(true);
       this.reachablePairs.set([]);
       this.reachableTotal.set(0);
+      this.reachableNotes.set([]);
     } finally {
       this.reachableLoading.set(false);
     }
@@ -323,6 +332,7 @@ export class ConnectorDetail {
       this.evidencedFailed.set(true);
       this.evidencedPairs.set([]);
       this.evidencedTotal.set(0);
+      this.evidencedNotes.set([]);
     } finally {
       this.evidencedLoading.set(false);
     }
