@@ -17,9 +17,9 @@
 
 **The trust invariant is unchanged and non-negotiable: no pay-for-placement.** Entitlements gate **profile richness and portal capability only** — never ranking, placement, or badge trust. Search stays purely algorithmic (`STAGE_1_SPEC.md` §1 principles; `CLAUDE.md` constraints). In this epic that invariant stops being a documented promise and becomes an **asserted property** (§3.2).
 
-**The launch model stays concierge (`STAGE_2_SPEC.md` §8.1).** Vendors pay, always — and since **§8.8** (AECI-702) the vendor who pays is the **endpoint** vendor: a connector surface is not invoiced. What a pure connector vendor gets in return for its catalogue feed is **open** (AECI-704), so no entitlement shape should be assumed for one. Offline invoice/PO only — no payment provider, no self-serve card. An admin records the arrangement and toggles the entitlement by hand. It deliberately does not scale.
+**The launch model stays concierge (`STAGE_2_SPEC.md` §8.1).** Vendors pay, always — and since **§8.8** (AECI-702) the vendor who pays is the **endpoint** vendor: a connector surface is not invoiced. What a pure connector vendor gets in return for its catalogue feed is settled by **§8.9** (AECI-704): a catalogue-maintenance seat on its own catalogue(s), carried by **no `vendor_entitlements` row at all** — so nothing in this document applies to one, and the mirror never lights its badge. Offline invoice/PO only — no payment provider, no self-serve card. An admin records the arrangement and toggles the entitlement by hand. It deliberately does not scale.
 
-**What "free" means, precisely.** The free/default state is the **unclaimed, AECi-curated baseline** — the full Stage 1/1.5 directory entry, free to read, rendering no verified badge. Paying buys the vendor the ability to *act* on their own record. It buys the reader nothing and costs the reader nothing. **§8.8 exempts the connector surface from being invoiced at all**, and leaves open what a pure connector vendor receives instead — note that `vendors.verified` mirrors off `status`, not `tier`, so any active row would light the badge.
+**What "free" means, precisely.** The free/default state is the **unclaimed, AECi-curated baseline** — the full Stage 1/1.5 directory entry, free to read, rendering no verified badge. Paying buys the vendor the ability to *act* on their own record. It buys the reader nothing and costs the reader nothing. **§8.8 exempts the connector surface from being invoiced at all**, and **§8.9 settles what a pure connector vendor receives instead** — a catalogue-maintenance seat that is deliberately **not** an entitlement row. That shape was forced by the mirror: `vendors.verified` keys off `status`, not `tier`, so *any* active row would light the badge.
 
 ### 1.1 Issue map & critical path
 
@@ -232,6 +232,8 @@ Three capabilities are **declared with no consumer on purpose**: `attestation.au
 
 The ladder is **binary at launch** — `unclaimed` (no active entitlement) vs `verified` (the paid entry fee). `STAGE_2_SPEC.md` §8.2's "tier ladder above the entry Verified fee" stays open as a *pricing* question; this structure makes answering it a data edit.
 
+> **The connector carve-out mints no capability id, and adds no rung** (`STAGE_2_SPEC.md` §8.9(2), AECI-704). A pure connector vendor's catalogue-maintenance seat is authorized by `profiles.role = 'vendor_admin'` + `profiles.vendor_id` on the connector admin routes — outside this registry entirely — precisely so it needs no `vendor_entitlements` row, and therefore never lights the `vendors.verified` mirror. Do not add a `partner` tier to reach that outcome: a zero-capability tier is rejected at the endpoint (§5.1's 403) and would light the badge through the status mirror anyway, because the mirror keys off `status`, not `tier` (§2.1).
+
 ### 3.2 The ranking firewall — what the unit test asserts
 
 `packages/shared/src/entitlements.spec.ts`, three assertions, escalating:
@@ -371,6 +373,8 @@ After this epic there are three distinct "take it away" actions, and an admin cl
 | **Ban a seat** | `PATCH /api/admin/reviewers/:id` | one `profiles` row | that seat 403s on every `/api/vendor/*` call; other seats unaffected | **No** |
 | **Revoke a seat** | `DELETE /api/vendor/seats/:userId` (AECI-664; owner-only, **not** capability-gated) — or `DELETE /api/admin/vendors/:id/seats/:userId` (AECI-652 §5.6, admin-side) | one `profiles` row | drops the seat to `reviewer`, unlinks `vendor_id`, clears `seat_owner` | **No** |
 | **Clear an entitlement** | `PATCH /api/admin/vendors/:id/entitlement` | the vendor | badge goes away; **seats, logins and dashboard survive, read-only** | **Yes** (via the mirror) |
+
+**A pure connector vendor never appears in this table**, because it never gets a row: its seat is not an entitlement (`STAGE_2_SPEC.md` §8.9(2)), and its claim is routed to the partnership track rather than granted here (`STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2). "Grant it a non-paying tier" is not an available move — §5.1 returns **403** on any `set` whose tier grants zero capabilities, and `SetVendorEntitlementSchema.tier` derives from `PAID_TIERS`, so Zod rejects it first.
 
 **Clearing an entitlement does not revoke seats** — this answers AECI-532's open question. It is consistent with `STAGE_2_SPEC.md` §8.3(2) ("un-verifying a vendor is a separate entitlement action, not a ban") and it is what makes the §4 gate's launch behaviour concrete and testable: writes 403, reads work, the dashboard renders read-only with a renewal notice.
 
