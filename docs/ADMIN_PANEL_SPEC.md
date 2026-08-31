@@ -137,7 +137,7 @@ Fifteen routes under the existing `AdminShell` (`app/admin/admin-shell.ts`): **e
   Operations
     /admin/reviews         existing (Phase 5.13)
     /admin/requests        existing (Phase 6.10)
-    /admin/claims          existing (Stage 2, AECI-521)
+    /admin/claims          existing (Stage 2, AECI-521 — see the connector note below)
     /admin/vendors         §5.7  (list)
     /admin/vendors/:id     §5.7  (detail — nav links the list only)
     /admin/users           §5.8  (list)
@@ -316,6 +316,8 @@ Three IA notes:
 - **No live updates**, per §2 — the audit trail and the roster refresh on action or on reload, deliberately.
 
 Per §9.3 the three GETs emit no `audit_log` row; the revoke does, in the same `db.batch` as its write, via the shared `revokeSeatStatements` builder.
+
+> **Operator note — a connector vendor's claim is neither granted nor rejected (AECI-704).** A vendor **all** of whose products are `product_role = 'connector'` is not sold verification (`STAGE_2_SPEC.md` §8.8 / §8.9): on `/admin/claims`, Grant would open a `verified` entitlement and light the badge, and Reject sends a real decline email. The claim is parked `open` and routed to the partnership track out of band, and this screen never opens an entitlement for such a vendor. Full procedure — including the two console gaps it depends on (**neither `/admin/claims` nor this screen surfaces `product_role`**, and a claim has no detail route or operator-note field) — is `STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2.
 
 > **Rendering revision — SHIPPED (AECI-694).** All four sections are now tables rather than card lists, and the audit trail moved into a shared `<aec-audit-trail>` (`app/admin/audit/`) so the next trail the console wants is a drop-in rather than a second divergent renderer. The contract in `STAGE_2_PAID_TIERS_SPEC.md` §5.6 is unchanged; no endpoint, query or response shape moved. Four notes:
 >
