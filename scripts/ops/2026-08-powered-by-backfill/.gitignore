@@ -1,0 +1,9 @@
+# Generated audit reports carry product/integration names + production uuids straight
+# out of the catalog. They are operator artifacts, produced fresh on every run — never
+# committed. The dated measurement that matters lives in README.md.
+report-*.json
+
+# Per-run backups, generated SQL and the rollback that undoes it. Written before every
+# write (including dry-run) so the exact bytes applied can be reviewed and reversed;
+# they are a full dump of the integrations table and do not belong in git.
+backups/

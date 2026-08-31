@@ -289,6 +289,21 @@ endpoints**. The other endpoint must already be promoted (reference it by
 `supabaseId`). If the other endpoint isn't promoted yet, **omit the integration**
 — it will be created when that product is promoted.
 
+> **The same ordering applies to `poweredByProduct`, but it fails differently — and
+> silently.** An endpoint that cannot be resolved makes AECi skip the whole
+> integration and report it in `skipped[]`. An unresolvable **connector** does not:
+> the ingest writes the integration anyway with `powered_by_product_id` NULL, and
+> emits no `skipped[]` entry, no `staleSupabaseIds` entry and no metric. The only
+> signal is the *absence* of `poweredBySlug` from the result.
+>
+> So **promote the connector product before any edge that names it.** An edge
+> promoted first keeps a NULL FK until it is promoted again — promoting the
+> connector alone does not repair edges already in the database, because promote is
+> product-driven and those edges belong to their endpoints' bundles.
+>
+> `scripts/ops/2026-08-powered-by-backfill/audit.mjs` is the offline detector for
+> rows in that state.
+
 | Field | Type | Required | Notes |
 |---|---|---|---|
 | `ref` | string | ✅ | Unique local label. |
@@ -297,7 +312,7 @@ endpoints**. The other endpoint must already be promoted (reference it by
 | `sourceProduct` | `{ ref }` \| `{ supabaseId }` | ✅ | One endpoint. `{ ref: <product.ref> }` for the product in this bundle. |
 | `targetProduct` | `{ ref }` \| `{ supabaseId }` | ✅ | The other endpoint. |
 | `builtByVendor` | `{ ref }` \| `{ supabaseId }` \| null | — | `ref` must name a vendor in `vendors[]`; otherwise use `supabaseId`. |
-| `poweredByProduct` | `{ ref }` \| `{ supabaseId }` \| null | — | |
+| `poweredByProduct` | `{ ref }` \| `{ supabaseId }` \| null | — | The connector that delivers this edge. **It must already be promoted** — see the warning below. |
 | `mechanismKind` | `"native"` \| `"iPaaS"` \| `"marketplace-app"` \| `"api"` \| `"webhook"` \| `"partner"` \| null | — | |
 | `direction` | `"one-way"` \| `"bidirectional"` \| null | — | |
 | `mechanismName`, `description`, `listingUrl`, `docsUrl`, `website`, `mechanismUrl`, `pricingModel`, `maturity`, `notes` | string \| null | — | |
