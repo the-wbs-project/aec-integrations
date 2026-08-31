@@ -9,6 +9,12 @@ import {
   attestations,
   auditLog,
   claims,
+  connectorCatalogs,
+  connectorCatalogSurfaces,
+  connectorEvidencedPairs,
+  connectorPairs,
+  connectorStubMappings,
+  connectorStubs,
   integrations,
   productCategories,
   products,
@@ -635,6 +641,329 @@ describe('taxonomy_trades / product_trades (AECI-540)', () => {
     // is upsert-only and never deletes (TRADES_VOCABULARY.md §3).
     await t.db.delete(taxonomyTrades).where(eq(taxonomyTrades.id, 't1'));
     expect((await t.db.select().from(productTrades)).length).toBe(0);
+    t.dispose();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Connector lane (AECI-714) — the constraints that exist ONLY in SQL.
+//
+// Everything here is unreachable from a Zod schema or a TypeScript type: partial
+// indexes, CHECK expressions, and the ON DELETE actions drizzle-kit is known to drop
+// silently on ADD COLUMN (docs/migrations.md §0). The harness applies the real
+// migration files, so these assert the shipped DDL rather than the schema literal.
+// ---------------------------------------------------------------------------
+describe('connector lane (AECI-714)', () => {
+  /** A promoted product + a catalogue hanging off it, the minimum this lane needs. */
+  async function seedCatalog(t: TestDb, opts: { catalogId?: string } = {}) {
+    const catalogId = opts.catalogId ?? 'cat1';
+    await t.db
+      .insert(products)
+      .values({ id: 'conn1', slug: 'mindcloud', name: 'MindCloud', productRole: 'connector' });
+    await t.db.insert(connectorCatalogs).values({ id: catalogId, connectorProductId: 'conn1' });
+    return catalogId;
+  }
+
+  const stubStamps = {
+    firstSeenAt: '2026-08-27T06:10:37.867Z',
+    lastSeenAt: '2026-08-27T06:11:54.977Z',
+  };
+
+  it('defaults managed_by to review — every catalogue starts review-authored (AECI-720)', async () => {
+    const t = await makeTestDb();
+    await seedCatalog(t);
+    const [row] = await t.db.select().from(connectorCatalogs);
+    expect(row?.managedBy).toBe('review');
+    t.dispose();
+  });
+
+  it('scopes stub identity to the catalogue — `adp` on two iPaaS are two listings', async () => {
+    const t = await makeTestDb();
+    await seedCatalog(t);
+    await t.db
+      .insert(products)
+      .values({ id: 'conn2', slug: 'zapier', name: 'Zapier', productRole: 'connector' });
+    await t.db.insert(connectorCatalogs).values({ id: 'cat2', connectorProductId: 'conn2' });
+
+    await t.db
+      .insert(connectorStubs)
+      .values({ id: 's1', catalogId: 'cat1', slug: 'adp', ...stubStamps });
+    // Same slug, different catalogue — allowed, and the whole reason the unique index
+    // is (catalog_id, slug) rather than slug alone.
+    await t.db
+      .insert(connectorStubs)
+      .values({ id: 's2', catalogId: 'cat2', slug: 'adp', ...stubStamps });
+    expect((await t.db.select().from(connectorStubs)).length).toBe(2);
+
+    await expect(
+      t.db
+        .insert(connectorStubs)
+        .values({ id: 's3', catalogId: 'cat1', slug: 'adp', ...stubStamps }),
+    ).rejects.toThrow();
+    t.dispose();
+  });
+
+  it('allows many mapped products per stub, but only ONE stub-level decision', async () => {
+    const t = await makeTestDb();
+    await seedCatalog(t);
+    await t.db
+      .insert(connectorStubs)
+      .values({ id: 's1', catalogId: 'cat1', slug: 'procore', ...stubStamps });
+    await t.db.insert(products).values([
+      { id: 'pm', slug: 'procore-pm', name: 'Procore Project Management' },
+      { id: 'pf', slug: 'procore-financials', name: 'Procore Project Financials' },
+    ]);
+
+    // Many-to-many is the point of AECI-719: one listing, several of our SKUs.
+    await t.db.insert(connectorStubMappings).values([
+      {
+        id: 'm1',
+        stubId: 's1',
+        catalogId: 'cat1',
+        productId: 'pm',
+        status: 'mapped',
+        decidedBy: 'chris',
+      },
+      {
+        id: 'm2',
+        stubId: 's1',
+        catalogId: 'cat1',
+        productId: 'pf',
+        status: 'mapped',
+        decidedBy: 'chris',
+      },
+    ]);
+    expect((await t.db.select().from(connectorStubMappings)).length).toBe(2);
+
+    // SQLite treats NULLs as DISTINCT, so the (stub_id, product_id) unique index does
+    // NOT make the decision a singleton — the partial index does.
+    await t.db
+      .insert(connectorStubs)
+      .values({ id: 's2', catalogId: 'cat1', slug: 'acme', ...stubStamps });
+    await t.db
+      .insert(connectorStubMappings)
+      .values({ id: 'm3', stubId: 's2', catalogId: 'cat1', status: 'no_record' });
+    await expect(
+      t.db
+        .insert(connectorStubMappings)
+        .values({ id: 'm4', stubId: 's2', catalogId: 'cat1', status: 'ambiguous_parked' }),
+    ).rejects.toThrow();
+    t.dispose();
+  });
+
+  it('lets a product be deleted even when two mapped rows point at it (the SET NULL trap)', async () => {
+    const t = await makeTestDb();
+    await seedCatalog(t);
+    await t.db
+      .insert(connectorStubs)
+      .values({ id: 's1', catalogId: 'cat1', slug: 'procore', ...stubStamps });
+    await t.db.insert(products).values({ id: 'pm', slug: 'procore-pm', name: 'Procore PM' });
+    await t.db
+      .insert(connectorStubs)
+      .values({ id: 's2', catalogId: 'cat1', slug: 'procore-2', ...stubStamps });
+    await t.db.insert(connectorStubMappings).values([
+      {
+        id: 'm1',
+        stubId: 's1',
+        catalogId: 'cat1',
+        productId: 'pm',
+        status: 'mapped',
+        decidedBy: 'chris',
+      },
+      {
+        id: 'm2',
+        stubId: 's2',
+        catalogId: 'cat1',
+        productId: 'pm',
+        status: 'mapped',
+        decidedBy: 'chris',
+      },
+    ]);
+
+    // THIS is why the decision index is keyed on `status` and not on `product_id IS
+    // NULL`: ON DELETE SET NULL nulls both rows at once, and a null-keyed partial
+    // index would collide and make the product delete fail outright.
+    await t.db.delete(products).where(eq(products.id, 'pm'));
+    const rows = await t.db.select().from(connectorStubMappings);
+    expect(rows.length).toBe(2);
+    // The decision trail outlives the product — visible as an orphan, not tidied away.
+    expect(rows.every((r) => r.productId === null && r.status === 'mapped')).toBe(true);
+    t.dispose();
+  });
+
+  it('enforces the canonical pair ordering rather than trusting the caller', async () => {
+    const t = await makeTestDb();
+    await seedCatalog(t);
+    await t.db.insert(connectorStubs).values([
+      { id: 'sa', catalogId: 'cat1', slug: 'acumatica', ...stubStamps },
+      { id: 'sb', catalogId: 'cat1', slug: 'procore', ...stubStamps },
+    ]);
+    await t.db
+      .insert(connectorPairs)
+      .values({ id: 'pr1', catalogId: 'cat1', stubAId: 'sa', stubBId: 'sb', ...stubStamps });
+
+    // The vendor publishes both directions as separate pages; without the CHECK the
+    // reversed row inserts happily and the unique index never sees the collision.
+    await expect(
+      t.db
+        .insert(connectorPairs)
+        .values({ id: 'pr2', catalogId: 'cat1', stubAId: 'sb', stubBId: 'sa', ...stubStamps }),
+    ).rejects.toThrow();
+    expect((await t.db.select().from(connectorPairs))[0]?.surface).toBe('unknown');
+    t.dispose();
+  });
+
+  it('cascades a catalogue delete through stubs, mappings and pairs', async () => {
+    const t = await makeTestDb();
+    await seedCatalog(t);
+    await t.db.insert(connectorCatalogSurfaces).values({
+      id: 'sf1',
+      catalogId: 'cat1',
+      surfaceRole: 'apps',
+      indexKind: 'sitemap',
+      indexUrl: 'https://mindcloud.co/apps/sitemap.xml',
+    });
+    await t.db.insert(connectorStubs).values([
+      { id: 'sa', catalogId: 'cat1', slug: 'acumatica', ...stubStamps },
+      { id: 'sb', catalogId: 'cat1', slug: 'procore', ...stubStamps },
+    ]);
+    await t.db
+      .insert(connectorPairs)
+      .values({ id: 'pr1', catalogId: 'cat1', stubAId: 'sa', stubBId: 'sb', ...stubStamps });
+    await t.db
+      .insert(connectorStubMappings)
+      .values({ id: 'm1', stubId: 'sa', catalogId: 'cat1', status: 'out_of_scope' });
+
+    await t.db.delete(connectorCatalogs).where(eq(connectorCatalogs.id, 'cat1'));
+    expect((await t.db.select().from(connectorCatalogSurfaces)).length).toBe(0);
+    expect((await t.db.select().from(connectorStubs)).length).toBe(0);
+    expect((await t.db.select().from(connectorPairs)).length).toBe(0);
+    expect((await t.db.select().from(connectorStubMappings)).length).toBe(0);
+    t.dispose();
+  });
+
+  it('rejects every out-of-vocabulary connector-lane enum value', async () => {
+    const t = await makeTestDb();
+    await seedCatalog(t);
+    await t.db
+      .insert(connectorStubs)
+      .values({ id: 's1', catalogId: 'cat1', slug: 'adp', ...stubStamps });
+
+    await expect(
+      t.db
+        .update(connectorCatalogs)
+        .set({ managedBy: 'partner' })
+        .where(eq(connectorCatalogs.id, 'cat1')),
+    ).rejects.toThrow();
+    await expect(
+      t.db
+        .insert(connectorStubMappings)
+        .values({ id: 'm1', stubId: 's1', catalogId: 'cat1', status: 'pending' }),
+    ).rejects.toThrow();
+    await expect(
+      t.db.insert(connectorStubMappings).values({
+        id: 'm2',
+        stubId: 's1',
+        catalogId: 'cat1',
+        status: 'mapped',
+        confidence: 'certain',
+      }),
+    ).rejects.toThrow();
+    t.dispose();
+  });
+
+  it('deliberately ACCEPTS unfamiliar scraper vocabulary — those columns are uncontrained', async () => {
+    const t = await makeTestDb();
+    await seedCatalog(t);
+    await t.db
+      .insert(connectorStubs)
+      .values({ id: 's1', catalogId: 'cat1', slug: 'adp', ...stubStamps });
+
+    // The inverse of the test above, and the more valuable half: `surface_role`,
+    // `index_kind` and `direction_role` carry NO CHECK, on purpose. They are scraper
+    // vocabulary with a demonstrated history of moving (the review app added `all`
+    // only after the 2026-08-27 Aquifer/Kroo survey), and a CHECK change on D1 is a
+    // destructive table recreate. If someone "tightens" these later, this test is
+    // what tells them it was a decision rather than an omission.
+    await t.db.insert(connectorCatalogSurfaces).values({
+      id: 'sf',
+      catalogId: 'cat1',
+      surfaceRole: 'partner-directory',
+      indexKind: 'graphql',
+    });
+    await t.db
+      .update(connectorStubs)
+      .set({ directionRole: 'inbound' })
+      .where(eq(connectorStubs.id, 's1'));
+    expect((await t.db.select().from(connectorCatalogSurfaces))[0]?.surfaceRole).toBe(
+      'partner-directory',
+    );
+    t.dispose();
+  });
+
+  it('refuses an evidenced pair whose connector is one of its own endpoints (§13.2a)', async () => {
+    const t = await makeTestDb();
+    await t.db.insert(products).values([
+      { id: 'aqu', slug: 'aquifer', name: 'Aquifer', productRole: 'connector' },
+      { id: 'zzz', slug: 'sage-300', name: 'Sage 300' },
+    ]);
+
+    // Review-side Convention A stores "product X ships a connector on platform C" as
+    // ONE edge whose powered_by IS an endpoint — ~152 of the 308 iPaaS rows. Those
+    // stay in the DIRECT list; letting one in renders "Via Aquifer → Aquifer".
+    await expect(
+      t.db.insert(connectorEvidencedPairs).values({
+        id: 'e1',
+        connectorProductId: 'aqu',
+        productAId: 'aqu',
+        productBId: 'zzz',
+      }),
+    ).rejects.toThrow();
+    t.dispose();
+  });
+
+  it('canonicalises the evidenced pair and keeps orientation on `direction`', async () => {
+    const t = await makeTestDb();
+    await t.db.insert(products).values([
+      { id: 'aaa', slug: 'acumatica', name: 'Acumatica' },
+      { id: 'bbb', slug: 'procore', name: 'Procore' },
+      { id: 'ccc', slug: 'agave', name: 'Agave', productRole: 'connector' },
+    ]);
+
+    await t.db.insert(connectorEvidencedPairs).values({
+      id: 'e1',
+      connectorProductId: 'ccc',
+      productAId: 'aaa',
+      productBId: 'bbb',
+      direction: 'a_to_b',
+      listingUrl: 'https://useagave.com/integrations/procore',
+    });
+    const [row] = await t.db.select().from(connectorEvidencedPairs);
+    expect(row?.maintainedBy).toBe('aeci');
+    expect(row?.lastReviewedAt).toBeNull();
+
+    // Reversed endpoints would defeat per-connector pair uniqueness.
+    await expect(
+      t.db
+        .insert(connectorEvidencedPairs)
+        .values({ id: 'e2', connectorProductId: 'ccc', productAId: 'bbb', productBId: 'aaa' }),
+    ).rejects.toThrow();
+    // Same pair, same connector — the uniqueness this table exists to express.
+    await expect(
+      t.db
+        .insert(connectorEvidencedPairs)
+        .values({ id: 'e3', connectorProductId: 'ccc', productAId: 'aaa', productBId: 'bbb' }),
+    ).rejects.toThrow();
+    // `direction` reuses claims' vocabulary rather than inventing a second one.
+    await expect(
+      t.db.insert(connectorEvidencedPairs).values({
+        id: 'e4',
+        connectorProductId: 'ccc',
+        productAId: 'aaa',
+        productBId: 'bbb',
+        direction: 'one-way',
+      }),
+    ).rejects.toThrow();
     t.dispose();
   });
 });

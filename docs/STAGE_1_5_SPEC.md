@@ -664,7 +664,7 @@ notes, and the words were already drifting between issues.
 | Tier | What it asserts | Where it lives | Counts as an integration? |
 |---|---|---|---|
 | **Delivered** | A working integration exists **today**. Two sub-kinds: *accountable-party* — a vendor or SI built it and maintains it — and *via-connector* — an iPaaS ships a listing covering both sides | `integrations`; after AECI-721, also the connector lane's **evidenced pairs** | **Yes — both sub-kinds** |
-| **Reachable** | Both sides appear in the same connector's catalogue, so a connector **could** deliver it with configuration and no code. Computed from stub↔product mappings; **never stored as delivered** | derived pairs (AECI-714) | **No, ever** |
+| **Reachable** | Both sides appear in the same connector's catalogue, so a connector **could** deliver it with configuration and no code. Computed from stub↔product mappings; **never stored as delivered** | derived at read time from `connector_stubs` + `connector_stub_mappings`, gated for publication by `connector_pairs.surface` (AECI-714 — §13.10) | **No, ever** |
 | **Buildable** | Both sides expose an API, so somebody **could** write it. True of very nearly every pair in the catalog | nowhere — deliberately not modelled | **No** |
 
 - **Delivered is a tier, not a column.** There is **no `integrations.status`** and no delivered
@@ -923,8 +923,8 @@ Stated explicitly so a reviewer can check them rather than infer them:
   AECI-698 / AECI-721.
 - **`CACHE_STRATEGY.md`** — §13.4(3) applies its existing §3 embedded-entity rule; no new rule.
 - **`API_CONTRACTS.md`** — changes with AECI-713 (the §13.4(1) field), not with this addendum.
-- **`REVIEW_APP_PROMOTE_API.md`** — unchanged here; the connector-coverage payload extension is
-  AECI-714's.
+- **`REVIEW_APP_PROMOTE_API.md`** — unchanged *by this addendum*; the connector-coverage payload
+  extension was AECI-714's, and it **landed 2026-08-31** as §3a of that document. See §13.10.
 
 ### 13.9 Known data state (2026-08-30/31)
 
@@ -945,3 +945,46 @@ Zapier/Workato `on_hold` decision — 110 and 44 powered edges respectively ride
 Until AECI-700 resolves, the "Via" lane reads mostly-Agave; that is expected, not a defect in the
 split. This supersedes §12.6's snapshot (5 of 421 prod edges carrying `powered_by`), which stays in
 place as the historical record of what Addendum B shipped against.
+
+### 13.10 What AECI-714 landed (2026-08-31)
+
+The data half of this addendum. §13.1 named "derived pairs (AECI-714)" and §13.7 said "the data
+lands in AECI-714"; this is what that turned out to be, recorded here so the four unbuilt
+presentation issues anchor to something concrete rather than to a promise.
+
+**Six app-DB tables**, migration `apps/api/migrations/0021_overconfident_selene.sql`, documented in
+`DATABASE_SCHEMA.md` **§9a**. Five are a field-for-field **projection** of the review app's model
+(AECI-719) — `connector_catalogs`, `connector_catalog_surfaces`, `connector_stubs`,
+`connector_stub_mappings`, `connector_pairs` — and the sixth, `connector_evidenced_pairs`, is the
+delivered tier §13.1's table names, **created empty**.
+
+**AECI-714 created new tables only.** Every change to an existing table stays AECI-721's: the
+`integrations_mechanism_kind_check` enum revision, the powered-edge move, the claims re-home, and
+the ten `integration_count` lockstep sites of §13.5. That split is what keeps the destructive D1
+recreate to **one** migration, and it is why `0021` is `CREATE TABLE` / `CREATE INDEX` only.
+
+**The reachable tier is still not a table**, exactly as §13.1 requires. Reachability derives at
+read time from `connector_stubs` + `connector_stub_mappings`. `connector_pairs` is projected not
+because reachability needs it but because **publication** does: §13.7 publishes the *curated* set,
+and `curated | generated | unknown` is a classification on the vendor's own published pair row
+(AECI-677) that exists nowhere in the mapping graph. Without it the only derivable thing is the
+auto-generated cross-product this addendum refuses to publish.
+
+**A paged sync**, `POST /api/promote/connector-catalog` (`REVIEW_APP_PROMOTE_API.md` §3a). AECi
+holds the **full** mirror — every stub, including the ~3,342 that map to nothing — because the
+question the lane answers is *"is this new listing one of ours?"*, because AECI-720's cutoff is
+only a lane freeze if AECi's copy is complete, and because those rows **are** AECI-722's triage
+queue. One page is one complete ADR 0021 job; there is no atomicity across pages, and every
+statement is an idempotent upsert keyed on the review record id.
+
+**Nothing renders it yet, and nothing counts it.** The sync dispatches no Algolia sync, no
+IndexNow or Google ping, no home-stats refresh and no cache purge — §13.5 holds unchanged. When
+§13.7's summary line ships, `CACHE_STRATEGY.md` §3 rule 4 now names the tag set it will need.
+
+**What is still open.** The publication gate is provenance rather than confidence
+(`decided_by <> 'auto-name-match'`), so today's **13 confirmed** stubs are what would publish
+against 212 machine proposals — the coverage surface is real but thin until somebody confirms.
+And a catalogue whose connector platform is unpromoted cannot land at all (`connector_product_id`
+is NOT NULL): Zapier and Workato are `on_hold` review-side, so their pages report in `skipped[]`.
+Whether an evidenced pair may name a connector with no `products` row is AECI-721's question, and
+it now applies to catalogues too.

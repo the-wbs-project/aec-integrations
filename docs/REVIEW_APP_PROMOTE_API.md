@@ -90,12 +90,19 @@ days. See `docs/adr/0021-async-promote-ingest-via-workflows.md`.
 ## 2. Endpoints
 
 ```
-POST {API_BASE}/api/promote                 → 202 { jobId, status: "queued" }
-GET  {API_BASE}/api/promote/jobs/{jobId}    → 200 { jobId, status, result?, error? }
+POST {API_BASE}/api/promote                    → 202 { jobId, status: "queued" }
+POST {API_BASE}/api/promote/connector-catalog  → 202 { jobId, status: "queued" }
+GET  {API_BASE}/api/promote/jobs/{jobId}       → 200 { jobId, status, result?, error? }
 
-Authorization: Bearer {REVIEW_APP_TOKEN}    (both)
-Content-Type: application/json              (POST)
+Authorization: Bearer {REVIEW_APP_TOKEN}       (all three)
+Content-Type: application/json                 (POST)
 ```
+
+**Two kinds of push, one job protocol.** `POST /api/promote` sends a **product bundle**
+(§3); `POST /api/promote/connector-catalog` sends one **page of one connector catalogue**
+(§3a, AECI-714). They share the kick-off shape, the `jobId` idempotency, the poll endpoint
+and the error model — the poll result is told apart by a `kind` field, which only the
+connector arm carries. Everything from §2.1 to §2.2 applies to both.
 
 | Environment | `{API_BASE}` |
 |---|---|
@@ -409,6 +416,157 @@ same failure `verified` had before AECI-520 (§4a).
 
 ---
 
+## 3a. Connector-catalogue pages (`POST /api/promote/connector-catalog`, AECI-714)
+
+A separate body shape on a separate path, sharing everything else. It mirrors the review
+app's connector-lane model into AECi — catalogues, their crawled listings ("stubs"),
+stub↔product mappings, and the pairs a vendor publishes a page for.
+
+**AECi holds the FULL mirror, including the misses.** Send every stub, not just the mapped
+ones: the question the lane answers is *"is this new listing one of ours?"*, and the ~3,342
+undecided stubs are the triage queue the AECi connector admin screen works from. It is also
+what makes the eventual per-iPaaS management handover a lane freeze rather than a data
+migration.
+
+### One page = one complete job
+
+A catalogue is far too large for one request, so it arrives paged, and **each page is an
+independent promote job**: its own `jobId`, its own `202`, its own poll, its own atomic
+commit. There is deliberately **no atomicity across pages** — one job ledger protects one
+commit. What makes that safe is that every write is an upsert keyed on *your* record id, so:
+
+- re-sending a page is harmless, and a page re-sent with nothing changed writes **nothing**;
+- a half-finished catalogue sync is always safe to simply re-run from page one;
+- **order does not matter**, though sending stub pages before pair/mapping pages avoids skips.
+
+Ceiling: **500 rows per page**, counted across `surfaces` + `stubs` + `mappings` + `pairs` +
+`deleted`. Over that is a `400`.
+
+### Body
+
+```jsonc
+{
+  "jobId": "mindcloud-page-3-1754963400",
+  "catalog": { /* the catalogue header — send it on EVERY page */ },
+  "page":    { "index": 3, "of": 8 },
+  "surfaces":[ /* 0+ */ ], "stubs": [ /* 0+ */ ],
+  "mappings":[ /* 0+ */ ], "pairs": [ /* 0+ */ ],
+  "deleted": { "surfaces": [], "mappings": [] }   // optional; explicit hard deletes
+}
+```
+
+**Ids are yours.** Every `id` below is *your* record id, and it becomes the AECi primary key
+verbatim. That is why this arm returns no ID map: you already know every id you sent, and
+there is nothing to persist or to strand.
+
+#### `catalog` (required, on every page)
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `id` | string | yes | Your catalogue record id. |
+| `connectorProductId` | uuid | no | The connector platform's **AECi product id**. Omit it if the platform isn't promoted — the whole page is then reported in `skipped[]` as `kind: "connector-catalog"`, which is **not an error**. |
+| `connectorAuthorship` | enum | no | `platform` \| `partner` \| `mixed` — who actually *builds* the connectors. |
+| `managedBy` | enum | no | `review` \| `vendor`, default `review`. |
+| `notes` | string | no | |
+
+#### `surfaces[]` — one per index URL you crawl
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `id` | string | yes | |
+| `surfaceRole` | string | yes | Free-form; `apps` / `pairs` / `sources` / `destinations` / `all` today. Unique per catalogue. |
+| `indexKind` | string | no | Free-form; `sitemap` / `toc` / `json_api` / `html` today. |
+| `indexUrl` | string | no | |
+| `lastIngestedAt` | ISO-8601 | no | The **"as of" date** AECi renders beside every reachability claim. Keep it current — it is the freshness signal the connector lane is judged on. |
+| `notes` | string | no | |
+
+#### `stubs[]` — every listing, mapped or not
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `id` | string | yes | |
+| `slug` | string | yes | Unique per catalogue. |
+| `label`, `url`, `directionRole` | string | no | `directionRole` is free-form. |
+| `actionCount` | integer | no | |
+| `actions` | json | no | **Omit it when you have never fetched the inventory.** Null means *never fetched*, not *no actions*; AECi will not publish "this connector does nothing" from an absence. |
+| `actionsHash`, `actionsFetchedAt` | string | no | |
+| `previousLabels` | string[] | no | |
+| `meta` | json | no | |
+| `firstSeenAt`, `lastSeenAt` | ISO-8601 | **yes** | No defaults on this side, deliberately — a default would mask a sender bug as a plausible timestamp. |
+| `removedAt` | ISO-8601 | no | The tombstone. Stamp it only off a **complete** ingest run; a truncated fetch is indistinguishable from a vendor deleting half their catalogue. |
+
+#### `mappings[]` — the stub↔product assertions
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `id` | string | yes | |
+| `stubId` | string | yes | Yours. If the stub is neither on this page nor already stored, the mapping is skipped as `kind: "connector-stub"` — re-send it after the stub page. |
+| `productId` | uuid | conditional | The **AECi product id**. Required for `mapped` / `ruled_out`; **forbidden** for the other three. If you hold no AECi id yet, omit it: the row is skipped as `kind: "connector-mapping"`, not rejected. |
+| `status` | enum | yes | `mapped` \| `ruled_out` \| `out_of_scope` \| `no_record` \| `ambiguous_parked`. There is **no `pending`** — absence of a row is pending. |
+| `confidence` | enum | no | `low` \| `medium` \| `high`. |
+| `evidenceUrl` | string | no | Per row, not per stub. |
+| `decidedBy` | string | no | **The publication gate.** A row decided by your automatic pass (`auto-name-match`) computes but never publishes; only a named human's decision reaches a public surface. |
+| `decidedAt`, `checkedAt` | ISO-8601 | no | |
+| `notes` | string | no | |
+
+`catalogId` is **not accepted** — AECi derives it from the page's own catalogue, so a
+malformed payload cannot break the invariant the triage counts depend on.
+
+Two families, and they may not cross: `mapped` / `ruled_out` name a product and several may
+sit on one stub; the other three assert there is none to name and **at most one** may sit on
+a stub. Both rules are enforced at the kick-off, so a violation is a fast `400` rather than a
+rolled-back page.
+
+#### `pairs[]` — the pairs the vendor publishes a page for
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `id` | string | yes | |
+| `stubAId`, `stubBId` | string | yes | **Canonically ordered: `stubAId < stubBId`.** Vendors publish both directions as separate pages; without the ordering every pair arrives twice. A reversed pair is a `400`. |
+| `urlAToB`, `urlBToA` | string | no | Either may be absent. |
+| `surface` | enum | no | `curated` \| `generated` \| `unknown` (default). **This is the field that decides publication** — AECi publishes the curated set and refuses to publish an auto-generated cross-product. |
+| `classifiedAt` | ISO-8601 | no | |
+| `firstSeenAt`, `lastSeenAt` | ISO-8601 | **yes** | |
+| `removedAt` | ISO-8601 | no | |
+
+#### `deleted` (optional) — the only hard deletes
+
+`{ "surfaces": [id, …], "mappings": [id, …] }`. Necessary because in a paged mirror **absence
+cannot mean deletion** — a row missing from this page is a row on another page. Only these
+two entities are hard-deleted; stubs and pairs retire via the `removedAt` tombstone.
+
+### Response
+
+The poll returns a result carrying `kind: "connector"` — the discriminant that tells it from a
+product bundle's ID map:
+
+```jsonc
+{
+  "kind": "connector",
+  "catalogId": "rec76C362381D6CDF",
+  "page": { "index": 3, "of": 8 },
+  "counts": {
+    "catalogs": { "created": 0, "updated": 0, "unchanged": 1, "deleted": 0, "skipped": 0 },
+    "surfaces": { "created": 0, "updated": 0, "unchanged": 2, "deleted": 0, "skipped": 0 },
+    "stubs":    { "created": 412, "updated": 6, "unchanged": 82, "deleted": 0, "skipped": 0 },
+    "mappings": { "created": 0, "updated": 0, "unchanged": 0, "deleted": 0, "skipped": 3 },
+    "pairs":    { "created": 0, "updated": 0, "unchanged": 0, "deleted": 0, "skipped": 0 }
+  },
+  "skipped": [
+    { "ref": "recMapAdp0000001", "kind": "connector-mapping",
+      "reason": "the mapped product is not promoted yet (send the mapping again once it is)" }
+  ]
+}
+```
+
+`unchanged` is the number worth watching: a steady-state re-sync should report it for
+everything, and that is the proof the page was a true no-op.
+
+**Always inspect `skipped[]`.** On a full-mirror sync a `complete` job that dropped 200
+mappings looks identical to one that dropped none. The four connector kinds are
+`connector-catalog`, `connector-stub`, `connector-mapping` and `connector-pair`; all four mean
+*"this could not be resolved yet"*, never *"policy said no"*, and all four are re-sendable.
+
 ## 4. Response
 
 The kick-off returns `202 { jobId, status: "queued" }` (§2.1). **The ID map below is
@@ -547,6 +705,7 @@ create duplicates:
 |---|---|---|
 | `jobId` (§2.1) | one promote *attempt* | Replaying a kick-off — or an internal engine replay — can't start a second job or commit twice, **ever**, for that id. |
 | `supabaseId` (§3.1) | one *row*, forever | Whether a push creates a new row or updates the existing one. |
+| the record `id` (§3a) | one connector-lane *row*, forever | On the connector arm only: your own record id **is** the AECi primary key, so every write is an upsert and re-sending a page is a no-op. This is why the connector arm needs no ID map and returns none. |
 
 The `jobId` guarantee does not expire with the job's 30-day retention: AECi keeps a
 ledger row per committed job id, so re-pushing an old id returns its original IDs
@@ -1051,4 +1210,7 @@ window, so reusing the first promote's id would just hand you back that job's ol
 - [ ] Handle `skipped[]` kinds `"vendor"` / `"product"` (§4a): show the curator that the entity is **vendor-claimed and not writable from here** — don't retry, and don't treat `product: null` as "no product sent" without checking.
 - [ ] Don't rely on `verified` — it is accepted and ignored (§3.2).
 - [ ] **Send `lastReviewedAt` only on a genuine re-check, never as a default in your push builder** (§3.6). It becomes a public "Reviewed &lt;date&gt;." claim; stamping it on every sync turns it into `updated_at` with extra steps and makes the marker lie. Omitting it is always safe — the stored value is left alone. `maintainedBy` is not accepted at all.
+- [ ] **Connector catalogues (§3a):** page at ≤500 rows, send the `catalog` header on **every** page, and use a distinct `jobId` per page. Send stub pages before pair/mapping pages if you want to avoid skips — but you do not have to, because a dangling reference is reported and re-sendable rather than fatal.
+- [ ] **On the connector arm, inspect `skipped[]` even on a clean `complete`.** A full-mirror sync that dropped 200 mappings because their products are not promoted looks identical to one that dropped none.
+- [ ] **Never let absence mean deletion on the connector arm.** A row missing from a page is a row on another page. Retire a stub or pair with a `removedAt` tombstone; hard-delete a mapping or surface through the explicit `deleted` object.
 - [ ] On a synchronous 4xx, surface `error.message` / `error.field` to the curator; on 5xx, retry (same `jobId`) then escalate `trace_id`. On `status: "errored"`, surface `error.code` / `error.message` and retry with a new `jobId` (§6).

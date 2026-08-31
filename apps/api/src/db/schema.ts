@@ -79,8 +79,9 @@ const lastReviewedAt = () => text('last_reviewed_at');
 const maintainedBy = () => text('maintained_by').notNull().default('aeci');
 
 /** The CHECK companion to {@link maintainedBy}, so the three tables can't drift. */
-const maintainedByCheck = (table: 'vendors' | 'products' | 'integrations') =>
-  check(`${table}_maintained_by_check`, sql`"maintained_by" IN ('aeci', 'vendor')`);
+const maintainedByCheck = (
+  table: 'vendors' | 'products' | 'integrations' | 'connector_evidenced_pairs',
+) => check(`${table}_maintained_by_check`, sql`"maintained_by" IN ('aeci', 'vendor')`);
 
 // ===========================================================================
 // Health check (proves the per-request DB path — retained from AECI-28)
@@ -1441,6 +1442,496 @@ export const jobRuns = sqliteTable(
 );
 
 // ===========================================================================
+// Connector lane (Stage 1.5 Addendum C §13 / AECI-714)
+//
+// A PROJECTION of the review app's connector-lane model (`aec-integrations-review`,
+// AECI-719, its migration 0004). Same column names, same semantics, deliberately:
+// review → AECi is a copy, not a transformation, which is what lets the AECI-720
+// per-iPaaS cutoff be "freeze a lane" rather than "migrate data". Rows arrive only
+// via `POST /api/promote/connector-catalog`; nothing else writes these tables.
+//
+// TWO TIERS live here and conflating them is the failure this lane exists to
+// prevent (§13.1):
+//   • DELIVERED — `connector_evidenced_pairs`. A working integration exists TODAY.
+//     AECI-721 migrates the ~326 `integrations.powered_by_product_id` edges into it.
+//   • REACHABLE — NOT a table. Derived at read time from `connector_stubs` +
+//     `connector_stub_mappings`, and gated for publication by
+//     `connector_pairs.surface`. Never stored as delivered, and **never counted** —
+//     not in a heading, not in `integration_count`, not in a facet, not in the home
+//     stats (§13.5).
+//
+// IDS ARE THE REVIEW-SIDE RECORD IDS, not `uuidPk()` — the same shape, and the same
+// reason, as `promote_jobs.job_id`: the value is always supplied by the caller and
+// never generated here.
+//
+// The decisive argument is not convenience, it is that `connector_stub_mappings` has
+// NO OTHER USABLE UPSERT TARGET. Its natural key is `(stub_id, product_id)` with a
+// NULLABLE `product_id`, and SQLite treats NULLs as distinct — so
+// `ON CONFLICT (stub_id, product_id)` can never match a stub-level decision row. A
+// re-sent page would try to insert a second `no_record`, the partial unique index
+// below would reject it, and D1 would roll the whole page back. With the review id as
+// the key every statement in the sync is one shape: `onConflictDoUpdate({ target:
+// <table>.id })`. Two lesser benefits follow: a mapping names its stub across page
+// boundaries with no ref graph, and the AECI-720 cutoff is a skip rather than an id
+// mapping that has to survive a vendor handover.
+//
+// The natural-key unique indexes below are the loud guard — if the review app ever
+// re-mints ids the way its own migration 0004 did for catalogues, the insert collides
+// there and the batch fails visibly instead of silently duplicating a catalogue.
+//
+// This is not the AECI-562 Airtable-key ban: the review app's `server/db/ids.ts` is
+// explicit that these are its OWN D1 ids, which merely keep Airtable's format.
+//
+// NO `relations()` BLOCKS YET, and that is a deferral rather than a decision like
+// `vendorEntitlements`' (see the note on the aggregate `schema` export below).
+// Nothing reads this data until AECI-715 / AECI-716 / AECI-722, and the relational
+// query builder is only needed for `with:` hydration; the sync's own bounded
+// pre-reads use `db.select()`. Whichever issue builds the first read config adds the
+// relations alongside it, and the inverse entries on `productsRelations`.
+// ===========================================================================
+
+/** See the section header. The review app supplies every id; we never mint one. */
+const reviewRecordPk = () => text('id').primaryKey();
+
+/**
+ * One row per iPaaS. The catalogue as a whole, never one of its index pages — which
+ * is what gives `managed_by` somewhere to live, because a vendor takes over a
+ * CATALOGUE and not an index URL (AECI-720).
+ *
+ * `managed_by` is held AND enforced on this side on purpose: the review app is the
+ * component being decommissioned, so the surviving system owns who-controls-what.
+ * AECI-714 only lands the column; rejecting writes to a vendor-managed catalogue is
+ * AECI-720.
+ *
+ * `connector_authorship` is a property of the vendor's business model, not of a
+ * surface. Zapier inverts what every other row here assumes — the app vendors write
+ * the connectors, not Zapier — and a reader assuming `platform` would attribute nine
+ * thousand connectors to the wrong party.
+ */
+export const connectorCatalogs = sqliteTable(
+  'connector_catalogs',
+  {
+    id: reviewRecordPk(),
+    /** `cascade`: a catalogue describes one product's published listings and means
+     *  nothing without it. NOT NULL is deliberate — a catalogue whose connector is not
+     *  promoted yet is reported in the sync's `skipped[]`, never stored half-formed.
+     *  Whether an unpromoted connector may ever be named is AECI-721's open question
+     *  (`aec-integrations-review` `docs/connector-vendors.md`). */
+    connectorProductId: text('connector_product_id')
+      .notNull()
+      .references(() => products.id, { onDelete: 'cascade' }),
+    connectorAuthorship: text('connector_authorship'),
+    managedBy: text('managed_by').notNull().default('review'),
+    notes: text('notes'),
+
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    uniqueIndex('connector_catalogs_product_idx').on(t.connectorProductId),
+    check(
+      'connector_catalogs_authorship_check',
+      sql`"connector_authorship" IN ('platform', 'partner', 'mixed')`,
+    ),
+    check('connector_catalogs_managed_by_check', sql`"managed_by" IN ('review', 'vendor')`),
+  ],
+);
+
+/**
+ * One row per index SURFACE — a URL the review-side ingest crawls.
+ *
+ * Vendors publish more than one: Aquifer and Kroo split sources from destinations,
+ * MindCloud and Agave publish an app index and a pair index. Keying on the catalogue
+ * alone would collapse those and lose which URL produced which entries, so
+ * `surface_role` is part of the row identity.
+ *
+ * There are deliberately NO count columns. A count here is a maintained number that
+ * goes stale on the first truncated fetch and that nobody can date. `last_ingested_at`
+ * is the exception and it is a timestamp, not a count — `STAGE_2_SPEC.md` §8.9(4)
+ * names it as the catalogue-freshness signal the connector-vendor seat is judged on.
+ */
+export const connectorCatalogSurfaces = sqliteTable(
+  'connector_catalog_surfaces',
+  {
+    id: reviewRecordPk(),
+    catalogId: text('catalog_id')
+      .notNull()
+      .references(() => connectorCatalogs.id, { onDelete: 'cascade' }),
+    /** `all` is the neutral value for a vendor publishing ONE combined index — the
+     *  2026-08-27 survey found Aquifer and Kroo each facet by industry, never by
+     *  direction, so without it the directional pair would stay empty forever. */
+    surfaceRole: text('surface_role').notNull(),
+    indexKind: text('index_kind'),
+    indexUrl: text('index_url'),
+    lastIngestedAt: text('last_ingested_at'),
+    notes: text('notes'),
+
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    uniqueIndex('connector_catalog_surfaces_role_idx').on(t.catalogId, t.surfaceRole),
+    // `surface_role` and `index_kind` are deliberately NOT CHECKed, and neither is
+    // `connector_stubs.direction_role`. The rule this section follows: a column the
+    // DB CHECKs, the wire schema enums; a column the wire schema leaves a loose
+    // string, the DB leaves unconstrained. These three are scraper vocabulary and
+    // have a demonstrated history of moving — the review app added `all` only after
+    // the 2026-08-27 Aquifer/Kroo survey found neither publishes a directional
+    // index, and re-measured Zapier on 2026-08-31. A CHECK change is a destructive
+    // D1 recreate (docs/migrations.md §0), the sync is the only writer, and the
+    // fail-loud read coercers catch a bad value at the surface that renders it.
+  ],
+);
+
+/**
+ * Every listing in a catalogue, not only the ones that match one of our products.
+ *
+ * The question this lane answers is "is this new listing one of ours?", and that
+ * needs the misses present too — MindCloud alone is ~3,395 rows, most of which will
+ * never map to anything. Holding the full set is also what makes AECI-720's cutoff a
+ * freeze rather than a migration, and what gives AECI-722's triage queue its rows.
+ *
+ * The stub is a FACT — the iPaaS publishes this listing — which is why it carries no
+ * decision columns at all. Everything anybody CONCLUDES about it lives in
+ * `connector_stub_mappings`.
+ *
+ * The timestamps are current-state-plus-history, NOT a snapshot per crawl:
+ * `last_seen_at` moves on every run that sees the stub, `removed_at` is stamped when
+ * a run stops seeing it, and re-appearance clears it. All three are computed
+ * review-side and copied here — the sync does no diffing of its own, and never
+ * deletes (`REVIEW_APP_PROMOTE_API.md` §5.1).
+ */
+export const connectorStubs = sqliteTable(
+  'connector_stubs',
+  {
+    id: reviewRecordPk(),
+    catalogId: text('catalog_id')
+      .notNull()
+      .references(() => connectorCatalogs.id, { onDelete: 'cascade' }),
+    /** Identity within ONE catalogue — half a dozen vendors all publish a
+     *  `quickbooks`, and `adp` on MindCloud is not `adp` on Zapier. Mutable (iPaaS
+     *  sites rename and merge listings), so nothing keys on it except the guard
+     *  index below. */
+    slug: text('slug').notNull(),
+    label: text('label'),
+    /** The vendor's own page for this listing. */
+    url: text('url'),
+    /** NULL where the surface does not say. Aquifer and Kroo publish directional
+     *  indexes; MindCloud does not, and inventing `both` for it would fabricate a
+     *  claim the vendor never made. */
+    directionRole: text('direction_role'),
+    actionCount: integer('action_count'),
+    /** JSON action inventory. **NULL means NEVER FETCHED, not "no actions".** The
+     *  lazy fetch is the scope cut that makes Zapier survivable: an index ingest is
+     *  one cheap enumeration of slugs, while the per-listing inventory is ~73k
+     *  actions across MindCloud alone. */
+    actions: text('actions', { mode: 'json' }).$type<unknown>(),
+    /** Hash of the fetched inventory, so a refetch tells "unchanged" from "never
+     *  looked". */
+    actionsHash: text('actions_hash'),
+    actionsFetchedAt: text('actions_fetched_at'),
+    /** JSON string array. Vendors rename listings and mappings key on the stub ROW,
+     *  so old names are kept as search fodder rather than as identity. */
+    previousLabels: text('previous_labels', { mode: 'json' }).$type<string[]>(),
+    /** JSON. Per-adapter extras — category, logo, whatever the surface carried. */
+    meta: text('meta', { mode: 'json' }).$type<unknown>(),
+    /** Both NOT NULL with **no default**, unlike the review side, which defaults them
+     *  to `now()` because rows are born there from a crawl. Here every row arrives
+     *  from a sync that already knows both, so a default would only ever mask a
+     *  sender bug as a plausible timestamp. */
+    firstSeenAt: text('first_seen_at').notNull(),
+    lastSeenAt: text('last_seen_at').notNull(),
+    /** Tombstone. Review-side rule: may only be stamped by a diff against a run that
+     *  finished `complete`, because a sitemap fetch that truncates halfway is
+     *  indistinguishable from a vendor deleting half their catalogue. */
+    removedAt: text('removed_at'),
+
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    uniqueIndex('connector_stubs_catalog_slug_idx').on(t.catalogId, t.slug),
+    // Every "is this listing one of ours?" lookup arrives with a label, not a slug.
+    index('connector_stubs_label_idx').on(t.label),
+  ],
+);
+
+/**
+ * What somebody CONCLUDED about a stub — many-to-many (AECI-719).
+ *
+ * One listing may be several of our products and one product may appear as several
+ * listings in the same catalogue: MindCloud's single `adp` listing is ADP Workforce
+ * Now and any edition built within it, and Procore's seven SKU records sit behind one
+ * `procore` listing over one API and one developer portal.
+ *
+ * There is NO `pending` status — the ABSENCE of a row is pending. A row per
+ * unreviewed stub would be ~3,300 rows of nothing before anybody had decided
+ * anything.
+ *
+ * Five statuses in TWO families:
+ *   PER-PRODUCT ASSERTIONS, `product_id` set — `mapped` (this listing IS that
+ *     product) and `ruled_out` (considered and rejected; the row exists so the
+ *     review-side auto pass does not re-propose the same wrong product every run).
+ *   STUB-LEVEL DECISIONS, `product_id` NULL, at most ONE per stub —
+ *     `out_of_scope`, `no_record`, `ambiguous_parked`.
+ *
+ * The two-column invariant `status IN ('mapped','ruled_out') ⟺ product_id IS NOT
+ * NULL` is enforced in application code and in the wire schema, **never as a DB
+ * CHECK** — the same shape, and for a sharper reason, as the `origin`/
+ * `created_by_vendor_id` biconditional on `claims`. `product_id` goes NULL under
+ * ON DELETE SET NULL, so a CHECK would be re-evaluated by that update and would make
+ * deleting a mapped product FAIL. A `mapped` row left holding NULL is a visible
+ * integrity signal, not something to tidy away by breaking deletes.
+ *
+ * The publication gate is PROVENANCE, not confidence: reachability the public site
+ * carries is only what somebody stands behind, so it reads `decided_by` (the review
+ * app's auto pass writes the reserved `auto-name-match`, a human writes their name).
+ * `confidence` would publish hundreds of machine guesses at `medium`.
+ */
+export const connectorStubMappings = sqliteTable(
+  'connector_stub_mappings',
+  {
+    id: reviewRecordPk(),
+    stubId: text('stub_id')
+      .notNull()
+      .references(() => connectorStubs.id, { onDelete: 'cascade' }),
+    /** Denormalised copy of `connector_stubs.catalog_id`, written from the stub at
+     *  insert time and never independently edited. It exists for one index: the
+     *  triage counts are "how many of this catalogue's stubs sit in each state", and
+     *  without the column that GROUP BY joins every mapping row back to its stub. */
+    catalogId: text('catalog_id')
+      .notNull()
+      .references(() => connectorCatalogs.id, { onDelete: 'cascade' }),
+    /** `set null`, deliberately. The decision trail — who decided, when, on what —
+     *  outlives the product row; `cascade` would delete the evidence that this
+     *  listing was ever recognised and hand the next sweep the same ambiguity from
+     *  scratch. */
+    productId: text('product_id').references(() => products.id, { onDelete: 'set null' }),
+    status: text('status').notNull(),
+    confidence: text('confidence'),
+    /** Per ROW, not per stub: an edition inherits a platform's reach but not its
+     *  evidence, so each assertion cites its own (AECI-697). */
+    evidenceUrl: text('evidence_url'),
+    /** The publication gate — see the doc comment above. */
+    decidedBy: text('decided_by'),
+    decidedAt: text('decided_at'),
+    /** Drives the review side's self-healing sweeps; moves on every re-examination,
+     *  decided or not. */
+    checkedAt: text('checked_at'),
+    notes: text('notes'),
+
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    uniqueIndex('connector_stub_mappings_pair_idx').on(t.stubId, t.productId),
+    // SQLite treats NULLs as DISTINCT, so the index above does NOT make the
+    // stub-level decision a singleton — it would happily take five `no_record` rows
+    // on one stub. Hence a partial index, keyed on STATUS rather than on
+    // `product_id IS NULL`: under ON DELETE SET NULL a stub whose two mapped products
+    // were both deleted would collide on a null-keyed index and make the product
+    // delete FAIL. Keying on status leaves those orphans alone, visible.
+    uniqueIndex('connector_stub_mappings_decision_idx')
+      .on(t.stubId)
+      .where(sql`"status" IN ('out_of_scope', 'no_record', 'ambiguous_parked')`),
+    index('connector_stub_mappings_product_idx').on(t.productId),
+    index('connector_stub_mappings_status_idx').on(t.catalogId, t.status),
+    check(
+      'connector_stub_mappings_status_check',
+      sql`"status" IN ('mapped', 'ruled_out', 'out_of_scope', 'no_record', 'ambiguous_parked')`,
+    ),
+    check(
+      'connector_stub_mappings_confidence_check',
+      sql`"confidence" IN ('low', 'medium', 'high')`,
+    ),
+  ],
+);
+
+/**
+ * A pair of STUBS the connector publishes a page for, filtered review-side to pairs
+ * where both sides map to one of our products. That filter is the difference between
+ * ~2,000 rows and MindCloud's 104,186; the full index scale is not lost, it is
+ * recorded as a count on the review side's run log.
+ *
+ * This table is NOT the reachable tier and does not assert delivery. It exists for
+ * one reason the mapping graph cannot supply: `surface`. Reachability is derivable
+ * from stubs + mappings alone (§13.1), but PUBLICATION is not — §13.7 publishes the
+ * curated set, and curated-vs-generated is a classification on the vendor's own
+ * published pair row (AECI-677). Without this table the only derivable thing is the
+ * auto-generated cross-product that §13.7 and AECI-716 explicitly refuse to publish.
+ *
+ * `surface` defaults to `unknown` on purpose: appearing in an index says a page
+ * exists, not that anyone read it.
+ *
+ * The canonical `stub_a_id < stub_b_id` ordering is a CHECK rather than a convention
+ * because vendors publish both directions as separate pages — without it every pair
+ * arrives twice and the unique index cannot see the collision. Keeping both page
+ * URLs means the ordering costs no information.
+ */
+export const connectorPairs = sqliteTable(
+  'connector_pairs',
+  {
+    id: reviewRecordPk(),
+    catalogId: text('catalog_id')
+      .notNull()
+      .references(() => connectorCatalogs.id, { onDelete: 'cascade' }),
+    stubAId: text('stub_a_id')
+      .notNull()
+      .references(() => connectorStubs.id, { onDelete: 'cascade' }),
+    stubBId: text('stub_b_id')
+      .notNull()
+      .references(() => connectorStubs.id, { onDelete: 'cascade' }),
+    /** The vendor's page for the a→b direction, and for b→a. Either may be absent. */
+    urlAToB: text('url_a_to_b'),
+    urlBToA: text('url_b_to_a'),
+    surface: text('surface').notNull().default('unknown'),
+    classifiedAt: text('classified_at'),
+    firstSeenAt: text('first_seen_at').notNull(),
+    lastSeenAt: text('last_seen_at').notNull(),
+    removedAt: text('removed_at'),
+
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    uniqueIndex('connector_pairs_pair_idx').on(t.catalogId, t.stubAId, t.stubBId),
+    // "Which pairs involve stub X" has to look at both columns, and the canonical
+    // ordering guarantees roughly half the answers sit on the b side.
+    index('connector_pairs_stub_b_idx').on(t.stubBId),
+    check('connector_pairs_canonical_order', sql`"stub_a_id" < "stub_b_id"`),
+    check('connector_pairs_surface_check', sql`"surface" IN ('curated', 'generated', 'unknown')`),
+  ],
+);
+
+/**
+ * The DELIVERED tier of the connector lane — a working, evidenced integration that a
+ * named connector delivers between two of our products (§13.1). The one table here
+ * with no review-side counterpart, and the destination structure AECI-721 is blocked
+ * on: it migrates the ~326 `integrations.powered_by_product_id` edges into this table
+ * with their evidence intact, after which `integrations` keeps only accountable-party
+ * edges and `iPaaS` leaves its mechanism enum.
+ *
+ * **AECI-714 creates this table and writes no row into it.** Everything about filling
+ * it — the edge move, the ~20-row `marketplace-app`-with-`powered_by` residue §13.2
+ * records as OPEN, the ten-site `integration_count` lockstep, and the claims re-home
+ * — is AECI-721's.
+ *
+ * `id` is a locally generated `uuidPk()`, unlike its five neighbours: nothing upstream
+ * supplies one. Its SHAPE is what protects AECI-721, and the mandated data check is
+ * why that matters — **94 of 1,697 production claims are anchored on powered edges**,
+ * and `claims.integration_id` is a single-column NOT NULL FK inside
+ * `claims_identity_key`, so re-homing them is a destructive recreate of `claims`.
+ * Two properties keep that to ONE recreate rather than two:
+ *
+ *   1. A single-column surrogate key. A composite PK
+ *      `(connector_product_id, product_a_id, product_b_id)` would force a
+ *      THREE-column FK from `claims`, and adding a surrogate afterwards would mean
+ *      recreating this table too.
+ *   2. `uuidPk()`'s `$defaultFn` is overridden by an explicit value, so AECI-721 can
+ *      supply the migrated `integrations.id` VERBATIM as the new row's id. The 94
+ *      claims' stored anchor value then never moves — only which table it points at,
+ *      turning the re-home into a column add plus
+ *      `UPDATE claims SET evidenced_pair_id = integration_id`, with no id remapping
+ *      table anywhere.
+ *
+ * The pair is canonicalised (`product_a_id < product_b_id`) so per-connector
+ * uniqueness is expressible, and `direction` carries orientation against that
+ * ordering using the same `a_to_b | b_to_a | both` vocabulary as `claims.direction`
+ * rather than inventing a second one.
+ */
+export const connectorEvidencedPairs = sqliteTable(
+  'connector_evidenced_pairs',
+  {
+    id: uuidPk(),
+    connectorProductId: text('connector_product_id')
+      .notNull()
+      .references(() => products.id, { onDelete: 'cascade' }),
+    productAId: text('product_a_id')
+      .notNull()
+      .references(() => products.id, { onDelete: 'cascade' }),
+    productBId: text('product_b_id')
+      .notNull()
+      .references(() => products.id, { onDelete: 'cascade' }),
+
+    name: text('name'),
+    /**
+     * The accountable builder, when there is one. Mirrors
+     * `integrations.built_by_vendor_id`, including its lack of an `onDelete`.
+     *
+     * Here on day one because §13.2 records an OPEN residue: ~326 edges carry
+     * `powered_by` against 308 marked `iPaaS`, and the ~20-row difference is
+     * accountable — AnyWare Apps' two Ramp↔Sage edges are `marketplace-app` WITH a
+     * `powered_by`, built and maintained by Cherry Bekaert. A table that could not
+     * hold a builder would silently pre-decide that residue as "they stay behind",
+     * which is AECI-721's call and not this issue's. And an FK added later loses
+     * its `ON DELETE` clause under `ADD COLUMN` (docs/migrations.md §0).
+     */
+    builtByVendorId: text('built_by_vendor_id').references(() => vendors.id),
+    mechanismName: text('mechanism_name'),
+    /**
+     * Orientation, against the canonical `product_a_id < product_b_id` ordering —
+     * the same `a_to_b | b_to_a | both` vocabulary as `claims.direction`, and for
+     * the identical reason: once a pair is canonicalised, `one-way` alone no longer
+     * says which way.
+     *
+     * So AECI-721's migration is a CASE and not a straight copy, deliberately —
+     * `integrations` carries orientation in `source_product_id`/`target_product_id`
+     * and this table carries it here, losslessly:
+     *   one-way,   source = A  ->  'a_to_b'
+     *   one-way,   source = B  ->  'b_to_a'
+     *   bidirectional          ->  'both'
+     *   NULL                   ->  NULL
+     * Reusing `integrations`' own `one-way | bidirectional` vocabulary would have
+     * made the copy simpler and thrown the direction away.
+     */
+    direction: text('direction'),
+    description: text('description'),
+    website: text('website'),
+    /** The evidence. §13.1: reach scraped from a published spec is *spec-published*,
+     *  not *exercised* — a delivered claim needs a page that says so. */
+    listingUrl: text('listing_url'),
+    docsUrl: text('docs_url'),
+    mechanismUrl: text('mechanism_url'),
+    pricingModel: text('pricing_model'),
+    maturity: text('maturity'),
+    notes: text('notes'),
+
+    lastReviewedAt: lastReviewedAt(),
+    maintainedBy: maintainedBy(),
+
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    uniqueIndex('connector_evidenced_pairs_pair_idx').on(
+      t.connectorProductId,
+      t.productAId,
+      t.productBId,
+    ),
+    maintainedByCheck('connector_evidenced_pairs'),
+    index('connector_evidenced_pairs_product_a_idx').on(t.productAId),
+    index('connector_evidenced_pairs_product_b_idx').on(t.productBId),
+    index('connector_evidenced_pairs_connector_idx').on(t.connectorProductId),
+    index('connector_evidenced_pairs_built_by_idx')
+      .on(t.builtByVendorId)
+      .where(sql`"built_by_vendor_id" IS NOT NULL`),
+    check('connector_evidenced_pairs_canonical_order', sql`"product_a_id" < "product_b_id"`),
+    // §13.2(a), structurally. Review-side Convention A stores "product X ships a
+    // connector on platform C" as ONE edge whose `powered_by` IS one of its own
+    // endpoints — ~152 of the 308 `iPaaS` rows. Those stay in the DIRECT list; letting
+    // one in here would render "Via Aquifer → Aquifer".
+    check(
+      'connector_evidenced_pairs_distinct_connector',
+      sql`"connector_product_id" <> "product_a_id" AND "connector_product_id" <> "product_b_id"`,
+    ),
+    check(
+      'connector_evidenced_pairs_direction_check',
+      sql`"direction" IN ('a_to_b', 'b_to_a', 'both')`,
+    ),
+  ],
+);
+
+// ===========================================================================
 // Future-ready (§10)
 // ===========================================================================
 
@@ -1764,6 +2255,12 @@ export const schema = {
   statsCache,
   jobRuns,
   translations,
+  connectorCatalogs,
+  connectorCatalogSurfaces,
+  connectorStubs,
+  connectorStubMappings,
+  connectorPairs,
+  connectorEvidencedPairs,
   feedback,
   mailingList,
   // NOTE: `vendorEntitlements` deliberately has NO relations() entry, and that is
@@ -1776,6 +2273,11 @@ export const schema = {
   // `entitlement_mirror_drift` check both use an explicit leftJoin, which needs none.
   // Every other ops/ledger table here (auditLog, pageViews, statsCache, vendorRequests)
   // has no relations entry either.
+  //
+  // The six `connector*` tables (AECI-714) also have none, but for a weaker reason —
+  // deferral, not prohibition. Nothing reads them until AECI-715 / 716 / 722, and the
+  // sync's own bounded pre-reads use `db.select()`. Whichever issue builds the first
+  // read config adds the relations and the inverse entries on `productsRelations`.
   // relations
   vendorsRelations,
   productsRelations,

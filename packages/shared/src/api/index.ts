@@ -16,6 +16,7 @@ export * from './product-pairs';
 export * from './product-versions';
 export * from './products';
 export * from './promote';
+export * from './promote-connector';
 export * from './requests';
 export * from './reviews';
 export * from './stats';

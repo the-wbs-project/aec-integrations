@@ -3101,6 +3101,85 @@ Errors: `MALFORMED_REQUEST` (bad JSON), `VALIDATION_FAILED` (schema / duplicate
 `ref` / bad enum), `UNAUTHENTICATED` (token). Full integration guide for the
 review app: `docs/REVIEW_APP_PROMOTE_API.md`.
 
+#### `POST /api/promote/connector-catalog` → `202` + `GET /api/promote/jobs/:id` (Stage 1.5 · AECI-714)
+
+The second arm of the promote family: one **page** of one connector catalogue, mirroring the
+review app's connector-lane model into the six `connector_*` tables (`DATABASE_SCHEMA.md` §9a,
+governed by `STAGE_1_5_SPEC.md` §13). Schemas live in `@aeci/shared`
+(`api/promote-connector.ts`); handler `apps/api/src/routes/promote-kickoff.ts` on the same
+`reviewPromote` sub-router, behind the same `requireReviewAppAuth()`; ingest
+`apps/api/src/routes/promote-connector.ts` over the planner in
+`apps/api/src/lib/promote-connector-catalog.ts`.
+
+**Same job protocol, no new endpoint to poll.** Kick-off returns the identical
+`202 { jobId, status: 'queued' }` with a `Location` header, and the result is served by the
+**existing** `GET /api/promote/jobs/:id`. `PromoteJobResponse['result']` is therefore a union:
+`PromoteResponse` for a product bundle, `PromoteConnectorPageResponse` for a connector page.
+They are told apart by **`'kind' in result`** — `PromoteResponse` deliberately carries no
+`kind`, so absence means product and no existing consumer had to move.
+
+**One page = one complete ADR 0021 job, and atomicity stops there.** Single non-retried
+`step.do`, single `db.batch`, `promote_jobs` ledger row first. Across pages there is
+deliberately none: one ledger row protects one commit. What makes that safe is that the review
+app's record id **is** the app-DB primary key, so every statement is an idempotent upsert and a
+page re-sent with nothing changed writes nothing at all — including no `audit_log` row.
+
+```typescript
+// packages/shared/src/api/promote-connector.ts
+export const PromoteConnectorPagePayloadSchema = z
+  .object({
+    jobId: PromoteJobIdSchema.optional(),
+    catalog: PromoteConnectorCatalogSchema,        // rides EVERY page, not just the first
+    page: z.object({ index: z.number().int().min(0), of: z.number().int().min(1) }),
+    surfaces: z.array(PromoteConnectorSurfaceSchema).default([]),
+    stubs: z.array(PromoteConnectorStubSchema).default([]),
+    mappings: z.array(PromoteConnectorMappingSchema).default([]),
+    pairs: z.array(PromoteConnectorPairSchema).default([]),
+    // Explicit hard deletes. Necessary because in a PAGED mirror absence cannot mean
+    // deletion — a row missing from this page is a row on another page.
+    deleted: z.object({
+      surfaces: z.array(RecordIdSchema).default([]),
+      mappings: z.array(RecordIdSchema).default([]),
+    }).optional(),
+  })
+  .superRefine(/* row ceiling, duplicate ids, canonical pair order, status families */);
+
+export const CONNECTOR_PAGE_MAX_ROWS = 500;   // across every array incl. `deleted`
+
+export interface PromoteConnectorPageResponse {
+  kind: 'connector';                           // the discriminant on the poll result
+  catalogId: string;
+  page: { index: number; of: number };
+  counts: Record<
+    'catalogs' | 'surfaces' | 'stubs' | 'mappings' | 'pairs',
+    { created: number; updated: number; unchanged: number; deleted: number; skipped: number }
+  >;
+  skipped: PromoteSkipped[];                   // always inspect it — see below
+}
+```
+
+**`PromoteSkipped['kind']` gained four values** — `connector-catalog`, `connector-stub`,
+`connector-mapping`, `connector-pair`. All four mean *"this could not be resolved yet"*, never
+*"policy said no"*, and all four are re-sendable. They exist because pages are not atomic with
+each other, so a page can legitimately reference a stub a later page carries, or a product AECi
+has not promoted (Zapier and Workato are `on_hold` review-side). **A caller must inspect
+`skipped[]` even on a clean `complete`**: a full-mirror sync that dropped 200 mappings looks
+identical to one that dropped none.
+
+**Validation that fails fast rather than at commit**, so the caller gets an actionable `400`
+instead of a rolled-back page: the 500-row ceiling, duplicate ids within a page, non-canonical
+pair ordering (`stubAId < stubBId`), a stub-level decision status carrying a `productId`, and
+more than one stub-level decision on the same stub.
+
+**No new error code.** `MALFORMED_REQUEST`, `VALIDATION_FAILED`, `PAYLOAD_TOO_LARGE`,
+`UNAUTHENTICATED` and `DEPENDENCY_FAILURE` cover it; the vendor-managed-catalogue rejection
+code is AECI-720's to add.
+
+**No read endpoint ships with this issue.** The coverage checker (AECI-715), the reachable-lane
+publication (AECI-716) and the connector admin screen (AECI-722) each own their own read, and
+§13.7's four-clause publication rule only makes sense inside them. Full integration guide:
+`docs/REVIEW_APP_PROMOTE_API.md` §3a.
+
 ### 6.13 Landing capture (mailing list + feedback)
 
 Two lead-capture write hooks shipped in **AECI-257** (ADR 0016). Schemas live in `@aeci/shared` (`api/landing.ts`). Both persist to D1 (`mailing_list` / `feedback` — `apps/api/src/db/schema.ts`) and, like `page_views`, are **write-once analytics, not domain state**, so they are exempt from the §26.1 audit-in-batch invariant (no `audit_log` row). The geo / attribution fields are derived from `request.cf` by the **caller** and carried to the API Worker out of band (in the request body, or — for the app island — on trusted headers; see below), because `request.cf` does not survive a service binding (the same constraint `POST /api/page-views` works around).
