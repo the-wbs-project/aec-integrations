@@ -71,7 +71,10 @@ import { createAdminReviewsListHandler, createModerateReviewHandler } from './ro
 import { createProductReviewsListHandler } from './routes/product-reviews';
 import { createProductDetailHandler, createProductsListHandler } from './routes/products';
 import { createPromoteJobHandler } from './routes/promote-jobs';
-import { createPromoteKickoffHandler } from './routes/promote-kickoff';
+import {
+  createConnectorCatalogKickoffHandler,
+  createPromoteKickoffHandler,
+} from './routes/promote-kickoff';
 import { createClaimSubmitHandler, createCorrectionSubmitHandler } from './routes/requests';
 import { createSubmitReviewHandler } from './routes/reviews';
 import { createStatsHomeHandler } from './routes/stats';
@@ -257,7 +260,9 @@ app.route('/', phase28);
 // they match; reached only over the service binding like every other route.
 //
 //   - POST /api/promote          — validate, start the promote Workflow, 202 { jobId }.
-//   - GET  /api/promote/jobs/:id — status + the committed ID map.
+//   - POST /api/promote/connector-catalog
+//                                — one PAGE of one connector catalogue (AECI-714).
+//   - GET  /api/promote/jobs/:id — status + the committed result, for BOTH kinds.
 //
 // The commit no longer happens on the request: a client that walks away can no
 // longer strand a committed promote's IDs (AECI-561). A failure inside the Workflow
@@ -266,6 +271,15 @@ app.route('/', phase28);
 const reviewPromote = new Hono<{ Bindings: Env }>();
 reviewPromote.onError(errorHandler({ logClientErrors: true, source: 'review-app-promote' }));
 reviewPromote.post('/api/promote', requireReviewAppAuth(), createPromoteKickoffHandler());
+// Same sub-router deliberately: it inherits `requireReviewAppAuth()` and the
+// `source: 'review-app-promote'` onError, so a rejected connector page is diagnosable
+// from the logs plane exactly like a rejected product push. Polled on the SAME job
+// route below — there is one job protocol, not two.
+reviewPromote.post(
+  '/api/promote/connector-catalog',
+  requireReviewAppAuth(),
+  createConnectorCatalogKickoffHandler(),
+);
 reviewPromote.get('/api/promote/jobs/:id', requireReviewAppAuth(), createPromoteJobHandler());
 app.route('/', reviewPromote);
 

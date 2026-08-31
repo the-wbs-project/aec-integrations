@@ -143,7 +143,15 @@ function run(
     } as PromoteWorkflowParams,
     instanceId: JOB_ID,
   };
-  return { promise: runPromoteWorkflow(env, ctx, event, step.step, deps(overrides)), ctx, step };
+  // AECI-714 widened the run's return to the two-arm union. Every case in this
+  // file drives the PRODUCT arm, so narrow once here rather than at each assertion —
+  // and throw rather than cast, so a case that accidentally routes to the connector
+  // arm fails loudly instead of reading `undefined` off the wrong shape.
+  const promise = runPromoteWorkflow(env, ctx, event, step.step, deps(overrides)).then((result) => {
+    if ('kind' in result) throw new Error('expected a product-arm result');
+    return result;
+  });
+  return { promise, ctx, step };
 }
 
 describe('runPromoteWorkflow', () => {
@@ -350,5 +358,115 @@ describe('runPromoteWorkflow', () => {
     // Both metrics dispatch fire-and-forget, so the only observable at this level is that
     // the transport was handed work (the tag payloads are asserted by the datadog spec).
     expect(ctx.waitUntil).toHaveBeenCalled();
+  });
+});
+
+/**
+ * The connector arm (AECI-714). One Workflow class, two params shapes.
+ *
+ * The case that matters most is the LAST one: `kind` is optional and its absence must
+ * keep meaning "product", because instances created before this issue and still inside
+ * their 30-day retention window carry no `kind` at all. Making that field required
+ * would silently mis-route every one of them on replay.
+ */
+describe('runPromoteWorkflow — connector arm (AECI-714)', () => {
+  const CONNECTOR_ID = '11111111-1111-4111-8111-111111111111';
+  const STAMPS = {
+    firstSeenAt: '2026-08-27T06:10:37.867Z',
+    lastSeenAt: '2026-08-27T06:11:54.977Z',
+  };
+
+  function connectorPage() {
+    return {
+      catalog: { id: 'rec76C362381D6CDF', connectorProductId: CONNECTOR_ID, managedBy: 'review' },
+      page: { index: 0, of: 1 },
+      surfaces: [],
+      stubs: [{ id: 'recStubProcore01', slug: 'procore', ...STAMPS }],
+      mappings: [],
+      pairs: [],
+    };
+  }
+
+  function runConnector(overrides: PromoteWorkflowDeps = {}, step = fakeStep()) {
+    const ctx = fakeExecutionContext();
+    const event = {
+      payload: {
+        kind: 'connector',
+        jobId: JOB_ID,
+        sourceUrl: SOURCE_URL,
+        payload: connectorPage(),
+      } as PromoteWorkflowParams,
+      instanceId: JOB_ID,
+    };
+    return {
+      promise: runPromoteWorkflow(env, ctx, event, step.step, deps(overrides)),
+      ctx,
+      step,
+    };
+  }
+
+  it('routes a connector page to the connector ingest, in the same non-retried step', async () => {
+    const connectorIngest = vi.fn(async () => ({
+      response: {
+        kind: 'connector' as const,
+        catalogId: 'rec76C362381D6CDF',
+        page: { index: 0, of: 1 },
+        counts: {
+          catalogs: { created: 1, updated: 0, unchanged: 0, deleted: 0, skipped: 0 },
+          surfaces: { created: 0, updated: 0, unchanged: 0, deleted: 0, skipped: 0 },
+          stubs: { created: 1, updated: 0, unchanged: 0, deleted: 0, skipped: 0 },
+          mappings: { created: 0, updated: 0, unchanged: 0, deleted: 0, skipped: 0 },
+          pairs: { created: 0, updated: 0, unchanged: 0, deleted: 0, skipped: 0 },
+        },
+        skipped: [],
+      },
+      wrote: true,
+      bookmark: null,
+      auditEntries: [],
+    }));
+    const { promise, step } = runConnector({ connectorIngest });
+    const result = await promise;
+
+    expect(connectorIngest).toHaveBeenCalledTimes(1);
+    expect('kind' in result && result.kind).toBe('connector');
+    // Same step name and same non-retried config as the product arm: an operator
+    // querying the job telemetry should not need to know which kind a job was.
+    expect(step.calls.map((c) => c.name)).toContain('commit-promote');
+  });
+
+  it('mirrors the connector result to KV so a lost response stays recoverable', async () => {
+    await t.db
+      .insert(products)
+      .values({ id: CONNECTOR_ID, slug: 'mindcloud', name: 'MindCloud', productRole: 'connector' });
+    await runConnector().promise;
+    const mirrored = kv.store.get(`promote:result:${JOB_ID}`);
+    expect(mirrored).toBeDefined();
+    expect(JSON.parse(mirrored!).kind).toBe('connector');
+  });
+
+  it('keeps treating params with NO kind as a product promote', async () => {
+    // Back-compat, and the reason `kind` must never become required: an instance created
+    // before AECI-714 carries no `kind`, and mis-routing it on replay would run a
+    // product bundle through the connector ingest.
+    const ingest = vi.fn(async () => ({
+      response: {
+        vendors: [],
+        product: null,
+        integrations: [],
+        taxonomy: { categories: [], audiences: [], phases: [], trades: [] },
+        skipped: [],
+        preserved: [],
+      },
+      removedTradeSlugs: [],
+      wrote: false,
+      bookmark: null,
+      auditEntries: [],
+      staleSupabaseIds: [],
+    }));
+    const connectorIngest = vi.fn();
+    await run({}, { ingest: ingest as never, connectorIngest: connectorIngest as never }).promise;
+
+    expect(ingest).toHaveBeenCalledTimes(1);
+    expect(connectorIngest).not.toHaveBeenCalled();
   });
 });

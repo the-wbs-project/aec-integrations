@@ -125,6 +125,14 @@ Tables grouped by domain:
 - `vendor_entitlements` — the vendor's paid tier, status and term; `vendors.verified` is its denormalized mirror — Stage 2 (AECI-609)
 - `vendor_seat_invites` — pending self-serve seat invites; an INTENT, never an account — Stage 2 (AECI-664)
 
+**Connector lane** (Stage 1.5 Addendum C §13 — AECI-714; a projection of the review app's model):
+- `connector_catalogs` — one row per iPaaS; holds the per-catalogue `managed_by` flag AECI-720 enforces
+- `connector_catalog_surfaces` — one row per index URL the review-side ingest crawls, with its `last_ingested_at` "as of" stamp
+- `connector_stubs` — every listing in a catalogue, mapped or not (the misses are the point)
+- `connector_stub_mappings` — many-to-many stub ↔ product assertions, with confidence, evidence and provenance
+- `connector_pairs` — the pairs a vendor publishes a page for, classified `curated` / `generated` / `unknown`
+- `connector_evidenced_pairs` — the **delivered** tier; created empty here, filled by AECI-721
+
 **Analytics and caching**:
 - `page_views` — server-side page view log with CF enrichment
 - `stats_cache` — daily-computed home page stats
@@ -1421,6 +1429,301 @@ create index job_runs_job_started_at_idx on job_runs(job, started_at); -- per-jo
 **Read by** `GET /api/admin/system` (cron liveness + the orphan sweep) and `GET /api/admin/overview`'s status strip (the stored data-quality result) — `API_CONTRACTS.md` §6.10, `ADMIN_PANEL_SPEC.md` §5.1/§5.6. Both treat every field as untrusted and parse rather than assume.
 
 **Retention: 90 days — enforced** since AECI-584 by the daily 03:00 UTC pruning cron (`apps/api/src/lib/retention-prune.ts`), on the same whole-UTC-day, chunked-by-`id` mechanism as `page_views` §9.1. This is the half of §7.4 that bites first: the table accrues roughly 44k rows/year, ~80% of them from the `*/15` reconcile sweep, so the window first removes rows around **2026-11-11** (90 days past the 2026-08-13 start) versus ~2027-07 for `page_views`. Unlike `page_views` it carries no `metrics_daily` gate of its own — but a snapshot gap still stops it, because the prune aborts the whole run rather than half of it. Window: `JOB_RUNS_RETENTION_DAYS` in `@aeci/shared`, overridable per tier by the like-named env var. The read path was always immune by construction (ten bounded seeks), which is why the query shape above matters more than it looks.
+
+---
+
+## 9a. Connector lane (Stage 1.5 Addendum C — AECI-714)
+
+Six tables added by migration `apps/api/migrations/0021_overconfident_selene.sql`. Five are a
+**projection** of the review app's connector-lane model (`aec-integrations-review`, AECI-719):
+same column names, same semantics, so review → AECi is a copy rather than a transformation. The
+sixth, `connector_evidenced_pairs`, has no upstream counterpart and is created empty.
+
+Rows arrive only through `POST /api/promote/connector-catalog`
+(`docs/REVIEW_APP_PROMOTE_API.md` §3a). Nothing else writes them.
+
+**Two tiers, and conflating them is the failure this lane exists to prevent** (`STAGE_1_5_SPEC.md`
+§13.1):
+
+- **Delivered** — `connector_evidenced_pairs`. A working integration exists today.
+- **Reachable** — *not a table*. Derived at read time from `connector_stubs` +
+  `connector_stub_mappings`, and gated for publication by `connector_pairs.surface`. Never stored
+  as delivered, and **never counted** — not in a heading, not in `integration_count`, not in a
+  facet, not in the home stats (§13.5).
+
+**Primary keys are the review app's own record ids**, not `uuid ... default gen_random_uuid()`,
+on all five projected tables. The decisive reason is `connector_stub_mappings`: its natural key
+`(stub_id, product_id)` has a nullable `product_id`, and SQLite treats NULLs as distinct, so
+`ON CONFLICT (stub_id, product_id)` can never match a stub-level decision row — a re-sent page
+would insert a second one and the partial index would roll the whole page back. Keying on the
+review id makes every statement in the sync `ON CONFLICT (id) DO UPDATE`. `promote_jobs.job_id`
+is the standing precedent for a caller-supplied text key in this schema.
+
+**CHECK discipline.** A CHECK change on D1 is a destructive table recreate (`docs/migrations.md`
+§0), so the rule is: *every column the DB CHECKs, the Zod contract enums; every column the Zod
+contract leaves a loose string, the DB leaves unconstrained.* `surface_role`, `index_kind` and
+`direction_role` are therefore unconstrained on both sides — that vocabulary has already moved
+once (the review app added `all` only after the 2026-08-27 Aquifer/Kroo survey).
+
+### 9a.1 `connector_catalogs`
+
+One row per iPaaS — the catalogue as a whole, never one of its index pages. That is what gives
+`managed_by` somewhere to live: a vendor takes over a **catalogue**, not an index URL (AECI-720).
+
+```sql
+create table connector_catalogs (
+  id text primary key,                       -- the review app's record id
+  connector_product_id uuid not null references products(id) on delete cascade,
+  connector_authorship text check (connector_authorship in ('platform', 'partner', 'mixed')),
+  managed_by text not null default 'review' check (managed_by in ('review', 'vendor')),
+  notes text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create unique index connector_catalogs_product_idx on connector_catalogs(connector_product_id);
+```
+
+- `connector_product_id` is **NOT NULL**. A catalogue whose connector platform is not promoted is
+  reported in the sync's `skipped[]` rather than stored half-formed — the live case, since Zapier
+  and Workato are `promotion_status: on_hold` review-side (AECI-700). Whether an unpromoted
+  connector may ever be named is AECI-721's open question.
+- `connector_authorship` matters because Zapier inverts what the rest of the lane assumes: its app
+  vendors write the connectors, not Zapier. A reader defaulting to `platform` would attribute nine
+  thousand connectors to the wrong party.
+- `managed_by` is **held and enforced on this side** deliberately — the review app is the component
+  being decommissioned, so the surviving system owns who-controls-what. AECI-714 lands the column;
+  rejecting writes to a `vendor`-managed catalogue is AECI-720.
+
+### 9a.2 `connector_catalog_surfaces`
+
+One row per index URL the review-side ingest crawls. Vendors publish more than one — Aquifer and
+Kroo facet by industry, MindCloud and Agave publish an app index and a pair index — so
+`surface_role` is part of the row identity.
+
+```sql
+create table connector_catalog_surfaces (
+  id text primary key,
+  catalog_id text not null references connector_catalogs(id) on delete cascade,
+  surface_role text not null,                -- apps | pairs | sources | destinations | all
+  index_kind text,                           -- sitemap | toc | json_api | html
+  index_url text,
+  last_ingested_at timestamptz,
+  notes text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create unique index connector_catalog_surfaces_role_idx
+  on connector_catalog_surfaces(catalog_id, surface_role);
+```
+
+- **No count columns, deliberately.** A count here is maintained state that goes stale on the first
+  truncated fetch and that nobody can date.
+- `last_ingested_at` is the "as of" date §13.1 requires every reachable-tier claim to render with,
+  and the catalogue-freshness signal `STAGE_2_SPEC.md` §8.9(4) makes the connector-vendor seat
+  answerable for. It is per surface — one row — so the coverage surfaces should source provenance
+  from here rather than from thousands of per-stub `last_seen_at` values.
+
+### 9a.3 `connector_stubs`
+
+Every listing in a catalogue, **not only the ones that match a product**. The question this lane
+answers is *"is this new listing one of ours?"*, and that needs the misses present: ~3,342 of
+today's 3,573 stubs map to nothing. Holding the full mirror is also what makes AECI-720's cutoff a
+lane freeze rather than a data migration, and what gives AECI-722's triage queue its rows.
+
+```sql
+create table connector_stubs (
+  id text primary key,
+  catalog_id text not null references connector_catalogs(id) on delete cascade,
+  slug text not null,
+  label text,
+  url text,
+  direction_role text,                       -- source | destination | both, or null
+  action_count integer,
+  actions jsonb,                             -- NULL = never fetched, NOT "no actions"
+  actions_hash text,
+  actions_fetched_at timestamptz,
+  previous_labels jsonb,                     -- string array
+  meta jsonb,
+  first_seen_at timestamptz not null,
+  last_seen_at timestamptz not null,
+  removed_at timestamptz,                    -- tombstone
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create unique index connector_stubs_catalog_slug_idx on connector_stubs(catalog_id, slug);
+create index connector_stubs_label_idx on connector_stubs(label);
+```
+
+- The stub is a **fact** — the iPaaS publishes this listing — which is why it carries no decision
+  columns at all. Everything anybody *concludes* about it lives in `connector_stub_mappings`.
+- `actions` **NULL means never fetched, not "no actions"**. The per-listing inventory is ~73k
+  actions across MindCloud alone and is fetched lazily, so most stubs carry null indefinitely. A
+  reader treating null as "none" would publish *"this connector does nothing"* about most of the
+  catalogue.
+- `first_seen_at` / `last_seen_at` are **NOT NULL with no default**, unlike the review side, which
+  defaults them because rows are born there from a crawl. Here every row arrives from a sync that
+  already knows both, so a default would only mask a sender bug as a plausible timestamp.
+- `removed_at` is computed review-side off a `complete` ingest run — a truncated sitemap fetch is
+  indistinguishable from a vendor deleting half their catalogue. AECi copies the outcome and never
+  re-derives it, which is why the review app's ingest-run log is deliberately **not** mirrored.
+
+### 9a.4 `connector_stub_mappings`
+
+What somebody concluded about a stub — **many-to-many**. One listing may be several of our products
+(MindCloud's single `adp` listing is ADP Workforce Now and any edition built within it) and one
+product may appear as several listings in one catalogue.
+
+```sql
+create table connector_stub_mappings (
+  id text primary key,
+  stub_id text not null references connector_stubs(id) on delete cascade,
+  catalog_id text not null references connector_catalogs(id) on delete cascade,
+  product_id uuid references products(id) on delete set null,
+  status text not null
+    check (status in ('mapped', 'ruled_out', 'out_of_scope', 'no_record', 'ambiguous_parked')),
+  confidence text check (confidence in ('low', 'medium', 'high')),
+  evidence_url text,
+  decided_by text,
+  decided_at timestamptz,
+  checked_at timestamptz,
+  notes text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create unique index connector_stub_mappings_pair_idx on connector_stub_mappings(stub_id, product_id);
+create unique index connector_stub_mappings_decision_idx on connector_stub_mappings(stub_id)
+  where status in ('out_of_scope', 'no_record', 'ambiguous_parked');
+create index connector_stub_mappings_product_idx on connector_stub_mappings(product_id);
+create index connector_stub_mappings_status_idx on connector_stub_mappings(catalog_id, status);
+```
+
+- **There is no `pending` status — the absence of a row is pending.** A row per unreviewed stub
+  would be ~3,300 rows of nothing before anybody had decided anything.
+- Five statuses in **two families**: `mapped` / `ruled_out` name a product and several may sit on
+  one stub; `out_of_scope` / `no_record` / `ambiguous_parked` assert there is none to name, and at
+  most one may sit on a stub. `ruled_out` exists so the review app's auto pass does not re-propose
+  the same wrong product every run.
+- **The two-column invariant is enforced in application code and in the wire schema, never as a DB
+  CHECK** — the same shape as `claims`' `origin` / `created_by_vendor_id` biconditional, and for a
+  sharper reason: `product_id` goes NULL under `on delete set null`, so a CHECK would be
+  re-evaluated by that update and would make **deleting a mapped product fail**.
+- The partial unique index is keyed on **status**, not on `product_id is null`, for the same
+  reason. A stub whose two mapped products were both deleted would otherwise collide on a
+  null-keyed index. A `mapped` row left holding NULL is meant to be visible, not tidied away.
+- `catalog_id` is a denormalised copy of the stub's, derived server-side and never accepted on the
+  wire. It exists for `connector_stub_mappings_status_idx`: the triage counts are "how many of this
+  catalogue's stubs sit in each state", and without it that GROUP BY joins every mapping back to
+  its stub.
+- **The publication gate is provenance, not confidence**: `status = 'mapped' AND product_id IS NOT
+  NULL AND decided_by IS NOT NULL AND decided_by <> 'auto-name-match'`. Gating on `confidence`
+  would publish hundreds of machine guesses at `medium`.
+
+### 9a.5 `connector_pairs`
+
+The pairs a vendor publishes a page for, filtered review-side to pairs where both stubs map to one
+of our products — the difference between ~2,000 rows and MindCloud's 104,186.
+
+```sql
+create table connector_pairs (
+  id text primary key,
+  catalog_id text not null references connector_catalogs(id) on delete cascade,
+  stub_a_id text not null references connector_stubs(id) on delete cascade,
+  stub_b_id text not null references connector_stubs(id) on delete cascade,
+  url_a_to_b text,
+  url_b_to_a text,
+  surface text not null default 'unknown' check (surface in ('curated', 'generated', 'unknown')),
+  classified_at timestamptz,
+  first_seen_at timestamptz not null,
+  last_seen_at timestamptz not null,
+  removed_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint connector_pairs_canonical_order check (stub_a_id < stub_b_id)
+);
+
+create unique index connector_pairs_pair_idx on connector_pairs(catalog_id, stub_a_id, stub_b_id);
+create index connector_pairs_stub_b_idx on connector_pairs(stub_b_id);
+```
+
+- **This is not the reachable tier and asserts no delivery.** It exists for one thing the mapping
+  graph cannot supply: `surface`. Reachability is derivable from stubs + mappings alone (§13.1),
+  but *publication* is not — §13.7 publishes the **curated** set, and curated-vs-generated is a
+  classification on the vendor's own published pair row. Without this table the only derivable
+  thing is the auto-generated cross-product that §13.7 and AECI-716 explicitly refuse.
+- The canonical ordering is a CHECK rather than a convention because vendors publish both
+  directions as separate pages: without it every pair arrives twice and the unique index cannot see
+  the collision. Keeping both URLs means the ordering costs no information.
+- `surface` defaults to `unknown` on purpose — appearing in an index says a page exists, not that
+  anyone read it.
+
+### 9a.6 `connector_evidenced_pairs`
+
+The **delivered** tier for connector-delivered edges (§13.1). The one table here with no
+review-side counterpart, and the destination AECI-721 migrates the ~326
+`integrations.powered_by_product_id` edges into. **AECI-714 creates it empty and nothing writes
+it** — the sync never emits a statement against it.
+
+```sql
+create table connector_evidenced_pairs (
+  id uuid primary key default gen_random_uuid(),
+  connector_product_id uuid not null references products(id) on delete cascade,
+  product_a_id uuid not null references products(id) on delete cascade,
+  product_b_id uuid not null references products(id) on delete cascade,
+  name text,
+  built_by_vendor_id uuid references vendors(id),
+  mechanism_name text,
+  direction text check (direction in ('a_to_b', 'b_to_a', 'both')),
+  description text,
+  website text,
+  listing_url text,
+  docs_url text,
+  mechanism_url text,
+  pricing_model text,
+  maturity text,
+  notes text,
+  last_reviewed_at timestamptz,
+  maintained_by text not null default 'aeci' check (maintained_by in ('aeci', 'vendor')),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint connector_evidenced_pairs_canonical_order check (product_a_id < product_b_id),
+  constraint connector_evidenced_pairs_distinct_connector
+    check (connector_product_id <> product_a_id and connector_product_id <> product_b_id)
+);
+
+create unique index connector_evidenced_pairs_pair_idx
+  on connector_evidenced_pairs(connector_product_id, product_a_id, product_b_id);
+create index connector_evidenced_pairs_product_a_idx on connector_evidenced_pairs(product_a_id);
+create index connector_evidenced_pairs_product_b_idx on connector_evidenced_pairs(product_b_id);
+create index connector_evidenced_pairs_connector_idx on connector_evidenced_pairs(connector_product_id);
+create index connector_evidenced_pairs_built_by_idx on connector_evidenced_pairs(built_by_vendor_id)
+  where built_by_vendor_id is not null;
+```
+
+- **The shape exists to not foreclose the claims re-home.** A production check on 2026-08-31 found
+  **94 of 1,697 claims anchored on powered edges**, and `claims.integration_id` is a single-column
+  NOT NULL FK inside `claims_identity_key` — so re-homing them recreates `claims`. Two properties
+  keep that to *one* recreate rather than two: a **single-column** surrogate key (a composite PK
+  would force a three-column FK from `claims`), and a default that an explicit value overrides — so
+  AECI-721 can supply the migrated `integrations.id` verbatim as the new row's `id`, leaving the 94
+  claims' stored anchor **value** unchanged and only moving which table it points at.
+- `built_by_vendor_id` is here on day one because §13.2 records an open residue: ~326 edges carry
+  `powered_by` against 308 marked `iPaaS`, and the ~20-row difference is accountable (AnyWare Apps'
+  two Ramp↔Sage edges are `marketplace-app` **with** a `powered_by`, built by Cherry Bekaert). A
+  table that could not hold a builder would silently pre-decide that residue, and an FK added later
+  loses its `ON DELETE` clause under `ADD COLUMN`.
+- `connector_evidenced_pairs_distinct_connector` enforces §13.2(a) structurally. Review-side
+  Convention A stores *"product X ships a connector on platform C"* as one edge whose `powered_by`
+  **is** one of its own endpoints — ~152 of the 308 `iPaaS` rows. Those stay in the direct list;
+  letting one in here would render "Via Aquifer → Aquifer".
+- `direction` uses `claims`' `a_to_b | b_to_a | both` vocabulary rather than `integrations`'
+  `one-way | bidirectional`, because once the pair is canonicalised `one-way` no longer says which
+  way. AECI-721's migration is therefore a lossless CASE, not a straight copy:
+  `one-way` with source = A → `a_to_b`; `one-way` with source = B → `b_to_a`; `bidirectional` →
+  `both`; NULL → NULL.
 
 ---
 

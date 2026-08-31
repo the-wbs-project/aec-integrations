@@ -1,6 +1,6 @@
 # ADR 0021: Promote ingest runs in a Cloudflare Workflow, keyed by a caller-supplied job ID
 
-**Status:** Accepted (amended 2026-08-13 — the residual at-least-once window is now closed by a D1 job ledger; amended 2026-08-27 — the hook dispatch is now bounded and watchdogged; see the Amendment sections below)
+**Status:** Accepted (amended 2026-08-13 — the residual at-least-once window is now closed by a D1 job ledger; amended 2026-08-27 — the hook dispatch is now bounded and watchdogged; amended 2026-08-31 — a second job kind rides the same binding, and atomicity stops at the page boundary; see the Amendment sections below)
 **Date:** 2026-08-12
 **Context owner:** chrisw@thewbsproject.com
 **Relates to:** AECI-563 (this change), AECI-571 / AECI-666 (the amendments), AECI-561 (epic), AECI-567 / AECI-570 (the review-app half, other repo); narrows ADR 0013's cron→queue posture for a *request*-triggered job; ADR 0016 (D1 has no interactive transactions)
@@ -217,3 +217,43 @@ With bodies drained these queue harmlessly rather than deadlocking, but coalesci
 them into a per-invocation buffer flushed once would cut the tail's request count by
 an order of magnitude. Deferred — it changes the transport's contract for both
 Workers and was not needed to close the incident.
+
+## Amendment 2026-08-31 — a second job kind, and where atomicity stops (AECI-714)
+
+Everything above continues to hold **per job**. This records a second arm on the same
+protocol and, more importantly, the one guarantee it deliberately does not extend.
+
+**What was added.** `POST /api/promote/connector-catalog` sends one **page** of one connector
+catalogue. It reuses this ADR wholesale — the same `PROMOTE_WORKFLOW` binding, the same
+`PROMOTE_KV` staging and result mirror, the same single non-retried `commit-promote` step, the
+same `promote_jobs` ledger-first batch, the same `GET /api/promote/jobs/:id` poll, the same
+`NonRetryableError(message, code)` conversion. `PromoteWorkflowParams` became a discriminated
+union whose `kind` is **absent** for the product arm, so instances created before this
+amendment and still inside their 30-day retention window keep replaying as product promotes.
+**No `wrangler.jsonc` change was needed in any environment**, which is the whole reason for
+one Workflow class rather than two.
+
+**Where atomicity stops, and why that is a decision rather than a gap.** A catalogue is ~3,573
+rows today and ~15k once Zapier lands. It cannot be one transaction — D1 has none to offer,
+and one `promote_jobs` row protects one commit, not N. So a catalogue sync is a *sequence* of
+independent jobs, and the cross-page property is **idempotence rather than atomicity**:
+
+- every statement the connector planner emits is an upsert keyed on the review app's own
+  record id, which is also the app-DB primary key (see `DATABASE_SCHEMA.md` §9a for why that
+  key choice is forced rather than convenient);
+- a page re-sent with nothing changed emits **zero** statements and writes **no** audit row;
+- a half-finished catalogue sync is therefore always safe to re-run from page one, and a
+  dangling reference between pages is reported in `skipped[]` and re-sendable rather than
+  fatal.
+
+The product arm's guarantee is unchanged and must stay unchanged: its writes are **not**
+idempotent by construction — a create with no `supabaseId` mints a new row — which is exactly
+why the ledger PK exists there and why the commit step must never be auto-retried.
+
+**Post-commit hooks: two, not seven.** The connector arm dispatches only the §26.5 audit
+forward and the skip report. No Algolia sync, no IndexNow, no Google Indexing, no home-stats
+refresh, and no cache purge — `STAGE_1_5_SPEC.md` §13.5 is categorical that reachable data
+never counts anywhere, and no cacheable route depends on these rows until AECI-715/716. The
+absence is asserted by a source guard in `routes/promote-connector.spec.ts` rather than by a
+spy, because the thing worth preventing is a future refactor wiring this arm into
+`dispatchPromoteHooks` wholesale.

@@ -13,6 +13,7 @@
  * event params.
  */
 
+import type { PromotePayload } from '@aeci/shared';
 import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -125,7 +126,9 @@ describe('createPromoteKickoffHandler', () => {
 
     expect(h.workflow.create).toHaveBeenCalledTimes(1);
     expect(h.workflow.created[0]!.id).toBe(JOB_ID);
-    expect(h.workflow.created[0]!.params.payload?.product?.name).toBe('Revit');
+    expect(
+      (h.workflow.created[0]!.params.payload as PromotePayload | undefined)?.product?.name,
+    ).toBe('Revit');
   });
 
   it('generates a job id when the caller omits one', async () => {

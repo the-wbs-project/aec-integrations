@@ -192,7 +192,7 @@ function isSlugUniqueViolation(err: unknown): boolean {
  * The message carries no `slug`, and a slug violation carries no `promote_jobs`, so this
  * predicate and {@link isSlugUniqueViolation} are disjoint by construction.
  */
-function isPromoteJobDuplicate(err: unknown): boolean {
+export function isPromoteJobDuplicate(err: unknown): boolean {
   if (!err || typeof err !== 'object') return false;
   const e = err as { message?: unknown; code?: unknown };
   const msg =
@@ -298,7 +298,7 @@ function integrationEditableData(intg: PromoteIntegration): Record<string, unkno
  * `AuditLogForwarder` closure so the whole set can be posted in ONE request per
  * vendor — see the `logBatchToPosthog` call in {@link dispatchPromoteHooks}.
  */
-function auditLogEvent(entry: Omit<AuditLogEntry, 'metadata'>): PosthogLogEvent {
+export function auditLogEvent(entry: Omit<AuditLogEntry, 'metadata'>): PosthogLogEvent {
   return {
     level: 'info',
     message: `audit ${entry.action} ${entry.entityId ?? ''}`.trim(),
@@ -366,7 +366,7 @@ function dispatchHook(rc: PromoteRunCtx, name: string, task: Promise<unknown>): 
   );
 }
 
-const AUDIT_META = { source: 'review-app-promote' } as const;
+export const AUDIT_META = { source: 'review-app-promote' } as const;
 
 // ─── Claimed-vendor block reasons (AECI-520) ─────────────────────────────────
 // Constants, not interpolated strings: the review app surfaces `skipped[].reason`
@@ -787,7 +787,7 @@ export async function refreshHomeStatsAfterPromote(rc: PromoteRunCtx, db: Db): P
  * on `POSTHOG_PROJECT_KEY` and dispatches via `ctx.waitUntil`, so this never affects the
  * committed promote. No-op when nothing was skipped.
  */
-function logPromoteSkips(rc: PromoteRunCtx, skipped: PromoteSkipped[]): void {
+export function logPromoteSkips(rc: PromoteRunCtx, skipped: PromoteSkipped[]): void {
   if (skipped.length === 0) return;
 
   const countByKind = skipped.reduce<Record<string, number>>((acc, s) => {
@@ -1086,6 +1086,13 @@ function buildPromoteJobLedger(input: {
  * outside Drizzle still reads back.
  */
 function parsePromoteJobLedger(stored: unknown): PromoteJobLedger | null {
+  // AECI-714: `promote_jobs` now holds two envelope shapes. The connector one carries
+  // `kind: 'connector'`; this one carries no `kind` at all, and that ABSENCE is the
+  // discriminant (pre-AECI-714 rows have none either, so absence must stay valid).
+  // Without this guard a connector ledger would parse far enough to be returned as a
+  // `PromoteResponse`, and `replayPromoteJob`'s "the commit HAPPENED" 500 — the one
+  // honest answer when a ledger is unreadable — would never fire.
+  if (stored !== null && typeof stored === 'object' && 'kind' in stored) return null;
   let value = stored;
   if (typeof value === 'string') {
     try {

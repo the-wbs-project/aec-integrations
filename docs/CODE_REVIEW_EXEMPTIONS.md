@@ -122,6 +122,13 @@ scope:
     - apps/api/src/lib/metrics-backfill.ts
     - apps/api/src/lib/job-runs.ts
     - apps/api/src/lib/retention-prune.ts
+    # Added 2026-08-31 (AECI-714): here for `retention-prune.ts`'s reason, not for the
+    # exemption's. The connector-catalogue sync DOES audit — it is domain state — but at
+    # RUN granularity (one summary row per page, none at all when nothing changed).
+    # That carve-out is ADR 0022's 2026-08-31 amendment plus `STAGE_1_SPEC.md` §26.1; a
+    # reviewer landing here should read those rather than file a missing-audit finding.
+    - apps/api/src/lib/promote-connector-catalog.ts
+    - apps/api/src/routes/promote-connector.ts
   categories:
     - Audit logging
     - Data integrity

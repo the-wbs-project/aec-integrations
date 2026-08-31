@@ -66,3 +66,37 @@ The carve-out is written into `STAGE_1_SPEC.md` §26.1 itself. A carve-out docum
 - **Leave §26.1 alone and document the exemption in `ADMIN_PANEL_SPEC.md`.** Cheapest edit, and precisely the mistake that produced this ADR: the `page_views` exemption has sat in `API_CONTRACTS.md` for months while three other docs assert the absolute form.
 - **Exempt on actor ("system writes don't audit").** Simpler to state, and wrong: `POST /api/promote` is a system actor writing the entire public catalog, and it must audit. Actor is the wrong axis; entity class is the one the codebase was already using.
 - **A separate `system_log` table for cron writes.** More machinery for the same outcome. `job_runs` already is that table, and it exists for independent reasons.
+
+## Amendment 2026-08-31 — audit granularity for bulk external-fact ingest (AECI-714)
+
+Nothing above is reversed. This adds a rule the original decision did not need, because at
+the time no write path mirrored thousands of rows in a single commit.
+
+**The rule.** A write path that mirrors externally-sourced rows in bulk satisfies §26.1 with
+**one summary `audit_log` row per run, in the same batch**, rather than one row per mirrored
+row. A run that changes nothing writes no row at all.
+
+**Why it is not an exemption.** These rows fail this ADR's three-part test twice over — they
+are ingested external facts rather than data computed from what is already in the database,
+and the reachable lane they feed is public — so they audit. The question this amendment
+answers is *at what granularity*, which the original decision never addressed because the
+question had not arisen.
+
+**Why per-row would be wrong rather than merely expensive.** The connector-catalogue sync
+(AECI-714) mirrors ~3,573 rows today and ~15k once Zapier lands. Per-row auditing would
+deposit tens of thousands of entries per sync into `audit_log` — a table §26.6 keeps
+indefinitely and no cron prunes — and would push the same volume through the §26.5 forward.
+It would also make the log *less* useful, not more: "3,573 rows were mirrored from the review
+app" is the fact an operator or an auditor actually needs, and 3,573 near-identical rows state
+it worse than one row carrying the counts.
+
+**The bound, so this cannot be stretched.** It applies only where all three hold: the writer
+is a **bulk mirror of an upstream system of record**, every statement is an **idempotent
+upsert** (so the log is not the only record of what happened — the upstream is), and no
+individual row carries a **decision** attributable to a person. A decision-bearing write on
+the very same tables — flipping a catalogue's `managed_by`, which is AECI-720's — audits per
+row like any other domain-state write. `retention-prune.ts` is the standing precedent for the
+shape, including the part most easily dropped: **no change, no row.**
+
+Recorded in `STAGE_1_SPEC.md` §26.1 alongside the exemption list, per this ADR's own rule that
+a new carve-out is a spec edit rather than a reviewer's call.

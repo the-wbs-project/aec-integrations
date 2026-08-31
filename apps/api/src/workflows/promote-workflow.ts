@@ -37,6 +37,8 @@ import {
   PromotePayloadSchema,
   type PromotePayload,
   type PromoteResponse,
+  type PromoteConnectorPagePayload,
+  type PromoteConnectorPageResponse,
 } from '@aeci/shared';
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from 'cloudflare:workers';
 import { NonRetryableError } from 'cloudflare:workflows';
@@ -57,6 +59,11 @@ import {
   type PromoteIngestResult,
   type PromoteRunCtx,
 } from '../routes/promote';
+import {
+  dispatchConnectorHooks,
+  runConnectorCatalogIngest,
+  type ConnectorIngestResult,
+} from '../routes/promote-connector';
 
 export type { PromoteWorkflowParams };
 
@@ -116,6 +123,9 @@ export function createWorkflowRunCtx(
 export type PromoteWorkflowDeps = PromoteIngestDeps & {
   ingest?: typeof runPromoteIngest;
   dispatchHooks?: typeof dispatchPromoteHooks;
+  /** The AECI-714 arm's equivalents, injected the same way. */
+  connectorIngest?: typeof runConnectorCatalogIngest;
+  dispatchConnectorHooks?: typeof dispatchConnectorHooks;
 };
 
 /** The subset of `WorkflowStep` this run uses — declared structurally so the spec can
@@ -139,20 +149,24 @@ export async function runPromoteWorkflow(
   event: { payload: PromoteWorkflowParams; instanceId: string },
   step: PromoteStepRunner,
   deps: PromoteWorkflowDeps = {},
-): Promise<PromoteResponse> {
+): Promise<PromoteResponse | PromoteConnectorPageResponse> {
   const params = event.payload;
   // Prefer the params copy so a hand-restarted instance keeps its original job id;
   // `instanceId` is the same value in every path the kick-off produces.
   const jobId = params.jobId || event.instanceId;
   const rc = createWorkflowRunCtx(env, ctx, params.sourceUrl);
   const startedAt = Date.now();
+  // ABSENCE means product, and that is load-bearing: instances created before AECI-714
+  // and still inside their 30-day retention window carry no `kind`, and must keep
+  // replaying as product promotes.
+  const kind = params.kind ?? 'product';
 
   // Wrapped in the same emit-then-rethrow as `commit-promote` below: a permanent
   // staging-read failure (KV read exhausting its retries, or a `NonRetryableError` for
   // an unbound/corrupt value) must still emit the `errored` job telemetry, or the
   // `REVIEW_APP_PROMOTE_API.md` §6.3 "every rejected promote is in Datadog" invariant
   // silently stops holding on the KV-staged path.
-  let payload: PromotePayload | undefined;
+  let payload: PromotePayload | PromoteConnectorPagePayload | undefined;
   try {
     payload =
       params.payloadRef === 'kv'
@@ -172,10 +186,30 @@ export async function runPromoteWorkflow(
     throw error;
   }
 
+  // ── The connector arm (AECI-714) ────────────────────────────────────────
+  // Same step name, same non-retried config, same emit-then-rethrow: the two arms are
+  // one protocol and an operator querying `aeci.api.promote.job` should not have to
+  // know which kind a job was to find it.
+  if (kind === 'connector') {
+    let connectorResult: ConnectorIngestResult;
+    try {
+      connectorResult = await step.do('commit-promote', COMMIT_STEP_CONFIG, () =>
+        commitConnectorPage(rc, jobId, payload as PromoteConnectorPagePayload, deps),
+      );
+    } catch (error) {
+      emitJobOutcome(rc, jobId, 'errored', Date.now() - startedAt, error);
+      throw error;
+    }
+    rc.setBookmark(connectorResult.bookmark);
+    (deps.dispatchConnectorHooks ?? dispatchConnectorHooks)(rc, connectorResult);
+    emitJobOutcome(rc, jobId, 'complete', Date.now() - startedAt);
+    return connectorResult.response;
+  }
+
   let result: PromoteIngestResult;
   try {
     result = await step.do('commit-promote', COMMIT_STEP_CONFIG, () =>
-      commitPromote(rc, jobId, payload, deps),
+      commitPromote(rc, jobId, payload as PromotePayload, deps),
     );
   } catch (error) {
     emitJobOutcome(rc, jobId, 'errored', Date.now() - startedAt, error);
@@ -193,6 +227,30 @@ export async function runPromoteWorkflow(
 
   emitJobOutcome(rc, jobId, 'complete', Date.now() - startedAt);
   return result.response;
+}
+
+/**
+ * The connector arm's commit. Deliberately the same shape as {@link commitPromote},
+ * including the `toNonRetryable` conversion — the commit step must never be auto-retried
+ * on either arm, and the structured `ApiErrorCode` has to survive to the poll.
+ *
+ * The KV result mirror applies unchanged: it is what keeps a lost response recoverable
+ * past the instance's retention window.
+ */
+async function commitConnectorPage(
+  rc: PromoteRunCtx,
+  jobId: string,
+  page: PromoteConnectorPagePayload,
+  deps: PromoteWorkflowDeps,
+): Promise<ConnectorIngestResult> {
+  let result: ConnectorIngestResult;
+  try {
+    result = await (deps.connectorIngest ?? runConnectorCatalogIngest)(rc, page, deps, { jobId });
+  } catch (error) {
+    throw toNonRetryable(error);
+  }
+  await mirrorResult(rc.env, jobId, result.response);
+  return result;
 }
 
 /**
@@ -266,7 +324,11 @@ async function loadStagedPayload(env: Env, jobId: string): Promise<PromotePayloa
   }
 }
 
-async function mirrorResult(env: Env, jobId: string, response: PromoteResponse): Promise<void> {
+async function mirrorResult(
+  env: Env,
+  jobId: string,
+  response: PromoteResponse | PromoteConnectorPageResponse,
+): Promise<void> {
   const kv = env.PROMOTE_KV;
   if (!kv) return;
   try {
@@ -338,7 +400,7 @@ export class PromoteWorkflow extends WorkflowEntrypoint<Env, PromoteWorkflowPara
   override async run(
     event: Readonly<WorkflowEvent<PromoteWorkflowParams>>,
     step: WorkflowStep,
-  ): Promise<PromoteResponse> {
+  ): Promise<PromoteResponse | PromoteConnectorPageResponse> {
     return runPromoteWorkflow(
       this.env,
       this.ctx,

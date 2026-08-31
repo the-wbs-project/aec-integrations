@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import type { PromoteConnectorPageResponse } from './promote-connector';
+
 /**
  * `POST /api/promote` — push-based Airtable → Supabase promotion (supersedes the
  * pull-based `scripts/airtable-to-supabase-bulk-migrate.ts`). The review
@@ -489,7 +491,25 @@ export interface PromoteTaxonomyResult {
  */
 export interface PromoteSkipped {
   ref: string;
-  kind: 'integration' | 'extension' | 'usefulness' | 'claim' | 'trade' | 'vendor' | 'product';
+  kind:
+    | 'integration'
+    | 'extension'
+    | 'usefulness'
+    | 'claim'
+    | 'trade'
+    | 'vendor'
+    | 'product'
+    // ── Connector lane (AECI-714) ──────────────────────────────────────────
+    // All four mean "this could not be RESOLVED" — the majority meaning of this
+    // type — and never "policy said no". They exist because the connector sync is
+    // PAGED and pages are not atomic with each other, so a page can legitimately
+    // reference a row that a later page carries. Widened here rather than given
+    // their own array because `logPromoteSkips` is already generic over `kind` and
+    // the review app's §4 skip handling is one code path on both sides.
+    | 'connector-catalog'
+    | 'connector-stub'
+    | 'connector-mapping'
+    | 'connector-pair';
   reason: string;
 }
 
@@ -607,6 +627,12 @@ export type PromoteJobStatus = 'queued' | 'running' | 'complete' | 'errored';
 export interface PromoteJobResponse {
   jobId: string;
   status: PromoteJobStatus;
-  result?: PromoteResponse;
+  /**
+   * `PromoteResponse` for a product bundle; `PromoteConnectorPageResponse` for a
+   * connector-catalogue page (AECI-714). Told apart by `'kind' in result` —
+   * `PromoteResponse` deliberately carries no `kind`, so absence means product and
+   * no existing producer or consumer moved.
+   */
+  result?: PromoteResponse | PromoteConnectorPageResponse;
   error?: { code: string; message: string };
 }

@@ -65,10 +65,15 @@ import { liveAttestationsWhere } from './drizzle-helpers';
  * the reads and deletes here chunk rather than trusting the payload to stay small.
  * A single integration tops out at 60 claims anyway (20 frozen vocabulary terms ×
  * 3 directions), so this only ever bites the integration-id read on a large bundle.
+ *
+ * Exported, with {@link chunked}, because the connector-catalogue sync
+ * (`./promote-connector-catalog.ts`) pages at 500 rows and needs the same cap. One
+ * constant deliberately, not two: two chunk sizes that drift is the exact failure
+ * this comment exists to prevent.
  */
-const ID_CHUNK = 90;
+export const ID_CHUNK = 90;
 
-function chunked<T>(values: readonly T[], size = ID_CHUNK): T[][] {
+export function chunked<T>(values: readonly T[], size = ID_CHUNK): T[][] {
   const out: T[][] = [];
   for (let i = 0; i < values.length; i += size) out.push(values.slice(i, i + size));
   return out;
