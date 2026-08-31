@@ -24,6 +24,7 @@ import {
 } from './routes/account';
 import { createGetAccountReviewsHandler } from './routes/account-reviews';
 import { createAdminClaimsListHandler, createModerateClaimHandler } from './routes/admin-claims';
+import { createSetConnectorCatalogManagementHandler } from './routes/admin-connector-catalogs';
 import { createSetVendorEntitlementHandler } from './routes/admin-entitlements';
 import {
   createAdminRevokeSeatHandler,
@@ -372,6 +373,12 @@ app.route('/', authAccount);
 //     no `workflow_instances` row, because that CHECK is closed (§1.2). Clearing
 //     is NOT a seat revoke and NOT a ban (§5.2): seats, logins and the dashboard
 //     survive, read-only.
+//   - PATCH /api/admin/connector-catalogs/:id (AECI-720) — the per-iPaaS management
+//     cutoff. Flips `connector_catalogs.managed_by`; `vendor` freezes the review
+//     lane for that catalogue and the promote arm then refuses its pages with
+//     `CATALOG_VENDOR_MANAGED`. Audit-only (no workflow row, closed CHECK) and no
+//     purge — nothing reads that table yet. Reversible: "one-way forever" governs
+//     the data direction, not the flag. Grants no seat (§8.9(2)/(3)).
 //   - GET    /api/admin/vendors                   (S2 §5.6, AECI-652) — paginated
 //     vendor list + name/slug search. The way in for a vendor that never filed a
 //     claim; before this the entitlement control could only be reached through a
@@ -513,6 +520,18 @@ authAdmin.delete(
 // Literal segment before the bare `/:id`, matching the vendors block.
 authAdmin.get('/api/admin/users', requireAdmin(), createAdminUsersListHandler());
 authAdmin.get('/api/admin/users/:id', requireAdmin(), createAdminUserDetailHandler());
+// AECI-720: the per-iPaaS management cutoff. Flips `connector_catalogs.managed_by`,
+// which freezes the review lane for that catalogue — `POST /api/promote/connector-catalog`
+// then refuses every page for it with `CATALOG_VENDOR_MANAGED`. Audit-only, no
+// `workflow_instances` row (that CHECK is closed, §1.2) and NO cache purge: nothing reads
+// `connector_catalogs` yet, so there is no tag to purge. The flag is reversible; what is
+// one-way is the DATA direction, which the promote refusal delivers. Grants no seat — see
+// `STAGE_2_SPEC.md` §8.9(2)/(3); the screen that calls this is AECI-722's.
+authAdmin.patch(
+  '/api/admin/connector-catalogs/:id',
+  requireAdmin(),
+  createSetConnectorCatalogManagementHandler(),
+);
 // Admin panel reads (AECI-574, AECI-577, AECI-579, AECI-580, AECI-586).
 // Registered after the moderation routes; no path collides with
 // `/api/admin/re*` or `/api/admin/summary`.

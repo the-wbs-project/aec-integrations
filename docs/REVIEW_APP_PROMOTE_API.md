@@ -466,8 +466,13 @@ there is nothing to persist or to strand.
 | `id` | string | yes | Your catalogue record id. |
 | `connectorProductId` | uuid | no | The connector platform's **AECi product id**. Omit it if the platform isn't promoted — the whole page is then reported in `skipped[]` as `kind: "connector-catalog"`, which is **not an error**. |
 | `connectorAuthorship` | enum | no | `platform` \| `partner` \| `mixed` — who actually *builds* the connectors. |
-| `managedBy` | enum | no | `review` \| `vendor`, default `review`. |
 | `notes` | string | no | |
+
+`managedBy` is **not accepted** (AECI-720). Who authors a catalogue is held *and* enforced
+AECi-side — the review app is the component being decommissioned, so the surviving system owns
+who-controls-what. A catalogue starts `review` by column default, and only an AECi operator moves
+it. Sending the field is harmless (unknown keys are stripped) but it will not do anything, and
+you cannot use it to un-freeze a catalogue that has been handed over. See §3a's rejection below.
 
 #### `surfaces[]` — one per index URL you crawl
 
@@ -566,6 +571,29 @@ everything, and that is the proof the page was a true no-op.
 mappings looks identical to one that dropped none. The four connector kinds are
 `connector-catalog`, `connector-stub`, `connector-mapping` and `connector-pair`; all four mean
 *"this could not be resolved yet"*, never *"policy said no"*, and all four are re-sendable.
+
+### One refusal that is NOT a skip: a vendor-managed catalogue (AECI-720)
+
+Per iPaaS, a catalogue can be handed over to its vendor. When an AECi operator flips
+`managed_by` to `vendor`, **the review lane freezes for that catalogue and no other**: every page
+you send for it fails the job with `CATALOG_VENDOR_MANAGED` (a `409`-class code) and writes
+nothing at all — no rows, no ledger row, no audit row.
+
+That is deliberately an **error and not a `skipped[]` entry**, because the four skip kinds above
+all promise *"could not be resolved yet"* and *"re-sendable"*, and this is neither. **Re-sending
+will not help, ever.** If a catalogue genuinely needs to return to review authorship, an AECi
+operator flips it back — ask, don't retry.
+
+Three properties worth knowing:
+
+- **It is checked before the unpromoted-connector skip.** A vendor-managed catalogue whose
+  platform is also unpromoted still rejects rather than reporting a re-sendable skip. A policy
+  refusal must not look like a resolution problem.
+- **The rejection is per job, and every page behaves identically.** One job is one page is one
+  catalogue, and the check does not depend on page contents.
+- **A mid-sync flip does not roll anything back.** Pages committed before the flip stay
+  committed; pages after it reject. AECi's copy is current either way — that is the whole reason
+  handover is a lane freeze rather than a data migration.
 
 ## 4. Response
 
@@ -848,6 +876,7 @@ Synchronous rejections use the standard AECi envelope:
 |---|---|---|
 | `SLUG_CONFLICT` | A concurrent first-time promote generated the same slug, so the create hit a `*_slug_key` unique constraint | Retry with a **new `jobId`**; the retry re-reads existing slugs and disambiguates (`-2`, `-3`, …), so it won't re-collide. |
 | `VALIDATION_FAILED` | A name that can't be turned into a URL slug (reserved or empty after normalization) — only detectable once AECi tries | Fix the name; re-push with a new `jobId`. |
+| `CATALOG_VENDOR_MANAGED` | Connector arm only (§3a). The catalogue is **vendor-managed** on AECi, so the review lane is frozen for it | **Do not retry — not with this `jobId` and not with a new one.** Stop syncing that catalogue and render it read-only your side. Only an AECi operator can return it to review authorship. |
 | `INTERNAL_ERROR` | Unexpected server fault during the commit | Retry with a **new `jobId`**. The commit is a single atomic batch, so a failed job wrote nothing. Escalate if it repeats. |
 
 **An `errored` job wrote nothing.** The commit is one atomic `db.batch`, so there is
