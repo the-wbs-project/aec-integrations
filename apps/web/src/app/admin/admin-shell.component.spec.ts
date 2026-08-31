@@ -68,6 +68,21 @@ function categoryTriggers(root: HTMLElement): HTMLButtonElement[] {
   ];
 }
 
+/**
+ * A trigger by its HEADING, not its index.
+ *
+ * The positional form broke the moment AECI-722 gave Catalog a second screen and
+ * turned it into a third dropdown, silently re-pointing two "Operations" tests at
+ * Catalog. Addressing by label means the next group added cannot do that again.
+ */
+function categoryTrigger(root: HTMLElement, heading: string): HTMLButtonElement {
+  const found = categoryTriggers(root).find(
+    (b) => b.querySelector('span')?.textContent?.trim() === heading,
+  );
+  if (!found) throw new Error(`No category trigger labelled "${heading}"`);
+  return found;
+}
+
 describe('AdminShell', () => {
   it('titles the console "Admin", not "Moderation" (AECI-576)', () => {
     const root = render({ pending_reviews: 12 });
@@ -95,31 +110,23 @@ describe('AdminShell', () => {
   });
 
   describe('grouped navigation (AECI-576 / §5, AECI-694 row)', () => {
-    it('renders Insights and Operations as dropdowns and collapses Catalog to a link', () => {
+    it('renders all three groups as dropdowns now that Catalog has two screens', () => {
       const root = render({ pending_reviews: 4 });
-      const nav = root.querySelector('nav[aria-label="Admin sections"]')!;
 
-      // Two triggers, not three: a dropdown revealing one destination is a click
-      // that buys nothing, so a single-screen group renders as a plain link.
-      // The heading is the trigger's first <span>; the rest of its text is the
-      // mirrored pending badge.
+      // THREE triggers since AECI-722. Catalog collapsed to a plain link while it
+      // had one screen; adding Connectors flipped it to a dropdown with no code
+      // change, because the rule keys off `items.length` rather than a flag. That
+      // this assertion had to move is the rule working, not a regression.
       expect(
         categoryTriggers(root).map((b) => b.querySelector('span')?.textContent?.trim()),
-      ).toEqual(['Insights', 'Operations']);
-
-      // Catalog is a direct link, labelled with the GROUP heading rather than
-      // its item's ("Coverage"): at the top level of a nav the category is what
-      // is self-describing.
-      const row = nav.querySelector('ul')!;
-      const catalog = [...row.children].find((li) => li.textContent?.trim() === 'Catalog');
-      expect(catalog?.querySelector('button')).toBeNull();
-      expect(catalog?.querySelector('a')?.getAttribute('href')).toBe('/admin/catalog');
+      ).toEqual(['Insights', 'Catalog', 'Operations']);
     });
 
     it('keeps every §5 route reachable, in order, from inside the panels', () => {
       const root = render({ pending_reviews: 4 });
       // Insights = Overview, Activity (AECI-577, §5.2), Traffic (AECI-578, §5.3),
-      // Audience (AECI-586, §5.4); Catalog = Coverage (AECI-579, §5.5);
+      // Audience (AECI-586, §5.4); Catalog = Coverage (AECI-579, §5.5) and
+      // Connectors (AECI-722, §5.9);
       // Operations = the three queues, Vendor claims (AECI-521 — folded into
       // ADMIN_NAV_GROUPS at the AECI-619 reconciliation), Vendors (AECI-652),
       // Users (AECI-692) and System status (AECI-580, §5.6).
@@ -129,6 +136,7 @@ describe('AdminShell', () => {
         '/admin/traffic',
         '/admin/audience',
         '/admin/catalog',
+        '/admin/connectors',
         '/admin/reviews',
         '/admin/requests',
         '/admin/claims',
@@ -171,7 +179,8 @@ describe('AdminShell', () => {
     it('keeps closed panels out of the tab order', () => {
       const root = render({ pending_reviews: 4 });
       const panels = [...root.querySelectorAll('[id$="-panel"]')];
-      expect(panels).toHaveLength(2);
+      // Three since AECI-722 gave Catalog a second screen and therefore a panel.
+      expect(panels).toHaveLength(3);
       // `[hidden]`, not removed: the links stay queryable (and SSR-crawlable)
       // but are never silently tabbable while the panel is shut.
       for (const panel of panels) expect(panel.hasAttribute('hidden')).toBe(true);
@@ -195,19 +204,19 @@ describe('AdminShell', () => {
 
     it('marks the category current when one of its screens is, query string and all', async () => {
       const { fixture, el } = renderFixture({ pending_reviews: 4 });
-      const operations = categoryTriggers(el)[1];
-      expect(operations?.getAttribute('aria-current')).toBeNull();
+      const operations = categoryTrigger(el, 'Operations');
+      expect(operations.getAttribute('aria-current')).toBeNull();
 
       // `/admin/reviewers` redirects here carrying a filter, so the category has
       // to survive a query string to light up at all.
       await TestBed.inject(Router).navigateByUrl('/admin/users?banned=true');
       fixture.detectChanges();
-      expect(operations?.getAttribute('aria-current')).toBe('true');
+      expect(operations.getAttribute('aria-current')).toBe('true');
     });
 
     it('puts the badge on the review queue, and mirrors it on the closed category', () => {
       const root = render({ pending_reviews: 7 });
-      const operations = categoryTriggers(root)[1]!;
+      const operations = categoryTrigger(root, 'Operations');
       // Mirrored onto the trigger because a collapsed panel would otherwise hide
       // the console's only live signal.
       expect(operations.textContent).toContain('7');

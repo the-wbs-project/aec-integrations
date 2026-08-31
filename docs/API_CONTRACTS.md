@@ -1794,7 +1794,64 @@ model of who controls the lane is wrong); `400` on a bad body or an unknown `man
 per row, distinguishing it from the run-granularity carve-out governing the connector sync on
 the same tables. Actions are `connector_catalog.managed_by_vendor` / `.managed_by_review`,
 `entity_type='connector_catalog'`. **No `workflow_instances` row** (that CHECK is closed) and
-**no cache purge** — nothing reads `connector_catalogs` yet, so there is no tag to purge.
+**no cache purge** — AECI-722 reads `connector_catalogs`, but only on the deliberately
+uncacheable `/admin` surface, so there is still no tag to purge. That obligation stays with
+AECI-715 / 716, the first *public* reader (`CACHE_STRATEGY.md` §4).
+
+#### Connector admin reads (AECI-722 / `ADMIN_PANEL_SPEC.md` §5.9)
+
+Five `GET`s behind `requireAdmin()`, the **first read layer** over the six AECI-714 connector
+tables (`DATABASE_SCHEMA.md` §9a). Contracts in `packages/shared/src/api/admin-connectors.ts`;
+handlers in `apps/api/src/routes/admin-connectors.ts` over `apps/api/src/lib/admin-connectors.ts`.
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/admin/connector-catalogs` | Paginated catalogue list. `?managed_by=review\|vendor`, `?search=` over the connector product's name/slug |
+| `GET /api/admin/connector-catalogs/:id` | Basics, surfaces, counts, the derived `handover`, `advisories` |
+| `GET /api/admin/connector-catalogs/:id/stubs` | The triage queue. `?state=`, `?proposals_only=`, `?confidence=`, `?search=`, `?include_removed=` |
+| `GET /api/admin/connector-catalogs/:id/pairs` | `?lane=reachable\|evidenced` (default `reachable`), `?surface=` on the reachable lane |
+| `GET /api/admin/connector-catalogs/:id/audit` | `entity_type='connector_catalog' AND entity_id=:id`, off `audit_log_entity_idx` |
+
+**All five write nothing** — no `audit_log` row (§6's convention as scoped by ADR 0022), no purge,
+no `Cache-Tag`. The envelope is the **bare** `paginatedResponseSchema` (the Operations lineage),
+except that the detail and stubs responses carry an `advisories: AdminNote[]` honesty envelope.
+
+**Mapping decisions are deliberately NOT writable.** The originating issue asked for
+approve/adjust on the triage queue; `planConnectorCatalogPage` upserts `connector_stub_mappings`
+with `set: { ...values }` across `status` / `confidence` / `evidence_url` / `decided_by` /
+`notes` and skips only rows it computes as *unchanged*, so an AECi-authored decision is exactly
+the row the next sync page overwrites. Guarding the sync instead would make AECI-731's
+"re-running it end to end reports every row `unchanged`" acceptance criterion unachievable for
+any catalogue an operator had touched. Authoring returns at **AECI-724** time as
+`PATCH /api/admin/connector-stub-mappings/:id` **gated on `managed_by = 'vendor'`** — the one
+state in which the sync is frozen out and cannot clobber the row.
+
+Three response shapes are worth knowing before extending them:
+
+1. **`handover` is derived, and suppressed once the lane is reclaimed.** AECI-720 records
+   `vendorId` / `reason` only in the audit row's `metadata`, and `AdminAuditRow` carries no
+   `metadata` (it is rendered by the shared `<aec-audit-trail>` for vendors too, and pushing
+   free-form JSON from ~34 writers into a shared render path is what that schema's docblock
+   argues against). So the detail endpoint derives a fixed `handover` block from the latest
+   `connector_catalog.managed_by_vendor` row — and returns **`null` whenever `managed_by` is back
+   to `'review'`**, because a reclaimed lane must not render a live-looking handover. The history
+   stays in the trail.
+2. **`stubs_undecided` is an anti-join, and `publishable` is provenance.** §9a.4: *"there is no
+   `pending` status — the absence of a row is pending"*, so undecided counts stubs with **no**
+   mapping. `publishable` is the gate verbatim — `status='mapped' AND product_id IS NOT NULL AND
+   decided_by IS NOT NULL AND decided_by <> 'auto-name-match'` — evaluated once server-side so the
+   per-row flag and the `mappings_publishable` tally cannot drift.
+3. **The pairs lanes render the publication gate's INPUTS, never its verdict.** §13.7's
+   four-clause rule is AECI-716's, and its clause (c) reuses Addendum A §11.4's scoring, which
+   does not exist here; clause (b) is not computed either. The `publication_gate_inputs_only`
+   advisory says so on the wire. One lane per call because §13.3 requires one `<table>` per lane.
+
+The `actions` blob never crosses this wire — the row ships `actions_fetched` plus `action_count`,
+so a never-fetched inventory cannot render as an empty one (§9a.3).
+
+Errors: the shared `requireAdmin()` 401/403, plus `404 NOT_FOUND` with
+`details.resource = 'connector_catalog'` on an unknown id, and `400 VALIDATION_FAILED` on a bad
+query.
 
 #### `GET /api/admin/users` (AECI-692)
 
@@ -3239,9 +3296,11 @@ saying "try again later" when the answer is permanently no. `managedBy` is corre
 on the wire**: the flag is held and enforced on this side, so a catalogue starts `review` by
 column default and only `PATCH /api/admin/connector-catalogs/:id` moves it.
 
-**No read endpoint ships with this issue.** The coverage checker (AECI-715), the reachable-lane
-publication (AECI-716) and the connector admin screen (AECI-722) each own their own read, and
-§13.7's four-clause publication rule only makes sense inside them. Full integration guide:
+**No read endpoint shipped with AECI-714.** The coverage checker (AECI-715) and the
+reachable-lane publication (AECI-716) still own their own reads, and §13.7's four-clause
+publication rule only makes sense inside them. **The connector admin screen's five reads have
+since landed** (AECI-722) and are documented in §6.10 above — they render the gate's inputs and
+deliberately do not evaluate it. Full integration guide:
 `docs/REVIEW_APP_PROMOTE_API.md` §3a.
 
 ### 6.13 Landing capture (mailing list + feedback)

@@ -66,7 +66,16 @@ export const ADMIN_NAV_GROUPS: readonly AdminNavGroup[] = [
   {
     id: 'admin-nav-catalog',
     heading: $localize`:@@admin.shell.nav.group.catalog:Catalog`,
-    items: [{ path: '/admin/catalog', label: $localize`:@@admin.shell.nav.catalog:Coverage` }],
+    // AECI-722 gives Catalog its SECOND screen, which flips the group from a
+    // collapsed plain link to a dropdown with no code change — exactly the
+    // structural rule documented above. Connectors sits under Catalog rather
+    // than Operations because what it does is inspect catalogue data; §5.7 put
+    // Vendors under Operations on the mirror-image reasoning, that what THAT
+    // screen does is account administration.
+    items: [
+      { path: '/admin/catalog', label: $localize`:@@admin.shell.nav.catalog:Coverage` },
+      { path: '/admin/connectors', label: $localize`:@@admin.shell.nav.connectors:Connectors` },
+    ],
   },
   {
     id: 'admin-nav-operations',

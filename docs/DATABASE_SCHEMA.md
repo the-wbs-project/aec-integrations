@@ -1440,7 +1440,22 @@ same column names, same semantics, so review → AECi is a copy rather than a tr
 sixth, `connector_evidenced_pairs`, has no upstream counterpart and is created empty.
 
 Rows arrive only through `POST /api/promote/connector-catalog`
-(`docs/REVIEW_APP_PROMOTE_API.md` §3a). Nothing else writes them.
+(`docs/REVIEW_APP_PROMOTE_API.md` §3a). Nothing else writes them — with one deliberate exception
+that writes no catalogue *content*: `PATCH /api/admin/connector-catalogs/:id` (AECI-720) moves
+`connector_catalogs.managed_by`, and nothing else.
+
+**The first reader is `/admin/connectors` (AECI-722**, `ADMIN_PANEL_SPEC.md` §5.9). It also added
+the six tables' `relations()` entries plus the inverses on `productsRelations`, discharging the
+deferral recorded in `apps/api/src/db/schema.ts`. Note what its existence does *not* change: these
+tables still have no `Cache-Tag` vocabulary, because `/admin/*` is deliberately uncacheable
+(`CACHE_STRATEGY.md` §4). The tag set belongs to the first **public** reader, AECI-715 / 716.
+
+**Mapping decisions are not writable from AECi, and the reason is in this table's own upsert.**
+The sync's `ON CONFLICT (id) DO UPDATE` sets `status`, `confidence`, `evidence_url`, `decided_by`,
+`decided_at`, `checked_at` and `notes` from the page, and skips only rows it computes as
+*unchanged* — so an AECi-authored decision is exactly the row the next page overwrites. Authoring
+therefore waits for AECI-724 and is gated on `managed_by = 'vendor'`, the one state in which the
+sync is frozen out of a catalogue.
 
 **Two tiers, and conflating them is the failure this lane exists to prevent** (`STAGE_1_5_SPEC.md`
 §13.1):

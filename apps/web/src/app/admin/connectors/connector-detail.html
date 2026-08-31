@@ -1,0 +1,656 @@
+<section aria-labelledby="admin-connector-heading">
+  <a
+    routerLink="/admin/connectors"
+    class="text-sm text-(--text-secondary) underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+    i18n="@@admin.connectors.detail.back"
+  >
+    Back to connector catalogues
+  </a>
+
+  <h2
+    id="admin-connector-heading"
+    class="mt-3 text-xl font-bold text-(--text-primary)"
+    i18n="@@admin.connectors.detail.heading"
+  >
+    Connector catalogue
+  </h2>
+
+  <p class="sr-only" role="status" aria-live="polite">{{ liveMessage() }}</p>
+
+  @if (loading()) {
+  <p class="mt-8 text-sm text-(--text-secondary)" i18n="@@admin.connectors.detail.loading">
+    Loading catalogue…
+  </p>
+  } @else if (notFound()) {
+  <p class="mt-8 text-sm text-(--text-secondary)" i18n="@@admin.connectors.detail.notFound">
+    We could not find that catalogue.
+  </p>
+  } @else if (loadFailed()) {
+  <div
+    role="alert"
+    class="mt-8 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-4"
+  >
+    <p class="text-sm text-(--text-primary)" i18n="@@admin.connectors.detail.error">
+      We could not load this catalogue.
+    </p>
+    <button
+      type="button"
+      class="mt-3 cursor-pointer rounded-(--radius-sm) border border-(--border-default) px-3 py-2 text-sm font-medium text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      (click)="retry()"
+      i18n="@@admin.connectors.detail.retry"
+    >
+      Try again
+    </button>
+  </div>
+  } @else if (catalog(); as c) {
+  <!-- ── 1. Catalogue ──────────────────────────────────────────────────── -->
+  <section class="mt-6" aria-labelledby="admin-connector-basics">
+    <h3
+      id="admin-connector-basics"
+      class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+      i18n="@@admin.connectors.detail.basics"
+    >
+      Catalogue
+    </h3>
+
+    <dl class="mt-4 grid gap-x-6 gap-y-2 text-xs sm:grid-cols-2">
+      <div class="flex gap-2">
+        <dt class="text-(--text-secondary)" i18n="@@admin.connectors.detail.connector">
+          Connector
+        </dt>
+        <dd class="text-(--text-primary)">
+          <a
+            [href]="'/products/' + c.connector_product.slug"
+            class="text-(--accent-primary) underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          >
+            {{ c.connector_product.name }}
+          </a>
+        </dd>
+      </div>
+      <div class="flex gap-2">
+        <dt class="text-(--text-secondary)" i18n="@@admin.connectors.detail.authorship">
+          Authorship
+        </dt>
+        <dd class="text-(--text-primary)">{{ authorshipLabel(c.connector_authorship) }}</dd>
+      </div>
+      <div class="flex gap-2">
+        <dt class="text-(--text-secondary)" i18n="@@admin.connectors.detail.listings">Listings</dt>
+        <dd class="text-(--text-primary)">{{ c.counts.stubs_total }}</dd>
+      </div>
+      <div class="flex gap-2">
+        <dt class="text-(--text-secondary)" i18n="@@admin.connectors.detail.toTriage">
+          Not yet reviewed
+        </dt>
+        <dd class="text-(--text-primary)">{{ c.counts.stubs_undecided }}</dd>
+      </div>
+      @if (c.notes) {
+      <div class="flex gap-2 sm:col-span-2">
+        <dt class="text-(--text-secondary)" i18n="@@admin.connectors.detail.notes">Notes</dt>
+        <dd class="text-(--text-primary)">{{ c.notes }}</dd>
+      </div>
+      }
+    </dl>
+
+    @if (c.advisories.length > 0) {
+    <aec-admin-notes class="mt-4" [notes]="c.advisories" />
+    }
+
+    <div class="mt-4">
+      <aec-managed-by-control
+        [catalogId]="c.id"
+        [managedBy]="c.managed_by"
+        [connector]="c.connector_product"
+        idPrefix="detail"
+        labelledBy="admin-connector-basics"
+        (changed)="onManagementChanged($event)"
+        (announce)="onAnnounce($event)"
+      />
+    </div>
+
+    @if (c.handover; as h) {
+    <div
+      class="mt-4 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-4"
+    >
+      <p
+        class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+        i18n="@@admin.connectors.detail.handover"
+      >
+        Handed over to
+      </p>
+      <p class="mt-2 text-sm text-(--text-primary)">
+        @if (h.vendor) { {{ h.vendor.name }} } @else {
+        <span i18n="@@admin.connectors.detail.handover.noVendor">
+          No vendor was named on the handover
+        </span>
+        }
+      </p>
+      @if (h.reason) {
+      <p class="mt-1 text-sm text-(--text-secondary)">{{ h.reason }}</p>
+      }
+      <p class="mt-1 text-xs text-(--text-secondary)">
+        {{ h.at | date: 'medium' : 'UTC' }} @if (h.actor?.display_name || h.actor?.email) { &middot;
+        {{ h.actor?.display_name || h.actor?.email }} } @else if
+        (!actorEmailsAvailableForHandover()) { &middot;
+        <span i18n="@@admin.connectors.detail.handover.actorUnknown">
+          Operator details unavailable
+        </span>
+        }
+      </p>
+    </div>
+    }
+  </section>
+
+  <!-- ── 2. Surfaces ───────────────────────────────────────────────────── -->
+  <section class="mt-8" aria-labelledby="admin-connector-surfaces">
+    <h3
+      id="admin-connector-surfaces"
+      class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+      i18n="@@admin.connectors.detail.surfaces"
+    >
+      Feed surfaces
+    </h3>
+    <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@admin.connectors.detail.surfacesIntro">
+      Where the crawl reads this catalogue from, and when each index last delivered. This is the
+      signal to check when asking whether a vendor's feed is still arriving.
+    </p>
+
+    @if (c.surfaces.length === 0) {
+    <p class="mt-4 text-sm text-(--text-secondary)" i18n="@@admin.connectors.detail.noSurfaces">
+      No index surfaces recorded for this catalogue.
+    </p>
+    } @else {
+    <div class="mt-4 overflow-x-auto">
+      <table class="w-full min-w-[48rem] border-collapse text-sm">
+        <caption class="sr-only" i18n="@@admin.connectors.surfaces.caption">
+          Index surfaces and when each last delivered
+        </caption>
+        <thead>
+          <tr class="border-b border-(--border-default)">
+            <th
+              scope="col"
+              class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+              i18n="@@admin.connectors.surfaces.col.role"
+            >
+              Surface
+            </th>
+            <th
+              scope="col"
+              class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+              i18n="@@admin.connectors.surfaces.col.kind"
+            >
+              Kind
+            </th>
+            <th
+              scope="col"
+              class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+              i18n="@@admin.connectors.surfaces.col.url"
+            >
+              Index
+            </th>
+            <th
+              scope="col"
+              class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+              i18n="@@admin.connectors.surfaces.col.lastIngested"
+            >
+              Last delivered
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (s of c.surfaces; track s.id) {
+          <tr class="border-b border-(--border-default)">
+            <th scope="row" class="py-3 pe-4 text-start font-medium text-(--text-primary)">
+              {{ s.surface_role }}
+            </th>
+            <td class="py-3 pe-4 text-(--text-secondary)">{{ s.index_kind || '' }}</td>
+            <td class="py-3 pe-4 text-(--text-secondary)">
+              @if (s.index_url) {
+              <a
+                [href]="s.index_url"
+                rel="noreferrer"
+                class="break-all underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              >
+                {{ s.index_url }}
+              </a>
+              }
+            </td>
+            <td class="py-3 pe-4 text-(--text-secondary)">
+              @if (s.last_ingested_at) { {{ s.last_ingested_at | date: 'medium' : 'UTC' }} } @else {
+              <span i18n="@@admin.connectors.surfaces.never">Not measured</span>
+              }
+            </td>
+          </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+    }
+  </section>
+
+  <!-- ── 3. Triage ─────────────────────────────────────────────────────── -->
+  <section class="mt-8" aria-labelledby="admin-connector-triage">
+    <h3
+      id="admin-connector-triage"
+      class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+      i18n="@@admin.connectors.detail.triage"
+    >
+      Listings
+    </h3>
+    <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@admin.connectors.detail.triageIntro">
+      Every listing this connector publishes, including the ones that match nothing of ours. A
+      listing with no decision on it has not been reviewed yet. Decisions are made in the review app
+      and arrive here on the next sync.
+    </p>
+
+    <div class="mt-4 flex flex-wrap items-end gap-3">
+      <form
+        novalidate
+        class="flex items-end gap-2"
+        (submit)="$event.preventDefault(); submitStubSearch()"
+      >
+        <label
+          class="sr-only"
+          for="admin-connector-stub-search"
+          i18n="@@admin.connectors.stub.search.label"
+        >
+          Search listings by name
+        </label>
+        <input
+          id="admin-connector-stub-search"
+          type="search"
+          class="w-48 rounded-(--radius-sm) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          [value]="stubSearchDraft()"
+          (input)="onStubSearchInput($event)"
+        />
+        <button
+          type="submit"
+          class="cursor-pointer rounded-(--radius-sm) border border-(--border-default) px-3 py-2 text-sm font-medium text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          i18n="@@admin.connectors.stub.search.submit"
+        >
+          Search
+        </button>
+      </form>
+
+      <aec-select
+        i18n-label="@@admin.connectors.stub.state.label"
+        label="State"
+        [options]="stateOptions"
+        [value]="stubState()"
+        idPrefix="admin-connector-stub-state"
+        (changed)="onStubStateChange($event)"
+      />
+
+      <button
+        type="button"
+        class="cursor-pointer rounded-(--radius-sm) border border-(--border-default) px-3 py-2 text-sm font-medium text-(--text-primary) aria-[pressed=true]:bg-(--surface-raised) aria-[pressed=true]:font-bold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        [attr.aria-pressed]="proposalsOnly()"
+        (click)="toggleProposalsOnly()"
+        i18n="@@admin.connectors.stub.proposalsOnly"
+      >
+        Machine proposals only
+      </button>
+
+      <button
+        type="button"
+        class="cursor-pointer rounded-(--radius-sm) border border-(--border-default) px-3 py-2 text-sm font-medium text-(--text-primary) aria-[pressed=true]:bg-(--surface-raised) aria-[pressed=true]:font-bold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        [attr.aria-pressed]="includeRemoved()"
+        (click)="toggleIncludeRemoved()"
+        i18n="@@admin.connectors.stub.includeRemoved"
+      >
+        Include removed
+      </button>
+    </div>
+
+    @if (stubNotes().length > 0) {
+    <aec-admin-notes class="mt-4" [notes]="stubNotes()" />
+    } @if (stubLoading()) {
+    <p class="mt-4 text-sm text-(--text-secondary)" i18n="@@admin.connectors.stub.loading">
+      Loading listings…
+    </p>
+    } @else if (stubFailed()) {
+    <div
+      role="alert"
+      class="mt-4 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-4"
+    >
+      <p class="text-sm text-(--text-primary)" i18n="@@admin.connectors.stub.error">
+        We could not load the listings.
+      </p>
+      <button
+        type="button"
+        class="mt-3 cursor-pointer rounded-(--radius-sm) border border-(--border-default) px-3 py-2 text-sm font-medium text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        (click)="retryStubs()"
+        i18n="@@admin.connectors.stub.retry"
+      >
+        Try again
+      </button>
+    </div>
+    } @else if (stubsEmpty()) {
+    <p class="mt-4 text-sm text-(--text-secondary)" i18n="@@admin.connectors.stub.empty">
+      No listings match these filters.
+    </p>
+    } @else {
+    <div class="mt-4 overflow-x-auto">
+      <table class="w-full min-w-[64rem] border-collapse text-sm">
+        <caption class="sr-only" i18n="@@admin.connectors.stub.caption">
+          Listings in this catalogue and what has been decided about each
+        </caption>
+        <thead>
+          <tr class="border-b border-(--border-default)">
+            <th
+              scope="col"
+              class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+              i18n="@@admin.connectors.stub.col.listing"
+            >
+              Listing
+            </th>
+            <th
+              scope="col"
+              class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+              i18n="@@admin.connectors.stub.col.decision"
+            >
+              Decision
+            </th>
+            <th
+              scope="col"
+              class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+              i18n="@@admin.connectors.stub.col.decidedBy"
+            >
+              Decided by
+            </th>
+            <th
+              scope="col"
+              class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+              i18n="@@admin.connectors.stub.col.actions"
+            >
+              Actions
+            </th>
+            <th
+              scope="col"
+              class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+              i18n="@@admin.connectors.stub.col.lastSeen"
+            >
+              Last seen
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (s of stubs(); track s.id) {
+          <tr class="border-b border-(--border-default)">
+            <th scope="row" class="py-3 pe-4 text-start font-medium text-(--text-primary)">
+              @if (s.url) {
+              <a
+                [href]="s.url"
+                rel="noreferrer"
+                class="underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              >
+                {{ s.label || s.slug }}
+              </a>
+              } @else { {{ s.label || s.slug }} }
+              <span class="block text-xs font-normal text-(--text-secondary)"> {{ s.slug }} </span>
+              @if (s.removed_at) {
+              <span
+                class="mt-1 inline-flex items-center rounded-(--radius-sm) border border-(--border-default) px-2 py-0.5 text-xs font-normal text-(--text-secondary)"
+                i18n="@@admin.connectors.stub.removed"
+                >Removed by the vendor</span
+              >
+              }
+            </th>
+            <td class="py-3 pe-4 text-(--text-secondary)">
+              @if (s.mappings.length === 0) {
+              <span i18n="@@admin.connectors.stub.notReviewed">Not yet reviewed</span>
+              } @else {
+              <ul role="list" class="space-y-1">
+                @for (m of s.mappings; track m.id) {
+                <li>
+                  <span class="text-(--text-primary)">{{ statusLabel(m.status) }}</span>
+                  @if (m.product) {
+                  <a
+                    [href]="'/products/' + m.product.slug"
+                    class="ms-1 underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                    >{{ m.product.name }}</a
+                  >
+                  } @if (m.publishable) {
+                  <span
+                    class="ms-1 inline-flex items-center rounded-(--radius-sm) bg-(--surface-raised) px-2 py-0.5 text-xs font-medium text-(--text-secondary)"
+                    i18n="@@admin.connectors.stub.confirmed"
+                    >Confirmed</span
+                  >
+                  }
+                </li>
+                }
+              </ul>
+              }
+            </td>
+            <td class="py-3 pe-4 text-(--text-secondary)">
+              @for (m of s.mappings; track m.id) {
+              <span class="block">{{ m.decided_by || '' }}</span>
+              }
+            </td>
+            <td class="py-3 pe-4 text-(--text-secondary)">
+              @if (s.actions_fetched) { {{ s.action_count }} } @else {
+              <!-- §9a.3: null means NEVER FETCHED, never "no actions". A
+                           reader treating it as none would publish "this
+                           connector does nothing" about most of the catalogue. -->
+              <span i18n="@@admin.connectors.stub.actionsNeverFetched">Not fetched</span>
+              }
+            </td>
+            <td class="py-3 pe-4 text-(--text-secondary)">
+              {{ s.last_seen_at | date: 'mediumDate' : 'UTC' }}
+            </td>
+          </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+
+    <div class="mt-4">
+      <aec-admin-paginator
+        [page]="stubPage()"
+        [perPage]="stubPerPage"
+        [total]="stubTotal()"
+        (pageChange)="goToStubPage($event)"
+      />
+    </div>
+    }
+  </section>
+
+  <!-- ── 4. Pairs — one table per lane (§13.3) ─────────────────────────── -->
+  <section class="mt-8" aria-labelledby="admin-connector-pairs">
+    <h3
+      id="admin-connector-pairs"
+      class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+      i18n="@@admin.connectors.detail.pairs"
+    >
+      Pairs
+    </h3>
+
+    <h4
+      class="mt-4 text-sm font-bold text-(--text-primary)"
+      id="admin-connector-pairs-delivered"
+      i18n="@@admin.connectors.pairs.delivered"
+    >
+      Delivered
+    </h4>
+    @if (evidencedNotes().length > 0) {
+    <aec-admin-notes class="mt-2" [notes]="evidencedNotes()" />
+    } @if (evidencedLoading()) {
+    <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@admin.connectors.pairs.loading">
+      Loading pairs…
+    </p>
+    } @else if (evidencedPairs().length === 0) {
+    <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@admin.connectors.pairs.noDelivered">
+      Nothing has been recorded as delivered through this connector yet.
+    </p>
+    } @else {
+    <div class="mt-2 overflow-x-auto">
+      <table class="w-full min-w-[48rem] border-collapse text-sm">
+        <caption class="sr-only" i18n="@@admin.connectors.pairs.delivered.caption">
+          Integrations delivered through this connector
+        </caption>
+        <thead>
+          <tr class="border-b border-(--border-default)">
+            <th
+              scope="col"
+              class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+              i18n="@@admin.connectors.pairs.col.pair"
+            >
+              Pair
+            </th>
+            <th
+              scope="col"
+              class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+              i18n="@@admin.connectors.pairs.col.builtBy"
+            >
+              Built by
+            </th>
+            <th
+              scope="col"
+              class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+              i18n="@@admin.connectors.pairs.col.reviewed"
+            >
+              Last reviewed
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (p of evidencedPairs(); track p.id) {
+          <tr class="border-b border-(--border-default)">
+            <th scope="row" class="py-3 pe-4 text-start font-medium text-(--text-primary)">
+              {{ p.product_a.name }} &ndash; {{ p.product_b.name }}
+            </th>
+            <td class="py-3 pe-4 text-(--text-secondary)">{{ p.built_by_vendor?.name || '' }}</td>
+            <td class="py-3 pe-4 text-(--text-secondary)">
+              @if (p.last_reviewed_at) { {{ p.last_reviewed_at | date: 'mediumDate' : 'UTC' }} }
+            </td>
+          </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+    <div class="mt-4">
+      <aec-admin-paginator
+        [page]="evidencedPage()"
+        [perPage]="pairPerPage"
+        [total]="evidencedTotal()"
+        (pageChange)="goToEvidencedPage($event)"
+      />
+    </div>
+    }
+
+    <h4
+      class="mt-6 text-sm font-bold text-(--text-primary)"
+      id="admin-connector-pairs-reachable"
+      i18n="@@admin.connectors.pairs.reachable"
+    >
+      Pages this connector publishes
+    </h4>
+    @if (reachableNotes().length > 0) {
+    <aec-admin-notes class="mt-2" [notes]="reachableNotes()" />
+    } @if (reachableLoading()) {
+    <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@admin.connectors.pairs.loadingTwo">
+      Loading pages…
+    </p>
+    } @else if (reachablePairs().length === 0) {
+    <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@admin.connectors.pairs.noReachable">
+      This connector publishes no pair pages we have recorded.
+    </p>
+    } @else {
+    <div class="mt-2 overflow-x-auto">
+      <table class="w-full min-w-[56rem] border-collapse text-sm">
+        <caption class="sr-only" i18n="@@admin.connectors.pairs.reachable.caption">
+          Pair pages this connector publishes, with what each side matches
+        </caption>
+        <thead>
+          <tr class="border-b border-(--border-default)">
+            <th
+              scope="col"
+              class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+              i18n="@@admin.connectors.pairs.col.sideA"
+            >
+              One side
+            </th>
+            <th
+              scope="col"
+              class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+              i18n="@@admin.connectors.pairs.col.sideB"
+            >
+              The other
+            </th>
+            <th
+              scope="col"
+              class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+              i18n="@@admin.connectors.pairs.col.surface"
+            >
+              Page kind
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (p of reachablePairs(); track p.id) {
+          <tr class="border-b border-(--border-default)">
+            <th scope="row" class="py-3 pe-4 text-start font-medium text-(--text-primary)">
+              {{ p.side_a.label || p.side_a.slug }}
+              <span class="block text-xs font-normal text-(--text-secondary)">
+                @if (p.side_a.product) { {{ p.side_a.product.name }} @if (!p.side_a.publishable) {
+                <span i18n="@@admin.connectors.pairs.unconfirmed">(unconfirmed)</span>
+                } } @else {
+                <span i18n="@@admin.connectors.pairs.noMatch">No match</span>
+                }
+              </span>
+            </th>
+            <td class="py-3 pe-4 text-(--text-primary)">
+              {{ p.side_b.label || p.side_b.slug }}
+              <span class="block text-xs text-(--text-secondary)">
+                @if (p.side_b.product) { {{ p.side_b.product.name }} @if (!p.side_b.publishable) {
+                <span i18n="@@admin.connectors.pairs.unconfirmedTwo">(unconfirmed)</span>
+                } } @else {
+                <span i18n="@@admin.connectors.pairs.noMatchTwo">No match</span>
+                }
+              </span>
+            </td>
+            <td class="py-3 pe-4 text-(--text-secondary)">{{ surfaceLabel(p.surface) }}</td>
+          </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+    <div class="mt-4">
+      <aec-admin-paginator
+        [page]="reachablePage()"
+        [perPage]="pairPerPage"
+        [total]="reachableTotal()"
+        (pageChange)="goToReachablePage($event)"
+      />
+    </div>
+    }
+  </section>
+
+  <!-- ── 5. Audit ──────────────────────────────────────────────────────── -->
+  <section class="mt-8" aria-labelledby="admin-connector-audit">
+    <h3
+      id="admin-connector-audit"
+      class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+      i18n="@@admin.connectors.detail.audit"
+    >
+      Audit trail
+    </h3>
+    <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@admin.connectors.detail.auditIntro">
+      Every handover and every sync run for this catalogue. The sync entries are the record of when
+      its feed actually delivered something.
+    </p>
+    <div class="mt-4">
+      <aec-audit-trail
+        [rows]="auditRows()"
+        [page]="auditPage()"
+        [perPage]="auditPerPage"
+        [total]="auditTotal()"
+        [loading]="auditLoading()"
+        [failed]="auditFailed()"
+        [emailsAvailable]="auditEmailsAvailable()"
+        (pageChange)="goToAuditPage($event)"
+        (retry)="retryAudit()"
+      />
+    </div>
+  </section>
+  }
+</section>
