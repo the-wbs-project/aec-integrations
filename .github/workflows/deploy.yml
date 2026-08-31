@@ -173,20 +173,36 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
 jobs:
-  # Detect whether the PR touches anything other than markdown / docs. Used to
-  # skip the expensive, NON-required jobs (E2E) on docs-only changes WITHOUT
+  # Detect whether the change touches anything other than markdown / docs. Used
+  # to skip the expensive, NON-required jobs (E2E) on docs-only changes WITHOUT
   # starving the required checks: the three required jobs always run and report,
-  # while the heavy lanes gate on `needs.changes.outputs.code`. On `push` this
-  # job still runs but nothing downstream reads its output there.
+  # while the heavy lanes gate on `needs.changes.outputs.code`. The job runs on
+  # BOTH events — `e2e-and-integration` reads its output unconditionally and
+  # `deploy-staging` needs THAT job, so a failure here skips the staging deploy.
   changes:
     name: Detect changes
     runs-on: ubuntu-latest
     outputs:
       code: ${{ steps.filter.outputs.code }}
     steps:
+      # REQUIRED — do not drop. dorny/paths-filter reads the changed-file list
+      # from the GitHub API on `pull_request`, but shells out to git on `push`.
+      # With no working copy that is `git branch --show-current` →
+      # `fatal: not a git repository` → exit 128, which failed this job and,
+      # through `needs:`, skipped `e2e-and-integration` and (on main)
+      # `deploy-staging`. Every push run since #588 failed this way.
+      - uses: actions/checkout@v5
       - uses: dorny/paths-filter@v3
         id: filter
         with:
+          # On `push`, point `base` at the pushed branch so paths-filter diffs
+          # against `github.event.before` — the commits this push actually
+          # added. Its default base is the repo DEFAULT branch, which on a
+          # long-lived integration branch (`stage-2`, `admin-panel`) would diff
+          # the whole branch against `main` and report `code: true` forever.
+          # Empty on `pull_request`, where the action ignores `base` and uses
+          # the API.
+          base: ${{ github.event_name == 'push' && github.ref_name || '' }}
           # `code` is true when at least one changed file is NOT markdown and
           # NOT under docs/. A docs-only PR yields `code == 'false'`.
           filters: |
@@ -286,8 +302,14 @@ jobs:
     # checks above still always run and report. `build-web` is itself skipped on
     # docs-only PRs' `push` runs via the retained push `paths-ignore`; on PRs it
     # always runs, so this job only needs its own `code` guard.
+    #
+    # The guard FAILS OPEN (`!= 'false'`, not `== 'true'`) — deliberate. This job
+    # is the last `needs:` between a push to main and `deploy-staging`, so a
+    # `changes` job that errors rather than answering must NOT be able to skip
+    # the staging deploy. Only an explicit `code == 'false'` (a real docs-only
+    # verdict) skips; an empty output from a failed/skipped filter runs the lane.
     needs: [changes, build-web]
-    if: needs.changes.outputs.code == 'true'
+    if: ${{ !cancelled() && needs.build-web.result == 'success' && needs.changes.outputs.code != 'false' }}
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
