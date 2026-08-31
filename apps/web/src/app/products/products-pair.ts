@@ -214,7 +214,12 @@ interface MechanismView {
   readonly hasClaims: boolean;
   /** Stage 1 §4.4 "Built by (vendor) / Powered by (product)" — rendered as a
    *  linked byline so a via-connector mechanism (e.g. "via Agave ERP Sync")
-   *  navigates to the connector's own pages instead of being dead text. */
+   *  navigates to the connector's own pages instead of being dead text.
+   *
+   *  `poweredByProduct` is the UNION of the payload's `powered_by_product` and
+   *  `via` (AECI-721) — the same fact carried by rows in the two delivered-tier
+   *  tables. The view model deliberately collapses them: which table an edge
+   *  lives in is a storage question the reader has no stake in. */
   readonly builtByVendor: VendorLink | null;
   readonly poweredByProduct: ProductLink | null;
 }
@@ -894,7 +899,13 @@ export class ProductsPairPage {
       ),
       hasClaims: m.claims.length > 0,
       builtByVendor: m.built_by_vendor,
-      poweredByProduct: m.powered_by_product,
+      // `via` first (AECI-721). The two fields are the same fact about rows in
+      // different tables — `powered_by_product` for an `integrations` row that
+      // still carries the FK, `via` for a connector-evidenced pair — and they are
+      // never both set, so the coalesce is a union, not a precedence rule. Reading
+      // only `powered_by_product` would leave the 19 migrated pairs naming no
+      // connector at all, on the one surface whose whole subject is the connector.
+      poweredByProduct: m.via ?? m.powered_by_product,
     };
   }
 

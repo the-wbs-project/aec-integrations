@@ -59,6 +59,13 @@ export const PRODUCT_ROLES = ['application', 'connector', 'hybrid'] as const;
 export const RESEARCH_STATUSES = ['pending', 'in_progress', 'done', 'blocked'] as const;
 export const PRIORITY_TIERS = ['tier_1', 'tier_2', 'tier_3', 'tier_4', 'tier_5'] as const;
 export const PUBLIC_PRIVATE = ['public', 'private'] as const;
+// `integrator` (AECI-698) replaces `partner`: an SI or consultancy built and
+// maintains the edge, neither endpoint vendor did. `partner` stays on the wire
+// until the review app has re-keyed its 117 rows and re-promoted them — dropping
+// it here would make the very push that carries the re-key fail validation.
+// AECI-721's migration adds `integrator` to `integrations_mechanism_kind_check`;
+// until that lands, an `integrator` payload passes Zod and fails the CHECK, so
+// the two must reach an environment together.
 export const MECHANISM_KINDS = [
   'native',
   'iPaaS',
@@ -66,6 +73,7 @@ export const MECHANISM_KINDS = [
   'api',
   'webhook',
   'partner',
+  'integrator',
 ] as const;
 export const INTEGRATION_DIRECTIONS = ['one-way', 'bidirectional'] as const;
 

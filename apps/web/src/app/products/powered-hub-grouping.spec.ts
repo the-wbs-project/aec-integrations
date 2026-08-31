@@ -29,6 +29,7 @@ const edge = (
   direction,
   source,
   target,
+  via: null,
   created_at: '2026-01-01T00:00:00.000Z',
   updated_at: '2026-01-01T00:00:00.000Z',
 });
@@ -140,6 +141,55 @@ describe('groupPoweredIntegrations', () => {
     // Declaration order (native before iPaaS), not authoring order.
     expect(acumaticaRow!.mechanismKinds).toEqual(['native', 'iPaaS']);
     expect(acumaticaRow!.edgeCount).toBe(2);
+  });
+
+  it('keeps a pair whose edges carry NO kind, with an empty badge set (AECI-721)', () => {
+    // Every connector-evidenced pair hits this: `connector_evidenced_pairs` has no
+    // `mechanism_kind` column at all, so the payload row is null-kinded by
+    // construction rather than by omission. Dropping such a pair for want of a kind
+    // would empty the hub on exactly the pages whose entire subject it is.
+    const { groups } = groupPoweredIntegrations([
+      edge(procore, acumatica, null),
+      edge(procore, sage, null),
+    ]);
+
+    expect(groups[0]!.hub.slug).toBe('procore');
+    expect(groups[0]!.partners.map((p) => p.partner.slug).sort()).toEqual([
+      'acumatica',
+      'sage-intacct',
+    ]);
+    // No badge, but the row survives — `mechanismSummary()` renders '' for this.
+    expect(groups[0]!.partners.every((p) => p.mechanismKinds.length === 0)).toBe(true);
+  });
+
+  it('mixes kinded and kindless edges on one pair without losing either', () => {
+    // The transitional shape: one edge still in `integrations` carrying a kind, one
+    // already migrated to the evidenced tier carrying none. The badge reflects only
+    // what is actually asserted; the edge count reflects both.
+    //
+    // One distinct pair, so it lands in `others` rather than forming a hub
+    // (`MIN_PAIRS_FOR_HUB` is 2) — the collapse still has to be right there.
+    const { groups, others } = groupPoweredIntegrations([
+      edge(procore, acumatica, 'marketplace-app'),
+      edge(procore, acumatica, null),
+    ]);
+
+    expect(groups).toEqual([]);
+    expect(others).toHaveLength(1);
+    expect(others[0]!.mechanismKinds).toEqual(['marketplace-app']);
+    expect(others[0]!.edgeCount).toBe(2);
+  });
+
+  it('badges `integrator`, which MECHANISM_ORDER filters rather than orders', () => {
+    // `freeze()` uses MECHANISM_ORDER as a filter, so a kind missing from that list
+    // is silently dropped instead of sorted last. Pinned because `integrator` has
+    // zero rows until the review app re-keys, so nothing else would catch it.
+    const { groups } = groupPoweredIntegrations([
+      edge(procore, acumatica, 'integrator'),
+      edge(procore, sage, 'native'),
+    ]);
+    const row = groups[0]!.partners.find((p) => p.partner.slug === 'acumatica');
+    expect(row!.mechanismKinds).toEqual(['integrator']);
   });
 
   it('frames direction relative to the hub, mirroring it when the hub is endpoint B', () => {

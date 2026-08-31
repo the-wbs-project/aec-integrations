@@ -824,12 +824,30 @@ mid-flight will make a local decision about a cross-cutting contract.
   isolation — §4's `MECHANISM_RANK` / `mechanism_rank` are untouched here — and **false of option
   B**, which lifts connectors up `desc(integration_count)` on **both** the products and vendors
   indices, in a numeric facet and in two sort replicas. The `SEARCH_RANKING.md` edit belongs to
-  AECI-721, alongside AECI-698's enum revision and the removal of `iPaaS` from §4's rank table
-  (where it currently sits at 4). Ranking stays purely algorithmic throughout — this is a change in
-  a signal's inputs, never in who can buy position.
-- **The lockstep set is TEN sites.** Migrating powered edges out of `integrations` without moving
-  every one of them silently drops ~326 edges and re-ranks the catalog as a side effect of a data
-  migration. Enumerated so it cannot be half-done:
+  AECI-721, alongside AECI-698's enum revision. Ranking stays purely algorithmic throughout — this
+  is a change in a signal's inputs, never in who can buy position.
+  - **Landed 2026-08-31, with one clause of this bullet overturned by the data.** `iPaaS` does NOT
+    leave §4's rank table. AECI-721 adds `integrator` (tied with the `partner` it replaces, so the
+    upstream re-key is rank-neutral) and pins connector-evidenced pairs to a fixed rank of **4**
+    rather than letting a structurally-absent kind fall through to the unknown-kind `0`. Removing
+    `iPaaS` is deferred: 53 production edges are `iPaaS` with a NULL `powered_by` because their
+    connector is unpromoted and AECI-700 parks Zapier and Workato permanently, they cannot migrate
+    (`connector_product_id` is NOT NULL), and they are 53 of the 132 edges `isConnectorPoweredEdge`
+    gates — so nulling their kind would silently re-open AECI-705's attestation prompts on every
+    one. `SEARCH_RANKING.md` §4.1–§4.3 records all three decisions.
+- **The lockstep set is FOURTEEN sites** (was ten — corrected by AECI-721 PR-A, which found four
+  more while implementing). Migrating powered edges out of `integrations` without moving every one
+  of them silently drops the edges and re-ranks the catalog as a side effect of a data migration.
+  Enumerated so it cannot be half-done. The rule each site expresses, post-AECI-721:
+
+  ```
+  product: count(integrations WHERE src=p OR tgt=p)
+         + count(evidenced_pairs WHERE a=p OR b=p OR connector=p)   ← §12.5 option B
+  vendor:  count(integrations WHERE built_by=v)
+         + count(evidenced_pairs WHERE built_by=v)
+  total:   count(integrations) + count(evidenced_pairs)
+  ```
+
   1. `apps/api/src/lib/recompute-counts.ts` — `computeExpected`, the canonical definition.
   2. and 3. **the same rule as raw SQL, twice**, in `apps/api/scripts/reconcile-product-counts.ts`
      (`DRIFT_QUERY` and `RECOMPUTE_SQL`). Miss these and the daily `reconcile-counts.yml` cron
@@ -849,13 +867,46 @@ mid-flight will make a local decision about a cross-cutting contract.
   10. **`apps/api/src/lib/metrics-snapshot.ts` — `catalog.integrations_total`**, written daily into
       `metrics_daily` by cron (AECI-581). This one is a **time series**: an unadjusted migration
       writes a permanent, unexplained step-change into recorded history, and it is the only site on
-      this list where the damage cannot be repaired after the fact. Backfill or annotate the series
-      deliberately as part of the migration.
+      this list where the damage cannot be repaired after the fact.
+
+      **Resolved: no backfill is needed, and that is the point of doing it this way.** Summing both
+      tables makes the series *continuous across the migration* — the migration moves rows between
+      two tables that are already added together and creates none, so there is no step to annotate
+      and no recorded history to rewrite. That is how AECI-721 discharges this item's "backfill or
+      annotate deliberately"; the alternative, editing `metrics_daily` after the fact, would have
+      been the less honest of the two. Recorded in `DATABASE_SCHEMA.md` §9.3.
+
+  **Four further sites, found during AECI-721 PR-A and unnamed above** — the enumeration was
+  written from the `integration_count` name, and these express the rule without using it:
+
+  11. `apps/api/src/routes/admin-overview.ts` — a **module-local `catalogTotals`** that shadows the
+      exported one in `admin-catalog.ts`. Two independent implementations of the same operator
+      number; if only one moved, the overview and the catalog screen would disagree with each other,
+      which is worse than either being wrong alone.
+  12. `apps/api/src/lib/admin-catalog.ts` — the **exported `catalogTotals`**, keyed `integrations`
+      rather than `integrations_total`. That naming is exactly why item 9 missed it.
+  13. `apps/api/src/lib/algolia-drift-deps.ts` — the Algolia↔D1 drift guard's integration count.
+      **The one with teeth**: a live alarm surface, so it must ship in the ADDITIVE PR, not with the
+      migration — otherwise it reports drift for the whole window between the migration and the
+      reindex, drift that is an artifact of its own single-table definition. Its membership rule
+      must stay byte-for-byte the rule `algolia-sync.ts` applies, because any divergence between
+      those two *is* the alarm.
+  14. Three more copies of the **vendor `built_by_vendor_id` rule outside Algolia** —
+      `apps/api/src/lib/drizzle-helpers.ts` (`vendorListConfig`, feeding the public and admin vendor
+      lists) and `apps/api/src/routes/admin-vendors.ts` (vendor detail). Item 6 names only the two
+      Algolia copies; there are five, and connector vendors' counts collapse on all five.
 
   Plus two things that are not `integration_count` but move with it: the rendered section heading
   (computed from the payload, not the stored column — §13.3), and the Algolia settings themselves —
   custom ranking on both indices, the numeric facet, both sort replicas
   (`packages/shared/src/algolia.ts`, `docs/SEARCH_RANKING.md` §5a).
+
+  **The lockstep is regression-tested, not just enumerated.** `apps/api/src/lib/count-lockstep.spec.ts`
+  seeds `connector_evidenced_pairs` and leaves `integrations` untouched, then asserts each
+  expression returns direct + evidenced. That shape is deliberate: `stage-2` is not the production
+  line, so the two AECI-721 PRs reach prod D1 **together** at the `stage-2` → `main` promote, and at
+  that boundary count-neutrality stops being a deployment-order property and becomes a code
+  property. The spec is the artifact that survives the promote.
 - **Reachable never counts** — not in the heading, not in `integration_count`, not in a facet, not
   in the home stats. Publishing the tail buries the products with real integrations underneath it.
 
@@ -920,7 +971,9 @@ Stated explicitly so a reviewer can check them rather than infer them:
   table recreate).
 - **`SEARCH_RANKING.md` — no ranking *rule* change from Addendum C**, with the §12.5-B correction
   recorded in §13.5 rather than the originating issue's blanket claim. §4's rank table changes with
-  AECI-698 / AECI-721.
+  AECI-698 / AECI-721 — **landed 2026-08-31**: `integrator` added at 1, the connector-evidenced pin
+  at 4, `iPaaS` retained (§4.1–§4.3), and §5's `integration_count` tie-break re-scoped to both
+  delivered-tier tables.
 - **`CACHE_STRATEGY.md`** — §13.4(3) applies its existing §3 embedded-entity rule; no new rule.
 - **`API_CONTRACTS.md`** — changes with AECI-713 (the §13.4(1) field), not with this addendum.
 - **`REVIEW_APP_PROMOTE_API.md`** — unchanged *by this addendum*; the connector-coverage payload

@@ -12,6 +12,7 @@ import {
   keyDescription,
   localizedIndexNamesFor,
   managementKeyParams,
+  CONNECTOR_EVIDENCED_MECHANISM_RANK,
   MECHANISM_RANK,
   mechanismRank,
   replicaIndexName,
@@ -326,11 +327,32 @@ describe('mechanismRank', () => {
       api: 3,
       webhook: 2,
       partner: 1,
+      integrator: 1,
     });
     const ordered = ['native', 'marketplace-app', 'iPaaS', 'api', 'webhook', 'partner'];
     for (let i = 1; i < ordered.length; i++) {
       expect(mechanismRank(ordered[i - 1]!)).toBeGreaterThan(mechanismRank(ordered[i]!));
     }
+  });
+
+  it('ties `integrator` with the `partner` it replaces (AECI-698 / AECI-721)', () => {
+    // The tie is the point, not a placeholder. AECI-698 re-keys ~117 `partner`
+    // rows to `integrator` upstream; that is a CLASSIFICATION change, and a
+    // classification-only migration must not silently re-rank the catalog
+    // (`STAGE_1_5_SPEC.md` §13.5's own principle). Tying also renumbers nothing,
+    // so no full reindex is forced for rank alone. Promoting `integrator` above
+    // `partner` is a separate, deliberate decision — assert the tie so making it
+    // has to be a deliberate edit here too.
+    expect(mechanismRank('integrator')).toBe(mechanismRank('partner'));
+  });
+
+  it('pins the connector-evidenced rank to the iPaaS weight, not the unknown fallback', () => {
+    // A `connector_evidenced_pairs` row has no `mechanism_kind` at all, so a
+    // record built through `mechanismRank(null)` would rank 0 — every
+    // connector-delivered edge buried at the bottom of the index as an artifact
+    // of which table we chose to store it in. AECI-721 pins it to 4 instead.
+    expect(CONNECTOR_EVIDENCED_MECHANISM_RANK).toBe(MECHANISM_RANK.iPaaS);
+    expect(CONNECTOR_EVIDENCED_MECHANISM_RANK).toBeGreaterThan(mechanismRank(null));
   });
 
   it('ranks an absent / unknown kind last (0)', () => {

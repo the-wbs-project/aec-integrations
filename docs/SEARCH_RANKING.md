@@ -197,9 +197,34 @@ The weight map (`MECHANISM_RANK` in `packages/shared/src/algolia.ts`):
 | `api` | 3 |
 | `webhook` | 2 |
 | `partner` | 1 |
+| `integrator` | 1 |
 | absent / unknown | 0 |
+| *(no kind — a connector-evidenced pair)* | **4**, pinned |
 
 `mechanismRank()` returns `0` for `null`, `undefined`, or any kind not in the map, so a record with a missing mechanism ranks last rather than throwing. The map is **string-keyed on purpose** so the settings module imports nothing; `IntegrationMechanismKindSchema` (`packages/shared/src/api/integrations.ts`) remains the source of truth for the *set* of valid kinds. Adding or reordering a kind means updating that enum, `MECHANISM_RANK`, and this table together.
+
+### 4.1 `integrator` ties `partner` (AECI-698 / AECI-721)
+
+`integrator` **replaces** `partner` — an SI or consultancy built and maintains the edge, neither endpoint vendor did — and the review app re-keys ~117 rows into it. That is a **classification** change, so it must not move anything: a classification-only migration silently re-ranking the catalog is exactly what `STAGE_1_5_SPEC.md` §13.5 exists to prevent. Tying at `1` also renumbers no existing weight, so no full reindex is forced for rank alone.
+
+Both values are listed while the re-key runs. `partner` leaves the app-DB CHECK only after the review app has re-keyed and re-promoted — see §4.3.
+
+### 4.2 Connector-evidenced pairs rank 4, not 0 (AECI-721)
+
+Since AECI-721 the `integrations` index is fed by **two tables**: `integrations`, and `connector_evidenced_pairs` — the delivered-via-connector tier (`STAGE_1_5_SPEC.md` §13.1). Evidenced pairs carry **no `mechanism_kind` at all**; the table has no such column, because once an edge is filed under the connector that delivers it, "which mechanism" is answered by the lane.
+
+Their records therefore serialise `mechanism_kind: null` — but their rank is pinned to `CONNECTOR_EVIDENCED_MECHANISM_RANK = 4` (`packages/shared/src/algolia.ts`), **not** `mechanismRank(null) → 0`. A null kind here is *structural*, not *unknown*, and letting it fall through to the unknown-kind weight would bury every connector-delivered edge at the bottom of the index as an artifact of which table we chose to store it in.
+
+**This is a real, bounded re-rank, and it is accepted rather than incidental.** Measured against production on 2026-08-31, the 19 migrating edges are: 1 typed `iPaaS` (rank-neutral, 4 → 4) and 18 typed `marketplace-app` (1 `partner`), which **demote 5 → 4**. Seventeen records move one step down a six-step scale. Ranking stays purely algorithmic — this is a change in a signal's inputs, never in who can buy position.
+
+### 4.3 `iPaaS` and `partner` both stay in the enum for now
+
+AECI-721's original scope dropped `iPaaS`. It does not. Two populations block it, and both are recorded rather than worked around:
+
+- **53 production edges are `iPaaS` with a NULL `powered_by`** — Zapier, Workato, Make, n8n, Boomi — because their connector is not a promoted product and AECI-700 parks Zapier and Workato permanently. They cannot migrate (`connector_evidenced_pairs.connector_product_id` is NOT NULL) and they are 53 of the 132 edges `isConnectorPoweredEdge` gates, so nulling their kind would silently re-open AECI-705's vendor attestation prompts on every one.
+- **`partner` is the dumping ground AECI-698 exists to empty.** Its 55 production rows earn `integrator` — or `native`, or `marketplace-app` — one at a time, upstream, under the rubric. Blanket-mapping them here would be the app DB inventing the classification the rubric exists to prevent.
+
+Retiring `iPaaS` is a sequenced follow-up gated on AECI-730; dropping `partner` follows the upstream re-key. Each is its own destructive D1 recreate.
 
 ---
 
@@ -212,6 +237,10 @@ After the textual-relevance criteria (typo…exact), ties resolve by each index'
 | `products` | `integration_count` desc | `review_count` desc | index order (arbitrary) |
 | `vendors` | `integration_count` desc | `product_count` desc | index order (arbitrary) |
 | `integrations` | `mechanism_rank` desc | *(none)* | index order (arbitrary) |
+
+**`integration_count` changed meaning in AECI-721, on both indices.** It now counts delivered edges **regardless of which table holds them** — `integrations` plus `connector_evidenced_pairs` — and, per `STAGE_1_5_SPEC.md` §12.5 option B, a connector counts the edges it *powers*, not only the ones it terminates. Endpoint products' counts are unchanged by construction (a delivered-via-connector edge already counted for both endpoints); **connector products' counts rise** — in production Agave ERP Sync goes 0 → 12.
+
+That lifts connectors up `desc(integration_count)` here, in the `integration_count` numeric facet (§7.2), and in **both** `integration_count_desc` sort replicas (§5a). The vendor rule is a *different* expression — a subquery on `built_by_vendor_id` — and gained the same second table, so connector vendors' counts do not collapse. This is the correction §13.5 records against AECI-708's "no ranking change" cross-reference: true of Addendum C in isolation, false of option B.
 
 When records tie on the full `customRanking` list, Algolia falls back to the records' internal order in the index — not stable or meaningful, so it must not be relied on for deterministic ordering.
 
@@ -297,6 +326,9 @@ Search quality is a continuous concern, not a launch-day deliverable. This is th
 - [AECI-137](https://linear.app/aec-integrations/issue/AECI-137) — index settings + record shapes as code (Phase 3.2).
 - [AECI-175](https://linear.app/aec-integrations/issue/AECI-175) — per-tab sort dropdown via replica indexes (§5a); deferred from [AECI-142](https://linear.app/aec-integrations/issue/AECI-142) (Phase 3.9).
 - [AECI-86](https://linear.app/aec-integrations/issue/AECI-86) — re-enable integration seeding in `POST /api/promote` (populates the integrations index).
+- `STAGE_1_5_SPEC.md` §13.1 / §13.5 — the delivered tier's two tables, and the fourteen-site `integration_count` lockstep §4.2 and §5 follow from.
+- [AECI-698](https://linear.app/aec-integrations/issue/AECI-698) — the mechanism vocabulary revision that introduces `integrator` (§4.1).
+- [AECI-721](https://linear.app/aec-integrations/issue/AECI-721) — the powered-edge migration: `integrator` in the enum, the pinned evidenced-pair rank (§4.2), and the `integration_count` semantics change (§5).
 - [AECI-283](https://linear.app/aec-integrations/issue/AECI-283) — run this §7 tuning loop on real query data (unblocked at go-live 2026-07-03; needs accumulated launch traffic).
 - [AECI-286](https://linear.app/aec-integrations/issue/AECI-286) — `/preview/search-relevance`, the fixtures-based lab for evaluating the §7 levers before the query data exists (see §7).
 - [AECI-49](https://linear.app/aec-integrations/issue/AECI-49) — the `CACHE_STRATEGY.md` precedent for lifting a spec section into a canonical doc.

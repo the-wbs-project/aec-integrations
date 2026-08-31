@@ -55,6 +55,7 @@ import type { Db } from '../db/client';
 import {
   attestations,
   claims,
+  connectorEvidencedPairs,
   integrations,
   productAudiences,
   productCategories,
@@ -474,6 +475,7 @@ export async function claimCoverage(db: Db, sampleLimit: number): Promise<AdminC
     [claimsRow],
     [attestedRow],
     [attestationsRow],
+    [evidencedRow],
     sampleRows,
   ] = await Promise.all([
     db.select({ value: count() }).from(integrations),
@@ -484,6 +486,7 @@ export async function claimCoverage(db: Db, sampleLimit: number): Promise<AdminC
       .from(attestations)
       .where(liveAttestationsWhere),
     db.select({ value: count() }).from(attestations),
+    db.select({ value: count() }).from(connectorEvidencedPairs),
     sampleLimit > 0
       ? db
           .select({
@@ -505,7 +508,18 @@ export async function claimCoverage(db: Db, sampleLimit: number): Promise<AdminC
       : Promise.resolve([]),
   ]);
 
-  const integrationsTotal = integrationsRow?.value ?? 0;
+  // Both tables (AECI-721 / §13.5 site 9). The operator console's denominator must
+  // not fall by 19 on migration day, or the panel reports a shrinking catalogue and
+  // a claim-coverage RATIO that improved for no reason.
+  //
+  // ⚠️ PR-B FOLLOW-THROUGH: `integrations_with_claims` above still counts
+  // `countDistinct(claims.integration_id)`. That is correct only while every claim
+  // is anchored to `integrations` — which is true in PR-A because the evidenced
+  // table is empty. The moment PR-B re-homes the 85 production claims onto
+  // `connector_evidenced_pair_id`, this must become `countDistinct(anchor_id)` or
+  // `integrations_without_claims` jumps by 19 and the console reports a coverage
+  // regression that did not happen.
+  const integrationsTotal = (integrationsRow?.value ?? 0) + (evidencedRow?.value ?? 0);
   const integrationsWithClaims = withClaimsRow?.value ?? 0;
   const claimsTotal = claimsRow?.value ?? 0;
   const claimsAttested = attestedRow?.value ?? 0;
@@ -535,7 +549,12 @@ export async function claimCoverage(db: Db, sampleLimit: number): Promise<AdminC
 
 /** The five headline counts. `products` is re-counted here rather than reused
  *  from {@link productGapCounts} so the two call sites stay independent — they
- *  are one `count(*)` apiece and the coupling would not pay for itself. */
+ *  are one `count(*)` apiece and the coupling would not pay for itself.
+ *
+ *  `integrations` spans BOTH delivered-tier tables (AECI-721 / §13.5). This site
+ *  is unnamed in §13.5's own enumeration — it is keyed `integrations` rather than
+ *  `integrations_total`, which is how the ten-item list missed it — but it is the
+ *  operator console's headline integrations figure and moves with every other. */
 export async function catalogTotals(db: Db): Promise<{
   products: number;
   integrations: number;
@@ -543,16 +562,17 @@ export async function catalogTotals(db: Db): Promise<{
   claims: number;
   attestations: number;
 }> {
-  const [[p], [i], [v], [c], [a]] = await Promise.all([
+  const [[p], [i], [v], [c], [a], [ep]] = await Promise.all([
     db.select({ value: count() }).from(products),
     db.select({ value: count() }).from(integrations),
     db.select({ value: count() }).from(vendors),
     db.select({ value: count() }).from(claims),
     db.select({ value: count() }).from(attestations),
+    db.select({ value: count() }).from(connectorEvidencedPairs),
   ]);
   return {
     products: p?.value ?? 0,
-    integrations: i?.value ?? 0,
+    integrations: (i?.value ?? 0) + (ep?.value ?? 0),
     vendors: v?.value ?? 0,
     claims: c?.value ?? 0,
     attestations: a?.value ?? 0,

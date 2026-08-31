@@ -198,6 +198,138 @@ export const productDetailIntegrationConfig = {
   },
 } as const;
 
+// ---------------------------------------------------------------------------
+// Connector-evidenced pairs (AECI-721) — the SECOND storage table behind one
+// wire shape.
+//
+// `STAGE_1_5_SPEC.md` §13.1 splits the DELIVERED tier across two tables:
+// `integrations` holds accountable-party edges, `connector_evidenced_pairs` holds
+// edges an iPaaS delivers. Both render as `IntegrationListItem`, distinguished by
+// `via`, because §13.3 is written source-agnostically on purpose — the split is a
+// sourcing question, never a rendering one.
+//
+// Three shape differences the mappers below have to reconcile, none of them
+// accidental (`DATABASE_SCHEMA.md` §9a.6):
+//
+//   1. **Canonical pair, not source/target.** The row stores `product_a_id <
+//      product_b_id` (a CHECK), so orientation lives in `direction` alone. A
+//      vendor publishing both directions as separate pages would otherwise arrive
+//      twice and the unique index could not see the collision.
+//   2. **`direction` uses the CLAIM vocabulary** (`a_to_b | b_to_a | both`), not
+//      `integrations`' `one-way | bidirectional`: once the pair is canonicalised,
+//      `one-way` no longer says which way. Mapping back out is the inverse of the
+//      migration's CASE and is lossless in both directions.
+//   3. **No `mechanism_kind` column at all.** The lane answers "which mechanism",
+//      so these rows serialise `mechanism_kind: null` and carry `via` instead.
+//      Do not synthesise a kind to fill the gap.
+// ---------------------------------------------------------------------------
+
+/** `IntegrationListItem` hydration for an evidenced pair — both endpoints and the
+ *  connector as `ProductLink`. */
+export const connectorEvidencedPairListConfig = {
+  columns: {
+    id: true,
+    name: true,
+    mechanismName: true,
+    direction: true,
+    createdAt: true,
+    updatedAt: true,
+  },
+  with: {
+    productA: { columns: productLinkColumns },
+    productB: { columns: productLinkColumns },
+    connectorProduct: { columns: productLinkColumns },
+  },
+} as const;
+
+/** Pair-page hydration for an evidenced pair — the list config plus the mechanism
+ *  card's body and the maintenance marker, mirroring `integrationPairConfig`.
+ *  `claims` joins in AECI-721 PR-B, once the anchor column exists. */
+export const connectorEvidencedPairPairConfig = {
+  columns: {
+    ...connectorEvidencedPairListConfig.columns,
+    description: true,
+    listingUrl: true,
+    docsUrl: true,
+    lastReviewedAt: true,
+    maintainedBy: true,
+  },
+  with: {
+    ...connectorEvidencedPairListConfig.with,
+    builtByVendor: { columns: vendorLinkColumns },
+  },
+} as const;
+
+export interface RawConnectorEvidencedPairRow {
+  id: string;
+  name: string | null;
+  mechanismName: string | null;
+  direction: string | null;
+  createdAt: string;
+  updatedAt: string;
+  productA: RawProductLink;
+  productB: RawProductLink;
+  connectorProduct: RawProductLink;
+}
+
+export interface RawConnectorEvidencedPairDetailRow extends RawConnectorEvidencedPairRow {
+  description: string | null;
+  listingUrl: string | null;
+  docsUrl: string | null;
+  lastReviewedAt: string | null;
+  maintainedBy: string;
+  builtByVendor: RawVendorLink | null;
+}
+
+/**
+ * Resolve a canonical evidenced pair back into the oriented `source`/`target`
+ * frame every read surface speaks, plus the `integrations` direction vocabulary.
+ *
+ * The exact inverse of the AECI-721 migration's CASE, and lossless: `b_to_a` is
+ * the only value that swaps the endpoints, which is precisely the information
+ * canonicalisation would otherwise discard. `both` and `null` both present A as
+ * source — for `both` the orientation carries no meaning, and for `null` we have
+ * no orientation to assert, so the stable canonical order is the honest choice.
+ */
+export function orientEvidencedPair(raw: RawConnectorEvidencedPairRow): {
+  source: RawProductLink;
+  target: RawProductLink;
+  direction: 'one-way' | 'bidirectional' | null;
+} {
+  switch (raw.direction) {
+    case 'a_to_b':
+      return { source: raw.productA, target: raw.productB, direction: 'one-way' };
+    case 'b_to_a':
+      return { source: raw.productB, target: raw.productA, direction: 'one-way' };
+    case 'both':
+      return { source: raw.productA, target: raw.productB, direction: 'bidirectional' };
+    default:
+      // NULL is legal — the CHECK constrains only non-null values, and the
+      // migration maps a null `integrations.direction` straight through.
+      return { source: raw.productA, target: raw.productB, direction: null };
+  }
+}
+
+/** An evidenced pair as an `IntegrationListItem`. `mechanism_kind` is null by
+ *  construction (the table has no such column) and `via` names the connector. */
+export function toIntegrationListItemFromEvidencedPair(
+  raw: RawConnectorEvidencedPairRow,
+): IntegrationListItem {
+  const { source, target, direction } = orientEvidencedPair(raw);
+  return {
+    id: raw.id,
+    name: synthesizeIntegrationName(raw.name, source, target),
+    mechanism_kind: null,
+    mechanism_name: raw.mechanismName,
+    direction,
+    source: toProductLink(source),
+    target: toProductLink(target),
+    via: toProductLink(raw.connectorProduct),
+    created_at: raw.createdAt,
+    updated_at: raw.updatedAt,
+  };
+}
+
 /** Detail adds the heavier hydration per API_CONTRACTS §3.4. */
 export const integrationDetailConfig = {
   columns: {
@@ -421,6 +553,10 @@ export const productDetailConfig = {
     // the page product is neither endpoint, so there is no context_direction
     // and no claims join to pay for.
     poweredIntegrations: integrationListConfig,
+    // The same bucket's SECOND source after AECI-721: edges this product powers
+    // that have moved out of `integrations` into the connector lane's delivered
+    // tier. `toProductDetail` unions the two into `integrations_as_connector`.
+    evidencedPairsAsConnector: connectorEvidencedPairListConfig,
   },
 } as const;
 
@@ -510,7 +646,16 @@ export const vendorListConfig = {
         'product_count',
       ),
     integrationCount:
-      sql<number>`(SELECT count(*) FROM integrations bi WHERE bi.built_by_vendor_id = "vendors"."id")`.as(
+      // AECI-721 / §13.5 item 6: a DIFFERENT rule from the product count — a
+      // correlated subquery on `built_by_vendor_id`, not a read of the
+      // denormalized `products.integration_count` column. It is therefore NOT
+      // downstream of `recompute-counts.ts` and drops every migrated edge on its
+      // own unless the evidenced table is summed here too. The ~20-row accountable
+      // residue §13.2 records is exactly this population: Agave built 11 of the 19
+      // edges that move, so without the second subquery Agave's vendor record
+      // reports 0 integrations the day the migration lands.
+      sql<number>`((SELECT count(*) FROM integrations bi WHERE bi.built_by_vendor_id = "vendors"."id")
+        + (SELECT count(*) FROM connector_evidenced_pairs cep WHERE cep.built_by_vendor_id = "vendors"."id"))`.as(
         'integration_count',
       ),
   },
@@ -775,6 +920,7 @@ export interface RawProductDetailRow extends RawProductListRow, RawMaintenanceCo
   sourceIntegrations: RawProductIntegrationRow[];
   targetIntegrations: RawProductIntegrationRow[];
   poweredIntegrations: RawIntegrationListRow[];
+  evidencedPairsAsConnector: RawConnectorEvidencedPairRow[];
 }
 
 export interface RawPublicReviewRow {
@@ -867,6 +1013,7 @@ const VALID_MECHANISM_KINDS = new Set<IntegrationMechanismKind>([
   'api',
   'webhook',
   'partner',
+  'integrator',
 ]);
 
 export function toMechanismKind(
@@ -937,6 +1084,13 @@ export function toIntegrationListItem(raw: RawIntegrationListRow): IntegrationLi
     direction: coerceDirection(raw.direction),
     source: toProductLink(raw.sourceProduct),
     target: toProductLink(raw.targetProduct),
+    // A row of `integrations` is by definition NOT delivered by a named connector
+    // in the AECI-721 sense: the connector-delivered edges live in
+    // `connector_evidenced_pairs` and come through
+    // `toIntegrationListItemFromEvidencedPair`. A self-referential Convention-A
+    // edge keeps its `powered_by_product` on the DETAIL shape and still reads
+    // `via: null` here — the two are deliberately not interchangeable.
+    via: null,
     created_at: raw.createdAt,
     updated_at: raw.updatedAt,
   };
@@ -1087,6 +1241,9 @@ function toProductPairMechanism(
     docs_url: raw.docsUrl,
     built_by_vendor: raw.builtByVendor ? toVendorLink(raw.builtByVendor) : null,
     powered_by_product: raw.poweredByProduct ? toProductLink(raw.poweredByProduct) : null,
+    // Always null on an `integrations` row — the evidenced-pair arm of the pair
+    // read sets it (`toProductPairMechanismFromEvidencedPair`).
+    via: null,
     // Sort FIRST, then drop: ordering stays this mapper's job and is independent
     // of the version selection, so walking the selectors never reshuffles the lanes.
     claims: [...raw.claims]
@@ -1095,6 +1252,46 @@ function toProductPairMechanism(
       .filter((claim): claim is ProductPairClaim => claim !== null),
   };
 }
+
+/**
+ * One mechanism row on the pair page sourced from `connector_evidenced_pairs`
+ * (AECI-721). The evidenced-pair twin of `toProductPairMechanism`.
+ *
+ * Without this arm the pair page queries `integrations` alone and renders "no
+ * integrations" for the 19 production pairs that exist ONLY as evidenced pairs
+ * after the migration — a pair that plainly has a delivered integration reading
+ * as though it has none, purely because of an internal storage move.
+ *
+ * `claims` is `[]` until PR-B adds `claims.connector_evidenced_pair_id`; the
+ * migration preserves each edge's id verbatim as the pair's id, so the 85
+ * production claims re-anchor without their stored value changing.
+ */
+function toProductPairMechanismFromEvidencedPair(
+  raw: RawConnectorEvidencedPairDetailRow,
+  contextProductId: string,
+): ProductPairMechanism {
+  const { source, direction } = orientEvidencedPair(raw);
+  const contextIsSource = source.id === contextProductId;
+  return {
+    id: raw.id,
+    // Null by construction — see the section header. The connector is in `via`.
+    mechanism_kind: null,
+    mechanism_name: raw.name ?? raw.mechanismName,
+    direction: integrationDirectionForContext(direction, contextIsSource),
+    description: raw.description,
+    listing_url: raw.listingUrl,
+    docs_url: raw.docsUrl,
+    built_by_vendor: raw.builtByVendor ? toVendorLink(raw.builtByVendor) : null,
+    // `powered_by_product` stays null: on an evidenced pair the connector is
+    // structural, and the byline reads it from `via`. Setting both would let a
+    // renderer print the connector twice.
+    powered_by_product: null,
+    via: toProductLink(raw.connectorProduct),
+    claims: [],
+  };
+}
+
+export { toProductPairMechanismFromEvidencedPair };
 
 /**
  * Assemble the product-PAIR response (§7 + §8). Both products hydrate as
@@ -1110,11 +1307,20 @@ export function toProductPairResponse(
   contextProduct: RawProductListRow,
   otherProduct: RawProductListRow,
   integrations: RawIntegrationPairRow[],
+  /**
+   * Connector-evidenced pairs between the same two products (AECI-721).
+   * **Required, not optional** — after the migration 19 production pairs exist
+   * only here, and a defaulted parameter is precisely how a future read surface
+   * would silently render "no integrations" for a pair that has one. Callers with
+   * nothing to pass write `[]` and thereby say so.
+   */
+  evidencedPairs: RawConnectorEvidencedPairDetailRow[],
   versions?: PairVersionResolver,
 ): ProductPairResponse {
-  const mechanisms = integrations.map((row) =>
-    toProductPairMechanism(row, contextProduct.id, versions),
-  );
+  const mechanisms = [
+    ...integrations.map((row) => toProductPairMechanism(row, contextProduct.id, versions)),
+    ...evidencedPairs.map((row) => toProductPairMechanismFromEvidencedPair(row, contextProduct.id)),
+  ];
   const claims = mechanisms.flatMap((m) => m.claims);
   return {
     context_product: toProductListItem(contextProduct),
@@ -1126,7 +1332,10 @@ export function toProductPairResponse(
     // `computeSyncHeadline` — the shared engine stays a pure function of
     // `{ agreement }` and owes the diff contract nothing.
     sync_headline: computeSyncHeadline(claims.filter((c) => c.version_status !== 'removed')),
-    maintenance: computePairMaintenance(integrations),
+    // Both tables carry the maintenance marker pair, and the header shows ONE
+    // value for the pair — so an evidenced pair that a vendor maintains must be
+    // able to speak for it, exactly as an `integrations` row can.
+    maintenance: computePairMaintenance([...integrations, ...evidencedPairs]),
     version_diff: versions ? { ...versions.diff, counts: countVersionStatuses(claims) } : null,
   };
 }
@@ -1559,7 +1768,28 @@ export function toProductDetail(
     integrations_as_target: raw.targetIntegrations.map((r) => toProductIntegrationItem(r, false)),
     // Connector bucket: this product is the mechanism, not an endpoint — bare
     // list items (no context_direction; direction is between source and target).
-    integrations_as_connector: raw.poweredIntegrations.map(toIntegrationListItem),
+    //
+    // TWO sources, unioned (AECI-721 / §13.1): edges still in `integrations`
+    // carrying `powered_by_product_id`, and edges that have moved to the
+    // connector lane's delivered tier. The union is what makes the migration
+    // invisible here — the rendered set is the same before and after.
+    //
+    // SELF-EXCLUSION (§13.4(2)): `poweredIntegrations` is a bare `many(...)` with
+    // no `where`, so it selects on `powered_by_product_id` alone. Review-side
+    // Convention A stores "product X ships a connector on platform C" as ONE edge
+    // whose `powered_by` IS one of its own endpoints — 60 production rows
+    // (Aquifer 31, Kroo 29). On C's own page such an edge lands in
+    // `sourceIntegrations`/`targetIntegrations` AND here, rendering twice.
+    // AECI-706's backfill switched that on; the filter below is what turns it off.
+    // The evidenced-pair arm needs no equivalent — its
+    // `connector_evidenced_pairs_distinct_connector` CHECK makes the case
+    // unrepresentable.
+    integrations_as_connector: [
+      ...raw.poweredIntegrations
+        .filter((r) => r.sourceProduct.id !== raw.id && r.targetProduct.id !== raw.id)
+        .map(toIntegrationListItem),
+      ...raw.evidencedPairsAsConnector.map(toIntegrationListItemFromEvidencedPair),
+    ],
     related_products: relatedProducts.map(toProductListItem),
     reviews: reviews.map(toPublicReview),
     maintenance: toMaintenance(raw),

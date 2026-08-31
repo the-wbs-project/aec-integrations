@@ -54,6 +54,7 @@ import { getDb, type Db } from '../db/client';
 import {
   attestations,
   claims,
+  connectorEvidencedPairs,
   integrations,
   mailingList,
   pageViews,
@@ -262,14 +263,23 @@ async function countHumanViews(db: Db, w: UtcWindow): Promise<number> {
 
 /** Live catalog totals — a snapshot as of the request, not windowed. Counts over
  *  time need the §7.1 snapshot table (P2.1); §4 explains why the event stream
- *  cannot reconstruct net totals. */
+ *  cannot reconstruct net totals.
+ *
+ *  A SECOND, independent implementation of `catalogTotals` — the exported one in
+ *  `lib/admin-catalog.ts` is the other, and this module-local function shadows it.
+ *  Both are unnamed in §13.5's ten-site list and both must count the evidenced
+ *  table (AECI-721), or the overview and the catalog screen disagree with each
+ *  other about how many integrations exist, which is worse than either being
+ *  wrong alone. Collapsing the duplication is worth doing; it is not this
+ *  migration's job, and doing it here would hide the lockstep edit in a refactor. */
 async function catalogTotals(db: Db) {
-  const [p, i, v, cl, at] = await Promise.all([
+  const [p, i, v, cl, at, ep] = await Promise.all([
     countAll(db, products),
     countAll(db, integrations),
     countAll(db, vendors),
     countAll(db, claims),
     countAll(db, attestations),
+    countAll(db, connectorEvidencedPairs),
   ]);
-  return { products: p, integrations: i, vendors: v, claims: cl, attestations: at };
+  return { products: p, integrations: i + ep, vendors: v, claims: cl, attestations: at };
 }

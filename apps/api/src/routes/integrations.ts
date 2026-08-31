@@ -20,20 +20,24 @@ import {
   PairTimelineResponseSchema,
   ProductPairResponseSchema,
   type IntegrationDetail,
+  type IntegrationListItem,
   type IntegrationsListResponse,
   type PairTimelineResponse,
   type ProductPairResponse,
 } from '@aeci/shared';
 import { vendorTiersFromMirror } from '@aeci/shared/version-diff';
-import { and, count, eq, inArray, like, or, type SQL } from 'drizzle-orm';
+import { and, asc, count, eq, inArray, like, or, sql, type SQL } from 'drizzle-orm';
+import { unionAll } from 'drizzle-orm/sqlite-core';
 import type { Context } from 'hono';
 
-import { getDb } from '../db/client';
-import { integrations, products, productVersions } from '../db/schema';
+import { getDb, type Db } from '../db/client';
+import { connectorEvidencedPairs, integrations, products, productVersions } from '../db/schema';
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
 import {
+  coerceDirection,
+  connectorEvidencedPairPairConfig,
   integrationDetailConfig,
   integrationListConfig,
   integrationPairConfig,
@@ -41,9 +45,11 @@ import {
   pickPrimaryVendor,
   productListConfig,
   productVersionDiffGateConfig,
+  productLinkColumns,
   toIntegrationDetail,
-  toIntegrationListItem,
+  toMechanismKind,
   toPairTimelines,
+  toProductLink,
   toProductPairResponse,
   VERSION_ORDER,
 } from '../lib/drizzle-helpers';
@@ -55,6 +61,224 @@ import {
   resolveVersionSelection,
 } from '../lib/pair-version-diff';
 import { resolveIntegrationOrderBy } from '../lib/sort';
+
+// ---------------------------------------------------------------------------
+// `GET /api/integrations` union plumbing (AECI-721)
+//
+// The delivered tier lives in two tables (`STAGE_1_5_SPEC.md` §13.1), and this
+// endpoint publishes the whole tier. Everything below exists to make one paged,
+// sorted, filtered list out of both — see the comment at the call site for why a
+// UNION and not two page reads.
+//
+// The shape is deliberately narrow: ids only, hydrated in a second bounded read.
+// A union that also joined both endpoint products and the connector would repeat
+// three joins per arm for rows the page may not even return.
+// ---------------------------------------------------------------------------
+
+/** One row of the union: the columns both tables can agree on, plus `viaProductId`
+ *  as the discriminant. Product links are hydrated afterwards. */
+interface UnionRow {
+  id: string;
+  name: string | null;
+  mechanismKind: string | null;
+  mechanismName: string | null;
+  direction: string | null;
+  sourceProductId: string;
+  targetProductId: string;
+  viaProductId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Sentinel: this query cannot match an evidenced pair at all, so the second arm
+ *  is dropped rather than run with an impossible predicate. */
+const EXCLUDE_EVIDENCED = Symbol('exclude-evidenced');
+
+function integrationsListSelect(db: Db, where: SQL | undefined) {
+  return db
+    .select({
+      id: integrations.id,
+      name: integrations.name,
+      mechanismKind: integrations.mechanismKind,
+      mechanismName: integrations.mechanismName,
+      direction: integrations.direction,
+      sourceProductId: integrations.sourceProductId,
+      targetProductId: integrations.targetProductId,
+      viaProductId: sql<string | null>`NULL`.as('via_product_id'),
+      createdAt: integrations.createdAt,
+      updatedAt: integrations.updatedAt,
+    })
+    .from(integrations)
+    .where(where);
+}
+
+/**
+ * The evidenced arm, re-oriented into the `source`/`target` frame the wire shape
+ * speaks. Same inverse CASE as `orientEvidencedPair`, expressed in SQL because the
+ * ORDER BY and the pagination have to see the oriented values, not the canonical
+ * ones. `mechanism_kind` is a literal NULL — the table has no such column.
+ */
+function evidencedListSelect(db: Db, where: SQL | undefined) {
+  return db
+    .select({
+      id: connectorEvidencedPairs.id,
+      name: connectorEvidencedPairs.name,
+      mechanismKind: sql<string | null>`NULL`.as('mechanism_kind'),
+      mechanismName: connectorEvidencedPairs.mechanismName,
+      direction: sql<string | null>`CASE "connector_evidenced_pairs"."direction"
+          WHEN 'a_to_b' THEN 'one-way'
+          WHEN 'b_to_a' THEN 'one-way'
+          WHEN 'both' THEN 'bidirectional'
+        END`.as('direction'),
+      sourceProductId: sql<string>`CASE WHEN "connector_evidenced_pairs"."direction" = 'b_to_a'
+          THEN "connector_evidenced_pairs"."product_b_id"
+          ELSE "connector_evidenced_pairs"."product_a_id" END`.as('source_product_id'),
+      targetProductId: sql<string>`CASE WHEN "connector_evidenced_pairs"."direction" = 'b_to_a'
+          THEN "connector_evidenced_pairs"."product_a_id"
+          ELSE "connector_evidenced_pairs"."product_b_id" END`.as('target_product_id'),
+      viaProductId: connectorEvidencedPairs.connectorProductId,
+      createdAt: connectorEvidencedPairs.createdAt,
+      updatedAt: connectorEvidencedPairs.updatedAt,
+    })
+    .from(connectorEvidencedPairs)
+    .where(where);
+}
+
+/**
+ * Translate the list filters onto the evidenced table, or refuse the arm entirely.
+ *
+ * `?mechanism_kind=` returns `EXCLUDE_EVIDENCED` for every value: an evidenced pair
+ * carries no kind, so it matches none of them. That is the honest answer rather
+ * than a quiet inconsistency — filtering by kind narrows to `integrations` by
+ * definition, and a caller asking for `?mechanism_kind=native` should not receive
+ * rows whose kind is null.
+ *
+ * The endpoint filters need the same orientation CASE as the select, because
+ * `?sourceProductId=` means "source in the rendered frame", not "slot A".
+ */
+function evidencedListPredicate(
+  db: Db,
+  query: {
+    search?: string;
+    sourceProductId?: string;
+    targetProductId?: string;
+    mechanism_kind?: string;
+    direction?: string;
+  },
+): SQL | undefined | typeof EXCLUDE_EVIDENCED {
+  if (query.mechanism_kind) return EXCLUDE_EVIDENCED;
+
+  const conds: SQL[] = [];
+  if (query.search) {
+    const term = `%${query.search}%`;
+    const matchByProductName = () =>
+      db.select({ id: products.id }).from(products).where(like(products.name, term));
+    conds.push(
+      or(
+        like(connectorEvidencedPairs.name, term),
+        inArray(connectorEvidencedPairs.productAId, matchByProductName()),
+        inArray(connectorEvidencedPairs.productBId, matchByProductName()),
+      )!,
+    );
+  }
+  if (query.sourceProductId) {
+    conds.push(
+      sql`CASE WHEN "connector_evidenced_pairs"."direction" = 'b_to_a'
+            THEN "connector_evidenced_pairs"."product_b_id"
+            ELSE "connector_evidenced_pairs"."product_a_id" END = ${query.sourceProductId}`,
+    );
+  }
+  if (query.targetProductId) {
+    conds.push(
+      sql`CASE WHEN "connector_evidenced_pairs"."direction" = 'b_to_a'
+            THEN "connector_evidenced_pairs"."product_a_id"
+            ELSE "connector_evidenced_pairs"."product_b_id" END = ${query.targetProductId}`,
+    );
+  }
+  if (query.direction === 'one-way') {
+    conds.push(inArray(connectorEvidencedPairs.direction, ['a_to_b', 'b_to_a']));
+  } else if (query.direction === 'bidirectional') {
+    conds.push(eq(connectorEvidencedPairs.direction, 'both'));
+  }
+  return conds.length ? and(...conds) : undefined;
+}
+
+/** `resolveIntegrationOrderBy` addresses `integrations` columns, which a union has
+ *  no access to — order by the union's own OUTPUT column names instead. Same two
+ *  sorts, same total-order id tiebreak, so paging stays stable. */
+function resolveUnionOrderBy(sort: 'name' | 'created'): SQL[] {
+  return sort === 'created'
+    ? [sql`"created_at" DESC`, sql`"id" ASC`]
+    : [sql`"name" ASC`, sql`"id" ASC`];
+}
+
+/** Adapt a relational-builder row to the union shape, for the fast path that skips
+ *  the union because the query excluded the evidenced arm. */
+function toUnionRow(raw: {
+  id: string;
+  name: string | null;
+  mechanismKind: string | null;
+  mechanismName: string | null;
+  direction: string | null;
+  createdAt: string;
+  updatedAt: string;
+  sourceProduct: { id: string };
+  targetProduct: { id: string };
+}): UnionRow {
+  return {
+    id: raw.id,
+    name: raw.name,
+    mechanismKind: raw.mechanismKind,
+    mechanismName: raw.mechanismName,
+    direction: raw.direction,
+    sourceProductId: raw.sourceProduct.id,
+    targetProductId: raw.targetProduct.id,
+    viaProductId: null,
+    createdAt: raw.createdAt,
+    updatedAt: raw.updatedAt,
+  };
+}
+
+/** Hydrate the page's product links in ONE bounded read (≤ 3 ids per row) and map
+ *  to the wire shape. A missing product is impossible — every id is a NOT NULL FK
+ *  with `ON DELETE CASCADE` — so an absent row is a data-integrity failure, not a
+ *  case to render around. */
+async function hydrateUnionRows(db: Db, rows: UnionRow[]): Promise<IntegrationListItem[]> {
+  if (rows.length === 0) return [];
+  const ids = new Set<string>();
+  for (const row of rows) {
+    ids.add(row.sourceProductId);
+    ids.add(row.targetProductId);
+    if (row.viaProductId) ids.add(row.viaProductId);
+  }
+  const linkRows = await db.query.products.findMany({
+    columns: productLinkColumns,
+    where: inArray(products.id, [...ids]),
+  });
+  const byId = new Map(linkRows.map((p) => [p.id, p]));
+  const link = (id: string, rowId: string) => {
+    const found = byId.get(id);
+    if (!found)
+      throw new Error(`Data integrity: integration ${rowId} references missing product ${id}`);
+    return toProductLink(found);
+  };
+  return rows.map((row) => {
+    const source = link(row.sourceProductId, row.id);
+    const target = link(row.targetProductId, row.id);
+    return {
+      id: row.id,
+      name: row.name && row.name.length > 0 ? row.name : `${source.name} → ${target.name}`,
+      mechanism_kind: toMechanismKind(row.mechanismKind, row.id),
+      mechanism_name: row.mechanismName,
+      direction: coerceDirection(row.direction),
+      source,
+      target,
+      via: row.viaProductId ? link(row.viaProductId, row.id) : null,
+      created_at: row.createdAt,
+      updated_at: row.updatedAt,
+    };
+  });
+}
 
 export function createIntegrationsListHandler(
   dbFor: DbFactory = getDb,
@@ -84,22 +308,51 @@ export function createIntegrationsListHandler(
     if (query.direction) conds.push(eq(integrations.direction, query.direction));
     const where = conds.length ? and(...conds) : undefined;
 
+    // ── The AECI-721 second source ────────────────────────────────────────────
+    // The delivered tier spans two tables (§13.1), so this list spans two tables.
+    // Skipping the evidenced arm is not a cosmetic omission: `sitemap.ts` paginates
+    // THIS endpoint to emit pair-page URLs, so 19 real production pages would fall
+    // out of the sitemap as a side effect of an internal storage move.
+    //
+    // Composed with `unionAll` rather than by merging two page reads in memory,
+    // because `limit`/`offset` and `ORDER BY` have to apply to the COMBINED set —
+    // paginating each table separately and concatenating produces a page that is
+    // neither correctly ordered nor correctly sized.
+    const evidencedWhere = evidencedListPredicate(db, query);
+
+    const unionRows =
+      evidencedWhere === EXCLUDE_EVIDENCED
+        ? null
+        : unionAll(integrationsListSelect(db, where), evidencedListSelect(db, evidencedWhere));
+
     const [rows, countRows] = await Promise.all([
-      db.query.integrations.findMany({
-        ...integrationListConfig,
-        where,
-        orderBy: resolveIntegrationOrderBy(query.sort),
-        limit: query.perPage,
-        offset: (query.page - 1) * query.perPage,
-      }),
-      db.select({ value: count() }).from(integrations).where(where),
+      unionRows
+        ? unionRows
+            .orderBy(...resolveUnionOrderBy(query.sort))
+            .limit(query.perPage)
+            .offset((query.page - 1) * query.perPage)
+        : db.query.integrations
+            .findMany({
+              ...integrationListConfig,
+              where,
+              orderBy: resolveIntegrationOrderBy(query.sort),
+              limit: query.perPage,
+              offset: (query.page - 1) * query.perPage,
+            })
+            .then((found) => found.map(toUnionRow)),
+      Promise.all([
+        db.select({ value: count() }).from(integrations).where(where),
+        evidencedWhere === EXCLUDE_EVIDENCED
+          ? Promise.resolve([{ value: 0 }])
+          : db.select({ value: count() }).from(connectorEvidencedPairs).where(evidencedWhere),
+      ]),
     ]);
 
     const body: IntegrationsListResponse = {
-      data: rows.map(toIntegrationListItem),
+      data: await hydrateUnionRows(db, rows),
       page: query.page,
       perPage: query.perPage,
-      total: countRows[0]?.value ?? 0,
+      total: (countRows[0][0]?.value ?? 0) + (countRows[1][0]?.value ?? 0),
     };
 
     validateResponseInDev(c.env, () => {
@@ -187,9 +440,22 @@ export function createProductPairHandler(
     if (!contextProduct) throw notFoundError('product', { slug: contextSlug });
     if (!otherProduct) throw notFoundError('product', { slug: otherSlug });
 
-    // Both reads depend only on the two product ids, so they share one wave — the
-    // versions read adds a subrequest, never a round-trip of depth.
-    const [rows, versionRows] = await Promise.all([
+    // All three reads depend only on the two product ids, so they share one wave —
+    // each adds a subrequest, never a round-trip of depth.
+    //
+    // The evidenced-pair read is the AECI-721 second source (§13.1's delivered
+    // tier). It is NOT an optimisation to fold away: after the migration, 19
+    // production pairs live only in `connector_evidenced_pairs`, and querying
+    // `integrations` alone would render "no integrations" for a pair that has a
+    // working one. Its `where` needs no orientation `or` — the table stores the
+    // pair canonically (`product_a_id < product_b_id`, a CHECK), so the two ids
+    // sorted is the only key that can match.
+    const [pairA, pairB] =
+      contextProduct.id < otherProduct.id
+        ? [contextProduct.id, otherProduct.id]
+        : [otherProduct.id, contextProduct.id];
+
+    const [rows, evidencedRows, versionRows] = await Promise.all([
       db.query.integrations.findMany({
         ...integrationPairConfig,
         where: or(
@@ -203,6 +469,14 @@ export function createProductPairHandler(
           ),
         ),
         orderBy: resolveIntegrationOrderBy('name'),
+      }),
+      db.query.connectorEvidencedPairs.findMany({
+        ...connectorEvidencedPairPairConfig,
+        where: and(
+          eq(connectorEvidencedPairs.productAId, pairA),
+          eq(connectorEvidencedPairs.productBId, pairB),
+        ),
+        orderBy: [asc(connectorEvidencedPairs.name), asc(connectorEvidencedPairs.id)],
       }),
       db.query.productVersions.findMany({
         columns: {
@@ -251,6 +525,7 @@ export function createProductPairHandler(
       contextProduct,
       otherProduct,
       rows,
+      evidencedRows,
       versions ?? undefined,
     );
 

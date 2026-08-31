@@ -344,8 +344,16 @@ export async function prunePlan(db: D1Database, ids: string[]): Promise<PrunePla
  * column is denormalized: the moment the rows are gone every affected product
  * card overstates its integration count, and leaving that to a separate CLI run
  * is how drift ships to production. Same rule as
- * `apps/api/src/lib/recompute-counts.ts` — count integrations where the product
- * is source OR target.
+ * `apps/api/src/lib/recompute-counts.ts` — count DELIVERED edges regardless of
+ * which table holds them (`STAGE_1_5_SPEC.md` §13.5): `integrations` where the
+ * product is source OR target, plus `connector_evidenced_pairs` where it is an
+ * endpoint in either canonical slot OR the connector itself.
+ *
+ * The prune only ever deletes from `integrations`, so the evidenced subquery is
+ * a constant for any given product here — which is exactly why it must be
+ * present. Omitting it would make this repair path write the pre-AECI-721 answer
+ * back over a correct count, turning a routine prune into silent count drift on
+ * every connector-adjacent product it touches.
  *
  * Caller must pass `affectedProductIds` from the plan: they have to be captured
  * BEFORE the delete, since afterwards the join that finds them is gone.
@@ -396,10 +404,12 @@ export async function pruneExecute(
         db
           .prepare(
             `UPDATE products SET integration_count =
-               (SELECT COUNT(*) FROM integrations WHERE source_product_id = ? OR target_product_id = ?)
+               ((SELECT COUNT(*) FROM integrations WHERE source_product_id = ? OR target_product_id = ?)
+                + (SELECT COUNT(*) FROM connector_evidenced_pairs
+                     WHERE product_a_id = ? OR product_b_id = ? OR connector_product_id = ?))
              WHERE id = ?`,
           )
-          .bind(pid, pid, pid),
+          .bind(pid, pid, pid, pid, pid, pid),
       ),
     );
     const after = await selectAll(

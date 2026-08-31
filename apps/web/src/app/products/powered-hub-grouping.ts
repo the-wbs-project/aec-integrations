@@ -114,7 +114,19 @@ interface MutableConnection {
   edgeCount: number;
 }
 
-/** Enum-declaration order, so a pair's badges never reshuffle between renders. */
+/**
+ * Enum-declaration order, so a pair's badges never reshuffle between renders.
+ *
+ * MUST list every member of `IntegrationMechanismKind`: `freeze()` uses this as a
+ * FILTER, so a kind missing here is silently dropped from the badge rather than
+ * ordered last. `integrator` is here for that reason (AECI-698 / AECI-721), even
+ * though no row carries it until the review app re-keys.
+ *
+ * A pair whose edges all carry a NULL kind keeps its row and simply renders no
+ * badge — the case a connector-evidenced pair always hits, since
+ * `connector_evidenced_pairs` has no `mechanism_kind` column at all. Never drop a
+ * pair for want of a kind: on a connector's own page those pairs are the subject.
+ */
 const MECHANISM_ORDER: readonly IntegrationMechanismKind[] = [
   'native',
   'iPaaS',
@@ -122,6 +134,7 @@ const MECHANISM_ORDER: readonly IntegrationMechanismKind[] = [
   'api',
   'webhook',
   'partner',
+  'integrator',
 ];
 
 function freeze(c: MutableConnection): PoweredConnection {

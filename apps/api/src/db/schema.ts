@@ -2053,6 +2053,13 @@ export const vendorsRelations = relations(vendors, ({ many }) => ({
   // reachable from two different tables here, same as the built-by disambiguation above.
   createdClaims: many(claims, { relationName: 'ClaimCreatedByVendor' }),
   attestationsMade: many(attestations, { relationName: 'AttestationAttestedByVendor' }),
+  // The ~20-row accountable residue §13.2 records: an evidenced pair may name a
+  // builder (AnyWare's two Ramp↔Sage edges are Cherry Bekaert's). Inverse of
+  // `connectorEvidencedPairs.builtByVendor`, and the read side of the vendor
+  // `integration_count` rule, which counts BOTH tables after AECI-721.
+  builtEvidencedPairs: many(connectorEvidencedPairs, {
+    relationName: 'EvidencedPairBuiltByVendor',
+  }),
 }));
 
 export const productsRelations = relations(products, ({ many }) => ({
@@ -2071,6 +2078,51 @@ export const productsRelations = relations(products, ({ many }) => ({
   // Addendum B) — the inverse of `integrations.poweredByProduct`, so the
   // product detail query can hydrate a connector's edges.
   poweredIntegrations: many(integrations, { relationName: 'IntegrationPoweredByProduct' }),
+  // ── Connector-evidenced pairs (AECI-721) ──────────────────────────────────
+  // The three inverse entries the §"connector lane" note above reserved for
+  // "whichever issue builds the first read config". A product appears in this
+  // table in one of two unrelated capacities and they must not be conflated:
+  // as the CONNECTOR that delivers a pair, or as one of the two ENDPOINTS.
+  //
+  // The endpoint side needs two relations rather than one because the pair is
+  // canonicalised (`product_a_id < product_b_id`), so which slot a product
+  // occupies carries no meaning — a reader wanting "every evidenced pair this
+  // product is an endpoint of" must union both, exactly as it unions
+  // `sourceIntegrations` + `targetIntegrations` today.
+  evidencedPairsAsConnector: many(connectorEvidencedPairs, {
+    relationName: 'EvidencedPairConnector',
+  }),
+  evidencedPairsAsA: many(connectorEvidencedPairs, { relationName: 'EvidencedPairProductA' }),
+  evidencedPairsAsB: many(connectorEvidencedPairs, { relationName: 'EvidencedPairProductB' }),
+}));
+
+/**
+ * AECI-721 — the first read config over the connector lane, which is what the
+ * §"connector lane" note on the `schema` export makes the trigger for adding
+ * relations. Endpoints and vendor only; `claims` joins here in AECI-721 PR-B,
+ * once `claims.connector_evidenced_pair_id` exists.
+ */
+export const connectorEvidencedPairsRelations = relations(connectorEvidencedPairs, ({ one }) => ({
+  connectorProduct: one(products, {
+    fields: [connectorEvidencedPairs.connectorProductId],
+    references: [products.id],
+    relationName: 'EvidencedPairConnector',
+  }),
+  productA: one(products, {
+    fields: [connectorEvidencedPairs.productAId],
+    references: [products.id],
+    relationName: 'EvidencedPairProductA',
+  }),
+  productB: one(products, {
+    fields: [connectorEvidencedPairs.productBId],
+    references: [products.id],
+    relationName: 'EvidencedPairProductB',
+  }),
+  builtByVendor: one(vendors, {
+    fields: [connectorEvidencedPairs.builtByVendorId],
+    references: [vendors.id],
+    relationName: 'EvidencedPairBuiltByVendor',
+  }),
 }));
 
 export const integrationsRelations = relations(integrations, ({ one, many }) => ({
@@ -2274,14 +2326,16 @@ export const schema = {
   // Every other ops/ledger table here (auditLog, pageViews, statsCache, vendorRequests)
   // has no relations entry either.
   //
-  // The six `connector*` tables (AECI-714) also have none, but for a weaker reason —
-  // deferral, not prohibition. Nothing reads them until AECI-715 / 716 / 722, and the
-  // sync's own bounded pre-reads use `db.select()`. Whichever issue builds the first
-  // read config adds the relations and the inverse entries on `productsRelations`.
+  // Five of the six `connector*` tables (AECI-714) also have none, but for a weaker
+  // reason — deferral, not prohibition. Nothing reads them until AECI-715 / 716 / 722,
+  // and the sync's own bounded pre-reads use `db.select()`. AECI-721 built the first
+  // read config, so `connectorEvidencedPairs` now HAS relations (plus the inverse
+  // entries on `productsRelations` / `vendorsRelations`); the other five still do not.
   // relations
   vendorsRelations,
   productsRelations,
   integrationsRelations,
+  connectorEvidencedPairsRelations,
   taxonomyCategoriesRelations,
   taxonomyAudiencesRelations,
   taxonomyPhasesRelations,
