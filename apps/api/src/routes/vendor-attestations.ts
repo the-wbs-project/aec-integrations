@@ -303,7 +303,6 @@ function toAgreementVote(row: RawAttestation): AgreementAttestation {
 
 interface ClaimShape {
   id: string;
-  integrationId: string;
   direction: string;
   origin: string;
   dataObject: { slug: string; name: string };
@@ -319,6 +318,7 @@ interface ClaimShape {
  */
 function toVendorClaim(
   claim: ClaimShape,
+  integrationId: string,
   live: readonly RawAttestation[],
   vendorId: string,
   authority: Pick<AttestationAuthority, 'slots'>,
@@ -327,7 +327,7 @@ function toVendorClaim(
   const slots = authority.slots;
   return {
     id: claim.id,
-    integration_id: claim.integrationId,
+    integration_id: integrationId,
     data_object_slug: claim.dataObject.slug,
     data_object_name: claim.dataObject.name,
     direction: claimDirectionForContext(claim.direction as ClaimDirection, contextIsSource),
@@ -748,7 +748,7 @@ const vendorIntegrationConfig = {
     sourceProduct: { columns: productLinkColumns },
     targetProduct: { columns: productLinkColumns },
     claims: {
-      columns: { id: true, integrationId: true, direction: true, origin: true },
+      columns: { id: true, direction: true, origin: true },
       with: {
         dataObject: { columns: { slug: true, name: true, displayOrder: true } },
         attestations: { columns: attestationColumns, where: liveAttestationsWhere },
@@ -847,7 +847,20 @@ export function createListVendorIntegrationsHandler(
                 a.dataObject.slug.localeCompare(b.dataObject.slug),
             )
             .map((claim) =>
-              toVendorClaim(claim, claim.attestations, vendorId, authority, contextIsSource),
+              // The parent row's id, not `claim.integrationId`. AECI-721 made the
+              // claim anchor polymorphic and therefore nullable, but this claim
+              // arrived THROUGH `integrations.claims`, whose join is
+              // `claims.integration_id = integrations.id` — so the parent id is
+              // both non-null and provably the same value. Taking it from the row
+              // states that instead of asserting past the type.
+              toVendorClaim(
+                claim,
+                row.id,
+                claim.attestations,
+                vendorId,
+                authority,
+                contextIsSource,
+              ),
             ),
         });
       }
@@ -1034,6 +1047,10 @@ export function createVendorClaimHandler(
     const body: VendorClaimResponse = {
       claim: toVendorClaim(
         { ...claimRow, dataObject: { slug: dataObject.slug, name: dataObject.name } },
+        // `AttestationAuthority` resolves only integration-anchored claims (its read
+        // joins `integrations` and now says so explicitly), so this is the same id
+        // the claim carries.
+        authority.integrationId,
         live,
         vendorId,
         authority,
@@ -1166,7 +1183,14 @@ export function createUpsertVendorAttestationHandler(
     ];
 
     const body: VendorClaimResponse = {
-      claim: toVendorClaim({ ...claim, dataObject }, live, vendorId, authority, contextIsSource),
+      claim: toVendorClaim(
+        { ...claim, dataObject },
+        authority.integrationId,
+        live,
+        vendorId,
+        authority,
+        contextIsSource,
+      ),
     };
     validateResponseInDev(c.env, () => VendorClaimResponseSchema.parse(body));
     return json(body);

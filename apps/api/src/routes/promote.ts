@@ -84,6 +84,7 @@ import { type SQLiteColumn } from 'drizzle-orm/sqlite-core';
 
 import { getDb, type Db, type DbContext } from '../db/client';
 import {
+  connectorEvidencedPairs,
   integrations,
   productAudiences,
   productCategories,
@@ -291,6 +292,95 @@ function integrationEditableData(intg: PromoteIntegration): Record<string, unkno
     // AECI-616. Absent → untouched (see `vendorEditableData`).
     lastReviewedAt: intg.lastReviewedAt,
   });
+}
+
+/**
+ * Plan the write for a **connector-evidenced pair** — the delivered tier's other
+ * table (AECI-721 / `STAGE_1_5_SPEC.md` §13.1).
+ *
+ * Mirrors the `integrations` branch it replaces, with three shape differences the
+ * destination forces (`DATABASE_SCHEMA.md` §9a.6):
+ *
+ *   1. **The pair is canonicalised** (`product_a_id < product_b_id`, a CHECK), so
+ *      orientation moves out of the endpoint columns and into `direction`.
+ *   2. **`direction` uses the CLAIM vocabulary** — once the pair is ordered,
+ *      `one-way` no longer says which way. The mapping is the same lossless CASE
+ *      the migration uses, and it must stay identical to it: promote and migration
+ *      writing different encodings for the same edge is the drift that would make
+ *      a re-promote silently flip an arrow.
+ *   3. **There is no `mechanism_kind` column.** The lane answers "which mechanism",
+ *      so the payload's `mechanismKind` is deliberately DROPPED rather than stored
+ *      somewhere else. `mechanism_name` still carries the vendor's own label.
+ *
+ * An `existingId` is reused verbatim so a re-promote is an UPDATE rather than a
+ * duplicate — the unique index is `(connector, a, b)`, so a second insert for the
+ * same triple would fail the batch, and failing the batch is how a routine
+ * re-promote would become an outage.
+ */
+function planEvidencedPairWrite(args: {
+  db: Db;
+  intg: PromoteIntegration;
+  sourceId: string;
+  targetId: string;
+  connectorProductId: string;
+  builtByVendorId: string | null;
+  existingId: string | null;
+}): { id: string; operation: 'created' | 'updated'; statements: BatchStmt[] } {
+  const { db, intg, sourceId, targetId, connectorProductId, builtByVendorId, existingId } = args;
+
+  const sourceIsA = sourceId < targetId;
+  const productAId = sourceIsA ? sourceId : targetId;
+  const productBId = sourceIsA ? targetId : sourceId;
+  const direction =
+    intg.direction === 'bidirectional'
+      ? 'both'
+      : intg.direction === 'one-way'
+        ? sourceIsA
+          ? 'a_to_b'
+          : 'b_to_a'
+        : null;
+
+  // `compact()` keeps the promote contract's absent-means-untouched rule (§3.6):
+  // an omitted key is not written, so a re-push that carries only some fields does
+  // not blank the rest. `mechanismKind` is absent by design — see the header.
+  const editable = compact({
+    name: intg.name,
+    mechanismName: intg.mechanismName,
+    description: intg.description,
+    listingUrl: intg.listingUrl,
+    docsUrl: intg.docsUrl,
+    website: intg.website,
+    mechanismUrl: intg.mechanismUrl,
+    pricingModel: intg.pricingModel,
+    maturity: intg.maturity,
+    notes: intg.notes,
+    lastReviewedAt: intg.lastReviewedAt,
+  });
+  const links = { connectorProductId, productAId, productBId, builtByVendorId, direction };
+
+  if (existingId) {
+    return {
+      id: existingId,
+      operation: 'updated',
+      statements: [
+        db
+          .update(connectorEvidencedPairs)
+          .set({ ...editable, ...links })
+          .where(eq(connectorEvidencedPairs.id, existingId)),
+        // The same id may have been an `integrations` row before this promote — the
+        // review app keeps sending the id the migration preserved. Delete the stale
+        // side so the edge cannot exist in BOTH tables and be counted twice.
+        db.delete(integrations).where(eq(integrations.id, existingId)),
+      ],
+    };
+  }
+
+  const id = crypto.randomUUID();
+  return {
+    id,
+    operation: 'created',
+    statements: [db.insert(connectorEvidencedPairs).values({ id, ...editable, ...links })],
+  };
 }
 
 /**
@@ -1841,8 +1931,15 @@ export async function runPromoteIngest(
   // Endpoint product ids per integration result (parallel to `integrationResults`),
   // used to backfill `sourceSlug`/`targetSlug` after the loop (§6.2 → pair derivers).
   // `poweredById` rides along so the connector product's own page can be purged
-  // too (Stage 1.5 Addendum B) — it is NOT added to `affectedProducts`, because
-  // `integration_count` stays endpoint-only (count semantics is an open decision).
+  // too (Stage 1.5 Addendum B).
+  //
+  // §12.5's count decision is CLOSED — resolved as option B by §13.5 and shipped by
+  // AECI-721: a connector counts the edges it powers. That count lives on the
+  // EVIDENCED table, so the connector joins `affectedProducts` on the
+  // routes-to-evidenced-pair branch above, where the row it counts is actually
+  // written. It is still not added here: an edge that stays in `integrations`
+  // carrying a `powered_by` is a Convention-A self-reference, whose connector is
+  // already one of the two endpoints and so is already in the set.
   const integrationEndpoints: Array<{
     result: PromoteIntegrationResult;
     sourceId: string;
@@ -1917,6 +2014,26 @@ export async function runPromoteIngest(
       poweredByProductId,
     };
 
+    // ── AECI-721: does this edge belong in `integrations` at all? ───────────
+    // The delivered tier spans two tables (`STAGE_1_5_SPEC.md` §13.1). An edge whose
+    // connector is a real third product — neither of its own endpoints — is
+    // connector-delivered and belongs in `connector_evidenced_pairs`.
+    //
+    // WITHOUT THIS, THE MIGRATION UNDOES ITSELF. The next Procore promote would
+    // re-insert all 12 Agave edges into `integrations`, and every count site would
+    // then see them twice — once per table — because both tables are summed.
+    //
+    // The self-reference exclusion is §13.2(a) Convention A: ~60 production edges
+    // name one of their own endpoints as the connector, deliberately, and the
+    // destination's `connector_evidenced_pairs_distinct_connector` CHECK would refuse
+    // them. An edge whose connector did not resolve (Zapier, Workato — parked by
+    // AECI-700) also stays, because `connector_product_id` is NOT NULL; that is the
+    // population AECI-730 exists to make observable.
+    const routesToEvidencedPair =
+      poweredByProductId !== null &&
+      poweredByProductId !== sourceId &&
+      poweredByProductId !== targetId;
+
     let integrationId: string;
     let result: PromoteIntegrationResult;
     // An update may MOVE an endpoint. Capture the pre-update source/target so the OLD
@@ -1929,6 +2046,55 @@ export async function runPromoteIngest(
           where: eq(integrations.id, intg.supabaseId),
         })
       : undefined;
+
+    if (routesToEvidencedPair) {
+      const evidenced = planEvidencedPairWrite({
+        db,
+        intg,
+        sourceId,
+        targetId,
+        connectorProductId: poweredByProductId,
+        builtByVendorId,
+        existingId: intg.supabaseId && existing ? intg.supabaseId : null,
+      });
+      stmts.push(...evidenced.statements);
+      result = { ref: intg.ref, id: evidenced.id, operation: evidenced.operation };
+      audit({
+        actorType: 'system',
+        action:
+          evidenced.operation === 'updated'
+            ? 'connector_evidenced_pair.updated'
+            : 'connector_evidenced_pair.created',
+        entityType: 'connector_evidenced_pair',
+        entityId: evidenced.id,
+      });
+      if (existing) {
+        affectedProducts.add(existing.sourceProductId);
+        affectedProducts.add(existing.targetProductId);
+      }
+      integrationResults.push(result);
+      // Endpoints AND the connector: §12.5 option B counts the edge for the
+      // connector's own `integration_count` too, so it has to be recomputed.
+      integrationEndpoints.push({
+        result,
+        sourceId,
+        targetId,
+        poweredById: poweredByProductId,
+      });
+      affectedProducts.add(sourceId);
+      affectedProducts.add(targetId);
+      affectedProducts.add(poweredByProductId);
+      if (result.operation === 'updated' || intg.claims.length) {
+        claimIngestItems.push({
+          anchorId: evidenced.id,
+          anchorKind: 'evidenced_pair',
+          ref: intg.ref,
+          claims: intg.claims,
+          isNewAnchor: result.operation !== 'updated',
+        });
+      }
+      continue;
+    }
     if (intg.supabaseId && !existing) {
       staleSupabaseIds.push({ kind: 'integration', ref: intg.ref, supabaseId: intg.supabaseId });
     }
@@ -1976,10 +2142,11 @@ export async function runPromoteIngest(
     // is brand new and nothing can pre-exist on it (AECI-568).
     if (result.operation === 'updated' || intg.claims.length) {
       claimIngestItems.push({
-        integrationId,
+        anchorId: integrationId,
+        anchorKind: 'integration',
         ref: intg.ref,
         claims: intg.claims,
-        isNewIntegration: result.operation !== 'updated',
+        isNewAnchor: result.operation !== 'updated',
       });
     }
 

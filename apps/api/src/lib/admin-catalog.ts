@@ -467,6 +467,11 @@ export async function claimCoverage(db: Db, sampleLimit: number): Promise<AdminC
   // Explicitly qualified for the same reason as `col()`: `claims` has its own
   // `id`, so an unqualified `"id"` here would bind to the wrong table and report
   // EVERY integration as claimless.
+  // Scoped to `integrations` deliberately. The SAMPLE is a "go fix these" list for a
+  // curator, and an evidenced pair is not curated the same way — its claims arrive
+  // with the connector catalogue. The COUNTS above span both tables, so the sample
+  // being narrower than `integrations_without_claims` is expected, which is exactly
+  // what `integrations_without_claims_sample_truncated` already tells the client.
   const noClaims = sql`not exists (select 1 from ${tbl(claims)} where ${col(claims.integrationId)} = ${col(integrations.id)})`;
 
   const [
@@ -479,7 +484,11 @@ export async function claimCoverage(db: Db, sampleLimit: number): Promise<AdminC
     sampleRows,
   ] = await Promise.all([
     db.select({ value: count() }).from(integrations),
-    db.select({ value: countDistinct(claims.integrationId) }).from(claims),
+    // The generated anchor, not `integration_id` (AECI-721). After the migration 85
+    // production claims are anchored on `connector_evidenced_pairs`, and counting
+    // only the `integrations` side would report them as claimless — a coverage
+    // REGRESSION of 19 mechanisms that never happened.
+    db.select({ value: countDistinct(claims.anchorId) }).from(claims),
     db.select({ value: count() }).from(claims),
     db
       .select({ value: countDistinct(attestations.claimId) })
@@ -510,15 +519,8 @@ export async function claimCoverage(db: Db, sampleLimit: number): Promise<AdminC
 
   // Both tables (AECI-721 / §13.5 site 9). The operator console's denominator must
   // not fall by 19 on migration day, or the panel reports a shrinking catalogue and
-  // a claim-coverage RATIO that improved for no reason.
-  //
-  // ⚠️ PR-B FOLLOW-THROUGH: `integrations_with_claims` above still counts
-  // `countDistinct(claims.integration_id)`. That is correct only while every claim
-  // is anchored to `integrations` — which is true in PR-A because the evidenced
-  // table is empty. The moment PR-B re-homes the 85 production claims onto
-  // `connector_evidenced_pair_id`, this must become `countDistinct(anchor_id)` or
-  // `integrations_without_claims` jumps by 19 and the console reports a coverage
-  // regression that did not happen.
+  // a claim-coverage RATIO that improved for no reason. The numerator moved to the
+  // generated anchor for the same reason — see the `countDistinct` above.
   const integrationsTotal = (integrationsRow?.value ?? 0) + (evidencedRow?.value ?? 0);
   const integrationsWithClaims = withClaimsRow?.value ?? 0;
   const claimsTotal = claimsRow?.value ?? 0;

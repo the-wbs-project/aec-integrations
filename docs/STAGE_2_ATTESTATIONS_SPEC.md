@@ -430,7 +430,7 @@ word survives.**
 Promote's merge-by-replacement stays, but scoped:
 
 1. **Upsert claims by identity, don't delete-and-reinsert.** Use the existing
-   `claims_identity_key` unique index `(integration_id, data_object_id, direction)` as the
+   `claims_identity_key` unique index `(anchor_id, data_object_id, direction)` — the anchor being the mechanism row in either delivered-tier table since AECI-721 — as the
    `ON CONFLICT` target so a surviving claim keeps its id — and therefore keeps the attestations
    hanging off it. This alone fixes the id churn.
 2. **Delete only AECi claims the payload dropped** — `WHERE integration_id = ? AND origin = 'aeci'
@@ -483,10 +483,14 @@ pre-specify:
   `claims_identity_key` as the `ON CONFLICT` target, and the insert does — but D1 has no
   interactive transactions and `db.batch` cannot feed one statement's result into the next, so the
   surviving claim's **id** has to be known before the batch is built or the attestation inserts
-  have nothing to point at. One batched read up front (`inArray` over the integration ids,
-  chunked) is what actually delivers id stability; the `onConflictDoUpdate` is a race guard behind
-  it. Integrations this promote *created* are excluded from the read, so a first-time promote pays
-  nothing.
+  have nothing to point at. One batched read up front (`inArray` over the **anchor** ids, chunked —
+  `integration` ids before AECI-721 made the anchor polymorphic) is what actually delivers id
+  stability; the `onConflictDoUpdate` is a race guard behind it. Mechanism rows this promote
+  *created* are excluded from the read, so a first-time promote pays nothing.
+  - **The `ON CONFLICT` target had to move with the index** (AECI-721). `claims_identity_key` is
+    now `(anchor_id, …)`, and `anchor_id` is a generated column — so targeting `integration_id`
+    would name no index at all and SQLite would reject the statement rather than degrade to an
+    insert. The race guard would have become a hard batch failure on the first genuine race.
 - **An identity match emits no claim statement at all** — not even an `UPDATE`. The claim row's
   content *is* its identity; there is no other editable column, so an update would move
   `updated_at` and nothing else while adding an audit row per claim per promote. Production

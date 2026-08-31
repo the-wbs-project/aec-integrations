@@ -131,6 +131,10 @@ The **integration row is the anchor** (ADR 0018). Consequences:
 - Consolidation onto the pair page needs **no `integrations`-table migration**: there is no unique pair index today (`apps/api/src/db/schema.ts` integrations table — only non-unique `source`/`target` indexes and a distinct-endpoints check), and Stage 1.5 adds none. The pair page is a *query-time* grouping (§7), not a stored entity.
 - The unique index `(integration_id, data_object_id, direction)` (§6.1) makes promote ingest an idempotent upsert (§6.2). *(Intended from the start; actually true only since AECI-604 — the 1.5 ingest shipped as delete-and-reinsert. See the §6.2 note.)*
 
+**Amended by AECI-721 (2026-08-31): the anchor is polymorphic, the identity is not.** "The mechanism row" now means a row of *either* delivered-tier table — `integrations`, or `connector_evidenced_pairs` for an edge an iPaaS delivers (§13.1). `claims` carries both FKs, nullable, with a CHECK that exactly one is set, and the identity triple becomes `(anchor_id, data_object_id, direction)` where `anchor_id` is a STORED generated `coalesce` of the two.
+
+Nothing above changes in substance. The anchor is still the mechanism row, still not the pair, and the identity is still immutable — the migration passed each moved edge's id verbatim to its evidenced pair, so all 85 production claims kept the same `anchor_id` value and only changed which column holds it. The generated column is load-bearing rather than cosmetic: a nullable `integration_id` in the unique index would break the identity outright, because SQLite treats NULLs as distinct. ADR 0018 carries the dated amendment.
+
 ### 3.2 Direction encoding — stored vs context-relative
 
 Direction is stored **relative to the integration row's own two endpoints**, and exposed at the API **relative to the page's context product**. Keep the two representations distinct.
@@ -706,7 +710,19 @@ describes only one side of that boundary is stale whichever way the work sequenc
   non-empty is a data-integrity signal, not a design state, and should be watched rather than
   styled.
 
-**The `powered_by` ≠ `iPaaS` residue is recorded here as OPEN, not settled.** The two sets differ
+**SETTLED by AECI-721 (2026-08-31): the residue MIGRATES.** The routing key is
+`powered_by_product_id IS NOT NULL AND <> source AND <> target`, **regardless of
+`mechanism_kind`** — so the ~20 accountable `marketplace-app`-with-`powered_by` rows move into the
+evidenced tier alongside the `iPaaS` ones, carrying `built_by_vendor_id`. Read the originating
+issue's "`integrations` keeps only accountable-party edges" as *"no connector intermediary"*, not
+*"no named builder"*: `connector_evidenced_pairs.built_by_vendor_id` exists on day one precisely so
+this residue would not be pre-decided (`DATABASE_SCHEMA.md` §9a.6). **AECI-713's Via lane therefore
+composes ONE source, not two.** In production that is 17 of the 19 migrating edges — Agave's 11,
+Cherry Bekaert's 2, ClearPlan's 2, Appficiency's 2. The cost accepted with it: those rows lose
+`mechanism_kind` (the destination has no such column), and `mechanism_name` carries the label
+instead. The paragraph below is retained as the record of what was open.
+
+**The `powered_by` ≠ `iPaaS` residue was recorded here as OPEN, not settled.** The two sets differ
 in both directions: ~326 edges carry `powered_by` against 308 marked `iPaaS`. The ~20-row
 difference is real and **accountable** — AnyWare Apps' two Ramp↔Sage edges are `marketplace-app`
 **with** a `powered_by`, built and maintained by Cherry Bekaert. AECI-721 says both that it
@@ -718,8 +734,16 @@ must answer it before AECI-713 finalises.
 
 **Phase 2 — after AECI-721.** The lane **is** the source table: direct = `integrations`, via =
 evidenced connector pairs. No key, no heuristic, no dirty column — the structure carries what the
-predicate used to. `mechanism_kind` will no longer contain `iPaaS` (AECI-698's 2026-08-29
-revision), so clause (b) becomes unreachable and clause (a) becomes moot for the migrated rows.
+predicate used to, **for every edge that could be routed**.
+
+**One correction to this paragraph, from the build.** `mechanism_kind` DOES still contain `iPaaS`.
+53 production edges are `iPaaS` with a NULL `powered_by` because their connector is not a promoted
+product, `connector_evidenced_pairs.connector_product_id` is NOT NULL, and AECI-700 parks Zapier and
+Workato permanently — so they cannot be routed, and they are 53 of the 132 edges
+`isConnectorPoweredEdge` gates for AECI-705. Dropping the value would have silently re-opened vendor
+attestation prompts on every one. Clause (b) is therefore still reachable, and clause (a) still
+matters for the ~60 Convention-A rows that stay. Retiring `iPaaS` is a sequenced follow-up gated on
+AECI-730 making the unroutable population observable at promote time.
 
 **A hard prerequisite under both phases: AECI-706**, the prod `powered_by` backfill. Splitting on a
 half-populated FK misfiles connector edges as direct, which is worse than today's honest mixed list.
@@ -812,9 +836,13 @@ mid-flight will make a local decision about a cross-cutting contract.
   adopted — **and scheduled into the AECI-721 migration** rather than shipped before it, so the
   numbers move once and the Algolia products reindex happens once, which is exactly what §12.5's
   recommendation asked for. Post-migration the expression becomes AECI-713's recorded rule:
-  headline = direct + evidenced-connector. The code site is the `affectedProducts` comment in
-  `apps/api/src/routes/promote.ts`, which currently cites this decision as open; it updates when B
-  lands.
+  headline = direct + evidenced-connector.
+  - **Shipped 2026-08-31.** The expression is `count(integrations WHERE src=p OR tgt=p) +
+    count(evidenced_pairs WHERE a=p OR b=p OR connector=p)`; the third disjunct IS option B. The
+    `affectedProducts` comment in `apps/api/src/routes/promote.ts` no longer cites it as open, and
+    the connector joins `affectedProducts` on the routing branch, where the row it counts is
+    written. Prod effect: Agave ERP Sync 0 → 12, ClearSync 0 → 2, Be.Smart 0 → 1, NetSuite
+    Connector 1 → 3, AnyWare 1 → 3. Endpoint counts are unchanged by construction.
   - **Evidenced only, never derived.** Only the delivered tier reaches a count. MindCloud's
     catalogue alone is ~3,411 stubs, and the `integration_count` facet buckets
     (`0 / 1–10 / 11–50 / 51+`) were calibrated against a catalogue topping out near 52 — letting
@@ -968,7 +996,9 @@ Stated explicitly so a reviewer can check them rather than infer them:
 - **`DATABASE_SCHEMA.md` — no schema change in this addendum.** §13.4's additions are a Drizzle read
   config plus a Zod field; no DDL, no migration. The AECI-721 migration is governed by AECI-714 and
   rides the `stage-2` migration lane after that set settles (a D1 CHECK change is a destructive
-  table recreate).
+  table recreate). **It landed 2026-08-31** as `0022_powerful_killraven.sql`: the `integrations`
+  CHECK gains `integrator`, `claims` gains the polymorphic anchor (§3.1's amendment), and the 19
+  production powered edges move. §5a.1, §9.3 and §9a.6 of that document carry the as-built detail.
 - **`SEARCH_RANKING.md` — no ranking *rule* change from Addendum C**, with the §12.5-B correction
   recorded in §13.5 rather than the originating issue's blanket claim. §4's rank table changes with
   AECI-698 / AECI-721 — **landed 2026-08-31**: `integrator` added at 1, the connector-evidenced pin
@@ -1011,10 +1041,23 @@ presentation issues anchor to something concrete rather than to a promise.
 `connector_stub_mappings`, `connector_pairs` — and the sixth, `connector_evidenced_pairs`, is the
 delivered tier §13.1's table names, **created empty**.
 
-**AECI-714 created new tables only.** Every change to an existing table stays AECI-721's: the
+**AECI-714 created new tables only.** Every change to an existing table stayed AECI-721's: the
 `integrations_mechanism_kind_check` enum revision, the powered-edge move, the claims re-home, and
-the ten `integration_count` lockstep sites of §13.5. That split is what keeps the destructive D1
+the `integration_count` lockstep sites of §13.5. That split is what kept the destructive D1
 recreate to **one** migration, and it is why `0021` is `CREATE TABLE` / `CREATE INDEX` only.
+
+**AECI-721 landed 2026-08-31, in two PRs.** The split is expand→contract (`docs/migrations.md`
+§3.2): PR-A is additive and inert — every read surface and all fourteen count sites read the union
+of both tables, so PR-B could not move a number — and PR-B is the single destructive migration
+`0022_powerful_killraven.sql` plus the promote-path routing that stops the migration undoing
+itself. Three things worth carrying forward:
+
+- **`connector_evidenced_pairs` is no longer written by nothing.** `POST /api/promote` routes
+  connector-powered edges here. The catalogue sync still does not touch it.
+- **`iPaaS` did not leave the mechanism enum**, against this section's own expectation — see
+  §13.2's Phase 2 correction. Neither did `partner`. Both retirements are sequenced follow-ups.
+- **The lockstep is fourteen sites, not ten** (§13.5), and it is regression-tested rather than
+  only enumerated.
 
 **The reachable tier is still not a table**, exactly as §13.1 requires. Reachability derives at
 read time from `connector_stubs` + `connector_stub_mappings`. `connector_pairs` is projected not

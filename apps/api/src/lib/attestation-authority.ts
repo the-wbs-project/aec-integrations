@@ -69,7 +69,7 @@
  */
 
 import { VENDOR_ATTESTATION_SLOTS, type VendorAttestationSlot } from '@aeci/shared';
-import { and, eq, inArray, or } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, or } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import { claims, integrations, productVendors } from '../db/schema';
@@ -389,10 +389,19 @@ export async function resolveClaimAuthority(
     // Same INNER JOIN + in-predicate vendor filter as `loadAuthorities`: a claim
     // on an integration the caller does not touch produces no rows at all.
     .innerJoin(productVendors, ownedEndpointJoin(vendorId))
-    .where(eq(claims.id, claimId));
+    // AECI-721 made the claim anchor polymorphic. A claim anchored on a
+    // connector-evidenced pair drops out of the INNER JOIN above anyway; stating it
+    // makes the exclusion checkable and lets the narrowing below be a fact rather
+    // than a cast. Nothing attestable is lost: an evidenced pair is
+    // connector-delivered by construction, and §14 forbids attestation on those —
+    // so this read could only ever have produced a 403.
+    .where(and(eq(claims.id, claimId), isNotNull(claims.integrationId)));
 
   const first = rows[0];
   if (!first) throw notFoundError('claim', { id: claimId });
+  // Guaranteed by the `isNotNull` + INNER JOIN above; Drizzle types the column, not
+  // the query.
+  const integrationId = first.integrationId!;
 
   // Owning BOTH endpoints yields two rows for the one claim — fold them, as
   // `loadAuthorities` does.
@@ -400,14 +409,14 @@ export async function resolveClaimAuthority(
   return {
     claim: {
       id: first.id,
-      integrationId: first.integrationId,
+      integrationId,
       dataObjectId: first.dataObjectId,
       direction: first.direction,
       origin: first.origin,
       createdByVendorId: first.createdByVendorId,
     },
     authority: {
-      integrationId: first.integrationId,
+      integrationId,
       sourceProductId: first.sourceProductId,
       targetProductId: first.targetProductId,
       maintainedBy: first.maintainedBy,

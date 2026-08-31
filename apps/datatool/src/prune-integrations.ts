@@ -173,6 +173,13 @@ function placeholders(n: number): string {
   return new Array(n).fill('?').join(',');
 }
 
+/** Drop the generated columns from a `SELECT *` row so the rollback INSERT is legal. */
+function writableColumns(table: string, row: Record<string, unknown>): Record<string, unknown> {
+  const generated = GENERATED_COLUMNS[table];
+  if (!generated?.length) return row;
+  return Object.fromEntries(Object.entries(row).filter(([col]) => !generated.includes(col)));
+}
+
 /** SQLite literal for a rollback INSERT. Blobs are out of scope (none on these tables). */
 function sqlLiteral(v: unknown): string {
   if (v === null || v === undefined) return 'NULL';
@@ -200,9 +207,26 @@ async function selectAll(
 }
 
 /**
+ * Columns SQLite computes and refuses to be given (`cannot INSERT into generated
+ * column`). `claims.anchor_id` is `coalesce(integration_id,
+ * connector_evidenced_pair_id) STORED` (AECI-721) and arrives through `SELECT *`
+ * like any other column — a rollback that echoed it back would be rejected at the
+ * exact moment an operator needed it to work.
+ *
+ * A denylist rather than a schema read on purpose: it is one name, it fails loudly
+ * in `prune-integrations.spec.ts` the moment another generated column appears, and
+ * the alternative — introspecting `PRAGMA table_info` for `hidden = 2/3` — puts a
+ * second D1 round trip and a SQLite version dependency into a recovery path.
+ */
+const GENERATED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
+  claims: ['anchor_id'],
+};
+
+/**
  * Read the full rows this prune would remove and render them as parent → child
  * INSERTs (`integrations` → `claims` → `attestations`) so the FKs hold on replay.
- * `SELECT *` on purpose: the rollback then can't drift when a column is added.
+ * `SELECT *` on purpose: the rollback then can't drift when a column is added —
+ * except for generated columns, which are stripped by {@link GENERATED_COLUMNS}.
  */
 async function buildRollbackSql(db: D1Database, ids: string[]): Promise<string> {
   const ph = placeholders(ids.length);
@@ -225,9 +249,9 @@ async function buildRollbackSql(db: D1Database, ids: string[]): Promise<string> 
     '-- Rollback for datatool prune-integrations.',
     '-- Replay order is parent -> child so the FKs hold; INSERT OR IGNORE makes re-runs safe.',
     `-- integrations: ${integrations.length}, claims: ${claims.length}, attestations: ${attestations.length}`,
-    ...integrations.map((r) => toInsert('integrations', r)),
-    ...claims.map((r) => toInsert('claims', r)),
-    ...attestations.map((r) => toInsert('attestations', r)),
+    ...integrations.map((r) => toInsert('integrations', writableColumns('integrations', r))),
+    ...claims.map((r) => toInsert('claims', writableColumns('claims', r))),
+    ...attestations.map((r) => toInsert('attestations', writableColumns('attestations', r))),
     '',
   ].join('\n');
 }
