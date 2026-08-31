@@ -8,6 +8,22 @@ This file tells Claude Code how to work in this repo. Read this before starting 
 
 The site is currently in pre-launch. Production data lives in Airtable; Supabase is being built out for Stage 1.
 
+## Sibling repos — check you're in the right one
+
+AECi spans **three** GitHub repos under `the-wbs-project`, and Linear issues for all three are filed on
+the **AECi** team. The routing signal is the issue's **project** and **title prefix**, not the team:
+
+| Repo | What it holds | Linear routing |
+|---|---|---|
+| **`aec-integrations`** (this one) | The app: Angular SSR + Workers + D1, and the specs that govern it | Default. No prefix; project is the stage/epic |
+| **`aec-integrations-review`** | The curation/review app upstream of promote — the catalog, connector catalogues/stubs/mappings, and `docs/connector-vendors.md`. Reachable read-only from here via the `aeci-review` MCP | Title prefixed **`REVIEW - `**, no project |
+| **`aec-integrations-marketing`** | **No application code — all Markdown.** Positioning, strategy, content plan, channel copy, and partner/vendor outreach material under `docs/outreach/`. `CLAUDE.md` is a symlink to `AGENTS.md`; its copy rules are stricter than this repo's (sentence case, **no em dashes**) | Project **"Marketing"**, no prefix |
+
+**When you file an issue, pick the repo first and route it accordingly** — a call brief, an outreach
+email, or positioning copy belongs in the marketing repo under the Marketing project, not here. If work
+you're doing turns out to belong to another repo, say so rather than writing it into this one; you
+generally cannot commit across repos from a single workspace.
+
 ## Where to start
 
 `docs/STAGE_1_SPEC.md` is the master spec and the contract — but it's 1,600+ lines. **Don't read it end-to-end; load only the section that governs your task.**
@@ -32,6 +48,7 @@ The site is currently in pre-launch. Production data lives in Airtable; Supabase
 | Stage 2 Integration Attestations build spec (the AECI-514 epic: attestation authority + claim provenance, promote coexistence, the `single_source` agreement state + conflict UI, vendor attestation authoring, the detector/notification pipeline, the product-version model + version-diff timeline, the maintenance marker's real `last_reviewed_at`; the build contract each AECI-514 sub-issue [301, 302, 303, 603…608, 616] anchors to; supersedes §2.4 of `STAGE_2_SPEC.md` and activates the Stage 1.5 carve-outs in §10 of `STAGE_1_5_SPEC.md`) | `docs/STAGE_2_ATTESTATIONS_SPEC.md` |
 | Stage 2 Real-Time / Live Portal build spec (the AECI-516 epic: **scoped client revalidation, not sockets** — ADR 0023 declined Durable-Object WebSockets and SSE, with a named re-open trigger; the read-only `GET /api/vendor/updates` per-scope freshness cursor [six SELECTs in one `db.batch`, **no audit row**, never entitlement-gated] and its "every cursor query reuses its handler's scoping predicate" invariant, the shared `VendorPortalStore` + `revalidate(scopes)`, the visibility-aware `VendorLiveSync` cadence [20 s focused / 60 s unfocused / paused hidden, 160 s backoff cap], optimistic **toggle** writes with visible rollback [forms stay pessimistic, deliberately], the live entitlement flip + session-scoped new-notification count, and the **one hoisted polite live region** [fed by the root `VendorPortalAnnouncer`, one per dashboard concept]; the build contract each AECI-516 sub-issue [626…632] anchors to — **all seven shipped 2026-08-19, every section carries an as-built subsection and §1.5 indexes the six divergences**; supersedes §2.3 + the third §8.2 open item of `STAGE_2_SPEC.md`, and corrects its §4(5) and §7 epic-table "Durable Objects". **No migration, no binding, no queue, no `Cache-Tag`.**) | `docs/STAGE_2_REALTIME_SPEC.md` |
 | Stage 2 Product Docs / Help Center scope outline (the AECI-634 epic: reader-facing `/docs` **inside `apps/web`** — decided **not** a separate site/app/subdomain, with a re-open trigger; generalizes the legal-pages build-time-inlined-markdown pattern; tech stack, authoring technique [docs-as-code, the same-PR sync rule, no screenshots at v0], v0 site map; **kickoff draft — not yet a build contract**, vendor-guide content deferred until vendor-portal testing settles) | `docs/STAGE_2_PRODUCT_DOCS_SPEC.md` |
+| Connector lane (iPaaS reachability) — **the lane is split across all three repos, and almost none of it is here.** `docs/connector-vendors.md` in **`aec-integrations-review`** is the source of truth for tracked catalogues, stub/mapping state and the pair-page classifier. The **MindCloud call brief + outcome record** (AECI-703 / epic AECI-695) lives in **`aec-integrations-marketing`** at `docs/outreach/connector-lane-mindcloud-call.md` — the trade, the AECI-702 fence on what may be said, the questions, and the workstream-D decision table. **Current posture (2026-08-31): the call is deferred** — we scrape what we can get ourselves first, and an **incomplete coverage list is explicitly acceptable**, so workstream D is not blocked on a MindCloud feed. This repo holds only the Stage 1.5 Addendum B slice (`products.product_role`, `integrations.powered_by_product_id`, the powered hub) and, eventually, the coverage schema + surfaces | `docs/STAGE_1_5_SPEC.md` §12 Addendum B (all that ships here today); brief + evidence in the sibling repos above |
 | `data_object` controlled vocabulary (Stage 1.5; the frozen, closed list both apps seed from — slug/name/description/display_order/aliases) | `docs/DATA_OBJECT_VOCABULARY.md` (+ generated `docs/data-object-vocabulary.json` mirror) |
 | `trade` controlled vocabulary — the **fourth taxonomy facet** ("what work does your company sell?", AECI-538 epic): the closed 34-term list, the trade-specific-value tagging rule, find-only promote resolution, and the publication gate | `docs/TRADES_VOCABULARY.md` (+ generated `docs/trades-vocabulary.json` mirror); facet behaviour in `docs/STAGE_1_SPEC.md` §5.5a |
 | API endpoint shapes, validation, errors | `docs/API_CONTRACTS.md` |
