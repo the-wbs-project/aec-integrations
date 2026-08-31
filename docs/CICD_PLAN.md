@@ -172,6 +172,20 @@ Runs in parallel where possible to minimize wall time. Goal: under 10 minutes to
 > job via the `changes` job. The `push` `paths-ignore` (docs-only) and the `paths` (auth/JWKS input
 > set) filter are unchanged.
 
+**Job: `changes`** (~10 s) — *non-required, advisory*
+1. **Checkout** — REQUIRED, not incidental. `dorny/paths-filter` reads the changed-file list from
+   the GitHub API on `pull_request`, but shells out to **git** on `push`. Without a working copy
+   the push lane dies on `git branch --show-current` → `fatal: not a git repository` → exit 128.
+2. `dorny/paths-filter@v3` with `base: ${{ github.event_name == 'push' && github.ref_name || '' }}`
+   — on `push`, naming the pushed branch makes the action diff against `github.event.before` (the
+   commits the push actually added). Its default base is the repo **default** branch, which on a
+   long-lived integration branch (`stage-2`, `admin-panel`) diffs the whole branch against `main`
+   and reports `code: true` forever. On `pull_request` the action ignores `base` entirely.
+3. Outputs `code` — `'true'` when at least one changed file is neither markdown nor under `docs/`.
+
+> Only `e2e-and-integration` reads this output, and it **fails open** (`!= 'false'`, not
+> `== 'true'`) — see §10. The three required jobs never `needs:` it.
+
 **Job: `lint-and-types`** (~2 min)
 1. Checkout
 2. Setup Node 24 with cache
@@ -638,6 +652,16 @@ The "human reviewer" requirement is enforced by GitHub branch protection on `mai
 > `needs:` it), so even a failure of that job cannot re-block a merge. The `push` `paths-ignore` is
 > retained — post-merge runs are not merge-gating. (The base-branch-agnostic note under §3.1 and the
 > §"cost control" caveat below are updated to match.)
+>
+> **Follow-up — that `changes` job broke the whole `push` lane for a day (2026-08-31).** It was
+> added with no `actions/checkout`, which is fine on `pull_request` (paths-filter uses the GitHub
+> API) and fatal on `push` (it shells out to git): `fatal: not a git repository` → exit 128. Every
+> post-merge run failed, and because `e2e-and-integration` gated on `needs.changes.outputs.code ==
+> 'true'`, a *failed* filter skipped E2E — and `deploy-staging` `needs:` E2E, so **the staging
+> deploy would have been skipped on every push to `main`** once the branch merged up. Two fixes:
+> the job now checks out (and pins `base` to the pushed branch, see §3.1), and the downstream guard
+> fails **open**. The general lesson is in §10: an advisory job must never be able to *withhold* a
+> deploy by erroring.
 
 ---
 
@@ -884,6 +908,14 @@ gate a required check behind a workflow-level `paths-ignore`.
 > and the docs-skip lives on the expensive non-required jobs (`e2e-and-integration`), gated by the
 > `changes` job's `code` output. The `push` `paths-ignore` stays — post-merge runs are not
 > merge-gating.
+
+> **A path filter must fail OPEN when a deploy hangs off it.** `e2e-and-integration` sits between a
+> push to `main` and `deploy-staging`, so its guard reads
+> `needs.changes.outputs.code != 'false'` — only an explicit docs-only verdict skips the lane. The
+> original `== 'true'` form conflated "docs-only" with "the filter did not answer", so a broken
+> `changes` job silently withheld the staging deploy instead of failing loudly (see the §8
+> follow-up). Same rule for any future advisory gate: skip on a *positive* skip verdict, never on
+> the absence of a verdict.
 
 ---
 
