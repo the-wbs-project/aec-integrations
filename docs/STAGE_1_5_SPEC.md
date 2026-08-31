@@ -538,12 +538,24 @@ the Algolia products reindex (custom ranking + numeric facet buckets + sort repl
 
 ### 12.6 Known data state
 
-At time of writing only **5 of 421** prod integrations carry `powered_by_product_id`; all ~13 Agave
-edges have it NULL, with "via Agave ERP Sync" living only in free-text `mechanism_name`. The code
-path is complete; Agave's hub view fills in when the FK is backfilled in **Airtable + re-promote**
-(the durable path — no D1 stopgap). Separately tracked follow-ups: 22 exact-duplicate integration
-rows; connector discovery in search/browse (`product_role` on Algolia records, a Connectors facet,
-`RoleBadge` on search cards).
+**Superseded 2026-08-31 (AECI-706).** As first written this section read "only **5 of 421** prod
+integrations carry `powered_by_product_id`; all ~13 Agave edges have it NULL". Both numbers were a
+2026-08 snapshot and the AECI-671/698 promotes have since overtaken them. Measured against
+`aeci-app-production` on 2026-08-31: **946** integrations, **79** carrying the FK, and the **Agave
+gap is closed** — all 12 upstream Agave powered edges carry it, so Agave's hub view is live.
+
+The residual gap is **promotion coverage, not a D1 data defect**. Of the 325 upstream powered
+edges: 79 are correct in prod, 62 are edges whose *connector* is not promoted (Zapier, Workato,
+et al — the `on_hold` set), and 184 are edges never promoted at all. Zero prod rows have a NULL FK
+whose connector *is* promoted, so there is nothing for a D1 backfill to do today. The ruling above
+still stands for how a row gets fixed — **Airtable + re-promote**, no D1 stopgap — with one
+narrow, audited exception now tooled in `scripts/ops/2026-08-powered-by-backfill/`: a row whose FK
+is the *only* difference from upstream. That sweep is also the detector; see its README for the
+bucket definitions and the standing measurement.
+
+Separately tracked follow-ups: 22 exact-duplicate integration rows; connector discovery in
+search/browse (`product_role` on Algolia records, a Connectors facet, `RoleBadge` on search
+cards).
 
 ### 12.7 Catalog-scope note on both integration lists (2026-08-05)
 
