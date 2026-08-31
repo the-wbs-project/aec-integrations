@@ -237,9 +237,25 @@ export class VendorIntegrationsSection {
   protected readonly canWrite = computed(() => this.verified());
   protected readonly loaded = computed(() => !this.loading() && !this.failed());
 
+  /**
+   * The two counts, and why only one of them is gated (AECI-705 / §14).
+   *
+   * `total` stays every claim on record: the vendor can read all of them, and
+   * under-reporting the surface would contradict its own public pair pages.
+   *
+   * `awaiting` counts only claims on an **attestable** edge. This phrase is the
+   * in-portal half of the prompt the acceptance criterion forbids: on a
+   * connector-powered edge it would tell a vendor that plumbing it never built is
+   * waiting on its confirmation, which is exactly the sentence the detector
+   * suppression exists to stop sending by email.
+   */
   protected readonly summaryLine = computed(() => {
-    const claims = this.integrations().flatMap((i) => i.claims);
-    const awaiting = claims.filter((c) => c.mine.length === 0).length;
+    const integrations = this.integrations();
+    const claims = integrations.flatMap((i) => i.claims);
+    const awaiting = integrations
+      .filter((i) => i.attestable)
+      .flatMap((i) => i.claims)
+      .filter((c) => c.mine.length === 0).length;
     return $localize`:@@vendor.attest.summary:${claims.length}:total: data flows on record · ${awaiting}:awaiting: waiting on your confirmation`;
   });
 

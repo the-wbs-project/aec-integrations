@@ -90,7 +90,9 @@ const text = (fixture: ComponentFixture<VendorIntegrationsSection>) =>
 describe('VendorIntegrationsSection — loading', () => {
   it('renders a card per integration once loaded', async () => {
     const fixture = await create();
-    expect(el(fixture).querySelectorAll('aec-vendor-integration-card')).toHaveLength(4);
+    expect(el(fixture).querySelectorAll('aec-vendor-integration-card')).toHaveLength(
+      VENDOR_INTEGRATIONS_FIXTURE.integrations.length,
+    );
     expect(text(fixture)).toContain('Procore');
   });
 
@@ -304,13 +306,92 @@ describe('VendorIntegrationsSection — copy discipline', () => {
 
   it('summarises what is on record and what is waiting on the vendor', async () => {
     const fixture = await create();
-    const claims = (
-      VENDOR_INTEGRATIONS_FIXTURE as ListVendorIntegrationsResponse
-    ).integrations.flatMap((i) => i.claims);
-    const awaiting = claims.filter((c) => c.mine.length === 0).length;
+    const integrations = (VENDOR_INTEGRATIONS_FIXTURE as ListVendorIntegrationsResponse)
+      .integrations;
+    const claims = integrations.flatMap((i) => i.claims);
+    // The two counts are scoped differently on purpose (AECI-705): everything on
+    // record is readable, but only an attestable edge can be waiting on anyone.
+    const awaiting = integrations
+      .filter((i) => i.attestable)
+      .flatMap((i) => i.claims)
+      .filter((c) => c.mine.length === 0).length;
 
     expect(text(fixture)).toContain(`${claims.length}`);
     expect(text(fixture)).toContain(`${awaiting} waiting on your confirmation`);
+  });
+});
+
+// ─── AECI-705: connector-powered edges ───────────────────────────────────────
+
+describe('VendorIntegrationsSection — connector-powered edges', () => {
+  const poweredCard = (fixture: ComponentFixture<VendorIntegrationsSection>) => {
+    const powered = VENDOR_INTEGRATIONS_FIXTURE.integrations.find((i) => !i.attestable);
+    if (!powered) throw new Error('fixture lost its connector-powered integration');
+    const cards = [...el(fixture).querySelectorAll('aec-vendor-integration-card')];
+    const card = cards.find((c) => (c.textContent ?? '').includes(powered.other_product.name));
+    return { powered, card };
+  };
+
+  it('renders the powered edge read-only, naming the connector', async () => {
+    const fixture = await create();
+    const body = text(fixture);
+    expect(body).toContain('Delivered through Agave ERP Sync');
+    expect(body).toContain('neither product vendor confirms them');
+  });
+
+  it('offers no attestation control and no add-claim form on that card', async () => {
+    const fixture = await create();
+    const { card } = poweredCard(fixture);
+    expect(card).toBeTruthy();
+    expect(card?.querySelector('aec-vendor-attestation-control')).toBeNull();
+    expect(card?.querySelector('aec-vendor-add-claim-form')).toBeNull();
+  });
+
+  it('still offers controls on the direct edges beside it', async () => {
+    // The gate is per edge, not a mode. If a powered row could switch the whole
+    // tab read-only, 14% of the catalogue would silently take the other 86% with it.
+    const fixture = await create();
+    expect(el(fixture).querySelectorAll('aec-vendor-attestation-control').length).toBeGreaterThan(
+      0,
+    );
+    expect(el(fixture).querySelectorAll('aec-vendor-add-claim-form').length).toBeGreaterThan(0);
+  });
+
+  it('says nothing extra when the vendor is unverified — one explanation, not two', async () => {
+    // The section already explains the vendor-level reason above the list.
+    // Repeating a per-card reason there would read as two separate problems.
+    const body = text(await create(false));
+    expect(body).toContain('once your account is verified');
+    expect(body).not.toContain('Delivered through');
+  });
+
+  it('falls back to the mechanism name when the connector is not a promoted product', async () => {
+    // 53 of production's 132 powered edges, so this branch is the common one.
+    api.getIntegrations.mockResolvedValue({
+      integrations: [
+        {
+          ...VENDOR_INTEGRATIONS_FIXTURE.integrations[0],
+          attestable: false,
+          powered_by: null,
+          mechanism_name: 'Zapier connector',
+        },
+      ],
+    });
+    expect(text(await create())).toContain('Delivered through Zapier connector');
+  });
+
+  it('stays generic when there is no connector name at all', async () => {
+    api.getIntegrations.mockResolvedValue({
+      integrations: [
+        {
+          ...VENDOR_INTEGRATIONS_FIXTURE.integrations[0],
+          attestable: false,
+          powered_by: null,
+          mechanism_name: null,
+        },
+      ],
+    });
+    expect(text(await create())).toContain('Delivered through a connector');
   });
 });
 

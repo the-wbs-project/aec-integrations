@@ -8,6 +8,7 @@
  * carries a vendor attestation yet.
  */
 
+import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
@@ -44,6 +45,8 @@ const RFIS = u(20);
 const CLAIM = u(30);
 const ACME = u(901);
 const GLOBEX = u(902);
+/** The connector product for the AECI-705 gate cases. */
+const CONNECTOR = u(3);
 
 /** Fixed clock so every threshold assertion is a pure date comparison. */
 const NOW = new Date('2026-08-17T10:00:00.000Z');
@@ -482,5 +485,140 @@ describe('runAttestationDetectors', () => {
     expect(byDetector.get('silent-counterparty')).toBe(1);
     expect(byDetector.get('open-conflict')).toBe(0);
     expect(byDetector.get('aeci-denied')).toBe(0);
+  });
+});
+
+// ─── The AECI-705 connector gate ─────────────────────────────────────────────
+
+/**
+ * "No vendor is ever prompted to confirm/deny plumbing they didn't build" is the
+ * acceptance criterion, and it is enforced once at the registry rather than
+ * inside four detectors. So these tests assert on `runAttestationDetectors` —
+ * calling a detector directly deliberately bypasses the gate, which is what lets
+ * the ops findings survive it.
+ */
+describe('runAttestationDetectors — connector-powered edges (AECI-705)', () => {
+  /** Make the one seeded edge connector-powered by whichever signal. */
+  async function makePowered(by: 'fk' | 'ipaas') {
+    await t.db
+      .update(integrations)
+      .set(
+        by === 'fk'
+          ? { poweredByProductId: CONNECTOR, mechanismKind: 'marketplace-app' }
+          : { poweredByProductId: null, mechanismKind: 'iPaaS' },
+      )
+      .where(eq(integrations.id, INTEGRATION));
+  }
+
+  const findingsFor = (results: Awaited<ReturnType<typeof runAttestationDetectors>>, d: string) =>
+    results.find((r) => r.detector === d)?.findings ?? [];
+
+  beforeEach(async () => {
+    await t.db.insert(products).values({
+      id: CONNECTOR,
+      slug: 'agave-erp-sync',
+      name: 'Agave ERP Sync',
+      productRole: 'connector',
+      promotionStatus: 'promoted',
+    });
+  });
+
+  it.each([['fk'], ['ipaas']] as const)(
+    'drops the silent-counterparty nudge on a %s-powered edge',
+    async (signal) => {
+      await seedOwnership();
+      await seedClaim([
+        {
+          source: 'vendor_a',
+          asserted: true,
+          by: ACME,
+          createdAt: daysAgo(SILENT_COUNTERPARTY_DAYS + 2),
+        },
+      ]);
+      // Same fixture as the passing case above, which finds 1 — the ONLY
+      // difference is the edge, so a green assertion here cannot be a fixture
+      // that stopped matching for some unrelated reason.
+      expect(
+        findingsFor(await runAttestationDetectors({ db: t.db, now: NOW }), 'silent-counterparty'),
+      ).toHaveLength(1);
+
+      await makePowered(signal);
+      expect(
+        findingsFor(await runAttestationDetectors({ db: t.db, now: NOW }), 'silent-counterparty'),
+      ).toEqual([]);
+    },
+  );
+
+  it('drops both open-conflict vendor nudges but KEEPS the ops finding', async () => {
+    await seedOwnership();
+    await seedClaim([
+      {
+        source: 'vendor_a',
+        asserted: true,
+        by: ACME,
+        createdAt: daysAgo(OPEN_CONFLICT_DAYS + 2),
+      },
+      {
+        source: 'vendor_b',
+        asserted: false,
+        by: GLOBEX,
+        createdAt: daysAgo(OPEN_CONFLICT_DAYS + 2),
+      },
+    ]);
+    await makePowered('ipaas');
+
+    const findings = findingsFor(
+      await runAttestationDetectors({ db: t.db, now: NOW }),
+      'open-conflict',
+    );
+    // `vendorId: null` is AECi ops. A dispute over a powered edge is precisely
+    // what an operator needs to see — AECi curated the claim, and the gate is
+    // about not chasing VENDORS, not about hiding the state from ourselves.
+    expect(findings.map((f) => f.vendorId)).toEqual([null]);
+  });
+
+  it('keeps the ops-routed aeci-denied finding on a powered edge', async () => {
+    await seedOwnership();
+    await seedClaim([{ source: 'vendor_a', asserted: false, by: ACME }]);
+    await makePowered('fk');
+
+    const findings = findingsFor(
+      await runAttestationDetectors({ db: t.db, now: NOW }),
+      'aeci-denied',
+    );
+    expect(findings.map((f) => f.vendorId)).toEqual([null]);
+  });
+
+  it('drops the stale-version nudge on a powered edge', async () => {
+    await seedOwnership();
+    await seedClaim([{ source: 'vendor_a', asserted: true, by: ACME, createdAt: monthsAgo(14) }]);
+    expect(
+      findingsFor(await runAttestationDetectors({ db: t.db, now: NOW }), 'stale-version'),
+    ).toHaveLength(1);
+
+    await makePowered('ipaas');
+    expect(
+      findingsFor(await runAttestationDetectors({ db: t.db, now: NOW }), 'stale-version'),
+    ).toEqual([]);
+  });
+
+  it('leaves a direct edge alone', async () => {
+    // The gate must not be a blanket suppression: `native` with a NULL FK is
+    // 721 of production's 946 edges, and every nudge on them still has to send.
+    await seedOwnership();
+    await seedClaim([
+      {
+        source: 'vendor_a',
+        asserted: true,
+        by: ACME,
+        createdAt: daysAgo(SILENT_COUNTERPARTY_DAYS + 2),
+      },
+    ]);
+
+    const findings = findingsFor(
+      await runAttestationDetectors({ db: t.db, now: NOW }),
+      'silent-counterparty',
+    );
+    expect(findings.map((f) => f.vendorId)).toEqual([GLOBEX]);
   });
 });

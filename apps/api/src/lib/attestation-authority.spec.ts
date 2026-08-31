@@ -122,6 +122,10 @@ describe('resolveAttestationSlots', () => {
       // Carried alongside the endpoint ids for the same reason (AECI-616): the §5
       // write paths flip it and must not re-read the integration to do so.
       maintainedBy: 'aeci',
+      // Same argument, one issue later (AECI-705): the write paths ask whether
+      // the EDGE is attestable immediately after resolving authority.
+      poweredByProductId: null,
+      mechanismKind: null,
       slots: ['vendor_a'],
     });
   });
@@ -239,6 +243,8 @@ describe('resolveClaimAuthority', () => {
       sourceProductId: 'p-src',
       targetProductId: 'p-tgt',
       maintainedBy: 'aeci',
+      poweredByProductId: null,
+      mechanismKind: null,
       slots: ['vendor_a'],
     });
   });

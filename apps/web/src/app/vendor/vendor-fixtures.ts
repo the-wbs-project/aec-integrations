@@ -403,6 +403,15 @@ const OTHER_PROCORE = {
   logo_url: null,
 };
 
+/** The counterpart on the connector-powered edge (AECI-705). Distinct from
+ *  OTHER_PROCORE so a test can identify that card by its heading. */
+const OTHER_ACUMATICA = {
+  id: '00000000-0000-4000-8000-000000005303',
+  slug: 'acumatica',
+  name: 'Acumatica',
+  logo_url: null,
+};
+
 const OTHER_AUTODESK_BUILD = {
   id: '00000000-0000-4000-8000-000000005302',
   slug: 'autodesk-build',
@@ -472,13 +481,16 @@ export const VENDOR_PRODUCT_VERSIONS_FIXTURE: Readonly<Record<string, readonly P
  *  - an integration where the caller owns `vendor_b` only, so the direction
  *    framing is reviewable in the preview and not only in a unit test;
  *  - an integration with no claims at all, for the per-card empty state;
- *  - a null `name` and a null `mechanism_kind`, for the nullable paths.
+ *  - a null `name` and a null `mechanism_kind`, for the nullable paths;
+ *  - a connector-powered edge (AECI-705), which is listed but not attestable.
  */
 const INTEGRATION_PROCORE: VendorIntegration = {
   id: '00000000-0000-4000-8000-000000005310',
   name: 'Summit Model Coordination ↔ Procore',
   mechanism_kind: 'native',
   mechanism_name: 'Native connector',
+  attestable: true,
+  powered_by: null,
   context_product: CONTEXT_PRIMARY,
   other_product: OTHER_PROCORE,
   slots: ['vendor_a'],
@@ -564,6 +576,8 @@ const INTEGRATION_BOTH_ENDPOINTS: VendorIntegration = {
   name: null,
   mechanism_kind: 'api',
   mechanism_name: null,
+  attestable: true,
+  powered_by: null,
   context_product: CONTEXT_PRIMARY,
   other_product: CONTEXT_SECONDARY,
   slots: ['vendor_a', 'vendor_b'],
@@ -606,6 +620,8 @@ const INTEGRATION_VENDOR_B: VendorIntegration = {
   name: 'Autodesk Build ↔ Summit Field Issues',
   mechanism_kind: 'marketplace-app',
   mechanism_name: 'Autodesk App Store listing',
+  attestable: true,
+  powered_by: null,
   // The caller holds endpoint B here, so `context_product` is still ITS product
   // and `direction` is still framed outward from it. Nothing in the UI may reach
   // for `source`/`target`.
@@ -632,10 +648,53 @@ const INTEGRATION_NO_CLAIMS: VendorIntegration = {
   name: null,
   mechanism_kind: null,
   mechanism_name: null,
+  attestable: true,
+  powered_by: null,
   context_product: CONTEXT_SECONDARY,
   other_product: OTHER_PROCORE,
   slots: ['vendor_a'],
   claims: [],
+};
+
+/**
+ * A connector-powered edge (AECI-705 / §14): the vendor owns an endpoint, so the
+ * row is listed, but `attestable: false` makes the whole card read-only.
+ *
+ * `powered_by` is populated because the named branch of the copy is the one worth
+ * reviewing in the preview. The unnamed branch, which falls back to
+ * `mechanism_name`, is the majority in production (53 of 132 powered edges have
+ * no promoted connector product to link to) and is covered by the component spec.
+ */
+const INTEGRATION_CONNECTOR_POWERED: VendorIntegration = {
+  id: '00000000-0000-4000-8000-000000005314',
+  name: 'Summit Model Coordination ↔ Acumatica',
+  mechanism_kind: 'iPaaS',
+  mechanism_name: 'Agave ERP Sync',
+  attestable: false,
+  powered_by: {
+    id: '00000000-0000-4000-8000-0000000053a0',
+    slug: 'agave-erp-sync',
+    name: 'Agave ERP Sync',
+    logo_url: null,
+  },
+  context_product: CONTEXT_PRIMARY,
+  other_product: OTHER_ACUMATICA,
+  slots: ['vendor_a'],
+  claims: [
+    {
+      id: '00000000-0000-4000-8000-000000005351',
+      integration_id: '00000000-0000-4000-8000-000000005314',
+      data_object_slug: 'invoices',
+      data_object_name: 'Invoices',
+      direction: 'outbound',
+      // Stays the AECi-curated state, and structurally cannot leave it: no
+      // vendor attestation can be created on a powered edge.
+      agreement: 'unverified',
+      origin: 'aeci',
+      mine: [],
+      counterparty: null,
+    },
+  ],
 };
 
 export const VENDOR_INTEGRATIONS_FIXTURE: ListVendorIntegrationsResponse = {
@@ -644,6 +703,7 @@ export const VENDOR_INTEGRATIONS_FIXTURE: ListVendorIntegrationsResponse = {
     INTEGRATION_BOTH_ENDPOINTS,
     INTEGRATION_VENDOR_B,
     INTEGRATION_NO_CLAIMS,
+    INTEGRATION_CONNECTOR_POWERED,
   ],
 };
 

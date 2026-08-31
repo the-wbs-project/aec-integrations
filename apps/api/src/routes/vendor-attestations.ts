@@ -14,7 +14,7 @@
  * self-assertion would render as "Vendor-confirmed" — the §8.1(4) failure.
  *
  * `routes/vendor.ts` holds the narrative of this surface's invariants; read that
- * header first. This module adds four rules of its own.
+ * header first. This module adds five rules of its own.
  *
  * ── 1. AUTHORITY IS DERIVED, NEVER SENT ─────────────────────────────────────
  * Which slot the caller may fill comes from product ownership in
@@ -33,7 +33,10 @@
  *      existence-independent and leaks nothing about the integration.
  *   2. Authority, alone in its wave (only the caller's own `vendors` row rides
  *      along, exactly as `requireOwnedProduct` does) — checked in order:
- *      authority → 404, then `assertVerifiedVendor` → 403.
+ *      authority → 404, then `assertAttestableEdge` → 403, then
+ *      `assertVerifiedVendor` → 403. The edge gate sits BETWEEN the two on
+ *      purpose: an unverified vendor on a connector-powered edge must not be
+ *      told that verification would unlock it (AECI-705 / §14).
  *   3. Everything else — vocabulary resolution, the duplicate-identity check,
  *      version-stamp authority. All of it resolves BEFORE the batch opens, so
  *      nothing is ever half-applied.
@@ -70,6 +73,16 @@
  * that last-write-wins, so the incoming write must clear whatever holds the slot
  * or the insert fails.
  *
+ * ── 5. CONNECTOR-POWERED EDGES ARE NOT ATTESTABLE (AECI-705) ────────────────
+ * `vendor_a` / `vendor_b` presume two accountable ENDPOINT vendors. On an edge
+ * delivered by a connector — `powered_by_product_id` set, or
+ * `mechanism_kind='iPaaS'` — neither endpoint built the plumbing, so `POST` and
+ * `PUT` answer **403** (`assertAttestableEdge`). `DELETE` stays open, because an
+ * edge can become powered after a vendor has already attested. The list endpoint
+ * still returns these rows, flagged `attestable: false` with the connector on
+ * `powered_by`, so the portal can explain rather than hide — filtering them out
+ * would change the scoping predicate the AECI-627 cursor must match.
+ *
  * ── WRITE MECHANICS ─────────────────────────────────────────────────────────
  * One `db.batch([...])` per write carrying every mutation and its `audit_log`
  * rows (the §26.1 invariant — D1 has no interactive transactions). Ids are
@@ -102,6 +115,8 @@ import {
 } from '@aeci/shared';
 import { type AuditLogEntry } from '@aeci/shared/audit-log';
 import { and, eq, inArray, isNull, notInArray, or } from 'drizzle-orm';
+
+import { isConnectorPoweredEdge } from '../lib/connector-powered';
 
 import { getDb, type Db } from '../db/client';
 import {
@@ -375,6 +390,39 @@ async function authorityAndVendor<T>(
   // answers 404 for the same state; do the same rather than 500.
   if (!vendor) throw notFoundError('vendor', { id: vendorId });
   return { resolved, vendor };
+}
+
+/**
+ * The AECI-705 edge gate: refuse authoring on a **connector-powered** edge.
+ *
+ * Neither endpoint vendor built the plumbing on these — Zapier, Workato or Agave
+ * did, and the connector has no attestation seat (`STAGE_2_SPEC.md` §8.8(5)).
+ * Prompting either endpoint asks about work it did not do, and a denial on true
+ * curation renders as a correction signal against AECi. The predicate is the
+ * union in `lib/connector-powered.ts`; the argument for the union is on that
+ * module.
+ *
+ * **403, not the 404 the ownership check above returns.** The §2.1 non-disclosure
+ * rule exists so a vendor cannot probe for another vendor's integration — but by
+ * the time this runs the caller has already proven it owns an endpoint, and
+ * powered-ness is public on the pair page. There is nothing left to conceal, and
+ * a 404 here would be a lie the caller can disprove by loading its own page.
+ *
+ * **It runs BEFORE `assertVerifiedVendor`, and that order is load-bearing.**
+ * Reversed, an unverified vendor on a powered edge is told to get verified in
+ * order to author — a promise verification will never keep, because verification
+ * does not and will not unlock this edge. The copy therefore points at the
+ * connector, never at verification, ranking or placement (§5.2).
+ *
+ * `DELETE` is deliberately NOT gated — see its handler.
+ */
+function assertAttestableEdge(authority: AttestationAuthority): void {
+  if (!isConnectorPoweredEdge(authority)) return;
+  throw new ApiError(
+    403,
+    'FORBIDDEN',
+    'This integration is delivered through a connector, so neither product vendor can attest to it. AEC Integrations maintains what it moves.',
+  );
 }
 
 /** The two endpoint slugs, for the purge tags. */
@@ -689,7 +737,13 @@ function attestationState(row: AttestationRow | RawAttestation): Record<string, 
 /** The list read's hydration. Column lists are deliberately narrow: this is
  *  roughly integrations × claims × attestations rows for one vendor. */
 const vendorIntegrationConfig = {
-  columns: { id: true, name: true, mechanismKind: true, mechanismName: true },
+  columns: {
+    id: true,
+    name: true,
+    mechanismKind: true,
+    mechanismName: true,
+    poweredByProductId: true,
+  },
   with: {
     sourceProduct: { columns: productLinkColumns },
     targetProduct: { columns: productLinkColumns },
@@ -700,6 +754,12 @@ const vendorIntegrationConfig = {
         attestations: { columns: attestationColumns, where: liveAttestationsWhere },
       },
     },
+    // AECI-705: the connector delivering this edge, for the read-only
+    // explanation. `poweredByProductId` rides in the column list too — the
+    // predicate is the union, so the relation being null does NOT mean the edge
+    // is attestable (53 of 132 powered edges in production have no promoted
+    // connector product to link to).
+    poweredByProduct: { columns: productLinkColumns },
   },
 } as const;
 
@@ -770,6 +830,10 @@ export function createListVendorIntegrationsHandler(
           // data-integrity posture the public reads take (AECI-115).
           mechanism_kind: toMechanismKind(row.mechanismKind, row.id),
           mechanism_name: row.mechanismName,
+          // AECI-705 — computed server-side and never re-derived in the browser:
+          // the union predicate is non-obvious and a client copy would drift.
+          attestable: !isConnectorPoweredEdge(row),
+          powered_by: row.poweredByProduct ? toProductLink(row.poweredByProduct) : null,
           context_product: toProductLink(contextIsSource ? row.sourceProduct : row.targetProduct),
           other_product: toProductLink(contextIsSource ? row.targetProduct : row.sourceProduct),
           slots: [...authority.slots],
@@ -828,6 +892,7 @@ export function createVendorClaimHandler(
     const { resolved: authority, vendor } = await authorityAndVendor(db, vendorId, () =>
       resolveAttestationSlots(db, vendorId, payload.integration_id),
     );
+    assertAttestableEdge(authority);
     assertVerifiedVendor(vendor);
 
     // Step 3 — everything that can fail, resolved before the batch opens.
@@ -996,6 +1061,7 @@ export function createUpsertVendorAttestationHandler(
       resolveClaimAuthority(db, vendorId, claimId),
     );
     const { claim, authority } = resolved;
+    assertAttestableEdge(authority);
     assertVerifiedVendor(vendor);
 
     const payload = await parseJsonBody(c, UpsertVendorAttestationSchema);
@@ -1121,6 +1187,12 @@ export function createRetractVendorAttestationHandler(
       resolveClaimAuthority(db, vendorId, claimId),
     );
     const { authority } = resolved;
+    // NO `assertAttestableEdge` here, deliberately (AECI-705 / §14). An edge can
+    // BECOME connector-powered after a vendor has attested — promote sets
+    // `powered_by_product_id` late, and AECI-706's backfill writes it onto rows
+    // that already exist. Gating retract would trap a vendor holding a position
+    // it can no longer withdraw, which is a worse failure than the one the gate
+    // prevents. Withdrawing is always allowed; only taking a new position is not.
     assertVerifiedVendor(vendor);
 
     const [endpoints, liveBefore] = await Promise.all([

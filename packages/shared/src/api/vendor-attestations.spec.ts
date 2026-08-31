@@ -54,6 +54,8 @@ const INTEGRATION = {
   context_product: { id: uuid(10), slug: 'revit', name: 'Revit', logo_url: null },
   other_product: { id: uuid(11), slug: 'microstation', name: 'MicroStation', logo_url: null },
   slots: ['vendor_a' as const],
+  attestable: true,
+  powered_by: null,
   claims: [CLAIM],
 };
 
@@ -137,6 +139,29 @@ describe('VendorIntegrationSchema', () => {
 
   it('accepts an integration with no claims yet', () => {
     expect(VendorIntegrationSchema.parse({ ...INTEGRATION, claims: [] }).claims).toEqual([]);
+  });
+
+  it('carries the connector attribution when the edge is not attestable', () => {
+    const powered_by = {
+      id: uuid(12),
+      slug: 'agave-erp-sync',
+      name: 'Agave ERP Sync',
+      logo_url: null,
+    };
+    const parsed = VendorIntegrationSchema.parse({ ...INTEGRATION, attestable: false, powered_by });
+    expect(parsed).toMatchObject({ attestable: false, powered_by });
+  });
+
+  it('defaults the AECI-705 fields to the pre-gate behaviour when they are absent', () => {
+    // The SSR and API Workers deploy per-commit but NOT atomically, so this must
+    // still parse a response from an API Worker that predates AECI-705. `true` is
+    // what such a Worker implies; the skew window degrades to pre-gate behaviour
+    // rather than blanking the tab, and the write is refused server-side anyway.
+    const { attestable: _a, powered_by: _p, ...older } = INTEGRATION;
+    expect(VendorIntegrationSchema.parse(older)).toMatchObject({
+      attestable: true,
+      powered_by: null,
+    });
   });
 });
 

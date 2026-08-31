@@ -254,6 +254,41 @@ export const VendorIntegrationSchema = z.object({
   context_product: ProductLinkSchema,
   other_product: ProductLinkSchema,
   slots: z.array(VendorAttestationSlotSchema).min(1),
+  /**
+   * Whether this edge may be attested at all (AECI-705 / §14).
+   *
+   * `false` on a **connector-powered** edge — one carrying
+   * `powered_by_product_id`, or typed `mechanism_kind='iPaaS'` — where neither
+   * endpoint vendor built the plumbing. The row still ships: the vendor's own
+   * public pair page shows the edge, so omitting it from the portal would read as
+   * data loss, and filtering the list would change the scoping predicate the
+   * AECI-627 `integrations` cursor has to match (`STAGE_2_REALTIME_SPEC.md` §2.2).
+   * The client renders it read-only with an explanation instead.
+   *
+   * **The server computes this; the client never re-derives it.** The union
+   * predicate is deliberately non-obvious (see `apps/api/src/lib/connector-powered.ts`),
+   * and a browser-side copy would drift the way the direction helpers once did.
+   *
+   * `.default(true)` for the same reason `sync_headline.single_source` carries
+   * `.default(0)`: the SSR and API Workers deploy per-commit but not atomically,
+   * so this must still parse a response from an API Worker that predates the
+   * field. `true` is what such an API implies — the skew window degrades to
+   * pre-AECI-705 behaviour rather than blanking the tab, and the write is refused
+   * server-side with a 403 regardless.
+   */
+  attestable: z.boolean().default(true),
+  /**
+   * The connector product delivering this edge, when it is itself promoted.
+   *
+   * `null` on the 53-of-132 production edges whose connector is not a promoted
+   * product (Zapier, Workato, n8n, Make, Boomi …) — there the UI falls back to
+   * the free-text `mechanism_name` above. A `ProductLink` rather than a raw
+   * `powered_by_product_id`, per §4.5's "attribution is a display concern".
+   *
+   * Non-null implies `attestable: false`, but the converse does not hold, so read
+   * the flag and never this field for the decision.
+   */
+  powered_by: ProductLinkSchema.nullable().default(null),
   claims: z.array(VendorClaimSchema),
 });
 
