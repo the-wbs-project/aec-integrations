@@ -394,6 +394,14 @@ Four consequences worth knowing:
 - **Claims still ride with their integration**, unchanged. The migration preserves each edge's id
   verbatim as the evidenced pair's id, so a claim's stored anchor value never moves — only which
   table it points at.
+- **Re-sending a routed edge is an in-place UPDATE, and gaining a connector moves the row for you.**
+  Because the id is preserved, you keep sending a migrated edge's `supabaseId` exactly as before:
+  promote resolves it against **both** tables, so a re-promote of an already-routed edge updates the
+  evidenced row in place (it does not mint a duplicate and collide on the `(connector, a, b)` unique
+  index). And an edge you promoted earlier as an accountable-party integration that now names a
+  third-party `poweredByProduct` is **moved** by that push — inserted into `connector_evidenced_pairs`
+  under its existing id, its claims and their vendor attestations re-homed with it, and the old
+  `integrations` row dropped. No payload change and no separate call is needed for either.
 
 ### 3.5 Vendor-only (or integration-only) push
 

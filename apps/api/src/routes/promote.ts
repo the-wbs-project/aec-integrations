@@ -84,6 +84,7 @@ import { type SQLiteColumn } from 'drizzle-orm/sqlite-core';
 
 import { getDb, type Db, type DbContext } from '../db/client';
 import {
+  claims,
   connectorEvidencedPairs,
   integrations,
   productAudiences,
@@ -312,10 +313,26 @@ function integrationEditableData(intg: PromoteIntegration): Record<string, unkno
  *      so the payload's `mechanismKind` is deliberately DROPPED rather than stored
  *      somewhere else. `mechanism_name` still carries the vendor's own label.
  *
- * An `existingId` is reused verbatim so a re-promote is an UPDATE rather than a
- * duplicate — the unique index is `(connector, a, b)`, so a second insert for the
- * same triple would fail the batch, and failing the batch is how a routine
- * re-promote would become an outage.
+ * The id is reused verbatim so a re-promote is an UPDATE rather than a duplicate —
+ * the unique index is `(connector, a, b)`, so a second insert for the same triple
+ * would fail the batch, and failing the batch is how a routine re-promote would
+ * become an outage. Which requires knowing WHERE the id already lives, because the
+ * migration preserves it across tables (`DATABASE_SCHEMA.md` §9a.6):
+ *
+ *   - `evidenced` — the id is already a `connector_evidenced_pairs` row (the common
+ *     re-promote of a migrated edge). Plain UPDATE.
+ *   - `integrations` — the id is still an `integrations` row that this promote is
+ *     moving into the delivered tier (a curator added a third-party connector to an
+ *     edge that used to be accountable-party). INSERT here with the id preserved,
+ *     RE-HOME its claims off `integration_id` onto `connector_evidenced_pair_id`,
+ *     then drop the source row — the same ordered dance migration 0022 performs, so
+ *     the `ON DELETE CASCADE` never reaches a live claim or its attestations.
+ *   - `null` — brand new (or a stale id, AECI-568). Mint a fresh id and INSERT.
+ *
+ * Reading only `integrations` (as the endpoint-move pre-read does) would send every
+ * migrated edge down the `null` branch on its next promote and collide on the unique
+ * index; sending it down a naive UPDATE branch would write nothing while deleting the
+ * source row. Both are why `existing` names the table, not just the id.
  */
 function planEvidencedPairWrite(args: {
   db: Db;
@@ -324,9 +341,9 @@ function planEvidencedPairWrite(args: {
   targetId: string;
   connectorProductId: string;
   builtByVendorId: string | null;
-  existingId: string | null;
+  existing: { id: string; table: 'evidenced' | 'integrations' } | null;
 }): { id: string; operation: 'created' | 'updated'; statements: BatchStmt[] } {
-  const { db, intg, sourceId, targetId, connectorProductId, builtByVendorId, existingId } = args;
+  const { db, intg, sourceId, targetId, connectorProductId, builtByVendorId, existing } = args;
 
   const sourceIsA = sourceId < targetId;
   const productAId = sourceIsA ? sourceId : targetId;
@@ -358,19 +375,42 @@ function planEvidencedPairWrite(args: {
   });
   const links = { connectorProductId, productAId, productBId, builtByVendorId, direction };
 
-  if (existingId) {
+  if (existing?.table === 'evidenced') {
     return {
-      id: existingId,
+      id: existing.id,
       operation: 'updated',
       statements: [
         db
           .update(connectorEvidencedPairs)
           .set({ ...editable, ...links })
-          .where(eq(connectorEvidencedPairs.id, existingId)),
-        // The same id may have been an `integrations` row before this promote — the
-        // review app keeps sending the id the migration preserved. Delete the stale
-        // side so the edge cannot exist in BOTH tables and be counted twice.
-        db.delete(integrations).where(eq(integrations.id, existingId)),
+          .where(eq(connectorEvidencedPairs.id, existing.id)),
+        // Belt-and-braces on the single-table invariant: an id must never live in
+        // both tables. A clean evidenced row is not in `integrations`, so this is a
+        // no-op then; it only bites if a prior partial state left a stale twin.
+        db.delete(integrations).where(eq(integrations.id, existing.id)),
+      ],
+    };
+  }
+
+  if (existing?.table === 'integrations') {
+    // Moving an accountable-party edge into the delivered tier, id preserved. Order
+    // matters exactly as in migration 0022 step 8→9→11: INSERT the destination first
+    // (so the re-home FK resolves), re-home the claims in ONE UPDATE (both anchor
+    // columns at once keeps `claims_anchor_check`'s XOR satisfied), THEN drop the
+    // source. Re-homing before the delete is what stops the `ON DELETE CASCADE` from
+    // taking the claims and their attestations with it. `planClaimIngest` runs after
+    // and reconciles the payload against these same rows (its pre-read saw them under
+    // the identical `anchor_id`), so ids — and therefore vendor attestations — hold.
+    return {
+      id: existing.id,
+      operation: 'updated',
+      statements: [
+        db.insert(connectorEvidencedPairs).values({ id: existing.id, ...editable, ...links }),
+        db
+          .update(claims)
+          .set({ connectorEvidencedPairId: existing.id, integrationId: null })
+          .where(eq(claims.integrationId, existing.id)),
+        db.delete(integrations).where(eq(integrations.id, existing.id)),
       ],
     };
   }
@@ -2048,6 +2088,30 @@ export async function runPromoteIngest(
       : undefined;
 
     if (routesToEvidencedPair) {
+      // WHERE the preserved id already lives decides the write (see
+      // `planEvidencedPairWrite`). The migration keeps the id verbatim across the
+      // move, so a re-promote of a migrated edge finds it HERE, not in `integrations`
+      // — reading only `existing` (integrations) would route it to a fresh-id INSERT
+      // and collide on `connector_evidenced_pairs_pair_idx`.
+      const existingEvidenced = intg.supabaseId
+        ? await db.query.connectorEvidencedPairs.findFirst({
+            columns: { productAId: true, productBId: true, connectorProductId: true },
+            where: eq(connectorEvidencedPairs.id, intg.supabaseId),
+          })
+        : undefined;
+      const located: { id: string; table: 'evidenced' | 'integrations' } | null =
+        intg.supabaseId && existingEvidenced
+          ? { id: intg.supabaseId, table: 'evidenced' }
+          : intg.supabaseId && existing
+            ? { id: intg.supabaseId, table: 'integrations' }
+            : null;
+      // A supplied id that resolves in neither table is dead — the create branch
+      // mints a new one, and we report the stale pointer the same way the
+      // `integrations` branch does (AECI-568).
+      if (intg.supabaseId && !located) {
+        staleSupabaseIds.push({ kind: 'integration', ref: intg.ref, supabaseId: intg.supabaseId });
+      }
+
       const evidenced = planEvidencedPairWrite({
         db,
         intg,
@@ -2055,7 +2119,7 @@ export async function runPromoteIngest(
         targetId,
         connectorProductId: poweredByProductId,
         builtByVendorId,
-        existingId: intg.supabaseId && existing ? intg.supabaseId : null,
+        existing: located,
       });
       stmts.push(...evidenced.statements);
       result = { ref: intg.ref, id: evidenced.id, operation: evidenced.operation };
@@ -2068,9 +2132,18 @@ export async function runPromoteIngest(
         entityType: 'connector_evidenced_pair',
         entityId: evidenced.id,
       });
+      // Recompute the OLD endpoints too when this edge already existed — its
+      // endpoints (or the connector it counted for) may have moved. The integrations
+      // pre-read carries the old source/target; the evidenced pre-read carries the
+      // old canonical pair plus the old connector.
       if (existing) {
         affectedProducts.add(existing.sourceProductId);
         affectedProducts.add(existing.targetProductId);
+      }
+      if (existingEvidenced) {
+        affectedProducts.add(existingEvidenced.productAId);
+        affectedProducts.add(existingEvidenced.productBId);
+        affectedProducts.add(existingEvidenced.connectorProductId);
       }
       integrationResults.push(result);
       // Endpoints AND the connector: §12.5 option B counts the edge for the

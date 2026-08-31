@@ -1730,6 +1730,135 @@ describe('runPromoteIngest — claims ingest (AECI-297)', () => {
     });
   });
 
+  it('re-promotes an already-routed evidenced pair as an UPDATE, not a duplicate (AECI-721)', async () => {
+    // The migration preserves an edge's id when it moves it to the evidenced tier,
+    // so the review app keeps re-sending that id as the integration's `supabaseId`.
+    // A pre-read that consulted only `integrations` would find nothing, route the
+    // edge to a fresh-id INSERT, and collide on `connector_evidenced_pairs_pair_idx`
+    // — turning a routine re-promote of any of the 19 migrated production edges into
+    // a failed batch (an outage), which is exactly what the routing comment warns of.
+    const target = uuid(1);
+    const connector = uuid(2);
+    await seedProduct(target, 'navisworks', 'Navisworks');
+    await seedProduct(connector, 'agave-erp-sync', 'Agave ERP Sync', { productRole: 'connector' });
+
+    const intg = {
+      ref: 'i1',
+      sourceProduct: { ref: 'p1' },
+      targetProduct: { supabaseId: target },
+      poweredByProduct: { supabaseId: connector },
+      mechanismName: 'Agave ERP Sync',
+      claims: [],
+    };
+
+    const first = await promote({ product: { ref: 'p1', name: 'Revit' }, integrations: [intg] });
+    expect(first.status).toBe(200);
+    const pairId = ((await first.json()) as { integrations: { id: string }[] }).integrations[0]!.id;
+
+    // Second push: the review app hands back the id the migration preserved.
+    const second = await promote({
+      product: { ref: 'p1', name: 'Revit' },
+      integrations: [{ ...intg, supabaseId: pairId, mechanismName: 'Agave ERP Sync v2' }],
+    });
+    expect(second.status).toBe(200);
+    expect(
+      ((await second.json()) as { integrations: { id: string; operation: string }[] })
+        .integrations[0],
+    ).toMatchObject({ id: pairId, operation: 'updated' });
+
+    // One row, updated in place — no duplicate, no collision.
+    const pairs = await t.db.select().from(connectorEvidencedPairs);
+    expect(pairs).toHaveLength(1);
+    expect(pairs[0]).toMatchObject({ id: pairId, mechanismName: 'Agave ERP Sync v2' });
+    expect(await t.db.select().from(integrations)).toEqual([]);
+  });
+
+  it('moves an existing `integrations` edge into the evidenced tier, preserving its claims and vendor attestations (AECI-721)', async () => {
+    // A curator adds a third-party connector to an edge that was already promoted as
+    // an accountable-party integration. The edge must MOVE tables with its id intact,
+    // and its claims (and their vendor attestations) must ride along — a naive
+    // "UPDATE the evidenced row then DELETE the integrations row" writes nothing while
+    // the `ON DELETE CASCADE` takes the claim and its attestations with it.
+    const target = uuid(1);
+    const connector = uuid(2);
+    const vendor = uuid(4);
+    await seedProduct(target, 'navisworks', 'Navisworks');
+    await seedProduct(connector, 'agave-erp-sync', 'Agave ERP Sync', { productRole: 'connector' });
+    await seedVendor(vendor, 'acme', 'Acme');
+    await seedDataObject(uuid(3), 'rfis', 'RFIs');
+
+    // First push: a plain integration (no connector) carrying one claim.
+    const claim = {
+      dataObject: 'rfis',
+      direction: 'a_to_b' as const,
+      attestations: [{ source: 'aeci' as const, asserted: true }],
+    };
+    const first = await promote({
+      product: { ref: 'p1', name: 'Revit' },
+      integrations: [
+        {
+          ref: 'i1',
+          sourceProduct: { ref: 'p1' },
+          targetProduct: { supabaseId: target },
+          claims: [claim],
+        },
+      ],
+    });
+    expect(first.status).toBe(200);
+    const [intgRow] = await t.db.select().from(integrations);
+    const [claimRow] = await t.db.select().from(claims);
+    expect(intgRow?.poweredByProductId).toBeNull();
+
+    // A vendor has independently attested to that claim — promote can never write
+    // this, so seed it directly; it is the row a cascade would silently destroy.
+    await t.db.insert(attestations).values({
+      id: uuid(5),
+      claimId: claimRow!.id,
+      source: 'vendor_a',
+      asserted: true,
+      attestedByVendorId: vendor,
+    });
+
+    // Second push: the same edge, now powered by the connector → routes to evidenced.
+    const second = await promote({
+      product: { ref: 'p1', name: 'Revit' },
+      integrations: [
+        {
+          ref: 'i1',
+          supabaseId: intgRow!.id,
+          sourceProduct: { ref: 'p1' },
+          targetProduct: { supabaseId: target },
+          poweredByProduct: { supabaseId: connector },
+          claims: [claim],
+        },
+      ],
+    });
+    expect(second.status).toBe(200);
+
+    // The edge left `integrations` and landed in the evidenced tier with its id kept.
+    expect(await t.db.select().from(integrations)).toEqual([]);
+    const pairs = await t.db.select().from(connectorEvidencedPairs);
+    expect(pairs).toHaveLength(1);
+    expect(pairs[0]!.id).toBe(intgRow!.id);
+
+    // The claim rode along: same row id, re-anchored, not cascade-deleted.
+    const claimRows = await t.db.select().from(claims);
+    expect(claimRows).toHaveLength(1);
+    expect(claimRows[0]).toMatchObject({
+      id: claimRow!.id,
+      integrationId: null,
+      connectorEvidencedPairId: intgRow!.id,
+    });
+
+    // The vendor attestation survived the move — the whole point of re-homing before
+    // the delete rather than after.
+    const vendorAtts = (await t.db.select().from(attestations)).filter(
+      (a) => a.source === 'vendor_a',
+    );
+    expect(vendorAtts).toHaveLength(1);
+    expect(vendorAtts[0]).toMatchObject({ claimId: claimRow!.id, attestedByVendorId: vendor });
+  });
+
   it('omits poweredBySlug when the integration names no powered-by product', async () => {
     const target = uuid(1);
     await seedProduct(target, 'navisworks', 'Navisworks');
