@@ -1516,8 +1516,31 @@ create unique index connector_catalogs_product_idx on connector_catalogs(connect
   vendors write the connectors, not Zapier. A reader defaulting to `platform` would attribute nine
   thousand connectors to the wrong party.
 - `managed_by` is **held and enforced on this side** deliberately — the review app is the component
-  being decommissioned, so the surviving system owns who-controls-what. AECI-714 lands the column;
-  rejecting writes to a `vendor`-managed catalogue is AECI-720.
+  being decommissioned, so the surviving system owns who-controls-what. AECI-714 landed the column;
+  **AECI-720 landed the enforcement.** It has exactly **two writers**, and no third is permitted:
+  the column `DEFAULT 'review'` on create, and `PATCH /api/admin/connector-catalogs/:id`
+  (`API_CONTRACTS.md` §6.10, behind `requireAdmin()`). It is correspondingly **not on the promote
+  wire** — accepting it there is what let any re-sync silently flip a vendor-managed catalogue back
+  to `review`, which is the exact inversion of the sentence above.
+- **What enforcement means.** While `managed_by = 'vendor'`, `planConnectorCatalogPage` refuses
+  every `POST /api/promote/connector-catalog` page for that catalogue with
+  `CATALOG_VENDOR_MANAGED`, thrown before a single statement is built — so a refused page writes
+  nothing at all, including no `audit_log` row. The check runs *before* the unpromoted-connector
+  skip, so a policy refusal never disguises itself as a re-sendable "could not resolve yet".
+  Refusing the page is complete cover: every child row binds the page's own catalogue id.
+- **The flag is reversible; the data direction is not.** "One-way forever" governs the data — the
+  review app never writes over AECi's copy — and the refusal delivers that unconditionally. The
+  flag itself moves both ways, because `STAGE_2_SPEC.md` §8.9(4) makes this cutoff the mechanism
+  that answers *"is the feed still arriving?"* for a connector seat carrying no
+  `vendor_entitlements` row and therefore no expiry cron, which is only actionable if a lane can be
+  reclaimed. Both directions audit per row in the same batch as the flip
+  (`connector_catalog.managed_by_vendor` / `.managed_by_review`) — ADR 0022 and
+  `STAGE_1_SPEC.md` §26.1 name this write explicitly, distinguishing it from the run-granularity
+  carve-out that governs the sync on these same tables.
+- **The flip grants no seat.** The endpoint's optional `vendorId` is validated against `vendors`
+  and recorded in the audit metadata; that record is the *only* one, because `STAGE_2_SPEC.md`
+  §8.9(2) keeps the connector seat out of `vendor_entitlements` entirely and §8.9(3) leaves
+  provisioning to AECI-722 / AECI-724. Nothing here writes `profiles.role = 'vendor_admin'`.
 
 ### 9a.2 `connector_catalog_surfaces`
 

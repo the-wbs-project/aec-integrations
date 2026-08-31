@@ -4,6 +4,7 @@ import { eq } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
 
 import {
+  auditLog,
   connectorCatalogs,
   connectorCatalogSurfaces,
   connectorEvidencedPairs,
@@ -12,6 +13,7 @@ import {
   connectorStubs,
   products,
 } from '../db/schema';
+import { ApiError } from '../errors';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { auditInsert, type BatchTuple } from './audit';
 import {
@@ -378,6 +380,122 @@ describe('planConnectorCatalogPage (AECI-714)', () => {
     expect(plan.counts.catalogs.unchanged).toBe(1);
     const after = (await t.db.select().from(connectorCatalogs))[0];
     expect(after?.updatedAt).toBe(before?.updatedAt);
+    t.dispose();
+  });
+});
+
+describe('the per-iPaaS management cutoff (AECI-720)', () => {
+  /** Freeze a catalogue the way the admin flip does, after it exists. */
+  async function freeze(t: TestDb) {
+    await t.db
+      .update(connectorCatalogs)
+      .set({ managedBy: 'vendor' })
+      .where(eq(connectorCatalogs.id, CATALOG_ID));
+  }
+
+  it('refuses a page for a vendor-managed catalogue with CATALOG_VENDOR_MANAGED', async () => {
+    const t = await makeTestDb();
+    await seedProducts(t);
+    await commit(t, await planConnectorCatalogPage(t.db, makePage()));
+    await freeze(t);
+
+    // A page that WOULD have written something if the lane were open — a new stub —
+    // so the refusal is what stops the write, not the no-op change detection.
+    const page = makePage({ stubs: [{ id: 'recStubAcumati01', slug: 'acumatica', ...STAMPS }] });
+    await expect(planConnectorCatalogPage(t.db, page)).rejects.toThrow(ApiError);
+    await expect(planConnectorCatalogPage(t.db, page)).rejects.toMatchObject({
+      status: 409,
+      code: 'CATALOG_VENDOR_MANAGED',
+    });
+    t.dispose();
+  });
+
+  it('writes NOTHING on a refusal — no rows, no audit row', async () => {
+    const t = await makeTestDb();
+    await seedProducts(t);
+    await commit(t, await planConnectorCatalogPage(t.db, makePage()));
+    await freeze(t);
+    const auditsBefore = (await t.db.select().from(auditLog)).length;
+
+    await expect(
+      planConnectorCatalogPage(
+        t.db,
+        makePage({ stubs: [{ id: 'recStubAcumati01', slug: 'acumatica', ...STAMPS }] }),
+      ),
+    ).rejects.toThrow(ApiError);
+
+    // The throw lands before a single statement is built, so there is nothing to roll
+    // back: the new stub never appears and the refusal itself is not a domain-state
+    // change, so it emits no `audit_log` row either.
+    expect((await t.db.select().from(connectorStubs)).length).toBe(1);
+    expect((await t.db.select().from(auditLog)).length).toBe(auditsBefore);
+    t.dispose();
+  });
+
+  it('refuses BEFORE the unpromoted-connector skip, not after', async () => {
+    // The ordering case. Zapier and Workato are `on_hold` review-side (AECI-700), so a
+    // vendor-managed catalogue whose platform is unpromoted is the live combination —
+    // and it must reject rather than come back as a re-sendable skip telling the caller
+    // "try again later" when the answer is permanently no.
+    const t = await makeTestDb();
+    await seedProducts(t);
+    await commit(t, await planConnectorCatalogPage(t.db, makePage()));
+    await freeze(t);
+
+    await expect(
+      planConnectorCatalogPage(t.db, makePage({ catalog: { id: CATALOG_ID } })),
+    ).rejects.toMatchObject({ status: 409, code: 'CATALOG_VENDOR_MANAGED' });
+    t.dispose();
+  });
+
+  it('is unmoved by the wire — a page claiming managedBy cannot flip the flag', async () => {
+    // The defect AECI-720 closes: until the field left the schema, every page wrote
+    // `managed_by` from the payload, so any re-sync silently un-froze a vendor-managed
+    // catalogue. Zod strips the key, so the value never reaches `catalogValues`.
+    const t = await makeTestDb();
+    await seedProducts(t);
+    await commit(t, await planConnectorCatalogPage(t.db, makePage()));
+    await freeze(t);
+
+    await expect(
+      planConnectorCatalogPage(
+        t.db,
+        makePage({
+          catalog: { id: CATALOG_ID, connectorProductId: CONNECTOR_ID, managedBy: 'review' },
+        }),
+      ),
+    ).rejects.toMatchObject({ code: 'CATALOG_VENDOR_MANAGED' });
+
+    const row = (await t.db.select().from(connectorCatalogs))[0];
+    expect(row?.managedBy).toBe('vendor');
+    t.dispose();
+  });
+
+  it('lets a reclaimed lane commit again — the flag is reversible', async () => {
+    const t = await makeTestDb();
+    await seedProducts(t);
+    await commit(t, await planConnectorCatalogPage(t.db, makePage()));
+    await freeze(t);
+    await t.db
+      .update(connectorCatalogs)
+      .set({ managedBy: 'review' })
+      .where(eq(connectorCatalogs.id, CATALOG_ID));
+
+    const plan = await planConnectorCatalogPage(
+      t.db,
+      makePage({ stubs: [{ id: 'recStubAcumati01', slug: 'acumatica', ...STAMPS }] }),
+    );
+    await commit(t, plan);
+    expect(plan.wrote).toBe(true);
+    expect((await t.db.select().from(connectorStubs)).length).toBe(2);
+    t.dispose();
+  });
+
+  it('never writes managed_by on a normal page — the column keeps its default', async () => {
+    const t = await makeTestDb();
+    await seedProducts(t);
+    await commit(t, await planConnectorCatalogPage(t.db, makePage()));
+    expect((await t.db.select().from(connectorCatalogs))[0]?.managedBy).toBe('review');
     t.dispose();
   });
 });

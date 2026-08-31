@@ -31,7 +31,17 @@ describe('PromoteConnectorPagePayloadSchema (AECI-714)', () => {
     expect(parsed.surfaces).toEqual([]);
     expect(parsed.mappings).toEqual([]);
     expect(parsed.pairs).toEqual([]);
-    expect(parsed.catalog.managedBy).toBe('review');
+  });
+
+  it('STRIPS managedBy — the flag is AECi-owned and not settable from the wire (AECI-720)', () => {
+    // Not a rejection: Zod drops unknown keys, so a sender that still includes the field
+    // is ignored rather than 400'd. What must never happen is the value reaching the
+    // catalogue upsert, because a re-sync would then flip a vendor-managed catalogue back
+    // to `review` — which is what this schema did until AECI-720.
+    const parsed = PromoteConnectorPagePayloadSchema.parse(
+      page({ catalog: { ...CATALOG, managedBy: 'vendor' } }),
+    );
+    expect(parsed.catalog).not.toHaveProperty('managedBy');
   });
 
   it('accepts a catalogue whose connector product is not promoted (Zapier/Workato are on_hold)', () => {

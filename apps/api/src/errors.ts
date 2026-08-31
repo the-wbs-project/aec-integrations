@@ -36,6 +36,10 @@ type ResourceKind =
   // indistinguishable from a claim that does not exist.
   | 'claim'
   | 'attestation'
+  // The connector catalogue a `managed_by` flip addresses (AECI-720). Unlike the
+  // vendor-scoped 404s above there is nothing to hide here — a catalogue id is the
+  // review app's own record id and the caller is an authenticated admin.
+  | 'connector_catalog'
   | 'category'
   | 'audience'
   | 'phase'

@@ -72,6 +72,11 @@ const RecordIdSchema = z.string().min(1).max(64);
 const PromotedProductIdSchema = z.string().uuid();
 
 /** Enum vocabularies — kept in exact lockstep with the D1 CHECK constraints. */
+/**
+ * Who authors a catalogue. NOT on this wire — see {@link PromoteConnectorCatalogSchema}.
+ * Exported because it is the lane's shared vocabulary: the admin flip contract
+ * (`./admin-connector-catalogs`) is its only consumer.
+ */
 export const CONNECTOR_MANAGED_BY = ['review', 'vendor'] as const;
 export const CONNECTOR_AUTHORSHIP = ['platform', 'partner', 'mixed'] as const;
 export const CONNECTOR_MAPPING_STATUSES = [
@@ -122,9 +127,15 @@ export const PromoteConnectorCatalogSchema = z.object({
    *  defaulting to `platform` would attribute nine thousand connectors to the wrong
    *  party. `mixed` closes the space by construction (all / none / some). */
   connectorAuthorship: z.enum(CONNECTOR_AUTHORSHIP).nullish(),
-  /** Who authors this catalogue. Every catalogue starts `review`; AECI-720 owns both
-   *  the flip and the enforcement that rejects a write to a `vendor`-managed one. */
-  managedBy: z.enum(CONNECTOR_MANAGED_BY).default('review'),
+  /**
+   * `managedBy` is DELIBERATELY ABSENT (AECI-720). The flag is held AND enforced on this
+   * side, so promote must not be able to set it: a catalogue starts `review` by column
+   * default and only `PATCH /api/admin/connector-catalogs/:id` ever moves it. Accepting
+   * it here would let any re-sync flip a vendor-managed catalogue back to `review` —
+   * which is what this schema did until AECI-720, and the exact inversion of "the
+   * surviving system owns who-controls-what". Zod strips unknown keys, so a sender that
+   * still includes the field is ignored rather than rejected.
+   */
   notes: z.string().nullish(),
 });
 

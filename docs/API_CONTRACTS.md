@@ -213,6 +213,7 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `ENTITLEMENT_REQUIRED` | 403 | The vendor's entitlement tier does not hold the capability this write requires (code minted AECI-610, thrown since AECI-611; `details: { capability, tier, fields? }` — `fields` is present only on the field-level rejection in `splitPatch`). **403, not 402** — 402 Payment Required would leak a billing model into a contract that must stay payer-model-agnostic, and this table has no 402 row. **Reads are never gated**, and the gate never fires before ownership settles on a product write (a 403 there would confirm a foreign product exists). Raised only from `entitlementRequired()` in `apps/api/src/lib/authz.ts`, so the status, copy and `details` shape cannot diverge between the two call sites |
 | `SLUG_CONFLICT` | 409 | Slug collision detected on entity creation |
 | `GRANT_CONFLICT` | 409 | Vendor-claim grant would violate role/vendor exclusivity — the claimant account is a site `admin`, or is already linked to a different vendor (AECI-519; `details.reason` ∈ `already_admin` \| `other_vendor`). Also returned by `POST /api/vendor/seats/invites` when the address already holds a live invite, and by the invite accept when the redeemer is a site admin or belongs to another vendor (AECI-664) |
+| `CATALOG_VENDOR_MANAGED` | 409 | The connector catalogue a promote page addresses is **vendor-managed** on AECi, so the review lane is frozen for it and the page was not written (AECI-720). Raised from `planConnectorCatalogPage` before any statement is built, so nothing at all is committed — no rows, no `promote_jobs` ledger row, no `audit_log` row — and it reaches the caller on the job poll, not the kick-off. **Not re-sendable**, which is precisely why it is an error and not a `skipped[]` entry: every connector skip kind means "this could not be resolved *yet*". A catalogue returns to review authorship only through `PATCH /api/admin/connector-catalogs/:id` |
 | `INVALID_STATE_TRANSITION` | 422 | Attempted workflow transition is not allowed from current state |
 | `RATE_LIMITED` | 429 | Rate limit exceeded |
 | `DEPENDENCY_FAILURE` | 503 | Upstream dependency (Supabase, Algolia, Linear) failed |
@@ -224,7 +225,7 @@ Machine-readable codes are stable identifiers. Messages are localized.
 - `401` — not authenticated
 - `403` — authenticated but not authorized, banned, or lacking the entitlement a write requires
 - `404` — resource doesn't exist or is not visible to caller
-- `409` — conflict (duplicate, slug collision, vendor-claim grant exclusivity)
+- `409` — conflict (duplicate, slug collision, vendor-claim grant exclusivity, a write to a vendor-managed connector catalogue)
 - `413` — request body over the endpoint's hard ceiling
 - `422` — semantically valid but business rule violation
 - `429` — rate limited (with `Retry-After` header)
@@ -1752,6 +1753,63 @@ force while the portal's writes now 403 — **nobody can edit that vendor.** Un-
 deliberate, so the accepted launch mitigation is: re-activate → edit → clear again, or use
 `apps/datatool`. Closing it properly is deferred (`STAGE_2_PAID_TIERS_SPEC.md` §11).
 
+#### `PATCH /api/admin/connector-catalogs/:id` (AECI-720)
+
+The per-iPaaS management cutoff. Flips `connector_catalogs.managed_by` between `review` and
+`vendor`. Behind `requireAdmin()`. Source of truth:
+`packages/shared/src/api/admin-connector-catalogs.ts`,
+`apps/api/src/routes/admin-connector-catalogs.ts`; model: `DATABASE_SCHEMA.md` §9a.1.
+
+```typescript
+export const ConnectorManagedBySchema = z.enum(CONNECTOR_MANAGED_BY);  // 'review' | 'vendor'
+
+export const SetConnectorCatalogManagementSchema = z.object({
+  managedBy: ConnectorManagedBySchema,        // the state to move TO
+  vendorId: z.string().uuid().optional(),     // who took it over; recorded, grants nothing
+  reason: z.string().max(500).optional(),     // INTERNAL audit note; never emailed
+});
+
+export const ConnectorCatalogManagementResponseSchema = z.object({
+  id: z.string(),
+  connector_product_id: z.string().uuid(),
+  managed_by: ConnectorManagedBySchema,
+  managed_by_vendor_id: z.string().uuid().nullable(),  // echoed; NOT persisted on the row
+  updated_at: z.string(),
+});
+```
+
+**Moving a catalogue to `vendor` freezes the review lane for that iPaaS and no other.** From
+then on every `POST /api/promote/connector-catalog` page addressing it fails with
+`CATALOG_VENDOR_MANAGED` (§6.12). That is the whole enforcement: the flag is held **and**
+enforced on this side because the review app is the component being decommissioned, so
+`managedBy` is deliberately absent from the promote wire and this endpoint is the only writer
+besides the column's `DEFAULT 'review'`.
+
+**The flag is reversible; the data direction is not.** "One-way forever" governs the data — the
+review app never writes over AECi's copy, which the refusal delivers unconditionally while the
+flag reads `vendor`. The flag itself moves both ways because `STAGE_2_SPEC.md` §8.9(4) makes
+this cutoff the mechanism that answers *"is the feed still arriving?"* for a connector seat that
+carries no `vendor_entitlements` row and therefore has no expiry cron to sweep it — a duty only
+actionable if a lane can be reclaimed. Reversing re-opens the promote lane going forward and
+does nothing else; it reconciles nothing the vendor wrote, and pages committed before a
+mid-sync flip stay committed.
+
+**It grants no seat.** `vendorId` is validated against `vendors` (404 on a miss, so a typo
+cannot park a dangling id) and recorded in the audit row — nothing more. `STAGE_2_SPEC.md`
+§8.9(2) fences the connector seat off from `vendor_entitlements` entirely, and §8.9(3) leaves
+provisioning to AECI-722 / AECI-724; no `vendor_admin` role is written here.
+
+Errors: `404` unknown catalogue **or** unknown `vendorId`; `422 INVALID_STATE_TRANSITION` when
+the catalogue is already in the requested state (a no-op would hide an operator whose mental
+model of who controls the lane is wrong); `400` on a bad body or an unknown `managedBy`.
+
+**Audit is per row, in the same `db.batch` as the guarded `UPDATE`** — ADR 0022 and
+`STAGE_1_SPEC.md` §26.1 both name this flip explicitly as the decision-bearing write that audits
+per row, distinguishing it from the run-granularity carve-out governing the connector sync on
+the same tables. Actions are `connector_catalog.managed_by_vendor` / `.managed_by_review`,
+`entity_type='connector_catalog'`. **No `workflow_instances` row** (that CHECK is closed) and
+**no cache purge** — nothing reads `connector_catalogs` yet, so there is no tag to purge.
+
 #### `GET /api/admin/users` (AECI-692)
 
 The operator's user list — **profiles-first**, behind `requireAdmin()`, emitting no
@@ -3185,9 +3243,15 @@ instead of a rolled-back page: the 500-row ceiling, duplicate ids within a page,
 pair ordering (`stubAId < stubBId`), a stub-level decision status carrying a `productId`, and
 more than one stub-level decision on the same stub.
 
-**No new error code.** `MALFORMED_REQUEST`, `VALIDATION_FAILED`, `PAYLOAD_TOO_LARGE`,
-`UNAUTHENTICATED` and `DEPENDENCY_FAILURE` cover it; the vendor-managed-catalogue rejection
-code is AECI-720's to add.
+**One error code beyond the shared set (AECI-720).** `MALFORMED_REQUEST`,
+`VALIDATION_FAILED`, `PAYLOAD_TOO_LARGE`, `UNAUTHENTICATED` and `DEPENDENCY_FAILURE` cover the
+kick-off. On the job, a page addressing a **vendor-managed** catalogue fails with
+`CATALOG_VENDOR_MANAGED` (§4). The refusal is raised from the planner *before* the
+unpromoted-connector skip — ordering that matters, because a vendor-managed catalogue whose
+platform is unpromoted (the live Zapier/Workato case) would otherwise return a re-sendable skip
+saying "try again later" when the answer is permanently no. `managedBy` is correspondingly **not
+on the wire**: the flag is held and enforced on this side, so a catalogue starts `review` by
+column default and only `PATCH /api/admin/connector-catalogs/:id` moves it.
 
 **No read endpoint ships with this issue.** The coverage checker (AECI-715), the reachable-lane
 publication (AECI-716) and the connector admin screen (AECI-722) each own their own read, and
