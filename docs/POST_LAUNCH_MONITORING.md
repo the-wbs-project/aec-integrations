@@ -184,6 +184,40 @@ behind it:
    before submitting, so run it **after** the purge — if the edge is still serving the old
    membership, it will correctly refuse rather than ping `noindex` pages.
 
+### 3a-bis. Crawler visibility of the listing pages (AECI-746)
+
+> **A listing page can look perfect in a browser and be empty to Google.** Until
+> AECI-746, `/products` and every taxonomy browse page server-rendered their error
+> branch — "Couldn't load products. Refresh to try again." — with zero product
+> links. The grid fetched its data with a RELATIVE `/api/products` URL, which
+> resolves fine in a browser (against the page origin) and does not fetch during
+> SSR on the edge. Every crawler reads the raw HTML and does not run our
+> JavaScript on its first pass, so every crawler saw the error.
+>
+> Measured cost, August 2026: **Googlebot reached 177 of the 1,445 sitemap URLs
+> (12%)** while **Bingbot reached 940 (65%)**. Bing is fine because IndexNow pushes
+> URLs to it directly and it never has to discover anything by crawling; Google
+> has no working push channel (its Indexing API is documented for `JobPosting` /
+> `BroadcastEvent` only), so it must crawl — and every hub page was a dead end.
+> Googlebot spent 260 of its 983 monthly crawls on `/` alone and fetched the
+> sitemap twice.
+>
+> **Check it with one command, against a DEPLOYED environment:**
+>
+> ```bash
+> ./scripts/check-ssr-listings.sh https://www.aecintegrations.com
+> ```
+>
+> It counts product links in the raw HTML of five listing pages and exits non-zero
+> if any is a dead end. Run it after any change to `createPaginatedIndex`, the
+> listing routes, or the SSR data path — and as a spot check when Search Console
+> coverage looks wrong.
+>
+> **Local dev cannot answer this question.** Under `wrangler dev` the relative URL
+> resolves to `http://localhost:<port>` and succeeds, so local passes with *and
+> without* the fix (verified 2026-08-31). A green local run means "no regression",
+> not "fixed". Use preview, staging, or production.
+
 ### 3b. Traffic classification — auditing the digest's "humans" (AECI-526 follow-up)
 
 > **Since AECI-741 the digest's HEADLINE is the post-automation figure**, not the raw
