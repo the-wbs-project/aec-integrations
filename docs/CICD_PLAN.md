@@ -605,7 +605,7 @@ build ──────────┘
 
 ### 11.3 Selective testing
 
-For very small PRs (e.g. doc-only changes), skip downstream jobs via `paths-ignore` in workflow triggers.
+For very small PRs (e.g. doc-only changes), skip only the expensive, **non-required** jobs (E2E) via a `changes` detection job (`dorny/paths-filter`) inside the workflow — **never** via a workflow-level `paths-ignore` on `pull_request`. A workflow skipped by a trigger path filter never *creates* the required check runs (`Lint & typecheck` / `Unit tests` / `Build SSR Worker`), so a docs-only PR sits `Pending` forever and the required-check gate blocks the merge with no way to clear it. A skipped *workflow* is not a skipped *job*; only the latter reports as passed. See the `on:` block and `changes` job in `deploy.yml`. (`push` triggers may keep `paths-ignore` — push runs are not required-check-gated.)
 
 ---
 
