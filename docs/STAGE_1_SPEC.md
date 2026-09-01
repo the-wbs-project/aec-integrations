@@ -1358,7 +1358,7 @@ Generated on request by a Cloudflare Worker, not built statically.
 
 ### 20.2 IndexNow notification
 
-On any write to products, vendors, or integrations, a Cloudflare Worker submits the affected URLs to IndexNow (Bing, Yandex, others). Google Indexing API pinged for the same URLs as a best-effort signal.
+On any write to products, vendors, or integrations, a Cloudflare Worker submits the affected URLs to IndexNow (Bing, Yandex, others). (A Google Indexing API ping for the same URLs shipped in AECI-263 and was removed in AECI-747 — see the REMOVED note below.)
 
 This runs as part of the single write-event pipeline described in Section 20.5.
 

@@ -272,7 +272,7 @@ export type Env = {
    * dead host).
    */
   PUBLIC_SITE_URL?: string;
-    /**
+  /**
    * Algolia application id (AECI-134). Single, shared across envs (one app;
    * only indexes/keys differ). Provisioned in Phase 3.1. Optional until the
    * sync pipeline (3.5/3.6) reads it.

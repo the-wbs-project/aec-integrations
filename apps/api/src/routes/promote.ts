@@ -1953,8 +1953,8 @@ export async function runPromoteIngest(
 
 /**
  * The best-effort, post-commit tail of a promote: §26.5 audit forwards, edge-cache
- * purge, home-stats refresh, Algolia upsert, and the IndexNow / Google Indexing
- * pings. Every one of them is fire-and-forget through `rc.waitUntil` and self-gates
+ * purge, home-stats refresh, Algolia upsert, and the IndexNow ping. Every one of
+ * them is fire-and-forget through `rc.waitUntil` and self-gates
  * on its own credentials, exactly as it did when this ran off the request — the
  * promote is already committed, so nothing here may throw or delay the result.
  *
@@ -2024,11 +2024,6 @@ export function dispatchPromoteHooks(
     dispatchHook(rc, 'indexnow', notifyIndexNow(rc, response, tradeUrls));
   }
 
-  // AECI-263: best-effort Google Indexing API ping for the SAME affected URLs
-  // (§20.2). Additive to IndexNow; no-ops without the service-account creds +
-  // PUBLIC_SITE_URL, which are provisioned ONLY at launch (alongside
-  // `ALLOW_INDEXING=true`) — pinging Google for a noindex'd site is the same
-  // correctness bug the secret's absence guards against. Never blocks the write.
   // Surface any `skipped[]` entries (§4) in Datadog: a completed job with skips is
   // a partial promote — entities the push couldn't link — that neither the metrics
   // layer nor a `status: 'complete'` poll response can otherwise reveal.

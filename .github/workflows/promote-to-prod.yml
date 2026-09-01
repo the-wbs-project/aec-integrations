@@ -579,14 +579,11 @@ jobs:
           printf '%s' "$INDEXNOW_KEY_VALUE" \
             | pnpm exec wrangler secret put INDEXNOW_KEY --env production
 
-      # AECI-263/§20.2: push the Google Indexing API service-account creds to the
-      # prod API Worker so the best-effort post-promote Google ping (lib/google-
-      # indexing.ts, gated on BOTH creds + the PUBLIC_SITE_URL var) can fire.
-      # Optional + FAIL-OPEN: a missing cred is a silent no-op (the ping is skipped,
-      # the promote still succeeds), so warn-and-skip and NOT in REQUIRED_WORKER_SECRETS.
-      # Provision only at public launch (alongside the web Worker's ALLOW_INDEXING=
-      # "true") — pinging Google for a noindex'd site is a correctness bug. Unlike
-      # INDEXNOW_KEY there is NO web-side counterpart (no {key}.txt verification file).
+      # AECI-747 removed the Google Indexing API ping (and its GOOGLE_INDEXING_SA_*
+      # secret-push steps that used to sit here): Google accepts only
+      # `JobPosting`/`BroadcastEvent` URLs, so the ping never did anything for our
+      # pages. Delete the dead GOOGLE_INDEXING_SA_* secrets from GitHub Actions and
+      # every API Worker env — see the AECI-747 notes.
       - name: Deploy SSR (production)
         id: deploy_ssr
         env:
