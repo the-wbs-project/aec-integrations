@@ -1043,10 +1043,21 @@ async function runAnalyticsDigestJob(env: Env, ctx: ExecutionContext): Promise<J
     // is now the count remaining after the automation filter, its day-over-day
     // delta has to subtract from both sides — comparing a filtered day against an
     // unfiltered prior day would print a large fabricated drop every morning.
-    const [metrics, swarm, priorSwarm, posthog] = await Promise.all([
-      collectAnalyticsMetrics(db, window),
+    // Swarm detection runs FIRST, not alongside, because its result is now an
+    // INPUT to the collector (AECI-747): the "most viewed products" and "traffic
+    // sources" tables have to exclude the same automated clients the headline
+    // subtracts, or the email leads with a filtered number over unfiltered rows.
+    // On 2026-08-30 that gap showed a bot-driven page as the day's top product.
+    const [swarm, priorSwarm] = await Promise.all([
       detectSwarms(db, window.startIso, window.endIso),
       detectSwarms(db, window.priorStartIso, window.startIso),
+    ]);
+    const exclusion = {
+      uaHashes: swarm.uaCandidates.map((c) => c.userAgentHash),
+      asns: swarm.asnCandidates.map((c) => c.cfAsn),
+    };
+    const [metrics, posthog] = await Promise.all([
+      collectAnalyticsMetrics(db, window, exclusion),
       readPosthogFloor(env, window),
     ]);
 

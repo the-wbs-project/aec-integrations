@@ -177,7 +177,7 @@ behind it:
 
 1. **Purge `sitemap`, `index:trades`, and `taxonomy`**, or the edge serves the old membership until
    the TTLs lapse. The automatic purge is a promote hook; there is no promote here.
-2. **Announce the newly indexable term URLs.** The IndexNow / Google Indexing pings are the same
+2. **Announce the newly indexable term URLs.** The IndexNow ping (Google's was removed in AECI-747 — it only ever accepted `JobPosting`/`BroadcastEvent`) is the same
    promote hook, so nothing tells an indexing service the pages exist. Run
    `pnpm --filter @aeci/api ops:submit-trade-urls -- --env production` (dry-run) to see the set, then
    re-run with `--apply --allow-production`. It verifies each page really serves without `noindex`

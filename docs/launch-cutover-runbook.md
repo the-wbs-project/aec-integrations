@@ -32,7 +32,6 @@ These are unset pre-launch by design — the integrations fail-open/no-op until 
 | Purpose | Secret(s) | Notes |
 |---|---|---|
 | IndexNow (7.1) | `INDEXNOW_KEY_PRODUCTION` | **Also host the key file** `<key>.txt` at the site root so IndexNow can verify ownership. |
-| Google Indexing (AECI-263) | `GOOGLE_INDEXING_SA_EMAIL_PRODUCTION`, `GOOGLE_INDEXING_SA_PRIVATE_KEY_PRODUCTION` | Service-account `client_email` + PKCS#8 `private_key`. |
 | Transactional email (7.5) | `RESEND_API_KEY` (single shared, un-suffixed), `EMAIL_FROM` | Supabase → Resend custom SMTP configured (`docs/email.md`); required for the waitlist broadcast + review/account emails. |
 | Product analytics (7.4) | `POSTHOG_KEY` (+ `POSTHOG_HOST`) | Client-only; CSP `connect-src` already allows PostHog (AECI-89). |
 | Data-quality digest (7.6) | `DATA_QUALITY_EMAIL_FROM`, `DATA_QUALITY_EMAIL_TO` | Chris + Bill; cron already scheduled on prod. |

@@ -173,6 +173,54 @@ export interface AnalyticsMetrics {
   operatorLeakViews: number;
 }
 
+/**
+ * The automated clients a run flagged, as plain data (AECI-747).
+ *
+ * Passed IN rather than imported, and that is deliberate: `swarm-detection.ts`
+ * imports this module's `HUMAN` / `NOT_INTERNAL` predicates, so importing its
+ * detector back here would close a runtime cycle. Arrays of primitives cross the
+ * boundary instead, so the dependency stays one-way.
+ */
+export interface AutomationExclusion {
+  /** `user_agent_hash` values flagged as rotating-proxy swarms. */
+  uaHashes: readonly string[];
+  /** `cf_asn` values flagged as user-agent rotators. */
+  asns: readonly number[];
+}
+
+/**
+ * "This row is NOT attributable to a flagged automated client" — the exact
+ * complement of `swarm-detection.ts`'s `countFlaggedViews`, so the headline
+ * (`total - flagged`) and the tables (filtered by this) describe the same
+ * population. If the two ever drift, the email reports a filtered number over
+ * unfiltered rows, which is the inconsistency this exists to close.
+ *
+ * **NULL-safety is load-bearing and must not be "simplified".** The flagged
+ * predicate is `ua IN (…) OR asn IN (…)`. A row with a NULL hash AND a NULL ASN
+ * makes both `IN`s NULL, so `OR` is NULL, so the row is NOT counted as flagged —
+ * it stays in the headline. The tempting negation `not(or(inArray…, inArray…))`
+ * is NULL for that same row, and a NULL `WHERE` DROPS it — so the row would
+ * vanish from the tables while remaining in the count. Writing each half as
+ * "IS NULL OR NOT IN" keeps it. Same three-valued-logic trap `OPERATOR_PAIR_MATCH`
+ * documents above.
+ */
+function notFlagged(exclusion: AutomationExclusion | undefined) {
+  if (!exclusion) return undefined;
+  const clauses = [];
+  if (exclusion.uaHashes.length > 0) {
+    clauses.push(
+      or(
+        isNull(pageViews.userAgentHash),
+        not(inArray(pageViews.userAgentHash, [...exclusion.uaHashes])),
+      ),
+    );
+  }
+  if (exclusion.asns.length > 0) {
+    clauses.push(or(isNull(pageViews.cfAsn), not(inArray(pageViews.cfAsn, [...exclusion.asns]))));
+  }
+  return clauses.length > 0 ? and(...clauses) : undefined;
+}
+
 const TOP_PRODUCTS_LIMIT = 5;
 
 /**
@@ -389,7 +437,12 @@ async function countNewProfiles(db: Db, startIso: string, endIso: string): Promi
 }
 
 /** Top products by HUMAN `page_views` in `[startIso, endIso)`, joined to `products`. */
-async function topProductsByViews(db: Db, startIso: string, endIso: string): Promise<TopProduct[]> {
+async function topProductsByViews(
+  db: Db,
+  startIso: string,
+  endIso: string,
+  exclusion?: AutomationExclusion,
+): Promise<TopProduct[]> {
   const rows = await db
     .select({ name: products.name, slug: products.slug, views: count() })
     .from(pageViews)
@@ -401,6 +454,7 @@ async function topProductsByViews(db: Db, startIso: string, endIso: string): Pro
         isNotNull(pageViews.productId),
         HUMAN,
         NOT_INTERNAL,
+        notFlagged(exclusion),
       ),
     )
     .groupBy(products.id)
@@ -416,6 +470,7 @@ async function referrerBreakdown(
   db: Db,
   startIso: string,
   endIso: string,
+  exclusion?: AutomationExclusion,
 ): Promise<ReferrerCount[]> {
   const rows = await db
     .select({ source: pageViews.referrerSource, views: count() })
@@ -427,6 +482,7 @@ async function referrerBreakdown(
         HUMAN,
         isNotNull(pageViews.referrerSource),
         NOT_INTERNAL,
+        notFlagged(exclusion),
       ),
     )
     .groupBy(pageViews.referrerSource)
@@ -523,6 +579,9 @@ async function countOperatorLeakViews(db: Db, startIso: string, endIso: string):
 export async function collectAnalyticsMetrics(
   db: Db,
   window: DigestWindow,
+  /** Flagged automated clients to exclude from the per-row tables (AECI-747).
+   *  Omitted → tables are unfiltered, which is what the admin panel still does. */
+  exclusion?: AutomationExclusion,
 ): Promise<AnalyticsMetrics> {
   const [
     humanViewsDay,
@@ -549,8 +608,8 @@ export async function collectAnalyticsMetrics(
     countNewProfiles(db, window.priorStartIso, window.startIso),
     db.select({ value: count() }).from(profiles),
     db.select({ value: count() }).from(reviews).where(eq(reviews.status, 'pending')),
-    topProductsByViews(db, window.startIso, window.endIso),
-    referrerBreakdown(db, window.startIso, window.endIso),
+    topProductsByViews(db, window.startIso, window.endIso, exclusion),
+    referrerBreakdown(db, window.startIso, window.endIso, exclusion),
     botActivityInWindow(db, window.startIso, window.endIso),
     countCorroboratedViews(db, window.startIso, window.endIso),
     countCorroboratedViews(db, window.priorStartIso, window.startIso),
@@ -780,6 +839,8 @@ function boundsLines(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): s
         'UPPER bound: it is written on every full-document load, so any crawler that does not run',
         'JavaScript is still in it. The filter is a maintained heuristic over a small sample, so the',
         'headline is an estimate — it is not a census, and it can be wrong in both directions.',
+        'Most viewed products and Traffic sources below exclude the same flagged clients, so every',
+        'figure in this email describes one population.',
       ]
     : [
         'The automation filter did not run for this day, so the headline is UNFILTERED and is an',
@@ -891,7 +952,10 @@ function buildText(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): str
     );
   }
   if (topProducts.length > 0) {
-    t.push('', 'Most viewed products:');
+    t.push(
+      '',
+      opts.automation ? 'Most viewed products (after automation):' : 'Most viewed products:',
+    );
     topProducts.forEach((p, i) =>
       t.push(`  ${i + 1}. ${p.name} — ${plural(p.views, 'view')} (/${p.slug})`),
     );
@@ -899,7 +963,7 @@ function buildText(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): str
     t.push('Most viewed product: (no human product page views)');
   }
 
-  t.push('', '== Traffic sources (humans) ==');
+  t.push('', `== Traffic sources (humans${opts.automation ? ', after automation' : ''}) ==`);
   if (referrers.length > 0) {
     referrers.forEach((r, i) => t.push(`  ${i + 1}. ${r.source} — ${plural(r.views, 'view')}`));
   } else {
@@ -1082,7 +1146,11 @@ function buildHtml(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): str
   const productLabel = (p: TopProduct): string =>
     `${escapeHtml(p.name)} <span style="color:${HTML.muted};font-size:12px">/${escapeHtml(p.slug)}</span>`;
   const productsSection =
-    sectionTitle('Most viewed products (humans)') +
+    sectionTitle(
+      opts.automation
+        ? 'Most viewed products (humans, after automation)'
+        : 'Most viewed products (humans)',
+    ) +
     (topProducts.length > 0
       ? rankTable(
           'Product',
@@ -1092,7 +1160,9 @@ function buildHtml(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): str
       : emptyNote('No human product page views.'));
 
   const referrersSection =
-    sectionTitle('Traffic sources (humans)') +
+    sectionTitle(
+      opts.automation ? 'Traffic sources (humans, after automation)' : 'Traffic sources (humans)',
+    ) +
     (referrers.length > 0
       ? rankTable(
           'Source',

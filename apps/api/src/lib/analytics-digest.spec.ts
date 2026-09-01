@@ -559,6 +559,113 @@ describe('collectAnalyticsMetrics', () => {
  * modifiers) no matter how many pairs exist. Assert the shape, because the
  * result is exactly what this engine cannot get wrong.
  */
+describe('collectAnalyticsMetrics — automation exclusion on the tables (AECI-747)', () => {
+  let t: TestDb;
+  beforeEach(async () => {
+    t = await makeTestDb();
+  });
+  afterEach(() => t.dispose());
+
+  const window = dailyWindows(new Date('2026-07-24T12:00:00.000Z'));
+  const AT = '2026-07-23T10:00:00.000Z';
+
+  beforeEach(async () => {
+    await t.db.insert(products).values([
+      { id: 'p1', slug: 'p1', name: 'P1' },
+      { id: 'p2', slug: 'p2', name: 'P2' },
+    ]);
+  });
+
+  it('drops flagged UA hashes and ASNs from top products and traffic sources', async () => {
+    await t.db.insert(pageViews).values([
+      // A flagged swarm hash reading p1 three times — the exact shape that put a
+      // bot-driven page at the top of the 2026-08-30 email.
+      {
+        path: '/products/p1',
+        productId: 'p1',
+        createdAt: AT,
+        userAgentHash: 'swarm',
+        referrerSource: 'Direct',
+      },
+      {
+        path: '/products/p1',
+        productId: 'p1',
+        createdAt: AT,
+        userAgentHash: 'swarm',
+        referrerSource: 'Direct',
+      },
+      {
+        path: '/products/p1',
+        productId: 'p1',
+        createdAt: AT,
+        userAgentHash: 'swarm',
+        referrerSource: 'Direct',
+      },
+      // A flagged ASN under a different hash.
+      {
+        path: '/products/p1',
+        productId: 'p1',
+        createdAt: AT,
+        userAgentHash: 'other',
+        cfAsn: 47544,
+        referrerSource: 'Google',
+      },
+      // One genuine reader of p2.
+      {
+        path: '/products/p2',
+        productId: 'p2',
+        createdAt: AT,
+        userAgentHash: 'person',
+        cfAsn: 7922,
+        referrerSource: 'Google',
+      },
+    ]);
+
+    const m = await collectAnalyticsMetrics(t.db, window, {
+      uaHashes: ['swarm'],
+      asns: [47544],
+    });
+
+    // p1 had 4 of the 5 views and would otherwise lead the table.
+    expect(m.topProducts).toEqual([{ name: 'P2', slug: 'p2', views: 1 }]);
+    expect(m.referrers).toEqual([{ source: 'Google', views: 1 }]);
+  });
+
+  it('KEEPS rows with a null hash AND a null ASN — the three-valued-logic trap', async () => {
+    // `NOT (ua IN (…) OR asn IN (…))` is NULL for this row, and a NULL WHERE drops
+    // it — so the row would vanish from the tables while still counting in the
+    // headline. It must survive.
+    await t.db
+      .insert(pageViews)
+      .values([{ path: '/products/p1', productId: 'p1', createdAt: AT, referrerSource: 'Direct' }]);
+
+    const m = await collectAnalyticsMetrics(t.db, window, { uaHashes: ['swarm'], asns: [47544] });
+
+    expect(m.topProducts).toEqual([{ name: 'P1', slug: 'p1', views: 1 }]);
+    expect(m.referrers).toEqual([{ source: 'Direct', views: 1 }]);
+  });
+
+  it('the tables and the headline describe ONE population', async () => {
+    await t.db.insert(pageViews).values([
+      { path: '/products/p1', productId: 'p1', createdAt: AT, userAgentHash: 'swarm' },
+      { path: '/products/p1', productId: 'p1', createdAt: AT, userAgentHash: 'swarm' },
+      { path: '/products/p2', productId: 'p2', createdAt: AT, userAgentHash: 'person' },
+      { path: '/', createdAt: AT, userAgentHash: 'person' },
+    ]);
+
+    const m = await collectAnalyticsMetrics(t.db, window, { uaHashes: ['swarm'], asns: [] });
+
+    // Headline is `raw - flagged` (4 - 2 = 2); the table rows must sum to no more
+    // than that. If the negation ever stops matching `countFlaggedViews`, this is
+    // where it shows up.
+    const rawMinusFlagged = m.pageViews.day - 2;
+    const tableViews = m.topProducts.reduce((n, p) => n + p.views, 0);
+    expect(rawMinusFlagged).toBe(2);
+    expect(tableViews).toBeLessThanOrEqual(rawMinusFlagged);
+    expect(m.topProducts).toEqual([{ name: 'P2', slug: 'p2', views: 1 }]);
+  });
+});
+
 describe('NOT_INTERNAL query shape (the D1 bound-parameter ceiling)', () => {
   let t: TestDb;
   beforeEach(async () => {

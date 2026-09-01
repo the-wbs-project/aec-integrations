@@ -770,6 +770,15 @@ above. Implemented in `apps/web/src/app/analytics/`.
 > said "48 human views"; PostHog saw **5 pageviews from 1 person**, and those five were the operator's
 > own session, which the digest had already excluded.
 >
+> **One population per email (AECI-747).** The headline is `raw − flagged`, and since AECI-747 the
+> "Most viewed products" and "Traffic sources" tables exclude the SAME flagged clients — the
+> `AutomationExclusion` the cron hands `collectAnalyticsMetrics`. Before that the email led with a
+> filtered number over unfiltered rows, and on 2026-08-30 showed a bot-driven page as the day's top
+> product. The exclusion predicate is the exact complement of `swarm-detection.ts`'s
+> `countFlaggedViews`, and is NULL-safe on purpose: a row with a null UA hash AND a null ASN counts
+> in the headline, so it must survive the tables too. **The admin panel still passes no exclusion**,
+> so `/admin/overview` top-products remain unfiltered — a known parity gap, not a second definition.
+>
 > Pure transport, like `cloudflare-analytics.ts`: it never throws, and every failure path returns a
 > structured `{ ok: false, reason }` that the email renders as "unavailable". It must **never** report
 > a `0` on failure — a fabricated zero beside a real count reads as a finding rather than as missing

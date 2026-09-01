@@ -113,7 +113,6 @@ import { ApiError } from '../errors';
 import { syncPromoteTargets } from '../lib/algolia-sync';
 import { emitAlgoliaSyncMetrics, type SyncMetricSink } from '../lib/algolia-sync-metrics';
 import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
-import { callGoogleIndexing } from '../lib/google-indexing';
 import { type DbFactory } from '../lib/handler-utils';
 import { runHomeStats, type HomeStatsResult } from '../lib/home-stats';
 import { emitHomeStatsMetrics, type StatsMetricSink } from '../lib/home-stats-metrics';
@@ -562,87 +561,16 @@ function resolveTradeUrlOptions(
   removedTradeSlugs: string[],
 ): Promise<AffectedUrlOptions> {
   const siteUrl = rc.env.PUBLIC_SITE_URL;
-  const pingConfigured =
-    Boolean(siteUrl) &&
-    Boolean(
-      rc.env.INDEXNOW_KEY ||
-      (rc.env.GOOGLE_INDEXING_SA_EMAIL && rc.env.GOOGLE_INDEXING_SA_PRIVATE_KEY),
-    );
+  // IndexNow is the only ping left (AECI-747 removed the Google Indexing API
+  // submission — Google supports it for `JobPosting`/`BroadcastEvent` only, which
+  // is nothing we publish).
+  const pingConfigured = Boolean(siteUrl) && Boolean(rc.env.INDEXNOW_KEY);
   const touched = touchedTradeSlugs(response, removedTradeSlugs);
   if (!pingConfigured || touched.length === 0) return Promise.resolve({});
 
   return resolvePublishedTradeSlugs(db, touched)
     .then((publishedTradeSlugs) => ({ publishedTradeSlugs, removedTradeSlugs }))
     .catch(() => ({}));
-}
-
-// ─── Google Indexing API ping (AECI-263) ─────────────────────────────────────
-
-/**
- * Post-commit Google Indexing API submission seam. Default builds the SAME
- * affected public URLs as IndexNow (`affectedUrlsForPromote` — no second deriver,
- * §20.2 acceptance criterion) and pings Google's Indexing API via
- * `callGoogleIndexing`, gated on the service-account creds + `PUBLIC_SITE_URL`.
- * Records `aeci.google_indexing.submit{source:promote,outcome:ok|failed}` and
- * warn-logs a token failure or a partial publish (Datadog) — never throws, never
- * blocks the committed promote (§20.2 / §20.5). Best-effort: Google officially
- * supports only `JobPosting`/`BroadcastEvent`, so this is an additive signal on
- * top of the sitemap `<lastmod>` (§20.5 step 5). Injected for tests.
- */
-export type PromoteGoogleIndexingNotify = (
-  rc: PromoteRunCtx,
-  response: PromoteResponse,
-  tradeUrls: Promise<AffectedUrlOptions>,
-) => Promise<void>;
-
-const defaultGoogleIndexingNotify: PromoteGoogleIndexingNotify = (rc, response, tradeUrls) =>
-  notifyGoogleIndexingAfterPromote(rc, response, tradeUrls);
-
-async function notifyGoogleIndexingAfterPromote(
-  rc: PromoteRunCtx,
-  response: PromoteResponse,
-  tradeUrls: Promise<AffectedUrlOptions>,
-): Promise<void> {
-  const clientEmail = rc.env.GOOGLE_INDEXING_SA_EMAIL;
-  const privateKey = rc.env.GOOGLE_INDEXING_SA_PRIVATE_KEY;
-  const siteUrl = rc.env.PUBLIC_SITE_URL;
-  if (!clientEmail || !privateKey || !siteUrl) return;
-
-  const urlList = affectedUrlsForPromote(response, siteUrl, await tradeUrls);
-  if (urlList.length === 0) return;
-
-  const outcome = await callGoogleIndexing(fetch, {
-    serviceAccount: { clientEmail, privateKey },
-    urlList,
-  });
-  const failed = !outcome.ok || outcome.failed > 0;
-  submitCount(rc, rc.env, rc.request, 'aeci.google_indexing.submit', 1, [
-    'source:promote',
-    `outcome:${failed ? 'failed' : 'ok'}`,
-  ]);
-  if (!outcome.ok) {
-    logGoogleIndexingFailure(
-      rc,
-      urlList.length,
-      `google_indexing_${outcome.status}: ${outcome.message}`,
-    );
-  } else if (outcome.failed > 0) {
-    logGoogleIndexingFailure(
-      rc,
-      urlList.length,
-      `google_indexing_partial: ${outcome.failed} of ${urlList.length} failed`,
-    );
-  }
-}
-
-function logGoogleIndexingFailure(rc: PromoteRunCtx, urlsCount: number, reason: string): void {
-  logToDatadog(rc, rc.env, rc.request, {
-    level: 'warn',
-    message: 'aeci.api.promote.google_indexing_failed',
-    source: 'review-app-promote',
-    reason,
-    urls_count: urlsCount,
-  });
 }
 
 // ─── Home-stats refresh (AECI-305) ───────────────────────────────────────────
@@ -899,12 +827,11 @@ export type PromoteRunCtx = {
 };
 
 /** Injectable seams, all defaulted. Tests pass no-op/spy implementations so the real
- *  transports (D1 binding, Cloudflare purge, Algolia, IndexNow, Google) are never hit. */
+ *  transports (D1 binding, Cloudflare purge, Algolia, IndexNow) are never hit. */
 export type PromoteIngestDeps = {
   dbFor?: DbFactory;
   syncAlgolia?: PromoteAlgoliaSync;
   notifyIndexNow?: PromoteIndexNowNotify;
-  notifyGoogleIndexing?: PromoteGoogleIndexingNotify;
   refreshHomeStats?: PromoteHomeStatsRefresh;
 };
 
@@ -2044,7 +1971,6 @@ export function dispatchPromoteHooks(
   const dbFor = deps.dbFor ?? getDb;
   const syncAlgolia = deps.syncAlgolia ?? defaultAlgoliaSync;
   const notifyIndexNow = deps.notifyIndexNow ?? defaultIndexNowNotify;
-  const notifyGoogleIndexing = deps.notifyGoogleIndexing ?? defaultGoogleIndexingNotify;
   const refreshHomeStats = deps.refreshHomeStats ?? defaultHomeStatsRefresh;
   const { response, removedTradeSlugs, auditEntries, staleSupabaseIds } = result;
 
@@ -2103,14 +2029,6 @@ export function dispatchPromoteHooks(
   // PUBLIC_SITE_URL, which are provisioned ONLY at launch (alongside
   // `ALLOW_INDEXING=true`) — pinging Google for a noindex'd site is the same
   // correctness bug the secret's absence guards against. Never blocks the write.
-  if (
-    rc.env.GOOGLE_INDEXING_SA_EMAIL &&
-    rc.env.GOOGLE_INDEXING_SA_PRIVATE_KEY &&
-    rc.env.PUBLIC_SITE_URL
-  ) {
-    dispatchHook(rc, 'google-indexing', notifyGoogleIndexing(rc, response, tradeUrls));
-  }
-
   // Surface any `skipped[]` entries (§4) in Datadog: a completed job with skips is
   // a partial promote — entities the push couldn't link — that neither the metrics
   // layer nor a `status: 'complete'` poll response can otherwise reveal.
