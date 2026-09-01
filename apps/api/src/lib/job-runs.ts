@@ -190,6 +190,26 @@ export interface AnalyticsDigestSummary {
    *  make a partial read look complete. */
   swarmTruncated?: boolean;
   /**
+   * The third shape (AECI-744): views whose OWN `client_verdict` was
+   * `inconsistent` / `non-browser`, flagged with no view floor because the
+   * verdict is direct evidence about the request rather than an inference from
+   * how many requests there were.
+   *
+   * A component of `swarmFlaggedViews`, never an addend — the union reconciles
+   * the overlap with the two groupings.
+   */
+  verdictFlaggedViews?: number;
+  /** How many networks those views came from. */
+  nonBrowserCandidates?: number;
+  /**
+   * Which networks, largest first — the triage rollup.
+   *
+   * `asn` is null for rows that carried no ASN, which is a real bucket rather
+   * than a dropped one. Stored rather than re-derived because the rollup reads
+   * `page_views` and the window ages out under retention.
+   */
+  nonBrowserNetworks?: { asn: number | null; org: string | null; views: number }[];
+  /**
    * Human views the operator-pair retro-join removed (AECI-683).
    *
    * The single most useful number for deciding whether

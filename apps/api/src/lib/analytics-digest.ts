@@ -186,6 +186,15 @@ export interface AutomationExclusion {
   uaHashes: readonly string[];
   /** `cf_asn` values flagged as user-agent rotators. */
   asns: readonly number[];
+  /**
+   * `client_verdict` values that flag a row ON THEIR OWN, with no view floor
+   * (AECI-744) — `['inconsistent', 'non-browser']`, `NON_BROWSER_VERDICTS` there.
+   *
+   * Unlike the two lists above this is a fixed vocabulary, not a per-run result,
+   * and it is passed rather than hardcoded here for the same reason they are: the
+   * detector owns what "flagged" means, and this module owns only the complement.
+   */
+  verdicts: readonly string[];
 }
 
 /**
@@ -196,8 +205,9 @@ export interface AutomationExclusion {
  * unfiltered rows, which is the inconsistency this exists to close.
  *
  * **NULL-safety is load-bearing and must not be "simplified".** The flagged
- * predicate is `ua IN (…) OR asn IN (…)`. A row with a NULL hash AND a NULL ASN
- * makes both `IN`s NULL, so `OR` is NULL, so the row is NOT counted as flagged —
+ * predicate is `ua IN (…) OR asn IN (…) OR client_verdict IN (…)` (the third term
+ * since AECI-744). A row with a NULL hash, a NULL ASN and a NULL verdict makes
+ * every `IN` NULL, so `OR` is NULL, so the row is NOT counted as flagged —
  * it stays in the headline. The tempting negation `not(or(inArray…, inArray…))`
  * is NULL for that same row, and a NULL `WHERE` DROPS it — so the row would
  * vanish from the tables while remaining in the count. Writing each half as
@@ -217,6 +227,18 @@ function notFlagged(exclusion: AutomationExclusion | undefined) {
   }
   if (exclusion.asns.length > 0) {
     clauses.push(or(isNull(pageViews.cfAsn), not(inArray(pageViews.cfAsn, [...exclusion.asns]))));
+  }
+  if (exclusion.verdicts.length > 0) {
+    // Same NULL-safe shape, and load-bearing for the same reason: a row written
+    // before `client_verdict` existed counts in the headline, so it must survive
+    // the tables. `not(inArray(...))` alone is NULL for that row and a NULL
+    // `WHERE` drops it.
+    clauses.push(
+      or(
+        isNull(pageViews.clientVerdict),
+        not(inArray(pageViews.clientVerdict, [...exclusion.verdicts])),
+      ),
+    );
   }
   return clauses.length > 0 ? and(...clauses) : undefined;
 }

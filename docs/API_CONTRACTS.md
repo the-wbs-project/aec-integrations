@@ -1437,6 +1437,16 @@ extracting the shared predicates into their own module so the collector can call
 detector; `humanViewsAfterAutomation()` is exported from `analytics-digest.ts` so the
 panel can do the subtraction from one definition once it has the input.
 
+The same one-way rule governs `AutomationExclusion`, which the cron hands
+`collectAnalyticsMetrics` so the digest's tables filter the population its headline
+subtracts. It carries **plain primitives only** — `uaHashes`, `asns`, and (since
+AECI-744) `verdicts`, the `client_verdict` values that flag a row on their own with no
+view floor. `verdicts` is a fixed vocabulary rather than a per-run result, and it is
+still *passed* rather than hardcoded in the collector for the same reason the other two
+are: the detector owns what "flagged" means, `analytics-digest.ts` owns only the exact
+complement, and importing `NON_BROWSER_VERDICTS` there directly would close the cycle
+this section exists to keep open.
+
 **Status strip and `?recompute=1` (§13 D8).** The first three items are cheap
 D1/env reads and are always present. The last two need the network — the
 data-quality suite HTTP-probes logo URLs, and drift queries three Algolia indexes
