@@ -20,12 +20,17 @@ import {
   detectAsnRotators,
   detectNonBrowserClients,
   detectSwarms,
+  detectUaHashSwarms,
   isCorroboratedByRequestShape,
   NON_BROWSER_VERDICTS,
   swarmNote,
   SWARM_MAX_CANDIDATES,
   SWARM_MIN_ASN_RATIO,
   SWARM_MIN_VIEWS,
+  SWARM_PRIOR_LOOKBACK_DAYS,
+  SWARM_PRIOR_MIN_FLAGGED_DAYS,
+  SWARM_RECURRING_ASN_RATIO,
+  SWARM_RECURRING_MIN_VIEWS,
   type SwarmCandidate,
   type SwarmSummary,
 } from './swarm-detection';
@@ -238,6 +243,226 @@ describe('detectSwarms', () => {
     expect(candidate.views).toBe(4);
     expect(candidate.nonBrowserViews).toBe(3);
     expect(isCorroboratedByRequestShape(candidate)).toBe(true);
+  });
+});
+
+describe('cross-day memory (AECI-742)', () => {
+  let t: TestDb;
+  beforeEach(async () => {
+    t = await makeTestDb();
+  });
+  afterEach(() => t.dispose());
+
+  /** `2026-08-23` shifted by `days`, as the `YYYY-MM-DD` prefix of a timestamp. */
+  function dayOffset(days: number): string {
+    const d = new Date(DAY_START);
+    d.setUTCDate(d.getUTCDate() + days);
+    return d.toISOString().slice(0, 10);
+  }
+
+  /**
+   * `views` rows for one hash on one day, each on its own ASN unless `asns` says
+   * otherwise — i.e. the ratio is `asns / views` by construction.
+   */
+  function dayOfViews(opts: {
+    hash: string;
+    dayOffset: number;
+    views: number;
+    asns?: number;
+    isBot?: boolean;
+    isOperator?: boolean;
+  }): (typeof pageViews.$inferInsert)[] {
+    const day = dayOffset(opts.dayOffset);
+    const asns = opts.asns ?? opts.views;
+    return Array.from({ length: opts.views }, (_, i) =>
+      view({
+        path: `/products/p${i}`,
+        concretePath: `/products/p${i}`,
+        userAgentHash: opts.hash,
+        // Wraps once `i` passes `asns`, so the distinct count is exactly `asns`.
+        cfAsn: 30000 + (i % asns),
+        cfCountry: 'US',
+        isBot: opts.isBot,
+        isOperator: opts.isOperator,
+        createdAt: `${day}T${String(i).padStart(2, '0')}:30:00.000Z`,
+      }),
+    );
+  }
+
+  /** Flagged history: `days` separate days at full strength, ending before the
+   *  reported day. Offsets are negative, so all of it precedes `DAY_START`. */
+  function flaggedHistory(hash: string, days: number): (typeof pageViews.$inferInsert)[] {
+    return Array.from({ length: days }, (_, i) =>
+      dayOfViews({ hash, dayOffset: -(i + 1), views: SWARM_MIN_VIEWS }),
+    ).flat();
+  }
+
+  it('flags the quiet day a known swarm used to escape on', async () => {
+    // The production regression: `53304b2e...` ran every day of 2026-08-21..30,
+    // was flagged on 8/29 at ratio 1.00, and escaped on 8/30 at 10 views over 7
+    // networks (0.70). Same client, quieter day.
+    await t.db
+      .insert(pageViews)
+      .values([
+        ...flaggedHistory('ua-53304b2e', SWARM_PRIOR_MIN_FLAGGED_DAYS),
+        ...dayOfViews({ hash: 'ua-53304b2e', dayOffset: 0, views: 10, asns: 7 }),
+      ]);
+
+    const summary = await detectSwarms(t.db, DAY_START, DAY_END);
+    expect(summary.uaCandidates).toHaveLength(1);
+    const [candidate] = summary.uaCandidates;
+    expect(candidate.userAgentHash).toBe('ua-53304b2e');
+    expect(candidate.asnRatio).toBe(0.7);
+    expect(candidate.asnRatio).toBeLessThan(SWARM_MIN_ASN_RATIO);
+    expect(candidate.priorFlaggedDays).toBe(SWARM_PRIOR_MIN_FLAGGED_DAYS);
+    expect(summary.flaggedViews).toBe(10);
+  });
+
+  it('leaves the standing bar exactly where it was for a hash with no history', async () => {
+    // The same 0.70 day, no prior. Nothing about the per-day test changed.
+    await t.db
+      .insert(pageViews)
+      .values(dayOfViews({ hash: 'ua-newcomer', dayOffset: 0, views: 10, asns: 7 }));
+
+    const summary = await detectSwarms(t.db, DAY_START, DAY_END);
+    expect(summary.uaCandidates).toEqual([]);
+    expect(summary.flaggedViews).toBe(0);
+    expect(summary.totalHumanViews).toBe(10);
+  });
+
+  it('never builds a prior out of relaxed flags, so the memory cannot ratchet', async () => {
+    // Every history day sits at the RELAXED ratio only (4 views / 2 ASNs = 0.5).
+    // If the prior were evaluated at the bar it grants, one such day would justify
+    // the next and a hash could never get back out. It is evaluated at full
+    // strength, so this history is worth nothing.
+    await t.db
+      .insert(pageViews)
+      .values([
+        ...Array.from({ length: SWARM_PRIOR_MIN_FLAGGED_DAYS + 2 }, (_, i) =>
+          dayOfViews({ hash: 'ua-weak', dayOffset: -(i + 1), views: SWARM_MIN_VIEWS, asns: 2 }),
+        ).flat(),
+        ...dayOfViews({ hash: 'ua-weak', dayOffset: 0, views: 10, asns: 7 }),
+      ]);
+
+    const summary = await detectSwarms(t.db, DAY_START, DAY_END);
+    expect(summary.uaCandidates).toEqual([]);
+  });
+
+  it('requires the history to repeat, not merely to exist', async () => {
+    await t.db
+      .insert(pageViews)
+      .values([
+        ...flaggedHistory('ua-once', SWARM_PRIOR_MIN_FLAGGED_DAYS - 1),
+        ...dayOfViews({ hash: 'ua-once', dayOffset: 0, views: 10, asns: 7 }),
+      ]);
+
+    expect(await detectUaHashSwarms(t.db, DAY_START, DAY_END)).toEqual([]);
+  });
+
+  it('never counts the reported day toward its own prior', async () => {
+    // A hash flagged only INSIDE the window must not use that to lower its own
+    // bar — the test would be circular. It is still flagged here, on the standing
+    // bar alone, so the assertion that matters is `priorFlaggedDays`.
+    await t.db
+      .insert(pageViews)
+      .values(dayOfViews({ hash: 'ua-today-only', dayOffset: 0, views: 9 }));
+
+    const [candidate] = await detectUaHashSwarms(t.db, DAY_START, DAY_END);
+    expect(candidate.asnRatio).toBe(1);
+    expect(candidate.priorFlaggedDays).toBe(0);
+  });
+
+  it('forgets a flagged day that falls outside the lookback', async () => {
+    // One day just inside the window and one just outside it. Only the first
+    // counts, which leaves the hash one short of a prior.
+    await t.db
+      .insert(pageViews)
+      .values([
+        ...dayOfViews({ hash: 'ua-stale', dayOffset: -SWARM_PRIOR_LOOKBACK_DAYS, views: 6 }),
+        ...dayOfViews({ hash: 'ua-stale', dayOffset: -(SWARM_PRIOR_LOOKBACK_DAYS + 1), views: 6 }),
+        ...dayOfViews({ hash: 'ua-stale', dayOffset: 0, views: 10, asns: 7 }),
+      ]);
+
+    expect(await detectUaHashSwarms(t.db, DAY_START, DAY_END)).toEqual([]);
+  });
+
+  it('catches a known swarm on a day too quiet for the standing floor', async () => {
+    // Two views is below `SWARM_MIN_VIEWS` and would have been invisible. With a
+    // fortnight of flagged history behind it, two views on two networks is
+    // corroboration rather than coincidence.
+    await t.db
+      .insert(pageViews)
+      .values([
+        ...flaggedHistory('ua-quiet', SWARM_PRIOR_MIN_FLAGGED_DAYS),
+        ...dayOfViews({ hash: 'ua-quiet', dayOffset: 0, views: SWARM_RECURRING_MIN_VIEWS }),
+      ]);
+
+    const [candidate] = await detectUaHashSwarms(t.db, DAY_START, DAY_END);
+    expect(candidate.userAgentHash).toBe('ua-quiet');
+    expect(candidate.views).toBe(SWARM_RECURRING_MIN_VIEWS);
+  });
+
+  it('still needs some spread today: one view is never enough on its own', async () => {
+    // A single view is trivially "1 ASN for 1 view". Flagging it would mean the
+    // prior alone decided, with no evidence from the day being reported.
+    await t.db
+      .insert(pageViews)
+      .values([
+        ...flaggedHistory('ua-single', SWARM_PRIOR_MIN_FLAGGED_DAYS),
+        ...dayOfViews({ hash: 'ua-single', dayOffset: 0, views: 1 }),
+      ]);
+
+    expect(await detectUaHashSwarms(t.db, DAY_START, DAY_END)).toEqual([]);
+  });
+
+  it('a settled hash is forgiven: the bar is lowered, never removed', async () => {
+    // Full history, but today it read 10 pages from 2 networks (0.20) — the shape
+    // of a person, not a proxy pool. A prior must not be a one-way list.
+    await t.db
+      .insert(pageViews)
+      .values([
+        ...flaggedHistory('ua-reformed', SWARM_PRIOR_MIN_FLAGGED_DAYS),
+        ...dayOfViews({ hash: 'ua-reformed', dayOffset: 0, views: 10, asns: 2 }),
+      ]);
+
+    expect(await detectUaHashSwarms(t.db, DAY_START, DAY_END)).toEqual([]);
+  });
+
+  it('builds no prior out of bot or operator history', async () => {
+    // The prior reuses the digest's own HUMAN + NOT_INTERNAL predicates, so a
+    // population the headline never counted cannot lower anything's bar either.
+    await t.db.insert(pageViews).values([
+      ...Array.from({ length: SWARM_PRIOR_MIN_FLAGGED_DAYS }, (_, i) =>
+        dayOfViews({ hash: 'ua-bot', dayOffset: -(i + 1), views: SWARM_MIN_VIEWS, isBot: true }),
+      ).flat(),
+      ...Array.from({ length: SWARM_PRIOR_MIN_FLAGGED_DAYS }, (_, i) =>
+        dayOfViews({
+          hash: 'ua-lapsed',
+          dayOffset: -(i + 1),
+          views: SWARM_MIN_VIEWS,
+          isOperator: true,
+        }),
+      ).flat(),
+      ...dayOfViews({ hash: 'ua-bot', dayOffset: 0, views: 10, asns: 7 }),
+      ...dayOfViews({ hash: 'ua-lapsed', dayOffset: 0, views: 10, asns: 7 }),
+    ]);
+
+    expect(await detectUaHashSwarms(t.db, DAY_START, DAY_END)).toEqual([]);
+  });
+
+  it('says out loud that a lower bar applied, since the day alone cannot show it', async () => {
+    await t.db
+      .insert(pageViews)
+      .values([
+        ...flaggedHistory('ua-noted', SWARM_PRIOR_MIN_FLAGGED_DAYS),
+        ...dayOfViews({ hash: 'ua-noted', dayOffset: 0, views: 10, asns: 7 }),
+      ]);
+
+    const note = swarmNote(await detectSwarms(t.db, DAY_START, DAY_END));
+    expect(note).toContain(`already flagged on ${SWARM_PRIOR_MIN_FLAGGED_DAYS}+ of the previous`);
+    expect(note).toContain(`${SWARM_PRIOR_LOOKBACK_DAYS} days`);
+    // eslint-disable-next-line no-control-regex
+    expect(note).toMatch(/^[\x00-\x7F]*$/);
   });
 });
 
@@ -555,7 +780,7 @@ describe('detectNonBrowserClients (the verdict as sufficient evidence, AECI-744)
 });
 
 describe('swarmNote', () => {
-  const candidate = (views: number): SwarmCandidate => ({
+  const candidate = (views: number, priorFlaggedDays = 0): SwarmCandidate => ({
     userAgentHash: 'ua',
     views,
     distinctAsns: views,
@@ -564,6 +789,7 @@ describe('swarmNote', () => {
     nonBrowserViews: views,
     asnRatio: 1,
     pathRatio: 1,
+    priorFlaggedDays,
   });
 
   /** Fills the two AECI-744 fields for the cases that are not about them. The
@@ -793,6 +1019,7 @@ describe('isCorroboratedByRequestShape', () => {
       nonBrowserViews: 5,
       asnRatio: 1,
       pathRatio: 1,
+      priorFlaggedDays: 0,
     };
     expect(isCorroboratedByRequestShape(base)).toBe(false);
     expect(isCorroboratedByRequestShape({ ...base, nonBrowserViews: 6 })).toBe(true);
@@ -808,6 +1035,17 @@ describe('thresholds', () => {
     expect(ASN_ROTATOR_MIN_VIEWS).toBe(4);
     expect(ASN_ROTATOR_MIN_UA_RATIO).toBe(0.8);
     expect(SWARM_MAX_CANDIDATES).toBe(25);
+    // AECI-742's cross-day memory. The relaxed pair must stay strictly looser
+    // than the standing pair and strictly above zero: a bar of 0 would make the
+    // prior a one-way list no hash could ever leave.
+    expect(SWARM_PRIOR_LOOKBACK_DAYS).toBe(14);
+    expect(SWARM_PRIOR_MIN_FLAGGED_DAYS).toBe(2);
+    expect(SWARM_RECURRING_ASN_RATIO).toBe(0.5);
+    expect(SWARM_RECURRING_MIN_VIEWS).toBe(2);
+    expect(SWARM_RECURRING_ASN_RATIO).toBeGreaterThan(0);
+    expect(SWARM_RECURRING_ASN_RATIO).toBeLessThan(SWARM_MIN_ASN_RATIO);
+    expect(SWARM_RECURRING_MIN_VIEWS).toBeGreaterThan(1);
+    expect(SWARM_RECURRING_MIN_VIEWS).toBeLessThan(SWARM_MIN_VIEWS);
   });
 
   it('has no threshold at all for the verdict, which is the point of AECI-744', () => {

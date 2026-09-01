@@ -284,6 +284,47 @@ pages from nine different countries on nine different networks and never repeati
 seven. It is the same join AECI-582's backfill used retroactively (`recover-ua-names.sql`), pointed
 forward at live traffic.
 
+**Since AECI-742 a hash is not re-adjudicated from scratch every morning.** The ratio test was
+evaluated per-day and independently each day, so a swarm that happened to reuse one network on a
+quiet day dropped under `SWARM_MIN_ASN_RATIO` and was counted as a person for that day.
+`53304b2e...` was flagged on 8/29 at ratio 1.00 and escaped on 8/30 at 0.70; `02048353...` did the
+exact inverse. Between them that was **18 of the 37 residual views** across those two days - the
+largest single bucket left in the post-automation headline, and not a different client but the same
+one on a quieter day.
+
+`detectUaHashSwarms` now carries a **prior**: a hash flagged on `SWARM_PRIOR_MIN_FLAGGED_DAYS` of the
+previous `SWARM_PRIOR_LOOKBACK_DAYS` days is held to `SWARM_RECURRING_ASN_RATIO` /
+`SWARM_RECURRING_MIN_VIEWS` instead of the standing pair, and `SwarmCandidate.priorFlaggedDays`
+records how much history justified it. **Three properties are load-bearing, and any retune has to
+preserve all three:**
+
+- **The prior is built at FULL strength only** - never from a relaxed flag. Otherwise the memory
+  bootstraps itself: a relaxed flag would justify tomorrow's relaxed flag, and a hash that once
+  crossed the line could never get back out however it behaved.
+- **The lookback ends at the reported window's start**, so a day never counts toward its own prior.
+- **The bar is lowered, not removed.** `SWARM_RECURRING_ASN_RATIO` must stay above zero, or the
+  prior becomes a permanent one-way list.
+
+It also **binds a fixed number of parameters** (ten in the emitted statement — the window bounds, the
+path prefixes, and the retro-join's two offsets) regardless of how many hashes exist, for the reason
+the operator retro-join is written the same way.
+
+**The one thing that read is expensive without: `page_views_operator_pair_idx` (migration 0019).**
+`NOT_INTERNAL`'s retro-join is a correlated `EXISTS`, so absent that partial index the planner runs a
+full `SCAN op` per candidate row rather than a covering-index lookup. Measured over 41k rows that is
+**8 ms with the index against 4.3 s without**; against prod-shaped data a 14-day window costs
+**14 s and 42.7M rows read** with the index missing, versus 5 ms for the same grouping with the
+retro-join removed entirely. The index ships in the same migration as the retro-join that needs it
+and `promote-to-prod` applies migrations, so the two cannot separate in a promoted environment — but
+**if this read ever looks slow, check `sqlite_master` for that index before tuning any threshold.**
+
+**Swept over production for the 16 days to 2026-08-30** (read-only `SELECT` against prod D1), the
+relaxed bar adds **82 views** and - this is the number that matters - **every hash it newly flags is
+already one of the eight known swarm hashes.** No hash outside that set is admitted on any day. The
+digest also says out loud when the lower bar applied, because a reader comparing the note against the
+day's own rows would otherwise find a candidate sitting under the published threshold and conclude
+the detector had drifted.
+
 #### The user-agent rotator detector — the exact inverse (AECI-683)
 
 A grouping is blind to whatever it groups **on**. Rotate the user-agent instead of the IP and the
@@ -354,7 +395,11 @@ one, and adding the totals would report more suspicious views than the day conta
 | `ASN_ROTATOR_MIN_VIEWS` | `4` | Same floor, same reason. A separate constant even though the values match: the two groupings have different false-positive profiles and will be tuned apart. |
 | `ASN_ROTATOR_MIN_UA_RATIO` | `0.8` | "Nearly every request wore a different fingerprint." A UA changes on browser update, not between page loads. **Validated at exactly this value**: the AS47544 shape is 4 hashes over 5 views = 0.80, so `0.85` would have missed it. |
 | *(the verdict signal)* | *none* | `detectNonBrowserClients` has **no threshold by design** (AECI-744) — listed here so its absence reads as a decision rather than an oversight. Adding a floor would reintroduce the defect. The only tunable is the vocabulary itself, `NON_BROWSER_VERDICTS`, and a value added there must be added to the digest's `AutomationExclusion.verdicts` in the same change. |
-| `SWARM_MAX_CANDIDATES` | `25` | Caps each candidate list, because the union count binds one parameter per flagged hash/ASN and D1's parameter ceiling is far below stock SQLite's. `swarmNote` says when it bit; the cap is never silent. It also caps `verdictCandidates`, but only for display: those views are flagged per row in SQL, so slicing the list cannot remove one from the count. |
+| `SWARM_MAX_CANDIDATES` | `25` | Caps each candidate list, because the union count binds one parameter per flagged hash/ASN and D1's parameter ceiling is far below stock SQLite's. `swarmNote` says when it bit; the cap is never silent. The cap is applied BEFORE the union read, so AECI-742's longer candidate list makes truncation more likely and never the bound looser. It also caps `verdictCandidates`, but only for display: those views are flagged per row in SQL, so slicing the list cannot remove one from the count. |
+| `SWARM_PRIOR_LOOKBACK_DAYS` | `14` | How far back the recurrence read looks for a hash's flagged history (AECI-742). Ends at the reported window's start, never inside it. Long enough to survive a client pausing over a weekend, short enough to forgive a hash that reformed within a fortnight. `page_views` is retained 400 days, so the ceiling here is judgement, not retention. |
+| `SWARM_PRIOR_MIN_FLAGGED_DAYS` | `2` | Flagged days inside the lookback before a hash counts as recurring. Two, not one: one flagged day is the evidence the per-day test already acted on, so requiring one would merely re-apply yesterday's verdict. The eight hashes this was built from ran **every** day of 2026-08-21..30. |
+| `SWARM_RECURRING_ASN_RATIO` | `0.5` | The ratio a recurring hash is held to instead of `SWARM_MIN_ASN_RATIO`. Both measured escapes sit above it (0.70 and 0.63) and below the standing 0.8. **Must stay above zero** - a prior lowers the bar, it does not remove it. |
+| `SWARM_RECURRING_MIN_VIEWS` | `2` | The view floor a recurring hash is held to instead of `SWARM_MIN_VIEWS`. The 4-view floor exists because ratios over 1-3 views are noise *when nothing else is known*; a fortnight of flagged history is something else being known. Still two rather than one: a single view is trivially ratio 1.0 and would let the prior decide alone. |
 | `OPERATOR_PAIR_LOOKBACK_DAYS` | `30` | How far either side of a row the operator retro-join looks for an `is_operator = 1` anchor on the same `(user_agent_hash, cf_asn)` pair (below). Symmetric, because a lapse can precede the session's first flagged row as easily as follow its last. |
 
 **Measured false-positive rate, and the honest caveat on it.** Swept across production for the 30
