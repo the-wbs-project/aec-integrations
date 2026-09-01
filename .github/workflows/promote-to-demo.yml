@@ -58,10 +58,16 @@
 #   SUPABASE_ANON_KEY          Shared publishable/anon key — the SINGLE shared
 #                              auth project, un-suffixed, identical for every env
 #                              (ADR 0017).
-#   ANTHROPIC_API_KEY_PRODUCTION / RESEND_API_KEY / POSTHOG_KEY_PRODUCTION
+#   ANTHROPIC_API_KEY_PRODUCTION / RESEND_API_KEY
 #                              Shared fail-open keys (reused on demo). RESEND_API_KEY
 #                              is a single shared (un-suffixed) key — one Resend
 #                              account/key spans every env (like SUPABASE_ANON_KEY).
+#   POSTHOG_KEY_NONPROD        PostHog splits on ONE axis: prod vs non-prod. Demo is
+#                              non-prod, so it shares the non-prod PostHog project
+#                              with staging and PR previews and takes the `_NONPROD`
+#                              suffix — NOT `_PRODUCTION`, even though demo takes
+#                              `_PRODUCTION` for Anthropic and Algolia. Demo traffic
+#                              must never land in the production analytics project.
 #   DATADOG_API_KEY            Deploy marker.
 #   DD_APPLICATION_ID / DD_CLIENT_TOKEN
 #                              Public Datadog RUM app id + client token (shared,
@@ -140,7 +146,7 @@ jobs:
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           ANTHROPIC_API_KEY_PRODUCTION: ${{ secrets.ANTHROPIC_API_KEY_PRODUCTION }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
-          POSTHOG_KEY_PRODUCTION: ${{ secrets.POSTHOG_KEY_PRODUCTION }}
+          POSTHOG_KEY_NONPROD: ${{ secrets.POSTHOG_KEY_NONPROD }}
           DATADOG_API_KEY: ${{ secrets.DATADOG_API_KEY }}
           # Un-suffixed RUM pair (one shared "aeci" app on us5), pushed to the web
           # Worker below. Must be MAPPED here, not just named in
@@ -156,18 +162,18 @@ jobs:
           # real — listed in RECOMMENDED_SECRETS below, so an unmapped name would
           # false-warn "not set" on every promote.
           CF_ANALYTICS_API_TOKEN: ${{ secrets.CF_ANALYTICS_API_TOKEN }}
-          # AECI-660/661 read-side cron creds (demo reuses _PRODUCTION). Must be
+          # AECI-660/661 read-side cron creds (demo is non-prod → _NONPROD). Must be
           # MAPPED here, not just named in RECOMMENDED_SECRETS — require-secrets.sh
           # checks the VALUE, so an unmapped name false-warns "not set" on every promote.
-          POSTHOG_QUERY_API_KEY_PRODUCTION: ${{ secrets.POSTHOG_QUERY_API_KEY_PRODUCTION }}
-          POSTHOG_PROJECT_ID_PRODUCTION: ${{ secrets.POSTHOG_PROJECT_ID_PRODUCTION }}
+          POSTHOG_QUERY_API_KEY_NONPROD: ${{ secrets.POSTHOG_QUERY_API_KEY_NONPROD }}
+          POSTHOG_PROJECT_ID_NONPROD: ${{ secrets.POSTHOG_PROJECT_ID_NONPROD }}
           PEERINGDB_API_KEY: ${{ secrets.PEERINGDB_API_KEY }}
           ENV_LABEL: demo
           REQUIRED_SECRETS: 'CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID'
           # AECI-262: CF_ANALYTICS_API_TOKEN (single shared, un-suffixed) backs the
           # hourly WAF firewall-event poll — recommended/fail-safe (absent → the poll
           # no-ops outcome:skipped_no_creds).
-          RECOMMENDED_SECRETS: 'CF_ACCESS_CLIENT_ID CF_ACCESS_CLIENT_SECRET REVIEW_APP_TOKEN ALGOLIA_APP_ID ALGOLIA_ADMIN_KEY ALGOLIA_SEARCH_KEY SUPABASE_ANON_KEY ANTHROPIC_API_KEY_PRODUCTION RESEND_API_KEY POSTHOG_KEY_PRODUCTION DATADOG_API_KEY DD_APPLICATION_ID DD_CLIENT_TOKEN ADMIN_PURGE_TOKEN CF_PURGE_API_TOKEN CF_ZONE_ID CF_ANALYTICS_API_TOKEN POSTHOG_QUERY_API_KEY_PRODUCTION POSTHOG_PROJECT_ID_PRODUCTION PEERINGDB_API_KEY'
+          RECOMMENDED_SECRETS: 'CF_ACCESS_CLIENT_ID CF_ACCESS_CLIENT_SECRET REVIEW_APP_TOKEN ALGOLIA_APP_ID ALGOLIA_ADMIN_KEY ALGOLIA_SEARCH_KEY SUPABASE_ANON_KEY ANTHROPIC_API_KEY_PRODUCTION RESEND_API_KEY POSTHOG_KEY_NONPROD DATADOG_API_KEY DD_APPLICATION_ID DD_CLIENT_TOKEN ADMIN_PURGE_TOKEN CF_PURGE_API_TOKEN CF_ZONE_ID CF_ANALYTICS_API_TOKEN POSTHOG_QUERY_API_KEY_NONPROD POSTHOG_PROJECT_ID_NONPROD PEERINGDB_API_KEY'
         run: bash scripts/require-secrets.sh
 
       # Assert STAGING (the immediate upstream tier) is at the SHA on BOTH the API
@@ -385,20 +391,24 @@ jobs:
       # and is NOT the publishable `POSTHOG_KEY` (`phc_…`) pushed to the web Worker —
       # this one grants account-wide read and must never reach apps/web.
       # POSTHOG_PROJECT_ID must name the project POSTHOG_KEY writes to, so it carries
-      # the SAME suffix as POSTHOG_KEY on every tier — here `_PRODUCTION`, because demo
-      # sends its browser events to the production PostHog project (see the
-      # POSTHOG_KEY_PRODUCTION push below) and is separated from prod only by $host,
-      # which is exactly what the digest's query filters on. Pairing the demo key with
-      # any other project id would query a project demo never writes to, and `count()`
-      # over an empty set returns a real row of zeros — so the digest would print a
-      # confident "0 PostHog pageviews", the fabricated zero the join exists to avoid.
+      # the SAME suffix as POSTHOG_KEY on every tier — here `_NONPROD`, because PostHog
+      # splits prod from non-prod and demo is non-prod: its browser events go to the
+      # non-prod project (see the POSTHOG_KEY_NONPROD push below), shared with staging
+      # and PR previews and separated from them only by $host, which is exactly what
+      # the digest's query filters on. Demo carries `_PRODUCTION` for Anthropic and
+      # Algolia but NOT for PostHog — do not "fix" this back to `_PRODUCTION`, that
+      # pollutes the production analytics project with demo traffic. Pairing the demo
+      # key with any other project id would query a project demo never writes to, and
+      # `count()` over an empty set returns a real row of zeros — so the digest would
+      # print a confident "0 PostHog pageviews", the fabricated zero the join exists
+      # to avoid.
       # PEERINGDB_API_KEY is env-independent (the upstream is a public registry).
       - name: Push analytics read credentials to API Worker (demo)
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          POSTHOG_QUERY_API_KEY_VALUE: ${{ secrets.POSTHOG_QUERY_API_KEY_PRODUCTION }}
-          POSTHOG_PROJECT_ID_VALUE: ${{ secrets.POSTHOG_PROJECT_ID_PRODUCTION }}
+          POSTHOG_QUERY_API_KEY_VALUE: ${{ secrets.POSTHOG_QUERY_API_KEY_NONPROD }}
+          POSTHOG_PROJECT_ID_VALUE: ${{ secrets.POSTHOG_PROJECT_ID_NONPROD }}
           PEERINGDB_API_KEY_VALUE: ${{ secrets.PEERINGDB_API_KEY }}
         working-directory: apps/api
         run: |
@@ -409,7 +419,7 @@ jobs:
             printf '%s' "$POSTHOG_PROJECT_ID_VALUE" \
               | pnpm exec wrangler secret put POSTHOG_PROJECT_ID --env demo
           else
-            echo "::warning::POSTHOG_QUERY_API_KEY_PRODUCTION / POSTHOG_PROJECT_ID_PRODUCTION not both set — skipping push. The daily digest will report the D1 upper bound alone plus a 'PostHog lower bound unavailable' note (AECI-660). Both are required together; one alone is a no-op."
+            echo "::warning::POSTHOG_QUERY_API_KEY_NONPROD / POSTHOG_PROJECT_ID_NONPROD not both set — skipping push. The daily digest will report the D1 upper bound alone plus a 'PostHog lower bound unavailable' note (AECI-660). Both are required together; one alone is a no-op."
           fi
           if [ -n "$PEERINGDB_API_KEY_VALUE" ]; then
             printf '%s' "$PEERINGDB_API_KEY_VALUE" \
@@ -486,17 +496,19 @@ jobs:
           printf '%s' "$ALGOLIA_SEARCH_KEY_VALUE" \
             | pnpm exec wrangler secret put ALGOLIA_SEARCH_KEY --env demo
 
-      # Push the PUBLIC PostHog key (shared, fail-open) to the demo WEB Worker.
+      # Push the PUBLIC PostHog key (non-prod project, fail-open) to the demo WEB
+      # Worker. Demo shares the non-prod PostHog project with staging and PR previews;
+      # only production writes to the production project.
       - name: Push PostHog key to web Worker (demo)
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          POSTHOG_KEY_VALUE: ${{ secrets.POSTHOG_KEY_PRODUCTION }}
+          POSTHOG_KEY_VALUE: ${{ secrets.POSTHOG_KEY_NONPROD }}
         working-directory: apps/web
         run: |
           set -euo pipefail
           if [ -z "$POSTHOG_KEY_VALUE" ]; then
-            echo "::warning::POSTHOG_KEY_PRODUCTION not set — skipping. PostHog analytics no-ops on demo."
+            echo "::warning::POSTHOG_KEY_NONPROD not set — skipping. PostHog analytics no-ops on demo."
             exit 0
           fi
           printf '%s' "$POSTHOG_KEY_VALUE" \

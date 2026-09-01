@@ -133,7 +133,7 @@ Verified against live prod on 2026-07-11: the served HTML on `www.aecintegration
 only `__AECI_ALGOLIA__` + `__AECI_SUPABASE__` config — **no `__AECI_POSTHOG__`, no `__AECI_DD__`**.
 Injection is gated on the Worker secrets existing, so PostHog and Datadog **RUM** were **not
 capturing anything in production**. AECI-326 makes both durable: PostHog was already CI-pushed
-(from `POSTHOG_KEY_{STAGING,PRODUCTION}`); the RUM credentials are now CI-pushed too (shared
+(from `POSTHOG_KEY_{NONPROD,PRODUCTION}` — non-prod covers staging, demo and PR previews); the RUM credentials are now CI-pushed too (shared
 un-suffixed `DD_APPLICATION_ID` / `DD_CLIENT_TOKEN`, all four deploy/promote workflows). **Both go
 live once the GitHub secret *values* are set** (see [`OBSERVABILITY.md` → Credentials](./OBSERVABILITY.md#credentials)).
 

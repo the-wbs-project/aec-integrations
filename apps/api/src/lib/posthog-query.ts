@@ -72,10 +72,11 @@ export type PosthogWindow = {
   /**
    * The `$host` this environment owns (e.g. `www.aecintegrations.com`).
    *
-   * NOT optional, and the query is useless without it: every tier currently
-   * shares ONE PostHog project, so an unscoped read folds demo and staging
-   * traffic into the production figure. AECI-639 splits prod from non-prod into
-   * two projects; the host filter stays correct either way.
+   * NOT optional, and the query is useless without it. PostHog is split on one
+   * axis — the prod project (`aec-integrations`) and the non-prod project
+   * (`aec-integrations-dev`, shared by staging, demo and PR previews) — so an
+   * unscoped read still folds demo and preview traffic into the staging figure.
+   * The host filter is what separates tiers inside a project.
    */
   host: string;
 };

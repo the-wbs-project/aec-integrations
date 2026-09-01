@@ -254,9 +254,11 @@ jobs:
       # ---------------------------------------------------------------------
       # Step 8c: Push POSTHOG_KEY to the per-PR web Worker (AECI-239)
       #   The preview env's `vars.POSTHOG_HOST` (US Cloud) is inherited from
-      #   wrangler.jsonc; only the project key is a secret. We reuse the staging
-      #   value (shared PostHog project) so previews emit window.__AECI_POSTHOG__
-      #   and the analytics layer can init (after consent). Web Worker only.
+      #   wrangler.jsonc; only the project key is a secret. Previews are non-prod,
+      #   so they take the shared non-prod project key (`_NONPROD`, the same one
+      #   staging and demo use) and emit window.__AECI_POSTHOG__ so the analytics
+      #   layer can init (after consent). Web Worker only. Never `_PRODUCTION` —
+      #   preview traffic must not land in the production analytics project.
       #   Warn-and-skip: a missing key just no-ops analytics (fail-open). Same
       #   printf-over-stdin idempotent pattern as the SUPABASE push above.
       # ---------------------------------------------------------------------
@@ -264,12 +266,12 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          POSTHOG_KEY_VALUE: ${{ secrets.POSTHOG_KEY_STAGING }}
+          POSTHOG_KEY_VALUE: ${{ secrets.POSTHOG_KEY_NONPROD }}
         working-directory: apps/web
         run: |
           set -euo pipefail
           if [ -z "$POSTHOG_KEY_VALUE" ]; then
-            echo "::warning::POSTHOG_KEY_STAGING not set — skipping push. This preview's PostHog analytics no-ops (no window.__AECI_POSTHOG__)."
+            echo "::warning::POSTHOG_KEY_NONPROD not set — skipping push. This preview's PostHog analytics no-ops (no window.__AECI_POSTHOG__)."
             exit 0
           fi
           printf '%s' "$POSTHOG_KEY_VALUE" \
