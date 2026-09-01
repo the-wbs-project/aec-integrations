@@ -1012,6 +1012,26 @@ export const pageViews = sqliteTable(
     // (above) is deliberately none of the three: read its comment before concluding
     // otherwise.
 
+    // AECI-743 — the one-arrival-one-row guard. A deterministic
+    // `sha256(concrete_path | user_agent_hash | cf_asn | 10s bucket)` computed at
+    // ingest, protected by the UNIQUE index below, so a second write for the same
+    // visitor + page inside the window is refused by SQLite rather than by a
+    // read-then-write check the duplicate can race past (production held two
+    // identical `arrival` rows 83 ms apart, both landing from `waitUntil`).
+    //
+    // NULLABLE and deliberately so: SQLite treats NULLs as DISTINCT under a UNIQUE
+    // index, which is what makes the column an opt-in guard rather than a
+    // constraint on the whole table. Ingest leaves it null for bot-classified rows
+    // (their volume series must stay a raw count) and for rows with no
+    // `user_agent_hash` (an unidentifiable visitor is not evidence of a duplicate,
+    // and an empty hash would collide two strangers into one row). Null on every
+    // row written before this shipped.
+    //
+    // `navigation` is NOT part of the key: an SSR `arrival` and the browser
+    // tracker's `spa` row for the same document are the same view seen twice, and
+    // collapsing them was half the point.
+    dedupeKey: text('dedupe_key'),
+
     createdAt: createdAt(),
   },
   (t) => [
@@ -1034,6 +1054,19 @@ export const pageViews = sqliteTable(
     index('page_views_operator_pair_idx')
       .on(t.userAgentHash, t.cfAsn, t.createdAt)
       .where(sql`"is_operator" = 1`),
+    // AECI-743 — the constraint that makes the de-duplication atomic, plus the
+    // seek ingest uses to probe the current and previous bucket for its metric.
+    // UNIQUE is the load-bearing word: `ON CONFLICT DO NOTHING` against it settles
+    // the race between two concurrent `waitUntil` inserts, which no amount of
+    // read-before-write can. Not partial (unlike `page_views_operator_pair_idx`) —
+    // a partial index cannot back an upsert conflict target. That is a real write
+    // cost: a non-partial UNIQUE index stores a b-tree entry for every row, NULL
+    // keys included (SQLite treats NULLs as distinct for the uniqueness check, it
+    // does not omit them from the index), so the bot rows that dominate this table
+    // each pay for one extra index-entry write. The null-key rule only opts those
+    // rows out of the CONSTRAINT, not out of the storage; the cost is accepted
+    // because a partial index is not an option for an upsert conflict target.
+    uniqueIndex('page_views_dedupe_key_idx').on(t.dedupeKey),
     // No index on the AECI-585 columns: nothing groups or filters on them yet, and
     // `page_views` is the hottest write path in the app (D1 bills rows written,
     // indexes included). Add one with the read that needs it, not before.

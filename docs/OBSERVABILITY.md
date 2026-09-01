@@ -53,7 +53,8 @@ below. The bounded render-volume signal is the `aeci.ssr.render` count metric.
 | `aeci.metrics_snapshot.run` | count | `apps/api/src/lib/metrics-snapshot.ts` (`emitMetricsSnapshotMetrics`, from the daily 00:15 UTC snapshot cron) + an inline pre-compute-crash count in `apps/api/src/scheduled.ts` | `trigger` (cron), `outcome` (ok / partial / failed) — always emitted, so this doubles as the cron-liveness heartbeat |
 | `aeci.metrics_snapshot.run.duration_ms` | distribution | `apps/api/src/lib/metrics-snapshot.ts` (`emitMetricsSnapshotMetrics`) | `trigger` (cron) |
 | `aeci.metrics_snapshot.metric` | count | `apps/api/src/lib/metrics-snapshot.ts` (`emitMetricsSnapshotMetrics`) | `trigger` (cron), `metric` (the `metrics_daily` key — one of the 19 in `ADMIN_SNAPSHOT_METRIC_KEYS`), `outcome` (written / failed) |
-| `aeci.pageviews.write` | count | `apps/api/src/routes/page-views.ts` (`capturePageView`, the deferred `POST /api/page-views` insert) | `outcome` (ok / failed); on `outcome:ok` also `bot` (true / false — the ingest-time UA+ASN classification, AECI-526) so the human/bot ratio is queryable in Datadog without waiting for the daily digest |
+| `aeci.pageviews.write` | count | `apps/api/src/routes/page-views.ts` (`capturePageView`, the deferred `POST /api/page-views` insert) | `outcome` (ok / failed / **deduped**); on `outcome:ok` also `bot` (true / false — the ingest-time UA+ASN classification, AECI-526) so the human/bot ratio is queryable in Datadog without waiting for the daily digest |
+| `aeci.pageviews.speculative` | count | `apps/web/src/server-runtime.ts` (`firePageView`) | none — a browser prefetch/prerender the Worker refused to count as an arrival (AECI-743) |
 | `aeci.auth.signin` | count | `apps/web/src/server/routes/auth-callback.ts` (the SSR `/auth/callback` handler — **carries `service:aeci-web`**, AECI-206) | `method` (google / magic_link / unknown), `outcome` (success / failed), `reason` on failure (link_invalid / missing_code / auth_not_configured) |
 | `aeci.review.submit` | count | `apps/api/src/routes/reviews.ts` (`createSubmitReviewHandler`, AECI-206) | `outcome` (ok / duplicate / product_not_found) |
 | `aeci.moderation.action` | count | `apps/api/src/routes/admin-reviews.ts` (`createModerateReviewHandler`, AECI-206) | `action` (approve / reject), `outcome` (ok / invalid_state) |
@@ -260,7 +261,16 @@ is `pnpm --filter @aeci/api ops:backfill-metrics-daily`, which is the same idemp
 — it's an intentional skip, not a write, and must not pollute the error-rate denominator. The
 endpoint already returned 204, so a failing insert is user-invisible; this metric makes the
 regression visible as an error **rate** *before* it silently zeroes `home.trending_products` at the
-next daily compute. Note it is monitored on error-rate **only**, never liveness/no-data: page_views
+next daily compute. AECI-743 added a third outcome, `deduped`, for a view refused by the
+one-document-one-row guard (`dedupe_key`, `API_CONTRACTS.md` §6.9). It is counted rather than
+dropped silently for the reason this whole issue exists: an unobserved miscount is
+indistinguishable from an ingest outage, and the original double-fire survived undetected into the
+digest's most trusted figure. **Keep it out of the error-rate denominator's numerator** — a
+`deduped` is a correct refusal, not a failure. If it ever climbs to a large share of total writes,
+that is a signal about the traffic (a prerendering client, a retry loop), not about ingest health.
+Its writer-side counterpart is `aeci.pageviews.speculative`, emitted by the SSR Worker when it
+declines to count a prefetch/prerender; a sudden rise there is worth reading alongside the digest,
+since those loads used to be counted as arrivals. Note it is monitored on error-rate **only**, never liveness/no-data: page_views
 is traffic-driven, so zero writes (no visitors) is normal at pre-launch and a no-data alert would
 fire constantly — unlike the fixed-cadence stats cron.
 

@@ -141,6 +141,13 @@
       "when": 1787810300881,
       "tag": "0019_majestic_blonde_phantom",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1788231067084,
+      "tag": "0020_wide_infant_terrible",
+      "breakpoints": true
     }
   ]
 }
