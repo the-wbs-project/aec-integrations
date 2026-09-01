@@ -2155,6 +2155,11 @@ export const productsRelations = relations(products, ({ many }) => ({
   }),
   evidencedPairsAsA: many(connectorEvidencedPairs, { relationName: 'EvidencedPairProductA' }),
   evidencedPairsAsB: many(connectorEvidencedPairs, { relationName: 'EvidencedPairProductB' }),
+  // Connector lane, the rest of it (AECI-722). The inverses of the `one(products)`
+  // sides on the catalogue and stub-mapping relation blocks, so a product can be
+  // read from either end of the lane.
+  connectorCatalogs: many(connectorCatalogs, { relationName: 'ConnectorCatalogProduct' }),
+  connectorStubMappings: many(connectorStubMappings, { relationName: 'ConnectorMappingProduct' }),
 }));
 
 /**
@@ -2339,6 +2344,85 @@ export const workflowTransitionsRelations = relations(workflowTransitions, ({ on
 }));
 
 // ---------------------------------------------------------------------------
+// Connector lane (AECI-714 tables, relations added by AECI-722)
+//
+// The aggregate export below recorded these as a DEFERRAL rather than a
+// prohibition: nothing read them until a first read surface existed, and the
+// sync's own bounded pre-reads use `db.select()`. `/admin/connectors` is that
+// surface, so the relations land here with the inverse entry on
+// `productsRelations`.
+//
+// Note what is deliberately NOT related: `connectorStubMappings.productId` is
+// nullable (`ON DELETE SET NULL`), so `product` is a `one(...)` that legitimately
+// resolves to null on a mapped row whose product was deleted — §9a.4 says that
+// row "is meant to be visible, not tidied away", and a relation is what lets a
+// read render it as such instead of dropping it on an inner join.
+// ---------------------------------------------------------------------------
+
+export const connectorCatalogsRelations = relations(connectorCatalogs, ({ one, many }) => ({
+  connectorProduct: one(products, {
+    fields: [connectorCatalogs.connectorProductId],
+    references: [products.id],
+    relationName: 'ConnectorCatalogProduct',
+  }),
+  surfaces: many(connectorCatalogSurfaces),
+  stubs: many(connectorStubs),
+  mappings: many(connectorStubMappings),
+  pairs: many(connectorPairs),
+}));
+
+export const connectorCatalogSurfacesRelations = relations(connectorCatalogSurfaces, ({ one }) => ({
+  catalog: one(connectorCatalogs, {
+    fields: [connectorCatalogSurfaces.catalogId],
+    references: [connectorCatalogs.id],
+  }),
+}));
+
+export const connectorStubsRelations = relations(connectorStubs, ({ one, many }) => ({
+  catalog: one(connectorCatalogs, {
+    fields: [connectorStubs.catalogId],
+    references: [connectorCatalogs.id],
+  }),
+  mappings: many(connectorStubMappings),
+}));
+
+export const connectorStubMappingsRelations = relations(connectorStubMappings, ({ one }) => ({
+  stub: one(connectorStubs, {
+    fields: [connectorStubMappings.stubId],
+    references: [connectorStubs.id],
+  }),
+  catalog: one(connectorCatalogs, {
+    fields: [connectorStubMappings.catalogId],
+    references: [connectorCatalogs.id],
+  }),
+  product: one(products, {
+    fields: [connectorStubMappings.productId],
+    references: [products.id],
+    relationName: 'ConnectorMappingProduct',
+  }),
+}));
+
+export const connectorPairsRelations = relations(connectorPairs, ({ one }) => ({
+  catalog: one(connectorCatalogs, {
+    fields: [connectorPairs.catalogId],
+    references: [connectorCatalogs.id],
+  }),
+  // Two separate relations to the SAME table, so each needs its own
+  // `relationName` — exactly the arrangement `integrations` uses for
+  // source/target. Without them Drizzle cannot tell the two joins apart.
+  stubA: one(connectorStubs, {
+    fields: [connectorPairs.stubAId],
+    references: [connectorStubs.id],
+    relationName: 'ConnectorPairStubA',
+  }),
+  stubB: one(connectorStubs, {
+    fields: [connectorPairs.stubBId],
+    references: [connectorStubs.id],
+    relationName: 'ConnectorPairStubB',
+  }),
+}));
+
+// ---------------------------------------------------------------------------
 // Aggregate export — passed to `drizzle(env.DB, { schema })` so the relational
 // query builder + types are available app-wide.
 // ---------------------------------------------------------------------------
@@ -2394,11 +2478,13 @@ export const schema = {
   // Every other ops/ledger table here (auditLog, pageViews, statsCache, vendorRequests)
   // has no relations entry either.
   //
-  // Five of the six `connector*` tables (AECI-714) also have none, but for a weaker
-  // reason — deferral, not prohibition. Nothing reads them until AECI-715 / 716 / 722,
-  // and the sync's own bounded pre-reads use `db.select()`. AECI-721 built the first
-  // read config, so `connectorEvidencedPairs` now HAS relations (plus the inverse
-  // entries on `productsRelations` / `vendorsRelations`); the other five still do not.
+  // The six `connector*` tables (AECI-714) had none for a weaker reason — deferral,
+  // not prohibition. It is now discharged in two steps that both land below: AECI-721
+  // built the first read config, so `connectorEvidencedPairs` has relations (plus the
+  // inverse entries on `productsRelations` / `vendorsRelations`); **AECI-722** added the
+  // other five (`connectorCatalogs` + surfaces + stubs + mappings + pairs) for the
+  // `/admin/connectors` read surface, with their catalogue/mapping inverses on
+  // `productsRelations`. The public coverage surfaces (AECI-715 / 716) inherit them.
   // relations
   vendorsRelations,
   productsRelations,
@@ -2420,4 +2506,9 @@ export const schema = {
   reviewsRelations,
   workflowInstancesRelations,
   workflowTransitionsRelations,
+  connectorCatalogsRelations,
+  connectorCatalogSurfacesRelations,
+  connectorStubsRelations,
+  connectorStubMappingsRelations,
+  connectorPairsRelations,
 };

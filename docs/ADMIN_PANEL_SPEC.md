@@ -46,7 +46,7 @@ That last point is the immediate trigger for this work. On 2026-08-10 the digest
 **In scope**
 
 - A `/admin` console covering traffic, audience, catalog, moderation, and system health (§5).
-- API endpoints behind `requireAdmin()` (§6), **read-only with two named exceptions**: §5.7's seat revoke (`DELETE /api/admin/vendors/:id/seats/:userId`, AECI-652) and §5.8's ban/reinstate, which reuses the pre-existing `PATCH /api/admin/reviewers/:id` (AECI-218) rather than adding a writer. Both are *account* writes; see the catalog-editing bullet below.
+- API endpoints behind `requireAdmin()` (§6), **read-only with three named exceptions**: §5.7's seat revoke (`DELETE /api/admin/vendors/:id/seats/:userId`, AECI-652), §5.8's ban/reinstate, which reuses the pre-existing `PATCH /api/admin/reviewers/:id` (AECI-218) rather than adding a writer, and §5.9's `managed_by` flip (`PATCH /api/admin/connector-catalogs/:id`, AECI-720). The first two are *account* writes and the third is a **governance** write — it decides which system may author a catalogue and changes no catalogue content. See the catalog-editing bullet below. *(This bullet read "two named exceptions" until AECI-722: AECI-720 added its endpoint to §6's table without amending the count here.)*
 - A daily metrics-snapshot table so counts-over-time become answerable (§7.1).
 - Persisting cron and data-quality results so "current status" is inspectable (§7.2) — **shipped, AECI-583**.
 - Hand-rolled SVG charts, no new client dependency (§8).
@@ -55,7 +55,7 @@ That last point is the immediate trigger for this work. On 2026-08-10 the digest
 
 - Any public or vendor-facing analytics. Vendor-visible stats are Stage 2 (`STAGE_2_SPEC.md`).
 - Replacing the observability plane (PostHog). The panel **links out**; it does not re-implement metrics dashboards, error tracking, or funnels.
-- Editing catalog data. Promotion remains the review-app → `POST /api/promote` path (`REVIEW_APP_PROMOTE_API.md`). **Neither the §5.7 vendor page nor the §5.8 user page breaches this**: an entitlement change, a seat revoke and a ban are *account* writes, not catalog writes — they touch `vendor_entitlements` and `profiles`, never a catalog column. The §5.8 ban additionally introduces **no new writer at all**: it calls the AECI-218 endpoint that has always owned `profiles.banned_at`, which stays that column's only writer anywhere (asserted at the source level by `apps/api/src/routes/banned-at-writers.spec.ts`). There is still no admin vendor-edit endpoint, which is also why §5.7 does not close the `STAGE_2_PAID_TIERS_SPEC.md` §5.4 lockout.
+- Editing catalog data. Promotion remains the review-app → `POST /api/promote` path (`REVIEW_APP_PROMOTE_API.md`). **Neither the §5.7 vendor page nor the §5.8 user page breaches this**: an entitlement change, a seat revoke and a ban are *account* writes, not catalog writes — they touch `vendor_entitlements` and `profiles`, never a catalog column. The §5.8 ban additionally introduces **no new writer at all**: it calls the AECI-218 endpoint that has always owned `profiles.banned_at`, which stays that column's only writer anywhere (asserted at the source level by `apps/api/src/routes/banned-at-writers.spec.ts`). There is still no admin vendor-edit endpoint, which is also why §5.7 does not close the `STAGE_2_PAID_TIERS_SPEC.md` §5.4 lockout. **§5.9 does not breach it either**, and the line it walks is worth stating because the temptation is real: the `managed_by` flip decides *who may author* a connector catalogue; it writes no catalogue row. The five connector reads beside it are reads. The screen deliberately does **not** let an operator approve or adjust a stub mapping — that would be the console's first catalog-*content* write, and the sync would overwrite it on the next page besides (§5.9).
 - Real-time / streaming updates. **Still out of scope after Stage 2 answered the question for the vendor portal** (AECI-516 / ADR 0023, 2026-08-19): that answer is *polling a per-vendor freshness cursor*, and `STAGE_2_REALTIME_SPEC.md` §8 explicitly excludes `/admin` from it. This console's manual **Recompute** button (§7) is a deliberate design decision, not a placeholder for a live feed.
 - De-anonymizing visitors (§9.7).
 
@@ -123,7 +123,7 @@ The four questions that motivated this document, answered against §3.
 
 ## 5. Information architecture
 
-Fifteen routes under the existing `AdminShell` (`app/admin/admin-shell.ts`): **eleven nav-able screens** (the exact length of `ADMIN_NAV_GROUPS`, and `admin-shell.component.spec.ts` asserts the ordered list), **two parameterised detail routes** that no nav entry can address, and **two redirects** (`/admin` → Overview, `/admin/reviewers` → the banned filter). The shell's `h1` changes from "Moderation" to "Admin" and its flat nav becomes three groups.
+Seventeen routes under the existing `AdminShell` (`app/admin/admin-shell.ts`): **twelve nav-able screens** (the exact length of `ADMIN_NAV_GROUPS`, and `admin-shell.component.spec.ts` asserts the ordered list), **three parameterised detail routes** that no nav entry can address, and **two redirects** (`/admin` → Overview, `/admin/reviewers` → the banned filter). *(Fifteen / eleven / two until AECI-722 added the §5.9 connector pair.)* The shell's `h1` changes from "Moderation" to "Admin" and its flat nav becomes three groups.
 
 ```
 /admin                     → redirect to /admin/overview
@@ -134,6 +134,8 @@ Fifteen routes under the existing `AdminShell` (`app/admin/admin-shell.ts`): **e
     /admin/audience        §5.4
   Catalog
     /admin/catalog         §5.5
+    /admin/connectors      §5.9  (list)
+    /admin/connectors/:id  §5.9  (detail — nav links the list only)
   Operations
     /admin/reviews         existing (Phase 5.13)
     /admin/requests        existing (Phase 6.10)
@@ -162,7 +164,9 @@ The reason is §5.7 and §5.8. Both screens render cards until AECI-694 and tabl
 Four mechanics, all pinned by `admin-shell.component.spec.ts`:
 
 - **A category is a disclosure, not a `role="menu"`.** `AdminNavDropdown` (`app/admin/admin-nav-dropdown.ts`) extends the shared `layout/nav-disclosure.ts` base, so it opens on hover, toggles from the button for keyboard, closes on Escape returning focus to the trigger, and closes when focus leaves. That is the same contract the four public-nav flyouts carry, which `DESIGN.md` §Navigation requires. It is deliberately **not** `@angular/aria/menu`, despite ADR 0010 routing new menu patterns there: this is a navigation row of router links, and the ADR's "Menu / Menubar" row means application menus. The ADR and `ANGULAR_STYLE_GUIDE.md` §19 both carry the clarification.
-- **A single-screen group collapses to a plain link.** Catalog has one child, and a dropdown that reveals one destination is a click that buys nothing. The rule is **structural** — it keys off `items.length`, not a flag — so the day Catalog gains a second screen it becomes a dropdown with no code change. The collapsed link is labelled with the **group heading** ("Catalog"), not the item's ("Coverage"): at the top level of a nav the category is what is self-describing.
+- **A single-screen group collapses to a plain link.** Catalog had one child, and a dropdown that reveals one destination is a click that buys nothing. The rule is **structural** — it keys off `items.length`, not a flag — so the day Catalog gains a second screen it becomes a dropdown with no code change. The collapsed link is labelled with the **group heading** ("Catalog"), not the item's ("Coverage"): at the top level of a nav the category is what is self-describing.
+
+  > **That day arrived with AECI-722.** Catalog now holds Coverage **and** Connectors, so it renders as the third dropdown and the collapsed-link branch has no subject today. The branch stays — it is the rule, not a special case — and the change cost exactly one `ADMIN_NAV_GROUPS` entry, as designed. It did move three assertions in `admin-shell.component.spec.ts` (the trigger list, the ordered hrefs, and the closed-panel count), and it exposed a fragility worth recording: two tests addressed the Operations trigger **positionally**, so a new group silently re-pointed them at Catalog. They now address it by heading.
 - **Group labels are disclosure BUTTONS, not headings** — the same conclusion as the sidebar's `<p>` + `aria-labelledby`, reached for the same reason. The shell owns the only `h1` and each screen owns the only `h2`; a heading in the nav would sit between them and break axe's heading-order rule. Each panel's `<ul>` names itself with `aria-label`, so a screen reader entering one knows which category it opened.
 - **The row does not scroll horizontally**, which departs from the vendor portal's section row and from `DESIGN.md`'s default for tab rows. Both reasons follow from collapsing eleven items into three: the row fits a 320px viewport outright, and `overflow-x-auto` computes `overflow-y` to `auto` as well, which would clip the in-flow dropdown panels. A scrolling row would force every panel into a CDK overlay to escape the clip — complexity bought to solve a problem this row does not have. The last category's panel hangs from the **end** edge for the same viewport reason.
 
@@ -379,6 +383,104 @@ Per §9.3 both GETs emit no `audit_log` row; the ban does, in the same `db.batch
 
 ---
 
+### 5.9 Connectors — SHIPPED (AECI-722, 2026-08-31)
+
+`/admin/connectors` and `/admin/connectors/:id`, the **first read layer** over the six
+connector-lane tables AECI-714 landed (`DATABASE_SCHEMA.md` §9a). Before this the lane had no
+reader anywhere: `apps/web/src` contained zero references to it, and `schema.ts` carried no
+`relations()` block on purpose, deferred to whichever issue built the first read.
+
+The screen answers three operator questions that had no surface:
+
+- **What still needs deciding?** The review app's unmatched listings — ~3,342 of MindCloud's 3,573
+  in the real feed — are the triage backlog, and nobody could see it.
+- **Is this vendor's feed still arriving?** `STAGE_2_SPEC.md` §8.9(4) moved the connector seat's
+  re-confirmation duty onto catalogue freshness precisely because the seat carries no
+  `vendor_entitlements` row and therefore no expiry cron to sweep it. It named "the connector
+  admin screen" as where that gets reviewed. `connector_catalog_surfaces.last_ingested_at` is
+  that signal, and it sits in the second section rather than at the bottom for that reason.
+- **Who holds this lane?** AECI-720 shipped the `managed_by` flip with no control.
+
+**Two sections in Catalog, not Operations.** §5.7 put Vendors under Operations because what that
+screen *does* is account administration. What this one does is inspect catalogue data, which
+makes it Coverage's sibling. It is also what turned Catalog into a dropdown (§5.0a).
+
+#### What the screen deliberately does not do
+
+**It cannot approve or adjust a mapping**, though the originating issue asked for exactly that.
+`planConnectorCatalogPage` upserts `connector_stub_mappings` with `set: { ...values }` over
+`status`, `confidence`, `evidence_url`, `decided_by` and `notes`, and drops from the batch only
+rows it computes as *unchanged* — so an AECi-authored decision is precisely the row that
+registers as changed and is overwritten by the next page. Three things follow, and the third is
+why guarding the sync was rejected rather than merely deferred:
+
+1. §2 makes this console's HTTP surface read-only but for account and governance writes; a mapping
+   PATCH would be its first catalog-**content** write.
+2. §9a says it outright — *"Rows arrive only through `POST /api/promote/connector-catalog`.
+   Nothing else writes them."*
+3. A `decided_by <> 'auto-name-match'` skip guard in the sync would make **AECI-731's own
+   acceptance criterion** — *"re-running it end to end reports every row `unchanged` and writes no
+   `audit_log` row"* — unachievable for any catalogue an operator had touched.
+
+The question is answered rather than deferred: authoring lands as
+`PATCH /api/admin/connector-stub-mappings/:id` **gated on `managed_by = 'vendor'`** at AECI-724
+time. That is the only state in which the sync is frozen out of a catalogue and cannot clobber the
+row, and `STAGE_2_SPEC.md` §8.9(2) already pins its authz model (`profiles.role = 'vendor_admin'`
++ `vendor_id`, ownership-checked, never through `requireCapability`).
+
+**It does not decide publication.** The pairs view renders §13.7's *inputs* — both sides in our
+catalogue, and whether a person rather than the auto pass made the mapping — and carries a
+`publication_gate_inputs_only` advisory saying so. Clause (b) (the pair being undelivered) and
+clause (c) (Addendum A §11.4's "meaningful no" scoring) are AECI-716's and are not evaluated here.
+
+#### Five things the build settled
+
+**(1) The handover is derived, and disappears when the lane is reclaimed.** AECI-720 records
+`vendorId` and `reason` **only** in the audit row's metadata — nothing lands on
+`connector_catalogs` — so the trail is the sole record. Rather than widen `AdminAuditRow` with
+`metadata` (it is rendered by the shared `<aec-audit-trail>` for vendors too, and that schema's
+docblock argues against pushing free-form JSON from ~34 writers into a shared render path), the
+detail endpoint derives a fixed `handover` block. It returns `null` whenever `managed_by` is back
+to `'review'`: the `managed_by_vendor` row survives forever, and rendering it beside a
+review-managed lane would tell the operator a vendor still holds a lane they do not.
+
+**(2) "Not yet reviewed" is the absence of a row, not a status.** §9a.4 has no `pending` — a row
+per unreviewed stub would be ~3,300 rows of nothing. So the count is an anti-join and the filter
+is a `NOT EXISTS`. Every other mapping filter is an `EXISTS` too rather than a join, because a
+stub carries several mappings and a join would return it once per match, corrupting both the page
+and its `total`.
+
+**(3) The action inventory ships as a boolean, and the blob never crosses the wire.**
+`connector_stubs.actions` is NULL for most stubs indefinitely — the inventory runs to ~73k actions
+across MindCloud alone and is fetched lazily. §9a.3: *"a reader treating null as 'none' would
+publish 'this connector does nothing' about most of the catalogue."* The row carries
+`actions_fetched` plus `action_count`, the screen renders **"Not fetched"**, and a
+`stub_actions_never_fetched` advisory counts them per page.
+
+**(4) The delivered lane renders an empty state, never a zero.** `connector_evidenced_pairs` is
+created empty and nothing writes it until AECI-721. Showing `0` would claim a measurement nobody
+took — §5.1's rule — so the lane carries a `connector_evidenced_pairs_empty` advisory instead. The
+two lanes are two `<table>`s, per §13.3: a group-header row inside one `<tbody>` has no accessible
+name relationship to the rows beneath it. Each lane distinguishes a **failed** fetch from an empty
+one — an alert with a retry, not the empty state — for the same reason §5.1 keeps a failed section
+from blanking the page: rendering a load error as "nothing delivered" would be the exact
+zero-as-measurement misread this advisory exists to prevent.
+
+**(5) No cache tag, and that is now settled twice over.** `/admin/*` is deliberately uncacheable
+(`CACHE_STRATEGY.md` §4), so an admin-only reader renders nothing cacheable and the connector
+tables still have no tag vocabulary. AECI-720's handler comment anticipated "whoever builds the
+first read surface owns the tag set" — this is that surface, and the answer is that the obligation
+stays parked with AECI-715 / 716, the first *public* reader. What AECI-722 does own, and
+discharges, is the `relations()` block.
+
+**Local data.** The sender is AECI-731 and it is unbuilt, so `connector_*` is empty in every
+environment. `apps/api/seed/connector-fixtures.sql` (in the `db:seed:local` chain and in
+`db:seed:stage2`) seeds two catalogues and ~35 listings covering every state the screen draws —
+including a high-confidence machine proposal that must **not** read as confirmed, and a
+low-confidence human decision that must.
+
+---
+
 ## 6. API surface
 
 All endpoints are admin-gated and register on the existing `authAdmin` sub-router in `apps/api/src/index.ts` behind `requireAdmin()`, which stays the single enforcement point (`AUTH_AND_RLS.md`). Contracts live in `packages/shared/src/api/admin-panel.ts` and reuse `PageQuerySchema` (`page` / `perPage`, capped at 100) and `paginatedResponseSchema` so list shapes match `/api/admin/requests`.
@@ -402,8 +504,13 @@ All endpoints are admin-gated and register on the existing `authAdmin` sub-route
 | `PATCH /api/admin/connector-catalogs/:id` | The per-iPaaS management cutoff — **SHIPPED (AECI-720)** | **The second write in this table.** Flips `connector_catalogs.managed_by`; `vendor` freezes the review lane so promote refuses that catalogue's pages with `CATALOG_VENDOR_MANAGED`. Audit row in the same `db.batch` as a guarded `UPDATE`; no `workflow_instances` row (closed CHECK) and no purge (nothing reads the table yet). Reversible — "one-way forever" governs the data direction, not the flag. Contract in `packages/shared/src/api/admin-connector-catalogs.ts`; the screen that will call it is AECI-722's |
 | `GET /api/admin/users` | §5.8 list — **SHIPPED (AECI-692)** | Profiles-first (ADR 0017 — one auth project backs every env). Filters `role` / `banned` / `has_seat`, all enum-plus-transform. `perPage` defaults 24, caps **50** not 100 — every row is a GoTrue round trip. `auth_available` + `email_search` report what the seam did |
 | `GET /api/admin/users/:id` | §5.8 detail — **SHIPPED (AECI-692)** | Profile, auth account, the one seat, live pending invites, counts. `pending_invites: null` and `requests_by_email: null` mean *unknowable without the seam* — never `[]` or `0` |
+| `GET /api/admin/connector-catalogs` | §5.9 list — **SHIPPED (AECI-722)** | Paginated, `?managed_by=` + `?search=` over the connector product. Per-row tallies come from six GROUP-BY passes in one `db.batch`, not fourteen correlated subqueries per row |
+| `GET /api/admin/connector-catalogs/:id` | §5.9 detail — **SHIPPED (AECI-722)** | Basics, surfaces, counts, `handover`, `advisories`. `handover` is derived from `audit_log` and is `null` whenever the lane has been reclaimed |
+| `GET /api/admin/connector-catalogs/:id/stubs` | §5.9 triage — **SHIPPED (AECI-722)** | Filters are `EXISTS` subqueries, never joins: a stub carries several mappings, and a join would duplicate the row and corrupt `total`. The `actions` blob never crosses the wire |
+| `GET /api/admin/connector-catalogs/:id/pairs` | §5.9 pairs — **SHIPPED (AECI-722)** | `?lane=reachable\|evidenced`, one lane per call because §13.3 requires one `<table>` per lane. Renders the publication gate's inputs, never its verdict |
+| `GET /api/admin/connector-catalogs/:id/audit` | §5.9 audit — **SHIPPED (AECI-722)** | **One** disjunct, not §5.7's four: the flip and the sync both file under `entity_type='connector_catalog'` with the catalogue id |
 
-**Conventions.** No `audit_log` rows **from the reads** — every `GET` in the table above writes nothing, including the `?recompute=1` ones (§26.1 governs writes; ADR 0022 scopes it). The write paths do audit, in the same `db.batch` as their write: §5.7's revoke via `revokeSeatStatements`, §5.8's ban via the AECI-218 handler, and AECI-720's `managed_by` flip via `auditInsert` alongside its guarded `UPDATE`. **None of them breaches §2's "no editing catalog data" boundary**: a seat revoke and a ban are account writes, and a `managed_by` flip is a *governance* write — it decides which system may author a catalogue, and changes no catalogue content. Promotion remains the review-app → `POST /api/promote` path, and there is still no admin vendor-edit or product-edit endpoint. No `Cache-Tag`, no edge caching; `/admin/*` is absent from `ROUTE_CACHE_PATTERNS` in `server-runtime.ts` and therefore takes the non-cacheable branch with `private, no-store`. That must stay true (§9.2). Response validation in dev via `validateResponseInDev`, as with the other admin routes.
+**Conventions.** No `audit_log` rows **from the reads** — every `GET` in the table above writes nothing, including the `?recompute=1` ones and all five §5.9 connector reads (§26.1 governs writes; ADR 0022 scopes it). The write paths do audit, in the same `db.batch` as their write: §5.7's revoke via `revokeSeatStatements`, §5.8's ban via the AECI-218 handler, and AECI-720's `managed_by` flip via `auditInsert` alongside its guarded `UPDATE`. **None of them breaches §2's "no editing catalog data" boundary**: a seat revoke and a ban are account writes, and a `managed_by` flip is a *governance* write — it decides which system may author a catalogue, and changes no catalogue content. Promotion remains the review-app → `POST /api/promote` path, and there is still no admin vendor-edit or product-edit endpoint. No `Cache-Tag`, no edge caching; `/admin/*` is absent from `ROUTE_CACHE_PATTERNS` in `server-runtime.ts` and therefore takes the non-cacheable branch with `private, no-store`. That must stay true (§9.2). Response validation in dev via `validateResponseInDev`, as with the other admin routes.
 
 **Manual job triggers — the line is side effects, not manual-ness (§13 D8).** *Recomputation* is in scope and is a `GET`: both `runDataQualityJob` and the digest's metric collection are already pure reads, so `?recompute=1` on the two endpoints above writes nothing, sends nothing, and carries no `audit_log` obligation. *Running a job for real* — sending the digest, `algolia-sync`, the retention prune, the reconcile sweep, anything that writes, emails, purges, or calls an external API — stays **deferred**, and `POST /api/admin/jobs/:job/run` is not built. Owner: **@chrisw**. Revisit when an operator first needs to force a job outside its window during an incident; at that point it is a state-changing write and needs its `audit_log` row in the same batch.
 

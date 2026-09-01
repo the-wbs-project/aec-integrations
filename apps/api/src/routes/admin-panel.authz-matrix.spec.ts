@@ -10,7 +10,8 @@
  * `requireAdmin()` fails here.
  *
  * Extended by AECI-579 with `GET /api/admin/catalog/coverage`, by AECI-586 with
- * the Audience pair, and by AECI-652 with the three `/api/admin/vendors` reads.
+ * the Audience pair, by AECI-652 with the three `/api/admin/vendors` reads, and
+ * by AECI-722 with the five `/api/admin/connector-catalogs` reads.
  * Every read endpoint the epic adds belongs in {@link ROUTES} — that is the point
  * of the file.
  *
@@ -26,7 +27,7 @@
 import { Hono } from 'hono';
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { profiles, vendors } from '../db/schema';
+import { connectorCatalogs, products, profiles, vendors } from '../db/schema';
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
 import { requireAdmin, type AuthzVariables } from '../lib/authz';
@@ -40,6 +41,13 @@ import { createAdminTimeseriesHandler } from './admin-metrics';
 import { createAdminOverviewHandler } from './admin-overview';
 import { createAdminPageViewsHandler } from './admin-page-views';
 import { createAdminSystemHandler } from './admin-system';
+import {
+  createAdminConnectorAuditHandler,
+  createAdminConnectorCatalogDetailHandler,
+  createAdminConnectorCatalogsListHandler,
+  createAdminConnectorPairsHandler,
+  createAdminConnectorStubsHandler,
+} from './admin-connectors';
 import { createAdminTrafficBreakdownHandler } from './admin-traffic';
 import {
   createAdminVendorAuditHandler,
@@ -59,6 +67,12 @@ const ADMIN_BANNED = u(902);
  *  unknown id — and this file asserts **200** for an admin, so an empty `vendors`
  *  table would fail the matrix for a reason that has nothing to do with the gate. */
 const VENDOR = u(950);
+/** A real product + catalogue, for the same reason `VENDOR` exists: the four
+ *  `/api/admin/connector-catalogs/:id*` routes 404 on an unknown id, and this
+ *  file asserts **200** for an admin. `connector_product_id` is NOT NULL with an
+ *  FK, and the handlers inner-join `products`, so the product has to be real too. */
+const CONNECTOR_PRODUCT = u(960);
+const CATALOG = 'authz-matrix-catalog';
 
 const NOW = new Date('2026-08-11T05:00:00.000Z');
 
@@ -98,6 +112,27 @@ const ROUTES = [
   // exists for the deny cases anyway.
   { name: 'GET /api/admin/users', url: '/api/admin/users' },
   { name: 'GET /api/admin/users/:id', url: `/api/admin/users/${REVIEWER}` },
+  // AECI-722 — the §5.9 connector surface. FIVE reads and no write: the
+  // `managed_by` flip is AECI-720's PATCH, covered by
+  // `admin-connector-catalogs.spec.ts` with the rest of its write semantics, so
+  // this file stays `get()`-shaped.
+  { name: 'GET /api/admin/connector-catalogs', url: '/api/admin/connector-catalogs' },
+  {
+    name: 'GET /api/admin/connector-catalogs/:id',
+    url: `/api/admin/connector-catalogs/${CATALOG}`,
+  },
+  {
+    name: 'GET /api/admin/connector-catalogs/:id/stubs',
+    url: `/api/admin/connector-catalogs/${CATALOG}/stubs`,
+  },
+  {
+    name: 'GET /api/admin/connector-catalogs/:id/pairs',
+    url: `/api/admin/connector-catalogs/${CATALOG}/pairs`,
+  },
+  {
+    name: 'GET /api/admin/connector-catalogs/:id/audit',
+    url: `/api/admin/connector-catalogs/${CATALOG}/audit`,
+  },
 ] as const;
 
 let jwks: TestJwks;
@@ -112,6 +147,14 @@ beforeEach(async () => {
   await t.db
     .insert(vendors)
     .values({ id: VENDOR, slug: 'authz-matrix-vendor', companyName: 'Authz Matrix Vendor' });
+  await t.db.insert(products).values({
+    id: CONNECTOR_PRODUCT,
+    slug: 'authz-matrix-connector',
+    name: 'Authz Matrix Connector',
+  });
+  await t.db
+    .insert(connectorCatalogs)
+    .values({ id: CATALOG, connectorProductId: CONNECTOR_PRODUCT });
   await t.db.insert(profiles).values([
     { id: REVIEWER, role: 'reviewer' },
     { id: ADMIN, role: 'admin' },
@@ -185,6 +228,34 @@ function makeApp() {
     '/api/admin/users/:id',
     requireAdmin(guard),
     createAdminUserDetailHandler(t.factory, noRecords),
+  );
+  // AECI-722. The list, stubs and pairs handlers take only the db factory; the
+  // detail and audit handlers take the email seam second, so they get `noEmails`
+  // for the same reason the vendor reads do.
+  app.get(
+    '/api/admin/connector-catalogs',
+    requireAdmin(guard),
+    createAdminConnectorCatalogsListHandler(t.factory),
+  );
+  app.get(
+    '/api/admin/connector-catalogs/:id',
+    requireAdmin(guard),
+    createAdminConnectorCatalogDetailHandler(t.factory, noEmails),
+  );
+  app.get(
+    '/api/admin/connector-catalogs/:id/stubs',
+    requireAdmin(guard),
+    createAdminConnectorStubsHandler(t.factory),
+  );
+  app.get(
+    '/api/admin/connector-catalogs/:id/pairs',
+    requireAdmin(guard),
+    createAdminConnectorPairsHandler(t.factory),
+  );
+  app.get(
+    '/api/admin/connector-catalogs/:id/audit',
+    requireAdmin(guard),
+    createAdminConnectorAuditHandler(t.factory, noEmails),
   );
   return app;
 }

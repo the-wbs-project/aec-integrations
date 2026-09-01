@@ -1180,3 +1180,46 @@ And a catalogue whose connector platform is unpromoted cannot land at all (`conn
 is NOT NULL): Zapier and Workato are `on_hold` review-side, so their pages report in `skipped[]`.
 Whether an evidenced pair may name a connector with no `products` row is AECI-721's question, and
 it now applies to catalogues too.
+
+### 13.11 What AECI-722 landed (2026-08-31)
+
+The first **reader** of the lane. §13.10 closed with "nothing renders it yet"; this is what
+started to.
+
+**Five admin `GET`s and two screens** — `/admin/connectors` and `/admin/connectors/:id`, behind
+`requireAdmin()`, documented as `ADMIN_PANEL_SPEC.md` §5.9 and `API_CONTRACTS.md` §6.10. They
+write nothing. The one write the screen drives is AECI-720's `managed_by` flip, which it renders a
+control for rather than re-implementing.
+
+**The `relations()` block is discharged.** `apps/api/src/db/schema.ts` recorded the six tables'
+missing relations as a *deferral* — "whichever issue builds the first read config adds the
+relations and the inverse entries on `productsRelations`". That is now done, and AECI-715 / 716
+inherit them.
+
+**The cache-tag obligation is NOT discharged, and now has a second reason to stay parked.**
+§13.10 said the coverage surfaces would need a tag set. `/admin/*` is deliberately uncacheable
+(`CACHE_STRATEGY.md` §4 — *"Do not add an `/admin` entry to `ROUTE_CACHE_PATTERNS`"*), so an
+admin-only reader renders nothing cacheable. The obligation belongs to AECI-715 / 716, the first
+**public** reader. `CACHE_STRATEGY.md` is unchanged by this issue — recorded here explicitly, in
+the §13.8 spirit, so a reviewer can check the claim rather than infer it.
+
+**The publication gate is now inspectable, and still not decided here.** §13.10's "13 confirmed
+against 212 machine proposals" is exactly the number an operator can now see per catalogue:
+`mappings_publishable` is the §9a.4 predicate evaluated server-side, and the pairs view shows
+which side of a published pair clears it. What the screen does **not** do is evaluate §13.7 —
+clause (b) (undelivered) and clause (c) (Addendum A §11.4's scoring) are AECI-716's, and a
+`publication_gate_inputs_only` advisory says so on the wire so the screen cannot be read as a
+publish decision.
+
+**Triage is read-only, and that answers rather than defers the question.** The originating issue
+asked the screen to approve and adjust mapping proposals. It cannot: the sync upserts
+`connector_stub_mappings` wholesale, so an AECi-authored decision is precisely the row the next
+page overwrites — and guarding the sync would make AECI-731's "every row `unchanged`" acceptance
+criterion unachievable per catalogue. Authoring lands at **AECI-724** time as
+`PATCH /api/admin/connector-stub-mappings/:id` gated on `managed_by = 'vendor'`, the one state in
+which the lane is frozen and the row is safe. `ADMIN_PANEL_SPEC.md` §5.9 carries the full
+argument.
+
+**Still nothing counts it.** §13.5 holds unchanged: the screen reports pair-page counts per
+`surface` under a `reachable_never_counted` advisory, and no reachable figure reaches a heading,
+`integration_count`, a facet or the home stats.

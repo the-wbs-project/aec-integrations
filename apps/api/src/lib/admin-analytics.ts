@@ -867,6 +867,24 @@ const SEVERITY: Record<AdminNoteCode, 'info' | 'warn'> = {
   // figures correctly, which is the `warn` test.
   utm_attribution_incomplete: 'info',
   audience_history_is_current_state: 'info',
+  // AECI-722 — the connector admin surface. Three `warn` and one `info`, on the
+  // same test the rest of this map uses: does a reader who MISSES the note draw a
+  // wrong conclusion?
+  //
+  // `connector_evidenced_pairs_empty` — yes. An empty delivered lane looks like
+  // "this connector delivers nothing", when it actually means AECI-721 has not run.
+  // `reachable_never_counted` — yes, and this is the lane's founding distinction
+  // (§13.1): reading a pair-page count as delivered integrations is exactly the
+  // capability-sold-as-delivery conflation the whole connector lane exists to
+  // refuse.
+  // `publication_gate_inputs_only` — yes. A row rendered here is NOT thereby
+  // publishable; two of §13.7's four clauses are not evaluated on this screen.
+  // `stub_actions_never_fetched` — no. It narrows what a null `action_count`
+  // means without making any figure on the page wrong, which is the `info` case.
+  connector_evidenced_pairs_empty: 'warn',
+  reachable_never_counted: 'warn',
+  publication_gate_inputs_only: 'warn',
+  stub_actions_never_fetched: 'info',
 };
 
 /** Build a note. `message` is the untranslated operator fallback; the UI renders

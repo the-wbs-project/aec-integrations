@@ -25,6 +25,13 @@ import {
 import { createGetAccountReviewsHandler } from './routes/account-reviews';
 import { createAdminClaimsListHandler, createModerateClaimHandler } from './routes/admin-claims';
 import { createSetConnectorCatalogManagementHandler } from './routes/admin-connector-catalogs';
+import {
+  createAdminConnectorAuditHandler,
+  createAdminConnectorCatalogDetailHandler,
+  createAdminConnectorCatalogsListHandler,
+  createAdminConnectorPairsHandler,
+  createAdminConnectorStubsHandler,
+} from './routes/admin-connectors';
 import { createSetVendorEntitlementHandler } from './routes/admin-entitlements';
 import {
   createAdminRevokeSeatHandler,
@@ -524,13 +531,51 @@ authAdmin.get('/api/admin/users/:id', requireAdmin(), createAdminUserDetailHandl
 // which freezes the review lane for that catalogue — `POST /api/promote/connector-catalog`
 // then refuses every page for it with `CATALOG_VENDOR_MANAGED`. Audit-only, no
 // `workflow_instances` row (that CHECK is closed, §1.2) and NO cache purge: nothing reads
-// `connector_catalogs` yet, so there is no tag to purge. The flag is reversible; what is
+// `connector_catalogs` CACHEABLY - AECI-722 reads it, but only on the uncacheable /admin
+// surface, so there is still no tag to purge. The flag is reversible; what is
 // one-way is the DATA direction, which the promote refusal delivers. Grants no seat — see
 // `STAGE_2_SPEC.md` §8.9(2)/(3); the screen that calls this is AECI-722's.
 authAdmin.patch(
   '/api/admin/connector-catalogs/:id',
   requireAdmin(),
   createSetConnectorCatalogManagementHandler(),
+);
+// AECI-722: the connector admin surface (§5.9) - the FIRST read layer over the six
+// AECI-714 tables. Five GETs, registered AFTER the PATCH above so the literal
+// `/stubs`, `/pairs` and `/audit` segments are unambiguous against the bare `/:id`;
+// Hono's trie separates them by segment count anyway, but the order documents intent
+// and matches the vendors and users blocks.
+//
+// Every one of them WRITES NOTHING - no `audit_log` row (§6's convention, ADR 0022's
+// scoping), no purge and no `Cache-Tag`. Mapping decisions are deliberately NOT
+// writable here: the sync upserts `connector_stub_mappings` wholesale, so an
+// AECi-authored decision is exactly the row it would clobber. That returns at
+// AECI-724 time gated on `managed_by = 'vendor'` - the argument is in
+// `packages/shared/src/api/admin-connectors.ts`.
+authAdmin.get(
+  '/api/admin/connector-catalogs',
+  requireAdmin(),
+  createAdminConnectorCatalogsListHandler(),
+);
+authAdmin.get(
+  '/api/admin/connector-catalogs/:id',
+  requireAdmin(),
+  createAdminConnectorCatalogDetailHandler(),
+);
+authAdmin.get(
+  '/api/admin/connector-catalogs/:id/stubs',
+  requireAdmin(),
+  createAdminConnectorStubsHandler(),
+);
+authAdmin.get(
+  '/api/admin/connector-catalogs/:id/pairs',
+  requireAdmin(),
+  createAdminConnectorPairsHandler(),
+);
+authAdmin.get(
+  '/api/admin/connector-catalogs/:id/audit',
+  requireAdmin(),
+  createAdminConnectorAuditHandler(),
 );
 // Admin panel reads (AECI-574, AECI-577, AECI-579, AECI-580, AECI-586).
 // Registered after the moderation routes; no path collides with

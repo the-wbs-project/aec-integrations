@@ -102,6 +102,15 @@ const ACTION_LABELS: Readonly<Record<string, string>> = {
   'profile.updated': $localize`:@@admin.audit.action.profileUpdated:Account profile updated`,
   'account.deleted': $localize`:@@admin.audit.action.accountDeleted:Account deleted by its owner`,
 
+  // ── Connector lane (AECI-720 flips, AECI-714 sync) ────────────────────────
+  // The sync row is included deliberately: on `/admin/connectors/:id` it is the
+  // durable record of when a vendor's feed last delivered anything, so it must
+  // read as prose rather than fall through `humanizeAction` to "Connector
+  // catalog synced".
+  'connector_catalog.managed_by_vendor': $localize`:@@admin.audit.action.connectorHandedToVendor:Catalogue handed to a vendor (review lane frozen)`,
+  'connector_catalog.managed_by_review': $localize`:@@admin.audit.action.connectorReclaimed:Catalogue reclaimed (review lane re-opened)`,
+  'connector_catalog.synced': $localize`:@@admin.audit.action.connectorSynced:Catalogue feed delivered`,
+
   // ── System ────────────────────────────────────────────────────────────────
   'notification.sent': $localize`:@@admin.audit.action.notificationSent:Notification sent`,
   'retention.pruned': $localize`:@@admin.audit.action.retentionPruned:Old records pruned`,

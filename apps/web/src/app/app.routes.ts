@@ -305,6 +305,21 @@ export const routes: Routes = [
       // the detail page is where the entitlement control now lives. Two flat
       // children rather than a nested layout: the detail page's four sections are
       // read together, so a route per tab would buy nothing but resolvers.
+      // AECI-722 — the connector admin surface (`ADMIN_PANEL_SPEC.md` §5.9), the
+      // first read layer over the AECI-714 connector lane. Two flat children, the
+      // same arrangement and the same reason as the vendor pair below: the detail
+      // page's five sections are read together, so a route per section would buy
+      // nothing but resolvers. `adminSummaryResolver` on the parent is the gate.
+      {
+        path: 'connectors',
+        loadComponent: () =>
+          import('./admin/connectors/connector-list').then((m) => m.ConnectorList),
+      },
+      {
+        path: 'connectors/:id',
+        loadComponent: () =>
+          import('./admin/connectors/connector-detail').then((m) => m.ConnectorDetail),
+      },
       {
         path: 'vendors',
         loadComponent: () => import('./admin/vendors/vendor-list').then((m) => m.VendorList),

@@ -221,6 +221,7 @@ describe('productDetailResolver — product-specific', () => {
     direction: null,
     source: { id: `s-${sourceSlug}`, name: sourceSlug, slug: sourceSlug, logo_url: null },
     target: { id: `t-${targetSlug}`, name: targetSlug, slug: targetSlug, logo_url: null },
+    via: null,
     created_at: '2024-01-01T00:00:00.000Z',
     updated_at: '2024-01-01T00:00:00.000Z',
   });

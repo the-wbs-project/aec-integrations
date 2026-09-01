@@ -96,6 +96,10 @@ export type AdminWindow = z.infer<typeof AdminWindowSchema>;
  * | `stored_result_unreadable` | a stored `job_runs.detail` could not be parsed, so the item is omitted rather than partially reported. `params.job` names which cron's payload |
  * | `utm_attribution_incomplete` | `params.missing` of `params.total` signups in the window carry no `utm_source` — the unattributed bucket is real signups, not missing rows. The direct analogue of `referrer_source_incomplete`, and like it, derived from the window rather than from a date |
  * | `audience_history_is_current_state` | the subscriber series reads each `mailing_list` row's CURRENT `created_at` / `unsubscribed_at`. A resubscribe **clears** `unsubscribed_at` (`POST /api/subscribe`'s reactivation path), so a subscriber who churned and returned reads as never-churned and their earlier suppressed days are reported as active. This is the one thing the soft delete cannot preserve, and it is the honest counterweight to "churn is exactly computable" |
+ * | `connector_evidenced_pairs_empty` | `connector_evidenced_pairs` is the DELIVERED tier for connector edges and AECI-714 created it **empty with nothing writing it** — AECI-721 migrates the ~326 `powered_by` edges in. So the lane renders an empty state, and that is a statement about the migration rather than a measured zero |
+ * | `reachable_never_counted` | pair counts on this screen describe how many pair PAGES a vendor publishes, split by `surface`. They are not a reachable-tier count and must never be read as one: `STAGE_1_5_SPEC.md` §13.1/§13.5 are categorical that reachable never counts — not in a heading, not in `integration_count`, not in a facet, not in the home stats |
+ * | `publication_gate_inputs_only` | the pairs view shows §13.7's INPUTS, not its verdict. Clause (a) (both sides in our catalog) and the provenance half of (d) are computed; clause (b) (the pair being undelivered) and clause (c) (Addendum A §11.4's "meaningful no" scoring) are **not**, and belong to AECI-716. A row shown here is not thereby publishable |
+ * | `stub_actions_never_fetched` | `params.never_fetched` of `params.total` stubs on this page carry `actions IS NULL`, which means the per-listing inventory has never been fetched — **not** that the listing has no actions. The inventory is ~73k actions across MindCloud alone and is fetched lazily, so most stubs carry null indefinitely (§9a.3) |
  */
 export const AdminNoteCodeSchema = z.enum([
   'partial_day',
@@ -119,6 +123,13 @@ export const AdminNoteCodeSchema = z.enum([
   // AECI-586 / P5.1 — audience
   'utm_attribution_incomplete',
   'audience_history_is_current_state',
+  // AECI-722 — the connector admin surface (`admin-connectors.ts`). Four caveats
+  // that are structural rather than windowed: they describe what the connector
+  // lane deliberately does NOT model, so none of them retires on its own.
+  'connector_evidenced_pairs_empty',
+  'reachable_never_counted',
+  'publication_gate_inputs_only',
+  'stub_actions_never_fetched',
 ]);
 export type AdminNoteCode = z.infer<typeof AdminNoteCodeSchema>;
 
