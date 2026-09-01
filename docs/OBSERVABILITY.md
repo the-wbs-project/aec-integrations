@@ -873,7 +873,7 @@ Switching to EU is a code change (host default + the two CSP hosts).
 | `DD_APP_KEY` | **Operator only** — creating/reading dashboards + monitors | Local shell / CI secret at apply time | **Never** a Worker secret; never in `wrangler.jsonc` / `.dev.vars`. |
 | `DD_SITE` | both | Wrangler `vars` | `us5.datadoghq.com`. The metrics host is `api.{DD_SITE}`. |
 | `DD_APPLICATION_ID` + `DD_CLIENT_TOKEN` | `apps/web` **browser RUM** (client-exposed) | Wrangler secret on the **web Worker only**, CI-pushed from the shared un-suffixed `DD_APPLICATION_ID` / `DD_CLIENT_TOKEN` GH secrets | AECI-326. The single `aeci` RUM app on us5; the per-env `env` field separates envs, so one pair is reused everywhere (like `DATADOG_API_KEY`). Absent → no `window.__AECI_DD__`, so RUM — including Core Web Vitals — no-ops (fail-open). |
-| `POSTHOG_KEY` | `apps/web` browser (client-exposed project key) | Wrangler secret on the **web Worker only**, CI-pushed from `POSTHOG_KEY_{STAGING,PRODUCTION}` | AECI-239. Publishable; stored as a secret only to keep it out of git. Absent → analytics no-ops (fail-open). |
+| `POSTHOG_KEY` | `apps/web` browser (client-exposed project key) | Wrangler secret on the **web Worker only**, CI-pushed from `POSTHOG_KEY_{NONPROD,PRODUCTION}` (non-prod = staging + demo + PR previews) | AECI-239. Publishable; stored as a secret only to keep it out of git. Absent → analytics no-ops (fail-open). |
 | `POSTHOG_HOST` | `apps/web` browser | Wrangler `vars` (web Worker, per env) | `https://us.i.posthog.com`. Defaulted in code when unset. |
 
 ## Applying the dashboard + monitors

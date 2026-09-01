@@ -286,6 +286,16 @@ Every cacheable SSR response sets a `Cache-Tag` header via the AECI-56 helper (`
 - Auth: surfaced tools are `mcp__mobbin__authenticate` and `mcp__mobbin__complete_authentication`. Call `authenticate` first, then `complete_authentication`; additional Mobbin tools become callable in the same session after auth completes.
 - **The anchor-site rule.** Once a surface picks a Mobbin site as its theme, additional components for that surface come from the *same* Mobbin site. Pulling components from a second site is a deliberate exception, not a default — the originating theme site stays the visual anchor (composition, hierarchy, density, atmosphere). This protects editorial coherence: AECi should read as one publication, not a mashup. See `DESIGN.md` §"Named Rules" → "The Anchor-Site Rule" for the binding rule.
 
+## Commands you hand to the operator
+
+When you write a shell command for the human to copy-paste, hand over the command **and nothing
+else**. No `#` comment lines, no trailing `# explanation`, no `$` prompt prefixes, no placeholder
+angle brackets left inside an otherwise-runnable line. Chris pastes these into a terminal in one
+block, and a comment line that wraps, or a smart-quoted `—` inside a comment, aborts the paste or
+runs a truncated command. Put the explanation in prose **above or below** the code block instead,
+and keep the block itself executable top to bottom. This applies to every runnable snippet
+(`bash`, `sh`, `zsh`, `sql`), not just long ones.
+
 ## Closing notes
 
 This file evolves in both directions. If a recurring instruction keeps coming up in code reviews, add it here. When a stage/phase boundary lands (a launch, a stage merge into `main`), run a line audit: for each line, name the failure it prevents or delete it, and re-verify the lines marked *external account state* — those reference dashboard settings no repo check can catch when they drift. PR like any other doc change.
