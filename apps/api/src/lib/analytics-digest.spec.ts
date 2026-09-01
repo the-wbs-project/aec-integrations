@@ -6,7 +6,7 @@
  *   - `buildAnalyticsDigest` — the pure formatter (subject / deltas / top-product list).
  */
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { pageViews, products, profiles, reviews } from '../db/schema';
 import { makeTestDb, type TestDb } from '../test/d1';
@@ -15,15 +15,10 @@ import {
   collectAnalyticsMetrics,
   computeDelta,
   dailyWindows,
+  humanViewsAfterAutomation,
   windowsForDay,
   type AnalyticsMetrics,
 } from './analytics-digest';
-// The detector owns what "flagged" means; the digest owns only the complement.
-// Importing the real vocabulary here is what makes "exact complement" a test
-// rather than a comment (AECI-744).
-import { NON_BROWSER_VERDICTS } from './swarm-detection';
-
-const VERDICTS = [...NON_BROWSER_VERDICTS];
 
 describe('windowsForDay (AECI-574 — the arbitrary-day window the panel shares)', () => {
   it('produces the same window `dailyWindows` does for the day it reports', () => {
@@ -582,40 +577,36 @@ describe('collectAnalyticsMetrics — automation exclusion on the tables (AECI-7
     ]);
   });
 
-  it('drops flagged UA hashes and ASNs from top products and traffic sources', async () => {
+  /**
+   * Since AECI-745 the exclusion is no longer injected — `collectAnalyticsMetrics`
+   * runs `detectSwarms` itself, so these seeds have to be shapes the REAL detector
+   * flags rather than hashes an argument declared flagged.
+   *
+   * That is a strictly better test and it is also the only honest one now: an
+   * injected list could assert the complement while the detector's own idea of
+   * "flagged" drifted away underneath it, which is the two-definitions problem
+   * this issue existed to remove. Here the headline and the tables are filtered by
+   * one run of one detector, so a drift between them cannot hide.
+   *
+   * Four views under one hash across four networks clears `SWARM_MIN_VIEWS` (4) at
+   * an ASN ratio of 1.0, well over `SWARM_MIN_ASN_RATIO` (0.8).
+   */
+  const swarmRow = (i: number, extra: Record<string, unknown> = {}) => ({
+    path: '/products/p1',
+    productId: 'p1',
+    createdAt: AT,
+    userAgentHash: 'swarm',
+    cfAsn: 1000 + i,
+    cfCountry: ['PL', 'BR', 'ID', 'VN'][i] ?? 'PL',
+    referrerSource: 'Direct',
+    ...extra,
+  });
+
+  it('drops flagged UA hashes from top products and traffic sources', async () => {
     await t.db.insert(pageViews).values([
-      // A flagged swarm hash reading p1 three times — the exact shape that put a
-      // bot-driven page at the top of the 2026-08-30 email.
-      {
-        path: '/products/p1',
-        productId: 'p1',
-        createdAt: AT,
-        userAgentHash: 'swarm',
-        referrerSource: 'Direct',
-      },
-      {
-        path: '/products/p1',
-        productId: 'p1',
-        createdAt: AT,
-        userAgentHash: 'swarm',
-        referrerSource: 'Direct',
-      },
-      {
-        path: '/products/p1',
-        productId: 'p1',
-        createdAt: AT,
-        userAgentHash: 'swarm',
-        referrerSource: 'Direct',
-      },
-      // A flagged ASN under a different hash.
-      {
-        path: '/products/p1',
-        productId: 'p1',
-        createdAt: AT,
-        userAgentHash: 'other',
-        cfAsn: 47544,
-        referrerSource: 'Google',
-      },
+      // The exact shape that put a bot-driven page at the top of the 2026-08-30
+      // email: one fingerprint reading one page from four different networks.
+      ...Array.from({ length: 4 }, (_, i) => swarmRow(i)),
       // One genuine reader of p2.
       {
         path: '/products/p2',
@@ -627,12 +618,9 @@ describe('collectAnalyticsMetrics — automation exclusion on the tables (AECI-7
       },
     ]);
 
-    const m = await collectAnalyticsMetrics(t.db, window, {
-      uaHashes: ['swarm'],
-      asns: [47544],
-      verdicts: VERDICTS,
-    });
+    const m = await collectAnalyticsMetrics(t.db, window);
 
+    expect(m.automation?.flagged.day).toBe(4);
     // p1 had 4 of the 5 views and would otherwise lead the table.
     expect(m.topProducts).toEqual([{ name: 'P2', slug: 'p2', views: 1 }]);
     expect(m.referrers).toEqual([{ source: 'Google', views: 1 }]);
@@ -643,17 +631,21 @@ describe('collectAnalyticsMetrics — automation exclusion on the tables (AECI-7
     // a NULL WHERE drops it — so the row would vanish from the tables while still
     // counting in the headline. It must survive. The verdict axis (AECI-744) has
     // the same trap: every row written before that column existed has a NULL.
+    //
+    // The four flagged rows are here so there IS an exclusion to be null-unsafe
+    // about: with an empty candidate list `notFlagged` returns undefined and the
+    // trap cannot fire, which would make this test pass for the wrong reason.
     await t.db
       .insert(pageViews)
-      .values([{ path: '/products/p1', productId: 'p1', createdAt: AT, referrerSource: 'Direct' }]);
+      .values([
+        ...Array.from({ length: 4 }, (_, i) => swarmRow(i)),
+        { path: '/products/p2', productId: 'p2', createdAt: AT, referrerSource: 'Direct' },
+      ]);
 
-    const m = await collectAnalyticsMetrics(t.db, window, {
-      uaHashes: ['swarm'],
-      asns: [47544],
-      verdicts: VERDICTS,
-    });
+    const m = await collectAnalyticsMetrics(t.db, window);
 
-    expect(m.topProducts).toEqual([{ name: 'P1', slug: 'p1', views: 1 }]);
+    expect(m.automation?.flagged.day).toBe(4);
+    expect(m.topProducts).toEqual([{ name: 'P2', slug: 'p2', views: 1 }]);
     expect(m.referrers).toEqual([{ source: 'Direct', views: 1 }]);
   });
 
@@ -683,88 +675,98 @@ describe('collectAnalyticsMetrics — automation exclusion on the tables (AECI-7
       },
     ]);
 
-    const m = await collectAnalyticsMetrics(t.db, window, {
-      uaHashes: [],
-      asns: [],
-      verdicts: VERDICTS,
-    });
+    const m = await collectAnalyticsMetrics(t.db, window);
 
+    expect(m.automation?.flagged.day).toBe(1);
     expect(m.topProducts).toEqual([{ name: 'P2', slug: 'p2', views: 1 }]);
     expect(m.referrers).toEqual([{ source: 'Google', views: 1 }]);
   });
 
   it('the tables and the headline describe ONE population', async () => {
-    await t.db.insert(pageViews).values([
-      { path: '/products/p1', productId: 'p1', createdAt: AT, userAgentHash: 'swarm' },
-      { path: '/products/p1', productId: 'p1', createdAt: AT, userAgentHash: 'swarm' },
-      { path: '/products/p2', productId: 'p2', createdAt: AT, userAgentHash: 'person' },
-      { path: '/', createdAt: AT, userAgentHash: 'person' },
-    ]);
+    await t.db
+      .insert(pageViews)
+      .values([
+        ...Array.from({ length: 4 }, (_, i) => swarmRow(i)),
+        { path: '/products/p2', productId: 'p2', createdAt: AT, userAgentHash: 'person' },
+        { path: '/', createdAt: AT, userAgentHash: 'person' },
+      ]);
 
-    const m = await collectAnalyticsMetrics(t.db, window, {
-      uaHashes: ['swarm'],
-      asns: [],
-      verdicts: VERDICTS,
-    });
+    const m = await collectAnalyticsMetrics(t.db, window);
 
-    // Headline is `raw - flagged` (4 - 2 = 2); the table rows must sum to no more
+    // Headline is `raw - flagged` (6 - 4 = 2); the table rows must sum to no more
     // than that. If the negation ever stops matching `countFlaggedViews`, this is
     // where it shows up.
-    const rawMinusFlagged = m.pageViews.day - 2;
+    const net = humanViewsAfterAutomation(m);
     const tableViews = m.topProducts.reduce((n, p) => n + p.views, 0);
-    expect(rawMinusFlagged).toBe(2);
-    expect(tableViews).toBeLessThanOrEqual(rawMinusFlagged);
+    expect(m.pageViews.day).toBe(6);
+    expect(net.day).toBe(2);
+    expect(tableViews).toBeLessThanOrEqual(net.day);
     expect(m.topProducts).toEqual([{ name: 'P2', slug: 'p2', views: 1 }]);
   });
-});
 
-describe('NOT_INTERNAL query shape (the D1 bound-parameter ceiling)', () => {
-  let t: TestDb;
-  beforeEach(async () => {
-    t = await makeTestDb();
+  it("reports the prior day's flagged count too, so the delta is filtered on both sides", async () => {
+    // AECI-741: a filtered day against an unfiltered prior day manufactures a
+    // large fake drop. The detector therefore runs over both windows, and this is
+    // the assertion that keeps the second run from being quietly dropped as an
+    // optimization.
+    const PRIOR = '2026-07-22T10:00:00.000Z';
+    await t.db
+      .insert(pageViews)
+      .values([
+        ...Array.from({ length: 4 }, (_, i) => swarmRow(i)),
+        ...Array.from({ length: 4 }, (_, i) => swarmRow(i, { createdAt: PRIOR })),
+      ]);
+
+    const m = await collectAnalyticsMetrics(t.db, window);
+
+    expect(m.automation).toEqual({ flagged: { day: 4, prior: 4 }, note: expect.any(String) });
+    expect(humanViewsAfterAutomation(m)).toEqual({ day: 0, prior: 0 });
   });
-  afterEach(() => t.dispose());
 
-  it('binds a constant number of parameters however many operator pairs exist', async () => {
-    // Measured on the prepared SQL text, at the driver, because that is what D1
-    // counts. (An earlier version of this guard wrapped `db.all`, which Drizzle's
-    // select path never calls — it recorded zero statements and passed
-    // vacuously.)
-    const widest = async (): Promise<number> => {
-      let max = 0;
-      const originalPrepare = t.raw.prepare.bind(t.raw);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- swapping the driver's prepare is the only place the bound SQL text exists.
-      (t.raw as any).prepare = (sql: string) => {
-        if (sql.includes('page_views')) max = Math.max(max, (sql.match(/\?/g) ?? []).length);
-        return originalPrepare(sql);
-      };
-      try {
-        await collectAnalyticsMetrics(t.db, dailyWindows(new Date('2026-07-24T12:00:00.000Z')));
-      } finally {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- restoring the swap above.
-        (t.raw as any).prepare = originalPrepare;
-      }
-      return max;
-    };
+  it('degrades to an UNFILTERED report when the detector throws, rather than failing', async () => {
+    // A detector bug must not take down the 05:00 digest AND /admin/overview, both
+    // of whose entire job is to keep reporting. `automation: null` is the state the
+    // formatter and the panel already render as "this is the raw count, and we are
+    // telling you it is raw" — so the degradation is visible rather than silent,
+    // which is the only version of it worth having.
+    await t.db
+      .insert(pageViews)
+      .values([
+        ...Array.from({ length: 4 }, (_, i) => swarmRow(i)),
+        { path: '/products/p2', productId: 'p2', createdAt: AT, userAgentHash: 'person' },
+      ]);
 
-    const withNoPairs = await widest();
-    // The guard is only meaningful if it saw the queries at all.
-    expect(withNoPairs).toBeGreaterThan(0);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.resetModules();
+    vi.doMock('./swarm-detection', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('./swarm-detection')>()),
+      detectSwarms: () => {
+        throw new Error('detector exploded');
+      },
+    }));
+    try {
+      const digest = await import('./analytics-digest');
+      const m = await digest.collectAnalyticsMetrics(t.db, window);
 
-    // Twenty-one operator pairs — every one of them a browser/network the naive
-    // implementation would have to bind two parameters for.
-    await t.db.insert(pageViews).values(
-      Array.from({ length: 21 }, (_, i) => ({
-        path: '/',
-        isBot: false,
-        userAgentHash: `ua-${i}`,
-        cfAsn: 1000 + i,
-        isOperator: true,
-        createdAt: '2026-07-23T04:00:00.000Z',
-      })),
-    );
-
-    expect(await widest()).toBe(withNoPairs);
+      expect(m.automation).toBeNull();
+      expect(m.swarm).toBeNull();
+      // The headline falls back to the raw count — NOT to zero, and not to a
+      // partially-filtered figure.
+      expect(m.pageViews.day).toBe(5);
+      expect(digest.humanViewsAfterAutomation(m).day).toBe(5);
+      // And the tables are unfiltered to match it: a filtered table under an
+      // unfiltered headline is the AECI-747 defect, and it is just as wrong when
+      // the cause is a failure as when the cause is a forgotten argument.
+      expect(m.topProducts).toEqual([
+        { name: 'P1', slug: 'p1', views: 4 },
+        { name: 'P2', slug: 'p2', views: 1 },
+      ]);
+      expect(warn).toHaveBeenCalled();
+    } finally {
+      vi.doUnmock('./swarm-detection');
+      vi.resetModules();
+      warn.mockRestore();
+    }
   });
 });
 
@@ -793,6 +795,10 @@ describe('buildAnalyticsDigest', () => {
     corroboratedViews: { day: 12, prior: 9 },
     corroboratedVisitors: 7,
     operatorLeakViews: 0,
+    // No detector result: the "did not run" rendering, which is what these
+    // baseline cases have always exercised.
+    automation: null,
+    swarm: null,
   };
   const opts = {
     env: 'production',
@@ -875,6 +881,8 @@ describe('buildAnalyticsDigest', () => {
         corroboratedViews: { day: 0, prior: 0 },
         corroboratedVisitors: 0,
         operatorLeakViews: 0,
+        automation: null,
+        swarm: null,
       },
       opts,
     );
@@ -905,6 +913,8 @@ describe('buildAnalyticsDigest — the two bounds (AECI-658 / AECI-660)', () => 
     corroboratedViews: { day: 3, prior: 2 },
     corroboratedVisitors: 2,
     operatorLeakViews: 0,
+    automation: null,
+    swarm: null,
   };
   const opts = {
     env: 'production',
@@ -969,20 +979,20 @@ describe('buildAnalyticsDigest — the two bounds (AECI-658 / AECI-660)', () => 
 
   it('carries the swarm note into both renderings when one is supplied', () => {
     const note = '31 of 48 may not be people: 7 clients each read nearly every page.';
-    const { text, html } = buildAnalyticsDigest(metrics, {
-      ...opts,
-      automation: { flagged: { day: 31, prior: 0 }, note },
-    });
+    const { text, html } = buildAnalyticsDigest(
+      { ...metrics, automation: { flagged: { day: 31, prior: 0 }, note } },
+      opts,
+    );
     expect(text).toContain(`Automation signal: ${note}`);
     expect(html).toContain('Automation signal');
     expect(html).toContain('31 of 48 may not be people');
   });
 
   it('stays quiet when nothing was flagged', () => {
-    const { text, html } = buildAnalyticsDigest(metrics, {
-      ...opts,
-      automation: { flagged: { day: 0, prior: 0 }, note: null },
-    });
+    const { text, html } = buildAnalyticsDigest(
+      { ...metrics, automation: { flagged: { day: 0, prior: 0 }, note: null } },
+      opts,
+    );
     expect(text).not.toContain('Automation signal');
     expect(html).not.toContain('Automation signal');
   });
@@ -1004,12 +1014,16 @@ describe('buildAnalyticsDigest — the headline is the post-automation count (AE
     corroboratedViews: { day: 0, prior: 2 },
     corroboratedVisitors: 0,
     operatorLeakViews: 0,
+    // On the METRICS since AECI-745, not on the options: the collector runs the
+    // detector, so the email and `/admin/overview` subtract the same figure by
+    // construction instead of by both callers remembering to pass it.
+    automation: { flagged: { day: 56, prior: 64 }, note: '56 of 70 may not be people.' },
+    swarm: null,
   };
   const opts = {
     env: 'production',
     dayLabel: '2026-08-30',
     generatedAt: new Date('2026-08-31T05:00:00.000Z'),
-    automation: { flagged: { day: 56, prior: 64 }, note: '56 of 70 may not be people.' },
   };
 
   it('leads the subject with the filtered figure and keeps the raw one in parentheses', () => {
@@ -1052,10 +1066,7 @@ describe('buildAnalyticsDigest — the headline is the post-automation count (AE
 
   it('falls back to the raw count and SAYS SO when the detector did not run', () => {
     // A failed detector must not be able to look like a clean day.
-    const { subject, text, html } = buildAnalyticsDigest(metrics, {
-      ...opts,
-      automation: null,
-    });
+    const { subject, text, html } = buildAnalyticsDigest({ ...metrics, automation: null }, opts);
     expect(subject).toContain('up to 70 human views');
     expect(text).toContain('Page views: 70 (-17 (-20%) vs 87 prior day)  [upper bound]');
     expect(text).toContain('automation filter did not run this day');
@@ -1064,20 +1075,20 @@ describe('buildAnalyticsDigest — the headline is the post-automation count (AE
   });
 
   it('distinguishes "ran, flagged nothing" from "did not run"', () => {
-    const { text } = buildAnalyticsDigest(metrics, {
-      ...opts,
-      automation: { flagged: { day: 0, prior: 0 }, note: null },
-    });
+    const { text } = buildAnalyticsDigest(
+      { ...metrics, automation: { flagged: { day: 0, prior: 0 }, note: null } },
+      opts,
+    );
     // Ran and found nothing: headline equals raw, with no outage warning.
     expect(text).toContain('Human page views after automation: 70');
     expect(text).not.toContain('did not run');
   });
 
   it('clamps a headline that would go negative rather than printing one', () => {
-    const { text } = buildAnalyticsDigest(metrics, {
-      ...opts,
-      automation: { flagged: { day: 999, prior: 999 }, note: null },
-    });
+    const { text } = buildAnalyticsDigest(
+      { ...metrics, automation: { flagged: { day: 999, prior: 999 }, note: null } },
+      opts,
+    );
     expect(text).toContain('Human page views after automation: 0');
     expect(text).not.toContain('-929');
   });

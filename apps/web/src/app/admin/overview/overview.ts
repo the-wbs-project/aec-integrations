@@ -188,6 +188,15 @@ export class AdminOverview {
 
   protected readonly signInSeries = computed(() => this.series()['accounts.sign_ins_new'] ?? []);
 
+  /**
+   * The two deltas beside the headline.
+   *
+   * They measure DIFFERENT populations and the API says so: `delta_day` is
+   * post-automation on both sides, `delta_7d` is raw on both, because filtering
+   * a week would mean running the detector over fourteen further days on every
+   * request. Both are internally consistent; only the comparison between them is
+   * not, and `deltaPeriodNote` below is what keeps that from being a silent trap.
+   */
   protected readonly pageViewDeltas = computed<readonly StatTileDelta[]>(() => {
     const t = this.overview()?.traffic;
     return t
@@ -236,7 +245,7 @@ export class AdminOverview {
   protected readonly sourcesEmpty = $localize`:@@admin.overview.sources.empty:No traffic sources recorded for this day.`;
   protected readonly productsEmpty = $localize`:@@admin.overview.products.empty:No product page views recorded for this day.`;
 
-  protected readonly pageViewsSparklineLabel = $localize`:@@admin.overview.tile.pageViews.spark:Human page views per day over the last 30 days`;
+  protected readonly pageViewsSparklineLabel = $localize`:@@admin.overview.tile.pageViews.spark:Human page views per day over the last 30 days, counted server-side with no automation filter applied`;
   protected readonly visitorsSparklineLabel = $localize`:@@admin.overview.tile.visitors.spark:Unique visitors per day over the last 30 days`;
   protected readonly signInsSparklineLabel = $localize`:@@admin.overview.tile.signIns.spark:New sign-ins per day over the last 30 days`;
 
@@ -269,13 +278,31 @@ export class AdminOverview {
    */
   protected readonly pageViewsCaption = computed(() => {
     const t = this.overview()?.traffic;
+    const flagged = t?.automation_flagged ?? null;
     const parts = [
-      $localize`:@@admin.overview.caption.pageViews:UTC day ${this.windowDay()}:DAY:. An upper bound: page views are counted server-side on every full-document load, so a crawler that never runs our JavaScript is still in this number.`,
+      // The headline is no longer the raw server-side count (AECI-745), so this
+      // sentence no longer calls it an upper bound. That label now belongs to the
+      // figure it was subtracted FROM, and moves with it — describing a filtered
+      // estimate as an upper bound would be the same class of error the AECI-658
+      // hedge was added to fix, pointed the other way.
+      flagged === null
+        ? $localize`:@@admin.overview.caption.pageViewsUnfiltered:UTC day ${this.windowDay()}:DAY:. The automation filter did not run for this day, so this figure is UNFILTERED and is an upper bound: page views are counted server-side on every full-document load, so a crawler that never runs our JavaScript is still in it. It is not comparable with a day the filter ran on.`
+        : $localize`:@@admin.overview.caption.pageViewsAfterAutomation:UTC day ${this.windowDay()}:DAY:. Counted server-side: ${t?.page_views_human_raw.total ?? 0}:RAW:, less those attributed to automated clients: ${flagged}:FLAGGED:. The server-side figure is an upper bound: it counts every full-document load, so a crawler that never runs our JavaScript is in it.`,
       $localize`:@@admin.overview.caption.corroborated:Arrivals carrying an external search or social referrer: ${t?.corroborated_views ?? 0}:VIEWS:, from distinct visitors: ${t?.corroborated_visitors ?? 0}:VISITORS:. A floor, and built on a claim the request made.`,
     ];
     if ((t?.operator_leak_excluded ?? 0) > 0) {
       parts.push(
         $localize`:@@admin.overview.caption.operatorLeak:Excluded as operator self-traffic on a lapsed session: ${t?.operator_leak_excluded ?? 0}:VIEWS:.`,
+      );
+    }
+    // Said once, on the tile that carries both. The 7-day delta and the trend
+    // line are raw where the headline is filtered, because filtering them means
+    // running the detector over every day they span. That is a defensible cost
+    // decision and an indefensible thing to leave unlabelled — a reader comparing
+    // a filtered day against a raw week would read the difference as a trend.
+    if (flagged !== null) {
+      parts.push(
+        $localize`:@@admin.overview.caption.pageViewsWeekIsRaw:The 7-day change and the trend line are server-side counts with no automation filter applied, so they sit above this figure.`,
       );
     }
     return parts.join(' ');

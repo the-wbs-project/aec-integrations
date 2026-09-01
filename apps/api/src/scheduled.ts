@@ -102,10 +102,10 @@ import {
   collectAnalyticsMetrics,
   dailyWindows,
   type DigestWindow,
+  humanViewsAfterAutomation,
 } from './lib/analytics-digest';
 import { refreshAsnRegistry } from './lib/asn-registry';
 import { fetchPosthogTraffic, publicHostOf, type PosthogQueryOutcome } from './lib/posthog-query';
-import { detectSwarms, NON_BROWSER_VERDICTS, swarmNote } from './lib/swarm-detection';
 import {
   ADMIN_CRON_JOB,
   ALGOLIA_DRIFT_CRON,
@@ -1033,37 +1033,22 @@ async function runAnalyticsDigestJob(env: Env, ctx: ExecutionContext): Promise<J
     const { db } = cronDb(env);
     const window = dailyWindows(new Date());
 
-    // Four reads, deliberately orchestrated HERE rather than folded into
-    // `collectAnalyticsMetrics`. The swarm detector imports that module's
-    // `HUMAN` / `NOT_INTERNAL` predicates, so calling it from inside would close
-    // an import cycle; and the PostHog read reaches the network, which the
-    // D1-only collector has never done and should not start doing.
+    // Two reads. Swarm detection USED to be orchestrated here, above the
+    // collector, because `swarm-detection` imported the collector's own
+    // `HUMAN` / `NOT_INTERNAL` predicates and calling it from inside would have
+    // closed an import cycle. AECI-745 lifted those predicates into
+    // `lib/page-view-predicates.ts`, so the collector runs the detector itself —
+    // which is what put the filtered headline on `/admin/overview` too, instead
+    // of leaving it reachable only from here and therefore only by email.
     //
-    // The detector runs over the PRIOR day as well (AECI-741). Since the headline
-    // is now the count remaining after the automation filter, its day-over-day
-    // delta has to subtract from both sides — comparing a filtered day against an
-    // unfiltered prior day would print a large fabricated drop every morning.
-    // Swarm detection runs FIRST, not alongside, because its result is now an
-    // INPUT to the collector (AECI-747): the "most viewed products" and "traffic
-    // sources" tables have to exclude the same automated clients the headline
-    // subtracts, or the email leads with a filtered number over unfiltered rows.
-    // On 2026-08-30 that gap showed a bot-driven page as the day's top product.
-    const [swarm, priorSwarm] = await Promise.all([
-      detectSwarms(db, window.startIso, window.endIso),
-      detectSwarms(db, window.priorStartIso, window.startIso),
-    ]);
-    const exclusion = {
-      uaHashes: swarm.uaCandidates.map((c) => c.userAgentHash),
-      asns: swarm.asnCandidates.map((c) => c.cfAsn),
-      // Unconditional, unlike the two lists: the union count always includes the
-      // verdict matcher, so its complement must too, or the tables would keep rows
-      // the headline already subtracted (AECI-744).
-      verdicts: [...NON_BROWSER_VERDICTS],
-    };
+    // The PostHog half of that old rationale still stands and is why this read
+    // stays out here: it reaches the NETWORK, which the D1-only collector has
+    // never done and should not start doing.
     const [metrics, posthog] = await Promise.all([
-      collectAnalyticsMetrics(db, window, exclusion),
+      collectAnalyticsMetrics(db, window),
       readPosthogFloor(env, window),
     ]);
+    const swarm = metrics.swarm;
 
     const digest = buildAnalyticsDigest(metrics, {
       env: env.ENV ?? 'development',
@@ -1071,10 +1056,6 @@ async function runAnalyticsDigestJob(env: Env, ctx: ExecutionContext): Promise<J
       generatedAt: new Date(),
       posthog: posthog.ok ? posthog.traffic : null,
       posthogUnavailable: posthog.ok ? null : posthog.reason,
-      automation: {
-        flagged: { day: swarm.flaggedViews, prior: priorSwarm.flaggedViews },
-        note: swarmNote(swarm),
-      },
     });
     const recipients = parseRecipients(env.ANALYTICS_DIGEST_EMAIL_TO);
     const outcome = await sendEmail(env, {
@@ -1117,32 +1098,44 @@ async function runAnalyticsDigestJob(env: Env, ctx: ExecutionContext): Promise<J
           posthogPageViews: posthog.ok ? posthog.traffic.pageviews : null,
           posthogPeople: posthog.ok ? posthog.traffic.people : null,
           posthogSkipped: posthog.ok ? null : posthog.reason,
-          swarmCandidates: swarm.uaCandidates.length,
-          asnRotatorCandidates: swarm.asnCandidates.length,
-          swarmFlaggedViews: swarm.flaggedViews,
-          swarmTruncated: swarm.truncated,
+          // Null throughout when the detector did not run (AECI-745). A zero here
+          // would record a clean day, which is precisely what an outage must not
+          // be allowed to look like in the history anyone later reads.
+          swarmCandidates: swarm?.uaCandidates.length ?? null,
+          asnRotatorCandidates: swarm?.asnCandidates.length ?? null,
+          swarmFlaggedViews: swarm?.flaggedViews ?? null,
+          swarmTruncated: swarm?.truncated ?? null,
           // AECI-742. How many of the day's candidates were admitted on a lower
           // bar because they carried a flagged history. Recorded for the same
           // reason as `operatorLeakViews` below: a lever that starts over-reaching
           // has to be visible in `job_runs` history, not only in one morning's
           // email, and this one draws on evidence from outside the reported day.
-          swarmRecurringCandidates: swarm.uaCandidates.filter((c) => c.priorFlaggedDays > 0).length,
+          swarmRecurringCandidates:
+            swarm?.uaCandidates.filter((c) => c.priorFlaggedDays > 0).length ?? null,
           // AECI-744. The third shape: views flagged by their own request headers
           // with no view floor, and the networks they came from. Recorded because
           // the rollup is a read over `page_views`, and by the time anyone asks
           // "which networks were those?" the window may have aged out of retention.
-          verdictFlaggedViews: swarm.verdictFlaggedViews,
-          nonBrowserCandidates: swarm.verdictCandidates.length,
-          nonBrowserNetworks: swarm.verdictCandidates.map((c) => ({
-            asn: c.cfAsn,
-            org: c.asOrganization,
-            views: c.views,
-          })),
+          verdictFlaggedViews: swarm?.verdictFlaggedViews ?? null,
+          nonBrowserCandidates: swarm?.verdictCandidates.length ?? null,
+          nonBrowserNetworks:
+            swarm?.verdictCandidates.map((c) => ({
+              asn: c.cfAsn,
+              org: c.asOrganization,
+              views: c.views,
+            })) ?? null,
           // AECI-741. The headline the email actually led with, recorded so the
           // number the operator read is reconstructible from `job_runs` without
           // re-running the detector over a window whose data may since have aged
           // out of retention.
-          pageViewsHumanNetAutomation: Math.max(0, metrics.pageViews.day - swarm.flaggedViews),
+          // Through the shared function rather than an inline subtraction: an
+          // open-coded copy here is a second definition of the headline, which is
+          // the exact failure AECI-745 closed everywhere else. Null when the
+          // detector did not run — the raw count IS the headline on such a day,
+          // but recording it under this key would assert a filter that never ran.
+          pageViewsHumanNetAutomation: metrics.automation
+            ? humanViewsAfterAutomation(metrics).day
+            : null,
           // AECI-683. Recorded beside the headline so a leak that starts growing
           // (or a pair rule that starts over-reaching) is visible in `job_runs`
           // history rather than only in one morning's email.

@@ -11,7 +11,7 @@
 
 import { ADMIN_SNAPSHOT_METRIC_KEYS } from '@aeci/shared';
 import { eq } from 'drizzle-orm';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   auditLog,
@@ -214,6 +214,9 @@ describe('runMetricsSnapshot — the flow metrics agree with the live endpoint',
   // the snapshot boundary. This is the assertion that keeps them one.
   const FLOW_KEYS = [
     'traffic.page_views_human',
+    // NOTE: `traffic.page_views_human_after_automation` is deliberately absent —
+    // it has no live `metricSeries` form to agree with (that is what
+    // `metricIsSnapshotOnly` means), so it is covered by its own test below.
     'traffic.page_views_bot',
     'traffic.unique_visitors',
     'catalog.products_created',
@@ -236,6 +239,55 @@ describe('runMetricsSnapshot — the flow metrics agree with the live endpoint',
     const rows = await stored();
     expect(rows.get('traffic.page_views_human')).toBe(2);
     expect(rows.get('traffic.page_views_bot')).toBe(1);
+  });
+
+  it('stores the post-automation count, net of what the detector flagged (AECI-745)', async () => {
+    // Four views under one fingerprint across four networks — the shape the real
+    // detector flags. The stored filtered figure must be the RAW human count less
+    // those four, not the raw count and not zero.
+    await t.db.insert(pageViews).values(
+      Array.from({ length: 4 }, (_, i) => ({
+        path: '/products/x',
+        isBot: false,
+        userAgentHash: 'rotating-proxy',
+        cfAsn: 5000 + i,
+        cfCountry: ['PL', 'BR', 'ID', 'VN'][i],
+        createdAt: `2026-08-10T1${i}:00:00.000Z`,
+      })),
+    );
+
+    await runMetricsSnapshot(t.db, DAY, NOW);
+    const rows = await stored();
+
+    expect(rows.get('traffic.page_views_human')).toBe(6);
+    expect(rows.get('traffic.page_views_human_after_automation')).toBe(2);
+  });
+
+  it('SKIPS the filtered key rather than storing a raw count when the detector fails', async () => {
+    // A stored row is never re-derived, so an unfiltered figure written under the
+    // filtered key would be a permanent lie in the long memory — worse than a gap,
+    // which the read path already reports honestly as "not measured".
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.resetModules();
+    vi.doMock('./swarm-detection', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('./swarm-detection')>()),
+      detectSwarms: () => {
+        throw new Error('detector exploded');
+      },
+    }));
+    try {
+      const mod = await import('./metrics-snapshot');
+      await mod.runMetricsSnapshot(t.db, DAY, NOW);
+      const rows = await stored();
+
+      expect(rows.has('traffic.page_views_human_after_automation')).toBe(false);
+      // …and the rest of the run is unaffected: failure isolation is per key.
+      expect(rows.get('traffic.page_views_human')).toBe(2);
+    } finally {
+      vi.doUnmock('./swarm-detection');
+      vi.resetModules();
+      warn.mockRestore();
+    }
   });
 });
 

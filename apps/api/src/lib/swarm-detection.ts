@@ -121,10 +121,14 @@ import { and, count, countDistinct, desc, gte, inArray, lt, or, sql } from 'driz
 import type { Db } from '../db/client';
 import { pageViews } from '../db/schema';
 
-// Import direction matters: this module depends on `analytics-digest`, never the
-// reverse. The digest consumes a `SwarmSummary` through a TYPE-only import, which
-// is erased at compile time, so there is no runtime cycle. Keep it that way.
-import { HUMAN, NOT_INTERNAL } from './analytics-digest';
+// Import direction matters, and since AECI-745 it points at a THIRD module rather
+// than at `analytics-digest`. Both this file and the collector depend on
+// `page-view-predicates`; neither depends on the other. That is what frees
+// `analytics-digest` to import `detectSwarms` — which it now does, so the panel
+// and the email lead with the same number. Do not import from `analytics-digest`
+// here: that edge is what made the figure email-only for the whole life of the
+// field.
+import { HUMAN, NOT_INTERNAL } from './page-view-predicates';
 
 /**
  * The `client_verdict` values that say "these headers do not look like a browser"

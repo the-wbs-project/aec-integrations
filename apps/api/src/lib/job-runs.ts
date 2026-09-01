@@ -174,21 +174,28 @@ export interface AnalyticsDigestSummary {
   posthogSkipped?: string | null;
   /** Rotating-proxy read-out for the same window (AECI-658): how many UA hashes
    *  were flagged and how many of the reported human views they account for.
-   *  `swarmFlaggedViews` is a UNION across both groupings, never a sum. */
-  swarmCandidates?: number;
+   *  `swarmFlaggedViews` is a UNION across both groupings, never a sum.
+   *
+   *  **Every swarm field below is `number | null`, and the two absences differ**
+   *  (AECI-745). `undefined` means a historical row written before the field
+   *  existed; explicit `null` means the detector RAN AND FAILED on that day, so
+   *  the digest and the panel both reported an unfiltered figure. A zero would
+   *  record an outage as a clean day, which is the one reading this history must
+   *  never support. */
+  swarmCandidates?: number | null;
   /** AECI-741: the post-automation figure the digest led with, i.e.
    *  `pageViewsHuman - swarmFlaggedViews`. Stored rather than derived at read
    *  time so a retention sweep over `page_views` cannot orphan the number the
    *  operator was shown. */
-  pageViewsHumanNetAutomation?: number;
-  swarmFlaggedViews?: number;
+  pageViewsHumanNetAutomation?: number | null;
+  swarmFlaggedViews?: number | null;
   /** The inverse grouping (AECI-683): networks serving a new user-agent almost
    *  every request. Recorded separately from `swarmCandidates` because the two
    *  detect opposite shapes and tuning one must not look like tuning the other. */
-  asnRotatorCandidates?: number;
+  asnRotatorCandidates?: number | null;
   /** Whether either candidate list hit `SWARM_MAX_CANDIDATES`. A silent cap would
    *  make a partial read look complete. */
-  swarmTruncated?: boolean;
+  swarmTruncated?: boolean | null;
   /**
    * How many of `swarmCandidates` were admitted on the lower bar their flagged
    * history earns them (AECI-742) — a subset, never an addition.
@@ -199,7 +206,7 @@ export interface AnalyticsDigestSummary {
    * the cross-day memory ever starts over-reaching, it shows up here as a rising
    * share of the candidates rather than as an unexplained drop in the headline.
    */
-  swarmRecurringCandidates?: number;
+  swarmRecurringCandidates?: number | null;
   /**
    * The third shape (AECI-744): views whose OWN `client_verdict` was
    * `inconsistent` / `non-browser`, flagged with no view floor because the
@@ -209,9 +216,9 @@ export interface AnalyticsDigestSummary {
    * A component of `swarmFlaggedViews`, never an addend — the union reconciles
    * the overlap with the two groupings.
    */
-  verdictFlaggedViews?: number;
+  verdictFlaggedViews?: number | null;
   /** How many networks those views came from. */
-  nonBrowserCandidates?: number;
+  nonBrowserCandidates?: number | null;
   /**
    * Which networks, largest first — the triage rollup.
    *
@@ -219,7 +226,7 @@ export interface AnalyticsDigestSummary {
    * than a dropped one. Stored rather than re-derived because the rollup reads
    * `page_views` and the window ages out under retention.
    */
-  nonBrowserNetworks?: { asn: number | null; org: string | null; views: number }[];
+  nonBrowserNetworks?: { asn: number | null; org: string | null; views: number }[] | null;
   /**
    * Human views the operator-pair retro-join removed (AECI-683).
    *

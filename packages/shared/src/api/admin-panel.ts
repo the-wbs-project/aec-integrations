@@ -84,6 +84,8 @@ export type AdminWindow = z.infer<typeof AdminWindowSchema>;
  * | `visitor_definition_approximate` | `unique_visitors` is `DISTINCT (user_agent_hash, cf_asn)` — over-counts on browser update, under-counts behind shared NAT (§9.8) |
  * | `corroborated_is_a_referrer_floor` | `corroborated_views` counts arrivals with a NAMED external referrer (AECI-683). Emitted unconditionally with the figure: it UNDER-counts (Referrer-Policy strips real referrals into `Direct`) and it is forgeable UPWARD, since it rests on the same unverified `Referer` as `referrer_source_is_unverified` |
  * | `operator_leak_is_an_inference` | `operator_leak_excluded` rows were matched by `(user_agent_hash, cf_asn)` against a verified operator session within `OPERATOR_PAIR_LOOKBACK_DAYS` (AECI-683). Unlike the `is_operator` flag itself, that is a judgement about identity, not a verified session |
+ * | `automation_filter_applied` | the headline is `page_views_human_raw` less the views the swarm detector attributed to automated clients (AECI-745). `message` carries the published thresholds (`SWARM_THRESHOLD_NOTE`) and, when the day flagged anything, that day's own `swarmNote(...)` sentence |
+ * | `automation_filter_did_not_run` | the detector failed for this window, so `page_views_human` is UNFILTERED and `automation_flagged` is null. A `warn`: unlike the standing caveats this is a real, clearable condition, and a reader who misses it reads a raw count as a filtered one |
  * | `catalog_series_is_additions_only` | a `catalog.*` series counts `*.created` events, never net totals — rows can vanish without per-row audit (§4). `basis=additions` only |
  * | `catalog_series_starts_at` | the window starts before the earliest `audit_log` row, so the leading segment reads zero for want of data, not for want of activity. `basis=additions` only |
  * | `catalog_series_is_surviving_rows` | `basis=net`: the series counts rows PRESENT NOW, bucketed by `created_at`. A row removed later is subtracted from the bucket it was ADDED in, not the bucket it was removed in, so past buckets restate downwards over time. That restatement is what makes the series sum to the live catalog (AECI-686) |
@@ -111,6 +113,11 @@ export const AdminNoteCodeSchema = z.enum([
   'visitor_definition_approximate',
   'corroborated_is_a_referrer_floor',
   'operator_leak_is_an_inference',
+  // AECI-745 — the automation filter, in the two states it can be in. Two codes
+  // rather than one with a flag, because "it ran" and "it failed" are read by
+  // different people for different reasons and must style differently.
+  'automation_filter_applied',
+  'automation_filter_did_not_run',
   'catalog_series_is_additions_only',
   'catalog_series_starts_at',
   // AECI-686 — the `basis=net` counterparts of the two above.
@@ -403,15 +410,70 @@ export type AdminStatusStrip = z.infer<typeof AdminStatusStripSchema>;
  *  `top_products` are the digest's own numbers (via `collectAnalyticsMetrics`);
  *  the rest are panel-only additions. */
 export const AdminOverviewTrafficSchema = z.object({
+  /**
+   * **Human page views AFTER the automation filter** — the digest's headline, and
+   * since AECI-745 the panel's too.
+   *
+   * ⚠️ **This field was REDEFINED.** Through AECI-744 it carried the raw
+   * server-side count; AECI-741 made the filtered figure the email's headline and
+   * left the panel on the raw one, so the two surfaces answered "how many humans?"
+   * with different numbers (14 vs 70 on 2026-08-30). Rather than add a second
+   * headline and leave readers to pick, the headline moved here and the raw count
+   * moved to {@link AdminOverviewTrafficSchema.shape.page_views_human_raw}. A
+   * reader that upgrades without noticing gets the BETTER number, which is why
+   * this direction was chosen — but it is a silent semantic change and nothing in
+   * the type says so, hence this comment.
+   *
+   * `excluding_internal` is filtered the same way, so the pair cannot show an
+   * ASN-excluded figure larger than the total it is a subset of.
+   *
+   * Equal to `page_views_human_raw` when `automation_flagged` is null (the
+   * detector did not run). That is not a coincidence to rely on — read
+   * `automation_flagged` to know which of the two you are looking at.
+   */
   page_views_human: AdminCountSchema,
+  /**
+   * The RAW server-side count: what `page_views_human` meant before AECI-745.
+   *
+   * Kept, rather than dropped, because it is a genuinely different measurement
+   * and the email prints both: an UPPER bound, counted server-side on every
+   * full-document load, so a crawler that never runs our JavaScript is in it.
+   * The envelope on the tile has to show the subtraction, and a subtraction needs
+   * its minuend.
+   */
+  page_views_human_raw: AdminCountSchema,
+  /**
+   * Human views the automation filter removed from the reported day, or **null
+   * when the detector did not run**.
+   *
+   * Null and zero are different and must render differently: zero is a clean day,
+   * null is an OUTAGE in which the headline above is unfiltered. A UI that prints
+   * "0 flagged" for a failed detector makes the failure look like good news,
+   * which is the one thing it must never look like.
+   */
+  automation_flagged: z.number().int().nonnegative().nullable(),
   page_views_bot: AdminCountSchema,
   /** DISTINCT `(user_agent_hash, cf_asn)` among HUMAN rows in the window (§9.8). */
   unique_visitors: AdminCountSchema,
-  /** Human page views, this day vs the prior day — the digest's delta. */
+  /** Post-automation human page views, this day vs the prior day — the digest's
+   *  delta, and **filtered on BOTH sides** (AECI-741): a filtered day against an
+   *  unfiltered prior day manufactures a large fake drop. Redefined by AECI-745
+   *  alongside `page_views_human`, for the same reason and with the same caveat. */
   delta_day: AdminDeltaSchema,
-  /** Human page views, the 7 days ending with this one vs the 7 before that. */
+  /**
+   * Human page views, the 7 days ending with this one vs the 7 before that.
+   *
+   * **RAW on both sides, unlike `delta_day`** — deliberately, and the panel says
+   * so. Filtering it would mean running the swarm detector over 14 further days
+   * on every request, which is not a cost this endpoint can carry. Two deltas
+   * with different populations sitting side by side is a real hazard; the answer
+   * is to label it, not to fabricate a filtered week from an unfiltered one.
+   */
   delta_7d: AdminDeltaSchema,
-  /** 30 UTC days ending with the reported day, zero-filled. */
+  /** 30 UTC days ending with the reported day, zero-filled. RAW, like
+   *  `delta_7d` and for the same reason. The filtered series is the
+   *  `traffic.page_views_human_after_automation` metric key, which is served from
+   *  `metrics_daily` precisely because it cannot be computed live per day. */
   series_30d: z.array(AdminTrafficPointSchema),
   top_sources: z.array(AdminSourceCountSchema),
   top_products: z.array(AdminProductViewsSchema),
@@ -495,6 +557,24 @@ export type AdminOverviewResponse = z.infer<typeof AdminOverviewResponseSchema>;
  */
 export const ADMIN_METRIC_KEYS = [
   'traffic.page_views_human',
+  /**
+   * Human page views less the views the swarm detector attributed to automated
+   * clients — the filtered series behind `/admin/overview`'s headline (AECI-745).
+   *
+   * **Served from `metrics_daily` ONLY.** Every other key here falls back to a
+   * live per-day aggregation for days the snapshot has not captured; this one
+   * cannot, because "live" means running the detector once per day in the window
+   * — roughly seven D1 reads per day, so ~210 for a 30-day chart. Days with no
+   * stored row are therefore a GAP, not a zero and not a recompute, and
+   * `series_partly_reconstructed` / `catalog_series_starts_at` style notes say
+   * where the series begins. Fill history with `pnpm ops:backfill-metrics-daily`,
+   * which can afford the per-day cost that a request cannot.
+   *
+   * For the same reason `excludeInternal=1` is rejected on this key: the internal
+   * filter bypasses the snapshot by design, and there is no live path to fall
+   * back to.
+   */
+  'traffic.page_views_human_after_automation',
   'traffic.page_views_bot',
   /** HUMANS only, and note it does NOT sum: each bucket is its own
    *  `COUNT(DISTINCT …)`, so a visitor active on three days counts three times in

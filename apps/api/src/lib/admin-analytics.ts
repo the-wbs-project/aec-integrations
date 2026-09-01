@@ -75,7 +75,19 @@ import {
 } from '../db/schema';
 import type { Env } from '../env';
 import { ApiError } from '../errors';
-import { BOT, HUMAN, NOT_INTERNAL as EXCLUDE_OPERATOR_TRAFFIC } from './analytics-digest';
+import type { AutomationFilter } from './analytics-digest';
+import {
+  type AutomationExclusion,
+  BOT,
+  HUMAN,
+  NOT_INTERNAL as EXCLUDE_OPERATOR_TRAFFIC,
+  notFlagged,
+} from './page-view-predicates';
+// Type-only above, VALUE here — and that is safe in this direction:
+// `analytics-digest` does not import this module, so there is no cycle to close.
+// The threshold text is imported rather than restated so the note cannot advertise
+// a bar the detector stopped applying.
+import { SWARM_THRESHOLD_NOTE } from './swarm-detection';
 import { loadAsnAnnotations } from './asn-registry';
 import { resolveRequestTargets } from './drizzle-helpers';
 import { excludeInternalAsns, parseInternalAsns } from './internal-asns';
@@ -309,17 +321,28 @@ export async function countViewsBoth(
  * straight out of `collectAnalyticsMetrics`. Recounting it here would put a
  * second implementation of the same query behind the acceptance criterion that
  * says the two must agree.
+ *
+ * `exclusion` (AECI-745) applies the automation filter, and the overview passes
+ * it for the post-automation figure and omits it for the raw one — the two must
+ * match their totals or the tile shows an ASN-excluded SUBSET larger than the
+ * number it is a subset of.
  */
 export async function countViewsExcludingInternal(
   db: Db,
   w: UtcWindow,
   traffic: AdminTrafficPopulation,
   filter: InternalFilterState,
+  exclusion?: AutomationExclusion,
 ): Promise<number | null> {
   if (!filter.applied) return null;
   return countPageViewRows(
     db,
-    and(inWindow(pageViews.createdAt, w), populationPredicate(traffic), filter.predicate),
+    and(
+      inWindow(pageViews.createdAt, w),
+      populationPredicate(traffic),
+      filter.predicate,
+      notFlagged(exclusion),
+    ),
   );
 }
 
@@ -484,12 +507,32 @@ const CATALOG_NET_SOURCE: Partial<
   'catalog.claims_created': { table: claims, createdAt: claims.createdAt },
 };
 
+/**
+ * Metrics served from `metrics_daily` and NOTHING else (AECI-745).
+ *
+ * There is exactly one, and it is not an optimization: computing
+ * `traffic.page_views_human_after_automation` live means running the swarm
+ * detector once per day in the window — about seven D1 reads a day, so ~210 for
+ * the 30-day chart every other metric answers in one query. The stored row is the
+ * only affordable path, so a day with no stored row is reported as ABSENT rather
+ * than zero-filled. A zero would read as "nobody visited", which is the opposite
+ * of "we have not measured this day yet".
+ */
+export function metricIsSnapshotOnly(metric: AdminMetricKey): boolean {
+  return metric === 'traffic.page_views_human_after_automation';
+}
+
 /** Metrics that read `page_views` and can therefore be ASN-filtered. Everything
  *  else returns a null `excluding_internal` — there is no ASN on a catalog row to
  *  filter against, and pretending otherwise would be the "silently substituted
- *  figure" §1.1 forbids. */
+ *  figure" §1.1 forbids.
+ *
+ *  A snapshot-only metric is excluded despite being `traffic.*`: the internal
+ *  filter deliberately bypasses the snapshot (a stored row cannot carry a
+ *  config-dependent figure), and with no live path to fall back to there would be
+ *  nothing left to serve. */
 export function metricSupportsInternalFilter(metric: AdminMetricKey): boolean {
-  return metric.startsWith('traffic.');
+  return metric.startsWith('traffic.') && !metricIsSnapshotOnly(metric);
 }
 
 /** One day-bucketed series for `metric`, zero-filled, plus the window total.
@@ -540,6 +583,19 @@ export async function metricSeries(
       perDay: await run(),
       perDayFiltered: filterable ? await run(filter.predicate) : null,
     };
+  }
+
+  if (metricIsSnapshotOnly(metric)) {
+    // Unreachable through `GET /api/admin/metrics/timeseries`, which never calls
+    // the live path for a snapshot-only metric. Thrown rather than silently
+    // returning an empty map so a NEW caller that reaches here finds out, instead
+    // of rendering a flat zero line that looks like a measured quiet month.
+    throw new ApiError(
+      400,
+      'VALIDATION_FAILED',
+      `${metric} has no live series; it is served from metrics_daily only`,
+      { field: 'metric' },
+    );
   }
 
   if (metric === 'traffic.page_views_human' || metric === 'traffic.page_views_bot') {
@@ -980,6 +1036,14 @@ const SEVERITY: Record<AdminNoteCode, 'info' | 'warn'> = {
   visitor_definition_approximate: 'info',
   corroborated_is_a_referrer_floor: 'info',
   operator_leak_is_an_inference: 'info',
+  // AECI-745. `info` on the standard test: the filter WORKING is the normal case,
+  // and the note only explains how the headline was reached.
+  automation_filter_applied: 'info',
+  // And `warn` on the same test, for the opposite reason: the headline is
+  // unfiltered and a reader who misses this reads a raw count as a filtered one —
+  // the exact confusion the whole issue was opened to end. Unlike the standing
+  // caveats around it, this one is a real condition that clears on its own.
+  automation_filter_did_not_run: 'warn',
   catalog_series_is_additions_only: 'warn',
   catalog_series_starts_at: 'info',
   // AECI-686. `info`: under `basis=net` the figures ARE the live catalog, so a
@@ -1072,6 +1136,16 @@ export async function trafficNotes(
     corroborated?: boolean;
     /** Emit the caveat for the AECI-683 operator-pair retro-join. */
     operatorLeak?: boolean;
+    /**
+     * The window's automation filter (AECI-745). Pass it — as `null` when the
+     * detector did not run — on any response whose headline is post-automation.
+     *
+     * `undefined` means "this response does not report the filtered figure at
+     * all" and emits nothing; `null` means "it does, and the filter FAILED",
+     * which is the case that must be loud. Distinguishing the two here is why
+     * this is not a boolean.
+     */
+    automation?: AutomationFilter | null;
   } = {},
 ): Promise<AdminNote[]> {
   const out: AdminNote[] = [];
@@ -1143,6 +1217,27 @@ export async function trafficNotes(
         'operator_leak_is_an_inference',
         'Views excluded as operator self-traffic on a lapsed session are matched by (user_agent_hash, cf_asn) against a verified operator session nearby in time. That is an inference about identity, not a verified session like is_operator itself.',
       ),
+    );
+  }
+
+  if (opts.automation !== undefined) {
+    out.push(
+      opts.automation
+        ? note(
+            'automation_filter_applied',
+            // The published thresholds first, then the day's own reading. The
+            // thresholds come from `SWARM_THRESHOLD_NOTE` rather than being
+            // restated here, so the text cannot claim a bar the detector no
+            // longer applies — it interpolates the same constants the detector
+            // compares against.
+            `The headline is human page views less those attributed to automated clients. ${SWARM_THRESHOLD_NOTE}` +
+              (opts.automation.note ? ` This day: ${opts.automation.note}` : ''),
+            { flagged: opts.automation.flagged.day },
+          )
+        : note(
+            'automation_filter_did_not_run',
+            'The automation detector failed for this window, so the human page-view figure is UNFILTERED and is not comparable with a day the filter ran on. It is an upper bound only.',
+          ),
     );
   }
 

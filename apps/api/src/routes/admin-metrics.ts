@@ -79,6 +79,7 @@ import {
   enumerateDays,
   internalFilterNote,
   isPartial,
+  metricIsSnapshotOnly,
   metricSeries,
   metricSupportsInternalFilter,
   note,
@@ -134,6 +135,20 @@ export function createAdminTimeseriesHandler(
       );
     }
 
+    // Snapshot-only metrics have no live path, so a filter that bypasses the
+    // snapshot has nothing to serve. Rejected for the same reason `basis=net` is
+    // above: answering with the unfiltered series under a filtered label is the
+    // silent substitution §1.1 exists to forbid.
+    const snapshotOnly = metricIsSnapshotOnly(query.metric);
+    if (snapshotOnly && filter.applied) {
+      throw new ApiError(
+        400,
+        'VALIDATION_FAILED',
+        `${query.metric} is served from the daily snapshot, which stores only the unfiltered figure; exclude_internal is not available for it`,
+        { field: 'exclude_internal' },
+      );
+    }
+
     const days = enumerateDays(w);
 
     // Snapshot first, live for the rest. `filter.applied` skips the snapshot
@@ -148,25 +163,37 @@ export function createAdminTimeseriesHandler(
     // missing from the snapshot — which, because today is never captured, is the
     // common case rather than the exception.
     const live =
-      uncovered.length > 0
+      uncovered.length > 0 && !snapshotOnly
         ? await metricSeries(db, query.metric, w, filter, query.basis)
         : { perDay: new Map<string, number>(), perDayFiltered: null };
     const { perDay, perDayFiltered } = live;
 
-    const points: AdminTimeseriesPoint[] = days.map((day) => {
-      const captured = snapshot.get(day);
-      return {
-        day,
-        value: captured ? captured.value : (perDay.get(day) ?? 0),
-        // Only the live path can produce this: the snapshot stores the unfiltered
-        // figure, and when the filter IS applied nothing comes from the snapshot.
-        value_excluding_internal: perDayFiltered ? (perDayFiltered.get(day) ?? 0) : null,
-        reconstructed: captured?.reconstructed ?? false,
-      };
-    });
+    const points: AdminTimeseriesPoint[] = days
+      // A snapshot-only metric OMITS the days it has not captured rather than
+      // zero-filling them. Zero is a measurement here — "no humans that day" —
+      // and the chart would step down to it at the boundary where the snapshot
+      // begins, which reads as a traffic collapse rather than as the start of the
+      // record. The note below says where the series actually starts.
+      .filter((day) => !snapshotOnly || snapshot.has(day))
+      .map((day) => {
+        const captured = snapshot.get(day);
+        return {
+          day,
+          value: captured ? captured.value : (perDay.get(day) ?? 0),
+          // Only the live path can produce this: the snapshot stores the unfiltered
+          // figure, and when the filter IS applied nothing comes from the snapshot.
+          value_excluding_internal: perDayFiltered ? (perDayFiltered.get(day) ?? 0) : null,
+          reconstructed: captured?.reconstructed ?? false,
+        };
+      });
 
-    const source: AdminMetricSource =
-      snapshot.size === 0 ? 'live' : uncovered.length === 0 ? 'snapshot' : 'mixed';
+    const source: AdminMetricSource = snapshotOnly
+      ? 'snapshot'
+      : snapshot.size === 0
+        ? 'live'
+        : uncovered.length === 0
+          ? 'snapshot'
+          : 'mixed';
 
     // `traffic.unique_visitors` is the one metric whose buckets do not sum to a
     // meaningful window total — a visitor active on three days appears in three
@@ -184,6 +211,17 @@ export function createAdminTimeseriesHandler(
     };
 
     const notes: AdminNote[] = [];
+    if (snapshotOnly) {
+      notes.push(
+        note(
+          'catalog_series_starts_at',
+          uncovered.length === 0
+            ? `${query.metric} is served from the daily snapshot only. Every requested day is captured.`
+            : `${query.metric} is served from the daily snapshot only — computing it live would re-run the automation detector once per day. ${uncovered.length} of the ${days.length} requested day(s) have no stored row and are OMITTED, not zero. Fill them with "pnpm ops:backfill-metrics-daily".`,
+          { metric: query.metric, uncovered: uncovered.length, requested: days.length },
+        ),
+      );
+    }
     if (query.metric.startsWith('traffic.')) {
       notes.push(
         ...(await trafficNotes(db, w, { unique: query.metric === 'traffic.unique_visitors' })),
