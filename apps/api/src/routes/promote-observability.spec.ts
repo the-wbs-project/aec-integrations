@@ -20,7 +20,6 @@ import {
   dispatchPromoteHooks,
   runPromoteIngest,
   type PromoteAlgoliaSync,
-  type PromoteGoogleIndexingNotify,
   type PromoteHomeStatsRefresh,
   type PromoteIndexNowNotify,
   type PromoteRunCtx,
@@ -37,7 +36,6 @@ vi.mock('../datadog', () => ({
 const noop = async () => {};
 const noopAlgolia: PromoteAlgoliaSync = noop;
 const noopIndexNow: PromoteIndexNowNotify = noop;
-const noopGoogleIndexing: PromoteGoogleIndexingNotify = noop;
 const noopHomeStats: PromoteHomeStatsRefresh = noop;
 
 const baseEnv: Env = { ENV: 'preview' };
@@ -64,7 +62,6 @@ async function promote(body: unknown) {
     dbFor: t.factory,
     syncAlgolia: noopAlgolia,
     notifyIndexNow: noopIndexNow,
-    notifyGoogleIndexing: noopGoogleIndexing,
     refreshHomeStats: noopHomeStats,
   };
   const result = await runPromoteIngest(rc, PromotePayloadSchema.parse(body), deps);

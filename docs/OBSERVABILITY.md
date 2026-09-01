@@ -763,10 +763,21 @@ above. Implemented in `apps/web/src/app/analytics/`.
 >
 > The pair matters because the two sources fail in opposite directions. `page_views` is written
 > server-side on every full-document load including cache hits, so a crawler that never runs
-> JavaScript still counts: an **upper bound**. PostHog fires only when JS runs *and* the visitor
+> JavaScript still counts: an **upper bound**. (Since AECI-741 that raw figure is no longer the
+> email's headline — the headline is the count remaining after the automation filter, and it sits
+> *between* this upper bound and the PostHog floor.) PostHog fires only when JS runs *and* the visitor
 > consented, so a real person who declines is invisible: a **lower bound**. On 2026-08-23 the digest
 > said "48 human views"; PostHog saw **5 pageviews from 1 person**, and those five were the operator's
 > own session, which the digest had already excluded.
+>
+> **One population per email (AECI-747).** The headline is `raw − flagged`, and since AECI-747 the
+> "Most viewed products" and "Traffic sources" tables exclude the SAME flagged clients — the
+> `AutomationExclusion` the cron hands `collectAnalyticsMetrics`. Before that the email led with a
+> filtered number over unfiltered rows, and on 2026-08-30 showed a bot-driven page as the day's top
+> product. The exclusion predicate is the exact complement of `swarm-detection.ts`'s
+> `countFlaggedViews`, and is NULL-safe on purpose: a row with a null UA hash AND a null ASN counts
+> in the headline, so it must survive the tables too. **The admin panel still passes no exclusion**,
+> so `/admin/overview` top-products remain unfiltered — a known parity gap, not a second definition.
 >
 > Pure transport, like `cloudflare-analytics.ts`: it never throws, and every failure path returns a
 > structured `{ ok: false, reason }` that the email renders as "unavailable". It must **never** report

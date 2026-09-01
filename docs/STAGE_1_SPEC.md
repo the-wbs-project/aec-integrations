@@ -1358,7 +1358,7 @@ Generated on request by a Cloudflare Worker, not built statically.
 
 ### 20.2 IndexNow notification
 
-On any write to products, vendors, or integrations, a Cloudflare Worker submits the affected URLs to IndexNow (Bing, Yandex, others). Google Indexing API pinged for the same URLs as a best-effort signal.
+On any write to products, vendors, or integrations, a Cloudflare Worker submits the affected URLs to IndexNow (Bing, Yandex, others). (A Google Indexing API ping for the same URLs shipped in AECI-263 and was removed in AECI-747 — see the REMOVED note below.)
 
 This runs as part of the single write-event pipeline described in Section 20.5.
 
@@ -1366,7 +1366,20 @@ This runs as part of the single write-event pipeline described in Section 20.5.
 
 > **Trade URLs are publication-gated (AECI-546).** `/trades/:slug` joins the submit set only when the term clears `TRADE_PUBLISH_MIN_PRODUCTS` (§5.5a) — pinging an indexing service for a page that serves `noindex` is the same correctness bug the "provision `INDEXNOW_KEY` only at launch" rule prevents. Because `affectedUrlsForPromote` is pure over the promote response (which carries no `product_count`), the handler resolves the floor with one grouped count **after** the batch commits (`apps/api/src/routes/promote-trade-publication.ts`) and hands the single result to both pings. The `/trades` **index** is submitted whenever any trade is touched at all, published or not: it renders live per-term counts and gains or loses a tile on a floor crossing, and trades are find-only so the "a term was created" trigger that covers the sibling index pages can never fire for them. This supersedes AECI-542's blanket exclusion, which deferred the decision here.
 
-> **Implemented (AECI-263):** the **Google Indexing API** ping is now an additional best-effort `waitUntil` consumer in the same post-commit block, reusing the SAME affected-URL set (`affectedUrlsForPromote`, no second deriver). The transport (`apps/api/src/lib/google-indexing.ts`) signs an RS256 service-account JWT with `jose`, exchanges it for an OAuth access token, then `urlNotifications:publish`-es each URL (`URL_UPDATED`) — pure, never throws, failures recorded to Datadog (`aeci.google_indexing.submit` + `aeci.api.promote.google_indexing_failed`), never blocking the write. Gated on `GOOGLE_INDEXING_SA_EMAIL` + `GOOGLE_INDEXING_SA_PRIVATE_KEY` + `PUBLIC_SITE_URL`, provisioned **only at launch** alongside IndexNow (a missing cred → graceful no-op). It stays best-effort because Google officially supports only `JobPosting`/`BroadcastEvent`; the sitemap `<lastmod>` (§20.5 step 5) remains the primary discovery path.
+> **SEO-tool crawlers are blocked in `robots.txt` (AECI-747).** `SemrushBot`, `AhrefsBot` and `MJ12bot` each get a
+> `Disallow: /` group (`apps/web/src/server/robots.ts` → `BLOCKED_SEO_CRAWLERS`). In August 2026 SemrushBot alone made
+> **4,698 requests across 1,644 distinct paths** — wider coverage than Googlebot or Bingbot — including 1,265
+> integration-PAIR pages, the most expensive route we serve. It returns no visitors and no index placement. This is
+> voluntary compliance, not a control: a scraper that ignores `robots.txt` needs the WAF (AECI-659, still unbuilt on
+> production). `GPTBot` / `OAI-SearchBot` are deliberately NOT blocked — AI answer surfaces are a real distribution
+> channel for a directory.
+>
+> **REMOVED (AECI-747, 2026-09-01).** The **Google Indexing API** ping shipped in AECI-263 and was deleted after Google's own
+> documentation confirmed the API accepts **only** `JobPosting` and `BroadcastEvent` URLs — neither of which AECi publishes, so
+> every submission we made was discarded. IndexNow (Bing/Yandex) remains and genuinely works; Google has **no push channel** for
+> our content types, and is fed by the sitemap plus crawlable hub pages (see AECI-746) instead. Historical text follows.
+>
+> ~~**Implemented (AECI-263):** the **Google Indexing API** ping is an additional best-effort `waitUntil` consumer in the same post-commit block, reusing the SAME affected-URL set (`affectedUrlsForPromote`, no second deriver). The transport (`apps/api/src/lib/google-indexing.ts`) signs an RS256 service-account JWT with `jose`, exchanges it for an OAuth access token, then `urlNotifications:publish`-es each URL (`URL_UPDATED`) — pure, never throws, failures recorded to Datadog (`aeci.google_indexing.submit` + `aeci.api.promote.google_indexing_failed`), never blocking the write. Gated on `GOOGLE_INDEXING_SA_EMAIL` + `GOOGLE_INDEXING_SA_PRIVATE_KEY` + `PUBLIC_SITE_URL`, provisioned **only at launch** alongside IndexNow (a missing cred → graceful no-op). It stays best-effort because Google officially supports only `JobPosting`/`BroadcastEvent`; the sitemap `<lastmod>` (§20.5 step 5) remains the primary discovery path.
 
 ### 20.3 Structured data (Schema.org JSON-LD)
 

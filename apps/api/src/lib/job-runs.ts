@@ -176,6 +176,11 @@ export interface AnalyticsDigestSummary {
    *  were flagged and how many of the reported human views they account for.
    *  `swarmFlaggedViews` is a UNION across both groupings, never a sum. */
   swarmCandidates?: number;
+  /** AECI-741: the post-automation figure the digest led with, i.e.
+   *  `pageViewsHuman - swarmFlaggedViews`. Stored rather than derived at read
+   *  time so a retention sweep over `page_views` cannot orphan the number the
+   *  operator was shown. */
+  pageViewsHumanNetAutomation?: number;
   swarmFlaggedViews?: number;
   /** The inverse grouping (AECI-683): networks serving a new user-agent almost
    *  every request. Recorded separately from `swarmCandidates` because the two

@@ -9,6 +9,8 @@ import { BrowseLayout } from '../layouts/browse-layout';
 import { FacetSidebar } from '../shared/facets/facet-sidebar';
 import { MailingListSignup } from '../shared/mailing-list-signup/mailing-list-signup';
 import { createPaginatedIndex } from '../shared/paginated-index/paginated-index-controller';
+
+import { PRODUCTS_INDEX_REQUEST } from './products-index.config';
 import { PaginationFooter } from '../shared/pagination/pagination-footer';
 
 import { ProductCard } from './product-card';
@@ -32,7 +34,8 @@ type ViewKey = 'cards' | 'table';
  * The fetch/sort/pagination/error pipeline lives in the shared
  * `createPaginatedIndex` controller (AECI-107), here in **append mode**: the
  * catalog is an infinite-scroll list (`aec-pagination-footer`) that accumulates
- * pages as the reader nears the end. Page 1 still SSRs + edge-caches; later pages
+ * pages as the reader nears the end. Page 1 SSRs (via `productsIndexResolver`)
+ * and edge-caches; later pages
  * append client-side and the page number is driven internally, so it never
  * enters the URL. `?sort=` and the facet params stay URL-owned (cache-safe,
  * shareable, SSR-correct); `?view=` is owned here. Every navigation merges, so
@@ -43,9 +46,10 @@ type ViewKey = 'cards' | 'table';
  * hard-clamped at 100 server-side.
  *
  * SSR: cached 5 min at the edge with `Cache-Tag: route:index, index:products`
- * (set by the SSR Worker via `cacheTagInputsForPath`); `withHttpTransferCache`
- * serializes the `/api/products` + `/api/products/facets` responses so the
- * client doesn't re-fetch on hydration. `<link rel="canonical">` stays on the
+ * (set by the SSR Worker via `cacheTagInputsForPath`). Page 1 is prefetched by
+ * `productsIndexResolver` through the service binding and handed to the grid via
+ * `TransferState` (AECI-746) — until that shipped, this route server-rendered its
+ * "Couldn't load products" branch to every crawler. `<link rel="canonical">` stays on the
  * unfiltered `/products` (filters/view are query params, stripped by the meta
  * layer — §20.6). The card grid's "broken-grid" featured lead is gated to page 1
  * at the newest sort (`showFeatured`) so its "Recently added" claim stays
@@ -315,16 +319,10 @@ export class ProductsIndex {
   private readonly queryParamMap = toSignal(this.route.queryParamMap, { requireSync: true });
 
   protected readonly idx = createPaginatedIndex<ProductsListResponse>({
-    apiPath: '/api/products',
-    validSorts: new Set(['created', 'name', 'updated', 'rating', 'reviews']),
-    defaultSort: 'created',
-    // Accumulate pages for the scroll-based listing UX (page 1 still SSRs +
-    // edge-caches; pages 2..N append client-side). See createPaginatedIndex.
+    ...PRODUCTS_INDEX_REQUEST,
+    // Accumulate pages for the scroll-based listing UX (page 1 SSRs via
+    // `productsIndexResolver` + edge-caches; pages 2..N append client-side).
     mode: 'append',
-    // AECI-143 / AECI-544 — taxonomy cross-filters set by the facet sidebar
-    // ride the URL. Must stay in step with `DIMENSIONS` in `facet-sidebar.ts`
-    // and `LISTING_CACHE_KEY_PARAMS` in `server-runtime.ts`.
-    passthroughParams: ['category_id', 'audience_id', 'phase_id', 'trade_id'],
     meta: {
       entity: 'index',
       name: $localize`:@@products.index.metaName:Products`,

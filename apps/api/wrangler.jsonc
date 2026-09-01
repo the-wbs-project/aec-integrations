@@ -620,12 +620,13 @@
         // AECI-236 / §20.2; canonicals are self-referential to the serving origin,
         // ADR 0011). Public value. The canonical public host is `www.` (ADR 0011
         // amendment 2026-07-05 — the SSR Worker 301s the bare apex → `www.`), so this
-        // matches it: emails, IndexNow, and Google Indexing all emit `www.` URLs that
-        // need no redirect hop and agree with the self-referential sitemap `<loc>`s.
-        // The launch-only `INDEXNOW_KEY` + `GOOGLE_INDEXING_SA_EMAIL` /
-        // `GOOGLE_INDEXING_SA_PRIVATE_KEY` secrets (AECI-263) must be provisioned at
-        // the same time — both the IndexNow and best-effort Google Indexing pings stay
-        // no-ops until they are.
+        // matches it: emails and IndexNow emit `www.` URLs that need no redirect hop
+        // and agree with the self-referential sitemap `<loc>`s. The launch-only
+        // `INDEXNOW_KEY` secret must be provisioned at the same time — the IndexNow
+        // ping stays a no-op until it is. (AECI-747 removed the Google Indexing ping:
+        // that API accepts only `JobPosting`/`BroadcastEvent`, so it never did
+        // anything for our pages. The `GOOGLE_INDEXING_SA_*` secrets are dead and
+        // should be deleted from every env — see the AECI-747 notes.)
         "PUBLIC_SITE_URL": "https://www.aecintegrations.com",
       },
       "kv_namespaces": [

@@ -79,7 +79,6 @@ function makeDeps(overrides: Deps = {}): Deps {
     dbFor: (() => ({ db: {} })) as unknown as Deps['dbFor'],
     syncAlgolia: noop,
     notifyIndexNow: noop,
-    notifyGoogleIndexing: noop,
     refreshHomeStats: noop,
     ...overrides,
   };

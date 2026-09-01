@@ -17,6 +17,30 @@ Priorities in order:
 
 ---
 
+## Crawler-visibility checks (AECI-746)
+
+Some defects are invisible to every browser-driven test by construction. AECI-746
+was one: `/products` and the taxonomy browse pages rendered correctly once
+JavaScript ran, and shipped an error document to anything that did not — which is
+every crawler on its first pass. A `page.goto()` test passed throughout.
+
+Two guards, and they are different in kind:
+
+| Guard | What it is | When it runs |
+|---|---|---|
+| `apps/web/e2e/ssr-listing-crawlability.spec.ts` | Playwright, using the **`request`** fixture (raw HTTP, no JavaScript) to assert product links exist in the server HTML | every e2e run |
+| `scripts/check-ssr-listings.sh <base-url>` | One-command `curl` check over five listing pages; exits non-zero on any dead end | manually, against a deployed env |
+
+**The e2e spec must keep using `request`, never `page`.** Rewriting it onto the
+`page` fixture would make it pass unconditionally and test nothing.
+
+**Neither guard is meaningful against local `wrangler dev`** for this particular
+failure: the relative `/api/...` URL resolves to `localhost` there and works, so
+local passes with and without the bug. Run the script against preview, staging, or
+production. This is a rare case where the local environment is not a faithful
+reproduction, and it is why the defect survived for months.
+
+
 ## 2. Test layer overview
 
 | Layer | Tool | Runs against | Speed | When |

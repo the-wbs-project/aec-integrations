@@ -15,6 +15,8 @@ import { ProductCard } from '../products/product-card';
 import { FacetSidebar } from '../shared/facets/facet-sidebar';
 import { MailingListSignup } from '../shared/mailing-list-signup/mailing-list-signup';
 import { createPaginatedIndex } from '../shared/paginated-index/paginated-index-controller';
+
+import { taxonomyBrowseIndexRequest } from './taxonomy-browse.config';
 import { PaginationFooter } from '../shared/pagination/pagination-footer';
 
 /**
@@ -306,16 +308,15 @@ export class TaxonomyBrowsePage {
    * Meta is owned by the resolver, so none is passed here.
    */
   protected readonly idx = createPaginatedIndex<ProductsListResponse>({
-    apiPath: '/api/products',
-    validSorts: new Set(['created', 'name', 'updated']),
-    defaultSort: 'created',
-    // Infinite-scroll list: page 1 SSRs + edge-caches, later pages append
-    // client-side (the page number stays out of the URL). See createPaginatedIndex.
-    mode: 'append',
-    baseParams: () => ({ [`${this.kind()}_id`]: this.term()?.id }),
-    passthroughParams: (['category_id', 'audience_id', 'phase_id', 'trade_id'] as const).filter(
-      (param) => param !== `${this.kind()}_id`,
+    // Shared with `taxonomyBrowseResolver`'s SSR prefetch so the request line the
+    // server fetched is the one this asks for (AECI-746).
+    ...taxonomyBrowseIndexRequest(
+      () => this.kind(),
+      () => this.term()?.id,
     ),
+    // Infinite-scroll list: page 1 SSRs via the resolver + edge-caches, later
+    // pages append client-side (the page number stays out of the URL).
+    mode: 'append',
     enabled: () => this.term() !== null,
   });
 
