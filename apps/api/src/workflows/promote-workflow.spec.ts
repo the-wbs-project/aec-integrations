@@ -122,7 +122,6 @@ function deps(overrides: PromoteWorkflowDeps = {}): PromoteWorkflowDeps {
     dbFor: t.factory,
     syncAlgolia: async () => {},
     notifyIndexNow: async () => {},
-    notifyGoogleIndexing: async () => {},
     refreshHomeStats: async () => {},
     ...overrides,
   };

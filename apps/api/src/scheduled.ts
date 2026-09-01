@@ -1033,14 +1033,31 @@ async function runAnalyticsDigestJob(env: Env, ctx: ExecutionContext): Promise<J
     const { db } = cronDb(env);
     const window = dailyWindows(new Date());
 
-    // Three reads, deliberately orchestrated HERE rather than folded into
+    // Four reads, deliberately orchestrated HERE rather than folded into
     // `collectAnalyticsMetrics`. The swarm detector imports that module's
     // `HUMAN` / `NOT_INTERNAL` predicates, so calling it from inside would close
     // an import cycle; and the PostHog read reaches the network, which the
     // D1-only collector has never done and should not start doing.
-    const [metrics, swarm, posthog] = await Promise.all([
-      collectAnalyticsMetrics(db, window),
+    //
+    // The detector runs over the PRIOR day as well (AECI-741). Since the headline
+    // is now the count remaining after the automation filter, its day-over-day
+    // delta has to subtract from both sides — comparing a filtered day against an
+    // unfiltered prior day would print a large fabricated drop every morning.
+    // Swarm detection runs FIRST, not alongside, because its result is now an
+    // INPUT to the collector (AECI-747): the "most viewed products" and "traffic
+    // sources" tables have to exclude the same automated clients the headline
+    // subtracts, or the email leads with a filtered number over unfiltered rows.
+    // On 2026-08-30 that gap showed a bot-driven page as the day's top product.
+    const [swarm, priorSwarm] = await Promise.all([
       detectSwarms(db, window.startIso, window.endIso),
+      detectSwarms(db, window.priorStartIso, window.startIso),
+    ]);
+    const exclusion = {
+      uaHashes: swarm.uaCandidates.map((c) => c.userAgentHash),
+      asns: swarm.asnCandidates.map((c) => c.cfAsn),
+    };
+    const [metrics, posthog] = await Promise.all([
+      collectAnalyticsMetrics(db, window, exclusion),
       readPosthogFloor(env, window),
     ]);
 
@@ -1050,7 +1067,10 @@ async function runAnalyticsDigestJob(env: Env, ctx: ExecutionContext): Promise<J
       generatedAt: new Date(),
       posthog: posthog.ok ? posthog.traffic : null,
       posthogUnavailable: posthog.ok ? null : posthog.reason,
-      swarmNote: swarmNote(swarm),
+      automation: {
+        flagged: { day: swarm.flaggedViews, prior: priorSwarm.flaggedViews },
+        note: swarmNote(swarm),
+      },
     });
     const recipients = parseRecipients(env.ANALYTICS_DIGEST_EMAIL_TO);
     const outcome = await sendEmail(env, {
@@ -1097,6 +1117,11 @@ async function runAnalyticsDigestJob(env: Env, ctx: ExecutionContext): Promise<J
           asnRotatorCandidates: swarm.asnCandidates.length,
           swarmFlaggedViews: swarm.flaggedViews,
           swarmTruncated: swarm.truncated,
+          // AECI-741. The headline the email actually led with, recorded so the
+          // number the operator read is reconstructible from `job_runs` without
+          // re-running the detector over a window whose data may since have aged
+          // out of retention.
+          pageViewsHumanNetAutomation: Math.max(0, metrics.pageViews.day - swarm.flaggedViews),
           // AECI-683. Recorded beside the headline so a leak that starts growing
           // (or a pair rule that starts over-reaching) is visible in `job_runs`
           // history rather than only in one morning's email.

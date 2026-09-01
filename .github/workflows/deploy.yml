@@ -439,9 +439,7 @@ jobs:
           # AECI-236: there is NO INDEXNOW_KEY_STAGING — IndexNow is production /
           # launch-only (staging is Access-gated + non-indexed, and PUBLIC_SITE_URL
           # is unset on staging, so the submission gate is off there). The secret is
-          # pushed only in promote-to-prod.yml. AECI-263: the Google Indexing
-          # service-account creds (GOOGLE_INDEXING_SA_EMAIL/PRIVATE_KEY) are likewise
-          # production / launch-only and pushed only in promote-to-prod.yml — same gate.
+          # pushed only in promote-to-prod.yml.
           # AECI-262: CF_ANALYTICS_API_TOKEN is the SINGLE shared (un-suffixed) token
           # for the hourly WAF firewall-event poll — recommended/fail-safe (absent →
           # the poll no-ops outcome:skipped_no_creds, never a launch-critical surface).

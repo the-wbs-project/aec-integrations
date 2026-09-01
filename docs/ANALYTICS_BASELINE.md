@@ -287,6 +287,55 @@ numbers), and again at launch.
 > `/api/admin/metrics/timeseries` serves snapshot-first, so a chart will step at the boundary until
 > `ops:backfill-metrics-daily` is re-run.
 
+### Decomposing the residual — what survives the automation filter (2026-08-31, AECI-741)
+
+> **The number left after the filter is not a floor of real people.** AECI-658 taught the digest to
+> flag rotating-proxy traffic; AECI-741 made the post-filter count the headline. This is the
+> hand-audit of what that headline actually contains, run over the two days the operator queried
+> (**2026-08-29** and **2026-08-30**, production).
+>
+> | | 8/29 | 8/30 |
+> |---|---|---|
+> | Raw human page views | 87 | 70 |
+> | Flagged as automation | 64 | 56 |
+> | **Residual (the new headline)** | **23** | **14** |
+> | PostHog floor | 0 views / 0 people | 2 views / 1 person |
+> | Corroborated by external referrer | 2 views | 0 |
+>
+> **Of the 37 residual views across both days, at most ~3 are plausibly a person.** The breakdown:
+>
+> - **18 of 37 are the SAME flagged swarm, sub-threshold that day.** `SWARM_MIN_ASN_RATIO` is
+>   evaluated per-day and independently each day, so a client that happens to reuse one network
+>   drops under the 0.8 cutoff and escapes. `53304b2e…` was flagged on 8/29 (ratio 1.0) and escaped
+>   on 8/30 at ratio 0.70 → **10 residual views**. `02048353…` escaped on 8/29 at ratio 0.63 and was
+>   flagged on 8/30 → **8 residual views**. Over 2026-08-21…30 the eight swarm hashes each ran
+>   **every single day**, spanning **45–68 ASNs across 29–38 countries** (525 views total). A client
+>   with that history should not be re-adjudicated from scratch each morning.
+> - **7 of 37 are one scraper on commercial proxy infrastructure** (`dc0402b6…`). Its ASNs are
+>   AS27411 (**UAB code200**, i.e. Oxylabs) and AS62874 (**Web2Objects**). On 8/29 at
+>   `16:20:11.241Z → .900Z` it read **five different product pages in 659 ms**. No person does that.
+> - **3 of 37 sit under `SWARM_MIN_VIEWS`** (`87012404…`: 3 views, 3 US networks — Charter, **Rockion
+>   LLC**, Airfiber — one fingerprint, and all three carry a `client_verdict` of `inconsistent`).
+>   The 4-view floor is what lets them through; the verdict already knew.
+> - **2 of 37 are ONE arrival counted twice.** `81e13bc5…` wrote `/products/leap-crm` at
+>   `15:37:06.370Z` and `15:37:06.453Z` — 83 ms apart, same path, same ASN, same referrer. These two
+>   rows *are* the "2 Google" that the 8/29 digest reported as its traffic-source table and its
+>   entire corroborated population. The only externally-corroborated arrival in two days is inflated
+>   2×. Tracked separately as a page-view double-fire.
+> - **7 of 37 are singletons**, and 4 of those are `non-browser`/`inconsistent` verdicts or sit on
+>   cloud/hosting ASNs (Shanghai UCloud AS23724, "365 Group" AS18450, RapidSeedbox AS214483).
+>
+> **The AECI-683 operator retro-join removes none of them** — verified, `operator_pair_matches = 0`
+> over both days. So unlike 2026-08-26, this residual is not the operator; it is automation leaking
+> through threshold gaps.
+>
+> **Three follow-ups this implies**, in descending value: (1) **AECI-742** — give the detector
+> cross-day memory so a hash with a flagged history keeps a lower per-day bar; (2) **AECI-744** —
+> treat `client_verdict` of `inconsistent`/`non-browser` as disqualifying on its own, with no
+> cardinality floor; (3) **AECI-743** — fix the double-fire. None of them is a `DATACENTER_ASNS` widening — the standing rule that a human decides
+> before an ASN joins that list still holds, and these are commercial proxy/seedbox providers rather
+> than the consumer ISPs that rule exists to protect.
+
 ## How to read the numbers (weekly, going forward)
 
 Once the secrets are provisioned (config injected — verify with

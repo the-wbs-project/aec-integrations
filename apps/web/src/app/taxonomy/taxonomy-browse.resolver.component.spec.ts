@@ -74,7 +74,13 @@ function buildClient(
 }
 
 function buildRouteSnapshot(slug: string): ActivatedRouteSnapshot {
-  return { paramMap: convertToParamMap({ slug }) } as unknown as ActivatedRouteSnapshot;
+  // `queryParamMap` is always present on a real `ActivatedRouteSnapshot`, and the
+  // AECI-746 grid prefetch reads it for `?page=`/`?sort=`. Omitting it made this
+  // fake diverge from the type it claims to be.
+  return {
+    paramMap: convertToParamMap({ slug }),
+    queryParamMap: convertToParamMap({}),
+  } as unknown as ActivatedRouteSnapshot;
 }
 
 const STATE = {} as RouterStateSnapshot;

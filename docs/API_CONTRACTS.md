@@ -1403,10 +1403,22 @@ That parity extends to AECI-683's three additions — `corroborated_views`,
 `corroborated_visitors` and `operator_leak_excluded` all come straight off the same
 collector, so neither surface can grow its own definition of "corroborated" or of the
 operator-pair leak. The corollary is the trap: a figure computed in `scheduled.ts`
-beside the digest (as `swarmNote` is) reaches the **email only** — it is not in
-`AnalyticsMetrics`, so no panel screen and no `metrics_daily` key can see it. Put a
+beside the digest (as the AECI-741 `automation` filter is) reaches the **email only** — it is not
+in `AnalyticsMetrics`, so no panel screen and no `metrics_daily` key can see it. Put a
 number in `AnalyticsMetrics` when both surfaces should report it, and in `scheduled.ts`
 only when it is genuinely email-shaped prose.
+
+**This trap is currently OPEN, deliberately, and is tracked as a follow-up.** AECI-741
+made the post-automation count the email's headline, but the swarm detector still cannot
+be called from `collectAnalyticsMetrics` without closing an import cycle
+(`swarm-detection` imports the collector's `HUMAN` / `NOT_INTERNAL` predicates). So
+`page_views_human.total` on `GET /api/admin/overview` remains the **raw** count while the
+email now leads with the filtered one, and the two surfaces disagree about which number
+is the headline. The parity guarantee above still holds for every field it names — this is
+a new field the panel does not have yet, not a field that drifted. Closing it means
+extracting the shared predicates into their own module so the collector can call the
+detector; `humanViewsAfterAutomation()` is exported from `analytics-digest.ts` so the
+panel can do the subtraction from one definition once it has the input.
 
 **Status strip and `?recompute=1` (§13 D8).** The first three items are cheap
 D1/env reads and are always present. The last two need the network — the

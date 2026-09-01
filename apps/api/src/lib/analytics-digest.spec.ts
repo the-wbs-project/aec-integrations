@@ -559,6 +559,113 @@ describe('collectAnalyticsMetrics', () => {
  * modifiers) no matter how many pairs exist. Assert the shape, because the
  * result is exactly what this engine cannot get wrong.
  */
+describe('collectAnalyticsMetrics — automation exclusion on the tables (AECI-747)', () => {
+  let t: TestDb;
+  beforeEach(async () => {
+    t = await makeTestDb();
+  });
+  afterEach(() => t.dispose());
+
+  const window = dailyWindows(new Date('2026-07-24T12:00:00.000Z'));
+  const AT = '2026-07-23T10:00:00.000Z';
+
+  beforeEach(async () => {
+    await t.db.insert(products).values([
+      { id: 'p1', slug: 'p1', name: 'P1' },
+      { id: 'p2', slug: 'p2', name: 'P2' },
+    ]);
+  });
+
+  it('drops flagged UA hashes and ASNs from top products and traffic sources', async () => {
+    await t.db.insert(pageViews).values([
+      // A flagged swarm hash reading p1 three times — the exact shape that put a
+      // bot-driven page at the top of the 2026-08-30 email.
+      {
+        path: '/products/p1',
+        productId: 'p1',
+        createdAt: AT,
+        userAgentHash: 'swarm',
+        referrerSource: 'Direct',
+      },
+      {
+        path: '/products/p1',
+        productId: 'p1',
+        createdAt: AT,
+        userAgentHash: 'swarm',
+        referrerSource: 'Direct',
+      },
+      {
+        path: '/products/p1',
+        productId: 'p1',
+        createdAt: AT,
+        userAgentHash: 'swarm',
+        referrerSource: 'Direct',
+      },
+      // A flagged ASN under a different hash.
+      {
+        path: '/products/p1',
+        productId: 'p1',
+        createdAt: AT,
+        userAgentHash: 'other',
+        cfAsn: 47544,
+        referrerSource: 'Google',
+      },
+      // One genuine reader of p2.
+      {
+        path: '/products/p2',
+        productId: 'p2',
+        createdAt: AT,
+        userAgentHash: 'person',
+        cfAsn: 7922,
+        referrerSource: 'Google',
+      },
+    ]);
+
+    const m = await collectAnalyticsMetrics(t.db, window, {
+      uaHashes: ['swarm'],
+      asns: [47544],
+    });
+
+    // p1 had 4 of the 5 views and would otherwise lead the table.
+    expect(m.topProducts).toEqual([{ name: 'P2', slug: 'p2', views: 1 }]);
+    expect(m.referrers).toEqual([{ source: 'Google', views: 1 }]);
+  });
+
+  it('KEEPS rows with a null hash AND a null ASN — the three-valued-logic trap', async () => {
+    // `NOT (ua IN (…) OR asn IN (…))` is NULL for this row, and a NULL WHERE drops
+    // it — so the row would vanish from the tables while still counting in the
+    // headline. It must survive.
+    await t.db
+      .insert(pageViews)
+      .values([{ path: '/products/p1', productId: 'p1', createdAt: AT, referrerSource: 'Direct' }]);
+
+    const m = await collectAnalyticsMetrics(t.db, window, { uaHashes: ['swarm'], asns: [47544] });
+
+    expect(m.topProducts).toEqual([{ name: 'P1', slug: 'p1', views: 1 }]);
+    expect(m.referrers).toEqual([{ source: 'Direct', views: 1 }]);
+  });
+
+  it('the tables and the headline describe ONE population', async () => {
+    await t.db.insert(pageViews).values([
+      { path: '/products/p1', productId: 'p1', createdAt: AT, userAgentHash: 'swarm' },
+      { path: '/products/p1', productId: 'p1', createdAt: AT, userAgentHash: 'swarm' },
+      { path: '/products/p2', productId: 'p2', createdAt: AT, userAgentHash: 'person' },
+      { path: '/', createdAt: AT, userAgentHash: 'person' },
+    ]);
+
+    const m = await collectAnalyticsMetrics(t.db, window, { uaHashes: ['swarm'], asns: [] });
+
+    // Headline is `raw - flagged` (4 - 2 = 2); the table rows must sum to no more
+    // than that. If the negation ever stops matching `countFlaggedViews`, this is
+    // where it shows up.
+    const rawMinusFlagged = m.pageViews.day - 2;
+    const tableViews = m.topProducts.reduce((n, p) => n + p.views, 0);
+    expect(rawMinusFlagged).toBe(2);
+    expect(tableViews).toBeLessThanOrEqual(rawMinusFlagged);
+    expect(m.topProducts).toEqual([{ name: 'P2', slug: 'p2', views: 1 }]);
+  });
+});
+
 describe('NOT_INTERNAL query shape (the D1 bound-parameter ceiling)', () => {
   let t: TestDb;
   beforeEach(async () => {
@@ -810,15 +917,116 @@ describe('buildAnalyticsDigest — the two bounds (AECI-658 / AECI-660)', () => 
 
   it('carries the swarm note into both renderings when one is supplied', () => {
     const note = '31 of 48 may not be people: 7 clients each read nearly every page.';
-    const { text, html } = buildAnalyticsDigest(metrics, { ...opts, swarmNote: note });
+    const { text, html } = buildAnalyticsDigest(metrics, {
+      ...opts,
+      automation: { flagged: { day: 31, prior: 0 }, note },
+    });
     expect(text).toContain(`Automation signal: ${note}`);
     expect(html).toContain('Automation signal');
     expect(html).toContain('31 of 48 may not be people');
   });
 
   it('stays quiet when nothing was flagged', () => {
-    const { text, html } = buildAnalyticsDigest(metrics, { ...opts, swarmNote: null });
+    const { text, html } = buildAnalyticsDigest(metrics, {
+      ...opts,
+      automation: { flagged: { day: 0, prior: 0 }, note: null },
+    });
     expect(text).not.toContain('Automation signal');
     expect(html).not.toContain('Automation signal');
+  });
+});
+
+describe('buildAnalyticsDigest — the headline is the post-automation count (AECI-741)', () => {
+  // The real production shape for 2026-08-30: 70 human views server-side, 56 of
+  // them flagged as one rotating-proxy operation, against a prior day of 87 with
+  // 64 flagged. The operator asked for 14 to be the number they see.
+  const metrics: AnalyticsMetrics = {
+    pageViews: { day: 70, prior: 87 },
+    botPageViews: { day: 708, prior: 477 },
+    newUsers: { day: 0, prior: 0 },
+    totalUsers: 3,
+    pendingModeration: 0,
+    topProducts: [],
+    referrers: [{ source: 'Direct', views: 70 }],
+    botActivity: [{ name: 'SemrushBot', crawls: 294 }],
+    corroboratedViews: { day: 0, prior: 2 },
+    corroboratedVisitors: 0,
+    operatorLeakViews: 0,
+  };
+  const opts = {
+    env: 'production',
+    dayLabel: '2026-08-30',
+    generatedAt: new Date('2026-08-31T05:00:00.000Z'),
+    automation: { flagged: { day: 56, prior: 64 }, note: '56 of 70 may not be people.' },
+  };
+
+  it('leads the subject with the filtered figure and keeps the raw one in parentheses', () => {
+    const { subject } = buildAnalyticsDigest(metrics, opts);
+    expect(subject).toContain('14 human views after automation (70 raw)');
+    expect(subject).not.toContain('up to 70');
+  });
+
+  it('makes the filtered count the primary stat in both renderings', () => {
+    const { text, html } = buildAnalyticsDigest(metrics, opts);
+    expect(text).toContain('Human page views after automation: 14');
+    expect(text).toContain('from 70 counted server-side');
+    expect(text).toContain('less 56 views flagged as automation  [upper bound]');
+    // The big number in the HTML tile is 14, not 70.
+    expect(html).toContain('>14</span> <span style="font-size:14px;color:#71717a">');
+    expect(html).toContain('human page views after automation');
+  });
+
+  it('computes the delta filtered-against-filtered, never filtered-against-raw', () => {
+    // 14 vs 23 is -9 (-39%). Against the raw prior day of 87 it would read
+    // -73 (-84%) — a fabricated collapse, every single morning.
+    const { text } = buildAnalyticsDigest(metrics, opts);
+    expect(text).toContain('Human page views after automation: 14 (-9 (-39%) vs 23 prior day)');
+    expect(text).not.toContain('vs 87 prior day)  [headline]');
+  });
+
+  it('still reports the raw day-over-day delta on the demoted line', () => {
+    const { text, html } = buildAnalyticsDigest(metrics, opts);
+    expect(text).toContain('from 70 counted server-side (-17 (-20%) vs 87 prior day)');
+    expect(html).toContain('-17 (-20%) vs 87 prior day');
+  });
+
+  it('describes the raw figure as the upper bound and the headline as an estimate', () => {
+    const { text, html } = buildAnalyticsDigest(metrics, opts);
+    expect(text).toContain('The raw server-side figure is an');
+    expect(text).toContain('headline is an estimate');
+    expect(html).toContain('<strong>upper bound</strong>');
+    expect(html).toContain('heuristic estimate, not a census');
+  });
+
+  it('falls back to the raw count and SAYS SO when the detector did not run', () => {
+    // A failed detector must not be able to look like a clean day.
+    const { subject, text, html } = buildAnalyticsDigest(metrics, {
+      ...opts,
+      automation: null,
+    });
+    expect(subject).toContain('up to 70 human views');
+    expect(text).toContain('Page views: 70 (-17 (-20%) vs 87 prior day)  [upper bound]');
+    expect(text).toContain('automation filter did not run this day');
+    expect(text).toContain('this figure is UNFILTERED');
+    expect(html).toContain('The automation filter did not run for this day');
+  });
+
+  it('distinguishes "ran, flagged nothing" from "did not run"', () => {
+    const { text } = buildAnalyticsDigest(metrics, {
+      ...opts,
+      automation: { flagged: { day: 0, prior: 0 }, note: null },
+    });
+    // Ran and found nothing: headline equals raw, with no outage warning.
+    expect(text).toContain('Human page views after automation: 70');
+    expect(text).not.toContain('did not run');
+  });
+
+  it('clamps a headline that would go negative rather than printing one', () => {
+    const { text } = buildAnalyticsDigest(metrics, {
+      ...opts,
+      automation: { flagged: { day: 999, prior: 999 }, note: null },
+    });
+    expect(text).toContain('Human page views after automation: 0');
+    expect(text).not.toContain('-929');
   });
 });
