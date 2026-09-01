@@ -105,7 +105,7 @@ import {
 } from './lib/analytics-digest';
 import { refreshAsnRegistry } from './lib/asn-registry';
 import { fetchPosthogTraffic, publicHostOf, type PosthogQueryOutcome } from './lib/posthog-query';
-import { detectSwarms, swarmNote } from './lib/swarm-detection';
+import { detectSwarms, NON_BROWSER_VERDICTS, swarmNote } from './lib/swarm-detection';
 import {
   ADMIN_CRON_JOB,
   ALGOLIA_DRIFT_CRON,
@@ -1055,6 +1055,10 @@ async function runAnalyticsDigestJob(env: Env, ctx: ExecutionContext): Promise<J
     const exclusion = {
       uaHashes: swarm.uaCandidates.map((c) => c.userAgentHash),
       asns: swarm.asnCandidates.map((c) => c.cfAsn),
+      // Unconditional, unlike the two lists: the union count always includes the
+      // verdict matcher, so its complement must too, or the tables would keep rows
+      // the headline already subtracted (AECI-744).
+      verdicts: [...NON_BROWSER_VERDICTS],
     };
     const [metrics, posthog] = await Promise.all([
       collectAnalyticsMetrics(db, window, exclusion),
@@ -1123,6 +1127,17 @@ async function runAnalyticsDigestJob(env: Env, ctx: ExecutionContext): Promise<J
           // has to be visible in `job_runs` history, not only in one morning's
           // email, and this one draws on evidence from outside the reported day.
           swarmRecurringCandidates: swarm.uaCandidates.filter((c) => c.priorFlaggedDays > 0).length,
+          // AECI-744. The third shape: views flagged by their own request headers
+          // with no view floor, and the networks they came from. Recorded because
+          // the rollup is a read over `page_views`, and by the time anyone asks
+          // "which networks were those?" the window may have aged out of retention.
+          verdictFlaggedViews: swarm.verdictFlaggedViews,
+          nonBrowserCandidates: swarm.verdictCandidates.length,
+          nonBrowserNetworks: swarm.verdictCandidates.map((c) => ({
+            asn: c.cfAsn,
+            org: c.asOrganization,
+            views: c.views,
+          })),
           // AECI-741. The headline the email actually led with, recorded so the
           // number the operator read is reconstructible from `job_runs` without
           // re-running the detector over a window whose data may since have aged

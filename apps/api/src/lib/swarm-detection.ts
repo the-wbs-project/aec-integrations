@@ -19,9 +19,11 @@
  *
  * A grouping is blind to whatever it groups ON. Rotate the user-agent instead of
  * the IP and the UA-hash test collapses: on 2026-08-26, AS47544 (PL) read five
- * product pages under **five different UA hashes**, so every group was a
+ * product pages under **four different UA hashes**, so every group was a
  * singleton, every group was under `SWARM_MIN_VIEWS`, and the day's five views
- * counted as five visitors.
+ * counted as five visitors. (Four, not five: 4/5 = 0.80 is exactly
+ * `ASN_ROTATOR_MIN_UA_RATIO`, which is why `POST_LAUNCH_MONITORING.md` §3 can say
+ * the threshold is validated at that value and `0.85` would have missed it.)
  *
  * {@link detectAsnRotators} is the mirror image — group by `cf_asn`, flag one
  * network serving nearly a new fingerprint per request. Between them the two
@@ -50,6 +52,39 @@
  * is never built from relaxed flags and never from the reported day itself, so
  * the memory cannot ratchet; and the bar is lowered, not removed, so a hash that
  * settles onto one network is forgiven within a fortnight.
+ *
+ * ─── The third use of the verdict: sufficient on its own, no floor (AECI-744) ─
+ *
+ * Both groupings above gate on a view-count FLOOR before any evidence is weighed
+ * (`.having(count() >= …)`), so a low-volume automated client never reaches the
+ * code that reads its verdict. On 2026-08-29 that let `87012404…` through: three
+ * views, three different US networks, one fingerprint, seventeen hours apart, ASN
+ * ratio 1.00 — and all three `client_verdict = 'inconsistent'`. Under the floor by
+ * one view. With four more such singletons the next day, ~7 of the 37 residual
+ * views were admitted as human on a technicality.
+ *
+ * The floors are correct for what they protect. They exist because a RATIO over a
+ * tiny sample is meaningless: one view is trivially "1 ASN for 1 view". But
+ * `client_verdict` is not a ratio and not an inference over a sample — it is a
+ * direct observation about the headers of THIS request. It needs no sample size
+ * to mean something, so {@link detectNonBrowserClients} has no floor at all.
+ *
+ * **Which of the three uses each call site relies on — read this before changing
+ * any of them, because they are deliberately not interchangeable:**
+ *
+ * 1. **HARD GATE** — {@link detectAsnRotators}. Cardinality alone is the normal
+ *    shape of any shared network, so without the verdict this flags every office
+ *    NAT, campus and café on the internet. Never remove it.
+ * 2. **CORROBORATION** — {@link detectUaHashSwarms}. `nonBrowserViews` is reported
+ *    beside the ratios and filters nothing; the reader weighs it. This is the use
+ *    the "known ceiling" section below says the module will lean on as we grow.
+ * 3. **SUFFICIENT** — {@link detectNonBrowserClients}. Per ROW, no grouping, no
+ *    floor, no ratio. The one place the verdict decides by itself.
+ *
+ * All three read the one vocabulary in {@link NON_BROWSER_VERDICTS}, and all three
+ * are NULL-safe by construction: SQL `IN` against `NULL` is `NULL`, so a row
+ * written before the column existed — like a `'browser'` or `'unknown'` row —
+ * counts as NO EVIDENCE, never as "not a browser".
  *
  * ─── Read-side only. It never writes anything ───────────────────────────────
  *
@@ -90,6 +125,25 @@ import { pageViews } from '../db/schema';
 // reverse. The digest consumes a `SwarmSummary` through a TYPE-only import, which
 // is erased at compile time, so there is no runtime cycle. Keep it that way.
 import { HUMAN, NOT_INTERNAL } from './analytics-digest';
+
+/**
+ * The `client_verdict` values that say "these headers do not look like a browser"
+ * (`lib/client-signals.ts` — the other two values are `'browser'` and `'unknown'`).
+ *
+ * One exported array rather than the same literal pair repeated at each site, so
+ * the module's three uses cannot drift apart, and so `analytics-digest.ts` can be handed
+ * the same vocabulary as plain data instead of importing this module back (which
+ * would close the runtime cycle the import comment above forbids).
+ */
+export const NON_BROWSER_VERDICTS = ['inconsistent', 'non-browser'] as const;
+
+/** "This row's request shape is not a browser's." NULL-safe: `IN` against a NULL
+ *  verdict is NULL, so pre-AECI-658 rows are no evidence rather than evidence. */
+const NON_BROWSER = inArray(pageViews.clientVerdict, [...NON_BROWSER_VERDICTS]);
+
+/** `COUNT` of the rows in a group whose verdict is non-browser — uses (1) and (2)
+ *  above. Shared so the gate and the note count the same thing. */
+const nonBrowserViewsExpr = sql<number>`sum(case when ${NON_BROWSER} then 1 else 0 end)`;
 
 /**
  * Minimum views before a UA hash is even considered.
@@ -172,7 +226,8 @@ export const ASN_ROTATOR_MIN_VIEWS = 4;
  * 0.8 means "nearly every request wore a different browser fingerprint." A UA
  * string changes on browser update, not between page loads, so a real network —
  * however many people are behind it — reuses fingerprints across a day. The
- * AS47544 shape that motivated this was 5 views under 5 hashes: ratio 1.0.
+ * AS47544 shape that motivated this was 5 views under 4 hashes: ratio 0.80,
+ * exactly this value. `0.85` would have missed it.
  */
 export const ASN_ROTATOR_MIN_UA_RATIO = 0.8;
 
@@ -234,6 +289,26 @@ export interface AsnRotatorCandidate {
   pathRatio: number;
 }
 
+/**
+ * Where a window's non-browser-verdict views came from (AECI-744).
+ *
+ * Purely DESCRIPTIVE, and that distinction is the whole design. The other two
+ * types are candidates whose membership decides which views are flagged; this one
+ * is a read-time rollup OF views already flagged individually, kept so the
+ * operator can see which networks the flagged requests came from without querying
+ * D1. Nothing downstream depends on it — see {@link SwarmSummary.verdictCandidates}.
+ */
+export interface NonBrowserCandidate {
+  /** Null when the rows carried no ASN — kept as its own bucket, not dropped. */
+  cfAsn: number | null;
+  /** AS holder name captured at ingest, when we have one. A label, never a verdict. */
+  asOrganization: string | null;
+  views: number;
+  distinctUaHashes: number;
+  distinctCountries: number;
+  distinctPaths: number;
+}
+
 /** What the digest and the admin panel report about a window. */
 export interface SwarmSummary {
   /** UA hashes spread across too many networks. */
@@ -241,17 +316,35 @@ export interface SwarmSummary {
   /** Networks serving too many user-agents. */
   asnCandidates: AsnRotatorCandidate[];
   /**
+   * The networks behind {@link verdictFlaggedViews}, largest first (AECI-744).
+   *
+   * Descriptive only. Unlike the two lists above, truncating this one CANNOT
+   * change {@link flaggedViews}: those flag by list membership, so a candidate cut
+   * from the list takes its views out of the count with it, whereas the verdict
+   * flags each row on its own in SQL and this rollup is read afterwards.
+   */
+  verdictCandidates: NonBrowserCandidate[];
+  /**
    * Human views in the window attributable to ANY flagged candidate.
    *
-   * A UNION, not a sum. The two groupings overlap — a view can sit on a flagged
-   * UA hash AND a flagged ASN — and adding the two totals would report more
-   * suspicious views than the day contained, which is exactly the kind of number
-   * this module was written to stop producing.
+   * A UNION, not a sum. The three shapes overlap — a view can sit on a flagged
+   * UA hash AND a flagged ASN AND carry a non-browser verdict — and adding the
+   * totals would report more suspicious views than the day contained, which is
+   * exactly the kind of number this module was written to stop producing.
    */
   flaggedViews: number;
+  /**
+   * Human views in the window carrying a non-browser verdict (AECI-744).
+   *
+   * The gross count, NOT "views the other two groupings missed". It is a
+   * component of {@link flaggedViews}, never an addend: the union above is what
+   * reconciles the overlap, and subtracting here as well would double-correct it.
+   */
+  verdictFlaggedViews: number;
   /** Total human views in the window, for the "N of M" framing. */
   totalHumanViews: number;
-  /** Whether either candidate list hit {@link SWARM_MAX_CANDIDATES}. */
+  /** Whether either CANDIDATE list hit {@link SWARM_MAX_CANDIDATES}. Deliberately
+   *  not affected by `verdictCandidates`, per the note on that field. */
   truncated: boolean;
 }
 
@@ -395,7 +488,7 @@ export async function detectUaHashSwarms(
         distinctPaths: countDistinct(pageViews.concretePath),
         // Null-safe on purpose: every row written before AECI-658 has a null
         // verdict and must count as "no evidence", never as "browser".
-        nonBrowserViews: sql<number>`sum(case when ${pageViews.clientVerdict} in ('inconsistent', 'non-browser') then 1 else 0 end)`,
+        nonBrowserViews: nonBrowserViewsExpr,
       })
       .from(pageViews)
       // A null hash cannot be grouped into a visitor at all, so it is not evidence
@@ -468,7 +561,7 @@ export async function detectAsnRotators(
       distinctUaHashes: countDistinct(pageViews.userAgentHash),
       distinctCountries: countDistinct(pageViews.cfCountry),
       distinctPaths: countDistinct(pageViews.concretePath),
-      nonBrowserViews: sql<number>`sum(case when ${pageViews.clientVerdict} in ('inconsistent', 'non-browser') then 1 else 0 end)`,
+      nonBrowserViews: nonBrowserViewsExpr,
     })
     .from(pageViews)
     // Same reasoning as the null UA hash above: a null ASN groups nothing.
@@ -501,7 +594,60 @@ export async function detectAsnRotators(
 }
 
 /**
- * Both groupings over one window, plus the de-duplicated view count they account
+ * The window's non-browser-verdict views, rolled up by network (AECI-744).
+ *
+ * **This function does not decide anything.** The flagging is per row and lives in
+ * SQL — {@link NON_BROWSER} inside {@link countFlaggedViews} — precisely so that no
+ * grouping, floor, ratio or list cap can stand between the evidence and the count.
+ * What this returns is a legible summary OF that decision, for the operator's
+ * triage: which networks, how many views each, how many fingerprints.
+ *
+ * Three consequences of that, each deliberate:
+ *
+ * * **No `having()` floor.** A single view is enough. That is the entire issue —
+ *   a view floor gates a ratio, and there is no ratio here.
+ * * **A null `cf_asn` is KEPT**, as its own `cfAsn: null` bucket, where both
+ *   groupings above exclude it. Their exclusion exists because bucketing null
+ *   under a synthetic key would invent one enormous fake swarm out of unrelated
+ *   rows — an inference. Here the rows are already flagged individually and the
+ *   bucket only says "we do not know the network", which is true and useful.
+ * * **The cap is presentation.** It binds no parameters downstream, and slicing
+ *   the list cannot remove a view from {@link SwarmSummary.flaggedViews}.
+ */
+export async function detectNonBrowserClients(
+  db: Db,
+  startIso: string,
+  endIso: string,
+): Promise<NonBrowserCandidate[]> {
+  const rows = await db
+    .select({
+      cfAsn: pageViews.cfAsn,
+      // `max()` rather than a group key, as in `detectAsnRotators`: the holder
+      // name is a read-time label that is null on older rows, and grouping on it
+      // would split one ASN into "named" and "unnamed" halves.
+      asOrganization: sql<string | null>`max(${pageViews.cfAsOrganization})`,
+      views: count(),
+      distinctUaHashes: countDistinct(pageViews.userAgentHash),
+      distinctCountries: countDistinct(pageViews.cfCountry),
+      distinctPaths: countDistinct(pageViews.concretePath),
+    })
+    .from(pageViews)
+    .where(and(humanWindow(startIso, endIso), NON_BROWSER))
+    .groupBy(pageViews.cfAsn)
+    .orderBy(desc(count()));
+
+  return rows.slice(0, SWARM_MAX_CANDIDATES).map((r) => ({
+    cfAsn: r.cfAsn ?? null,
+    asOrganization: r.asOrganization ?? null,
+    views: r.views,
+    distinctUaHashes: r.distinctUaHashes,
+    distinctCountries: r.distinctCountries,
+    distinctPaths: r.distinctPaths,
+  }));
+}
+
+/**
+ * All three shapes over one window, plus the de-duplicated view count they account
  * for between them.
  *
  * The union count is a third query rather than arithmetic on the two candidate
@@ -516,10 +662,14 @@ export async function detectSwarms(
 ): Promise<SwarmSummary> {
   const window = humanWindow(startIso, endIso);
 
-  const [allUa, allAsn, totals] = await Promise.all([
+  const [allUa, allAsn, verdictCandidates, totals, verdictFlaggedViews] = await Promise.all([
     detectUaHashSwarms(db, startIso, endIso),
     detectAsnRotators(db, startIso, endIso),
+    detectNonBrowserClients(db, startIso, endIso),
     db.select({ value: count() }).from(pageViews).where(window),
+    // Counted in SQL rather than summed off `verdictCandidates`, so the figure
+    // survives that list being capped. See `SwarmSummary.verdictCandidates`.
+    db.select({ value: count() }).from(pageViews).where(and(window, NON_BROWSER)),
   ]);
 
   // The cap is applied BEFORE the union read, and that ordering is what keeps the
@@ -534,20 +684,30 @@ export async function detectSwarms(
   return {
     uaCandidates,
     asnCandidates,
+    verdictCandidates,
     flaggedViews: await countFlaggedViews(db, window, uaCandidates, asnCandidates),
+    verdictFlaggedViews: verdictFlaggedViews[0]?.value ?? 0,
     totalHumanViews: totals[0]?.value ?? 0,
     truncated,
   };
 }
 
-/** The union count. Skips the round trip entirely when nothing was flagged. */
+/**
+ * The union count across all three shapes.
+ *
+ * The verdict matcher is UNCONDITIONAL — it is a predicate over each row, not a
+ * list of flagged keys — so unlike the previous version this never short-circuits
+ * to zero without a round trip. That costs one query on a day that flags nothing,
+ * and buys the property that matters: `analytics-digest.ts`'s `notFlagged()` is
+ * documented as the exact complement of this function, and a branch here that the
+ * complement does not also have is exactly how the two silently drift.
+ */
 async function countFlaggedViews(
   db: Db,
   window: ReturnType<typeof humanWindow>,
   uaCandidates: readonly SwarmCandidate[],
   asnCandidates: readonly AsnRotatorCandidate[],
 ): Promise<number> {
-  if (uaCandidates.length === 0 && asnCandidates.length === 0) return 0;
   const matchers = [
     uaCandidates.length > 0
       ? inArray(
@@ -561,6 +721,7 @@ async function countFlaggedViews(
           asnCandidates.map((c) => c.cfAsn),
         )
       : undefined,
+    NON_BROWSER,
   ].filter((m) => m !== undefined);
   const [row] = await db
     .select({ value: count() })
@@ -576,10 +737,16 @@ async function countFlaggedViews(
  * heuristic over a small sample, the operator is the one who decides, and a
  * digest that overstates its own certainty is how a wrong number becomes a
  * wrong decision.
+ *
+ * The null guard is "nothing was flagged", NOT "there are no candidates"
+ * (AECI-744). A null note means "the detector ran and flagged nothing" to
+ * `AutomationFilter`, and the headline is `raw - flaggedViews` — so a day whose
+ * only flagged views came from the verdict would subtract from the headline with
+ * no explanation anywhere in the email. Every subtraction gets a sentence.
  */
 export function swarmNote(summary: SwarmSummary): string | null {
-  const { flaggedViews, totalHumanViews, uaCandidates, asnCandidates } = summary;
-  if (uaCandidates.length === 0 && asnCandidates.length === 0) return null;
+  const { flaggedViews, totalHumanViews, uaCandidates, asnCandidates, verdictCandidates } = summary;
+  if (flaggedViews === 0) return null;
 
   const clauses: string[] = [];
   if (uaCandidates.length > 0) {
@@ -597,6 +764,16 @@ export function swarmNote(summary: SwarmSummary): string | null {
         `fingerprint on every request, with request headers that mostly do not look ` +
         `like a browser, which is the shape of one client rotating its user-agent ` +
         `rather than separate visitors`,
+    );
+  }
+  if (verdictCandidates.length > 0) {
+    const views = summary.verdictFlaggedViews;
+    const networks = verdictCandidates.length;
+    clauses.push(
+      `${views === 1 ? '1 view' : `${views} views`} arrived with request headers that ` +
+        `do not look like a browser, from ${networks === 1 ? '1 network' : `${networks} networks`}, ` +
+        `which is evidence about those requests themselves rather than an inference ` +
+        `from how many of them there were`,
     );
   }
   // Said out loud because it is the one clause that rests on evidence from OUTSIDE
@@ -622,10 +799,12 @@ export const SWARM_THRESHOLD_NOTE =
   `at least ${Math.round(SWARM_MIN_ASN_RATIO * 100)}% of them came from a different network, ` +
   `or when one network accounts for ${ASN_ROTATOR_MIN_VIEWS}+ views under ` +
   `${Math.round(ASN_ROTATOR_MIN_UA_RATIO * 100)}%+ distinct user-agents AND most of those ` +
-  `requests do not look like a browser. A hash already flagged on ` +
-  `${SWARM_PRIOR_MIN_FLAGGED_DAYS}+ of the previous ${SWARM_PRIOR_LOOKBACK_DAYS} days is held to a ` +
-  `lower bar on the day being reported: ${SWARM_RECURRING_MIN_VIEWS}+ views at ` +
-  `${Math.round(SWARM_RECURRING_ASN_RATIO * 100)}%+ from a different network.`;
+  `requests do not look like a browser. A single view is also flagged on its own when ` +
+  `its own request headers do not look like a browser, with no view count required. ` +
+  `A hash already flagged on ${SWARM_PRIOR_MIN_FLAGGED_DAYS}+ of the previous ` +
+  `${SWARM_PRIOR_LOOKBACK_DAYS} days is held to a lower bar on the day being reported: ` +
+  `${SWARM_RECURRING_MIN_VIEWS}+ views at ${Math.round(SWARM_RECURRING_ASN_RATIO * 100)}%+ ` +
+  `from a different network.`;
 
 /** Exported for the spec: whether a candidate's request shape corroborates the
  *  cardinality signal. Kept as a function so the panel and the tests agree on

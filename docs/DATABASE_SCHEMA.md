@@ -1007,7 +1007,10 @@ create table page_views (
   -- ANNOTATION ONLY, exactly like cf_as_organization. Nothing here feeds
   -- classifyTraffic() and no value here changes is_bot. That separation is load
   -- bearing: is_bot is decided once and costs a one-way backfill to revise, while an
-  -- annotation can be re-read and re-interpreted for free. Audit client_verdict
+  -- annotation can be re-read and re-interpreted for free. READ-side, client_verdict has
+  -- three distinct uses in swarm-detection.ts (hard gate / corroboration / sufficient-on-
+  -- its-own, AECI-744) -- see that module's header before changing any of them.
+  -- Audit client_verdict
   -- against known-good traffic before anyone proposes promoting it into a verdict.
   --
   -- All six are null on every row written before 2026-08-26 and are NOT backfillable:
@@ -1069,7 +1072,12 @@ create index page_views_bot_idx on page_views(is_bot, created_at); -- digest hum
 -- read that needs it.
 -- The six AECI-658 request-shape columns are unindexed for the same reason: the swarm
 -- detector groups on user_agent_hash (already covered by the window predicate) and reads
--- client_verdict only as a conditional SUM inside that group, never as a filter.
+-- client_verdict as a conditional SUM inside that group and -- since AECI-744 -- as a
+-- WHERE term (client_verdict IN ('inconsistent','non-browser'), flagging a row on its own
+-- with no view floor). Still no index, and deliberately: that filter never appears without
+-- the created_at window beside it, so the plan is the same window scan either way, and an
+-- index would cost an extra index row on every insert on the hottest write path to save
+-- nothing. Revisit only if the window itself stops bounding the scan.
 -- AECI-742 added a SECOND grouped read on the same shape -- (user_agent_hash, UTC day) over
 -- the trailing 14 days, for the detector's cross-day prior -- and deliberately added no
 -- index for it either. page_views_operator_pair_idx cannot serve it (it is PARTIAL on

@@ -316,7 +316,8 @@ numbers), and again at launch.
 >   `16:20:11.241Z → .900Z` it read **five different product pages in 659 ms**. No person does that.
 > - **3 of 37 sit under `SWARM_MIN_VIEWS`** (`87012404…`: 3 views, 3 US networks — Charter, **Rockion
 >   LLC**, Airfiber — one fingerprint, and all three carry a `client_verdict` of `inconsistent`).
->   The 4-view floor is what lets them through; the verdict already knew.
+>   The 4-view floor is what lets them through; the verdict already knew. **Closed by AECI-744**
+>   (2026-09-01) — see the addendum below.
 > - **2 of 37 are ONE arrival counted twice.** `81e13bc5…` wrote `/products/leap-crm` at
 >   `15:37:06.370Z` and `15:37:06.453Z` — 83 ms apart, same path, same ASN, same referrer. These two
 >   rows *are* the "2 Google" that the 8/29 digest reported as its traffic-source table and its
@@ -333,7 +334,7 @@ numbers), and again at launch.
 > cross-day memory so a hash with a flagged history keeps a lower per-day bar (**shipped 2026-09-01**,
 > see the addendum below); (2) **AECI-744** —
 > treat `client_verdict` of `inconsistent`/`non-browser` as disqualifying on its own, with no
-> cardinality floor; (3) **AECI-743** — fix the double-fire (**shipped 2026-09-01**, see the addendum below). None of them is a `DATACENTER_ASNS` widening — the standing rule that a human decides
+> cardinality floor (**shipped 2026-09-01**, see the addendum below); (3) **AECI-743** — fix the double-fire (**shipped 2026-09-01**, see the addendum below). None of them is a `DATACENTER_ASNS` widening — the standing rule that a human decides
 > before an ASN joins that list still holds, and these are commercial proxy/seedbox providers rather
 > than the consumer ISPs that rule exists to protect.
 
@@ -440,3 +441,25 @@ Once the secrets are provisioned (config injected — verify with
 3. **Datadog RUM reports CWV** — gated on `DD_APPLICATION_ID` + `DD_CLIENT_TOKEN` (now CI-wired; set
    the GH secrets, then confirm `__AECI_DD__` in the HTML and CWV populating in the RUM app).
 4. **Baseline written** — ✅ this document.
+
+> **AECI-744 addendum (2026-09-01) — the verdict now flags on its own, with no view floor.**
+> `client_verdict IN ('inconsistent','non-browser')` is direct evidence about *that request*, not a
+> cardinality inference over a sample, so `detectNonBrowserClients` evaluates it **per row**: no
+> grouping, no floor, no ratio. That reaches the two sub-threshold groups this baseline named — the
+> `87012404…` trio (3 views, ASN ratio 1.00, under the 4-view floor by one) and the four singletons
+> on cloud/hosting ASNs — i.e. **~7 of the 37 residual views**, which now leave the headline instead
+> of being admitted as human on a technicality.
+>
+> Three properties to hold on to when reading a future residual against this one:
+>
+> - **The floors did not move.** `SWARM_MIN_VIEWS` and `ASN_ROTATOR_MIN_VIEWS` are both still 4, and
+>   both groupings still exclude the trio. This is a third signal beside them, not a loosening of
+>   either — so the 18-of-37 cross-day-memory gap (AECI-742) is untouched and still the largest item.
+> - **NULL is still no evidence.** Every row written before 2026-08-26 has no verdict and counts as a
+>   person. This baseline's caution against reading verdict coverage as complete stands.
+> - **The number is filtered-vs-filtered on both sides.** The digest's prior-day comparison already
+>   ran the detector over the prior window, so the first morning after this shipped shows a real
+>   step down in both columns, not a manufactured one-day drop.
+>
+> Read-side only, as ever: no `is_bot` write, and RapidSeedbox AS214483 / Web2Objects AS62874 /
+> UAB code200 AS27411 / Rockion AS199737 did **not** join `DATACENTER_ASNS`.

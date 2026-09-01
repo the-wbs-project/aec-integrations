@@ -800,7 +800,13 @@ above. Implemented in `apps/web/src/app/analytics/`.
 > filtered number over unfiltered rows, and on 2026-08-30 showed a bot-driven page as the day's top
 > product. The exclusion predicate is the exact complement of `swarm-detection.ts`'s
 > `countFlaggedViews`, and is NULL-safe on purpose: a row with a null UA hash AND a null ASN counts
-> in the headline, so it must survive the tables too. **The admin panel still passes no exclusion**,
+> in the headline, so it must survive the tables too.
+>
+> **Three axes since AECI-744**, not two: the exclusion carries `verdicts` alongside `uaHashes` and
+> `asns`, because `client_verdict IN ('inconsistent','non-browser')` now flags a row on its own with
+> no view floor. It is passed unconditionally — the union count always includes the verdict matcher,
+> so the complement must too — and it repeats the same NULL-safe `IS NULL OR NOT IN` shape, because
+> every row written before 2026-08-26 has a NULL verdict and counts in the headline. **The admin panel still passes no exclusion**,
 > so `/admin/overview` top-products remain unfiltered — a known parity gap, not a second definition.
 >
 > Pure transport, like `cloudflare-analytics.ts`: it never throws, and every failure path returns a

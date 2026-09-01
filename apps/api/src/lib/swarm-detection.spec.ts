@@ -18,9 +18,11 @@ import {
   ASN_ROTATOR_MIN_UA_RATIO,
   ASN_ROTATOR_MIN_VIEWS,
   detectAsnRotators,
+  detectNonBrowserClients,
   detectSwarms,
   detectUaHashSwarms,
   isCorroboratedByRequestShape,
+  NON_BROWSER_VERDICTS,
   swarmNote,
   SWARM_MAX_CANDIDATES,
   SWARM_MIN_ASN_RATIO,
@@ -30,6 +32,7 @@ import {
   SWARM_RECURRING_ASN_RATIO,
   SWARM_RECURRING_MIN_VIEWS,
   type SwarmCandidate,
+  type SwarmSummary,
 } from './swarm-detection';
 
 const DAY_START = '2026-08-23T00:00:00.000Z';
@@ -596,6 +599,186 @@ describe('detectAsnRotators (the inverse grouping, AECI-683)', () => {
   });
 });
 
+describe('detectNonBrowserClients (the verdict as sufficient evidence, AECI-744)', () => {
+  let t: TestDb;
+  beforeEach(async () => {
+    t = await makeTestDb();
+  });
+  afterEach(() => t.dispose());
+
+  it('flags the real 2026-08-29 client that both view floors let through', async () => {
+    // `87012404...` in production: three views, three different US networks, ONE
+    // fingerprint, seventeen hours apart, every row `inconsistent`. Its ASN ratio
+    // is 1.00 and it is under SWARM_MIN_VIEWS by exactly one view, so before this
+    // it was admitted as three human visitors on a technicality.
+    await t.db.insert(pageViews).values(
+      [
+        { asn: 20115, org: 'Charter Communications', at: '2026-08-23T01:00:00.000Z' },
+        { asn: 199737, org: 'Rockion LLC', at: '2026-08-23T11:00:00.000Z' },
+        { asn: 53356, org: 'Airfiber', at: '2026-08-23T18:00:00.000Z' },
+      ].map((r, i) =>
+        view({
+          path: `/products/p${i}`,
+          concretePath: `/products/p${i}`,
+          userAgentHash: 'ua-87012404',
+          cfAsn: r.asn,
+          cfAsOrganization: r.org,
+          cfCountry: 'US',
+          clientVerdict: 'inconsistent',
+          createdAt: r.at,
+        }),
+      ),
+    );
+
+    const summary = await detectSwarms(t.db, DAY_START, DAY_END);
+
+    // Both floors still exclude it — this change does NOT lower them.
+    expect(summary.uaCandidates).toEqual([]);
+    expect(summary.asnCandidates).toEqual([]);
+
+    // And it is flagged anyway, on the evidence in its own request headers.
+    expect(summary.verdictFlaggedViews).toBe(3);
+    expect(summary.flaggedViews).toBe(3);
+    expect(summary.totalHumanViews).toBe(3);
+    // Sorted here, not there: all three are one view, so `order by count desc`
+    // leaves their relative order to SQLite.
+    expect(summary.verdictCandidates.map((c) => c.asOrganization).sort()).toEqual([
+      'Airfiber',
+      'Charter Communications',
+      'Rockion LLC',
+    ]);
+    expect(summary.verdictCandidates.every((c) => c.views === 1)).toBe(true);
+  });
+
+  it('flags a SINGLE view, because there is no floor at all', async () => {
+    // The point of the issue in one assertion: n=1 is enough, because the verdict
+    // is an observation about this request rather than a ratio over a sample.
+    await t.db.insert(pageViews).values([
+      view({
+        userAgentHash: 'ua-lone',
+        cfAsn: 23724,
+        cfAsOrganization: 'UCLOUD',
+        cfCountry: 'CN',
+        clientVerdict: 'non-browser',
+        createdAt: '2026-08-23T09:00:00.000Z',
+      }),
+    ]);
+    const summary = await detectSwarms(t.db, DAY_START, DAY_END);
+    expect(summary.verdictFlaggedViews).toBe(1);
+    expect(summary.flaggedViews).toBe(1);
+    expect(summary.verdictCandidates).toEqual([
+      {
+        cfAsn: 23724,
+        asOrganization: 'UCLOUD',
+        views: 1,
+        distinctUaHashes: 1,
+        distinctCountries: 1,
+        distinctPaths: 1,
+      },
+    ]);
+  });
+
+  it.each([['browser'], ['unknown'], [null]])(
+    'treats client_verdict %s as no evidence, never as "not a browser"',
+    async (verdict) => {
+      // The null case is the constraint that matters most: every row written
+      // before AECI-658 has one, and reading those as non-browser would
+      // retroactively erase months of real people from the reported numbers.
+      await t.db.insert(pageViews).values(
+        [1, 2, 3].map((i) =>
+          view({
+            userAgentHash: 'ua-person',
+            cfAsn: 7922,
+            cfCountry: 'US',
+            clientVerdict: verdict,
+            createdAt: `2026-08-23T0${i}:00:00.000Z`,
+          }),
+        ),
+      );
+      const summary = await detectSwarms(t.db, DAY_START, DAY_END);
+      expect(summary.verdictCandidates).toEqual([]);
+      expect(summary.verdictFlaggedViews).toBe(0);
+      expect(summary.flaggedViews).toBe(0);
+      expect(summary.totalHumanViews).toBe(3);
+    },
+  );
+
+  it('keeps a NULL cf_asn as its own bucket rather than dropping it', async () => {
+    // The opposite of what the two GROUPINGS do with a null key, and deliberately
+    // so: they exclude it because bucketing nulls would invent a cardinality
+    // inference out of unrelated rows. Here the rows are already flagged one by
+    // one, so the bucket only says "we do not know the network" - which is true.
+    await t.db.insert(pageViews).values([
+      view({
+        userAgentHash: 'ua-noasn',
+        cfAsn: null,
+        clientVerdict: 'non-browser',
+        createdAt: '2026-08-23T05:00:00.000Z',
+      }),
+    ]);
+    const summary = await detectSwarms(t.db, DAY_START, DAY_END);
+    expect(summary.verdictCandidates).toHaveLength(1);
+    expect(summary.verdictCandidates[0].cfAsn).toBeNull();
+    expect(summary.flaggedViews).toBe(1);
+  });
+
+  it('counts a view flagged by a grouping AND by its verdict only once', async () => {
+    // Same union property the two groupings already have, extended to the third
+    // shape: nine views, all `inconsistent`, all on one flagged UA hash.
+    await t.db.insert(pageViews).values(
+      Array.from({ length: 9 }, (_, i) =>
+        view({
+          path: `/products/p${i}`,
+          concretePath: `/products/p${i}`,
+          userAgentHash: 'ua-swarm-01',
+          cfAsn: 23201 + i,
+          cfCountry: 'US',
+          clientVerdict: 'inconsistent',
+          createdAt: `2026-08-23T0${i}:00:00.000Z`,
+        }),
+      ),
+    );
+    const summary = await detectSwarms(t.db, DAY_START, DAY_END);
+    expect(summary.uaCandidates).toHaveLength(1);
+    expect(summary.verdictFlaggedViews).toBe(9);
+    // 9 + 9 would be 18 of 9. The union is a query, not arithmetic.
+    expect(summary.flaggedViews).toBe(9);
+    expect(summary.totalHumanViews).toBe(9);
+  });
+
+  it('excludes bots, operator traffic and rows outside the window', async () => {
+    // The same population guarantee the groupings have. A crawler is already
+    // `is_bot = 1` and would double-count if this predicate ever drifted.
+    await t.db.insert(pageViews).values([
+      view({
+        userAgentHash: 'ua-bot',
+        cfAsn: 15169,
+        clientVerdict: 'non-browser',
+        isBot: true,
+        botName: 'Googlebot',
+        createdAt: '2026-08-23T01:00:00.000Z',
+      }),
+      view({
+        userAgentHash: 'ua-op',
+        cfAsn: 23700,
+        clientVerdict: 'non-browser',
+        isOperator: true,
+        createdAt: '2026-08-23T02:00:00.000Z',
+      }),
+      view({
+        userAgentHash: 'ua-yesterday',
+        cfAsn: 1234,
+        clientVerdict: 'non-browser',
+        createdAt: '2026-08-22T23:00:00.000Z',
+      }),
+    ]);
+    expect(await detectNonBrowserClients(t.db, DAY_START, DAY_END)).toEqual([]);
+    const summary = await detectSwarms(t.db, DAY_START, DAY_END);
+    expect(summary.verdictFlaggedViews).toBe(0);
+    expect(summary.totalHumanViews).toBe(0);
+  });
+});
+
 describe('swarmNote', () => {
   const candidate = (views: number, priorFlaggedDays = 0): SwarmCandidate => ({
     userAgentHash: 'ua',
@@ -609,9 +792,17 @@ describe('swarmNote', () => {
     priorFlaggedDays,
   });
 
+  /** Fills the two AECI-744 fields for the cases that are not about them. The
+   *  helper exists so a summary literal here cannot silently disagree with the
+   *  one `detectSwarms` actually returns. */
+  const renderNote = (
+    summary: Omit<SwarmSummary, 'verdictCandidates' | 'verdictFlaggedViews'> &
+      Partial<Pick<SwarmSummary, 'verdictCandidates' | 'verdictFlaggedViews'>>,
+  ): string | null => swarmNote({ verdictCandidates: [], verdictFlaggedViews: 0, ...summary });
+
   it('is null when nothing was flagged, so the digest stays quiet', () => {
     expect(
-      swarmNote({
+      renderNote({
         uaCandidates: [],
         asnCandidates: [],
         truncated: false,
@@ -622,7 +813,7 @@ describe('swarmNote', () => {
   });
 
   it('frames the finding as a proportion of the reported number', () => {
-    const note = swarmNote({
+    const note = renderNote({
       uaCandidates: [candidate(9), candidate(5)],
       asnCandidates: [],
       truncated: false,
@@ -634,7 +825,7 @@ describe('swarmNote', () => {
   });
 
   it('singularizes a lone client', () => {
-    const note = swarmNote({
+    const note = renderNote({
       uaCandidates: [candidate(9)],
       asnCandidates: [],
       truncated: false,
@@ -645,7 +836,7 @@ describe('swarmNote', () => {
   });
 
   it('hedges rather than asserting, because this is a heuristic', () => {
-    const note = swarmNote({
+    const note = renderNote({
       uaCandidates: [candidate(9)],
       asnCandidates: [],
       truncated: false,
@@ -670,7 +861,7 @@ describe('swarmNote', () => {
       uaRatio: 1,
       pathRatio: 1,
     };
-    const note = swarmNote({
+    const note = renderNote({
       uaCandidates: [],
       asnCandidates: [rotator],
       truncated: false,
@@ -682,7 +873,7 @@ describe('swarmNote', () => {
     expect(note).toContain('rotating its user-agent');
     expect(note).not.toContain('rotating proxy pool');
 
-    const both = swarmNote({
+    const both = renderNote({
       uaCandidates: [candidate(9)],
       asnCandidates: [rotator],
       truncated: false,
@@ -694,8 +885,71 @@ describe('swarmNote', () => {
     expect(both).toContain('; and ');
   });
 
+  it('explains a day whose only flagged views came from the verdict (AECI-744)', () => {
+    // The failure this closes: `note: null` tells `AutomationFilter` "the detector
+    // ran and flagged nothing", while the headline is `raw - flaggedViews`. A
+    // verdict-only day would then subtract 7 views with nothing in the email
+    // saying why. Every subtraction gets a sentence.
+    const verdictOnly = renderNote({
+      uaCandidates: [],
+      asnCandidates: [],
+      verdictCandidates: [
+        {
+          cfAsn: 20115,
+          asOrganization: 'Charter',
+          views: 1,
+          distinctUaHashes: 1,
+          distinctCountries: 1,
+          distinctPaths: 1,
+        },
+        {
+          cfAsn: 199737,
+          asOrganization: 'Rockion LLC',
+          views: 2,
+          distinctUaHashes: 1,
+          distinctCountries: 1,
+          distinctPaths: 2,
+        },
+      ],
+      verdictFlaggedViews: 3,
+      truncated: false,
+      flaggedViews: 3,
+      totalHumanViews: 37,
+    });
+    expect(verdictOnly).toContain('3 of 37');
+    expect(verdictOnly).toContain('3 views');
+    expect(verdictOnly).toContain('2 networks');
+    expect(verdictOnly).toContain('do not look like a browser');
+    // Its own words, like the other two clauses: this is not a cardinality claim.
+    expect(verdictOnly).not.toContain('rotating proxy pool');
+    expect(verdictOnly).not.toContain('rotating its user-agent');
+  });
+
+  it('singularizes a lone verdict-flagged view and network', () => {
+    const one = renderNote({
+      uaCandidates: [],
+      asnCandidates: [],
+      verdictCandidates: [
+        {
+          cfAsn: 23724,
+          asOrganization: 'UCLOUD',
+          views: 1,
+          distinctUaHashes: 1,
+          distinctCountries: 1,
+          distinctPaths: 1,
+        },
+      ],
+      verdictFlaggedViews: 1,
+      truncated: false,
+      flaggedViews: 1,
+      totalHumanViews: 37,
+    });
+    expect(one).toContain('1 view ');
+    expect(one).toContain('1 network');
+  });
+
   it('says so when a candidate list was capped, rather than capping silently', () => {
-    const note = swarmNote({
+    const note = renderNote({
       uaCandidates: [candidate(9)],
       asnCandidates: [],
       truncated: true,
@@ -720,13 +974,28 @@ describe('swarmNote', () => {
       uaRatio: 1,
       pathRatio: 1,
     };
+    const verdict = {
+      cfAsn: 199737,
+      asOrganization: 'Rockion LLC',
+      views: 3,
+      distinctUaHashes: 1,
+      distinctCountries: 1,
+      distinctPaths: 3,
+    };
     for (const summary of [
       { uaCandidates: [candidate(9)], asnCandidates: [] },
       { uaCandidates: [], asnCandidates: [rotator] },
       { uaCandidates: [candidate(9)], asnCandidates: [rotator] },
+      { uaCandidates: [], asnCandidates: [], verdictCandidates: [verdict], verdictFlaggedViews: 3 },
+      {
+        uaCandidates: [candidate(9)],
+        asnCandidates: [rotator],
+        verdictCandidates: [verdict],
+        verdictFlaggedViews: 3,
+      },
     ]) {
       for (const truncated of [false, true]) {
-        const note = swarmNote({
+        const note = renderNote({
           ...summary,
           truncated,
           flaggedViews: 9,
@@ -777,5 +1046,12 @@ describe('thresholds', () => {
     expect(SWARM_RECURRING_ASN_RATIO).toBeLessThan(SWARM_MIN_ASN_RATIO);
     expect(SWARM_RECURRING_MIN_VIEWS).toBeGreaterThan(1);
     expect(SWARM_RECURRING_MIN_VIEWS).toBeLessThan(SWARM_MIN_VIEWS);
+  });
+
+  it('has no threshold at all for the verdict, which is the point of AECI-744', () => {
+    // Pinned as data rather than prose: `analytics-digest.ts` is handed this exact
+    // vocabulary to build the complement of the flagged predicate, so a value
+    // added here without being added there would leak rows back into the tables.
+    expect([...NON_BROWSER_VERDICTS]).toEqual(['inconsistent', 'non-browser']);
   });
 });

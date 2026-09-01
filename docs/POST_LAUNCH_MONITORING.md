@@ -343,8 +343,48 @@ network (an office NAT, a campus, a café), so cardinality alone would flag real
 A rotator cannot launder the shape of its own requests. Without the gate this is a
 shared-connection detector wearing a bot detector's name.
 
-`swarmFlaggedViews` is a **union** across both groupings, never a sum: a view can match both shapes,
-and adding the two totals would report more suspicious views than the day contained.
+#### The verdict as sufficient evidence, with no floor (AECI-744)
+
+Both groupings above check a **view-count floor before any evidence is weighed** (`SWARM_MIN_VIEWS` /
+`ASN_ROTATOR_MIN_VIEWS`, enforced in SQL as `HAVING count(*) >= …`). A group under the floor never
+reaches the code that reads its `client_verdict`, so a low-volume automated client was invisible no
+matter how obviously non-human its requests looked.
+
+Decomposed against production D1 on **2026-08-31**, that was **~7 of the 37 residual views** for
+2026-08-29/30. The clearest case: `87012404…` — three views, three different US networks (Charter,
+**Rockion LLC**, Airfiber), one fingerprint, seventeen hours apart, ASN ratio **1.00**, and every one
+of the three carrying `client_verdict = 'inconsistent'`. Under the floor by exactly one view. Four
+more singletons the same two days carried `non-browser` / `inconsistent` on cloud and hosting ASNs
+(Shanghai UCloud AS23724, "365 Group" AS18450, a DE "Private Customer", a KR host).
+
+**The floors are right for what they protect, and wrong here.** They exist because a *ratio* over a
+tiny sample is meaningless — one view is trivially "1 ASN for 1 view". But `client_verdict` is not a
+ratio and not an inference over a sample: it is a direct observation about the headers of *that*
+request. It needs no sample size to mean something. So `detectNonBrowserClients` flags **per row**,
+with no floor, no grouping and no ratio, and reports a descriptive by-network rollup
+(`verdictCandidates`) purely so the operator can see which networks without querying D1.
+
+That makes **three** uses of `client_verdict`, deliberately not interchangeable — the module header
+names which call site uses which, and so does this table:
+
+| Use | Where | Meaning |
+|---|---|---|
+| **Hard gate** | `detectAsnRotators` | Required. Cardinality alone is the normal shape of any shared network. |
+| **Corroboration** | `detectUaHashSwarms` | Reported beside the ratios (`nonBrowserViews`); filters nothing. |
+| **Sufficient** | `detectNonBrowserClients` | Decides on its own, per row, no floor. |
+
+All three are **NULL-safe**, and that is a constraint not a detail: `IN` against a NULL verdict is
+NULL, so every row written before the column shipped (and every `'browser'` / `'unknown'` row) counts
+as **no evidence**, never as "not a browser". `analytics-digest.ts`'s `notFlagged()` complement
+carries the same NULL-safety on the same axis — a NULL-verdict row counts in the headline, so it must
+survive the tables.
+
+**Still read-side only.** No `is_bot` write, and the commercial proxy/seedbox ASNs this surfaced
+(RapidSeedbox AS214483, Web2Objects AS62874, UAB code200/Oxylabs AS27411, Rockion AS199737) did
+**not** join `DATACENTER_ASNS` — see the standing rule below.
+
+`swarmFlaggedViews` is a **union** across all three shapes, never a sum: a view can match more than
+one, and adding the totals would report more suspicious views than the day contained.
 
 **Launch-tunable thresholds** (§3 rules apply — change them here and in the module together):
 
@@ -354,7 +394,8 @@ and adding the two totals would report more suspicious views than the day contai
 | `SWARM_MIN_ASN_RATIO` | `0.8` | "Nearly every view came from a different network." A real browser sits on one network; a proxy pool cannot. |
 | `ASN_ROTATOR_MIN_VIEWS` | `4` | Same floor, same reason. A separate constant even though the values match: the two groupings have different false-positive profiles and will be tuned apart. |
 | `ASN_ROTATOR_MIN_UA_RATIO` | `0.8` | "Nearly every request wore a different fingerprint." A UA changes on browser update, not between page loads. **Validated at exactly this value**: the AS47544 shape is 4 hashes over 5 views = 0.80, so `0.85` would have missed it. |
-| `SWARM_MAX_CANDIDATES` | `25` | Caps each candidate list, because the union count binds one parameter per flagged hash/ASN and D1's parameter ceiling is far below stock SQLite's. `swarmNote` says when it bit; the cap is never silent. The cap is applied BEFORE the union read, so AECI-742's longer candidate list makes truncation more likely and never the bound looser. |
+| *(the verdict signal)* | *none* | `detectNonBrowserClients` has **no threshold by design** (AECI-744) — listed here so its absence reads as a decision rather than an oversight. Adding a floor would reintroduce the defect. The only tunable is the vocabulary itself, `NON_BROWSER_VERDICTS`, and a value added there must be added to the digest's `AutomationExclusion.verdicts` in the same change. |
+| `SWARM_MAX_CANDIDATES` | `25` | Caps each candidate list, because the union count binds one parameter per flagged hash/ASN and D1's parameter ceiling is far below stock SQLite's. `swarmNote` says when it bit; the cap is never silent. The cap is applied BEFORE the union read, so AECI-742's longer candidate list makes truncation more likely and never the bound looser. It also caps `verdictCandidates`, but only for display: those views are flagged per row in SQL, so slicing the list cannot remove one from the count. |
 | `SWARM_PRIOR_LOOKBACK_DAYS` | `14` | How far back the recurrence read looks for a hash's flagged history (AECI-742). Ends at the reported window's start, never inside it. Long enough to survive a client pausing over a weekend, short enough to forgive a hash that reformed within a fortnight. `page_views` is retained 400 days, so the ceiling here is judgement, not retention. |
 | `SWARM_PRIOR_MIN_FLAGGED_DAYS` | `2` | Flagged days inside the lookback before a hash counts as recurring. Two, not one: one flagged day is the evidence the per-day test already acted on, so requiring one would merely re-apply yesterday's verdict. The eight hashes this was built from ran **every** day of 2026-08-21..30. |
 | `SWARM_RECURRING_ASN_RATIO` | `0.5` | The ratio a recurring hash is held to instead of `SWARM_MIN_ASN_RATIO`. Both measured escapes sit above it (0.70 and 0.63) and below the standing 0.8. **Must stay above zero** - a prior lowers the bar, it does not remove it. |
