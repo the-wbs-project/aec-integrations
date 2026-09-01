@@ -27,7 +27,7 @@ nil-to-negligible. The value is a known zero to accrue against.
 | Request → Linear pipeline | ✅ live | `aeci.linear.*`, `aeci.webhooks.linear.*` |
 | Authoritative signups | ✅ live | `mailing_list` D1 + `aeci.email.send{template:landing-signup}`; `/admin/audience` |
 | Server pageviews / entry pages | ✅ live | `page_views` D1 via the admin panel's read endpoints (`API_CONTRACTS.md` §6.10) |
-| Whether a "human" page view really is one | ⚠️ **partial, and now says so out loud** | `is_bot` is a hand-maintained ASN list written once at ingest. Since AECI-624 the panel annotates each row with what the network is *registered as* (`ADMIN_PANEL_SPEC.md` §7.6) without altering `is_bot` — but PeeringDB has no usable signal for ~25% of our traffic. Since **AECI-683** the digest and `/admin/overview` print a **corroborated floor** (named external referrer) beside the upper and lower bounds, and report what the operator-pair retro-join removed. On the one day decomposed so far, the honest figure was **8 views / 7 visitors against a headline of 102** — so this row is closer to answered than it has ever been, and the answer is that the headline is roughly an order of magnitude high |
+| Whether a "human" page view really is one | ⚠️ **partial, and now says so out loud** | `is_bot` is a hand-maintained ASN list written once at ingest. Since AECI-624 the panel annotates each row with what the network is *registered as* (`ADMIN_PANEL_SPEC.md` §7.6) without altering `is_bot` — but PeeringDB has no usable signal for ~25% of our traffic. Since **AECI-683** the digest and `/admin/overview` print a **corroborated floor** (named external referrer) beside the upper and lower bounds, and report what the operator-pair retro-join removed. On the one day decomposed so far, the honest figure was **8 views / 7 visitors against a headline of 102** — so this row is closer to answered than it has ever been, and the answer is that the headline is roughly an order of magnitude high. **AECI-743** then found the floor itself could be inflated by a double-fire — one arrival written twice — fixed at ingest from 2026-09-01, with two published days corrected in the entry below |
 | Algolia query latency / error rate | ⚠️ live but low-sample | browser RUM `aeci.search.query` |
 | **PostHog** pageviews + signup funnel | ✅ live | `__AECI_POSTHOG__` injected in prod HTML since 2026-08-12 |
 | **RUM Core Web Vitals** (field LCP/CLS/INP) | ✅ live | `__AECI_DD__` injected in prod HTML since 2026-08-12 |
@@ -59,6 +59,55 @@ nil-to-negligible. The value is a known zero to accrue against.
 ---
 
 ## Entries
+
+## 2026-09-01 — AECI-743: the corroborated floor was counting one arrival twice
+
+**Correction, not a snapshot.** This entry exists to restate two published figures, not to read the
+dashboards.
+
+**What was wrong.** `page_views` had no guarantee that one document load wrote one row, and nothing
+in the writers or the schema refused a second. Production held two byte-identical rows 83 ms apart
+for a single arrival on `/products/leap-crm` — both `navigation = 'arrival'` carrying the resolver's
+route pattern, i.e. two full SSR cache-MISS renders. That pair *was* the entire "Google — 2 views"
+traffic-source table of the 2026-08-29 digest and its whole corroborated-referrer population. The
+corroborated floor is the one figure AECI-683 built specifically because a rotating-proxy pool
+cannot inflate it, and it was inflated 2× — by us.
+
+**The corrections.** Swept with `scripts/ops/2026-09-page-view-duplicates/find-duplicates.sql`,
+exactly two days in the table are affected:
+
+| Day | Corroborated views, as published | Corrected |
+|---|---|---|
+| 2026-08-29 | 2 | **1** |
+| 2026-08-18 | 4 | **3** |
+
+The 2026-08-26 decomposition in the entry below — **8 corroborated views from 7 visitors against a
+headline of 102** — is **unaffected**; that day has no duplicate pairs.
+
+**Wider (unquantified) effect on every pre-2026-09 figure.** Inside the 20 s window the same sweep
+finds 52 human `arrival` pairs, 23 human `spa` pairs, and 589 pairs whose `navigation` is null
+(rows written before AECI-585, which cannot be attributed to a writer). Some fraction of those are
+genuine reloads rather than double-fires — tightening the window to 3 s cuts the human arrival
+figure to 19 — so this is a direction, not a subtraction. Every historical "human page views" number
+in this log reads slightly high for this reason, on top of the operator-leak component the entry
+below describes. **The rows are not repairable**: the stored row cannot distinguish a double-fire
+from two genuine arrivals, and deleting them was rejected because D1 Time Travel reaches only ~30
+days and `metrics_daily` has already snapshotted the affected days.
+
+**What changed, from 2026-09-01.** Ingest refuses a second row for the same
+`(concrete_path, user_agent_hash, cf_asn)` within ~10–20 s (`dedupe_key` + a UNIQUE index, migration
+`0020`); the SSR Worker no longer counts speculative (`Sec-Purpose: prefetch`/`prerender`) loads or
+non-GET requests; and the browser tracker no longer fires on a query-only re-navigation. Suppression
+is counted (`aeci.pageviews.write{outcome:deduped}`, `aeci.pageviews.speculative`) rather than
+silent — an unobserved miscount is what let this reach the digest in the first place. Mechanism:
+`API_CONTRACTS.md` §6.9, "One document load, one row".
+
+**Actions / follow-ups:** re-run the ops sweep after a week of post-fix traffic and confirm no new
+human `arrival` pairs appear inside the window. The guard is deliberately a floor on precision, not
+a claim of exactness — bot rows and rows with no `user_agent_hash` stay unconstrained, so crawler
+volume remains a raw count.
+
+---
 
 ## 2026-08-27 — AECI-683: decomposing one digest day, and what it cost the numbers
 

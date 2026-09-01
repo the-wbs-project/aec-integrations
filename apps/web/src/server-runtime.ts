@@ -59,6 +59,7 @@
 
 import {
   defaultIntegrationContext,
+  isSpeculativeRequest,
   isUntrackedRoute,
   LANDING_CF_HEADERS,
   PAGE_VIEW_CF_HEADERS,
@@ -742,6 +743,22 @@ function firePageView(
   sourceRequest: Request,
 ): void {
   if (isUntrackedRoute(payload.route)) return;
+  // AECI-743 — a HEAD (or any non-GET) is not a page view. `handleSsr` sends every
+  // non-GET down the non-cacheable branch, which still runs the renderer and still
+  // lets a detail resolver attach `ctx.pageView`, so a HEAD-then-GET probe used to
+  // write two byte-identical `arrival` rows — identical down to the route PATTERN,
+  // because both carried the same resolver payload. Guarded HERE rather than at the
+  // one call site that can reach it, so the invariant survives a future branch.
+  if (sourceRequest.method !== 'GET') return;
+  // AECI-743 — a browser prefetch/prerender is speculative: the visitor may never
+  // see this page, and a prerender is otherwise indistinguishable from a real
+  // arrival (it sends `Sec-Fetch-Dest: document` like any navigation). Skipped
+  // rather than recorded under a new `navigation` value, so no read surface has to
+  // learn a new exclusion. Counted so the volume stays observable.
+  if (isSpeculativeRequest(sourceRequest.headers)) {
+    submitCount(execCtx, env, sourceRequest, 'aeci.pageviews.speculative', 1, []);
+    return;
+  }
   const headers = new Headers({ 'content-type': 'application/json' });
   applyCfContextHeaders(headers, sourceRequest);
   const userAgent = sourceRequest.headers.get('user-agent');

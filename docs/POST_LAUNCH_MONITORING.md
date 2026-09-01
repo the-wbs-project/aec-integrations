@@ -251,6 +251,14 @@ behind it:
 >   It is the only one of the three figures a rotating-proxy pool cannot inflate — a proxy sends
 >   no `Referer` at all. Read it as a floor (Referrer-Policy strips real referrals into `Direct`)
 >   and remember it rests on a **claim** (§9.7 — production holds one confirmed forgery).
+>   A **third caveat, and the one that actually bit** (AECI-743): the floor counts ROWS, and until
+>   2026-09-01 nothing guaranteed one document load wrote one row. The 2026-08-29 digest printed
+>   "Google — 2 views" off a single arrival counted twice, 83 ms apart — a 100% error on the very
+>   figure chosen because it could not be inflated. Ingest now refuses a duplicate
+>   (`API_CONTRACTS.md` §6.9, "One document load, one row"), but **rows written before that date are
+>   not repairable**, so any floor quoted from an earlier day needs checking against
+>   `scripts/ops/2026-09-page-view-duplicates/find-duplicates.sql`. Two days are wrong:
+>   2026-08-29 (2 → 1) and 2026-08-18 (4 → 3).
 >
 > The worked example that forced this: on **2026-08-23** the digest emailed "48 human views."
 > PostHog for the same day recorded **5 pageviews from 1 person**, and those five were the

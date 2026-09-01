@@ -25,6 +25,13 @@
  * with the SSR Worker's `firePageView` and with the digest's read-side filter so
  * the three can't drift.
  *
+ * AECI-743 added a last-fired-route memo: with the query string stripped, a
+ * programmatic `router.navigate([], { queryParams })` produced a row identical to
+ * the previous one, so a debounced URL sync wrote several views of one page. Only
+ * consecutive repeats of the same route collapse. That memo is one of two nets —
+ * the API also refuses a second row for the same visitor + page inside
+ * `PAGE_VIEW_DEDUPE_WINDOW_MS`, which is what catches the SSR side.
+ *
  * Browser-only (no-op on the server) and fire-and-forget (errors swallowed —
  * analytics must never break navigation). The endpoint returns 204 and, since
  * Phase 4 (AECI-177), inserts an enriched `page_views` row server-side; this
@@ -46,6 +53,13 @@ export class PageViewTracker {
   private readonly http = inject(HttpClient);
   private readonly isBrowser = isPlatformBrowser(inject(PLATFORM_ID));
   private started = false;
+  /**
+   * The last route this tracker actually posted (AECI-743). See `fire()` — it is
+   * the memo that stops a query-string rewrite from being counted as a new view.
+   * Seeded by the skipped initial navigation so the landing page, already counted
+   * server-side, cannot be re-counted by the first URL sync after hydration.
+   */
+  private lastFiredRoute: string | null = null;
 
   /**
    * Begin tracking client-side navigations. Idempotent and a no-op on the
@@ -63,6 +77,7 @@ export class PageViewTracker {
       .subscribe((event) => {
         if (isInitialNavigation) {
           isInitialNavigation = false;
+          this.lastFiredRoute = event.urlAfterRedirects.split(/[?#]/, 1)[0] || '/';
           return;
         }
         this.fire(event.urlAfterRedirects);
@@ -74,6 +89,24 @@ export class PageViewTracker {
     // §9.6 — never record the operator's own navigation. Guarding here rather
     // than in the subscription means any future caller inherits the exclusion.
     if (isUntrackedRoute(route)) return;
+    // AECI-743 — a navigation that only rewrote the QUERY STRING is not a new view.
+    // The line above strips `?` and `#`, so a `router.navigate([], { queryParams })`
+    // produces a row byte-identical to the previous one: same route, same path, same
+    // UA hash, same ASN. Those calls are everywhere and several are debounced, so a
+    // single typed search query used to write a row per keystroke-batch
+    // (`search-page.ts` `scheduleUrlSync`, `paginated-index-controller.ts`,
+    // `facet-sidebar.ts`).
+    //
+    // Only CONSECUTIVE repeats collapse, so A → B → A still counts both visits to A.
+    // Deliberately NOT keyed on `Navigation.extras.replaceUrl`, which looks like the
+    // precise discriminator and is a trap: Angular issues Back/Forward (popstate)
+    // navigations with `replaceUrl: true` as well, so that test would silently stop
+    // counting every history navigation — a real view, and a worse error than the one
+    // being fixed. Known trade-off: `?page=2` pagination on a listing no longer adds a
+    // row. It never carried the page number anyway (this table stores no query string
+    // by design, §9.7), so those rows were indistinguishable from the noise above.
+    if (route === this.lastFiredRoute) return;
+    this.lastFiredRoute = route;
     // `navigation: 'spa'` (AECI-585 / §7.3) — this tracker fires ONLY on in-app
     // navigation (the initial hydration is skipped above), so the flag is a fact
     // about the writer, not a guess. Without it the same-origin `Referer` on this

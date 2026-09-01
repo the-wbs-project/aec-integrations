@@ -332,9 +332,38 @@ numbers), and again at launch.
 > **Three follow-ups this implies**, in descending value: (1) **AECI-742** — give the detector
 > cross-day memory so a hash with a flagged history keeps a lower per-day bar; (2) **AECI-744** —
 > treat `client_verdict` of `inconsistent`/`non-browser` as disqualifying on its own, with no
-> cardinality floor; (3) **AECI-743** — fix the double-fire. None of them is a `DATACENTER_ASNS` widening — the standing rule that a human decides
+> cardinality floor; (3) **AECI-743** — fix the double-fire (**shipped 2026-09-01**, see the addendum below). None of them is a `DATACENTER_ASNS` widening — the standing rule that a human decides
 > before an ASN joins that list still holds, and these are commercial proxy/seedbox providers rather
 > than the consumer ISPs that rule exists to protect.
+
+> **AECI-743 addendum (2026-09-01) — the double-fire is fixed, and it was not the suspect anyone
+> named.** Queried against production D1, both rows of the 8/29 pair are `navigation = 'arrival'`
+> with `path = '/products/:slug'` and the product FK resolved — i.e. two full SSR cacheable-branch
+> **cache-MISS renders**, not an SSR write racing a client `PageViewTracker` write. That suspect is
+> ruled out structurally, not by inspection: the tracker sends `navigation = 'spa'`, and
+> `classifyReferrer` maps any same-origin `Referer` to `Direct`, so a client row can never read
+> `Google`. `handleSsr` fires `firePageView` at most once per invocation and runs once per request,
+> so **the browser sent the document request twice** — a prerender, a double-click, or a
+> HEAD-then-GET probe — and nothing in the stack refused the second row.
+>
+> **What changed for reading these numbers.** From 2026-09-01 ingest refuses a second row for the
+> same `(concrete_path, user_agent_hash, cf_asn)` within ~10–20 s (`dedupe_key` + a UNIQUE index,
+> migration `0020`), the SSR Worker no longer counts speculative (`Sec-Purpose: prefetch`/
+> `prerender`) loads or non-GET requests, and the browser tracker no longer fires on a query-only
+> re-navigation. Mechanism: `API_CONTRACTS.md` §6.9, "One document load, one row".
+>
+> **Two limits that must travel with any pre-2026-09 figure.** Rows written before the fix are
+> **not** repairable — the stored row cannot distinguish a double-fire from two genuine arrivals —
+> so every historical day may read slightly high.
+> `scripts/ops/2026-09-page-view-duplicates/find-duplicates.sql` reports the suspects read-only;
+> against production on 2026-09-01 it found 52 human `arrival` pairs, 23 human `spa` pairs and 589
+> pairs with a null `navigation` (pre-AECI-585 rows, which cannot be attributed to a writer) inside
+> the 20 s window. **The corroborated floor is affected on exactly two days**: 2026-08-29 (2 → 1)
+> and 2026-08-18 (4 → 3). Both are corrected in `POST_LAUNCH_HEALTH_REPORT.md`.
+>
+> And the guard is a floor on precision, not a claim of exactness: bot-classified rows and rows with
+> no `user_agent_hash` are deliberately left unconstrained, so a crawler's repeat fetches still count
+> once each and the crawler tables stay a raw count.
 
 ## How to read the numbers (weekly, going forward)
 

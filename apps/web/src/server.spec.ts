@@ -1699,6 +1699,69 @@ describe('createApp page-view capture (AECI-58)', () => {
     expect(cacheStub.put).not.toHaveBeenCalled();
   });
 
+  // ── AECI-743: one full-document load, one row ──────────────────────────────
+
+  it.each([
+    ['sec-purpose', 'prefetch'],
+    ['sec-purpose', 'prefetch;prerender'],
+    ['purpose', 'prefetch'],
+    ['x-moz', 'prefetch'],
+    ['x-purpose', 'preview'],
+  ])('does NOT fire page-views for a speculative load (%s: %s)', async (name, value) => {
+    const { binding, calls } = recordingApiBinding();
+    const app = createApp({
+      ssrRenderer: fixedRenderer(new Response('<html>index</html>', { status: 200 })),
+    });
+
+    await app.fetch(
+      new Request('https://www.aecintegrations.com/products/revit', {
+        headers: { [name]: value },
+      }),
+      binding as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+
+    expect(pageViewCalls(calls)).toHaveLength(0);
+  });
+
+  it('still fires page-views when Sec-Purpose carries a non-speculative value', async () => {
+    const { binding, calls } = recordingApiBinding();
+    const app = createApp({
+      ssrRenderer: fixedRenderer(new Response('<html>index</html>', { status: 200 })),
+    });
+
+    await app.fetch(
+      new Request('https://www.aecintegrations.com/products/revit', {
+        headers: { 'sec-purpose': 'something-else' },
+      }),
+      binding as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+
+    expect(pageViewCalls(calls)).toHaveLength(1);
+  });
+
+  it('does NOT fire page-views for a HEAD request (AECI-743)', async () => {
+    // A HEAD takes the non-cacheable branch, which still renders and still lets a
+    // resolver attach `ctx.pageView` — so a HEAD-then-GET probe used to write two
+    // byte-identical `arrival` rows.
+    const { binding, calls } = recordingApiBinding();
+    const app = createApp({
+      ssrRenderer: (_req, ctx) => {
+        ctx.pageView = { route: '/products/:slug', entity_type: 'product', entity_id: 'x' };
+        return new Response('<html>detail</html>', { status: 200 });
+      },
+    });
+
+    await app.fetch(
+      new Request('https://www.aecintegrations.com/products/revit', { method: 'HEAD' }),
+      binding as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+
+    expect(pageViewCalls(calls)).toHaveLength(0);
+  });
+
   it('does NOT fire page-views on non-cacheable routes', async () => {
     const { binding, calls } = recordingApiBinding();
     const app = createApp({

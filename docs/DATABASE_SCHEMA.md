@@ -892,6 +892,12 @@ Server-side page view log with Cloudflare header enrichment. Privacy-respecting 
 
 All three live together in one predicate in code (`NOT_INTERNAL`, `apps/api/src/lib/analytics-digest.ts`) precisely so no reader applies some and forgets the rest — a hand-written query is now the only place they can come apart. Two details of the third clause are load-bearing. The `strftime` format string reproduces the stored ISO shape exactly; bare `datetime()` returns `'YYYY-MM-DD HH:MM:SS'`, and a space sorts before `T`, so the comparison would be silently wrong at the boundary. And `not exists` — rather than the tempting `not (hash = ? and asn = ?)` — is what keeps it NULL-safe: with a NULL `user_agent_hash` the latter evaluates to NULL and the `where` clause *drops the row*, which is the opposite of the correct reading (an unidentifiable row is not evidence of anything).
 
+**One document load, one row (AECI-743).** This was an assumption, not an invariant, until 2026-09. Nothing in the writers or the schema refused a second row: production held two byte-identical rows 83 ms apart for one arrival on `/products/leap-crm` — both `navigation = 'arrival'` with the resolver's route *pattern*, i.e. two full cacheable-branch cache-MISS renders. `handleSsr` fires `firePageView` at most once per invocation and runs once per request, so the browser simply sent the document request twice. Those two rows were the entire "Google — 2 views" traffic-source table and the whole corroborated-referrer population of that day's digest: a 100% error on the AECI-683 floor, the one figure chosen precisely because a rotating-proxy pool cannot inflate it.
+
+The guard is `dedupe_key` + its UNIQUE index (see the DDL below) at ingest, plus three writer-side refusals — speculative (`Sec-Purpose: prefetch`/`prerender`) loads, non-GET requests, and query-only SPA re-navigations. Full mechanism and the reasoning behind each: `API_CONTRACTS.md` §6.9, "One document load, one row".
+
+**Two consequences for anyone querying this table.** Rows written before 2026-09 carry a null `dedupe_key` and are still double-counted; `scripts/ops/2026-09-page-view-duplicates/find-duplicates.sql` reports them read-only (the corroborated floor is wrong on exactly two days, 2026-08-18 and 2026-08-29, corrected in `POST_LAUNCH_HEALTH_REPORT.md`). And the guard is a **floor on precision, not a claim of exactness**: bot rows and rows with no `user_agent_hash` are deliberately left unconstrained, so a crawler's repeat fetches still count once each.
+
 **`path` vs `concrete_path` (AECI-585).** `path` is the route the *writer* named: the pattern (`/products/:slug`) when it knows one — an SSR resolver attached `ctx.pageView` — and the concrete path otherwise (the browser tracker, an SSR cache HIT). It has always been that mix; nothing changed about it. `concrete_path` is new and is *always* the real URL path, locale-stripped and without query or hash. Both are stored because they answer different questions: grouping "top pages" wants the pattern, naming an individual row wants the concrete path. Product and vendor rows could always recover a name through their FK; taxonomy rows could not, which is what made this column necessary.
 
 ```sql
@@ -1036,6 +1042,20 @@ create table page_views (
   -- boolean whose only consumer is an exclusion predicate — no id, no role string,
   -- nothing that singles a visitor out — and D7's arrival-path objection is closed at
   -- the source, because firePageView now forwards the inbound Cookie.
+  -- AECI-743 — the one-arrival-one-row guard. sha256(concrete_path | user_agent_hash |
+  -- cf_asn | floor(now / PAGE_VIEW_DEDUPE_WINDOW_MS)), computed at ingest and protected
+  -- by the UNIQUE index below. Hashed rather than stored as a readable tuple for the
+  -- same reason the raw UA never lands here: it is a constraint handle, not a lookup
+  -- key, and nothing reads it back to identify anyone.
+  -- NULLABLE ON PURPOSE, and that is the whole design: SQLite indexes NULLs as DISTINCT,
+  -- so a null key opts a row OUT of the constraint. Ingest writes null for bot-classified
+  -- rows (crawler volume must stay a raw count) and for rows with no user_agent_hash
+  -- (the key would degenerate to path + ASN and collide two strangers behind one
+  -- network). Null on every row written before 2026-09; those cannot be backfilled,
+  -- because the stored row cannot distinguish a double-fire from two genuine arrivals.
+  -- navigation is deliberately NOT in the key, so an SSR 'arrival' and the tracker's
+  -- 'spa' row for the same document collapse too.
+  dedupe_key text,
   created_at timestamptz not null default now()
 );
 
@@ -1058,6 +1078,14 @@ create index page_views_bot_idx on page_views(is_bot, created_at); -- digest hum
 create index page_views_operator_pair_idx
   on page_views(user_agent_hash, cf_asn, created_at)
   where is_operator = 1; -- AECI-683: serves NOT_INTERNAL's operator-pair retro-join
+create unique index page_views_dedupe_key_idx on page_views(dedupe_key); -- AECI-743
+-- UNIQUE is the load-bearing word. The ingest-side probe (routes/page-views.ts) exists
+-- for the `outcome:deduped` metric; it is this constraint, via ON CONFLICT DO NOTHING,
+-- that actually settles the case the issue is named for — two writes 83 ms apart, both
+-- in flight from waitUntil, where the second SELECT can run before the first INSERT
+-- commits. NOT partial, unlike the index above: a partial index cannot back an upsert
+-- conflict target. The write cost stays proportional anyway, because the null-key rule
+-- means the bot rows that dominate this table store no index entry at all.
 -- Partial, so SQLite stores an entry only for operator rows — a few hundred out of
 -- ~27k in production — and the write cost on the anonymous traffic that dominates this
 -- table is zero. The key order matches the correlated subquery: seek on
