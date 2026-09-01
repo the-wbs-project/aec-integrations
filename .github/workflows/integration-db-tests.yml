@@ -54,7 +54,11 @@ name: integration-db-tests
 
 on:
   pull_request:
-    branches: [main]
+    # No `branches:` (base-branch) filter — mirrors deploy.yml. `branches:` here
+    # filters by BASE branch, so pinning it to `main` exempted every PR into
+    # `stage-2` / `admin-panel` / an epic branch from this gate. The `paths:`
+    # filter below is the real (and only) cost control: a PR that doesn't touch
+    # the auth/JWKS input set skips entirely and bills nothing, whatever its base.
     paths:
       - 'supabase/config.toml'
       - 'apps/api/src/integration/**'
