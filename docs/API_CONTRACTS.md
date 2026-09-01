@@ -2397,6 +2397,18 @@ export interface PromoteResponse {
     trades: { slug: string; id: string; operation: 'reused' }[];
   };
   skipped: { ref: string; kind: 'integration' | 'extension' | 'usefulness' | 'claim' | 'trade'; reason: string }[];
+  // AECI-730. NOT `skipped[]`: the integration WAS written, only this one optional
+  // link was left out of the write. `outcome: 'unset'` = created, so the column is
+  // NULL; `'preserved'` = updated and the column was left exactly as it was (the
+  // clobber guard). Always emitted (`[]` when clean); optional only so a result
+  // stored by a pre-AECI-730 build still narrows — read it as `?? []`.
+  unresolvedLinks?: {
+    ref: string;
+    field: 'powered_by' | 'built_by';
+    supabaseId: string | null;
+    outcome: 'unset' | 'preserved';
+    reason: string;
+  }[];
 }
 ```
 
@@ -2405,6 +2417,17 @@ only when both endpoints resolve — one is the product in this bundle (`ref`), 
 other must already be promoted (`supabaseId`). Integrations whose other endpoint
 isn't promoted yet land in `skipped[]` rather than failing the promote. Every
 create/update writes an `audit_log` row in the same transaction (§26).
+
+**Optional links are the asymmetric case (AECI-730).** `poweredByProduct` and
+`builtByVendor` are *not* endpoints: an unresolvable one does not refuse the row, so
+the integration lands without that column. Three payload states, matching how
+`compact()` treats every other field: key **absent** → column untouched; explicit
+**`null`** → column cleared; present but **unresolvable** → column untouched **and**
+reported in `unresolvedLinks[]`. That last branch is the fix — it used to write NULL,
+so a re-push whose connector had stopped resolving silently cleared a correct FK.
+Reported post-commit as `aeci.api.promote.unresolved_link{field}` at `info`, not
+`warn`: Zapier and Workato are parked permanently (AECI-700), so the series is
+non-zero by design.
 
 **Claims (Stage 1.5, AECI-291 contract / AECI-297 ingest):** each integration may
 carry a nested `claims[]` of data-object assertions (`STAGE_1_5_SPEC.md` §5/§6.2). A

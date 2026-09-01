@@ -66,9 +66,11 @@ import {
   type EntityRef,
   type PromoteEntityResult,
   type PromoteIntegrationResult,
+  type PromoteOperation,
   type PromoteResponse,
   type PromoteSkipped,
   type PromoteTaxonomyResult,
+  type PromoteUnresolvedLink,
   type PromoteVendor,
   type PromoteProduct,
   type PromoteIntegration,
@@ -282,6 +284,36 @@ function integrationEditableData(intg: PromoteIntegration): Record<string, unkno
     maturity: intg.maturity,
     notes: intg.notes,
   });
+}
+
+/**
+ * Build one AECI-730 report entry for an optional integration link that didn't
+ * resolve, so the column was left out of the write.
+ *
+ * `operation` is the enclosing integration's own outcome, and it decides what the
+ * stored column now holds: a **create** leaves it NULL (`unset`), an **update**
+ * leaves whatever was already there (`preserved`) — which is the clobber guard.
+ */
+function unresolvedLinkEntry(
+  intgRef: string,
+  field: PromoteUnresolvedLink['field'],
+  ref: EntityRef | null | undefined,
+  operation: PromoteOperation,
+): PromoteUnresolvedLink {
+  const outcome = operation === 'updated' ? 'preserved' : 'unset';
+  const { payloadKey, column } =
+    field === 'powered_by'
+      ? { payloadKey: 'poweredByProduct', column: 'powered_by_product_id' }
+      : { payloadKey: 'builtByVendor', column: 'built_by_vendor_id' };
+  return {
+    ref: intgRef,
+    field,
+    supabaseId: ref?.supabaseId ?? null,
+    outcome,
+    reason:
+      `${payloadKey} ${ref?.supabaseId ?? ref?.ref ?? '(unspecified)'} is not promoted in AECi; ` +
+      `${column} ${outcome === 'preserved' ? 'left unchanged' : 'left unset'}`,
+  };
 }
 
 /**
@@ -759,6 +791,57 @@ function logPromoteStaleIds(rc: PromoteRunCtx, staleSupabaseIds: PromoteStaleId[
 }
 
 /**
+ * Surface a promote's unresolved optional links (AECI-730) in Datadog. The ingest
+ * writes an integration whose `poweredByProduct` / `builtByVendor` doesn't resolve
+ * *without* that column, which used to be invisible everywhere: no `skipped[]` entry
+ * (the row DID land), no `staleSupabaseIds` entry, no metric, no log. The only trace
+ * was the absence of `poweredBySlug` from the result, which nobody was told to check
+ * — so the NULL-FK population re-accrued silently on every promote and could only be
+ * found by an offline sweep (`scripts/ops/2026-08-powered-by-backfill/`).
+ *
+ * **Deliberately `info`, and deliberately NOT folded into {@link logPromoteSkips}.**
+ * Zapier and Workato are parked permanently (AECI-700), so every promote of an
+ * endpoint carrying one of their edges fires this — forever, by design. A `warn` on
+ * the expected steady state, or a bump to `aeci.api.promote.skipped` (which means
+ * "something wasn't written"), would turn a real signal into noise an operator learns
+ * to ignore, which is the exact failure mode this exists to fix. The actionable read
+ * is a *rise* in `field:powered_by`, not its non-zero-ness.
+ *
+ * Shape mirrors {@link logPromoteStaleIds}: one log with every
+ * `{ ref, field, supabaseId, outcome }` plus per-field counts, and an
+ * `aeci.api.promote.unresolved_link` count (value = per-field count, so query with
+ * `sum:`). Fire-and-forget over the same self-gating transport. No-op when clean.
+ */
+function logPromoteUnresolvedLinks(
+  rc: PromoteRunCtx,
+  unresolvedLinks: PromoteUnresolvedLink[],
+): void {
+  if (unresolvedLinks.length === 0) return;
+
+  const countByField = unresolvedLinks.reduce<Record<string, number>>((acc, l) => {
+    acc[l.field] = (acc[l.field] ?? 0) + 1;
+    return acc;
+  }, {});
+
+  logToDatadog(rc, rc.env, rc.request, {
+    level: 'info',
+    message: 'aeci.api.promote.unresolved_link',
+    source: 'review-app-promote',
+    outcome: 'unlinked',
+    unresolved_link_count: unresolvedLinks.length,
+    ...Object.fromEntries(Object.entries(countByField).map(([k, n]) => [`unresolved_${k}`, n])),
+    unresolved_links: unresolvedLinks,
+  });
+
+  for (const [field, n] of Object.entries(countByField)) {
+    submitCount(rc, rc.env, rc.request, 'aeci.api.promote.unresolved_link', n, [
+      'source:promote',
+      `field:${field}`,
+    ]);
+  }
+}
+
+/**
  * Surface an absorbed commit replay (AECI-571) in Datadog.
  *
  * This is the ONLY direct evidence that the Workflows at-least-once window actually
@@ -1143,6 +1226,10 @@ export async function runPromoteIngest(
   // Ids the caller supplied that resolve to nothing — each one falls back to a create
   // below, and is reported post-commit so the dead pointer is visible (AECI-568).
   const staleSupabaseIds: PromoteStaleId[] = [];
+  // Optional integration links (`poweredByProduct` / `builtByVendor`) that didn't
+  // resolve. The integration itself is still written — just without that column —
+  // and the drop is reported on the response and in Datadog (AECI-730).
+  const unresolvedLinks: PromoteUnresolvedLink[] = [];
 
   // Preload existing slugs for collision-free generation (outside the batch).
   const loadSlugs = async (col: SQLiteColumn) =>
@@ -1479,6 +1566,30 @@ export async function runPromoteIngest(
     return null;
   };
 
+  /**
+   * Resolve one OPTIONAL integration link (`builtByVendor` / `poweredByProduct`) into
+   * a value for the upsert, keeping three payload states apart (AECI-730):
+   *
+   *   - **key absent** → `undefined` → dropped by `compact()`, column left untouched.
+   *   - **explicit `null`** → `null` → written, column cleared. That is how a curator
+   *     removes a link, so it has to keep working.
+   *   - **present but unresolvable** → `undefined` + `unresolved: true`. This is the
+   *     defect: it used to collapse to `null`, so the write not only failed to link,
+   *     it *cleared* a correct FK an earlier promote had set — with no report anywhere.
+   *
+   * Contrast the two ENDPOINTS, which are mandatory: an unresolvable one refuses the
+   * whole row into `skipped[]`. These two are optional, so the row still lands.
+   */
+  const resolveLink = async (
+    ref: EntityRef | null | undefined,
+    resolve: (r: EntityRef) => Promise<string | null>,
+  ): Promise<{ value: string | null | undefined; unresolved: boolean }> => {
+    if (ref === undefined) return { value: undefined, unresolved: false };
+    if (ref === null) return { value: null, unresolved: false };
+    const id = await resolve(ref);
+    return id ? { value: id, unresolved: false } : { value: undefined, unresolved: true };
+  };
+
   // ── Product (+ join rows + extensions) ────────────────────────────────────
   if (p) {
     // The existence read the update branch already needed doubles as the guard: a
@@ -1702,16 +1813,17 @@ export async function runPromoteIngest(
       });
       continue;
     }
-    const builtByVendorId = intg.builtByVendor ? await resolveVendor(intg.builtByVendor) : null;
-    const poweredByProductId = intg.poweredByProduct
-      ? await resolveProduct(intg.poweredByProduct)
-      : null;
+    // The two OPTIONAL links. `compact()` is what makes the AECI-730 guard work:
+    // an unresolvable link resolves to `undefined` and is dropped from the write,
+    // so the column is left untouched instead of being cleared to NULL. The two
+    // endpoints above are already non-null, so `compact()` never drops them.
+    const builtBy = await resolveLink(intg.builtByVendor, resolveVendor);
+    const poweredBy = await resolveLink(intg.poweredByProduct, resolveProduct);
 
     const linkData = {
       sourceProductId: sourceId,
       targetProductId: targetId,
-      builtByVendorId,
-      poweredByProductId,
+      ...compact({ builtByVendorId: builtBy.value, poweredByProductId: poweredBy.value }),
     };
 
     let integrationId: string;
@@ -1720,9 +1832,12 @@ export async function runPromoteIngest(
     // products are recomputed too (the AECI-86 drift fix); the new endpoints are added
     // below. Read pre-batch. A miss also means the id is dead, so create instead of
     // no-op-updating (AECI-568).
+    // `poweredByProductId` rides along for the AECI-730 `preserved` branch: when the
+    // payload's connector didn't resolve we leave the column alone, so the STORED
+    // value — not the payload's — is the one whose product page still needs purging.
     const existing = intg.supabaseId
       ? await db.query.integrations.findFirst({
-          columns: { sourceProductId: true, targetProductId: true },
+          columns: { sourceProductId: true, targetProductId: true, poweredByProductId: true },
           where: eq(integrations.id, intg.supabaseId),
         })
       : undefined;
@@ -1760,8 +1875,27 @@ export async function runPromoteIngest(
         entityId: id,
       });
     }
+    // Report each link the write had to leave out (AECI-730). Pushed HERE, after the
+    // branch, because `outcome` is decided by whether the row was created (column is
+    // NULL) or updated (column left exactly as it was — the clobber guard).
+    if (poweredBy.unresolved) {
+      unresolvedLinks.push(
+        unresolvedLinkEntry(intg.ref, 'powered_by', intg.poweredByProduct, result.operation),
+      );
+    }
+    if (builtBy.unresolved) {
+      unresolvedLinks.push(
+        unresolvedLinkEntry(intg.ref, 'built_by', intg.builtByVendor, result.operation),
+      );
+    }
+
     integrationResults.push(result);
-    integrationEndpoints.push({ result, sourceId, targetId, poweredById: poweredByProductId });
+    // `undefined` means the column was left untouched, so what still applies is the
+    // value already stored — the update branch's pre-read carries it. Anything else
+    // (a resolved id, or an explicit `null` clear) is what was actually written.
+    const poweredById =
+      poweredBy.value === undefined ? (existing?.poweredByProductId ?? null) : poweredBy.value;
+    integrationEndpoints.push({ result, sourceId, targetId, poweredById });
 
     // ── Claims (replace-by-integration — §6.2) ──────────────────────────────
     // Claims attach to THIS mechanism row and are replaced to exactly match the
@@ -1874,6 +2008,7 @@ export async function runPromoteIngest(
       trades: trades.results,
     },
     skipped,
+    unresolvedLinks,
   };
 
   // `wrote` MUST be read here, BEFORE the ledger statement joins the batch. It means
@@ -2034,4 +2169,10 @@ export function dispatchPromoteHooks(
   // response says `created`, but only this says *why* — that the review app was
   // holding a dead pointer.
   logPromoteStaleIds(rc, staleSupabaseIds);
+
+  // Surface any optional integration link the write had to leave out (AECI-730).
+  // Read off `response`, so an AECI-571 replay reports it too — the ledger stores the
+  // response wholesale. `?? []` because a ledger row written before AECI-730 has no
+  // such key, and this runs post-commit where a throw has nothing to roll back.
+  logPromoteUnresolvedLinks(rc, response.unresolvedLinks ?? []);
 }

@@ -8,7 +8,12 @@ a connector.
 > `backfillable` bucket. Every prod edge whose connector is promoted already carries
 > its FK. The residual gap is a _promotion-coverage_ problem, not a D1 data defect —
 > see [What the sweep found](#what-the-sweep-found). The backfill script is committed
-> because it is the cheap fix for the moment the `on_hold` connector decision lands.
+> because it is the cheap fix for a row that ever does drift FK-only.
+>
+> **Update (2026-09-01, AECI-730):** the promote-side root cause below is **fixed** —
+> the silent drop is now reported and a re-push no longer clears a stored FK. And
+> AECI-700 decided Zapier and Workato stay parked **permanently**, so the
+> `connectorUnpromoted` bucket has a permanent non-zero floor rather than draining.
 
 ---
 
@@ -24,13 +29,20 @@ const poweredByProductId = intg.poweredByProduct
 
 `resolveProduct` returns `null` when the referenced connector is not in D1 yet. Unlike
 the **endpoint** path twenty lines above it — which pushes a `skipped[]` entry and
-abandons the row — an unresolvable powered-by is dropped **silently**: no `skipped[]`,
+abandons the row — an unresolvable powered-by was dropped **silently**: no `skipped[]`,
 no `staleSupabaseIds`, no metric. The integration is written anyway, just without its
 connector.
 
-§3.4 of `docs/REVIEW_APP_PROMOTE_API.md` constrains only the two _endpoints_ ("the
-other endpoint must already be promoted"). It says nothing about the connector, and
-that silence is the ordering gap.
+§3.4 of `docs/REVIEW_APP_PROMOTE_API.md` constrained only the two _endpoints_ ("the
+other endpoint must already be promoted"). It said nothing about the connector, and
+that silence was the ordering gap.
+
+**Fixed by AECI-730 (2026-09-01)**, which is why the snippet above is past tense. The
+ingest now reports the drop on the promote response as `unresolvedLinks[]` and emits
+`aeci.api.promote.unresolved_link{field:powered_by}`, and it omits the column from the
+write rather than resolving it to `null` — so an update can no longer clear a correct
+FK. What that does **not** do is create the missing connector: the bucket below is
+still the population, it is simply no longer invisible until this sweep runs.
 
 This matters because the FK is the **routing key** for the powered-edge migration: an
 edge with a NULL `powered_by` cannot be migrated to "via {connector}".
@@ -54,7 +66,7 @@ So the sweep classifies on full-row congruence over the fields promote owns, and
 | --------------------- | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
 | `backfillable`        | upstream FK set; edge in prod; connector in prod; prod FK NULL; every other promote-owned field already matches | safe to `UPDATE` — this is `backfill.sh`'s cohort |
 | `divergent`           | as above, but name / `mechanism_kind` / `direction` / endpoints also differ                                     | re-promote the endpoint product; never poke       |
-| `connectorUnpromoted` | upstream FK set, edge in prod, connector **not** promoted                                                       | blocked by the `on_hold` decision                 |
+| `connectorUnpromoted` | upstream FK set, edge in prod, connector **not** promoted                                                       | never reaches zero — see below (AECI-700)         |
 | `edgeUnpromoted`      | upstream powered edge has no prod row at all                                                                    | needs a promote, not a backfill                   |
 | `mismatch`            | prod FK set but points somewhere other than upstream                                                            | investigate by hand                               |
 
@@ -85,7 +97,11 @@ a promoted product, so there is no FK target to point at. Exactly the set the is
 predicted: Zapier 24, Workato 15, Blackbox Connector 4, Trimble AppXchange 4, Finch
 Employment API 3, Autodesk Platform Services 3, Forma Construction Connect 2, n8n 2,
 and one each for Box/SyncEzy, Boomi, SharePoint/SyncEzy, Make, ADP/Flexspring.
-**Resolved by the `on_hold` decision, not by this script.**
+**Not resolvable by this script, and — for most of it — not resolvable at all.**
+AECI-700 parks **Zapier and Workato permanently**: neither will ever be promoted, so
+their 39 edges (63% of this bucket) are a permanent floor, and the ceiling grows as
+more endpoint products are promoted. Treat a non-zero `connectorUnpromoted` as the
+expected state, not as a queue.
 
 **`edgeUnpromoted` (184)** — the upstream edge has never been promoted at all: Zapier
 86, Workato 29, Make 19, Kroo Connector 15, Aquifer 12, MindCloud 6, Finch 5, Blackbox
@@ -192,15 +208,19 @@ exposes `promote_product` and the `create_*`/`update_*` family.
 
 ## Follow-ups this work does not do
 
-- **The root cause is unfixed — [AECI-730](https://linear.app/aec-integrations/issue/AECI-730).**
-  `promote.ts` still drops an unresolvable `poweredByProduct` with no `skipped[]`, no
-  `staleSupabaseIds` and no metric, so the gap re-accrues invisibly on every promote.
-  It also _clears_ an existing FK on update when the connector fails to resolve,
-  because `linkData` is spread unconditionally over `compact()`'s output.
-- **Promotion coverage** is what actually closes the remaining 246 edges: promote the
-  `on_hold` connectors (Zapier, Workato, Make, n8n, …), then re-promote the endpoint
-  products so their edges land. Until then those buckets are expected to be non-empty
-  and `audit.mjs` will keep exiting `1`.
-- If the sweep is ever wired to a cron alongside `promote-strand-audit.yml`, it needs a
-  `connectorUnpromoted`/`edgeUnpromoted` allowance or it will be red every day for
-  reasons no operator can act on.
+- **The root cause is fixed — [AECI-730](https://linear.app/aec-integrations/issue/AECI-730)
+  (2026-09-01).** `promote.ts` no longer drops an unresolvable `poweredByProduct`
+  silently: it reports it on the response as `unresolvedLinks[]` and in Datadog as
+  `aeci.api.promote.unresolved_link{field:powered_by}` (`info`, not `warn` — see below),
+  and it no longer _clears_ a stored FK on update, because the column is now omitted
+  from the write instead of being resolved to `null`. `builtByVendor` got the same
+  guard. So this bucket is now visible at promote time, not only in this sweep.
+- **Promotion coverage closes only part of the remaining 246 edges.** Promoting a
+  connector and then re-promoting the endpoint products does land their edges — but
+  **Zapier and Workato are excluded by decision (AECI-700) and will never be promoted**,
+  so 39 of the 62 `connectorUnpromoted` and 115 of the 184 `edgeUnpromoted` can never be
+  closed that way. `audit.mjs` will keep exiting `1` permanently, by design.
+- **The cron caveat is now the operative one, not a hypothetical.** If this sweep is
+  wired alongside `promote-strand-audit.yml` it **must** carry a `connectorUnpromoted` /
+  `edgeUnpromoted` allowance — those buckets have a permanent non-zero floor, so without
+  one it is red every day for a reason no operator can act on.

@@ -1448,6 +1448,178 @@ describe('runPromoteIngest — claims ingest (AECI-297)', () => {
     expect(b.integrations[0]?.poweredBySlug).toBeUndefined();
   });
 
+  // ── AECI-730: unresolvable optional links ────────────────────────────────────
+  // An unresolvable ENDPOINT refuses the whole row into `skipped[]`. The two
+  // OPTIONAL links used to do neither: the edge was written with the FK silently
+  // NULLed, and on an UPDATE that actively cleared a correct value an earlier
+  // promote had set. Both halves are covered here — the report and the guard.
+  describe('unresolved optional links (AECI-730)', () => {
+    /** Body promoting one edge Revit→Navisworks, with whatever link overrides. */
+    const edge = (overrides: Record<string, unknown>) => ({
+      product: { ref: 'p1', name: 'Revit' },
+      integrations: [
+        {
+          ref: 'i1',
+          sourceProduct: { ref: 'p1' },
+          targetProduct: { supabaseId: uuid(1) },
+          claims: [],
+          ...overrides,
+        },
+      ],
+    });
+
+    const body = async (res: Response) => (await res.json()) as PromoteResponse;
+
+    beforeEach(async () => {
+      await seedProduct(uuid(1), 'navisworks', 'Navisworks');
+    });
+
+    it('writes the integration but reports the connector, on create', async () => {
+      // uuid(9) is a product that was never promoted — the Zapier/Workato case.
+      const res = await promote(edge({ poweredByProduct: { supabaseId: uuid(9) } }));
+      expect(res.status).toBe(200);
+      const b = await body(res);
+
+      // The row LANDS — this is the difference from `skipped[]`.
+      expect(b.integrations).toHaveLength(1);
+      expect(b.skipped).toHaveLength(0);
+      const rows = await t.db.select().from(integrations);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]!.poweredByProductId).toBeNull();
+
+      expect(b.unresolvedLinks).toHaveLength(1);
+      expect(b.unresolvedLinks![0]).toMatchObject({
+        ref: 'i1',
+        field: 'powered_by',
+        supabaseId: uuid(9),
+        outcome: 'unset',
+      });
+      expect(b.unresolvedLinks![0]!.reason).toContain('powered_by_product_id left unset');
+      // No slug either — nothing to purge, because nothing is linked.
+      expect(b.integrations[0]!.poweredBySlug).toBeUndefined();
+    });
+
+    it('does NOT clear an existing powered_by when the connector stops resolving', async () => {
+      // The clobber regression. The stored FK is correct; the payload names a
+      // connector that no longer resolves. Before AECI-730 this wrote NULL.
+      const connector = uuid(2);
+      await seedProduct(connector, 'agave-erp-sync', 'Agave ERP Sync', {
+        productRole: 'connector',
+      });
+      await t.db.insert(integrations).values({
+        id: uuid(5),
+        sourceProductId: uuid(1),
+        targetProductId: connector,
+        poweredByProductId: connector,
+      });
+
+      const res = await promote(
+        edge({ supabaseId: uuid(5), poweredByProduct: { supabaseId: uuid(9) } }),
+      );
+      expect(res.status).toBe(200);
+      const b = await body(res);
+
+      const rows = await t.db.select().from(integrations);
+      expect(rows[0]!.poweredByProductId).toBe(connector);
+      expect(b.unresolvedLinks![0]).toMatchObject({ field: 'powered_by', outcome: 'preserved' });
+      expect(b.unresolvedLinks![0]!.reason).toContain('powered_by_product_id left unchanged');
+      // The preserved connector still rides back, so its own product page — which
+      // renders this edge in its "Integrations it powers" hub — is still purged.
+      expect(b.integrations[0]!.poweredBySlug).toBe('agave-erp-sync');
+    });
+
+    it('leaves powered_by untouched when the payload omits the key', async () => {
+      const connector = uuid(2);
+      await seedProduct(connector, 'agave-erp-sync', 'Agave ERP Sync');
+      await t.db.insert(integrations).values({
+        id: uuid(5),
+        sourceProductId: uuid(1),
+        targetProductId: connector,
+        poweredByProductId: connector,
+      });
+
+      const res = await promote(edge({ supabaseId: uuid(5) }));
+      expect(res.status).toBe(200);
+      const b = await body(res);
+
+      // Omission means "no opinion", exactly as `compact()` treats every scalar.
+      const rows = await t.db.select().from(integrations);
+      expect(rows[0]!.poweredByProductId).toBe(connector);
+      expect(b.unresolvedLinks).toHaveLength(0);
+    });
+
+    it('still clears powered_by on an explicit null', async () => {
+      // The curator's removal path has to keep working — the guard must not swallow it.
+      const connector = uuid(2);
+      await seedProduct(connector, 'agave-erp-sync', 'Agave ERP Sync');
+      await t.db.insert(integrations).values({
+        id: uuid(5),
+        sourceProductId: uuid(1),
+        targetProductId: connector,
+        poweredByProductId: connector,
+      });
+
+      const res = await promote(edge({ supabaseId: uuid(5), poweredByProduct: null }));
+      expect(res.status).toBe(200);
+      const b = await body(res);
+
+      const rows = await t.db.select().from(integrations);
+      expect(rows[0]!.poweredByProductId).toBeNull();
+      expect(b.unresolvedLinks).toHaveLength(0);
+      expect(b.integrations[0]!.poweredBySlug).toBeUndefined();
+    });
+
+    it('applies the same guard + report to builtByVendor', async () => {
+      const vendorId = uuid(3);
+      await seedVendor(vendorId, 'autodesk', 'Autodesk');
+      // Distinct endpoints — `integrations_distinct_endpoints_check` rejects a self-link.
+      await seedProduct(uuid(4), 'civil-3d', 'Civil 3D');
+      await t.db.insert(integrations).values({
+        id: uuid(5),
+        sourceProductId: uuid(1),
+        targetProductId: uuid(4),
+        builtByVendorId: vendorId,
+      });
+
+      const res = await promote(
+        edge({ supabaseId: uuid(5), builtByVendor: { supabaseId: uuid(9) } }),
+      );
+      expect(res.status).toBe(200);
+      const b = await body(res);
+
+      const rows = await t.db.select().from(integrations);
+      expect(rows[0]!.builtByVendorId).toBe(vendorId);
+      expect(b.unresolvedLinks).toHaveLength(1);
+      expect(b.unresolvedLinks![0]).toMatchObject({
+        ref: 'i1',
+        field: 'built_by',
+        supabaseId: uuid(9),
+        outcome: 'preserved',
+      });
+      expect(b.unresolvedLinks![0]!.reason).toContain('built_by_vendor_id left unchanged');
+    });
+
+    it('reports both links independently on one integration', async () => {
+      const res = await promote(
+        edge({
+          poweredByProduct: { supabaseId: uuid(9) },
+          builtByVendor: { supabaseId: uuid(8) },
+        }),
+      );
+      expect(res.status).toBe(200);
+      const b = await body(res);
+
+      expect(b.unresolvedLinks?.map((l) => l.field).sort()).toEqual(['built_by', 'powered_by']);
+      expect(b.unresolvedLinks!.every((l) => l.outcome === 'unset')).toBe(true);
+    });
+
+    it('is an empty array on a clean promote', async () => {
+      const res = await promote(edge({}));
+      expect(res.status).toBe(200);
+      expect((await body(res)).unresolvedLinks).toEqual([]);
+    });
+  });
+
   it('reports an unresolved dataObject in skipped[] (kind: claim), never a 500', async () => {
     const target = uuid(1);
     await seedProduct(target, 'navisworks', 'Navisworks');
