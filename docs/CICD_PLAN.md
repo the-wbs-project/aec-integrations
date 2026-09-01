@@ -96,6 +96,39 @@ The real site (`prod.aecintegrations.com`, the eventual home page). Promoted fro
 
 Runs in parallel where possible to minimize wall time. Goal: under 10 minutes total.
 
+> **The PR lane is base-branch-agnostic — every PR runs the full gate regardless of what it
+> targets.** `deploy.yml` and `integration-db-tests.yml` intentionally carry **no `branches:`
+> filter** on their `pull_request` trigger, matching `pr-preview.yml` and `drift-check.yml`.
+> This is load-bearing under the ADR 0019 branch model (§10): `branches:` on `pull_request`
+> filters by **base** branch, so the former `branches: [main]` made this entire suite invisible
+> to any PR targeting a long-lived integration branch (`stage-2`, `admin-panel`) or an epic
+> branch (`aeci-513`) — i.e. to most of the work in flight. It went unnoticed until PR #521
+> (the AECI-513 vendor-portal epic, ~13k lines into `stage-2`) merged having run **only**
+> `pr-preview`: no lint, no typecheck, no unit tests, no build, no E2E. Omitting the filter
+> rather than listing branches means epic branches are covered as they come and go, with no
+> list to maintain. It is safe because `deploy-staging` is independently gated on
+> `push` + `refs/heads/main` (plus `vars.STAGING_ENABLED`), so a non-`main` PR runs
+> `lint-and-types` / `unit-tests` / `build-web` / `e2e-and-integration` and **deploys nothing**.
+> The `pull_request` trigger carries **no `paths-ignore`** (removed — a docs-only skip starved the
+> required checks and deadlocked the merge; see the §8 resolution note): the three required jobs run
+> on every PR, and the docs-only cost control now lives on the non-required `e2e-and-integration`
+> job via the `changes` job. The `push` `paths-ignore` (docs-only) and the `paths` (auth/JWKS input
+> set) filter are unchanged.
+
+**Job: `changes`** (~10 s) — *non-required, advisory*
+1. **Checkout** — REQUIRED, not incidental. `dorny/paths-filter` reads the changed-file list from
+   the GitHub API on `pull_request`, but shells out to **git** on `push`. Without a working copy
+   the push lane dies on `git branch --show-current` → `fatal: not a git repository` → exit 128.
+2. `dorny/paths-filter@v3` with `base: ${{ github.event_name == 'push' && github.ref_name || '' }}`
+   — on `push`, naming the pushed branch makes the action diff against `github.event.before` (the
+   commits the push actually added). Its default base is the repo **default** branch, which on a
+   long-lived integration branch (`stage-2`, `admin-panel`) diffs the whole branch against `main`
+   and reports `code: true` forever. On `pull_request` the action ignores `base` entirely.
+3. Outputs `code` — `'true'` when at least one changed file is neither markdown nor under `docs/`.
+
+> Only `e2e-and-integration` reads this output, and it **fails open** (`!= 'false'`, not
+> `== 'true'`) — see §10. The three required jobs never `needs:` it.
+
 **Job: `lint-and-types`** (~2 min)
 1. Checkout
 2. Setup Node 24 with cache
@@ -485,6 +518,48 @@ Two checks run **advisory / non-blocking** rather than as merge gates: coverage 
 
 The "human reviewer" requirement is enforced by GitHub branch protection on `main`.
 
+> **Branch protection, per branch (verified 2026-08-14).**
+>
+> | Branch | Protected | Required contexts |
+> |---|---|---|
+> | `main` | Yes | `Lint & typecheck`, `Unit tests`, `Build SSR Worker` |
+> | `stage-2` | **Yes — added 2026-08-14**, an exact mirror of `main` | same three |
+> | `admin-panel` | **No** (404 "Branch not protected") | — |
+>
+> Both protected branches also set `strict: true` (PR must be up to date with the base before
+> merging), `required_linear_history`, `required_conversation_resolution`, and no
+> force-push/deletion. Neither sets `required_pull_request_reviews`, so the "human reviewer"
+> line above is aspirational, not enforced. Both leave **`enforce_admins: false`** — an admin can
+> still merge past red or missing checks.
+>
+> Re-verified **2026-09-01** while porting the fix below to `main` (AECI-728): `main` and
+> `stage-2` still require the same three contexts, `main` still sets `strict: true`, and
+> `admin-panel` has since been **retired** — the branch is deleted, so its row is historical.
+>
+> **Resolved — the required checks now always report, even on docs-only PRs.** Previously a
+> docs-only PR skipped `deploy.yml` entirely via the workflow-level `pull_request` `paths-ignore`,
+> so the three required contexts (`Lint & typecheck` / `Unit tests` / `Build SSR Worker`) never
+> arrived and GitHub blocked the merge pending checks that would never run — a skipped *workflow*
+> reports nothing, and "nothing" is not "green." It bit both `main` (PR #518, docs-only,
+> 2026-08-13, merged only on the `enforce_admins: false` admin bypass) and `stage-2` (PR #586).
+> The fix removed the `paths-ignore` from the `pull_request` trigger so the three required jobs
+> **always run and report**, and moved the docs-skip onto the individual expensive, **non-required**
+> job (`e2e-and-integration`), gated by a new `changes` job (`dorny/paths-filter`) that flags any
+> non-markdown/non-`docs/` change. Required checks are isolated from `changes` (they do not
+> `needs:` it), so even a failure of that job cannot re-block a merge. The `push` `paths-ignore` is
+> retained — post-merge runs are not merge-gating. (The base-branch-agnostic note under §3.1 and the
+> §"cost control" caveat below are updated to match.)
+>
+> **Follow-up — that `changes` job broke the whole `push` lane for a day (2026-08-31).** It was
+> added with no `actions/checkout`, which is fine on `pull_request` (paths-filter uses the GitHub
+> API) and fatal on `push` (it shells out to git): `fatal: not a git repository` → exit 128. Every
+> post-merge run failed, and because `e2e-and-integration` gated on `needs.changes.outputs.code ==
+> 'true'`, a *failed* filter skipped E2E — and `deploy-staging` `needs:` E2E, so **the staging
+> deploy would have been skipped on every push to `main`** once the branch merged up. Two fixes:
+> the job now checks out (and pins `base` to the pushed branch, see §3.1), and the downstream guard
+> fails **open**. The general lesson is in §10: an advisory job must never be able to *withhold* a
+> deploy by erroring.
+
 ---
 
 ## 9. Monitoring deployments
@@ -589,23 +664,45 @@ Aggressive caching to minimize CI time:
 
 ### 11.2 Parallel jobs
 
-Independent jobs run in parallel. The dependency graph is:
+Independent jobs run in parallel. The real `deploy.yml` dependency graph is:
 
 ```
 lint-and-types ─┐
-unit-tests ──────├── (gate)
-build ──────────┘
-   │
-   └── deploy-preview
-            │
-            ├── e2e-tests
-            ├── accessibility
-            └── lighthouse
+                ├─→ build-web ─┐
+unit-tests ─────┘              │
+                               ├─→ e2e-and-integration ─→ deploy-staging
+changes  ──────────────────────┘        (push + refs/heads/main + STAGING_ENABLED)
+ (advisory)
 ```
+
+`changes` has no `needs:` and nothing gates on it except `e2e-and-integration`, which reads it
+**fail-open** (§3.1 / §11.3). The three **required** contexts are `lint-and-types` / `unit-tests` /
+`build-web` — none of them `needs:` `changes`, so the filter can never block a merge.
+
+Preview deploys are a separate workflow (`pr-preview.yml`), and Lighthouse runs post-merge in
+`lighthouse.yml` — neither is a job in this graph.
 
 ### 11.3 Selective testing
 
-For very small PRs (e.g. doc-only changes), skip downstream jobs via `paths-ignore` in workflow triggers.
+For very small PRs (e.g. doc-only changes), skip only the **non-required** downstream jobs — never
+gate a required check behind a workflow-level `paths-ignore`.
+
+> **Do NOT skip required checks via a `pull_request` `paths-ignore`.** A workflow skipped by
+> `paths-ignore` reports *nothing*, and GitHub treats a missing required context as pending, not
+> passing — so a docs-only PR blocks on checks that will never run and needs the
+> `enforce_admins: false` bypass to merge (this was the §8 quirk; see its resolution note). The
+> implemented pattern: the three required jobs run on every PR (no `pull_request` `paths-ignore`),
+> and the docs-skip lives on the expensive non-required jobs (`e2e-and-integration`), gated by the
+> `changes` job's `code` output. The `push` `paths-ignore` stays — post-merge runs are not
+> merge-gating.
+
+> **A path filter must fail OPEN when a deploy hangs off it.** `e2e-and-integration` sits between a
+> push to `main` and `deploy-staging`, so its guard reads
+> `needs.changes.outputs.code != 'false'` — only an explicit docs-only verdict skips the lane. The
+> original `== 'true'` form conflated "docs-only" with "the filter did not answer", so a broken
+> `changes` job silently withheld the staging deploy instead of failing loudly (see the §8
+> follow-up). Same rule for any future advisory gate: skip on a *positive* skip verdict, never on
+> the absence of a verdict.
 
 ---
 
