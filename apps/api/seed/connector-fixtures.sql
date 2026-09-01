@@ -43,28 +43,40 @@
 -- ---------------------------------------------------------------------------
 -- Endpoint products the stubs map onto. Applications, so the connector pages
 -- have something real to point at.
+--
+-- `created_at` is a FIXED OLD date, NOT `now`, and that is load-bearing rather
+-- than cosmetic. These are synthetic connector-lane scaffolding (no vendor, no
+-- integrations, no reviews), and the public product directory / home "recent"
+-- band default-sort by `created_at DESC` (`lib/sort.ts`). Seeding them at `now`
+-- put a dozen bare fixtures at the TOP of every recency surface, which — beyond
+-- being wrong on its face — starved `e2e/internal-link-graph.spec.ts`'s bounded
+-- per-type sample of any product that links onward to a vendor or an integration
+-- pair, making both unreachable. Pre-dating them sorts them last, so they never
+-- masquerade as the newest catalogue additions and the crawl samples real
+-- products first. `updated_at` stays `now`.
 -- ---------------------------------------------------------------------------
 
 INSERT INTO products (id, slug, name, description, website, product_role, has_api_docs, research_status, promotion_status, created_at, updated_at) VALUES
-  ('00000000-0000-4000-8000-000000000800','fx-procore','Procore','Connector-lane fixture endpoint product.','https://example.com/procore','application',1,'done','promoted', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-  ('00000000-0000-4000-8000-000000000801','fx-autodesk-build','Autodesk Build','Connector-lane fixture endpoint product.','https://example.com/autodesk-build','application',1,'done','promoted', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-  ('00000000-0000-4000-8000-000000000802','fx-bluebeam-revu','Bluebeam Revu','Connector-lane fixture endpoint product.','https://example.com/bluebeam-revu','application',1,'done','promoted', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-  ('00000000-0000-4000-8000-000000000803','fx-sage-intacct','Sage Intacct','Connector-lane fixture endpoint product.','https://example.com/sage-intacct','application',1,'done','promoted', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-  ('00000000-0000-4000-8000-000000000804','fx-quickbooks-online','QuickBooks Online','Connector-lane fixture endpoint product.','https://example.com/quickbooks-online','application',1,'done','promoted', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-  ('00000000-0000-4000-8000-000000000805','fx-viewpoint-vista','Viewpoint Vista','Connector-lane fixture endpoint product.','https://example.com/viewpoint-vista','application',1,'done','promoted', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-  ('00000000-0000-4000-8000-000000000806','fx-plangrid','PlanGrid','Connector-lane fixture endpoint product.','https://example.com/plangrid','application',1,'done','promoted', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-  ('00000000-0000-4000-8000-000000000807','fx-bim-360','BIM 360','Connector-lane fixture endpoint product.','https://example.com/bim-360','application',1,'done','promoted', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-  ('00000000-0000-4000-8000-000000000808','fx-fieldwire','Fieldwire','Connector-lane fixture endpoint product.','https://example.com/fieldwire','application',1,'done','promoted', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-  ('00000000-0000-4000-8000-000000000809','fx-raken','Raken','Connector-lane fixture endpoint product.','https://example.com/raken','application',1,'done','promoted', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+  ('00000000-0000-4000-8000-000000000800','fx-procore','Procore','Connector-lane fixture endpoint product.','https://example.com/procore','application',1,'done','promoted','2020-01-01T00:00:00.000Z', strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  ('00000000-0000-4000-8000-000000000801','fx-autodesk-build','Autodesk Build','Connector-lane fixture endpoint product.','https://example.com/autodesk-build','application',1,'done','promoted','2020-01-01T00:00:00.000Z', strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  ('00000000-0000-4000-8000-000000000802','fx-bluebeam-revu','Bluebeam Revu','Connector-lane fixture endpoint product.','https://example.com/bluebeam-revu','application',1,'done','promoted','2020-01-01T00:00:00.000Z', strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  ('00000000-0000-4000-8000-000000000803','fx-sage-intacct','Sage Intacct','Connector-lane fixture endpoint product.','https://example.com/sage-intacct','application',1,'done','promoted','2020-01-01T00:00:00.000Z', strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  ('00000000-0000-4000-8000-000000000804','fx-quickbooks-online','QuickBooks Online','Connector-lane fixture endpoint product.','https://example.com/quickbooks-online','application',1,'done','promoted','2020-01-01T00:00:00.000Z', strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  ('00000000-0000-4000-8000-000000000805','fx-viewpoint-vista','Viewpoint Vista','Connector-lane fixture endpoint product.','https://example.com/viewpoint-vista','application',1,'done','promoted','2020-01-01T00:00:00.000Z', strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  ('00000000-0000-4000-8000-000000000806','fx-plangrid','PlanGrid','Connector-lane fixture endpoint product.','https://example.com/plangrid','application',1,'done','promoted','2020-01-01T00:00:00.000Z', strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  ('00000000-0000-4000-8000-000000000807','fx-bim-360','BIM 360','Connector-lane fixture endpoint product.','https://example.com/bim-360','application',1,'done','promoted','2020-01-01T00:00:00.000Z', strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  ('00000000-0000-4000-8000-000000000808','fx-fieldwire','Fieldwire','Connector-lane fixture endpoint product.','https://example.com/fieldwire','application',1,'done','promoted','2020-01-01T00:00:00.000Z', strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  ('00000000-0000-4000-8000-000000000809','fx-raken','Raken','Connector-lane fixture endpoint product.','https://example.com/raken','application',1,'done','promoted','2020-01-01T00:00:00.000Z', strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 ON CONFLICT (slug) DO NOTHING;
 
 -- ---------------------------------------------------------------------------
 -- The two connector platforms. `product_role = 'connector'` is what makes them
--- eligible to own a catalogue at all.
+-- eligible to own a catalogue at all. Pre-dated for the same reason as the
+-- endpoints above.
 -- ---------------------------------------------------------------------------
 INSERT INTO products (id, slug, name, description, website, product_role, has_api_docs, research_status, promotion_status, created_at, updated_at) VALUES
-  ('00000000-0000-4000-8000-000000000790','fx-mindcloud','MindCloud (fixture)','Connector-lane fixture: an iPaaS whose catalogue AECi mirrors in full.','https://example.com/mindcloud','connector',1,'done','promoted', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-  ('00000000-0000-4000-8000-000000000791','fx-agave','Agave (fixture)','Connector-lane fixture: a second catalogue, handed over to its vendor so the frozen-lane state is renderable.','https://example.com/agave','connector',1,'done','promoted', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+  ('00000000-0000-4000-8000-000000000790','fx-mindcloud','MindCloud (fixture)','Connector-lane fixture: an iPaaS whose catalogue AECi mirrors in full.','https://example.com/mindcloud','connector',1,'done','promoted','2020-01-01T00:00:00.000Z', strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  ('00000000-0000-4000-8000-000000000791','fx-agave','Agave (fixture)','Connector-lane fixture: a second catalogue, handed over to its vendor so the frozen-lane state is renderable.','https://example.com/agave','connector',1,'done','promoted','2020-01-01T00:00:00.000Z', strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 ON CONFLICT (slug) DO NOTHING;
 
 -- A vendor for the handover to name. AECI-720's `vendorId` is validated against
