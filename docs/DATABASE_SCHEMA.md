@@ -1070,6 +1070,19 @@ create index page_views_bot_idx on page_views(is_bot, created_at); -- digest hum
 -- The six AECI-658 request-shape columns are unindexed for the same reason: the swarm
 -- detector groups on user_agent_hash (already covered by the window predicate) and reads
 -- client_verdict only as a conditional SUM inside that group, never as a filter.
+-- AECI-742 added a SECOND grouped read on the same shape -- (user_agent_hash, UTC day) over
+-- the trailing 14 days, for the detector's cross-day prior -- and deliberately added no
+-- index for it either. page_views_operator_pair_idx cannot serve it (it is PARTIAL on
+-- is_operator = 1), so the alternative would be a full non-partial index on
+-- (user_agent_hash, created_at): an index row per write on the hottest write path, to
+-- speed one daily cron read over a fortnight of rows. Revisit only if that read is
+-- measured slow, not on principle.
+-- What that read IS load-bearing on is page_views_operator_pair_idx below, because
+-- NOT_INTERNAL's retro-join is a correlated EXISTS: with the index the planner does
+-- SEARCH op USING COVERING INDEX, without it SCAN op once per candidate row. Measured
+-- over 41k rows that is 8 ms against 4.3 s; against prod-shaped data a 14-day window
+-- costs 14 s and 42.7M rows read when the index is absent. So the index is not
+-- optional maintenance -- if the swarm prior ever looks slow, check for it first.
 -- A plain index on is_operator is still pointless for the same reason it always was:
 -- it is a near-constant column (almost every row is 0 or null), so an index on it
 -- selects nearly the whole table and no planner would use it. The PARTIAL index below

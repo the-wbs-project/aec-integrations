@@ -190,6 +190,17 @@ export interface AnalyticsDigestSummary {
    *  make a partial read look complete. */
   swarmTruncated?: boolean;
   /**
+   * How many of `swarmCandidates` were admitted on the lower bar their flagged
+   * history earns them (AECI-742) — a subset, never an addition.
+   *
+   * Recorded because it is the one part of the day's verdict the day's own rows
+   * cannot explain: these candidates sit UNDER the published `SWARM_MIN_ASN_RATIO`
+   * and are flagged on evidence from the previous `SWARM_PRIOR_LOOKBACK_DAYS`. If
+   * the cross-day memory ever starts over-reaching, it shows up here as a rising
+   * share of the candidates rather than as an unexplained drop in the headline.
+   */
+  swarmRecurringCandidates?: number;
+  /**
    * Human views the operator-pair retro-join removed (AECI-683).
    *
    * The single most useful number for deciding whether

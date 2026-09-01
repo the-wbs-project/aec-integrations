@@ -1117,6 +1117,12 @@ async function runAnalyticsDigestJob(env: Env, ctx: ExecutionContext): Promise<J
           asnRotatorCandidates: swarm.asnCandidates.length,
           swarmFlaggedViews: swarm.flaggedViews,
           swarmTruncated: swarm.truncated,
+          // AECI-742. How many of the day's candidates were admitted on a lower
+          // bar because they carried a flagged history. Recorded for the same
+          // reason as `operatorLeakViews` below: a lever that starts over-reaching
+          // has to be visible in `job_runs` history, not only in one morning's
+          // email, and this one draws on evidence from outside the reported day.
+          swarmRecurringCandidates: swarm.uaCandidates.filter((c) => c.priorFlaggedDays > 0).length,
           // AECI-741. The headline the email actually led with, recorded so the
           // number the operator read is reconstructible from `job_runs` without
           // re-running the detector over a window whose data may since have aged

@@ -35,6 +35,22 @@
  * `non-browser` verdicts. Cardinality alone would flag every shared network on
  * the internet.
  *
+ * ─── And a hash is not re-tried from scratch every morning (AECI-742) ───────
+ *
+ * Both groupings above judge a window in isolation, which meant a client that
+ * happened to reuse one network on a quiet day dropped under `SWARM_MIN_ASN_RATIO`
+ * and was counted as a person for that day. Measured against production,
+ * `53304b2e...` was flagged on 8/29 at ratio 1.00 and escaped on 8/30 at 0.70,
+ * while `02048353...` did the exact inverse — between them 18 of the 37 residual
+ * views across those two days, the largest single bucket left in the headline.
+ *
+ * {@link detectUaHashSwarms} therefore carries a prior: a hash flagged at FULL
+ * strength on {@link SWARM_PRIOR_MIN_FLAGGED_DAYS} of the previous
+ * {@link SWARM_PRIOR_LOOKBACK_DAYS} days is held to a lower bar today. The prior
+ * is never built from relaxed flags and never from the reported day itself, so
+ * the memory cannot ratchet; and the bar is lowered, not removed, so a hash that
+ * settles onto one network is forgiven within a fortnight.
+ *
  * ─── Read-side only. It never writes anything ───────────────────────────────
  *
  * Nothing here touches `is_bot`, and it must not start. `DATACENTER_ASNS` is the
@@ -93,6 +109,54 @@ export const SWARM_MIN_VIEWS = 4;
 export const SWARM_MIN_ASN_RATIO = 0.8;
 
 /**
+ * How far back the recurrence read looks for a hash's flagged history (AECI-742).
+ *
+ * The window ENDS at the reported window's own start and never reaches inside
+ * it: a day must not count toward its own prior, or the test becomes circular.
+ *
+ * Fourteen days is long enough to survive a client pausing over a weekend and
+ * short enough that a hash which genuinely reformed is forgiven inside a
+ * fortnight. `page_views` is retained for 400 days, so the history is always
+ * there to read; the ceiling on this constant is judgement, not retention.
+ */
+export const SWARM_PRIOR_LOOKBACK_DAYS = 14;
+
+/**
+ * Flagged days inside the lookback before a hash counts as recurring.
+ *
+ * Two, not one. One flagged day is the same evidence the per-day test already
+ * acted on, so requiring one would merely re-apply yesterday's verdict to today.
+ * Two means the shape repeated after the client had a chance not to. The eight
+ * hashes this was built from ran EVERY day of 2026-08-21..30.
+ */
+export const SWARM_PRIOR_MIN_FLAGGED_DAYS = 2;
+
+/**
+ * The ratio bar a recurring hash is held to in place of {@link SWARM_MIN_ASN_RATIO}.
+ *
+ * 0.5 = "half its views still came from a different network". Both measured
+ * escapes sit above it (`53304b2e...` at 0.70 on 8/30, `02048353...` at 0.63 on
+ * 8/29) and comfortably below the standing 0.8 that let them through.
+ *
+ * Deliberately NOT zero. A prior lowers the bar; it does not remove it. A hash
+ * that genuinely settles onto one network stops being flagged, which is the only
+ * thing that keeps this memory from being a one-way list.
+ */
+export const SWARM_RECURRING_ASN_RATIO = 0.5;
+
+/**
+ * The view floor a recurring hash is held to in place of {@link SWARM_MIN_VIEWS}.
+ *
+ * {@link SWARM_MIN_VIEWS} exists because a ratio over 1-3 views is noise WHEN
+ * NOTHING ELSE IS KNOWN. For a hash carrying a fortnight of flagged history
+ * something else is known, and two views across two networks is corroboration
+ * rather than coincidence. Still two rather than one: a single view is trivially
+ * "1 ASN for 1 view" and carries no spread at all, so it would re-flag a known
+ * hash on the strength of the prior alone.
+ */
+export const SWARM_RECURRING_MIN_VIEWS = 2;
+
+/**
  * Minimum views before an ASN is considered a user-agent rotator.
  *
  * Same floor as {@link SWARM_MIN_VIEWS}, and for the same reason: one view is
@@ -139,6 +203,17 @@ export interface SwarmCandidate {
   asnRatio: number;
   /** `distinctPaths / views`, rounded to 2dp. 1.0 = never read the same page twice. */
   pathRatio: number;
+  /**
+   * Days in the previous {@link SWARM_PRIOR_LOOKBACK_DAYS} on which this hash met
+   * the FULL-strength bar, or 0 when it has no such history (AECI-742).
+   *
+   * A count rather than a boolean so the digest, the panel and `job_runs` can say
+   * how much history justified the lower bar rather than only that one existed.
+   * `> 0` here means the candidate was judged against
+   * {@link SWARM_RECURRING_ASN_RATIO} / {@link SWARM_RECURRING_MIN_VIEWS}; it does
+   * not mean it would have failed the standing bar.
+   */
+  priorFlaggedDays: number;
 }
 
 /** One ASN that looks like a single client rotating its user-agent (AECI-683). */
@@ -197,6 +272,99 @@ function ratio(numerator: number, denominator: number): number {
 }
 
 /**
+ * `startIso` shifted back by {@link SWARM_PRIOR_LOOKBACK_DAYS}.
+ *
+ * Computed in JS and bound as a plain string so the comparison never crosses a
+ * format boundary. `created_at` is `new Date().toISOString()` and so is this, so
+ * the two shapes are identical by construction — the trap `OPERATOR_PAIR_MATCH`
+ * documents (a bare `datetime(...)` returns a SPACE where the stored value has a
+ * `T`, and a space sorts before `T`) cannot arise here.
+ */
+function priorWindowStart(startIso: string): string {
+  const start = new Date(startIso);
+  start.setUTCDate(start.getUTCDate() - SWARM_PRIOR_LOOKBACK_DAYS);
+  return start.toISOString();
+}
+
+/**
+ * How many of the previous {@link SWARM_PRIOR_LOOKBACK_DAYS} each UA hash was
+ * flagged on — the prior that AECI-742 added, keyed by hash (absent = none).
+ *
+ * The defect it answers: `SWARM_MIN_ASN_RATIO` was evaluated per-day and
+ * independently each day, so a swarm that happened to reuse one network dropped
+ * under the cutoff and was counted as a person for that day. Measured against
+ * production, `53304b2e...` was flagged on 8/29 at ratio 1.00 and escaped on 8/30
+ * at 0.70; `02048353...` did the exact inverse. That is 18 of the 37 residual
+ * views across those two days — the largest single bucket in the headline — and
+ * it is not a different client, it is the same one on a quieter day. Over
+ * 2026-08-21..30 the eight swarm hashes each ran EVERY day, spanning 45-68 ASNs
+ * across 29-38 countries.
+ *
+ * Three properties of this read are load-bearing:
+ *
+ *   - **The prior is evaluated at FULL strength** ({@link SWARM_MIN_VIEWS} /
+ *     {@link SWARM_MIN_ASN_RATIO}), never at the relaxed bar it goes on to grant.
+ *     Otherwise the memory bootstraps itself — a relaxed flag would justify
+ *     tomorrow's relaxed flag, and a hash that once crossed the line could never
+ *     get back out no matter how it behaved.
+ *   - **The window ends at `startIso`**, strictly before the reported day, so a
+ *     day never counts toward its own prior.
+ *   - **It binds a fixed number of parameters** — two window bounds plus
+ *     `NOT_INTERNAL`'s own two — regardless of how many hashes exist. A
+ *     JS-resolved hash list would bind one per hash and scale with the data,
+ *     which is precisely the D1 bound-parameter hazard the better-sqlite3 test
+ *     harness cannot fail on (`TESTING_STRATEGY.md` §6.3).
+ *
+ * Reuses {@link humanWindow}, so the prior describes the same population the
+ * headline counts: a bot row or an operator row can no more build a history than
+ * it can be flagged today.
+ *
+ * **Its cost is load-bearing on `page_views_operator_pair_idx` (migration 0019),
+ * and only on that.** `NOT_INTERNAL`'s retro-join is a correlated `EXISTS`, so
+ * without that partial index the planner runs a full `SCAN op` per candidate row
+ * and this read degrades from a lookup to a nested scan: measured over 41k rows,
+ * 8 ms with the index against 4.3 s without (`SEARCH op USING COVERING INDEX`
+ * versus `SCAN op`), and against prod-shaped data a 14-day window costs 14 s and
+ * 42.7M rows read with the index absent. The index ships in the same migration as
+ * the retro-join that needs it, so the two cannot separate — but if this read ever
+ * looks slow, check `sqlite_master` for that index before tuning anything here.
+ */
+async function countPriorFlaggedDays(db: Db, startIso: string): Promise<Map<string, number>> {
+  // The first ten characters of an ISO-8601 UTC timestamp ARE the UTC date, so
+  // this is a substring rather than a date conversion.
+  const utcDay = sql<string>`substr(${pageViews.createdAt}, 1, 10)`;
+  const rows = await db
+    .select({
+      userAgentHash: pageViews.userAgentHash,
+      day: utcDay,
+      views: count(),
+      distinctAsns: countDistinct(pageViews.cfAsn),
+    })
+    .from(pageViews)
+    .where(
+      and(
+        humanWindow(priorWindowStart(startIso), startIso),
+        sql`${pageViews.userAgentHash} is not null`,
+      ),
+    )
+    .groupBy(pageViews.userAgentHash, utcDay)
+    .having(gte(count(), SWARM_MIN_VIEWS));
+
+  const flaggedDays = new Map<string, number>();
+  for (const r of rows) {
+    if (!r.userAgentHash || r.views < SWARM_MIN_VIEWS) continue;
+    if (r.distinctAsns / r.views < SWARM_MIN_ASN_RATIO) continue;
+    flaggedDays.set(r.userAgentHash, (flaggedDays.get(r.userAgentHash) ?? 0) + 1);
+  }
+  // Drop the hashes that repeated too few times to be a prior at all, so a caller
+  // reading this map can treat presence as "recurring" without restating the rule.
+  for (const [hash, days] of flaggedDays) {
+    if (days < SWARM_PRIOR_MIN_FLAGGED_DAYS) flaggedDays.delete(hash);
+  }
+  return flaggedDays;
+}
+
+/**
  * Group a window's HUMAN views by `user_agent_hash` and return the hashes whose
  * network spread is inconsistent with being a browser.
  *
@@ -205,37 +373,53 @@ function ratio(numerator: number, denominator: number): number {
  * number counts, or "N of the M reported views" is comparing two different sets.
  * Bot rows are already excluded, so a well-behaved crawler that identifies itself
  * (Googlebot, Bingbot, Applebot) can never appear here.
+ *
+ * **A hash is not adjudicated from scratch (AECI-742).** One with a flagged
+ * history in {@link countPriorFlaggedDays} is held to
+ * {@link SWARM_RECURRING_ASN_RATIO} / {@link SWARM_RECURRING_MIN_VIEWS} instead of
+ * the standing pair. The two reads are issued together, so the memory costs a
+ * query but no extra round-trip latency.
  */
 export async function detectUaHashSwarms(
   db: Db,
   startIso: string,
   endIso: string,
 ): Promise<SwarmCandidate[]> {
-  const rows = await db
-    .select({
-      userAgentHash: pageViews.userAgentHash,
-      views: count(),
-      distinctAsns: countDistinct(pageViews.cfAsn),
-      distinctCountries: countDistinct(pageViews.cfCountry),
-      distinctPaths: countDistinct(pageViews.concretePath),
-      // Null-safe on purpose: every row written before AECI-658 has a null
-      // verdict and must count as "no evidence", never as "browser".
-      nonBrowserViews: sql<number>`sum(case when ${pageViews.clientVerdict} in ('inconsistent', 'non-browser') then 1 else 0 end)`,
-    })
-    .from(pageViews)
-    // A null hash cannot be grouped into a visitor at all, so it is not evidence
-    // either way. Excluded rather than bucketed under a synthetic key, which
-    // would invent one enormous fake swarm out of unrelated rows.
-    .where(and(humanWindow(startIso, endIso), sql`${pageViews.userAgentHash} is not null`))
-    .groupBy(pageViews.userAgentHash)
-    .having(gte(count(), SWARM_MIN_VIEWS))
-    .orderBy(desc(count()));
+  const [rows, prior] = await Promise.all([
+    db
+      .select({
+        userAgentHash: pageViews.userAgentHash,
+        views: count(),
+        distinctAsns: countDistinct(pageViews.cfAsn),
+        distinctCountries: countDistinct(pageViews.cfCountry),
+        distinctPaths: countDistinct(pageViews.concretePath),
+        // Null-safe on purpose: every row written before AECI-658 has a null
+        // verdict and must count as "no evidence", never as "browser".
+        nonBrowserViews: sql<number>`sum(case when ${pageViews.clientVerdict} in ('inconsistent', 'non-browser') then 1 else 0 end)`,
+      })
+      .from(pageViews)
+      // A null hash cannot be grouped into a visitor at all, so it is not evidence
+      // either way. Excluded rather than bucketed under a synthetic key, which
+      // would invent one enormous fake swarm out of unrelated rows.
+      .where(and(humanWindow(startIso, endIso), sql`${pageViews.userAgentHash} is not null`))
+      .groupBy(pageViews.userAgentHash)
+      // The LOOSEST of the two floors, not a lowered noise floor: which floor a
+      // hash actually faces is only knowable once its prior is resolved, which
+      // happens in the loop below. Every row this admits and the prior does not
+      // vouch for is dropped there against the full `SWARM_MIN_VIEWS`.
+      .having(gte(count(), Math.min(SWARM_MIN_VIEWS, SWARM_RECURRING_MIN_VIEWS)))
+      .orderBy(desc(count())),
+    countPriorFlaggedDays(db, startIso),
+  ]);
 
   const candidates: SwarmCandidate[] = [];
   for (const r of rows) {
-    if (!r.userAgentHash || r.views < SWARM_MIN_VIEWS) continue;
+    if (!r.userAgentHash) continue;
+    const priorFlaggedDays = prior.get(r.userAgentHash) ?? 0;
+    const recurring = priorFlaggedDays > 0;
+    if (r.views < (recurring ? SWARM_RECURRING_MIN_VIEWS : SWARM_MIN_VIEWS)) continue;
     const asnRatio = r.distinctAsns / r.views;
-    if (asnRatio < SWARM_MIN_ASN_RATIO) continue;
+    if (asnRatio < (recurring ? SWARM_RECURRING_ASN_RATIO : SWARM_MIN_ASN_RATIO)) continue;
     candidates.push({
       userAgentHash: r.userAgentHash,
       views: r.views,
@@ -245,6 +429,7 @@ export async function detectUaHashSwarms(
       nonBrowserViews: Number(r.nonBrowserViews ?? 0),
       asnRatio: ratio(r.distinctAsns, r.views),
       pathRatio: ratio(r.distinctPaths, r.views),
+      priorFlaggedDays,
     });
   }
   return candidates;
@@ -337,6 +522,11 @@ export async function detectSwarms(
     db.select({ value: count() }).from(pageViews).where(window),
   ]);
 
+  // The cap is applied BEFORE the union read, and that ordering is what keeps the
+  // bound-parameter count bounded: at most `SWARM_MAX_CANDIDATES` hashes plus the
+  // same number of ASNs, i.e. 50 against D1's 100. AECI-742's relaxed bar makes the
+  // UA list longer, so it makes truncation more likely — never less safe. Ordering
+  // stays views-DESC, which already sorts a recurring swarm near the top.
   const uaCandidates = allUa.slice(0, SWARM_MAX_CANDIDATES);
   const asnCandidates = allAsn.slice(0, SWARM_MAX_CANDIDATES);
   const truncated = allUa.length > uaCandidates.length || allAsn.length > asnCandidates.length;
@@ -409,10 +599,21 @@ export function swarmNote(summary: SwarmSummary): string | null {
         `rather than separate visitors`,
     );
   }
+  // Said out loud because it is the one clause that rests on evidence from OUTSIDE
+  // the reported day. A reader comparing the note to the day's own numbers would
+  // otherwise find a candidate whose ratio sits under the published threshold and
+  // conclude the detector had drifted.
+  const recurring = uaCandidates.filter((c) => c.priorFlaggedDays > 0).length;
+  const priorNote =
+    recurring > 0
+      ? ` ${recurring === 1 ? '1 of those clients was' : `${recurring} of those clients were`} ` +
+        `already flagged on ${SWARM_PRIOR_MIN_FLAGGED_DAYS}+ of the previous ` +
+        `${SWARM_PRIOR_LOOKBACK_DAYS} days, so a lower bar applied to it today.`
+      : '';
   const truncationNote = summary.truncated
     ? ` Only the ${SWARM_MAX_CANDIDATES} largest of each kind are listed.`
     : '';
-  return `${flaggedViews} of ${totalHumanViews} may not be people: ${clauses.join('; and ')}.${truncationNote}`;
+  return `${flaggedViews} of ${totalHumanViews} may not be people: ${clauses.join('; and ')}.${priorNote}${truncationNote}`;
 }
 
 /** Re-exported so the admin panel can render the same threshold text the digest uses. */
@@ -421,7 +622,10 @@ export const SWARM_THRESHOLD_NOTE =
   `at least ${Math.round(SWARM_MIN_ASN_RATIO * 100)}% of them came from a different network, ` +
   `or when one network accounts for ${ASN_ROTATOR_MIN_VIEWS}+ views under ` +
   `${Math.round(ASN_ROTATOR_MIN_UA_RATIO * 100)}%+ distinct user-agents AND most of those ` +
-  `requests do not look like a browser.`;
+  `requests do not look like a browser. A hash already flagged on ` +
+  `${SWARM_PRIOR_MIN_FLAGGED_DAYS}+ of the previous ${SWARM_PRIOR_LOOKBACK_DAYS} days is held to a ` +
+  `lower bar on the day being reported: ${SWARM_RECURRING_MIN_VIEWS}+ views at ` +
+  `${Math.round(SWARM_RECURRING_ASN_RATIO * 100)}%+ from a different network.`;
 
 /** Exported for the spec: whether a candidate's request shape corroborates the
  *  cardinality signal. Kept as a function so the panel and the tests agree on

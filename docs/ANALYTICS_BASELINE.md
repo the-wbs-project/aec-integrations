@@ -330,11 +330,41 @@ numbers), and again at launch.
 > through threshold gaps.
 >
 > **Three follow-ups this implies**, in descending value: (1) **AECI-742** — give the detector
-> cross-day memory so a hash with a flagged history keeps a lower per-day bar; (2) **AECI-744** —
+> cross-day memory so a hash with a flagged history keeps a lower per-day bar (**shipped 2026-09-01**,
+> see the addendum below); (2) **AECI-744** —
 > treat `client_verdict` of `inconsistent`/`non-browser` as disqualifying on its own, with no
 > cardinality floor; (3) **AECI-743** — fix the double-fire (**shipped 2026-09-01**, see the addendum below). None of them is a `DATACENTER_ASNS` widening — the standing rule that a human decides
 > before an ASN joins that list still holds, and these are commercial proxy/seedbox providers rather
 > than the consumer ISPs that rule exists to protect.
+
+> **AECI-742 addendum (2026-09-01) — the largest bucket is closed, and it cost no collateral.**
+> Follow-up (1) above shipped: `detectUaHashSwarms` now carries a **prior**. A hash flagged at full
+> strength on `SWARM_PRIOR_MIN_FLAGGED_DAYS` (2) of the previous `SWARM_PRIOR_LOOKBACK_DAYS` (14)
+> days is held to `SWARM_RECURRING_ASN_RATIO` (0.5) over `SWARM_RECURRING_MIN_VIEWS` (2) on the day
+> being reported, instead of the standing 0.8 over 4. The prior is never built from a relaxed flag
+> and never from the reported day itself, so the memory cannot ratchet; and the bar is lowered
+> rather than removed, so a hash that settles onto one network is forgiven inside a fortnight.
+>
+> **Re-measured read-only against production D1**, replaying the two audited days under the new rule:
+>
+> | | 8/29 | 8/30 |
+> |---|---|---|
+> | Raw human page views | 87 | 70 |
+> | Flagged as automation — before | 64 | 56 |
+> | **Flagged as automation — after** | **72** | **66** |
+> | **Residual (the headline)** | **23 → 15** | **14 → 4** |
+> | Newly flagged | `02048353…` — 8 views, ratio 0.62, flagged on 7 of the prior 14 days | `53304b2e…` — 10 views, ratio 0.70, flagged on 8 of the prior 14 days |
+>
+> That is exactly the predicted 18 views, and **exactly those two hashes** — nothing else on either
+> day changed. Swept across the 16 days to 2026-08-30 the relaxed bar adds 82 views in total, and
+> **every hash it newly flags on any day is already one of the eight known swarm hashes**; not one
+> hash outside that set is admitted. The remaining residual is the rest of this decomposition — the
+> Oxylabs/Web2Objects scraper, the sub-`SWARM_MIN_VIEWS` cluster AECI-744 addresses, and the
+> singletons.
+>
+> **Read the "after" numbers as a filter, not a headcount.** This closes a leak; it does not turn the
+> residual into a floor of real people. The standing rule holds — nothing here writes `is_bot`, and
+> no ASN joined `DATACENTER_ASNS` on this evidence.
 
 > **AECI-743 addendum (2026-09-01) — the double-fire is fixed, and it was not the suspect anyone
 > named.** Queried against production D1, both rows of the 8/29 pair are `navigation = 'arrival'`
