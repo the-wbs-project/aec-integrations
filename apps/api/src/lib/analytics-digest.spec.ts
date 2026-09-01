@@ -18,6 +18,12 @@ import {
   windowsForDay,
   type AnalyticsMetrics,
 } from './analytics-digest';
+// The detector owns what "flagged" means; the digest owns only the complement.
+// Importing the real vocabulary here is what makes "exact complement" a test
+// rather than a comment (AECI-744).
+import { NON_BROWSER_VERDICTS } from './swarm-detection';
+
+const VERDICTS = [...NON_BROWSER_VERDICTS];
 
 describe('windowsForDay (AECI-574 — the arbitrary-day window the panel shares)', () => {
   it('produces the same window `dailyWindows` does for the day it reports', () => {
@@ -624,6 +630,7 @@ describe('collectAnalyticsMetrics — automation exclusion on the tables (AECI-7
     const m = await collectAnalyticsMetrics(t.db, window, {
       uaHashes: ['swarm'],
       asns: [47544],
+      verdicts: VERDICTS,
     });
 
     // p1 had 4 of the 5 views and would otherwise lead the table.
@@ -631,18 +638,59 @@ describe('collectAnalyticsMetrics — automation exclusion on the tables (AECI-7
     expect(m.referrers).toEqual([{ source: 'Google', views: 1 }]);
   });
 
-  it('KEEPS rows with a null hash AND a null ASN — the three-valued-logic trap', async () => {
-    // `NOT (ua IN (…) OR asn IN (…))` is NULL for this row, and a NULL WHERE drops
-    // it — so the row would vanish from the tables while still counting in the
-    // headline. It must survive.
+  it('KEEPS rows with a null hash, a null ASN AND a null verdict — the 3VL trap', async () => {
+    // `NOT (ua IN (…) OR asn IN (…) OR verdict IN (…))` is NULL for this row, and
+    // a NULL WHERE drops it — so the row would vanish from the tables while still
+    // counting in the headline. It must survive. The verdict axis (AECI-744) has
+    // the same trap: every row written before that column existed has a NULL.
     await t.db
       .insert(pageViews)
       .values([{ path: '/products/p1', productId: 'p1', createdAt: AT, referrerSource: 'Direct' }]);
 
-    const m = await collectAnalyticsMetrics(t.db, window, { uaHashes: ['swarm'], asns: [47544] });
+    const m = await collectAnalyticsMetrics(t.db, window, {
+      uaHashes: ['swarm'],
+      asns: [47544],
+      verdicts: VERDICTS,
+    });
 
     expect(m.topProducts).toEqual([{ name: 'P1', slug: 'p1', views: 1 }]);
     expect(m.referrers).toEqual([{ source: 'Direct', views: 1 }]);
+  });
+
+  it('excludes rows flagged by their own client_verdict, with no view floor', async () => {
+    // AECI-744's half of the complement. A single `non-browser` view is subtracted
+    // from the headline, so it must leave the tables too — otherwise the email
+    // leads with a filtered number over unfiltered rows, which is the AECI-747
+    // defect wearing a new cause.
+    await t.db.insert(pageViews).values([
+      {
+        path: '/products/p1',
+        productId: 'p1',
+        createdAt: AT,
+        userAgentHash: 'lone',
+        cfAsn: 23724,
+        clientVerdict: 'non-browser',
+        referrerSource: 'Direct',
+      },
+      {
+        path: '/products/p2',
+        productId: 'p2',
+        createdAt: AT,
+        userAgentHash: 'person',
+        cfAsn: 7922,
+        clientVerdict: 'browser',
+        referrerSource: 'Google',
+      },
+    ]);
+
+    const m = await collectAnalyticsMetrics(t.db, window, {
+      uaHashes: [],
+      asns: [],
+      verdicts: VERDICTS,
+    });
+
+    expect(m.topProducts).toEqual([{ name: 'P2', slug: 'p2', views: 1 }]);
+    expect(m.referrers).toEqual([{ source: 'Google', views: 1 }]);
   });
 
   it('the tables and the headline describe ONE population', async () => {
@@ -653,7 +701,11 @@ describe('collectAnalyticsMetrics — automation exclusion on the tables (AECI-7
       { path: '/', createdAt: AT, userAgentHash: 'person' },
     ]);
 
-    const m = await collectAnalyticsMetrics(t.db, window, { uaHashes: ['swarm'], asns: [] });
+    const m = await collectAnalyticsMetrics(t.db, window, {
+      uaHashes: ['swarm'],
+      asns: [],
+      verdicts: VERDICTS,
+    });
 
     // Headline is `raw - flagged` (4 - 2 = 2); the table rows must sum to no more
     // than that. If the negation ever stops matching `countFlaggedViews`, this is
