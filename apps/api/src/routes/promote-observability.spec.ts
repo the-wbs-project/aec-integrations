@@ -316,7 +316,6 @@ describe('promote unresolved-link observability (AECI-730)', () => {
           dbFor: t.factory,
           syncAlgolia: noopAlgolia,
           notifyIndexNow: noopIndexNow,
-          notifyGoogleIndexing: noopGoogleIndexing,
           refreshHomeStats: noopHomeStats,
         },
       ),
