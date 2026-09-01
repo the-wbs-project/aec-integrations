@@ -70,6 +70,11 @@ import {
   vendors,
 } from '../db/schema';
 import { countAll, metricSeries, utcDayWindow, type InternalFilterState } from './admin-analytics';
+import {
+  collectAnalyticsMetrics,
+  humanViewsAfterAutomation,
+  windowsForDay,
+} from './analytics-digest';
 import { COUNTED_REVIEW_STATUS } from './recompute-counts';
 
 /** `promotion_status` value marking a row live — what `POST /api/promote` writes. */
@@ -107,6 +112,31 @@ export async function computeFlowMetric(
   return perDay.get(day) ?? 0;
 }
 
+/**
+ * The post-automation human count for `day` (AECI-745) — the same subtraction the
+ * digest's headline and `/admin/overview`'s tile perform, stored so the chart can
+ * plot the filtered series.
+ *
+ * Written through `collectAnalyticsMetrics` + `humanViewsAfterAutomation` rather
+ * than as its own `humanViews − detectSwarms(...)` expression, because an
+ * open-coded subtraction here would be a third definition of the headline and the
+ * whole point of AECI-745 was to get to one.
+ *
+ * **Throws when the detector did not run**, which `snapshotOneMetric` catches per
+ * key: the row is skipped and the day stays uncovered. Storing the raw count
+ * under this key would silently freeze an unfiltered figure into the long memory
+ * as if it had been filtered, and unlike a live read a stored row is never
+ * re-derived — that is exactly the corruption `--force` exists to prevent in the
+ * backfill.
+ */
+export async function computeHumanViewsAfterAutomation(db: Db, day: string): Promise<number> {
+  const metrics = await collectAnalyticsMetrics(db, windowsForDay(day));
+  if (!metrics.automation) {
+    throw new Error(`automation detector did not run for ${day}; refusing to store a raw count`);
+  }
+  return humanViewsAfterAutomation(metrics).day;
+}
+
 /** Reviews the public surfaces count — `approved` only, matching the review APIs
  *  and the denormalized `products.review_count`. */
 const APPROVED_REVIEWS = eq(reviews.status, COUNTED_REVIEW_STATUS);
@@ -130,6 +160,7 @@ type Producer = (db: Db, day: string) => Promise<number>;
 const PRODUCERS: Record<AdminSnapshotMetricKey, Producer> = {
   // ── Flows ────────────────────────────────────────────────────────────────
   'traffic.page_views_human': (db, day) => computeFlowMetric(db, 'traffic.page_views_human', day),
+  'traffic.page_views_human_after_automation': computeHumanViewsAfterAutomation,
   'traffic.page_views_bot': (db, day) => computeFlowMetric(db, 'traffic.page_views_bot', day),
   'traffic.unique_visitors': (db, day) => computeFlowMetric(db, 'traffic.unique_visitors', day),
   'catalog.products_created': (db, day) => computeFlowMetric(db, 'catalog.products_created', day),

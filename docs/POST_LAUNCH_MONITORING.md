@@ -232,6 +232,16 @@ behind it:
 > the second prints the raw count *plus an explicit UNFILTERED warning*, because a failed detector
 > must never be able to look like a clean day.
 >
+> **And since AECI-745 (2026-09-01) you do not have to open the email to read it.**
+> `/admin/overview` leads with the same post-automation figure, from the same
+> `humanViewsAfterAutomation()` call — the collector now runs the detector, so both surfaces
+> subtract one number by construction rather than by two callers agreeing. The daily read below
+> can be done on the panel; the email remains the push. Two differences to hold onto when you do:
+> the panel's **7-day delta and 30-day chart are RAW** (filtering them means re-running the
+> detector over every day they span, and the tile's caption says so), and the filtered *series*
+> is the snapshot-only metric `traffic.page_views_human_after_automation`, which **starts the day
+> the cron first wrote it** — it is not backfillable, so earlier days are absent rather than zero.
+>
 > **The raw figure remains an UPPER bound — and since 2026-08-26 the email says so
 > itself.** AECI-658 / AECI-660 changed three things, so the number no longer has to be mentally
 > corrected by whoever reads it:

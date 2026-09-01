@@ -55,10 +55,13 @@ function makeOverview(over: Partial<AdminOverviewResponse> = {}): AdminOverviewR
     ],
     internal_filter: { available: false, applied: false, asns: [] },
     traffic: {
-      page_views_human: { total: 92, excluding_internal: null },
+      // Post-automation (AECI-745): 92 counted server-side, 18 flagged.
+      page_views_human: { total: 74, excluding_internal: null },
+      page_views_human_raw: { total: 92, excluding_internal: null },
+      automation_flagged: 18,
       page_views_bot: { total: 1840, excluding_internal: null },
       unique_visitors: { total: 31, excluding_internal: null },
-      delta_day: { current: 92, prior: 84, diff: 8, pct: 10 },
+      delta_day: { current: 74, prior: 68, diff: 6, pct: 9 },
       delta_7d: { current: 610, prior: 500, diff: 110, pct: 22 },
       series_30d: series30d(),
       top_sources: [
@@ -265,7 +268,9 @@ describe('AdminOverview', () => {
   describe('deltas', () => {
     it('renders both the day and 7-day delta for human page views', async () => {
       const { el } = await setup(makeApiMock());
-      expect(el.textContent).toContain('+8 (+10%)');
+      // The day delta is post-automation on both sides; the 7-day delta is raw
+      // on both. Different populations, deliberately, and the caption says so.
+      expect(el.textContent).toContain('+6 (+9%)');
       expect(el.textContent).toContain('+110 (+22%)');
     });
 
@@ -304,6 +309,78 @@ describe('AdminOverview', () => {
       expect(tile.textContent).toContain('external search or social referrer: 9');
       expect(tile.textContent).toContain('distinct visitors: 6');
       expect(tile.textContent).toContain('lapsed session: 26');
+    });
+
+    it('leads with the post-automation figure and shows the subtraction (AECI-745)', async () => {
+      // The number on the tile is the number the 05:00 email leads with. The raw
+      // count it came from is beside it, because a filtered figure with no
+      // visible minuend is a figure nobody can check.
+      const { el } = await setup(makeApiMock());
+      const tile = [...el.querySelectorAll('aec-stat-tile')].find((t) =>
+        t.textContent?.includes('Human page views'),
+      )!;
+      expect(tile.textContent).toContain('Human page views after automation');
+      expect(tile.textContent).toContain('74');
+      expect(tile.textContent).toContain('Counted server-side: 92');
+      expect(tile.textContent).toContain('attributed to automated clients: 18');
+      // The upper-bound label now qualifies the RAW figure, not the headline.
+      expect(tile.textContent).toContain('The server-side figure is an upper bound');
+      // …and the raw week and trend line are labelled as such, since they sit
+      // above a filtered headline.
+      expect(tile.textContent).toContain('no automation filter applied');
+    });
+
+    it('says the figure is UNFILTERED when the detector did not run', async () => {
+      // Null is an outage, not a clean day. It must never render as "0 flagged",
+      // and the headline must not silently keep its "after automation" framing.
+      const base = makeOverview();
+      const { el } = await setup(
+        makeApiMock({
+          ...base,
+          traffic: { ...base.traffic, automation_flagged: null },
+        }),
+      );
+      const tile = [...el.querySelectorAll('aec-stat-tile')].find((t) =>
+        t.textContent?.includes('Human page views'),
+      )!;
+      expect(tile.textContent).toContain('automation filter did not run');
+      expect(tile.textContent).toContain('UNFILTERED');
+      expect(tile.textContent).not.toContain('attributed to automated clients: 0');
+      expect(tile.textContent).not.toContain('Counted server-side');
+    });
+
+    it('renders the two AECI-745 automation notes in the honesty envelope', async () => {
+      const base = makeOverview();
+      const applied = await setup(
+        makeApiMock({
+          ...base,
+          notes: [
+            {
+              code: 'automation_filter_applied',
+              severity: 'info',
+              message: 'server fallback text',
+            },
+          ],
+        }),
+      );
+      expect(applied.el.textContent).toContain('less those attributed to automated clients');
+      // The localized body replaces the server's English message rather than
+      // appearing beside it.
+      expect(applied.el.textContent).not.toContain('server fallback text');
+
+      const failed = await setup(
+        makeApiMock({
+          ...base,
+          notes: [
+            {
+              code: 'automation_filter_did_not_run',
+              severity: 'warn',
+              message: 'server fallback text',
+            },
+          ],
+        }),
+      );
+      expect(failed.el.textContent).toContain('automation filter did not run for this window');
     });
 
     it('omits the operator-leak sentence entirely when nothing leaked', async () => {

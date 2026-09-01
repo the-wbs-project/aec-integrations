@@ -39,27 +39,31 @@
  *   - pending moderation: `reviews` where `status='pending'` (a live snapshot).
  */
 
-import {
-  and,
-  count,
-  desc,
-  eq,
-  gte,
-  inArray,
-  isNotNull,
-  isNull,
-  lt,
-  not,
-  notLike,
-  or,
-  sql,
-} from 'drizzle-orm';
-
-import { UNTRACKED_ROUTE_PREFIXES } from '@aeci/shared';
+import { and, count, desc, eq, gte, inArray, isNotNull, lt, sql } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import { pageViews, products, profiles, reviews } from '../db/schema';
+// The population predicates live in their own module (AECI-745) so that BOTH this
+// file and `swarm-detection.ts` can import them and neither has to import the
+// other. That is what lets the collector below run the detector itself instead of
+// leaving the figure stranded in `scheduled.ts`, reachable only by the email.
+import {
+  type AutomationExclusion,
+  BOT,
+  HUMAN,
+  NOT_INTERNAL,
+  NOT_INTERNAL_BEFORE_RETRO_JOIN,
+  notFlagged,
+  OPERATOR_PAIR_LOOKBACK_DAYS,
+  OPERATOR_PAIR_MATCH,
+} from './page-view-predicates';
 import { NAMED_REFERRER_SOURCES } from './referrer-classification';
+import {
+  detectSwarms,
+  NON_BROWSER_VERDICTS,
+  type SwarmSummary,
+  swarmNote,
+} from './swarm-detection';
 
 /** A single UTC-day window plus the immediately-preceding day (for day-over-day deltas). */
 export interface DigestWindow {
@@ -171,262 +175,39 @@ export interface AnalyticsMetrics {
    * A number that quietly moved would be the same failure mode the headline had.
    */
   operatorLeakViews: number;
-}
-
-/**
- * The automated clients a run flagged, as plain data (AECI-747).
- *
- * Passed IN rather than imported, and that is deliberate: `swarm-detection.ts`
- * imports this module's `HUMAN` / `NOT_INTERNAL` predicates, so importing its
- * detector back here would close a runtime cycle. Arrays of primitives cross the
- * boundary instead, so the dependency stays one-way.
- */
-export interface AutomationExclusion {
-  /** `user_agent_hash` values flagged as rotating-proxy swarms. */
-  uaHashes: readonly string[];
-  /** `cf_asn` values flagged as user-agent rotators. */
-  asns: readonly number[];
   /**
-   * `client_verdict` values that flag a row ON THEIR OWN, with no view floor
-   * (AECI-744) — `['inconsistent', 'non-browser']`, `NON_BROWSER_VERDICTS` there.
+   * The automation filter for this window and the one before it, or `null` when
+   * the detector did not run (AECI-745).
    *
-   * Unlike the two lists above this is a fixed vocabulary, not a per-run result,
-   * and it is passed rather than hardcoded here for the same reason they are: the
-   * detector owns what "flagged" means, and this module owns only the complement.
+   * **The nullability is a distinction, not a convenience.** `null` means the
+   * detector FAILED — an outage — and both surfaces must then report the raw
+   * count *plus a warning that it is unfiltered*. An object whose `note` is null
+   * means it ran and flagged nothing, which is a RESULT and reads as a clean day.
+   * Collapsing the two would make a failed detector look like a clean day, and a
+   * clean day is exactly what a failed detector must never be allowed to look
+   * like.
+   *
+   * This field is why AECI-745 exists: before it, the figure was computed in
+   * `scheduled.ts` beside the digest and so reached the EMAIL only, leaving
+   * `/admin/overview` leading with the raw count while the 05:00 mail led with
+   * the filtered one. Anything both surfaces should report belongs here.
    */
-  verdicts: readonly string[];
-}
-
-/**
- * "This row is NOT attributable to a flagged automated client" — the exact
- * complement of `swarm-detection.ts`'s `countFlaggedViews`, so the headline
- * (`total - flagged`) and the tables (filtered by this) describe the same
- * population. If the two ever drift, the email reports a filtered number over
- * unfiltered rows, which is the inconsistency this exists to close.
- *
- * **NULL-safety is load-bearing and must not be "simplified".** The flagged
- * predicate is `ua IN (…) OR asn IN (…) OR client_verdict IN (…)` (the third term
- * since AECI-744). A row with a NULL hash, a NULL ASN and a NULL verdict makes
- * every `IN` NULL, so `OR` is NULL, so the row is NOT counted as flagged —
- * it stays in the headline. The tempting negation `not(or(inArray…, inArray…))`
- * is NULL for that same row, and a NULL `WHERE` DROPS it — so the row would
- * vanish from the tables while remaining in the count. Writing each half as
- * "IS NULL OR NOT IN" keeps it. Same three-valued-logic trap `OPERATOR_PAIR_MATCH`
- * documents above.
- */
-function notFlagged(exclusion: AutomationExclusion | undefined) {
-  if (!exclusion) return undefined;
-  const clauses = [];
-  if (exclusion.uaHashes.length > 0) {
-    clauses.push(
-      or(
-        isNull(pageViews.userAgentHash),
-        not(inArray(pageViews.userAgentHash, [...exclusion.uaHashes])),
-      ),
-    );
-  }
-  if (exclusion.asns.length > 0) {
-    clauses.push(or(isNull(pageViews.cfAsn), not(inArray(pageViews.cfAsn, [...exclusion.asns]))));
-  }
-  if (exclusion.verdicts.length > 0) {
-    // Same NULL-safe shape, and load-bearing for the same reason: a row written
-    // before `client_verdict` existed counts in the headline, so it must survive
-    // the tables. `not(inArray(...))` alone is NULL for that row and a NULL
-    // `WHERE` drops it.
-    clauses.push(
-      or(
-        isNull(pageViews.clientVerdict),
-        not(inArray(pageViews.clientVerdict, [...exclusion.verdicts])),
-      ),
-    );
-  }
-  return clauses.length > 0 ? and(...clauses) : undefined;
+  automation: AutomationFilter | null;
+  /**
+   * The reported day's full detector output, for the `job_runs` detail projection
+   * in `scheduled.ts` and nothing else.
+   *
+   * Separate from {@link automation} on purpose: that one is the shared contract
+   * both surfaces render, this one is the cron's diagnostic record (candidate
+   * counts, truncation, the non-browser networks). It rides along so the cron
+   * keeps its detail WITHOUT a second detector run — the prior day's summary is
+   * not carried, because the only thing the cron reads from it is already
+   * `automation.flagged.prior`.
+   */
+  swarm: SwarmSummary | null;
 }
 
 const TOP_PRODUCTS_LIMIT = 5;
-
-/**
- * A row is "human" when it isn't flagged as a bot. `is_bot IS NOT 1` (NULL-safe) so
- * pre-classification rows (`is_bot = NULL`) count as human, not vanish.
- *
- * Exported because the admin panel (AECI-574) reads the SAME population — sharing
- * the predicate is what makes "the screen and the 05:00 email cannot disagree"
- * structural rather than a convention someone has to remember. The panel also
- * surfaces the resulting bias as a `bot_classification_incomplete` note.
- */
-export const HUMAN = or(isNull(pageViews.isBot), eq(pageViews.isBot, false));
-export const BOT = eq(pageViews.isBot, true);
-
-/**
- * How far either side of a row the retro-join will look for an `is_operator = 1`
- * anchor on the same visitor pair. A documented launch tunable
- * (`POST_LAUNCH_MONITORING.md` §3) — raise it only against measured evidence.
- *
- * Symmetric on purpose: a lapse can sit before the operator's first flagged row
- * of a session as easily as after their last. On 2026-08-26 the anchors were on
- * BOTH sides of the gap (02:48-04:42 and 07:33 onward, with 05:46-07:32 dark).
- */
-export const OPERATOR_PAIR_LOOKBACK_DAYS = 30;
-
-/** `'-30 days'` / `'+30 days'`, bound as ordinary parameters rather than inlined.
- *  Two parameters for the whole predicate, no matter how many pairs exist. */
-const LOOKBACK_BACK = `-${OPERATOR_PAIR_LOOKBACK_DAYS} days`;
-const LOOKBACK_FWD = `+${OPERATOR_PAIR_LOOKBACK_DAYS} days`;
-
-/**
- * "This row shares a `(user_agent_hash, cf_asn)` pair with a VERIFIED operator
- * row nearby in time" — the read-side repair for the operator session-lapse leak
- * (AECI-683).
- *
- * ─── The defect it closes ───────────────────────────────────────────────────
- *
- * `is_operator` is decided once, at ingest, and `lib/operator-session.ts` resolves
- * every failure to `false` — deliberately, so an auth hiccup costs a flag rather
- * than the row. An **expired** access token is one of those failures. So an
- * operator who browses across a token expiry writes flagged rows, then unflagged
- * rows, then flagged rows again, and nothing on the unflagged ones distinguishes
- * them from a visitor. On 2026-08-26 that was 22 views in one 105-minute gap
- * (ending on `/auth/login`, which is what a lapse looks like from the outside),
- * inside a 102-view "human" day whose corroborated population was 8 views from
- * 7 visitors.
- *
- * ─── Why the PAIR, and not either half ──────────────────────────────────────
- *
- * Measured on production 2026-08-19 and recorded in
- * `scripts/ops/2026-08-operator-page-view-backfill/operator-pairs.sql`:
- *
- *   - **The UA hash alone is wrong.** The operator's second browser hash
- *     `d37ac4d2…` — the very hash that leaked here — spans 6 ASNs across 5
- *     countries. A UA hash is a browser BUILD, shared with strangers; flagging it
- *     outright would delete real visitors in four countries.
- *   - **The ASN alone is wrong.** "Everything from Indonesia" was 44% false
- *     positives and 50% recall. That is the objection §13 D10 already recorded
- *     against `ANALYTICS_INTERNAL_ASNS`.
- *   - **The pair is right**, and is also exactly the tuple §9.8 already calls a
- *     "visitor" — so this excludes operator VISITORS in the same terms the panel
- *     counts everyone else in.
- *
- * ─── Why the anchors come from `is_operator = 1` only ───────────────────────
- *
- * The ops backfill could also prove a pair from an `/admin*` row, because no
- * visitor reaches one. That is no longer available: since AECI-575's write-side
- * guard (`server-runtime.ts`, `page-view-tracker.ts`) untracked routes are not
- * written AT ALL, so there are no such rows to harvest from any recent window.
- * `/account` would be the wrong source regardless — every signed-in user reaches
- * it, so harvesting there would exclude ordinary members' public browsing.
- *
- * ─── Two properties that must not be refactored away ────────────────────────
- *
- * **NULL-safe by construction.** A row with a NULL `user_agent_hash` or `cf_asn`
- * makes the inner `=` NULL, the subquery matches nothing, and `NOT EXISTS` is
- * TRUE — the row is KEPT. The tempting `NOT (hash = ? AND asn = ?)` form does the
- * opposite: SQL's three-valued logic turns it NULL and the `WHERE` drops the row.
- * Do not rewrite it that way.
- *
- * **The `strftime` format string is load-bearing.** `created_at` is
- * `new Date().toISOString()` — `2026-08-26T05:46:00.000Z`. Bare `datetime(…)`
- * returns `2026-07-27 05:46:00`, and a space sorts BEFORE `T`, so comparing the
- * two shapes is silently wrong at the boundary. `%Y-%m-%dT%H:%M:%fZ` reproduces
- * the stored format exactly.
- *
- * Exported in its POSITIVE form so the count of what the clause removes and the
- * clause itself are the same expression and cannot drift.
- */
-export const OPERATOR_PAIR_MATCH = sql`exists (
-    select 1 from ${pageViews} as op
-     where op.is_operator = 1
-       and op.user_agent_hash = ${pageViews.userAgentHash}
-       and op.cf_asn = ${pageViews.cfAsn}
-       and op.created_at >= strftime('%Y-%m-%dT%H:%M:%fZ', ${pageViews.createdAt}, ${LOOKBACK_BACK})
-       and op.created_at <= strftime('%Y-%m-%dT%H:%M:%fZ', ${pageViews.createdAt}, ${LOOKBACK_FWD})
-  )`;
-
-/**
- * The path + flag halves WITHOUT the retro-join — the population the digest
- * counted before AECI-683.
- *
- * Exists only so `operatorLeakViews` can report exactly what the retro-join
- * removed. Nothing else should read it: a caller that wants "not the operator"
- * wants {@link NOT_INTERNAL}.
- */
-const NOT_INTERNAL_BEFORE_RETRO_JOIN = and(
-  ...UNTRACKED_ROUTE_PREFIXES.flatMap((prefix) => [
-    notLike(pageViews.path, prefix),
-    notLike(pageViews.path, `${prefix}/%`),
-  ]),
-  or(isNull(pageViews.isOperator), eq(pageViews.isOperator, false)),
-);
-
-/**
- * Excludes the operator's own traffic. Three independent halves, deliberately one
- * predicate:
- *
- *   - **Operator-only PATHS** (`/admin/*`, `/account`) — the read-side half of
- *     AECI-575 / ADMIN_PANEL_SPEC §9.6, described below.
- *   - **Operator SESSIONS** (`is_operator = 1`) — the operator browsing the
- *     PUBLIC site while signed in as an admin (§13 **D13**,
- *     `lib/operator-session.ts`). The path half never saw these: standing on
- *     `/products/procore` is indistinguishable from a visitor doing the same,
- *     and on 2026-08-19 that was 15% of all human public-page views.
- *   - **Operator VISITOR PAIRS** ({@link OPERATOR_PAIR_MATCH}, AECI-683) — the
- *     rows a lapsed session left unflagged. The session half cannot see these
- *     either: `is_operator` is decided once at ingest and an expired token reads
- *     exactly like an anonymous request.
- *
- * They live in one constant because they answer one question — "is this row the
- * operator?" — and because a caller that remembered one and forgot the others
- * would report a number that is partly corrected, which is worse than any
- * consistent alternative. NULL-safe on `is_operator`: every row written before
- * D13 shipped is NULL and counts as a visitor, so history keeps reading exactly
- * as it did rather than shifting under a column it never had.
- *
- * **The third half is an INFERENCE, and is therefore reported.** The first two
- * are facts about the request — a path no visitor reaches, a signature that
- * verified — so the digest excludes them silently: they were never visitor
- * traffic. A pair match is a judgement about identity, and `ANALYTICS_BASELINE.md`
- * is explicit that the pair cohort must not be read as equivalent to the live
- * flag. So `AnalyticsMetrics.operatorLeakViews` counts what it removed and the
- * email prints it. Silence would be the same failure the headline number itself
- * was guilty of.
- *
- * The tracker no longer writes the path rows, but rows captured BEFORE that
- * shipped are indistinguishable from real traffic once they're in the table, so
- * filtering only at the write side would leave every pre-fix day permanently
- * inflated and inconsistent with every post-fix day. Applying it here makes the
- * whole history read the same way.
- *
- * Prefix list comes from `@aeci/shared` so the read side can't drift from the two
- * write-side guards. `path` is NOT NULL, so `NOT LIKE` is safe here (no
- * three-valued-logic surprise), and `page_views_path_idx` covers the column.
- *
- * **Kept a static constant on purpose.** The retro-join is written as a
- * self-contained correlated subquery anchored on each row's OWN timestamp rather
- * than as a `notInternalFor(window)` function, so all five read surfaces below
- * keep sharing one expression instead of each remembering to thread a window
- * through. It also binds a fixed two parameters regardless of how many operator
- * pairs exist — a JS-resolved pair list would bind two per pair and scale with
- * the data, which is precisely the D1 bound-parameter hazard the better-sqlite3
- * test harness cannot fail on (`TESTING_STRATEGY.md` §6.3).
- *
- * Exported because four other read surfaces must exclude the same rows or they
- * diverge from the digest they are meant to mirror: the admin panel
- * (`lib/admin-analytics.ts` + `routes/admin-overview.ts`, AECI-574), the
- * `metrics_daily` snapshot that reaches D1 through the first of those, and the
- * public home page's trending card (`lib/home-stats.ts`). Both panel modules
- * import it as `EXCLUDE_OPERATOR_TRAFFIC`, to stay distinct from that module's
- * unrelated `ANALYTICS_INTERNAL_ASNS` "internal" filter — the alias says *traffic*
- * rather than *routes* because since D13 it is no longer only about paths.
- *
- * Trending is the one that bites hardest if forgotten: it renders publicly, and
- * D12 recorded it as immune to the path half (an `/admin/*` row has no
- * `product_id`) — which is true and does not extend to an operator session, which
- * carries the FK like any other product view.
- *
- * One structural caveat: the correlated subquery names `"page_views"` columns
- * directly, so a caller that ALIASES `pageViews` would silently break the
- * correlation. No caller does today; keep it that way.
- */
-export const NOT_INTERNAL = and(NOT_INTERNAL_BEFORE_RETRO_JOIN, not(OPERATOR_PAIR_MATCH));
 
 /** `COUNT(*)` of human or bot `page_views` in `[startIso, endIso)`. */
 async function countPageViews(
@@ -597,14 +378,21 @@ async function countOperatorLeakViews(db: Db, startIso: string, endIso: string):
   return row?.value ?? 0;
 }
 
-/** Run every read for the digest concurrently. Report-only; never mutates. */
+/**
+ * Run every read for the digest concurrently. Report-only; never mutates.
+ *
+ * Since AECI-745 this ALSO runs the swarm detector, rather than taking its result
+ * from a caller. That inverts the old arrangement deliberately: an
+ * `AutomationExclusion` parameter is a parameter a caller can forget, and
+ * `/admin/overview` forgot it for the whole life of the field, which is the
+ * divergence this closes. Detection is now a property of collecting the metrics,
+ * so no caller can collect them without it.
+ */
 export async function collectAnalyticsMetrics(
   db: Db,
   window: DigestWindow,
-  /** Flagged automated clients to exclude from the per-row tables (AECI-747).
-   *  Omitted → tables are unfiltered, which is what the admin panel still does. */
-  exclusion?: AutomationExclusion,
 ): Promise<AnalyticsMetrics> {
+  const { swarm, automation, exclusion } = await runAutomationFilter(db, window);
   const [
     humanViewsDay,
     humanViewsPrior,
@@ -650,7 +438,87 @@ export async function collectAnalyticsMetrics(
     corroboratedViews: { day: corroboratedDay, prior: corroboratedPrior },
     corroboratedVisitors,
     operatorLeakViews,
+    automation,
+    swarm,
   };
+}
+
+/**
+ * The row-level exclusion a detector run implies — the exact complement of the
+ * views its `flaggedViews` counted.
+ *
+ * Exported because `/admin/overview` needs it too: its `excluding_internal` is a
+ * SUBSET of the post-automation total, so it has to filter by the same rows the
+ * headline subtracted or it can report a subset larger than its own superset.
+ * Deriving it in one place is what keeps that impossible; the route reads
+ * `metrics.swarm` and calls this rather than re-mapping the candidate lists.
+ *
+ * `undefined` for a null summary, which reads through `notFlagged` as "no
+ * filter" — the correct behaviour when the detector did not run, since the
+ * headline it accompanies is the unfiltered count.
+ */
+export function automationExclusionFor(
+  swarm: SwarmSummary | null,
+): AutomationExclusion | undefined {
+  if (!swarm) return undefined;
+  return {
+    uaHashes: swarm.uaCandidates.map((c) => c.userAgentHash),
+    asns: swarm.asnCandidates.map((c) => c.cfAsn),
+    // Unconditional, unlike the two lists: the detector's union count always
+    // includes the verdict matcher, so its complement must too, or the tables
+    // would keep rows the headline already subtracted (AECI-744).
+    verdicts: [...NON_BROWSER_VERDICTS],
+  };
+}
+
+/**
+ * Detect the reported day's automated clients and the prior day's, and turn them
+ * into the two shapes the rest of this module needs: the {@link AutomationFilter}
+ * both surfaces report, and the {@link AutomationExclusion} the per-row tables
+ * filter by.
+ *
+ * ─── Both days, and that is not symmetry for its own sake ───────────────────
+ *
+ * The headline is the count remaining AFTER the filter, so its day-over-day delta
+ * has to subtract from both sides. Comparing a filtered day against an unfiltered
+ * prior day would manufacture a large fake drop on the first morning and a wrong
+ * delta every morning after (AECI-741).
+ *
+ * ─── Fails SOFT, and loudly ─────────────────────────────────────────────────
+ *
+ * A detector failure returns `automation: null` and no exclusion, which the
+ * formatter already renders as the raw count plus an explicit UNFILTERED warning,
+ * and which the panel renders the same way. Letting it throw instead would take
+ * down the 05:00 digest AND `/admin/overview` — two surfaces whose whole job is
+ * to keep reporting — for a bug in one of the numbers they report. The
+ * `console.warn` is what keeps that degradation from being silent; `job_runs`
+ * records the null alongside it.
+ */
+async function runAutomationFilter(
+  db: Db,
+  window: DigestWindow,
+): Promise<{
+  swarm: SwarmSummary | null;
+  automation: AutomationFilter | null;
+  exclusion: AutomationExclusion | undefined;
+}> {
+  try {
+    const [day, prior] = await Promise.all([
+      detectSwarms(db, window.startIso, window.endIso),
+      detectSwarms(db, window.priorStartIso, window.startIso),
+    ]);
+    return {
+      swarm: day,
+      automation: {
+        flagged: { day: day.flaggedViews, prior: prior.flaggedViews },
+        note: swarmNote(day),
+      },
+      exclusion: automationExclusionFor(day),
+    };
+  } catch (err) {
+    console.warn('[analytics-digest] swarm detection failed; reporting UNFILTERED', err);
+    return { swarm: null, automation: null, exclusion: undefined };
+  }
 }
 
 // ─── Pure formatter ──────────────────────────────────────────────────────────────
@@ -671,19 +539,12 @@ export interface AnalyticsDigestOptions {
   /** Why the PostHog figure is missing, when it is. Shown so a silently-skipping
    *  join is visible in the email rather than only in `job_runs`. */
   posthogUnavailable?: string | null;
-  /**
-   * The rotating-proxy / user-agent-rotation filter for this window and the one
-   * before it (AECI-658, AECI-683), or null/absent when the detector did not run.
-   *
-   * Passed in ALREADY SUMMARIZED rather than as a `SwarmSummary`, for two reasons.
-   * The formatter stays pure — it has always taken data and options and reached
-   * for nothing — and, more practically, `swarm-detection` imports this module's
-   * `HUMAN` / `NOT_INTERNAL` predicates, so importing its renderer back here
-   * would close a runtime import cycle. It would happen to work today (the
-   * predicates are only dereferenced inside a function body) and would break the
-   * first time either module grew a top-level use. The caller detects; we print.
-   */
-  automation?: AutomationFilter | null;
+  // NOTE: there is deliberately no `automation` option here any more (AECI-745).
+  // The filter now arrives on `AnalyticsMetrics.automation`, computed by the same
+  // call that produced every other number in the email. An option would be a
+  // SECOND source for the one figure `humanViewsAfterAutomation` exists to keep
+  // single-sourced, and an option a caller can pass is an option a caller can
+  // pass differently from the one the panel reads.
 }
 
 /**
@@ -720,7 +581,9 @@ export interface AutomationFilter {
  *
  * Exported so the admin panel can lead with the same figure rather than
  * re-deriving the subtraction — the §6.10 parity guarantee is only structural
- * while both surfaces read one definition.
+ * while both surfaces read one definition. Since AECI-745 it takes the metrics
+ * ALONE, because the filter now lives on them: passing the filter separately
+ * would let a caller subtract one day's flagged count from another day's total.
  *
  * Clamped at zero defensively. `flagged` is a subset of the same
  * `HUMAN`+`NOT_INTERNAL` population `pageViews` counts, computed from the same
@@ -728,10 +591,8 @@ export interface AutomationFilter {
  * negative headline would be a far worse failure than a zero one if that ever
  * stopped being true.
  */
-export function humanViewsAfterAutomation(
-  metrics: AnalyticsMetrics,
-  automation: AutomationFilter | null | undefined,
-): DailyCount {
+export function humanViewsAfterAutomation(metrics: AnalyticsMetrics): DailyCount {
+  const automation = metrics.automation;
   if (!automation) return metrics.pageViews;
   return {
     day: Math.max(0, metrics.pageViews.day - automation.flagged.day),
@@ -813,14 +674,14 @@ export function buildAnalyticsDigest(
 function buildSubject(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): string {
   const { pageViews: pv, botPageViews: bot, newUsers, topProducts } = metrics;
   const topName = topProducts[0]?.name;
-  const net = humanViewsAfterAutomation(metrics, opts.automation);
+  const net = humanViewsAfterAutomation(metrics);
   // The subject line is the number the operator actually reads, so it carries
   // the filtered figure with the raw one in parentheses (AECI-741) rather than
   // the reverse. Without the filter it keeps the AECI-658 "up to" hedge: for
   // weeks the subject asserted a figure that was an order of magnitude high with
   // nothing to qualify it. ASCII, not a "<=" glyph, so it survives every mail
   // client's subject rendering.
-  const headline = opts.automation
+  const headline = metrics.automation
     ? `${plural(net.day, 'human view')} after automation (${pv.day} raw)`
     : `up to ${plural(pv.day, 'human view')}`;
   return (
@@ -854,10 +715,10 @@ function buildSubject(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): 
  * in the opposite direction.
  */
 function boundsLines(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): string[] {
-  const lines = opts.automation
+  const lines = metrics.automation
     ? [
         `The headline is the ${metrics.pageViews.day} views counted server-side less the`,
-        `${opts.automation.flagged.day} attributed to automated clients. The raw server-side figure is an`,
+        `${metrics.automation.flagged.day} attributed to automated clients. The raw server-side figure is an`,
         'UPPER bound: it is written on every full-document load, so any crawler that does not run',
         'JavaScript is still in it. The filter is a maintained heuristic over a small sample, so the',
         'headline is an estimate — it is not a census, and it can be wrong in both directions.',
@@ -874,7 +735,7 @@ function boundsLines(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): s
     lines.push(
       `PostHog (client-side, consented only) saw ${plural(pageviews, 'page view')} from ` +
         `${people} ${people === 1 ? 'person' : 'people'} the same day: a LOWER bound.`,
-      opts.automation
+      metrics.automation
         ? 'The truth is between that floor and the raw server-side figure; the headline is our best estimate inside that range.'
         : 'The truth is between the two. A large gap means most arrivals never ran our JavaScript.',
     );
@@ -937,12 +798,12 @@ function buildText(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): str
   // for the post-automation figure to be the number they SEE; ordering is most of
   // what makes that true in a plain-text mail client, where there is no type
   // scale to lean on.
-  const net = humanViewsAfterAutomation(metrics, opts.automation);
-  if (opts.automation) {
+  const net = humanViewsAfterAutomation(metrics);
+  if (metrics.automation) {
     t.push(
       `Human page views after automation: ${net.day} (${deltaText(net)})  [headline]`,
       `  from ${pv.day} counted server-side (${deltaText(pv)}), less ` +
-        `${plural(opts.automation.flagged.day, 'view')} flagged as automation  [upper bound]`,
+        `${plural(metrics.automation.flagged.day, 'view')} flagged as automation  [upper bound]`,
     );
   } else {
     t.push(
@@ -965,8 +826,8 @@ function buildText(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): str
       `  (${plural(metrics.operatorLeakViews, 'view')} excluded as operator self-traffic on a lapsed session)`,
     );
   }
-  if (opts.automation?.note) {
-    t.push(`Automation signal: ${opts.automation.note}`);
+  if (metrics.automation?.note) {
+    t.push(`Automation signal: ${metrics.automation.note}`);
   }
   if (bot.day > 0) {
     t.push(
@@ -976,7 +837,7 @@ function buildText(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): str
   if (topProducts.length > 0) {
     t.push(
       '',
-      opts.automation ? 'Most viewed products (after automation):' : 'Most viewed products:',
+      metrics.automation ? 'Most viewed products (after automation):' : 'Most viewed products:',
     );
     topProducts.forEach((p, i) =>
       t.push(`  ${i + 1}. ${p.name} — ${plural(p.views, 'view')} (/${p.slug})`),
@@ -985,7 +846,7 @@ function buildText(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): str
     t.push('Most viewed product: (no human product page views)');
   }
 
-  t.push('', `== Traffic sources (humans${opts.automation ? ', after automation' : ''}) ==`);
+  t.push('', `== Traffic sources (humans${metrics.automation ? ', after automation' : ''}) ==`);
   if (referrers.length > 0) {
     referrers.forEach((r, i) => t.push(`  ${i + 1}. ${r.source} — ${plural(r.views, 'view')}`));
   } else {
@@ -1129,9 +990,9 @@ function buildHtml(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): str
     metrics.operatorLeakViews > 0
       ? `<p style="margin:6px 0 0;font-size:13px;color:${HTML.muted}">${metrics.operatorLeakViews} view${metrics.operatorLeakViews === 1 ? '' : 's'} excluded as operator self-traffic on a lapsed session.</p>`
       : '';
-  const swarmLine = opts.automation?.note
+  const swarmLine = metrics.automation?.note
     ? `<p style="margin:10px 0 0;padding:10px 12px;border-left:3px solid ${HTML.accent};background:${HTML.accentSoft};font-size:13px;color:${HTML.ink}">` +
-      `<strong>Automation signal.</strong> ${escapeHtml(opts.automation.note)}</p>`
+      `<strong>Automation signal.</strong> ${escapeHtml(metrics.automation.note)}</p>`
     : '';
   // AECI-741. The big number is the post-automation count; the raw server-side
   // figure survives as a muted sub-line because it is still the upper bound and
@@ -1139,8 +1000,8 @@ function buildHtml(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): str
   // operator comparing this morning against last week needs to be able to see
   // both, and a number that silently changed meaning is the failure mode
   // AECI-658 already had to fix once.
-  const net = humanViewsAfterAutomation(metrics, opts.automation);
-  const headlineStat = opts.automation
+  const net = humanViewsAfterAutomation(metrics);
+  const headlineStat = metrics.automation
     ? primaryStat(
         net.day,
         net.day === 1 ? 'human page view after automation' : 'human page views after automation',
@@ -1148,7 +1009,7 @@ function buildHtml(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): str
       ) +
       `<p style="margin:6px 0 0;font-size:13px;color:${HTML.muted}">` +
       `From <strong style="color:${HTML.ink}">${pv.day}</strong> counted server-side ` +
-      `(${escapeHtml(deltaText(pv))}), less <strong style="color:${HTML.ink}">${opts.automation.flagged.day}</strong> ` +
+      `(${escapeHtml(deltaText(pv))}), less <strong style="color:${HTML.ink}">${metrics.automation.flagged.day}</strong> ` +
       `flagged as automation. The raw figure is an <strong>upper bound</strong>; the headline is a ` +
       `heuristic estimate, not a census.</p>`
     : primaryStat(pv.day, pv.day === 1 ? 'human page view' : 'human page views', deltaText(pv)) +
@@ -1169,7 +1030,7 @@ function buildHtml(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): str
     `${escapeHtml(p.name)} <span style="color:${HTML.muted};font-size:12px">/${escapeHtml(p.slug)}</span>`;
   const productsSection =
     sectionTitle(
-      opts.automation
+      metrics.automation
         ? 'Most viewed products (humans, after automation)'
         : 'Most viewed products (humans)',
     ) +
@@ -1183,7 +1044,9 @@ function buildHtml(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): str
 
   const referrersSection =
     sectionTitle(
-      opts.automation ? 'Traffic sources (humans, after automation)' : 'Traffic sources (humans)',
+      metrics.automation
+        ? 'Traffic sources (humans, after automation)'
+        : 'Traffic sources (humans)',
     ) +
     (referrers.length > 0
       ? rankTable(

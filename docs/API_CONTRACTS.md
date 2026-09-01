@@ -1382,14 +1382,23 @@ export const AdminOverviewResponseSchema = z.object({
   notes: z.array(AdminNoteSchema),
   internal_filter: AdminInternalFilterSchema,
   traffic: z.object({
+    // AECI-745: the HEADLINE, human views AFTER the automation filter — the same
+    // number the 05:00 email leads with. This field was REDEFINED; it carried the
+    // raw count through AECI-744.
     page_views_human: AdminCountSchema,
+    page_views_human_raw: AdminCountSchema,  // the server-side upper bound
+    automation_flagged: z.number().int().nonnegative().nullable(), // null = detector did not run
     page_views_bot: AdminCountSchema,
     unique_visitors: AdminCountSchema,      // DISTINCT (user_agent_hash, cf_asn)
-    delta_day: AdminDeltaSchema,            // human views, day over day
-    delta_7d: AdminDeltaSchema,             // 7 days ending here vs the 7 before
-    series_30d: z.array(AdminTrafficPointSchema),   // zero-filled { day, human, bot }
+    delta_day: AdminDeltaSchema,            // post-automation, FILTERED on both sides
+    delta_7d: AdminDeltaSchema,             // 7 days ending here vs the 7 before — RAW
+    series_30d: z.array(AdminTrafficPointSchema),   // zero-filled { day, human, bot } — RAW
     top_sources: z.array(AdminSourceCountSchema),
     top_products: z.array(AdminProductViewsSchema), // { name, slug, views }
+    // AECI-683. All three come straight off `collectAnalyticsMetrics`.
+    corroborated_views: z.number().int().nonnegative(),
+    corroborated_visitors: z.number().int().nonnegative(),
+    operator_leak_excluded: z.number().int().nonnegative(),
   }),
   audience: z.object({
     new_sign_ins: AdminDeltaSchema,
@@ -1425,27 +1434,48 @@ in `AnalyticsMetrics`, so no panel screen and no `metrics_daily` key can see it.
 number in `AnalyticsMetrics` when both surfaces should report it, and in `scheduled.ts`
 only when it is genuinely email-shaped prose.
 
-**This trap is currently OPEN, deliberately, and is tracked as a follow-up.** AECI-741
-made the post-automation count the email's headline, but the swarm detector still cannot
-be called from `collectAnalyticsMetrics` without closing an import cycle
-(`swarm-detection` imports the collector's `HUMAN` / `NOT_INTERNAL` predicates). So
-`page_views_human.total` on `GET /api/admin/overview` remains the **raw** count while the
-email now leads with the filtered one, and the two surfaces disagree about which number
-is the headline. The parity guarantee above still holds for every field it names — this is
-a new field the panel does not have yet, not a field that drifted. Closing it means
-extracting the shared predicates into their own module so the collector can call the
-detector; `humanViewsAfterAutomation()` is exported from `analytics-digest.ts` so the
-panel can do the subtraction from one definition once it has the input.
+**That trap is now CLOSED (AECI-745).** `collectAnalyticsMetrics` runs the swarm
+detector itself and returns `automation` on `AnalyticsMetrics`, so the filtered
+figure is a property of collecting the metrics rather than something a caller
+remembers to pass — and `/admin/overview` forgot to pass it for the entire life of
+the field, which is precisely the failure mode an optional parameter invites.
 
-The same one-way rule governs `AutomationExclusion`, which the cron hands
-`collectAnalyticsMetrics` so the digest's tables filter the population its headline
-subtracts. It carries **plain primitives only** — `uaHashes`, `asns`, and (since
-AECI-744) `verdicts`, the `client_verdict` values that flag a row on their own with no
-view floor. `verdicts` is a fixed vocabulary rather than a per-run result, and it is
-still *passed* rather than hardcoded in the collector for the same reason the other two
-are: the detector owns what "flagged" means, `analytics-digest.ts` owns only the exact
-complement, and importing `NON_BROWSER_VERDICTS` there directly would close the cycle
-this section exists to keep open.
+What blocked it was an import cycle, and the fix was to remove the cycle rather
+than the sharing: `HUMAN`, `BOT`, `OPERATOR_PAIR_MATCH`, `NOT_INTERNAL` and
+`notFlagged` moved to `apps/api/src/lib/page-view-predicates.ts`, which both
+`analytics-digest` and `swarm-detection` import and neither is imported by.
+Nothing in that module may import either consumer; `page-view-predicates.spec.ts`
+pins the NULL-safe `NOT EXISTS` form and the `%Y-%m-%dT%H:%M:%fZ` format string
+that a non-verbatim move would have broken silently.
+
+⚠️ **`page_views_human` and `delta_day` changed MEANING, not just value.** Both are
+now post-automation; the raw server-side count is `page_views_human_raw`. Nothing
+in the type expresses that, so a client that upgrades without reading this will
+silently start reporting a different (better) number. `delta_day` is filtered on
+BOTH sides — a filtered day against an unfiltered prior day manufactures a large
+fake drop (AECI-741) — while `delta_7d` and `series_30d` stay RAW, because
+filtering them means re-running the detector over fourteen and thirty further days
+per request. The panel labels that difference rather than hiding it.
+
+`automation_flagged` is `null`, never `0`, when the detector failed. Zero is a
+clean day; null is an outage in which the headline is unfiltered, and the response
+carries an `automation_filter_did_not_run` warning to say so. The failure is
+caught in the collector and degrades both surfaces rather than 500-ing either.
+
+`AutomationExclusion` still carries **plain primitives only** — `uaHashes`, `asns`,
+and (since AECI-744) `verdicts` — and is still derived from a `SwarmSummary` by
+`automationExclusionFor()` rather than being a `SwarmSummary`. The cycle argument
+for that is gone; the real reason it always had remains. `analytics-digest.ts` owns
+only the exact COMPLEMENT of "flagged" and `swarm-detection.ts` owns what flagged
+MEANS. Handing the complement a summary object would invite it to re-derive the
+decision from the candidate fields, and then there would be two definitions again.
+
+**One cost, recorded because the call site does not show it.** The detector adds
+roughly 14 D1 reads to this handler — about seven per window, over the reported day
+and the prior one — on every request, `?day=` and `?recompute=1` included. It is
+bounded (`SWARM_MAX_CANDIDATES` caps the bound-parameter count; the 14-day
+recurrence lookback rides `page_views_operator_pair_idx`) and it is the price of
+the panel and the email leading with one number.
 
 **Status strip and `?recompute=1` (§13 D8).** The first three items are cheap
 D1/env reads and are always present. The last two need the network — the
@@ -1481,9 +1511,35 @@ back to live aggregation for any day it does not cover (P2.1 / AECI-581) — a
 storage swap behind an unchanged shape, which is why the metric keys are §7.1's
 `namespace.metric` strings verbatim.
 
+**One key has no live fallback (AECI-745).**
+`traffic.page_views_human_after_automation` is served from `metrics_daily` alone,
+because computing it live means running the swarm detector once per day in the
+window — roughly seven D1 reads a day, so ~210 for a 30-day chart every other
+metric answers in one query. Three consequences, all deliberate:
+
+- **Uncovered days are OMITTED from `points`, not zero-filled.** Zero is a
+  measurement here ("no humans that day"), and a zero at the snapshot boundary
+  reads as a traffic collapse rather than as the start of the record. A
+  `catalog_series_starts_at` note reports how many days were dropped.
+- **`source` is always `'snapshot'`**, never `'mixed'` — there is no live half.
+- **`exclude_internal=1` is a `400`.** The internal filter bypasses the snapshot
+  by design (a stored row cannot carry a config-dependent figure), and with no
+  live path there is nothing left to serve. Rejected rather than silently
+  downgraded, for the same reason `basis=net` is rejected outside `catalog.*`.
+
+It is also **not backfillable**, and that is a correctness decision rather than an
+omission: `metrics-backfill.ts` reconstructs a series with one generated SQL
+statement, and the detector is a grouping plus a cross-day recurrence lookback
+plus a three-way union. Reproducing that in SQL would be a second definition of
+"flagged" — the exact drift AECI-745 removed. The series fills forward from the
+day the 00:15 cron first writes it.
+
 ```typescript
 export const AdminMetricKeySchema = z.enum([
   'traffic.page_views_human',      // page_views, is_bot IS NOT 1 AND NOT_INTERNAL (the digest predicate — since AECI-683 that includes the operator-pair retro-join, so rows snapshotted before 2026-08-27 read slightly high)
+  // AECI-745. SNAPSHOT-ONLY: no live fallback, uncovered days are OMITTED (not
+  // zero), `source` is always 'snapshot', and `exclude_internal=1` is a 400.
+  'traffic.page_views_human_after_automation',
   'traffic.page_views_bot',        // page_views, is_bot = 1
   'traffic.unique_visitors',       // DISTINCT (user_agent_hash, cf_asn) per day, HUMANS only
   // basis=additions (default): audit_log action='<entity>.created'

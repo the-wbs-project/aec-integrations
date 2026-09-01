@@ -24,6 +24,7 @@ import type { Env } from '../env';
 import {
   buildAnalyticsDigest,
   collectAnalyticsMetrics,
+  humanViewsAfterAutomation,
   windowsForDay,
 } from '../lib/analytics-digest';
 import { makeTestDb, type TestDb } from '../test/d1';
@@ -175,12 +176,65 @@ describe('GET /api/admin/overview — digest parity (the AECI-574 acceptance cri
     expect(body.traffic.corroborated_views).toBe(metrics.corroboratedViews.day);
     expect(body.traffic.corroborated_visitors).toBe(metrics.corroboratedVisitors);
     expect(body.traffic.operator_leak_excluded).toBe(metrics.operatorLeakViews);
+    // AECI-745. The headline is the POST-AUTOMATION count on both surfaces now.
+    // On this fixture the detector flags nothing, so the filtered and raw figures
+    // coincide — which is why the test below seeds a client it DOES flag. Both
+    // are needed: this one pins the fields to the collector, that one proves the
+    // panel is reading the filtered one.
+    expect(body.traffic.page_views_human.total).toBe(humanViewsAfterAutomation(metrics).day);
+    expect(body.traffic.page_views_human_raw.total).toBe(metrics.pageViews.day);
+    expect(body.traffic.automation_flagged).toBe(metrics.automation?.flagged.day ?? null);
 
     // And the email really does carry those figures — 3 humans (two operator
     // views + one Google arrival) plus the unclassified row = 4, 1 crawler.
     expect(metrics.pageViews.day).toBe(4);
     expect(metrics.botPageViews.day).toBe(1);
     expect(email.subject).toContain('4 human views');
+  });
+
+  it('leads with the SAME post-automation figure the email leads with (AECI-745)', async () => {
+    await seedDay();
+    // Four views under one fingerprint from four different networks — over
+    // `SWARM_MIN_VIEWS` at an ASN ratio of 1.0, so the real detector flags them.
+    // Without a client the detector actually flags, the raw and filtered figures
+    // coincide and this assertion would pass on the pre-AECI-745 code too, which
+    // is the trap the relational assertions above quietly sat in.
+    await t.db.insert(pageViews).values(
+      Array.from({ length: 4 }, (_, i) => ({
+        path: '/products/procore',
+        isBot: false,
+        userAgentHash: 'rotating-proxy',
+        cfAsn: 4000 + i,
+        cfCountry: ['PL', 'BR', 'ID', 'VN'][i],
+        createdAt: `${DAY}T1${i}:00:00.000Z`,
+      })),
+    );
+
+    const metrics = await collectAnalyticsMetrics(t.db, windowsForDay(DAY));
+    const email = buildAnalyticsDigest(metrics, {
+      env: 'preview',
+      dayLabel: DAY,
+      generatedAt: NOW,
+    });
+    const body = await overview();
+
+    // The two figures must actually differ, or the rest proves nothing.
+    expect(metrics.pageViews.day).toBe(8);
+    expect(metrics.automation?.flagged.day).toBe(4);
+    expect(body.traffic.page_views_human_raw.total).toBe(8);
+    expect(body.traffic.automation_flagged).toBe(4);
+
+    // …and the panel leads with the filtered one, which is the whole issue.
+    expect(body.traffic.page_views_human.total).toBe(4);
+    expect(email.subject).toContain('4 human views after automation (8 raw)');
+
+    // The day-over-day delta is filtered on BOTH sides (AECI-741). The prior day
+    // flags nothing, so its filtered count is its raw count of 2.
+    expect(body.traffic.delta_day).toMatchObject({ current: 4, prior: 2 });
+
+    // And the envelope says how the number was reached.
+    expect(codes(body)).toContain('automation_filter_applied');
+    expect(codes(body)).not.toContain('automation_filter_did_not_run');
   });
 
   it('excludes /admin and /account rows so the panel never measures the console (AECI-575)', async () => {

@@ -120,6 +120,18 @@ const NOTE_PROSE: Record<AdminNoteCode, (params: NoteParams) => string> = {
   operator_leak_is_an_inference: () =>
     $localize`:@@admin.notes.operatorLeakIsAnInference:Views excluded as operator self-traffic on a lapsed session are matched by browser-and-network pair against a verified operator session nearby in time. That is an inference about who the visitor was, not a verified session.`,
 
+  // AECI-745. The API's `message` carries `SWARM_THRESHOLD_NOTE` verbatim, which
+  // is English and interpolates the detector's own numeric thresholds — so it is
+  // a FALLBACK, not the rendered string. Localizing the exact figures would mean
+  // duplicating the constants here and letting them rot; naming the shape of the
+  // rule and pointing at the day's own reading keeps the panel translatable
+  // without asserting a threshold it does not own.
+  automation_filter_applied: () =>
+    $localize`:@@admin.notes.automationFilterApplied:The headline is human page views less those attributed to automated clients: one browser fingerprint appearing across many networks, one network serving a new fingerprint almost every request, or a request whose own headers do not look like a browser. It is an estimate, not a census.`,
+
+  automation_filter_did_not_run: () =>
+    $localize`:@@admin.notes.automationFilterDidNotRun:The automation filter did not run for this window, so the human page-view figure is unfiltered and is an upper bound only. It is not comparable with a day the filter ran on.`,
+
   catalog_series_is_additions_only: () =>
     $localize`:@@admin.notes.catalogSeriesIsAdditionsOnly:This series counts creation events from the audit log: additions per day, not a net total. Rows removed later still count on the day they were added.`,
 

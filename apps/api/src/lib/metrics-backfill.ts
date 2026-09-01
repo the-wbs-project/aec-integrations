@@ -63,7 +63,7 @@ import {
 } from '@aeci/shared';
 
 import { shiftDay } from './admin-analytics';
-import { OPERATOR_PAIR_LOOKBACK_DAYS } from './analytics-digest';
+import { OPERATOR_PAIR_LOOKBACK_DAYS } from './page-view-predicates';
 
 /** Rows per multi-VALUES `INSERT`. Small enough to keep each statement well
  *  inside D1's per-statement limits, large enough that a 400-day range is ~16
@@ -212,7 +212,24 @@ function auditSeries(metric: AdminMetricKey, action: string, entity: string): Ba
 }
 
 /**
- * The eight flow series, in `ADMIN_METRIC_KEYS` order.
+ * Flow series that a single grouped SELECT can reconstruct, in
+ * `ADMIN_METRIC_KEYS` order.
+ *
+ * **`traffic.page_views_human_after_automation` is deliberately NOT here**
+ * (AECI-745), and that is a correctness decision rather than an omission. This
+ * module reconstructs a series by emitting ONE SQL statement per series and
+ * handing it to `wrangler d1 execute`; the automation filter is not one
+ * statement. `detectSwarms` groups candidates, applies a cross-day recurrence
+ * lookback, and then counts the UNION of three shapes — expressing that as a
+ * generated SELECT would put a SECOND definition of "flagged" in the codebase,
+ * which is exactly the divergence AECI-745 was opened to close, and the copy
+ * would drift the first time a threshold moved.
+ *
+ * So that series fills FORWARD from the day the 00:15 cron first writes it, and
+ * the read path reports the days it does not cover as absent rather than zero
+ * (`metricIsSnapshotOnly` in `admin-analytics.ts`). A gap that says "not measured"
+ * is honest; a reconstructed number computed by a near-copy of the detector is
+ * not.
  *
  * `traffic.unique_visitors` uses §9.8's visitor definition verbatim —
  * `DISTINCT (user_agent_hash, cf_asn)` with `coalesce` so a NULL component gets a
@@ -260,11 +277,29 @@ export const BACKFILL_SERIES: readonly BackfillSeries[] = [
   ),
 ];
 
+/**
+ * Flow metrics with no SQL-reconstructable form, excluded from the guard below.
+ *
+ * Named as a list rather than a count so adding a metric still trips the guard:
+ * the failure this protects against is a new key silently going un-backfilled,
+ * and "the numbers still add up" must not be a way to pass.
+ */
+const NOT_BACKFILLABLE: readonly AdminMetricKey[] = ['traffic.page_views_human_after_automation'];
+
 /* c8 ignore start -- a compile-time completeness guard, not a runtime branch. */
-if (BACKFILL_SERIES.length !== ADMIN_METRIC_KEYS.length) {
-  throw new Error(
-    `BACKFILL_SERIES covers ${BACKFILL_SERIES.length} of ${ADMIN_METRIC_KEYS.length} flow metrics`,
-  );
+{
+  const expected = ADMIN_METRIC_KEYS.length - NOT_BACKFILLABLE.length;
+  if (BACKFILL_SERIES.length !== expected) {
+    throw new Error(
+      `BACKFILL_SERIES covers ${BACKFILL_SERIES.length} of ${expected} backfillable flow metrics ` +
+        `(${ADMIN_METRIC_KEYS.length} total, ${NOT_BACKFILLABLE.length} excluded: ${NOT_BACKFILLABLE.join(', ')})`,
+    );
+  }
+  const covered = new Set(BACKFILL_SERIES.map((s) => s.metric));
+  const missing = ADMIN_METRIC_KEYS.filter((k) => !covered.has(k) && !NOT_BACKFILLABLE.includes(k));
+  if (missing.length > 0) {
+    throw new Error(`BACKFILL_SERIES is missing: ${missing.join(', ')}`);
+  }
 }
 /* c8 ignore stop */
 

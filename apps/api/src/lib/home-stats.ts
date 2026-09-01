@@ -62,7 +62,7 @@ import {
 
 import type { Db } from '../db/client';
 import { integrations, pageViews, products, reviews, statsCache, vendors } from '../db/schema';
-import { HUMAN, NOT_INTERNAL } from './analytics-digest';
+import { HUMAN, NOT_INTERNAL } from './page-view-predicates';
 import { COUNTED_REVIEW_STATUS } from './recompute-counts';
 import {
   integrationListConfig,
