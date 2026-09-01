@@ -35,6 +35,7 @@ below. The bounded render-volume signal is the `aeci.ssr.render` count metric.
 | `aeci.api.promote.job.duration_ms` | distribution | `apps/api/src/workflows/promote-workflow.ts` (`runPromoteWorkflow`, AECI-563) | `outcome` (`complete` / `errored`) — wall-clock of the whole job (payload load + plan + atomic batch + count recompute). **This is the metric that replaces the old promote request duration**; a slow ingest is no longer visible as a slow request |
 | `aeci.api.promote.skipped` | count | `apps/api/src/routes/promote.ts` (`logPromoteSkips`) | `source` (`promote`), `kind` (`integration` / `extension` / `usefulness` / `claim` / `trade`) — **value = per-kind skip count, query with `sum:`** |
 | `aeci.api.promote.stale_id` | count | `apps/api/src/routes/promote.ts` (`logPromoteStaleIds`, AECI-568) | `source` (`promote`), `kind` (`vendor` / `product` / `integration`) — **value = per-kind count, query with `sum:`**. The caller sent a `supabaseId` whose row no longer exists, so the ingest **created** a replacement instead of no-op-updating. Self-healing, but it means the review app was holding a dead pointer — a sustained non-zero series says the two sides are diverging |
+| `aeci.api.promote.unresolved_link` | count | `apps/api/src/routes/promote.ts` (`logPromoteUnresolvedLinks`, AECI-730) | `source` (`promote`), `field` (`powered_by` / `built_by`) — **value = per-field count, query with `sum:`**. An integration was written **without** its `poweredByProduct` / `builtByVendor` FK because that record isn't promoted. Distinct from `skipped` on purpose: the row DID land. **Expected to be permanently non-zero** — Zapier and Workato are parked for good (AECI-700), so every promote of an edge naming them fires this. **Do not alert on presence; alert (if ever) on a rise.** Paired log is `info`, not `warn`, for the same reason |
 | `aeci.api.promote.replay` | count | `apps/api/src/routes/promote.ts` (`logPromoteReplay`, AECI-571) | `source` (`promote`), `via` (`pre-read` / `batch-conflict`). Non-zero means the Workflows **at-least-once window actually fired** and the `promote_jobs` primary key absorbed it — the commit stayed exactly-once and the original IDs were returned. Informational, not actionable: the promote is correct. Capture the `job_id` from the paired log; a duplicated product on a job that reported `complete` once is now a bug, not this window |
 | `aeci.cache.purge` | count | `apps/web/src/server/routes/admin-purge.ts` | `source` (manual / future webhook), `outcome` (ok / cf_failed) |
 | `aeci.api.data_gap` | count | `apps/api/src/lib/handler-utils.ts` (`reportMissingVendors`, called by the product-list-producing handlers) | `gap_type` (currently `missing_vendor`) |
@@ -416,6 +417,18 @@ reporting it as `updated` with an empty slug, and each fallback emits a `warn`
 that the review app's copy of that id had gone stale, which is the same divergence
 `scripts/ops/2026-08-promote-strand-audit/` sweeps for offline.
 
+A fourth (AECI-730): an integration written **without** an optional link, because its
+`poweredByProduct` / `builtByVendor` didn't resolve. This is not a skip — the row landed — so it
+gets its own `info` log `aeci.api.promote.unresolved_link` (every `{ ref, field, supabaseId,
+outcome }` + per-field counts) plus the `aeci.api.promote.unresolved_link` count above, and is
+deliberately kept **out** of `aeci.api.promote.skipped`. The severity split is the point: Zapier
+and Workato are parked permanently (AECI-700), so this fires on routine promotes forever, and a
+permanent `warn` — or a permanently dirty `skipped` series — is exactly the noise an operator
+learns to ignore. `outcome: 'preserved'` means the update left a stored FK alone rather than
+nulling it (the clobber guard); `'unset'` means the row was created with the column NULL. The
+offline counterpart is `scripts/ops/2026-08-powered-by-backfill/audit.mjs`, whose
+`connectorUnpromoted` bucket is the same population.
+
 All of it is fire-and-forget over the shared transport (no-op without `DD_API_KEY`) and never
 affects the response. This is deliberately scoped to promote — the high-traffic public read endpoints
 stay silent on 4xx to keep log volume down.
@@ -485,7 +498,8 @@ rejected` / `forward failed` line means the intake accepted the payload and the 
    `value 1` (so the two coincide — e.g. `count:aeci.cache.purge`), but
    `aeci.algolia.sync.records` and `aeci.api.promote.skipped` submit the actual record /
    skip count and must be queried as `sum:aeci.algolia.sync.records` /
-   `sum:aeci.api.promote.skipped` (and `sum:…{}.as_count()` in monitors).
+   `sum:aeci.api.promote.skipped` (and `sum:…{}.as_count()` in monitors). The same applies to
+   `aeci.api.promote.stale_id` and `aeci.api.promote.unresolved_link`.
 
 ### Known coverage limitation
 

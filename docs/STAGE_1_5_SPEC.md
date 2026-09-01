@@ -553,6 +553,15 @@ narrow, audited exception now tooled in `scripts/ops/2026-08-powered-by-backfill
 is the *only* difference from upstream. That sweep is also the detector; see its README for the
 bucket definitions and the standing measurement.
 
+**Root cause closed 2026-09-01 (AECI-730).** The gap re-accrued because promote dropped an
+unresolvable `poweredByProduct` with no report of any kind, and on an *update* actively cleared a
+correct FK. Both are fixed: the drop is now reported on the response as `unresolvedLinks[]`
+(`REVIEW_APP_PROMOTE_API.md` §3.4/§4) and as `aeci.api.promote.unresolved_link{field}` in Datadog,
+and the column is left untouched rather than nulled when the link doesn't resolve. So the
+`connectorUnpromoted` population is visible **at promote time** instead of only in an offline
+sweep — but it does not shrink: AECI-700 parks Zapier and Workato permanently, so their share of
+that bucket is a permanent, expected floor. The same guard covers `builtByVendor`.
+
 Separately tracked follow-ups: 22 exact-duplicate integration rows; connector discovery in
 search/browse (`product_role` on Algolia records, a Connectors facet, `RoleBadge` on search
 cards).
