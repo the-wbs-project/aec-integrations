@@ -1059,9 +1059,13 @@ export const pageViews = sqliteTable(
     // UNIQUE is the load-bearing word: `ON CONFLICT DO NOTHING` against it settles
     // the race between two concurrent `waitUntil` inserts, which no amount of
     // read-before-write can. Not partial (unlike `page_views_operator_pair_idx`) —
-    // a partial index cannot back an upsert conflict target — but the null-key
-    // rule keeps the write cost proportional: bot rows, which dominate this table,
-    // store no entry because SQLite indexes NULL as a distinct absent value.
+    // a partial index cannot back an upsert conflict target. That is a real write
+    // cost: a non-partial UNIQUE index stores a b-tree entry for every row, NULL
+    // keys included (SQLite treats NULLs as distinct for the uniqueness check, it
+    // does not omit them from the index), so the bot rows that dominate this table
+    // each pay for one extra index-entry write. The null-key rule only opts those
+    // rows out of the CONSTRAINT, not out of the storage; the cost is accepted
+    // because a partial index is not an option for an upsert conflict target.
     uniqueIndex('page_views_dedupe_key_idx').on(t.dedupeKey),
     // No index on the AECI-585 columns: nothing groups or filters on them yet, and
     // `page_views` is the hottest write path in the app (D1 bills rows written,

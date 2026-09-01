@@ -1084,8 +1084,12 @@ create unique index page_views_dedupe_key_idx on page_views(dedupe_key); -- AECI
 -- that actually settles the case the issue is named for — two writes 83 ms apart, both
 -- in flight from waitUntil, where the second SELECT can run before the first INSERT
 -- commits. NOT partial, unlike the index above: a partial index cannot back an upsert
--- conflict target. The write cost stays proportional anyway, because the null-key rule
--- means the bot rows that dominate this table store no index entry at all.
+-- conflict target. This IS a non-trivial write cost — a non-partial UNIQUE index stores
+-- a b-tree entry for every row, NULL keys included (SQLite treats NULLs as distinct for
+-- the uniqueness check, it does not omit them from the index), so the bot rows that
+-- dominate this hot write path each pay for one extra index-entry write. The null-key
+-- rule only opts those rows out of the CONSTRAINT, not out of the storage; the cost is
+-- accepted because a partial index is not an option for an upsert conflict target.
 -- Partial, so SQLite stores an entry only for operator rows — a few hundred out of
 -- ~27k in production — and the write cost on the anonymous traffic that dominates this
 -- table is zero. The key order matches the correlated subquery: seek on
