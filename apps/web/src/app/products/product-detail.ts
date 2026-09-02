@@ -4,7 +4,7 @@ import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { map } from 'rxjs';
 
-import type { ProductDetail, ProductIntegrationItem, ProductLink } from '@aeci/shared';
+import type { ProductDetail } from '@aeci/shared';
 
 import { Analytics } from '../analytics/analytics';
 import { ExternalLinkTracker } from '../analytics/external-link-tracker';
@@ -21,8 +21,14 @@ import { SectionNav, type SectionNavItem } from '../shared/section-nav/section-n
 import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
 import { VerifiedBadge } from '../shared/verified-badge/verified-badge';
 
+import {
+  applyDeferCut,
+  INTEGRATIONS_ABOVE_FOLD,
+  splitIntegrationLanes,
+  type IntegrationLaneView,
+} from './connector-lane-grouping';
 import { connectedProductCount, groupPoweredIntegrations } from './powered-hub-grouping';
-import { ProductIntegrationRow } from './product-integration-row';
+import { ProductIntegrationsTable } from './product-integrations-table';
 import { ProductPoweredHub } from './product-powered-hub';
 import { ProductReviews } from './product-reviews';
 import { ProductUsefulnessSection } from './product-usefulness';
@@ -42,12 +48,23 @@ import { RoleBadge } from './role-badge';
  *   - `product` set → render hero / metadata sidebar / description /
  *     integrations sections inside the shared `DetailLayout`.
  *
- * Integrations section: a column-aligned `<table>` (partner · direction ·
- * connection), one `ProductIntegrationRow` per integration — replacing the old
+ * Integrations section: column-aligned tables (partner · direction ·
+ * connection), one `ProductIntegrationRow` per rendered row — replacing the old
  * stack of near-identical cards, which was hard to scan and nested an `<a>`
- * (partner product) inside an `<a>` (pair page). If the combined source + target
- * list exceeds 20, everything past the first 20 ships as deferred `<tr>`s in an
- * `@defer (on viewport; hydrate on viewport)` block inside the same `<tbody>`.
+ * (partner product) inside an `<a>` (pair page).
+ *
+ * Since AECI-713 the section is SPLIT into lanes (`STAGE_1_5_SPEC.md` §13.3):
+ * the direct list first, then one "Via {connector}" group per connector, each
+ * lane its own `<table>` (a group-header row inside a shared `<tbody>` has no
+ * accessible name relationship to the rows under it). It stays ONE section with
+ * one anchor and one section-nav entry, and a page with no connector-delivered
+ * edges renders the single unheaded table it always did. `lanes()` does the
+ * routing and the pair collapse; `connector-lane-grouping.ts` holds the rules.
+ *
+ * If the section exceeds 20 rows, everything past the first 20 ships as deferred
+ * `<tr>`s in an `@defer (on viewport; hydrate on viewport)` block. The budget is
+ * spent across the FLATTENED lane order, so it lands after 20 visible rows
+ * rather than 20 rows into every lane.
  * Under v22 incremental hydration the deferred rows are SSR-rendered (crawlable,
  * no hydration layout shift); the `on viewport` trigger still defers the block on
  * client-side navigations (see AECI-130). Each row's whole surface links to the
@@ -88,7 +105,7 @@ import { RoleBadge } from './role-badge';
     MaintenanceMarker,
     NgTemplateOutlet,
     NotFound,
-    ProductIntegrationRow,
+    ProductIntegrationsTable,
     ProductPoweredHub,
     ProductReviews,
     ProductUsefulnessSection,
@@ -564,7 +581,7 @@ import { RoleBadge } from './role-badge';
               {{ integrationsHeading() }}
             </h2>
 
-            @if (integrations().length === 0) {
+            @if (lanes().rowCount === 0) {
               <p
                 class="rounded-(--radius-lg) border border-dashed border-(--border-default)
                   bg-(--surface-sunken) p-6 text-sm text-(--text-secondary)"
@@ -582,83 +599,81 @@ import { RoleBadge } from './role-badge';
                 >.
               </p>
             } @else {
-              <!-- Real table (replaces the former card stack) so the partner,
-                   flow direction, and connection mechanism align into scannable
-                   columns. Horizontal scroll below the min width; Direction +
-                   Connection collapse at md (matching ProductCard / the browse
-                   tables), with the mechanism folding into the partner cell. -->
-              <div class="overflow-x-auto">
-                <table
-                  class="w-full border-collapse text-start text-sm md:min-w-[44rem]"
-                  i18n-aria-label="@@products.detail.body.integrations.table.aria"
-                  aria-label="Integrations"
-                >
-                  <thead
-                    class="border-b border-(--border-default) text-start text-xs
-                      font-medium tracking-wide text-(--text-secondary)"
+              <!-- ONE <table> PER LANE (§13.3). The direct lane leads, because
+                   an accountable-party integration is a stronger answer to "does
+                   A integrate with B" than a configurable one: someone is on the
+                   hook for it. Then one group per connector. A single <tbody>
+                   with interleaved group-header rows was rejected, since a
+                   header row inside a table body has no accessible name
+                   relationship to the rows beneath it.
+                   A page with no connector edges renders exactly what it always
+                   did: one unheaded table named by the section heading. -->
+              @if (lanes().via.length === 0) {
+                <aec-product-integrations-table
+                  [above]="laneCut().direct.above"
+                  [deferred]="laneCut().direct.deferred"
+                  [contextSlug]="p.slug"
+                  i18n-ariaLabel="@@products.detail.body.integrations.table.aria"
+                  ariaLabel="Integrations"
+                />
+              } @else {
+                @if (lanes().direct.length > 0) {
+                  <h3
+                    id="integrations-direct"
+                    class="font-display text-lg font-semibold text-(--text-primary)"
                   >
-                    <tr>
-                      <th
-                        scope="col"
-                        class="px-4 py-3 text-start font-medium"
-                        i18n="@@products.detail.body.integrations.col.direction"
+                    <span i18n="@@products.detail.body.integrations.lane.direct"
+                      >Direct integrations</span
+                    >
+                    <span class="ms-2 font-normal text-(--text-secondary)"
+                      >({{ lanes().direct.length }})</span
+                    >
+                  </h3>
+                  <aec-product-integrations-table
+                    [above]="laneCut().direct.above"
+                    [deferred]="laneCut().direct.deferred"
+                    [contextSlug]="p.slug"
+                    ariaLabelledby="integrations-direct"
+                  />
+                }
+                @for (lane of laneCut().via; track lane.lane.key) {
+                  <h3
+                    [id]="'integrations-via-' + lane.lane.key"
+                    class="font-display mt-8 text-lg font-semibold text-(--text-primary)"
+                  >
+                    <!-- The connector name links its product page: the return
+                         path into the Addendum B hub, mirroring §12.3's linked
+                         hub heading in the opposite direction. -->
+                    @if (lane.lane.connector; as connector) {
+                      <span i18n="@@products.detail.body.integrations.lane.via"
+                        >Via
+                        <a
+                          [routerLink]="['/products', connector.slug]"
+                          class="rounded-sm underline underline-offset-4 transition-colors
+                            hover:text-(--accent-primary) focus-visible:outline-2
+                            focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                          >{{ connector.name }}</a
+                        ></span
                       >
-                        Direction
-                      </th>
-                      <th
-                        scope="col"
-                        class="px-4 py-3 text-start font-medium"
-                        i18n="@@products.detail.body.integrations.col.product"
+                    } @else {
+                      <!-- §13.2(c): connector-delivered, but its connector has
+                           no product record to name. NEVER invent one. -->
+                      <span i18n="@@products.detail.body.integrations.lane.via.unnamed"
+                        >Via a connector</span
                       >
-                        Integrates with
-                      </th>
-                      <th
-                        scope="col"
-                        class="hidden px-4 py-3 text-start font-medium md:table-cell"
-                        i18n="@@products.detail.body.integrations.col.connection"
-                      >
-                        Connection
-                      </th>
-                      <th scope="col" class="px-4 py-3">
-                        <span class="sr-only" i18n="@@products.detail.body.integrations.col.details"
-                          >Details</span
-                        >
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody class="divide-y divide-(--border-default)">
-                    @for (item of integrationsAbove(); track item.integration.id) {
-                      <tr
-                        aec-product-integration-row
-                        [integration]="item.integration"
-                        [other]="item.other"
-                        [contextSlug]="p.slug"
-                      ></tr>
                     }
-                    @if (integrationsDeferred().length > 0) {
-                      @defer (on viewport; hydrate on viewport) {
-                        @for (item of integrationsDeferred(); track item.integration.id) {
-                          <tr
-                            aec-product-integration-row
-                            [integration]="item.integration"
-                            [other]="item.other"
-                            [contextSlug]="p.slug"
-                          ></tr>
-                        }
-                      } @placeholder (minimum 100ms) {
-                        <tr aria-hidden="true">
-                          <td colspan="4" class="px-4 py-3">
-                            <div
-                              class="h-16 animate-pulse rounded-(--radius-lg)
-                                border border-(--border-default) bg-(--surface-sunken)"
-                            ></div>
-                          </td>
-                        </tr>
-                      }
-                    }
-                  </tbody>
-                </table>
-              </div>
+                    <span class="ms-2 font-normal text-(--text-secondary)"
+                      >({{ lane.lane.rows.length }})</span
+                    >
+                  </h3>
+                  <aec-product-integrations-table
+                    [above]="lane.above"
+                    [deferred]="lane.deferred"
+                    [contextSlug]="p.slug"
+                    [ariaLabelledby]="'integrations-via-' + lane.lane.key"
+                  />
+                }
+              }
 
               <!-- Catalog-scope note. An integration row only exists once BOTH
                    endpoints are promoted products, so this table is bounded by
@@ -753,70 +768,51 @@ export class ProductDetailPage {
   }
 
   /**
-   * Normalized integration list, ordered alphabetically by partner name.
+   * The Integrations section split into its two lanes — the direct list, then
+   * one group per connector (Stage 1.5 §13.2 / §13.3).
    *
-   * Each entry pairs the integration with the *other* product (the one that
-   * isn't this page's product), so the template can render both endpoints with
-   * the other product's link.
+   * **The split is a sourcing question, not a rendering one.** Both payload
+   * buckets already span both delivered-tier tables (`integrations` and
+   * `connector_evidenced_pairs`), and which table a row came from reaches this
+   * component only as `via`. That is why §13.3 is written source-agnostically and
+   * why the AECI-721 migration moved rows without touching this file's contract.
    *
-   * The two buckets **interleave** rather than concatenate: the source/target
-   * split is invisible in the rendered table (every row shows the
-   * server-precomputed, context-relative `context_direction`, never its
-   * bucket), so concatenating them would surface a distinction the reader
-   * can't see as an unexplained break in the alphabet.
+   * The source/target buckets survive only as *which endpoint is the partner*.
+   * The direction shown per row is the server-precomputed, context-relative
+   * `context_direction` (claims-aware, §3.2), never the bucket — so the two
+   * interleave rather than concatenate inside each lane, and a reader never sees
+   * an unexplained break in the alphabet.
    *
-   * Sorting has to happen here rather than in SQL. The `sourceIntegrations` /
-   * `targetIntegrations` relations (`productDetailIntegrationConfig`) can only
-   * `ORDER BY` columns of `integrations` itself — the partner name lives on the
-   * joined product — and ordering the two buckets separately still wouldn't
-   * interleave them. Client-side is also where the full list exists before the
-   * 20-row `@defer` cut below, so the cut lands on the alphabet.
+   * Sorting and grouping have to happen here rather than in SQL. The relations
+   * can only `ORDER BY` columns of their own table — the partner name lives on
+   * the joined product — and the lane a row belongs to is a three-clause rule
+   * over two nullable FKs. Client-side is also where the full list exists before
+   * the `@defer` cut, so the cut lands on the alphabet.
    */
-  protected readonly integrations = computed<
-    ReadonlyArray<{
-      integration: ProductIntegrationItem;
-      other: ProductLink;
-    }>
-  >(() => {
+  protected readonly lanes = computed(() => {
     const p = this.product();
-    if (!p) return [];
-    const items: {
-      integration: ProductIntegrationItem;
-      other: ProductLink;
-    }[] = [];
-    // The direction shown per row is the server-precomputed, context-relative
-    // `context_direction` (claims-aware, §3.2) — the source/target buckets only
-    // pick which endpoint is the "other" product to link.
-    for (const integration of p.integrations_as_source) {
-      items.push({ integration, other: integration.target });
-    }
-    for (const integration of p.integrations_as_target) {
-      items.push({ integration, other: integration.source });
-    }
-    // Partner name is the column visitors scan, so it carries the sort.
-    // `localeCompare` (not `<`) so casing and accents fold the way a reader
-    // expects, matching the sibling powered-hub sort. The tail comparisons make
-    // the order TOTAL: a partner reachable by more than one mechanism would
-    // otherwise tie, and `Array#sort` stability would pin those rows to the
-    // arbitrary DB order this sort exists to remove.
-    return items.sort(
-      (x, y) =>
-        x.other.name.localeCompare(y.other.name) ||
-        x.integration.name.localeCompare(y.integration.name) ||
-        x.integration.id.localeCompare(y.integration.id),
-    );
+    if (!p) return { direct: [], via: [], rowCount: 0 } satisfies IntegrationLaneView;
+    return splitIntegrationLanes(p.integrations_as_source, p.integrations_as_target);
   });
 
-  /** First 20 integrations — rendered in the initial response. */
-  protected readonly integrationsAbove = computed(() => this.integrations().slice(0, 20));
-
-  /** Anything past 20 is deferred via `@defer (on viewport)`. */
-  protected readonly integrationsDeferred = computed(() => this.integrations().slice(20));
+  /**
+   * The same view with the `@defer (on viewport)` boundary applied.
+   *
+   * The cut is over the FLATTENED render order (§13.3), so it still lands after
+   * 20 visible rows rather than 20 rows into every lane — a section of six
+   * three-row groups would otherwise defer nothing at all.
+   */
+  protected readonly laneCut = computed(() => applyDeferCut(this.lanes(), INTEGRATIONS_ABOVE_FOLD));
 
   /** Section heading with the count inline — "Integrations (10)" — so the total
-   *  reads next to the title instead of drifting to the far right where it's missed. */
+   *  reads next to the title instead of drifting to the far right where it's missed.
+   *
+   *  Counts the rows ACTUALLY RENDERED across both lanes, which after the Via
+   *  lane's pair collapse is not the number of edges: §13.3's rule is that a
+   *  reader counting rows must never find fewer than the heading promised. The
+   *  per-group sub-counts sum to this by construction (`rowCount`). */
   protected readonly integrationsHeading = computed(() => {
-    const count = this.integrations().length;
+    const count = this.lanes().rowCount;
     return $localize`:@@products.detail.body.integrations.heading:Integrations (${count}:count:)`;
   });
 

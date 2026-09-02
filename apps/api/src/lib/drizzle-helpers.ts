@@ -187,6 +187,10 @@ export const productDetailIntegrationConfig = {
   columns: integrationListConfig.columns,
   with: {
     ...integrationListConfig.with,
+    // Stage 1.5 §13.4(1) — the endpoint lane router needs the connector to apply
+    // §13.2(a)/(b) to a row still living in `integrations`. Detail-only: the bare
+    // list config stays without it (see `ProductIntegrationItem.powered_by_product`).
+    poweredByProduct: { columns: productLinkColumns },
     claims: {
       columns: { direction: true },
       with: {
@@ -243,6 +247,27 @@ export const connectorEvidencedPairListConfig = {
   },
 } as const;
 
+/** Product-detail (ENDPOINT) hydration for an evidenced pair — the list config plus
+ *  the same claims/attestations join `productDetailIntegrationConfig` carries, so a
+ *  connector-delivered row's Direction column is derived from exactly the signal an
+ *  accountable-party row's is (§3.2 / §4.3). The claims relation is the polymorphic
+ *  anchor AECI-721 PR-B added; before it this join would have returned `[]` forever. */
+export const connectorEvidencedPairDetailConfig = {
+  columns: connectorEvidencedPairListConfig.columns,
+  with: {
+    ...connectorEvidencedPairListConfig.with,
+    claims: {
+      columns: { direction: true },
+      with: {
+        attestations: {
+          columns: { source: true, asserted: true, attestedByVendorId: true, retractedAt: true },
+          where: liveAttestationsWhere,
+        },
+      },
+    },
+  },
+} as const;
+
 /** Pair-page hydration for an evidenced pair — the list config plus the mechanism
  *  card's body and the maintenance marker, mirroring `integrationPairConfig`.
  *  `claims` joins in AECI-721 PR-B, once the anchor column exists. */
@@ -271,6 +296,12 @@ export interface RawConnectorEvidencedPairRow {
   productA: RawProductLink;
   productB: RawProductLink;
   connectorProduct: RawProductLink;
+}
+
+/** Evidenced-pair row + its claims, for the ENDPOINT product-detail embed. Sibling
+ *  of `RawProductIntegrationRow`; the two feed the same `ProductIntegrationItem`. */
+export interface RawProductEvidencedPairRow extends RawConnectorEvidencedPairRow {
+  claims: Array<{ direction: string; attestations: RawAgreementVoteRow[] }>;
 }
 
 export interface RawConnectorEvidencedPairDetailRow extends RawConnectorEvidencedPairRow {
@@ -329,6 +360,62 @@ export function toIntegrationListItemFromEvidencedPair(
     created_at: raw.createdAt,
     updated_at: raw.updatedAt,
   };
+}
+
+/**
+ * An evidenced pair as a `ProductIntegrationItem` — the ENDPOINT product-detail
+ * embed (AECI-713 / §13.3). The twin of `toProductIntegrationItem`, and the reason
+ * §13.3 could be written source-agnostically: both tables arrive at the same wire
+ * shape, discriminated by `via`.
+ *
+ * **The frame is the whole difference, and getting it wrong renders arrows
+ * backwards.** `integrations` stores source/target, so "context is source" answers
+ * both halves of `effectiveContextDirection`. An evidenced pair stores a
+ * CANONICAL pair (`product_a_id < product_b_id`, a CHECK) with the orientation
+ * living in `direction` alone, and its claims are anchored in that same A/B frame.
+ * So the two halves need different flags:
+ *
+ *   - the STORED half is framed against the ORIENTED source (`orientEvidencedPair`),
+ *     which is B whenever `direction = 'b_to_a'`;
+ *   - the CLAIM half is framed against A, always.
+ *
+ * Rather than plumb two flags through `effectiveContextDirection`, the claims are
+ * flipped into the oriented frame first — one transformation on the smaller,
+ * simpler value. `b_to_a` is the only orientation that swaps, exactly as
+ * `orientEvidencedPair` documents.
+ */
+export function toProductIntegrationItemFromEvidencedPair(
+  raw: RawProductEvidencedPairRow,
+  contextProductId: string,
+): ProductIntegrationItem {
+  const item = toIntegrationListItemFromEvidencedPair(raw);
+  const contextIsSource = item.source.id === contextProductId;
+  const swapped = raw.direction === 'b_to_a';
+  return {
+    ...item,
+    context_direction: effectiveContextDirection(
+      item.direction,
+      raw.claims.map((claim) => {
+        const direction = coerceClaimDirection(claim.direction, raw.id);
+        return {
+          direction: swapped ? flipClaimDirection(direction) : direction,
+          attestations: claim.attestations,
+        };
+      }),
+      contextIsSource,
+    ),
+    // Never both: a row in `connector_evidenced_pairs` has no
+    // `powered_by_product_id` to carry (§13.4(1)).
+    powered_by_product: null,
+  };
+}
+
+/** Mirror a claim direction when the pair's canonical A/B frame is the reverse of
+ *  the frame the row renders in. `both` is its own mirror. */
+function flipClaimDirection(direction: ClaimDirection): ClaimDirection {
+  if (direction === 'a_to_b') return 'b_to_a';
+  if (direction === 'b_to_a') return 'a_to_b';
+  return 'both';
 }
 
 /** Detail adds the heavier hydration per API_CONTRACTS §3.4. */
@@ -549,6 +636,15 @@ export const productDetailConfig = {
     // them either. Adding an `orderBy` here buys nothing the client reads.
     sourceIntegrations: productDetailIntegrationConfig,
     targetIntegrations: productDetailIntegrationConfig,
+    // The endpoint buckets' SECOND source (AECI-713 / §13.1's delivered tier).
+    // A canonical pair puts this product on one side or the other, so both
+    // relations load and `toProductDetail` files each row into the source or
+    // target bucket by its ORIENTED endpoints, not by which column matched.
+    // Without these two the AECI-721 migration silently removed every moved edge
+    // from both endpoints' pages while `integration_count` kept counting it —
+    // the §13.5 invariant reads "regardless of which table holds them".
+    evidencedPairsAsA: connectorEvidencedPairDetailConfig,
+    evidencedPairsAsB: connectorEvidencedPairDetailConfig,
     // Edges this product powers as the connector/mechanism (Stage 1.5
     // Addendum B). The bare list config, not `productDetailIntegrationConfig`:
     // the page product is neither endpoint, so there is no context_direction
@@ -816,6 +912,8 @@ export interface RawIntegrationListRow {
  *  voting vendor denies must stop steering the arrow). */
 export interface RawProductIntegrationRow extends RawIntegrationListRow {
   claims: Array<{ direction: string; attestations: RawAgreementVoteRow[] }>;
+  /** §13.4(1) — nullable because the partial index is on the non-null rows only. */
+  poweredByProduct: RawProductLink | null;
 }
 
 export interface RawIntegrationDetailRow extends RawIntegrationListRow {
@@ -958,6 +1056,8 @@ export interface RawProductDetailRow extends RawProductListRow, RawMaintenanceCo
   productTrades: Array<{ trade: RawTaxonomyLink }>;
   sourceIntegrations: RawProductIntegrationRow[];
   targetIntegrations: RawProductIntegrationRow[];
+  evidencedPairsAsA: RawProductEvidencedPairRow[];
+  evidencedPairsAsB: RawProductEvidencedPairRow[];
   poweredIntegrations: RawIntegrationListRow[];
   evidencedPairsAsConnector: RawConnectorEvidencedPairRow[];
 }
@@ -1169,6 +1269,10 @@ export function toProductIntegrationItem(
       })),
       contextIsSource,
     ),
+    // §13.4(1). Non-null on a Convention-A self-reference (which §13.2(a) keeps in
+    // the DIRECT lane) and, in an un-migrated database, on a routable connector
+    // edge the AECI-721 migration has not moved yet.
+    powered_by_product: raw.poweredByProduct ? toProductLink(raw.poweredByProduct) : null,
   };
 }
 
@@ -1798,6 +1902,24 @@ export function toAdminClaim(
   };
 }
 
+/**
+ * The evidenced pairs that belong in ONE of the two endpoint buckets, mapped to
+ * the product-detail wire shape. `wantSource` selects the bucket; a pair lands in
+ * exactly one of them, so calling this twice partitions the same rows.
+ *
+ * Both relations are read because the canonical order (`product_a_id <
+ * product_b_id`) is a storage detail with no orientation meaning — this product
+ * can be A on one row and B on the next.
+ */
+function evidencedPairsForEndpoint(
+  raw: RawProductDetailRow,
+  wantSource: boolean,
+): ProductIntegrationItem[] {
+  return [...raw.evidencedPairsAsA, ...raw.evidencedPairsAsB]
+    .map((r) => toProductIntegrationItemFromEvidencedPair(r, raw.id))
+    .filter((item) => (item.source.id === raw.id) === wantSource);
+}
+
 export function toProductDetail(
   raw: RawProductDetailRow,
   relatedProducts: RawProductListRow[],
@@ -1824,8 +1946,23 @@ export function toProductDetail(
     usefulness: toUsefulness(raw.usefulness),
     // Source bucket: this product IS the integration's source (contextIsSource:
     // true → outbound flows read outbound); target bucket is the mirror.
-    integrations_as_source: raw.sourceIntegrations.map((r) => toProductIntegrationItem(r, true)),
-    integrations_as_target: raw.targetIntegrations.map((r) => toProductIntegrationItem(r, false)),
+    // Endpoint buckets: TWO sources, unioned (AECI-713 / §13.1's delivered tier),
+    // the mirror of what `integrations_as_connector` already does below. Bucketing
+    // an evidenced pair goes by its ORIENTED source rather than by which of
+    // `evidencedPairsAsA`/`AsB` matched: the row stores a canonical pair
+    // (`product_a_id < product_b_id`) and puts the orientation in `direction`, so
+    // the A column carries no source/target meaning to bucket on.
+    //
+    // The union is deliberately invisible on the wire — `via` discriminates, and
+    // §13.3's split is a sourcing question, never a rendering one.
+    integrations_as_source: [
+      ...raw.sourceIntegrations.map((r) => toProductIntegrationItem(r, true)),
+      ...evidencedPairsForEndpoint(raw, true),
+    ],
+    integrations_as_target: [
+      ...raw.targetIntegrations.map((r) => toProductIntegrationItem(r, false)),
+      ...evidencedPairsForEndpoint(raw, false),
+    ],
     // Connector bucket: this product is the mechanism, not an endpoint — bare
     // list items (no context_direction; direction is between source and target).
     //

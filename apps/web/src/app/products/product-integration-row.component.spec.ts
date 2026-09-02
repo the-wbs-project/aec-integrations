@@ -27,6 +27,7 @@ const baseIntegration: ProductIntegrationItem = {
   source: { id: 's1', slug: 'procore', name: 'Procore', logo_url: null },
   target: OTHER,
   via: null,
+  powered_by_product: null,
   created_at: '2024-03-01T00:00:00.000Z',
   updated_at: '2024-06-15T00:00:00.000Z',
 };

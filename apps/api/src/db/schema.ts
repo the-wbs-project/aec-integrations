@@ -2448,6 +2448,17 @@ export const claimsRelations = relations(claims, ({ one, many }) => ({
     fields: [claims.integrationId],
     references: [integrations.id],
   }),
+  // The OTHER half of the polymorphic anchor (AECI-721 / ADR 0018's 2026-08-31
+  // amendment). `connectorEvidencedPairsRelations.claims` has declared its
+  // `many(claims)` side since PR-B, but this inverse was missing, so Drizzle threw
+  // "not enough information to infer relation" the first time a read config asked
+  // for it — which nothing did until AECI-713 hydrated claims on the endpoint
+  // product-detail read. Exactly one of the two `one(...)` FKs is non-null per row;
+  // the XOR CHECK is what guarantees it.
+  connectorEvidencedPair: one(connectorEvidencedPairs, {
+    fields: [claims.connectorEvidencedPairId],
+    references: [connectorEvidencedPairs.id],
+  }),
   dataObject: one(taxonomyDataObjects, {
     fields: [claims.dataObjectId],
     references: [taxonomyDataObjects.id],

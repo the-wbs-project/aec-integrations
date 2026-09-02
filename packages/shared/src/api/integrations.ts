@@ -115,6 +115,27 @@ export type IntegrationListItem = z.infer<typeof IntegrationListItemSchema>;
  */
 export const ProductIntegrationItemSchema = IntegrationListItemSchema.extend({
   context_direction: ContextDirectionSchema.nullable(),
+  /**
+   * The connector named by this row's `integrations.powered_by_product_id`, for
+   * a row that is still in `integrations` (Stage 1.5 §13.4(1)). Added on the
+   * product-detail embed only — `/api/integrations` and the home rail have no
+   * lane to route and do not pay for the join.
+   *
+   * **Not a second `via`, and never set at the same time as one.** `via` is the
+   * connector of a `connector_evidenced_pairs` row; this is the same fact about
+   * a row that has NOT moved there. After AECI-721 that leaves two populations,
+   * and the endpoint lane router (§13.2) reads them differently:
+   *
+   *   - a **Convention-A self-reference** — `powered_by` equal to one of the
+   *     row's own endpoints — stays in the DIRECT lane per §13.2(a). It is the
+   *     larger population (60 production rows) and it is deliberate, not dirt.
+   *   - a row whose `powered_by` is neither endpoint routes to the Via lane per
+   *     §13.2(b). Post-migration that set is empty in a migrated database, and
+   *     that is exactly why this field is here: preview and staging D1 are not
+   *     migrated by CI, and without it every connector edge in an un-migrated
+   *     environment misfiles as direct — the failure AECI-706 guarded against.
+   */
+  powered_by_product: ProductLinkSchema.nullable().default(null),
 });
 
 export type ProductIntegrationItem = z.infer<typeof ProductIntegrationItemSchema>;

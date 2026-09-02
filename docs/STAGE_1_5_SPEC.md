@@ -66,8 +66,8 @@ Every Stage 1.5 issue opens with `**Spec section:** §X.Y (docs/STAGE_1_5_SPEC.m
 | §12 | — | Addendum B — connector-role product detail: powered integrations (`integrations_as_connector` + hub view) |
 | §12.7 | — | Catalog-scope note under both populated integration lists |
 | §13 | AECI-708 | Addendum C — connector presentation contract (this addendum) |
-| §13.2 / §13.3 | AECI-713 | Endpoint Integrations split — direct lane + "Via {connector}" groups |
-| §13.4(1) | AECI-713 | Contract addition the split needs (`powered_by` on the product-detail embed) |
+| §13.2 / §13.3 | AECI-713 *(done)* | Endpoint Integrations split — direct lane + "Via {connector}" groups |
+| §13.4(1) / §13.4(3) | AECI-713 *(done)* | Contract addition the split needs (`powered_by` on the product-detail embed; the endpoint read's union with the evidenced tier) + the connector cache tag |
 | §13.4(2) | AECI-707 *(done)* | Powered-section self-exclusion — shipped with the role-varied template, because 707 promotes that section to the top of a connector page |
 | §13.5 | AECI-721 | Count invariants — §12.5 resolved as B; the ten-site lockstep |
 | §13.6 | AECI-707 | Connector / hybrid role-varied product-detail template |
@@ -689,7 +689,8 @@ overstatement.
 ## 13. Addendum C — Connector presentation contract (AECI-708, 2026-08-31)
 
 **Status:** Approved — the build contract for AECI-707 / 713 / 715 / 716. **AECI-707 shipped
-2026-08-31** (§13.6 plus §13.4(2)); 713 / 715 / 716 are unbuilt.
+2026-08-31** (§13.6 plus §13.4(2)) and **AECI-713 shipped 2026-09-02** (§13.3 plus §13.4(1) and
+§13.4(3)); 715 / 716 are unbuilt.
 **Extends** §12 (Addendum B) and the endpoint-table presentation inherited from `STAGE_1_SPEC.md`
 §7.5 / §3.1. **Amends** §12.2 / §12.3 with the self-exclusion rule of §13.4(2). **Resolves** §12.5's open
 count decision. Nothing in §3–§12 is superseded.
@@ -838,6 +839,36 @@ within it.
 - **Empty state unchanged**, and the section-nav label stays `Integrations` — one section, two
   lanes, one anchor, so no link, sitemap or cache-tag churn.
 
+✅ **Shipped by AECI-713 (2026-09-02), and one thing this subsection did not
+anticipate.** The section renders `<h3>` + one `<aec-product-integrations-table>`
+per lane, the group heading's connector name linking `/products/{slug}`, and the
+table named by `aria-labelledby` pointing at that heading rather than by a second
+copy of the string — so heading and table cannot drift. Group sub-counts render as
+`(N)` beside each heading, matching the section heading's own idiom, and they sum
+to `Integrations (N)` by construction (`IntegrationLaneView.rowCount` is the value
+the heading reads).
+
+Three notes on what the build had to decide:
+
+- **A page with NO connector edges renders exactly what it did before**: one
+  unheaded table, still named `aria-label="Integrations"` by the section heading.
+  The lane structure appears only when there is a second lane to distinguish, so
+  the split costs nothing on the overwhelming majority of pages. This subsection
+  is silent on the single-lane case; adding a "Direct integrations" heading over
+  the only table would have been chrome over a fact the `<h2>` already states.
+- **The `@defer` cut is one budget spent across the lanes in render order**, not
+  a boundary re-applied per table (`applyDeferCut`). A 15-row direct lane leaves
+  five for the first group, and a lane wholly past the boundary defers in one
+  piece. Tested separately from the grouping because the arithmetic is the kind
+  that looks right and is off by a lane.
+- **A collapsed Via row needed the row component generalised, not faked.**
+  `ProductIntegrationRow` renders one `ProductIntegrationItem`, but a collapsed
+  row stands for several edges with a merged direction and possibly several
+  mechanism kinds. It gained two optional inputs (`mergedMechanismKinds`,
+  `mergedDirection`) whose `undefined` default means "this row is one edge".
+  Synthesising a fake wire object with merged fields was rejected: it would put a
+  value on a `ProductIntegrationItem` that no API ever returned.
+
 ### 13.4 Contract elements the split needs and does not have
 
 Named here because each is a real gap in shipped code, and a build issue that discovers them
@@ -855,6 +886,42 @@ mid-flight will make a local decision about a cross-cutting contract.
    `productDetailIntegrationConfig.with` (`apps/api/src/lib/drizzle-helpers.ts`), which today reuses
    `integrationListConfig` and omits it. `API_CONTRACTS.md` moves in the same PR. Still no
    migration — the column and its partial index have existed since `0000_init`.
+
+   ✅ **Shipped by AECI-713 (2026-09-02) — and AECI-721 had already discharged
+   the harder half.** PR-A added `via: ProductLink | null` to
+   `IntegrationListItemSchema`, so the product-detail embed already named the
+   connector for every row that MIGRATED. What this issue added is the field for
+   the rows that did **not**: `powered_by_product` on
+   `ProductIntegrationItemSchema`, hydrated by `poweredByProduct` on
+   `productDetailIntegrationConfig`, exactly as written above.
+
+   It was built rather than declared redundant for two reasons, and both are
+   about rows this addendum already knew would stay in `integrations`.
+   **Convention A** (§13.2(a)) is 60 production rows whose `powered_by` equals one
+   of their own endpoints; the router must SEE that FK to keep them in the direct
+   lane and to withhold the §13.4(3) cache tag from a connector the page never
+   names. And **an un-migrated database still exists**: preview and staging D1 are
+   not migrated by CI (`docs/environments.md`), so there the evidenced table is
+   empty while the powered edges sit in `integrations` — without the field every
+   connector edge on those tiers misfiles as direct, which is the failure §13.2's
+   last paragraph names AECI-706 as the guard against.
+
+   **A second, unnamed gap closed with it.** AECI-721 unioned the evidenced tier
+   into `integrations_as_connector` — the CONNECTOR's page — but not into
+   `integrations_as_source` / `integrations_as_target`, the endpoint's.
+   `productDetailConfig` read `evidencedPairsAsConnector` and nothing from
+   `evidencedPairsAsA` / `evidencedPairsAsB`, though both relations existed. Every
+   migrated edge had therefore disappeared from both endpoints' Integrations
+   tables while `integration_count` kept counting it — a §13.5 invariant break
+   ("regardless of which table holds them") that no count site could catch,
+   because the count sites were all correct. AECI-713 loads both relations and
+   files each row by its ORIENTED source, not by which column matched.
+
+   The claims join needed one schema fix to work at all: `claimsRelations` had no
+   inverse for `connectorEvidencedPairsRelations.claims`, so Drizzle threw
+   *"not enough information to infer relation"* the first time a read config asked
+   for it — which nothing did until the endpoint read hydrated claims on an
+   evidenced pair. A `relations()` addition, no DDL.
 2. **Self-exclusion — a latent double-render that AECI-706 is about to switch on.** This amends
    §12.2 / §12.3. `poweredIntegrations` (`apps/api/src/db/schema.ts`) is a plain `many(...)` with
    **no `where`**: it selects on `powered_by_product_id` alone. A Convention-A edge (§13.2a) has the
@@ -885,6 +952,14 @@ mid-flight will make a local decision about a cross-cutting contract.
    `product:{connectorSlug}` too — otherwise editing a connector leaves every endpoint page naming
    it stale until TTL. This is `CACHE_STRATEGY.md` §3's embedded-entity rule applied, not a new
    rule, and it is §12.4's first bullet pointing the other way.
+
+   ✅ **Shipped by AECI-713 (2026-09-02)**, and the tag is derived from the
+   ROUTING decision rather than from the raw FK. A Convention-A edge carries a
+   `powered_by` and renders no heading, so tagging on the field would tag an
+   entity the page never mentions — every Aquifer edit purging 31 pages that do
+   not name it. `pushConnector` calls the same `routeIntegrationLane` the render
+   does; one rule, one place. `CACHE_STRATEGY.md` needed no edit, as §13.8
+   predicted.
 4. **No promote-deriver change is needed.** `promote-cache-tags.ts` already emits
    `product:{poweredBySlug}` (§12.4), which covers the reverse purge.
 
@@ -1173,6 +1248,10 @@ itself. Three things worth carrying forward:
   §13.2's Phase 2 correction. Neither did `partner`. Both retirements are sequenced follow-ups.
 - **The lockstep is fourteen sites, not ten** (§13.5), and it is regression-tested rather than
   only enumerated.
+
+**Every read surface now unions the two delivered-tier tables.** AECI-721 covered all but one:
+the ENDPOINT product-detail read still saw only `integrations`, so the migrated edges vanished from
+both endpoints' pages. AECI-713 closed it (§13.4(1)), and with it the last single-table read.
 
 **The reachable tier is still not a table**, exactly as §13.1 requires. Reachability derives at
 read time from `connector_stubs` + `connector_stub_mappings`. `connector_pairs` is projected not
