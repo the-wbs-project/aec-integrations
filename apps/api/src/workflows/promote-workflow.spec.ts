@@ -386,7 +386,11 @@ describe('runPromoteWorkflow — connector arm (AECI-714)', () => {
     };
   }
 
-  function runConnector(overrides: PromoteWorkflowDeps = {}, step = fakeStep()) {
+  function runConnector(
+    overrides: PromoteWorkflowDeps = {},
+    step = fakeStep(),
+    params: Partial<PromoteWorkflowParams> = {},
+  ) {
     const ctx = fakeExecutionContext();
     const event = {
       payload: {
@@ -394,6 +398,7 @@ describe('runPromoteWorkflow — connector arm (AECI-714)', () => {
         jobId: JOB_ID,
         sourceUrl: SOURCE_URL,
         payload: connectorPage(),
+        ...params,
       } as PromoteWorkflowParams,
       instanceId: JOB_ID,
     };
@@ -402,6 +407,29 @@ describe('runPromoteWorkflow — connector arm (AECI-714)', () => {
       ctx,
       step,
     };
+  }
+
+  /** A no-op connector ingest whose response is shaped like the real one. */
+  function stubConnectorIngest() {
+    const zero = { created: 0, updated: 0, unchanged: 0, deleted: 0, skipped: 0 };
+    return vi.fn(async (..._args: unknown[]) => ({
+      response: {
+        kind: 'connector' as const,
+        catalogId: 'rec76C362381D6CDF',
+        page: { index: 0, of: 1 },
+        counts: {
+          catalogs: { ...zero, created: 1 },
+          surfaces: { ...zero },
+          stubs: { ...zero, created: 1 },
+          mappings: { ...zero },
+          pairs: { ...zero },
+        },
+        skipped: [],
+      },
+      wrote: true,
+      bookmark: null,
+      auditEntries: [],
+    }));
   }
 
   it('routes a connector page to the connector ingest, in the same non-retried step', async () => {
@@ -466,6 +494,45 @@ describe('runPromoteWorkflow — connector arm (AECI-714)', () => {
     // Nothing committed — including no ledger row, because the throw precedes the batch.
     expect((await t.db.select().from(promoteJobs)).length).toBe(0);
     expect((await t.db.select().from(auditLog)).length).toBe(0);
+  });
+
+  /**
+   * The KV-spill path on the connector arm (AECI-733).
+   *
+   * `loadStagedPayload` runs BEFORE the `kind === 'connector'` branch and used to
+   * hard-code `PromotePayloadSchema`, so a connector page big enough to spill came back
+   * out through the product schema and died on its `superRefine` as an opaque
+   * `INTERNAL_ERROR`. Latent only because the review-side sender (AECI-731) is unbuilt;
+   * a page carrying fetched `actions` blobs is what trips the 512 KiB threshold.
+   */
+  it('reads a STAGED connector page back through the connector schema, not the product one', async () => {
+    kv.store.set(promotePayloadKey(JOB_ID), JSON.stringify(connectorPage()));
+    const connectorIngest = stubConnectorIngest();
+
+    const { promise, step } = runConnector({ connectorIngest }, fakeStep(), {
+      payload: undefined,
+      payloadRef: 'kv',
+    });
+    const result = await promise;
+
+    expect(step.calls.map((c) => c.name)).toEqual(['load-staged-payload', 'commit-promote']);
+    expect('kind' in result && result.kind).toBe('connector');
+    // The page round-trips intact — not merely "did not throw".
+    expect(connectorIngest).toHaveBeenCalledTimes(1);
+    expect(connectorIngest.mock.calls[0]![1]).toMatchObject({
+      catalog: { id: 'rec76C362381D6CDF', connectorProductId: CONNECTOR_ID },
+      page: { index: 0, of: 1 },
+      stubs: [expect.objectContaining({ id: 'recStubProcore01', slug: 'procore' })],
+    });
+  });
+
+  it('still refuses an unusable staged connector page, naming the arm that rejected it', async () => {
+    kv.store.set(promotePayloadKey(JOB_ID), '{ not json');
+    const { promise } = runConnector({}, fakeStep(), { payload: undefined, payloadRef: 'kv' });
+
+    await expect(promise).rejects.toBeInstanceOf(NonRetryableError);
+    await expect(promise).rejects.toMatchObject({ name: 'INTERNAL_ERROR' });
+    await expect(promise).rejects.toThrow(/unusable as a connector page/);
   });
 
   it('keeps treating params with NO kind as a product promote', async () => {

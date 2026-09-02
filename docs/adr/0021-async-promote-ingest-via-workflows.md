@@ -228,6 +228,11 @@ same `promote_jobs` ledger-first batch, the same `GET /api/promote/jobs/:id` pol
 `NonRetryableError(message, code)` conversion. `PromoteWorkflowParams` became a discriminated
 union whose `kind` is **absent** for the product arm, so instances created before this
 amendment and still inside their 30-day retention window keep replaying as product promotes.
+The one place "the same staging" is *not* the same is validation: the read-back parses against
+the arm's own schema, selected off `kind`, because the spill runs before the arm branches and a
+staged connector page put through `PromotePayloadSchema` dies on its `superRefine` as an opaque
+`INTERNAL_ERROR` (AECI-733 — latent until AECI-731 sends a page carrying fetched `actions`
+blobs, which is what trips the 512 KiB threshold).
 **No `wrangler.jsonc` change was needed in any environment**, which is the whole reason for
 one Workflow class rather than two.
 

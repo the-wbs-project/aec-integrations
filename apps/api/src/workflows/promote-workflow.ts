@@ -34,6 +34,7 @@
 
 import {
   ApiErrorCode,
+  PromoteConnectorPagePayloadSchema,
   PromotePayloadSchema,
   type PromotePayload,
   type PromoteResponse,
@@ -170,7 +171,7 @@ export async function runPromoteWorkflow(
   try {
     payload =
       params.payloadRef === 'kv'
-        ? await step.do('load-staged-payload', () => loadStagedPayload(env, jobId))
+        ? await step.do('load-staged-payload', () => loadStagedPayload(env, jobId, kind))
         : params.payload;
   } catch (error) {
     emitJobOutcome(rc, jobId, 'errored', Date.now() - startedAt, error);
@@ -295,14 +296,27 @@ function toNonRetryable(error: unknown): NonRetryableError {
 }
 
 /**
- * Read back a bundle the kick-off staged in KV.
+ * Read back a payload the kick-off staged in KV.
  *
  * A missing key throws a *plain* Error on purpose: KV is eventually consistent, so a read
  * issued moments after the write can legitimately miss, and the step's default retry
  * schedule (5 attempts, exponential) is exactly the right response. A malformed value, by
  * contrast, will never fix itself — that is non-retryable.
+ *
+ * **`kind` is a parameter and not a default (AECI-733).** The spill threshold in
+ * `promote-kickoff.ts` is shared by BOTH arms, so this runs for connector-catalogue pages
+ * too — and it runs *before* the `kind === 'connector'` branch in {@link runPromoteWorkflow}.
+ * Hard-coding `PromotePayloadSchema` here therefore re-validated a staged connector page
+ * against the product schema on the way out, and the resulting `superRefine` rejection
+ * ("must include at least one of vendors, product, or integrations") surfaced on the poll as
+ * an opaque `INTERNAL_ERROR`. Never collapse this back to one schema: the two arms stage
+ * through one key namespace and are told apart only by the discriminant.
  */
-async function loadStagedPayload(env: Env, jobId: string): Promise<PromotePayload> {
+async function loadStagedPayload(
+  env: Env,
+  jobId: string,
+  kind: 'product' | 'connector',
+): Promise<PromotePayload | PromoteConnectorPagePayload> {
   const kv = env.PROMOTE_KV;
   if (!kv) {
     throw new NonRetryableError(
@@ -313,12 +327,15 @@ async function loadStagedPayload(env: Env, jobId: string): Promise<PromotePayloa
   const raw = await kv.get(promotePayloadKey(jobId));
   if (raw === null) throw new Error(`Staged payload for promote job ${jobId} is not readable yet`);
   try {
-    return PromotePayloadSchema.parse(JSON.parse(raw));
+    const schema = kind === 'connector' ? PromoteConnectorPagePayloadSchema : PromotePayloadSchema;
+    return schema.parse(JSON.parse(raw));
   } catch (error) {
+    // The kind rides in the message so an operator reading the poll error knows which
+    // schema rejected it, rather than having to guess which arm the job was.
     throw new NonRetryableError(
-      `Staged payload for promote job ${jobId} is unusable: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
+      `Staged payload for promote job ${jobId} is unusable as a ${
+        kind === 'connector' ? 'connector page' : 'product bundle'
+      }: ${error instanceof Error ? error.message : String(error)}`,
       ApiErrorCode.INTERNAL_ERROR,
     );
   }
