@@ -50,14 +50,28 @@ describe('AdminCatalogApi', () => {
     await promise;
   });
 
-  it('GETs /api/admin/metrics/timeseries with metric and the inclusive date range', async () => {
-    const promise = api.timeseries('catalog.products_created', '2026-07-15', '2026-08-13');
+  it('GETs /api/admin/metrics/timeseries with metric, basis, and the inclusive date range', async () => {
+    const promise = api.timeseries('catalog.products_created', '2026-07-15', '2026-08-13', 'net');
     const req = httpMock.expectOne(
       (r) => r.method === 'GET' && r.url === '/api/admin/metrics/timeseries',
     );
     expect(req.request.params.get('metric')).toBe('catalog.products_created');
     expect(req.request.params.get('from')).toBe('2026-07-15');
     expect(req.request.params.get('to')).toBe('2026-08-13');
+    expect(req.request.params.get('basis')).toBe('net');
+    req.flush({ points: [] });
+    await promise;
+  });
+
+  // The endpoint DEFAULTS to `basis=additions`, so an omitted param silently
+  // restores the audit-log reading this screen moved off (AECI-686). The param is
+  // therefore always sent explicitly, and this asserts it rather than trusting it.
+  it('always sends basis explicitly, never relying on the endpoint default', async () => {
+    const promise = api.timeseries('catalog.claims_created', '2026-07-15', '2026-08-13', 'net');
+    const req = httpMock.expectOne(
+      (r) => r.method === 'GET' && r.url === '/api/admin/metrics/timeseries',
+    );
+    expect(req.request.params.has('basis')).toBe(true);
     req.flush({ points: [] });
     await promise;
   });

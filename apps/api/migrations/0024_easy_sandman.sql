@@ -1,4 +1,10 @@
 CREATE TABLE `vendor_entitlements` (
+-- ⚠️ RENUMBERED AGAIN 0019 → 0024 by AECI-750 (main → stage-2 reconcile):
+--    main had independently taken 0016–0020 and those are APPLIED IN PRODUCTION,
+--    so main keeps its numbers and stage-2's seven move up. Body unchanged — only
+--    the filename, the journal `tag` and meta/0024_snapshot.json moved. The
+--    snapshot was RECOMPOSED (main's page_views columns + asn_registry grafted on),
+--    not renamed; see docs/migrations.md §0.
 	`id` text PRIMARY KEY NOT NULL,
 	`vendor_id` text NOT NULL,
 	`tier` text DEFAULT 'verified' NOT NULL,

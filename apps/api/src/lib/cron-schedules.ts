@@ -1,5 +1,5 @@
 /**
- * The twelve cron expressions the API Worker is triggered on, in one place.
+ * The thirteen cron expressions the API Worker is triggered on, in one place.
  *
  * They used to live as module-private constants in `scheduled.ts`, which was fine
  * while `scheduled.ts` was the only reader. `GET /api/admin/system` (AECI-580 /
@@ -11,7 +11,7 @@
  *
  * **Every value MUST stay byte-equal to the matching `triggers.crons` entry in
  * `apps/api/wrangler.jsonc`** (staging, demo and production each declare the same
- * twelve, and `cron-schedules.spec.ts` asserts it). `scheduled.ts` `switch`es on
+ * thirteen, and `cron-schedules.spec.ts` asserts it). `scheduled.ts` `switch`es on
  * `controller.cron`, so a mismatch silently stops dispatching the job — the
  * failure mode these comments have always warned about.
  *
@@ -23,6 +23,47 @@
 import type { AdminCronJob } from '@aeci/shared';
 
 import type { ScheduledJob } from '../env';
+
+/**
+ * Weekly `asn_registry` refresh (AECI-624 / `ADMIN_PANEL_SPEC.md` §7.6).
+ * **02:00 UTC on Mondays** — the only non-daily, non-sub-hourly trigger here,
+ * and therefore the only one exposed to the trap in the next paragraph.
+ *
+ * ⚠️ **Cloudflare's day-of-week field is 1 = Sunday … 7 = Saturday**, NOT the
+ * Unix `0 = Sunday`. Cloudflare's own docs give `0 17 * * sun` and `0 17 * * 1`
+ * as equivalent. So **Monday is `2`**, and the `'0 2 * * 1'` this constant
+ * carried until AECI-661 meant *Sunday* — which is exactly what production did:
+ * the job's only run landed Sunday 2026-08-23 and it did not run on Monday
+ * 2026-08-24. Nothing failed, because the dispatcher matched fine; the schedule
+ * simply meant a different day from the one every comment and doc claimed.
+ *
+ * Written numerically rather than as `'0 2 * * MON'`, despite the abbreviation
+ * being the unambiguous form Cloudflare recommends, because `scheduled.ts`
+ * `switch`es on the raw `controller.cron` string: if Cloudflare ever normalised
+ * `MON` back to a digit on the round trip, the expression would stop matching
+ * this constant and the job would silently stop dispatching — the precise
+ * failure this file's header exists to prevent. The numeric form is *known* to
+ * round-trip byte-identically (the Sunday run above proves it: the handler ran
+ * and wrote its `job_runs` row, so `controller.cron` matched exactly). Prefer a
+ * form we have evidence for over a form that merely reads better.
+ *
+ * Weekly, not daily, because the input barely moves: PeeringDB `info_type` values
+ * change when a network re-registers, which is a matter of months, and the join
+ * domain grows by a handful of ASNs a week. A daily fetch of ~35,000 upstream
+ * records to rewrite ~878 unchanged rows would be seven times the egress for the
+ * same answer.
+ *
+ * 02:00 puts it an hour clear of the 03:00 retention prune on both sides and
+ * inside the same dead-of-night window as everything else. Nothing depends on its
+ * ordering: it neither reads nor writes `page_views`, `metrics_daily` or
+ * `job_runs` state that another job consumes, so a late or skipped run costs an
+ * annotation, never a number.
+ *
+ * Queue-less, like `moderation`/`waf`/`analytics`/`snapshot`/`retention`: one
+ * read-only GET plus an idempotent upsert that never deletes, so a failed week
+ * leaves the last good rows in place and the next Monday converges.
+ */
+export const ASN_REGISTRY_CRON = '0 2 * * 2';
 
 /** Daily `metrics_daily` snapshot (AECI-581 / `ADMIN_PANEL_SPEC.md` §7.1). **00:15
  *  UTC**, deliberately the first slot of the day: it captures the prior COMPLETE
@@ -126,6 +167,7 @@ export const ENTITLEMENT_EXPIRY_CRON = '0 11 * * *';
  */
 export const CRON_SCHEDULES: Record<AdminCronJob, string> = {
   'metrics-snapshot': SNAPSHOT_CRON,
+  'asn-registry': ASN_REGISTRY_CRON,
   'retention-prune': RETENTION_CRON,
   'data-quality': DATA_QUALITY_CRON,
   'analytics-digest': ANALYTICS_CRON,
@@ -151,6 +193,7 @@ export const CRON_SCHEDULES: Record<AdminCronJob, string> = {
  */
 export const ADMIN_CRON_JOB: Record<ScheduledJob, AdminCronJob> = {
   snapshot: 'metrics-snapshot',
+  asn_registry: 'asn-registry',
   retention: 'retention-prune',
   data_quality: 'data-quality',
   analytics: 'analytics-digest',
@@ -165,9 +208,13 @@ export const ADMIN_CRON_JOB: Record<ScheduledJob, AdminCronJob> = {
 };
 
 /** Display/iteration order for the System screen — chronological through the UTC
- *  day, then the two sub-daily jobs. Matches `POST_LAUNCH_MONITORING.md` §1a. */
+ *  day, then the two sub-daily jobs. The weekly `asn-registry` sits at its 02:00
+ *  slot in that same day-ordering rather than in a section of its own; its row
+ *  carries the schedule, so "Mondays" is already visible beside it. Matches
+ *  `POST_LAUNCH_MONITORING.md` §1a. */
 export const CRON_JOBS: readonly AdminCronJob[] = [
   'metrics-snapshot',
+  'asn-registry',
   'retention-prune',
   'data-quality',
   'analytics-digest',

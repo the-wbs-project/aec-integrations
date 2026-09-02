@@ -151,7 +151,9 @@ scope.
 
 `pnpm lint`'s `format:check` flagged two files committed to `main` with style issues
 (`autocomplete-controller.component.spec.ts`, `autocomplete-search.factory.ts`) — pre-existing
-debt (`main` has no required checks). Formatted both so "lint clean" (AC 7) holds.
+debt (at the time, `main` had no required status checks — it has required
+`Lint & typecheck` / `Unit tests` / `Build SSR Worker` since 2026-08-05). Formatted both so
+"lint clean" (AC 7) holds.
 
 ---
 

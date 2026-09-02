@@ -36,6 +36,12 @@
 -- claim in D1 today backfills to `origin = 'aeci'` — correct: all of them came from
 -- promote. Verified against SQLite 3.51, including that the ALTER-added FK's
 -- ON DELETE SET NULL actually fires.)
+-- ⚠️ RENUMBERED AGAIN 0016 → 0021 by AECI-750 (main → stage-2 reconcile):
+--    main had independently taken 0016–0020 and those are APPLIED IN PRODUCTION,
+--    so main keeps its numbers and stage-2's seven move up. Body unchanged — only
+--    the filename, the journal `tag` and meta/0021_snapshot.json moved. The
+--    snapshot was RECOMPOSED (main's page_views columns + asn_registry grafted on),
+--    not renamed; see docs/migrations.md §0.
 ALTER TABLE `claims` ADD `origin` text DEFAULT 'aeci' NOT NULL CONSTRAINT "claims_origin_check" CHECK("origin" IN ('aeci', 'vendor'));--> statement-breakpoint
 ALTER TABLE `claims` ADD `created_by_vendor_id` text REFERENCES vendors(id) ON DELETE SET NULL;--> statement-breakpoint
 ALTER TABLE `attestations` ADD `retracted_at` text;--> statement-breakpoint

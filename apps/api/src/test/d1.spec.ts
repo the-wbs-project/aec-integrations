@@ -114,7 +114,7 @@ async function seedClaimPrereqs(t: Awaited<ReturnType<typeof makeTestDb>>) {
 }
 
 // The harness applies the REAL migration files, so this exercises the hand-authored
-// `ALTER … ADD … CHECK` bodies in 0018 rather than a Drizzle-side approximation of them.
+// `ALTER … ADD … CHECK` bodies in 0023 rather than a Drizzle-side approximation of them.
 describe('maintenance marker columns (AECI-616)', () => {
   const seeds = [
     { table: 'vendors', row: { id: 'v1', slug: 'autodesk', companyName: 'Autodesk' } },
@@ -408,7 +408,7 @@ describe('claims / attestations spine (AECI-293)', () => {
 
 /**
  * Constraint coverage for Stage 2 migration 2 (AECI-607 / §8.2). These run
- * against the REAL migration files, which is the point: `0017_slim_iron_lad.sql`
+ * against the REAL migration files, which is the point: `0022_slim_iron_lad.sql`
  * carries a **hand-authored** body because `drizzle-kit generate` emitted the two
  * `ALTER TABLE attestations ADD … REFERENCES product_versions(id)` statements
  * with no `ON DELETE` clause at all, silently dropping the SET NULL. The

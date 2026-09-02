@@ -3,11 +3,11 @@ import { describe, expect, it } from 'vitest';
 import { makeTestDb, type TestDb } from './d1';
 
 /**
- * AECI-721 PR-B — `0022_powerful_killraven.sql` against NON-EMPTY data.
+ * AECI-721 PR-B — `0027_powerful_killraven.sql` against NON-EMPTY data.
  *
  * `docs/migrations.md` §3.3a rule 3: "Verify against non-empty data, not just a
  * fresh DB. A recreate that applies cleanly to an empty table proves nothing."
- * Every case here seeds the PRE-migration shape (the harness stops before 0022),
+ * Every case here seeds the PRE-migration shape (the harness stops before 0027),
  * then applies the one migration and asserts what survived.
  *
  * ── WHAT THIS FILE IS ACTUALLY GUARDING ────────────────────────────────────
@@ -26,7 +26,7 @@ import { makeTestDb, type TestDb } from './d1';
  * what fails if someone reorders the file or regenerates it.
  */
 
-const MIGRATION = '0022_powerful_killraven.sql';
+const MIGRATION = '0027_powerful_killraven.sql';
 
 const AGAVE = 'p-agave';
 const PROCORE = 'p-procore';

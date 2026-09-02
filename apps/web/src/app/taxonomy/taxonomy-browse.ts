@@ -18,11 +18,12 @@ import { ListingToolbar } from '../shared/listing-toolbar/listing-toolbar';
 import { createListingView } from '../shared/listing-toolbar/listing-view';
 import {
   PRODUCT_DEFAULT_SORT,
-  PRODUCT_VALID_SORTS,
   productSortOptions,
 } from '../shared/listing-toolbar/product-sort-options';
 import { MailingListSignup } from '../shared/mailing-list-signup/mailing-list-signup';
 import { createPaginatedIndex } from '../shared/paginated-index/paginated-index-controller';
+
+import { taxonomyBrowseIndexRequest } from './taxonomy-browse.config';
 import { PaginationFooter } from '../shared/pagination/pagination-footer';
 
 /**
@@ -373,21 +374,15 @@ export class TaxonomyBrowsePage {
    * Meta is owned by the resolver, so none is passed here.
    */
   protected readonly idx = createPaginatedIndex<ProductsListResponse>({
-    apiPath: '/api/products',
-    // The full product sort set, shared with `/products` so the two catalog
-    // surfaces cannot offer different options (AECI-657). Before that, this page
-    // accepted only three keys and rendered no control, so `rating`/`reviews`
-    // were unreachable here even by hand-typed URL — and STAGE_1_SPEC.md §4.5's
-    // "sort options (alphabetical, most integrations, most reviewed)" was unmet.
-    validSorts: PRODUCT_VALID_SORTS,
-    defaultSort: PRODUCT_DEFAULT_SORT,
-    // Infinite-scroll list: page 1 SSRs + edge-caches, later pages append
-    // client-side (the page number stays out of the URL). See createPaginatedIndex.
-    mode: 'append',
-    baseParams: () => ({ [`${this.kind()}_id`]: this.term()?.id }),
-    passthroughParams: (['category_id', 'audience_id', 'phase_id', 'trade_id'] as const).filter(
-      (param) => param !== `${this.kind()}_id`,
+    // Shared with `taxonomyBrowseResolver`'s SSR prefetch so the request line the
+    // server fetched is the one this asks for (AECI-746).
+    ...taxonomyBrowseIndexRequest(
+      () => this.kind(),
+      () => this.term()?.id,
     ),
+    // Infinite-scroll list: page 1 SSRs via the resolver + edge-caches, later
+    // pages append client-side (the page number stays out of the URL).
+    mode: 'append',
     enabled: () => this.term() !== null,
   });
 

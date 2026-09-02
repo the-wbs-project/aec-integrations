@@ -79,10 +79,17 @@ export type AdminWindow = z.infer<typeof AdminWindowSchema>;
  * | `partial_day` | the window overlaps the current UTC day, so its last bucket is incomplete |
  * | `bot_classification_incomplete` | N rows in the window have `is_bot IS NULL` and are counted as HUMAN by the digest's `is_bot IS NOT 1` predicate (§3). Dormant since AECI-582 backfilled every row on 2026-08-13 |
  * | `referrer_source_incomplete` | N human rows in the window have `referrer_source IS NULL` — not backfillable, the header was never stored |
+ * | `referrer_source_is_unverified` | `Referer` is client-supplied and unverifiable, so a source is what the request CLAIMED. Emitted unconditionally with any source breakdown, and deliberately not gated on detecting a forgery — a forged referrer is indistinguishable from a real one once §9.7 has reduced it to a host, so "none detected" would be a claim the rows cannot support (AECI-624) |
  * | `direct_is_mixed_bucket` | a `Direct` bucket is present; `PageViewTracker` POSTs on every SPA navigation and the same-origin `Referer` classifies as `Direct`, so in-app hops and true direct arrivals are indistinguishable. AECI-585 stores a `navigation` flag at ingest, but no endpoint groups on it yet and rows written before it cannot be separated at all |
  * | `visitor_definition_approximate` | `unique_visitors` is `DISTINCT (user_agent_hash, cf_asn)` — over-counts on browser update, under-counts behind shared NAT (§9.8) |
- * | `catalog_series_is_additions_only` | a `catalog.*` series counts `*.created` events, never net totals — rows can vanish without per-row audit (§4) |
- * | `catalog_series_starts_at` | the window starts before the earliest `audit_log` row, so the leading segment reads zero for want of data, not for want of activity |
+ * | `corroborated_is_a_referrer_floor` | `corroborated_views` counts arrivals with a NAMED external referrer (AECI-683). Emitted unconditionally with the figure: it UNDER-counts (Referrer-Policy strips real referrals into `Direct`) and it is forgeable UPWARD, since it rests on the same unverified `Referer` as `referrer_source_is_unverified` |
+ * | `operator_leak_is_an_inference` | `operator_leak_excluded` rows were matched by `(user_agent_hash, cf_asn)` against a verified operator session within `OPERATOR_PAIR_LOOKBACK_DAYS` (AECI-683). Unlike the `is_operator` flag itself, that is a judgement about identity, not a verified session |
+ * | `automation_filter_applied` | the headline is `page_views_human_raw` less the views the swarm detector attributed to automated clients (AECI-745). `message` carries the published thresholds (`SWARM_THRESHOLD_NOTE`) and, when the day flagged anything, that day's own `swarmNote(...)` sentence |
+ * | `automation_filter_did_not_run` | the detector failed for this window, so `page_views_human` is UNFILTERED and `automation_flagged` is null. A `warn`: unlike the standing caveats this is a real, clearable condition, and a reader who misses it reads a raw count as a filtered one |
+ * | `catalog_series_is_additions_only` | a `catalog.*` series counts `*.created` events, never net totals — rows can vanish without per-row audit (§4). `basis=additions` only |
+ * | `catalog_series_starts_at` | the window starts before the earliest `audit_log` row, so the leading segment reads zero for want of data, not for want of activity. `basis=additions` only |
+ * | `catalog_series_is_surviving_rows` | `basis=net`: the series counts rows PRESENT NOW, bucketed by `created_at`. A row removed later is subtracted from the bucket it was ADDED in, not the bucket it was removed in, so past buckets restate downwards over time. That restatement is what makes the series sum to the live catalog (AECI-686) |
+ * | `catalog_claims_recreated_by_promote` | `basis=net` on `catalog.claims_created`: promote REPLACES an integration's claims on every push (delete + re-insert with fresh ids), so `claims.created_at` is the last promote of its integration, not when the claim first appeared. The column is a valid count of live rows and a poor arrival history (AECI-604 is the fix) |
  * | `internal_filter_unavailable` | `ANALYTICS_INTERNAL_ASNS` is unset, so `excluding_internal` is null everywhere (the shipped default) |
  * | `internal_filter_applied` | the filter ran; both numbers are present and the excluded ASNs are in `params.asns` |
  * | `requires_recompute` | an expensive status item was omitted from the default `/overview` or `/system`; re-request with `?recompute=1` |
@@ -105,10 +112,21 @@ export const AdminNoteCodeSchema = z.enum([
   'partial_day',
   'bot_classification_incomplete',
   'referrer_source_incomplete',
+  'referrer_source_is_unverified',
   'direct_is_mixed_bucket',
   'visitor_definition_approximate',
+  'corroborated_is_a_referrer_floor',
+  'operator_leak_is_an_inference',
+  // AECI-745 — the automation filter, in the two states it can be in. Two codes
+  // rather than one with a flag, because "it ran" and "it failed" are read by
+  // different people for different reasons and must style differently.
+  'automation_filter_applied',
+  'automation_filter_did_not_run',
   'catalog_series_is_additions_only',
   'catalog_series_starts_at',
+  // AECI-686 — the `basis=net` counterparts of the two above.
+  'catalog_series_is_surviving_rows',
+  'catalog_claims_recreated_by_promote',
   'internal_filter_unavailable',
   'internal_filter_applied',
   'requires_recompute',
@@ -289,6 +307,36 @@ export const AdminStatsFreshnessSchema = z.object({
 });
 export type AdminStatsFreshness = z.infer<typeof AdminStatsFreshnessSchema>;
 
+/**
+ * `asn_registry` freshness + reach (AECI-624 / §7.6).
+ *
+ * Two numbers rather than one, because "the refresh ran" and "the annotation is
+ * worth anything" are different questions. `entries` is how many networks the
+ * registry can speak to at all; `coverage` is the share of the ASNs `page_views`
+ * has actually seen that it has a record for — the number that silently decays
+ * between Mondays as new networks arrive, and the one that decides whether a
+ * given Activity row shows an annotation.
+ *
+ * `fetched_at` null means the refresh has never landed (a fresh environment).
+ * That is distinct from a stale one, and the UI must not render them alike: an
+ * empty registry annotates nothing and says so, while a stale one keeps
+ * annotating from last-known-good and needs the date shown beside it.
+ */
+export const AdminAsnRegistryStatusSchema = z.object({
+  entries: z.number().int().nonnegative(),
+  fetched_at: z.string().datetime().nullable(),
+  age_hours: z.number().nullable(),
+  /** Older than two refresh intervals (14 days) — one missed Monday is a blip,
+   *  two is a broken feed. Null `fetched_at` is NOT stale; it is unpopulated. */
+  stale: z.boolean(),
+  /** Distinct `page_views.cf_asn` values the registry has a record for, over the
+   *  total. Null when there are no ASNs to cover (a fresh `page_views`), because
+   *  0/0 is not 0% — it is "not applicable", and rounding it to zero would show a
+   *  healthy new environment a broken-looking gauge. */
+  coverage: z.number().min(0).max(1).nullable(),
+});
+export type AdminAsnRegistryStatus = z.infer<typeof AdminAsnRegistryStatusSchema>;
+
 /** Queue depths an operator acts on today. */
 export const AdminModerationDepthSchema = z.object({
   pending_reviews: z.number().int().nonnegative(),
@@ -373,18 +421,101 @@ export type AdminStatusStrip = z.infer<typeof AdminStatusStripSchema>;
  *  `top_products` are the digest's own numbers (via `collectAnalyticsMetrics`);
  *  the rest are panel-only additions. */
 export const AdminOverviewTrafficSchema = z.object({
+  /**
+   * **Human page views AFTER the automation filter** — the digest's headline, and
+   * since AECI-745 the panel's too.
+   *
+   * ⚠️ **This field was REDEFINED.** Through AECI-744 it carried the raw
+   * server-side count; AECI-741 made the filtered figure the email's headline and
+   * left the panel on the raw one, so the two surfaces answered "how many humans?"
+   * with different numbers (14 vs 70 on 2026-08-30). Rather than add a second
+   * headline and leave readers to pick, the headline moved here and the raw count
+   * moved to {@link AdminOverviewTrafficSchema.shape.page_views_human_raw}. A
+   * reader that upgrades without noticing gets the BETTER number, which is why
+   * this direction was chosen — but it is a silent semantic change and nothing in
+   * the type says so, hence this comment.
+   *
+   * `excluding_internal` is filtered the same way, so the pair cannot show an
+   * ASN-excluded figure larger than the total it is a subset of.
+   *
+   * Equal to `page_views_human_raw` when `automation_flagged` is null (the
+   * detector did not run). That is not a coincidence to rely on — read
+   * `automation_flagged` to know which of the two you are looking at.
+   */
   page_views_human: AdminCountSchema,
+  /**
+   * The RAW server-side count: what `page_views_human` meant before AECI-745.
+   *
+   * Kept, rather than dropped, because it is a genuinely different measurement
+   * and the email prints both: an UPPER bound, counted server-side on every
+   * full-document load, so a crawler that never runs our JavaScript is in it.
+   * The envelope on the tile has to show the subtraction, and a subtraction needs
+   * its minuend.
+   */
+  page_views_human_raw: AdminCountSchema,
+  /**
+   * Human views the automation filter removed from the reported day, or **null
+   * when the detector did not run**.
+   *
+   * Null and zero are different and must render differently: zero is a clean day,
+   * null is an OUTAGE in which the headline above is unfiltered. A UI that prints
+   * "0 flagged" for a failed detector makes the failure look like good news,
+   * which is the one thing it must never look like.
+   */
+  automation_flagged: z.number().int().nonnegative().nullable(),
   page_views_bot: AdminCountSchema,
   /** DISTINCT `(user_agent_hash, cf_asn)` among HUMAN rows in the window (§9.8). */
   unique_visitors: AdminCountSchema,
-  /** Human page views, this day vs the prior day — the digest's delta. */
+  /** Post-automation human page views, this day vs the prior day — the digest's
+   *  delta, and **filtered on BOTH sides** (AECI-741): a filtered day against an
+   *  unfiltered prior day manufactures a large fake drop. Redefined by AECI-745
+   *  alongside `page_views_human`, for the same reason and with the same caveat. */
   delta_day: AdminDeltaSchema,
-  /** Human page views, the 7 days ending with this one vs the 7 before that. */
+  /**
+   * Human page views, the 7 days ending with this one vs the 7 before that.
+   *
+   * **RAW on both sides, unlike `delta_day`** — deliberately, and the panel says
+   * so. Filtering it would mean running the swarm detector over 14 further days
+   * on every request, which is not a cost this endpoint can carry. Two deltas
+   * with different populations sitting side by side is a real hazard; the answer
+   * is to label it, not to fabricate a filtered week from an unfiltered one.
+   */
   delta_7d: AdminDeltaSchema,
-  /** 30 UTC days ending with the reported day, zero-filled. */
+  /** 30 UTC days ending with the reported day, zero-filled. RAW, like
+   *  `delta_7d` and for the same reason. The filtered series is the
+   *  `traffic.page_views_human_after_automation` metric key, which is served from
+   *  `metrics_daily` precisely because it cannot be computed live per day. */
   series_30d: z.array(AdminTrafficPointSchema),
   top_sources: z.array(AdminSourceCountSchema),
   top_products: z.array(AdminProductViewsSchema),
+  /**
+   * Human views in the window that arrived with a NAMED external search or social
+   * referrer, and the §9.8 visitors behind them (AECI-683). The digest's own
+   * numbers — the third figure it prints beside the server-side upper bound and
+   * the PostHog lower bound.
+   *
+   * A plain count rather than an {@link AdminCountSchema} on purpose: there is no
+   * ASN-filtered variant of it, and a nullable `excluding_internal` that is always
+   * null would imply a second number exists.
+   *
+   * **This is a FLOOR and it is built on a CLAIM.** Referrer-Policy strips real
+   * referrals into `Direct`, so it under-counts; and nothing verifies a `Referer`
+   * (§9.7 — production holds a confirmed forgery). The UI must print both caveats
+   * beside it, exactly as the email does. The value is still the most useful of
+   * the three, because a rotating-proxy pool sends no `Referer` at all.
+   */
+  corroborated_views: z.number().int().nonnegative(),
+  corroborated_visitors: z.number().int().nonnegative(),
+  /**
+   * Human views excluded because they share a `(user_agent_hash, cf_asn)` pair
+   * with a verified operator session nearby in time — the rows a lapsed admin
+   * session left unflagged (AECI-683, `analytics-digest.ts` `OPERATOR_PAIR_MATCH`).
+   *
+   * Surfaced rather than silently netted off because, unlike the path and session
+   * halves of the same exclusion, this one is an INFERENCE about identity. The
+   * panel and the email report the same figure.
+   */
+  operator_leak_excluded: z.number().int().nonnegative(),
 });
 export type AdminOverviewTraffic = z.infer<typeof AdminOverviewTrafficSchema>;
 
@@ -430,13 +561,31 @@ export type AdminOverviewResponse = z.infer<typeof AdminOverviewResponseSchema>;
  * The metric vocabulary, using §7.1's `namespace.metric` convention so P2.1's
  * `metrics_daily` keys are these strings verbatim.
  *
- * `catalog.*` are **additions**, sourced from `audit_log` `*.created` events per
- * §5.5 — deliberately not net totals, which §4 shows are unrecoverable (827
- * `integration.created` events back 496 live rows). Every `catalog.*` response
- * carries `catalog_series_is_additions_only` so the chart cannot be misread.
+ * A `catalog.*` key names a SERIES, not a source: {@link AdminMetricBasisSchema}
+ * picks which of the two readings of "how many were added" the response carries.
+ * The key stays `*_created` under both because it is `metrics_daily.metric`
+ * verbatim (§7.1) and renaming it would orphan every stored row.
  */
 export const ADMIN_METRIC_KEYS = [
   'traffic.page_views_human',
+  /**
+   * Human page views less the views the swarm detector attributed to automated
+   * clients — the filtered series behind `/admin/overview`'s headline (AECI-745).
+   *
+   * **Served from `metrics_daily` ONLY.** Every other key here falls back to a
+   * live per-day aggregation for days the snapshot has not captured; this one
+   * cannot, because "live" means running the detector once per day in the window
+   * — roughly seven D1 reads per day, so ~210 for a 30-day chart. Days with no
+   * stored row are therefore a GAP, not a zero and not a recompute, and
+   * `series_partly_reconstructed` / `catalog_series_starts_at` style notes say
+   * where the series begins. Fill history with `pnpm ops:backfill-metrics-daily`,
+   * which can afford the per-day cost that a request cannot.
+   *
+   * For the same reason `excludeInternal=1` is rejected on this key: the internal
+   * filter bypasses the snapshot by design, and there is no live path to fall
+   * back to.
+   */
+  'traffic.page_views_human_after_automation',
   'traffic.page_views_bot',
   /** HUMANS only, and note it does NOT sum: each bucket is its own
    *  `COUNT(DISTINCT …)`, so a visitor active on three days counts three times in
@@ -452,6 +601,53 @@ export const ADMIN_METRIC_KEYS = [
 
 export const AdminMetricKeySchema = z.enum(ADMIN_METRIC_KEYS);
 export type AdminMetricKey = z.infer<typeof AdminMetricKeySchema>;
+
+/**
+ * Which reading of a `catalog.*` series to serve (AECI-686). **`catalog.*` only** —
+ * `basis=net` on any other metric is a 400, because neither `page_views` nor
+ * `profiles` has the delete problem this dimension exists to answer.
+ *
+ * ─── `additions` — creation EVENTS (the original, still the default) ─────────
+ *
+ * Counts `audit_log` `*.created` rows in the bucket. An event outlives the row it
+ * describes, so this over-reports whenever anything is removed: in production
+ * 11,827 `claim.created` events back 1,691 live claims, and 1,275
+ * `integration.created` events back 944. It is the honest answer to "how much
+ * work happened", and it does not reconcile with a live `count(*)`.
+ *
+ * ─── `net` — rows PRESENT NOW, bucketed by `created_at` ──────────────────────
+ *
+ * Counts the rows still in the catalog, attributed to the day they arrived. This
+ * is the requested net delta: 20 added and 5 removed reads 15.
+ *
+ * Two properties follow from that and are stated in the response's notes rather
+ * than left to inference:
+ *
+ * **It restates.** A removal is subtracted from the bucket the row was *added*
+ * in, not the bucket it was removed in — the only attribution available, because
+ * nothing records deletions (there is no `*.deleted` audit action, and every
+ * delete path is raw SQL outside the Worker; `lib/retract-product.ts` documents
+ * this). So a past bucket falls as its rows die. That is exactly what makes the
+ * series sum to the live total, which is the property §5.5 wanted.
+ *
+ * **It is never snapshotted.** A retroactive value must not be frozen into
+ * `metrics_daily`, so `basis=net` bypasses the snapshot entirely and always
+ * reports `source: 'live'` with `reconstructed: false` on every point — the rows
+ * exist, so nothing is being approximated.
+ *
+ * `additions` remains the default because it is the shipped behaviour and because
+ * churn is real information that `net` cannot show: a month that created and
+ * destroyed 300 integrations reads 0 net and 300 additions.
+ */
+export const AdminMetricBasisSchema = z.enum(['additions', 'net']);
+export type AdminMetricBasis = z.infer<typeof AdminMetricBasisSchema>;
+
+/** True for the four keys that accept `basis=net` — the ones backed by a catalog
+ *  table with a `created_at` a live row still carries. Exported so the API's
+ *  validation and the UI's request-building agree on one predicate. */
+export function metricSupportsNetBasis(metric: AdminMetricKey): boolean {
+  return metric.startsWith('catalog.');
+}
 
 /**
  * The **stock** half of the `metrics_daily` vocabulary (P2.1 / §7.1): an
@@ -578,12 +774,16 @@ const utcDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Expected YYYY-MM-DD');
  *
  * `interval` has one value today. `metrics_daily` (P2.1) stores per-day rows, so
  * week/month roll-ups are a later additive extension, not a reshape.
+ *
+ * `basis` defaults to `additions`, which is the pre-AECI-686 behaviour — an
+ * omitted param must not change an existing caller's numbers.
  */
 export const AdminTimeseriesQuerySchema = z.object({
   metric: AdminMetricKeySchema,
   from: utcDate,
   to: utcDate,
   interval: z.enum(['day']).default('day'),
+  basis: AdminMetricBasisSchema.default('additions'),
   exclude_internal: z
     .enum(['0', '1'])
     .default('0')
@@ -602,6 +802,9 @@ export type AdminTimeseriesQuery = z.infer<typeof AdminTimeseriesQuerySchema>;
  * `integration.created` events back 496 live rows). False means it was measured
  * — either snapshotted on the day, or aggregated live from rows that still
  * exist. Blending the two without saying so is what §1.1 forbids.
+ *
+ * Always false under `basis=net`, which reads the surviving rows themselves and
+ * so has nothing to approximate.
  */
 export const AdminTimeseriesPointSchema = z.object({
   day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -611,11 +814,71 @@ export const AdminTimeseriesPointSchema = z.object({
 });
 export type AdminTimeseriesPoint = z.infer<typeof AdminTimeseriesPointSchema>;
 
+/**
+ * How the ASN registry reads a network (AECI-624 / §7.6). **Our** coarse bucket,
+ * derived from the upstream's own word — which travels beside it as `info_type`,
+ * so a reader can see the claim and our reading of it separately.
+ *
+ * | value | means |
+ * |---|---|
+ * | `eyeball` | a network real people browse from — consumer ISPs, but also corporate, university, non-profit and government networks. Corroborates `is_bot: false` |
+ * | `transit` | a tier-1 / wholesale carrier. Carries everyone, so it corroborates nothing either way — deliberately NOT folded into `eyeball`, because "we can't tell" and "it's a person" are different answers |
+ * | `non_eyeball` | registered as something no residential subscriber sits behind: content/CDN, network services, route servers. **A suspicion, not a verdict** — Google and Netflix are `Content` too, so it means "not an eyeball network", never "hosting" |
+ * | `unclassified` | the registry has a record but no usable type. Says nothing |
+ *
+ * The absence of an annotation entirely (`asn_registry: null`) is a *fifth*
+ * state and a distinct one: the registry has never heard of this ASN. Roughly a
+ * quarter of production traffic sits in `unclassified` + no-record combined, so
+ * neither may be rendered as if it were a finding.
+ */
+export const AdminAsnNetworkClassSchema = z.enum([
+  'eyeball',
+  'transit',
+  'non_eyeball',
+  'unclassified',
+]);
+export type AdminAsnNetworkClass = z.infer<typeof AdminAsnNetworkClassSchema>;
+
+/**
+ * What the ASN registry says about one network — a **read-time annotation**, never
+ * a stored verdict.
+ *
+ * This exists because `is_bot` cannot answer the question. That column is decided
+ * once at ingest from a hand-curated list (`lib/bot-classification.ts`) whose
+ * membership rule is deliberately strict, and the raw User-Agent is discarded
+ * after hashing, so every revision of that list costs a one-way backfill. On
+ * 2026-08-13 a five-request burst from three continents with rotating forged
+ * referrers put three rows in the human bucket because one exit ASN
+ * (FDCservers.net) is not on the list. Rather than widen the list — measured
+ * against production, the free external lists are *narrower* than ours and would
+ * have missed that ASN too — the panel annotates.
+ *
+ * So an annotation never contradicts `is_bot`; it stands beside it. `fetched_at`
+ * travels on every one because an annotation from a registry that stopped
+ * refreshing must be readable as stale rather than silently trusted (§9.8's
+ * obligation to state a number's bias next to it, applied to a label).
+ */
+export const AdminAsnAnnotationSchema = z.object({
+  asn: z.number().int().positive(),
+  /** The upstream's verbatim classification (PeeringDB `info_type`, e.g.
+   *  `"Content"`). Null when the record exists but carries no type. */
+  info_type: z.string().nullable(),
+  as_name: z.string().nullable(),
+  network_class: AdminAsnNetworkClassSchema,
+  /** Which feed this came from (`"peeringdb"`). */
+  source: z.string().min(1),
+  fetched_at: z.string().datetime(),
+});
+export type AdminAsnAnnotation = z.infer<typeof AdminAsnAnnotationSchema>;
+
 /** Every day in the window appears in `points`, zero-filled — a chart should
  *  never have to infer a gap. */
 export const AdminTimeseriesResponseSchema = z.object({
   metric: AdminMetricKeySchema,
   interval: z.enum(['day']),
+  /** Echoed so a caller can never mistake which reading it received — the two
+   *  differ by an order of magnitude on `catalog.claims_created`. */
+  basis: AdminMetricBasisSchema,
   window: AdminWindowSchema,
   generated_at: z.string().datetime(),
   source: AdminMetricSourceSchema,
@@ -634,6 +897,11 @@ export const AdminBreakdownDimensionSchema = z.enum([
   'path',
   'product',
   'bot',
+  /** Group by `cf_asn` (AECI-624). The aggregate counterpart to the Activity
+   *  feed's per-row ASN annotation: it answers "which networks is my traffic
+   *  actually coming from", which is the question `dimension=country` only
+   *  approximates. Each group carries its `asn_registry` annotation. */
+  'asn',
 ]);
 export type AdminBreakdownDimension = z.infer<typeof AdminBreakdownDimensionSchema>;
 
@@ -671,6 +939,11 @@ export const AdminBreakdownRowSchema = z.object({
   ref: LinkRefSchema.nullable(),
   views: z.number().int().nonnegative(),
   views_excluding_internal: z.number().int().nonnegative().nullable(),
+  /** Populated only for `dimension=asn`, and only when the registry has a record
+   *  for that network (AECI-624 / §7.6). Null on every other dimension and on an
+   *  unknown ASN — the two are indistinguishable here by design, because the
+   *  dimension already tells the reader which case applies. */
+  asn_registry: AdminAsnAnnotationSchema.nullable().default(null),
 });
 export type AdminBreakdownRow = z.infer<typeof AdminBreakdownRowSchema>;
 
@@ -725,7 +998,7 @@ export type AdminTrafficBreakdownResponse = z.infer<typeof AdminTrafficBreakdown
  */
 
 /**
- * The twelve cron jobs in `apps/api/src/scheduled.ts`, as a closed vocabulary.
+ * The thirteen cron jobs in `apps/api/src/scheduled.ts`, as a closed vocabulary.
  * These are the ids `job_runs.job` carries (§7.2), so AECI-583 persists against
  * these strings rather than inventing a second naming. `metrics-snapshot` is the
  * ninth, added with the §7.1 snapshot cron (AECI-581); `retention-prune` is the
@@ -736,6 +1009,10 @@ export type AdminTrafficBreakdownResponse = z.infer<typeof AdminTrafficBreakdown
  * is the twelfth, the Stage 2 term-expiry warning sweep (AECI-613 /
  * `STAGE_2_PAID_TIERS_SPEC.md` §7): it WARNS and never lapses, so its liveness row
  * is the only evidence an operator has that renewal notices are still going out.
+ * `asn-registry` is the thirteenth and the only WEEKLY one, added with the §7.6
+ * read-time ASN classification (AECI-624); it met this vocabulary at the AECI-750
+ * reconcile. A weekly series needs a >=2-week absence window — see the liveness
+ * registry in `observability/posthog/project-config.json`.
  */
 export const AdminCronJobSchema = z.enum([
   'metrics-snapshot', // 15 0 * * *
@@ -750,6 +1027,7 @@ export const AdminCronJobSchema = z.enum([
   'waf-poll', // 0 * * * *
   'attestation-notify', // 0 10 * * *
   'entitlement-expiry', // 0 11 * * *
+  'asn-registry', // 0 2 * * 2  (weekly; CF day-of-week is 1=Sunday, so 2 = Monday)
 ]);
 export type AdminCronJob = z.infer<typeof AdminCronJobSchema>;
 
@@ -941,7 +1219,7 @@ export const AdminSystemResponseSchema = z.object({
    *  which the UI fetches alongside this and compares — see
    *  {@link AdminVersionStatusSchema}. */
   version: AdminVersionStatusSchema,
-  /** All ten, always. */
+  /** All eleven, always. */
   crons: z.array(AdminCronRunSchema),
   /** The last stored 04:00 run by default, or the live result under
    *  `?recompute=1` — `source` says which. Null only when nothing has been stored
@@ -952,6 +1230,9 @@ export const AdminSystemResponseSchema = z.object({
   /** `MAX(stats_cache.computed_at)` — the same freshness figure the §5.1 status
    *  strip reports, from the same helper, so the two screens agree. */
   stats_freshness: AdminStatsFreshnessSchema,
+  /** How fresh, how large, and how far-reaching the §7.6 ASN registry is. The
+   *  Activity screen's annotations are only as good as this row. */
+  asn_registry: AdminAsnRegistryStatusSchema,
 });
 export type AdminSystemResponse = z.infer<typeof AdminSystemResponseSchema>;
 
@@ -1292,11 +1573,33 @@ export const AdminPageViewRowSchema = z.object({
   entity_type: z.enum(['product', 'vendor']).nullable(),
   entity: LinkRefSchema.nullable(),
 
-  /** `null` means unknown, NOT `Direct` — every row before August 2026 has it
-   *  null and is not backfillable. The UI must not collapse the two (§1.1). */
+  /**
+   * The traffic source the request **claimed**, not one that was verified.
+   *
+   * It is derived from the `Referer` header, which is supplied by the client and
+   * is unverifiable by construction — there is no handshake with the named site
+   * and §9.7 stores only the host, so not even the path survives to sanity-check.
+   * Production contains a confirmed forgery (2026-08-13, `www.youtube.com`), and
+   * a real click from that site would have produced a byte-identical row. The UI
+   * must present this as a claim (§9.7); see `referrer_source_is_unverified` in
+   * `notes`.
+   *
+   * `null` means unknown, NOT `Direct` — every row before August 2026 has it null
+   * and is not backfillable. The UI must not collapse the two (§1.1).
+   */
   referrer_source: z.string().nullable(),
   /** External referrer HOST only, never the path or query (AECI-526 / §9.7). */
   referrer: z.string().nullable(),
+
+  /**
+   * What the ASN registry says about `cf_asn` (AECI-624 / §7.6) — an annotation
+   * joined at read time, `null` when the registry has no record for this network.
+   *
+   * It never alters `is_bot`, which stays exactly as ingest wrote it. A row can
+   * legitimately read `is_bot: false` with `network_class: 'non_eyeball'`; that
+   * pairing is the point, not a contradiction to be resolved.
+   */
+  asn_registry: AdminAsnAnnotationSchema.nullable(),
 });
 export type AdminPageViewRow = z.infer<typeof AdminPageViewRowSchema>;
 

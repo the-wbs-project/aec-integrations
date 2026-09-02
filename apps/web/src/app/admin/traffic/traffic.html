@@ -290,6 +290,32 @@
     </section>
 
     <!--
+        Which networks the traffic came from, with the registry's reading folded
+        into each label. Sits next to Geography because it answers the question
+        Geography only approximates: a country says where an address is, a network
+        says what kind of place it is. A row with real views and "not a browsing
+        network" is traffic the human/bot split is calling human on thin evidence.
+      -->
+    <section
+      class="rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) p-5"
+    >
+      <h3
+        class="mb-3 text-base font-bold text-(--text-primary)"
+        i18n="@@admin.traffic.chart.networks"
+      >
+        Networks
+      </h3>
+      <aec-horizontal-bar-chart
+        [data]="networkRows()"
+        [categoryHeader]="networkHeader"
+        [valueHeader]="viewsHeader"
+        [ariaLabel]="networksChartLabel"
+        [emptyLabel]="emptyLabel"
+        [total]="windowTotal()"
+      />
+    </section>
+
+    <!--
         Crawlers are always the bot population — the API forces it for
         dimension=bot, because grouping human rows by bot_name returns one empty
         bucket. The share is therefore against the bot window total, not the

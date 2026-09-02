@@ -493,6 +493,9 @@ export type ProductFacetsQuery = z.infer<typeof ProductFacetsQuerySchema>;
 // One `TaxonomyTermWithCount[]` per dimension; here `product_count` is the
 // SCOPED count (reflecting the other active filters), ordered by `display_order`
 // then name — same per-term shape the flat taxonomy list endpoints return.
+// `integration_count` is deliberately ABSENT on this endpoint: it would be
+// unscoped, and sitting beside a scoped product count it would read as
+// comparable. See the note under §6.4.
 export const ProductFacetsResponseSchema = z.object({
   categories: z.array(TaxonomyTermWithCountSchema),
   audiences: z.array(TaxonomyTermWithCountSchema),
@@ -785,6 +788,7 @@ export const TaxonomyTermWithCountSchema = LinkRefSchema.extend({
   description: z.string().nullable(),
   display_order: z.number().int(),
   product_count: z.number().int().min(0),
+  integration_count: z.number().int().min(0).optional(),
 });
 
 // Each detail extends the term with the products carrying that term.
@@ -794,6 +798,26 @@ export const CategoryDetailSchema = TaxonomyTermWithCountSchema.extend({
 });
 // `AudienceDetailSchema` / `PhaseDetailSchema` / `TradeDetailSchema` follow the same shape.
 ```
+
+**`integration_count`** is the number of **distinct** integrations reachable through the products
+carrying the term — an integration counts once if **either** endpoint is tagged, and once only when
+**both** are. It is therefore *not* the sum of the tagged products' own `integration_count`, which
+double-counts every integration internal to the term. It is unscoped (a property of the term, not of
+any active filter). The four taxonomy index pages **display** it on each term card and use it as the
+tiebreaker in their "Products" ordering, but it is deliberately not a primary sort key — it is a
+downstream consequence of the catalog rather than a measure of the term (`STAGE_1_SPEC.md` §5.5).
+
+The field is **optional**, for two distinct reasons that both have to hold:
+
+1. The `*_counts` keys in `stats_cache` store `TaxonomyTermWithCount[]` and are validated on read
+   against this schema (§9.2), so rows written before the field shipped must still parse.
+2. `GET /api/products/facets` deliberately **omits** it. Its `product_count` is the scoped
+   disjunctive count under the active filters; an unscoped integration count printed beside a scoped
+   product count would invite a comparison it cannot support.
+
+Consumers read it through `taxonomyIntegrationCount(term)` from `@aeci/shared`, which resolves an
+absent value to `0`. Note the asymmetry with the trades publication floor: that gate is read off
+`product_count` only (`TRADES_VOCABULARY.md` §6), and swapping its basis would silently retune it.
 
 #### `GET /api/taxonomy`
 
@@ -1114,6 +1138,16 @@ export type PageViewPayload = z.infer<typeof PageViewPayloadSchema>;
 - **`navigation`** distinguishes a full-document `'arrival'` from an in-app `'spa'` hop. Never inferred: an omitted flag stores as null. It exists because the same-origin `Referer` on an SPA hop classifies as `Direct`, making `Direct` — the largest bucket in every digest — a mix of true arrivals and in-app clicks. A value outside the enum is a `400`, like any other schema violation.
 - **`user_id` / `session_id` / `profile_role` were dropped** (§13 D7). They were never written; see `DATABASE_SCHEMA.md` §9.1 for why they were dropped rather than filled.
 
+**AECI-585's successor: `is_operator` (§13 D13, 2026-08-19).** One more write-time-only column, and the one part of enrichment that is **not** derived from the payload or a forwarded header. The handler resolves it itself via `lib/operator-session.ts`: extract the token (`Authorization: Bearer`, else the `sb-<ref>-auth-token` cookie — the same two sources `lib/authz.ts` uses), verify it against Supabase's JWKS, then re-read `profiles.role`. `true` only for a verified `admin`.
+
+It is deliberately **not** a payload field and **not** a header. A client-settable flag would let any caller hide their own traffic from the operator's analytics, and this column's entire purpose is to be trustworthy. Three behaviours are contractual:
+
+- **Anonymous requests short-circuit.** No token → `false` with no crypto and no D1 read. This endpoint is the hottest write path in the app and must not grow a per-view auth round trip for visitors who have no session.
+- **A signed-in non-admin is `false`.** Ordinary authenticated users are real traffic; only the operator is excluded.
+- **Every failure is `false`, never a rejection.** Expired token, bad signature, JWKS unreachable, missing profile, D1 error — the row is still written, unflagged. The check runs inside the same `waitUntil` as the insert, so an auth hiccup must cost the flag rather than the page view.
+
+**Cookie forwarding contract.** The browser POST already carries the session cookie: the SSR Worker's `/api/*` passthrough forwards cookies untouched, and `withForwardedCfContext` rebuilds only the `x-aeci-cf-*` set. The SSR Worker's own `firePageView` did not, so arrivals were anonymous to this check — the concrete form of D7's "right half the time" objection. It now copies the inbound `Cookie` onto that subrequest. The header is transport only (nothing in it is trusted before JWKS verification) and it rides the fire-and-forget analytics call exclusively — never `renderer()`, which on the cacheable branch works from a cookie-stripped request, so edge-cache neutrality is untouched.
+
 **CF context forwarding contract.** The browser POST reaches the SSR Worker first, and `request.cf` does **not** survive the SSR→API service binding, so the SSR Worker forwards the CF fields on trusted headers (`@aeci/shared` `PAGE_VIEW_CF_HEADERS`):
 
 | Header | Source (`request.cf`) | `page_views` column |
@@ -1123,16 +1157,41 @@ export type PageViewPayload = z.infer<typeof PageViewPayloadSchema>;
 | `x-aeci-cf-asn` | `cf.asn` | `cf_asn` |
 | `x-aeci-cf-as-organization` | `cf.asOrganization` | `cf_as_organization` |
 | `x-aeci-cf-bot-score` | `cf.botManagement.score` | `cf_bot_score` |
+| `x-aeci-cf-tls-version` | `cf.tlsVersion` | `tls_version` |
+| `x-aeci-cf-http-protocol` | `cf.httpProtocol` | `http_protocol` |
+
+`x-aeci-cf-tls-version` / `x-aeci-cf-http-protocol` (AECI-658) are the two connection facts `request.cf` exposes on **Pro**, unlike the bot score above (Enterprise, hence always null). They are deliberately **low-entropy corroboration, not a fingerprint** — the negotiated cipher is largely the server's choice — and are nothing like JA3/JA4.
+
+**Request-shape headers (AECI-658).** Alongside the `x-aeci-*` set, the SSR Worker's `firePageView` copies the eyeball's own `Sec-Fetch-Dest` / `-Mode` / `-Site`, `Accept-Language`, `sec-ch-ua` and `Accept` verbatim onto its subrequest (`PAGE_VIEW_CLIENT_SIGNAL_HEADERS`), so the API can record how browser-shaped the arrival was (`lib/client-signals.ts` → `client_verdict`). Three deliberate differences from the set above: they keep their **real names** (they are the browser's headers, not our renaming of a `request.cf` field), they are **not stripped** on the proxy path (the browser's own POST carries them natively and they mean the same thing either way), and there is **no anti-spoof boundary** to defend — nothing is trusted on their strength, they produce an annotation that never writes `is_bot`, and a scraper willing to forge the whole set has only raised its own cost. Only `firePageView` needs the copy; the tracker's fetch already has them.
 
 `x-aeci-cf-as-organization` (AECI-585 / §13 D10) reuses the header name `LANDING_CF_HEADERS` already carries it under, deliberately: both proxies read the same `request.cf` field onto the same wire name, so the two enrichment paths cannot drift apart on it. It is a **read-side label only** — it never feeds `is_bot` at ingest.
 
 The SSR Worker is the **sole writer** of these headers: on the `/api/page-views` proxy path it strips any client-supplied copies (anti-spoof) before setting them from `request.cf`. The API Worker treats them as trusted because it has no public ingress (service-binding only); it falls back to a directly-present `request.cf` for local/test runs.
 
-**Two writers, de-duped.** The browser `PageViewTracker` (AECI-151) is the canonical per-view counter; the SSR Worker's `firePageView` is a supplementary write that adds CF/bot context on full-document renders. They don't double-count — the client tracker skips the initial navigation (the SSR Worker already counted the landing arrival) and only counts subsequent in-app navigations. The SSR path undercounts because true edge-cache hits bypass the SSR Worker (§14.2, accepted). Both writers carry the same `PAGE_VIEW_CF_HEADERS` enrichment.
+**Two writers, de-duped.** The browser `PageViewTracker` (AECI-151) is the canonical per-view counter; the SSR Worker's `firePageView` is a supplementary write that adds CF/bot context on full-document renders. The client tracker skips the initial navigation (the SSR Worker already counted the landing arrival) and only counts subsequent in-app navigations. The SSR path undercounts because true edge-cache hits bypass the SSR Worker (§14.2, accepted). Both writers carry the same `PAGE_VIEW_CF_HEADERS` enrichment.
+
+**One document load, one row — and the writer convention was never enough to guarantee it (AECI-743).** Until 2026-09 the paragraph above went on to claim the two writers "don't double-count". They don't double-count *each other*, which is a different and much weaker statement: production held two byte-identical rows 83 ms apart for one arrival, both `navigation: 'arrival'` with the resolver's route *pattern*, i.e. two full cacheable-branch cache-MISS renders. `handleSsr` fires `firePageView` at most once per invocation and runs once per request, so the visitor's browser simply sent the document request twice — and nothing anywhere refused the second row. Those two rows were the whole "Google — 2 views" traffic-source table and the entire corroborated-referrer population of that day's digest, i.e. a 100% error on the one figure (AECI-683's floor) chosen because a proxy pool cannot inflate it.
+
+Four guards now hold the invariant, three at the writers and one at this endpoint:
+
+| Guard | Where | What it refuses |
+|---|---|---|
+| **Speculative loads** | `firePageView`, `isSpeculativeRequest()` in `@aeci/shared` | `Sec-Purpose: prefetch` / `prefetch;prerender`, and the legacy `Purpose` / `X-Moz` / `X-Purpose` spellings. A prerender sends `Sec-Fetch-Dest: document` like any navigation, so without this header it is indistinguishable from a real arrival — for a page the visitor may never see. Counted as `aeci.pageviews.speculative`. |
+| **Non-GET** | `firePageView` | `handleSsr` sends every non-GET down the non-cacheable branch, which still renders and still lets a resolver attach `ctx.pageView` — so a HEAD-then-GET probe wrote two rows identical down to the route pattern. |
+| **Query-only SPA hops** | `PageViewTracker`, last-fired-route memo | The tracker strips `?`/`#`, so a `router.navigate([], { queryParams })` produced a row identical to the previous one; the debounced URL syncs in search, pagination and facets fire several per interaction. Only **consecutive** repeats collapse, so A → B → A still counts both visits to A. Not keyed on `Navigation.extras.replaceUrl`, which looks precise and is a trap — Angular issues Back/Forward (popstate) navigations with `replaceUrl: true` too, so that test would stop counting every history navigation. |
+| **Duplicate ingest** | this endpoint, `dedupe_key` + a UNIQUE index (migration `0020`) | A second row for the same `(concrete_path, user_agent_hash, cf_asn)` inside `PAGE_VIEW_DEDUPE_WINDOW_MS` (`@aeci/shared`, 10 s). Counted as `aeci.pageviews.write{outcome:deduped}`. |
+
+The ingest guard is a **time-bucketed key under a UNIQUE index**, not a "rows in the last N seconds" lookup, because the duplicate writes RACE: both arrive from `waitUntil` with unpredictable delay, and the second `SELECT` can run before the first `INSERT` commits. Only the constraint settles that, via `ON CONFLICT DO NOTHING`. Ingest also probes the **previous** bucket, so a pair straddling a boundary still collapses and the effective window is 10–20 s — comfortably under any genuine second view of the same path in one session, which the fix must not suppress.
+
+Two rows are deliberately left **unconstrained**, by writing a null `dedupe_key` (SQLite indexes NULLs as distinct, which is what makes the column an opt-in guard rather than a table-wide constraint): bot-classified rows, whose volume the crawler tables read as a raw count, and rows with no `user_agent_hash`, where the key would degenerate to path + ASN and collide two strangers behind one network. `navigation` is deliberately **not** part of the key, so an SSR `arrival` and the tracker's `spa` row for the same document also collapse.
+
+Rows written before this shipped carry a null key and cannot be repaired — the stored row cannot distinguish a double-fire from two genuine arrivals. `scripts/ops/2026-09-page-view-duplicates/find-duplicates.sql` reports them read-only; two days' corroborated floors are corrected in `POST_LAUNCH_HEALTH_REPORT.md`.
 
 That split is exactly what `navigation` records, and each writer states its own half as a fact rather than a guess: the tracker sends `'spa'` because it fires only on in-app navigation, and `firePageView` stamps `'arrival'` because every write through it is a full-document load. `firePageView` also stamps `path` from the request URL, so a resolver-attached payload carrying a route *pattern* gains the concrete path without any resolver changing — both fields are set at that one choke point and override whatever the caller passed, since the request URL is the authority on where the visitor is.
 
 **Public routes only (AECI-575).** Both writers skip the operator-only prefixes in `@aeci/shared` `UNTRACKED_ROUTE_PREFIXES` — `/admin` and `/account`, matched on an exact prefix boundary via `isUntrackedRoute()`, so nested admin routes are covered without enumeration and `/administrators` is not. Recording them would mean the admin console writes a row into the table it reads, from the operator's own ISP (`ADMIN_PANEL_SPEC.md` §9.6; on 2026-08-10 that was 67 of 92 "human" views). The exclusion is enforced at the **writers**, not at this endpoint — a `route` of `/admin/reviews` posted directly is still accepted and inserted — because the rule belongs where nothing is sent at all; the read side (the daily digest) applies the same prefix list, which is also what neutralizes rows written before this shipped and anything a stale client emits. This is an exclusion list, not a consent concept: `page_views` ingest stays consent-independent by design.
+
+`is_operator` is the complement and works the opposite way round: it is resolved **at this endpoint** (only the API Worker can verify a session) and the row is written either way, with the read side excluding it. Between them the two rules cover the operator on every path — the prefix list while they are in the console, the session flag while they are on the public site.
 
 **Bot-score sampling** is a deferred §14.2 policy: the `PAGE_VIEWS_MIN_BOT_SCORE` env knob (unset everywhere today → capture all) drops views below the floor when set. Nothing is hardcoded to drop.
 
@@ -2101,10 +2160,13 @@ export const AdminNoteCodeSchema = z.enum([
   'partial_day',                       // window overlaps the current UTC day
   'bot_classification_incomplete',     // N rows have is_bot IS NULL → counted HUMAN
   'referrer_source_incomplete',        // N human rows have no referrer_source
+  'referrer_source_is_unverified',     // Referer is client-supplied; a source is a CLAIM (AECI-624)
   'direct_is_mixed_bucket',            // Direct mixes SPA hops with real arrivals
   'visitor_definition_approximate',    // §9.8 (user_agent_hash, cf_asn)
-  'catalog_series_is_additions_only',  // catalog.* are events, never net totals (§4)
-  'catalog_series_starts_at',          // window predates the audit log
+  'catalog_series_is_additions_only',  // basis=additions: catalog.* are events, not net totals (§4)
+  'catalog_series_starts_at',          // basis=additions: window predates the audit log
+  'catalog_series_is_surviving_rows',  // basis=net: rows present NOW; past buckets restate
+  'catalog_claims_recreated_by_promote', // basis=net on claims: created_at is a last-promote date
   'internal_filter_unavailable',
   'internal_filter_applied',
   'requires_recompute',                // an expensive status item was omitted
@@ -2178,14 +2240,23 @@ export const AdminOverviewResponseSchema = z.object({
   notes: z.array(AdminNoteSchema),
   internal_filter: AdminInternalFilterSchema,
   traffic: z.object({
+    // AECI-745: the HEADLINE, human views AFTER the automation filter — the same
+    // number the 05:00 email leads with. This field was REDEFINED; it carried the
+    // raw count through AECI-744.
     page_views_human: AdminCountSchema,
+    page_views_human_raw: AdminCountSchema,  // the server-side upper bound
+    automation_flagged: z.number().int().nonnegative().nullable(), // null = detector did not run
     page_views_bot: AdminCountSchema,
     unique_visitors: AdminCountSchema,      // DISTINCT (user_agent_hash, cf_asn)
-    delta_day: AdminDeltaSchema,            // human views, day over day
-    delta_7d: AdminDeltaSchema,             // 7 days ending here vs the 7 before
-    series_30d: z.array(AdminTrafficPointSchema),   // zero-filled { day, human, bot }
+    delta_day: AdminDeltaSchema,            // post-automation, FILTERED on both sides
+    delta_7d: AdminDeltaSchema,             // 7 days ending here vs the 7 before — RAW
+    series_30d: z.array(AdminTrafficPointSchema),   // zero-filled { day, human, bot } — RAW
     top_sources: z.array(AdminSourceCountSchema),
     top_products: z.array(AdminProductViewsSchema), // { name, slug, views }
+    // AECI-683. All three come straight off `collectAnalyticsMetrics`.
+    corroborated_views: z.number().int().nonnegative(),
+    corroborated_visitors: z.number().int().nonnegative(),
+    operator_leak_excluded: z.number().int().nonnegative(),
   }),
   audience: z.object({
     new_sign_ins: AdminDeltaSchema,
@@ -2211,6 +2282,58 @@ the exported `computeDelta` that `deltaText` itself uses. The default window is
 the digest's own (`windowsForDay(dailyWindows(now).dayLabel)`), so
 `GET /api/admin/overview` with no params reports exactly what the 05:00 email
 reported. `admin-overview.spec.ts` asserts this against a seeded fixture.
+
+That parity extends to AECI-683's three additions — `corroborated_views`,
+`corroborated_visitors` and `operator_leak_excluded` all come straight off the same
+collector, so neither surface can grow its own definition of "corroborated" or of the
+operator-pair leak. The corollary is the trap: a figure computed in `scheduled.ts`
+beside the digest (as the AECI-741 `automation` filter is) reaches the **email only** — it is not
+in `AnalyticsMetrics`, so no panel screen and no `metrics_daily` key can see it. Put a
+number in `AnalyticsMetrics` when both surfaces should report it, and in `scheduled.ts`
+only when it is genuinely email-shaped prose.
+
+**That trap is now CLOSED (AECI-745).** `collectAnalyticsMetrics` runs the swarm
+detector itself and returns `automation` on `AnalyticsMetrics`, so the filtered
+figure is a property of collecting the metrics rather than something a caller
+remembers to pass — and `/admin/overview` forgot to pass it for the entire life of
+the field, which is precisely the failure mode an optional parameter invites.
+
+What blocked it was an import cycle, and the fix was to remove the cycle rather
+than the sharing: `HUMAN`, `BOT`, `OPERATOR_PAIR_MATCH`, `NOT_INTERNAL` and
+`notFlagged` moved to `apps/api/src/lib/page-view-predicates.ts`, which both
+`analytics-digest` and `swarm-detection` import and neither is imported by.
+Nothing in that module may import either consumer; `page-view-predicates.spec.ts`
+pins the NULL-safe `NOT EXISTS` form and the `%Y-%m-%dT%H:%M:%fZ` format string
+that a non-verbatim move would have broken silently.
+
+⚠️ **`page_views_human` and `delta_day` changed MEANING, not just value.** Both are
+now post-automation; the raw server-side count is `page_views_human_raw`. Nothing
+in the type expresses that, so a client that upgrades without reading this will
+silently start reporting a different (better) number. `delta_day` is filtered on
+BOTH sides — a filtered day against an unfiltered prior day manufactures a large
+fake drop (AECI-741) — while `delta_7d` and `series_30d` stay RAW, because
+filtering them means re-running the detector over fourteen and thirty further days
+per request. The panel labels that difference rather than hiding it.
+
+`automation_flagged` is `null`, never `0`, when the detector failed. Zero is a
+clean day; null is an outage in which the headline is unfiltered, and the response
+carries an `automation_filter_did_not_run` warning to say so. The failure is
+caught in the collector and degrades both surfaces rather than 500-ing either.
+
+`AutomationExclusion` still carries **plain primitives only** — `uaHashes`, `asns`,
+and (since AECI-744) `verdicts` — and is still derived from a `SwarmSummary` by
+`automationExclusionFor()` rather than being a `SwarmSummary`. The cycle argument
+for that is gone; the real reason it always had remains. `analytics-digest.ts` owns
+only the exact COMPLEMENT of "flagged" and `swarm-detection.ts` owns what flagged
+MEANS. Handing the complement a summary object would invite it to re-derive the
+decision from the candidate fields, and then there would be two definitions again.
+
+**One cost, recorded because the call site does not show it.** The detector adds
+roughly 14 D1 reads to this handler — about seven per window, over the reported day
+and the prior one — on every request, `?day=` and `?recompute=1` included. It is
+bounded (`SWARM_MAX_CANDIDATES` caps the bound-parameter count; the 14-day
+recurrence lookback rides `page_views_operator_pair_idx`) and it is the price of
+the panel and the email leading with one number.
 
 **Status strip and `?recompute=1` (§13 D8).** The first three items are cheap
 D1/env reads and are always present. The last two need the network — the
@@ -2246,17 +2369,48 @@ back to live aggregation for any day it does not cover (P2.1 / AECI-581) — a
 storage swap behind an unchanged shape, which is why the metric keys are §7.1's
 `namespace.metric` strings verbatim.
 
+**One key has no live fallback (AECI-745).**
+`traffic.page_views_human_after_automation` is served from `metrics_daily` alone,
+because computing it live means running the swarm detector once per day in the
+window — roughly seven D1 reads a day, so ~210 for a 30-day chart every other
+metric answers in one query. Three consequences, all deliberate:
+
+- **Uncovered days are OMITTED from `points`, not zero-filled.** Zero is a
+  measurement here ("no humans that day"), and a zero at the snapshot boundary
+  reads as a traffic collapse rather than as the start of the record. A
+  `catalog_series_starts_at` note reports how many days were dropped.
+- **`source` is always `'snapshot'`**, never `'mixed'` — there is no live half.
+- **`exclude_internal=1` is a `400`.** The internal filter bypasses the snapshot
+  by design (a stored row cannot carry a config-dependent figure), and with no
+  live path there is nothing left to serve. Rejected rather than silently
+  downgraded, for the same reason `basis=net` is rejected outside `catalog.*`.
+
+It is also **not backfillable**, and that is a correctness decision rather than an
+omission: `metrics-backfill.ts` reconstructs a series with one generated SQL
+statement, and the detector is a grouping plus a cross-day recurrence lookback
+plus a three-way union. Reproducing that in SQL would be a second definition of
+"flagged" — the exact drift AECI-745 removed. The series fills forward from the
+day the 00:15 cron first writes it.
+
 ```typescript
 export const AdminMetricKeySchema = z.enum([
-  'traffic.page_views_human',      // page_views, is_bot IS NOT 1 (the digest predicate)
+  'traffic.page_views_human',      // page_views, is_bot IS NOT 1 AND NOT_INTERNAL (the digest predicate — since AECI-683 that includes the operator-pair retro-join, so rows snapshotted before 2026-08-27 read slightly high)
+  // AECI-745. SNAPSHOT-ONLY: no live fallback, uncovered days are OMITTED (not
+  // zero), `source` is always 'snapshot', and `exclude_internal=1` is a 400.
+  'traffic.page_views_human_after_automation',
   'traffic.page_views_bot',        // page_views, is_bot = 1
   'traffic.unique_visitors',       // DISTINCT (user_agent_hash, cf_asn) per day, HUMANS only
-  'catalog.products_created',      // audit_log action='product.created'
+  // basis=additions (default): audit_log action='<entity>.created'
+  // basis=net:                  live rows, bucketed by their own created_at
+  'catalog.products_created',
   'catalog.integrations_created',
   'catalog.vendors_created',
   'catalog.claims_created',
   'accounts.sign_ins_new',         // profiles.created_at
 ]);
+
+/** Which reading of a `catalog.*` series to serve (AECI-686). `catalog.*` only. */
+export const AdminMetricBasisSchema = z.enum(['additions', 'net']);
 
 export const ADMIN_METRICS_MAX_DAYS = 400;   // = §7.4 page_views retention
 
@@ -2265,12 +2419,14 @@ export const AdminTimeseriesQuerySchema = z.object({
   from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),   // INCLUSIVE UTC date
   to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),     // INCLUSIVE UTC date (from === to is legal)
   interval: z.enum(['day']).default('day'),
+  basis: AdminMetricBasisSchema.default('additions'),   // 400 if 'net' on a non-catalog metric
   exclude_internal: z.enum(['0', '1']).default('0').transform((v) => v === '1'),
 });
 
 export const AdminTimeseriesResponseSchema = z.object({
   metric: AdminMetricKeySchema,
   interval: z.enum(['day']),
+  basis: AdminMetricBasisSchema,   // echoed: the two differ by ~7x on claims
   window: AdminWindowSchema,
   generated_at: z.string().datetime(),
   source: z.enum(['live', 'snapshot', 'mixed']),
@@ -2315,13 +2471,41 @@ One consequence worth stating, because it looks like a bug otherwise:
 that agrees with the chart the caller is drawing; the window-distinct figure is
 `/api/admin/overview`'s `unique_visitors`, which is explicitly scoped to one day.
 
-`catalog.*` count **additions**, never net totals: §4 shows totals are
-unrecoverable (827 `integration.created` events back 496 live rows after the
-2026-07-25 reset), so every `catalog.*` response carries
-`catalog_series_is_additions_only`. `exclude_internal` applies only to `traffic.*`
-— there is no ASN on a catalog or profile row — and a request that asks anyway
-gets `value_excluding_internal: null` plus an `internal_filter_unavailable` note
-naming the metric.
+**`basis` picks which reading of a `catalog.*` series you get (AECI-686).** It is
+rejected with a 400 (`field: 'basis'`) on any non-`catalog.*` metric rather than
+silently downgraded — neither `page_views` nor `profiles` has the delete problem
+this dimension exists to answer, and returning a different reading than the caller
+asked for, unremarked, is the failure mode this endpoint's envelope is shaped
+against.
+
+| | `additions` (default) | `net` |
+|---|---|---|
+| source | `audit_log` `*.created` events | live rows, bucketed by `created_at` |
+| answers | how much work happened | how many records are still here |
+| reconciles with `COUNT(*)` | no | yes, by construction |
+| shows churn | yes | no (300 created + 300 destroyed reads 0) |
+| past values | fixed | **restate** as rows are removed |
+| `metrics_daily` | read and written | bypassed; always `source: 'live'` |
+| `reconstructed` | possible | always `false` |
+| note | `catalog_series_is_additions_only` (+ `catalog_series_starts_at`) | `catalog_series_is_surviving_rows` |
+
+`additions` over-reports whatever has since been deleted — 11,827 `claim.created`
+events back 1,691 live claims in production, because promote **replaces** an
+integration's claims on every push — and under-reports anything created before the
+audit log's first row. `net` has neither problem, and pays for it by attributing a
+removal to the bucket the row was *added* in: nothing records **when** a row was
+removed (there is no `*.deleted` action, and every delete path is raw SQL outside
+the Worker), so that is the only attribution available. `catalog_series_is_surviving_rows`
+states it on every `net` response.
+
+`basis=net` on `catalog.claims_created` additionally carries
+`catalog_claims_recreated_by_promote`: because promote rewrites claim rows, their
+`created_at` is a last-promote date, so the column is a valid count of live claims
+and a poor history of when they arrived.
+
+`exclude_internal` applies only to `traffic.*` — there is no ASN on a catalog or
+profile row — and a request that asks anyway gets `value_excluding_internal: null`
+plus an `internal_filter_unavailable` note naming the metric.
 
 Errors: `VALIDATION_FAILED` (400) for an unknown `metric`, a non-existent date, a
 reversed range (`to < from`), or a window longer than `ADMIN_METRICS_MAX_DAYS`.
@@ -2334,7 +2518,7 @@ Grouped `page_views` counts over a window. Pagination is over **groups** and use
 
 ```typescript
 export const AdminTrafficBreakdownQuerySchema = PageQuerySchema.extend({
-  dimension: z.enum(['source', 'country', 'path', 'product', 'bot']),
+  dimension: z.enum(['source', 'country', 'path', 'product', 'bot', 'asn']),
   from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   traffic: z.enum(['human', 'bot', 'all']).default('human'),
@@ -2347,6 +2531,7 @@ export const AdminBreakdownRowSchema = z.object({
   ref: LinkRefSchema.nullable(),      // hydrated only for dimension=product
   views: z.number().int().nonnegative(),
   views_excluding_internal: z.number().int().nonnegative().nullable(),
+  asn_registry: AdminAsnAnnotationSchema.nullable().default(null),  // dimension=asn only
 });
 
 export const AdminTrafficBreakdownResponseSchema =
@@ -2376,6 +2561,15 @@ Ordering is views desc, then **named groups before the NULL bucket**, then the k
 — a total order, so pagination cannot repeat or skip a group. `traffic` defaults
 to `human` (matching §5.2); `dimension=bot` forces the bot population regardless,
 since grouping human rows by `bot_name` returns one empty bucket.
+
+**`dimension=asn`** (AECI-624) groups by `cf_asn` and is the only dimension that
+populates `asn_registry`. `key` is the ASN **stringified**, because
+`AdminBreakdownRowSchema.key` is `string | null` across every dimension; `label`
+is `AS<n>`, the same rendering the Activity feed's visitor column uses, so the two
+screens name a network identically. Annotations are hydrated once per page, not
+per row. A group whose ASN the registry has no record for carries
+`asn_registry: null` — indistinguishable here from the other dimensions' null,
+which is fine because the dimension already tells the reader which case applies.
 
 Errors: `VALIDATION_FAILED` (400) for an unknown `dimension`, a bad/reversed date
 range, an over-long window, or `perPage > 100`.
@@ -2411,8 +2605,30 @@ export const AdminSystemResponseSchema = z.object({
     tables: z.array(z.object({ table: z.string(), rows: z.number().int().nonnegative() })),
   }),
   stats_freshness: AdminStatsFreshnessSchema,
+  asn_registry: AdminAsnRegistryStatusSchema,   // §7.6 freshness AND reach — see below
+});
+
+/** How fresh, how large, and how far-reaching the §7.6 ASN registry is (AECI-624).
+ *  Two numbers rather than one: freshness measures the last write, coverage
+ *  measures the intersection with a `page_views` that keeps meeting new networks,
+ *  so a registry refreshed this morning can still annotate almost nothing. */
+export const AdminAsnRegistryStatusSchema = z.object({
+  entries: z.number().int().nonnegative(),
+  fetched_at: z.string().datetime().nullable(),  // null = NEVER refreshed (≠ stale)
+  age_hours: z.number().nullable(),
+  stale: z.boolean(),                            // older than TWO refresh intervals (14d)
+  coverage: z.number().min(0).max(1).nullable(), // null when there are no ASNs to cover (0/0 ≠ 0%)
 });
 ```
+
+**Three registry states, and they must not render alike.** `fetched_at: null` is
+**never refreshed**, and it is deliberately **not** `stale: true` — a fresh
+environment has nothing to be stale about, and flagging it would make the one
+state an operator can ignore look like the one they cannot. `stale` means two
+missed Mondays, not one: a single miss is a blip the next run repairs. And
+`coverage: null` means the intersection is undefined rather than empty, because
+0/0 is "not applicable" and rounding it to 0% shows a healthy new environment a
+gauge that reads broken.
 
 *(`window` is listed as absent deliberately: unlike the other three endpoints this
 is a point-in-time system read, not a windowed aggregation, so it carries no
@@ -2605,9 +2821,14 @@ one would be the false precision §1.1 forbids. The rest of the envelope
 
 **The catalog time series lives elsewhere.** §5.5's "counts over time" and
 "additions per day" are served by `GET /api/admin/metrics/timeseries` with the
-`catalog.*` metric keys — which already carry `catalog_series_is_additions_only`
-and `catalog_series_starts_at`. This endpoint deliberately does **not** duplicate
-that series; the UI calls both.
+`catalog.*` metric keys, which carry their own provenance notes. This endpoint
+deliberately does **not** duplicate that series; the UI calls both.
+
+The screen requests those four series at **`basis=net`** (AECI-686), so each
+column of the table sums to the matching `totals` figure above it for records
+added in the window. The `basis` param is passed explicitly rather than inherited:
+the endpoint defaults to `additions`, which counts audit events and does not
+reconcile.
 
 ##### Gaps — exact counts, capped samples
 
@@ -2731,8 +2952,21 @@ export const AdminPageViewRowSchema = z.object({
   path: z.string().min(1),                 // the stored `path` — see the note below
   entity_type: z.enum(['product', 'vendor']).nullable(),
   entity: LinkRefSchema.nullable(),
-  referrer_source: z.string().nullable(),  // null = UNKNOWN, not Direct
+  referrer_source: z.string().nullable(),  // null = UNKNOWN, not Direct. A CLAIM, never verified
   referrer: z.string().nullable(),         // external HOST only
+  asn_registry: AdminAsnAnnotationSchema.nullable(),  // read-time only; never alters is_bot
+});
+
+/** What the §7.6 ASN registry says about one network (AECI-624). `info_type` is
+ *  the upstream's verbatim word; `network_class` is our coarse reading of it, and
+ *  both travel so a reader can see the claim and the reading separately. */
+export const AdminAsnAnnotationSchema = z.object({
+  asn: z.number().int().positive(),
+  info_type: z.string().nullable(),        // null = listed, but with no type (~29% of PeeringDB)
+  as_name: z.string().nullable(),
+  network_class: z.enum(['eyeball', 'transit', 'non_eyeball', 'unclassified']),
+  source: z.string().min(1),               // 'peeringdb'
+  fetched_at: z.string().datetime(),
 });
 
 export const AdminPageViewsResponseSchema =
@@ -3119,6 +3353,18 @@ export interface PromoteResponse {
   // entries are aggregated per (ref, kind, reason). Always present, `[]` for the
   // ordinary promote of an unclaimed product. Never an error condition.
   preserved: { ref: string; kind: 'claim' | 'attestation'; reason: string; count: number }[];
+  // AECI-730. NOT `skipped[]`: the integration WAS written, only this one optional
+  // link was left out of the write. `outcome: 'unset'` = created, so the column is
+  // NULL; `'preserved'` = updated and the column was left exactly as it was (the
+  // clobber guard). Always emitted (`[]` when clean); optional only so a result
+  // stored by a pre-AECI-730 build still narrows — read it as `?? []`.
+  unresolvedLinks?: {
+    ref: string;
+    field: 'powered_by' | 'built_by';
+    supabaseId: string | null;
+    outcome: 'unset' | 'preserved';
+    reason: string;
+  }[];
 }
 ```
 
@@ -3127,6 +3373,17 @@ only when both endpoints resolve — one is the product in this bundle (`ref`), 
 other must already be promoted (`supabaseId`). Integrations whose other endpoint
 isn't promoted yet land in `skipped[]` rather than failing the promote. Every
 create/update writes an `audit_log` row in the same transaction (§26).
+
+**Optional links are the asymmetric case (AECI-730).** `poweredByProduct` and
+`builtByVendor` are *not* endpoints: an unresolvable one does not refuse the row, so
+the integration lands without that column. Three payload states, matching how
+`compact()` treats every other field: key **absent** → column untouched; explicit
+**`null`** → column cleared; present but **unresolvable** → column untouched **and**
+reported in `unresolvedLinks[]`. That last branch is the fix — it used to write NULL,
+so a re-push whose connector had stopped resolving silently cleared a correct FK.
+Reported post-commit as `aeci.api.promote.unresolved_link{field}` at `info`, not
+`warn`: Zapier and Workato are parked permanently (AECI-700), so the series is
+non-zero by design.
 
 **Claimed-vendor block (Stage 2, AECI-520).** A vendor is **claimed** once AECi
 has granted it a vendor-portal seat — at least one `profiles` row with

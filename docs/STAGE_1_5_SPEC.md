@@ -611,12 +611,33 @@ which is a time series.
 
 ### 12.6 Known data state
 
-At time of writing only **5 of 421** prod integrations carry `powered_by_product_id`; all ~13 Agave
-edges have it NULL, with "via Agave ERP Sync" living only in free-text `mechanism_name`. The code
-path is complete; Agave's hub view fills in when the FK is backfilled in **Airtable + re-promote**
-(the durable path — no D1 stopgap). Separately tracked follow-ups: 22 exact-duplicate integration
-rows; connector discovery in search/browse (`product_role` on Algolia records, a Connectors facet,
-`RoleBadge` on search cards).
+**Superseded 2026-08-31 (AECI-706).** As first written this section read "only **5 of 421** prod
+integrations carry `powered_by_product_id`; all ~13 Agave edges have it NULL". Both numbers were a
+2026-08 snapshot and the AECI-671/698 promotes have since overtaken them. Measured against
+`aeci-app-production` on 2026-08-31: **946** integrations, **79** carrying the FK, and the **Agave
+gap is closed** — all 12 upstream Agave powered edges carry it, so Agave's hub view is live.
+
+The residual gap is **promotion coverage, not a D1 data defect**. Of the 325 upstream powered
+edges: 79 are correct in prod, 62 are edges whose *connector* is not promoted (Zapier, Workato,
+et al — the `on_hold` set), and 184 are edges never promoted at all. Zero prod rows have a NULL FK
+whose connector *is* promoted, so there is nothing for a D1 backfill to do today. The ruling above
+still stands for how a row gets fixed — **Airtable + re-promote**, no D1 stopgap — with one
+narrow, audited exception now tooled in `scripts/ops/2026-08-powered-by-backfill/`: a row whose FK
+is the *only* difference from upstream. That sweep is also the detector; see its README for the
+bucket definitions and the standing measurement.
+
+**Root cause closed 2026-09-01 (AECI-730).** The gap re-accrued because promote dropped an
+unresolvable `poweredByProduct` with no report of any kind, and on an *update* actively cleared a
+correct FK. Both are fixed: the drop is now reported on the response as `unresolvedLinks[]`
+(`REVIEW_APP_PROMOTE_API.md` §3.4/§4) and as `aeci.api.promote.unresolved_link{field}` in Datadog,
+and the column is left untouched rather than nulled when the link doesn't resolve. So the
+`connectorUnpromoted` population is visible **at promote time** instead of only in an offline
+sweep — but it does not shrink: AECI-700 parks Zapier and Workato permanently, so their share of
+that bucket is a permanent, expected floor. The same guard covers `builtByVendor`.
+
+Separately tracked follow-ups: 22 exact-duplicate integration rows; connector discovery in
+search/browse (`product_role` on Algolia records, a Connectors facet, `RoleBadge` on search
+cards).
 
 **Superseded as a snapshot by §13.9** (2026-08-30/31), which carries the current connector-lane
 figures. This paragraph stays as the historical record of what Addendum B shipped against — and the

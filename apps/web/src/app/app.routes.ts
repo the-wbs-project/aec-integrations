@@ -8,6 +8,7 @@ import { homeBrowseResolver } from './home/home-browse.resolver';
 import { homeStatsResolver } from './home/home-stats.resolver';
 import { notFoundResolver } from './not-found/not-found.resolver';
 import { productDetailResolver } from './products/product-detail.resolver';
+import { productsIndexResolver } from './products/products-index.resolver';
 import { productsPairResolver } from './products/products-pair.resolver';
 import { reviewProductResolver } from './reviews/review-product.resolver';
 import {
@@ -56,6 +57,10 @@ export const routes: Routes = [
     path: 'products',
     pathMatch: 'full',
     loadComponent: () => import('./products/products-index').then((m) => m.ProductsIndex),
+    // AECI-746 — prefetch page 1 through the service binding during resolution so
+    // the grid is in the server-rendered HTML. Without it this route SSR'd its
+    // "Couldn't load products" branch to every crawler.
+    resolve: { prefetch: productsIndexResolver },
   },
   // AECI-57 — Phase 2.11 product detail page. The detail route resolves data
   // SSR-side via the service binding (see `productDetailResolver`).

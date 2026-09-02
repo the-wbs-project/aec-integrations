@@ -45,6 +45,10 @@ import { ResolveFn } from '@angular/router';
 
 import { isPublishedTrade } from '@aeci/shared';
 
+import { prefetchIndexPage } from '../shared/paginated-index/paginated-index.resolver';
+
+import { taxonomyBrowseIndexRequest } from './taxonomy-browse.config';
+
 import type { AeciRequestContext } from '../../server/request-context';
 import { httpGetOrNull } from '../core/api/http-get-or-null';
 import {
@@ -162,6 +166,22 @@ function createTaxonomyBrowseResolver(kind: TaxonomyKind): ResolveFn<TaxonomyTer
       entity_type: kind,
       entity_id: term.id,
     };
+
+    // AECI-746 — prefetch the grid's first page here, INSIDE this resolver rather
+    // than as a sibling on the route, because the request is scoped to `term.id`
+    // and sibling resolvers run in parallel (there would be no term yet). Without
+    // it the grid's `httpResource` fires a relative `/api/products` URL that has no
+    // origin on the server, and the page SSRs its "Couldn't load products" branch
+    // to every crawler.
+    await prefetchIndexPage(
+      ctx,
+      transferState,
+      taxonomyBrowseIndexRequest(
+        () => kind,
+        () => term.id,
+      ),
+      route.queryParamMap,
+    );
 
     return term;
   };

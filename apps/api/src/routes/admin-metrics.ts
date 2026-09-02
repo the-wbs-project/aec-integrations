@@ -32,13 +32,25 @@
  * days, and `series_partly_reconstructed` states it in prose — a chart that
  * silently blends reconstructed and measured data is what §1.1 forbids.
  *
- * **`catalog.*` are additions, never totals.** They count `audit_log` `*.created`
- * events. §4 shows net totals are not recoverable — 827 `integration.created`
- * events back 496 live rows, because the 2026-07-25 reset removed rows without
- * per-row audit. Every `catalog.*` response therefore carries
- * `catalog_series_is_additions_only`, and a window reaching back past the audit
- * log's own first row additionally carries `catalog_series_starts_at` so a
- * leading run of zeros is not misread as a quiet period.
+ * **`catalog.*` says which reading it is (`basis`, AECI-686).** The default,
+ * `additions`, counts `audit_log` `*.created` events and carries
+ * `catalog_series_is_additions_only` — plus `catalog_series_starts_at` when the
+ * window reaches back past the log's own first row, so a leading run of zeros is
+ * not misread as a quiet period. It over-reports whatever has since been deleted
+ * (827 `integration.created` events back 496 live rows) and so does not reconcile
+ * with a live `COUNT(*)`.
+ *
+ * `basis=net` is the other reading: rows still present, bucketed by `created_at`,
+ * which nets removals off and therefore DOES reconcile. It bypasses the snapshot
+ * (the value is retroactive — see `catalogRowsPerDay`), reports `source: 'live'`
+ * with `reconstructed: false` throughout, and swaps both audit-log notes for
+ * `catalog_series_is_surviving_rows`. It is rejected outright on a non-`catalog.*`
+ * metric rather than silently downgraded.
+ *
+ * What §4 declared unrecoverable is a past *total*, and it still is: `net` cannot
+ * tell you how many integrations existed on 2026-07-01, only how many of today's
+ * were added by then. The difference is that the second question has an exact
+ * answer and the first does not.
  *
  * **`from`/`to` are inclusive dates, and the response says what that became.**
  * `from=to` is a legal single-day range. The `window` block reports the resulting
@@ -50,6 +62,7 @@
 import {
   AdminTimeseriesQuerySchema,
   AdminTimeseriesResponseSchema,
+  metricSupportsNetBasis,
   type AdminMetricSource,
   type AdminNote,
   type AdminTimeseriesPoint,
@@ -59,12 +72,14 @@ import type { Context } from 'hono';
 
 import { getDb } from '../db/client';
 import type { Env } from '../env';
+import { ApiError } from '../errors';
 import { json } from '../http';
 import {
   earliestAuditDay,
   enumerateDays,
   internalFilterNote,
   isPartial,
+  metricIsSnapshotOnly,
   metricSeries,
   metricSupportsInternalFilter,
   note,
@@ -105,39 +120,80 @@ export function createAdminTimeseriesHandler(
     const w = utcRangeWindow(query.from, query.to);
     const filter = resolveInternalFilter(c.env, query.exclude_internal);
 
+    // `net` answers "how many of these rows are still here", which only means
+    // something for a table rows are removed from. Rejected rather than silently
+    // downgraded to `additions`: a caller that asked for one reading and received
+    // the other, unremarked, is the §1.1 failure this whole endpoint is shaped
+    // against.
+    const net = query.basis === 'net';
+    if (net && !metricSupportsNetBasis(query.metric)) {
+      throw new ApiError(
+        400,
+        'VALIDATION_FAILED',
+        `basis=net applies only to catalog.* metrics; ${query.metric} has no removable rows to net off`,
+        { field: 'basis' },
+      );
+    }
+
+    // Snapshot-only metrics have no live path, so a filter that bypasses the
+    // snapshot has nothing to serve. Rejected for the same reason `basis=net` is
+    // above: answering with the unfiltered series under a filtered label is the
+    // silent substitution §1.1 exists to forbid.
+    const snapshotOnly = metricIsSnapshotOnly(query.metric);
+    if (snapshotOnly && filter.applied) {
+      throw new ApiError(
+        400,
+        'VALIDATION_FAILED',
+        `${query.metric} is served from the daily snapshot, which stores only the unfiltered figure; exclude_internal is not available for it`,
+        { field: 'exclude_internal' },
+      );
+    }
+
     const days = enumerateDays(w);
 
     // Snapshot first, live for the rest. `filter.applied` skips the snapshot
     // entirely — see the module header for why a stored row cannot carry a
-    // config-dependent figure.
-    const snapshot: Map<string, SnapshotPoint> = filter.applied
-      ? new Map()
-      : await snapshotSeries(db, query.metric, w);
+    // config-dependent figure. `net` skips it for a different reason: the value
+    // is retroactive, so a stored row would freeze a number that is meant to move.
+    const snapshot: Map<string, SnapshotPoint> =
+      filter.applied || net ? new Map() : await snapshotSeries(db, query.metric, w);
     const uncovered = days.filter((day) => !snapshot.has(day));
 
     // One live query covering the whole window, run only when something is
     // missing from the snapshot — which, because today is never captured, is the
     // common case rather than the exception.
     const live =
-      uncovered.length > 0
-        ? await metricSeries(db, query.metric, w, filter)
+      uncovered.length > 0 && !snapshotOnly
+        ? await metricSeries(db, query.metric, w, filter, query.basis)
         : { perDay: new Map<string, number>(), perDayFiltered: null };
     const { perDay, perDayFiltered } = live;
 
-    const points: AdminTimeseriesPoint[] = days.map((day) => {
-      const captured = snapshot.get(day);
-      return {
-        day,
-        value: captured ? captured.value : (perDay.get(day) ?? 0),
-        // Only the live path can produce this: the snapshot stores the unfiltered
-        // figure, and when the filter IS applied nothing comes from the snapshot.
-        value_excluding_internal: perDayFiltered ? (perDayFiltered.get(day) ?? 0) : null,
-        reconstructed: captured?.reconstructed ?? false,
-      };
-    });
+    const points: AdminTimeseriesPoint[] = days
+      // A snapshot-only metric OMITS the days it has not captured rather than
+      // zero-filling them. Zero is a measurement here — "no humans that day" —
+      // and the chart would step down to it at the boundary where the snapshot
+      // begins, which reads as a traffic collapse rather than as the start of the
+      // record. The note below says where the series actually starts.
+      .filter((day) => !snapshotOnly || snapshot.has(day))
+      .map((day) => {
+        const captured = snapshot.get(day);
+        return {
+          day,
+          value: captured ? captured.value : (perDay.get(day) ?? 0),
+          // Only the live path can produce this: the snapshot stores the unfiltered
+          // figure, and when the filter IS applied nothing comes from the snapshot.
+          value_excluding_internal: perDayFiltered ? (perDayFiltered.get(day) ?? 0) : null,
+          reconstructed: captured?.reconstructed ?? false,
+        };
+      });
 
-    const source: AdminMetricSource =
-      snapshot.size === 0 ? 'live' : uncovered.length === 0 ? 'snapshot' : 'mixed';
+    const source: AdminMetricSource = snapshotOnly
+      ? 'snapshot'
+      : snapshot.size === 0
+        ? 'live'
+        : uncovered.length === 0
+          ? 'snapshot'
+          : 'mixed';
 
     // `traffic.unique_visitors` is the one metric whose buckets do not sum to a
     // meaningful window total — a visitor active on three days appears in three
@@ -155,12 +211,23 @@ export function createAdminTimeseriesHandler(
     };
 
     const notes: AdminNote[] = [];
+    if (snapshotOnly) {
+      notes.push(
+        note(
+          'catalog_series_starts_at',
+          uncovered.length === 0
+            ? `${query.metric} is served from the daily snapshot only. Every requested day is captured.`
+            : `${query.metric} is served from the daily snapshot only — computing it live would re-run the automation detector once per day. ${uncovered.length} of the ${days.length} requested day(s) have no stored row and are OMITTED, not zero. Fill them with "pnpm ops:backfill-metrics-daily".`,
+          { metric: query.metric, uncovered: uncovered.length, requested: days.length },
+        ),
+      );
+    }
     if (query.metric.startsWith('traffic.')) {
       notes.push(
         ...(await trafficNotes(db, w, { unique: query.metric === 'traffic.unique_visitors' })),
       );
     }
-    if (query.metric.startsWith('catalog.')) {
+    if (query.metric.startsWith('catalog.') && !net) {
       notes.push(
         note(
           'catalog_series_is_additions_only',
@@ -175,6 +242,26 @@ export function createAdminTimeseriesHandler(
             'catalog_series_starts_at',
             `The audit log begins ${earliest}; days before that read zero for want of data, not for want of activity.`,
             { earliest_day: earliest },
+          ),
+        );
+      }
+    }
+
+    if (net) {
+      // Neither audit-log note applies: `net` never reads that table, so its floor
+      // is the catalog's own first row and its bias is restatement, not omission.
+      notes.push(
+        note(
+          'catalog_series_is_surviving_rows',
+          'This series counts records that are in the catalog now, bucketed by when they were added — so it nets removals off. Nothing records WHEN a record was removed, so a removal is subtracted from the bucket it was added in: past buckets can fall as records are removed later.',
+          { metric: query.metric },
+        ),
+      );
+      if (query.metric === 'catalog.claims_created') {
+        notes.push(
+          note(
+            'catalog_claims_recreated_by_promote',
+            'Promote replaces the claims on an integration every push, so a claim is dated by the last promote of its integration rather than by when it first appeared. Read the claims column as a count of live claims, not as their arrival history.',
           ),
         );
       }
@@ -219,6 +306,7 @@ export function createAdminTimeseriesHandler(
     const body: AdminTimeseriesResponse = {
       metric: query.metric,
       interval: query.interval,
+      basis: query.basis,
       window: toAdminWindow(w),
       generated_at: now.toISOString(),
       source,

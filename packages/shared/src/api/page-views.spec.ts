@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
-import { UNTRACKED_ROUTE_PREFIXES, PageViewPayloadSchema, isUntrackedRoute } from './page-views';
+import {
+  PAGE_VIEW_DEDUPE_WINDOW_MS,
+  SPECULATIVE_REQUEST_HEADERS,
+  UNTRACKED_ROUTE_PREFIXES,
+  PageViewPayloadSchema,
+  isSpeculativeRequest,
+  isUntrackedRoute,
+} from './page-views';
 
 describe('PageViewPayloadSchema', () => {
   it('parses a route-only payload', () => {
@@ -107,5 +114,60 @@ describe('isUntrackedRoute (AECI-575)', () => {
       expect(isUntrackedRoute(prefix)).toBe(true);
       expect(isUntrackedRoute(`${prefix}/nested/deeply`)).toBe(true);
     }
+  });
+});
+
+// AECI-743 — a browser prefetch/prerender is a page the visitor may never see, so
+// the SSR Worker must not count it as an arrival.
+describe('isSpeculativeRequest', () => {
+  const h = (init: Record<string, string>) => new Headers(init);
+
+  it.each([
+    ['sec-purpose', 'prefetch'],
+    ['sec-purpose', 'prefetch;prerender'],
+    ['sec-purpose', 'prefetch;anonymous-client-ip'],
+    ['purpose', 'prefetch'],
+    ['x-moz', 'prefetch'],
+    ['x-purpose', 'preview'],
+  ])('flags %s: %s', (name, value) => {
+    expect(isSpeculativeRequest(h({ [name]: value }))).toBe(true);
+  });
+
+  it('matches a token LIST rather than comparing for equality', () => {
+    // A prerender sends `prefetch;prerender` AND `Sec-Fetch-Dest: document`, so an
+    // `=== "prefetch"` check would wave every prerender straight through — the one
+    // speculative load that is otherwise indistinguishable from a real arrival.
+    expect(isSpeculativeRequest(h({ 'sec-purpose': 'prefetch;prerender' }))).toBe(true);
+  });
+
+  it('is case-insensitive', () => {
+    expect(isSpeculativeRequest(h({ 'Sec-Purpose': 'Prefetch' }))).toBe(true);
+  });
+
+  it('does not flag an ordinary document navigation', () => {
+    expect(
+      isSpeculativeRequest(
+        h({ 'sec-fetch-dest': 'document', 'sec-fetch-mode': 'navigate', 'sec-fetch-site': 'none' }),
+      ),
+    ).toBe(false);
+  });
+
+  it('does not flag an unrelated value on a speculative header name', () => {
+    expect(isSpeculativeRequest(h({ 'sec-purpose': 'something-else' }))).toBe(false);
+  });
+
+  it('checks every header in the exported set', () => {
+    for (const name of SPECULATIVE_REQUEST_HEADERS) {
+      expect(isSpeculativeRequest(h({ [name]: 'prefetch' }))).toBe(true);
+    }
+  });
+});
+
+describe('PAGE_VIEW_DEDUPE_WINDOW_MS', () => {
+  it('is short enough that a genuine second view of a path is never suppressed', () => {
+    // Ingest probes the current AND previous bucket, so the effective window is
+    // double this. The Done-when of AECI-743 requires a real re-visit later in the
+    // session to survive, which sets the ceiling.
+    expect(PAGE_VIEW_DEDUPE_WINDOW_MS * 2).toBeLessThanOrEqual(30_000);
   });
 });

@@ -21,7 +21,38 @@
  * `origin` is the absolute request origin so the `Sitemap:` line is
  * self-referential per environment (e.g. staging points at the staging
  * sitemap).
+ *
+ * ─── Blocked SEO-tool crawlers (AECI-747) ───────────────────────────────────
+ *
+ * {@link BLOCKED_SEO_CRAWLERS} get their own `Disallow: /` groups. In August 2026
+ * SemrushBot alone made **4,698 requests across 1,644 distinct paths** — wider
+ * coverage than Googlebot (983 / 177) and Bingbot (4,824 / 940) — including 1,265
+ * integration-PAIR pages, which are the most expensive route we serve (each
+ * hydrates every mechanism's claims and attestations). It sends no visitors, puts
+ * us in no index, and feeds no AI answer surface. Same for Ahrefs and MJ12.
+ *
+ * A crawler obeys only the MOST SPECIFIC matching group, so a named group here
+ * fully replaces the `User-agent: *` group for that bot — which is why these are
+ * plain `Disallow: /` rather than a copy of the shared rules.
+ *
+ * This is voluntary compliance: all three publish that they honour robots.txt by
+ * name, and all three are well-behaved enough that this works. It is NOT a
+ * security control and must not be treated as one — a scraper that ignores
+ * robots.txt needs the WAF (AECI-659), which is still unbuilt on production.
+ *
+ * Deliberately NOT blocked: `GPTBot` / `OAI-SearchBot` (AI answer surfaces are a
+ * real distribution channel for a directory), `Applebot`, `DuckDuckBot`, and
+ * every search engine. Do not add a crawler here because it is merely noisy —
+ * the bar is "brings no traffic and appears in no index anyone uses".
  */
+/**
+ * SEO-tool crawlers that get a blanket `Disallow: /`.
+ *
+ * Exported so `robots.spec.ts` asserts the emitted groups against this list
+ * rather than a second hand-written copy that can silently drift from it.
+ */
+export const BLOCKED_SEO_CRAWLERS: readonly string[] = ['SemrushBot', 'AhrefsBot', 'MJ12bot'];
+
 export function buildRobotsTxt(origin: string, allowIndexing = true): string {
   if (!allowIndexing) {
     // Crawling stays ALLOWED so the authoritative `X-Robots-Tag: noindex` header
@@ -43,6 +74,9 @@ export function buildRobotsTxt(origin: string, allowIndexing = true): string {
     'Disallow: /search',
     'Disallow: /preview/',
     '',
+    // One group per blocked crawler. A compliant bot reads only its own group,
+    // so these need no copy of the shared `Disallow:` lines above.
+    ...BLOCKED_SEO_CRAWLERS.flatMap((agent) => [`User-agent: ${agent}`, 'Disallow: /', '']),
     `Sitemap: ${base}/sitemap.xml`,
     '',
   ].join('\n');

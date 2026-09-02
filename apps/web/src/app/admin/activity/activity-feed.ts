@@ -347,6 +347,48 @@ export class ActivityFeed {
     return parts.join(' · ');
   }
 
+  /**
+   * What the ASN registry says about this row's network (AECI-624 / §7.6), or
+   * null when it has no record for it.
+   *
+   * Rendered UNDER the visitor id rather than as a badge on the bot chip, and
+   * that placement is the point: it is a fact about the network, not a revision
+   * of `is_bot`. A row can legitimately read no bot chip and "not an eyeball
+   * network" at once — that pairing is exactly what the operator needs to see,
+   * because it is the shape the 2026-08-13 forged-referrer burst had.
+   *
+   * `eyeball` deliberately returns the plain name and type with no editorial:
+   * confirming the common case is worth a line, but not emphasis.
+   */
+  protected asnLabel(row: AdminPageViewRow): string | null {
+    const reg = row.asn_registry;
+    if (!reg) return null;
+    const name = reg.as_name ?? $localize`:@@admin.activity.asn.unnamed:Unnamed network`;
+    switch (reg.network_class) {
+      case 'non_eyeball':
+        return $localize`:@@admin.activity.asn.nonEyeball:${name}:NAME:, registered ${reg.info_type ?? ''}:TYPE:. Not a network people browse from.`;
+      case 'transit':
+        return $localize`:@@admin.activity.asn.transit:${name}:NAME:, a transit carrier. Carries everyone, so it tells you nothing either way.`;
+      case 'unclassified':
+        return $localize`:@@admin.activity.asn.unclassified:${name}:NAME:. The registry lists it but gives it no type.`;
+      case 'eyeball':
+        return $localize`:@@admin.activity.asn.eyeball:${name}:NAME:, ${reg.info_type ?? ''}:TYPE:`;
+    }
+  }
+
+  /**
+   * Tone for {@link asnLabel}. Only `non_eyeball` is emphasised, and only to the
+   * strength of the secondary text colour: the annotation is a registry claim
+   * that happens to disagree with the ingest-time verdict, not a finding. Colour
+   * is never the only carrier — the prose says "not a network people browse
+   * from" on its own.
+   */
+  protected asnTone(row: AdminPageViewRow): string {
+    return row.asn_registry?.network_class === 'non_eyeball'
+      ? 'text-(--accent-secondary-deep)'
+      : 'text-(--text-tertiary)';
+  }
+
   /** Country + Cloudflare colo — the colo IS the nearest city (§5.2). */
   protected locationLabel(row: AdminPageViewRow): string {
     return [row.cf_country, row.cf_colo].filter(Boolean).join(' · ');

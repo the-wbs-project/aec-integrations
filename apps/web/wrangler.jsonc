@@ -302,7 +302,7 @@
         // crawlable (server-runtime.ts). The Access-gated `prod.` internal host
         // stays crawler-free via Cloudflare Access (docs/access.md), so a single
         // ALLOW_INDEXING="true" doesn't leak a duplicate index. Provision the
-        // launch-only SEO secrets (INDEXNOW_KEY, GOOGLE_INDEXING_SA_*) at the same
+        // launch-only SEO secret (INDEXNOW_KEY) at the same
         // time — pinging for a noindex site is a bug (docs/launch-cutover-runbook.md).
         "ALLOW_INDEXING": "true",
         "COMMIT_SHA": "unknown",

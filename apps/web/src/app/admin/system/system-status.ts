@@ -258,6 +258,26 @@ export class SystemStatus {
   );
 
   /**
+   * How much of the traffic the §7.6 ASN registry can actually speak to.
+   *
+   * Rendered next to the refresh date because the two answer different questions
+   * and only one of them decays quietly: a registry refreshed this morning still
+   * annotates nothing for every network that has arrived since it was built. A
+   * null `coverage` means there are no ASNs to cover at all (an empty
+   * `page_views`), which is "not applicable" rather than 0%.
+   */
+  protected readonly asnCoverageLabel = computed(() => {
+    const registry = this.system()?.asn_registry;
+    if (!registry) return '';
+    const entries = registry.entries.toLocaleString();
+    if (registry.coverage === null) {
+      return $localize`:@@admin.system.db.asnRegistryNoTraffic:${entries}:ENTRIES: networks. No traffic to annotate yet.`;
+    }
+    const percent = Math.round(registry.coverage * 100).toString();
+    return $localize`:@@admin.system.db.asnRegistryCoverage:${entries}:ENTRIES: networks, covering ${percent}:PERCENT:% of the networks seen in traffic.`;
+  });
+
+  /**
    * PostHog link-outs. The panel deliberately does not re-implement APM, web
    * vitals, or funnels (§2) — it links to them.
    *

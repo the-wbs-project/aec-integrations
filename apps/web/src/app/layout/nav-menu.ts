@@ -71,6 +71,9 @@ import { facetNavLabel, facetViewAllLabel } from './taxonomy-nav-copy';
   // removed from the layout above `lg`. The handover moved up from `md` in
   // AECI-544: four taxonomy flyouts no longer fit in the 768px header, so the
   // hamburger now carries navigation through the md range too.
+  // Changing this breakpoint moves the search handover too — `aec-search-trigger`
+  // starts exactly where this stops. Keep the two in lockstep or a width band
+  // ends up with two search boxes, or none.
   host: { class: 'lg:hidden' },
   imports: [
     RouterLink,

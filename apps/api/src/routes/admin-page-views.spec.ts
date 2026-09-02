@@ -14,7 +14,7 @@ import {
 } from '@aeci/shared';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { auditLog, pageViews, products, vendors } from '../db/schema';
+import { asnRegistry, auditLog, pageViews, products, vendors } from '../db/schema';
 import type { Env } from '../env';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { buildAppWithHandler, fakeExecutionContext, TEST_ENV } from '../test/helpers';
@@ -429,5 +429,107 @@ describe('GET /api/admin/page-views — validation and conventions', () => {
     expect(res.headers.get('Cache-Control')).toBe('private, no-store');
     expect(res.headers.get('Cache-Tag')).toBeNull();
     expect(await t.db.select().from(auditLog)).toHaveLength(0);
+  });
+});
+
+/**
+ * The §7.6 read-time ASN annotation (AECI-624).
+ *
+ * Every case here is really one claim in different clothes: the annotation
+ * **stands beside** `is_bot`, it never replaces it, and every degraded state
+ * (no record, no type, no registry at all) stays visibly degraded rather than
+ * quietly resolving into a verdict.
+ */
+describe('GET /api/admin/page-views — ASN annotation (§7.6)', () => {
+  const FETCHED_AT = '2026-08-10T02:00:00.000Z';
+
+  async function seedRegistry(
+    rows: { asn: number; infoType: string | null; asName?: string | null }[],
+  ): Promise<void> {
+    await t.db.insert(asnRegistry).values(
+      rows.map((r) => ({
+        asn: r.asn,
+        infoType: r.infoType,
+        asName: r.asName ?? null,
+        source: 'peeringdb',
+        fetchedAt: FETCHED_AT,
+      })),
+    );
+  }
+
+  const rowForAsn = (body: AdminPageViewsResponse, asn: number) =>
+    body.data.find((r) => r.cf_asn === asn) ?? expect.fail(`no row for AS${asn}`);
+
+  it('annotates a row from the registry without altering is_bot', async () => {
+    await seed();
+    // The shape that started AECI-624: ingest classified this human because the
+    // ASN is not in DATACENTER_ASNS, and the registry says it is not a network
+    // anyone browses from. BOTH facts must survive to the wire.
+    await seedRegistry([{ asn: 7922, infoType: 'Content', asName: 'FDCServers.Net' }]);
+
+    const row = rowForAsn(await feed(`${RANGE}&traffic=all`), 7922);
+
+    expect(row.is_bot).toBe(false);
+    expect(row.asn_registry).toEqual({
+      asn: 7922,
+      info_type: 'Content',
+      as_name: 'FDCServers.Net',
+      network_class: 'non_eyeball',
+      source: 'peeringdb',
+      fetched_at: FETCHED_AT,
+    });
+  });
+
+  it('leaves is_bot byte-identical to what ingest stored, annotated or not', async () => {
+    await seed();
+    await seedRegistry([
+      { asn: 23700, infoType: 'Content' },
+      { asn: 15169, infoType: 'Cable/DSL/ISP' },
+    ]);
+
+    const stored = await t.db.select({ id: pageViews.id, isBot: pageViews.isBot }).from(pageViews);
+    const body = await feed(`${RANGE}&traffic=all`);
+
+    // Deliberately compared against the TABLE, not against a literal: the claim
+    // is "the read path does not reinterpret the column", and only the stored
+    // value can witness that.
+    const byId = new Map(stored.map((r) => [r.id, r.isBot]));
+    for (const row of body.data) {
+      expect(row.is_bot).toBe(byId.get(row.id));
+    }
+  });
+
+  it('returns null for an ASN the registry has never heard of', async () => {
+    await seed();
+    await seedRegistry([{ asn: 23700, infoType: 'Cable/DSL/ISP' }]);
+
+    const body = await feed(`${RANGE}&traffic=all`);
+    expect(rowForAsn(body, 23700).asn_registry).not.toBeNull();
+    expect(rowForAsn(body, 15169).asn_registry).toBeNull();
+  });
+
+  it('surfaces a typeless record as an annotation reading unclassified', async () => {
+    await seed();
+    // Distinct from the case above: the registry HAS this network and still says
+    // nothing useful. Collapsing the two would hide a quarter of the traffic.
+    await seedRegistry([{ asn: 23700, infoType: null, asName: 'Fastnet' }]);
+
+    const annotation = rowForAsn(await feed(`${RANGE}&traffic=all`), 23700).asn_registry;
+    expect(annotation).toMatchObject({ info_type: null, network_class: 'unclassified' });
+  });
+
+  it('returns null on every row when the registry is empty, and still serves the feed', async () => {
+    await seed();
+    const body = await feed(`${RANGE}&traffic=all`);
+    expect(body.data.length).toBeGreaterThan(0);
+    expect(body.data.every((r) => r.asn_registry === null)).toBe(true);
+  });
+
+  it('carries referrer_source_is_unverified on every response', async () => {
+    await seed();
+    // Unconditional by design: a forged referrer is indistinguishable from a real
+    // one once §9.7 has reduced it to a host, so emitting this only when
+    // something looked suspicious would be a claim the rows cannot support.
+    expect((await feed(RANGE)).notes.map((n) => n.code)).toContain('referrer_source_is_unverified');
   });
 });
