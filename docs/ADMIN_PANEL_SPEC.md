@@ -340,7 +340,7 @@ This supersedes the note under (2) that called additions *"exactly one honest se
 ### 5.6 System — SHIPPED (AECI-580, 2026-08-13; completed by AECI-583, 2026-08-13)
 
 - SSR + API `sha` / `deployedAt` / `environment` from the two existing endpoints (`/api/version` and the SSR Worker's own `/_version` — they differ precisely so a stale SSR deploy is detectable). The UI reads both and flags a mismatch as a `role="alert"` band; an unknown SHA (the `wrangler --var` injection missing) reads as *unknown*, not as a difference. The bundle carries the **API** Worker's half — nothing reachable from the API Worker knows the SSR Worker's SHA.
-- **Cron liveness** — last run, duration, outcome per job, for all eleven crons (§7.2).
+- **Cron liveness** — last run, duration, outcome per job, for all thirteen crons (§7.2).
 - **The ten data-quality checks** rendered with severity and sample rows — formerly visible only in an email. **Delivered as specified:** since AECI-583 the default view reads the last persisted `job_runs` result (labelled with the run's own `computed_at`) and `?recompute=1` is the refresh. Both are pure reads, so neither writes anything or needs an `audit_log` row (§13 **D8**).
 - Algolia sync watermark, index drift, orphan-sweep results.
 - D1 size and per-table row counts.

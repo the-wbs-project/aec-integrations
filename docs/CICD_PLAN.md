@@ -820,6 +820,35 @@ If the smoke check fails, the deployment is marked failed and:
   **`main → stage-2` regularly** (after every hotfix, at least weekly) to absorb fixes and keep
   drift small. When Stage 2 is ready, merge **`stage-2 → main`** via PR, promote through the
   tiers, then reset/retire the branch.
+- **The reconcile merge must be a MERGE, not a squash — this is the one rule that has actually
+  bitten, twice.** AECI-619 reconciled `main` into `stage-2` and landed via squash (PR #552).
+  The content arrived; the *ancestry* did not. `git merge-base` stayed at `dadc6c45`, so the next
+  reconcile (AECI-750) recomputed against a base six weeks stale and reported **417 both-sides
+  files / 51 commits / 187 conflicts** where the true figures were **87 / 24 / 61** — 72 of those
+  "conflicts" were `add/add` on byte-identical files. Sizing the job off that number is how a
+  two-day reconcile gets planned as a two-week one.
+  - **Symptom:** a merge whose conflicts are dominated by `add/add` on files both branches
+    "added", or by hunks where the two sides say the same thing.
+  - **Diagnosis:** find the `main` SHA the last reconcile actually absorbed, then re-measure with
+    `git merge-tree --write-tree --merge-base <that-sha> origin/stage-2 origin/main`. Never size a
+    reconcile off `git rev-list --count`.
+  - **Repair (AECI-750 did this):** `git merge -s ours <that-sha>` records the ancestry the squash
+    discarded and changes no file, then `git merge origin/main` computes against it. The merge-base
+    moves for real, so the *next* reconcile is an ordinary merge.
+  - **Prevention:** land `main → stage-2` with `--no-ff`, or merge the PR with GitHub's *Create a
+    merge commit* rather than *Squash and merge*. Squash is right for feature PRs and wrong for
+    this one.
+- **Verify a reconcile by TREE DIFF, never by "it merged cleanly."** A conflict-free merge says
+  nothing about the defect class that matters: places where both branches are individually correct
+  and jointly wrong. AECI-619 surfaced six such defects, AECI-750 another six (a connector branch
+  routing on a variable the other side had replaced with a tri-state; extracted listing configs
+  that silently reverted a widened sort set; a cron vocabulary that was eleven on one side, twelve
+  on the other and thirteen in the union; a fixture predating a field; tests asserting a cache-HIT
+  branch the other branch had deleted). Run
+  `comm -23 <(git ls-tree -r --name-only origin/main|sort) <(git ls-tree -r --name-only HEAD|sort)`
+  and **name the intentional removal behind every entry**, then check that each line `main` added
+  since the reconcile point is either present or deliberately re-expressed. `pnpm lint` early and
+  often: on both reconciles ESLint/prettier caught defects no test did.
 - **`admin-panel` = a second, narrower epic integration branch** (2026-08-12, AECI-572 /
   `ADMIN_PANEL_SPEC.md` §13 D1). The admin panel is **Phase 8.3 post-launch work on the `main`
   line**, not Stage 2 — but its 14 sub-issues carry schema migrations (`metrics_daily`,
@@ -840,6 +869,13 @@ If the smoke check fails, the deployment is marked failed and:
   migrations may land on `main`. Before merging `stage-2 → main`, re-run
   `pnpm --filter @aeci/api db:generate` and reconcile against any `main` migrations so the
   Drizzle journal (`apps/api/migrations/meta/_journal.json`) stays linear.
+  **`main` keeps its numbers; `stage-2` renumbers.** `main`'s are applied in production and a
+  renumber there would make production re-run them. At AECI-750 `main` held `0016`–`0020` and
+  `stage-2` held a different `0016`–`0022`; the seven moved to `0021`–`0027`. Check first that the
+  two sets touch **disjoint objects** — they did (`page_views`/`asn_registry` vs the catalog and
+  connector tables), which is what makes the interleaved apply order inert. The full procedure,
+  including why a snapshot is recomposed rather than renamed and why `db:generate` must never
+  re-derive a hand-authored body, is `docs/migrations.md` §0.
 - **CI on the integration branches.** Every PR gets the full gate no matter which branch it
   targets — `deploy.yml`, `integration-db-tests.yml`, `drift-check.yml` and `pr-preview.yml` are
   all base-branch-agnostic (§3.1). `main`, `stage-2` and `admin-panel` additionally get a

@@ -9,7 +9,7 @@ change it here first and carry the edit across; keep the table clean and liftabl
 
 | File | What it is |
 |---|---|
-| `project-config.json` | Topology (both projects, hosts, alert subscribers) + the twelve-cron **liveness registry** the CI sweep reads. |
+| `project-config.json` | Topology (both projects, hosts, alert subscribers) + the thirteen-cron **liveness registry** the CI sweep reads. |
 | `insights.json` | 7 dashboards, 43 insights (30 board + 13 alert-source), as data. |
 | `alerts.json` | 13 PostHog alerts, each naming its source insight and carrying the **retired Datadog query verbatim**. |
 | `apply.sh` | Thin applier over the three JSON files. Dashboards + insights to both projects, alerts to prod only. |
@@ -78,7 +78,7 @@ with one place to tune.
 Two deliberate widenings ride along:
 
 1. **Six more crons gain failure coverage.** Datadog watched four; the alert watches ten
-   metrics covering all twelve crons (metrics-snapshot, analytics-digest,
+   metrics covering all thirteen crons (metrics-snapshot, asn-registry, analytics-digest,
    attestation-notify, entitlement-expiry, waf-poll and the per-key half of home-stats
    were previously unwatched — several shipped after the Datadog monitors were written).
 2. **The `trigger:cron` predicate is dropped.** `aeci.algolia.sync` and
@@ -236,14 +236,14 @@ Run on 2026-08-24 via `PH_APP_HOST=http://127.0.0.1:<port>`:
 
 | Scenario | Stub behaviour | Result |
 |---|---|---|
-| `all-fresh` | all twelve heartbeats, age 12 min | table of 12 `ok` rows, `all 12 cron heartbeats fresh`, **exit 0** |
+| `all-fresh` | all thirteen heartbeats, age 12 min | table of 13 `ok` rows, `all 13 cron heartbeats fresh`, **exit 0** |
 | `one-dead` | `aeci.algolia.sync` **absent from the result set** | that row prints `MISSING`, `::error title=Cron heartbeat MISSING: algolia-sync::No 'aeci.algolia.sync' data point in the last 72 h…`, **exit 1** |
 | `one-stale` | `aeci.waf.poll` present, age 400 min (max 180) | that row prints `STALE`, `::error title=Cron heartbeat STALE: waf-poll::'aeci.waf.poll' last reported 400 minutes ago; the '0 * * * *' schedule allows 180.`, **exit 1** |
 | `http-500` | PostHog returns 500 | `Cron liveness is UNCHECKED for this run — treat it as unknown, not as healthy`, **exit 2** |
 | no key | `POSTHOG_CLI_API_KEY` unset | `Cron liveness is UNCHECKED until then — this is not a pass`, **exit 2** |
 
 The stub also echoed back what the script sent, confirming
-`POST /api/projects/354071/query/`, `Authorization: Bearer phx_…`, and the twelve-metric
+`POST /api/projects/354071/query/`, `Authorization: Bearer phx_…`, and the thirteen-metric
 SQL. That same SQL, verbatim, was separately executed against the **live production**
 project and returned the expected empty result set.
 

@@ -938,7 +938,7 @@ prune skipping because of the gap.
 > **The PostHog port closes this gap without anyone filing an issue for it.** `metrics-snapshot`
 > is one of the six previously-unwatched crons picked up by the combined
 > `AECi — Cron job failed (any daily/hourly job)` alert (its `aeci.metrics_snapshot.run{outcome:failed}`
-> heartbeat is in the query, and the `label_column` names it), **and** it is one of the twelve crons
+> heartbeat is in the query, and the `label_column` names it), **and** it is one of the thirteen crons
 > in the CI liveness sweep's registry (`observability/posthog/project-config.json`, 26 h window).
 > So after AECI-651 both halves — "it failed" and "it never ran" — are covered. Until then,
 > `/admin/system` and the `aeci.metrics_snapshot.run` series remain the only signals, and the

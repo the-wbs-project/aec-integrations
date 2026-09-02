@@ -822,7 +822,17 @@ A **throwaway** tier for end-to-end testing of the completed Stage 2 build (vend
 
 Unlike every other tier, this one is **deployed by hand from a `stage-2` SHA**. There is no workflow, no GH Environment, and no GH secret that names it — `stage-2` never reaches staging, so the usual "verify one tier up" gate has nothing to check.
 
-> **As-built status — 2026-08-20.** LIVE at `82f26ba1` and **Access-gated**. D1 `aeci-app-stage2` (`d6960a3f-…`, region APAC) migrated to `0019` and seeded; both KV namespaces provisioned; both Workers deployed and reporting the SHA on `/api/version` + `/_version`, `/api/health` `db:ok`. Seeded content verified rendering: pair-page agreement states (`confirmed` / `single_source` / `unverified`), the vendor verified badge, and the version-diff selectors.
+> ⚠️ **PENDING LEDGER REPAIR (AECI-750, 2026-09-02).** The `main → stage-2` reconcile renumbered
+> this branch's migrations `0016`–`0022` → `0021`–`0027`, because `main`'s own `0016`–`0020` are
+> applied in production and cannot move. `aeci-app-stage2`'s `d1_migrations` still records the OLD
+> names, so the next `scripts/d1-apply-migrations.sh aeci-app-stage2 stage2` would try to re-run all
+> seven renamed files and error on the first `ALTER` that hits an existing column. **Rewrite the
+> ledger first** — the exact statements are in `docs/migrations.md` §0 "Repairing a tier that already
+> recorded the old filename". Remote `aeci-app-preview` needs the same repair. Neither is CI-driven,
+> so nothing will do it automatically. The two migration sets touch disjoint objects, so no data is
+> at risk either way — only the apply will fail until the names match.
+>
+> **As-built status — 2026-08-20.** LIVE at `82f26ba1` and **Access-gated**. D1 `aeci-app-stage2` (`d6960a3f-…`, region APAC) migrated to `0019` (**now `0024_easy_sandman` on disk** — see the repair note above) and seeded; both KV namespaces provisioned; both Workers deployed and reporting the SHA on `/api/version` + `/_version`, `/api/health` `db:ok`. Seeded content verified rendering: pair-page agreement states (`confirmed` / `single_source` / `unverified`), the vendor verified badge, and the version-diff selectors.
 >
 > **Redeployed 2026-08-26 → `6553e654`.** Hand-deployed from the `stage-2` HEAD that
 > merged the AECI-639 observability dual-run (#568), so this tier now carries the **PostHog

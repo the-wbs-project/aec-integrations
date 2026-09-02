@@ -21,7 +21,9 @@
 #   AECi — Moderation queue backlog     [liveness half of a dual monitor] (1560)
 # ...and extends the same coverage to the six crons Datadog never watched
 # (metrics-snapshot, analytics-digest, moderation-snapshot, attestation-notify,
-# entitlement-expiry, and the drift job's own run).
+# entitlement-expiry, asn-registry, and the drift job's own run).
+# `asn-registry` (AECI-624) arrived with the AECI-750 reconcile and is the only WEEKLY
+# cron, which is why the sweep's lookback window is 360 h rather than 72.
 #
 # No PostHog tier has `notify_no_data`. An alert cannot fire on the absence of the data
 # it evaluates, so absence detection has to live somewhere the system being watched

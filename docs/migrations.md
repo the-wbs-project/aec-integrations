@@ -194,32 +194,51 @@ filename, renaming it makes the migration re-run.
 
 ##### Repairing a tier that already recorded the old filename
 
-If you are past that point (AECI-619 was — remote `aeci-app-preview` had applied
-`0006_lyrical_leper_queen.sql` on 2026-08-14), do **not** let `migrations apply` re-run the renamed
-file: the `ALTER`s would hit existing columns and error. Rename the ledger rows instead, then apply:
+If you are past that point, do **not** let `migrations apply` re-run the renamed file: the `ALTER`s
+would hit existing columns and error. Rename the ledger rows instead, then apply.
+
+**As executed for AECI-750 (2026-09-02).** The `main → stage-2` reconcile moved `stage-2`'s seven
+migrations from `0016`–`0022` to `0021`–`0027`, because `main`'s own `0016`–`0020` are applied in
+**production** and cannot move. Two tiers had already recorded the old names and both are applied by
+hand — no CI workflow targets either:
+
+- `aeci-app-stage2` (the temporary Stage 2 tier, AECI-637) — `environments.md` §10 recorded it at
+  `0019_easy_sandman` on 2026-08-20.
+- remote `aeci-app-preview` — CI does not migrate remote preview, so it drifts on its own schedule.
+
+Run this per tier, substituting the database/env pair, **before** the next
+`scripts/d1-apply-migrations.sh`. Both were still pending as of this writing.
 
 ```bash
 cd apps/api
-# 1. Point the recorded names at the new filenames. Same migration, same applied_at.
-npx wrangler d1 execute aeci-app-preview --env preview --remote --command \
-  "UPDATE d1_migrations SET name='0021_lyrical_leper_queen.sql' WHERE name='0006_lyrical_leper_queen.sql'"
-npx wrangler d1 execute aeci-app-preview --env preview --remote --command \
-  "UPDATE d1_migrations SET name='0022_slim_iron_lad.sql' WHERE name='0008_slim_iron_lad.sql'"
+npx wrangler d1 execute aeci-app-stage2 --env stage2 --remote --command "UPDATE d1_migrations SET name='0021_lyrical_leper_queen.sql' WHERE name='0016_lyrical_leper_queen.sql'; UPDATE d1_migrations SET name='0022_slim_iron_lad.sql' WHERE name='0017_slim_iron_lad.sql'; UPDATE d1_migrations SET name='0023_chilly_joseph.sql' WHERE name='0018_chilly_joseph.sql'; UPDATE d1_migrations SET name='0024_easy_sandman.sql' WHERE name='0019_easy_sandman.sql'; UPDATE d1_migrations SET name='0025_sad_the_professor.sql' WHERE name='0020_sad_the_professor.sql'; UPDATE d1_migrations SET name='0026_overconfident_selene.sql' WHERE name='0021_overconfident_selene.sql'; UPDATE d1_migrations SET name='0027_powerful_killraven.sql' WHERE name='0022_powerful_killraven.sql'"
+npx wrangler d1 execute aeci-app-stage2 --env stage2 --remote --command "SELECT name FROM d1_migrations ORDER BY id"
+```
 
-# 2. Now only genuinely-unapplied migrations run.
-npx wrangler d1 migrations apply aeci-app-preview --env preview --remote
+Read that `SELECT` before applying anything. Every recorded name must exist in `migrations/` — one
+that does not is a migration wrangler is about to re-run.
 
-# 3. Confirm the ledger matches the files on disk.
-npx wrangler d1 execute aeci-app-preview --env preview --remote --command \
-  "SELECT name FROM d1_migrations ORDER BY id"
+⚠️ **Order the seven statements high-to-low if you split them into separate commands.** Run
+top-down as separate statements and `0021_overconfident_selene → 0026` executes *after*
+`0016_lyrical_leper_queen → 0021`, so the second `UPDATE` would match the row the first one just
+renamed and rename it again. In the single semicolon-joined command above SQLite still executes them
+in order, so the pairs that collide (`0021`, `0022`) are listed last deliberately — they are the two
+whose *old* number is another migration's *new* number.
+
+Then:
+
+```bash
+npx wrangler d1 migrations apply aeci-app-stage2 --env stage2 --remote
 ```
 
 Wrangler compares recorded **names** against the `*.sql` filenames, so ordering in `d1_migrations`
-is cosmetic — a migration applied out of sequence (the epic's, before the other branch's back-fill)
-is fine as long as the two sets do not touch the same objects. Check that before you apply: for
-AECI-619, `main`'s `0010`–`0015` touched `promote_jobs` / `metrics_daily` / `job_runs` /
-`page_views` / `products.promoted_at` / `feedback` / `mailing_list` and never `claims` or
-`attestations`, so the inversion was inert.
+is cosmetic — a migration applied out of sequence is fine as long as the two sets do not touch the
+same objects. Check that before you apply. For AECI-750 the check passed: `main`'s `0016`–`0020`
+touch only `page_views` and the new `asn_registry`, while `stage-2`'s seven touch
+`claims` / `attestations` / `integrations` / `vendors` / `products` / `profiles` and the new
+`product_versions` / `vendor_entitlements` / `vendor_seat_invites` / `connector_*` tables. The
+intersection is empty, so the interleaved apply order is inert. For AECI-619 the same check passed
+for `main`'s `0010`–`0015` against `claims` / `attestations`.
 
 ##### Reserved numbers
 
