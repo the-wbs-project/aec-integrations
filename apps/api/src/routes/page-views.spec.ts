@@ -4,16 +4,18 @@
  * settling execution context.
  */
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   pageViews,
   products,
+  profiles,
   taxonomyAudiences,
   taxonomyCategories,
   taxonomyPhases,
   taxonomyTrades,
 } from '../db/schema';
+import { makeTestJwks } from '../test/auth';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { buildAppWithHandler, TEST_ENV } from '../test/helpers';
 import { createPageViewsHandler } from './page-views';
@@ -387,5 +389,261 @@ describe('POST /api/page-views — AECI-585 ingest fixes', () => {
       expect(rows[0]!.cfAsOrganization).toBe('Amazon.com, Inc.');
       expect(rows[0]!.isBot).toBe(false);
     });
+  });
+
+  describe('is_operator (§13 D13)', () => {
+    const ADMIN_ID = '00000000-0000-4000-8000-00000000ad11';
+    const SUPABASE_URL = 'https://test-project.supabase.co';
+
+    let jwks: Awaited<ReturnType<typeof makeTestJwks>>;
+    beforeAll(async () => {
+      jwks = await makeTestJwks();
+    });
+
+    /** Same `post()` as above, plus the offline-JWKS seam and a `SUPABASE_URL`
+     *  so the operator check can actually run. */
+    function postAs(headers: Record<string, string>) {
+      const app = buildAppWithHandler({
+        method: 'post',
+        path: '/api/page-views',
+        handler: createPageViewsHandler(t.factory, { getKey: jwks.getKey }),
+      });
+      const { ctx, settle } = settlingCtx();
+      return {
+        res: app.request(
+          '/api/page-views',
+          {
+            method: 'POST',
+            body: JSON.stringify({ route: '/products/revit' }),
+            headers: { 'content-type': 'application/json', ...headers },
+          },
+          { ...TEST_ENV, SUPABASE_URL },
+          ctx,
+        ),
+        settle,
+      };
+    }
+
+    it('flags a view made by a verified admin session', async () => {
+      await t.db.insert(profiles).values({ id: ADMIN_ID, role: 'admin' });
+      const token = await jwks.mintToken({ sub: ADMIN_ID, supabaseUrl: SUPABASE_URL });
+
+      const { res, settle } = postAs({ Authorization: `Bearer ${token}` });
+      expect((await res).status).toBe(204);
+      await settle();
+
+      const rows = await t.db.select().from(pageViews);
+      // Recorded, not dropped — the read side excludes it (`NOT_INTERNAL`).
+      expect(rows).toHaveLength(1);
+      expect(rows[0]!.isOperator).toBe(true);
+    });
+
+    it('leaves is_operator false for a signed-in NON-admin', async () => {
+      const userId = '00000000-0000-4000-8000-000000000042';
+      await t.db.insert(profiles).values({ id: userId, role: 'reviewer' });
+      const token = await jwks.mintToken({ sub: userId, supabaseUrl: SUPABASE_URL });
+
+      const { res, settle } = postAs({ Authorization: `Bearer ${token}` });
+      expect((await res).status).toBe(204);
+      await settle();
+
+      const rows = await t.db.select().from(pageViews);
+      expect(rows[0]!.isOperator).toBe(false);
+    });
+
+    it('leaves is_operator false for an anonymous view', async () => {
+      const { res, settle } = postAs({});
+      expect((await res).status).toBe(204);
+      await settle();
+
+      const rows = await t.db.select().from(pageViews);
+      expect(rows[0]!.isOperator).toBe(false);
+    });
+
+    it('still writes the row when the session cannot be verified', async () => {
+      // Fail-open: an auth hiccup must cost the flag, never the page view.
+      const { res, settle } = postAs({ Authorization: 'Bearer not-a-jwt' });
+      expect((await res).status).toBe(204);
+      await settle();
+
+      const rows = await t.db.select().from(pageViews);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]!.isOperator).toBe(false);
+    });
+  });
+});
+
+/**
+ * AECI-743 — one full-document load writes exactly one row.
+ *
+ * Production held two byte-identical `arrival` rows 83 ms apart for a single
+ * visit, and those two rows were the whole "Google — 2 views" traffic-source
+ * table in that day's digest. The guard is a `dedupe_key` carrying a floored time
+ * bucket, backed by a UNIQUE index.
+ */
+describe('duplicate suppression (AECI-743)', () => {
+  const BROWSER_UA =
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15';
+  const GOOGLE = {
+    'user-agent': BROWSER_UA,
+    referer: 'https://www.google.com/',
+    'x-aeci-cf-asn': '22773',
+  };
+
+  /** Pin wall-clock time so a bucket boundary is a test input, not a race. */
+  function at(ms: number) {
+    return vi.spyOn(Date, 'now').mockReturnValue(ms);
+  }
+  afterEach(() => vi.restoreAllMocks());
+
+  const arrival = (headers: Record<string, string> = GOOGLE) =>
+    post({ route: '/products/:slug', path: '/products/leap-crm', navigation: 'arrival' }, headers);
+
+  it('writes one row for the production double-fire: two identical arrivals 83 ms apart', async () => {
+    at(1_000_000);
+    const first = arrival();
+    expect((await first.res).status).toBe(204);
+    await first.settle();
+
+    at(1_000_083);
+    const second = arrival();
+    // Still 204 — the caller is fire-and-forget and must never learn it was a
+    // duplicate; suppression is an ingest concern.
+    expect((await second.res).status).toBe(204);
+    await second.settle();
+
+    const rows = await t.db.select().from(pageViews);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.referrerSource).toBe('Google');
+    expect(rows[0]!.dedupeKey).not.toBeNull();
+  });
+
+  it('does not suppress a genuine second view of the same path later in the session', async () => {
+    at(1_000_000);
+    const first = arrival();
+    await first.res;
+    await first.settle();
+
+    // Past the current AND previous bucket, which is the effective window.
+    at(1_000_000 + 3 * 10_000);
+    const second = arrival();
+    await second.res;
+    await second.settle();
+
+    expect(await t.db.select().from(pageViews)).toHaveLength(2);
+  });
+
+  it('collapses a pair that straddles a bucket boundary, via the previous-bucket probe', async () => {
+    at(19_999);
+    const first = arrival();
+    await first.res;
+    await first.settle();
+
+    at(20_020); // next bucket, 21 ms later
+    const second = arrival();
+    await second.res;
+    await second.settle();
+
+    expect(await t.db.select().from(pageViews)).toHaveLength(1);
+  });
+
+  it('collapses an SSR arrival and the browser tracker spa row for the same document', async () => {
+    // `navigation` is deliberately absent from the key: these are one view seen
+    // twice, which was the issue's second named suspect.
+    at(1_000_000);
+    const first = arrival();
+    await first.res;
+    await first.settle();
+
+    at(1_000_400);
+    const second = post({ route: '/products/leap-crm', navigation: 'spa' }, GOOGLE);
+    await second.res;
+    await second.settle();
+
+    const rows = await t.db.select().from(pageViews);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.navigation).toBe('arrival');
+  });
+
+  it('leaves bot rows unconstrained — crawler volume stays a raw count', async () => {
+    const bot = {
+      'user-agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
+    };
+    at(1_000_000);
+    const first = arrival(bot);
+    await first.res;
+    await first.settle();
+
+    at(1_000_083);
+    const second = arrival(bot);
+    await second.res;
+    await second.settle();
+
+    const rows = await t.db.select().from(pageViews);
+    expect(rows).toHaveLength(2);
+    expect(rows.every((r) => r.dedupeKey === null)).toBe(true);
+  });
+
+  it('leaves rows with no user-agent unconstrained — two strangers must not collide', async () => {
+    at(1_000_000);
+    const first = arrival({ 'x-aeci-cf-asn': '22773' });
+    await first.res;
+    await first.settle();
+
+    at(1_000_083);
+    const second = arrival({ 'x-aeci-cf-asn': '22773' });
+    await second.res;
+    await second.settle();
+
+    const rows = await t.db.select().from(pageViews);
+    expect(rows).toHaveLength(2);
+    expect(rows.every((r) => r.dedupeKey === null)).toBe(true);
+  });
+
+  it('keys on the concrete path, so two different pages in the same instant both count', async () => {
+    at(1_000_000);
+    const first = arrival();
+    await first.res;
+    await first.settle();
+
+    const second = post(
+      { route: '/products/:slug', path: '/products/procore', navigation: 'arrival' },
+      GOOGLE,
+    );
+    await second.res;
+    await second.settle();
+
+    expect(await t.db.select().from(pageViews)).toHaveLength(2);
+  });
+
+  it('backs the probe with a UNIQUE constraint, which is what settles the race', async () => {
+    // The probe above is for the metric; the failure this issue is named for had
+    // both inserts in flight from `waitUntil`, so the second SELECT can run before
+    // the first INSERT commits. Only the index can refuse that, so assert it exists
+    // and bites — a plain (non-unique) index would let both rows through.
+    at(1_000_000);
+    const first = arrival();
+    await first.res;
+    await first.settle();
+
+    const [row] = await t.db.select().from(pageViews);
+    expect(() =>
+      t.raw
+        .prepare('insert into page_views (path, created_at, dedupe_key) values (?, ?, ?)')
+        .run('/products/leap-crm', '2026-09-01T00:00:00.000Z', row!.dedupeKey),
+    ).toThrow(/UNIQUE/i);
+  });
+
+  it('keys on the visitor, so two people on the same page in one bucket both count', async () => {
+    at(1_000_000);
+    const first = arrival();
+    await first.res;
+    await first.settle();
+
+    const second = arrival({ ...GOOGLE, 'user-agent': `${BROWSER_UA} Mobile` });
+    await second.res;
+    await second.settle();
+
+    expect(await t.db.select().from(pageViews)).toHaveLength(2);
   });
 });

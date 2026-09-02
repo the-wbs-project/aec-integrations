@@ -298,6 +298,34 @@ endpoints**. The other endpoint must already be promoted (reference it by
 `supabaseId`). If the other endpoint isn't promoted yet, **omit the integration**
 — it will be created when that product is promoted.
 
+> **The same ordering applies to `poweredByProduct`, but it fails differently.** An
+> endpoint that cannot be resolved makes AECi skip the whole integration and report
+> it in `skipped[]` — the row is never written. An unresolvable **connector** does
+> not refuse the row: the integration IS written, just without
+> `powered_by_product_id`. Since **AECI-730** that is reported in its own array,
+> `result.unresolvedLinks[]` (§4), and it is **not** an error — see below.
+>
+> So **promote the connector product before any edge that names it.** An edge
+> promoted first keeps a NULL FK until it is promoted again — promoting the
+> connector alone does not repair edges already in the database, because promote is
+> product-driven and those edges belong to their endpoints' bundles.
+>
+> **Two connectors will never resolve, by decision.** Zapier and Workato are parked
+> permanently (AECI-700) and will not be promoted. Every edge naming them therefore
+> reports an `unresolvedLinks` entry on **every** push, forever. That is the expected
+> steady state, not a backlog to drain and not something a re-push fixes.
+>
+> **Your stored value is never clobbered (AECI-730).** On an *update*, a connector
+> that fails to resolve leaves `powered_by_product_id` exactly as it was rather than
+> nulling it — so a correct FK set by an earlier promote survives a re-push. To
+> actually *remove* a connector, send `poweredByProduct: null` explicitly; **omitting
+> the key means "no opinion" and leaves the stored value alone.** (Before AECI-730
+> both forms cleared it, and an unresolvable connector silently regressed a correct
+> row.) `builtByVendor` behaves identically.
+>
+> `scripts/ops/2026-08-powered-by-backfill/audit.mjs` is the offline detector for
+> rows in that state.
+
 | Field | Type | Required | Notes |
 |---|---|---|---|
 | `ref` | string | ✅ | Unique local label. |
@@ -306,7 +334,7 @@ endpoints**. The other endpoint must already be promoted (reference it by
 | `sourceProduct` | `{ ref }` \| `{ supabaseId }` | ✅ | One endpoint. `{ ref: <product.ref> }` for the product in this bundle. |
 | `targetProduct` | `{ ref }` \| `{ supabaseId }` | ✅ | The other endpoint. |
 | `builtByVendor` | `{ ref }` \| `{ supabaseId }` \| null | — | `ref` must name a vendor in `vendors[]`; otherwise use `supabaseId`. |
-| `poweredByProduct` | `{ ref }` \| `{ supabaseId }` \| null | — | |
+| `poweredByProduct` | `{ ref }` \| `{ supabaseId }` \| null | — | The connector that delivers this edge. **It must already be promoted** — see the warning below. Explicit `null` clears a stored connector; omitting the key leaves it untouched. |
 | `mechanismKind` | `"native"` \| `"iPaaS"` \| `"marketplace-app"` \| `"api"` \| `"webhook"` \| `"partner"` \| `"integrator"` \| null | — | `integrator` added by AECI-721 — see the note below before sending it. |
 | `direction` | `"one-way"` \| `"bidirectional"` \| null | — | |
 | `mechanismName`, `description`, `listingUrl`, `docsUrl`, `website`, `mechanismUrl`, `pricingModel`, `maturity`, `notes` | string \| null | — | |
@@ -664,7 +692,8 @@ what `GET /api/promote/jobs/{jobId}` returns in `result` once `status` is
     "integrations": [ /* … */ ],
     "taxonomy": { /* … */ },
     "skipped": [ /* … */ ],
-    "preserved": [ /* … */ ]
+    "preserved": [ /* … */ ],
+    "unresolvedLinks": [ /* … */ ]
   }
 }
 ```
@@ -691,6 +720,16 @@ The `result` object in full:
   ],
   "preserved": [
     { "ref": "i1", "kind": "claim", "reason": "vendor-origin claim left untouched (not AECi-curated)", "count": 2 }
+  ],
+  // The integration DID land — only this one link didn't. See the bullet below.
+  "unresolvedLinks": [
+    {
+      "ref": "i1",
+      "field": "powered_by",
+      "supabaseId": "7c1…",
+      "outcome": "unset",
+      "reason": "poweredByProduct 7c1… is not promoted in AECi; powered_by_product_id left unset"
+    }
   ]
 }
 ```
@@ -729,6 +768,20 @@ The `result` object in full:
   count }`, aggregated per reason, with `ref` set to the enclosing integration's
   `ref`. For the ordinary promote of an unclaimed product it is always `[]`.
   Log it if you want operator visibility; never treat it as an error.
+
+- **`unresolvedLinks[]` is the other half, and it is NOT `skipped[]` (AECI-730).**
+  A `skipped` entry means the row was never written. An entry here means the
+  integration **was** written and only one optional link is missing:
+  `field: "powered_by"` (the payload's `poweredByProduct`) or `"built_by"`
+  (`builtByVendor`), with the `supabaseId` you sent and an `outcome` of `"unset"`
+  (the row was created, so the column is NULL) or `"preserved"` (the row was updated
+  and the column was left exactly as it already was — the clobber guard).
+  **Expect a steady, permanent stream of these and do not alert on them:** Zapier and
+  Workato will never be promoted (AECI-700), so their edges report on every push and
+  re-pushing changes nothing. The actionable case is a connector that *is* meant to
+  be in the directory — promote it, then re-push the edge. Optional and always
+  emitted as `[]` when clean; a job whose result was stored by a pre-AECI-730 build
+  omits the key entirely, so tolerate its absence.
 
 ---
 
@@ -1005,6 +1058,16 @@ So a curator's silently-dropped push is visible even though the job
 completed successfully. (You should still inspect `result.skipped[]` and re-push once
 the blocking condition clears — the log is the operator's backstop, not a substitute
 for handling `skipped[]`.)
+
+**`unresolvedLinks[]` is logged separately, and deliberately at a lower severity**
+(AECI-730). It gets an **`info`** log `aeci.api.promote.unresolved_link` (every
+`{ ref, field, supabaseId, outcome }` plus per-field counts) and an
+`aeci.api.promote.unresolved_link` count tagged by `field` (`powered_by` /
+`built_by`). It is **not** a `warn` and it does **not** feed
+`aeci.api.promote.skipped`, because the parked-connector case (AECI-700) makes it
+permanently non-zero — folding it in would leave "something wasn't written" dirty
+forever. The actionable read is a **rise** in `field:powered_by`, not its presence.
+No monitor pages on it.
 
 ---
 
@@ -1285,6 +1348,7 @@ window, so reusing the first promote's id would just hand you back that job's ol
 - [ ] Never send slugs; persist the slugs AECi returns (they're the public URLs).
 - [ ] Persist every returned `id` against your record, durably.
 - [ ] Only include integrations whose far endpoint is already promoted (reference it by `supabaseId`); inspect `result.skipped[]`.
+- [ ] Promote a connector **before** any edge naming it as `poweredByProduct`, and inspect `result.unresolvedLinks[]` — an entry there means the edge landed with no connector link (§4). Treat `field: "powered_by"` on a Zapier/Workato edge as expected and permanent, not as a retry signal. To *remove* a connector send `poweredByProduct: null`; omitting the key leaves the stored value untouched.
 - [ ] Send `trades[]` only for products with **trade-specific value** (§3.3) — most products send none, and horizontal platforms send an empty array. Values may be slugs, names, or aliases; they resolve find-only, an unrecognized value comes back in `skipped[]` as `kind: "trade"` (never a term you just invented), and omitting the key **clears** the product's trades.
 - [ ] Nest each integration's data-object `claims[]` under it (`dataObject` slug/name, `direction` `a_to_b`/`b_to_a`/`both` relative to source→target, `attestations[]` with `source: "aeci"` — **only** `aeci`); a claim rides with its integration and an unrecognized `dataObject`, or a vendor-owned attestation source, comes back in `skipped[]` as `kind: "claim"`.
 - [ ] Understand that `claims[]` replaces **AECi curation only** (§5.2): omitting a claim a vendor has attested converts it rather than deleting it, and a vendor-authored claim is never removed. Don't treat `preserved[]` as an error.

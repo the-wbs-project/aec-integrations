@@ -12,9 +12,9 @@
  *
  * Two endpoints, deliberately: coverage is a snapshot of current state, while
  * §5.5's "counts over time" is a **time series** and belongs to the endpoint that
- * already owns that shape — including its `catalog_series_is_additions_only`
- * caveat. Calling `/metrics/timeseries` here rather than widening
- * `/catalog/coverage` keeps one implementation of that series.
+ * already owns that shape — including its honesty notes. Calling
+ * `/metrics/timeseries` here rather than widening `/catalog/coverage` keeps one
+ * implementation of that series.
  */
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
@@ -22,6 +22,7 @@ import { firstValueFrom } from 'rxjs';
 
 import type {
   AdminCatalogCoverageResponse,
+  AdminMetricBasis,
   AdminMetricKey,
   AdminTimeseriesResponse,
 } from '@aeci/shared';
@@ -40,10 +41,28 @@ export class AdminCatalogApi {
     );
   }
 
-  /** `GET /api/admin/metrics/timeseries` — one `catalog.*` additions series over
-   *  an inclusive UTC date range. */
-  timeseries(metric: AdminMetricKey, from: string, to: string): Promise<AdminTimeseriesResponse> {
-    const params = new HttpParams().set('metric', metric).set('from', from).set('to', to);
+  /**
+   * `GET /api/admin/metrics/timeseries` — one `catalog.*` series over an
+   * inclusive UTC date range.
+   *
+   * `basis` is passed EXPLICITLY rather than left to the endpoint's default
+   * (AECI-686). The default is `additions` — the audit-log event count — and this
+   * screen wants `net`, the records still in the catalog bucketed by when they
+   * arrived, because §5.5's table sits directly under the Catalog totals cards
+   * and the two must reconcile. Omitting the param here would silently restore
+   * the reading where 11,827 claim events sit under a card reading 1,691.
+   */
+  timeseries(
+    metric: AdminMetricKey,
+    from: string,
+    to: string,
+    basis: AdminMetricBasis,
+  ): Promise<AdminTimeseriesResponse> {
+    const params = new HttpParams()
+      .set('metric', metric)
+      .set('from', from)
+      .set('to', to)
+      .set('basis', basis);
     return firstValueFrom(
       this.http.get<AdminTimeseriesResponse>('/api/admin/metrics/timeseries', { params }),
     );

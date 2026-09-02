@@ -1,33 +1,14 @@
 import type { ListingSortOption } from './listing-toolbar';
 
 /**
- * The `?sort=` keys every product listing accepts, and the one order in which
- * they are offered. Handed to `createPaginatedIndex` as `validSorts` and to
- * `aec-listing-toolbar` as its options, so a key can never be offered in the UI
- * without the controller accepting it (or vice versa).
+ * Localized toolbar options for the product listings.
  *
- * The set is `ProductSortSchema`'s enum (`packages/shared/src/api/products.ts`)
- * — the API is the ceiling, and every key it accepts is exposed. `STAGE_1_SPEC.md`
- * §4.5 asks the taxonomy browse pages for "alphabetical, most integrations, most
- * reviewed"; all three are here, plus the two `/products` already had.
- *
- * Before AECI-657 the taxonomy pages restricted themselves to `created` / `name`
- * / `updated` and rendered no control at all, so `rating` and `reviews` were
- * silently unreachable there even by hand-typed URL.
+ * The key vocabulary itself lives in `product-sort-keys.ts` — pure data with no
+ * `$localize` — because the eager route graph reaches it through the listing
+ * prefetch resolvers, and this module's labels must not ride along into the
+ * initial bundle. Re-exported here so existing importers are unaffected.
  */
-export const PRODUCT_SORT_KEYS = [
-  'created',
-  'name',
-  'updated',
-  'rating',
-  'reviews',
-  'integrations',
-] as const;
-
-export const PRODUCT_VALID_SORTS: ReadonlySet<string> = new Set(PRODUCT_SORT_KEYS);
-
-/** Default for every product listing — `created DESC`, per Phase 2 §7.4. */
-export const PRODUCT_DEFAULT_SORT = 'created';
+export { PRODUCT_DEFAULT_SORT, PRODUCT_SORT_KEYS, PRODUCT_VALID_SORTS } from './product-sort-keys';
 
 /**
  * Localized toolbar options, in display order. A function rather than a

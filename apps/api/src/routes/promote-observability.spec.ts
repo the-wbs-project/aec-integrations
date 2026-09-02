@@ -8,7 +8,7 @@
  * exact log payload + metric tags.
  */
 
-import { PromotePayloadSchema } from '@aeci/shared';
+import { PromotePayloadSchema, type PromoteResponse } from '@aeci/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { products } from '../db/schema';
@@ -20,7 +20,6 @@ import {
   dispatchPromoteHooks,
   runPromoteIngest,
   type PromoteAlgoliaSync,
-  type PromoteGoogleIndexingNotify,
   type PromoteHomeStatsRefresh,
   type PromoteIndexNowNotify,
   type PromoteRunCtx,
@@ -37,7 +36,6 @@ vi.mock('../posthog', () => ({
 const noop = async () => {};
 const noopAlgolia: PromoteAlgoliaSync = noop;
 const noopIndexNow: PromoteIndexNowNotify = noop;
-const noopGoogleIndexing: PromoteGoogleIndexingNotify = noop;
 const noopHomeStats: PromoteHomeStatsRefresh = noop;
 
 const baseEnv: Env = { ENV: 'preview' };
@@ -64,7 +62,6 @@ async function promote(body: unknown) {
     dbFor: t.factory,
     syncAlgolia: noopAlgolia,
     notifyIndexNow: noopIndexNow,
-    notifyGoogleIndexing: noopGoogleIndexing,
     refreshHomeStats: noopHomeStats,
   };
   const result = await runPromoteIngest(rc, PromotePayloadSchema.parse(body), deps);
@@ -105,6 +102,24 @@ function staleIdMetricCalls(): Array<{ value: number; tags: string[] }> {
   return vi
     .mocked(submitCount)
     .mock.calls.filter((c) => c[3] === 'aeci.api.promote.stale_id')
+    .map((c) => ({ value: c[4] as number, tags: c[5] as string[] }));
+}
+
+/** The `logToPosthog` event whose message is the unresolved-link signal (AECI-730). */
+function unresolvedLinkLog(): Record<string, unknown> | undefined {
+  const call = vi
+    .mocked(logToPosthog)
+    .mock.calls.find(
+      (c) => (c[3] as { message?: string })?.message === 'aeci.api.promote.unresolved_link',
+    );
+  return call?.[3] as Record<string, unknown> | undefined;
+}
+
+/** All `aeci.api.promote.unresolved_link` count submissions as `[value, tags]` pairs. */
+function unresolvedLinkMetricCalls(): Array<{ value: number; tags: string[] }> {
+  return vi
+    .mocked(submitCount)
+    .mock.calls.filter((c) => c[3] === 'aeci.api.promote.unresolved_link')
     .map((c) => ({ value: c[4] as number, tags: c[5] as string[] }));
 }
 
@@ -168,6 +183,8 @@ describe('promote skip observability', () => {
     expect(skippedMetricCalls()).toHaveLength(0);
     expect(staleIdLog()).toBeUndefined();
     expect(staleIdMetricCalls()).toHaveLength(0);
+    expect(unresolvedLinkLog()).toBeUndefined();
+    expect(unresolvedLinkMetricCalls()).toHaveLength(0);
   });
 });
 
@@ -205,5 +222,107 @@ describe('promote stale-supabaseId observability', () => {
     const metrics = staleIdMetricCalls();
     expect(metrics).toContainEqual({ value: 1, tags: ['source:promote', 'kind:vendor'] });
     expect(metrics).toContainEqual({ value: 1, tags: ['source:promote', 'kind:product'] });
+  });
+});
+
+/**
+ * AECI-730. An unresolvable `poweredByProduct` / `builtByVendor` writes the integration
+ * WITHOUT that column — a partial write that no existing signal covered: it is not a
+ * `skipped[]` entry (the row landed), not a stale id, and not an error.
+ *
+ * The severity split is the contract here, not an implementation detail. Zapier and
+ * Workato are parked permanently (AECI-700), so this fires on routine promotes forever;
+ * logging it at `warn` or folding it into `aeci.api.promote.skipped` would make the
+ * "something wasn't written" signal permanently dirty, which is the noise the issue
+ * exists to avoid.
+ */
+describe('promote unresolved-link observability (AECI-730)', () => {
+  it('logs unresolved_link at INFO with per-field detail + a count per field', async () => {
+    const target = uuid(1);
+    await t.db.insert(products).values({
+      id: target,
+      slug: 'navisworks',
+      name: 'Navisworks',
+      promotionStatus: 'promoted',
+    });
+
+    const response = await promote({
+      vendors: [],
+      product: { ref: 'p1', name: 'Revit' },
+      integrations: [
+        {
+          ref: 'i1',
+          sourceProduct: { ref: 'p1' },
+          targetProduct: { supabaseId: target },
+          // Neither is promoted — the connector-parked and dead-vendor-pointer cases.
+          poweredByProduct: { supabaseId: uuid(9) },
+          builtByVendor: { supabaseId: uuid(8) },
+        },
+      ],
+    });
+
+    // The integration itself landed, so `skipped[]` stays empty — and so does its log.
+    expect(response.skipped).toHaveLength(0);
+    expect(partialSkippedLog()).toBeUndefined();
+    expect(skippedMetricCalls()).toHaveLength(0);
+
+    const log = unresolvedLinkLog();
+    expect(log).toMatchObject({
+      level: 'info',
+      source: 'review-app-promote',
+      outcome: 'unlinked',
+      unresolved_link_count: 2,
+      unresolved_powered_by: 1,
+      unresolved_built_by: 1,
+    });
+    expect(log!.unresolved_links).toHaveLength(2);
+
+    const metrics = unresolvedLinkMetricCalls();
+    expect(metrics).toContainEqual({ value: 1, tags: ['source:promote', 'field:powered_by'] });
+    expect(metrics).toContainEqual({ value: 1, tags: ['source:promote', 'field:built_by'] });
+  });
+
+  it('tolerates a pre-AECI-730 response with no `unresolvedLinks` key', async () => {
+    // An AECI-571 replay returns the ledger's stored response verbatim, and a row
+    // written before this change has no such key. `dispatchPromoteHooks` runs AFTER
+    // the commit, outside any catch, so a throw here would fail an already-committed
+    // promote for the length of the deploy window.
+    const rc: PromoteRunCtx = {
+      env: baseEnv,
+      request: new Request('http://localhost:8787/api/promote'),
+      waitUntil: () => {},
+      bookmark: () => null,
+    };
+    const legacyResponse = {
+      vendors: [],
+      product: null,
+      integrations: [],
+      taxonomy: { categories: [], audiences: [], phases: [], trades: [] },
+      skipped: [],
+      // AECI-604's `preserved[]` predates AECI-730 on this line, so a ledger row old
+      // enough to lack `unresolvedLinks` still carries this one.
+      preserved: [],
+    } as PromoteResponse;
+
+    expect(() =>
+      dispatchPromoteHooks(
+        rc,
+        {
+          response: legacyResponse,
+          removedTradeSlugs: [],
+          wrote: false,
+          bookmark: null,
+          auditEntries: [],
+          staleSupabaseIds: [],
+        },
+        {
+          dbFor: t.factory,
+          syncAlgolia: noopAlgolia,
+          notifyIndexNow: noopIndexNow,
+          refreshHomeStats: noopHomeStats,
+        },
+      ),
+    ).not.toThrow();
+    expect(unresolvedLinkLog()).toBeUndefined();
   });
 });

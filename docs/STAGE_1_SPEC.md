@@ -402,6 +402,11 @@ Both use the same form pattern, with different fields and Linear destinations:
 
 Both submit to a Cloudflare Worker endpoint, which posts to an n8n webhook, which creates a Linear issue with all fields pre-filled.
 
+**Signed-in email prefill.** Both forms stay **public** — an anonymous visitor can submit either one, and neither endpoint requires auth. But when the visitor *does* have a session, the email field is **pre-filled** from it (`SessionStatus.email()`, the same JWT claim `GET /api/account` reports) so nobody retypes an address the site already knows. Two constraints on how:
+
+- **Prefill, never lock.** The claim form asks for a *work* email, which may differ from the account's (a Google sign-in on a personal address is normal), and that address is what §7.1 (docs/STAGE_1_PHASE_6_SPEC.md)'s `domain_match` compares against the target vendor's website. Forcing the account email would break that signal, so the field stays editable and a visitor edit always wins over a later-resolving probe.
+- **Post-hydration only.** `SessionStatus.email()` is `null` during SSR and until the browser probe resolves, so the server-rendered HTML stays visitor-state-neutral and `/products|vendors/:slug/{claim,correction}` remains safe to edge-cache (§8).
+
 ---
 
 ## 5. Data Model
@@ -466,10 +471,42 @@ The directory has **four independent taxonomy facets**. Each is a small, closed 
 
 A product carries any number of terms from each facet (the `product_categories` / `product_audiences` / `product_phases` / `product_trades` join tables). The aggregate vocabulary is exposed at `GET /api/taxonomy → { categories, audiences, phases, trades }` and per-term browse pages at `GET /api/{categories|audiences|phases|trades}/:slug`.
 
+**Index-page ordering.** All four flat index pages (`/categories`, `/audiences`, `/phases`, `/trades`) are one component, `TaxonomyIndexPage`, carrying a sort toggle whose **option set is per-facet**:
+
+| Mode | Order | Offered on |
+|---|---|---|
+| **Sequence** | The API's own `display_order ASC, name ASC` | **`/phases` only**, where it is also the default |
+| **A → Z** | `name` A–Z, collation pinned to `en` | All four; the default for the other three |
+| **Products** | `product_count` DESC, then `integration_count` DESC, then `name` | All four |
+
+`Sequence` exists for `/phases` because that vocabulary genuinely *is* one (Concept & Planning → … → Closeout & Operations) and alphabetising it would destroy meaning the terms carry. The other three facets do **not** offer it: their `display_order` is an editorial convenience rather than something the reader needs, and a term grid answers "is my thing in here?", which A→Z answers better. `display_order` still drives those facets in the nav flyout, the facet sidebar, and the home browse grids — only this surface stops deferring to it.
+
+**Products, not integrations, is the magnitude sort.** `integration_count` is a downstream consequence of the catalog rather than a measure of the term itself, so it ranks only as a tiebreaker among terms carrying the same number of products. It is still *displayed* on each card (`API_CONTRACTS.md` §6.4).
+
+The control is **client-side and stateless**: the whole vocabulary is already resolved into `route.data`, so no ordering triggers a fetch, and the mode is deliberately **not** a query parameter — that would fork the edge-cache key per facet for a presentational preference (see the visitor-state-neutral rule). SSR emits each facet's default, which is why the collation is pinned rather than ambient: for the three A→Z-by-default facets a locale-dependent comparator would be a server/client mismatch, not merely a cosmetic difference. Every comparator falls through to `name`, giving a total order, so a re-sort can never depend on the incoming array order. Sorting reorders only what is already listed: on `/trades` the publication floor (§5.5a) is applied **before** the sort, so a sub-floor term cannot be promoted onto the page by any ordering.
+
 **The Audience facet (AECI-121).** Audience answers "who is this for?" and deliberately holds **two kinds of term on one axis**:
 
-- **Domains** — the professional discipline/department a product serves (Architecture, Civil Engineering, MEP Engineering, Construction Management, …). These are the original 21 facet items.
+- **Domains** — the professional discipline/department a product serves (Architecture, Civil Engineering, MEP Engineering, Construction Management, …). Originally 21 facet items; **27 since the discipline-coverage additions below**.
 - **Personas** — cross-cutting job roles a domain axis cannot express (Project Manager, Project Engineer, Superintendent, Estimator, Scheduler, Foreman / Field Supervisor, Designer / Drafter, BIM Manager, BIM Coordinator).
+
+**Discipline-coverage additions.** Six domain terms were added to close gaps against how AEC firms describe their own disciplines, taking the facet from 30 terms to **36**:
+
+| Term | Slug | Gap it closes |
+|---|---|---|
+| Mechanical Engineering | `mechanical-engineering` | MEP Engineering is a single combined term; a mechanical engineer could not filter to their own discipline. |
+| Electrical Engineering | `electrical-engineering` | Likewise. |
+| Environmental Engineering | `environmental-engineering` | No environmental discipline existed on the facet at all. |
+| Other Engineering | `other-engineering` | Catch-all for engineering disciplines outside the named set. |
+| Planning | `planning` | Urban/site planning existed only as a *phase* (Concept & Planning), never as a discipline. |
+| Sciences | `sciences` | Environmental / geotechnical / materials scientists had no term. |
+
+Two consequences follow, and both are load-bearing:
+
+1. **The names must match the review app exactly.** Audiences resolve **find-or-create** in the promote flow (unlike trades, §5.5a), so a curation-side label that slugifies differently — "Mechanical Engineers" → `mechanical-engineers` — mints a *second*, near-duplicate term rather than matching the seeded one. The Airtable `Audiences` vocabulary must gain these six options under exactly these names.
+2. **They start empty.** The seed writes `taxonomy_audiences` only, never the `product_*` joins (ADR 0008); tagging arrives through promote. The Audience facet has **no publication floor**, so until the review app tags products, each new term renders as a real but zero-count card on `/audiences`.
+
+**Coverage note.** The remaining discipline labels an AEC firm might name are already present under the facet's discipline-noun convention rather than a plural-people one: *Architects* → **Architecture**, *Civil/Structural Engineers* → **Civil / Structural Engineering**, *Landscape Arch.* → **Landscape Architecture**, *Interior Designers* → **Interior Design**, *Surveyors* → **Surveying/Geomatics**, *Construction* → **Construction Management** + **General Contracting**, *Business/Accounting* → **Accounting & Finance** + **Business Development**, *Marketing* → **Marketing & Communications**. Renaming the facet to plural-people labels was **not** done: `slug` is permanent public-URL identity, so the names would desync from the URLs they already own.
 
 A separate "Roles" facet was evaluated and **rejected**: ~55% of the proposed roles duplicated existing domains and others duplicated Categories, so a separate facet would have been a half-populated filter that confuses users and curators. Folding personas into a single "who is this for?" axis keeps one vocabulary to curate and no overlap to police.
 
@@ -1330,7 +1367,7 @@ Generated on request by a Cloudflare Worker, not built statically.
 
 ### 20.2 IndexNow notification
 
-On any write to products, vendors, or integrations, a Cloudflare Worker submits the affected URLs to IndexNow (Bing, Yandex, others). Google Indexing API pinged for the same URLs as a best-effort signal.
+On any write to products, vendors, or integrations, a Cloudflare Worker submits the affected URLs to IndexNow (Bing, Yandex, others). (A Google Indexing API ping for the same URLs shipped in AECI-263 and was removed in AECI-747 — see the REMOVED note below.)
 
 This runs as part of the single write-event pipeline described in Section 20.5.
 
@@ -1338,7 +1375,20 @@ This runs as part of the single write-event pipeline described in Section 20.5.
 
 > **Trade URLs are publication-gated (AECI-546).** `/trades/:slug` joins the submit set only when the term clears `TRADE_PUBLISH_MIN_PRODUCTS` (§5.5a) — pinging an indexing service for a page that serves `noindex` is the same correctness bug the "provision `INDEXNOW_KEY` only at launch" rule prevents. Because `affectedUrlsForPromote` is pure over the promote response (which carries no `product_count`), the handler resolves the floor with one grouped count **after** the batch commits (`apps/api/src/routes/promote-trade-publication.ts`) and hands the single result to both pings. The `/trades` **index** is submitted whenever any trade is touched at all, published or not: it renders live per-term counts and gains or loses a tile on a floor crossing, and trades are find-only so the "a term was created" trigger that covers the sibling index pages can never fire for them. This supersedes AECI-542's blanket exclusion, which deferred the decision here.
 
-> **Implemented (AECI-263):** the **Google Indexing API** ping is now an additional best-effort `waitUntil` consumer in the same post-commit block, reusing the SAME affected-URL set (`affectedUrlsForPromote`, no second deriver). The transport (`apps/api/src/lib/google-indexing.ts`) signs an RS256 service-account JWT with `jose`, exchanges it for an OAuth access token, then `urlNotifications:publish`-es each URL (`URL_UPDATED`) — pure, never throws, failures recorded to Datadog (`aeci.google_indexing.submit` + `aeci.api.promote.google_indexing_failed`), never blocking the write. Gated on `GOOGLE_INDEXING_SA_EMAIL` + `GOOGLE_INDEXING_SA_PRIVATE_KEY` + `PUBLIC_SITE_URL`, provisioned **only at launch** alongside IndexNow (a missing cred → graceful no-op). It stays best-effort because Google officially supports only `JobPosting`/`BroadcastEvent`; the sitemap `<lastmod>` (§20.5 step 5) remains the primary discovery path.
+> **SEO-tool crawlers are blocked in `robots.txt` (AECI-747).** `SemrushBot`, `AhrefsBot` and `MJ12bot` each get a
+> `Disallow: /` group (`apps/web/src/server/robots.ts` → `BLOCKED_SEO_CRAWLERS`). In August 2026 SemrushBot alone made
+> **4,698 requests across 1,644 distinct paths** — wider coverage than Googlebot or Bingbot — including 1,265
+> integration-PAIR pages, the most expensive route we serve. It returns no visitors and no index placement. This is
+> voluntary compliance, not a control: a scraper that ignores `robots.txt` needs the WAF (AECI-659, still unbuilt on
+> production). `GPTBot` / `OAI-SearchBot` are deliberately NOT blocked — AI answer surfaces are a real distribution
+> channel for a directory.
+>
+> **REMOVED (AECI-747, 2026-09-01).** The **Google Indexing API** ping shipped in AECI-263 and was deleted after Google's own
+> documentation confirmed the API accepts **only** `JobPosting` and `BroadcastEvent` URLs — neither of which AECi publishes, so
+> every submission we made was discarded. IndexNow (Bing/Yandex) remains and genuinely works; Google has **no push channel** for
+> our content types, and is fed by the sitemap plus crawlable hub pages (see AECI-746) instead. Historical text follows.
+>
+> ~~**Implemented (AECI-263):** the **Google Indexing API** ping is an additional best-effort `waitUntil` consumer in the same post-commit block, reusing the SAME affected-URL set (`affectedUrlsForPromote`, no second deriver). The transport (`apps/api/src/lib/google-indexing.ts`) signs an RS256 service-account JWT with `jose`, exchanges it for an OAuth access token, then `urlNotifications:publish`-es each URL (`URL_UPDATED`) — pure, never throws, failures recorded to Datadog (`aeci.google_indexing.submit` + `aeci.api.promote.google_indexing_failed`), never blocking the write. Gated on `GOOGLE_INDEXING_SA_EMAIL` + `GOOGLE_INDEXING_SA_PRIVATE_KEY` + `PUBLIC_SITE_URL`, provisioned **only at launch** alongside IndexNow (a missing cred → graceful no-op). It stays best-effort because Google officially supports only `JobPosting`/`BroadcastEvent`; the sitemap `<lastmod>` (§20.5 step 5) remains the primary discovery path.
 
 ### 20.3 Structured data (Schema.org JSON-LD)
 
@@ -1819,6 +1869,12 @@ Every `audit_log` and `workflow_transitions` entry is **also** forwarded to the 
 - Long-term retention — the log plane retains separately from D1, so even if the table is later archived, queryable history persists
 
 **What does NOT change: the §26.1 invariant.** The `audit_log` row is written in the **same `db.batch([...])`** as the mutation, and that is untouched by the vendor swap. Forwarding is strictly **post-commit**, dispatched via `ctx.waitUntil(...)`, and a forwarding failure must `console.warn` and swallow — never throw, never block the response, never roll back the batch. D1 is the source of truth; the forwarded log is a copy.
+
+**Batch the forwards when a single write produces many entries (AECI-666).** A promote commits one `audit_log` row per created/updated entity, and the post-commit tail used to issue one observability request *per row*, all dispatched simultaneously. A Worker invocation may hold only a bounded number of open connections, so a fat bundle exhausted that budget; the runtime then cancelled the stalled responses, and a cancelled `fetch` returns a promise that **never settles** — no resolve, no reject, so the transport's own `catch` never fired. The forwards were lost silently and the invocation was eventually killed as hung, taking the other post-commit hooks (Algolia, cache purge, IndexNow) with it.
+
+Use `logBatchToDatadog` (`@aeci/shared/datadog`) for any caller with N related entries: the v2 logs intake accepts an array, so N entries cost **one** request. Never loop `logToDatadog` over a collection. Every transport must also release its response body — see the `CLAUDE.md` constraint and `packages/shared/src/response-drain.ts`.
+
+**Log structure:**
 
 **Implementation.** `forwardAuditLog()` / `forwardWorkflowTransition()` (`packages/shared/src/audit-log.ts`) take an **injected forwarder**, so they were already transport-agnostic before this migration — re-targeting them is a wiring change at the injection site, not a rewrite of the audit path. That injected seam is the only thing AECI-642 touches here.
 

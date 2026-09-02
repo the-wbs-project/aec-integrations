@@ -87,13 +87,14 @@ import {
   type ExpensiveStatusDeps,
 } from '../lib/admin-status';
 import {
+  automationExclusionFor,
   collectAnalyticsMetrics,
   computeDelta,
   dailyWindows,
+  humanViewsAfterAutomation,
   windowsForDay,
-  HUMAN,
-  NOT_INTERNAL as EXCLUDE_UNTRACKED_ROUTES,
 } from '../lib/analytics-digest';
+import { HUMAN, NOT_INTERNAL as EXCLUDE_OPERATOR_TRAFFIC } from '../lib/page-view-predicates';
 import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
 
 // The `requireAdmin()` gate (index.ts) enforces access and sets `c.get('auth')`,
@@ -143,9 +144,25 @@ export function createAdminOverviewHandler(
     // only on the var being set.
     const filter = resolveInternalFilter(c.env, true);
 
+    // `collectAnalyticsMetrics` runs the automation detector (AECI-745), and its
+    // result is an INPUT to the filtered human count below — `excluding_internal`
+    // on the post-automation figure has to exclude the same rows the headline
+    // subtracted. So this one read is awaited first rather than folded into the
+    // fan-out; everything that does not depend on it still runs concurrently.
+    //
+    // Cost, recorded because it is not obvious from the call: the detector adds
+    // roughly 14 D1 reads here (about seven per window, over the reported day and
+    // the prior one) on every request, `?day=` and `?recompute=1` included. It is
+    // bounded — `SWARM_MAX_CANDIDATES` caps the bound-parameter count and the
+    // 14-day recurrence lookback rides `page_views_operator_pair_idx` — and it is
+    // the price of the panel and the 05:00 email leading with one number.
+    const metrics = await collectAnalyticsMetrics(db, digestWindow);
+    const exclusion = automationExclusionFor(metrics.swarm);
+    const net = humanViewsAfterAutomation(metrics);
+
     const [
-      metrics,
       humanExcl,
+      humanExclNet,
       botExcl,
       uniqueVisitors,
       series30d,
@@ -157,8 +174,8 @@ export function createAdminOverviewHandler(
       freshness,
       notes,
     ] = await Promise.all([
-      collectAnalyticsMetrics(db, digestWindow),
       countViewsExcludingInternal(db, dayW, 'human', filter),
+      countViewsExcludingInternal(db, dayW, 'human', filter, exclusion),
       countViewsExcludingInternal(db, dayW, 'bot', filter),
       countUniqueVisitorsBoth(db, dayW, 'human', filter),
       trafficSeries(db, chartW),
@@ -168,7 +185,16 @@ export function createAdminOverviewHandler(
       countAll(db, vendorRequests, eq(vendorRequests.status, 'open')),
       catalogTotals(db),
       statsFreshness(db, now),
-      trafficNotes(db, dayW, { unique: true, sources: true }),
+      trafficNotes(db, dayW, {
+        unique: true,
+        sources: true,
+        corroborated: true,
+        operatorLeak: true,
+        // Explicitly passed, `null` included: this response's headline IS the
+        // post-automation figure, so it owes the reader either the thresholds
+        // behind it or the warning that the filter did not run.
+        automation: metrics.automation,
+      }),
     ]);
 
     const allNotes: AdminNote[] = [...notes, internalFilterNote(filter)];
@@ -199,10 +225,26 @@ export function createAdminOverviewHandler(
       notes: allNotes,
       internal_filter: toAdminInternalFilter(filter),
       traffic: {
-        page_views_human: { total: metrics.pageViews.day, excluding_internal: humanExcl },
+        // The headline, and the same one the 05:00 email leads with (AECI-745).
+        // Through `humanViewsAfterAutomation` rather than an inline subtraction
+        // so the two surfaces cannot grow separate definitions of it — the same
+        // reason the AECI-683 figures below come straight off the collector.
+        page_views_human: { total: net.day, excluding_internal: humanExclNet },
+        page_views_human_raw: {
+          total: metrics.pageViews.day,
+          excluding_internal: humanExcl,
+        },
+        automation_flagged: metrics.automation?.flagged.day ?? null,
         page_views_bot: { total: metrics.botPageViews.day, excluding_internal: botExcl },
         unique_visitors: uniqueVisitors,
-        delta_day: computeDelta(metrics.pageViews),
+        // Filtered on BOTH sides — `net` carries the prior day's post-automation
+        // count too, which is why the detector runs over the prior window at all.
+        delta_day: computeDelta(net),
+        // RAW on both sides, unlike `delta_day`, and the schema says so: a
+        // filtered 7-day pair means running the detector over 14 further days on
+        // every request. Two deltas with different populations side by side is a
+        // real hazard — the answer is that the panel labels it, not that we
+        // fabricate a filtered week out of an unfiltered one.
         delta_7d: computeDelta({ day: weekHuman, prior: priorWeekHuman }),
         series_30d: series30d,
         top_sources: metrics.referrers.map((r) => ({ source: r.source, views: r.views })),
@@ -211,6 +253,14 @@ export function createAdminOverviewHandler(
           slug: p.slug,
           views: p.views,
         })),
+        // Straight off `collectAnalyticsMetrics`, like `top_products` above and
+        // for the same reason: recomputing them here would put a second
+        // definition of "corroborated" in the codebase, and §6.10's parity
+        // guarantee is only structural while the panel reads the digest's own
+        // numbers rather than its own reimplementation of them.
+        corroborated_views: metrics.corroboratedViews.day,
+        corroborated_visitors: metrics.corroboratedVisitors,
+        operator_leak_excluded: metrics.operatorLeakViews,
       },
       audience: {
         new_sign_ins: computeDelta(metrics.newUsers),
@@ -255,7 +305,7 @@ async function countHumanViews(db: Db, w: UtcWindow): Promise<number> {
         gte(pageViews.createdAt, w.startIso),
         lt(pageViews.createdAt, w.endIso),
         HUMAN,
-        EXCLUDE_UNTRACKED_ROUTES,
+        EXCLUDE_OPERATOR_TRAFFIC,
       ),
     );
   return row?.value ?? 0;

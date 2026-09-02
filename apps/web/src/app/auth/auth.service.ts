@@ -35,6 +35,22 @@ function hasSupabaseAuthCookie(): boolean {
   return /(?:^|;\s*)sb-[^=;]*-auth-token(?:\.\d+)?=/.test(document.cookie);
 }
 
+/** What a single cookie-derived session read yields. `email` and `userId` are
+ *  `null` when there's no session; `email` is additionally `null` on a session
+ *  that carries no email claim. */
+export interface SessionSnapshot {
+  readonly signedIn: boolean;
+  readonly email: string | null;
+  /** `auth.users.id`, i.e. the JWT `sub`. Identity beyond the UI: it is what
+   *  `Analytics.identify()` sends to PostHog (`docs/ANALYTICS.md` §8) and what the
+   *  API Worker records as `posthogDistinctId` on its logs. The two only join if
+   *  they are the same value, so it is read from the session, never re-derived. */
+  readonly userId: string | null;
+}
+
+/** The "no session" answer — also what an unconfigured env resolves to. */
+const ANONYMOUS_SNAPSHOT: SessionSnapshot = { signedIn: false, email: null, userId: null };
+
 @Injectable({ providedIn: 'root' })
 export class AuthService {
   /** `undefined` = not yet constructed; `null` = env unconfigured. */
@@ -59,6 +75,38 @@ export class AuthService {
   }
 
   /**
+   * Browser-only snapshot of the cookie-derived session: whether one exists and
+   * the email it carries. One `getSession()` serves both, so `SessionStatus` can
+   * reconcile the header affordance AND the signed-in email (used to prefill the
+   * claim/correction forms' email field, so a signed-in visitor never retypes an
+   * address the session already knows) without probing twice.
+   *
+   * Same guarantees as `isSignedIn()`: never call it during SSR (it would bake
+   * visitor state into the URL-keyed edge cache; §8), it's a UI hint only — every
+   * real gate is server-side — and an unconfigured env resolves to the anonymous
+   * snapshot rather than throwing.
+   *
+   * `email` is the same value `GET /api/account` reports (both read the session's
+   * JWT claim), so the prefill agrees with the account page without a round-trip.
+   * It can be `null` on a session with no email claim.
+   */
+  async sessionSnapshot(): Promise<SessionSnapshot> {
+    if (!this.isConfigured()) return ANONYMOUS_SNAPSHOT;
+    // Anonymous fast-path: no auth cookie → not signed in, and the browser SDK
+    // never loads. This is the cacheable detail-page case (and the Lighthouse
+    // measurement) where `ReviewCta` probes every load — so `@supabase/ssr`
+    // stays out of the detail-page JS budget (AECI-221). A logged-in visitor
+    // (cookie present) falls through and loads the SDK to verify the session.
+    if (!hasSupabaseAuthCookie()) return ANONYMOUS_SNAPSHOT;
+    const client = await this.requireClient();
+    const {
+      data: { session },
+    } = await client.auth.getSession();
+    if (!session) return ANONYMOUS_SNAPSHOT;
+    return { signedIn: true, email: session.user.email ?? null, userId: session.user.id };
+  }
+
+  /**
    * Browser-only probe for "is there a signed-in session right now?", used by
    * the cache-neutral review CTA (AECI-201) to flip from its neutral SSR
    * default to a personalized label *after* hydration — never during SSR (that
@@ -70,14 +118,14 @@ export class AuthService {
    * only from `afterNextRender`/user events, never from SSR.
    */
   async isSignedIn(): Promise<boolean> {
-    return (await this.currentUserId()) !== null;
+    return (await this.sessionSnapshot()).signedIn;
   }
 
   /**
    * The signed-in visitor's Supabase user id, or `null` when there is no
    * session (or auth is unconfigured, or the cookie is stale). Browser-only,
-   * same rules as {@link isSignedIn} — which is implemented on top of this, so
-   * the session is read once and the two answers can never disagree.
+   * same rules as {@link isSignedIn}. All three answers come off the SAME
+   * {@link sessionSnapshot} read, so they can never disagree.
    *
    * The value is `auth.users.id`, i.e. the JWT `sub`. That identity matters
    * beyond the UI: it is what `Analytics.identify()` sends to PostHog
@@ -90,13 +138,7 @@ export class AuthService {
    * detail-page case, where `ReviewCta` probes on every load.
    */
   async currentUserId(): Promise<string | null> {
-    if (!this.isConfigured()) return null;
-    if (!hasSupabaseAuthCookie()) return null;
-    const client = await this.requireClient();
-    const {
-      data: { session },
-    } = await client.auth.getSession();
-    return session?.user.id ?? null;
+    return (await this.sessionSnapshot()).userId;
   }
 
   /**

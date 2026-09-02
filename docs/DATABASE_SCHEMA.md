@@ -1032,7 +1032,7 @@ Notes:
 ### 8.6 `vendor_entitlements`
 
 The vendor's paid arrangement — tier, status, term, and the offline PO/invoice record
-(AECI-609, migration `0019_easy_sandman`; `STAGE_2_PAID_TIERS_SPEC.md` §2). **`vendors.verified`
+(AECI-609, migration `0024_easy_sandman`; `STAGE_2_PAID_TIERS_SPEC.md` §2). **`vendors.verified`
 (§4.1) is this table's denormalized mirror**, and the two are written together or not at all.
 
 ```sql
@@ -1188,6 +1188,27 @@ Server-side page view log with Cloudflare header enrichment. Privacy-respecting 
 
 **`path` holds public routes only** (AECI-575 / `ADMIN_PANEL_SPEC.md` §9.6). Neither writer records the operator-only prefixes in `@aeci/shared` `UNTRACKED_ROUTE_PREFIXES` (`/admin`, `/account`) — the admin console must not write into the table it reads. Rows captured before that shipped are still present, and every read applies the same exclusion, so query this table with `path not in ('/admin','/account') and path not like '/admin/%' and path not like '/account/%'` if you want numbers that match the daily digest. (The match is on an exact prefix boundary — a bare `path not like '/admin%'` would wrongly drop look-alike public routes like `/administrators`, which the digest still counts.)
 
+**That path rule is only a third of "not the operator"** (§13 **D13** + **D15**). It catches the operator while they are standing on `/admin/*`; it cannot catch them browsing `/products/procore` to check their own work, which is indistinguishable from a visitor doing the same. `is_operator` is the second part — and it is written once at ingest and **fails open on an expired token**, so it misses a contiguous run of the operator's rows every time their session lapses mid-browse (22 of them in one gap on 2026-08-26). The third part is a retro-join on the `(user_agent_hash, cf_asn)` visitor pair. A hand-written query that wants digest-matching numbers needs **all three** clauses:
+
+```sql
+  and path not in ('/admin','/account') and path not like '/admin/%' and path not like '/account/%'
+  and (is_operator is null or is_operator = 0)
+  and not exists (select 1 from page_views op
+                   where op.is_operator = 1
+                     and op.user_agent_hash = page_views.user_agent_hash
+                     and op.cf_asn = page_views.cf_asn
+                     and op.created_at >= strftime('%Y-%m-%dT%H:%M:%fZ', page_views.created_at, '-30 days')
+                     and op.created_at <= strftime('%Y-%m-%dT%H:%M:%fZ', page_views.created_at, '+30 days'))
+```
+
+All three live together in one predicate in code (`NOT_INTERNAL`, `apps/api/src/lib/analytics-digest.ts`) precisely so no reader applies some and forgets the rest — a hand-written query is now the only place they can come apart. Two details of the third clause are load-bearing. The `strftime` format string reproduces the stored ISO shape exactly; bare `datetime()` returns `'YYYY-MM-DD HH:MM:SS'`, and a space sorts before `T`, so the comparison would be silently wrong at the boundary. And `not exists` — rather than the tempting `not (hash = ? and asn = ?)` — is what keeps it NULL-safe: with a NULL `user_agent_hash` the latter evaluates to NULL and the `where` clause *drops the row*, which is the opposite of the correct reading (an unidentifiable row is not evidence of anything).
+
+**One document load, one row (AECI-743).** This was an assumption, not an invariant, until 2026-09. Nothing in the writers or the schema refused a second row: production held two byte-identical rows 83 ms apart for one arrival on `/products/leap-crm` — both `navigation = 'arrival'` with the resolver's route *pattern*, i.e. two full cacheable-branch cache-MISS renders. `handleSsr` fires `firePageView` at most once per invocation and runs once per request, so the browser simply sent the document request twice. Those two rows were the entire "Google — 2 views" traffic-source table and the whole corroborated-referrer population of that day's digest: a 100% error on the AECI-683 floor, the one figure chosen precisely because a rotating-proxy pool cannot inflate it.
+
+The guard is `dedupe_key` + its UNIQUE index (see the DDL below) at ingest, plus three writer-side refusals — speculative (`Sec-Purpose: prefetch`/`prerender`) loads, non-GET requests, and query-only SPA re-navigations. Full mechanism and the reasoning behind each: `API_CONTRACTS.md` §6.9, "One document load, one row".
+
+**Two consequences for anyone querying this table.** Rows written before 2026-09 carry a null `dedupe_key` and are still double-counted; `scripts/ops/2026-09-page-view-duplicates/find-duplicates.sql` reports them read-only (the corroborated floor is wrong on exactly two days, 2026-08-18 and 2026-08-29, corrected in `POST_LAUNCH_HEALTH_REPORT.md`). And the guard is a **floor on precision, not a claim of exactness**: bot rows and rows with no `user_agent_hash` are deliberately left unconstrained, so a crawler's repeat fetches still count once each.
+
 **`path` vs `concrete_path` (AECI-585).** `path` is the route the *writer* named: the pattern (`/products/:slug`) when it knows one — an SSR resolver attached `ctx.pageView` — and the concrete path otherwise (the browser tracker, an SSR cache HIT). It has always been that mix; nothing changed about it. `concrete_path` is new and is *always* the real URL path, locale-stripped and without query or hash. Both are stored because they answer different questions: grouping "top pages" wants the pattern, naming an individual row wants the concrete path. Product and vendor rows could always recover a name through their FK; taxonomy rows could not, which is what made this column necessary.
 
 ```sql
@@ -1265,12 +1286,90 @@ create table page_views (
   -- rows captured before this shipped (the Referer was never stored → not backfillable).
   referrer_source text,
 
+  -- Whether the request carried a VERIFIED admin session (ADMIN_PANEL_SPEC.md §13 D13,
+  -- migration 0016). Written at ingest by apps/api/src/lib/operator-session.ts, which
+  -- runs the same two checks lib/authz.ts does — JWKS signature verification, then a
+  -- fresh profiles.role read — so this is a server-derived fact, never a client claim.
+  -- It closes the half the §9.6 path exclusion cannot see: the operator browsing the
+  -- PUBLIC site to check their own work. On 2026-08-19 that was 368 of 2,493 human
+  -- public-page views (15%), across AS23089/US, AS23314/US and AS23700/ID as the
+  -- operator's network changed — which is why ANALYTICS_INTERNAL_ASNS could not be the
+  -- answer (pinned to any one of those it misses the rest and over-excludes strangers).
+  -- Null = unknown and reads as NOT operator, so history is unchanged; not backfillable,
+  -- since nothing stored on an older row implies a session.
+  --
+  -- IT ALSO FAILS OPEN, AND THAT IS THE POINT OF §13 D15. isOperatorRequest resolves
+  -- every failure to false — including an EXPIRED access token — deliberately, so an
+  -- auth hiccup costs a flag rather than the page-view row. The consequence is that an
+  -- operator browsing across a token expiry writes flagged rows, then unflagged rows,
+  -- then flagged rows again, and a 0 here is indistinguishable from a visitor.
+  -- Do not read `is_operator = 0` as "not the operator": read NOT_INTERNAL, whose third
+  -- half recovers those rows by (user_agent_hash, cf_asn) pair (AECI-683).
+  is_operator integer,  -- 1 = verified admin session, 0 = not-or-unverifiable, null = pre-D13 (treated as visitor)
+
+  -- ─── Request-shape signals (AECI-658, migration 0018) ──────────────────────────
+  -- How browser-shaped the request was, written at ingest by
+  -- apps/api/src/lib/client-signals.ts. These exist because neither lever we already
+  -- had can see a rotating residential-proxy swarm: cf_bot_score is Enterprise-only
+  -- (always null on Pro) and the swarm's ASNs are genuine consumer ISPs, so
+  -- DATACENTER_ASNS must not be widened to reach them. What a rotating proxy cannot
+  -- launder is the shape of the request itself.
+  --
+  -- ANNOTATION ONLY, exactly like cf_as_organization. Nothing here feeds
+  -- classifyTraffic() and no value here changes is_bot. That separation is load
+  -- bearing: is_bot is decided once and costs a one-way backfill to revise, while an
+  -- annotation can be re-read and re-interpreted for free. READ-side, client_verdict has
+  -- three distinct uses in swarm-detection.ts (hard gate / corroboration / sufficient-on-
+  -- its-own, AECI-744) -- see that module's header before changing any of them.
+  -- Audit client_verdict
+  -- against known-good traffic before anyone proposes promoting it into a verdict.
+  --
+  -- All six are null on every row written before 2026-08-26 and are NOT backfillable:
+  -- the headers are unrecoverable after the request, the same property navigation and
+  -- referrer_source already have.
+  --
+  -- They carry no identity — no cookie, no canvas, no durable id — so D7's rule below
+  -- is untouched. A fingerprinting library would classify better and cost us exactly
+  -- the consent-independence that makes this table's write defensible.
+  sec_fetch_dest text,          -- verbatim: 'document' on a real navigation, 'empty' on the tracker's fetch.
+                                -- THE browser-agnostic signal: Chrome, Edge, Firefox and Safari 16.4+ all send it.
+  has_accept_language integer,  -- presence only. The VALUE is a weak identifier; the fact of the header is the signal.
+  has_sec_ch_ua integer,        -- presence only, and CHROMIUM-ONLY. Firefox and Safari legitimately never send it,
+                                -- so this must ONLY be read against a UA that claims Chrome/Edge. A bare presence
+                                -- test would label every Safari visitor a bot. classifyClientSignals() encodes that
+                                -- conditional; do not re-derive it at a call site.
+  tls_version text,             -- e.g. 'TLSv1.3'. DELIBERATELY LOW ENTROPY: the negotiated cipher is largely the
+  http_protocol text,           -- e.g. 'HTTP/2'.  server's choice, so this is nothing like JA3/JA4 (Enterprise).
+                                -- Corroboration for client_verdict, never a fingerprint on its own.
+  client_verdict text,          -- 'browser' | 'inconsistent' | 'non-browser' | 'unknown'. No CHECK constraint,
+                                -- deliberately: this is a log table where a constraint violation would silently
+                                -- drop the row, and on D1 a CHECK edit triggers drizzle-kit's destructive table
+                                -- recreate. The value comes from a closed server-side union.
+
   -- user_id / session_id / profile_role were DROPPED by AECI-585 (§13 D7, migration 0014).
   -- All three were declared at init and never written by any code path. Do not reintroduce
   -- them: there is no client-side session id anywhere in apps/web, and minting one would
   -- create a durable first-party identifier — precisely what makes this table's write
   -- defensible as consent-independent today. user_id was reachable on the browser POST but
   -- never on the SSR arrival path, so it would have been right half the time.
+  -- is_operator (above) is none of the three and does not reopen this: it stores one
+  -- boolean whose only consumer is an exclusion predicate — no id, no role string,
+  -- nothing that singles a visitor out — and D7's arrival-path objection is closed at
+  -- the source, because firePageView now forwards the inbound Cookie.
+  -- AECI-743 — the one-arrival-one-row guard. sha256(concrete_path | user_agent_hash |
+  -- cf_asn | floor(now / PAGE_VIEW_DEDUPE_WINDOW_MS)), computed at ingest and protected
+  -- by the UNIQUE index below. Hashed rather than stored as a readable tuple for the
+  -- same reason the raw UA never lands here: it is a constraint handle, not a lookup
+  -- key, and nothing reads it back to identify anyone.
+  -- NULLABLE ON PURPOSE, and that is the whole design: SQLite indexes NULLs as DISTINCT,
+  -- so a null key opts a row OUT of the constraint. Ingest writes null for bot-classified
+  -- rows (crawler volume must stay a raw count) and for rows with no user_agent_hash
+  -- (the key would degenerate to path + ASN and collide two strangers behind one
+  -- network). Null on every row written before 2026-09; those cannot be backfilled,
+  -- because the stored row cannot distinguish a double-fire from two genuine arrivals.
+  -- navigation is deliberately NOT in the key, so an SSR 'arrival' and the tracker's
+  -- 'spa' row for the same document collapse too.
+  dedupe_key text,
   created_at timestamptz not null default now()
 );
 
@@ -1282,6 +1381,52 @@ create index page_views_bot_idx on page_views(is_bot, created_at); -- digest hum
 -- five AECI-585 columns: nothing groups or filters on them yet, and this is the hottest
 -- write path in the app (D1 bills rows written, index rows included). Add one with the
 -- read that needs it.
+-- The six AECI-658 request-shape columns are unindexed for the same reason: the swarm
+-- detector groups on user_agent_hash (already covered by the window predicate) and reads
+-- client_verdict as a conditional SUM inside that group and -- since AECI-744 -- as a
+-- WHERE term (client_verdict IN ('inconsistent','non-browser'), flagging a row on its own
+-- with no view floor). Still no index, and deliberately: that filter never appears without
+-- the created_at window beside it, so the plan is the same window scan either way, and an
+-- index would cost an extra index row on every insert on the hottest write path to save
+-- nothing. Revisit only if the window itself stops bounding the scan.
+-- AECI-742 added a SECOND grouped read on the same shape -- (user_agent_hash, UTC day) over
+-- the trailing 14 days, for the detector's cross-day prior -- and deliberately added no
+-- index for it either. page_views_operator_pair_idx cannot serve it (it is PARTIAL on
+-- is_operator = 1), so the alternative would be a full non-partial index on
+-- (user_agent_hash, created_at): an index row per write on the hottest write path, to
+-- speed one daily cron read over a fortnight of rows. Revisit only if that read is
+-- measured slow, not on principle.
+-- What that read IS load-bearing on is page_views_operator_pair_idx below, because
+-- NOT_INTERNAL's retro-join is a correlated EXISTS: with the index the planner does
+-- SEARCH op USING COVERING INDEX, without it SCAN op once per candidate row. Measured
+-- over 41k rows that is 8 ms against 4.3 s; against prod-shaped data a 14-day window
+-- costs 14 s and 42.7M rows read when the index is absent. So the index is not
+-- optional maintenance -- if the swarm prior ever looks slow, check for it first.
+-- A plain index on is_operator is still pointless for the same reason it always was:
+-- it is a near-constant column (almost every row is 0 or null), so an index on it
+-- selects nearly the whole table and no planner would use it. The PARTIAL index below
+-- is the opposite case and is exactly the "add one with the read that needs it" the
+-- rule reserves.
+create index page_views_operator_pair_idx
+  on page_views(user_agent_hash, cf_asn, created_at)
+  where is_operator = 1; -- AECI-683: serves NOT_INTERNAL's operator-pair retro-join
+create unique index page_views_dedupe_key_idx on page_views(dedupe_key); -- AECI-743
+-- UNIQUE is the load-bearing word. The ingest-side probe (routes/page-views.ts) exists
+-- for the `outcome:deduped` metric; it is this constraint, via ON CONFLICT DO NOTHING,
+-- that actually settles the case the issue is named for — two writes 83 ms apart, both
+-- in flight from waitUntil, where the second SELECT can run before the first INSERT
+-- commits. NOT partial, unlike the index above: a partial index cannot back an upsert
+-- conflict target. This IS a non-trivial write cost — a non-partial UNIQUE index stores
+-- a b-tree entry for every row, NULL keys included (SQLite treats NULLs as distinct for
+-- the uniqueness check, it does not omit them from the index), so the bot rows that
+-- dominate this hot write path each pay for one extra index-entry write. The null-key
+-- rule only opts those rows out of the CONSTRAINT, not out of the storage; the cost is
+-- accepted because a partial index is not an option for an upsert conflict target.
+-- Partial, so SQLite stores an entry only for operator rows — a few hundred out of
+-- ~27k in production — and the write cost on the anonymous traffic that dominates this
+-- table is zero. The key order matches the correlated subquery: seek on
+-- (user_agent_hash, cf_asn), then range-scan created_at. Verify with EXPLAIN QUERY PLAN;
+-- it should read `SEARCH op USING COVERING INDEX page_views_operator_pair_idx`.
 ```
 
 **Migration `0014` is the repo's first table recreate** — every `ALTER` before it is an `ADD`. SQLite refuses `DROP COLUMN` on a column carrying an index **or** a `FOREIGN KEY` clause, and `user_id` had both (`page_views_user_idx` + the FK to `profiles`), so the drop is a `__new_page_views` copy-and-rename; `session_id` and `profile_role` ride along in it for free. Two things about that file are load-bearing: the copy lists `id` explicitly, so the autoincrement PK survives (the Activity feed paginates on `(created_at DESC, id DESC)` and would repeat or skip rows otherwise), and drizzle-kit's emitted `PRAGMA foreign_keys=OFF` was **hand-replaced with `PRAGMA defer_foreign_keys = true`**, which is the lever D1 supports. Regenerating that migration reintroduces the wrong pragma. See `docs/migrations.md`.
@@ -1308,7 +1453,7 @@ Keys used (see `STAGE_1_SPEC.md` §10):
 - `home.most_integrated_product`
 - `home.most_active_category`
 - `home.recent_integrations`
-- `home.trending_products` — top 5 by page_views (last 7 days), each clearing the `TRENDING_MIN_VIEWS` floor (currently 3; AECI-280)
+- `home.trending_products` — top 5 by page_views (last 7 days), each clearing the `TRENDING_MIN_VIEWS` floor (currently 3; AECI-280). Counts **human, non-internal** views only: bots (AECI-582) and the operator's own sessions (§13 D13) rank nothing and clear no floor — this card is public, so an unfiltered count would let scraping or self-checking decide what every visitor sees
 - `home.recently_added_products`
 - `category_counts`
 - `audience_counts`
@@ -1370,7 +1515,7 @@ readable through the timeseries endpoint today (the stocks await §5.4/§5.5):
 
 | Metric | Kind | Source | Backfill provenance |
 |---|---|---|---|
-| `traffic.page_views_human` | flow | `page_views`, `is_bot IS NOT 1`, `/admin`+`/account` excluded | measured |
+| `traffic.page_views_human` | flow | `page_views`, `is_bot IS NOT 1`, `/admin`+`/account` and operator sessions excluded | measured |
 | `traffic.page_views_bot` | flow | `page_views`, `is_bot = 1` | measured |
 | `traffic.unique_visitors` | flow | `count(distinct (user_agent_hash, cf_asn))`, humans only (§9.8) | measured |
 | `catalog.products_created` | flow | `audit_log` `product.created` live; **`products.created_at`** when backfilled | measured (§4's exception / D6 — exact, and better than the audit log) |
@@ -1423,7 +1568,7 @@ for a stock: an uncaptured day would report zero subscribers rather than unknown
 
 ### 9.4 `job_runs`
 
-One row per execution of one of the eleven `scheduled.ts` cron jobs (AECI-583; `ADMIN_PANEL_SPEC.md` §7.2 — the eleventh is the 10:00 attestation detector sweep, AECI-302). Before it existed a cron's outcome lived **only** as an emitted metric, so nothing in D1 could answer "did the 08:00 Algolia sync run today", and the ten data-quality findings lived **only** in the 04:00 email — computed, sent, discarded.
+One row per execution of one of the thirteen `scheduled.ts` cron jobs (AECI-583; `ADMIN_PANEL_SPEC.md` §7.2 — the eleventh is the 10:00 attestation detector sweep, AECI-302; the twelfth the 11:00 entitlement-expiry sweep, AECI-613; the thirteenth the weekly Monday `asn_registry` refresh, AECI-624). Before it existed a cron's outcome lived **only** as an emitted metric, so nothing in D1 could answer "did the 08:00 Algolia sync run today", and the ten data-quality findings lived **only** in the 04:00 email — computed, sent, discarded.
 
 ```sql
 create table job_runs (
@@ -1443,21 +1588,54 @@ create index job_runs_job_started_at_idx on job_runs(job, started_at); -- per-jo
 
 **`outcome` has no `'running'` member.** In flight is already `finished_at IS NULL AND outcome IS NULL`; a second encoding would let the two disagree. NULL passes the CHECK because SQLite satisfies a CHECK when the expression is true *or* NULL. The read side additionally refuses an outcome on an open row whatever is stored, so an unfinished run structurally cannot render as a success.
 
-**`job` carries no CHECK**, following `audit_log.action`: the vocabulary grows with every new cron and SQLite cannot ALTER a CHECK, so a tenth cron would need a table-recreate migration. `Record<ScheduledJob, AdminCronJob>` in `apps/api/src/lib/cron-schedules.ts` plus the Zod enum are the enforcement.
+**`job` carries no CHECK**, following `audit_log.action`: the vocabulary grows with every new cron and SQLite cannot ALTER a CHECK, so a tenth cron would have needed a table-recreate migration (an eleventh, `asn-registry`, landed with AECI-624 at no migration cost — which is the payoff). `Record<ScheduledJob, AdminCronJob>` in `apps/api/src/lib/cron-schedules.ts` plus the Zod enum are the enforcement.
 
-**Why the index is `(job, started_at)` in that order.** Every read is "the newest run of one job": an equality seek on `job`, then one row off the descending `started_at` edge (`LIMIT 1`, ten of them per request). `id` is the rowid and therefore the index's implicit trailing column, which makes `ORDER BY started_at DESC, id DESC` a free deterministic tie-break with no temp b-tree. Verified by `EXPLAIN QUERY PLAN` against a 9,000-row fixture: `SEARCH job_runs USING INDEX job_runs_job_started_at_idx (job=?)`. The `GROUP BY job` and `ROW_NUMBER() OVER (PARTITION BY job)` alternatives both SCAN the whole index, and D1 bills rows read.
+**Why the index is `(job, started_at)` in that order.** Every read is "the newest run of one job": an equality seek on `job`, then one row off the descending `started_at` edge (`LIMIT 1`, eleven of them per request). `id` is the rowid and therefore the index's implicit trailing column, which makes `ORDER BY started_at DESC, id DESC` a free deterministic tie-break with no temp b-tree. Verified by `EXPLAIN QUERY PLAN` against a 9,000-row fixture: `SEARCH job_runs USING INDEX job_runs_job_started_at_idx (job=?)`. The `GROUP BY job` and `ROW_NUMBER() OVER (PARTITION BY job)` alternatives both SCAN the whole index, and D1 bills rows read.
 
 **No `audit_log` row.** Derived, log-class, cron-internal bookkeeping, exempt under ADR 0022 / `ADMIN_PANEL_SPEC.md` §13 D11 — and self-evidently the wrong thing to audit, since `job_runs` *is* the observability record. Written the way `stats_cache` is (`lib/home-stats.ts` `upsertStat`): plain single statements, outside any `db.batch`, each inside its own try/catch, so a bookkeeping failure can never abort the job it records. Note the boundary this does **not** cross: the exemption keys on entity class, not actor class, so a cron writing *domain* state still audits.
 
 **Read by** `GET /api/admin/system` (cron liveness + the orphan sweep) and `GET /api/admin/overview`'s status strip (the stored data-quality result) — `API_CONTRACTS.md` §6.10, `ADMIN_PANEL_SPEC.md` §5.1/§5.6. Both treat every field as untrusted and parse rather than assume.
 
-**Retention: 90 days — enforced** since AECI-584 by the daily 03:00 UTC pruning cron (`apps/api/src/lib/retention-prune.ts`), on the same whole-UTC-day, chunked-by-`id` mechanism as `page_views` §9.1. This is the half of §7.4 that bites first: the table accrues roughly 44k rows/year, ~80% of them from the `*/15` reconcile sweep, so the window first removes rows around **2026-11-11** (90 days past the 2026-08-13 start) versus ~2027-07 for `page_views`. Unlike `page_views` it carries no `metrics_daily` gate of its own — but a snapshot gap still stops it, because the prune aborts the whole run rather than half of it. Window: `JOB_RUNS_RETENTION_DAYS` in `@aeci/shared`, overridable per tier by the like-named env var. The read path was always immune by construction (ten bounded seeks), which is why the query shape above matters more than it looks.
+**Retention: 90 days — enforced** since AECI-584 by the daily 03:00 UTC pruning cron (`apps/api/src/lib/retention-prune.ts`), on the same whole-UTC-day, chunked-by-`id` mechanism as `page_views` §9.1. This is the half of §7.4 that bites first: the table accrues roughly 44k rows/year, ~80% of them from the `*/15` reconcile sweep, so the window first removes rows around **2026-11-11** (90 days past the 2026-08-13 start) versus ~2027-07 for `page_views`. Unlike `page_views` it carries no `metrics_daily` gate of its own — but a snapshot gap still stops it, because the prune aborts the whole run rather than half of it. Window: `JOB_RUNS_RETENTION_DAYS` in `@aeci/shared`, overridable per tier by the like-named env var. The read path was always immune by construction (eleven bounded seeks), which is why the query shape above matters more than it looks.
+
+### 9.5 `asn_registry`
+
+External classification of the ASNs `page_views` has actually seen (AECI-624; `ADMIN_PANEL_SPEC.md` §7.6). Joined at **read time** to annotate an Activity row or a `dimension=asn` breakdown group — it is **not** a second `DATACENTER_ASNS`, and nothing that writes it ever touches `page_views.is_bot`.
+
+```sql
+create table asn_registry (
+  asn integer primary key,      -- the join key; page_views.cf_asn matches by VALUE (no FK)
+  info_type text,               -- the upstream's word, VERBATIM ('Content', 'Cable/DSL/ISP', 'NSP', …).
+                                -- Null is a real, distinct state: ~29% of PeeringDB records carry a blank one
+  as_name text,
+  source text not null,         -- 'peeringdb' today; per-row so a second feed can land beside it
+  fetched_at text not null      -- drives the §5.6 staleness note
+);
+
+create index asn_registry_fetched_at_idx on asn_registry(fetched_at);
+```
+
+**Why it exists.** `is_bot` is written once at ingest from a hand-curated list whose membership rule is deliberately strict, and the raw User-Agent is discarded after hashing — so improving that list costs a one-way backfill. The cost of the strictness is a known miss: on 2026-08-13 three of five requests in a 1.9-second, three-continent burst on one product page counted as human because AS30058 (FDCservers.net) is not on the list. Rather than widen it — measured, the free external lists are *narrower* than ours and would have missed that ASN too — the panel annotates. Improve the feed and every historical row improves with it, no backfill and no rewritten verdicts.
+
+**No foreign key, deliberately.** `page_views` rows are pruned at 400 days (§9.1) and ASNs are not ours to own, so the join is by value and an absent row is an ordinary state that the read path renders as "no annotation" rather than as an error.
+
+**`info_type` carries no CHECK**, for the same reason `job_runs.job` does not and one more: the vocabulary belongs to the upstream, so re-coding it on the way in would bake today's reading of their taxonomy into stored data. The mapping onto our four coarse buckets (`eyeball` / `transit` / `non_eyeball` / `unclassified`) is a pure function on the read side (`networkClassOf` in `apps/api/src/lib/asn-registry.ts`), revisable with no migration and no re-fetch.
+
+**Bounded by the join domain, not by the feed.** PeeringDB carries ~35,000 networks; production `page_views` has seen 878 distinct ASNs. The weekly refresh intersects the two and stores only the second set, so the table stays under ~1k rows and carries nothing that will never be joined against. A first-sighting ASN is unannotated until the next Monday.
+
+**Never deleted, and an empty upstream is a failure.** A refresh only ever upserts. An outage, a schema change, or an empty response leaves the last good rows in place with their real `fetched_at` — the failure mode of an annotation feed must be "old answer", never "no answer, silently". Chunked at 20 rows per statement against D1's 100-bound-parameter cap (five columns × 20).
+
+**No `audit_log` row.** Derived, log-class, cron-written bookkeeping, exempt under ADR 0022 — the same class as `metrics_daily` §9.3 and `job_runs` §9.4. The run is recorded in `job_runs` (`job = 'asn-registry'`).
+
+**Written by** the weekly `0 2 * * 2` cron (Mondays; Cloudflare's day-of-week is 1=Sunday, AECI-661) (`apps/api/src/scheduled.ts` → `refreshAsnRegistry`). **Read by** `GET /api/admin/page-views`, `GET /api/admin/traffic/breakdown?dimension=asn`, and `GET /api/admin/system` (freshness + coverage).
+
+**Retention: none.** The table is bounded by the distinct-ASN count and a classification stays true after the `page_views` rows that prompted it are pruned, so §7.4's prune deliberately does not touch it.
 
 ---
 
 ## 9a. Connector lane (Stage 1.5 Addendum C — AECI-714)
 
-Six tables added by migration `apps/api/migrations/0021_overconfident_selene.sql`. Five are a
+Six tables added by migration `apps/api/migrations/0026_overconfident_selene.sql`. Five are a
 **projection** of the review app's connector-lane model (`aec-integrations-review`, AECI-719):
 same column names, same semantics, so review → AECi is a copy rather than a transformation. The
 sixth, `connector_evidenced_pairs`, has no upstream counterpart and is created empty.
@@ -1727,7 +1905,7 @@ create index connector_pairs_stub_b_idx on connector_pairs(stub_b_id);
 The **delivered** tier for connector-delivered edges (§13.1). The one table here with no
 review-side counterpart, and the destination AECI-721 migrates the connector-powered
 `integrations.powered_by_product_id` edges into. AECI-714 created it empty; **AECI-721 filled it**
-(migration `0022_powerful_killraven.sql`) and made `POST /api/promote` route new
+(migration `0027_powerful_killraven.sql`) and made `POST /api/promote` route new
 connector-powered edges here instead of into `integrations`. The connector-catalogue sync still
 never emits a statement against it — reachability and delivery stay separate lanes.
 

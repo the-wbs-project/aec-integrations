@@ -1,12 +1,13 @@
 -- AECI-607 — Stage 2 migration 2: the product-version model.
 -- Contract: docs/STAGE_2_ATTESTATIONS_SPEC.md §1.2 / §8. Purely additive.
 --
--- ⚠️ RENUMBERED 0008 → 0017 by AECI-619. It shipped as 0008 (leaving 0007 free)
+-- ⚠️ RENUMBERED TWICE: 0008 → 0017 by AECI-619, then 0017 → 0022 by AECI-750 (see
+-- 0021_lyrical_leper_queen.sql). It shipped as 0008 (leaving 0007 free)
 -- precisely so this reconciliation had somewhere to land; in the event `main` had
 -- reached 0015, so both of this epic's migrations moved to the end of the chain
--- instead. `meta/0017_snapshot.json` was REGENERATED against the merged schema,
--- not renamed — see the note in 0016_lyrical_leper_queen.sql. `aeci-515` still
--- holds a 0006 and takes 0018+ when it reconciles.
+-- instead. `meta/0022_snapshot.json` was RECOMPOSED against the merged schema,
+-- not renamed — see the note in 0021_lyrical_leper_queen.sql. `aeci-515` still
+-- held a 0006 and reconciled as 0024 (AECI-622, then AECI-750).
 --
 -- ⚠️ THE `ALTER` STATEMENTS ARE HAND-AUTHORED. `drizzle-kit generate` emitted them
 -- as bare `REFERENCES product_versions(id)` with **no `ON DELETE` clause**, silently
@@ -16,7 +17,7 @@
 -- of degrading the stamp to "no version data". The `CREATE TABLE` + indexes above are
 -- untouched generator output: `CREATE TABLE` does emit the full FK clause.
 --
--- The body still matches `meta/0017_snapshot.json`, so `db:generate` stays a no-op
+-- The body still matches `meta/0022_snapshot.json`, so `db:generate` stays a no-op
 -- and the CI drift gate passes — drizzle-kit diffs `schema.ts` against the snapshot,
 -- never against the database. Statement order matters: `product_versions` must exist
 -- before the `attestations` FKs point at it.

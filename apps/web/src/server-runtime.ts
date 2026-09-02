@@ -73,9 +73,11 @@
 
 import {
   defaultIntegrationContext,
+  isSpeculativeRequest,
   isUntrackedRoute,
   LANDING_CF_HEADERS,
   PAGE_VIEW_CF_HEADERS,
+  PAGE_VIEW_CLIENT_SIGNAL_HEADERS,
 } from '@aeci/shared';
 import type { IntegrationDetail, PageViewPayload } from '@aeci/shared';
 import { isPublicSite } from '@aeci/shared/deploy-env';
@@ -716,8 +718,8 @@ export type ResponseTransform = (
  * `page_views` (AECI-177). It is populated on the inbound eyeball request but
  * does NOT survive the `env.API` service binding, so we copy the needed fields
  * onto the trusted `PAGE_VIEW_CF_HEADERS` (`x-aeci-cf-*`) before forwarding.
- * Structural — we read only the five fields we forward, so no global CF typing
- * is required and a `.cf`-less request (Node tests, local dev) is a clean no-op.
+ * Structural — we read only the fields we forward, so no global CF typing is
+ * required and a `.cf`-less request (Node tests, local dev) is a clean no-op.
  */
 interface CfLike {
   country?: string | null;
@@ -726,6 +728,10 @@ interface CfLike {
   /** AS holder name (AECI-585) — the label the bare `asn` cannot supply. */
   asOrganization?: string | null;
   botManagement?: { score?: number | null } | null;
+  /** Negotiated TLS version / protocol (AECI-658). Available on Pro, unlike the
+   *  bot score; low-entropy corroboration only, never a fingerprint. */
+  tlsVersion?: string | null;
+  httpProtocol?: string | null;
 }
 
 /**
@@ -744,6 +750,11 @@ export function applyCfContextHeaders(headers: Headers, request: Request): void 
   }
   const score = cf.botManagement?.score;
   if (typeof score === 'number') headers.set(PAGE_VIEW_CF_HEADERS.botScore, String(score));
+  // AECI-658. Two low-entropy connection facts Pro does expose, forwarded for the
+  // same reason as everything above: `request.cf` does not survive the service
+  // binding, so the value has to be copied onto a header or it is lost.
+  if (cf.tlsVersion) headers.set(PAGE_VIEW_CF_HEADERS.tlsVersion, String(cf.tlsVersion));
+  if (cf.httpProtocol) headers.set(PAGE_VIEW_CF_HEADERS.httpProtocol, String(cf.httpProtocol));
 }
 
 /**
@@ -867,6 +878,22 @@ function firePageView(
   sourceRequest: Request,
 ): void {
   if (isUntrackedRoute(payload.route)) return;
+  // AECI-743 — a HEAD (or any non-GET) is not a page view. `handleSsr` sends every
+  // non-GET down the non-cacheable branch, which still runs the renderer and still
+  // lets a detail resolver attach `ctx.pageView`, so a HEAD-then-GET probe used to
+  // write two byte-identical `arrival` rows — identical down to the route PATTERN,
+  // because both carried the same resolver payload. Guarded HERE rather than at the
+  // one call site that can reach it, so the invariant survives a future branch.
+  if (sourceRequest.method !== 'GET') return;
+  // AECI-743 — a browser prefetch/prerender is speculative: the visitor may never
+  // see this page, and a prerender is otherwise indistinguishable from a real
+  // arrival (it sends `Sec-Fetch-Dest: document` like any navigation). Skipped
+  // rather than recorded under a new `navigation` value, so no read surface has to
+  // learn a new exclusion. Counted so the volume stays observable.
+  if (isSpeculativeRequest(sourceRequest.headers)) {
+    submitCount(execCtx, env, sourceRequest, 'aeci.pageviews.speculative', 1, []);
+    return;
+  }
   const headers = new Headers({ 'content-type': 'application/json' });
   applyCfContextHeaders(headers, sourceRequest);
   const userAgent = sourceRequest.headers.get('user-agent');
@@ -876,6 +903,37 @@ function firePageView(
   // exactly what fires this write. AECI-526.
   const referer = sourceRequest.headers.get('referer');
   if (referer) headers.set('referer', referer);
+  // Forward the eyeball's request-shape headers (`Sec-Fetch-*`, `Accept-Language`,
+  // `sec-ch-ua`, `Accept`) so the API can record how browser-shaped this arrival
+  // was (AECI-658, `lib/client-signals.ts`). This is the ONLY path that needs the
+  // copy: the browser tracker POSTs its own fetch, which carries them natively.
+  //
+  // Copied verbatim under their real names rather than renamed onto `x-aeci-*`,
+  // because nothing is trusted on the strength of them — they produce an
+  // annotation (`client_verdict`), never an `is_bot` verdict, so there is no
+  // spoofing boundary to defend. Cache-neutral for the same reason `cookie` below
+  // is: this header set exists only on the fire-and-forget analytics subrequest.
+  for (const name of PAGE_VIEW_CLIENT_SIGNAL_HEADERS) {
+    const value = sourceRequest.headers.get(name);
+    if (value) headers.set(name, value);
+  }
+  // Forward the eyeball's `Cookie` so the API can decide whether this arrival is
+  // the operator checking their own work (`is_operator`, ADMIN_PANEL_SPEC §13 D13).
+  // The API verifies the session token itself — this header is transport, and
+  // nothing in it is trusted before JWKS verification.
+  //
+  // This is the ONLY page-view path that needed it: the browser tracker POSTs
+  // same-origin, so its cookies already ride the `/api/*` passthrough untouched.
+  // Leaving this out is exactly why D7 judged a per-view role signal "right half
+  // the time" and dropped `profile_role`; forwarding it makes arrivals and in-app
+  // hops agree.
+  //
+  // Cache-neutral by construction: this header is set on the fire-and-forget
+  // analytics subrequest only. It never reaches `renderer()` (the cacheable branch
+  // renders from the cookie-stripped `sanitized` request) and can never reach a
+  // response written to the shared edge cache.
+  const cookie = sourceRequest.headers.get('cookie');
+  if (cookie) headers.set('cookie', cookie);
   // Pathname only — never the query or hash. `page_views` stores a referrer HOST
   // for the same reason (§9.7); a concrete path carrying `?token=…` would put the
   // full URL back into the table the privacy rule keeps it out of.

@@ -141,6 +141,80 @@ describe('PageViewTracker', () => {
     });
   });
 
+  // AECI-743 — a navigation that only rewrote the query string is not a new view.
+  // With `?`/`#` stripped, those produce a row byte-identical to the previous one,
+  // and the debounced URL syncs in search / pagination / facets fire several per
+  // interaction.
+  describe('query-only re-navigation (AECI-743)', () => {
+    it('POSTs once when a page re-syncs its query string repeatedly', () => {
+      const { events, tracker, httpMock } = configure('browser');
+      tracker.start();
+      events.next(nav(1, '/')); // skipped
+
+      events.next(nav(2, '/search?q=re'));
+      const req = httpMock.expectOne('/api/page-views');
+      expect(req.request.body).toEqual({ route: '/search', navigation: 'spa' });
+      req.flush(null, { status: 204, statusText: 'No Content' });
+
+      // The debounce fires again as the query grows — same path, no new view.
+      events.next(nav(3, '/search?q=revit'));
+      events.next(nav(4, '/search?q=revit&category=bim'));
+      httpMock.expectNone('/api/page-views');
+      httpMock.verify();
+    });
+
+    it('does not re-count the landing page when its first URL sync lands', () => {
+      // The skipped initial navigation seeds the memo, so a facet sync immediately
+      // after hydration cannot re-count the arrival the SSR Worker already wrote.
+      const { events, tracker, httpMock } = configure('browser');
+      tracker.start();
+      events.next(nav(1, '/products'));
+      events.next(nav(2, '/products?sort=name'));
+
+      httpMock.expectNone('/api/page-views');
+      httpMock.verify();
+    });
+
+    it('counts a genuine return to the same path later in the session', () => {
+      // Only CONSECUTIVE repeats collapse — A → B → A is two views of A.
+      const { events, tracker, httpMock } = configure('browser');
+      tracker.start();
+      events.next(nav(1, '/')); // skipped
+
+      events.next(nav(2, '/products'));
+      httpMock.expectOne('/api/page-views').flush(null, { status: 204, statusText: 'No Content' });
+
+      events.next(nav(3, '/products/procore'));
+      httpMock.expectOne('/api/page-views').flush(null, { status: 204, statusText: 'No Content' });
+
+      events.next(nav(4, '/products'));
+      const req = httpMock.expectOne('/api/page-views');
+      expect(req.request.body).toEqual({ route: '/products', navigation: 'spa' });
+      req.flush(null, { status: 204, statusText: 'No Content' });
+      httpMock.verify();
+    });
+
+    it('does not let an excluded route poison the memo', () => {
+      // `/admin` returns before the memo is touched, so a public route visited
+      // before AND after an admin hop still counts the second time.
+      const { events, tracker, httpMock } = configure('browser');
+      tracker.start();
+      events.next(nav(1, '/')); // skipped
+
+      events.next(nav(2, '/products'));
+      httpMock.expectOne('/api/page-views').flush(null, { status: 204, statusText: 'No Content' });
+
+      events.next(nav(3, '/admin/reviews'));
+      httpMock.expectNone('/api/page-views');
+
+      // Consecutive repeat of `/products` as far as the memo is concerned — and it
+      // must stay suppressed, because nothing was written for the admin hop.
+      events.next(nav(4, '/products'));
+      httpMock.expectNone('/api/page-views');
+      httpMock.verify();
+    });
+  });
+
   // AECI-585 / ADMIN_PANEL_SPEC §7.3 — this tracker fires ONLY on in-app
   // navigation, so `spa` is a property of the writer rather than a guess. Without
   // it the same-origin `Referer` on this POST classifies as `Direct`, which is what

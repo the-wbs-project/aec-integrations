@@ -547,6 +547,50 @@ export interface PromotePreserved {
 }
 
 /**
+ * One optional FK an integration named that AECi could **not** resolve, so the
+ * column was left out of the write entirely (AECI-730).
+ *
+ * **This is not `skipped[]`, and the difference is the whole point.** A `skipped`
+ * entry means the row was never written. An entry here means the integration row
+ * DID land — it is simply missing this one link. Before AECI-730 an unresolvable
+ * `poweredByProduct` produced neither: the edge was written with a NULL FK and the
+ * only signal was the *absence* of `poweredBySlug` from the result.
+ *
+ * **Expect a steady, non-zero stream of these, and do not treat them as errors.**
+ * The commonest cause by far is a connector AECi has deliberately parked and will
+ * never promote (Zapier and Workato — AECI-700), so for those edges this is the
+ * permanent expected state, not a backlog that drains. Re-pushing will not change
+ * it. The actionable case is the other one: a connector that *is* meant to be in
+ * the directory but hasn't been promoted yet — promote it, then re-push this edge.
+ */
+export interface PromoteUnresolvedLink {
+  /** The enclosing integration's payload `ref`. */
+  ref: string;
+  /**
+   * Which link failed to resolve. `powered_by` ← the payload's `poweredByProduct`
+   * (DB column `integrations.powered_by_product_id`); `built_by` ← `builtByVendor`
+   * (`integrations.built_by_vendor_id`).
+   */
+  field: 'powered_by' | 'built_by';
+  /**
+   * The id the payload carried. `null` only for the `{ ref }` form, which resolves
+   * within the bundle and therefore effectively never lands here.
+   */
+  supabaseId: string | null;
+  /**
+   * What the stored column holds as a result.
+   *
+   * - `unset` — the integration was **created**, so the column is NULL.
+   * - `preserved` — the integration was **updated** and the column was left exactly
+   *   as it already was, which may itself be NULL. This is the AECI-730 clobber
+   *   guard: before it, an unresolvable link on an update actively *cleared* a
+   *   correct FK that an earlier promote had set.
+   */
+  outcome: 'unset' | 'preserved';
+  reason: string;
+}
+
+/**
  * The ID map the review app persists. `product` is `null` for a vendor-only or
  * integration-only push (no `product` was sent) — and, since AECI-520, also when
  * the product was BLOCKED because a claimed vendor owns it; the two are told
@@ -554,7 +598,7 @@ export interface PromotePreserved {
  * `ref` only ever appears when a product was actually sent. A blocked vendor is
  * likewise absent from `vendors[]`. Omission (rather than an `operation:
  * 'blocked'`) is deliberate: every post-commit deriver — cache-tag purge,
- * IndexNow, Google Indexing, Algolia — iterates these arrays unconditionally, so
+ * IndexNow, Algolia — iterates these arrays unconditionally, so
  * omitting the entity excludes it from all of them by default rather than by
  * remembering to guard six call sites.
  *
@@ -593,6 +637,18 @@ export interface PromoteResponse {
    * an unclaimed product, which is still the overwhelming majority.
    */
   preserved: PromotePreserved[];
+  /**
+   * Integrations that WERE written but whose `poweredByProduct` / `builtByVendor`
+   * link could not be resolved, so that column was left out of the write (AECI-730).
+   * Distinct from `skipped[]` — see {@link PromoteUnresolvedLink}.
+   *
+   * Always emitted (as `[]` when clean) by any AECi build carrying AECI-730. It is
+   * declared **optional** only for backward compatibility: a promote job whose
+   * `promote_jobs` ledger row or `promote:result:{jobId}` KV mirror was written by
+   * an older build has no such key, and that stored `PromoteResponse` is replayed
+   * verbatim. Consumers must tolerate its absence — read it as `?? []`.
+   */
+  unresolvedLinks?: PromoteUnresolvedLink[];
 }
 
 // ─── Async job protocol (AECI-563) ───────────────────────────────────────────

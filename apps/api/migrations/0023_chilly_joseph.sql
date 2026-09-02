@@ -3,7 +3,7 @@
 --
 -- ⚠️ HAND-AUTHORED BODY — this is NOT raw `drizzle-kit generate` output, and
 -- regenerating over it would reintroduce a migration that destroys data. Same
--- reasoning as 0016_lyrical_leper_queen.sql; see docs/migrations.md §0 (when
+-- reasoning as 0021_lyrical_leper_queen.sql; see docs/migrations.md §0 (when
 -- drizzle-kit wants to recreate a table). The three new CHECK constraints put
 -- drizzle-kit on the SQLite table-recreate path for all three tables
 -- (`CREATE __new_x` → `INSERT…SELECT` → `DROP TABLE x` → `RENAME`), and what it
@@ -22,7 +22,7 @@
 --      actually fires.
 --
 -- The statements below are the additive equivalent and match
--- `meta/0018_snapshot.json`, so `db:generate` stays a no-op and drift-check passes.
+-- `meta/0023_snapshot.json`, so `db:generate` stays a no-op and drift-check passes.
 --
 -- NO BACKFILL, deliberately and permanently (AECI-616 "Explicitly not in scope").
 -- Every existing row keeps `last_reviewed_at IS NULL` and renders bare attribution

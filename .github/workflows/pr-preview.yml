@@ -320,6 +320,16 @@ jobs:
       #
       # The `POSTHOG_KEY_STAGING` / `POSTHOG_KEY_PRODUCTION` GitHub secrets are
       # now unused and should be deleted (operator step, AECI-640).
+
+      # ---------------------------------------------------------------------
+      # Step 9: Verify the preview reports the PR head SHA on BOTH Workers
+      #   /api/version (proxied raw to the API Worker) AND /_version (the SSR
+      #   Worker's own signal, AECI-92). /api/version alone can't catch a stale
+      #   SSR deploy because the SSR Worker forwards it untouched to the API
+      #   Worker. Cloudflare Access fronts the wildcard
+      #   *.aec-integrations.workers.dev (docs/access.md :42), so
+      #   verify-version.sh sends the service-token headers (CF_ACCESS_* below).
+      # ---------------------------------------------------------------------
       - name: Verify preview (API + SSR at PR head SHA)
         env:
           EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}

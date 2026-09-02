@@ -538,6 +538,32 @@
           }
         </dd>
       </div>
+      <!--
+                Three states, kept apart on purpose. Never refreshed is not stale: a
+                new environment has nothing to be stale about, and flagging it would
+                make the one state an operator can ignore look like the one they
+                cannot. Coverage sits beside the date because a perfectly fresh
+                registry can still annotate almost nothing.
+              -->
+      <div>
+        <dt class="font-bold text-(--text-secondary)" i18n="@@admin.system.db.asnRegistry">
+          Network registry refreshed
+        </dt>
+        <dd class="text-(--text-primary)">
+          @if (s.asn_registry.fetched_at) { {{ s.asn_registry.fetched_at | date: 'medium' : 'UTC' }}
+          @if (s.asn_registry.stale) {
+          <span class="text-(--accent-secondary-deep)" i18n="@@admin.system.db.asnRegistryStale">
+            (stale)</span
+          >
+          }
+          <span class="block text-xs text-(--text-tertiary)">{{ asnCoverageLabel() }}</span>
+          } @else {
+          <span i18n="@@admin.system.db.asnRegistryNever"
+            >Never. Activity rows show no network annotation.</span
+          >
+          }
+        </dd>
+      </div>
     </dl>
 
     <div class="overflow-x-auto">

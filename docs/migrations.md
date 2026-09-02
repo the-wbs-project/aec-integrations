@@ -137,7 +137,7 @@ This does not break the drift gate: drizzle-kit diffs `schema.ts` against
 `meta/NNNN_snapshot.json`, never the database, so leaving the generated snapshot untouched keeps
 `db:generate` a no-op. **Verify by re-running it and confirming `git status --porcelain` is clean**,
 and leave a header comment in the migration saying it is hand-authored and why
-(`0016_lyrical_leper_queen.sql` and `0017_slim_iron_lad.sql` are the references).
+(`0021_lyrical_leper_queen.sql` and `0022_slim_iron_lad.sql` are the references).
 `0003_gray_eternity.sql` is the lighter precedent — a hand-appended backfill after the generated
 statement.
 
@@ -202,9 +202,9 @@ file: the `ALTER`s would hit existing columns and error. Rename the ledger rows 
 cd apps/api
 # 1. Point the recorded names at the new filenames. Same migration, same applied_at.
 npx wrangler d1 execute aeci-app-preview --env preview --remote --command \
-  "UPDATE d1_migrations SET name='0016_lyrical_leper_queen.sql' WHERE name='0006_lyrical_leper_queen.sql'"
+  "UPDATE d1_migrations SET name='0021_lyrical_leper_queen.sql' WHERE name='0006_lyrical_leper_queen.sql'"
 npx wrangler d1 execute aeci-app-preview --env preview --remote --command \
-  "UPDATE d1_migrations SET name='0017_slim_iron_lad.sql' WHERE name='0008_slim_iron_lad.sql'"
+  "UPDATE d1_migrations SET name='0022_slim_iron_lad.sql' WHERE name='0008_slim_iron_lad.sql'"
 
 # 2. Now only genuinely-unapplied migrations run.
 npx wrangler d1 migrations apply aeci-app-preview --env preview --remote
@@ -226,7 +226,7 @@ AECI-619, `main`'s `0010`–`0015` touched `promote_jobs` / `metrics_daily` / `j
 **Settled — nothing is reserved.** `aeci-515` (Paid Tiers) generated `vendor_entitlements`
 (AECI-609) as `0006_easy_sandman.sql`, colliding with `main`'s `0006_crazy_lockheed.sql`. AECI-622
 first renumbered it to `0018`, which **also** collided once the AECI-514 epic landed (`0016`/`0017`
-plus `0018_chilly_joseph`). It is now **`0019_easy_sandman.sql`**, renumbered at the
+plus `0023_chilly_joseph`). It is now **`0024_easy_sandman.sql`**, renumbered at the
 `stage-2 → aeci-515` merge by the regenerate-the-snapshot procedure above.
 
 That is twice this line went stale while being read as authoritative, which is the point worth

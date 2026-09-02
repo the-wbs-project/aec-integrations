@@ -53,7 +53,6 @@ import {
   refreshHomeStatsAfterPromote,
   runPromoteIngest,
   type PromoteAlgoliaSync,
-  type PromoteGoogleIndexingNotify,
   type PromoteHomeStatsRefresh,
   type PromoteIndexNowNotify,
   type PromoteIngestDeps,
@@ -77,11 +76,6 @@ const noopAlgolia: PromoteAlgoliaSync = async () => {};
 /** A no-op IndexNow seam — default for all tests so the real default (which calls
  *  the global `fetch`) is never hit; the wiring tests inject a spy instead. */
 const noopIndexNow: PromoteIndexNowNotify = async () => {};
-
-/** A no-op Google Indexing seam — default for all tests so the real default
- *  (which signs a JWT + calls the global `fetch`) is never hit; the wiring tests
- *  inject a spy instead. */
-const noopGoogleIndexing: PromoteGoogleIndexingNotify = async () => {};
 
 /** A no-op home-stats refresh seam — default for all tests so the real default
  *  (which opens a fresh `getDb` on `env.DB` + recomputes/purges) is never hit; the
@@ -136,7 +130,6 @@ function buildApp(
   opts: {
     syncAlgolia?: PromoteAlgoliaSync;
     notifyIndexNow?: PromoteIndexNowNotify;
-    notifyGoogleIndexing?: PromoteGoogleIndexingNotify;
     refreshHomeStats?: PromoteHomeStatsRefresh;
     dbFor?: DbFactory;
   } = {},
@@ -145,7 +138,6 @@ function buildApp(
     dbFor: opts.dbFor ?? t.factory,
     syncAlgolia: opts.syncAlgolia ?? noopAlgolia,
     notifyIndexNow: opts.notifyIndexNow ?? noopIndexNow,
-    notifyGoogleIndexing: opts.notifyGoogleIndexing ?? noopGoogleIndexing,
     refreshHomeStats: opts.refreshHomeStats ?? noopHomeStats,
   };
   const app = new Hono<{ Bindings: Env }>();
@@ -216,7 +208,6 @@ describe('runPromoteIngest — Sessions API anchoring (AECI-250 / AECI-563)', ()
         dbFor: rec.factory,
         syncAlgolia: noopAlgolia,
         notifyIndexNow: noopIndexNow,
-        notifyGoogleIndexing: noopGoogleIndexing,
         refreshHomeStats: noopHomeStats,
       },
     );
@@ -632,7 +623,6 @@ describe('runPromoteIngest', () => {
         dbFor: t.factory,
         syncAlgolia: noopAlgolia,
         notifyIndexNow: noopIndexNow,
-        notifyGoogleIndexing: noopGoogleIndexing,
         refreshHomeStats: noopHomeStats,
       };
 
@@ -690,7 +680,6 @@ describe('runPromoteIngest', () => {
       dbFor: t.factory,
       syncAlgolia: noopAlgolia,
       notifyIndexNow: noopIndexNow,
-      notifyGoogleIndexing: noopGoogleIndexing,
       refreshHomeStats: noopHomeStats,
     });
     const ingest = (body: unknown, jobId?: string) =>
@@ -1384,8 +1373,6 @@ describe('runPromoteIngest — trades ingest (AECI-542)', () => {
     const pingEnv: Env = {
       ...baseEnv,
       INDEXNOW_KEY: 'k',
-      GOOGLE_INDEXING_SA_EMAIL: 'sa@example.com',
-      GOOGLE_INDEXING_SA_PRIVATE_KEY: 'pk',
       PUBLIC_SITE_URL: SITE,
     };
 
@@ -1395,19 +1382,23 @@ describe('runPromoteIngest — trades ingest (AECI-542)', () => {
       const record: PromoteIndexNowNotify = async (_c, _r, tradeUrls) => {
         captured.push(tradeUrls);
       };
-      const app = buildApp({ notifyIndexNow: record, notifyGoogleIndexing: record });
+      const app = buildApp({ notifyIndexNow: record });
       const res = await app.request('/api/promote', post(body), env, fakeExecutionContext());
       expect(res.status).toBe(200);
       return { res, captured };
     }
 
-    /** Both pings configured → both seams fire, and must share ONE resolution. */
+    /** The ping configured → its seam fires exactly once with one resolution.
+     *
+     *  This used to assert that the SAME promise reached TWO seams (IndexNow and
+     *  Google), which was the §20.2 "no second deriver" guarantee. AECI-747
+     *  removed the Google ping, so there is only one consumer left and the
+     *  shared-promise assertion has nothing to compare. The single-read property
+     *  it protected still holds — `resolveTradeUrlOptions` is called once per
+     *  promote — and is what the length check below pins. */
     async function promoteAndCaptureTradeUrls(body: unknown) {
       const { res, captured } = await promoteWithPingSeams(body, pingEnv);
-      // The SAME promise reaches both seams — one D1 read, and no chance of the
-      // two pings disagreeing about what's published (§20.2 "no second deriver").
-      expect(captured).toHaveLength(2);
-      expect(captured[0]).toBe(captured[1]);
+      expect(captured).toHaveLength(1);
       return { res, tradeUrls: await captured[0]! };
     }
 
@@ -1479,9 +1470,11 @@ describe('runPromoteIngest — trades ingest (AECI-542)', () => {
       expect(captured).toEqual([]);
     });
 
-    // Either ping alone arms the resolution — the two are provisioned by separate
-    // secrets and Google may well land without IndexNow (or vice versa).
-    it('resolves the floor when only the Google ping is configured', async () => {
+    // AECI-747 removed the Google Indexing ping, so IndexNow is the only thing
+    // that can arm this resolution. The floor read is not free — it is an extra
+    // D1 query per trade-touching promote — so it must stay gated on a ping
+    // actually being configured.
+    it('does not resolve the floor when no ping is configured', async () => {
       await seedTrade(uuid(1), 'electrical', 'Electrical');
       for (const n of [10, 11]) {
         await seedProduct(uuid(n), `p${n}`, `P${n}`);
@@ -1490,16 +1483,10 @@ describe('runPromoteIngest — trades ingest (AECI-542)', () => {
 
       const { captured } = await promoteWithPingSeams(
         { product: { ref: 'p1', name: 'Revit', trades: ['electrical'] } },
-        {
-          ...baseEnv,
-          GOOGLE_INDEXING_SA_EMAIL: 'sa@example.com',
-          GOOGLE_INDEXING_SA_PRIVATE_KEY: 'pk',
-          PUBLIC_SITE_URL: SITE,
-        },
+        { ...baseEnv, PUBLIC_SITE_URL: SITE },
       );
 
-      expect(captured).toHaveLength(1);
-      expect((await captured[0]!).publishedTradeSlugs).toEqual(['electrical']);
+      expect(captured).toEqual([]);
     });
   });
 });
@@ -1878,6 +1865,178 @@ describe('runPromoteIngest — claims ingest (AECI-297)', () => {
     expect(res.status).toBe(200);
     const b = (await res.json()) as { integrations: { poweredBySlug?: string }[] };
     expect(b.integrations[0]?.poweredBySlug).toBeUndefined();
+  });
+
+  // ── AECI-730: unresolvable optional links ────────────────────────────────────
+  // An unresolvable ENDPOINT refuses the whole row into `skipped[]`. The two
+  // OPTIONAL links used to do neither: the edge was written with the FK silently
+  // NULLed, and on an UPDATE that actively cleared a correct value an earlier
+  // promote had set. Both halves are covered here — the report and the guard.
+  describe('unresolved optional links (AECI-730)', () => {
+    /** Body promoting one edge Revit→Navisworks, with whatever link overrides. */
+    const edge = (overrides: Record<string, unknown>) => ({
+      product: { ref: 'p1', name: 'Revit' },
+      integrations: [
+        {
+          ref: 'i1',
+          sourceProduct: { ref: 'p1' },
+          targetProduct: { supabaseId: uuid(1) },
+          claims: [],
+          ...overrides,
+        },
+      ],
+    });
+
+    const body = async (res: Response) => (await res.json()) as PromoteResponse;
+
+    beforeEach(async () => {
+      await seedProduct(uuid(1), 'navisworks', 'Navisworks');
+    });
+
+    it('writes the integration but reports the connector, on create', async () => {
+      // uuid(9) is a product that was never promoted — the Zapier/Workato case.
+      const res = await promote(edge({ poweredByProduct: { supabaseId: uuid(9) } }));
+      expect(res.status).toBe(200);
+      const b = await body(res);
+
+      // The row LANDS — this is the difference from `skipped[]`.
+      expect(b.integrations).toHaveLength(1);
+      expect(b.skipped).toHaveLength(0);
+      const rows = await t.db.select().from(integrations);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]!.poweredByProductId).toBeNull();
+
+      expect(b.unresolvedLinks).toHaveLength(1);
+      expect(b.unresolvedLinks![0]).toMatchObject({
+        ref: 'i1',
+        field: 'powered_by',
+        supabaseId: uuid(9),
+        outcome: 'unset',
+      });
+      expect(b.unresolvedLinks![0]!.reason).toContain('powered_by_product_id left unset');
+      // No slug either — nothing to purge, because nothing is linked.
+      expect(b.integrations[0]!.poweredBySlug).toBeUndefined();
+    });
+
+    it('does NOT clear an existing powered_by when the connector stops resolving', async () => {
+      // The clobber regression. The stored FK is correct; the payload names a
+      // connector that no longer resolves. Before AECI-730 this wrote NULL.
+      const connector = uuid(2);
+      await seedProduct(connector, 'agave-erp-sync', 'Agave ERP Sync', {
+        productRole: 'connector',
+      });
+      await t.db.insert(integrations).values({
+        id: uuid(5),
+        sourceProductId: uuid(1),
+        targetProductId: connector,
+        poweredByProductId: connector,
+      });
+
+      const res = await promote(
+        edge({ supabaseId: uuid(5), poweredByProduct: { supabaseId: uuid(9) } }),
+      );
+      expect(res.status).toBe(200);
+      const b = await body(res);
+
+      const rows = await t.db.select().from(integrations);
+      expect(rows[0]!.poweredByProductId).toBe(connector);
+      expect(b.unresolvedLinks![0]).toMatchObject({ field: 'powered_by', outcome: 'preserved' });
+      expect(b.unresolvedLinks![0]!.reason).toContain('powered_by_product_id left unchanged');
+      // The preserved connector still rides back, so its own product page — which
+      // renders this edge in its "Integrations it powers" hub — is still purged.
+      expect(b.integrations[0]!.poweredBySlug).toBe('agave-erp-sync');
+    });
+
+    it('leaves powered_by untouched when the payload omits the key', async () => {
+      const connector = uuid(2);
+      await seedProduct(connector, 'agave-erp-sync', 'Agave ERP Sync');
+      await t.db.insert(integrations).values({
+        id: uuid(5),
+        sourceProductId: uuid(1),
+        targetProductId: connector,
+        poweredByProductId: connector,
+      });
+
+      const res = await promote(edge({ supabaseId: uuid(5) }));
+      expect(res.status).toBe(200);
+      const b = await body(res);
+
+      // Omission means "no opinion", exactly as `compact()` treats every scalar.
+      const rows = await t.db.select().from(integrations);
+      expect(rows[0]!.poweredByProductId).toBe(connector);
+      expect(b.unresolvedLinks).toHaveLength(0);
+    });
+
+    it('still clears powered_by on an explicit null', async () => {
+      // The curator's removal path has to keep working — the guard must not swallow it.
+      const connector = uuid(2);
+      await seedProduct(connector, 'agave-erp-sync', 'Agave ERP Sync');
+      await t.db.insert(integrations).values({
+        id: uuid(5),
+        sourceProductId: uuid(1),
+        targetProductId: connector,
+        poweredByProductId: connector,
+      });
+
+      const res = await promote(edge({ supabaseId: uuid(5), poweredByProduct: null }));
+      expect(res.status).toBe(200);
+      const b = await body(res);
+
+      const rows = await t.db.select().from(integrations);
+      expect(rows[0]!.poweredByProductId).toBeNull();
+      expect(b.unresolvedLinks).toHaveLength(0);
+      expect(b.integrations[0]!.poweredBySlug).toBeUndefined();
+    });
+
+    it('applies the same guard + report to builtByVendor', async () => {
+      const vendorId = uuid(3);
+      await seedVendor(vendorId, 'autodesk', 'Autodesk');
+      // Distinct endpoints — `integrations_distinct_endpoints_check` rejects a self-link.
+      await seedProduct(uuid(4), 'civil-3d', 'Civil 3D');
+      await t.db.insert(integrations).values({
+        id: uuid(5),
+        sourceProductId: uuid(1),
+        targetProductId: uuid(4),
+        builtByVendorId: vendorId,
+      });
+
+      const res = await promote(
+        edge({ supabaseId: uuid(5), builtByVendor: { supabaseId: uuid(9) } }),
+      );
+      expect(res.status).toBe(200);
+      const b = await body(res);
+
+      const rows = await t.db.select().from(integrations);
+      expect(rows[0]!.builtByVendorId).toBe(vendorId);
+      expect(b.unresolvedLinks).toHaveLength(1);
+      expect(b.unresolvedLinks![0]).toMatchObject({
+        ref: 'i1',
+        field: 'built_by',
+        supabaseId: uuid(9),
+        outcome: 'preserved',
+      });
+      expect(b.unresolvedLinks![0]!.reason).toContain('built_by_vendor_id left unchanged');
+    });
+
+    it('reports both links independently on one integration', async () => {
+      const res = await promote(
+        edge({
+          poweredByProduct: { supabaseId: uuid(9) },
+          builtByVendor: { supabaseId: uuid(8) },
+        }),
+      );
+      expect(res.status).toBe(200);
+      const b = await body(res);
+
+      expect(b.unresolvedLinks?.map((l) => l.field).sort()).toEqual(['built_by', 'powered_by']);
+      expect(b.unresolvedLinks!.every((l) => l.outcome === 'unset')).toBe(true);
+    });
+
+    it('is an empty array on a clean promote', async () => {
+      const res = await promote(edge({}));
+      expect(res.status).toBe(200);
+      expect((await body(res)).unresolvedLinks).toEqual([]);
+    });
   });
 
   it('reports an unresolved dataObject in skipped[] (kind: claim), never a 500', async () => {
@@ -2612,84 +2771,6 @@ describe('IndexNow submission after promote (AECI-236)', () => {
       indexNowEnv,
       { product: { ref: 'p1', name: 'Revit' } },
       notifyIndexNow,
-    );
-    expect(res.status).toBe(200); // returned before the waitUntil settles
-    await Promise.allSettled(vi.mocked(execCtx.waitUntil).mock.calls.map((c) => c[0]));
-  });
-});
-
-describe('Google Indexing submission after promote (AECI-263)', () => {
-  const googleEnv: Env = {
-    ...baseEnv,
-    GOOGLE_INDEXING_SA_EMAIL: 'svc@aeci.iam.gserviceaccount.com',
-    GOOGLE_INDEXING_SA_PRIVATE_KEY: '-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----',
-    PUBLIC_SITE_URL: 'https://aecintegrations.com',
-  };
-
-  async function promoteWithSeam(
-    env: Env,
-    body: unknown,
-    notifyGoogleIndexing: PromoteGoogleIndexingNotify,
-  ) {
-    const execCtx = fakeExecutionContext();
-    const res = await buildApp({ notifyGoogleIndexing }).request(
-      '/api/promote',
-      post(body),
-      env,
-      execCtx,
-    );
-    return { res, execCtx };
-  }
-
-  it('schedules the Google Indexing notify (with the touched response) when creds are present', async () => {
-    const notifyGoogleIndexing = vi.fn<PromoteGoogleIndexingNotify>(async () => {});
-    const { res, execCtx } = await promoteWithSeam(
-      googleEnv,
-      { product: { ref: 'p1', name: 'Revit' } },
-      notifyGoogleIndexing,
-    );
-    await Promise.all(vi.mocked(execCtx.waitUntil).mock.calls.map((c) => c[0]));
-
-    expect(res.status).toBe(200);
-    expect(notifyGoogleIndexing).toHaveBeenCalledTimes(1);
-    const response = notifyGoogleIndexing.mock.calls[0]![1] as PromoteResponse;
-    expect(response.product?.slug).toBe('revit');
-  });
-
-  it('does not schedule the Google Indexing notify when creds are absent (graceful no-op)', async () => {
-    const notifyGoogleIndexing = vi.fn<PromoteGoogleIndexingNotify>(async () => {});
-    const { res } = await promoteWithSeam(
-      baseEnv,
-      { product: { ref: 'p1', name: 'Revit' } },
-      notifyGoogleIndexing,
-    );
-    expect(res.status).toBe(200);
-    expect(notifyGoogleIndexing).not.toHaveBeenCalled();
-  });
-
-  it('does not schedule the Google Indexing notify when only the email is set (both creds required)', async () => {
-    const notifyGoogleIndexing = vi.fn<PromoteGoogleIndexingNotify>(async () => {});
-    const { res } = await promoteWithSeam(
-      {
-        ...baseEnv,
-        GOOGLE_INDEXING_SA_EMAIL: 'svc@aeci.iam.gserviceaccount.com',
-        PUBLIC_SITE_URL: 'https://aecintegrations.com',
-      },
-      { product: { ref: 'p1', name: 'Revit' } },
-      notifyGoogleIndexing,
-    );
-    expect(res.status).toBe(200);
-    expect(notifyGoogleIndexing).not.toHaveBeenCalled();
-  });
-
-  it('still returns 200 when the Google Indexing notify rejects (post-response, never fails the promote)', async () => {
-    const notifyGoogleIndexing = vi.fn<PromoteGoogleIndexingNotify>(async () => {
-      throw new Error('google indexing unreachable');
-    });
-    const { res, execCtx } = await promoteWithSeam(
-      googleEnv,
-      { product: { ref: 'p1', name: 'Revit' } },
-      notifyGoogleIndexing,
     );
     expect(res.status).toBe(200); // returned before the waitUntil settles
     await Promise.allSettled(vi.mocked(execCtx.waitUntil).mock.calls.map((c) => c[0]));

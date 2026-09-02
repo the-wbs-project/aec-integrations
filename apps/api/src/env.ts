@@ -35,7 +35,15 @@ import type { PromoteWorkflowParams } from './lib/promote-jobs';
  * `job_runs` past 90, never touches `metrics_daily`, and refuses to run at all
  * if the 00:15 snapshot has not captured every day inside its cut window. Also
  * queue-less — a skipped or partial run is simply re-attempted tomorrow, and a
- * retry of a destructive job is the last thing worth automating.
+ * retry of a destructive job is the last thing worth automating. `asn_registry`
+ * is the WEEKLY 02:00 UTC Monday `asn_registry` refresh (cron `0 2 * * 2` —
+ * Cloudflare's day-of-week is 1=Sunday, so Monday is `2`; AECI-624 /
+ * `ADMIN_PANEL_SPEC.md` §7.6): one PeeringDB read (authenticated when
+ * `PEERINGDB_API_KEY` is set, AECI-661), intersected
+ * with the ASNs `page_views` has actually seen, upserted for the admin panel's
+ * read-time annotation. Queue-less for the same reason as `waf` — the fetch is a
+ * single read-only GET, the upsert is idempotent, and a failed week is simply
+ * re-run the next week against unchanged rows (nothing is ever deleted).
  * `entitlement_expiry` is the daily 11:00 UTC Stage 2 §7 term-expiry warning
  * sweep (AECI-613 / `STAGE_2_PAID_TIERS_SPEC.md` §7): one indexed read over
  * `vendor_entitlements_expiry_idx` → a renewal prompt to the vendor's seats and
@@ -56,7 +64,8 @@ export type ScheduledJob =
   | 'analytics'
   | 'snapshot'
   | 'retention'
-  | 'entitlement_expiry';
+  | 'entitlement_expiry'
+  | 'asn_registry';
 
 /**
  * Body of a message on a scheduled-job queue. Producer: the cron `scheduled()`
@@ -241,6 +250,40 @@ export type Env = {
    */
   CF_ANALYTICS_API_TOKEN?: string;
   /**
+   * PeeringDB API key for the weekly `asn_registry` refresh (AECI-661). Free
+   * account, `Authorization: Api-Key <key>`.
+   *
+   * Optional + fail-open: absent → the fetch stays anonymous and behaves exactly
+   * as it did before. It is worth setting because anonymous whole-list reads are
+   * throttled aggressively: production's only run of this job (2026-08-23) came
+   * back `429` and `asn_registry` has held 0 rows ever since, so every read-time
+   * ASN annotation silently resolves to nothing.
+   */
+  PEERINGDB_API_KEY?: string;
+  /**
+   * PostHog **personal** API key scoped to `query:read`, used by the daily digest
+   * to report a human LOWER bound beside the D1 upper bound (AECI-660, completing
+   * the AECI-239 join). Set as a Wrangler secret on the API Worker.
+   *
+   * NOT the same credential as the browser's `POSTHOG_KEY` (`phc_…`), which is
+   * publishable and inlined into public HTML. This one is `phx_…` and grants
+   * account-wide read: it must never reach `apps/web`, and the `phx_` key that
+   * was once mis-provisioned as `POSTHOG_KEY` (and therefore served publicly)
+   * must be revoked rather than reused here. See `docs/email.md`-adjacent notes
+   * in `docs/OBSERVABILITY.md`.
+   *
+   * Optional + fail-open: absent (or without `POSTHOG_PROJECT_ID`) → the digest
+   * reports the D1 figure alone plus a short "unavailable" note, exactly as it
+   * did before this shipped.
+   */
+  POSTHOG_QUERY_API_KEY?: string;
+  /** Numeric PostHog project id the query runs against (e.g. `354071`). Paired
+   *  with `POSTHOG_QUERY_API_KEY`; absent → the same graceful skip. */
+  POSTHOG_PROJECT_ID?: string;
+  /** PostHog API host. Defaults to US Cloud (`https://us.posthog.com`) when unset;
+   *  present so a future EU/self-hosted move is a config change, not a code one. */
+  POSTHOG_API_HOST?: string;
+  /**
    * IndexNow key for the post-promote URL submission (AECI-236, §20.2). Also the
    * contents of the `{key}.txt` verification file the SSR Worker serves at the
    * site root (`apps/web/src/server/routes/indexnow-key.ts`). Set as a Wrangler
@@ -268,28 +311,6 @@ export type Env = {
    * dead host).
    */
   PUBLIC_SITE_URL?: string;
-  /**
-   * Google Indexing API service-account email (`client_email` from the SA JSON)
-   * for the best-effort post-promote ping (AECI-263, §20.2). The `iss` of the
-   * RS256 JWT the Worker signs to obtain an OAuth access token. Set as a Wrangler
-   * secret. Optional + fail-open: absent (with or without
-   * `GOOGLE_INDEXING_SA_PRIVATE_KEY` / `PUBLIC_SITE_URL`) → the promote Google
-   * Indexing submission is a graceful no-op (local `dev:bound` / PR previews /
-   * pre-launch).
-   *
-   * **Provision ONLY at public launch**, on the env whose web Worker has
-   * `ALLOW_INDEXING="true"` — alongside `INDEXNOW_KEY`. Pinging Google for a
-   * `noindex` site is a correctness bug; the secret's absence is the enforcement.
-   */
-  GOOGLE_INDEXING_SA_EMAIL?: string;
-  /**
-   * Google Indexing API service-account private key (`private_key` from the SA
-   * JSON): a PKCS#8 PEM (`-----BEGIN PRIVATE KEY-----`), RSA-2048. Signs the
-   * assertion JWT (AECI-263). Set as a Wrangler secret; `\n`-escaped single-line
-   * values are normalized to real newlines before import. Optional + fail-open
-   * like `GOOGLE_INDEXING_SA_EMAIL` above — provision ONLY at launch.
-   */
-  GOOGLE_INDEXING_SA_PRIVATE_KEY?: string;
   /**
    * Algolia application id (AECI-134). Single, shared across envs (one app;
    * only indexes/keys differ). Provisioned in Phase 3.1. Optional until the

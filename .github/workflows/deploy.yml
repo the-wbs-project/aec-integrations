@@ -537,6 +537,12 @@ jobs:
           # false-warns "not set".
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           CF_ANALYTICS_API_TOKEN: ${{ secrets.CF_ANALYTICS_API_TOKEN }}
+          # AECI-660/661 read-side cron creds. Must be MAPPED here (not just named
+          # in RECOMMENDED_SECRETS) or require-secrets.sh reads them empty and
+          # false-warns "not set" on every deploy.
+          POSTHOG_QUERY_API_KEY_NONPROD: ${{ secrets.POSTHOG_QUERY_API_KEY_NONPROD }}
+          POSTHOG_PROJECT_ID_NONPROD: ${{ secrets.POSTHOG_PROJECT_ID_NONPROD }}
+          PEERINGDB_API_KEY: ${{ secrets.PEERINGDB_API_KEY }}
           ENV_LABEL: staging
           REQUIRED_SECRETS: 'REVIEW_APP_TOKEN CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID CF_ACCESS_CLIENT_ID CF_ACCESS_CLIENT_SECRET'
           # AECI-193 / ADR 0017: SUPABASE_ANON_KEY is the SINGLE shared auth
@@ -550,9 +556,9 @@ jobs:
           # AECI-236: there is NO INDEXNOW_KEY_STAGING — IndexNow is production /
           # launch-only (staging is Access-gated + non-indexed, and PUBLIC_SITE_URL
           # is unset on staging, so the submission gate is off there). The secret is
-          # pushed only in promote-to-prod.yml. AECI-263: the Google Indexing
-          # service-account creds (GOOGLE_INDEXING_SA_EMAIL/PRIVATE_KEY) are likewise
-          # production / launch-only and pushed only in promote-to-prod.yml — same gate.
+          # pushed only in promote-to-prod.yml. (AECI-263's Google Indexing
+          # service-account creds used to sit beside it on the same gate; AECI-747
+          # deleted that ping — the API accepts only JobPosting/BroadcastEvent.)
           # AECI-262: CF_ANALYTICS_API_TOKEN is the SINGLE shared (un-suffixed) token
           # for the hourly WAF firewall-event poll — recommended/fail-safe (absent →
           # the poll no-ops outcome:skipped_no_creds, never a launch-critical surface).
@@ -562,7 +568,10 @@ jobs:
           # CF_PURGE_API_TOKEN is deliberately ABSENT: WC-10 (AECI-324) retired the
           # zone HTTP purge transport. CF_ZONE_ID stays — it is still the GraphQL
           # `zoneTag` for the AECI-262 WAF firewall-event poll (`env.ts`).
-          RECOMMENDED_SECRETS: 'ADMIN_PURGE_TOKEN CF_ZONE_ID ALGOLIA_APP_ID ALGOLIA_ADMIN_KEY ALGOLIA_SEARCH_KEY SUPABASE_ANON_KEY SUPABASE_SERVICE_ROLE_KEY ANTHROPIC_API_KEY_STAGING RESEND_API_KEY CF_ANALYTICS_API_TOKEN'
+          # The three trailing entries are AECI-660/661's read-side credentials: the
+          # digest's PostHog HogQL join and the weekly PeeringDB fetch. All fail-open.
+          # No DATADOG_API_KEY / DD_* — AECI-651 removed that plane entirely.
+          RECOMMENDED_SECRETS: 'ADMIN_PURGE_TOKEN CF_ZONE_ID ALGOLIA_APP_ID ALGOLIA_ADMIN_KEY ALGOLIA_SEARCH_KEY SUPABASE_ANON_KEY SUPABASE_SERVICE_ROLE_KEY ANTHROPIC_API_KEY_STAGING RESEND_API_KEY CF_ANALYTICS_API_TOKEN POSTHOG_QUERY_API_KEY_NONPROD POSTHOG_PROJECT_ID_NONPROD PEERINGDB_API_KEY'
         run: bash scripts/require-secrets.sh
 
       - name: Install pnpm
@@ -795,6 +804,52 @@ jobs:
           printf '%s' "$CF_ANALYTICS_API_TOKEN_VALUE" \
             | pnpm exec wrangler secret put CF_ANALYTICS_API_TOKEN --env staging
 
+      # AECI-660 / AECI-661. Three read-side credentials the API Worker's cron jobs
+      # use, all OPTIONAL + FAIL-OPEN, so warn-and-skip and never in
+      # REQUIRED_WORKER_SECRETS. They had no CI step at all until now: the
+      # environments.md rows described them as "CI-pushed" from the day they shipped,
+      # but the wiring was never written, so a value set in GH secrets reached no
+      # Worker and prod ran with the features inert.
+      #
+      # POSTHOG_QUERY_API_KEY is a PostHog PERSONAL key (`phx_…`, scope `query:read`)
+      # and is NOT the publishable `POSTHOG_PROJECT_KEY` (`phc_…`) committed as a
+      # per-env var in wrangler.jsonc (AECI-640) — this one grants account-wide read
+      # and must never reach apps/web.
+      # POSTHOG_PROJECT_ID is suffixed like the publishable key because PostHog splits on ONE
+      # axis — prod vs non-prod — and the two do NOT share a project. Staging, demo and
+      # PR previews all write to the non-prod project (`_NONPROD`); only production
+      # writes to the production project (`_PRODUCTION`). Within a project the tiers
+      # are separated by $host, which is what the digest filters on. An un-suffixed id
+      # would point this tier's digest at some other project filtered to this tier's
+      # host, and `count()` over an empty set returns a real row of zeros — so the
+      # digest would print a confident "0 PostHog pageviews", the fabricated zero the
+      # whole join exists to avoid.
+      # PEERINGDB_API_KEY is env-independent (the upstream is a public registry).
+      - name: Push analytics read credentials to API Worker (staging)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          POSTHOG_QUERY_API_KEY_VALUE: ${{ secrets.POSTHOG_QUERY_API_KEY_NONPROD }}
+          POSTHOG_PROJECT_ID_VALUE: ${{ secrets.POSTHOG_PROJECT_ID_NONPROD }}
+          PEERINGDB_API_KEY_VALUE: ${{ secrets.PEERINGDB_API_KEY }}
+        working-directory: apps/api
+        run: |
+          set -euo pipefail
+          if [ -n "$POSTHOG_QUERY_API_KEY_VALUE" ] && [ -n "$POSTHOG_PROJECT_ID_VALUE" ]; then
+            printf '%s' "$POSTHOG_QUERY_API_KEY_VALUE" \
+              | pnpm exec wrangler secret put POSTHOG_QUERY_API_KEY --env staging
+            printf '%s' "$POSTHOG_PROJECT_ID_VALUE" \
+              | pnpm exec wrangler secret put POSTHOG_PROJECT_ID --env staging
+          else
+            echo "::warning::POSTHOG_QUERY_API_KEY_NONPROD / POSTHOG_PROJECT_ID_NONPROD not both set — skipping push. The daily digest will report the D1 upper bound alone plus a 'PostHog lower bound unavailable' note (AECI-660). Both are required together; one alone is a no-op."
+          fi
+          if [ -n "$PEERINGDB_API_KEY_VALUE" ]; then
+            printf '%s' "$PEERINGDB_API_KEY_VALUE" \
+              | pnpm exec wrangler secret put PEERINGDB_API_KEY --env staging
+          else
+            echo "::warning::PEERINGDB_API_KEY not set — skipping push. The weekly asn_registry refresh stays anonymous; anonymous whole-list reads are throttled hard and production's first run returned 429 (AECI-661)."
+          fi
+
       # CF_ZONE_ID is the zone the AECI-262 WAF firewall-event poll queries. It
       # used to be pushed alongside CF_PURGE_API_TOKEN for the ADR 0010 zone
       # purge; WC-10 (AECI-324) retired that transport (promote now enqueues onto
@@ -912,6 +967,15 @@ jobs:
       #
       # The `POSTHOG_KEY_STAGING` / `POSTHOG_KEY_PRODUCTION` GitHub secrets are
       # now unused and should be deleted (operator step, AECI-640).
+
+      # AECI-56 / docs/CACHE_STRATEGY.md §5: the caller's bearer for
+      # `POST /admin/purge` on the SSR Worker. Manual-only until AECI-589, and never
+      # actually placed on any tier, so the endpoint 401'd everywhere. Pushing from CI
+      # keeps the Worker's bearer identical to the GH secret CI and the incident
+      # runbook present. The Cloudflare purge creds that used to ride along here are
+      # gone: WC-10 (AECI-324) retired the zone HTTP transport for native
+      # `ctx.cache.purge()` + the purge queue. Warn-and-skip (fail-open) — purge
+      # degrades to TTL self-heal, so NOT in REQUIRED_WORKER_SECRETS.
       - name: Push cache-purge credentials to web Worker (staging)
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

@@ -3,11 +3,13 @@ import {
   Injector,
   type OnInit,
   computed,
+  effect,
   inject,
   input,
   output,
   runInInjectionContext,
   signal,
+  untracked,
 } from '@angular/core';
 import {
   type FieldTree,
@@ -21,6 +23,7 @@ import { RouterLink } from '@angular/router';
 import { ClaimFormSchema, CorrectionFormSchema, type RequestSubmitResponse } from '@aeci/shared';
 
 import { Analytics } from '../analytics/analytics';
+import { SessionStatus } from '../auth/session-status';
 
 import { RequestsApi, type RequestTargetRef } from './requests-api';
 
@@ -68,6 +71,13 @@ interface RequestModel {
  * i18n: the shared Zod schema is framework-agnostic and can't hold `$localize`
  * strings, so its messages are never rendered. The template owns user-facing copy
  * via `$localize`, keyed off field validity / `getError()` (ADR 0009).
+ *
+ * Signed-in prefill: both forms ask for an email the session already knows, so the
+ * field is seeded from `SessionStatus.email()` after hydration (see the effect in
+ * the constructor). Prefill, never lock — the endpoints stay public (anonymous
+ * submission is supported), and a claim asks for a *work* email that may differ
+ * from the account's, which the server's `domain_match` signal compares against
+ * the target vendor's website.
  */
 @Component({
   selector: 'aec-request-form-body',
@@ -78,6 +88,7 @@ export class RequestFormBody implements OnInit {
   private readonly api = inject(RequestsApi);
   private readonly injector = inject(Injector);
   private readonly analytics = inject(Analytics);
+  private readonly session = inject(SessionStatus);
 
   readonly entity = input.required<Entity>();
   readonly kind = input.required<Kind>();
@@ -115,6 +126,29 @@ export class RequestFormBody implements OnInit {
     targetType: this.entity(),
     slug: this.slug(),
   }));
+
+  /** One-shot latch so a later `email()` emission can't overwrite the visitor's
+   *  own edits — including deliberately clearing the field. */
+  private prefilledEmail = false;
+
+  constructor() {
+    // Don't make a signed-in visitor retype an address we already have.
+    // `SessionStatus.email()` is `null` during SSR and until the post-hydration
+    // probe resolves (the cache-neutral default, §8), so this only ever fires in
+    // the browser — the server-rendered HTML stays visitor-state-neutral and the
+    // routed `/…/{claim,correction}` page remains safe to cache.
+    effect(() => {
+      const email = this.session.email();
+      if (!email) return;
+      untracked(() => {
+        // Never clobber what the visitor typed: the probe usually resolves before
+        // anyone can type, but the field wins if it didn't.
+        if (this.prefilledEmail || this.model().submitter_email) return;
+        this.prefilledEmail = true;
+        this.model.update((m) => ({ ...m, submitter_email: email }));
+      });
+    });
+  }
 
   ngOnInit(): void {
     runInInjectionContext(this.injector, () => {

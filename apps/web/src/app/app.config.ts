@@ -1,4 +1,4 @@
-import { provideHttpClient, withFetch } from '@angular/common/http';
+import { provideHttpClient, withFetch, withInterceptors } from '@angular/common/http';
 import {
   ApplicationConfig,
   ErrorHandler,
@@ -11,6 +11,7 @@ import { provideRouter, withInMemoryScrolling } from '@angular/router';
 import { PosthogErrorHandler } from './analytics/posthog-error-handler';
 import { providePostHog } from './analytics/posthog.provider';
 import { routes } from './app.routes';
+import { serverApiInterceptor } from './core/server-api-interceptor';
 
 export const appConfig: ApplicationConfig = {
   providers: [
@@ -22,7 +23,13 @@ export const appConfig: ApplicationConfig = {
     // AECI-643 / POSTHOG_MIGRATION_SPEC §3.3 (Tier 2): report Angular
     // application errors to PostHog, and keep logging them to the console.
     { provide: ErrorHandler, useExisting: PosthogErrorHandler },
-    provideHttpClient(withFetch()),
+    // `serverApiInterceptor` fulfils relative `/api/*` GETs through the Cloudflare
+    // service binding while rendering on the server, and passes everything else
+    // straight through (AECI-746). Registered HERE rather than in
+    // `app.config.server.ts` because that config is merged with this one and a
+    // second `provideHttpClient(...)` would configure the client twice; the
+    // interceptor no-ops on the browser instead.
+    provideHttpClient(withFetch(), withInterceptors([serverApiInterceptor])),
     provideRouter(
       routes,
       // Reset scroll on navigation so a new route opens at the top (SPA

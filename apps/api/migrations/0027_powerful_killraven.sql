@@ -28,7 +28,7 @@
 --      `0014_careful_absorbing_man.sql`, this repo's only prior recreate, never hit
 --      this because `page_views` had no children.
 --
---      MEASURED, not theorised: `src/test/migration-0022.spec.ts` seeds 6 claims and
+--      MEASURED, not theorised: `src/test/migration-0027.spec.ts` seeds 6 claims and
 --      6 attestations, applies this migration in the GENERATED order, and observes
 --      `claims = 0, attestations = 0`. Restoring the order below returns 6 and 6.
 --      Five of its eight cases fail if anyone reorders this file.

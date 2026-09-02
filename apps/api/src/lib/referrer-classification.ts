@@ -50,6 +50,30 @@ const SOURCES: ReadonlyArray<readonly [RegExp, string]> = [
   [/(^|\.)bsky\.app$|(^|\.)bluesky\./i, 'Bluesky'],
 ];
 
+/**
+ * Every label in {@link SOURCES}, deduped and frozen — i.e. the sources that are a
+ * NAMED external site, excluding both `Direct` and `Other` (AECI-683).
+ *
+ * This is the "corroborated human" population the digest reports beside its upper
+ * and lower bounds. A search engine or social network sending a real `Referer` is
+ * the one server-side signal automation rarely bothers to fake: a rotating-proxy
+ * pool sends no `Referer` at all, which is why 87 of the 2026-08-26 digest's 102
+ * "human" views landed in `Direct`.
+ *
+ * Derived from the table rather than restated, so a source added above joins this
+ * set automatically instead of quietly failing to.
+ *
+ * **Two honesty caveats that must travel with any number computed from this.**
+ * It is a FLOOR, not a count of people: browser Referrer-Policy and privacy tools
+ * strip the header, and every stripped referral lands in `Direct`. And a referrer
+ * is a CLAIM — nothing verifies it and nothing can, since only the host is stored
+ * (§9.7); production holds a confirmed forged `www.youtube.com` row. `Other` is
+ * excluded precisely because it is an open bucket that a forger controls entirely.
+ */
+export const NAMED_REFERRER_SOURCES: readonly string[] = Object.freeze([
+  ...new Set(SOURCES.map(([, name]) => name)),
+]);
+
 /** Classify one page-view capture's traffic source from its `Referer` header.
  *  `selfHosts` are the site's own hostnames (arrivals from these are same-origin
  *  internal navigation → "Direct"). */

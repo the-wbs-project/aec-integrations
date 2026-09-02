@@ -146,8 +146,8 @@ The decision above stands. What it did not specify — and what production then 
 
 **What happened.** `dispatchPromoteHooks` handed every transport to `waitUntil`
 simultaneously, and the §26.5 audit forwards issued one request **per `audit_log`
-row** — and, since the ADR 0024 dual-run, one per row **per vendor**. Several of
-those transports also never read their success-path response body, so each held
+row**. Several of those transports (the observability forward, the Cloudflare
+purge, IndexNow) also never read their success-path response body, so each held
 its connection until garbage collection. A Worker invocation may hold only a
 bounded number of open connections; past that the runtime cancels the stalled
 responses to break the deadlock, and **a cancelled `fetch` returns a promise that
@@ -167,11 +167,10 @@ tail: Algolia upserts, cache purges, IndexNow/Google pings, audit forwards. Sile
 1. **Every transport releases its response body** on every path
    (`discardResponseBody`, `packages/shared/src/response-drain.ts`). This is the
    actual fix — an unread body is what holds the connection.
-2. **The audit forwards are one request per vendor, not N** — `logBatchToPosthog`
-   (`apps/api/src/posthog.ts`), which fans out to `logBatchToDatadog` for the dual-run
-   window. OTLP's `logRecords` and Datadog's v2 logs intake both accept an array; the
-   per-entry loop was the only hook whose request count scaled with bundle size. The
-   same treatment applies to the other two per-entry loops on this branch,
+2. **The audit forwards are one request, not N** — `logBatchToPosthog`
+   (`apps/api/src/posthog.ts`). OTLP's `logRecords` accepts an array; the per-entry
+   loop was the only hook whose request count scaled with bundle size. The same
+   treatment applies to the other two per-entry loops on this branch,
    `lib/attestation-notify.ts` and `routes/vendor-shared.ts`.
 3. **Google Indexing publishes in bounded waves** rather than opening up to 100
    connections at once — it has no batch endpoint, so bounding concurrency
@@ -195,12 +194,6 @@ invocation must (a) release bodies it does not read, and (b) prefer one batched
 request over N concurrent ones — falling back to
 `mapWithConcurrency(items, WORKER_CONNECTION_LIMIT, fn)` only when the upstream
 has no batch endpoint. Recorded as a non-negotiable constraint in `CLAUDE.md`.
-
-**The dual-run doubles the cost of getting this wrong.** While ADR 0024's Datadog
-leg still runs beside PostHog, every log line and every metric point is two
-connections, not one. That halves the effective budget for anything that emits
-telemetry in a loop, and it is why the batched senders exist on both transports
-rather than only on the one being migrated to.
 
 **The same defect existed outside the promote path** and was fixed in the same
 change: `lib/email.ts` (both Resend senders), `lib/toxicity.ts`,
