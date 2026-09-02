@@ -832,6 +832,46 @@ function factoryFailingProfilesSelect(): typeof t.factory {
   /* eslint-enable @typescript-eslint/no-explicit-any */
 }
 
+/**
+ * Same trick for the AECI-738 role query, which reads `product_vendors`.
+ *
+ * Only usable with a `target_type='vendor'` claim, and that is the point:
+ * `resolveClaimVendorIds` also selects from `product_vendors`, but it SKIPS that
+ * query entirely when no row targets a product. So on a vendor claim the role
+ * lookup is the sole reader and this isolates it — throwing on a product claim
+ * would degrade the vendor resolution instead and prove nothing about this signal.
+ */
+function factoryFailingProductRoleSelect(): typeof t.factory {
+  /* eslint-disable @typescript-eslint/no-explicit-any */
+  const real: any = t.db;
+  const dbProxy = new Proxy(real, {
+    get(target, prop, receiver) {
+      if (prop === 'query') return target.query;
+      if (prop === 'select') {
+        return (...args: any[]) => {
+          const builder = target.select(...args);
+          return new Proxy(builder, {
+            get(b, bProp) {
+              if (bProp === 'from') {
+                return (tbl: unknown) => {
+                  if (tbl === productVendors) throw new Error('role lookup boom');
+                  return b.from(tbl);
+                };
+              }
+              const v = Reflect.get(b, bProp);
+              return typeof v === 'function' ? v.bind(b) : v;
+            },
+          });
+        };
+      }
+      const v = Reflect.get(target, prop, receiver);
+      return typeof v === 'function' ? v.bind(target) : v;
+    },
+  });
+  return (() => ({ db: dbProxy })) as unknown as typeof t.factory;
+  /* eslint-enable @typescript-eslint/no-explicit-any */
+}
+
 describe('GET /api/admin/claims — reviewer-assist LIST', () => {
   it('returns only claims (not corrections), newest-first, in the paginated envelope', async () => {
     await seedVendor();
@@ -1025,6 +1065,101 @@ describe('GET /api/admin/claims — reviewer-assist LIST', () => {
     // …but the row itself, and the independent related-requests signal, still return.
     expect(body.data[0]!.id).toBe(REQUEST_ID);
     expect(body.data[0]!.related_requests).not.toBeNull();
+  });
+
+  // ── The §5.2 payer test (AECI-738) ────────────────────────────────────────
+  //
+  // `STAGE_2_SPEC.md` §8.8(1): does the vendor own ANY product with
+  // `product_role IN ('application','hybrid')`? Only a vendor all of whose
+  // products are `'connector'` routes to the partnership track.
+
+  /** Give VENDOR_ID one product per supplied role. */
+  async function seedOwnedProducts(...roles: string[]): Promise<void> {
+    let n = 0;
+    for (const role of roles) {
+      const id = `9999999${n}-9999-4999-8999-99999999999${n}`;
+      await t.db.insert(products).values({ id, slug: `p-${n}`, name: `P${n}`, productRole: role });
+      await t.db.insert(productVendors).values({ productId: id, vendorId: VENDOR_ID });
+      n += 1;
+    }
+  }
+
+  it('flags a vendor whose every product is a connector', async () => {
+    await seedVendor();
+    await seedOwnedProducts('connector', 'connector');
+    await seedRequest();
+
+    const row = (await parseClaims(await getClaims())).data[0]!;
+    expect(row.product_roles).toEqual({ application: 0, connector: 2, hybrid: 0, total: 2 });
+    expect(row.is_pure_connector_vendor).toBe(true);
+  });
+
+  it('does NOT flag a vendor that also owns an application product', async () => {
+    await seedVendor();
+    await seedOwnedProducts('application', 'connector');
+    await seedRequest();
+
+    const row = (await parseClaims(await getClaims())).data[0]!;
+    expect(row.product_roles).toEqual({ application: 1, connector: 1, hybrid: 0, total: 2 });
+    // The Autodesk/Trimble/Deltek/Sage case: owning connector-role products does
+    // not make a large endpoint account a connector vendor.
+    expect(row.is_pure_connector_vendor).toBe(false);
+  });
+
+  it('treats `hybrid` as an endpoint, so a hybrid+connector vendor is not flagged', async () => {
+    await seedVendor();
+    await seedOwnedProducts('hybrid', 'connector');
+    await seedRequest();
+
+    const row = (await parseClaims(await getClaims())).data[0]!;
+    expect(row.product_roles).toEqual({ application: 0, connector: 1, hybrid: 1, total: 2 });
+    // §8.8(1)'s hybrid rule: a hybrid IS an endpoint as well as a connector, so it
+    // is chargeable on its endpoint side and confers no exemption.
+    expect(row.is_pure_connector_vendor).toBe(false);
+  });
+
+  it('reports a vendor with no products as unknown (zeroed), never as exempt', async () => {
+    await seedVendor();
+    await seedRequest();
+
+    const row = (await parseClaims(await getClaims())).data[0]!;
+    // NOT null — "owns nothing" is a computed answer the operator must see, and
+    // it must not read as "every product is a connector".
+    expect(row.product_roles).toEqual({ application: 0, connector: 0, hybrid: 0, total: 0 });
+    expect(row.is_pure_connector_vendor).toBe(false);
+  });
+
+  it('scopes the breakdown to the claimed product’s PRIMARY vendor', async () => {
+    await seedVendor(); // primary
+    await t.db
+      .insert(vendors)
+      .values({ id: OTHER_VENDOR_ID, slug: 'other', companyName: 'Other Co' });
+    await t.db.insert(products).values({ id: PRODUCT_ID, slug: 'revit', name: 'Revit' });
+    await t.db.insert(productVendors).values([
+      { productId: PRODUCT_ID, vendorId: OTHER_VENDOR_ID, isPrimary: false },
+      { productId: PRODUCT_ID, vendorId: VENDOR_ID, isPrimary: true },
+    ]);
+    await seedRequest({ targetType: 'product', targetId: PRODUCT_ID });
+
+    const row = (await parseClaims(await getClaims())).data[0]!;
+    // One product, counted once, against the vendor a grant would actually touch.
+    expect(row.product_roles).toEqual({ application: 1, connector: 0, hybrid: 0, total: 1 });
+    expect(row.entitlement_vendor?.id).toBe(VENDOR_ID);
+  });
+
+  it('degrades a failed role lookup to null on both fields', async () => {
+    await seedVendor();
+    await seedOwnedProducts('connector');
+    await seedRequest();
+
+    const res = await getClaims({ dbFor: factoryFailingProductRoleSelect() });
+    expect(res.status).toBe(200);
+    const row = (await parseClaims(res)).data[0]!;
+    expect(row.product_roles).toBeNull();
+    expect(row.is_pure_connector_vendor).toBeNull();
+    // The row and the independent signals still return.
+    expect(row.id).toBe(REQUEST_ID);
+    expect(row.related_requests).not.toBeNull();
   });
 
   it('paginates with a stable order', async () => {

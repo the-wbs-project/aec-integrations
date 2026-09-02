@@ -67,6 +67,13 @@ function makeClaim(over: Partial<AdminClaim> & { id: string }): AdminClaim {
         ? over.entitlement_vendor!
         : { id: VENDOR_ID, name: 'Autodesk, Inc.', slug: 'autodesk' },
     entitlement: 'entitlement' in over ? over.entitlement! : null,
+    // AECI-738: the §5.2 payer test. Default is an ordinary endpoint vendor.
+    product_roles:
+      'product_roles' in over
+        ? over.product_roles!
+        : { application: 1, connector: 0, hybrid: 0, total: 1 },
+    is_pure_connector_vendor:
+      'is_pure_connector_vendor' in over ? over.is_pure_connector_vendor! : false,
   };
 }
 
@@ -254,6 +261,66 @@ describe('ClaimQueue', () => {
 
     const degraded = await setup(makeApiMock([makeClaim({ id: 'c3', existing_seats: null })]));
     expect(degraded.el.textContent).toContain('Unavailable');
+  });
+
+  it('renders the product-role breakdown, the no-products state, and the unavailable state', async () => {
+    const ordinary = await setup(
+      makeApiMock([
+        makeClaim({
+          id: 'c1',
+          product_roles: { application: 2, connector: 1, hybrid: 0, total: 3 },
+        }),
+      ]),
+    );
+    // `application` is SPELLED OUT. `RoleBadge` hides it, which is right for a
+    // per-product chip and wrong here: "2 are application" is the affirmative
+    // answer to the payer test, and inferring it from an absent chip is the
+    // defect AECI-738 exists to remove.
+    expect(ordinary.el.textContent).toContain('2 application');
+    expect(ordinary.el.textContent).toContain('1 connector');
+
+    const noProducts = await setup(
+      makeApiMock([
+        makeClaim({
+          id: 'c2',
+          product_roles: { application: 0, connector: 0, hybrid: 0, total: 0 },
+        }),
+      ]),
+    );
+    // Unknown, NOT exempt — and visibly distinct from "unavailable".
+    expect(noProducts.el.textContent).toContain('No products on record');
+
+    const degraded = await setup(
+      makeApiMock([makeClaim({ id: 'c3', product_roles: null, is_pure_connector_vendor: null })]),
+    );
+    expect(degraded.el.textContent).toContain('Unavailable');
+  });
+
+  it('warns against Grant and Reject on a pure-connector claim, without disabling them', async () => {
+    const { el } = await setup(
+      makeApiMock([
+        makeClaim({
+          id: 'c1',
+          product_roles: { application: 0, connector: 2, hybrid: 0, total: 2 },
+          is_pure_connector_vendor: true,
+        }),
+      ]),
+    );
+    const card = cardFor(el, 'Procore');
+    expect(card.textContent).toContain('Pure connector vendor');
+    expect(card.textContent).toContain('do not Grant or Reject');
+    // §5.2 is an operator procedure, not an API rule: `product_role` is curated
+    // upstream, so a mis-roled record must not hard-block a legitimate claim.
+    const buttons = [...card.querySelectorAll('button')].filter((b) =>
+      /Grant vendor account|Reject/.test(b.textContent ?? ''),
+    );
+    expect(buttons.length).toBeGreaterThan(0);
+    expect(buttons.every((b) => !b.disabled)).toBe(true);
+  });
+
+  it('shows no connector warning on an ordinary vendor claim', async () => {
+    const { el } = await setup(makeApiMock([makeClaim({ id: 'c1' })]));
+    expect(el.textContent).not.toContain('do not Grant or Reject');
   });
 
   it('renders prior requests + the duplicate-chain note', async () => {

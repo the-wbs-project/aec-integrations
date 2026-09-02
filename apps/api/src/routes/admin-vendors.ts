@@ -63,7 +63,6 @@ import {
   auditLog,
   connectorEvidencedPairs,
   integrations,
-  productVendors,
   profiles,
   vendorEntitlements,
   vendorRequests,
@@ -81,6 +80,13 @@ import { resolveVendorOrderBy } from '../lib/sort';
 import { likeContains } from '../lib/sql-like';
 import { fetchAuthUserEmailsResult, type AuthEmailLookup } from '../lib/supabase-admin';
 import { revokeSeatStatements } from '../lib/vendor-grant';
+import {
+  EMPTY_PRODUCT_ROLES,
+  foldProductRoleGroups,
+  isPureConnectorVendor,
+  productRolesForVendor,
+  selectProductRoleGroups,
+} from '../lib/vendor-product-roles';
 import { pendingInvitesFor } from '../lib/vendor-seat-invites';
 import { logToPosthog } from '../posthog';
 import { ownedProductIds, seatsOf, vendorRequestsWhere } from './vendor-shared';
@@ -279,7 +285,7 @@ export function createAdminVendorDetailHandler(
       entitlementRows,
       seatRows,
       inviteRows,
-      productCounts,
+      productRoleGroups,
       integrationCounts,
       evidencedCounts,
       claimRows,
@@ -314,10 +320,13 @@ export function createAdminVendorDetailHandler(
         .leftJoin(invitedBy, eq(invitedBy.id, vendorSeatInvites.invitedById))
         .where(and(pendingInvitesFor(vendorId), gt(vendorSeatInvites.expiresAt, now)))
         .orderBy(asc(vendorSeatInvites.createdAt)),
-      db
-        .select({ value: count() })
-        .from(productVendors)
-        .where(eq(productVendors.vendorId, vendorId)),
+      // `product_count` AND the §5.2 role breakdown out of ONE grouped read
+      // (AECI-738). Deliberately not a `count()` beside a `GROUP BY`: two
+      // statements answering the same question is how `STAGE_1_5_SPEC.md` §13.5
+      // items 11/12 got two drifting copies of one operator number. The join
+      // cannot undercount the old bare count — `product_vendors.product_id` is
+      // `ON DELETE CASCADE` against `products`, so no ownership row is orphaned.
+      selectProductRoleGroups(db, productRolesForVendor(vendorId)),
       // The vendor-detail `integration_count` — the third copy of the
       // `built_by_vendor_id` rule (AECI-721 / §13.5 item 6, which names only the
       // two Algolia copies). Written as a where-clause rather than a correlated
@@ -349,6 +358,12 @@ export function createAdminVendorDetailHandler(
       c.env,
       seatRows.map((row) => row.id),
     );
+
+    // One vendor in, so at most one entry out; absent = owns no products, which
+    // folds to the zeroed breakdown (unknown, NOT exempt — §8.8(1)).
+    const productRoles = foldProductRoleGroups(productRoleGroups).get(vendorId) ?? {
+      ...EMPTY_PRODUCT_ROLES,
+    };
 
     const claimCounts: AdminVendorClaimCounts = { ...EMPTY_CLAIM_COUNTS };
     for (const row of claimRows) {
@@ -394,7 +409,9 @@ export function createAdminVendorDetailHandler(
           created_at: row.createdAt,
         }),
       ),
-      product_count: productCounts[0]?.value ?? 0,
+      product_count: productRoles.total,
+      product_roles: productRoles,
+      is_pure_connector_vendor: isPureConnectorVendor(productRoles),
       integration_count: (integrationCounts[0]?.value ?? 0) + (evidencedCounts[0]?.value ?? 0),
       claim_counts: claimCounts,
     };

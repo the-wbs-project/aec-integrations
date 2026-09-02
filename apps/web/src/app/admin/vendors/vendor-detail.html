@@ -101,6 +101,28 @@
           <dt class="text-(--text-secondary)" i18n="@@admin.vendors.detail.products">Products</dt>
           <dd class="font-medium text-(--text-primary)">{{ v.product_count }}</dd>
         </div>
+        <!-- The §5.2 payer test (AECI-738). `application` is named, not implied by
+             an absent chip — that inference is exactly what this row replaces. -->
+        <div class="flex gap-2">
+          <dt class="text-(--text-secondary)" i18n="@@admin.vendors.detail.roles">
+            Products by role
+          </dt>
+          <dd class="font-medium text-(--text-primary)">
+            @if (v.product_roles.total === 0) {
+            <span class="text-(--text-secondary)" i18n="@@admin.vendors.detail.roles.none"
+              >No products on record</span
+            >
+            } @else {
+            <span>{{ roleBreakdownLabel(v.product_roles) }}</span>
+            @if (v.is_pure_connector_vendor) {
+            <span
+              class="ms-1.5 inline-flex items-center rounded-full border border-(--accent-secondary) bg-(--accent-warm) px-2 py-0.5 text-[0.65rem] font-medium text-(--text-primary)"
+              i18n="@@admin.vendors.detail.roles.pureConnector"
+              >pure connector — not sold verification</span
+            >
+            } }
+          </dd>
+        </div>
         <div class="flex gap-2">
           <dt class="text-(--text-secondary)" i18n="@@admin.vendors.detail.integrations">
             Integrations built

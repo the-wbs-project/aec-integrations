@@ -85,6 +85,22 @@ INSERT INTO vendors (id, slug, company_name, website, verified, created_at, upda
   ('00000000-0000-4000-8000-000000000795','fx-agave-inc','Agave Inc. (fixture)','https://example.com/agave',0, strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 ON CONFLICT (slug) DO NOTHING;
 
+-- Ownership, so the §5.2 payer test has a PURE CONNECTOR VENDOR to render
+-- against locally (AECI-738). Agave Inc. owns exactly one product and that
+-- product is a connector, which is the one shape on which `/admin/claims` shows
+-- the "do not Grant or Reject" banner and `/admin/vendors/:id` shows the
+-- "pure connector" chip. Without this link the fixture connector products belong
+-- to nobody, `product_vendors` is empty for them, and every seeded vendor reads
+-- as an ordinary endpoint account — so the branch that matters is unreachable
+-- and only the negative case is ever exercised by hand.
+--
+-- Deliberately NOT linked to MindCloud: the catalogue we mirror in full is not
+-- one whose vendor we have a relationship with, and giving Agave Inc. a second,
+-- endpoint-role product would flip it to the ordinary case this exists to contrast.
+INSERT INTO product_vendors (product_id, vendor_id, is_primary, created_at) VALUES
+  ('00000000-0000-4000-8000-000000000791','00000000-0000-4000-8000-000000000795',1, strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+ON CONFLICT (product_id, vendor_id) DO NOTHING;
+
 -- ---------------------------------------------------------------------------
 -- Catalogues. One per management state, so both branches of the flip control and
 -- both halves of the promote refusal are visible locally.

@@ -153,6 +153,36 @@ export const AdminVendorClaimCountsSchema = z.object({
 export type AdminVendorClaimCounts = z.infer<typeof AdminVendorClaimCountsSchema>;
 
 /**
+ * The vendor's owned products broken down by `products.product_role`, so the
+ * §5.2 **payer test** is answerable from the console (AECI-738).
+ *
+ * `STAGE_2_SPEC.md` §8.8(1): the test is *"does this vendor own any product with
+ * `product_role IN ('application','hybrid')`?"* — `hybrid` counts as an endpoint.
+ * Only a vendor **all** of whose products are `'connector'` is a pure connector
+ * vendor, and it routes to the partnership track rather than being granted or
+ * rejected (`STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2).
+ *
+ * **Derived per product, never per vendor.** `vendors` carries no connector
+ * marker at all (no `role`/`kind`/`is_connector`), and it must not gain one:
+ * Autodesk, Trimble, Deltek and Sage Group each own connector-role products
+ * while being among the largest ENDPOINT accounts in the catalogue, so a
+ * per-vendor flag would catch the exact inverse of the intent. Ownership is
+ * every `product_vendors` row, not just the primary one — §8.8(1) asks what the
+ * vendor owns, not what it owns first.
+ *
+ * `total` is carried rather than left to the caller to sum, because
+ * `total === 0` is a distinct, load-bearing state: a vendor with no products is
+ * **unknown**, not exempt, and must never read as a pure connector vendor.
+ */
+export const VendorProductRolesSchema = z.object({
+  application: z.number().int().min(0),
+  connector: z.number().int().min(0),
+  hybrid: z.number().int().min(0),
+  total: z.number().int().min(0),
+});
+export type VendorProductRoles = z.infer<typeof VendorProductRolesSchema>;
+
+/**
  * The vendor detail payload.
  *
  * `seats` is `null` for UNAVAILABLE and `[]` for "no seats" — see the module note.
@@ -188,6 +218,16 @@ export const AdminVendorDetailSchema = z.object({
   pending_invites: VendorSeatInviteSchema.array().nullable(),
 
   product_count: z.number().int().min(0),
+  /** The same set as `product_count`, split by role (AECI-738). Both come out of
+   *  ONE grouped read, and `product_count` is the sum — they cannot drift.
+   *  Non-nullable, unlike the claim-queue copy: this runs inside the request's
+   *  own `db.batch`, so it either resolves or the whole response fails. */
+  product_roles: VendorProductRolesSchema,
+  /** `true` ⇒ the vendor owns ≥1 product and EVERY one is `'connector'`.
+   *  `false` when it owns an `application`/`hybrid` product **and** when it owns
+   *  none at all — zero products is unknown, not exempt (read `product_roles.total`
+   *  to tell those two apart). */
+  is_pure_connector_vendor: z.boolean(),
   integration_count: z.number().int().min(0),
   claim_counts: AdminVendorClaimCountsSchema,
 });

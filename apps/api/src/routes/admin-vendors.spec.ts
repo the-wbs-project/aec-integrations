@@ -434,6 +434,69 @@ describe('GET /api/admin/vendors/:id', () => {
     expect(b.claim_counts).toEqual({ open: 1, in_review: 1, resolved: 0, rejected: 1 });
   });
 
+  // ── The §5.2 payer test (AECI-738) ────────────────────────────────────────
+
+  it('splits owned products by role, and keeps product_count as the sum', async () => {
+    await t.db.insert(products).values([
+      { id: PRODUCT, slug: 'acme-thing', name: 'Acme Thing', productRole: 'application' },
+      { id: u(32), slug: 'acme-bridge', name: 'Acme Bridge', productRole: 'connector' },
+      { id: u(33), slug: 'acme-both', name: 'Acme Both', productRole: 'hybrid' },
+    ]);
+    await t.db.insert(productVendors).values([
+      { productId: PRODUCT, vendorId: VENDOR },
+      { productId: u(32), vendorId: VENDOR },
+      { productId: u(33), vendorId: VENDOR },
+    ]);
+
+    const res = await send(
+      mount(
+        'get',
+        '/api/admin/vendors/:id',
+        createAdminVendorDetailHandler(t.factory, emailSeam()),
+      ),
+      `/api/admin/vendors/${VENDOR}`,
+    );
+    const b = await body(res);
+    expect(b.product_roles).toEqual({ application: 1, connector: 1, hybrid: 1, total: 3 });
+    // Both come out of ONE grouped read, so the count cannot disagree with the split.
+    expect(b.product_count).toBe(3);
+    expect(b.is_pure_connector_vendor).toBe(false);
+  });
+
+  it('flags a vendor whose every product is a connector', async () => {
+    await t.db
+      .insert(products)
+      .values({ id: PRODUCT, slug: 'bridge', name: 'Bridge', productRole: 'connector' });
+    await t.db.insert(productVendors).values({ productId: PRODUCT, vendorId: VENDOR });
+
+    const res = await send(
+      mount(
+        'get',
+        '/api/admin/vendors/:id',
+        createAdminVendorDetailHandler(t.factory, emailSeam()),
+      ),
+      `/api/admin/vendors/${VENDOR}`,
+    );
+    const b = await body(res);
+    expect(b.is_pure_connector_vendor).toBe(true);
+  });
+
+  it('reports a vendor with no products as zeroed and NOT pure-connector', async () => {
+    const res = await send(
+      mount(
+        'get',
+        '/api/admin/vendors/:id',
+        createAdminVendorDetailHandler(t.factory, emailSeam()),
+      ),
+      `/api/admin/vendors/${VENDOR}`,
+    );
+    const b = await body(res);
+    expect(b.product_count).toBe(0);
+    expect(b.product_roles).toEqual({ application: 0, connector: 0, hybrid: 0, total: 0 });
+    // Owning nothing is UNKNOWN, not exempt — it must never read as a carve-out.
+    expect(b.is_pure_connector_vendor).toBe(false);
+  });
+
   it('counts a claim that targets a PRODUCT this vendor owns', async () => {
     await t.db.insert(products).values({ id: PRODUCT, slug: 'acme-thing', name: 'Acme Thing' });
     await t.db.insert(productVendors).values({ productId: PRODUCT, vendorId: VENDOR });

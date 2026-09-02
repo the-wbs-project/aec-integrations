@@ -12,6 +12,7 @@ import type {
 
 import { AdminClaimsApi } from './admin-claims-api';
 import { entitlementTermLabel } from '../entitlement/entitlement-term';
+import { productRolesLabel } from '../product-roles/product-roles-label';
 
 /** One request covers a launch-scale claim backlog. The API caps `perPage` at 100;
  *  we load the max and surface a note if the server reports more. */
@@ -217,6 +218,10 @@ export class ClaimQueue {
     }
     return $localize`:@@admin.claims.auth.unknown:Account status unknown`;
   }
+
+  /** The §5.2 payer test as one readable line — shared with `/admin/vendors/:id`
+   *  so the two screens cannot describe the same vendor differently. */
+  protected readonly roleBreakdownLabel = productRolesLabel;
 
   protected seatDisplayName(name: string | null): string {
     return name?.trim() ? name : $localize`:@@admin.claims.seat.unnamed:Unnamed seat`;
