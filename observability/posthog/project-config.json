@@ -97,7 +97,7 @@
       "docs/OBSERVABILITY.md flags each of these as 'always emitted, so this doubles as the",
       "cron-liveness heartbeat'.",
       "",
-      "Only six of the twelve had a Datadog no-data monitor. The other six",
+      "Six of the original twelve had a Datadog no-data monitor. The other six",
       "(metrics-snapshot, analytics-digest, moderation-snapshot, attestation-notify,",
       "entitlement-expiry, and the drift job's own run) gain liveness coverage here for the",
       "first time \u2014 a deliberate widening, recorded in README.md.",

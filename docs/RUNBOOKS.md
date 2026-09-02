@@ -130,7 +130,7 @@ State these before an incident, not during one.
    **outside** the Worker — the property that made "Datadog owns absence" true, and
    one a Worker-hosted check cannot have. If GitHub Actions is degraded, cron
    liveness is **unchecked**, and the sweep says so rather than passing: **exit 0** =
-   all twelve fresh, **exit 1** = a heartbeat is MISSING or STALE (with a
+   all thirteen fresh, **exit 1** = a heartbeat is MISSING or STALE (with a
    `::error::` annotation naming the cron and its allowance), **exit 2** = the sweep
    could not run (PostHog 5xx, or no `POSTHOG_CLI_API_KEY`). **Exit 2 is red, not
    green — "the sweep could not run" is not "the crons are fine."** Never add

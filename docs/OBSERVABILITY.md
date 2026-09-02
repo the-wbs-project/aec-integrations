@@ -436,7 +436,7 @@ no matching heartbeat, or a heartbeat with no row, is a bug in the instrumentati
 — not a discrepancy to reconcile by hand.
 
 **Coverage widened in the port.** Datadog watched **six** of these crons for
-absence; the CI sweep watches all **twelve** (`observability/posthog/project-config.json`
+absence; the CI sweep watches all **thirteen** (`observability/posthog/project-config.json`
 holds the registry, one row per cron with its own staleness allowance).
 
 | Cron | `job_runs.job` | Its liveness signal |
@@ -1141,7 +1141,7 @@ telemetry step in this repo is best-effort (`posthog-deploy-marker.sh` always ex
 0), so the surrounding convention points the other way; the correct precedent is
 `.github/workflows/reconcile-counts.yml`.
 
-Exit codes are deliberately three-valued: **0** = all twelve heartbeats fresh; **1**
+Exit codes are deliberately three-valued: **0** = all thirteen heartbeats fresh; **1**
 = a heartbeat is MISSING or STALE (with a GitHub `::error::` annotation naming the
 cron and its allowance); **2** = the sweep could not run at all (PostHog 5xx, or no
 `POSTHOG_CLI_API_KEY`) and reports "UNCHECKED, not healthy". **"The sweep could not

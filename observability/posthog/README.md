@@ -237,13 +237,13 @@ Run on 2026-08-24 via `PH_APP_HOST=http://127.0.0.1:<port>`:
 | Scenario | Stub behaviour | Result |
 |---|---|---|
 | `all-fresh` | all thirteen heartbeats, age 12 min | table of 13 `ok` rows, `all 13 cron heartbeats fresh`, **exit 0** |
-| `one-dead` | `aeci.algolia.sync` **absent from the result set** | that row prints `MISSING`, `::error title=Cron heartbeat MISSING: algolia-sync::No 'aeci.algolia.sync' data point in the last 72 h…`, **exit 1** |
+| `one-dead` | `aeci.algolia.sync` **absent from the result set** | that row prints `MISSING`, `::error title=Cron heartbeat MISSING: algolia-sync::No 'aeci.algolia.sync' data point in the last 360 h…`, **exit 1** |
 | `one-stale` | `aeci.waf.poll` present, age 400 min (max 180) | that row prints `STALE`, `::error title=Cron heartbeat STALE: waf-poll::'aeci.waf.poll' last reported 400 minutes ago; the '0 * * * *' schedule allows 180.`, **exit 1** |
 | `http-500` | PostHog returns 500 | `Cron liveness is UNCHECKED for this run — treat it as unknown, not as healthy`, **exit 2** |
 | no key | `POSTHOG_CLI_API_KEY` unset | `Cron liveness is UNCHECKED until then — this is not a pass`, **exit 2** |
 
 The stub also echoed back what the script sent, confirming
-`POST /api/projects/354071/query/`, `Authorization: Bearer phx_…`, and the twelve-metric
+`POST /api/projects/354071/query/`, `Authorization: Bearer phx_…`, and the thirteen-metric
 SQL. That same SQL, verbatim, was separately executed against the **live production**
 project and returned the expected empty result set.
 
