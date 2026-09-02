@@ -37,11 +37,7 @@ set -euo pipefail
 # Warn on each missing recommended secret (deploy still proceeds).
 for name in ${RECOMMENDED_SECRETS:-}; do
   if [ -z "${!name:-}" ]; then
-<<<<<<< HEAD
-    echo "::warning::[$ENV_LABEL] recommended secret '$name' is not set — the deploy proceeds, but a feature is degraded (cache-tag purge). See docs/environments.md §Secrets."
-=======
     echo "::warning::[$ENV_LABEL] recommended secret '$name' is not set — the deploy proceeds, but the feature that secret powers is degraded. See its row in docs/environments.md §Secrets for what stops working."
->>>>>>> origin/main
   fi
 done
 
