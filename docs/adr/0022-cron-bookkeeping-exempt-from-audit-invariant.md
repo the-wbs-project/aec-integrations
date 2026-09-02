@@ -100,3 +100,9 @@ shape, including the part most easily dropped: **no change, no row.**
 
 Recorded in `STAGE_1_SPEC.md` §26.1 alongside the exemption list, per this ADR's own rule that
 a new carve-out is a spec edit rather than a reviewer's call.
+
+The reviewer-facing signpost is `CODE_REVIEW_EXEMPTIONS.md` **EX-003** (added 2026-09-02, AECI-734),
+which suppresses only the granularity finding on the two connector-sync files. It deliberately does
+**not** suppress a missing audit row, a row written outside the batch, or the decision-bearing
+`managed_by` flip above — those stay reportable. EX-002 covered those files until AECI-734 split them
+out; its bare-audit-vocabulary matcher was hiding genuine findings.
