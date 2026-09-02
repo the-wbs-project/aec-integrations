@@ -25,7 +25,7 @@ browser RUM SDK, the `observability/datadog/` monitor + dashboard JSON, every
 | Question | Where to look |
 |---|---|
 | "My phone buzzed — what fired?" | One of the 13 PostHog alerts (hourly cadence), production project only |
-| "Did the 08:00 cron actually run?" | The **CI liveness sweep** (`.github/workflows/posthog-liveness-sweep.yml`), every 3 h, **twelve** crons watched. It runs OUTSIDE the Worker, which is what lets it detect a dead Worker |
+| "Did the 08:00 cron actually run?" | The **CI liveness sweep** (`.github/workflows/posthog-liveness-sweep.yml`), every 3 h, **thirteen** crons watched. It runs OUTSIDE the Worker, which is what lets it detect a dead Worker |
 | "What does this metric mean?" | This document |
 | "Show me the graph" | PostHog — 7 dashboards, 43 insights, applied from `observability/posthog/insights.json` |
 | "Read the error log for this request" | The PostHog Logs explorer |
@@ -576,7 +576,7 @@ is `pnpm --filter @aeci/api ops:backfill-metrics-daily`, which is the same idemp
 metrics are unrecoverable. AECI-583's `job_runs` row plus the always-emitted
 `aeci.metrics_snapshot.run{trigger:cron}` series are the only signals today. **The PostHog port
 closes it from both sides without anyone filing an issue:** `metrics-snapshot` is one of the six
-previously-unwatched crons picked up by the combined cron-failure alert, and one of the twelve in
+previously-unwatched crons picked up by the combined cron-failure alert, and one of the thirteen in
 the CI liveness sweep's registry (26 h window). The sweep is **already running**, so its red is
 worth reading even during the dual-run.
 
@@ -1048,7 +1048,7 @@ duplicate either here, or the two will drift and the doc will lose.
 | File | What it is |
 |---|---|
 | `observability/posthog/README.md` | The **26-row monitor disposition table** (every Datadog monitor → its new home, with its retired threshold), the AW6 judgement calls, the migration hazards, the drill record, the numbered manual steps and the operator checklist. `docs/RUNBOOKS.md` carries the disposition table as well, for the on-call reader. |
-| `observability/posthog/project-config.json` | Project topology, alert subscribers, and the **twelve-cron liveness registry** the CI sweep reads. |
+| `observability/posthog/project-config.json` | Project topology, alert subscribers, and the **thirteen-cron liveness registry** the CI sweep reads. |
 | `observability/posthog/insights.json` | 7 dashboards, 43 insights (30 board + 13 alert-source), as data. |
 | `observability/posthog/alerts.json` | 13 alerts, each naming its source insight and carrying the **retired Datadog query verbatim**. |
 | `observability/posthog/apply.sh` | The applier. `--dry-run` / `--verify`; dashboards + insights to **both** projects, alerts to **prod only**. |

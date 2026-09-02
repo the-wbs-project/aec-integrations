@@ -340,7 +340,7 @@ This supersedes the note under (2) that called additions *"exactly one honest se
 ### 5.6 System — SHIPPED (AECI-580, 2026-08-13; completed by AECI-583, 2026-08-13)
 
 - SSR + API `sha` / `deployedAt` / `environment` from the two existing endpoints (`/api/version` and the SSR Worker's own `/_version` — they differ precisely so a stale SSR deploy is detectable). The UI reads both and flags a mismatch as a `role="alert"` band; an unknown SHA (the `wrangler --var` injection missing) reads as *unknown*, not as a difference. The bundle carries the **API** Worker's half — nothing reachable from the API Worker knows the SSR Worker's SHA.
-- **Cron liveness** — last run, duration, outcome per job, for all eleven crons (§7.2).
+- **Cron liveness** — last run, duration, outcome per job, for all thirteen crons (§7.2).
 - **The ten data-quality checks** rendered with severity and sample rows — formerly visible only in an email. **Delivered as specified:** since AECI-583 the default view reads the last persisted `job_runs` result (labelled with the run's own `computed_at`) and `?recompute=1` is the refresh. Both are pure reads, so neither writes anything or needs an `audit_log` row (§13 **D8**).
 - Algolia sync watermark, index drift, orphan-sweep results.
 - D1 size and per-table row counts.
@@ -353,7 +353,7 @@ Effectively the daily procedure in `POST_LAUNCH_MONITORING.md` turned into one s
 
 | Item | State after AECI-580 | State after AECI-583 |
 |---|---|---|
-| Cron **last run** | Derived for two of eleven — `home-stats` from `MAX(stats_cache.computed_at)`, `algolia-sync` from the `algolia_sync_watermark` row's stamp — and `unknown` for the other nine. | Read from `job_runs` for every job that has run. `derived` survives only as the pre-first-run fallback (deleting it would blank all eleven for 24h after each deploy), and still reports no outcome — a stamp proves the job *ran*, never that it *succeeded*. |
+| Cron **last run** | Derived for two of thirteen — `home-stats` from `MAX(stats_cache.computed_at)`, `algolia-sync` from the `algolia_sync_watermark` row's stamp — and `unknown` for the other eleven. | Read from `job_runs` for every job that has run. `derived` survives only as the pre-first-run fallback (deleting it would blank all thirteen for 24h after each deploy), and still reports no outcome — a stamp proves the job *ran*, never that it *succeeded*. |
 | Cron **outcome / duration** | `null` on every row. `'ok'` is unreachable in P1.6 by construction; the screen renders "Unknown". | Populated. `'ok'` is now reachable — but only from a row that says so: an **open** row (`finished_at IS NULL`) reports `run_state: 'in_flight'` with a null outcome *whatever is stored*, and an unrecognized stored value reads as null. An interrupted run cannot render as a pass. |
 | **Orphan sweep** | Permanently `null` + an `orphan_sweep_not_persisted` note. The sweep runs inside the 09:00 drift cron and reports only as an emitted metric — there is no D1 read that could fill it, and inventing a persistence layer here is AECI-583's job, not this one's. | Filled from the 09:00 run's `job_runs.detail`, including the `capped` count an operator needs for the `--force` decision. The note is no longer emitted (kept in the enum — removing a code is breaking). `null` now means "no completed run has stored one", never "clean". |
 | **D1 size** | From D1's own `meta.size_after`; `null` (rendered "unknown") where unavailable. Never approximated from the row counts. | Unchanged. |

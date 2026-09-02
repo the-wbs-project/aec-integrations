@@ -1573,7 +1573,7 @@ One row per execution of one of the thirteen `scheduled.ts` cron jobs (AECI-583;
 ```sql
 create table job_runs (
   id bigserial primary key,
-  job text not null,                -- one of the eleven AdminCronJob ids (packages/shared/src/api/admin-panel.ts)
+  job text not null,                -- one of the thirteen AdminCronJob ids (packages/shared/src/api/admin-panel.ts)
   started_at timestamptz not null,  -- written on ENTRY: the row exists before the job finishes
   finished_at timestamptz,          -- null = in flight, or the isolate never came back
   outcome text,                     -- 'ok' | 'failed' | 'skipped'; null while finished_at is null
@@ -1588,7 +1588,7 @@ create index job_runs_job_started_at_idx on job_runs(job, started_at); -- per-jo
 
 **`outcome` has no `'running'` member.** In flight is already `finished_at IS NULL AND outcome IS NULL`; a second encoding would let the two disagree. NULL passes the CHECK because SQLite satisfies a CHECK when the expression is true *or* NULL. The read side additionally refuses an outcome on an open row whatever is stored, so an unfinished run structurally cannot render as a success.
 
-**`job` carries no CHECK**, following `audit_log.action`: the vocabulary grows with every new cron and SQLite cannot ALTER a CHECK, so a tenth cron would have needed a table-recreate migration (an eleventh, `asn-registry`, landed with AECI-624 at no migration cost — which is the payoff). `Record<ScheduledJob, AdminCronJob>` in `apps/api/src/lib/cron-schedules.ts` plus the Zod enum are the enforcement.
+**`job` carries no CHECK**, following `audit_log.action`: the vocabulary grows with every new cron and SQLite cannot ALTER a CHECK, so a tenth cron would have needed a table-recreate migration (a thirteenth, `asn-registry`, landed with AECI-624 and reached this line at the AECI-750 reconcile — at no migration cost, which is the payoff). `Record<ScheduledJob, AdminCronJob>` in `apps/api/src/lib/cron-schedules.ts` plus the Zod enum are the enforcement.
 
 **Why the index is `(job, started_at)` in that order.** Every read is "the newest run of one job": an equality seek on `job`, then one row off the descending `started_at` edge (`LIMIT 1`, eleven of them per request). `id` is the rowid and therefore the index's implicit trailing column, which makes `ORDER BY started_at DESC, id DESC` a free deterministic tie-break with no temp b-tree. Verified by `EXPLAIN QUERY PLAN` against a 9,000-row fixture: `SEARCH job_runs USING INDEX job_runs_job_started_at_idx (job=?)`. The `GROUP BY job` and `ROW_NUMBER() OVER (PARTITION BY job)` alternatives both SCAN the whole index, and D1 bills rows read.
 

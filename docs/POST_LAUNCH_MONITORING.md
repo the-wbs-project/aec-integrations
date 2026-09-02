@@ -24,7 +24,7 @@ into a health report, or the report will silently mix a census with a funnel.
 |---|---|---|
 | **PostHog** (`aec-integrations`, **354071**, production only) | Person-linked logs (`posthogDistinctId`), `$exception` grouping, deploy `deployment` events, and the product funnels in `ANALYTICS.md` | **Alerts — none are applied to production yet.** Dashboards are applied to the **non-production** project (525793) only. Do not read a prod number off a 525793 board |
 | **`/admin/*`** (`job_runs`, `page_views`, `metrics_daily`) | Cron run records, the consent-independent traffic count, D1 footprint | Absence ("it never ran" writes no row, by construction) |
-| **The CI liveness sweep** (`posthog-liveness-sweep.yml`, every 3 h) | Cron **absence**, across all twelve crons — **already running** and worth reading during the dual-run | Anything about *why* a cron failed |
+| **The CI liveness sweep** (`posthog-liveness-sweep.yml`, every 3 h) | Cron **absence**, across all thirteen crons — **already running** and worth reading during the dual-run | Anything about *why* a cron failed |
 | **Cloudflare** (Workers observability, Security → Events) | Edge cache HIT-rate, absolute request volume, per-IP WAF detail | Application-level anything |
 
 The rule for this pass: **read PostHog for production numbers, read the liveness sweep
@@ -100,7 +100,7 @@ data today, with the PostHog successor in brackets.
 | 4 | **Algolia query latency / errors** | Phase 3 — Search (browser RUM `aeci.search.query`: latency p50/p95/p99, error rate) | error rate ~0; p95 within norm | *(no alert — dashboard-only)*. ⚠️ **This signal narrows at AECI-651**: the RUM action is consent-independent, its `search_performed` successor is consented-only. Read it as a funnel from then on, not a census |
 | 5 | **Algolia sync + drift** | Phase 3 — Search; `aeci.algolia.sync`, `aeci.algolia.index_drift`. Also **`/admin/system`** — the sync watermark (per entity + last advance), and drift on demand via "Run data-quality checks" | drift 0; daily sync `outcome:ok` | drift / sync-failed / sync-not-running / orphan-cap monitors. **After the cutover:** sync-failed folds into the combined cron alert, drift becomes **dashboard-only**, liveness moves to the CI sweep, orphan-cap stays its own alert |
 | 5a | **Data quality (10 §23.1 checks)** | **`/admin/system`** — the page opens on the **last stored 04:00 result** (AECI-583), labelled with the run's own timestamp, so the morning read needs no click and no email. "Run data-quality checks" re-runs the suite live to confirm a fix. Both are pure reads | every check *Passing*; `algolia_index_drift` *Skipped* is normal off production (no credentials) | check-error / check-warn. **After the cutover:** ERROR stays an alert (and *gains* the ability to see a check that **threw** — sentinel `-1`, which Datadog's `max(...) > 0` could not); WARN becomes dashboard + digest only |
-| 6 | **Scheduled-job health (12 crons)** | **`/admin/system`** for the record — real last run, outcome and duration per job (AECI-583). **Something outside the Worker for absence** — a job that never starts leaves no row, so the no-data monitors (today) / the **CI liveness sweep** (already running) are the only signal for "it stopped firing" (see §1a) | every cron shows a recent recorded run, and emitted its heartbeat in window | the per-cron `… not running` / `… failed` monitors today; the **combined** cron-failure alert + the sweep after |
+| 6 | **Scheduled-job health (13 crons)** | **`/admin/system`** for the record — real last run, outcome and duration per job (AECI-583). **Something outside the Worker for absence** — a job that never starts leaves no row, so the no-data monitors (today) / the **CI liveness sweep** (already running) are the only signal for "it stopped firing" (see §1a) | every cron shows a recent recorded run, and emitted its heartbeat in window | the per-cron `… not running` / `… failed` monitors today; the **combined** cron-failure alert + the sweep after |
 | 6a | **The CI liveness sweep itself** | GitHub Actions → `posthog-liveness-sweep` (every 3 h). Read the **latest run's conclusion**, not just the alert inbox | green | **exit 1** = a heartbeat MISSING or STALE, with a `::error::` naming the cron. **exit 2** = the sweep could not run — "UNCHECKED, **not** a pass". Expect exit 2 on every run until the `phx_` key is provisioned (§0a) |
 | 7 | **Request → Linear pipeline** | Phase 6 — Requests / Moderation; `aeci.linear.issue`/`.sync`/`.reconcile.*`, `aeci.webhooks.linear.hmac_failure` *(PostHog: "AECi — Requests / Linear pipeline")* | failure rate < 50%; no persistent stuck; no HMAC burst | pipeline-failure / reconcile-stuck / reconcile-no-data / hmac monitors |
 | 8 | **Moderation queue** | Phase 5 & 6 dashboards; `aeci.moderation.queue_depth` / `queue_oldest_age_hours`; `GET /api/admin/summary` (`pending_reviews`), `GET /api/admin/requests` | oldest pending < 48h (target 24h, §17) | `AECi — Moderation queue backlog` (>48h) — ⚠️ **this stops alerting at AECI-651** and becomes a dashboard read. **This row is why it is safe to drop the alert; do not skip it** |
@@ -122,7 +122,7 @@ data today, with the PostHog successor in brackets.
 ### 1a. The 13 scheduled crons (row 6 detail)
 
 Each cron emits an always-on heartbeat; **absence** of that heartbeat is the liveness signal. A green
-board here means all twelve fired on schedule. Since AECI-583 each run **also** writes a `job_runs`
+board here means all thirteen fired on schedule. Since AECI-583 each run **also** writes a `job_runs`
 row that `/admin/system` renders (see the split below).
 
 > **Read the record off `/admin/system`; read absence off something outside the Worker.** AECI-583
@@ -138,7 +138,7 @@ row that `/admin/system` renders (see the split below).
 > it **succeeded**. Full reconciliation in `OBSERVABILITY.md`.
 >
 > **What owns absence.** Formerly Datadog's six `notify_no_data` monitors; since AECI-651,
-> AECI-651 — and **already running now** — the CI liveness sweep, which watches all **twelve**. It
+> AECI-651 — and **already running now** — the CI liveness sweep, which watches all **thirteen**. It
 > runs outside the Worker on purpose; a liveness check hosted inside the API Worker cannot detect
 > the API Worker being dead. **PostHog alerts are explicitly not the answer:** no PostHog tier has
 > `notify_no_data`, and a "count < 1" alert over an empty window returns no rows rather than

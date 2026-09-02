@@ -957,7 +957,8 @@ function logPromoteStaleIds(rc: PromoteRunCtx, staleSupabaseIds: PromoteStaleId[
 }
 
 /**
- * Surface a promote's unresolved optional links (AECI-730) in Datadog. The ingest
+ * Surface a promote's unresolved optional links (AECI-730) in the observability
+ * plane. The ingest
  * writes an integration whose `poweredByProduct` / `builtByVendor` doesn't resolve
  * *without* that column, which used to be invisible everywhere: no `skipped[]` entry
  * (the row DID land), no `staleSupabaseIds` entry, no metric, no log. The only trace
@@ -1405,7 +1406,7 @@ export async function runPromoteIngest(
   const staleSupabaseIds: PromoteStaleId[] = [];
   // Optional integration links (`poweredByProduct` / `builtByVendor`) that didn't
   // resolve. The integration itself is still written — just without that column —
-  // and the drop is reported on the response and in Datadog (AECI-730).
+  // and the drop is reported on the response and in the observability plane (AECI-730).
   const unresolvedLinks: PromoteUnresolvedLink[] = [];
 
   // Preload existing slugs for collision-free generation (outside the batch).
@@ -2541,7 +2542,8 @@ export function dispatchPromoteHooks(
     dispatchHook(rc, 'indexnow', notifyIndexNow(rc, response, tradeUrls));
   }
 
-  // Surface any `skipped[]` entries (§4) in Datadog: a completed job with skips is
+  // Surface any `skipped[]` entries (§4) in the observability plane: a completed job
+  // with skips is
   // a partial promote — entities the push couldn't link — that neither the metrics
   // layer nor a `status: 'complete'` poll response can otherwise reveal.
   logPromoteSkips(rc, response.skipped);

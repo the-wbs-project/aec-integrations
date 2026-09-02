@@ -77,10 +77,6 @@ const noopAlgolia: PromoteAlgoliaSync = async () => {};
  *  the global `fetch`) is never hit; the wiring tests inject a spy instead. */
 const noopIndexNow: PromoteIndexNowNotify = async () => {};
 
-/** A no-op Google Indexing seam — default for all tests so the real default
- *  (which signs a JWT + calls the global `fetch`) is never hit; the wiring tests
- *  inject a spy instead. */
-
 /** A no-op home-stats refresh seam — default for all tests so the real default
  *  (which opens a fresh `getDb` on `env.DB` + recomputes/purges) is never hit; the
  *  wiring tests inject a spy, and the default-behavior tests call

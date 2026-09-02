@@ -836,10 +836,40 @@ If the smoke check fails, the deployment is marked failed and:
   branch from `main` → PR to `main` → squash-merge → staging auto-deploys → `promote-to-demo`
   (SHA) → `promote-to-prod` (SHA). The promote buttons already take an **arbitrary** `commit_sha`
   (gated only on the SHA being live one tier up), so no workflow change is needed.
+- **The reconcile must be a MERGE, never a squash — the one rule that has actually bitten.**
+  AECI-619 reconciled `main` into `stage-2` and landed via squash (PR #552). The content arrived;
+  the **ancestry** did not. `git merge-base` stayed at `dadc6c45`, so the next reconcile (AECI-750)
+  measured against a base six weeks stale and reported **417 both-sides files / 51 commits /
+  187 conflicts** where the truth was **100 / 24 / 62**. Sizing a two-day job off that number is how
+  it gets planned as a two-week one.
+  - *Symptom:* conflicts dominated by `add/add` on files both branches "added", or hunks where the
+    two sides say the same thing.
+  - *Diagnosis:* find the `main` SHA the last reconcile actually absorbed, then re-measure with
+    `git merge-tree --write-tree --merge-base <sha> origin/stage-2 origin/main`. **Never size a
+    reconcile off `git rev-list --count`.**
+  - *Repair:* `git merge -s ours <sha>` records the ancestry the squash discarded and changes no
+    file; then merge normally.
+- **⚠️ After a `main → stage-2` reconcile, `main` is an ANCESTOR of `stage-2`.** A PR from the
+  reconcile branch into `main` therefore **fast-forwards production to the whole of Stage 2**, and
+  GitHub offers `main` as the default base. AECI-750 opened exactly that PR (#608, 56 commits) and
+  closed it unmerged. Always `gh pr create --base stage-2`, and check the base on the PR page
+  before merging anything whose head is a reconcile branch.
+- **Verify by tree diff, never by "it merged cleanly."** Thirteen defects across the two reconciles
+  produced no conflict marker. The gate is `git diff origin/main HEAD` reviewed by path class:
+  every line `main` has that the result lacks must be a *named* re-expression. Follow it with a
+  whole-tree marker sweep — `git grep -nE '^(<{7}|={7}|>{7})'` — because shell, JSON and Markdown
+  are read by neither ESLint nor Prettier, and AECI-750 found a live conflict marker in
+  `scripts/require-secrets.sh`, which every deploy sources.
 - **Migration-journal reconciliation.** Stage 2 migrations accumulate on `stage-2` while hotfix
-  migrations may land on `main`. Before merging `stage-2 → main`, re-run
-  `pnpm --filter @aeci/api db:generate` and reconcile against any `main` migrations so the
-  Drizzle journal (`apps/api/migrations/meta/_journal.json`) stays linear.
+  migrations may land on `main`. The rule is **`main` keeps its numbers, the integration branch
+  renumbers** — `main`'s are already applied in production, and a production ledger cannot be
+  rewritten. **Do not "re-run `db:generate` and let it reconcile":** drizzle-kit answers a CHECK
+  change on SQLite with a full table recreate whose `DROP` fires `ON DELETE CASCADE` (measured:
+  1,697 claims + 1,697 attestations). Snapshots are **recomposed, keeping every hand-authored SQL
+  body byte-identical** — `docs/migrations.md` §0 has the procedure and AECI-750's worked example at
+  seven migrations. Two checks close it: `db:generate` must report *"No schema changes"* with a
+  clean `git status --porcelain`, and the two migration sets' object sets must be **disjoint** (if
+  they are, the interleaved apply order on already-migrated tiers is inert).
 - **CI on the integration branches.** Every PR gets the full gate no matter which branch it
   targets — `deploy.yml`, `integration-db-tests.yml`, `drift-check.yml` and `pr-preview.yml` are
   all base-branch-agnostic (§3.1). `main`, `stage-2` and `admin-panel` additionally get a

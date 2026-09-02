@@ -598,7 +598,7 @@ export interface PromoteUnresolvedLink {
  * `ref` only ever appears when a product was actually sent. A blocked vendor is
  * likewise absent from `vendors[]`. Omission (rather than an `operation:
  * 'blocked'`) is deliberate: every post-commit deriver — cache-tag purge,
- * IndexNow, Google Indexing, Algolia — iterates these arrays unconditionally, so
+ * IndexNow, Algolia — iterates these arrays unconditionally, so
  * omitting the entity excludes it from all of them by default rather than by
  * remembering to guard six call sites.
  *

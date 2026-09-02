@@ -629,7 +629,7 @@ bucket definitions and the standing measurement.
 **Root cause closed 2026-09-01 (AECI-730).** The gap re-accrued because promote dropped an
 unresolvable `poweredByProduct` with no report of any kind, and on an *update* actively cleared a
 correct FK. Both are fixed: the drop is now reported on the response as `unresolvedLinks[]`
-(`REVIEW_APP_PROMOTE_API.md` §3.4/§4) and as `aeci.api.promote.unresolved_link{field}` in Datadog,
+(`REVIEW_APP_PROMOTE_API.md` §3.4/§4) and as `aeci.api.promote.unresolved_link{field}` in PostHog,
 and the column is left untouched rather than nulled when the link doesn't resolve. So the
 `connectorUnpromoted` population is visible **at promote time** instead of only in an offline
 sweep — but it does not shrink: AECI-700 parks Zapier and Workato permanently, so their share of
@@ -639,9 +639,12 @@ Separately tracked follow-ups: 22 exact-duplicate integration rows; connector di
 search/browse (`product_role` on Algolia records, a Connectors facet, `RoleBadge` on search
 cards).
 
-**Superseded as a snapshot by §13.9** (2026-08-30/31), which carries the current connector-lane
-figures. This paragraph stays as the historical record of what Addendum B shipped against — and the
-discovery follow-ups named in it are still open.
+**Which numbers live where (reconciled 2026-09-02, AECI-750).** The figures above are the
+**production app-DB** state — measured against `aeci-app-production`, and current as of the AECI-706
+/ AECI-730 dates on each block. §13.9's figures are the **review-catalogue** state (what the
+curation app holds, promoted or not), which is why the two sets do not add up to each other and
+neither supersedes the other. Read §13.9 for connector-lane coverage, this section for what prod
+actually serves. The discovery follow-ups named above are still open.
 
 ### 12.7 Catalog-scope note on both integration lists (2026-08-05)
 
@@ -858,7 +861,7 @@ mid-flight will make a local decision about a cross-cutting contract.
    connector as **both** an endpoint and the `powered_by` target, so on that connector's page it
    lands in `sourceIntegrations`/`targetIntegrations` **and** in `poweredIntegrations` — rendering
    **twice**, once in `#integrations` and once in `#powered-integrations`. Production is blind to
-   this today only because `powered_by` is un-backfilled (§12.6: 5 of 421 rows). **AECI-706 turns it
+   this today only because `powered_by` is un-backfilled (§12.6, since remeasured by AECI-706). **AECI-706 turns it
    on**, and 706 lands *before* AECI-721 removes the class — Aquifer's 43 and Kroo's 44 duplicate on
    the day the backfill ships. **Rule: the powered section excludes edges where the page product is
    also an endpoint.** Those edges belong to the endpoint lane, where §13.2(a) already keeps them
@@ -1137,8 +1140,9 @@ which is materially larger than the promoted app DB — the *ratios* are the dur
 The prod app-DB subset is gated on **AECI-706** (the `powered_by` backfill) and **AECI-700** (the
 Zapier/Workato `on_hold` decision — 110 and 44 powered edges respectively ride on parked products).
 Until AECI-700 resolves, the "Via" lane reads mostly-Agave; that is expected, not a defect in the
-split. This supersedes §12.6's snapshot (5 of 421 prod edges carrying `powered_by`), which stays in
-place as the historical record of what Addendum B shipped against.
+split. These are **review-catalogue** figures; §12.6 carries the **production app-DB** counterpart
+(946 integrations, 79 with the FK, as of AECI-706) — different populations, not a supersession. The
+"5 of 421" snapshot §12.6 once carried was itself superseded there by AECI-706.
 
 ### 13.10 What AECI-714 landed (2026-08-31)
 

@@ -252,7 +252,7 @@ function jobRunSink(ctx: ExecutionContext, env: Env): JobRunSink {
   };
 }
 
-// The twelve cron expressions now live in `./lib/cron-schedules` — hoisted there
+// The thirteen cron expressions now live in `./lib/cron-schedules` — hoisted there
 // by AECI-580 (the snapshot cron joined them in AECI-581, the retention prune in
 // AECI-584, and the §7 attestation sweep at the AECI-619 reconciliation) so
 // `GET /api/admin/system`'s liveness rows read the SAME literals this dispatcher

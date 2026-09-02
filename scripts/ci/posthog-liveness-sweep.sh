@@ -92,7 +92,7 @@ trap 'rm -rf "$TMP"' EXIT
 
 # ── Build the query ─────────────────────────────────────────────────────────────
 #
-# ONE query for all twelve crons rather than twelve queries: one round trip, one place
+# ONE query for all thirteen crons rather than thirteen queries: one round trip, one place
 # to read the whole picture, and no chance of a partial sweep reporting a partial pass.
 # `dateDiff` happens server-side so the shell only ever compares integers — no clock
 # skew between the runner and PostHog, and no date parsing in bash.

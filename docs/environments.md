@@ -830,11 +830,28 @@ A **throwaway** tier for end-to-end testing of the completed Stage 2 build (vend
 
 Unlike every other tier, this one is **deployed by hand from a `stage-2` SHA**. There is no workflow, no GH Environment, and no GH secret that names it — `stage-2` never reaches staging, so the usual "verify one tier up" gate has nothing to check.
 
-> **As-built status — 2026-08-20.** LIVE at `82f26ba1` and **Access-gated**. D1 `aeci-app-stage2` (`d6960a3f-…`, region APAC) migrated to `0019` and seeded; both KV namespaces provisioned; both Workers deployed and reporting the SHA on `/api/version` + `/_version`, `/api/health` `db:ok`. Seeded content verified rendering: pair-page agreement states (`confirmed` / `single_source` / `unverified`), the vendor verified badge, and the version-diff selectors.
+> ### ⚠️ PENDING — `d1_migrations` ledger repair (AECI-750, not yet executed)
+>
+> The `main → stage-2` reconcile renumbered this line's seven migrations `0016`–`0022` →
+> `0021`–`0027` (`main`'s `0016`–`0020` are applied in production and keep their numbers).
+> **`aeci-app-stage2` still records the OLD names**, so the next
+> `scripts/d1-apply-migrations.sh aeci-app-stage2 stage2` will try to re-run all seven renamed
+> files and fail on the first one. **No data is at risk** — the apply fails loudly, it does not
+> do anything destructive — but the tier cannot take a migration until the ledger is rewritten.
+>
+> Runnable `UPDATE`s (descending, so no intermediate name collides with one still in use) are in
+> **`docs/migrations.md` §0 → "AECI-750 — the second, larger renumber"**. Remote
+> `aeci-app-preview` (`--env preview`) needs the same treatment and should be censused first —
+> it already carries the AECI-619 rename. **staging / demo / production need nothing.**
+>
+> Not done here because it needs remote D1 credentials. Clear this flag once both tiers'
+> `SELECT name FROM d1_migrations ORDER BY id` matches `apps/api/migrations/`.
+>
+> **As-built status — 2026-08-20.** LIVE at `82f26ba1` and **Access-gated**. D1 `aeci-app-stage2` (`d6960a3f-…`, region APAC) migrated to `0019` and seeded (that head is now **`0024_easy_sandman`** after the AECI-750 renumber — see the PENDING block above); both KV namespaces provisioned; both Workers deployed and reporting the SHA on `/api/version` + `/_version`, `/api/health` `db:ok`. Seeded content verified rendering: pair-page agreement states (`confirmed` / `single_source` / `unverified`), the vendor verified badge, and the version-diff selectors.
 >
 > **Redeployed 2026-08-26 → `6553e654`.** Hand-deployed from the `stage-2` HEAD that
 > merged the AECI-639 observability dual-run (#568), so this tier now carries the **PostHog
-> leg** and is the surface for testing it. **No migration was needed** — `0019` is still the
+> leg** and is the surface for testing it. **No migration was needed** — `0019` (now `0024`) was still the
 > head and `wrangler d1 migrations list --remote` reported "No migrations to apply", so
 > everything seeded at bootstrap (including the hand-applied reviews, the operator profile
 > and the `stats_cache` rows in §10.7) survived untouched. Deploy order was API then SSR per
