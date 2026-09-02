@@ -796,8 +796,21 @@ product, `connector_evidenced_pairs.connector_product_id` is NOT NULL, and AECI-
 Workato permanently — so they cannot be routed, and they are 53 of the 132 edges
 `isConnectorPoweredEdge` gates for AECI-705. Dropping the value would have silently re-opened vendor
 attestation prompts on every one. Clause (b) is therefore still reachable, and clause (a) still
-matters for the ~60 Convention-A rows that stay. Retiring `iPaaS` is a sequenced follow-up gated on
-AECI-730 making the unroutable population observable at promote time.
+matters for the ~60 Convention-A rows that stay.
+
+**Closed by AECI-735 (2026-09-02): `iPaaS` is retained PERMANENTLY, not deferred.** AECI-730
+shipped and the question it gated came back no. The unroutable population does not merely persist,
+it cannot drain — those edges need `connector_evidenced_pairs.connector_product_id`, which is NOT
+NULL, and AECI-700 parks Zapier and Workato indefinitely — while ~144 of the 308 upstream `iPaaS`
+rows are Convention-A self-references that stay in `integrations` by design. Meanwhile the value
+became load-bearing in **three** shipped predicates, not one: `isConnectorPoweredEdge` (AECI-705's
+attestation gate), `routeIntegrationLane` clause (c) below (AECI-713's Via lane — the only thing
+keeping those 53 edges off the direct lane), and `MECHANISM_ORDER`, which `freeze()` uses as a
+**filter** so a gap drops badges silently. Retiring it would need a replacement marker and there is
+none short of a new `integrations` column, which buys vocabulary tidiness at the cost of breaking
+three predicates. `iPaaS` is a marker; treat clause (c) and `CONNECTOR_MECHANISM_KINDS` as siblings
+that change together or not at all. Only `partner` is still a pending retirement, gated on
+AECI-712's row-level upstream re-key (117 `partner` / 0 `integrator` upstream as of 2026-09-02).
 
 **A hard prerequisite under both phases: AECI-706**, the prod `powered_by` backfill. Splitting on a
 half-populated FK misfiles connector edges as direct, which is worse than today's honest mixed list.
@@ -1003,6 +1016,13 @@ mid-flight will make a local decision about a cross-cutting contract.
     (`connector_product_id` is NOT NULL), and they are 53 of the 132 edges `isConnectorPoweredEdge`
     gates — so nulling their kind would silently re-open AECI-705's attestation prompts on every
     one. `SEARCH_RANKING.md` §4.1–§4.3 records all three decisions.
+  - **AECI-735 (2026-09-02) turned that deferral into a permanent retention.** `iPaaS` never
+    leaves the vocabulary — see §13.2's Phase 2 correction for the three predicates that key off
+    it. `partner` remains the one open retirement, re-gated from AECI-698 (which revised the
+    vocabulary) onto **AECI-712** (which re-keys the rows, and has not run). The same issue added
+    the lockstep tests holding the vocabulary's **six** spellings together — the three TS lists in
+    `@aeci/shared`, `VALID_MECHANISM_KINDS`, `MECHANISM_ORDER`, and the D1 CHECK — because two of
+    the six degrade silently on drift.
 - **The lockstep set is FOURTEEN sites** (was ten — corrected by AECI-721 PR-A, which found four
   more while implementing). Migrating powered edges out of `integrations` without moving every one
   of them silently drops the edges and re-ranks the catalog as a side effect of a data migration.
@@ -1245,7 +1265,10 @@ itself. Three things worth carrying forward:
 - **`connector_evidenced_pairs` is no longer written by nothing.** `POST /api/promote` routes
   connector-powered edges here. The catalogue sync still does not touch it.
 - **`iPaaS` did not leave the mechanism enum**, against this section's own expectation — see
-  §13.2's Phase 2 correction. Neither did `partner`. Both retirements are sequenced follow-ups.
+  §13.2's Phase 2 correction. Neither did `partner`. **AECI-735 then closed the question
+  asymmetrically:** `iPaaS` is retained permanently (three shipped predicates key off it, over a
+  population that structurally cannot drain), and `partner` is the only sequenced follow-up left,
+  gated on AECI-712.
 - **The lockstep is fourteen sites, not ten** (§13.5), and it is regression-tested rather than
   only enumerated.
 

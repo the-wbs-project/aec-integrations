@@ -1,7 +1,15 @@
-import type { IntegrationListItem, ProductLink } from '@aeci/shared';
+import {
+  IntegrationMechanismKindSchema,
+  type IntegrationListItem,
+  type ProductLink,
+} from '@aeci/shared';
 import { describe, expect, it } from 'vitest';
 
-import { connectedProductCount, groupPoweredIntegrations } from './powered-hub-grouping';
+import {
+  connectedProductCount,
+  groupPoweredIntegrations,
+  MECHANISM_ORDER,
+} from './powered-hub-grouping';
 
 /**
  * Unit tests for the Addendum B hub-grouping heuristic. Pure function, so these
@@ -388,5 +396,21 @@ describe('connectedProductCount', () => {
 
     expect(connectedProductCount(edges, CONNECTOR)).toBe(3);
     expect(groupPoweredIntegrations(edges, CONNECTOR).pairCount).toBe(0);
+  });
+});
+
+/**
+ * The web end of the mechanism-vocabulary lockstep (AECI-735).
+ *
+ * `MECHANISM_ORDER` is used by `freeze()` as a **filter**, so a kind missing from it
+ * is dropped from the pair's badges entirely rather than ordered last — a SILENT
+ * content loss, with no type error and no runtime throw to notice. That makes it the
+ * sharpest of the five spellings of this vocabulary and the reason this assertion
+ * exists; the other four are covered in `packages/shared/src/api/integrations.spec.ts`
+ * and `apps/api/src/test/mechanism-vocabulary.spec.ts`.
+ */
+describe('MECHANISM_ORDER (vocabulary lockstep)', () => {
+  it('lists every mechanism kind — it is a FILTER, so a gap silently drops badges', () => {
+    expect([...MECHANISM_ORDER].sort()).toEqual([...IntegrationMechanismKindSchema.options].sort());
   });
 });

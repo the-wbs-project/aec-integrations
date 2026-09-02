@@ -59,13 +59,25 @@ export const PRODUCT_ROLES = ['application', 'connector', 'hybrid'] as const;
 export const RESEARCH_STATUSES = ['pending', 'in_progress', 'done', 'blocked'] as const;
 export const PRIORITY_TIERS = ['tier_1', 'tier_2', 'tier_3', 'tier_4', 'tier_5'] as const;
 export const PUBLIC_PRIVATE = ['public', 'private'] as const;
+// This list must stay in lockstep with `IntegrationMechanismKindSchema`
+// (`./integrations`), `MECHANISM_RANK` (`../algolia`), `VALID_MECHANISM_KINDS`
+// (`apps/api/src/lib/drizzle-helpers.ts`), `MECHANISM_ORDER`
+// (`apps/web/.../powered-hub-grouping.ts`) and the D1 CHECK. Nothing derives one
+// from another, so `integrations.spec.ts` asserts the five agree (AECI-735).
+//
 // `integrator` (AECI-698) replaces `partner`: an SI or consultancy built and
 // maintains the edge, neither endpoint vendor did. `partner` stays on the wire
-// until the review app has re-keyed its 117 rows and re-promoted them — dropping
-// it here would make the very push that carries the re-key fail validation.
-// AECI-721's migration adds `integrator` to `integrations_mechanism_kind_check`;
-// until that lands, an `integrator` payload passes Zod and fails the CHECK, so
-// the two must reach an environment together.
+// until the review app has re-keyed its 117 rows and re-promoted them (AECI-712,
+// not yet run) — dropping it here would make the very push that carries the re-key
+// fail validation. `iPaaS` stays PERMANENTLY, not pending anything: AECI-735
+// settled that it is the marker behind the attestation gate, the Via lane and the
+// powered hub, over a population AECI-700 parks indefinitely.
+//
+// One DEPLOYMENT caveat on `integrator`: it reaches
+// `integrations_mechanism_kind_check` in `0027_powerful_killraven.sql`, so a
+// payload carrying it passes Zod and then fails the CHECK in any environment that
+// migration has not been applied to — production, until `stage-2` merges. See
+// `docs/REVIEW_APP_PROMOTE_API.md` §3.4.
 export const MECHANISM_KINDS = [
   'native',
   'iPaaS',
