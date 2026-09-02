@@ -57,6 +57,7 @@ const EMITTED_ACTIONS = [
   'vendor_claim.granted',
   'vendor_claim.rejected',
   'vendor_claim.seat_revoked',
+  'vendor_claim.note_updated',
   'vendor_seat.invited',
   'vendor_seat.invite_revoked',
   'vendor_seat.invite_accepted',

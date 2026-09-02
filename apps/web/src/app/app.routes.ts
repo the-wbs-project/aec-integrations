@@ -305,6 +305,17 @@ export const routes: Routes = [
         path: 'claims',
         loadComponent: () => import('./admin/claims/claim-queue').then((m) => m.ClaimQueue),
       },
+      // AECI-739 — the claim detail page (`STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2
+      // step 6): where the operator note is written and the queue's duplicate chip
+      // is explained. Same flat-child shape and the same reasoning as the vendor
+      // and user pairs below — its sections are read together, so a route per
+      // section would buy nothing but resolvers, and `adminSummaryResolver` on the
+      // parent is the gate. NOT in `ADMIN_NAV_GROUPS`: a parameterised route has no
+      // nav-able URL.
+      {
+        path: 'claims/:id',
+        loadComponent: () => import('./admin/claims/claim-detail').then((m) => m.ClaimDetail),
+      },
       // AECI-652 — the §5.6 vendor surface. The list is the way into a vendor that
       // never filed a claim (which the claim queue structurally cannot reach), and
       // the detail page is where the entitlement control now lives. Two flat

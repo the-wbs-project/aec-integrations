@@ -1,0 +1,455 @@
+<section aria-labelledby="admin-claim-heading">
+  <a
+    routerLink="/admin/claims"
+    class="text-xs font-medium text-(--text-secondary) underline decoration-(--border-strong) underline-offset-4 transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+    i18n="@@admin.claims.detail.back"
+  >
+    Back to the claim queue
+  </a>
+
+  <h2
+    id="admin-claim-heading"
+    class="mt-2 text-lg font-bold text-(--text-primary)"
+    i18n="@@admin.claims.detail.heading"
+  >
+    Vendor claim
+  </h2>
+
+  <!-- The page's ONE polite live region: the note save changes text already on
+       screen, so it is otherwise a silent success. -->
+  <p class="sr-only" role="status" aria-live="polite">{{ liveMessage() }}</p>
+
+  @if (loading()) {
+  <p class="mt-8 text-sm text-(--text-secondary)" i18n="@@admin.claims.detail.loading">
+    Loading the claim…
+  </p>
+  } @else if (notFound()) {
+  <p class="mt-8 text-sm text-(--text-secondary)" i18n="@@admin.claims.detail.notFound">
+    No claim with that id. It may have been removed.
+  </p>
+  } @else if (notAClaim()) {
+  <!-- The id resolves, but to a CORRECTION — which moderates through a different
+       queue. Saying "not found" would send the operator looking for a row that
+       exists; the API makes the same distinction (422, not 404). -->
+  <div class="mt-8 space-y-3">
+    <p class="text-sm text-(--text-primary)" i18n="@@admin.claims.detail.notAClaim">
+      That request is a correction, not a claim. Corrections are handled on the requests queue.
+    </p>
+    <a
+      routerLink="/admin/requests"
+      class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-raised) px-4 py-2 text-sm font-bold text-(--text-primary) no-underline transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      i18n="@@admin.claims.detail.notAClaim.link"
+    >
+      Go to requests
+    </a>
+  </div>
+  } @else if (loadFailed()) {
+  <div
+    role="alert"
+    class="mt-8 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-4"
+  >
+    <p class="text-sm font-medium text-(--text-primary)" i18n="@@admin.claims.detail.error">
+      We couldn't load this claim. Your session may have expired.
+    </p>
+    <button
+      type="button"
+      (click)="retry()"
+      class="mt-3 inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-2 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      i18n="@@admin.claims.detail.retry"
+    >
+      Try again
+    </button>
+  </div>
+  } @else if (claim(); as c) {
+
+  <!-- ── 1. Claim ─────────────────────────────────────────────────────────── -->
+  <section class="mt-6" aria-labelledby="admin-claim-basics">
+    <h3
+      id="admin-claim-basics"
+      class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+      i18n="@@admin.claims.detail.basics"
+    >
+      Claim
+    </h3>
+
+    <div
+      class="mt-3 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-6"
+    >
+      <div class="flex flex-wrap items-center gap-2">
+        <span
+          class="inline-flex items-center rounded-full border border-(--border-default) px-2.5 py-0.5 text-xs font-medium text-(--text-secondary)"
+          >{{ statusLabel(c.status) }}</span
+        >
+        @if (c.is_duplicate) {
+        <a
+          href="#admin-claim-duplicate"
+          class="inline-flex items-center rounded-full border border-(--accent-secondary) bg-(--accent-warm) px-2.5 py-0.5 text-xs font-bold text-(--text-primary) no-underline transition-opacity hover:opacity-80 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          i18n="@@admin.claims.detail.duplicateChip"
+          >Possible duplicate — see why</a
+        >
+        }
+      </div>
+
+      <h4 class="mt-3 text-base font-bold text-(--text-primary)">
+        @if (targetRouterLink(c); as link) {
+        <a
+          [routerLink]="link"
+          class="text-(--text-primary) no-underline transition-colors hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          >{{ c.target?.name }}</a
+        >
+        } @else {
+        <span class="text-(--text-secondary)">{{ targetFallbackLabel(c.target_type) }}</span>
+        }
+      </h4>
+
+      <dl class="mt-3 grid gap-x-6 gap-y-2 text-xs text-(--text-secondary) sm:grid-cols-2">
+        <div class="flex gap-1.5">
+          <dt class="font-bold" i18n="@@admin.claims.detail.meta.submitter">Submitter</dt>
+          <dd>
+            {{ c.submitter_email }}@if (c.submitter_name) {
+            <span> · {{ c.submitter_name }}</span>
+            } @if (c.submitter_role) {
+            <span> · {{ c.submitter_role }}</span>
+            }
+          </dd>
+        </div>
+        <div class="flex gap-1.5">
+          <dt class="font-bold" i18n="@@admin.claims.detail.meta.submitted">Submitted</dt>
+          <dd>{{ c.created_at | date: 'medium' }}</dd>
+        </div>
+        @if (c.resolved_at) {
+        <div class="flex gap-1.5">
+          <dt class="font-bold" i18n="@@admin.claims.detail.meta.resolved">Decided</dt>
+          <dd>{{ c.resolved_at | date: 'medium' }}</dd>
+        </div>
+        }
+      </dl>
+
+      <p class="mt-4 whitespace-pre-line text-sm leading-relaxed text-(--text-secondary)">
+        {{ c.body }}
+      </p>
+
+      <div class="mt-4 flex flex-wrap gap-2">
+        @if (c.source_url) {
+        <a
+          [href]="c.source_url"
+          target="_blank"
+          rel="noopener noreferrer nofollow"
+          class="inline-flex items-center rounded-full border border-(--border-default) px-3 py-1 text-xs font-medium text-(--text-secondary) no-underline transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          i18n="@@admin.claims.detail.sourceUrl"
+          >Source link ↗</a
+        >
+        } @if (c.linear_issue_url) {
+        <a
+          [href]="c.linear_issue_url"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="inline-flex items-center rounded-full border border-(--border-default) px-3 py-1 text-xs font-medium text-(--text-secondary) no-underline transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          i18n="@@admin.claims.detail.linearIssue"
+          >Linear issue ↗</a
+        >
+        }
+      </div>
+    </div>
+  </section>
+
+  <!-- ── In-review explainer (that status only) ───────────────────────────── -->
+  @if (c.status === 'in_review') {
+  <div
+    class="mt-6 rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) p-4"
+  >
+    <p class="text-sm font-bold text-(--text-primary)" i18n="@@admin.claims.detail.inReview.title">
+      This claim is in review
+    </p>
+    <p
+      class="mt-1 text-xs leading-relaxed text-(--text-secondary)"
+      i18n="@@admin.claims.detail.inReview.body"
+    >
+      A claim moves to In review when its linked Linear issue is started. It is a normal working
+      state — the claim is still open and can still be granted or rejected from the queue, under the
+      In review filter.
+    </p>
+  </div>
+  }
+
+  <!-- ── 2. Verification signals ──────────────────────────────────────────── -->
+  <section class="mt-6" aria-labelledby="admin-claim-signals">
+    <h3
+      id="admin-claim-signals"
+      class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+      i18n="@@admin.claims.detail.signals"
+    >
+      Verification signals
+    </h3>
+
+    <div
+      class="mt-3 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-6"
+    >
+      <dl class="grid gap-4 sm:grid-cols-2">
+        <div>
+          <dt
+            class="text-xs font-bold text-(--text-secondary)"
+            i18n="@@admin.claims.detail.signals.domain"
+          >
+            Email domain
+          </dt>
+          <dd class="mt-1 text-xs text-(--text-primary)">{{ domainMatchLabel(c.domain_match) }}</dd>
+        </div>
+
+        <div>
+          <dt
+            class="text-xs font-bold text-(--text-secondary)"
+            i18n="@@admin.claims.detail.signals.account"
+          >
+            Claimant account
+          </dt>
+          <dd class="mt-1 text-xs text-(--text-primary)">
+            {{ authAccountLabel(c.has_auth_account) }}
+          </dd>
+        </div>
+
+        <!-- The §5.2 payer test (AECI-738), through the shared label helper. -->
+        <div>
+          <dt
+            class="text-xs font-bold text-(--text-secondary)"
+            i18n="@@admin.claims.detail.signals.roles"
+          >
+            Products by role
+          </dt>
+          <dd class="mt-1 text-xs text-(--text-primary)">
+            @if (c.product_roles === null) {
+            <span class="text-(--text-secondary)" i18n="@@admin.claims.detail.signals.unavailable"
+              >Unavailable</span
+            >
+            } @else if (c.product_roles.total === 0) {
+            <span class="text-(--text-secondary)" i18n="@@admin.claims.detail.roles.none"
+              >No products on record — role unknown</span
+            >
+            } @else {
+            <p>{{ roleBreakdownLabel(c.product_roles) }}</p>
+            }
+          </dd>
+        </div>
+
+        <div>
+          <dt
+            class="text-xs font-bold text-(--text-secondary)"
+            i18n="@@admin.claims.detail.signals.seats"
+          >
+            Existing seats
+          </dt>
+          <dd class="mt-1 text-xs text-(--text-primary)">
+            @if (c.existing_seats === null) {
+            <span class="text-(--text-secondary)" i18n="@@admin.claims.detail.signals.unavailable2"
+              >Unavailable</span
+            >
+            } @else if (c.existing_seats.length === 0) {
+            <span class="text-(--text-secondary)" i18n="@@admin.claims.detail.seats.first"
+              >First claim: no existing seats</span
+            >
+            } @else {
+            <ul role="list" class="space-y-0.5">
+              @for (seat of c.existing_seats; track $index) {
+              <li class="text-(--text-secondary)">{{ seatDisplayName(seat.display_name) }}</li>
+              }
+            </ul>
+            }
+          </dd>
+        </div>
+      </dl>
+
+      <!-- Entitlement: a READOUT and a link. The set/renew/clear control lives on
+           /admin/vendors/:id (AECI-652 §5.6) so the §5.2/§5.3/§5.4 copy invariants
+           have exactly one home; a second copy here is how they drift. -->
+      @if (c.entitlement_vendor; as v) {
+      <div class="mt-5 border-t border-(--border-default) pt-4">
+        <div class="flex flex-wrap items-start justify-between gap-3">
+          <div class="min-w-0">
+            <h4
+              class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+              i18n="@@admin.claims.detail.ent.heading"
+            >
+              Entitlement
+            </h4>
+            <p class="mt-1 text-xs text-(--text-secondary)">
+              <span i18n="@@admin.claims.detail.ent.vendor">Vendor</span>: {{ v.name }}
+            </p>
+            @if (c.entitlement; as e) {
+            <p class="mt-1 text-sm font-medium text-(--text-primary)">
+              {{ e.tier }} · {{ e.status }}
+            </p>
+            <p class="mt-1 text-xs text-(--text-secondary)">{{ entitlementTerm(e.period_end) }}</p>
+            } @else {
+            <p
+              class="mt-1 text-sm font-medium text-(--text-primary)"
+              i18n="@@admin.claims.detail.ent.none"
+            >
+              No entitlement on record
+            </p>
+            }
+          </div>
+          <a
+            [routerLink]="['/admin/vendors', v.id]"
+            class="inline-flex shrink-0 items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-1.5 text-xs font-bold text-(--text-primary) no-underline transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            i18n="@@admin.claims.detail.ent.manage"
+          >
+            Manage entitlement
+          </a>
+        </div>
+      </div>
+      }
+    </div>
+  </section>
+
+  <!--
+    ── 3. Operator note (AECI-739 / §5.2 step 6) ───────────────────────────────
+    The record §5.2 had nowhere to keep. Written here rather than on the queue so
+    the field has one home; rendered read-only on the card so a parked claim is
+    still legible from the list.
+  -->
+  <section class="mt-6" aria-labelledby="admin-claim-note">
+    <h3
+      id="admin-claim-note"
+      class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+      i18n="@@admin.claims.detail.note.heading"
+    >
+      Operator note
+    </h3>
+
+    <form
+      novalidate
+      (submit)="$event.preventDefault(); saveNote()"
+      class="mt-3 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-6"
+    >
+      <label
+        for="admin-claim-note-field"
+        class="block text-sm font-medium text-(--text-primary)"
+        i18n="@@admin.claims.detail.note.label"
+      >
+        Why this claim is where it is
+      </label>
+      <p class="mt-1 text-xs text-(--text-secondary)" i18n="@@admin.claims.detail.note.help">
+        Internal and admin-only. It is never shown to the claimant and never emailed. Every version
+        is kept in the audit trail, so editing this never loses what it said before.
+      </p>
+      <textarea
+        id="admin-claim-note-field"
+        rows="6"
+        maxlength="2000"
+        [value]="noteDraft()"
+        (input)="onNoteInput($event)"
+        [disabled]="notePending()"
+        class="mt-3 w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:opacity-50"
+      ></textarea>
+
+      <div class="mt-3 flex flex-wrap items-center gap-3">
+        <button
+          type="submit"
+          [disabled]="notePending() || !noteDirty()"
+          class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--accent-primary) bg-(--accent-primary) px-5 py-2 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          @if (notePending()) {
+          <span i18n="@@admin.claims.detail.note.saving">Saving…</span>
+          } @else {
+          <span i18n="@@admin.claims.detail.note.save">Save note</span>
+          }
+        </button>
+        @if (noteDirty()) {
+        <button
+          type="button"
+          (click)="revertNote()"
+          [disabled]="notePending()"
+          class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-5 py-2 text-sm font-medium text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+          i18n="@@admin.claims.detail.note.revert"
+        >
+          Discard changes
+        </button>
+        }
+      </div>
+
+      @if (noteFailed()) {
+      <p class="mt-3 text-sm font-medium text-(--text-primary)" role="alert">{{ noteFailed() }}</p>
+      }
+    </form>
+  </section>
+
+  <!--
+    ── 4. Why this is flagged duplicate (§5.2 step 5) ──────────────────────────
+    The trap, made legible. A claim parked `open` — which is exactly what §5.2
+    prescribes for a pure-connector vendor — stays inside the group-by that
+    computes the queue's duplicate chip, so every LATER claim on that vendor
+    renders it, including a legitimate one. The chip's semantics are unchanged;
+    this names the rows behind it so nobody dismisses a real claim on the chip
+    alone. The section renders either way, because "no siblings" is an answer.
+  -->
+  <section class="mt-6" aria-labelledby="admin-claim-duplicate">
+    <h3
+      id="admin-claim-duplicate"
+      class="scroll-mt-20 text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+      i18n="@@admin.claims.detail.duplicate.heading"
+    >
+      Duplicate signal
+    </h3>
+
+    <div
+      class="mt-3 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-6"
+    >
+      @if (c.duplicate_siblings.length === 0) {
+      <p class="text-sm text-(--text-secondary)" i18n="@@admin.claims.detail.duplicate.none">
+        Not flagged. No other open claim shares this claim's target or submitter.
+      </p>
+      } @else {
+      <p class="text-sm text-(--text-primary)" i18n="@@admin.claims.detail.duplicate.intro">
+        This claim is flagged because these open claims share its target. A claim left open on
+        purpose — the handling for a connector vendor routed to the partnership track — keeps
+        flagging every later claim on the same vendor, so check these before treating the flag as a
+        reason to dismiss anything.
+      </p>
+
+      <ul role="list" class="mt-4 space-y-3">
+        @for (sib of c.duplicate_siblings; track sib.id) {
+        <li class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) p-4">
+          <div class="flex flex-wrap items-start justify-between gap-3">
+            <div class="min-w-0">
+              <p class="text-sm font-medium text-(--text-primary)">
+                {{ sib.submitter_email }}@if (sib.submitter_name) {
+                <span class="font-normal text-(--text-secondary)"> · {{ sib.submitter_name }}</span>
+                }
+              </p>
+              <p class="mt-1 text-xs text-(--text-secondary)">
+                {{ statusLabel(sib.status) }} · {{ sib.created_at | date: 'mediumDate' }} · {{
+                matchReasonLabel(sib.match_reason) }}
+              </p>
+              @if (sib.has_notes) {
+              <p
+                class="mt-1 text-xs font-medium text-(--text-primary)"
+                i18n="@@admin.claims.detail.duplicate.parked"
+              >
+                Has an operator note — left open deliberately.
+              </p>
+              } @else {
+              <p
+                class="mt-1 text-xs text-(--text-secondary)"
+                i18n="@@admin.claims.detail.duplicate.unattended"
+              >
+                No operator note.
+              </p>
+              }
+            </div>
+            <a
+              [routerLink]="['/admin/claims', sib.id]"
+              class="inline-flex shrink-0 items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-raised) px-3 py-1.5 text-xs font-bold text-(--text-primary) no-underline transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              i18n="@@admin.claims.detail.duplicate.open"
+            >
+              Open claim
+            </a>
+          </div>
+        </li>
+        }
+      </ul>
+      }
+    </div>
+  </section>
+
+  }
+</section>

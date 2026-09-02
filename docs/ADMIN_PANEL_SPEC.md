@@ -46,7 +46,7 @@ That last point is the immediate trigger for this work. On 2026-08-10 the digest
 **In scope**
 
 - A `/admin` console covering traffic, audience, catalog, moderation, and system health (§5).
-- API endpoints behind `requireAdmin()` (§6), **read-only with three named exceptions**: §5.7's seat revoke (`DELETE /api/admin/vendors/:id/seats/:userId`, AECI-652), §5.8's ban/reinstate, which reuses the pre-existing `PATCH /api/admin/reviewers/:id` (AECI-218) rather than adding a writer, and §5.9's `managed_by` flip (`PATCH /api/admin/connector-catalogs/:id`, AECI-720). The first two are *account* writes and the third is a **governance** write — it decides which system may author a catalogue and changes no catalogue content. See the catalog-editing bullet below. *(This bullet read "two named exceptions" until AECI-722: AECI-720 added its endpoint to §6's table without amending the count here.)*
+- API endpoints behind `requireAdmin()` (§6), **read-only with four named exceptions**: §5.7's seat revoke (`DELETE /api/admin/vendors/:id/seats/:userId`, AECI-652), §5.8's ban/reinstate, which reuses the pre-existing `PATCH /api/admin/reviewers/:id` (AECI-218) rather than adding a writer, §5.9's `managed_by` flip (`PATCH /api/admin/connector-catalogs/:id`, AECI-720), and §5.10's operator note (`PATCH /api/admin/claims/:id/notes`, AECI-739). The first two are *account* writes, the third is a **governance** write — it decides which system may author a catalogue and changes no catalogue content — and the fourth is an **annotation**: it changes no claim status and grants nothing. See the catalog-editing bullet below. *(This bullet read "two named exceptions" until AECI-722: AECI-720 added its endpoint to §6's table without amending the count here. Kept at "three" through AECI-722 and raised to "four" by AECI-739 — the drift is this line's known failure mode, so amend it in the same PR as the endpoint.)*
 - A daily metrics-snapshot table so counts-over-time become answerable (§7.1).
 - Persisting cron and data-quality results so "current status" is inspectable (§7.2) — **shipped, AECI-583**.
 - Hand-rolled SVG charts, no new client dependency (§8).
@@ -127,7 +127,7 @@ The four questions that motivated this document, answered against §3.
 
 ## 5. Information architecture
 
-Seventeen routes under the existing `AdminShell` (`app/admin/admin-shell.ts`): **twelve nav-able screens** (the exact length of `ADMIN_NAV_GROUPS`, and `admin-shell.component.spec.ts` asserts the ordered list), **three parameterised detail routes** that no nav entry can address, and **two redirects** (`/admin` → Overview, `/admin/reviewers` → the banned filter). *(Fifteen / eleven / two until AECI-722 added the §5.9 connector pair.)* The shell's `h1` changes from "Moderation" to "Admin" and its flat nav becomes three groups.
+Eighteen routes under the existing `AdminShell` (`app/admin/admin-shell.ts`): **twelve nav-able screens** (the exact length of `ADMIN_NAV_GROUPS`, and `admin-shell.component.spec.ts` asserts the ordered list), **four parameterised detail routes** that no nav entry can address, and **two redirects** (`/admin` → Overview, `/admin/reviewers` → the banned filter). *(Fifteen / eleven / two until AECI-722 added the §5.9 connector pair; seventeen with three detail routes until AECI-739 added `/admin/claims/:id` — the nav-able count is unchanged by a parameterised route, by construction.)* The shell's `h1` changes from "Moderation" to "Admin" and its flat nav becomes three groups.
 
 ```
 /admin                     → redirect to /admin/overview
@@ -144,6 +144,7 @@ Seventeen routes under the existing `AdminShell` (`app/admin/admin-shell.ts`): *
     /admin/reviews         existing (Phase 5.13)
     /admin/requests        existing (Phase 6.10)
     /admin/claims          existing (Stage 2, AECI-521 — see the connector note below)
+    /admin/claims/:id      §5.10 (detail — nav links the list only)
     /admin/vendors         §5.7  (list)
     /admin/vendors/:id     §5.7  (detail — nav links the list only)
     /admin/users           §5.8  (list)
@@ -376,7 +377,7 @@ Three IA notes:
 
 Per §9.3 the three GETs emit no `audit_log` row; the revoke does, in the same `db.batch` as its write, via the shared `revokeSeatStatements` builder.
 
-> **Operator note — a connector vendor's claim is neither granted nor rejected (AECI-704).** A vendor **all** of whose products are `product_role = 'connector'` is not sold verification (`STAGE_2_SPEC.md` §8.8 / §8.9): on `/admin/claims`, Grant would open a `verified` entitlement and light the badge, and Reject sends a real decline email. The claim is parked `open` and routed to the partnership track out of band, and this screen never opens an entitlement for such a vendor. Since **AECI-738 (2026-09-02) both screens surface `product_role`**: this one carries a "Products by role" row in its Basics list, and `/admin/claims` carries the same breakdown as a verification signal plus a warning banner above Grant/Reject on a pure-connector vendor. The one remaining gap the procedure depends on is that a claim has no detail route or operator-note field (**AECI-739**). Full procedure — and why `RoleBadge` is deliberately not reused for the aggregate, why zero products reads as *unknown* rather than exempt, and why the actions stay enabled — is `STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2.
+> **Operator note — a connector vendor's claim is neither granted nor rejected (AECI-704).** A vendor **all** of whose products are `product_role = 'connector'` is not sold verification (`STAGE_2_SPEC.md` §8.8 / §8.9): on `/admin/claims`, Grant would open a `verified` entitlement and light the badge, and Reject sends a real decline email. The claim is parked `open` and routed to the partnership track out of band, and this screen never opens an entitlement for such a vendor. Since **AECI-738 (2026-09-02) both screens surface `product_role`**: this one carries a "Products by role" row in its Basics list, and `/admin/claims` carries the same breakdown as a verification signal plus a warning banner above Grant/Reject on a pure-connector vendor. **AECI-739 (2026-09-02) closed the last gap the procedure depended on**: a parked claim now has an in-product home for its reasoning — `/admin/claims/:id` with a free-text operator note (§5.10), rendered read-only on the queue card so a parked claim is legible from the list, plus a named explanation of the duplicate chip §5.2 step 5 warns about and an **In review** filter tab the API could not express before. Full procedure — and why `RoleBadge` is deliberately not reused for the aggregate, why zero products reads as *unknown* rather than exempt, and why the actions stay enabled — is `STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2.
 
 > **Rendering revision — SHIPPED (AECI-694).** All four sections are now tables rather than card lists, and the audit trail moved into a shared `<aec-audit-trail>` (`app/admin/audit/`) so the next trail the console wants is a drop-in rather than a second divergent renderer. The contract in `STAGE_2_PAID_TIERS_SPEC.md` §5.6 is unchanged; no endpoint, query or response shape moved. Four notes:
 >
@@ -534,13 +535,68 @@ environment. `apps/api/seed/connector-fixtures.sql` (in the `db:seed:local` chai
 including a high-confidence machine proposal that must **not** read as confirmed, and a
 low-confidence human decision that must.
 
+### 5.10 Claim detail — SHIPPED (AECI-739, 2026-09-02)
+
+Unlike §5.8 and like §5.7, this section does **not** own its contract. It is
+`STAGE_2_VENDOR_PORTAL_SPEC.md` §5 and §5.2, which own the claim-review surface in full;
+`API_CONTRACTS.md` §6.10 carries the endpoint shapes. Recorded here because the route,
+the IA and the read-only carve-out are this doc's business.
+
+**Why it exists.** §5.2 is the operator procedure for a **pure-connector vendor's claim**:
+Grant is wrong (it opens an unconditional `verified` entitlement and lights the badge) and
+Reject is wrong (it sends a real decline email to exactly the party we want a relationship
+with), so the claim is **parked `open`** and routed to the partnership track out of band.
+AECI-738 made that vendor identifiable from the queue card. What was still missing was the
+*record*: §5.2 step 6 had to send the conversation to Linear comments "so nobody looks for
+an in-product home that does not exist", which meant the console showed a lengthening queue
+of open claims with no visible reason why any of them was parked.
+
+- **`/admin/claims`** — unchanged as a queue, with three additions: the operator note renders
+  read-only on each card, each card links to its detail route, and the status filter gained
+  **In review**.
+- **`/admin/claims/:id`** — five sections in one screen: the claim itself, the verification
+  signals (through the same shared `productRolesLabel` §5.7 uses, so the two screens cannot
+  describe one vendor differently), the operator note, the duplicate explanation, and an
+  `in_review` explainer shown only at that status.
+
+Three IA notes, in §5.7's voice:
+
+- **Operations, not a new group.** It is a child of `/admin/claims`, which already sits
+  between `/admin/requests` and `/admin/vendors` because requests → claims → vendors is the
+  escalation order an operator walks.
+- **The detail route is not in the nav.** A parameterised route has no nav-able URL (§5), so
+  `ADMIN_NAV_GROUPS` and `admin-shell.component.spec.ts`'s ordered-list assertion are
+  untouched.
+- **No live updates**, per §2 — the note and the duplicate list refresh on action or reload.
+
+**This section is *not* read-only, and §2 names it as one of the four exceptions.** The note
+is an *annotation* write: it changes no claim status, grants nothing, and sends nothing. Per
+§9.3 the GET emits no `audit_log` row; the note write does, in the same `db.batch` as its
+UPDATE, via the shared `saveClaimNotesStatements` builder — and those rows carry the full old
+and new note, which is what makes the **audit trail the note's history** rather than the
+column. An unchanged re-save is a 200 no-op that writes nothing, deliberately: a trail of
+identical states is not a history.
+
+**What this screen deliberately cannot do:**
+
+- **Grant or reject.** Both stay on the queue, where §5.2's pure-connector warning sits
+  beside the buttons that would do the damage. Splitting them would mean two copies of that
+  warning, and those are the sentences whose drift is an incident rather than a typo.
+- **Manage the entitlement.** That moved to `/admin/vendors/:id` (§5.7 / AECI-652) for the
+  same reason; this page shows a readout and links there.
+- **Change `is_duplicate`.** §5.2 step 5's trap — a parked-open claim keeps flagging every
+  later claim on that vendor — is made *legible* here, not fixed. The chip's semantics are
+  unchanged.
+- **Annotate a correction.** The column lives on `vendor_requests`, so it is physically
+  available, but the API surface is claim-only. Extending it is a decision, not a migration.
+
 ---
 
 ## 6. API surface
 
 All endpoints are admin-gated and register on the existing `authAdmin` sub-router in `apps/api/src/index.ts` behind `requireAdmin()`, which stays the single enforcement point (`AUTH_AND_RLS.md`). Contracts live in `packages/shared/src/api/admin-panel.ts` and reuse `PageQuerySchema` (`page` / `perPage`, capped at 100) and `paginatedResponseSchema` so list shapes match `/api/admin/requests`.
 
-**All the §5.1–§5.6 endpoints are `GET` and read-only.** The two later sections added by other epics are the exceptions, and they are narrow: §5.7 added one `DELETE` (seat revoke) and §5.8 added none at all — its ban reuses the pre-existing `PATCH /api/admin/reviewers/:id`. Their contracts live in `packages/shared/src/api/admin-vendors.ts` and `admin-users.ts` respectively, using the **bare** `paginatedResponseSchema` rather than this section's `.extend({ generated_at, source, notes })` console shape.
+**All the §5.1–§5.6 endpoints are `GET` and read-only.** The later sections added by other epics are the exceptions, and they are narrow: §5.7 added one `DELETE` (seat revoke), §5.8 added none at all — its ban reuses the pre-existing `PATCH /api/admin/reviewers/:id` — §5.9 added one `PATCH` (the `managed_by` flip), and §5.10 added one `PATCH` (the operator note). Their contracts live in `packages/shared/src/api/admin-vendors.ts` and `admin-users.ts` respectively, using the **bare** `paginatedResponseSchema` rather than this section's `.extend({ generated_at, source, notes })` console shape.
 
 | Endpoint | Purpose | Notes |
 |---|---|---|
@@ -564,8 +620,10 @@ All endpoints are admin-gated and register on the existing `authAdmin` sub-route
 | `GET /api/admin/connector-catalogs/:id/stubs` | §5.9 triage — **SHIPPED (AECI-722)** | Filters are `EXISTS` subqueries, never joins: a stub carries several mappings, and a join would duplicate the row and corrupt `total`. The `actions` blob never crosses the wire |
 | `GET /api/admin/connector-catalogs/:id/pairs` | §5.9 pairs — **SHIPPED (AECI-722)** | `?lane=reachable\|evidenced`, one lane per call because §13.3 requires one `<table>` per lane. Renders the publication gate's inputs, never its verdict |
 | `GET /api/admin/connector-catalogs/:id/audit` | §5.9 audit — **SHIPPED (AECI-722)** | **One** disjunct, not §5.7's four: the flip and the sync both file under `entity_type='connector_catalog'` with the catalogue id |
+| `GET /api/admin/claims/:id` | §5.10 detail — **SHIPPED (AECI-739)** | One claim, every queue signal plus `duplicate_siblings` — the rows behind the queue's duplicate chip. `is_duplicate` here IS `duplicate_siblings.length > 0`, so the two surfaces cannot disagree. **422**, not 404, on a `kind='correction'` id: the row exists and moderates elsewhere |
+| `PATCH /api/admin/claims/:id/notes` | §5.10 operator note — **SHIPPED (AECI-739)** | **The third write in this table**, and an *annotation* — no status change, no grant, no email, no purge, no `workflow_instances` row. Audit row in the same `db.batch` as the guarded `UPDATE`, carrying the full old and new note, which is what makes the trail the note's history. Unchanged text is a 200 no-op that writes nothing |
 
-**Conventions.** No `audit_log` rows **from the reads** — every `GET` in the table above writes nothing, including the `?recompute=1` ones and all five §5.9 connector reads (§26.1 governs writes; ADR 0022 scopes it). The write paths do audit, in the same `db.batch` as their write: §5.7's revoke via `revokeSeatStatements`, §5.8's ban via the AECI-218 handler, and AECI-720's `managed_by` flip via `auditInsert` alongside its guarded `UPDATE`. **None of them breaches §2's "no editing catalog data" boundary**: a seat revoke and a ban are account writes, and a `managed_by` flip is a *governance* write — it decides which system may author a catalogue, and changes no catalogue content. Promotion remains the review-app → `POST /api/promote` path, and there is still no admin vendor-edit or product-edit endpoint. No `Cache-Tag`, no edge caching; `/admin/*` is absent from `ROUTE_CACHE_PATTERNS` in `server-runtime.ts` and therefore takes the non-cacheable branch with `private, no-store`. That must stay true (§9.2). Response validation in dev via `validateResponseInDev`, as with the other admin routes.
+**Conventions.** No `audit_log` rows **from the reads** — every `GET` in the table above writes nothing, including the `?recompute=1` ones, all five §5.9 connector reads and §5.10's claim detail (§26.1 governs writes; ADR 0022 scopes it). The write paths do audit, in the same `db.batch` as their write: §5.7's revoke via `revokeSeatStatements`, §5.8's ban via the AECI-218 handler, AECI-720's `managed_by` flip via `auditInsert` alongside its guarded `UPDATE`, and AECI-739's operator note via `saveClaimNotesStatements`. **None of them breaches §2's "no editing catalog data" boundary**: a seat revoke and a ban are account writes, a `managed_by` flip is a *governance* write — it decides which system may author a catalogue, and changes no catalogue content — and an operator note is an *annotation* on a request row, which was never catalog data. Promotion remains the review-app → `POST /api/promote` path, and there is still no admin vendor-edit or product-edit endpoint. No `Cache-Tag`, no edge caching; `/admin/*` is absent from `ROUTE_CACHE_PATTERNS` in `server-runtime.ts` and therefore takes the non-cacheable branch with `private, no-store`. That must stay true (§9.2). Response validation in dev via `validateResponseInDev`, as with the other admin routes.
 
 **Manual job triggers — the line is side effects, not manual-ness (§13 D8).** *Recomputation* is in scope and is a `GET`: both `runDataQualityJob` and the digest's metric collection are already pure reads, so `?recompute=1` on the two endpoints above writes nothing, sends nothing, and carries no `audit_log` obligation. *Running a job for real* — sending the digest, `algolia-sync`, the retention prune, the reconcile sweep, anything that writes, emails, purges, or calls an external API — stays **deferred**, and `POST /api/admin/jobs/:job/run` is not built. Owner: **@chrisw**. Revisit when an operator first needs to force a job outside its window during an incident; at that point it is a state-changing write and needs its `audit_log` row in the same batch.
 

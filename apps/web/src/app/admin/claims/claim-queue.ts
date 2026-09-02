@@ -18,7 +18,11 @@ import { productRolesLabel } from '../product-roles/product-roles-label';
  *  we load the max and surface a note if the server reports more. */
 const QUEUE_PAGE_SIZE = 100;
 
-type StatusFilter = 'open' | 'resolved' | 'rejected';
+/** All four `vendor_requests` statuses since AECI-739. `in_review` was missing
+ *  from the query enum until then, so a claim the Linear webhook had moved to a
+ *  `started` state (`STATE_TYPE_TO_STATUS`) was invisible in every tab while still
+ *  existing — and, now, still being addressable at `/admin/claims/:id`. */
+type StatusFilter = 'open' | 'in_review' | 'resolved' | 'rejected';
 type FormMode = 'approve' | 'reject';
 
 /**
@@ -69,6 +73,18 @@ type FormMode = 'approve' | 'reject';
  * vendor, because a product claim's entitlement belongs to that product's primary
  * vendor — and it stays visible on RESOLVED and REJECTED rows too, since renewing
  * or clearing a vendor granted months ago is the ordinary case.
+ *
+ * AECI-739 added three things to the queue, all of them about the §5.2 PARKED
+ * claim — the one an operator deliberately leaves `open` because Grant and Reject
+ * are both wrong for a pure-connector vendor:
+ *  - the **operator note** renders on the card. It lives on the detail page, but
+ *    the queue is where the operator actually looks, so a parked claim has to be
+ *    legible without opening anything;
+ *  - each card links to **`/admin/claims/:id`**, where the note is written and the
+ *    duplicate chip is explained;
+ *  - the status filter gained **In review**, which the API could not express at all
+ *    until AECI-739 widened its enum — so no status is reachable by id but
+ *    unfindable in the queue.
  */
 @Component({
   selector: 'aec-claim-queue',
@@ -106,6 +122,7 @@ export class ClaimQueue {
 
   protected readonly statusOptions: ReadonlyArray<{ key: StatusFilter; label: string }> = [
     { key: 'open', label: $localize`:@@admin.claims.filter.status.open:Open` },
+    { key: 'in_review', label: $localize`:@@admin.claims.filter.status.inReview:In review` },
     { key: 'resolved', label: $localize`:@@admin.claims.filter.status.resolved:Approved` },
     { key: 'rejected', label: $localize`:@@admin.claims.filter.status.rejected:Rejected` },
   ];

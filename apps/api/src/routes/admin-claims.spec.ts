@@ -25,7 +25,7 @@
  * `lib/vendor-grant.ts` at all; `vendor-grant.spec.ts` guards that.
  */
 
-import { ApiErrorCode, ListVendorClaimsResponseSchema } from '@aeci/shared';
+import { AdminClaimDetailSchema, ApiErrorCode, ListVendorClaimsResponseSchema } from '@aeci/shared';
 import { eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -52,8 +52,10 @@ import { revokeSeatStatements } from '../lib/vendor-grant';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { fakeExecutionContext, TEST_ENV } from '../test/helpers';
 import {
+  createAdminClaimDetailHandler,
   createAdminClaimsListHandler,
   createModerateClaimHandler,
+  createSaveClaimNotesHandler,
   type SendClaimDecisionEmail,
 } from './admin-claims';
 
@@ -1172,5 +1174,259 @@ describe('GET /api/admin/claims — reviewer-assist LIST', () => {
     expect(page1.data.map((d) => d.id)).toEqual([REQUEST_ID]); // newest first
     const page2 = await parseClaims(await getClaims({}, '?page=2&perPage=1'));
     expect(page2.data.map((d) => d.id)).toEqual([REQUEST2_ID]);
+  });
+});
+
+// ─── AECI-739: claim DETAIL + the operator note ──────────────────────────────
+
+const CORRECTION_ID = '99999999-9999-4999-8999-999999999999';
+
+/** The GoTrue signal seam, stubbed to "no account on record" — these tests are
+ *  about the note and the duplicate explanation, not `has_auth_account`. */
+const noAuthAccounts = vi.fn(
+  async () => new Map<string, boolean>(),
+) as unknown as typeof fetchAuthAccountsByEmail;
+
+function claimDetailApp(dbFor: typeof t.factory = t.factory) {
+  const app = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
+  app.onError(errorHandler());
+  app.use('/api/admin/claims/*', async (c, next) => {
+    c.set('auth', ADMIN_AUTH);
+    await next();
+  });
+  app.get('/api/admin/claims/:id', createAdminClaimDetailHandler(dbFor, noAuthAccounts));
+  app.patch('/api/admin/claims/:id/notes', createSaveClaimNotesHandler(dbFor, noAuthAccounts));
+  return app;
+}
+
+const getClaim = (id: string) =>
+  claimDetailApp().request(`/api/admin/claims/${id}`, {}, TEST_ENV, fakeExecutionContext());
+
+const patchNotes = (id: string, body: unknown) =>
+  claimDetailApp().request(
+    `/api/admin/claims/${id}/notes`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+      headers: { 'content-type': 'application/json' },
+    },
+    TEST_ENV,
+    fakeExecutionContext(),
+  );
+
+async function parseDetail(res: Response) {
+  return AdminClaimDetailSchema.parse(await res.json());
+}
+
+describe('GET /api/admin/claims/:id — detail (AECI-739 / §5.2 step 6)', () => {
+  it('returns the claim with every queue signal plus the note', async () => {
+    await seedVendor();
+    await seedRequest({ domainMatch: 'match', adminNotes: 'Parked: connector vendor.' });
+
+    const res = await getClaim(REQUEST_ID);
+    expect(res.status).toBe(200);
+    const body = await parseDetail(res);
+    expect(body.id).toBe(REQUEST_ID);
+    expect(body.admin_notes).toBe('Parked: connector vendor.');
+    expect(body.domain_match).toBe('match');
+    expect(body.entitlement_vendor?.id).toBe(VENDOR_ID);
+    // A resolved vendor owning no products is a ZEROED breakdown, not `null`.
+    expect(body.product_roles?.total).toBe(0);
+    expect(body.is_pure_connector_vendor).toBe(false);
+  });
+
+  it('404s on an unknown id', async () => {
+    const res = await getClaim(REQUEST2_ID);
+    expect(res.status).toBe(404);
+  });
+
+  it('422s (not 404s) on a CORRECTION, matching the PATCH sibling on the same path', async () => {
+    await seedVendor();
+    await seedRequest({ id: CORRECTION_ID, kind: 'correction' });
+
+    const res = await getClaim(CORRECTION_ID);
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as { error: { code: string; message: string } };
+    expect(body.error.code).toBe(ApiErrorCode.INVALID_STATE_TRANSITION);
+    expect(body.error.message).toContain('/api/admin/requests');
+  });
+
+  it('is addressable at in_review — the status the LIST could not filter for before', async () => {
+    await seedVendor();
+    await seedRequest({ status: 'in_review' });
+
+    const body = await parseDetail(await getClaim(REQUEST_ID));
+    expect(body.status).toBe('in_review');
+    // And the LIST can now find it, so the detail route implies no unreachable status.
+    const list = await parseClaims(await getClaims({}, '?status=in_review'));
+    expect(list.data.map((d) => d.id)).toEqual([REQUEST_ID]);
+  });
+
+  it('emits no audit row — it is a read (§9.3 / ADR 0022)', async () => {
+    await seedVendor();
+    await seedRequest();
+    await getClaim(REQUEST_ID);
+    expect(await t.db.select().from(auditLog)).toHaveLength(0);
+  });
+
+  it('names the open siblings behind the duplicate chip, and agrees with the LIST', async () => {
+    await seedVendor();
+    await seedRequest({ id: REQUEST_ID, createdAt: '2026-06-02T00:00:00.000Z' });
+    // A DELIBERATELY parked sibling on the same target — the §5.2 step 5 trap.
+    await seedRequest({
+      id: REQUEST2_ID,
+      submitterEmail: 'other@vendor.com',
+      createdAt: '2026-06-01T00:00:00.000Z',
+      adminNotes: 'Connector vendor — routed to the partnership track.',
+    });
+
+    const body = await parseDetail(await getClaim(REQUEST_ID));
+    expect(body.is_duplicate).toBe(true);
+    expect(body.duplicate_siblings).toHaveLength(1);
+    expect(body.duplicate_siblings[0]).toMatchObject({
+      id: REQUEST2_ID,
+      match_reason: 'target',
+      // The signal that separates a parked claim from an unattended one.
+      has_notes: true,
+    });
+
+    // The two surfaces cannot disagree: the LIST's group-by arithmetic and the
+    // detail's sibling SELECT are the same predicate.
+    const listed = (await parseClaims(await getClaims())).data.find((d) => d.id === REQUEST_ID);
+    expect(listed?.is_duplicate).toBe(body.is_duplicate);
+  });
+
+  it('reports no siblings, and is_duplicate false, for a lone claim', async () => {
+    await seedVendor();
+    await seedRequest();
+
+    const body = await parseDetail(await getClaim(REQUEST_ID));
+    expect(body.duplicate_siblings).toEqual([]);
+    expect(body.is_duplicate).toBe(false);
+  });
+
+  it('excludes TERMINAL siblings — the chip is an open-claim signal', async () => {
+    await seedVendor();
+    await seedRequest({ id: REQUEST_ID });
+    await seedRequest({ id: REQUEST2_ID, status: 'rejected', submitterEmail: 'other@vendor.com' });
+
+    const body = await parseDetail(await getClaim(REQUEST_ID));
+    expect(body.duplicate_siblings).toEqual([]);
+  });
+});
+
+describe('PATCH /api/admin/claims/:id/notes — the operator note (AECI-739)', () => {
+  it('writes the note and its audit row in ONE db.batch (§26.1)', async () => {
+    await seedVendor();
+    await seedRequest();
+
+    const batchSpy = vi.spyOn(t.db, 'batch');
+    const res = await patchNotes(REQUEST_ID, { notes: '  Routed to the partnership track.  ' });
+    expect(res.status).toBe(200);
+
+    // ONE batch, carrying both statements.
+    expect(batchSpy).toHaveBeenCalledTimes(1);
+    expect((batchSpy.mock.calls[0]![0] as BatchTuple).length).toBe(2);
+    batchSpy.mockRestore();
+
+    const body = await parseDetail(res);
+    expect(body.admin_notes).toBe('Routed to the partnership track.'); // trimmed
+    const [row] = await t.db.select().from(vendorRequests).where(eq(vendorRequests.id, REQUEST_ID));
+    expect(row!.adminNotes).toBe('Routed to the partnership track.');
+
+    const audits = await t.db.select().from(auditLog);
+    expect(audits).toHaveLength(1);
+    expect(audits[0]!.action).toBe('vendor_claim.note_updated');
+    expect(audits[0]!.entityType).toBe('vendor_request');
+    expect(audits[0]!.entityId).toBe(REQUEST_ID);
+    expect(audits[0]!.beforeState).toEqual({ admin_notes: null });
+    expect(audits[0]!.afterState).toEqual({ admin_notes: 'Routed to the partnership track.' });
+    expect(claimModerationActions()).toContainEqual(['action:note', 'outcome:ok']);
+  });
+
+  it('keeps the audit trail as the note HISTORY — an edit records both versions', async () => {
+    await seedVendor();
+    await seedRequest({ adminNotes: 'First pass.' });
+
+    await patchNotes(REQUEST_ID, { notes: 'Second pass.' });
+    const audits = await t.db.select().from(auditLog);
+    expect(audits).toHaveLength(1);
+    expect(audits[0]!.beforeState).toEqual({ admin_notes: 'First pass.' });
+    expect(audits[0]!.afterState).toEqual({ admin_notes: 'Second pass.' });
+  });
+
+  it('writes NO workflow instance or transition — a note is not a status change', async () => {
+    await seedVendor();
+    await seedRequest();
+    await patchNotes(REQUEST_ID, { notes: 'Parked.' });
+
+    expect(await t.db.select().from(workflowInstances)).toHaveLength(0);
+    expect(await t.db.select().from(workflowTransitions)).toHaveLength(0);
+    const [row] = await t.db.select().from(vendorRequests).where(eq(vendorRequests.id, REQUEST_ID));
+    expect(row!.status).toBe('open'); // status untouched
+  });
+
+  it('is writable at EVERY status, including the terminal ones', async () => {
+    await seedVendor();
+    for (const status of ['open', 'in_review', 'resolved', 'rejected'] as const) {
+      await t.db.delete(vendorRequests);
+      await t.db.delete(auditLog);
+      await seedRequest({ status });
+      const res = await patchNotes(REQUEST_ID, { notes: `Note at ${status}.` });
+      expect(res.status).toBe(200);
+      expect((await parseDetail(res)).admin_notes).toBe(`Note at ${status}.`);
+    }
+  });
+
+  it('clears the note on null, and treats blank as null', async () => {
+    await seedVendor();
+    await seedRequest({ adminNotes: 'Something.' });
+
+    expect(
+      (await parseDetail(await patchNotes(REQUEST_ID, { notes: null }))).admin_notes,
+    ).toBeNull();
+
+    await t.db
+      .update(vendorRequests)
+      .set({ adminNotes: 'Something.' })
+      .where(eq(vendorRequests.id, REQUEST_ID));
+    const res = await patchNotes(REQUEST_ID, { notes: '   ' });
+    expect((await parseDetail(res)).admin_notes).toBeNull();
+    const audits = await t.db.select().from(auditLog);
+    expect(audits.at(-1)!.afterState).toEqual({ admin_notes: null });
+    expect(audits.at(-1)!.metadata).toMatchObject({ cleared: true });
+  });
+
+  it('an unchanged note is a 200 NO-OP that writes nothing', async () => {
+    await seedVendor();
+    await seedRequest({ adminNotes: 'Parked.' });
+
+    const batchSpy = vi.spyOn(t.db, 'batch');
+    const res = await patchNotes(REQUEST_ID, { notes: '  Parked.  ' }); // same after trimming
+    expect(res.status).toBe(200);
+    expect(batchSpy).not.toHaveBeenCalled();
+    batchSpy.mockRestore();
+
+    // No row: a trail of identical states is not a history.
+    expect(await t.db.select().from(auditLog)).toHaveLength(0);
+    expect((await parseDetail(res)).admin_notes).toBe('Parked.');
+    expect(claimModerationActions()).toContainEqual(['action:note', 'outcome:noop']);
+  });
+
+  it('404s on an unknown id and 422s on a correction', async () => {
+    await seedVendor();
+    await seedRequest({ id: CORRECTION_ID, kind: 'correction' });
+
+    expect((await patchNotes(REQUEST2_ID, { notes: 'x' })).status).toBe(404);
+    expect((await patchNotes(CORRECTION_ID, { notes: 'x' })).status).toBe(422);
+    expect(await t.db.select().from(auditLog)).toHaveLength(0);
+  });
+
+  it('rejects a note over the 2000-char cap', async () => {
+    await seedVendor();
+    await seedRequest();
+    const res = await patchNotes(REQUEST_ID, { notes: 'x'.repeat(2001) });
+    expect(res.status).toBe(400);
+    expect(await t.db.select().from(auditLog)).toHaveLength(0);
   });
 });

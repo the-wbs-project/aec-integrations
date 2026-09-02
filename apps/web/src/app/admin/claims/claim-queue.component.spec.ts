@@ -10,6 +10,10 @@
  * race paths) and the structural invariants axe relies on (heading order, the
  * status group's accessible name, the polite live region).
  *
+ * AECI-739 added the operator-note READOUT, the per-card detail link and the
+ * `in_review` filter tab; the note is written on `/admin/claims/:id`, so what is
+ * asserted here is that a parked claim is legible from the LIST.
+ *
  * The entitlement set/renew/clear form is NOT tested here any more — AECI-652
  * moved it to `admin/entitlement/entitlement-control`, which has its own spec.
  * What stayed is the readout and the link out, plus the single-live-region
@@ -74,6 +78,8 @@ function makeClaim(over: Partial<AdminClaim> & { id: string }): AdminClaim {
         : { application: 1, connector: 0, hybrid: 0, total: 1 },
     is_pure_connector_vendor:
       'is_pure_connector_vendor' in over ? over.is_pure_connector_vendor! : false,
+    // AECI-739: the operator note. Default is "no note".
+    admin_notes: 'admin_notes' in over ? over.admin_notes! : null,
   };
 }
 
@@ -584,6 +590,48 @@ describe('ClaimQueue', () => {
       const regions = el.querySelectorAll('[role="status"]');
       expect(regions).toHaveLength(1);
       expect(regions[0].getAttribute('aria-live')).toBe('polite');
+    });
+  });
+
+  // ── AECI-739: the parked claim, legible from the list ──────────────────────
+
+  describe('operator note + detail route (AECI-739)', () => {
+    it('renders the note on the CARD — a parked claim must be legible from the queue', async () => {
+      const { el } = await setup(
+        makeApiMock([
+          makeClaim({ id: 'c1', admin_notes: 'Connector vendor — partnership track, 2026-09-01.' }),
+        ]),
+      );
+      const card = cardFor(el, 'Procore');
+      expect(card.textContent).toContain('Connector vendor — partnership track, 2026-09-01.');
+    });
+
+    it('shows no note block when there is no note', async () => {
+      const { el } = await setup(makeApiMock([makeClaim({ id: 'c1' })]));
+      expect(cardFor(el, 'Procore').textContent).not.toContain('Operator note');
+    });
+
+    it('links each card to its detail route', async () => {
+      const { el } = await setup(makeApiMock([makeClaim({ id: 'c1' })]));
+      const links = [...cardFor(el, 'Procore').querySelectorAll('a')].map((a) =>
+        a.getAttribute('href'),
+      );
+      expect(links).toContain('/admin/claims/c1');
+    });
+
+    it('offers an In review filter and re-fetches with that status', async () => {
+      // The status the API could not express at all until AECI-739 widened its
+      // query enum — so a claim addressable at /admin/claims/:id was findable in
+      // no queue tab.
+      const api = makeApiMock([makeClaim({ id: 'c1' })]);
+      const { el, fixture } = await setup(api);
+      const tab = buttonByText(el, 'In review');
+      tab.click();
+      fixture.detectChanges();
+      await settle();
+      expect(api.listClaims).toHaveBeenLastCalledWith(
+        expect.objectContaining({ status: 'in_review' }),
+      );
     });
   });
 });
