@@ -181,13 +181,13 @@ Per-detail hydration rules:
 |---|---|---|
 | `ProductDetail` | `vendor` | `VendorLink` |
 | `ProductDetail` | `categories` / `audiences` / `phases` / `trades` | `LinkRef[]` — `trades` (AECI-541) is **sparse by design**: most products carry zero trade tags, so `[]` is the common, correct value, not missing data (`STAGE_1_SPEC.md` §5.5a). |
-| `ProductDetail` | `integrations_as_source` / `integrations_as_target` | `ProductIntegrationItem[]` (= `IntegrationListItem` + `context_direction`). **Both arrays are unordered** — deliberately. The rendered table interleaves them into one list sorted alphabetically by partner name (`STAGE_1_5_SPEC.md` §7.1), which SQL cannot express here: the relations can only `ORDER BY` columns of `integrations`, while the partner name lives on the joined product. Do not add an `orderBy` and assume the client inherits it. |
+| `ProductDetail` | `integrations_as_source` / `integrations_as_target` | `ProductIntegrationItem[]` (= `IntegrationListItem` + `context_direction` + `powered_by_product`). **Each array spans BOTH delivered-tier tables** (AECI-713 / `STAGE_1_5_SPEC.md` §13.1) — an edge in `integrations`, or a `connector_evidenced_pairs` row on which this product is an endpoint, discriminated by `via`. An evidenced pair is filed by its **oriented** source/target, never by which of `product_a` / `product_b` matched: the canonical order is a storage detail and carries no orientation meaning. **Both arrays are unordered** — deliberately. The rendered table interleaves them into one list sorted alphabetically by partner name (`STAGE_1_5_SPEC.md` §7.1), which SQL cannot express here: the relations can only `ORDER BY` columns of `integrations`, while the partner name lives on the joined product. Do not add an `orderBy` and assume the client inherits it. |
 | `ProductDetail` | `integrations_as_connector` | `IntegrationListItem[]` — edges this product **powers** as the mechanism (`powered_by_product_id`), not as an endpoint (Stage 1.5 Addendum B). Bare list item **by design**: the page product is neither endpoint, so `context_direction` has no frame to be relative to. |
 | `ProductDetail` | `related_products` | `ProductListItem[]` |
 | `VendorDetail` | `products` | `ProductListItem[]` |
 | `IntegrationDetail` | `source` / `target` | `ProductLink` |
 | `IntegrationDetail` | `built_by_vendor` | `VendorLink \| null` |
-| `IntegrationDetail` | `powered_by_product` | `ProductLink \| null` |
+| `IntegrationDetail` / `ProductIntegrationItem` | `powered_by_product` | `ProductLink \| null` |
 | `CategoryDetail` / `AudienceDetail` / `PhaseDetail` / `TradeDetail` | `products` | `ProductListItem[]` |
 
 Each list endpoint returns the lean `*ListItem` shape; the corresponding `*Detail` shape (returned only by the `:slug` / `:id` endpoint) extends it with the heavier hydration.
@@ -324,7 +324,11 @@ export const ProductDetailSchema = ProductListItemSchema.extend({
   // facet LinkRef[] above. `null` when the source has nothing for either facet;
   // otherwise either facet array may be empty.
   usefulness: ProductUsefulnessSchema.nullable(),
-  // ProductIntegrationItem = IntegrationListItem + `context_direction` (see §5.3).
+  // ProductIntegrationItem = IntegrationListItem + `context_direction` +
+  // `powered_by_product` (see §5.3). BOTH delivered-tier tables (AECI-713): rows
+  // of `integrations` and rows of `connector_evidenced_pairs` where this product
+  // is an endpoint, discriminated on the wire by `via`. The bucket says which
+  // endpoint this product is, NOT which table the row came from.
   integrations_as_source: z.array(ProductIntegrationItemSchema),
   integrations_as_target: z.array(ProductIntegrationItemSchema),
   // Edges this product POWERS as the connector/mechanism, not as an endpoint
@@ -392,7 +396,7 @@ export const IntegrationListItemSchema = z.object({
 **`via` — one shape, two storage tables (AECI-721).** Since the connector-lane migration a list item is either a row of `integrations` (an accountable-party edge) or a row of `connector_evidenced_pairs` (an edge an iPaaS delivers, `STAGE_1_5_SPEC.md` §13.1's delivered tier). `via` is the discriminant and names the connector; it is non-null **only** on the second kind. Three consequences worth reading before consuming the field:
 
 - **`mechanism_kind` is `null` whenever `via` is set, structurally.** `connector_evidenced_pairs` has no such column — once an edge is filed under the connector that delivers it, "which mechanism" is answered by the lane. Do not synthesise a kind to fill the gap, and do not read a null kind as "unknown" on these rows.
-- **`via` is not the same field as `IntegrationDetail.powered_by_product`.** They are the same *fact* about rows in different tables, and are never both set: a self-referential Convention-A edge (`powered_by` equal to one of its own endpoints, ~152 catalog-wide) stays in `integrations` and keeps `powered_by_product` with `via: null`. `ProductPairMechanismSchema` carries both for exactly this reason, and the pair page's byline renders the union.
+- **`via` is not the same field as `powered_by_product`.** They are the same *fact* about rows in different tables, and are never both set: a self-referential Convention-A edge (`powered_by` equal to one of its own endpoints, ~152 catalog-wide) stays in `integrations` and keeps `powered_by_product` with `via: null`. `ProductPairMechanismSchema` carries both for exactly this reason, and the pair page's byline renders the union. `IntegrationDetail` has carried `powered_by_product` since Stage 1.5; `ProductIntegrationItem` gained it in AECI-713 (§13.4(1)), because the endpoint page's lane split reads BOTH fields — `via` routes the migrated rows, `powered_by_product` routes the two populations that stayed behind (Convention A to the direct lane, anything else to the Via lane).
 - **`source`/`target` are the ORIENTED frame, always.** An evidenced pair is stored canonically (`product_a_id < product_b_id`, a CHECK) with orientation on `direction`; the API re-orients before serialising, so the browser never sees a canonical slot and never re-derives one.
 
 // Product-detail embed (`ProductDetail.integrations_as_*`). Adds the effective,
@@ -409,6 +413,11 @@ export const IntegrationListItemSchema = z.object({
 // single context product. `ContextDirectionSchema` = `['outbound','inbound','both']`.
 export const ProductIntegrationItemSchema = IntegrationListItemSchema.extend({
   context_direction: ContextDirectionSchema.nullable(),
+  // The connector named by `integrations.powered_by_product_id`, for a row still
+  // in `integrations` (Stage 1.5 §13.4(1), AECI-713). Product-detail embed ONLY —
+  // `/api/integrations` and the home rail have no lane to route and do not pay
+  // for the join. Never set together with `via`; see the note below.
+  powered_by_product: ProductLinkSchema.nullable().default(null),
 });
 
 export const IntegrationDetailSchema = IntegrationListItemSchema.extend({

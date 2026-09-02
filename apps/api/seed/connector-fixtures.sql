@@ -11,9 +11,10 @@
 --   ⚠️  TEST FIXTURES — dev / CI only. Real rows arrive exclusively through
 --   `POST /api/promote/connector-catalog` (DATABASE_SCHEMA.md §9a: "Rows arrive
 --   only through POST /api/promote/connector-catalog. Nothing else writes them").
---   Nothing here writes `connector_evidenced_pairs`: AECI-714 creates it EMPTY
---   and AECI-721 fills it, so an empty delivered lane is the honest local state
---   and the screen must render it as such rather than as a measured zero.
+--   AECI-713 extended it past the admin screen: the last section seeds
+--   `connector_evidenced_pairs` and three `integrations` rows, which is what
+--   makes the SPLIT endpoint Integrations section renderable locally. See the
+--   comment above that section for what each row is for.
 --
 -- REPRESENTATIVE, NOT LARGE
 --   Two catalogues and ~40 stubs, not MindCloud's 3,573. The point is to cover
@@ -221,8 +222,55 @@ INSERT INTO connector_pairs (id, catalog_id, stub_a_id, stub_b_id, url_a_to_b, u
 ON CONFLICT (id) DO NOTHING;
 
 -- ---------------------------------------------------------------------------
--- `connector_evidenced_pairs` is deliberately NOT seeded. AECI-714 creates it
--- empty and nothing writes it until AECI-721 migrates the powered edges in, so an
--- empty delivered lane IS the correct local state — and the screen has to render
--- that as "not migrated yet", never as a measured zero.
+-- The DELIVERED tier (AECI-713). Was deliberately unseeded while AECI-714 had
+-- created `connector_evidenced_pairs` empty with nothing writing it; AECI-721
+-- migrated the powered edges in and pointed `POST /api/promote` at it, so an
+-- empty table is no longer the honest local state — it is just an unrenderable
+-- one. These rows are what make the SPLIT endpoint Integrations section
+-- (`STAGE_1_5_SPEC.md` §13.3) developable before AECI-731 ships a real feed.
+--
+-- Four rows covering the four lanes an endpoint page has to draw. Read them
+-- against `fx-procore`, which is an endpoint on every one:
+--
+--   1. `fx-evp-1` / `fx-evp-2` — two partners under ONE connector, so the group
+--      renders as a real group rather than a one-row heading.
+--   2. `fx-evp-3` — a SECOND connector, so the "row count desc, then name"
+--      ordering between groups is visible.
+--   3. `fx-evp-4` — `b_to_a`, the one direction that swaps the canonical
+--      endpoints back: Procore is `product_a` but the flow runs INTO it, so the
+--      row belongs in the target bucket reading `Inbound`. A read that ignored
+--      the orientation would file it as outbound from Procore, which is the
+--      opposite of what the data says.
+--
+-- Ids are uuids, not review record ids: this is the one table of the six with no
+-- review-side counterpart (§9a.6). `product_a_id < product_b_id` is a CHECK, and
+-- `connector_product_id` must differ from both (§13.2(a) enforced structurally),
+-- so the ordering below is load-bearing, not cosmetic.
 -- ---------------------------------------------------------------------------
+INSERT INTO connector_evidenced_pairs (id, connector_product_id, product_a_id, product_b_id, name, built_by_vendor_id, mechanism_name, direction, description, listing_url, maintained_by, created_at, updated_at) VALUES
+  ('00000000-0000-4000-8000-0000000008a1','00000000-0000-4000-8000-000000000790','00000000-0000-4000-8000-000000000800','00000000-0000-4000-8000-000000000803','Procore ↔ Sage Intacct',NULL,'Prebuilt flow','both','Fixture evidenced pair: delivered via the mirrored catalogue.','https://example.com/mindcloud/procore-sage','aeci','2020-01-01T00:00:00.000Z', strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  ('00000000-0000-4000-8000-0000000008a2','00000000-0000-4000-8000-000000000790','00000000-0000-4000-8000-000000000800','00000000-0000-4000-8000-000000000804','Procore ↔ QuickBooks Online',NULL,NULL,'a_to_b','Fixture evidenced pair: second partner under the same connector.','https://example.com/mindcloud/procore-quickbooks','aeci','2020-01-01T00:00:00.000Z', strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  ('00000000-0000-4000-8000-0000000008a3','00000000-0000-4000-8000-000000000791','00000000-0000-4000-8000-000000000800','00000000-0000-4000-8000-000000000805','Procore ↔ Viewpoint Vista','00000000-0000-4000-8000-000000000795','Unified API','a_to_b','Fixture evidenced pair: a second connector, and the one with a named builder.','https://example.com/agave/procore-vista','aeci','2020-01-01T00:00:00.000Z', strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  ('00000000-0000-4000-8000-0000000008a4','00000000-0000-4000-8000-000000000791','00000000-0000-4000-8000-000000000800','00000000-0000-4000-8000-000000000808','Procore ↔ Fieldwire',NULL,NULL,'b_to_a','Fixture evidenced pair: the flow runs Fieldwire → Procore, so on Procore this row is INBOUND.','https://example.com/agave/procore-fieldwire','aeci','2020-01-01T00:00:00.000Z', strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+ON CONFLICT (id) DO NOTHING;
+
+-- ---------------------------------------------------------------------------
+-- The two `integrations`-side lanes the split also has to draw, which no other
+-- fixture file covers:
+--
+--   * `fx-int-direct`  — an ordinary accountable-party edge (§13.2(c)), so the
+--     DIRECT lane is non-empty and the two-lane layout is what renders.
+--   * `fx-int-unnamed` — `iPaaS` with a NULL `powered_by`. Connector-delivered,
+--     but its platform has no `products` row to name, so §13.2(c) groups it
+--     under the unnamed "Via a connector" heading. 53 production rows are in
+--     exactly this state permanently, because AECI-700 parks Zapier and Workato
+--     and `connector_evidenced_pairs.connector_product_id` is NOT NULL.
+--   * `fx-int-conv-a`  — Convention A: `powered_by` IS one of the edge's own
+--     endpoints. §13.2(a) keeps it DIRECT; without that clause it renders a
+--     group whose only partner is the connector ("Via Agave → Agave").
+-- ---------------------------------------------------------------------------
+INSERT INTO integrations (id, source_product_id, target_product_id, name, mechanism_kind, mechanism_name, direction, powered_by_product_id, created_at, updated_at) VALUES
+  ('00000000-0000-4000-8000-0000000008b1','00000000-0000-4000-8000-000000000800','00000000-0000-4000-8000-000000000802','Procore ↔ Bluebeam Revu','native','Native app','bidirectional',NULL,'2020-01-01T00:00:00.000Z', strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  ('00000000-0000-4000-8000-0000000008b2','00000000-0000-4000-8000-000000000800','00000000-0000-4000-8000-000000000806','Procore ↔ PlanGrid','iPaaS','via a parked automation platform','one-way',NULL,'2020-01-01T00:00:00.000Z', strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  ('00000000-0000-4000-8000-0000000008b3','00000000-0000-4000-8000-000000000800','00000000-0000-4000-8000-000000000791','Procore ↔ Agave','iPaaS','Ships a connector on Agave','one-way','00000000-0000-4000-8000-000000000791','2020-01-01T00:00:00.000Z', strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+ON CONFLICT (id) DO NOTHING;

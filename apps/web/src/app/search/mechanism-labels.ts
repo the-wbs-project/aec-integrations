@@ -36,9 +36,31 @@ export function mechanismKindLabel(kind: string | null | undefined): string {
       return $localize`:@@integrations.mechanism.webhook:Webhook`;
     case 'partner':
       return $localize`:@@integrations.mechanism.partner:Partner`;
+    // AECI-698 / AECI-721 added `integrator` to the enum and the DB CHECK, but
+    // not here, so a row carrying it rendered the em-dash "Mechanism not listed"
+    // — indistinguishable from a null kind. Both `partner` and `integrator` are
+    // listed while the review app re-keys; neither is dropped in the meantime.
+    case 'integrator':
+      return $localize`:@@integrations.mechanism.integrator:Integrator`;
     default:
       return '';
   }
+}
+
+/**
+ * Heading for one connector group in the endpoint product page's split
+ * Integrations section (`STAGE_1_5_SPEC.md` §13.3). Lives beside the other
+ * single-sourced mechanism labels rather than inline in the template, so the
+ * `$localize` id set for "how is this integration delivered" stays in one file.
+ *
+ * `null` is §13.2(c)'s unnamed bucket — a connector-delivered edge whose
+ * connector has no `products` row to name. It gets a heading that asserts only
+ * what the data says; **never** an invented connector name.
+ */
+export function viaConnectorLabel(connectorName: string | null): string {
+  return connectorName === null
+    ? $localize`:@@products.detail.integrations.via.unnamed:Via a connector`
+    : $localize`:@@products.detail.integrations.via:Via ${connectorName}:CONNECTOR:`;
 }
 
 /** Localized label for an integration `direction`, or `''` when absent/unknown. */

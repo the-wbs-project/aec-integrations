@@ -1909,6 +1909,16 @@ review-side counterpart, and the destination AECI-721 migrates the connector-pow
 connector-powered edges here instead of into `integrations`. The connector-catalogue sync still
 never emits a statement against it — reachability and delivery stay separate lanes.
 
+**Read surfaces (AECI-713, 2026-09-02).** The ENDPOINT product-detail read
+(`productDetailConfig`) loads `evidencedPairsAsA` / `evidencedPairsAsB` and unions them into
+`ProductDetail.integrations_as_source` / `_as_target`, filing each row by its **oriented** source
+rather than by which column matched — the canonical order is a storage detail and carries no
+orientation meaning. AECI-721 had unioned this table into every read surface except that one, so
+between the two issues the migrated edges counted toward `integration_count` while rendering on
+neither endpoint's page. `claimsRelations.connectorEvidencedPair` was added at the same time: the
+`many(claims)` side here had no inverse, so Drizzle could not resolve a claims join on this table
+until something asked for one.
+
 **As built (AECI-721, 2026-08-31).** 19 production edges moved, not the ~326 this section
 originally anticipated: that figure is review-catalogue-side, and the prod gap is promotion
 coverage (AECI-730 reconciles it as 79 promoted + 62 connector-unpromoted + 184 never promoted).

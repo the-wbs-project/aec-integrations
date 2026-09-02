@@ -1,7 +1,12 @@
 import { Component, computed, input } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
-import type { ProductIntegrationItem, ProductLink } from '@aeci/shared';
+import type {
+  ContextDirection,
+  IntegrationMechanismKind,
+  ProductIntegrationItem,
+  ProductLink,
+} from '@aeci/shared';
 
 import { contextDirectionLabel, mechanismKindLabel } from '../search/mechanism-labels';
 import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
@@ -97,7 +102,7 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
                here as a muted sublabel. Tertiary at rest (4.83:1 on white);
                group-hover / group-focus-within step it to secondary once the row
                fill goes muted (DESIGN.md §"Tertiary": never on muted). -->
-          @if (mechanismKindLabel(); as label) {
+          @if (mechanismSublabel(); as label) {
             <span
               class="mt-0.5 text-xs text-(--text-tertiary) transition-colors group-hover:text-(--text-secondary) group-focus-within:text-(--text-secondary) md:hidden"
               >{{ label }}</span
@@ -116,11 +121,15 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
     </td>
     <td class="hidden px-4 py-3 text-(--text-secondary) md:table-cell">
       <span class="flex flex-col items-start gap-1">
-        @if (mechanismKindLabel(); as label) {
-          <span
-            class="inline-flex items-center rounded-(--radius-sm) border border-(--border-default) bg-(--surface-raised) px-2.5 py-0.5 text-xs font-bold tracking-[0.01em]"
-            >{{ label }}</span
-          >
+        @if (mechanismKindLabels().length > 0) {
+          <span class="flex flex-wrap items-center gap-1">
+            @for (label of mechanismKindLabels(); track label) {
+              <span
+                class="inline-flex items-center rounded-(--radius-sm) border border-(--border-default) bg-(--surface-raised) px-2.5 py-0.5 text-xs font-bold tracking-[0.01em]"
+                >{{ label }}</span
+              >
+            }
+          </span>
         } @else {
           <span
             class="text-(--text-secondary)"
@@ -147,6 +156,15 @@ export class ProductIntegrationRow {
   readonly other = input.required<ProductLink>();
   /** This page's product slug; the pair-page context (keeps direction relative). */
   readonly contextSlug = input.required<string>();
+  /**
+   * Merged facts for a **collapsed** row — set only by the Via lane, where one
+   * row stands for one (connector, partner) and may cover several edges (§13.3).
+   * `undefined` (the default) means "this row is one edge", and the row reads
+   * `integration()` for both. `null` is a legitimate merged direction (unknown),
+   * which is why the sentinel is `undefined` rather than `null`.
+   */
+  readonly mergedMechanismKinds = input<readonly IntegrationMechanismKind[] | undefined>(undefined);
+  readonly mergedDirection = input<ContextDirection | null | undefined>(undefined);
 
   /** RouterLink to the product-PAIR page, this product as the context slug. */
   protected readonly pairLink = computed(() => [
@@ -157,14 +175,26 @@ export class ProductIntegrationRow {
   ]);
 
   // Shared with the /search + /integrations surfaces via `mechanism-labels.ts`
-  // (AECI-142) so the `$localize` id set can't drift between them.
-  protected readonly mechanismKindLabel = computed(() =>
-    mechanismKindLabel(this.integration().mechanism_kind),
-  );
+  // (AECI-142) so the `$localize` id set can't drift between them. A row may
+  // carry several kinds once collapsed; an unlabelled kind is dropped rather
+  // than rendered blank.
+  protected readonly mechanismKindLabels = computed(() => {
+    const kinds = this.mergedMechanismKinds();
+    const source =
+      kinds ?? (this.integration().mechanism_kind ? [this.integration().mechanism_kind!] : []);
+    return source.map((kind) => mechanismKindLabel(kind)).filter((label) => label !== '');
+  });
 
-  protected readonly direction = computed(() =>
-    contextDirectionLabel(this.integration().context_direction),
-  );
+  /** Below `md` the Connection column is hidden, so the kinds join into one
+   *  muted sublabel under the partner name. */
+  protected readonly mechanismSublabel = computed(() => this.mechanismKindLabels().join(' · '));
+
+  protected readonly direction = computed(() => {
+    const merged = this.mergedDirection();
+    return contextDirectionLabel(
+      merged === undefined ? this.integration().context_direction : merged,
+    );
+  });
 
   // Built in TS (not an interpolated i18n-aria-label, which emits no attribute)
   // so the overlay link has a real accessible name naming the partner.

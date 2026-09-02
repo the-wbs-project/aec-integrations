@@ -95,8 +95,13 @@ function flipDirection(direction: ContextDirection | null): ContextDirection | n
   return direction;
 }
 
-/** Merge two A-relative directions; opposing one-ways describe a round trip. */
-function mergeDirections(
+/**
+ * Merge two directions expressed in the SAME frame; opposing one-ways describe a
+ * round trip. Exported for `connector-lane-grouping.ts`, which collapses pairs on
+ * the endpoint side and needs the identical rule — one definition, so the two
+ * lanes of one section can never disagree about what two edges add up to.
+ */
+export function mergeContextDirections(
   left: ContextDirection | null,
   right: ContextDirection | null,
 ): ContextDirection | null {
@@ -127,7 +132,7 @@ interface MutableConnection {
  * `connector_evidenced_pairs` has no `mechanism_kind` column at all. Never drop a
  * pair for want of a kind: on a connector's own page those pairs are the subject.
  */
-const MECHANISM_ORDER: readonly IntegrationMechanismKind[] = [
+export const MECHANISM_ORDER: readonly IntegrationMechanismKind[] = [
   'native',
   'iPaaS',
   'marketplace-app',
@@ -221,7 +226,7 @@ export function groupPoweredIntegrations(
     const existing = pairs.get(key);
     if (existing) {
       existing.edgeCount += 1;
-      existing.direction = mergeDirections(existing.direction, direction);
+      existing.direction = mergeContextDirections(existing.direction, direction);
       if (i.mechanism_kind) existing.mechanismKinds.add(i.mechanism_kind);
       continue;
     }
