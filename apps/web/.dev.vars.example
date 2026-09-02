@@ -38,12 +38,29 @@ ALGOLIA_SEARCH_KEY=
 # feed `createSupabaseServerClient` (src/server/auth/supabase-server-client.ts),
 # the cookie-session factory behind /auth/*. The anon (publishable) key is not
 # truly secret — it's stored as a secret only to keep values out of git (same
-# convention as ALGOLIA_SEARCH_KEY). Both empty → auth surfaces return 503
-# `auth_not_configured` and everything else works. For local dev use the single
-# shared auth project (ADR 0017 — https://ktuhnlypztujpsseujzx.supabase.co);
-# fetch the key with `supabase projects api-keys --project-ref ktuhnlypztujpsseujzx`.
+# convention as ALGOLIA_SEARCH_KEY).
+#
+# SUPABASE_ANON_KEY is the one value you MUST set. SUPABASE_URL is already a
+# committed wrangler `var` in every env block of wrangler.jsonc and dev:preview
+# runs `--env preview`, so it binds without this file; the anon key is a secret
+# with NO vars fallback. Missing → no `window.__AECI_SUPABASE__` is injected,
+# `/auth/login` renders "Sign-in is temporarily unavailable" with both buttons
+# disabled, and `/auth/whoami` returns 503 `auth_not_configured` (AECI-765).
+#
+# WHERE TO GET IT: copy the SUPABASE_ANON_KEY already in apps/api/.dev.vars — it
+# is the legacy eyJ… JWT form and decodes to
+# {"ref":"ktuhnlypztujpsseujzx","role":"anon"}, the live shared auth project
+# (ADR 0017), valid to 2036. NOTHING in the repo inspects key format
+# (supabase-bootstrap-inject.ts passes it opaquely to @supabase/ssr), so the newer
+# sb_publishable_… form works equally well — fetching one needs an interactive
+# `supabase login` first, then
+# `supabase projects api-keys --project-ref ktuhnlypztujpsseujzx`.
+#
+# Whichever you use, the key MUST belong to ktuhnlypztujpsseujzx: the static CSP
+# connect-src (src/server/seo-headers.ts) is pinned to that exact host, and a key
+# from another project surfaces as `Invalid API key` at sign-in.
 # The service-role key is NEVER set on any Worker (AUTH_AND_RLS.md §3).
-SUPABASE_URL=
+SUPABASE_URL=https://ktuhnlypztujpsseujzx.supabase.co
 SUPABASE_ANON_KEY=
 
 # Test-user credentials. NEVER a Worker binding; the Worker does not read these.

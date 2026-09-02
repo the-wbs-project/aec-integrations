@@ -350,7 +350,7 @@ Write a migration when any of these change in Postgres:
 
 **Don't** write a migration for:
 
-- Local test fixtures or seed data — those are the D1 seed SQL under `apps/api/seed/` (applied locally via `pnpm db:seed:local`). Cross-environment reference data (e.g. the taxonomy vocabulary) is `apps/api/seed/taxonomy.sql`, which *is* applied to every environment via `wrangler d1 execute` (ADR 0008).
+- Local test fixtures or seed data — those are the D1 seed SQL under `apps/api/seed/` (applied locally via `pnpm db:seed:local`, whose final step is the non-SQL `grant-local-admin.mjs` — AECI-765). Cross-environment reference data (e.g. the taxonomy vocabulary) is `apps/api/seed/taxonomy.sql`, which *is* applied to every environment via `wrangler d1 execute` (ADR 0008).
 - One-off data backfills — use a script under `apps/api/scripts/` and run it explicitly per environment.
 - Anything Airtable owns (curator-managed content; vendors, products, integrations, reviews — see `docs/DATABASE_SCHEMA.md` §13). *(Taxonomy is no longer in this set — it's code-managed reference data per ADR 0008.)*
 
@@ -481,7 +481,7 @@ PR review verifies these are all aligned. CI applies the migration to staging at
 
 ## 7. What does not belong in a migration
 
-- **Seed data**: for the app DB, the local D1 seed SQL under `apps/api/seed/` (applied via `pnpm db:seed:local`). (`supabase/seed.sql` is now Supabase-Auth-project-local only.)
+- **Seed data**: for the app DB, the local D1 seed SQL under `apps/api/seed/` (applied via `pnpm db:seed:local`, which also runs the non-SQL `grant-local-admin.mjs` step — AECI-765). (`supabase/seed.sql` is now Supabase-Auth-project-local only.)
 - **Reference data** (applied to *all* environments): the taxonomy vocabulary lives in `apps/api/seed/taxonomy.sql`, the Stage 1.5 `data_object` vocabulary in `apps/api/seed/data-objects.sql`, and the `trade` vocabulary in `apps/api/seed/trades.sql` (all idempotent upserts), applied to D1 via `wrangler d1 execute` — locally via `pnpm db:seed:taxonomy:local` / `pnpm db:seed:data-objects:local` / `pnpm db:seed:trades:local`, in deploy/promote via the matching `wrangler d1 execute … --file=seed/<name>.sql` steps in `scripts/d1-apply-migrations.sh`. See ADR 0008.
 - **Curator-managed data**: vendors, products, integrations, reviews come in via `POST /api/promote` (`docs/DATABASE_SCHEMA.md` §13).
 - **One-off backfills**: write a script (`apps/api/scripts/<name>.ts`), run it explicitly per environment. Keep migrations declarative.

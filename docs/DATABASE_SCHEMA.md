@@ -2141,6 +2141,15 @@ The local seed (`apps/api/seed/*.sql`, applied to the local D1 via `pnpm db:seed
 
 This seed data is fixed and known — E2E tests assume it exists.
 
+The chain's **final step is not SQL**: `db:grant-admin:local` runs
+`apps/api/scripts/grant-local-admin.mjs`, which upserts a `role='admin'`
+`profiles` row for the `LOCAL_ADMIN_USER_ID` set in `apps/api/.dev.vars` — your
+own Supabase user id, so `/admin/*` renders in a local browser instead of 404
+(AECI-765). It is deliberately outside the committed `seed/*.sql` because the id
+is per-human; the two ids in `seed/auth-fixtures.sql` are the shared e2e personas
+and are load-bearing in CI. Unset → the step no-ops, and it always exits 0 so it
+can never fail a seed run. See `docs/AUTH_AND_RLS.md` §3.3.
+
 ### 14.2 Staging
 
 Staging gets a larger subset of real production data, refreshed weekly via a curator-approved snapshot. Personal data (emails, real names) is anonymized.

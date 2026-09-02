@@ -463,7 +463,7 @@ test('user can search and find a product', async ({ page }) => {
 
 - The local/preview environment uses a fixed seed data set in D1
 - Tests assume seed data exists (Procore, Autodesk, etc.)
-- Seed data lives in `apps/api/seed/*.sql` and is applied to the local D1 via `pnpm db:seed:local` (`db:setup:local` migrates + seeds)
+- Seed data lives in `apps/api/seed/*.sql` and is applied to the local D1 via `pnpm db:seed:local` (`db:setup:local` migrates + seeds). The chain's **last step is not SQL**: `db:grant-admin:local` runs `apps/api/scripts/grant-local-admin.mjs`, which upserts a `role='admin'` profile for `LOCAL_ADMIN_USER_ID` from `apps/api/.dev.vars` so `/admin/*` is reachable in a local browser (AECI-765). Unset → it no-ops; it always exits 0 so it can never fail a seed run
 
 ### 7.6 Auth in tests
 
