@@ -2039,10 +2039,21 @@ when it resolved a self-contradicting voter to `unverified` rather than guessing
 it as *"an SI/consultancy built and maintains it, **neither vendor did**"* — this predicate's
 question, word for word — and such an edge carries no `powered_by` by definition, because there is no
 connector platform to name. So it would fall through both halves. It was added in the same change
-that added the value to the enums rather than afterwards, because the app-DB CHECK is what currently
-refuses `integrator`: the day AECI-721's migration lifts that and the review app promotes its ~117
-re-keyed `partner` rows, an unguarded gate starts asking endpoint vendors to confirm work an
-integrator did. Zero impact on the numbers above; correct at re-key time.
+that added the value to the enums rather than afterwards: the day the review app promotes its ~117
+re-keyed `partner` rows (AECI-712), an unguarded gate starts asking endpoint vendors to confirm work
+an integrator did. The app-DB CHECK has accepted `integrator` since
+`0027_powerful_killraven.sql`; only the upstream re-key is outstanding. Zero impact on the numbers
+above; correct at re-key time.
+
+**The `iPaaS` disjunct is PERMANENT (AECI-735).** It reads as a transitional accommodation for
+edges whose FK has not been backfilled yet, and it is not one. Those 53 edges cannot acquire the FK
+— `connector_evidenced_pairs.connector_product_id` is NOT NULL and AECI-700 parks Zapier and Workato
+indefinitely — so AECI-735 asked whether `iPaaS` could leave the mechanism vocabulary now that the
+connector lane has its own tables, and closed it as **no**. There is no replacement marker short of a
+new `integrations` column. This predicate has a sibling that reads the same value for the same
+population: `routeIntegrationLane` clause (c) in
+`apps/web/src/app/products/connector-lane-grouping.ts`, which keeps those edges on the product page's
+"Via" lane. The two change together or not at all.
 
 **`partner` is deliberately NOT in the disjunct.** It is the dumping ground AECI-698 exists to empty
 — a sample of six held a Concur app-center listing, a Procore support tutorial and a partnerpage.io

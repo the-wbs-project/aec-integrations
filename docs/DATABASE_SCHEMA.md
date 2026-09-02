@@ -324,6 +324,11 @@ create table integrations (
   constraint source_target_differ check (source_product_id <> target_product_id),
 
   -- Mechanism
+  -- Closed set, and settled (AECI-735). `iPaaS` is retained PERMANENTLY -- three shipped
+  -- predicates key off it (isConnectorPoweredEdge, routeIntegrationLane clause (c),
+  -- MECHANISM_ORDER) over a population that structurally cannot drain. `partner` is the one
+  -- pending retirement, gated on AECI-712's upstream re-key. Changing this list is a
+  -- DESTRUCTIVE table recreate on D1 -- see docs/migrations.md 3.3a.
   mechanism_kind text check (mechanism_kind in ('native', 'iPaaS', 'marketplace-app', 'api', 'webhook', 'partner', 'integrator')),
   mechanism_name text,
   direction text check (direction in ('one-way', 'bidirectional')),

@@ -43,18 +43,29 @@
  * fail-safe choice §4.5 made when it resolved a self-contradicting voter to
  * `unverified` rather than guessing.
  *
- * ── WHAT AECI-721 CHANGES, AND WHAT IT DOES NOT ─────────────────────────────
+ * ── WHAT AECI-721 CHANGED, AND WHAT IT DID NOT ──────────────────────────────
  * `integrator` joins `iPaaS` in the kind disjunct (see `CONNECTOR_MECHANISM_KINDS`).
- * The table above is UNCHANGED by that: zero rows carry `integrator` today, because
- * the app-DB CHECK still refuses it — which is exactly why the enum addition and
- * this line ship together.
+ * The table above is UNCHANGED by that: zero rows carry `integrator` yet — the app-DB
+ * CHECK accepts it since `0027_powerful_killraven.sql`, but the upstream re-key that
+ * produces such rows (AECI-712) has not run, so the disjunct is correct and inert.
  *
- * The FK disjunct also shrinks in meaning once AECI-721's migration runs: 19 of the
- * 79 FK-carrying prod edges LEAVE `integrations` for `connector_evidenced_pairs`,
+ * The FK disjunct also shrank in meaning when AECI-721's migration ran: 19 of the
+ * 79 FK-carrying prod edges LEFT `integrations` for `connector_evidenced_pairs`,
  * so they stop reaching this predicate at all — an evidenced pair is structurally
  * connector-delivered and has no attestation seat to gate. The 60 that remain are
  * Convention-A self-references (Aquifer 31, Kroo 29), which keep their `powered_by`
  * and keep matching here.
+ *
+ * ── THE `iPaaS` DISJUNCT IS PERMANENT — DO NOT PRUNE IT (AECI-735) ───────────
+ * AECI-735 asked whether `iPaaS` could be retired from the mechanism vocabulary now
+ * that the connector lane has its own tables, and the answer is no. The 53 NULL-FK
+ * rows above cannot move to `connector_evidenced_pairs` (`connector_product_id` is
+ * NOT NULL) because AECI-700 parks Zapier and Workato indefinitely, so this is the
+ * only thing standing between them and an attestation prompt. `iPaaS` is a marker,
+ * not a transitional value, and the same is true of `routeIntegrationLane`'s clause
+ * (c) in `apps/web/src/app/products/connector-lane-grouping.ts` — the two `iPaaS`
+ * predicates are siblings and change together or not at all. `schema.ts`'s CHECK
+ * carries the same note.
  *
  * ── WHY THERE IS NO SQL FORM OF THIS ────────────────────────────────────────
  * Deliberately a pure predicate with **no Drizzle `SQL` fragment**: every caller
@@ -77,7 +88,7 @@
  * question word for word. It is listed here in the SAME change that adds it to
  * the enums (AECI-721 PR-A) rather than later: an `integrator` edge carries no
  * `powered_by` by definition, so without this it would fall through both
- * disjuncts, and the ~117 rows waiting on the upstream re-key would start
+ * disjuncts, and the ~117 rows waiting on the upstream re-key (AECI-712) would start
  * prompting endpoint vendors to attest to work an SI did. Zero rows carry it
  * today, so the change is inert now and correct at re-key time.
  *

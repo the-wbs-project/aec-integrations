@@ -207,7 +207,7 @@ The weight map (`MECHANISM_RANK` in `packages/shared/src/algolia.ts`):
 
 `integrator` **replaces** `partner` — an SI or consultancy built and maintains the edge, neither endpoint vendor did — and the review app re-keys ~117 rows into it. That is a **classification** change, so it must not move anything: a classification-only migration silently re-ranking the catalog is exactly what `STAGE_1_5_SPEC.md` §13.5 exists to prevent. Tying at `1` also renumbers no existing weight, so no full reindex is forced for rank alone.
 
-Both values are listed while the re-key runs. `partner` leaves the app-DB CHECK only after the review app has re-keyed and re-promoted — see §4.3.
+Both values are listed while the re-key runs. `partner` leaves the app-DB CHECK only after the review app has re-keyed and re-promoted (AECI-712) — see §4.3.
 
 ### 4.2 Connector-evidenced pairs rank 4, not 0 (AECI-721)
 
@@ -217,14 +217,16 @@ Their records therefore serialise `mechanism_kind: null` — but their rank is p
 
 **This is a real, bounded re-rank, and it is accepted rather than incidental.** Measured against production on 2026-08-31, the 19 migrating edges are: 1 typed `iPaaS` (rank-neutral, 4 → 4) and 18 typed `marketplace-app` (1 `partner`), which **demote 5 → 4**. Seventeen records move one step down a six-step scale. Ranking stays purely algorithmic — this is a change in a signal's inputs, never in who can buy position.
 
-### 4.3 `iPaaS` and `partner` both stay in the enum for now
+### 4.3 `iPaaS` stays permanently; `partner` stays for now
 
-AECI-721's original scope dropped `iPaaS`. It does not. Two populations block it, and both are recorded rather than worked around:
+AECI-721's original scope dropped `iPaaS`. It does not, and **AECI-735 settled that it never will** — the two values are retained for different reasons and only one of them is still a pending retirement:
 
-- **53 production edges are `iPaaS` with a NULL `powered_by`** — Zapier, Workato, Make, n8n, Boomi — because their connector is not a promoted product and AECI-700 parks Zapier and Workato permanently. They cannot migrate (`connector_evidenced_pairs.connector_product_id` is NOT NULL) and they are 53 of the 132 edges `isConnectorPoweredEdge` gates, so nulling their kind would silently re-open AECI-705's vendor attestation prompts on every one.
+- **`iPaaS` is a marker, not a legacy value.** 53 production edges are `iPaaS` with a NULL `powered_by` — Zapier, Workato, Make, n8n, Boomi — because their connector is not a promoted product and AECI-700 parks Zapier and Workato permanently. They cannot migrate (`connector_evidenced_pairs.connector_product_id` is NOT NULL), so the set never drains, and three shipped predicates key off the value over it: `isConnectorPoweredEdge` (AECI-705's attestation gate — these are 53 of the 132 edges it gates), `routeIntegrationLane` clause (c) (§13.2(c), AECI-713's Via lane — the only thing keeping them off the direct, first-party lane), and `MECHANISM_ORDER`, which `freeze()` uses as a **filter** so a gap drops badges silently. Retiring the value would need a replacement marker, and there is none short of a new `integrations` column.
 - **`partner` is the dumping ground AECI-698 exists to empty.** Its 55 production rows earn `integrator` — or `native`, or `marketplace-app` — one at a time, upstream, under the rubric. Blanket-mapping them here would be the app DB inventing the classification the rubric exists to prevent.
 
-Retiring `iPaaS` is a sequenced follow-up gated on AECI-730; dropping `partner` follows the upstream re-key. Each is its own destructive D1 recreate.
+**`partner` is the only open retirement, and it is gated on AECI-712** — the row-level re-key, which has not run (117 `partner` / 0 `integrator` upstream as of 2026-09-02; AECI-698 revised the vocabulary and rubric, not the rows). `toMechanismKind` is fail-loud, so narrowing the CHECK ahead of the re-key 500s every read of a surviving row. It is its own destructive D1 recreate when it comes.
+
+**The vocabulary is spelled out in five places and nothing derives one from another** — `IntegrationMechanismKindSchema`, `MECHANISM_KINDS` (the promote wire), `MECHANISM_RANK`, `VALID_MECHANISM_KINDS` (`apps/api/src/lib/drizzle-helpers.ts`), `MECHANISM_ORDER` (`apps/web`) — plus the D1 CHECK. AECI-735 added the lockstep tests that hold the six together: `packages/shared/src/api/integrations.spec.ts`, `apps/api/src/test/mechanism-vocabulary.spec.ts` (which also asserts the CHECK), and `apps/web/src/app/products/powered-hub-grouping.spec.ts`. Two of the six degrade **silently** on drift, which is why the tests exist rather than a comment.
 
 ---
 
@@ -329,6 +331,7 @@ Search quality is a continuous concern, not a launch-day deliverable. This is th
 - `STAGE_1_5_SPEC.md` §13.1 / §13.5 — the delivered tier's two tables, and the fourteen-site `integration_count` lockstep §4.2 and §5 follow from.
 - [AECI-698](https://linear.app/aec-integrations/issue/AECI-698) — the mechanism vocabulary revision that introduces `integrator` (§4.1).
 - [AECI-721](https://linear.app/aec-integrations/issue/AECI-721) — the powered-edge migration: `integrator` in the enum, the pinned evidenced-pair rank (§4.2), and the `integration_count` semantics change (§5).
+- [AECI-735](https://linear.app/aec-integrations/issue/AECI-735) — settled that `iPaaS` is retained permanently, re-gated the `partner` retirement on [AECI-712](https://linear.app/aec-integrations/issue/AECI-712), and added the six-way vocabulary lockstep tests (§4.3).
 - [AECI-283](https://linear.app/aec-integrations/issue/AECI-283) — run this §7 tuning loop on real query data (unblocked at go-live 2026-07-03; needs accumulated launch traffic).
 - [AECI-286](https://linear.app/aec-integrations/issue/AECI-286) — `/preview/search-relevance`, the fixtures-based lab for evaluating the §7 levers before the query data exists (see §7).
 - [AECI-49](https://linear.app/aec-integrations/issue/AECI-49) — the `CACHE_STRATEGY.md` precedent for lifting a spec section into a canonical doc.

@@ -328,6 +328,10 @@ export const MECHANISM_RANK: Readonly<Record<string, number>> = {
  * to last place, and it would do so silently, as an artifact of an internal storage move.
  * Prod effect is bounded and named: the 1 migrating `iPaaS` row is rank-neutral, and the
  * 17 migrating `marketplace-app` rows demote 5 → 4 (`SEARCH_RANKING.md` §4).
+ *
+ * The pin to `MECHANISM_RANK.iPaaS` (asserted in the spec) is now permanently safe:
+ * AECI-735 settled that `iPaaS` never leaves the vocabulary, so this constant cannot
+ * be orphaned by a later retirement.
  */
 export const CONNECTOR_EVIDENCED_MECHANISM_RANK = 4;
 

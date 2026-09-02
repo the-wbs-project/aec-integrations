@@ -295,21 +295,41 @@ export const integrations = sqliteTable(
     index('integrations_powered_by_idx')
       .on(t.poweredByProductId)
       .where(sql`"powered_by_product_id" IS NOT NULL`),
-    // AECI-721 adds `integrator` (AECI-698's replacement for `partner`: an SI or
-    // consultancy built and maintains it, neither endpoint vendor did). A CHECK
-    // change on D1 is a destructive table recreate, so this is the ONE migration
-    // that gets to touch this constraint for now.
+    // AECI-721 added `integrator` (AECI-698's replacement for `partner`: an SI or
+    // consultancy built and maintains it, neither endpoint vendor did) in migration
+    // `0027_powerful_killraven.sql`. A CHECK change on D1 is a destructive table
+    // recreate, so every edit to this list buys a hand-assembled migration.
     //
-    // `iPaaS` and `partner` both STAY, deliberately, against this issue's original
-    // scope. 53 production edges are `iPaaS` with a NULL `powered_by` — their
-    // connector is unpromoted and AECI-700 parks Zapier and Workato permanently —
-    // so they cannot migrate (`connector_product_id` is NOT NULL) and they are 53
-    // of the 132 edges `isConnectorPoweredEdge` gates; nulling their kind would
-    // silently re-open AECI-705's attestation prompts on every one. `partner` is
-    // the dumping ground AECI-698 exists to empty one row at a time upstream, under
-    // its rubric — the app DB re-keying 55 rows wholesale would invent exactly the
-    // classification that rubric exists to prevent. Each retirement is its own
-    // later recreate.
+    // ── `iPaaS` STAYS. PERMANENTLY. (AECI-735) ─────────────────────────────────
+    // Not "for now" — this was AECI-735's question and the answer came back no.
+    // `iPaaS` is not a legacy value waiting to drain; it is the marker three
+    // shipped predicates key off, over a population that does not shrink:
+    //
+    //   1. `isConnectorPoweredEdge` (`lib/connector-powered.ts`) — the AECI-705
+    //      attestation gate. 53 of the 132 gated edges are `iPaaS` with a NULL
+    //      `powered_by`, so dropping the value re-opens attestation prompts on all
+    //      53, asking endpoint vendors to confirm work Zapier did.
+    //   2. `routeIntegrationLane` (`apps/web/.../connector-lane-grouping.ts`)
+    //      clause (c) — §13.2(c), AECI-713's Via lane. It is the only thing keeping
+    //      those same 53 edges off the "direct, first-party" lane.
+    //   3. `MECHANISM_ORDER` (`apps/web/.../powered-hub-grouping.ts`) — used as a
+    //      FILTER, so a missing member drops edges from the hub silently.
+    //
+    // And the population is permanent: those edges cannot move to
+    // `connector_evidenced_pairs` (`connector_product_id` is NOT NULL) because
+    // AECI-700 parks Zapier and Workato indefinitely, while ~144 of the 308 upstream
+    // `iPaaS` rows are Convention-A self-references that stay in `integrations` by
+    // design. There is no replacement marker short of a new column, which would buy
+    // vocabulary tidiness at the cost of breaking three predicates.
+    //
+    // ── `partner` stays FOR NOW (AECI-735, blocked on AECI-712) ────────────────
+    // `partner` is the dumping ground AECI-698 exists to empty one row at a time
+    // upstream, under its rubric — the app DB re-keying them wholesale would invent
+    // exactly the classification that rubric exists to prevent. AECI-698 revised the
+    // vocabulary; AECI-712 is the row-level re-key and has not run (117 `partner` /
+    // 0 `integrator` upstream as of 2026-09-02). `toMechanismKind` is fail-loud, so
+    // narrowing the CHECK ahead of the re-key 500s every read of a surviving row.
+    // That retirement is its own later recreate; this list is otherwise settled.
     check(
       'integrations_mechanism_kind_check',
       sql`"mechanism_kind" IN ('native', 'iPaaS', 'marketplace-app', 'api', 'webhook', 'partner', 'integrator')`,

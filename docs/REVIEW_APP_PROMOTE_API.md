@@ -335,7 +335,7 @@ endpoints**. The other endpoint must already be promoted (reference it by
 | `targetProduct` | `{ ref }` \| `{ supabaseId }` | ✅ | The other endpoint. |
 | `builtByVendor` | `{ ref }` \| `{ supabaseId }` \| null | — | `ref` must name a vendor in `vendors[]`; otherwise use `supabaseId`. |
 | `poweredByProduct` | `{ ref }` \| `{ supabaseId }` \| null | — | The connector that delivers this edge. **It must already be promoted** — see the warning below. Explicit `null` clears a stored connector; omitting the key leaves it untouched. |
-| `mechanismKind` | `"native"` \| `"iPaaS"` \| `"marketplace-app"` \| `"api"` \| `"webhook"` \| `"partner"` \| `"integrator"` \| null | — | `integrator` added by AECI-721 — see the note below before sending it. |
+| `mechanismKind` | `"native"` \| `"iPaaS"` \| `"marketplace-app"` \| `"api"` \| `"webhook"` \| `"partner"` \| `"integrator"` \| null | — | `integrator` added by AECI-721 — see the note below before sending it. The set is closed and is asserted against five other spellings of it (AECI-735). |
 | `direction` | `"one-way"` \| `"bidirectional"` \| null | — | |
 | `mechanismName`, `description`, `listingUrl`, `docsUrl`, `website`, `mechanismUrl`, `pricingModel`, `maturity`, `notes` | string \| null | — | |
 | `claims` | `Claim[]` | — | Data-object claims carried by this integration. Defaults to `[]`. See **`claims` shape & resolution** below. |
@@ -350,14 +350,20 @@ things follow for the sender:
 - **`partner` is still accepted**, and stays accepted until the review app has re-keyed its rows and
   re-promoted them. Removing it from the wire enum first would make the very push that carries the
   re-key fail validation.
-- **Do not send `integrator` until AECI-721's migration has landed in the target environment.** The
-  wire schema accepts it from AECI-721 PR-A, but the app-DB `integrations_mechanism_kind_check`
-  only accepts it after PR-B's migration. In between, an `integrator` payload passes Zod and then
-  fails the CHECK **inside the promote Workflow's non-retried commit step** — a job failure rather
-  than a clean `400`. `GET /api/version` reporting a commit at or after the migration is the signal
-  that it is safe.
+- **Do not send `integrator` to an environment that has not applied migration
+  `0027_powerful_killraven.sql`.** The wire schema accepts it from AECI-721 PR-A, and the app-DB
+  `integrations_mechanism_kind_check` accepts it from PR-B's migration — which is on the `stage-2`
+  line, so **production does not have it until `stage-2` merges**. Against an environment without
+  it, an `integrator` payload passes Zod and then fails the CHECK **inside the promote Workflow's
+  non-retried commit step** — a job failure rather than a clean `400`. `GET /api/version` reporting
+  a commit at or after that migration is the signal that it is safe. This is a deployment caveat,
+  not a code gap: both halves of the vocabulary landed together.
 
-`iPaaS` also remains accepted, and its scope is narrowing rather than gone — see §3.4a.
+`iPaaS` also remains accepted, and **AECI-735 settled that it is retained permanently**, not
+narrowing toward removal — see §3.4a. Three shipped predicates key off it (the AECI-705 attestation
+gate, the Via lane, the powered hub) over a population that structurally cannot drain, so senders
+should keep classifying edges as `iPaaS` under the existing rubric. `partner` is the only pending
+retirement, and it follows AECI-712's re-key.
 
 **`claims` shape & resolution (Stage 1.5).** A **claim** asserts that a particular
 `dataObject` (e.g. RFIs, Models, Budgets) flows in a particular `direction` through
@@ -414,7 +420,10 @@ Four consequences worth knowing:
 - **The connector must be a promoted product.** `connector_evidenced_pairs.connector_product_id` is
   NOT NULL, so an edge naming an unpromoted connector cannot be routed. Zapier and Workato are
   `on_hold` (AECI-700) and stay that way, so those edges remain in `integrations` with a NULL
-  `powered_by` — the population AECI-730 makes observable.
+  `powered_by` — the population AECI-730 makes observable. **They keep `mechanismKind: "iPaaS"`,
+  permanently** (AECI-735): it is the only thing marking them as connector-delivered once the FK is
+  absent, and both the AECI-705 attestation gate and the product page's "Via" lane read it. Do not
+  re-key them to `native` or unset because the connector lane now has its own tables.
 - **`direction` is re-encoded, losslessly.** The destination canonicalises the pair
   (`product_a_id < product_b_id`) and stores orientation as `a_to_b | b_to_a | both`, because once
   the pair is ordered `one-way` no longer says which way. You keep sending

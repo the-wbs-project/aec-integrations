@@ -113,6 +113,16 @@ export type IntegrationLane =
  * direct.** Including an unset-mechanism edge carrying no `powered_by`: unset is
  * not a kind (AECI-698), and filing it under "Via" would invent an attribution
  * the data does not make.
+ *
+ * **Clause (c) is PERMANENT (AECI-735).** It is not a bridge waiting for the FK to
+ * be backfilled. Its 53 production edges are `iPaaS` with a NULL `powered_by`
+ * because their connector is unpromoted, they cannot move to
+ * `connector_evidenced_pairs` (`connector_product_id` is NOT NULL), and AECI-700
+ * parks Zapier and Workato indefinitely — so the set never drains and clause (c) is
+ * the only thing keeping those edges off the "direct, first-party" lane. Its sibling
+ * is `isConnectorPoweredEdge` (`apps/api/src/lib/connector-powered.ts`), which reads
+ * `iPaaS` for the same population to gate AECI-705's attestation prompts; the two
+ * change together or not at all.
  */
 export function routeIntegrationLane(item: ProductIntegrationItem): IntegrationLane {
   const poweredBy = item.powered_by_product;
