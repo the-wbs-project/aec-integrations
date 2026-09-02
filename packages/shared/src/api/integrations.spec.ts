@@ -150,7 +150,7 @@ describe('IntegrationsListQuerySchema', () => {
 // plus the D1 `integrations_mechanism_kind_check`. This file pins the canonical
 // set and covers the three that live in this package; (4) and (5) assert against
 // `IntegrationMechanismKindSchema.options` in their own packages, and the CHECK is
-// covered in `apps/api/src/test/d1.spec.ts`.
+// covered in `apps/api/src/test/mechanism-vocabulary.spec.ts`.
 //
 // Drift is not uniformly loud. A value missing from (2) 400s a whole promote
 // payload (`PromotePayloadSchema` is parsed whole before the Workflow starts); one
