@@ -259,23 +259,153 @@ Running the app locally renders real seeded data and you can freely exercise wri
 | Symptom | Likely cause | Fix |
 | --- | --- | --- |
 | `/api/health` returns 500 `{ ok:false, db:"error" }` | The local D1 wasn't migrated/seeded, or the `DB` binding is missing | Run `pnpm --filter @aeci/api db:setup:local`, then restart `pnpm dev:agent`. (`pnpm dev` runs this for you.) |
+| **Every page** returns "Page Not Found" — including `/` — even though both Workers booted and print no error | The SSR → API **service binding is unresolved**: `env.API (aeci-api-preview) … [not connected]`. Every SSR route that resolves data over the binding fails, so the whole site 404s. Both Workers can be listening and the binding still be down — the dev **registry** is what's missing an entry, not the process | See "The service binding is `[not connected]`" below |
+
+### The service binding is `[not connected]`
+
+This is the highest-cost local failure to misread, because the browser symptom
+(site-wide "Page Not Found") looks like a routing or build bug, while the only
+real signal is one line in the Worker log. It also silently breaks **first-ever
+sign-in**: `/auth/callback` still succeeds and sets a session cookie, but its
+`POST /api/auth/profile/ensure` is **non-fatal**, so you end up authenticated with
+no D1 `profiles` row — and that state does not self-heal (AECI-765).
+
+**Diagnose** — one of:
+
+```bash
+grep "env.API" <your dev log>
+curl -s http://localhost:8790/api/health
+```
+
+A healthy binding logs `env.API (aeci-api-preview) … local [connected]` and the
+curl returns `{"ok":true,"db":"ok",…}`. A broken one returns the raw string
+`Worker "aeci-api-preview" not found. Make sure it is running locally.` — note
+that is **not** JSON, which is itself the tell.
+
+**Fix.** Kill the pair, clear this workspace's registry, and restart:
+
+```bash
+pkill -9 -f "$PWD"
+rm -rf .wrangler/registry
+pnpm dev:agent
+```
+
+Then **wait** before concluding it failed again: the entry can take ~20 s to
+appear after `Ready on http://localhost:<api port>`, and the SSR Worker logs
+`[not connected]` first and `[connected]` second. Re-run the `curl` rather than
+trusting the first log line.
+
+Why it happens: the registry is keyed by **worker name**, and `dev:bound` gives
+each workspace its own via `WRANGLER_REGISTRY_PATH=$PWD/.wrangler/registry`. A
+crashed or SIGTERM'd API Worker can leave the directory holding only the
+`aeci-web` entry, and nothing re-registers it until a restart. Orphaned `workerd`
+processes from a previous session are the usual trigger — check with
+`lsof -nP -iTCP -sTCP:LISTEN | grep workerd`.
 
 ## Local dev: Supabase auth (Phase 5)
 
 AECI-193 wired Supabase Auth into both Workers. To exercise it locally against
 the **single shared auth project** (`ktuhnlypztujpsseujzx`, ADR 0017):
 
-1. **`.dev.vars` setup.**
-   - `apps/web/.dev.vars`: set `SUPABASE_URL=https://ktuhnlypztujpsseujzx.supabase.co`
-     and `SUPABASE_ANON_KEY=<publishable key>` (fetch with
-     `supabase projects api-keys --project-ref ktuhnlypztujpsseujzx`). Also set
-     `SUPABASE_TEST_USER_EMAIL` / `SUPABASE_TEST_USER_PASSWORD` for the mint
-     script (these are **never** Worker bindings).
-   - `apps/api/.dev.vars`: set the same `SUPABASE_URL` (the API Worker reads it
-     for JWKS + issuer). It needs **no** anon key to verify tokens; the
-     service-role key is optional locally (only the ADR-0016 admin seams use it).
+> **AECI-765 (2026-09-02).** Sign-in had never worked locally in any workspace:
+> `apps/web/.dev.vars` carried no Supabase config at all, and `apps/api/.dev.vars`
+> pointed `SUPABASE_URL` at `dmbygwupskttzsvfzluq` — a **deleted** project (DNS
+> NXDOMAIN) — while the keys beside it belonged to the live one. Both are fixed,
+> and the fix propagates: Conductor copies `**/.dev.vars*` from
+> `~/Documents/dev/apps/aec-integrations` into every new workspace, so that
+> checkout is the one to keep correct.
 
-2. **Mint a session.** From `apps/web`:
+1. **`.dev.vars` setup.**
+   - `apps/web/.dev.vars`: set `SUPABASE_ANON_KEY`. This is the only value that is
+     genuinely required — `SUPABASE_URL` is a committed wrangler `var` in every
+     env block of `apps/web/wrangler.jsonc` and `dev:preview` runs `--env preview`,
+     so it binds without you; set it anyway to keep the file self-describing.
+     `SUPABASE_ANON_KEY` is a **secret with no `vars` fallback**, so locally it can
+     only come from this file, and without it the SSR Worker injects no
+     `window.__AECI_SUPABASE__` and `/auth/login` renders "Sign-in is temporarily
+     unavailable" with both buttons disabled.
+
+     **Where to get the key:** copy the `SUPABASE_ANON_KEY` already sitting in
+     `apps/api/.dev.vars`. It is the legacy `eyJ…` JWT form, and its decoded claims
+     are `{"ref":"ktuhnlypztujpsseujzx","role":"anon"}` — the live shared project,
+     valid to 2036. **Nothing in the repo inspects key format**
+     (`supabase-bootstrap-inject.ts` passes it opaquely to `@supabase/ssr`), so the
+     newer `sb_publishable_…` form works equally well; fetching one needs an
+     interactive `supabase login` first, then
+     `supabase projects api-keys --project-ref ktuhnlypztujpsseujzx`. Either way the
+     key **must belong to `ktuhnlypztujpsseujzx`** — the static CSP `connect-src`
+     (`apps/web/src/server/seo-headers.ts`) is pinned to that exact host.
+
+     Also set `SUPABASE_TEST_USER_EMAIL` / `SUPABASE_TEST_USER_PASSWORD` for the
+     mint script (these are **never** Worker bindings).
+   - `apps/api/.dev.vars`: set the same `SUPABASE_URL` (the API Worker reads it
+     for JWKS + issuer). It needs **no** anon key to verify tokens. Leave
+     `SUPABASE_SERVICE_ROLE_KEY` **empty** — see the warning at the end of this
+     section; that URL now names the project backing production.
+
+2. **Sign in as yourself in a browser, and reach `/admin/*` (AECI-765).** This is
+   the path for eyeballing a gated surface locally; steps 3–5 below are the
+   headless/`curl` path and the e2e personas.
+
+   **a. Boot on an allow-listed port.** Magic-link and OAuth redirects are built by
+   Supabase and honoured **only** if they match the project's Redirect-URL
+   allow-list; otherwise Supabase silently falls back to the project's Site URL
+   (`https://demo.aecintegrations.com`) and your local link takes you to the wrong
+   host. Only `http://localhost:8788/**` and `http://localhost:8790/**` are
+   allow-listed (see "Deployed Supabase Auth: redirect-URL configuration" below).
+   `dev:agent` scans upward from 8790 in twos, so a **second** agent workspace lands
+   on 8792 and silently loses the redirect. Run `pnpm dev:agent` and check the port
+   it prints; if it isn't 8790, free 8790 (`lsof -nP -iTCP -sTCP:LISTEN | grep
+   workerd`) or add `http://localhost:*/**` to the allow-list in the dashboard.
+
+   **b. Confirm the config actually reached the browser** before sending any email:
+
+   ```bash
+   curl -s http://localhost:8790/auth/login | grep -o '__AECI_SUPABASE__'
+   ```
+
+   A hit means the bootstrap script is injected and the sign-in buttons are live. No
+   hit means `SUPABASE_ANON_KEY` is still missing from `apps/web/.dev.vars` — go back
+   to step 1 rather than debugging Supabase.
+
+   **c. Sign in** at `/auth/login` with a magic link. The `/auth/callback` handler
+   exchanges the code and fires a non-fatal `POST /api/auth/profile/ensure`, which
+   creates your D1 `profiles` row as `role='reviewer'`. At this point `/account`
+   works and `/admin` still 404s — correct, and the next step is what fixes it.
+
+   **d. Find your Supabase user id** (the JWT `sub`, which is also the `profiles` PK):
+
+   ```bash
+   pnpm --filter @aeci/api exec wrangler d1 execute aeci-app-preview --local --command "SELECT id, display_name, role FROM profiles"
+   ```
+
+   Yours is the row that is not one of the two seeded `E2E Test …` fixtures.
+
+   **e. Make it stick.** Put that id in `LOCAL_ADMIN_USER_ID` in
+   `apps/api/.dev.vars` — **and in the same file in
+   `~/Documents/dev/apps/aec-integrations`**, which is what Conductor copies into
+   every future workspace. Then:
+
+   ```bash
+   pnpm --filter @aeci/api db:grant-admin:local
+   ```
+
+   `scripts/grant-local-admin.mjs` upserts a `role='admin'` row for that id and is
+   the **last step of `db:seed:local`**, so from now on every `pnpm dev:agent` in
+   every workspace re-grants it automatically. It **always exits 0** — unset,
+   malformed, or a wrangler failure each print a line and move on, because a
+   non-zero exit there would take the dev server down over a local-convenience
+   grant. Reload `/admin` and it renders.
+
+   Why this dance rather than editing `seed/auth-fixtures.sql`: those two ids are
+   the shared e2e personas (`test@` / `vendor@`), they are load-bearing in CI, and
+   they are committed. Your own id is per-human and belongs in the gitignored file.
+
+   `/vendor/*` will still 404 for you — a `vendor_admin` role and a non-null
+   `vendor_id` are a separate, single-valued grant (§8.3(3): one role per account).
+   Use the vendor e2e persona for that surface, or `/preview/vendor-dashboard`.
+
+3. **Mint a session.** From `apps/web`:
    ```bash
    node --env-file=.dev.vars scripts/mint-dev-session.mjs
    ```
@@ -283,7 +413,15 @@ the **single shared auth project** (`ktuhnlypztujpsseujzx`, ADR 0017):
    the raw access token, and a ready-to-paste `Cookie:` header. The session
    lasts 1h — re-mint when it lapses.
 
-3. **curl smoke** (boot the stack with `pnpm dev:agent`; note the printed web
+   This is also the **no-email fallback for step 2**: the printed cookies are
+   byte-identical to browser ones (the `@supabase/ssr` storage adapter does the
+   encoding and chunking), so pasting them into DevTools → Application → Cookies
+   for `http://localhost:8790` gives you a signed-in browser without a magic link
+   and without depending on the redirect allow-list. The `sub` it prints is that
+   account's user id — use the admin fixture's session, or your own credentials if
+   you have a password on the account.
+
+4. **curl smoke** (boot the stack with `pnpm dev:agent`; note the printed web
    port, e.g. `8790`):
    ```bash
    # 401 without a session, non-cacheable:
@@ -296,7 +434,7 @@ the **single shared auth project** (`ktuhnlypztujpsseujzx`, ADR 0017):
    An unprovisioned Worker (no `SUPABASE_ANON_KEY`) returns `503
    auth_not_configured` instead of 401 — distinct on purpose.
 
-4. **Authed console-health e2e (AECI-235).** `apps/web/e2e/authed-console.spec.ts`
+5. **Authed console-health e2e (AECI-235).** `apps/web/e2e/authed-console.spec.ts`
    reuses the same mint recipe to visit the four auth-gated Phase 5 pages
    (`/account`, `/admin`, `/admin/reviews`, `/products/:slug/review`) with a real
    admin session and assert zero console errors. To run it locally, the **test user
@@ -327,7 +465,7 @@ the **single shared auth project** (`ktuhnlypztujpsseujzx`, ADR 0017):
    `SUPABASE_VENDOR_TEST_USER_*` GH secrets to activate the gate in CI (the `deploy.yml`
    Playwright step already passes them through, warn-and-skip when absent).
 
-5. **`SUPABASE_URL` override for local-stack RLS specs.** The API Worker runtime
+6. **`SUPABASE_URL` override for local-stack RLS specs.** The API Worker runtime
    `SUPABASE_URL` points at the shared auth project, but the PostgREST/RLS
    integration suites can run against a **local** `supabase start` stack by
    overriding per-invocation — a shell-set var beats `dotenv -e .dev.vars`:

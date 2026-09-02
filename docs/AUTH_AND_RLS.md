@@ -91,7 +91,7 @@ Three roles exist in `profiles.role`. All are set server-side — no client can 
 | Role | Who | How assigned |
 |---|---|---|
 | `reviewer` | Any authenticated user | Default role of the **D1** profile created by `POST /api/auth/profile/ensure` on first sign-in (the authoritative path under ADR 0016). The Postgres `handle_new_user()` trigger on `auth.users` still exists in the auth-only baseline but is **vestigial** — the app reads `profiles.role` from D1, not Postgres. See §8.1. |
-| `admin` | Chris and Bill | Manual `UPDATE profiles SET role='admin'` against the per-environment **D1** database |
+| `admin` | Chris and Bill | Manual grant against the per-environment **D1** `profiles` row whose `id` equals the user's Supabase `auth.users.id` (the verified JWT `sub`). There is no self-serve path and no `auth.users`↔`profiles` FK. Since ADR 0017 one shared auth project backs every tier, so a human has **one** id everywhere and the grant is per-environment-D1 against that same id. **Procedure: see §3.3.** |
 | `vendor_admin` | Stage 2 vendor contacts | Granted app-side on **vendor-claim approval** — the same app-layer seam as `admin` (no `auth.users`↔`profiles` FK, AECI-254). The claim form is anonymous, so the *identity* the grant links is resolved from `vendor_requests.submitter_email` by **seam #4** (§3.1) — either linking an existing `auth.users` row or provisioning one. See `STAGE_2_VENDOR_PORTAL_SPEC.md` §2–§3. Enforcement **shipped in AECI-520**: `requireVendor()` (`apps/api/src/lib/authz.ts`) requires `role = 'vendor_admin'` **and** a non-null `profiles.vendor_id`, and every `/api/vendor/*` query is scoped by that `vendor_id` (§4.4). Many `profiles` → one `vendor_id`. Multi-seat is **flat in data capability** — every seat edits the same things — but since **AECI-664** not flat in seat management: `profiles.seat_owner` gates invite/remove alone. A seat arrives either from an AECi claim grant (owner) or by redeeming an owner's invite (not an owner), which is the bound that stops one reviewed human seeding an unbounded chain of unreviewed ones. See `STAGE_2_VENDOR_PORTAL_SPEC.md` §11a. |
 
 Banned users retain their role but have `profiles.banned_at` set; the Worker (`apps/api/src/lib/authz.ts`) checks both identity and ban status against D1. (The Postgres `public.is_active_user()` helper is part of the historical RLS surface and no longer governs app-table access.)
@@ -258,6 +258,44 @@ same batch (§4.3) and are fully reversible. Full contract:
 [`STAGE_2_VENDOR_PORTAL_SPEC.md`](./STAGE_2_VENDOR_PORTAL_SPEC.md) §2, §3.1, §7.
 
 ---
+
+### 3.3 Granting `admin` (the actual procedure)
+
+`requireAdmin()` (`apps/api/src/lib/authz.ts`) re-reads `profiles.role` from D1 on
+**every** request and never trusts a JWT claim, so granting admin is exactly one
+upsert into the target environment's D1 — no Supabase-side change, no deploy.
+
+Two facts to get right before running anything:
+
+- **The `id` is the Supabase `auth.users.id`**, not an email and not a generated
+  key. Read it from the user's JWT `sub`, from their existing `profiles` row, or
+  via the GoTrue Admin API.
+- **`created_at` / `updated_at` are `text NOT NULL` with no SQL default** — Drizzle
+  fills them via `$defaultFn` at insert time, so a raw `INSERT` that omits them
+  fails `NOT NULL constraint failed: profiles.created_at`.
+
+**Locally** — set `LOCAL_ADMIN_USER_ID` in `apps/api/.dev.vars` and run:
+
+```bash
+pnpm --filter @aeci/api db:grant-admin:local
+```
+
+`scripts/grant-local-admin.mjs` (AECI-765) is also the last step of
+`db:seed:local`, so the grant is re-applied on every `pnpm dev` / `dev:agent` and
+survives a fresh workspace. The end-to-end walkthrough — signing in, finding your
+id, and the `/admin` 404-until-granted behaviour — is `docs/environments.md`
+§"Local dev: Supabase auth (Phase 5)" step 2.
+
+**In a deployed environment** — the same statement, against that tier's D1:
+
+```bash
+wrangler d1 execute aeci-app-<env> --env <env> --remote --command "INSERT INTO profiles (id, display_name, role, created_at, updated_at) VALUES ('<supabase-user-id>', '<name>', 'admin', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')) ON CONFLICT(id) DO UPDATE SET role='admin', updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')"
+```
+
+Revoking is the same statement with `role='reviewer'`. Note this is a raw D1 write
+outside the app, so it emits **no `audit_log` row** — the §26.1 in-batch invariant
+governs the Worker's write paths, not operator SQL. Record the grant in the issue
+or runbook you are working from.
 
 ## 4. Worker authorization (Layer 1)
 

@@ -28,8 +28,17 @@
 # backs every environment, including production — ADR 0017). Keep
 # SUPABASE_SERVICE_ROLE_KEY empty here so they self-skip; supply it only in a
 # local-stack override. Tests `describe.skipIf` themselves when vars are unset.
-SUPABASE_URL=
-# Publishable/anon key for the project SUPABASE_URL points at.
+SUPABASE_URL=https://ktuhnlypztujpsseujzx.supabase.co
+# Publishable/anon key for the project SUPABASE_URL points at. Copy the SAME value
+# into apps/web/.dev.vars, where the browser sign-in client actually needs it — a
+# key belonging to a different project than SUPABASE_URL is what surfaces as
+# `Invalid API key` at sign-in. Either key format works; nothing in the repo
+# inspects it (see apps/web/.dev.vars.example).
+#
+# AECI-765: this file used to ship SUPABASE_URL pointing at dmbygwupskttzsvfzluq —
+# a DELETED project (NXDOMAIN). `.dev.vars` OVERRIDES the wrangler vars block
+# locally, so the dead URL won and all four GoTrue Admin seams degraded silently.
+# If a GoTrue-backed signal reads null/unknown locally, check this line FIRST.
 SUPABASE_ANON_KEY=
 # Access token for a non-admin authenticated user. Mint a fresh one (1h
 # expiry) with the kept dev tool:
@@ -60,6 +69,26 @@ SUPABASE_TEST_USER_JWT=
 # equivalent as the "Secret" key (`pnpm exec supabase status`) — supply that only
 # in a per-invocation local-stack override. Never commit a real value.
 SUPABASE_SERVICE_ROLE_KEY=
+
+# ─── Local admin grant (AECI-765) ──────────────────────────────────────────
+# Your OWN Supabase auth.users id (the JWT `sub`). NOT a Worker binding — it is
+# read only by scripts/grant-local-admin.mjs, the last step of `db:seed:local`,
+# which upserts a role='admin' profiles row for it into the LOCAL D1. That row is
+# what makes /admin/* render instead of 404 after you sign in for real: the gate
+# is `requireAdmin()` re-reading profiles.role from D1, and seed/auth-fixtures.sql
+# only seeds the shared e2e personas, whose ids will never match your login.
+#
+# Empty → the step prints one line and no-ops. It ALWAYS exits 0 (a malformed id
+# or a wrangler failure warns and moves on), because a non-zero exit here would
+# take `pnpm dev` down over a local-convenience grant.
+#
+# To find your id: sign in locally, then
+#   pnpm --filter @aeci/api exec wrangler d1 execute aeci-app-preview --local \
+#     --command "SELECT id, display_name, role FROM profiles"
+# One id works in every workspace and every environment (single shared auth
+# project, ADR 0017). Full walkthrough: docs/environments.md → "Local dev:
+# Supabase auth (Phase 5)" step 2.
+LOCAL_ADMIN_USER_ID=
 
 # ─── Airtable PAT (AECI-83) ────────────────────────────────────────────────
 # Used by the Airtable gateway lib (apps/api/scripts/lib/airtable.ts) for the
