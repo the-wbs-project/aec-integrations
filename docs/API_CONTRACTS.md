@@ -1392,6 +1392,11 @@ export const AdminClaimSchema = AdminVendorRequestSchema.extend({
   // Stage 2 paid tiers (AECI-532). Both REQUIRED-nullable, not optional (R10).
   entitlement_vendor: LinkRefSchema.nullable(),           // the RESOLVED vendor the entitlement applies to
   entitlement: VendorEntitlementResponseSchema.nullable(), // that vendor's current entitlement; null = none on record
+
+  // The §5.2 PAYER TEST (AECI-738), about the same resolved vendor. Both
+  // REQUIRED-nullable (R10); null = signal unavailable, and they move together.
+  product_roles: VendorProductRolesSchema.nullable(),     // { application, connector, hybrid, total }
+  is_pure_connector_vendor: z.boolean().nullable(),       // true ⇒ owns ≥1 product, ALL 'connector'
 });
 
 export const ListVendorClaimsResponseSchema = paginatedResponseSchema(AdminClaimSchema);
@@ -1407,6 +1412,23 @@ client-side** (a link only — no claimant data leaves AECi; real enrichment is 
 **Graceful degrade:** the two enrichment queries are fail-soft — a failure sets that field to
 `null` ("unavailable") while the row and the rest of the signals still return. No errors beyond
 the shared `requireAdmin()` 401/403.
+
+**The role signal answers §5.2 step 1 in the console (AECI-738).** `STAGE_2_SPEC.md`
+§8.8(1)'s payer test is *"does this vendor own any product with
+`product_role IN ('application','hybrid')`?"* — `hybrid` counts as an endpoint, and only
+a vendor **all** of whose products are `'connector'` routes to the partnership track,
+where **Grant and Reject are both wrong**. Derived from `product_vendors ⋈ products`
+in one grouped scan over the page's resolved vendors (the same `entitlement_vendor` a
+grant would touch), **never from a per-vendor marker** — `vendors` carries none, and
+Autodesk, Trimble, Deltek and Sage Group each own connector-role products while being
+among the largest endpoint accounts, so a per-vendor flag would catch the exact inverse
+of the intent. Ownership counts every `product_vendors` row, not just `is_primary`.
+
+**Three states, not two.** `is_pure_connector_vendor: false` covers both "owns an
+endpoint product" (an ordinary vendor) and "owns no products at all" — the second is
+**unknown, never exempt**, and `product_roles.total === 0` is how a surface tells them
+apart. A vendor that owns nothing is a ZEROED breakdown, not `null`: `null` means the
+enrichment degraded and is reserved for that, exactly like `existing_seats`.
 
 **`entitlement_vendor` is pre-resolved, and that is the point.** `target_id` alone cannot
 address `PATCH /api/admin/vendors/:id/entitlement`, because on a `target_type='product'` claim
@@ -1593,6 +1615,10 @@ export const AdminVendorDetailSchema = z.object({
   pending_invites: VendorSeatInviteSchema.array().nullable(),
 
   product_count: z.number().int().min(0),
+  // The §5.2 payer test (AECI-738). NON-nullable here, unlike the /admin/claims
+  // copy: this comes out of the request's own `db.batch`, so it cannot degrade.
+  product_roles: VendorProductRolesSchema,                   // { application, connector, hybrid, total }
+  is_pure_connector_vendor: z.boolean(),
   integration_count: z.number().int().min(0),
   claim_counts: z.object({                                   // ALL FOUR statuses
     open: z.number().int().min(0),
@@ -1610,6 +1636,14 @@ everything — which is exactly how an absent `SUPABASE_SERVICE_ROLE_KEY` hid in
 sight for a day on 2026-08-24. **Absent creds render "unavailable", never an empty
 roster.** The `seats: null` case is the separate "the roster query itself degraded"
 state; `[]` means the vendor genuinely has no seats.
+
+**`product_count` is the SUM of `product_roles`, by construction (AECI-738).** Both come
+out of ONE `GROUP BY products.product_role` inside the existing batch, not a `count()`
+beside a `GROUP BY` — two statements answering one question is how `STAGE_1_5_SPEC.md`
+§13.5 items 11/12 ended up with two drifting copies of the same operator number. The
+inner join cannot undercount the former bare count, because `product_vendors.product_id`
+is `ON DELETE CASCADE` against `products`. Semantics of the two role fields, including
+the zero-products case, are identical to `GET /api/admin/claims` above.
 
 **Four claim buckets, not three.** `vendor_requests_status_check` allows
 `open | in_review | resolved | rejected`; reporting three gives numbers that fail to

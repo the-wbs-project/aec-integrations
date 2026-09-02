@@ -6,6 +6,7 @@ import {
   AdminVendorDetailSchema,
   AdminVendorRowSchema,
   AdminVendorsListQuerySchema,
+  VendorProductRolesSchema,
 } from './admin-vendors';
 
 /**
@@ -109,6 +110,8 @@ describe('AdminVendorDetailSchema', () => {
     seat_emails_available: true,
     pending_invites: [],
     product_count: 0,
+    product_roles: { application: 0, connector: 0, hybrid: 0, total: 0 },
+    is_pure_connector_vendor: false,
     integration_count: 0,
     claim_counts: { open: 0, in_review: 0, resolved: 0, rejected: 0 },
   };
@@ -256,5 +259,80 @@ describe('AdminAuditRowSchema', () => {
       },
     });
     expect(parsed.actor?.display_name).toBeNull();
+  });
+});
+
+// ─── VendorProductRoles (AECI-738 / §5.2) ────────────────────────────────────
+
+describe('VendorProductRolesSchema', () => {
+  it('requires every bucket AND the total — total is not derived by the reader', () => {
+    // `total` is on the wire rather than summed client-side because `total === 0`
+    // is a distinct state ("owns nothing" = unknown, not exempt) that a caller
+    // must be able to test without knowing the bucket list is exhaustive.
+    expect(
+      VendorProductRolesSchema.safeParse({ application: 1, connector: 0, hybrid: 0 }).success,
+    ).toBe(false);
+    expect(
+      VendorProductRolesSchema.safeParse({
+        application: 1,
+        connector: 0,
+        hybrid: 0,
+        total: 1,
+      }).success,
+    ).toBe(true);
+  });
+
+  it('rejects negative and fractional counts', () => {
+    const base = { application: 0, connector: 0, hybrid: 0, total: 0 };
+    expect(VendorProductRolesSchema.safeParse({ ...base, connector: -1 }).success).toBe(false);
+    expect(VendorProductRolesSchema.safeParse({ ...base, connector: 1.5 }).success).toBe(false);
+  });
+});
+
+describe('AdminVendorDetailSchema — the payer-test fields', () => {
+  const detail = {
+    id: '00000000-0000-4000-8000-000000000001',
+    slug: 'acme',
+    company_name: 'Acme',
+    description: null,
+    website: null,
+    headquarters: null,
+    logo_url: null,
+    verified: false,
+    promotion_status: 'promoted',
+    maintained_by: 'aeci',
+    last_reviewed_at: null,
+    created_at: '2026-01-01T00:00:00.000Z',
+    updated_at: '2026-01-01T00:00:00.000Z',
+    entitlement: null,
+    seats: [],
+    seat_emails_available: true,
+    pending_invites: [],
+    product_count: 0,
+    product_roles: { application: 0, connector: 0, hybrid: 0, total: 0 },
+    is_pure_connector_vendor: false,
+    integration_count: 0,
+    claim_counts: { open: 0, in_review: 0, resolved: 0, rejected: 0 },
+  };
+
+  it('parses with the breakdown present', () => {
+    expect(AdminVendorDetailSchema.parse(detail).is_pure_connector_vendor).toBe(false);
+  });
+
+  it('rejects a NULL breakdown — unlike the claim queue, this read cannot degrade', () => {
+    // The vendor-detail breakdown comes out of the request's own `db.batch`, so
+    // there is no "unavailable" state to represent; the claim-queue copy is
+    // nullable precisely because its enrichment is fail-soft.
+    expect(AdminVendorDetailSchema.safeParse({ ...detail, product_roles: null }).success).toBe(
+      false,
+    );
+    expect(
+      AdminVendorDetailSchema.safeParse({ ...detail, is_pure_connector_vendor: null }).success,
+    ).toBe(false);
+  });
+
+  it('rejects an OMITTED breakdown (R10 — required, not optional)', () => {
+    const { product_roles: _p, ...without } = detail;
+    expect(AdminVendorDetailSchema.safeParse(without).success).toBe(false);
   });
 });

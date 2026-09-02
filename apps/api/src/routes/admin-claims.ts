@@ -56,6 +56,7 @@ import {
   type ModerateClaimResponse,
   type RelatedRequestRef,
   type VendorEntitlementResponse,
+  type VendorProductRoles,
 } from '@aeci/shared';
 import { forwardAuditLog, type AuditLogForwarder } from '@aeci/shared/audit-log';
 import { tierFor, type EntitlementTier } from '@aeci/shared/entitlements';
@@ -94,6 +95,13 @@ import {
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import { fetchAuthAccountsByEmail } from '../lib/supabase-admin';
 import { vendorPurgeTags, type TargetVendor } from '../lib/vendor-cache-tags';
+import {
+  EMPTY_PRODUCT_ROLES,
+  foldProductRoleGroups,
+  isPureConnectorVendor,
+  productRolesForVendors,
+  selectProductRoleGroups,
+} from '../lib/vendor-product-roles';
 import {
   activateEntitlementStatements,
   loadEntitlement,
@@ -797,6 +805,27 @@ async function loadClaimEntitlements(
 }
 
 /**
+ * The claimed vendors' product-role breakdowns, keyed by VENDOR id — the §5.2
+ * payer test as a queue signal (AECI-738). ONE grouped scan over the page's
+ * vendor ids, no per-row N+1, shaped and folded by `lib/vendor-product-roles.ts`
+ * so `/admin/vendors/:id` cannot compute it differently.
+ *
+ * Scoped to the SAME resolved vendor as the entitlement control: the question
+ * "may this claim be granted" and the question "which vendor would the grant
+ * touch" have to be answered about one vendor, or the card shows one vendor's
+ * roles beside another vendor's badge.
+ */
+async function loadVendorProductRoles(
+  db: Db,
+  vendorIds: string[],
+): Promise<Map<string, VendorProductRoles>> {
+  if (vendorIds.length === 0) return new Map();
+  return foldProductRoleGroups(
+    await selectProductRoleGroups(db, productRolesForVendors(vendorIds)),
+  );
+}
+
+/**
  * The claimed vendor's active seats, keyed by REQUEST id (§5 "existing seats"). ONE
  * grouped `profiles` scan over the page's vendor ids (`role='vendor_admin' AND
  * banned_at IS NULL`) — no per-row N+1. A claim whose product has no vendor is absent
@@ -976,16 +1005,25 @@ export function createAdminClaimsListHandler(
     const vendorByRow = await resolveClaimVendorIds(db, rows).catch(() => null);
     // FAIL-SOFT enrichment: a rejected seats/related/entitlement query becomes a `null`
     // signal (UI: "unavailable"), never a failed response.
-    const [targets, authAccountByEmail, seatsByRow, relatedByRow, entitlementByVendor] =
-      await Promise.all([
-        resolveRequestTargets(db, rows),
-        fetchAuthAccounts(c.env, claimEmails),
-        vendorByRow ? loadExistingSeats(db, vendorByRow).catch(() => null) : null,
-        loadRelatedRequests(db, rows, claimEmails).catch(() => null),
-        vendorByRow
-          ? loadClaimEntitlements(db, [...new Set(vendorByRow.values())]).catch(() => null)
-          : null,
-      ]);
+    const [
+      targets,
+      authAccountByEmail,
+      seatsByRow,
+      relatedByRow,
+      entitlementByVendor,
+      productRolesByVendor,
+    ] = await Promise.all([
+      resolveRequestTargets(db, rows),
+      fetchAuthAccounts(c.env, claimEmails),
+      vendorByRow ? loadExistingSeats(db, vendorByRow).catch(() => null) : null,
+      loadRelatedRequests(db, rows, claimEmails).catch(() => null),
+      vendorByRow
+        ? loadClaimEntitlements(db, [...new Set(vendorByRow.values())]).catch(() => null)
+        : null,
+      vendorByRow
+        ? loadVendorProductRoles(db, [...new Set(vendorByRow.values())]).catch(() => null)
+        : null,
+    ]);
 
     /** The claim's resolved vendor + entitlement, or `[null, null]` when there is no
      *  vendor to act on (a product with no `product_vendors` row) or the enrichment
@@ -998,6 +1036,22 @@ export function createAdminClaimsListHandler(
       return hit ? [hit.vendor, hit.entitlement] : [null, null];
     };
 
+    /** The §5.2 payer test for this claim's resolved vendor (AECI-738).
+     *
+     *  `[null, null]` ONLY when we could not look — the vendor resolution or the
+     *  role query degraded. A resolved vendor that simply owns nothing gets a
+     *  ZEROED breakdown and `false`, because "no products on record" is a real
+     *  answer the operator must see and act on (it is unknown, NOT exempt), and
+     *  collapsing it into "unavailable" would hide it. */
+    const productRolesFor = (
+      row: RawAdminVendorRequestRow,
+    ): [VendorProductRoles | null, boolean | null] => {
+      const vendorId = vendorByRow?.get(row.id);
+      if (!vendorId || !productRolesByVendor) return [null, null];
+      const roles = productRolesByVendor.get(vendorId) ?? { ...EMPTY_PRODUCT_ROLES };
+      return [roles, isPureConnectorVendor(roles)];
+    };
+
     const body: ListVendorClaimsResponse = {
       data: rows.map((row) =>
         toAdminClaim(
@@ -1008,6 +1062,7 @@ export function createAdminClaimsListHandler(
           seatsByRow ? (seatsByRow.get(row.id) ?? []) : null,
           relatedByRow ? (relatedByRow.get(row.id) ?? []) : null,
           ...entitlementFor(row),
+          ...productRolesFor(row),
         ),
       ),
       page: query.page,

@@ -6,6 +6,7 @@ import {
   EntitlementTierSchema,
   VendorEntitlementResponseSchema,
 } from './admin-entitlements';
+import { VendorProductRolesSchema } from './admin-vendors';
 import { LinkRefSchema, PageQuerySchema, paginatedResponseSchema } from './common';
 
 /**
@@ -199,6 +200,31 @@ export const AdminClaimSchema = AdminVendorRequestSchema.extend({
    * `validateResponseInDev`, not ship as `undefined`.
    */
   entitlement: VendorEntitlementResponseSchema.nullable(),
+  /**
+   * The §5.2 **payer test**, answerable from the card (AECI-738) — the resolved
+   * vendor's owned products split by `products.product_role`, scoped to the same
+   * `entitlement_vendor` a grant would touch.
+   *
+   * `null` = the signal was UNAVAILABLE (the vendor resolution or this query
+   * degraded), consistent with `existing_seats` / `related_requests`. A vendor
+   * that genuinely owns nothing is NOT null — it is a zeroed breakdown, because
+   * "no products on record" is a real, reviewable answer and "we could not look"
+   * is a different one.
+   */
+  product_roles: VendorProductRolesSchema.nullable(),
+  /**
+   * `true` ⇒ every product this vendor owns is `'connector'` (and it owns at
+   * least one). Per `STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2, **Grant and Reject are
+   * both wrong** on such a claim: it is parked `open` and routed to the
+   * partnership track out of band.
+   *
+   * `false` covers two different situations and the UI must not conflate them —
+   * the vendor owns an `application`/`hybrid` product (an ordinary paying
+   * vendor), or it owns no products at all (**unknown, never exempt**).
+   * `product_roles.total` separates them. `null` = signal unavailable, and moves
+   * with `product_roles`.
+   */
+  is_pure_connector_vendor: z.boolean().nullable(),
 });
 export type AdminClaim = z.infer<typeof AdminClaimSchema>;
 

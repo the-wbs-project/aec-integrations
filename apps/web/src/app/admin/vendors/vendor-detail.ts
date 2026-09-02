@@ -13,6 +13,7 @@ import type {
 import { AuditTrail } from '../audit/audit-trail';
 import { EntitlementControl } from '../entitlement/entitlement-control';
 import { AdminVendorsApi } from './admin-vendors-api';
+import { productRolesLabel } from '../product-roles/product-roles-label';
 
 const AUDIT_PAGE_SIZE = 25;
 
@@ -97,6 +98,9 @@ export class VendorDetail {
   /** `null` seats means the roster query itself degraded — distinct from `[]`,
    *  which means the vendor genuinely has no seats. */
   protected readonly seatsUnavailable = computed(() => this.vendor()?.seats === null);
+
+  /** The §5.2 payer test as one readable line — shared with `/admin/claims`. */
+  protected readonly roleBreakdownLabel = productRolesLabel;
 
   constructor() {
     afterNextRender(() => {

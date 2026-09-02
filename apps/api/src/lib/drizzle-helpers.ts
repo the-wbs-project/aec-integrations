@@ -63,6 +63,7 @@ import type {
   VendorEntitlementResponse,
   VendorLink,
   VendorListItem,
+  VendorProductRoles,
 } from '@aeci/shared';
 import {
   claimVersionStatus,
@@ -1765,7 +1766,14 @@ export function toAdminVendorRequest(
  *  RESOLVED target vendor (a product claim → its primary vendor) and its current
  *  entitlement, so the queue can render the entitlement column and address the
  *  `PATCH /api/admin/vendors/:id/entitlement` control. Both null when there is no
- *  vendor to act on or the enrichment degraded. */
+ *  vendor to act on or the enrichment degraded.
+ *
+ *  `productRoles` / `isPureConnectorVendor` (AECI-738 / §5.2) are the payer test
+ *  for that same resolved vendor. Same null convention — but note the ASYMMETRY
+ *  with the two arrays above: a vendor that owns NO products yields a zeroed
+ *  breakdown and `false`, never `null`, because "no products on record" is a
+ *  reviewable answer (unknown, not exempt) and must not read as "we could not
+ *  look". */
 export function toAdminClaim(
   raw: RawAdminVendorRequestRow,
   isDuplicate: boolean,
@@ -1775,6 +1783,8 @@ export function toAdminClaim(
   relatedRequests: RelatedRequestRef[] | null,
   entitlementVendor: LinkRef | null = null,
   entitlement: VendorEntitlementResponse | null = null,
+  productRoles: VendorProductRoles | null = null,
+  isPureConnectorVendor: boolean | null = null,
 ): AdminClaim {
   return {
     ...toAdminVendorRequest(raw, isDuplicate, target, authAccountByEmail),
@@ -1783,6 +1793,8 @@ export function toAdminClaim(
     related_requests: relatedRequests,
     entitlement_vendor: entitlementVendor,
     entitlement,
+    product_roles: productRoles,
+    is_pure_connector_vendor: isPureConnectorVendor,
   };
 }
 

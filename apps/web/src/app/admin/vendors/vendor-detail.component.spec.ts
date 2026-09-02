@@ -67,6 +67,10 @@ function makeVendor(over: Partial<AdminVendorDetail> = {}): AdminVendorDetail {
     seat_emails_available: true,
     pending_invites: [],
     product_count: 4,
+    // AECI-738: the §5.2 payer test. Default is a mixed vendor — 3 endpoint
+    // products and 1 connector, i.e. the Autodesk shape the flag must NOT catch.
+    product_roles: { application: 3, connector: 1, hybrid: 0, total: 4 },
+    is_pure_connector_vendor: false,
     integration_count: 2,
     claim_counts: { open: 1, in_review: 0, resolved: 2, rejected: 1 },
     ...over,
@@ -578,5 +582,46 @@ describe('VendorDetail', () => {
       expect(toggle.getAttribute('aria-expanded')).toBe('false');
       expect(toggle.getAttribute('aria-controls')).toBeTruthy();
     });
+  });
+});
+
+/** The §5.2 payer-test row (AECI-738). */
+describe('VendorDetail — products by role', () => {
+  it('names every role, including application', async () => {
+    const { el } = await setup(makeApiMock(makeVendor()));
+    // Autodesk owns a connector-role product and is a major endpoint account.
+    // The breakdown must say so rather than leave the operator to infer
+    // "endpoint" from an absent chip on a public page.
+    expect(el.textContent).toContain('3 application');
+    expect(el.textContent).toContain('1 connector');
+    expect(el.textContent).not.toContain('pure connector');
+  });
+
+  it('marks a vendor whose every product is a connector', async () => {
+    const { el } = await setup(
+      makeApiMock(
+        makeVendor({
+          product_count: 2,
+          product_roles: { application: 0, connector: 2, hybrid: 0, total: 2 },
+          is_pure_connector_vendor: true,
+        }),
+      ),
+    );
+    expect(el.textContent).toContain('pure connector');
+    expect(el.textContent).toContain('not sold verification');
+  });
+
+  it('shows a vendor with no products as unrecorded, never as a carve-out', async () => {
+    const { el } = await setup(
+      makeApiMock(
+        makeVendor({
+          product_count: 0,
+          product_roles: { application: 0, connector: 0, hybrid: 0, total: 0 },
+          is_pure_connector_vendor: false,
+        }),
+      ),
+    );
+    expect(el.textContent).toContain('No products on record');
+    expect(el.textContent).not.toContain('pure connector');
   });
 });

@@ -184,6 +184,46 @@
               </dd>
             </div>
 
+            <!-- Product roles: the §5.2 payer test (AECI-738) -->
+            <div>
+              <dt
+                class="text-xs font-bold text-(--text-secondary)"
+                i18n="@@admin.claims.signals.roles"
+              >
+                Products by role
+              </dt>
+              <dd class="mt-1 text-xs text-(--text-primary)">
+                @if (r.product_roles === null) {
+                <span class="text-(--text-secondary)" i18n="@@admin.claims.signals.unavailable"
+                  >Unavailable</span
+                >
+                } @else if (r.product_roles.total === 0) {
+                <span
+                  class="inline-flex items-center rounded-full border border-(--accent-secondary) bg-(--accent-warm) px-2.5 py-0.5 text-xs font-medium text-(--text-primary)"
+                  i18n="@@admin.claims.roles.none"
+                  >No products on record — role unknown</span
+                >
+                } @else if (r.is_pure_connector_vendor) {
+                <span
+                  class="inline-flex items-center rounded-full border border-(--accent-secondary) bg-(--accent-warm) px-2.5 py-0.5 text-xs font-medium text-(--text-primary)"
+                  i18n="@@admin.claims.roles.pureConnector"
+                  >Pure connector vendor</span
+                >
+                <p class="mt-1 text-(--text-secondary)">
+                  {{ roleBreakdownLabel(r.product_roles) }}
+                </p>
+                } @else {
+                <p>
+                  {{ r.product_roles.total }}
+                  <span i18n="@@admin.claims.roles.total">product(s)</span>
+                </p>
+                <p class="mt-1 text-(--text-secondary)">
+                  {{ roleBreakdownLabel(r.product_roles) }}
+                </p>
+                }
+              </dd>
+            </div>
+
             <!-- Existing seats -->
             <div>
               <dt
@@ -348,6 +388,35 @@
         <p class="mt-4 whitespace-pre-line text-sm leading-relaxed text-(--text-secondary)">
           {{ r.body }}
         </p>
+
+        <!-- §5.2: on a pure-connector vendor BOTH actions are wrong, so the
+             warning repeats here rather than only in the signals list above —
+             the mistake is made at these buttons and it is one-way (Grant opens a
+             verified entitlement and lights the badge; Reject sends a real
+             decline email). The buttons stay enabled deliberately: `product_role`
+             is curated upstream, so a mis-roled record must not hard-block a
+             legitimate endpoint vendor's claim. -->
+        @if (isActionable(r.status) && r.is_pure_connector_vendor) {
+        <div
+          class="mt-5 rounded-(--radius-md) border border-(--accent-secondary) bg-(--accent-warm) p-4"
+        >
+          <p
+            class="text-sm font-bold text-(--text-primary)"
+            i18n="@@admin.claims.connectorGuard.title"
+          >
+            Pure connector vendor — do not Grant or Reject
+          </p>
+          <p
+            class="mt-1 text-xs leading-relaxed text-(--text-secondary)"
+            i18n="@@admin.claims.connectorGuard.body"
+          >
+            Every product this vendor owns is a connector, so verification is not sold to them.
+            Granting opens a verified entitlement and lights the badge; rejecting sends a real
+            decline email. Leave this claim open, keep the linked Linear issue in an unstarted
+            state, and reply directly about the partnership track.
+          </p>
+        </div>
+        }
 
         <!-- Actions (open / in-review only) -->
         @if (isActionable(r.status)) {
