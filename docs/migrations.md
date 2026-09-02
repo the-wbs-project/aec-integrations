@@ -137,7 +137,8 @@ This does not break the drift gate: drizzle-kit diffs `schema.ts` against
 `meta/NNNN_snapshot.json`, never the database, so leaving the generated snapshot untouched keeps
 `db:generate` a no-op. **Verify by re-running it and confirming `git status --porcelain` is clean**,
 and leave a header comment in the migration saying it is hand-authored and why
-(`0016_lyrical_leper_queen.sql` and `0017_slim_iron_lad.sql` are the references).
+(`0021_lyrical_leper_queen.sql` and `0022_slim_iron_lad.sql` are the references — those were
+`0016`/`0017` until the AECI-750 renumber below).
 `0003_gray_eternity.sql` is the lighter precedent — a hand-appended backfill after the generated
 statement.
 
@@ -175,7 +176,7 @@ real git conflict rather than a clean rename.
 
 **What to do instead — regenerate the snapshot, keep the body.** This is the §0 hand-authored-body
 workflow above, run once per migration being renumbered. AECI-619 did exactly this for
-`0006`→`0016` and `0008`→`0017`:
+`0006`→`0016` and `0008`→`0017` (both moved again at AECI-750 — they are now `0021` and `0022`):
 
 1. Resolve `schema.ts` to the merged union, and stash a copy.
 2. Delete the epic's `NNNN_*.sql` + `meta/NNNN_snapshot.json`; take the other branch's `meta/`
@@ -301,7 +302,7 @@ plus `0018_chilly_joseph`). It was then **`0019_easy_sandman.sql`**, renumbered 
 `stage-2 → aeci-515` merge by the regenerate-the-snapshot procedure above — and is now
 **`0024_easy_sandman.sql`**, renumbered a third time by AECI-750.
 
-That is twice this line went stale while being read as authoritative, which is the point worth
+That is three times this line went stale while being read as authoritative, which is the point worth
 keeping: **check `apps/api/migrations/` rather than trusting a number written in prose.** The
 regenerated body was verified byte-identical to the hand-authored original and emitted no
 destructive statements — the check that matters, given the generator has previously re-emitted

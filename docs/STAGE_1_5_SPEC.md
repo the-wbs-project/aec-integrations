@@ -367,7 +367,7 @@ The Stage 1.5 schema and contract are forward-compatible with all four in the se
 
 > **Two corrections from the AECI-514 kickoff**, recorded here because they touch §3's definitions:
 >
-> 1. **`introduced_at`/`deprecated_at` are version *stamps*, per §3.3 — not attestation retirement.** ✅ **Resolved by AECI-603** (2026-08-14; migration `0016`). As shipped in 1.5, `attestations_active_idx` was partial on `deprecated_at IS NULL` with a comment describing it as retirement. §3.3's definition won (AECI-303 depends on it): supersession got its own `retracted_at` column and the index predicate moved onto it, with the shared `liveAttestationsWhere` (`apps/api/src/lib/drizzle-helpers.ts`) as the one definition every read applies. *(AECI-608 found one read that had kept the old predicate — the admin panel's claim-coverage count — and corrected it. Nothing reads `deprecated_at` as a gate now.)*
+> 1. **`introduced_at`/`deprecated_at` are version *stamps*, per §3.3 — not attestation retirement.** ✅ **Resolved by AECI-603** (2026-08-14; migration `0021`, shipped as `0016`). As shipped in 1.5, `attestations_active_idx` was partial on `deprecated_at IS NULL` with a comment describing it as retirement. §3.3's definition won (AECI-303 depends on it): supersession got its own `retracted_at` column and the index predicate moved onto it, with the shared `liveAttestationsWhere` (`apps/api/src/lib/drizzle-helpers.ts`) as the one definition every read applies. *(AECI-608 found one read that had kept the old predicate — the admin panel's claim-coverage count — and corrected it. Nothing reads `deprecated_at` as a gate now.)*
 > 2. **`computeAgreement` needs a `single_source` state.** ✅ **Resolved by AECI-605** (2026-08-14; `STAGE_2_ATTESTATIONS_SPEC.md` §4.5). As originally shipped (§3.4), a *single* vendor affirming with the counterparty silent resolved to `confirmed`. That branch was unreachable in 1.5, so the gap was latent — but it would have rendered one-sided assertion as agreement, which `STAGE_2_SPEC.md` §8.1(4) forbids. `confirmed` is now narrowed to **two distinct vendor identities** and §3.4 above reflects the shipped rule.
 >
 > Also: "no migration is required to light them up" was **too strong**. It holds for the agreement engine and the attestation sources; it does not hold for vendor-created claims or for real per-product version selectors, which need a version entity that §6.1 never defined. AECI-514 shipped **three** additive migrations (`STAGE_2_ATTESTATIONS_SPEC.md` §1.2): `0016` claim provenance + attestation authority, `0017` the product-version model, and `0018` the maintenance marker's `last_reviewed_at` / `maintained_by` (AECI-616, scoped in after kickoff).
@@ -1099,7 +1099,7 @@ Stated explicitly so a reviewer can check them rather than infer them:
 - **`DATABASE_SCHEMA.md` — no schema change in this addendum.** §13.4's additions are a Drizzle read
   config plus a Zod field; no DDL, no migration. The AECI-721 migration is governed by AECI-714 and
   rides the `stage-2` migration lane after that set settles (a D1 CHECK change is a destructive
-  table recreate). **It landed 2026-08-31** as `0022_powerful_killraven.sql`: the `integrations`
+  table recreate). **It landed 2026-08-31** as `0027_powerful_killraven.sql`: the `integrations`
   CHECK gains `integrator`, `claims` gains the polymorphic anchor (§3.1's amendment), and the 19
   production powered edges move. §5a.1, §9.3 and §9a.6 of that document carry the as-built detail.
 - **`SEARCH_RANKING.md` — no ranking *rule* change from Addendum C**, with the §12.5-B correction
@@ -1150,7 +1150,7 @@ The data half of this addendum. §13.1 named "derived pairs (AECI-714)" and §13
 lands in AECI-714"; this is what that turned out to be, recorded here so the four unbuilt
 presentation issues anchor to something concrete rather than to a promise.
 
-**Six app-DB tables**, migration `apps/api/migrations/0021_overconfident_selene.sql`, documented in
+**Six app-DB tables**, migration `apps/api/migrations/0026_overconfident_selene.sql`, documented in
 `DATABASE_SCHEMA.md` **§9a**. Five are a field-for-field **projection** of the review app's model
 (AECI-719) — `connector_catalogs`, `connector_catalog_surfaces`, `connector_stubs`,
 `connector_stub_mappings`, `connector_pairs` — and the sixth, `connector_evidenced_pairs`, is the
@@ -1164,7 +1164,7 @@ recreate to **one** migration, and it is why `0021` is `CREATE TABLE` / `CREATE 
 **AECI-721 landed 2026-08-31, in two PRs.** The split is expand→contract (`docs/migrations.md`
 §3.2): PR-A is additive and inert — every read surface and all fourteen count sites read the union
 of both tables, so PR-B could not move a number — and PR-B is the single destructive migration
-`0022_powerful_killraven.sql` plus the promote-path routing that stops the migration undoing
+`0027_powerful_killraven.sql` plus the promote-path routing that stops the migration undoing
 itself. Three things worth carrying forward:
 
 - **`connector_evidenced_pairs` is no longer written by nothing.** `POST /api/promote` routes

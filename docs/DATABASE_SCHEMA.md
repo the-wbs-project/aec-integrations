@@ -1032,7 +1032,7 @@ Notes:
 ### 8.6 `vendor_entitlements`
 
 The vendor's paid arrangement — tier, status, term, and the offline PO/invoice record
-(AECI-609, migration `0019_easy_sandman`; `STAGE_2_PAID_TIERS_SPEC.md` §2). **`vendors.verified`
+(AECI-609, migration `0024_easy_sandman`; `STAGE_2_PAID_TIERS_SPEC.md` §2). **`vendors.verified`
 (§4.1) is this table's denormalized mirror**, and the two are written together or not at all.
 
 ```sql
@@ -1635,7 +1635,7 @@ create index asn_registry_fetched_at_idx on asn_registry(fetched_at);
 
 ## 9a. Connector lane (Stage 1.5 Addendum C — AECI-714)
 
-Six tables added by migration `apps/api/migrations/0021_overconfident_selene.sql`. Five are a
+Six tables added by migration `apps/api/migrations/0026_overconfident_selene.sql`. Five are a
 **projection** of the review app's connector-lane model (`aec-integrations-review`, AECI-719):
 same column names, same semantics, so review → AECi is a copy rather than a transformation. The
 sixth, `connector_evidenced_pairs`, has no upstream counterpart and is created empty.
@@ -1905,7 +1905,7 @@ create index connector_pairs_stub_b_idx on connector_pairs(stub_b_id);
 The **delivered** tier for connector-delivered edges (§13.1). The one table here with no
 review-side counterpart, and the destination AECI-721 migrates the connector-powered
 `integrations.powered_by_product_id` edges into. AECI-714 created it empty; **AECI-721 filled it**
-(migration `0022_powerful_killraven.sql`) and made `POST /api/promote` route new
+(migration `0027_powerful_killraven.sql`) and made `POST /api/promote` route new
 connector-powered edges here instead of into `integrations`. The connector-catalogue sync still
 never emits a statement against it — reachability and delivery stay separate lanes.
 
