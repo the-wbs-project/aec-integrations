@@ -39,12 +39,31 @@
  *   - pending moderation: `reviews` where `status='pending'` (a live snapshot).
  */
 
-import { and, count, desc, eq, gte, isNotNull, isNull, lt, notLike, or } from 'drizzle-orm';
-
-import { UNTRACKED_ROUTE_PREFIXES } from '@aeci/shared';
+import { and, count, desc, eq, gte, inArray, isNotNull, lt, sql } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import { pageViews, products, profiles, reviews } from '../db/schema';
+// The population predicates live in their own module (AECI-745) so that BOTH this
+// file and `swarm-detection.ts` can import them and neither has to import the
+// other. That is what lets the collector below run the detector itself instead of
+// leaving the figure stranded in `scheduled.ts`, reachable only by the email.
+import {
+  type AutomationExclusion,
+  BOT,
+  HUMAN,
+  NOT_INTERNAL,
+  NOT_INTERNAL_BEFORE_RETRO_JOIN,
+  notFlagged,
+  OPERATOR_PAIR_LOOKBACK_DAYS,
+  OPERATOR_PAIR_MATCH,
+} from './page-view-predicates';
+import { NAMED_REFERRER_SOURCES } from './referrer-classification';
+import {
+  detectSwarms,
+  NON_BROWSER_VERDICTS,
+  type SwarmSummary,
+  swarmNote,
+} from './swarm-detection';
 
 /** A single UTC-day window plus the immediately-preceding day (for day-over-day deltas). */
 export interface DigestWindow {
@@ -130,51 +149,65 @@ export interface AnalyticsMetrics {
   referrers: ReferrerCount[];
   /** Every bot/crawler active in the reported day, most crawls first. */
   botActivity: BotActivity[];
+  /**
+   * Human views carrying a NAMED external referrer (`NAMED_REFERRER_SOURCES`) in
+   * the reported day / prior day — the digest's CORROBORATED population
+   * (AECI-683).
+   *
+   * A third figure beside the server-side upper bound and the PostHog lower
+   * bound, and the only one of the three that a rotating-proxy pool cannot
+   * inflate: it sends no `Referer` at all. It is a floor, not a truth — see
+   * {@link NAMED_REFERRER_SOURCES} for the two caveats that must be printed
+   * beside it.
+   */
+  corroboratedViews: DailyCount;
+  /** DISTINCT `(user_agent_hash, cf_asn)` — §9.8 "visitors" — behind
+   *  `corroboratedViews.day`. The number the operator actually wants: on
+   *  2026-08-26 it was 7, behind 8 corroborated views, against a headline of 102. */
+  corroboratedVisitors: number;
+  /**
+   * Human views the operator-pair retro-join removed from the reported day
+   * ({@link OPERATOR_PAIR_MATCH}, AECI-683) — i.e. rows a lapsed admin session
+   * left unflagged.
+   *
+   * Reported rather than silently subtracted because, unlike the path and session
+   * halves of {@link NOT_INTERNAL}, this half is an inference about identity.
+   * A number that quietly moved would be the same failure mode the headline had.
+   */
+  operatorLeakViews: number;
+  /**
+   * The automation filter for this window and the one before it, or `null` when
+   * the detector did not run (AECI-745).
+   *
+   * **The nullability is a distinction, not a convenience.** `null` means the
+   * detector FAILED — an outage — and both surfaces must then report the raw
+   * count *plus a warning that it is unfiltered*. An object whose `note` is null
+   * means it ran and flagged nothing, which is a RESULT and reads as a clean day.
+   * Collapsing the two would make a failed detector look like a clean day, and a
+   * clean day is exactly what a failed detector must never be allowed to look
+   * like.
+   *
+   * This field is why AECI-745 exists: before it, the figure was computed in
+   * `scheduled.ts` beside the digest and so reached the EMAIL only, leaving
+   * `/admin/overview` leading with the raw count while the 05:00 mail led with
+   * the filtered one. Anything both surfaces should report belongs here.
+   */
+  automation: AutomationFilter | null;
+  /**
+   * The reported day's full detector output, for the `job_runs` detail projection
+   * in `scheduled.ts` and nothing else.
+   *
+   * Separate from {@link automation} on purpose: that one is the shared contract
+   * both surfaces render, this one is the cron's diagnostic record (candidate
+   * counts, truncation, the non-browser networks). It rides along so the cron
+   * keeps its detail WITHOUT a second detector run — the prior day's summary is
+   * not carried, because the only thing the cron reads from it is already
+   * `automation.flagged.prior`.
+   */
+  swarm: SwarmSummary | null;
 }
 
 const TOP_PRODUCTS_LIMIT = 5;
-
-/**
- * A row is "human" when it isn't flagged as a bot. `is_bot IS NOT 1` (NULL-safe) so
- * pre-classification rows (`is_bot = NULL`) count as human, not vanish.
- *
- * Exported because the admin panel (AECI-574) reads the SAME population — sharing
- * the predicate is what makes "the screen and the 05:00 email cannot disagree"
- * structural rather than a convention someone has to remember. The panel also
- * surfaces the resulting bias as a `bot_classification_incomplete` note.
- */
-export const HUMAN = or(isNull(pageViews.isBot), eq(pageViews.isBot, false));
-export const BOT = eq(pageViews.isBot, true);
-
-/**
- * Excludes operator-only paths (`/admin/*`, `/account`) — the read-side half of
- * AECI-575 / ADMIN_PANEL_SPEC §9.6.
- *
- * The tracker no longer writes these rows, but rows captured BEFORE that shipped
- * are indistinguishable from real traffic once they're in the table, so filtering
- * only at the write side would leave every pre-fix day permanently inflated and
- * inconsistent with every post-fix day. Applying it here makes the whole history
- * read the same way. This is deliberately silent: the digest does not report an
- * "internal views excluded" count the way it does for bots, because these rows
- * were never visitor traffic in the first place.
- *
- * Prefix list comes from `@aeci/shared` so the read side can't drift from the two
- * write-side guards. `path` is NOT NULL, so `NOT LIKE` is safe here (no
- * three-valued-logic surprise), and `page_views_path_idx` covers the column.
- *
- * Exported because the admin panel (AECI-574) reads the SAME `page_views` table
- * through its own queries (`lib/admin-analytics.ts`) and must exclude the same
- * operator-only rows — otherwise the panel would re-count the console's own
- * traffic and diverge from the digest it is meant to mirror. Imported there as
- * `EXCLUDE_UNTRACKED_ROUTES` to keep it distinct from that module's unrelated
- * `ANALYTICS_INTERNAL_ASNS` "internal" filter.
- */
-export const NOT_INTERNAL = and(
-  ...UNTRACKED_ROUTE_PREFIXES.flatMap((prefix) => [
-    notLike(pageViews.path, prefix),
-    notLike(pageViews.path, `${prefix}/%`),
-  ]),
-);
 
 /** `COUNT(*)` of human or bot `page_views` in `[startIso, endIso)`. */
 async function countPageViews(
@@ -207,7 +240,12 @@ async function countNewProfiles(db: Db, startIso: string, endIso: string): Promi
 }
 
 /** Top products by HUMAN `page_views` in `[startIso, endIso)`, joined to `products`. */
-async function topProductsByViews(db: Db, startIso: string, endIso: string): Promise<TopProduct[]> {
+async function topProductsByViews(
+  db: Db,
+  startIso: string,
+  endIso: string,
+  exclusion?: AutomationExclusion,
+): Promise<TopProduct[]> {
   const rows = await db
     .select({ name: products.name, slug: products.slug, views: count() })
     .from(pageViews)
@@ -219,6 +257,7 @@ async function topProductsByViews(db: Db, startIso: string, endIso: string): Pro
         isNotNull(pageViews.productId),
         HUMAN,
         NOT_INTERNAL,
+        notFlagged(exclusion),
       ),
     )
     .groupBy(products.id)
@@ -234,6 +273,7 @@ async function referrerBreakdown(
   db: Db,
   startIso: string,
   endIso: string,
+  exclusion?: AutomationExclusion,
 ): Promise<ReferrerCount[]> {
   const rows = await db
     .select({ source: pageViews.referrerSource, views: count() })
@@ -245,6 +285,7 @@ async function referrerBreakdown(
         HUMAN,
         isNotNull(pageViews.referrerSource),
         NOT_INTERNAL,
+        notFlagged(exclusion),
       ),
     )
     .groupBy(pageViews.referrerSource)
@@ -271,11 +312,87 @@ async function botActivityInWindow(
   return rows.map((r) => ({ name: r.name ?? 'Other bot', crawls: r.crawls }));
 }
 
-/** Run every read for the digest concurrently. Report-only; never mutates. */
+/** `COUNT(*)` of human views in `[startIso, endIso)` carrying a NAMED external
+ *  referrer. Deliberately `IN (named)` rather than `!= 'Direct'`: `Other` is an
+ *  open bucket a forger controls, and `Direct` swallows every stripped referral. */
+async function countCorroboratedViews(db: Db, startIso: string, endIso: string): Promise<number> {
+  const [row] = await db
+    .select({ value: count() })
+    .from(pageViews)
+    .where(
+      and(
+        gte(pageViews.createdAt, startIso),
+        lt(pageViews.createdAt, endIso),
+        HUMAN,
+        NOT_INTERNAL,
+        inArray(pageViews.referrerSource, [...NAMED_REFERRER_SOURCES]),
+      ),
+    );
+  return row?.value ?? 0;
+}
+
+/** DISTINCT `(user_agent_hash, cf_asn)` behind {@link countCorroboratedViews}.
+ *
+ *  `coalesce` on both halves is not decoration: `count(distinct a || '|' || b)`
+ *  over a NULL-bearing tuple yields NULL for the whole concatenation and the row
+ *  vanishes from the count. Same expression the panel uses for §9.8 visitors, so
+ *  the two cannot disagree about what a visitor is. */
+async function countCorroboratedVisitors(
+  db: Db,
+  startIso: string,
+  endIso: string,
+): Promise<number> {
+  const [row] = await db
+    .select({
+      value: sql<number>`count(distinct coalesce(${pageViews.userAgentHash}, '') || '|' || coalesce(${pageViews.cfAsn}, ''))`,
+    })
+    .from(pageViews)
+    .where(
+      and(
+        gte(pageViews.createdAt, startIso),
+        lt(pageViews.createdAt, endIso),
+        HUMAN,
+        NOT_INTERNAL,
+        inArray(pageViews.referrerSource, [...NAMED_REFERRER_SOURCES]),
+      ),
+    );
+  return Number(row?.value ?? 0);
+}
+
+/** `COUNT(*)` of the rows {@link OPERATOR_PAIR_MATCH} removes from the human
+ *  population — the positive form of the same expression `NOT_INTERNAL` negates,
+ *  so the reported figure and the exclusion cannot drift. */
+async function countOperatorLeakViews(db: Db, startIso: string, endIso: string): Promise<number> {
+  const [row] = await db
+    .select({ value: count() })
+    .from(pageViews)
+    .where(
+      and(
+        gte(pageViews.createdAt, startIso),
+        lt(pageViews.createdAt, endIso),
+        HUMAN,
+        NOT_INTERNAL_BEFORE_RETRO_JOIN,
+        OPERATOR_PAIR_MATCH,
+      ),
+    );
+  return row?.value ?? 0;
+}
+
+/**
+ * Run every read for the digest concurrently. Report-only; never mutates.
+ *
+ * Since AECI-745 this ALSO runs the swarm detector, rather than taking its result
+ * from a caller. That inverts the old arrangement deliberately: an
+ * `AutomationExclusion` parameter is a parameter a caller can forget, and
+ * `/admin/overview` forgot it for the whole life of the field, which is the
+ * divergence this closes. Detection is now a property of collecting the metrics,
+ * so no caller can collect them without it.
+ */
 export async function collectAnalyticsMetrics(
   db: Db,
   window: DigestWindow,
 ): Promise<AnalyticsMetrics> {
+  const { swarm, automation, exclusion } = await runAutomationFilter(db, window);
   const [
     humanViewsDay,
     humanViewsPrior,
@@ -288,6 +405,10 @@ export async function collectAnalyticsMetrics(
     topProducts,
     referrers,
     botActivity,
+    corroboratedDay,
+    corroboratedPrior,
+    corroboratedVisitors,
+    operatorLeakViews,
   ] = await Promise.all([
     countPageViews(db, window.startIso, window.endIso, 'human'),
     countPageViews(db, window.priorStartIso, window.startIso, 'human'),
@@ -297,9 +418,13 @@ export async function collectAnalyticsMetrics(
     countNewProfiles(db, window.priorStartIso, window.startIso),
     db.select({ value: count() }).from(profiles),
     db.select({ value: count() }).from(reviews).where(eq(reviews.status, 'pending')),
-    topProductsByViews(db, window.startIso, window.endIso),
-    referrerBreakdown(db, window.startIso, window.endIso),
+    topProductsByViews(db, window.startIso, window.endIso, exclusion),
+    referrerBreakdown(db, window.startIso, window.endIso, exclusion),
     botActivityInWindow(db, window.startIso, window.endIso),
+    countCorroboratedViews(db, window.startIso, window.endIso),
+    countCorroboratedViews(db, window.priorStartIso, window.startIso),
+    countCorroboratedVisitors(db, window.startIso, window.endIso),
+    countOperatorLeakViews(db, window.startIso, window.endIso),
   ]);
   return {
     pageViews: { day: humanViewsDay, prior: humanViewsPrior },
@@ -310,7 +435,90 @@ export async function collectAnalyticsMetrics(
     topProducts,
     referrers,
     botActivity,
+    corroboratedViews: { day: corroboratedDay, prior: corroboratedPrior },
+    corroboratedVisitors,
+    operatorLeakViews,
+    automation,
+    swarm,
   };
+}
+
+/**
+ * The row-level exclusion a detector run implies — the exact complement of the
+ * views its `flaggedViews` counted.
+ *
+ * Exported because `/admin/overview` needs it too: its `excluding_internal` is a
+ * SUBSET of the post-automation total, so it has to filter by the same rows the
+ * headline subtracted or it can report a subset larger than its own superset.
+ * Deriving it in one place is what keeps that impossible; the route reads
+ * `metrics.swarm` and calls this rather than re-mapping the candidate lists.
+ *
+ * `undefined` for a null summary, which reads through `notFlagged` as "no
+ * filter" — the correct behaviour when the detector did not run, since the
+ * headline it accompanies is the unfiltered count.
+ */
+export function automationExclusionFor(
+  swarm: SwarmSummary | null,
+): AutomationExclusion | undefined {
+  if (!swarm) return undefined;
+  return {
+    uaHashes: swarm.uaCandidates.map((c) => c.userAgentHash),
+    asns: swarm.asnCandidates.map((c) => c.cfAsn),
+    // Unconditional, unlike the two lists: the detector's union count always
+    // includes the verdict matcher, so its complement must too, or the tables
+    // would keep rows the headline already subtracted (AECI-744).
+    verdicts: [...NON_BROWSER_VERDICTS],
+  };
+}
+
+/**
+ * Detect the reported day's automated clients and the prior day's, and turn them
+ * into the two shapes the rest of this module needs: the {@link AutomationFilter}
+ * both surfaces report, and the {@link AutomationExclusion} the per-row tables
+ * filter by.
+ *
+ * ─── Both days, and that is not symmetry for its own sake ───────────────────
+ *
+ * The headline is the count remaining AFTER the filter, so its day-over-day delta
+ * has to subtract from both sides. Comparing a filtered day against an unfiltered
+ * prior day would manufacture a large fake drop on the first morning and a wrong
+ * delta every morning after (AECI-741).
+ *
+ * ─── Fails SOFT, and loudly ─────────────────────────────────────────────────
+ *
+ * A detector failure returns `automation: null` and no exclusion, which the
+ * formatter already renders as the raw count plus an explicit UNFILTERED warning,
+ * and which the panel renders the same way. Letting it throw instead would take
+ * down the 05:00 digest AND `/admin/overview` — two surfaces whose whole job is
+ * to keep reporting — for a bug in one of the numbers they report. The
+ * `console.warn` is what keeps that degradation from being silent; `job_runs`
+ * records the null alongside it.
+ */
+async function runAutomationFilter(
+  db: Db,
+  window: DigestWindow,
+): Promise<{
+  swarm: SwarmSummary | null;
+  automation: AutomationFilter | null;
+  exclusion: AutomationExclusion | undefined;
+}> {
+  try {
+    const [day, prior] = await Promise.all([
+      detectSwarms(db, window.startIso, window.endIso),
+      detectSwarms(db, window.priorStartIso, window.startIso),
+    ]);
+    return {
+      swarm: day,
+      automation: {
+        flagged: { day: day.flaggedViews, prior: prior.flaggedViews },
+        note: swarmNote(day),
+      },
+      exclusion: automationExclusionFor(day),
+    };
+  } catch (err) {
+    console.warn('[analytics-digest] swarm detection failed; reporting UNFILTERED', err);
+    return { swarm: null, automation: null, exclusion: undefined };
+  }
 }
 
 // ─── Pure formatter ──────────────────────────────────────────────────────────────
@@ -322,6 +530,74 @@ export interface AnalyticsDigestOptions {
   dayLabel: string;
   /** When the run completed — rendered into the header. */
   generatedAt: Date;
+  /**
+   * The client-side human floor (AECI-660). Present only when the PostHog query
+   * ran; the formatter renders an "unavailable" note otherwise, never a zero.
+   * A fabricated 0 beside a real 48 would read as a finding.
+   */
+  posthog?: { pageviews: number; people: number } | null;
+  /** Why the PostHog figure is missing, when it is. Shown so a silently-skipping
+   *  join is visible in the email rather than only in `job_runs`. */
+  posthogUnavailable?: string | null;
+  // NOTE: there is deliberately no `automation` option here any more (AECI-745).
+  // The filter now arrives on `AnalyticsMetrics.automation`, computed by the same
+  // call that produced every other number in the email. An option would be a
+  // SECOND source for the one figure `humanViewsAfterAutomation` exists to keep
+  // single-sourced, and an option a caller can pass is an option a caller can
+  // pass differently from the one the panel reads.
+}
+
+/**
+ * What the caller measured about automated traffic in the reported day — the
+ * input behind the digest's headline number (AECI-741).
+ *
+ * `note` being null means "the detector ran and flagged nothing", which is a
+ * RESULT. The whole object being null/absent means "the detector did not run",
+ * which is an OUTAGE. The two render differently on purpose: the first is a
+ * headline equal to the raw count, the second is a headline equal to the raw
+ * count *plus a warning that it is unfiltered*. Collapsing them into one
+ * nullable string — which is what the previous `swarmNote` option did — makes a
+ * failed detector look like a clean day, and a clean day is exactly what a
+ * failed detector must never be allowed to look like.
+ */
+export interface AutomationFilter {
+  /**
+   * Human views attributable to a flagged automated client, in the reported day
+   * and the prior day.
+   *
+   * `prior` is not decoration. The headline is now the count remaining AFTER
+   * this filter, so its day-over-day delta has to subtract from both sides.
+   * Comparing a filtered day against an unfiltered prior day would manufacture a
+   * large fake drop on the first morning and a wrong delta every morning after.
+   */
+  flagged: DailyCount;
+  /** The pre-rendered `swarmNote(...)` sentence, or null when nothing was flagged. */
+  note: string | null;
+}
+
+/**
+ * The digest's HEADLINE population: human page views left after the automation
+ * filter, for the reported day and the prior day.
+ *
+ * Exported so the admin panel can lead with the same figure rather than
+ * re-deriving the subtraction — the §6.10 parity guarantee is only structural
+ * while both surfaces read one definition. Since AECI-745 it takes the metrics
+ * ALONE, because the filter now lives on them: passing the filter separately
+ * would let a caller subtract one day's flagged count from another day's total.
+ *
+ * Clamped at zero defensively. `flagged` is a subset of the same
+ * `HUMAN`+`NOT_INTERNAL` population `pageViews` counts, computed from the same
+ * predicates over the same window, so it cannot legitimately exceed it — but a
+ * negative headline would be a far worse failure than a zero one if that ever
+ * stopped being true.
+ */
+export function humanViewsAfterAutomation(metrics: AnalyticsMetrics): DailyCount {
+  const automation = metrics.automation;
+  if (!automation) return metrics.pageViews;
+  return {
+    day: Math.max(0, metrics.pageViews.day - automation.flagged.day),
+    prior: Math.max(0, metrics.pageViews.prior - automation.flagged.prior),
+  };
 }
 
 export interface EmailDigest {
@@ -398,15 +674,113 @@ export function buildAnalyticsDigest(
 function buildSubject(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): string {
   const { pageViews: pv, botPageViews: bot, newUsers, topProducts } = metrics;
   const topName = topProducts[0]?.name;
+  const net = humanViewsAfterAutomation(metrics);
+  // The subject line is the number the operator actually reads, so it carries
+  // the filtered figure with the raw one in parentheses (AECI-741) rather than
+  // the reverse. Without the filter it keeps the AECI-658 "up to" hedge: for
+  // weeks the subject asserted a figure that was an order of magnitude high with
+  // nothing to qualify it. ASCII, not a "<=" glyph, so it survives every mail
+  // client's subject rendering.
+  const headline = metrics.automation
+    ? `${plural(net.day, 'human view')} after automation (${pv.day} raw)`
+    : `up to ${plural(pv.day, 'human view')}`;
   return (
     `AECi daily digest (${opts.env}) — ${opts.dayLabel}: ` +
-    `${plural(pv.day, 'human view')}, ${plural(newUsers.day, 'new user')}` +
+    `${headline}, ${plural(newUsers.day, 'new user')}` +
     (topName ? ` · top: ${topName}` : '') +
     (bot.day > 0 ? ` · ${plural(bot.day, 'crawl')}` : '')
   );
 }
 
 // ── plain text ──
+
+/**
+ * The two bounds, as one plain-text block.
+ *
+ * Shared by the text and HTML builders so the wording cannot drift between the
+ * two renderings of the same email — the pair only helps if both halves say the
+ * same thing.
+ *
+ * The framing is deliberate. `page_views` is written server-side on every
+ * full-document load including cache hits, so a crawler that never runs
+ * JavaScript still counts: an UPPER bound. PostHog fires only when JS runs and
+ * the visitor consented, so a real person who declines is invisible: a LOWER
+ * bound. `POST_LAUNCH_MONITORING.md` §3 has instructed reading the server figure
+ * as an upper bound since launch; until AECI-658 the email never said so, which
+ * is how a number that was ~10x high read as authoritative for weeks.
+ *
+ * Since AECI-741 the RAW server-side figure is no longer the headline, so these
+ * lines have to say which number they are bounding. Describing the headline as
+ * an upper bound when it is a filtered estimate would be the same class of error
+ * in the opposite direction.
+ */
+function boundsLines(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): string[] {
+  const lines = metrics.automation
+    ? [
+        `The headline is the ${metrics.pageViews.day} views counted server-side less the`,
+        `${metrics.automation.flagged.day} attributed to automated clients. The raw server-side figure is an`,
+        'UPPER bound: it is written on every full-document load, so any crawler that does not run',
+        'JavaScript is still in it. The filter is a maintained heuristic over a small sample, so the',
+        'headline is an estimate — it is not a census, and it can be wrong in both directions.',
+        'Most viewed products and Traffic sources below exclude the same flagged clients, so every',
+        'figure in this email describes one population.',
+      ]
+    : [
+        'The automation filter did not run for this day, so the headline is UNFILTERED and is an',
+        'UPPER bound on humans: page views are counted server-side on every full-document load,',
+        'so any crawler that does not run JavaScript is still in the number.',
+      ];
+  if (opts.posthog) {
+    const { pageviews, people } = opts.posthog;
+    lines.push(
+      `PostHog (client-side, consented only) saw ${plural(pageviews, 'page view')} from ` +
+        `${people} ${people === 1 ? 'person' : 'people'} the same day: a LOWER bound.`,
+      metrics.automation
+        ? 'The truth is between that floor and the raw server-side figure; the headline is our best estimate inside that range.'
+        : 'The truth is between the two. A large gap means most arrivals never ran our JavaScript.',
+    );
+  } else if (opts.posthogUnavailable) {
+    lines.push(`PostHog lower bound unavailable (${opts.posthogUnavailable}).`);
+  }
+  lines.push(...corroboratedLines(metrics));
+  if (metrics.operatorLeakViews > 0) {
+    lines.push(
+      `${plural(metrics.operatorLeakViews, 'view')} were excluded as operator self-traffic that a ` +
+        `lapsed admin session left unflagged: same browser and network as a verified operator ` +
+        `session within ${OPERATOR_PAIR_LOOKBACK_DAYS} days. That is an inference about identity, ` +
+        `not a verified session, which is why it is stated rather than silently subtracted.`,
+    );
+  }
+  return lines;
+}
+
+/**
+ * The corroborated-human sentences (AECI-683), shared by both renderings.
+ *
+ * Both caveats are mandatory and neither is boilerplate. It is a FLOOR because
+ * Referrer-Policy strips real referrals into `Direct`; and a referrer is a CLAIM,
+ * unverifiable by construction now that only the host is stored (§9.7) — prod
+ * holds one confirmed forgery. A number this small reads as precise unless the
+ * text says otherwise, and the whole point of this digest change is to stop
+ * numbers reading as more certain than they are.
+ */
+function corroboratedLines(metrics: AnalyticsMetrics): string[] {
+  const { day } = metrics.corroboratedViews;
+  if (day === 0) {
+    return [
+      'No arrival carried an external search or social referrer, so nothing in the day is',
+      'positively corroborated as a person. That is common at this volume, not an outage.',
+    ];
+  }
+  const visitors = metrics.corroboratedVisitors;
+  return [
+    `Of those, ${plural(day, 'view')} from ${plural(visitors, 'visitor')} arrived with an external ` +
+      `search or social referrer — the strongest positive evidence of a person we hold ` +
+      `server-side, because a proxy pool sends no Referer at all.`,
+    'Read it as a FLOOR: privacy tools strip the header, so real referrals land in Direct.',
+    'And a referrer is a claim, not a verified fact — only the host is stored.',
+  ];
+}
 
 function buildText(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): string {
   const { pageViews: pv, botPageViews: bot, newUsers, totalUsers, pendingModeration } = metrics;
@@ -419,15 +793,52 @@ function buildText(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): str
     `Generated: ${opts.generatedAt.toISOString()}`,
     '',
     '== Traffic (humans) ==',
-    `Page views: ${pv.day} (${deltaText(pv)})`,
   ];
+  // Headline first, raw second, indented under it (AECI-741). The operator asked
+  // for the post-automation figure to be the number they SEE; ordering is most of
+  // what makes that true in a plain-text mail client, where there is no type
+  // scale to lean on.
+  const net = humanViewsAfterAutomation(metrics);
+  if (metrics.automation) {
+    t.push(
+      `Human page views after automation: ${net.day} (${deltaText(net)})  [headline]`,
+      `  from ${pv.day} counted server-side (${deltaText(pv)}), less ` +
+        `${plural(metrics.automation.flagged.day, 'view')} flagged as automation  [upper bound]`,
+    );
+  } else {
+    t.push(
+      `Page views: ${pv.day} (${deltaText(pv)})  [upper bound]`,
+      '  (automation filter did not run this day — this figure is UNFILTERED)',
+    );
+  }
+  if (opts.posthog) {
+    t.push(
+      `PostHog page views: ${opts.posthog.pageviews} from ${opts.posthog.people} ` +
+        `${opts.posthog.people === 1 ? 'person' : 'people'}  [lower bound]`,
+    );
+  }
+  t.push(
+    `Corroborated by an external referrer: ${metrics.corroboratedViews.day} from ` +
+      `${plural(metrics.corroboratedVisitors, 'visitor')}  [floor]`,
+  );
+  if (metrics.operatorLeakViews > 0) {
+    t.push(
+      `  (${plural(metrics.operatorLeakViews, 'view')} excluded as operator self-traffic on a lapsed session)`,
+    );
+  }
+  if (metrics.automation?.note) {
+    t.push(`Automation signal: ${metrics.automation.note}`);
+  }
   if (bot.day > 0) {
     t.push(
       `  (${bot.day} bot/crawler view${bot.day === 1 ? '' : 's'} excluded — see Crawler activity)`,
     );
   }
   if (topProducts.length > 0) {
-    t.push('', 'Most viewed products:');
+    t.push(
+      '',
+      metrics.automation ? 'Most viewed products (after automation):' : 'Most viewed products:',
+    );
     topProducts.forEach((p, i) =>
       t.push(`  ${i + 1}. ${p.name} — ${plural(p.views, 'view')} (/${p.slug})`),
     );
@@ -435,7 +846,7 @@ function buildText(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): str
     t.push('Most viewed product: (no human product page views)');
   }
 
-  t.push('', '== Traffic sources (humans) ==');
+  t.push('', `== Traffic sources (humans${metrics.automation ? ', after automation' : ''}) ==`);
   if (referrers.length > 0) {
     referrers.forEach((r, i) => t.push(`  ${i + 1}. ${r.source} — ${plural(r.views, 'view')}`));
   } else {
@@ -463,6 +874,8 @@ function buildText(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): str
   } else {
     t.push('No bot/crawler activity.');
   }
+
+  t.push('', ...boundsLines(metrics, opts));
 
   t.push(
     '',
@@ -553,9 +966,62 @@ function buildHtml(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): str
     `<span style="display:inline-block;background:${HTML.accent};color:#fff;border-radius:4px;padding:2px 8px;font-size:11px;font-weight:600;letter-spacing:.03em">${escapeHtml(opts.env)}</span>` +
     `&nbsp; · &nbsp;${escapeHtml(opts.dayLabel)} (UTC)&nbsp; · &nbsp;generated ${escapeHtml(opts.generatedAt.toISOString())}</div></div>`;
 
+  // The upper-bound caption sits ON the big number, not in a footnote. The whole
+  // failure mode this fixes is a figure that reads as authoritative because
+  // nothing next to it says otherwise.
+  const posthogLine = opts.posthog
+    ? `<p style="margin:8px 0 0;font-size:13px;color:${HTML.muted}">` +
+      `<strong style="color:${HTML.ink}">${opts.posthog.pageviews}</strong> PostHog page view${opts.posthog.pageviews === 1 ? '' : 's'} ` +
+      `from <strong style="color:${HTML.ink}">${opts.posthog.people}</strong> ${opts.posthog.people === 1 ? 'person' : 'people'} ` +
+      `(client-side, consented only) &mdash; a <strong>lower bound</strong>.</p>`
+    : opts.posthogUnavailable
+      ? `<p style="margin:8px 0 0;font-size:13px;color:${HTML.muted}">PostHog lower bound unavailable (${escapeHtml(opts.posthogUnavailable)}).</p>`
+      : '';
+  // The corroborated figure sits ON the tile beside the two bounds, not in the
+  // footnote, for the same reason the upper-bound caption does: a number the
+  // operator has to scroll to find is a number they will read the headline
+  // instead of.
+  const corroboratedLine =
+    `<p style="margin:8px 0 0;font-size:13px;color:${HTML.muted}">` +
+    `<strong style="color:${HTML.ink}">${metrics.corroboratedViews.day}</strong> view${metrics.corroboratedViews.day === 1 ? '' : 's'} ` +
+    `from <strong style="color:${HTML.ink}">${metrics.corroboratedVisitors}</strong> ${metrics.corroboratedVisitors === 1 ? 'visitor' : 'visitors'} ` +
+    `arrived with an external search or social referrer &mdash; a <strong>corroborated floor</strong>.</p>`;
+  const operatorLeakLine =
+    metrics.operatorLeakViews > 0
+      ? `<p style="margin:6px 0 0;font-size:13px;color:${HTML.muted}">${metrics.operatorLeakViews} view${metrics.operatorLeakViews === 1 ? '' : 's'} excluded as operator self-traffic on a lapsed session.</p>`
+      : '';
+  const swarmLine = metrics.automation?.note
+    ? `<p style="margin:10px 0 0;padding:10px 12px;border-left:3px solid ${HTML.accent};background:${HTML.accentSoft};font-size:13px;color:${HTML.ink}">` +
+      `<strong>Automation signal.</strong> ${escapeHtml(metrics.automation.note)}</p>`
+    : '';
+  // AECI-741. The big number is the post-automation count; the raw server-side
+  // figure survives as a muted sub-line because it is still the upper bound and
+  // still the thing every prior email reported. Demoted, not deleted — an
+  // operator comparing this morning against last week needs to be able to see
+  // both, and a number that silently changed meaning is the failure mode
+  // AECI-658 already had to fix once.
+  const net = humanViewsAfterAutomation(metrics);
+  const headlineStat = metrics.automation
+    ? primaryStat(
+        net.day,
+        net.day === 1 ? 'human page view after automation' : 'human page views after automation',
+        deltaText(net),
+      ) +
+      `<p style="margin:6px 0 0;font-size:13px;color:${HTML.muted}">` +
+      `From <strong style="color:${HTML.ink}">${pv.day}</strong> counted server-side ` +
+      `(${escapeHtml(deltaText(pv))}), less <strong style="color:${HTML.ink}">${metrics.automation.flagged.day}</strong> ` +
+      `flagged as automation. The raw figure is an <strong>upper bound</strong>; the headline is a ` +
+      `heuristic estimate, not a census.</p>`
+    : primaryStat(pv.day, pv.day === 1 ? 'human page view' : 'human page views', deltaText(pv)) +
+      `<p style="margin:6px 0 0;font-size:13px;color:${HTML.muted}">Counted server-side on every full-document load, so this is an <strong>upper bound</strong> on humans. ` +
+      `<strong style="color:${HTML.danger}">The automation filter did not run for this day</strong>, so nothing has been removed.</p>`;
   const traffic =
     sectionTitle('Traffic (humans)') +
-    primaryStat(pv.day, pv.day === 1 ? 'human page view' : 'human page views', deltaText(pv)) +
+    headlineStat +
+    posthogLine +
+    corroboratedLine +
+    operatorLeakLine +
+    swarmLine +
     (bot.day > 0
       ? `<p style="margin:6px 0 0;font-size:13px;color:${HTML.muted}">${bot.day} bot/crawler view${bot.day === 1 ? '' : 's'} excluded — see <strong>Crawler activity</strong> below.</p>`
       : '');
@@ -563,7 +1029,11 @@ function buildHtml(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): str
   const productLabel = (p: TopProduct): string =>
     `${escapeHtml(p.name)} <span style="color:${HTML.muted};font-size:12px">/${escapeHtml(p.slug)}</span>`;
   const productsSection =
-    sectionTitle('Most viewed products (humans)') +
+    sectionTitle(
+      metrics.automation
+        ? 'Most viewed products (humans, after automation)'
+        : 'Most viewed products (humans)',
+    ) +
     (topProducts.length > 0
       ? rankTable(
           'Product',
@@ -573,7 +1043,11 @@ function buildHtml(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): str
       : emptyNote('No human product page views.'));
 
   const referrersSection =
-    sectionTitle('Traffic sources (humans)') +
+    sectionTitle(
+      metrics.automation
+        ? 'Traffic sources (humans, after automation)'
+        : 'Traffic sources (humans)',
+    ) +
     (referrers.length > 0
       ? rankTable(
           'Source',
@@ -612,6 +1086,9 @@ function buildHtml(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): str
       : emptyNote('No bot/crawler activity.'));
 
   const footer =
+    // Same prose as the plain-text body, from the same helper: the two bounds
+    // only help if both renderings of the email explain them identically.
+    `${escapeHtml(boundsLines(metrics, opts).join(' '))} ` +
     `Human vs. bot is classified at capture from User-Agent + network (ASN) — a maintained heuristic, not exact. ` +
     `Traffic sources come from the Referer header (best-effort — privacy tools strip it, so external sources are under-counted; stripped arrivals fall into Direct). ` +
     `Report-only: counts are read from the app database; the window is the full prior UTC day.`;

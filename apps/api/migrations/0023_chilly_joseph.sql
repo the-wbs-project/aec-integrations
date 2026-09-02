@@ -3,7 +3,7 @@
 --
 -- ⚠️ HAND-AUTHORED BODY — this is NOT raw `drizzle-kit generate` output, and
 -- regenerating over it would reintroduce a migration that destroys data. Same
--- reasoning as 0016_lyrical_leper_queen.sql; see docs/migrations.md §0 (when
+-- reasoning as 0021_lyrical_leper_queen.sql; see docs/migrations.md §0 (when
 -- drizzle-kit wants to recreate a table). The three new CHECK constraints put
 -- drizzle-kit on the SQLite table-recreate path for all three tables
 -- (`CREATE __new_x` → `INSERT…SELECT` → `DROP TABLE x` → `RENAME`), and what it
@@ -31,6 +31,12 @@
 -- IS backfilled — SQLite applies a NOT NULL column default to existing rows on ADD
 -- COLUMN — and that is correct: the entire catalog today is AECi-curated, with zero
 -- vendor attestations in production.
+-- ⚠️ RENUMBERED AGAIN 0018 → 0023 by AECI-750 (main → stage-2 reconcile):
+--    main had independently taken 0016–0020 and those are APPLIED IN PRODUCTION,
+--    so main keeps its numbers and stage-2's seven move up. Body unchanged — only
+--    the filename, the journal `tag` and meta/0023_snapshot.json moved. The
+--    snapshot was RECOMPOSED (main's page_views columns + asn_registry grafted on),
+--    not renamed; see docs/migrations.md §0.
 ALTER TABLE `vendors` ADD `last_reviewed_at` text;--> statement-breakpoint
 ALTER TABLE `vendors` ADD `maintained_by` text DEFAULT 'aeci' NOT NULL CONSTRAINT "vendors_maintained_by_check" CHECK("maintained_by" IN ('aeci', 'vendor'));--> statement-breakpoint
 ALTER TABLE `products` ADD `last_reviewed_at` text;--> statement-breakpoint

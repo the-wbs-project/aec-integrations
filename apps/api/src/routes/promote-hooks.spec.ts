@@ -3,8 +3,7 @@
  *
  * The regression these lock down: `dispatchPromoteHooks` used to loop
  * `logToPosthog` once per `audit_log` row and hand every transport straight to
- * `waitUntil`. Because the §3.1 dual-run fans that call site out to PostHog AND
- * Datadog, a fat bundle opened TWO dozen-plus simultaneous
+ * `waitUntil`. A fat bundle therefore opened a dozen-plus simultaneous
  * connections from one invocation, the runtime cancelled the stalled responses
  * to break the deadlock, and a cancelled `fetch` returns a promise that NEVER
  * settles — so the hook was lost with no log line, and the invocation itself was
@@ -12,8 +11,8 @@
  * production that silently dropped Algolia upserts and cache purges on ~8% of
  * promotes.
  *
- * Two invariants close it: N audit entries cost ONE request per vendor, and no
- * single hook can wedge the invocation.
+ * Two invariants close it: N audit entries cost ONE request, and no single hook
+ * can wedge the invocation.
  */
 
 import type { AuditLogEntry, PromoteResponse } from '@aeci/shared';
@@ -82,7 +81,6 @@ function makeDeps(overrides: Deps = {}): Deps {
     dbFor: (() => ({ db: {} })) as unknown as Deps['dbFor'],
     syncAlgolia: noop,
     notifyIndexNow: noop,
-    notifyGoogleIndexing: noop,
     refreshHomeStats: noop,
     ...overrides,
   };
@@ -134,8 +132,8 @@ describe('dispatchPromoteHooks — audit forwards', () => {
   });
 
   // stage-2 only: the pre-fix code gated the whole forward on
-  // `POSTHOG_PROJECT_KEY`. Batching removed it because the leg
-  // self-gates inside the transport — this locks that in, so a re-added gate
+  // `POSTHOG_PROJECT_KEY`. Batching removed it because the transport
+  // self-gates — this locks that in, so a re-added gate
   // (which would silently drop every forward on a key-less tier) fails here.
   it('dispatches the batch without any vendor key configured — each leg self-gates', () => {
     const { rc } = makeRc({ ENV: 'preview' });

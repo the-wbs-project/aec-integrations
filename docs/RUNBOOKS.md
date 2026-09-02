@@ -88,7 +88,7 @@ digests · 2 dual monitors split across both.** 26 accounted for, none dropped.
 **Six crons gain failure coverage they never had** (metrics-snapshot,
 analytics-digest, attestation-notify, entitlement-expiry, waf-poll, and the per-key
 half of home-stats — several shipped after the Datadog monitors were written), and
-the liveness sweep watches **twelve** crons where Datadog watched six.
+the liveness sweep watches **thirteen** crons where Datadog watched six.
 
 ### The combined cron-failure alert — where the detail is
 
@@ -130,7 +130,7 @@ State these before an incident, not during one.
    **outside** the Worker — the property that made "Datadog owns absence" true, and
    one a Worker-hosted check cannot have. If GitHub Actions is degraded, cron
    liveness is **unchecked**, and the sweep says so rather than passing: **exit 0** =
-   all twelve fresh, **exit 1** = a heartbeat is MISSING or STALE (with a
+   all thirteen fresh, **exit 1** = a heartbeat is MISSING or STALE (with a
    `::error::` annotation naming the cron and its allowance), **exit 2** = the sweep
    could not run (PostHog 5xx, or no `POSTHOG_CLI_API_KEY`). **Exit 2 is red, not
    green — "the sweep could not run" is not "the crons are fine."** Never add
@@ -938,7 +938,7 @@ prune skipping because of the gap.
 > **The PostHog port closes this gap without anyone filing an issue for it.** `metrics-snapshot`
 > is one of the six previously-unwatched crons picked up by the combined
 > `AECi — Cron job failed (any daily/hourly job)` alert (its `aeci.metrics_snapshot.run{outcome:failed}`
-> heartbeat is in the query, and the `label_column` names it), **and** it is one of the twelve crons
+> heartbeat is in the query, and the `label_column` names it), **and** it is one of the thirteen crons
 > in the CI liveness sweep's registry (`observability/posthog/project-config.json`, 26 h window).
 > So after AECI-651 both halves — "it failed" and "it never ran" — are covered. Until then,
 > `/admin/system` and the `aeci.metrics_snapshot.run` series remain the only signals, and the

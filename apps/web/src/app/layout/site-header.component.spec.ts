@@ -106,4 +106,38 @@ describe('SiteHeader auth affordance', () => {
     expect(el.querySelectorAll('a[href^="/admin"]').length).toBe(0);
     expect(el.querySelectorAll('a[href^="/vendor"]').length).toBe(0);
   });
+
+  /**
+   * Search mounts three times at three widths (hamburger / icon / inline box).
+   * The header owns two of them, and their visibility classes are complementary
+   * by construction: the icon is `lg:block xl:hidden`, the box is `xl:block`.
+   * If either drifts, one width band renders two search inputs or none — the
+   * second being the bug this trigger was added to fix (1024–1279 was bare).
+   */
+  it('mounts both the compact search trigger and the inline box, on complementary bands', () => {
+    const el = render().nativeElement as HTMLElement;
+
+    const compact = el.querySelector('aec-search-trigger')!;
+    expect(compact).not.toBeNull();
+    const compactClasses = compact.className.split(/\s+/);
+    expect(compactClasses).toContain('lg:block');
+    expect(compactClasses).toContain('xl:hidden');
+
+    const inline = el.querySelector('aec-search-autocomplete')!;
+    const inlineClasses = inline.className.split(/\s+/);
+    expect(inlineClasses).toContain('hidden');
+    expect(inlineClasses).toContain('xl:block');
+  });
+
+  /**
+   * The `<label for>` in each `aec-search-autocomplete` is only correct while the
+   * ids are unique. The inline box is the header's own; `header-search-compact`
+   * lives in the trigger's overlay and `mobile-search` in the hamburger's, both
+   * unmounted until opened — so the only id in the SSR'd header must be this one.
+   */
+  it('renders exactly one search input server-side, with the inline id', () => {
+    const el = render().nativeElement as HTMLElement;
+    const inputs = Array.from(el.querySelectorAll('input[type="search"]'));
+    expect(inputs.map((i) => i.id)).toEqual(['header-search']);
+  });
 });

@@ -5,7 +5,7 @@
 -- precisely so this reconciliation had somewhere to land; in the event `main` had
 -- reached 0015, so both of this epic's migrations moved to the end of the chain
 -- instead. `meta/0017_snapshot.json` was REGENERATED against the merged schema,
--- not renamed — see the note in 0016_lyrical_leper_queen.sql. `aeci-515` still
+-- not renamed — see the note in 0021_lyrical_leper_queen.sql. `aeci-515` still
 -- holds a 0006 and takes 0018+ when it reconciles.
 --
 -- ⚠️ THE `ALTER` STATEMENTS ARE HAND-AUTHORED. `drizzle-kit generate` emitted them
@@ -24,6 +24,12 @@
 -- Both `ADD COLUMN`s are nullable with no default, which is the only form SQLite
 -- accepts for `ADD COLUMN` carrying a `REFERENCES` clause. Nothing backfills: every
 -- attestation in D1 today came from promote, which does not ingest versions (§8.3).
+-- ⚠️ RENUMBERED AGAIN 0017 → 0022 by AECI-750 (main → stage-2 reconcile):
+--    main had independently taken 0016–0020 and those are APPLIED IN PRODUCTION,
+--    so main keeps its numbers and stage-2's seven move up. Body unchanged — only
+--    the filename, the journal `tag` and meta/0022_snapshot.json moved. The
+--    snapshot was RECOMPOSED (main's page_views columns + asn_registry grafted on),
+--    not renamed; see docs/migrations.md §0.
 CREATE TABLE `product_versions` (
 	`id` text PRIMARY KEY NOT NULL,
 	`product_id` text NOT NULL,

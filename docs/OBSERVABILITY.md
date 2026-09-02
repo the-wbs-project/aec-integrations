@@ -25,7 +25,7 @@ browser RUM SDK, the `observability/datadog/` monitor + dashboard JSON, every
 | Question | Where to look |
 |---|---|
 | "My phone buzzed — what fired?" | One of the 13 PostHog alerts (hourly cadence), production project only |
-| "Did the 08:00 cron actually run?" | The **CI liveness sweep** (`.github/workflows/posthog-liveness-sweep.yml`), every 3 h, **twelve** crons watched. It runs OUTSIDE the Worker, which is what lets it detect a dead Worker |
+| "Did the 08:00 cron actually run?" | The **CI liveness sweep** (`.github/workflows/posthog-liveness-sweep.yml`), every 3 h, **thirteen** crons watched. It runs OUTSIDE the Worker, which is what lets it detect a dead Worker |
 | "What does this metric mean?" | This document |
 | "Show me the graph" | PostHog — 7 dashboards, 43 insights, applied from `observability/posthog/insights.json` |
 | "Read the error log for this request" | The PostHog Logs explorer |
@@ -202,6 +202,7 @@ than a Worker metric.
 | `aeci.api.promote.job.duration_ms` | distribution | `apps/api/src/workflows/promote-workflow.ts` (`runPromoteWorkflow`, AECI-563) | `outcome` (`complete` / `errored`) — wall-clock of the whole job (payload load + plan + atomic batch + count recompute). **This is the metric that replaces the old promote request duration**; a slow ingest is no longer visible as a slow request |
 | `aeci.api.promote.skipped` | count | `apps/api/src/routes/promote.ts` (`logPromoteSkips`) | `source` (`promote`), `kind` (`integration` / `extension` / `usefulness` / `claim` / `trade` / `vendor` / `product`) — **value = per-kind skip count, query with `sum:`** |
 | `aeci.api.promote.stale_id` | count | `apps/api/src/routes/promote.ts` (`logPromoteStaleIds`, AECI-568) | `source` (`promote`), `kind` (`vendor` / `product` / `integration`) — **value = per-kind count, query with `sum:`**. The caller sent a `supabaseId` whose row no longer exists, so the ingest **created** a replacement instead of no-op-updating. Self-healing, but it means the review app was holding a dead pointer — a sustained non-zero series says the two sides are diverging |
+| `aeci.api.promote.unresolved_link` | count | `apps/api/src/routes/promote.ts` (`logPromoteUnresolvedLinks`, AECI-730) | `source` (`promote`), `field` (`powered_by` / `built_by`) — **value = per-field count, query with `sum:`**. An integration was written **without** its `poweredByProduct` / `builtByVendor` FK because that record isn't promoted. Distinct from `skipped` on purpose: the row DID land. **Expected to be permanently non-zero** — Zapier and Workato are parked for good (AECI-700), so every promote of an edge naming them fires this. **Do not alert on presence; alert (if ever) on a rise.** Paired log is `info`, not `warn`, for the same reason |
 | `aeci.api.promote.replay` | count | `apps/api/src/routes/promote.ts` (`logPromoteReplay`, AECI-571) | `source` (`promote`), `via` (`pre-read` / `batch-conflict`). Non-zero means the Workflows **at-least-once window actually fired** and the `promote_jobs` primary key absorbed it — the commit stayed exactly-once and the original IDs were returned. Informational, not actionable: the promote is correct. Capture the `job_id` from the paired log; a duplicated product on a job that reported `complete` once is now a bug, not this window |
 | `aeci.cache.purge` | count | `apps/web/src/server/cache-purge-queue.ts` (WC-5 queue consumer — `promote`/`moderation`); `apps/web/src/server/routes/admin-purge.ts` (native `ctx.cache.purge()` since WC-6 / AECI-320 — `manual`/`ci-taxonomy-seed`) | `source` (promote / moderation / **vendor** — a vendor-portal self-service edit, AECI-520, kept distinct from AECi-initiated `moderation` / datatool / manual / ci-taxonomy-seed / future webhook), `outcome` (consumer: `ok` / `purge_failed` / `no_cache` / `noop`; `/admin/purge`: `ok` / `failed` / `skipped`, where `skipped` = native cache disabled on the tier), `mode` (`tags` / `path_prefixes` / `combined` / `everything`; `/admin/purge` only) |
 | `aeci.api.data_gap` | count | `apps/api/src/lib/handler-utils.ts` (`reportMissingVendors`, called by the product-list-producing handlers) | `gap_type` (currently `missing_vendor`) |
@@ -220,7 +221,8 @@ than a Worker metric.
 | `aeci.metrics_snapshot.run` | count | `apps/api/src/lib/metrics-snapshot.ts` (`emitMetricsSnapshotMetrics`, from the daily 00:15 UTC snapshot cron) + an inline pre-compute-crash count in `apps/api/src/scheduled.ts` | `trigger` (cron), `outcome` (ok / partial / failed) — always emitted, so this doubles as the cron-liveness heartbeat |
 | `aeci.metrics_snapshot.run.duration_ms` | distribution | `apps/api/src/lib/metrics-snapshot.ts` (`emitMetricsSnapshotMetrics`) | `trigger` (cron) |
 | `aeci.metrics_snapshot.metric` | count | `apps/api/src/lib/metrics-snapshot.ts` (`emitMetricsSnapshotMetrics`) | `trigger` (cron), `metric` (the `metrics_daily` key — one of the 19 in `ADMIN_SNAPSHOT_METRIC_KEYS`), `outcome` (written / failed) |
-| `aeci.pageviews.write` | count | `apps/api/src/routes/page-views.ts` (`capturePageView`, the deferred `POST /api/page-views` insert) | `outcome` (ok / failed); on `outcome:ok` also `bot` (true / false — the ingest-time UA+ASN classification, AECI-526) so the human/bot ratio is queryable in the metrics plane without waiting for the daily digest |
+| `aeci.pageviews.write` | count | `apps/api/src/routes/page-views.ts` (`capturePageView`, the deferred `POST /api/page-views` insert) | `outcome` (ok / failed / **deduped**); on `outcome:ok` also `bot` (true / false — the ingest-time UA+ASN classification, AECI-526) so the human/bot ratio is queryable in the metrics plane without waiting for the daily digest |
+| `aeci.pageviews.speculative` | count | `apps/web/src/server-runtime.ts` (`firePageView`) | none — a browser prefetch/prerender the Worker refused to count as an arrival (AECI-743) |
 | `aeci.auth.signin` | count | `apps/web/src/server/routes/auth-callback.ts` (the SSR `/auth/callback` handler — **carries `service:aeci-web`**, AECI-206) | `method` (google / magic_link / unknown), `outcome` (success / failed), `reason` on failure (link_invalid / missing_code / auth_not_configured) |
 | `aeci.review.submit` | count | `apps/api/src/routes/reviews.ts` (`createSubmitReviewHandler`, AECI-206) | `outcome` (ok / duplicate / product_not_found) |
 | `aeci.moderation.action` | count | `apps/api/src/routes/admin-reviews.ts` (`createModerateReviewHandler`, AECI-206) | `action` (approve / reject), `outcome` (ok / invalid_state) |
@@ -255,10 +257,13 @@ than a Worker metric.
 | `aeci.entitlement.expiry.job.duration_ms` | distribution | `apps/api/src/scheduled.ts` (`runEntitlementExpiryJob`, daily cron) | `trigger` (cron) |
 | `aeci.waf.ratelimit.blocked` | count | `apps/api/src/lib/waf-metrics.ts` (`emitWafEventMetrics`, from the hourly WAF poll in `apps/api/src/scheduled.ts` `runWafMetricsJob`, AECI-262) | `rule` (CF rule id), `action` (block / managed_challenge / …), `host`, `source` (ratelimit / firewallcustom) — **value is the event count, so query with `sum:`** (Datadog gotcha 3; on PostHog it is an OTLP monotonic sum and the choice disappears); only mitigation actions counted |
 | `aeci.waf.poll` | count | `apps/api/src/scheduled.ts` (`runWafMetricsJob`, hourly cron, AECI-262) | `trigger` (cron), `outcome` (ok / failed / skipped_no_creds) — one heartbeat per run; the always-emitted `outcome:ok` series is the cron-liveness signal |
-| `aeci.analytics_digest.email` | count | `apps/api/src/scheduled.ts` (`runAnalyticsDigestJob` → `lib/email.ts` `sendEmail`, AECI-526, daily 05:00 UTC = noon Jakarta cron) | `outcome` (sent / failed / skipped) — the daily operator digest: **human** page views + top products (`is_bot IS NOT 1`), new/total sign-ins, pending-moderation depth, and a Crawler-activity breakdown (`is_bot = 1`, grouped by `bot_name`). **`skipped`** when `RESEND_API_KEY` / `EMAIL_FROM` / `ANALYTICS_DIGEST_EMAIL_TO` are unset (fail-open); one count per run, so the always-emitted series doubles as the cron-liveness signal (`outcome:failed` also covers a pre-send crash) |
+| `aeci.cron.no_handler` | count | `apps/api/src/scheduled.ts` (the `scheduled()` dispatch `default:` branch, AECI-661) | `cron` (the unmatched expression). **Any non-zero value is a defect.** `controller.cron` is matched by exact string, so a deployed `triggers.crons` entry that drifts from `lib/cron-schedules.ts` silently does nothing. This used to be a bare `console.warn`, which made a mis-scheduled job indistinguishable from a quiet week — `asn_registry` sat in exactly that state, and the only evidence was an absent `job_runs` row |
+| `aeci.analytics_digest.email` | count | `apps/api/src/scheduled.ts` (`runAnalyticsDigestJob` → `lib/email.ts` `sendEmail`, AECI-526, daily 05:00 UTC = noon Jakarta cron) | `outcome` (sent / failed / skipped) — the daily operator digest: **human** page views (`is_bot IS NOT 1` + `NOT_INTERNAL`, an UPPER bound) + the AECI-660 PostHog lower bound + the AECI-683 corroborated floor, top products, new/total sign-ins, pending-moderation depth, and a Crawler-activity breakdown (`is_bot = 1`, grouped by `bot_name`). This metric carries only the send outcome — the figures themselves land in `job_runs.detail` (`AnalyticsDigestSummary`), which is where to look when a number moves and you want the history rather than one morning's email. **`skipped`** when `RESEND_API_KEY` / `EMAIL_FROM` / `ANALYTICS_DIGEST_EMAIL_TO` are unset (fail-open); one count per run, so the always-emitted series doubles as the cron-liveness signal (`outcome:failed` also covers a pre-send crash) |
 | `aeci.connector_catalog.management` | count | `apps/api/src/routes/admin-connector-catalogs.ts` (`emitManagementAction`, **AECI-720** — the `PATCH /api/admin/connector-catalogs/:id` per-iPaaS management cutoff) | `to` (`vendor` / `review` — the state flipped TO), `outcome` (`ok` / `invalid_state` / `not_found`) — one count per attempt, alongside the `connector_catalog.managed_by_vendor` / `.managed_by_review` `audit_log` row written in the same `db.batch`. `to:vendor` + `outcome:ok` is the moment a review lane FREEZES: from then on the connector-catalogue sync refuses that catalogue's pages with `CATALOG_VENDOR_MANAGED`, so a spike in errored connector promote jobs right after one of these is expected, not an incident. `outcome:invalid_state` is the 422 gate (the catalogue is already in the requested state) and is worth watching on its own — it means an operator's model of who controls a lane disagrees with the database |
 | `aeci.moderation.ban` | count | `apps/api/src/routes/admin-reviewers.ts` (`emitBanAction`, **AECI-218 / Phase 6.11**; `role` tag added **AECI-524** — the `PATCH /api/admin/reviewers/:id` ban/unban write-path) | `action` (`ban` / `unban`), `role` (`reviewer` / `vendor_admin` — the moderated seat's role), `outcome` (`ok` / `invalid_state` / `forbidden`) — one count per ban/unban attempt, alongside the §9 `appendAuditLog()` + `reviewer_ban` `workflow_transition` |
 | `aeci.job_runs.write` | count | `apps/api/src/scheduled.ts` (`jobRunSink` → `lib/job-runs.ts`, **AECI-583 / Phase 8.3 P3.1**) | `phase` (start / finish), `job` (the `AdminCronJob` id), `outcome` (ok / failed) — this measures the **recorder, not the job**: a `failed` here means the admin panel's cron liveness under-reports while the job itself completed normally. Emitted on success too, so a silently-broken writer is distinguishable from "no crons ran". 36 series, ~245 points/day. Companion error log: `aeci.job_runs.write_failed`, `source:job-runs` |
+| `aeci.asn_registry.refresh` | count | `apps/api/src/scheduled.ts` (`runAsnRegistryJob`, from the WEEKLY Monday 02:00 UTC refresh cron — **AECI-624 / §7.6**) | `trigger` (cron), `outcome` (ok / partial / failed / skipped) — always emitted, so this doubles as the cron-liveness heartbeat. **This is a weekly series**: a no-data monitor on it must use a window of at least two weeks or it will alert every Tuesday. `failed` means the panel is annotating from a stale registry (it never deletes), NOT that annotations disappeared; `skipped` means there were no `page_views` ASNs to classify, which is only ever the expected state on a fresh environment |
+| `aeci.asn_registry.coverage` | gauge | `apps/api/src/scheduled.ts` (`runAsnRegistryJob`) | none — a single 0–1 fraction: the share of distinct `page_views.cf_asn` values the registry has a record for. **The number worth watching, and the one nothing else surfaces**: it decays silently between runs as new networks arrive, and freshness cannot detect that — a registry refreshed this morning can still annotate almost nothing. Baseline ≈0.75 in production; §7.6 documents why the tail is poor (PeeringDB has no record, or a blank `info_type`, for ~25% of our traffic) |
 | `aeci.retention.prune` | count | `apps/api/src/lib/retention-prune.ts` (`emitRetentionPruneMetrics`, from the daily 03:00 UTC prune cron) + an inline crash count in `apps/api/src/scheduled.ts` (**AECI-584 / Phase 8.3 P3.2**) | `trigger` (cron), `outcome` (ok / skipped / failed), `reason` (`metrics_daily_gap`, on skips only) — always emitted, so this doubles as the cron-liveness heartbeat. **`skipped` is the one to watch**: it means a day inside the `page_views` cut window has no `metrics_daily` row, so the prune refused to delete anything from EITHER table |
 | `aeci.retention.rows_deleted` | count | `apps/api/src/lib/retention-prune.ts` (`emitRetentionPruneMetrics`) | `trigger` (cron), `table` (page_views / job_runs) — **emitted every run for every table, zeros included**, which is what makes a threshold monitor possible. §7.4 asks for a runaway prune to be visible here *before* it is visible as missing data; a series that only appeared when something was deleted could not do that |
 | `aeci.retention.prune.duration_ms` | distribution | `apps/api/src/lib/retention-prune.ts` (`emitRetentionPruneMetrics`) | `trigger` (cron) |
@@ -431,12 +436,13 @@ no matching heartbeat, or a heartbeat with no row, is a bug in the instrumentati
 — not a discrepancy to reconcile by hand.
 
 **Coverage widened in the port.** Datadog watched **six** of these crons for
-absence; the CI sweep watches all **twelve** (`observability/posthog/project-config.json`
+absence; the CI sweep watches all **thirteen** (`observability/posthog/project-config.json`
 holds the registry, one row per cron with its own staleness allowance).
 
 | Cron | `job_runs.job` | Its liveness signal |
 |---|---|---|
 | 00:15 metrics snapshot | `metrics-snapshot` | `aeci.metrics_snapshot.run` (`outcome:success\|partial\|failed`) |
+| Mondays 02:00 ASN registry (`0 2 * * 2` — CF day-of-week is 1=Sunday) | `asn-registry` | `aeci.asn_registry.refresh` (`outcome:ok\|partial\|failed\|skipped`) |
 | 03:00 retention prune | `retention-prune` | `aeci.retention.prune` (`outcome:ok\|skipped\|failed`) |
 | 04:00 data quality | `data-quality` | `aeci.data_quality.job` (`outcome:success\|failed`) |
 | 05:00 analytics digest | `analytics-digest` | `aeci.analytics_digest.email` |
@@ -570,7 +576,7 @@ is `pnpm --filter @aeci/api ops:backfill-metrics-daily`, which is the same idemp
 metrics are unrecoverable. AECI-583's `job_runs` row plus the always-emitted
 `aeci.metrics_snapshot.run{trigger:cron}` series are the only signals today. **The PostHog port
 closes it from both sides without anyone filing an issue:** `metrics-snapshot` is one of the six
-previously-unwatched crons picked up by the combined cron-failure alert, and one of the twelve in
+previously-unwatched crons picked up by the combined cron-failure alert, and one of the thirteen in
 the CI liveness sweep's registry (26 h window). The sweep is **already running**, so its red is
 worth reading even during the dual-run.
 
@@ -580,7 +586,16 @@ worth reading even during the dual-run.
 — it's an intentional skip, not a write, and must not pollute the error-rate denominator. The
 endpoint already returned 204, so a failing insert is user-invisible; this metric makes the
 regression visible as an error **rate** *before* it silently zeroes `home.trending_products` at the
-next daily compute. Note it is monitored on error-rate **only**, never liveness/no-data: page_views
+next daily compute. AECI-743 added a third outcome, `deduped`, for a view refused by the
+one-document-one-row guard (`dedupe_key`, `API_CONTRACTS.md` §6.9). It is counted rather than
+dropped silently for the reason this whole issue exists: an unobserved miscount is
+indistinguishable from an ingest outage, and the original double-fire survived undetected into the
+digest's most trusted figure. **Keep it out of the error-rate denominator's numerator** — a
+`deduped` is a correct refusal, not a failure. If it ever climbs to a large share of total writes,
+that is a signal about the traffic (a prerendering client, a retry loop), not about ingest health.
+Its writer-side counterpart is `aeci.pageviews.speculative`, emitted by the SSR Worker when it
+declines to count a prefetch/prerender; a sudden rise there is worth reading alongside the digest,
+since those loads used to be counted as arrivals. Note it is monitored on error-rate **only**, never liveness/no-data: page_views
 is traffic-driven, so zero writes (no visitors) is normal at pre-launch and a no-data alert would
 fire constantly — unlike the fixed-cadence stats cron.
 
@@ -742,6 +757,18 @@ reporting it as `updated` with an empty slug, and each fallback emits a `warn`
 `aeci.api.promote.stale_id` count above. The promote itself is correct either way — this is the signal
 that the review app's copy of that id had gone stale, which is the same divergence
 `scripts/ops/2026-08-promote-strand-audit/` sweeps for offline.
+
+A fourth (AECI-730): an integration written **without** an optional link, because its
+`poweredByProduct` / `builtByVendor` didn't resolve. This is not a skip — the row landed — so it
+gets its own `info` log `aeci.api.promote.unresolved_link` (every `{ ref, field, supabaseId,
+outcome }` + per-field counts) plus the `aeci.api.promote.unresolved_link` count above, and is
+deliberately kept **out** of `aeci.api.promote.skipped`. The severity split is the point: Zapier
+and Workato are parked permanently (AECI-700), so this fires on routine promotes forever, and a
+permanent `warn` — or a permanently dirty `skipped` series — is exactly the noise an operator
+learns to ignore. `outcome: 'preserved'` means the update left a stored FK alone rather than
+nulling it (the clobber guard); `'unset'` means the row was created with the column NULL. The
+offline counterpart is `scripts/ops/2026-08-powered-by-backfill/audit.mjs`, whose
+`connectorUnpromoted` bucket is the same population.
 
 All of it is fire-and-forget over the shared transports (each leg a no-op without its own config —
 `POSTHOG_PROJECT_KEY`, `DD_API_KEY`) and never affects the response. **Fire-and-forget is not
@@ -1021,7 +1048,7 @@ duplicate either here, or the two will drift and the doc will lose.
 | File | What it is |
 |---|---|
 | `observability/posthog/README.md` | The **26-row monitor disposition table** (every Datadog monitor → its new home, with its retired threshold), the AW6 judgement calls, the migration hazards, the drill record, the numbered manual steps and the operator checklist. `docs/RUNBOOKS.md` carries the disposition table as well, for the on-call reader. |
-| `observability/posthog/project-config.json` | Project topology, alert subscribers, and the **twelve-cron liveness registry** the CI sweep reads. |
+| `observability/posthog/project-config.json` | Project topology, alert subscribers, and the **thirteen-cron liveness registry** the CI sweep reads. |
 | `observability/posthog/insights.json` | 7 dashboards, 43 insights (30 board + 13 alert-source), as data. |
 | `observability/posthog/alerts.json` | 13 alerts, each naming its source insight and carrying the **retired Datadog query verbatim**. |
 | `observability/posthog/apply.sh` | The applier. `--dry-run` / `--verify`; dashboards + insights to **both** projects, alerts to **prod only**. |
@@ -1114,7 +1141,7 @@ telemetry step in this repo is best-effort (`posthog-deploy-marker.sh` always ex
 0), so the surrounding convention points the other way; the correct precedent is
 `.github/workflows/reconcile-counts.yml`.
 
-Exit codes are deliberately three-valued: **0** = all twelve heartbeats fresh; **1**
+Exit codes are deliberately three-valued: **0** = all thirteen heartbeats fresh; **1**
 = a heartbeat is MISSING or STALE (with a GitHub `::error::` annotation naming the
 cron and its allowance); **2** = the sweep could not run at all (PostHog 5xx, or no
 `POSTHOG_CLI_API_KEY`) and reports "UNCHECKED, not healthy". **"The sweep could not
@@ -1146,6 +1173,55 @@ Property contract, emit sites and the naming rules live in
 `apps/web/src/app/search/search-telemetry.ts`.
 
 ### What the swap changed about the numbers
+
+> **The server side now reads PostHog back (AECI-660).** For months this was write-only:
+> AECI-239 shipped the instrumentation and nothing consumed it, so the daily digest reported one
+> number with no second opinion. `apps/api/src/lib/posthog-query.ts` closes that loop — the 05:00
+> digest runs one HogQL query for the reported UTC day, scoped to the env's own `$host`, and prints
+> the result **beside** the D1 figure.
+>
+> The pair matters because the two sources fail in opposite directions. `page_views` is written
+> server-side on every full-document load including cache hits, so a crawler that never runs
+> JavaScript still counts: an **upper bound**. (Since AECI-741 that raw figure is no longer the
+> email's headline — the headline is the count remaining after the automation filter, and it sits
+> *between* this upper bound and the PostHog floor.) PostHog fires only when JS runs *and* the visitor
+> consented, so a real person who declines is invisible: a **lower bound**. On 2026-08-23 the digest
+> said "48 human views"; PostHog saw **5 pageviews from 1 person**, and those five were the operator's
+> own session, which the digest had already excluded.
+>
+> **One population per email (AECI-747).** The headline is `raw − flagged`, and since AECI-747 the
+> "Most viewed products" and "Traffic sources" tables exclude the SAME flagged clients — the
+> `AutomationExclusion` the cron hands `collectAnalyticsMetrics`. Before that the email led with a
+> filtered number over unfiltered rows, and on 2026-08-30 showed a bot-driven page as the day's top
+> product. The exclusion predicate is the exact complement of `swarm-detection.ts`'s
+> `countFlaggedViews`, and is NULL-safe on purpose: a row with a null UA hash AND a null ASN counts
+> in the headline, so it must survive the tables too.
+>
+> **Three axes since AECI-744**, not two: the exclusion carries `verdicts` alongside `uaHashes` and
+> `asns`, because `client_verdict IN ('inconsistent','non-browser')` now flags a row on its own with
+> no view floor. It is passed unconditionally — the union count always includes the verdict matcher,
+> so the complement must too — and it repeats the same NULL-safe `IS NULL OR NOT IN` shape, because
+> every row written before 2026-08-26 has a NULL verdict and counts in the headline. **The admin panel still passes no exclusion**,
+> so `/admin/overview` top-products remain unfiltered — a known parity gap, not a second definition.
+>
+> Pure transport, like `cloudflare-analytics.ts`: it never throws, and every failure path returns a
+> structured `{ ok: false, reason }` that the email renders as "unavailable". It must **never** report
+> a `0` on failure — a fabricated zero beside a real count reads as a finding rather than as missing
+> data, which is the specific way this kind of pairing goes wrong. Needs `POSTHOG_QUERY_API_KEY`
+> (a **personal** `phx_` key scoped to `query:read`, API Worker only) + `POSTHOG_PROJECT_ID`; absent,
+> the digest is byte-identical to what it sent before, plus one note. Outcomes are recorded in the
+> `job_runs` detail (`posthogPageViews` / `posthogPeople` / `posthogSkipped`) so a join that silently
+> stops running is visible without diffing emails.
+
+**How it loads (cache-neutral, opt-in).** The SSR Worker inlines the public config as
+`window.__AECI_POSTHOG__ = {key, host}` before `</head>` (`posthog-bootstrap-inject.ts`)
+— deployment-env-only, so it's safe to cache (§9.1a). In the browser, the `Analytics`
+service loads `posthog-js` (dynamic import) and calls `posthog.init()` **only after the
+visitor accepts the consent banner** (`consent-banner.ts`); Do-Not-Track is honored as a
+hard decline (no load, no banner). Init uses `capture_pageview: 'history_change'` (auto
+pageviews incl. SPA navigations), `autocapture: false`, and
+`disable_external_dependency_loading: true` (so the CSP `script-src` stays untouched —
+only the two `connect-src` PostHog US hosts are needed).
 
 Three differences are permanent and are the reason a pre-AECI-651 search chart does
 not line up with a post- one:
@@ -1252,7 +1328,7 @@ observability-shaped view of it.
 
 | Credential | Used by | Where it lives | Notes |
 |---|---|---|---|
-| **PostHog Worker secrets** | — | **nowhere. There are none.** | **Read this row rather than skipping it — the absence is a design property, not an omission.** All three PostHog intakes (OTLP logs, OTLP metrics, event capture) authenticate with the publishable `phc_` project token, so Worker telemetry secrets went **4 → 0** with the migration. If a future change wants a Worker-side PostHog *personal* key, that is a design change, not a provisioning step. |
+| **PostHog Worker secrets (emit path)** | — | **nowhere. There are none.** | **Read this row rather than skipping it — the absence is a design property, not an omission.** All three PostHog intakes (OTLP logs, OTLP metrics, event capture) authenticate with the publishable `phc_` project token, so Worker telemetry secrets went **4 → 0** with the migration. The READ path is the exception: `POSTHOG_QUERY_API_KEY` (a `phx_` personal key) IS an API-Worker secret, held for the AECI-660 digest join — emitting telemetry needs no credential, querying it back does. Beyond that, a Worker-side PostHog personal key is a design change, not a provisioning step. |
 | `POSTHOG_PROJECT_KEY` | Worker runtime (logs + metrics + events) **and** the browser | **Committed per-env `vars` entry in both `apps/web/wrangler.jsonc` and `apps/api/wrangler.jsonc`** | Publishable `phc_` token. Was the CI-pushed secret `POSTHOG_KEY`; AECI-640 made it a committed var. Treating it as a secret bought nothing — the SSR Worker renders it into the served HTML on every page — and cost the weeks-dark prod analytics of AECI-326, where the push step ran, the secret was absent, and the warn-and-skip said so only in a log nobody read. A committed var has **no provisioning step to forget**, and PR previews get telemetry for free. Per-tier value follows the D4 topology: preview/staging/demo/stage2 → `aec-integrations-dev` (**525793**), production only → `aec-integrations` (**354071**). Absent → the whole transport no-ops (invariant 3). |
 | `POSTHOG_HOST` | both Workers + the browser | Wrangler `vars`, per env | `https://us.i.posthog.com` — the **ingest** host. `us.posthog.com` (no `.i`) is the management API used by annotations and `apply.sh`; swapping them yields a confusing 404, which is why the marker script carries two separate host variables. Defaulted in code when unset. |
 | `POSTHOG_CLI_API_KEY` | **CI + operator only** — source-map upload, the deploy-marker annotation leg, `apply.sh`, the liveness sweep | GitHub secret + operator keychain. **Never a Worker secret** — a personal key reaches the whole org | Personal `phx_` key. **One key needs the union of scopes**: insight write · dashboard write · alert write · project read · **query read** (the sweep) · **error tracking write** · **organization read** (the last two are source-map upload, §8.3 — §7's original list missed them). Optional + fail-open everywhere: absent, source maps are still *deleted* before deploy (the safety property survives), the marker's queryable `deployment` event still ships on the publishable token, and the liveness sweep exits **2** — "unchecked", which is not a pass. `apply.sh` also reads it as `POSTHOG_PERSONAL_API_KEY`; it cannot read the GitHub secret. **Currently not provisioned** (§8.7). |

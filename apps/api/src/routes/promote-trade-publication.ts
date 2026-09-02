@@ -6,7 +6,7 @@
  * Trades are the one publication-gated taxonomy facet: a term is published once
  * at least `TRADE_PUBLISH_MIN_PRODUCTS` promoted products carry it
  * (`TRADES_VOCABULARY.md` §6). Consumers that advertise a URL to the outside
- * world — the sitemap, and the IndexNow / Google Indexing pings — must respect
+ * world — the sitemap, and the IndexNow ping — must respect
  * that floor, because a sub-floor `/trades/:slug` page renders `noindex` and
  * submitting a noindex'd URL to an indexing service is the same correctness bug
  * the `INDEXNOW_KEY`-absent gate exists to prevent.

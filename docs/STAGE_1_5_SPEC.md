@@ -367,7 +367,7 @@ The Stage 1.5 schema and contract are forward-compatible with all four in the se
 
 > **Two corrections from the AECI-514 kickoff**, recorded here because they touch §3's definitions:
 >
-> 1. **`introduced_at`/`deprecated_at` are version *stamps*, per §3.3 — not attestation retirement.** ✅ **Resolved by AECI-603** (2026-08-14; migration `0016`). As shipped in 1.5, `attestations_active_idx` was partial on `deprecated_at IS NULL` with a comment describing it as retirement. §3.3's definition won (AECI-303 depends on it): supersession got its own `retracted_at` column and the index predicate moved onto it, with the shared `liveAttestationsWhere` (`apps/api/src/lib/drizzle-helpers.ts`) as the one definition every read applies. *(AECI-608 found one read that had kept the old predicate — the admin panel's claim-coverage count — and corrected it. Nothing reads `deprecated_at` as a gate now.)*
+> 1. **`introduced_at`/`deprecated_at` are version *stamps*, per §3.3 — not attestation retirement.** ✅ **Resolved by AECI-603** (2026-08-14; migration `0021`, shipped as `0016`). As shipped in 1.5, `attestations_active_idx` was partial on `deprecated_at IS NULL` with a comment describing it as retirement. §3.3's definition won (AECI-303 depends on it): supersession got its own `retracted_at` column and the index predicate moved onto it, with the shared `liveAttestationsWhere` (`apps/api/src/lib/drizzle-helpers.ts`) as the one definition every read applies. *(AECI-608 found one read that had kept the old predicate — the admin panel's claim-coverage count — and corrected it. Nothing reads `deprecated_at` as a gate now.)*
 > 2. **`computeAgreement` needs a `single_source` state.** ✅ **Resolved by AECI-605** (2026-08-14; `STAGE_2_ATTESTATIONS_SPEC.md` §4.5). As originally shipped (§3.4), a *single* vendor affirming with the counterparty silent resolved to `confirmed`. That branch was unreachable in 1.5, so the gap was latent — but it would have rendered one-sided assertion as agreement, which `STAGE_2_SPEC.md` §8.1(4) forbids. `confirmed` is now narrowed to **two distinct vendor identities** and §3.4 above reflects the shipped rule.
 >
 > Also: "no migration is required to light them up" was **too strong**. It holds for the agreement engine and the attestation sources; it does not hold for vendor-created claims or for real per-product version selectors, which need a version entity that §6.1 never defined. AECI-514 shipped **three** additive migrations (`STAGE_2_ATTESTATIONS_SPEC.md` §1.2): `0016` claim provenance + attestation authority, `0017` the product-version model, and `0018` the maintenance marker's `last_reviewed_at` / `maintained_by` (AECI-616, scoped in after kickoff).
@@ -611,16 +611,40 @@ which is a time series.
 
 ### 12.6 Known data state
 
-At time of writing only **5 of 421** prod integrations carry `powered_by_product_id`; all ~13 Agave
-edges have it NULL, with "via Agave ERP Sync" living only in free-text `mechanism_name`. The code
-path is complete; Agave's hub view fills in when the FK is backfilled in **Airtable + re-promote**
-(the durable path — no D1 stopgap). Separately tracked follow-ups: 22 exact-duplicate integration
-rows; connector discovery in search/browse (`product_role` on Algolia records, a Connectors facet,
-`RoleBadge` on search cards).
+**Superseded 2026-08-31 (AECI-706).** As first written this section read "only **5 of 421** prod
+integrations carry `powered_by_product_id`; all ~13 Agave edges have it NULL". Both numbers were a
+2026-08 snapshot and the AECI-671/698 promotes have since overtaken them. Measured against
+`aeci-app-production` on 2026-08-31: **946** integrations, **79** carrying the FK, and the **Agave
+gap is closed** — all 12 upstream Agave powered edges carry it, so Agave's hub view is live.
 
-**Superseded as a snapshot by §13.9** (2026-08-30/31), which carries the current connector-lane
-figures. This paragraph stays as the historical record of what Addendum B shipped against — and the
-discovery follow-ups named in it are still open.
+The residual gap is **promotion coverage, not a D1 data defect**. Of the 325 upstream powered
+edges: 79 are correct in prod, 62 are edges whose *connector* is not promoted (Zapier, Workato,
+et al — the `on_hold` set), and 184 are edges never promoted at all. Zero prod rows have a NULL FK
+whose connector *is* promoted, so there is nothing for a D1 backfill to do today. The ruling above
+still stands for how a row gets fixed — **Airtable + re-promote**, no D1 stopgap — with one
+narrow, audited exception now tooled in `scripts/ops/2026-08-powered-by-backfill/`: a row whose FK
+is the *only* difference from upstream. That sweep is also the detector; see its README for the
+bucket definitions and the standing measurement.
+
+**Root cause closed 2026-09-01 (AECI-730).** The gap re-accrued because promote dropped an
+unresolvable `poweredByProduct` with no report of any kind, and on an *update* actively cleared a
+correct FK. Both are fixed: the drop is now reported on the response as `unresolvedLinks[]`
+(`REVIEW_APP_PROMOTE_API.md` §3.4/§4) and as `aeci.api.promote.unresolved_link{field}` in PostHog,
+and the column is left untouched rather than nulled when the link doesn't resolve. So the
+`connectorUnpromoted` population is visible **at promote time** instead of only in an offline
+sweep — but it does not shrink: AECI-700 parks Zapier and Workato permanently, so their share of
+that bucket is a permanent, expected floor. The same guard covers `builtByVendor`.
+
+Separately tracked follow-ups: 22 exact-duplicate integration rows; connector discovery in
+search/browse (`product_role` on Algolia records, a Connectors facet, `RoleBadge` on search
+cards).
+
+**Which numbers live where (reconciled 2026-09-02, AECI-750).** The figures above are the
+**production app-DB** state — measured against `aeci-app-production`, and current as of the AECI-706
+/ AECI-730 dates on each block. §13.9's figures are the **review-catalogue** state (what the
+curation app holds, promoted or not), which is why the two sets do not add up to each other and
+neither supersedes the other. Read §13.9 for connector-lane coverage, this section for what prod
+actually serves. The discovery follow-ups named above are still open.
 
 ### 12.7 Catalog-scope note on both integration lists (2026-08-05)
 
@@ -837,7 +861,7 @@ mid-flight will make a local decision about a cross-cutting contract.
    connector as **both** an endpoint and the `powered_by` target, so on that connector's page it
    lands in `sourceIntegrations`/`targetIntegrations` **and** in `poweredIntegrations` — rendering
    **twice**, once in `#integrations` and once in `#powered-integrations`. Production is blind to
-   this today only because `powered_by` is un-backfilled (§12.6: 5 of 421 rows). **AECI-706 turns it
+   this today only because `powered_by` is un-backfilled (§12.6, since remeasured by AECI-706). **AECI-706 turns it
    on**, and 706 lands *before* AECI-721 removes the class — Aquifer's 43 and Kroo's 44 duplicate on
    the day the backfill ships. **Rule: the powered section excludes edges where the page product is
    also an endpoint.** Those edges belong to the endpoint lane, where §13.2(a) already keeps them
@@ -1075,7 +1099,7 @@ Stated explicitly so a reviewer can check them rather than infer them:
 - **`DATABASE_SCHEMA.md` — no schema change in this addendum.** §13.4's additions are a Drizzle read
   config plus a Zod field; no DDL, no migration. The AECI-721 migration is governed by AECI-714 and
   rides the `stage-2` migration lane after that set settles (a D1 CHECK change is a destructive
-  table recreate). **It landed 2026-08-31** as `0022_powerful_killraven.sql`: the `integrations`
+  table recreate). **It landed 2026-08-31** as `0027_powerful_killraven.sql`: the `integrations`
   CHECK gains `integrator`, `claims` gains the polymorphic anchor (§3.1's amendment), and the 19
   production powered edges move. §5a.1, §9.3 and §9a.6 of that document carry the as-built detail.
 - **`SEARCH_RANKING.md` — no ranking *rule* change from Addendum C**, with the §12.5-B correction
@@ -1116,8 +1140,9 @@ which is materially larger than the promoted app DB — the *ratios* are the dur
 The prod app-DB subset is gated on **AECI-706** (the `powered_by` backfill) and **AECI-700** (the
 Zapier/Workato `on_hold` decision — 110 and 44 powered edges respectively ride on parked products).
 Until AECI-700 resolves, the "Via" lane reads mostly-Agave; that is expected, not a defect in the
-split. This supersedes §12.6's snapshot (5 of 421 prod edges carrying `powered_by`), which stays in
-place as the historical record of what Addendum B shipped against.
+split. These are **review-catalogue** figures; §12.6 carries the **production app-DB** counterpart
+(946 integrations, 79 with the FK, as of AECI-706) — different populations, not a supersession. The
+"5 of 421" snapshot §12.6 once carried was itself superseded there by AECI-706.
 
 ### 13.10 What AECI-714 landed (2026-08-31)
 
@@ -1125,7 +1150,7 @@ The data half of this addendum. §13.1 named "derived pairs (AECI-714)" and §13
 lands in AECI-714"; this is what that turned out to be, recorded here so the four unbuilt
 presentation issues anchor to something concrete rather than to a promise.
 
-**Six app-DB tables**, migration `apps/api/migrations/0021_overconfident_selene.sql`, documented in
+**Six app-DB tables**, migration `apps/api/migrations/0026_overconfident_selene.sql`, documented in
 `DATABASE_SCHEMA.md` **§9a**. Five are a field-for-field **projection** of the review app's model
 (AECI-719) — `connector_catalogs`, `connector_catalog_surfaces`, `connector_stubs`,
 `connector_stub_mappings`, `connector_pairs` — and the sixth, `connector_evidenced_pairs`, is the
@@ -1139,7 +1164,7 @@ recreate to **one** migration, and it is why `0021` is `CREATE TABLE` / `CREATE 
 **AECI-721 landed 2026-08-31, in two PRs.** The split is expand→contract (`docs/migrations.md`
 §3.2): PR-A is additive and inert — every read surface and all fourteen count sites read the union
 of both tables, so PR-B could not move a number — and PR-B is the single destructive migration
-`0022_powerful_killraven.sql` plus the promote-path routing that stops the migration undoing
+`0027_powerful_killraven.sql` plus the promote-path routing that stops the migration undoing
 itself. Three things worth carrying forward:
 
 - **`connector_evidenced_pairs` is no longer written by nothing.** `POST /api/promote` routes

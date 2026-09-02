@@ -142,7 +142,7 @@ The approval action that turns an `open` vendor claim into a live verified vendo
 
 **Entitlement launch shape.** `vendors.verified` **is** the launch entitlement bit. The offline PO/invoice arrangement lives in `audit_log` metadata (payer, amount/terms, arranged-by). A formal entitlement model is deferred to the Paid Tiers epic (AECI-515); this epic adds **no new schema**.
 
-> **Superseded (AECI-515, 2026-08-19).** That was the AECI-513 launch shape, and the Paid Tiers epic is the successor it named. `vendors.verified` is now a **denormalized mirror** of a `vendor_entitlements` row — `true` **iff** an `active` row exists — maintained in the same `db.batch`; the arrangement lives in the row **as well as** the audit trail, which stays the renewal ledger. The "no new schema" clause held for this epic and was spent by that one: `0019_easy_sandman` is the single migration.
+> **Superseded (AECI-515, 2026-08-19).** That was the AECI-513 launch shape, and the Paid Tiers epic is the successor it named. `vendors.verified` is now a **denormalized mirror** of a `vendor_entitlements` row — `true` **iff** an `active` row exists — maintained in the same `db.batch`; the arrangement lives in the row **as well as** the audit trail, which stays the renewal ledger. The "no new schema" clause held for this epic and was spent by that one: `0024_easy_sandman` is the single migration.
 >
 > **Nothing AECI-513 shipped against this bullet changed in behaviour** — the grant still writes the seat, still flips the bit, still records the arrangement in audit metadata; every reader still reads `verified`, and no public or read path may query the entitlement table. The one structural change is that after AECI-612 the flip is **emitted by `lib/vendor-entitlement.ts`, not by `grantSeatStatements`**, so the mirror has exactly one writer. See `docs/STAGE_2_PAID_TIERS_SPEC.md` §2 and `STAGE_2_SPEC.md` §8.5.
 
@@ -910,7 +910,7 @@ The §5 claim queue is unaffected and remains the path for someone who has **no*
 - `true` on a seat created by the §3 admin claim grant (`grantSeatStatements`) — an AECi-reviewed human IS the owner event.
 - `false` on a **new** seat created by redeeming an invite (`acceptInviteStatements`). **This is the bound**: without it, one reviewed human seeds an unbounded chain of seats no reviewer ever saw. Redeeming never **demotes**, though — an existing owner who happens to redeem (re-invited, or self-invited; the invite path cannot cheaply tell they already hold a seat) keeps their bit, so the accept upsert's conflict path preserves the prior `seat_owner` rather than forcing it false. Forcing it false there could strip the only owner and leave the vendor unadministrable — the state the removal path's last-owner guard exists to prevent.
 - Cleared by `revokeSeatStatements`, so a stale `true` cannot make a re-linked account an owner by accident.
-- **Migration `0020` backfills every pre-existing `vendor_admin` to `true`.** A default-`false` rollout would have shipped the feature dead — no existing vendor could invite anyone.
+- **Migration `0025` (shipped as `0020`) backfills every pre-existing `vendor_admin` to `true`.** A default-`false` rollout would have shipped the feature dead — no existing vendor could invite anyone.
 
 ### 11a.5 Endpoints
 

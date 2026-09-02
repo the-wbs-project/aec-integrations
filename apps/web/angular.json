@@ -89,10 +89,20 @@
           "configurations": {
             "production": {
               "budgets": [
+                // AECI-750: raised 1MB -> 1.02MB at the main -> stage-2 reconcile.
+                // Each branch passed alone; the UNION of their eager code is 2.75 kB
+                // over. Verified this is feature growth, not a regression: the
+                // initial set carries no lazy-route component (AdminShell appears
+                // only as a `loadComponent` reference), no vendor-portal or
+                // connector code, and no `$localize` sort labels -- the listing
+                // configs import `product-sort-keys.ts` precisely so the toolbar's
+                // translated options stay out of the eager graph. Kept at 1.02MB
+                // rather than a round 1.1MB so the guard still catches a real
+                // regression; the 500kB WARNING is untouched and still fires.
                 {
                   "type": "initial",
                   "maximumWarning": "500kB",
-                  "maximumError": "1MB"
+                  "maximumError": "1.02MB"
                 },
                 {
                   "type": "anyComponentStyle",

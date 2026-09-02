@@ -495,6 +495,9 @@ Stored in GitHub Settings → Secrets and Variables → Actions. Scoped per envi
 | `CF_PURGE_API_TOKEN` | **RETIRED (WC-10 / AECI-324).** Was the `Zone.Cache Purge`-scoped token behind the ADR 0010 HTTP purge. Native Workers Cache made a zone purge inert, so invalidation moved to the `aeci-cache-purge-{env}` Queue (WC-5) and in-process `ctx.cache.purge()` (WC-6). No workflow pushes it; delete it from the GH repo secrets and from each Worker. | — |
 | `ADMIN_PURGE_TOKEN` | Long-lived bearer the **caller** of `POST /admin/purge` presents (CI's post-seed taxonomy purge + manual incident purges). Single shared un-suffixed value; pushed to the **web Worker only** by the same three workflows, so the token CI presents and the token the Worker checks are the same secret by construction. Graceful warn-and-skip: absent → the endpoint 401s. | All |
 | `CF_ANALYTICS_API_TOKEN` | **Single shared** (un-suffixed, like `SUPABASE_ANON_KEY` — the token is zone-scoped and the zone is shared) Cloudflare token for the hourly WAF firewall-event poll (AECI-262 / §15.1): reads the zone's `firewallEventsAdaptiveGroups` over the GraphQL Analytics API and emits `aeci.waf.ratelimit.blocked`. Scope: **`Zone Analytics: Read` on `aecintegrations.com`** — a *different* scope than the `Zone.Cache Purge` purge token, so it is its own secret. Pushed to the API Worker as `CF_ANALYTICS_API_TOKEN` by `deploy.yml` (staging) / `promote-to-demo.yml` (demo) / `promote-to-prod.yml` (production), all **graceful warn-and-skip**. Reuses the env's `CF_ZONE_ID`. **Optional + fail-safe:** absent → the poll logs `outcome:skipped_no_creds` and no-ops. See `docs/waf-rate-limits.md` §5. | All |
+| `POSTHOG_QUERY_API_KEY` | PostHog **personal** API key scoped to `query:read`, used by the daily digest to report a human **lower bound** beside the D1 upper bound (AECI-660, completing the AECI-239 join). Pushed to the **API Worker only**. **Not** the same credential as the browser's publishable `POSTHOG_KEY` (`phc_…`) — this one is `phx_…` and grants account-wide read, so it must never reach `apps/web`. (A `phx_` key was once mis-provisioned as `POSTHOG_KEY` and served in public HTML; revoke that one rather than reusing it.) **Optional + fail-open:** absent → the digest reports the D1 figure alone plus a short "unavailable" note. GH secret is suffixed on the **prod / non-prod** axis (`_NONPROD` / `_PRODUCTION`), mirroring `POSTHOG_KEY`; **staging, demo and PR previews all take `_NONPROD`** — demo takes `_PRODUCTION` for Anthropic and Algolia, but never for PostHog. CI-pushed by `deploy.yml` / `promote-to-demo.yml` / `promote-to-prod.yml` — wiring added in the AECI-661 follow-up, having been documented as CI-pushed before any workflow referenced the name. | staging, demo, production |
+| `POSTHOG_PROJECT_ID` | Numeric PostHog project id the digest query runs against (e.g. `354071`). Paired with `POSTHOG_QUERY_API_KEY`; absent → the same graceful skip. Not a secret in any real sense, but kept beside its key so the pair is provisioned together. **Suffixed for the same reason the key is:** it must name the project that tier's `POSTHOG_KEY` writes to — the non-prod project `aec-integrations-dev` (`525793`) for staging + demo + previews, the prod project `aec-integrations` (`354071`) for production, with tiers inside a project separated only by `$host`. A mismatched pair does not error — `count()` over an empty set returns a real row of zeros, so the digest prints a confident `0`, the fabricated zero the join exists to avoid. | staging, demo, production |
+| `PEERINGDB_API_KEY` | PeeringDB API key (free account) for the weekly `asn_registry` refresh (AECI-661). **Optional + fail-open:** absent → the fetch stays anonymous, exactly as before. Worth setting because anonymous whole-list reads are throttled hard: production's only run of that job (2026-08-23) came back `429` and `asn_registry` has held 0 rows since, so every read-time ASN annotation silently resolves to nothing. Un-suffixed (the upstream is env-independent). That 429 was **transient, not a standing block** — an anonymous whole-list read verified clean on 2026-08-26 — so the durable fix is the query shape (`?asn__in=` batches over the ASNs actually seen), not the key. | staging, demo, production |
 | `SUPABASE_ACCESS_TOKEN` — **orphaned** | Was for the Supabase CLI app-DB migrations; the Postgres `supabase db push` machinery was decommissioned (AECI-278). Only manual auth-baseline reconciliation uses the CLI now. | — |
 | `SUPABASE_DB_URL` / `DIRECT_URL` — **retired** | The Postgres app-DB `supabase db push` path is gone (AECI-278). No DB connection URL is needed — the app DB is Cloudflare D1, reached via the Worker's `DB` binding. | — |
 | `DATABASE_URL` — **retired** | Prisma Accelerate was removed (AECI-253/278). The app DB is Cloudflare D1 (ADR 0016) via the `DB` binding; there is no DB connection secret. | — |
@@ -638,6 +641,10 @@ The "human reviewer" requirement is enforced by GitHub branch protection on `mai
 > force-push/deletion. Neither sets `required_pull_request_reviews`, so the "human reviewer"
 > line above is aspirational, not enforced. Both leave **`enforce_admins: false`** — an admin can
 > still merge past red or missing checks.
+>
+> Re-verified **2026-09-01** while porting the fix below to `main` (AECI-728): `main` and
+> `stage-2` still require the same three contexts, `main` still sets `strict: true`, and
+> `admin-panel` has since been **retired** — the branch is deleted, so its row is historical.
 >
 > **Resolved — the required checks now always report, even on docs-only PRs.** Previously a
 > docs-only PR skipped `deploy.yml` entirely via the workflow-level `pull_request` `paths-ignore`,
@@ -829,10 +836,40 @@ If the smoke check fails, the deployment is marked failed and:
   branch from `main` → PR to `main` → squash-merge → staging auto-deploys → `promote-to-demo`
   (SHA) → `promote-to-prod` (SHA). The promote buttons already take an **arbitrary** `commit_sha`
   (gated only on the SHA being live one tier up), so no workflow change is needed.
+- **The reconcile must be a MERGE, never a squash — the one rule that has actually bitten.**
+  AECI-619 reconciled `main` into `stage-2` and landed via squash (PR #552). The content arrived;
+  the **ancestry** did not. `git merge-base` stayed at `dadc6c45`, so the next reconcile (AECI-750)
+  measured against a base six weeks stale and reported **417 both-sides files / 51 commits /
+  187 conflicts** where the truth was **100 / 24 / 62**. Sizing a two-day job off that number is how
+  it gets planned as a two-week one.
+  - *Symptom:* conflicts dominated by `add/add` on files both branches "added", or hunks where the
+    two sides say the same thing.
+  - *Diagnosis:* find the `main` SHA the last reconcile actually absorbed, then re-measure with
+    `git merge-tree --write-tree --merge-base <sha> origin/stage-2 origin/main`. **Never size a
+    reconcile off `git rev-list --count`.**
+  - *Repair:* `git merge -s ours <sha>` records the ancestry the squash discarded and changes no
+    file; then merge normally.
+- **⚠️ After a `main → stage-2` reconcile, `main` is an ANCESTOR of `stage-2`.** A PR from the
+  reconcile branch into `main` therefore **fast-forwards production to the whole of Stage 2**, and
+  GitHub offers `main` as the default base. AECI-750 opened exactly that PR (#608, 56 commits) and
+  closed it unmerged. Always `gh pr create --base stage-2`, and check the base on the PR page
+  before merging anything whose head is a reconcile branch.
+- **Verify by tree diff, never by "it merged cleanly."** Thirteen defects across the two reconciles
+  produced no conflict marker. The gate is `git diff origin/main HEAD` reviewed by path class:
+  every line `main` has that the result lacks must be a *named* re-expression. Follow it with a
+  whole-tree marker sweep — `git grep -nE '^(<{7}|={7}|>{7})'` — because shell, JSON and Markdown
+  are read by neither ESLint nor Prettier, and AECI-750 found a live conflict marker in
+  `scripts/require-secrets.sh`, which every deploy sources.
 - **Migration-journal reconciliation.** Stage 2 migrations accumulate on `stage-2` while hotfix
-  migrations may land on `main`. Before merging `stage-2 → main`, re-run
-  `pnpm --filter @aeci/api db:generate` and reconcile against any `main` migrations so the
-  Drizzle journal (`apps/api/migrations/meta/_journal.json`) stays linear.
+  migrations may land on `main`. The rule is **`main` keeps its numbers, the integration branch
+  renumbers** — `main`'s are already applied in production, and a production ledger cannot be
+  rewritten. **Do not "re-run `db:generate` and let it reconcile":** drizzle-kit answers a CHECK
+  change on SQLite with a full table recreate whose `DROP` fires `ON DELETE CASCADE` (measured:
+  1,697 claims + 1,697 attestations). Snapshots are **recomposed, keeping every hand-authored SQL
+  body byte-identical** — `docs/migrations.md` §0 has the procedure and AECI-750's worked example at
+  seven migrations. Two checks close it: `db:generate` must report *"No schema changes"* with a
+  clean `git status --porcelain`, and the two migration sets' object sets must be **disjoint** (if
+  they are, the interleaved apply order on already-migrated tiers is inert).
 - **CI on the integration branches.** Every PR gets the full gate no matter which branch it
   targets — `deploy.yml`, `integration-db-tests.yml`, `drift-check.yml` and `pr-preview.yml` are
   all base-branch-agnostic (§3.1). `main`, `stage-2` and `admin-panel` additionally get a
@@ -881,19 +918,23 @@ Aggressive caching to minimize CI time:
 
 ### 11.2 Parallel jobs
 
-Independent jobs run in parallel. The dependency graph is:
+Independent jobs run in parallel. The real `deploy.yml` dependency graph is:
 
 ```
 lint-and-types ─┐
-unit-tests ──────├── (gate)
-build ──────────┘
-   │
-   └── deploy-preview
-            │
-            ├── e2e-tests
-            ├── accessibility
-            └── lighthouse
+                ├─→ build-web ─┐
+unit-tests ─────┘              │
+                               ├─→ e2e-and-integration ─→ deploy-staging
+changes  ──────────────────────┘        (push + refs/heads/main + STAGING_ENABLED)
+ (advisory)
 ```
+
+`changes` has no `needs:` and nothing gates on it except `e2e-and-integration`, which reads it
+**fail-open** (§3.1 / §11.3). The three **required** contexts are `lint-and-types` / `unit-tests` /
+`build-web` — none of them `needs:` `changes`, so the filter can never block a merge.
+
+Preview deploys are a separate workflow (`pr-preview.yml`), and Lighthouse runs post-merge in
+`lighthouse.yml` — neither is a job in this graph.
 
 ### 11.3 Selective testing
 

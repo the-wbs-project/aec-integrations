@@ -53,7 +53,7 @@
     {
       "key": "cron-job-failed",
       "name": "AECi — Cron job failed (any daily/hourly job)",
-      "insight": "AECi — ALERT — Cron job failed (any of the twelve, 24 h)",
+      "insight": "AECi — ALERT — Cron job failed (any of the thirteen, 24 h)",
       "enabled": true,
       "calculationInterval": "hourly",
       "condition": {

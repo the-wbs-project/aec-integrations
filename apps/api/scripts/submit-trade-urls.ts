@@ -1,16 +1,16 @@
 /**
  * submit-trade-urls.ts — announce published `/trades/:slug` pages to IndexNow and
- * the Google Indexing API, outside a promote.
+ * IndexNow, outside a promote.
  *
  * WHY THIS EXISTS. The indexing pings normally ride the post-commit promote hooks
- * (`src/routes/promote.ts` → `callIndexNow` / `callGoogleIndexing`), so a URL only
+ * (`src/routes/promote.ts` → `callIndexNow`), so a URL only
  * gets announced when a promote touches it. Retuning
  * `TRADE_PUBLISH_MIN_PRODUCTS` (`@aeci/shared`, `TRADES_VOCABULARY.md` §6) changes
  * which trade pages are indexable **with no promote behind it** — terms cross the
  * floor because the floor moved, not because the catalog did. Nothing then tells
  * an indexing service the pages exist. That is what this script is for. It is the
  * Node shell around the tested transports (`src/lib/indexnow.ts`,
- * `src/lib/google-indexing.ts`): it supplies argv, discovery, credentials, and
+ * `src/lib/indexnow.ts`): it supplies argv, discovery, credentials, and
  * `console`. Same shape as `retract-product.ts` / `backfill-metrics-daily.ts`.
  *
  * HOW IT PICKS URLS — it reads indexability off the deployed site rather than
@@ -33,8 +33,8 @@
  * purge actually landed before anything is announced.
  *
  * Re-runnable. It submits every currently-indexable trade page, not a hand-kept
- * "newly published" list: IndexNow is idempotent, and Google's default quota is
- * 200 requests/day against a set this size (≤ 35). Nothing is tracked between runs.
+ * "newly published" list: IndexNow is idempotent and unmetered at this size
+ * (≤ 35 URLs). Nothing is tracked between runs.
  *
  * USAGE (from anywhere; run via pnpm):
  *   # dry-run — discover and report, submit nothing (needs no credentials):
@@ -48,12 +48,8 @@
  * Credentials (read from the ambient environment; this script does NOT auto-load
  * .dev.vars). `--apply` only:
  *   - INDEXNOW_KEY                      required
- *   - GOOGLE_INDEXING_SA_EMAIL          optional — both must be set, or Google is
- *   - GOOGLE_INDEXING_SA_PRIVATE_KEY    skipped (same pairing as the promote hook)
  * All three live only as GitHub Actions secrets and Wrangler Worker secrets, both
  * of which are write-only stores — `wrangler secret list` returns names, not
- * values. An operator must be handed them out of band. Skip Google with
- * --skip-google.
  *
  * SAFETY:
  *   - Dry-run by default; `--apply` performs the outbound submissions.
@@ -68,7 +64,6 @@
  * Exit codes: 0 clean · 1 submission failure or refusal · 2 usage / credentials.
  */
 
-import { callGoogleIndexing } from '../src/lib/google-indexing';
 import { callIndexNow } from '../src/lib/indexnow';
 
 // ─── Args + target resolution ────────────────────────────────────────────────
@@ -83,13 +78,12 @@ const SITE_BY_ENV = {
 type SiteEnv = keyof typeof SITE_BY_ENV;
 
 const USAGE = `usage: ops:submit-trade-urls (--env <staging|demo|production> | --site <origin>)
-                            [--apply] [--allow-production] [--skip-google]
+                            [--apply] [--allow-production]
 
   --env <name>         Target a deployed env by its PUBLIC_SITE_URL.
   --site <origin>      Target an arbitrary origin (PR preview, localhost).
   --apply              Actually submit. Without it, discover and report only.
-  --allow-production    Required alongside --apply when the target is production.
-  --skip-google        Submit to IndexNow only.`;
+  --allow-production    Required alongside --apply when the target is production.`;
 
 function readValueFlag(argv: string[], name: string): string | undefined {
   const eq = argv.find((a) => a.startsWith(`${name}=`));
@@ -235,7 +229,6 @@ async function main(): Promise<number> {
 
   const target = resolveTarget(argv);
   const apply = argv.includes('--apply');
-  const skipGoogle = argv.includes('--skip-google');
 
   if (apply && target.isProduction && !argv.includes('--allow-production')) {
     console.error('REFUSING: production submissions need --allow-production.');
@@ -327,34 +320,6 @@ async function main(): Promise<number> {
   } else {
     console.error(`\nIndexNow: FAILED (${indexNow.status}) — ${indexNow.message}`);
     failed = true;
-  }
-
-  // ── Google Indexing ──
-  const clientEmail = process.env['GOOGLE_INDEXING_SA_EMAIL'];
-  const privateKey = process.env['GOOGLE_INDEXING_SA_PRIVATE_KEY'];
-  if (skipGoogle) {
-    console.log('Google Indexing: skipped (--skip-google).');
-  } else if (!clientEmail || !privateKey) {
-    console.log(
-      'Google Indexing: skipped — GOOGLE_INDEXING_SA_EMAIL / ' +
-        'GOOGLE_INDEXING_SA_PRIVATE_KEY not set (same pairing the promote hook uses).',
-    );
-  } else {
-    const google = await callGoogleIndexing(fetch, {
-      serviceAccount: { clientEmail, privateKey },
-      urlList,
-    });
-    if (google.ok && google.failed === 0) {
-      console.log(`Google Indexing: OK — ${google.submitted} URL(s) submitted.`);
-    } else if (google.ok) {
-      console.error(
-        `Google Indexing: PARTIAL — ${google.submitted} submitted, ${google.failed} failed.`,
-      );
-      failed = true;
-    } else {
-      console.error(`Google Indexing: FAILED (${google.status}) — ${google.message}`);
-      failed = true;
-    }
   }
 
   console.log(

@@ -15,6 +15,14 @@
  * `--test-scheduled` tick is never silently dropped.
  *
  * Cron triggers (`wrangler.jsonc`), staging + production:
+ * 02:00 UTC **Mondays** — the weekly §7.6 `asn_registry` refresh
+ * (`./lib/asn-registry`, AECI-624): one PeeringDB read (authenticated when
+ * `PEERINGDB_API_KEY` is set — anonymous reads are throttled, AECI-661),
+ * intersected with the ASNs `page_views` has actually seen, upserted for the
+ * admin panel's read-time annotation. The only weekly trigger, and the only job
+ * whose output is an annotation rather than a measurement — it never writes
+ * `page_views.is_bot` and never deletes a row, so a failed week leaves the last
+ * good registry in place (visibly stale via `fetched_at`).
  * 03:00 UTC — daily §7.4 retention prune (`./lib/retention-prune`, AECI-584 /
  * Phase 8.3 P3.2): delete `page_views` older than 400 days and `job_runs` older
  * than 90, in bounded chunks, committing every chunk together with ONE summary
@@ -89,6 +97,7 @@ import { fetchWafFirewallEvents } from '@aeci/shared/cloudflare-analytics';
 import { and, asc, count, eq, inArray } from 'drizzle-orm';
 
 import { getDb } from './db/client';
+import type { Db } from './db/client';
 import { integrations, products, reviews, vendors } from './db/schema';
 import { logToPosthog, submitCount, submitDistribution, submitGauge } from './posthog';
 import { forwardAuditLog, type AuditLogForwarder } from '@aeci/shared/audit-log';
@@ -118,12 +127,17 @@ import {
   buildAnalyticsDigest,
   collectAnalyticsMetrics,
   dailyWindows,
+  type DigestWindow,
+  humanViewsAfterAutomation,
 } from './lib/analytics-digest';
+import { refreshAsnRegistry } from './lib/asn-registry';
+import { fetchPosthogTraffic, publicHostOf, type PosthogQueryOutcome } from './lib/posthog-query';
 import {
   ADMIN_CRON_JOB,
   ALGOLIA_DRIFT_CRON,
   ALGOLIA_SYNC_CRON,
   ANALYTICS_CRON,
+  ASN_REGISTRY_CRON,
   ATTESTATION_NOTIFY_CRON,
   DATA_QUALITY_CRON,
   ENTITLEMENT_EXPIRY_CRON,
@@ -238,7 +252,7 @@ function jobRunSink(ctx: ExecutionContext, env: Env): JobRunSink {
   };
 }
 
-// The twelve cron expressions now live in `./lib/cron-schedules` — hoisted there
+// The thirteen cron expressions now live in `./lib/cron-schedules` — hoisted there
 // by AECI-580 (the snapshot cron joined them in AECI-581, the retention prune in
 // AECI-584, and the §7 attestation sweep at the AECI-619 reconciliation) so
 // `GET /api/admin/system`'s liveness rows read the SAME literals this dispatcher
@@ -276,6 +290,14 @@ const ANALYTICS_EMAIL_METRIC = 'aeci.analytics_digest.email';
  *  run with `outcome:ok|failed|skipped_no_creds` — the always-emitted `outcome:ok`
  *  series doubles as the cron-liveness signal (see docs/OBSERVABILITY.md). */
 const WAF_POLL_METRIC = 'aeci.waf.poll';
+
+/** Per-run heartbeat for the weekly `asn_registry` refresh (AECI-624), tagged
+ *  `outcome:ok|partial|failed|skipped`, and the coverage gauge beside it: the
+ *  fraction of seen ASNs the registry can classify. Coverage is what silently
+ *  decays between runs as new ASNs arrive, so it gets its own series rather than
+ *  living only in the `job_runs` payload (see docs/OBSERVABILITY.md). */
+const ASN_REGISTRY_METRIC = 'aeci.asn_registry.refresh';
+const ASN_REGISTRY_COVERAGE_METRIC = 'aeci.asn_registry.coverage';
 
 /** Outcome of a §7.2 `job_runs` bookkeeping write (AECI-583), tagged
  *  `phase:start|finish`, `job:<AdminCronJob>`, `outcome:ok|failed`. This measures
@@ -1025,16 +1047,61 @@ async function runDataQualityJob(env: Env, ctx: ExecutionContext): Promise<JobRu
  *  a read/format crash is logged and counted `outcome:failed` (so the metric still
  *  fires as a liveness heartbeat), never rethrown — a failed cron must not tear down
  *  the invocation. */
+/**
+ * The digest's client-side human floor (AECI-660), or a structured skip.
+ *
+ * Fail-open by construction: every failure path returns `{ ok: false, reason }`
+ * and the digest renders a short "unavailable" note instead of a number. It must
+ * never return a zero on failure — a fabricated 0 beside a real 48 reads as a
+ * finding rather than as missing data.
+ *
+ * Host-scoped to this environment's own `PUBLIC_SITE_URL`, because every tier
+ * currently shares one PostHog project and an unscoped read would fold demo and
+ * staging traffic into the production figure.
+ */
+async function readPosthogFloor(env: Env, window: DigestWindow): Promise<PosthogQueryOutcome> {
+  const host = publicHostOf(env.PUBLIC_SITE_URL);
+  if (!host) return { ok: false, reason: 'public_site_url_unset' };
+  return fetchPosthogTraffic(
+    {
+      apiKey: env.POSTHOG_QUERY_API_KEY,
+      projectId: env.POSTHOG_PROJECT_ID,
+      host: env.POSTHOG_API_HOST,
+    },
+    { startIso: window.startIso, endIso: window.endIso, host },
+    fetch,
+  );
+}
+
 async function runAnalyticsDigestJob(env: Env, ctx: ExecutionContext): Promise<JobRunReport> {
   const req = cronRequest('/cron/analytics-digest');
   try {
     const { db } = cronDb(env);
     const window = dailyWindows(new Date());
-    const metrics = await collectAnalyticsMetrics(db, window);
+
+    // Two reads. Swarm detection USED to be orchestrated here, above the
+    // collector, because `swarm-detection` imported the collector's own
+    // `HUMAN` / `NOT_INTERNAL` predicates and calling it from inside would have
+    // closed an import cycle. AECI-745 lifted those predicates into
+    // `lib/page-view-predicates.ts`, so the collector runs the detector itself —
+    // which is what put the filtered headline on `/admin/overview` too, instead
+    // of leaving it reachable only from here and therefore only by email.
+    //
+    // The PostHog half of that old rationale still stands and is why this read
+    // stays out here: it reaches the NETWORK, which the D1-only collector has
+    // never done and should not start doing.
+    const [metrics, posthog] = await Promise.all([
+      collectAnalyticsMetrics(db, window),
+      readPosthogFloor(env, window),
+    ]);
+    const swarm = metrics.swarm;
+
     const digest = buildAnalyticsDigest(metrics, {
       env: env.ENV ?? 'development',
       dayLabel: window.dayLabel,
       generatedAt: new Date(),
+      posthog: posthog.ok ? posthog.traffic : null,
+      posthogUnavailable: posthog.ok ? null : posthog.reason,
     });
     const recipients = parseRecipients(env.ANALYTICS_DIGEST_EMAIL_TO);
     const outcome = await sendEmail(env, {
@@ -1072,6 +1139,55 @@ async function runAnalyticsDigestJob(env: Env, ctx: ExecutionContext): Promise<J
           newUsers: metrics.newUsers.day,
           totalUsers: metrics.totalUsers,
           pendingModeration: metrics.pendingModeration,
+          // AECI-660 / AECI-658. Recorded so a join that silently stops running
+          // is visible in `job_runs` rather than only as an absence in the email.
+          posthogPageViews: posthog.ok ? posthog.traffic.pageviews : null,
+          posthogPeople: posthog.ok ? posthog.traffic.people : null,
+          posthogSkipped: posthog.ok ? null : posthog.reason,
+          // Null throughout when the detector did not run (AECI-745). A zero here
+          // would record a clean day, which is precisely what an outage must not
+          // be allowed to look like in the history anyone later reads.
+          swarmCandidates: swarm?.uaCandidates.length ?? null,
+          asnRotatorCandidates: swarm?.asnCandidates.length ?? null,
+          swarmFlaggedViews: swarm?.flaggedViews ?? null,
+          swarmTruncated: swarm?.truncated ?? null,
+          // AECI-742. How many of the day's candidates were admitted on a lower
+          // bar because they carried a flagged history. Recorded for the same
+          // reason as `operatorLeakViews` below: a lever that starts over-reaching
+          // has to be visible in `job_runs` history, not only in one morning's
+          // email, and this one draws on evidence from outside the reported day.
+          swarmRecurringCandidates:
+            swarm?.uaCandidates.filter((c) => c.priorFlaggedDays > 0).length ?? null,
+          // AECI-744. The third shape: views flagged by their own request headers
+          // with no view floor, and the networks they came from. Recorded because
+          // the rollup is a read over `page_views`, and by the time anyone asks
+          // "which networks were those?" the window may have aged out of retention.
+          verdictFlaggedViews: swarm?.verdictFlaggedViews ?? null,
+          nonBrowserCandidates: swarm?.verdictCandidates.length ?? null,
+          nonBrowserNetworks:
+            swarm?.verdictCandidates.map((c) => ({
+              asn: c.cfAsn,
+              org: c.asOrganization,
+              views: c.views,
+            })) ?? null,
+          // AECI-741. The headline the email actually led with, recorded so the
+          // number the operator read is reconstructible from `job_runs` without
+          // re-running the detector over a window whose data may since have aged
+          // out of retention.
+          // Through the shared function rather than an inline subtraction: an
+          // open-coded copy here is a second definition of the headline, which is
+          // the exact failure AECI-745 closed everywhere else. Null when the
+          // detector did not run — the raw count IS the headline on such a day,
+          // but recording it under this key would assert a filter that never ran.
+          pageViewsHumanNetAutomation: metrics.automation
+            ? humanViewsAfterAutomation(metrics).day
+            : null,
+          // AECI-683. Recorded beside the headline so a leak that starts growing
+          // (or a pair rule that starts over-reaching) is visible in `job_runs`
+          // history rather than only in one morning's email.
+          operatorLeakViews: metrics.operatorLeakViews,
+          corroboratedViews: metrics.corroboratedViews.day,
+          corroboratedVisitors: metrics.corroboratedVisitors,
         },
       },
     };
@@ -1229,6 +1345,107 @@ async function runEntitlementExpiryJob(env: Env, ctx: ExecutionContext): Promise
   }
 }
 
+/**
+ * Refresh `asn_registry` from PeeringDB (AECI-624 / §7.6) — the weekly job, and
+ * the only one here whose output is *annotation* rather than measurement.
+ *
+ * Everything load-bearing is in `./lib/asn-registry`; this is the shell that
+ * supplies the clock, `fetch`, and the PostHog sink. Two things are specific to
+ * an annotation feed:
+ *
+ *   - **It never throws and never deletes.** An upstream outage returns
+ *     `status: 'failed'` with the last good rows untouched, so the panel keeps
+ *     annotating from a stale registry (visibly stale — §5.6 renders
+ *     `fetched_at`) rather than losing the annotation entirely.
+ *   - **`written === 0` on a healthy feed is not a failure.** A fresh environment
+ *     with an empty `page_views` has nothing to intersect, so the honest outcome
+ *     is `skipped`, not `ok` (which would claim a refresh happened) and not
+ *     `failed` (nothing broke). The refresh result distinguishes the two by
+ *     reporting `seen`.
+ */
+async function runAsnRegistryJob(env: Env, ctx: ExecutionContext): Promise<JobRunReport> {
+  const req = cronRequest('/cron/asn-registry');
+  const started = Date.now();
+
+  let db: Db;
+  try {
+    db = cronDb(env).db;
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    submitCount(ctx, env, req, ASN_REGISTRY_METRIC, 1, ['trigger:cron', 'outcome:failed']);
+    logToPosthog(ctx, env, req, {
+      level: 'error',
+      message: 'aeci.asn_registry.crashed',
+      source: 'asn-registry-cron',
+      reason,
+    });
+    return { outcome: 'failed', detail: { job: 'asn-registry', reason } };
+  }
+
+  const result = await refreshAsnRegistry(db, fetch, new Date(), {
+    apiKey: env.PEERINGDB_API_KEY,
+  });
+  const durationMs = Date.now() - started;
+
+  if (result.status === 'failed') {
+    submitCount(ctx, env, req, ASN_REGISTRY_METRIC, 1, ['trigger:cron', 'outcome:failed']);
+    logToPosthog(ctx, env, req, {
+      level: 'error',
+      message: `aeci.asn_registry.failed reason=${result.reason ?? 'unknown'}`,
+      source: 'asn-registry-cron',
+      reason: result.reason,
+      fetched: result.fetched,
+      seen: result.seen,
+    });
+    return {
+      outcome: 'failed',
+      detail: { job: 'asn-registry', reason: result.reason ?? 'refresh failed' },
+    };
+  }
+
+  // Nothing to classify — the expected state on a fresh env, and honestly a
+  // non-run rather than a clean one.
+  if (result.seen === 0) {
+    submitCount(ctx, env, req, ASN_REGISTRY_METRIC, 1, ['trigger:cron', 'outcome:skipped']);
+    return { outcome: 'skipped', detail: { job: 'asn-registry', reason: 'no page_views ASNs' } };
+  }
+
+  // Coverage is the number worth a gauge: it is what decides whether an
+  // annotation exists for a given row, and it degrades silently as new ASNs
+  // arrive between runs.
+  submitGauge(ctx, env, req, ASN_REGISTRY_COVERAGE_METRIC, result.matched / result.seen, []);
+  submitCount(ctx, env, req, ASN_REGISTRY_METRIC, 1, [
+    'trigger:cron',
+    `outcome:${result.failedChunks > 0 ? 'partial' : 'ok'}`,
+  ]);
+  logToPosthog(ctx, env, req, {
+    level: result.failedChunks > 0 ? 'warn' : 'info',
+    message: `aeci.asn_registry.refreshed fetched=${result.fetched} seen=${result.seen} matched=${result.matched} written=${result.written}`,
+    source: 'asn-registry-cron',
+    fetched: result.fetched,
+    seen: result.seen,
+    matched: result.matched,
+    written: result.written,
+    failed_chunks: result.failedChunks,
+  });
+
+  // A partial write collapses to `failed`, in step with every other job here:
+  // the panel must not show a green tick for a run that dropped rows. The detail
+  // carries `written` so "partial" is still recoverable from the row.
+  return {
+    outcome: result.failedChunks > 0 ? 'failed' : 'ok',
+    detail: {
+      job: 'asn-registry',
+      durationMs,
+      fetched: result.fetched,
+      seen: result.seen,
+      matched: result.matched,
+      written: result.written,
+      failedChunks: result.failedChunks,
+    },
+  };
+}
+
 /** The host portion of a URL, or `undefined` if it's missing/unparseable. The
  *  WAF poll scopes its query to the env's own host so a shared zone isn't
  *  triple-counted across `env:` tags. */
@@ -1371,6 +1588,13 @@ function queueForJob(env: Env, job: ScheduledJob): Queue<ScheduledJobMessage> | 
       // idempotent `(day, metric)` upsert — so queue-native retries buy nothing.
       // No `SNAPSHOT_QUEUE` binding exists, so it always runs inline.
       return undefined;
+    case 'asn_registry':
+      // Queue-less like `waf` (AECI-624): one read-only GET plus an upsert that is
+      // idempotent by ASN and never deletes, so a failed week costs nothing but
+      // freshness and the next Monday converges. Provisioning a twelfth queue for
+      // a job whose retry semantics are already "try again next week" would be
+      // infrastructure for its own sake. No `ASN_REGISTRY_QUEUE` binding exists.
+      return undefined;
   }
 }
 
@@ -1455,6 +1679,15 @@ function enqueueFailureLog(job: ScheduledJob): { path: string; message: string; 
       source: 'retention-prune-cron',
     };
   }
+  if (job === 'asn_registry') {
+    // Unreachable in practice (asn_registry is queue-less, so `queue.send` is
+    // never called) — kept so the mapping is total over `ScheduledJob`.
+    return {
+      path: '/cron/asn-registry',
+      message: 'aeci.asn_registry.enqueue_failed',
+      source: 'asn-registry-cron',
+    };
+  }
   return {
     path: `/cron/algolia-${job}`,
     message: `aeci.algolia.${job}.enqueue_failed`,
@@ -1501,7 +1734,7 @@ async function enqueueOrRun(env: Env, ctx: ExecutionContext, job: ScheduledJob):
  *  {@link JobRunReport} rather than `void`, because the impls swallow their own
  *  operational errors — a wrapper that only watched for a throw would record `ok`
  *  for a run that failed. `Promise<JobRunReport>` also makes the type checker
- *  enumerate every exit path in all twelve, which is what makes "each of the twelve
+ *  enumerate every exit path in all thirteen, which is what makes "each of the thirteen
  *  writes a row, on every path" verifiable rather than a review checklist. */
 async function dispatchScheduledJob(
   env: Env,
@@ -1533,6 +1766,8 @@ async function dispatchScheduledJob(
       return runRetentionPruneJob(env, ctx);
     case 'entitlement_expiry':
       return runEntitlementExpiryJob(env, ctx);
+    case 'asn_registry':
+      return runAsnRegistryJob(env, ctx);
   }
 }
 
@@ -1574,6 +1809,9 @@ export const scheduled: ExportedHandlerScheduledHandler<Env> = async (controller
     case SNAPSHOT_CRON:
       await enqueueOrRun(env, ctx, 'snapshot');
       return;
+    case ASN_REGISTRY_CRON:
+      await enqueueOrRun(env, ctx, 'asn_registry');
+      return;
     case RETENTION_CRON:
       await enqueueOrRun(env, ctx, 'retention');
       return;
@@ -1605,9 +1843,25 @@ export const scheduled: ExportedHandlerScheduledHandler<Env> = async (controller
       await enqueueOrRun(env, ctx, 'entitlement_expiry');
       return;
     default:
-      // A trigger fired with no matching case — surface it rather than silently
-      // doing nothing (e.g. a wrangler.jsonc cron added without a handler).
+      // A trigger fired with no matching case. This used to be a bare
+      // `console.warn`, which made it indistinguishable from a job that never
+      // ran at all: `asn_registry` sat unnoticed in exactly this state, because
+      // the only evidence was an absent `job_runs` row, and an absent row looks
+      // identical to a quiet week (AECI-661).
+      //
+      // `controller.cron` is matched by EXACT STRING above, so any drift between
+      // a deployed `triggers.crons` entry and `lib/cron-schedules.ts` lands here.
+      // Forward it to the observability pipeline as an error so it can alert.
       console.warn(`scheduled: no handler for cron "${controller.cron}"`);
+      logToPosthog(ctx, env, cronRequest('/cron/unmatched'), {
+        level: 'error',
+        message: 'aeci.cron.no_handler',
+        source: 'cron-dispatch',
+        reason: `no handler for cron "${controller.cron}"`,
+      });
+      submitCount(ctx, env, cronRequest('/cron/unmatched'), 'aeci.cron.no_handler', 1, [
+        `cron:${controller.cron}`,
+      ]);
   }
 };
 

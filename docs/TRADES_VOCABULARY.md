@@ -331,7 +331,7 @@ floor.
 | `/trades` index — *the page itself* | Always in the sitemap, always indexable — the floor gates terms, not the navigational page that lists them (AECI-546); see below |
 | `/trades/:slug` page | 200, indexable | 200, `noindex` |
 | XML sitemap | Included | **Excluded** |
-| IndexNow / Google Indexing ping on `POST /api/promote` | Submitted | **Not submitted** (AECI-546) |
+| IndexNow ping on `POST /api/promote` | Submitted | **Not submitted** (AECI-546) |
 | Primary-nav flyout (`TaxonomyNavStore.tradesTop10`) | Offered | **Hidden** |
 | Facet sidebar (`aec-facet-sidebar`) | Offered as a filter | **Also offered** — the floor does NOT apply; see below |
 | Product-detail trade chips | Rendered + linked | Rendered + linked (the tag is true; the *page* is just not promoted) |
@@ -354,7 +354,7 @@ depend on the catalog rather than on the page. It is therefore listed unconditio
 and never `noindex`, exactly like `/categories`, `/audiences`, and `/phases`.
 
 **Why the indexing pings follow the floor.** `POST /api/promote` submits affected URLs to IndexNow
-and the Google Indexing API (§20.2). Pinging an indexing service for a page that serves `noindex` is
+(§20.2; the Google Indexing ping was removed in AECI-747). Pinging an indexing service for a page that serves `noindex` is
 the same correctness bug the "provision `INDEXNOW_KEY` only at launch" rule exists to prevent, so
 only published terms are submitted. The `/trades` **index** is submitted whenever any trade is
 touched at all — published or not — because it renders live per-term counts and gains or loses a
@@ -398,7 +398,7 @@ consumers, and where each applies the floor:
 | Primary-nav flyout | `apps/web/src/app/core/taxonomy/taxonomy-nav.store.ts` (AECI-544) |
 | XML sitemap | `apps/web/src/server/sitemap.ts` (AECI-546) |
 | `<meta name="robots">` on a term page | `apps/web/src/app/taxonomy/taxonomy-browse.resolver.ts` → `applyBrowseMeta` (AECI-546) |
-| IndexNow / Google Indexing submit set | `apps/api/src/routes/promote-trade-publication.ts` → `apps/api/src/routes/promote-indexnow-urls.ts` (AECI-546) |
+| IndexNow submit set | `apps/api/src/routes/promote-trade-publication.ts` → `apps/api/src/routes/promote-indexnow-urls.ts` (AECI-546) |
 | Admin panel — catalog coverage | `apps/api/src/lib/admin-catalog.ts` → `taxonomyUsage()` (AECI-579). Reports **published vs thin per term** so an operator can see which trade pages currently clear the floor. It is the one consumer that neither hides nor filters a sub-floor term — the whole point is to show what is still thin. It also surfaces the untagged-product count with a `trade_facet_sparse_by_design` caveat, because §1.1 makes "untagged" the correct state for most of the catalog rather than a backlog. |
 
 The API-side consumer is the only one that must *read* the floor rather than filter data it already

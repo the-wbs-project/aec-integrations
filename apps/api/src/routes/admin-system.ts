@@ -82,6 +82,7 @@ import {
   type ExpensiveStatusDeps,
 } from '../lib/admin-status';
 import { ALGOLIA_WATERMARK_KEY } from '../lib/algolia-sync';
+import { asnRegistryFreshness } from '../lib/asn-registry';
 import { CRON_JOBS, CRON_SCHEDULES } from '../lib/cron-schedules';
 import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
 import { latestJobRuns, orphanSweepDetail, type JobRunRow } from '../lib/job-runs';
@@ -419,14 +420,19 @@ export function createAdminSystemHandler(
     // One `job_runs` read feeds both the liveness table and the orphan sweep.
     const runs = await latestJobRuns(db, CRON_JOBS);
 
-    const [crons, watermark, tables, sizeBytes, freshness, expensive] = await Promise.all([
-      cronRuns(db, runs),
-      algoliaWatermark(db),
-      tableCounts(db),
-      sizeProbe(db),
-      statsFreshness(db, now),
-      runExpensiveStatusItems(db, c.env, now, query.recompute, deps),
-    ]);
+    const [crons, watermark, tables, sizeBytes, freshness, asnRegistryStatus, expensive] =
+      await Promise.all([
+        cronRuns(db, runs),
+        algoliaWatermark(db),
+        tableCounts(db),
+        sizeProbe(db),
+        statsFreshness(db, now),
+        // Cheap: two aggregates over a table bounded by the number of distinct
+        // ASNs we have ever seen (878 in production), so it stays in the default
+        // read rather than behind `?recompute=1`.
+        asnRegistryFreshness(db, now),
+        runExpensiveStatusItems(db, c.env, now, query.recompute, deps),
+      ]);
 
     const notes: AdminNote[] = [...expensive.notes];
 
@@ -474,6 +480,7 @@ export function createAdminSystemHandler(
       },
       database: { size_bytes: sizeBytes, tables },
       stats_freshness: freshness,
+      asn_registry: asnRegistryStatus,
     };
 
     validateResponseInDev(c.env, () => {

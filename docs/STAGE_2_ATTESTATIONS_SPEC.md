@@ -103,12 +103,12 @@ reads them (`docs/migrations.md`: edit `apps/api/src/db/schema.ts` → `pnpm db:
 | index | `attestations_active_idx` predicate changes `deprecated_at IS NULL` → `retracted_at IS NULL` |
 
 **Migration 2 (§8)** — the product-version model: a new `product_versions` table plus
-`attestations.introduced_version_id` / `deprecated_version_id`. **Shipped as `0008_slim_iron_lad.sql`
-and renumbered to `0017_slim_iron_lad.sql` by AECI-619** (see §1.4), and the two `ALTER`s are
+`attestations.introduced_version_id` / `deprecated_version_id`. **Shipped as `0008_slim_iron_lad.sql`,
+renumbered to `0017` by AECI-619 and to `0022_slim_iron_lad.sql` by AECI-750** (see §1.4), and the two `ALTER`s are
 hand-authored for the reason §2.5 documents; see §8.4.
 
 **Migration 3 (§13)** — the maintenance marker: `last_reviewed_at` + `maintained_by` on `vendors`,
-`products`, and `integrations`. Shipped as `0018_chilly_joseph.sql`, additive, **hand-authored for
+`products`, and `integrations`. Shipped as `0023_chilly_joseph.sql`, additive, **hand-authored for
 the reason §2.5 documents** — see §13.4. Scoped in after this section was originally written
 (AECI-616 postdates kickoff), which is why several docs briefly said "two"; AECI-608 swept that.
 
@@ -314,7 +314,7 @@ ownership cases in the §2.1 table plus the both-endpoints case.
 
 ### 2.5 As built (AECI-603 — 2026-08-14)
 
-Shipped as **migration 1 of two**: `apps/api/migrations/0016_lyrical_leper_queen.sql` (shipped as
+Shipped as **migration 1 of two**: `apps/api/migrations/0021_lyrical_leper_queen.sql` (shipped as
 `0006_*`, renumbered by AECI-619 — §1.4), generated from
 `apps/api/src/db/schema.ts` (`claims` / `attestations` + their `relations`), plus the helper seam
 `apps/api/src/lib/attestation-authority.ts` and its spec. Constraint coverage lives in
@@ -1299,7 +1299,7 @@ anyway. Recorded as a deferral (§10), not an oversight.
 
 ### 8.4 As built (AECI-607 — 2026-08-14)
 
-Shipped as **migration 2 of two**: `apps/api/migrations/0017_slim_iron_lad.sql` (shipped as
+Shipped as **migration 2 of two**: `apps/api/migrations/0022_slim_iron_lad.sql` (shipped as
 `0008_*`, renumbered by AECI-619 — §1.4), plus the pure
 ordering primitive `packages/shared/src/version-sort.ts`, the wire contract
 `packages/shared/src/api/product-versions.ts`, the CRUD handlers
@@ -1831,7 +1831,7 @@ and a marker whose entire purpose is to be a falsifiable claim cannot be built o
 Hence the two hard rules, which are constraints and not preferences:
 
 - **`last_reviewed_at` is a plain column.** No `$defaultFn`, and above all **no `$onUpdate`**.
-- **No backfill, ever.** Migration `0018` carries no backfill statement. Existing rows stay `NULL`
+- **No backfill, ever.** Migration `0023` (shipped as `0018`) carries no backfill statement. Existing rows stay `NULL`
   and render bare attribution. Seeding them from any existing timestamp would manufacture exactly
   the fake freshness the feature exists to expose.
 
@@ -1924,7 +1924,7 @@ AECi-verified vendor *account*). Merging them would collapse three separate sign
 
 ### 13.8 As built (AECI-616 — 2026-08-18)
 
-Shipped as **migration 3 of three**: `apps/api/migrations/0018_chilly_joseph.sql`. Decisions taken
+Shipped as **migration 3 of three**: `apps/api/migrations/0023_chilly_joseph.sql`. Decisions taken
 at build that this section did not pre-specify:
 
 - **The migration body is hand-authored, and the issue's own note was wrong about why it had to be.**

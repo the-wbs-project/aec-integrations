@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { classifyReferrer } from './referrer-classification';
+import { classifyReferrer, NAMED_REFERRER_SOURCES } from './referrer-classification';
 
 const SELF = ['aecintegrations.com', 'aec-integrations.workers.dev'];
 
@@ -60,5 +60,52 @@ describe('classifyReferrer', () => {
       source: 'Other',
       host: 'some-blog.example.com',
     });
+  });
+});
+
+describe('NAMED_REFERRER_SOURCES (AECI-683)', () => {
+  const SELF = ['aecintegrations.com'];
+
+  it('contains every label the classifier can produce for a known host', () => {
+    // Derived from the SOURCES table rather than restated, so a source added to
+    // the classifier joins the corroborated population automatically. This test
+    // is the guard on that: a hand-maintained copy would silently fall behind.
+    const hosts = [
+      'https://www.google.com/search?q=x',
+      'https://www.bing.com/',
+      'https://duckduckgo.com/',
+      'https://search.yahoo.com/',
+      'https://www.ecosia.org/',
+      'https://search.brave.com/',
+      'https://yandex.ru/',
+      'https://www.baidu.com/',
+      'https://www.linkedin.com/',
+      'https://t.co/abc',
+      'https://www.facebook.com/',
+      'https://www.instagram.com/',
+      'https://www.youtube.com/',
+      'https://www.reddit.com/',
+      'https://news.ycombinator.com/',
+      'https://github.com/',
+      'https://t.me/x',
+      'https://bsky.app/',
+    ];
+    for (const h of hosts) {
+      expect(NAMED_REFERRER_SOURCES).toContain(classifyReferrer(h, SELF).source);
+    }
+  });
+
+  it('excludes Direct and Other — the two buckets that corroborate nothing', () => {
+    // `Direct` is where every stripped referral lands, and `Other` is an open
+    // bucket a forger controls entirely. Counting either would turn the
+    // corroborated figure back into the headline it exists to qualify.
+    expect(classifyReferrer(null, SELF).source).toBe('Direct');
+    expect(classifyReferrer('https://example.invalid/', SELF).source).toBe('Other');
+    expect(NAMED_REFERRER_SOURCES).not.toContain('Direct');
+    expect(NAMED_REFERRER_SOURCES).not.toContain('Other');
+  });
+
+  it('is deduplicated — several hosts share one label', () => {
+    expect(new Set(NAMED_REFERRER_SOURCES).size).toBe(NAMED_REFERRER_SOURCES.length);
   });
 });

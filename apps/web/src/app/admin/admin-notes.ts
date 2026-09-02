@@ -105,17 +105,44 @@ const NOTE_PROSE: Record<AdminNoteCode, (params: NoteParams) => string> = {
   referrer_source_incomplete: (p) =>
     $localize`:@@admin.notes.referrerSourceIncomplete:${num(p, 'rows')}:ROWS: human page views in this window have no traffic source. This is not backfillable: the header was never stored.`,
 
+  referrer_source_is_unverified: () =>
+    $localize`:@@admin.notes.referrerSourceIsUnverified:A traffic source is what the request claimed, not a verified fact. It comes from a header the visitor's browser sets, and anything can set it: a forged source is indistinguishable from a real one here.`,
+
   direct_is_mixed_bucket: () =>
     $localize`:@@admin.notes.directIsMixedBucket:Direct mixes true direct arrivals with in-app navigation: a same-origin referrer classifies as Direct.`,
 
   visitor_definition_approximate: () =>
     $localize`:@@admin.notes.visitorDefinitionApproximate:A visitor is a distinct browser-and-network pair within the window. It over-counts when a browser updates and under-counts behind a shared network.`,
 
+  corroborated_is_a_referrer_floor: () =>
+    $localize`:@@admin.notes.corroboratedIsAReferrerFloor:Corroborated arrivals are those carrying a named external search or social referrer. Read it as a floor, not a count of people: privacy tools strip the header, so real referrals land in Direct. It also rests on the same unverified claim as the Source column.`,
+
+  operator_leak_is_an_inference: () =>
+    $localize`:@@admin.notes.operatorLeakIsAnInference:Views excluded as operator self-traffic on a lapsed session are matched by browser-and-network pair against a verified operator session nearby in time. That is an inference about who the visitor was, not a verified session.`,
+
+  // AECI-745. The API's `message` carries `SWARM_THRESHOLD_NOTE` verbatim, which
+  // is English and interpolates the detector's own numeric thresholds — so it is
+  // a FALLBACK, not the rendered string. Localizing the exact figures would mean
+  // duplicating the constants here and letting them rot; naming the shape of the
+  // rule and pointing at the day's own reading keeps the panel translatable
+  // without asserting a threshold it does not own.
+  automation_filter_applied: () =>
+    $localize`:@@admin.notes.automationFilterApplied:The headline is human page views less those attributed to automated clients: one browser fingerprint appearing across many networks, one network serving a new fingerprint almost every request, or a request whose own headers do not look like a browser. It is an estimate, not a census.`,
+
+  automation_filter_did_not_run: () =>
+    $localize`:@@admin.notes.automationFilterDidNotRun:The automation filter did not run for this window, so the human page-view figure is unfiltered and is an upper bound only. It is not comparable with a day the filter ran on.`,
+
   catalog_series_is_additions_only: () =>
     $localize`:@@admin.notes.catalogSeriesIsAdditionsOnly:This series counts creation events from the audit log: additions per day, not a net total. Rows removed later still count on the day they were added.`,
 
   catalog_series_starts_at: (p) =>
     $localize`:@@admin.notes.catalogSeriesStartsAt:The audit log begins ${str(p, 'earliest_day')}:EARLIEST_DAY:. Days before that read zero for want of data, not for want of activity.`,
+
+  catalog_series_is_surviving_rows: () =>
+    $localize`:@@admin.notes.catalogSeriesIsSurvivingRows:These are the records in the catalog now, counted against the period they were added in, so removals are netted off and the columns add up to the totals above. Nothing records when a record was removed, so a removal comes off the period it was added in: earlier figures can fall as records are removed later.`,
+
+  catalog_claims_recreated_by_promote: () =>
+    $localize`:@@admin.notes.catalogClaimsRecreatedByPromote:Every promote rewrites the claims on an integration, so a claim is dated by the last promote rather than by when it first appeared. Read Claims as a count of live claims, not as a history of when they arrived.`,
 
   internal_filter_unavailable: () =>
     $localize`:@@admin.notes.internalFilterUnavailable:Internal-traffic filtering is not available, so every figure here is unfiltered.`,

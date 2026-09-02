@@ -1,31 +1,28 @@
 {
   "_readme": [
-    "AECI-647 / PH-6 — docs/POSTHOG_MIGRATION_SPEC.md §AW6.",
+    "AECI-647 / PH-6 \u2014 docs/POSTHOG_MIGRATION_SPEC.md \u00a7AW6.",
     "Topology + shared conventions for the PostHog observability plane. Read by apply.sh",
     "and by scripts/ci/posthog-liveness-sweep.sh. Everything here is non-secret: the phc_",
-    "tokens are publishable and already ship in served HTML (§3.2), and the numeric project",
+    "tokens are publishable and already ship in served HTML (\u00a73.2), and the numeric project",
     "ids are not credentials. The personal phx_ key is NEVER stored here.",
     "",
-    "IMPORTANT — see README.md §'Migration hazards' before editing a query. Two conventions",
+    "IMPORTANT \u2014 see README.md \u00a7'Migration hazards' before editing a query. Two conventions",
     "differ from Datadog and will silently zero a query if you forget them:",
     "  1. Datadog lowercased tag values on ingest. PostHog does NOT. `cache_status` is",
     "     emitted as `MISS` (apps/web/src/server-runtime.ts:989). Every query that filters a",
     "     tag whose casing is not pinned by a TypeScript union uses lower().",
-    "  2. Datadog's `env:` tag is replaced by the PROJECT boundary (spec D4/§3.6), not by a",
+    "  2. Datadog's `env:` tag is replaced by the PROJECT boundary (spec D4/\u00a73.6), not by a",
     "     resource-attribute filter. Queries deliberately do NOT filter",
-    "     `resource_attributes.env` — a wrong literal there returns 0 rows forever and looks",
+    "     `resource_attributes.env` \u2014 a wrong literal there returns 0 rows forever and looks",
     "     exactly like a healthy system."
   ],
-
   "managedBy": "AECI-647",
-  "specSection": "docs/POSTHOG_MIGRATION_SPEC.md §AW6",
-
+  "specSection": "docs/POSTHOG_MIGRATION_SPEC.md \u00a7AW6",
   "hosts": {
     "management": "https://us.posthog.com",
     "ingest": "https://us.i.posthog.com",
-    "_note": "us.posthog.com = management API (insights/dashboards/alerts/query). us.i.posthog.com = ingest (OTLP logs/metrics, /capture/). Swapping them yields a confusing 404 that reads like a config error (spec §2)."
+    "_note": "us.posthog.com = management API (insights/dashboards/alerts/query). us.i.posthog.com = ingest (OTLP logs/metrics, /capture/). Swapping them yields a confusing 404 that reads like a config error (spec \u00a72)."
   },
-
   "projects": [
     {
       "key": "prod",
@@ -46,23 +43,20 @@
       "repoVariable": "POSTHOG_PROJECT_ID_NONPROD",
       "receivesAlerts": false,
       "receivesDashboards": true,
-      "_note": "Dashboards land here too, deliberately: a production-only board cannot be checked against data until something reaches production, which is backwards. Alerts stay prod-only — a preview deploy failing a cron is not an incident."
+      "_note": "Dashboards land here too, deliberately: a production-only board cannot be checked against data until something reaches production, which is backwards. Alerts stay prod-only \u2014 a preview deploy failing a cron is not an incident."
     }
   ],
-
   "alertSubscribers": [
     {
       "posthogUserId": 463028,
       "email": "chrisw@thewbsproject.com",
-      "_note": "PostHog user id, not a Supabase/D1 id. `subscribed_users` is the ONLY delivery channel apply.sh configures; Slack/Discord/webhook delivery needs cdp-functions and is deliberately out of scope (there is no Slack in this project — see CLAUDE.md)."
+      "_note": "PostHog user id, not a Supabase/D1 id. `subscribed_users` is the ONLY delivery channel apply.sh configures; Slack/Discord/webhook delivery needs cdp-functions and is deliberately out of scope (there is no Slack in this project \u2014 see CLAUDE.md)."
     }
   ],
-
   "alertDefaults": {
     "calculationInterval": "hourly",
-    "_note": "Hourly is the accepted floor (spec D3): `every_15_minutes` needs the Boost add-on and `real_time` needs Scale/Enterprise. Four Datadog monitors evaluated at 5–15 min; that cadence is knowingly lost (spec §3.8) and re-promotion is a one-word change here plus a plan upgrade."
+    "_note": "Hourly is the accepted floor (spec D3): `every_15_minutes` needs the Boost add-on and `real_time` needs Scale/Enterprise. Four Datadog monitors evaluated at 5\u201315 min; that cadence is knowingly lost (spec \u00a73.8) and re-promotion is a one-word change here plus a plan upgrade."
   },
-
   "tagVocabulary": {
     "resourceAttributes": [
       "env",
@@ -74,45 +68,48 @@
       "host",
       "service.name"
     ],
-    "_note": "The shared vocabulary rides as OTLP RESOURCE attributes (spec §2 invariant 4). Per-call tags (`outcome`, `trigger`, `endpoint`, `status_class`, `check`, `severity`, `table`, `index`, `route_class`, `cache_status`, …) ride as POINT attributes and are read as `attributes.<key>` in HogQL. Raw `status` was dropped in §AW1 for cardinality (§3.5) — the status code lives on the error log."
+    "_note": "The shared vocabulary rides as OTLP RESOURCE attributes (spec \u00a72 invariant 4). Per-call tags (`outcome`, `trigger`, `endpoint`, `status_class`, `check`, `severity`, `table`, `index`, `route_class`, `cache_status`, \u2026) ride as POINT attributes and are read as `attributes.<key>` in HogQL. Raw `status` was dropped in \u00a7AW1 for cardinality (\u00a73.5) \u2014 the status code lives on the error log."
   },
-
   "hogqlTables": {
     "metrics": "posthog.metrics",
     "logs": "logs",
     "spans": "posthog.trace_spans",
     "_note": "Namespacing is asymmetric and easy to get wrong: `logs` is registered at the ROOT, while metrics and spans need the `posthog.` prefix. `FROM metrics` fails with 'Unknown table'. Verified against project 354071 on 2026-08-24."
   },
-
   "aggregationTemporality": {
     "filterInQueries": false,
-    "_note": "Our counters and histograms are DELTA by construction (spec §2 pins `aggregationTemporality: 1`), and gauges carry no temporality at all. So `sum(value)` is correct WITHOUT a temporality predicate, and adding one is a net risk: if PostHog ever stores the enum with different casing the predicate silently matches nothing and every counter alert reads 0 forever. If a cumulative source is ever introduced, add `AND m.aggregation_temporality = 'delta'` to the counter/histogram queries and split the cumulative ones onto argMax()."
+    "_note": "Our counters and histograms are DELTA by construction (spec \u00a72 pins `aggregationTemporality: 1`), and gauges carry no temporality at all. So `sum(value)` is correct WITHOUT a temporality predicate, and adding one is a net risk: if PostHog ever stores the enum with different casing the predicate silently matches nothing and every counter alert reads 0 forever. If a cumulative source is ever introduced, add `AND m.aggregation_temporality = 'delta'` to the counter/histogram queries and split the cumulative ones onto argMax()."
   },
-
   "liveness": {
     "_readme": [
-      "The heartbeat registry for scripts/ci/posthog-liveness-sweep.sh — the external CI",
-      "replacement for all eight Datadog `notify_no_data` monitors (spec §3.4 / §AW6).",
+      "The heartbeat registry for scripts/ci/posthog-liveness-sweep.sh \u2014 the external CI",
+      "replacement for all eight Datadog `notify_no_data` monitors (spec \u00a73.4 / \u00a7AW6).",
       "",
       "MUST STAY IN SYNC WITH apps/api/src/lib/cron-schedules.ts. That file is the source of",
-      "truth for the twelve cron expressions and is asserted byte-equal to",
+      "truth for the thirteen cron expressions and is asserted byte-equal to",
       "apps/api/wrangler.jsonc `triggers.crons` by cron-schedules.spec.ts. The `cron` field",
       "below is a COPY for documentation; the sweep only reads `metric` and `maxAgeMinutes`.",
       "A cron whose schedule changes without `maxAgeMinutes` changing here will either",
       "false-alarm or stop detecting death.",
       "",
-      "`metric` is each job's always-emitted heartbeat series — emitted on EVERY run",
+      "`metric` is each job's always-emitted heartbeat series \u2014 emitted on EVERY run",
       "including clean/zero ones, which is the property that makes absence meaningful.",
       "docs/OBSERVABILITY.md flags each of these as 'always emitted, so this doubles as the",
       "cron-liveness heartbeat'.",
       "",
-      "Only six of the twelve had a Datadog no-data monitor. The other six",
+      "Six of the original twelve had a Datadog no-data monitor. The other six",
       "(metrics-snapshot, analytics-digest, moderation-snapshot, attestation-notify,",
       "entitlement-expiry, and the drift job's own run) gain liveness coverage here for the",
-      "first time — a deliberate widening, recorded in README.md."
+      "first time \u2014 a deliberate widening, recorded in README.md.",
+      "",
+      "lookbackHours is 360 (15 days), widened from 72 by AECI-750 when the WEEKLY",
+      "asn-registry cron joined this registry: a weekly heartbeat is absent from a 72 h",
+      "window six days out of seven, which the sweep would report as MISSING every day.",
+      "Widening cannot loosen a daily cron \u2014 staleness is judged per-cron by",
+      "maxAgeMinutes; the window only decides whether a row is found at all."
     ],
     "project": "prod",
-    "lookbackHours": 72,
+    "lookbackHours": 360,
     "crons": [
       {
         "job": "metrics-snapshot",
@@ -123,11 +120,20 @@
         "datadogNoDataTimeframeMinutes": null
       },
       {
+        "job": "asn-registry",
+        "cron": "0 2 * * 2",
+        "metric": "aeci.asn_registry.refresh",
+        "maxAgeMinutes": 20520,
+        "datadogMonitor": null,
+        "datadogNoDataTimeframeMinutes": null,
+        "_note": "AECI-750. The ONLY weekly cron. maxAgeMinutes is 14.25 days \u2014 two refresh intervals plus slack, matching STALE_AFTER_HOURS = 24 * 14 in lib/asn-registry.ts. The daily house value of 1560 (26 h) would false-alarm every Tuesday. It arrived with the main->stage-2 reconcile carrying no absence signal at all: on main its absence was caught by a Datadog no-data monitor, and AECI-651 had already deleted that plane here."
+      },
+      {
         "job": "retention-prune",
         "cron": "0 3 * * *",
         "metric": "aeci.retention.prune",
         "maxAgeMinutes": 1560,
-        "datadogMonitor": "AECi — Retention prune not running (no daily run)",
+        "datadogMonitor": "AECi \u2014 Retention prune not running (no daily run)",
         "datadogNoDataTimeframeMinutes": 1560
       },
       {
@@ -135,7 +141,7 @@
         "cron": "0 4 * * *",
         "metric": "aeci.data_quality.job",
         "maxAgeMinutes": 1560,
-        "datadogMonitor": "AECi — Data quality job not running (no daily run)",
+        "datadogMonitor": "AECi \u2014 Data quality job not running (no daily run)",
         "datadogNoDataTimeframeMinutes": 1560
       },
       {
@@ -151,7 +157,7 @@
         "cron": "0 6 * * *",
         "metric": "aeci.moderation.queue_depth",
         "maxAgeMinutes": 1560,
-        "datadogMonitor": "AECi — Moderation queue backlog (oldest pending > 48h) [liveness half of a dual monitor]",
+        "datadogMonitor": "AECi \u2014 Moderation queue backlog (oldest pending > 48h) [liveness half of a dual monitor]",
         "datadogNoDataTimeframeMinutes": 1560
       },
       {
@@ -159,7 +165,7 @@
         "cron": "0 7 * * *",
         "metric": "aeci.stats.compute",
         "maxAgeMinutes": 1560,
-        "datadogMonitor": "AECi — Home stats not running (no daily compute)",
+        "datadogMonitor": "AECi \u2014 Home stats not running (no daily compute)",
         "datadogNoDataTimeframeMinutes": 1560
       },
       {
@@ -167,18 +173,18 @@
         "cron": "0 8 * * *",
         "metric": "aeci.algolia.sync",
         "maxAgeMinutes": 1560,
-        "datadogMonitor": "AECi — Algolia sync not running (no successful cron push)",
+        "datadogMonitor": "AECi \u2014 Algolia sync not running (no successful cron push)",
         "datadogNoDataTimeframeMinutes": 2880,
-        "_note": "Tightened 48h → 26h. A daily job that has not run in 26 hours is already broken; 48h let a whole missed day pass unremarked."
+        "_note": "Tightened 48h \u2192 26h. A daily job that has not run in 26 hours is already broken; 48h let a whole missed day pass unremarked."
       },
       {
         "job": "algolia-drift",
         "cron": "0 9 * * *",
         "metric": "aeci.algolia.index_drift",
         "maxAgeMinutes": 1560,
-        "datadogMonitor": "AECi — Algolia index drift (D1 ≠ Algolia) [liveness half of a dual monitor]",
+        "datadogMonitor": "AECi \u2014 Algolia index drift (D1 \u2260 Algolia) [liveness half of a dual monitor]",
         "datadogNoDataTimeframeMinutes": 2880,
-        "_note": "Tightened 48h → 26h, same reasoning as algolia-sync."
+        "_note": "Tightened 48h \u2192 26h, same reasoning as algolia-sync."
       },
       {
         "job": "attestation-notify",
@@ -201,16 +207,16 @@
         "cron": "*/15 * * * *",
         "metric": "aeci.linear.reconcile.stuck",
         "maxAgeMinutes": 90,
-        "datadogMonitor": "AECi — Linear reconciliation sweep not running (no backlog gauge)",
+        "datadogMonitor": "AECi \u2014 Linear reconciliation sweep not running (no backlog gauge)",
         "datadogNoDataTimeframeMinutes": 60,
-        "_note": "Relaxed 60 → 90 min. GitHub Actions cron delivery is best-effort and routinely runs several minutes late; a 60-minute window over a 15-minute job left no margin for the SWEEP's own lateness, which Datadog (evaluating continuously) did not need."
+        "_note": "Relaxed 60 \u2192 90 min. GitHub Actions cron delivery is best-effort and routinely runs several minutes late; a 60-minute window over a 15-minute job left no margin for the SWEEP's own lateness, which Datadog (evaluating continuously) did not need."
       },
       {
         "job": "waf-poll",
         "cron": "0 * * * *",
         "metric": "aeci.waf.poll",
         "maxAgeMinutes": 180,
-        "datadogMonitor": "AECi — WAF poll not running (no successful hourly poll)",
+        "datadogMonitor": "AECi \u2014 WAF poll not running (no successful hourly poll)",
         "datadogNoDataTimeframeMinutes": 180
       }
     ]

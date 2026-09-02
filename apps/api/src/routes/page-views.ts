@@ -1,5 +1,10 @@
-import { PAGE_VIEW_CF_HEADERS, PageViewPayloadSchema, type PageViewPayload } from '@aeci/shared';
-import { eq } from 'drizzle-orm';
+import {
+  PAGE_VIEW_CF_HEADERS,
+  PAGE_VIEW_DEDUPE_WINDOW_MS,
+  PageViewPayloadSchema,
+  type PageViewPayload,
+} from '@aeci/shared';
+import { eq, inArray } from 'drizzle-orm';
 import type { Context } from 'hono';
 
 import { getDb } from '../db/client';
@@ -15,11 +20,13 @@ import {
 } from '../db/schema';
 import { logToPosthog, submitCount } from '../posthog';
 import { classifyTraffic } from '../lib/bot-classification';
+import { classifyClientSignals } from '../lib/client-signals';
 import { classifyReferrer } from '../lib/referrer-classification';
 import type { Env } from '../env';
 import { ApiError } from '../errors';
 import { noContent } from '../http';
 import type { DbFactory } from '../lib/handler-utils';
+import { isOperatorRequest, type OperatorSessionOptions } from '../lib/operator-session';
 
 /**
  * `POST /api/page-views` (AECI-177) — Drizzle/D1 (ADR 0016 / AECI-253).
@@ -35,6 +42,10 @@ import type { DbFactory } from '../lib/handler-utils';
  * arrival or an in-app hop, and the AS holder name beside the ASN. Rows written
  * before it carry null in all four and cannot be backfilled — nothing in the stored
  * row implies them.
+ *
+ * §13 D13 added a fifth, `is_operator`: whether the request carried a verified
+ * admin session (`lib/operator-session.ts`). Same recoverable-only-at-write-time
+ * property, same not-backfillable consequence for older rows.
  */
 
 /** Structural view of a directly-present `request.cf` (local dev / direct test). */
@@ -44,6 +55,9 @@ interface CfLike {
   asn?: number | null;
   asOrganization?: string | null;
   botManagement?: { score?: number | null } | null;
+  /** AECI-658 — available on Pro, unlike the bot score. */
+  tlsVersion?: string | null;
+  httpProtocol?: string | null;
 }
 
 type CfContext = {
@@ -52,6 +66,8 @@ type CfContext = {
   asn: number | null;
   asOrganization: string | null;
   botScore: number | null;
+  tlsVersion: string | null;
+  httpProtocol: string | null;
 };
 
 const DEFAULT_LOCALE = 'en-US';
@@ -75,12 +91,17 @@ function readCfContext(req: Request): CfContext {
   const asOrganization = h.get(PAGE_VIEW_CF_HEADERS.asOrganization) ?? cf?.asOrganization ?? null;
   const botScore =
     intOrNull(h.get(PAGE_VIEW_CF_HEADERS.botScore)) ?? cf?.botManagement?.score ?? null;
+  // AECI-658. Corroboration for `client_verdict`, never a fingerprint on their own.
+  const tlsVersion = h.get(PAGE_VIEW_CF_HEADERS.tlsVersion) ?? cf?.tlsVersion ?? null;
+  const httpProtocol = h.get(PAGE_VIEW_CF_HEADERS.httpProtocol) ?? cf?.httpProtocol ?? null;
   return {
     country: country || null,
     colo: colo || null,
     asn,
     asOrganization: asOrganization || null,
     botScore,
+    tlsVersion: tlsVersion || null,
+    httpProtocol: httpProtocol || null,
   };
 }
 
@@ -189,12 +210,79 @@ function botScoreSampledOut(env: Env, botScore: number | null): boolean {
   return botScore < floor;
 }
 
+/**
+ * The de-duplication keys for one view: the current time bucket and the one before
+ * it (AECI-743).
+ *
+ * The key is `sha256(concrete_path | user_agent_hash | cf_asn | bucket)`, where
+ * `bucket` is `now / PAGE_VIEW_DEDUPE_WINDOW_MS` floored. Hashed rather than stored
+ * as a readable tuple for the same privacy reason the raw UA never lands in this
+ * table: the column is a constraint handle, not a lookup key, and nothing reads it
+ * back to identify anyone.
+ *
+ * Returns `null` when the row must not participate in de-duplication at all:
+ *
+ * - **Bot-classified rows.** Crawler volume is a raw count that the digest's
+ *   `== Crawler activity ==` table and the bot backfill audits both read literally;
+ *   silently collapsing a crawler's repeat fetches would rewrite that series to
+ *   mean something else. A null key indexes as DISTINCT, so those rows are simply
+ *   never constrained.
+ * - **Rows with no `user_agent_hash`.** Without it the key degenerates to
+ *   path + ASN, which two genuinely different visitors behind one network share.
+ *   An unidentifiable row is not evidence of a duplicate — the same NULL-safety
+ *   reasoning `NOT_INTERNAL`'s `not exists` clause is built on.
+ *
+ * The PREVIOUS bucket is returned alongside the current one so a pair straddling a
+ * bucket boundary still collapses on the read probe; only the current bucket's key
+ * is ever WRITTEN, since a row can occupy one bucket.
+ */
+async function dedupeKeys(input: {
+  concretePath: string;
+  userAgentHash: string | null;
+  cfAsn: number | null;
+  isBot: boolean;
+  now: number;
+}): Promise<{ current: string; previous: string } | null> {
+  if (input.isBot || !input.userAgentHash) return null;
+  const bucket = Math.floor(input.now / PAGE_VIEW_DEDUPE_WINDOW_MS);
+  const build = (b: number): Promise<string> =>
+    sha256Hex([input.concretePath, input.userAgentHash, input.cfAsn ?? '', b].join('|'));
+  const [current, previous] = await Promise.all([build(bucket), build(bucket - 1)]);
+  return { current, previous };
+}
+
+/**
+ * Whether a row for this view was already written inside the de-duplication window.
+ *
+ * Probes BOTH bucket keys in one seek on `page_views_dedupe_key_idx`, so the
+ * effective window is 10–20 s and a pair straddling a bucket boundary still
+ * collapses. `null` keys (bots, no UA hash) short-circuit with no query at all.
+ *
+ * This probe exists for the metric, not for correctness — the UNIQUE index is what
+ * actually guarantees one row. Treat a failure here as "no duplicate": a probe that
+ * throws must not stop a genuine view from being recorded, and the constraint still
+ * has the last word.
+ */
+async function findDuplicate(
+  db: Db,
+  keys: { current: string; previous: string } | null,
+): Promise<boolean> {
+  if (!keys) return false;
+  const rows = await db
+    .select({ id: pageViews.id })
+    .from(pageViews)
+    .where(inArray(pageViews.dedupeKey, [keys.current, keys.previous]))
+    .limit(1);
+  return rows.length > 0;
+}
+
 /** Deferred capture. Never throws: failures emit `aeci.pageviews.write{outcome:failed}`
  *  + an observability warn and are swallowed so the returned 204 stands. */
 async function capturePageView(
   c: Context<{ Bindings: Env }>,
   payload: PageViewPayload,
   dbFor: DbFactory,
+  deps: PageViewsDeps,
 ): Promise<void> {
   const req = c.req.raw;
   try {
@@ -212,43 +300,100 @@ async function capturePageView(
       req.headers.get('referer'),
       selfHosts(c.env),
     );
+    // How browser-shaped this request was (AECI-658). Computed here for the same
+    // reason the two classifications above are: the headers are gone afterwards.
+    // ANNOTATION ONLY — deliberately not passed to `classifyTraffic` and it must
+    // never change `isBot` above. Navigation-aware, so the tracker's same-origin
+    // fetch is not judged by document-arrival rules it fails by construction.
+    const clientSignals = classifyClientSignals(req.headers, ua, payload.navigation ?? null, cf);
+
+    // AECI-743 — the one-arrival-one-row key. Computed here because it needs the
+    // UA hash and the bot verdict, both of which exist only at ingest.
+    const concretePath = payload.path ?? payload.route;
+    const keys = await dedupeKeys({
+      concretePath,
+      userAgentHash,
+      cfAsn: cf.asn,
+      isBot,
+      now: Date.now(),
+    });
 
     // Fire-and-forget analytics (runs in `waitUntil`, never read back, returns
     // 204 regardless) — stays on the `'first-unconstrained'` read default; a
     // primary anchor would spend a round-trip for no benefit. (AECI-250)
     const { db } = dbFor(c.env);
-    const { productId, vendorId, taxonomyKind, taxonomyId } = await resolveEntity(db, payload);
+    // All three reads are independent, so they overlap rather than queue. The
+    // operator check short-circuits to `false` with no I/O when the request is
+    // anonymous, which is nearly all of them, and the duplicate probe is a seek on
+    // `page_views_dedupe_key_idx` that costs nothing when the key is null.
+    const [{ productId, vendorId, taxonomyKind, taxonomyId }, isOperator, duplicate] =
+      await Promise.all([
+        resolveEntity(db, payload),
+        isOperatorRequest(c, db, deps),
+        findDuplicate(db, keys),
+      ]);
 
-    await db.insert(pageViews).values({
-      path: payload.route,
-      // The concrete URL path, falling back to `route` (AECI-585 / §7.3). Only a
-      // writer that sends a route PATTERN owes an explicit `path`; for the browser
-      // tracker and the SSR cache-HIT synthesis, `route` already IS the concrete
-      // path, so the fallback is the right answer rather than a degraded one.
-      concretePath: payload.path ?? payload.route,
-      productId,
-      vendorId,
-      taxonomyKind,
-      taxonomyId,
-      // Never inferred — an omitted flag stays null rather than being guessed into
-      // the bucket this column exists to disambiguate.
-      navigation: payload.navigation ?? null,
-      cfCountry: cf.country,
-      cfColo: cf.colo,
-      cfAsn: cf.asn,
-      cfAsOrganization: cf.asOrganization,
-      cfBotScore: cf.botScore,
-      userAgentHash,
-      locale: localeFromRoute(payload.route),
-      isBot,
-      botName,
-      referrer: referrerHost,
-      referrerSource,
-      // Campaign attribution (AECI-243 / §11.2) — set only on tagged arrivals
-      // (e.g. the waitlist welcome banner); null for ordinary views.
-      refSource: payload.ref_source ?? null,
-      refToken: payload.ref_token ?? null,
-    });
+    // Suppression is COUNTED, never silent: a metric that quietly drops rows is
+    // indistinguishable from an ingest outage, and the whole point of this issue is
+    // that an unobserved miscount survived into the digest's most trusted figure.
+    if (duplicate) {
+      submitCount(c.executionCtx, c.env, req, 'aeci.pageviews.write', 1, ['outcome:deduped']);
+      return;
+    }
+
+    await db
+      .insert(pageViews)
+      .values({
+        path: payload.route,
+        // The concrete URL path, falling back to `route` (AECI-585 / §7.3). Only a
+        // writer that sends a route PATTERN owes an explicit `path`; for the browser
+        // tracker and the SSR cache-HIT synthesis, `route` already IS the concrete
+        // path, so the fallback is the right answer rather than a degraded one.
+        concretePath,
+        productId,
+        vendorId,
+        taxonomyKind,
+        taxonomyId,
+        // Never inferred — an omitted flag stays null rather than being guessed into
+        // the bucket this column exists to disambiguate.
+        navigation: payload.navigation ?? null,
+        cfCountry: cf.country,
+        cfColo: cf.colo,
+        cfAsn: cf.asn,
+        cfAsOrganization: cf.asOrganization,
+        cfBotScore: cf.botScore,
+        userAgentHash,
+        locale: localeFromRoute(payload.route),
+        isBot,
+        botName,
+        // The operator checking their own work (§13 D13). Recorded rather than
+        // dropped: the row stays available to any query that wants it, exactly as
+        // the §9.6 path rows did, and the read side excludes it.
+        isOperator,
+        referrer: referrerHost,
+        referrerSource,
+        // Request-shape annotation (AECI-658). Never read by the bot classifier.
+        secFetchDest: clientSignals.secFetchDest,
+        hasAcceptLanguage: clientSignals.hasAcceptLanguage,
+        hasSecChUa: clientSignals.hasSecChUa,
+        tlsVersion: clientSignals.tlsVersion,
+        httpProtocol: clientSignals.httpProtocol,
+        clientVerdict: clientSignals.verdict,
+        // Campaign attribution (AECI-243 / §11.2) — set only on tagged arrivals
+        // (e.g. the waitlist welcome banner); null for ordinary views.
+        refSource: payload.ref_source ?? null,
+        refToken: payload.ref_token ?? null,
+        // AECI-743. Null for bots and for rows with no UA hash — see `dedupeKeys`.
+        dedupeKey: keys?.current ?? null,
+      })
+      // The race-proof half of the guard. The probe above catches the ordinary
+      // duplicate (and is what makes the suppression measurable), but the failure
+      // this issue is named for was 83 ms apart with both inserts in flight from
+      // `waitUntil` — the second SELECT can run before the first INSERT commits, and
+      // only the UNIQUE index settles that. D1 reports no usable `meta.changes` on a
+      // conflict (AECI-581), which is why the metric hangs off the probe rather than
+      // off this result.
+      .onConflictDoNothing({ target: pageViews.dedupeKey });
     submitCount(c.executionCtx, c.env, req, 'aeci.pageviews.write', 1, [
       'outcome:ok',
       `bot:${isBot}`,
@@ -264,8 +409,13 @@ async function capturePageView(
   }
 }
 
+/** Injectable seams. `getKey` is the offline-JWKS hook `isOperatorRequest` needs
+ *  so specs can mint a verifiable admin session without a network round trip. */
+export type PageViewsDeps = OperatorSessionOptions;
+
 export function createPageViewsHandler(
   dbFor: DbFactory = getDb,
+  deps: PageViewsDeps = {},
 ): (c: Context<{ Bindings: Env }>) => Promise<Response> {
   return async (c) => {
     let raw: unknown;
@@ -278,7 +428,7 @@ export function createPageViewsHandler(
     // Validate synchronously (malformed → 400); a well-formed payload schedules
     // the deferred, non-blocking insert.
     const payload = PageViewPayloadSchema.parse(raw);
-    c.executionCtx.waitUntil(capturePageView(c, payload, dbFor));
+    c.executionCtx.waitUntil(capturePageView(c, payload, dbFor, deps));
 
     return noContent();
   };

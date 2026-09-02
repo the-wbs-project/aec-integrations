@@ -80,11 +80,16 @@
 
   <!-- Stat tiles ------------------------------------------------------- -->
   <div class="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+    <!-- Leads with the POST-AUTOMATION figure (AECI-745) — the same number the
+         05:00 email leads with. The raw server-side count it was subtracted from
+         is in the caption, where the subtraction is legible, rather than in a
+         tile of its own: two tiles both labelled "human page views" is how a
+         reader ends up quoting whichever one they saw first. -->
     <aec-stat-tile
-      i18n-label="@@admin.overview.tile.pageViews"
-      label="Human page views"
+      i18n-label="@@admin.overview.tile.pageViewsAfterAutomation"
+      label="Human page views after automation"
       [value]="o.traffic.page_views_human.total"
-      [caption]="dayCaption()"
+      [caption]="pageViewsCaption()"
       [deltas]="pageViewDeltas()"
       [sparklineValues]="humanSeries()"
       [sparklineLabel]="pageViewsSparklineLabel"

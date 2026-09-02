@@ -63,6 +63,7 @@ import {
 } from '@aeci/shared';
 
 import { shiftDay } from './admin-analytics';
+import { OPERATOR_PAIR_LOOKBACK_DAYS } from './page-view-predicates';
 
 /** Rows per multi-VALUES `INSERT`. Small enough to keep each statement well
  *  inside D1's per-statement limits, large enough that a 400-day range is ~16
@@ -103,15 +104,39 @@ export function daysInRange(range: BackfillRange): string[] {
 }
 
 /**
- * `page_views.path` exclusion for the operator-only routes (§9.6 / AECI-575),
- * built from the same `UNTRACKED_ROUTE_PREFIXES` the write side and
- * `analytics-digest.ts`'s `NOT_INTERNAL` use, so the three cannot drift.
+ * Raw-SQL restatement of `analytics-digest.ts`'s `NOT_INTERNAL`, for the ops
+ * script's hand-built statements. All three halves.
+ *
+ * This is the one place in the codebase that cannot import the Drizzle predicate
+ * — the backfill emits SQL text for `wrangler d1 execute` — so it is also the one
+ * place that can silently drift, and it HAD drifted: it carried only the §9.6
+ * path exclusion and none of the `is_operator` half, from the day §13 D13 shipped
+ * (2026-08-19) until AECI-683. Any range re-backfilled in that period would have
+ * written operator traffic into `metrics_daily`, which is retained indefinitely.
+ *
+ * `metrics-backfill.spec.ts` now asserts every clause is present. If you add a
+ * fourth half to `NOT_INTERNAL`, add it here in the same change.
+ *
+ * The `NOT EXISTS` retro-join (AECI-683) is reproduced verbatim rather than
+ * approximated: on rows predating D13 `is_operator` is NULL everywhere, so the
+ * pair join is the ONLY half that can reach the operator's historical public
+ * browsing at all — which is exactly the population
+ * `scripts/ops/2026-08-operator-page-view-backfill/` was written to flag by hand.
  */
 function notInternalSql(): string {
-  return UNTRACKED_ROUTE_PREFIXES.flatMap((prefix) => [
+  const paths = UNTRACKED_ROUTE_PREFIXES.flatMap((prefix) => [
     `"path" NOT LIKE ${q(prefix)}`,
     `"path" NOT LIKE ${q(`${prefix}/%`)}`,
-  ]).join(' AND ');
+  ]);
+  return [
+    ...paths,
+    `("is_operator" IS NULL OR "is_operator" = 0)`,
+    `NOT EXISTS (SELECT 1 FROM page_views AS op WHERE op."is_operator" = 1 ` +
+      `AND op."user_agent_hash" = page_views."user_agent_hash" ` +
+      `AND op."cf_asn" = page_views."cf_asn" ` +
+      `AND op."created_at" >= strftime('%Y-%m-%dT%H:%M:%fZ', page_views."created_at", ${q(`-${OPERATOR_PAIR_LOOKBACK_DAYS} days`)}) ` +
+      `AND op."created_at" <= strftime('%Y-%m-%dT%H:%M:%fZ', page_views."created_at", ${q(`+${OPERATOR_PAIR_LOOKBACK_DAYS} days`)}))`,
+  ].join(' AND ');
 }
 
 /** `is_bot IS NOT 1`, the digest's NULL-safe human predicate — pre-classification
@@ -187,7 +212,24 @@ function auditSeries(metric: AdminMetricKey, action: string, entity: string): Ba
 }
 
 /**
- * The eight flow series, in `ADMIN_METRIC_KEYS` order.
+ * Flow series that a single grouped SELECT can reconstruct, in
+ * `ADMIN_METRIC_KEYS` order.
+ *
+ * **`traffic.page_views_human_after_automation` is deliberately NOT here**
+ * (AECI-745), and that is a correctness decision rather than an omission. This
+ * module reconstructs a series by emitting ONE SQL statement per series and
+ * handing it to `wrangler d1 execute`; the automation filter is not one
+ * statement. `detectSwarms` groups candidates, applies a cross-day recurrence
+ * lookback, and then counts the UNION of three shapes — expressing that as a
+ * generated SELECT would put a SECOND definition of "flagged" in the codebase,
+ * which is exactly the divergence AECI-745 was opened to close, and the copy
+ * would drift the first time a threshold moved.
+ *
+ * So that series fills FORWARD from the day the 00:15 cron first writes it, and
+ * the read path reports the days it does not cover as absent rather than zero
+ * (`metricIsSnapshotOnly` in `admin-analytics.ts`). A gap that says "not measured"
+ * is honest; a reconstructed number computed by a near-copy of the detector is
+ * not.
  *
  * `traffic.unique_visitors` uses §9.8's visitor definition verbatim —
  * `DISTINCT (user_agent_hash, cf_asn)` with `coalesce` so a NULL component gets a
@@ -235,11 +277,29 @@ export const BACKFILL_SERIES: readonly BackfillSeries[] = [
   ),
 ];
 
+/**
+ * Flow metrics with no SQL-reconstructable form, excluded from the guard below.
+ *
+ * Named as a list rather than a count so adding a metric still trips the guard:
+ * the failure this protects against is a new key silently going un-backfilled,
+ * and "the numbers still add up" must not be a way to pass.
+ */
+const NOT_BACKFILLABLE: readonly AdminMetricKey[] = ['traffic.page_views_human_after_automation'];
+
 /* c8 ignore start -- a compile-time completeness guard, not a runtime branch. */
-if (BACKFILL_SERIES.length !== ADMIN_METRIC_KEYS.length) {
-  throw new Error(
-    `BACKFILL_SERIES covers ${BACKFILL_SERIES.length} of ${ADMIN_METRIC_KEYS.length} flow metrics`,
-  );
+{
+  const expected = ADMIN_METRIC_KEYS.length - NOT_BACKFILLABLE.length;
+  if (BACKFILL_SERIES.length !== expected) {
+    throw new Error(
+      `BACKFILL_SERIES covers ${BACKFILL_SERIES.length} of ${expected} backfillable flow metrics ` +
+        `(${ADMIN_METRIC_KEYS.length} total, ${NOT_BACKFILLABLE.length} excluded: ${NOT_BACKFILLABLE.join(', ')})`,
+    );
+  }
+  const covered = new Set(BACKFILL_SERIES.map((s) => s.metric));
+  const missing = ADMIN_METRIC_KEYS.filter((k) => !covered.has(k) && !NOT_BACKFILLABLE.includes(k));
+  if (missing.length > 0) {
+    throw new Error(`BACKFILL_SERIES is missing: ${missing.join(', ')}`);
+  }
 }
 /* c8 ignore stop */
 

@@ -1,9 +1,62 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "b1c01ec6-38cd-4b72-91d1-7170a7bfb7e2",
-  "prevId": "ccd2d20a-45d1-4994-8c37-cf9cc5a20b8b",
+  "id": "3518a57e-87b2-4a55-8927-d058fba2c381",
+  "prevId": "ee418dab-517a-4ef6-a3ee-f50fcff533cf",
   "tables": {
+    "asn_registry": {
+      "name": "asn_registry",
+      "columns": {
+        "asn": {
+          "name": "asn",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "info_type": {
+          "name": "info_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "as_name": {
+          "name": "as_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "source": {
+          "name": "source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "fetched_at": {
+          "name": "fetched_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "asn_registry_fetched_at_idx": {
+          "name": "asn_registry_fetched_at_idx",
+          "columns": [
+            "fetched_at"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
     "attestations": {
       "name": "attestations",
       "columns": {
@@ -50,34 +103,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "introduced_version_id": {
-          "name": "introduced_version_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "deprecated_version_id": {
-          "name": "deprecated_version_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "retracted_at": {
-          "name": "retracted_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "attested_by_vendor_id": {
-          "name": "attested_by_vendor_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "note": {
           "name": "note",
           "type": "text",
@@ -101,22 +126,13 @@
         }
       },
       "indexes": {
-        "attestations_slot_key": {
-          "name": "attestations_slot_key",
-          "columns": [
-            "claim_id",
-            "source"
-          ],
-          "isUnique": true,
-          "where": "\"retracted_at\" IS NULL"
-        },
         "attestations_active_idx": {
           "name": "attestations_active_idx",
           "columns": [
             "claim_id"
           ],
           "isUnique": false,
-          "where": "\"retracted_at\" IS NULL"
+          "where": "\"deprecated_at\" IS NULL"
         }
       },
       "foreignKeys": {
@@ -131,45 +147,6 @@
             "id"
           ],
           "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "attestations_introduced_version_id_product_versions_id_fk": {
-          "name": "attestations_introduced_version_id_product_versions_id_fk",
-          "tableFrom": "attestations",
-          "tableTo": "product_versions",
-          "columnsFrom": [
-            "introduced_version_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        },
-        "attestations_deprecated_version_id_product_versions_id_fk": {
-          "name": "attestations_deprecated_version_id_product_versions_id_fk",
-          "tableFrom": "attestations",
-          "tableTo": "product_versions",
-          "columnsFrom": [
-            "deprecated_version_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        },
-        "attestations_attested_by_vendor_id_vendors_id_fk": {
-          "name": "attestations_attested_by_vendor_id_vendors_id_fk",
-          "tableFrom": "attestations",
-          "tableTo": "vendors",
-          "columnsFrom": [
-            "attested_by_vendor_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },
@@ -346,21 +323,6 @@
           "notNull": true,
           "autoincrement": false
         },
-        "origin": {
-          "name": "origin",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'aeci'"
-        },
-        "created_by_vendor_id": {
-          "name": "created_by_vendor_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "text",
@@ -420,19 +382,6 @@
           ],
           "onDelete": "restrict",
           "onUpdate": "no action"
-        },
-        "claims_created_by_vendor_id_vendors_id_fk": {
-          "name": "claims_created_by_vendor_id_vendors_id_fk",
-          "tableFrom": "claims",
-          "tableTo": "vendors",
-          "columnsFrom": [
-            "created_by_vendor_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -441,10 +390,6 @@
         "claims_direction_check": {
           "name": "claims_direction_check",
           "value": "\"direction\" IN ('a_to_b', 'b_to_a', 'both')"
-        },
-        "claims_origin_check": {
-          "name": "claims_origin_check",
-          "value": "\"origin\" IN ('aeci', 'vendor')"
         }
       }
     },
@@ -1257,6 +1202,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "is_operator": {
+          "name": "is_operator",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "text",
@@ -1786,103 +1738,6 @@
           "name": "product_vendors_product_id_vendor_id_pk"
         }
       },
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "product_versions": {
-      "name": "product_versions",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "product_id": {
-          "name": "product_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "label": {
-          "name": "label",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "released_at": {
-          "name": "released_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "sunset_at": {
-          "name": "sunset_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "sort_key": {
-          "name": "sort_key",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "product_versions_label_key": {
-          "name": "product_versions_label_key",
-          "columns": [
-            "product_id",
-            "label"
-          ],
-          "isUnique": true
-        },
-        "product_versions_order_idx": {
-          "name": "product_versions_order_idx",
-          "columns": [
-            "product_id",
-            "sort_key"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "product_versions_product_id_products_id_fk": {
-          "name": "product_versions_product_id_products_id_fk",
-          "tableFrom": "product_versions",
-          "tableTo": "products",
-          "columnsFrom": [
-            "product_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {}
     },

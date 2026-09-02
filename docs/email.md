@@ -116,12 +116,37 @@ split is classified at ingest from the raw User-Agent + Cloudflare ASN
 (`lib/bot-classification.ts`), because the CF Pro plan yields no `cf_bot_score` and
 `user_id` is never captured; the traffic source is classified from the forwarded
 eyeball `Referer` (`lib/referrer-classification.ts`, best-effort — Referrer-Policy
-strips it, so external sources under-count) (AECI-526 follow-up). **Read the human count as an upper
-bound**: the ASN half of the classifier is a hand-maintained list, and pre-classifier rows (`is_bot IS
-NULL`) count as human until the one-time backfill runs — see
+strips it, so external sources under-count) (AECI-526 follow-up).
+
+**The headline number is qualified in the email itself, and that took four tickets.** The
+history is worth knowing, because the figure read as authoritative for weeks while being
+roughly an order of magnitude too high:
+
+- **AECI-575 / §13 D13** — every read excludes the operator-only routes (`/admin/*`,
+  `/account`) **and**, since 2026-08-19, any row carrying a verified admin session
+  (`is_operator`). The operator's own browsing was 15% of all human public-page views.
+- **AECI-582** — the one-time bot backfill **ran on all four tiers on 2026-08-13**. No row
+  on any tier is `is_bot IS NULL` any more; production's "reads as human" total fell
+  18,322 → 2,096. (The sentence that used to sit here, saying the backfill was still
+  pending, was stale from that date.)
+- **AECI-658 / AECI-660** — the subject line says **"up to N human views"**, the body labels
+  the count an UPPER bound, a PostHog **lower bound** is printed beside it
+  (`lib/posthog-query.ts`; absent credentials print an "unavailable" note, never a
+  fabricated `0`), and an **Automation signal** line appears when the swarm detectors flag
+  anything.
+- **AECI-683** — a **corroborated floor** (views arriving with a named external search or
+  social referrer, plus the §9.8 visitors behind them) is printed as a third figure, and
+  `operatorLeakViews` reports the rows a *lapsed* admin session left unflagged, which the
+  `is_operator` flag alone cannot see. The corroborated figure is the only one of the three
+  a rotating-proxy pool cannot inflate — a proxy sends no `Referer` at all.
+
+**Read the human count as an upper bound** regardless: the ASN half of the classifier is a
+hand-maintained list, so `is_bot = 0` means "not known to be a bot", not "human". See
 [`POST_LAUNCH_MONITORING.md`](./POST_LAUNCH_MONITORING.md#3b-traffic-classification--auditing-the-digests-humans-aeci-526-follow-up)
-§3b for the weekly audit and the widen/backfill procedure. Report-only reads; fail-open (absent
-key/recipient → `skipped`). The cron runs in **every** deploy env (staging/demo/production)
+§3b for the weekly audit, the detector thresholds, and the widen/backfill procedure.
+`/admin/overview` renders the same numbers from the same collector, so the screen and the
+05:00 email cannot disagree. Report-only reads; fail-open (absent key/recipient →
+`skipped`). The cron runs in **every** deploy env (staging/demo/production)
 for liveness, but `ANALYTICS_DIGEST_EMAIL_TO` is set on **production only** —
 staging/demo carry synthetic D1 data, so their sends intentionally `skip` (the var is
 left unset).

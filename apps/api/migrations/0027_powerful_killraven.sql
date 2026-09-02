@@ -28,7 +28,7 @@
 --      `0014_careful_absorbing_man.sql`, this repo's only prior recreate, never hit
 --      this because `page_views` had no children.
 --
---      MEASURED, not theorised: `src/test/migration-0022.spec.ts` seeds 6 claims and
+--      MEASURED, not theorised: `src/test/migration-0027.spec.ts` seeds 6 claims and
 --      6 attestations, applies this migration in the GENERATED order, and observes
 --      `claims = 0, attestations = 0`. Restoring the order below returns 6 and 6.
 --      Five of its eight cases fail if anyone reorders this file.
@@ -64,6 +64,12 @@
 --   direction: both 15 · b_to_a 2 · a_to_b 0 · NULL 2 · outside the enum 0
 --     → the CASE is total over the real data — no row silently lands with a NULL
 --       direction because its input was unrecognised.
+-- ⚠️ RENUMBERED AGAIN 0022 → 0027 by AECI-750 (main → stage-2 reconcile):
+--    main had independently taken 0016–0020 and those are APPLIED IN PRODUCTION,
+--    so main keeps its numbers and stage-2's seven move up. Body unchanged — only
+--    the filename, the journal `tag` and meta/0027_snapshot.json moved. The
+--    snapshot was RECOMPOSED (main's page_views columns + asn_registry grafted on),
+--    not renamed; see docs/migrations.md §0.
 
 PRAGMA defer_foreign_keys = true;--> statement-breakpoint
 -- ── 1-2. Carry the two cascade-reachable tables out of harm's way ──────────────

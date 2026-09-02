@@ -16,7 +16,7 @@ marketing produces **before** we produce it.
 | **Mailing-list signup** (server, authoritative) | `mailing_list` D1 table via `POST /api/subscribe`; mirrored to the metrics plane as `aeci.email.send{template:landing-signup}` on each new insert (PostHog beside Datadog through the AECI-639 dual-run) | **Live** (consent-independent) | The true signup count. **Readable since AECI-586** at `/admin/audience` (`GET /api/admin/audience`), which also carries growth, exact churn, and a **consent-independent** UTM + geography breakdown. Read PostHog for the on-site funnel (*which band* converted); read the panel for the number, the trend, and *where they came from*. |
 | **Product feedback** (server) | `feedback` D1 table via `POST /api/feedback` | **Live** (consent-independent) | **Readable since AECI-586** at `/admin/audience` → Feedback inbox (`GET /api/admin/feedback`). Before that the operator email fired from the handler was the only record — the table was genuinely write-only, so a filtered alert was a lost submission. |
 | **Core Web Vitals** (field) | Datadog RUM `@datadog/browser-rum` (`apps/web/src/app/datadog.provider.ts`) | Built; **live once `DD_APPLICATION_ID` + `DD_CLIENT_TOKEN` are set** | RUM collects LCP/CLS/INP/FCP/TTFB automatically on init. `aeci` RUM app, us5. |
-| **Server pageviews / entry pages** | `page_views` D1 table via `POST /api/page-views` | **Live** (consent-independent) | Readable since AECI-574 — see "The consent-independent read path" below. Since **AECI-582** (2026-08-13) every row is classified human/bot — the 2026-07-12 AECI-280 pull's 4,917 rows were counted as human but were ~93% crawls (see the 2026-08-13 addendum). `cf_bot_score` is still null on every row (CF Pro exposes no bot score); the split comes from UA + ASN instead. Since **AECI-575** it captures **public routes only** — `/admin/*` and `/account` are excluded at both writers and filtered out on read (see the 2026-08-12 addendum below). |
+| **Server pageviews / entry pages** | `page_views` D1 table via `POST /api/page-views` | **Live** (consent-independent) | Readable since AECI-574 — see "The consent-independent read path" below. Since **AECI-582** (2026-08-13) every row is classified human/bot — the 2026-07-12 AECI-280 pull's 4,917 rows were counted as human but were ~93% crawls (see the 2026-08-13 addendum). `cf_bot_score` is still null on every row (CF Pro exposes no bot score); the split comes from UA + ASN instead. Since **AECI-575** it captures **public routes only** — `/admin/*` and `/account` are excluded at both writers and filtered out on read (see the 2026-08-12 addendum below). Since **§13 D13** (2026-08-19) views made by a verified admin session are excluded on read too, whatever the path — the operator's own public-site browsing was 15% of the human count (see the 2026-08-19 addendum). Since **§13 D15** (2026-08-27) the rows a *lapsed* session left unflagged are excluded as well, by `(user_agent_hash, cf_asn)` pair (see the 2026-08-27 addendum). |
 
 ### The consent-independent read path (updated 2026-08-13, AECI-574 + AECI-577 + AECI-582)
 
@@ -67,7 +67,16 @@ on every response rather than left to the reader:
   described in the 2026-08-13 addendum. The `bot_classification_incomplete` note
   was derived from the window's contents rather than a hardcoded date, so it
   retired itself the moment the backfill ran. **`is_bot = 0` still means "not
-  known to be a bot", not "human"** — the ASN half is a hand-maintained list, so
+  known to be a bot", not "human"** — and since **AECI-624** the admin panel says
+  so beside the row rather than only in this document: `/admin/activity` joins the
+  §7.6 `asn_registry` at read time and annotates a network the registry lists as
+  something nobody browses from, while leaving `is_bot` exactly as ingest wrote
+  it. A row reading `is_bot = 0` **and** "not a network people browse from" is the
+  honest state, and it is the shape the 2026-08-13 forged-referrer burst had. The
+  same issue renamed the Activity Source column to **"Claimed source"**, because
+  `referrer_source` comes from a client-supplied header that nothing verifies —
+  production holds a confirmed `www.youtube.com` forgery. The ASN half is a
+  hand-maintained list, so
   the human count remains an upper bound.
 - **`referrer_source` is null on every row before August** and is not
   backfillable — the header was never stored.
@@ -124,7 +133,7 @@ Verified against live prod on 2026-07-11: the served HTML on `www.aecintegration
 only `__AECI_ALGOLIA__` + `__AECI_SUPABASE__` config — **no `__AECI_POSTHOG__`, no `__AECI_DD__`**.
 Injection is gated on the Worker secrets existing, so PostHog and Datadog **RUM** were **not
 capturing anything in production**. AECI-326 makes both durable: PostHog was already CI-pushed
-(from `POSTHOG_KEY_{STAGING,PRODUCTION}`); the RUM credentials are now CI-pushed too (shared
+(from `POSTHOG_KEY_{NONPROD,PRODUCTION}` — non-prod covers staging, demo and PR previews); the RUM credentials are now CI-pushed too (shared
 un-suffixed `DD_APPLICATION_ID` / `DD_CLIENT_TOKEN`, all four deploy/promote workflows). **Both go
 live once the GitHub secret *values* are set** (see [`OBSERVABILITY.md` → Credentials](./OBSERVABILITY.md#credentials)).
 
@@ -217,6 +226,49 @@ numbers), and again at launch.
 > the operator's ISP — is `ANALYTICS_INTERNAL_ASNS` (`ADMIN_PANEL_SPEC.md` §13 D10), still unbuilt,
 > so the human count remains an **upper bound**.
 
+> **D13 addendum (2026-08-19) — the operator's own browsing is no longer counted.** AECI-575 (above)
+> stopped counting the operator while they were *in the console*. It never stopped counting them
+> browsing the **public** site to check their own work, and nothing on such a row distinguishes it
+> from a visitor's. Measured on 2026-08-19: **368 of 2,493 all-time human public-page views (15%)**
+> came from the operator's own browser, across **AS23089/US** (Jun 23 → Jul 30), **AS23314/US**, and
+> **AS23700/ID** (Aug 3 → Aug 18) as their network changed. `page_views.is_operator` now records, at
+> ingest, whether the request carried a *verified* admin session, and every read excludes it
+> (`ADMIN_PANEL_SPEC.md` §13 D13).
+>
+> Three consequences when reading numbers across this date. **(1)** The live flag is **not
+> retroactive** — older rows are `is_operator = NULL` and read as visitors, because nothing stored
+> on them implies a *session*. Left alone that would put a **step down at 2026-08-19** of roughly
+> the 15% above, with days on either side not directly comparable. **(2)** Most of that step is
+> closed by a separate, explicitly approximate backfill —
+> `scripts/ops/2026-08-operator-page-view-backfill/`, see the addendum below. **(3)**
+> `ANALYTICS_INTERNAL_ASNS` is now genuinely a remainder: it is left covering only the operator's
+> *other* devices on a known network. The human count is still an **upper bound**, but by a much
+> smaller margin than before.
+
+> **Backfill addendum (2026-08-19) — history corrected by visitor PAIR, not by country.** The
+> recoverable signal for older rows is not the session but the **`(user_agent_hash, cf_asn)` pair**
+> — §9.8's own definition of a visitor. `page_views` still holds `/admin*` and `/account` rows,
+> which no visitor reaches, so a pair appearing on one is *proven* to be the operator. Six pairs,
+> four proven directly: **679 rows flagged, 458 of them in the human public population**, taking
+> all-time human page views **2,494 → ~2,036 (an 18% correction)**. The remaining 221 are the
+> operator's own WARP/VPN traffic, currently mislabelled as datacenter crawls.
+>
+> **Two simpler rules were measured and rejected, and the numbers are worth keeping.**
+> *"Everything from Indonesia"* flags 333 rows of which only **185** are the operator — **44% false
+> positives**, because Indonesian traffic carries 25 distinct browsers — while missing the **183**
+> views from the operator's US period (AS23089, Jun 23 → Jul 30) entirely, for **50% recall**. It
+> is wrong in both directions at once, and a country is simply a coarser network than the ASN
+> §13 D10 already rejected. *"The operator's UA hash"* is safe for the primary hash but unsafe as a
+> method: their **second** browser hash spans **6 ASNs across 5 countries**, since a UA hash is a
+> browser *build* shared with strangers.
+>
+> **Do not read the backfilled rows as equivalent to the live flag.** The flag is a verified session;
+> this is an inference. Two candidate pairs on the operator's own ISP (an 11-view hour, a
+> 7-views-in-one-second burst) were deliberately left counted because neither can be told apart from
+> a visitor, and a browser used only on public pages before the move would leave no proof row at
+> all. The backfill writes only over NULL, so it never overrides the live flag and its rollback is a
+> true inverse.
+
 > **AECI-582 addendum (2026-08-13) — most of the "humans" were bots.** The one-time bot backfill ran
 > on all four tiers. It classified the **17,784 of 26,671** production rows that had `is_bot IS NULL`
 > and were therefore being counted as human by `is_bot IS NOT 1`. In the digest population, all-time
@@ -237,6 +289,157 @@ numbers), and again at launch.
 >
 > The residual bias is unchanged in direction: `is_bot = 0` means "not known to be a bot". With
 > `ANALYTICS_INTERNAL_ASNS` still unset, the human count stays an **upper bound**.
+
+> **AECI-683 addendum (2026-08-27) — the digest's "humans" were still ~8x the people, and the
+> PostHog floor was measuring the operator.** AECI-658/660 (2026-08-26) shipped *measurement*: an
+> "up to N" subject, an upper-bound label, a PostHog lower bound, and a swarm detector. It worked —
+> and what it measured is that the pair of bounds was not bracketing anything. On **2026-08-26** the
+> digest emailed **"up to 102 human views"** beside **"47 page views from 1 person"**, which reads
+> like corroboration until you resolve the person: PostHog person `174286d5…`, South Tangerang ID,
+> active 02:44–23:25 — the **operator**, whose client tracker has no operator suppression. Both
+> bounds were measuring the same person.
+>
+> Decomposed against production D1, the 102 were: **~26** operator self-traffic (22 of them one
+> contiguous burst, 05:46–07:32, ending on `/auth/login`), **26** correctly-flagged swarm,
+> **~35–40** automation sitting under the AECI-658 thresholds, and **8 views from 7 visitors** that
+> a named external referrer corroborates. The "Most viewed products" table that day was largely the
+> operator's own browsing plus one Polish UA-rotator; the +28% day-over-day delta was leak variance,
+> not growth; and "Direct 87" was mostly automation, because proxies send no `Referer`.
+>
+> Three changes, and the distinction between them is the point. **(1)** `NOT_INTERNAL` gained a
+> third half — a `(user_agent_hash, cf_asn)` retro-join that recovers the rows a *lapsed* admin
+> session left unflagged (`is_operator` is decided once at ingest and fails open on an expired
+> token). This **changes the counted population**, legitimately: it is operator-identity exclusion,
+> §13 D13's business, not a bot judgement. It recovers **22 of the ~26** and deliberately stops
+> there — the other four sit on UA hashes that never carried an `is_operator = 1` row, so no pair
+> proves them, and reaching them would mean widening to the ASN, the rule measured wrong in both
+> directions above. **(2)** An inverse ASN-grouping detector, and **(3)** a **corroborated floor**,
+> are both **report-only**: they print beside the headline and never subtract from it.
+>
+> **Do not read the retro-join as equivalent to the live flag** — the same rule the 2026-08-19
+> backfill addendum sets for the pair cohort. It is an inference about identity, which is precisely
+> why the email, `job_runs`, and `/admin/overview` all report `operatorLeakViews` rather than
+> quietly netting it off.
+>
+> Two limits recorded honestly. The corroborated figure is a **floor built on a claim**:
+> Referrer-Policy strips real referrals into `Direct`, and nothing verifies a `Referer` (§9.7 — this
+> table holds one confirmed forgery). And the ASN detector's clean false-positive record — one
+> flag, AS47544, in 30 days of production — rests on `client_verdict`, which **did not exist before
+> 2026-08-26** (0 rows carry one on 08-25, 877 of 918 on 08-26). That is two days of evidence, not
+> thirty. Re-check after a month of verdict coverage.
+>
+> `metrics_daily` rows written before this date keep the old definition, and
+> `/api/admin/metrics/timeseries` serves snapshot-first, so a chart will step at the boundary until
+> `ops:backfill-metrics-daily` is re-run.
+
+### Decomposing the residual — what survives the automation filter (2026-08-31, AECI-741)
+
+> **The number left after the filter is not a floor of real people.** AECI-658 taught the digest to
+> flag rotating-proxy traffic; AECI-741 made the post-filter count the headline. This is the
+> hand-audit of what that headline actually contains, run over the two days the operator queried
+> (**2026-08-29** and **2026-08-30**, production).
+>
+> | | 8/29 | 8/30 |
+> |---|---|---|
+> | Raw human page views | 87 | 70 |
+> | Flagged as automation | 64 | 56 |
+> | **Residual (the new headline)** | **23** | **14** |
+> | PostHog floor | 0 views / 0 people | 2 views / 1 person |
+> | Corroborated by external referrer | 2 views | 0 |
+>
+> **Of the 37 residual views across both days, at most ~3 are plausibly a person.** The breakdown:
+>
+> - **18 of 37 are the SAME flagged swarm, sub-threshold that day.** `SWARM_MIN_ASN_RATIO` is
+>   evaluated per-day and independently each day, so a client that happens to reuse one network
+>   drops under the 0.8 cutoff and escapes. `53304b2e…` was flagged on 8/29 (ratio 1.0) and escaped
+>   on 8/30 at ratio 0.70 → **10 residual views**. `02048353…` escaped on 8/29 at ratio 0.63 and was
+>   flagged on 8/30 → **8 residual views**. Over 2026-08-21…30 the eight swarm hashes each ran
+>   **every single day**, spanning **45–68 ASNs across 29–38 countries** (525 views total). A client
+>   with that history should not be re-adjudicated from scratch each morning.
+> - **7 of 37 are one scraper on commercial proxy infrastructure** (`dc0402b6…`). Its ASNs are
+>   AS27411 (**UAB code200**, i.e. Oxylabs) and AS62874 (**Web2Objects**). On 8/29 at
+>   `16:20:11.241Z → .900Z` it read **five different product pages in 659 ms**. No person does that.
+> - **3 of 37 sit under `SWARM_MIN_VIEWS`** (`87012404…`: 3 views, 3 US networks — Charter, **Rockion
+>   LLC**, Airfiber — one fingerprint, and all three carry a `client_verdict` of `inconsistent`).
+>   The 4-view floor is what lets them through; the verdict already knew. **Closed by AECI-744**
+>   (2026-09-01) — see the addendum below.
+> - **2 of 37 are ONE arrival counted twice.** `81e13bc5…` wrote `/products/leap-crm` at
+>   `15:37:06.370Z` and `15:37:06.453Z` — 83 ms apart, same path, same ASN, same referrer. These two
+>   rows *are* the "2 Google" that the 8/29 digest reported as its traffic-source table and its
+>   entire corroborated population. The only externally-corroborated arrival in two days is inflated
+>   2×. Tracked separately as a page-view double-fire.
+> - **7 of 37 are singletons**, and 4 of those are `non-browser`/`inconsistent` verdicts or sit on
+>   cloud/hosting ASNs (Shanghai UCloud AS23724, "365 Group" AS18450, RapidSeedbox AS214483).
+>
+> **The AECI-683 operator retro-join removes none of them** — verified, `operator_pair_matches = 0`
+> over both days. So unlike 2026-08-26, this residual is not the operator; it is automation leaking
+> through threshold gaps.
+>
+> **Three follow-ups this implies**, in descending value: (1) **AECI-742** — give the detector
+> cross-day memory so a hash with a flagged history keeps a lower per-day bar (**shipped 2026-09-01**,
+> see the addendum below); (2) **AECI-744** —
+> treat `client_verdict` of `inconsistent`/`non-browser` as disqualifying on its own, with no
+> cardinality floor (**shipped 2026-09-01**, see the addendum below); (3) **AECI-743** — fix the double-fire (**shipped 2026-09-01**, see the addendum below). None of them is a `DATACENTER_ASNS` widening — the standing rule that a human decides
+> before an ASN joins that list still holds, and these are commercial proxy/seedbox providers rather
+> than the consumer ISPs that rule exists to protect.
+
+> **AECI-742 addendum (2026-09-01) — the largest bucket is closed, and it cost no collateral.**
+> Follow-up (1) above shipped: `detectUaHashSwarms` now carries a **prior**. A hash flagged at full
+> strength on `SWARM_PRIOR_MIN_FLAGGED_DAYS` (2) of the previous `SWARM_PRIOR_LOOKBACK_DAYS` (14)
+> days is held to `SWARM_RECURRING_ASN_RATIO` (0.5) over `SWARM_RECURRING_MIN_VIEWS` (2) on the day
+> being reported, instead of the standing 0.8 over 4. The prior is never built from a relaxed flag
+> and never from the reported day itself, so the memory cannot ratchet; and the bar is lowered
+> rather than removed, so a hash that settles onto one network is forgiven inside a fortnight.
+>
+> **Re-measured read-only against production D1**, replaying the two audited days under the new rule:
+>
+> | | 8/29 | 8/30 |
+> |---|---|---|
+> | Raw human page views | 87 | 70 |
+> | Flagged as automation — before | 64 | 56 |
+> | **Flagged as automation — after** | **72** | **66** |
+> | **Residual (the headline)** | **23 → 15** | **14 → 4** |
+> | Newly flagged | `02048353…` — 8 views, ratio 0.62, flagged on 7 of the prior 14 days | `53304b2e…` — 10 views, ratio 0.70, flagged on 8 of the prior 14 days |
+>
+> That is exactly the predicted 18 views, and **exactly those two hashes** — nothing else on either
+> day changed. Swept across the 16 days to 2026-08-30 the relaxed bar adds 82 views in total, and
+> **every hash it newly flags on any day is already one of the eight known swarm hashes**; not one
+> hash outside that set is admitted. The remaining residual is the rest of this decomposition — the
+> Oxylabs/Web2Objects scraper, the sub-`SWARM_MIN_VIEWS` cluster AECI-744 addresses, and the
+> singletons.
+>
+> **Read the "after" numbers as a filter, not a headcount.** This closes a leak; it does not turn the
+> residual into a floor of real people. The standing rule holds — nothing here writes `is_bot`, and
+> no ASN joined `DATACENTER_ASNS` on this evidence.
+
+> **AECI-743 addendum (2026-09-01) — the double-fire is fixed, and it was not the suspect anyone
+> named.** Queried against production D1, both rows of the 8/29 pair are `navigation = 'arrival'`
+> with `path = '/products/:slug'` and the product FK resolved — i.e. two full SSR cacheable-branch
+> **cache-MISS renders**, not an SSR write racing a client `PageViewTracker` write. That suspect is
+> ruled out structurally, not by inspection: the tracker sends `navigation = 'spa'`, and
+> `classifyReferrer` maps any same-origin `Referer` to `Direct`, so a client row can never read
+> `Google`. `handleSsr` fires `firePageView` at most once per invocation and runs once per request,
+> so **the browser sent the document request twice** — a prerender, a double-click, or a
+> HEAD-then-GET probe — and nothing in the stack refused the second row.
+>
+> **What changed for reading these numbers.** From 2026-09-01 ingest refuses a second row for the
+> same `(concrete_path, user_agent_hash, cf_asn)` within ~10–20 s (`dedupe_key` + a UNIQUE index,
+> migration `0020`), the SSR Worker no longer counts speculative (`Sec-Purpose: prefetch`/
+> `prerender`) loads or non-GET requests, and the browser tracker no longer fires on a query-only
+> re-navigation. Mechanism: `API_CONTRACTS.md` §6.9, "One document load, one row".
+>
+> **Two limits that must travel with any pre-2026-09 figure.** Rows written before the fix are
+> **not** repairable — the stored row cannot distinguish a double-fire from two genuine arrivals —
+> so every historical day may read slightly high.
+> `scripts/ops/2026-09-page-view-duplicates/find-duplicates.sql` reports the suspects read-only;
+> against production on 2026-09-01 it found 52 human `arrival` pairs, 23 human `spa` pairs and 589
+> pairs with a null `navigation` (pre-AECI-585 rows, which cannot be attributed to a writer) inside
+> the 20 s window. **The corroborated floor is affected on exactly two days**: 2026-08-29 (2 → 1)
+> and 2026-08-18 (4 → 3). Both are corrected in `POST_LAUNCH_HEALTH_REPORT.md`.
+>
+> And the guard is a floor on precision, not a claim of exactness: bot-classified rows and rows with
+> no `user_agent_hash` are deliberately left unconstrained, so a crawler's repeat fetches still count
+> once each and the crawler tables stay a raw count.
 
 ## How to read the numbers (weekly, going forward)
 
@@ -266,9 +469,15 @@ time with `curl -s https://www.aecintegrations.com/ | grep -oE '__AECI_(POSTHOG|
   (AECI-575); add `and path not in ('/admin','/account') and path not like '/admin/%' and path not like '/account/%'`
   to any ad-hoc query so it matches what the digest reports (the digest matches on an exact prefix
   boundary, so a bare `'/admin%'` would wrongly drop public look-alikes like `/administrators`).
-- **Core Web Vitals** — **two sources during the ADR 0024 dual-run.** Datadog **RUM → Performance /
-  Core Web Vitals** for the `aeci` app (us5), filter `env:production` (LCP, CLS, INP) — the live
-  one, until AECI-651. PostHog's `$web_vitals` is the successor, and it is captured on the
+  Add `and (is_operator is null or is_operator = 0)` as well — that is the second half of the same
+  exclusion (§13 D13) and an ad-hoc query that applies only the path clause is still counting the
+  operator's public-site browsing. Since §13 **D15** there is a **third** clause, the
+  `(user_agent_hash, cf_asn)` retro-join — copy it verbatim from `DATABASE_SCHEMA.md` §9.1, which
+  now carries the full three-clause block. Without it an ad-hoc query still counts every row the
+  operator wrote while their session was lapsed, and those cluster on their own ISP, which is
+  exactly the network the §3b census must not misread as automation.
+- **Core Web Vitals** — PostHog `$web_vitals`. AECI-651 deleted the Datadog RUM leg, so this is
+  now the only source. It is captured on the
   **Tier 2 anonymous slice**, so it covers *every* visitor including DNT/GPC rather than the
   consented minority — a wider sample than RUM had, on a fresh anonymous id per page load. Thin
   sample pre-launch — re-read post-launch.
@@ -293,3 +502,25 @@ time with `curl -s https://www.aecintegrations.com/ | grep -oE '__AECI_(POSTHOG|
 3. **Datadog RUM reports CWV** — gated on `DD_APPLICATION_ID` + `DD_CLIENT_TOKEN` (now CI-wired; set
    the GH secrets, then confirm `__AECI_DD__` in the HTML and CWV populating in the RUM app).
 4. **Baseline written** — ✅ this document.
+
+> **AECI-744 addendum (2026-09-01) — the verdict now flags on its own, with no view floor.**
+> `client_verdict IN ('inconsistent','non-browser')` is direct evidence about *that request*, not a
+> cardinality inference over a sample, so `detectNonBrowserClients` evaluates it **per row**: no
+> grouping, no floor, no ratio. That reaches the two sub-threshold groups this baseline named — the
+> `87012404…` trio (3 views, ASN ratio 1.00, under the 4-view floor by one) and the four singletons
+> on cloud/hosting ASNs — i.e. **~7 of the 37 residual views**, which now leave the headline instead
+> of being admitted as human on a technicality.
+>
+> Three properties to hold on to when reading a future residual against this one:
+>
+> - **The floors did not move.** `SWARM_MIN_VIEWS` and `ASN_ROTATOR_MIN_VIEWS` are both still 4, and
+>   both groupings still exclude the trio. This is a third signal beside them, not a loosening of
+>   either — so the 18-of-37 cross-day-memory gap (AECI-742) is untouched and still the largest item.
+> - **NULL is still no evidence.** Every row written before 2026-08-26 has no verdict and counts as a
+>   person. This baseline's caution against reading verdict coverage as complete stands.
+> - **The number is filtered-vs-filtered on both sides.** The digest's prior-day comparison already
+>   ran the detector over the prior window, so the first morning after this shipped shows a real
+>   step down in both columns, not a manufactured one-day drop.
+>
+> Read-side only, as ever: no `is_bot` write, and RapidSeedbox AS214483 / Web2Objects AS62874 /
+> UAB code200 AS27411 / Rockion AS199737 did **not** join `DATACENTER_ASNS`.

@@ -268,12 +268,19 @@
           >
             Page
           </th>
+          <!--
+                    "Claimed source", not "Source". The value comes from a header the
+                    client sets, nothing verifies it, and production holds a confirmed
+                    forgery. The word sits in the header because that is where it
+                    qualifies every cell below it at once; the
+                    referrer_source_is_unverified note carries the full explanation.
+                  -->
           <th
             scope="col"
             class="px-3 py-3 text-start text-xs font-medium tracking-wide text-(--text-secondary)"
-            i18n="@@admin.activity.col.source"
+            i18n="@@admin.activity.col.sourceClaimed"
           >
-            Source
+            Claimed source
           </th>
           <th
             scope="col"
@@ -316,6 +323,15 @@
             <!-- Spelled out, not a dash: the column header supplies the
                            context, so "Unknown" reads the same to everyone. -->
             <span class="font-sans" i18n="@@admin.activity.visitor.unknown">Unknown visitor</span>
+            }
+            <!--
+                        What the ASN registry says about this network, sitting with
+                        the network rather than with the bot chip. It never revises
+                        is_bot; a row showing no bot chip and "not a network people
+                        browse from" together is the honest state, not a conflict.
+                      -->
+            @let asn = asnLabel(row); @if (asn) {
+            <span class="mt-0.5 block font-sans text-xs" [class]="asnTone(row)">{{ asn }}</span>
             }
           </td>
 

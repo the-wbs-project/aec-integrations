@@ -73,7 +73,7 @@ Census taken against **production D1 on 2026-08-12**. These numbers decide what 
 | `integrations` | 496 | same caveat |
 | `vendors` | 126 | same caveat |
 | `claims` / `attestations` | 915 / 915 | `created_at` present |
-| `taxonomy_*` | 33 categories · 30 audiences · 5 phases · 34 trades · 20 data objects | static vocabularies |
+| `taxonomy_*` | 33 categories · 30 audiences · 5 phases · 34 trades · 20 data objects | static vocabularies [^tax] |
 | `product_categories` | 373 | — |
 | `product_trades` | **0** — the fourth facet (AECI-538) is live but untagged | — |
 | `profiles` | 2 | `created_at` |
@@ -82,6 +82,8 @@ Census taken against **production D1 on 2026-08-12**. These numbers decide what 
 | `feedback` | **0** | `created_at` |
 | `vendor_requests` / `workflow_instances` | **0** / **0** | `created_at` + transitions |
 | `stats_cache` | 12 keys, recomputed 07:00 UTC daily | **No** — snapshot, overwritten |
+
+[^tax]: Census figures, correct on 2026-08-12 and left as recorded. The audience vocabulary has since grown to **36** terms (six discipline-coverage additions — `STAGE_1_SPEC.md` §5.5); the six new terms start at zero tagged products, so treat a zero-count audience as expected rather than as a finding until the review app tags them.
 
 Other observations from the census that the panel should surface as findings, not hide:
 
@@ -110,6 +112,8 @@ The four questions that motivated this document, answered against §3.
 - `stats_cache` is overwritten by the 07:00 cron. **No history exists.**
 - `products` has **no `promoted_at`** column. §13 **D6** adds one — but not for the reason a first reading suggests, and the difference decides how it is implemented (see the correction below).
 - `audit_log` *is* a genuine event stream (`product.created` 131, `integration.created` 827, `vendor.created` 94, since 2026-06-26), so **additions** are chartable. But **net totals are not**: 827 `integration.created` events against 496 live rows, because the 2026-07-25 `catalog.integrations_reset` removed rows without per-row audit; ~40 products predate the log entirely; and 5,375 `claim.created` events back 915 live claims because promote re-created the claim spine on every push. **That last cause ended with AECI-604** (`STAGE_2_ATTESTATIONS_SPEC.md` §3): promote now matches claims by their identity triple and re-uses the row, so a re-promote of an unchanged claim emits no `claim.created` at all. Events accumulated *before* 2026-08-18 are still inflated and the historical series cannot be repaired; from that date forward `claim.created` approximates real additions, and the new `claim.deleted` / `claim.converted` actions make net movement reconstructable for the first time.
+
+> **Sharpened (AECI-686, 2026-08-27).** "Net totals are not chartable" remains true of a **past total** — how many integrations existed on 2026-07-01 is unrecoverable and always will be, because nothing records when a row was removed. It is **not** true of the question §5.5 actually asks. "How many of the rows in the catalog today were added in month M" has an exact answer in `created_at`, it sums to the live total by construction, and `basis=net` serves it. What that trades away is a fixed past: the answer restates as rows are removed. See §5.5 (5) for the full derivation, the production figures, and why per-row deletion tombstones are the durable fix.
 
 > **Correction (AECI-573).** An earlier draft of this section claimed that "a row sits at `promotion_status='ready'` before going live, so `created_at` is not a go-live date." **That describes the review app's lifecycle, not AECi's D1.** In D1: `POST /api/promote` is the only INSERT path into `products` and it sets `promotion_status='promoted'` on both its insert and update branches; nothing in the repo ever writes `'ready'`, `'pending'`, `'retracted'`, or `'rejected'` to D1 (`'ready'` is an Airtable-side status that never crosses the promote boundary); and retraction is a **hard delete** (`lib/retract-product.ts`), not a status transition. So **`products.created_at` is already the first-promote timestamp, exactly** — Drizzle stamps it at insert and a re-promote never touches it. The census agrees: all 171 products read `promoted`.
 >
@@ -188,7 +192,9 @@ The cached role is a **UI hint, never an authorization input** — see `AUTH_AND
 
 ### 5.1 Overview
 
-The analytics digest as a live page. Stat tiles with sparklines — human page views, unique visitors, new sign-ins, active subscribers, catalog totals — each with a day-over-day and 7-day delta matching the email's `deltaText` semantics. Below: a 30-day traffic chart (human vs bot), top traffic sources, top viewed products, and a status strip (prod SHA · stats freshness · failing DQ checks · Algolia drift · moderation depth). A **"recompute today's digest"** action so the operator is not waiting for 05:00 UTC — implemented as `GET /api/admin/overview?recompute=1`, which re-runs the digest's metric collection (already a pure read) and returns it. It does **not** send the email and writes nothing; §13 **D8** draws that line.
+The analytics digest as a live page. Stat tiles with sparklines — human page views, unique visitors, new sign-ins, active subscribers, catalog totals — each with a day-over-day and 7-day delta matching the email's `deltaText` semantics. Below: a 30-day traffic chart (human vs bot), top traffic sources, top viewed products, and a status strip (prod SHA · stats freshness · failing DQ checks · Algolia drift · moderation depth). A **"recompute today's digest"** action so the operator is not waiting for 05:00 UTC — implemented as `GET /api/admin/overview?recompute=1`, which re-runs the digest's metric collection (already a pure read) and returns it. It does **not** send the email and writes nothing; §13 **D8** draws that line. The human page-views tile carries its own **measurement envelope** in the caption (§13 **D15**): the raw server-side count it was subtracted from and how many views the automation filter removed (AECI-745), that the raw figure is an upper bound, the AECI-683 corroborated floor (`corroborated_views` / `corroborated_visitors`), and `operator_leak_excluded` when it is non-zero — on the tile rather than in a tile of its own, because the email prints the same three beside the same number and a caveat one card away from its figure is a caveat nobody reads.
+
+> **Closed by AECI-745 (2026-09-01).** This tile leads with **human page views after automation** — the same number the 05:00 email leads with, from the same `humanViewsAfterAutomation()` call, and `admin-overview.spec.ts` asserts it against a fixture seeded with a client the real detector flags (raw 8, filtered 4). The raw server-side count moved to `page_views_human_raw` and stays in the caption, where the subtraction is legible. What made this hard was an import cycle: `swarm-detection` imported the collector's own `HUMAN` / `NOT_INTERNAL` predicates, deliberately, so that "N of the M reported views" describes the same population. Those predicates now live in `apps/api/src/lib/page-view-predicates.ts`, which both modules import and neither is imported by, so `collectAnalyticsMetrics` runs the detector itself and `AnalyticsMetrics.automation` carries the result. **`page_views_human` and `delta_day` were REDEFINED rather than supplemented** — one headline, not two — which is a silent semantic change for any other reader and is flagged as such in `packages/shared/src/api/admin-panel.ts`. `delta_7d` and the 30-day chart stay RAW, because filtering them means running the detector over every day they span; the caption says so rather than letting a filtered day sit unlabelled beside a raw week.
 
 **SHIPPED (AECI-576, P1.2), with one paragraph above corrected by what P1.1 actually returns.**
 
@@ -210,11 +216,14 @@ The consent-independent equivalent of PostHog's Activity explorer — a reverse-
 | CITY NAME | Location — country + Cloudflare colo (the colo *is* the nearest city) | `cf_country`, `cf_colo` |
 | URL / SCREEN | Page — concrete path, or route pattern hydrated to the real entity name | `path` + `product_id`/`vendor_id` join |
 | TIME | Relative, absolute UTC on hover | `created_at` |
-| REFERRER URL | Source — `Google` / `Direct` + host | `referrer_source`, `referrer` |
+| REFERRER URL | **Claimed source** — `Google` / `Direct` + host. Headed as a claim, not a fact: the value is a client-supplied header nothing verifies (§9.7) | `referrer_source`, `referrer` |
+| *(no PostHog equivalent)* | Network annotation, under the visitor id — "FDCServers.Net, registered Content. Not a network people browse from" | `asn_registry` joined on `cf_asn` (§7.6) |
 
-Operator-only paths (`/admin/*`, `/account`) never appear in this feed — §9.6 / §13 D12 excludes them **beneath** the filters below, historical rows included, so no filter setting can surface them.
+**The network annotation sits with the visitor, not with the bot chip, and that placement is the point (AECI-624).** It is a fact about the network, never a revision of `is_bot`: a row showing **no** bot chip *and* "not a network people browse from" is the honest state, and it is exactly the shape the 2026-08-13 forged-referrer burst had (§7.6). `eyeball` networks get the name and type with no editorial — confirming the common case is worth a line, not emphasis — and only `non_eyeball` is tinted, to the strength of the secondary text colour. Colour never carries it alone; the prose says "not a network people browse from" on its own. An ASN the registry has never heard of renders **nothing at all** rather than an empty annotation.
 
-Filters: date range · traffic type (humans / bots / all, default humans) · source · country · path contains · **"filter out internal traffic"**, mirroring PostHog's toggle, backed by an `ANALYTICS_INTERNAL_ASNS` var. That last one is not cosmetic: on 2026-08-10, **67 of 92 "human" views came from the operator's own ISP** (AS23700, Jakarta). It is bound by the three constraints in §13 **D10** — query-time only (it never touches `is_bot` and never runs at ingest), both numbers always shown, and the var ships unset.
+Operator-only paths (`/admin/*`, `/account`) never appear in this feed — §9.6 / §13 D12 excludes them **beneath** the filters below, historical rows included, so no filter setting can surface them. Since §13 **D13** the same is true of views made by a **verified admin session on any path**: the operator checking a public product page is excluded beneath the filters too, on the same by-construction footing and with the same no-toggle treatment.
+
+Filters: date range · traffic type (humans / bots / all, default humans) · source · country · path contains · **"filter out internal traffic"**, mirroring PostHog's toggle, backed by an `ANALYTICS_INTERNAL_ASNS` var. That last one is not cosmetic: on 2026-08-10, **67 of 92 "human" views came from the operator's own ISP** (AS23700, Jakarta). It is bound by the three constraints in §13 **D10** — query-time only (it never touches `is_bot` and never runs at ingest), both numbers always shown, and the var ships unset. **D13 shrinks what that toggle is for**: session-identified operator views are now removed unconditionally, so the ASN filter is left holding only what it was always meant to hold — the operator's *other* devices on a known network, and nothing else.
 
 Entity hydration follows the `target` `LinkRef` pattern already used by `GET /api/admin/requests`, so `/products/:slug` renders as a linked product name.
 
@@ -222,7 +231,7 @@ Entity hydration follows the `target` `LinkRef` pattern already used by `GET /ap
 
 ### 5.3 Traffic
 
-Time series over `page_views`: views/day split human vs bot · unique visitors/day (§9.8) · sources over time · top pages · top products · geography (country + colo) · crawler activity per bot over time. A UTC ↔ WIB toggle (§9.5), since the digest and every cron are UTC-only and the operator is at UTC+7. "Top pages" is public routes only — the §13 D12 exclusion applies here too, so the console's own routes can never rank in it.
+Time series over `page_views`: views/day split human vs bot · unique visitors/day (§9.8) · sources over time · top pages · top products · geography (country + colo) · **networks** (`dimension=asn`, added by AECI-624) · crawler activity per bot over time. The Networks breakdown is the aggregate counterpart to §5.2's per-row annotation and answers what Geography only approximates: a country says where an address is, a network says what kind of place it is. Each group carries its `asn_registry` reading, so a network with real view counts and a "not a browsing network" suffix is traffic the human/bot split is calling human on thin evidence. A UTC ↔ WIB toggle (§9.5), since the digest and every cron are UTC-only and the operator is at UTC+7. "Top pages" is public routes only — the §13 D12 exclusion applies here too, so the console's own routes can never rank in it.
 
 **Shipped in AECI-578, with three items deferred by decision.** Three of the list
 above are not reachable from the P1.1 contract, which was found while building the
@@ -267,7 +276,7 @@ Two smaller notes. The breakdowns group **signups inside the window**, matching 
 **SHIPPED 2026-08-13 (AECI-579 / P1.5)** — `/admin/catalog`, the console's first screen.
 
 - **Counts over time** — products / integrations / vendors / claims (§7.1), with the pre-snapshot segment visually marked as an audit-log approximation.
-- **Additions per day** from `audit_log` `*.created` events.
+- **Additions per day** from `audit_log` `*.created` events, in a **Daily / Monthly tabbed panel** (see note (4)).
 - **Promotion funnel** — `pending → ready → promoted → retracted / rejected` from `products.promotion_status`.
 - **Coverage gaps as actionable lists** — products without a vendor, without a logo (171 today), without a description, untagged per facet (`product_trades` is 0), missing API docs, `research_status` distribution.
 - **Taxonomy usage** per facet, plus the trades publication gate (`TRADES_VOCABULARY.md`).
@@ -275,21 +284,67 @@ Two smaller notes. The breakdowns group **signups inside the window**, matching 
 
 This is the section that steers daily catalog work, and the one whose underlying data is richest today.
 
-**Three things this section says that the build had to correct or sharpen (AECI-579):**
+**Five things this section says that the build had to correct or sharpen (AECI-579, then (4) and (5) after it):**
 
 **(1) The gap lists cannot link out to the review app, and do not.** An earlier draft of this section, and the "Read-only, emphatically" framing below it, both required every gap row to be *"a link out to the review app, not an edit surface"*. The read-only half stands and is absolute. The link half is **not constructible**: **ADR 0021 deliberately kept the curation key out of D1** — `REVIEW_APP_PROMOTE_API.md` states plainly that *"AECi does **not** store your Airtable/record IDs"*, and that ADR vetoed `airtable_record_id` on `products` as "no curation-tool key in the public schema". There is therefore no identifier in D1 from which a per-row review-app URL could be built, and adding one would reopen a settled decision for a convenience link. **Sample rows link to the AECi product page** (`/products/:slug`) instead, which is the honest available target and is also the more useful one for verifying a gap: it shows the operator exactly what a visitor sees. Nothing about the read-only rule changes — there is no edit affordance anywhere on the screen.
 
-**(2) "Counts over time" and "additions per day" are one series, and it is not this endpoint's.** Both bullets are served by `GET /api/admin/metrics/timeseries` with the `catalog.*` metric keys, which P1.1 already shipped complete with `catalog_series_is_additions_only`. `GET /api/admin/catalog/coverage` deliberately does not carry a second copy. Until §7.1's snapshot exists there is exactly one honest series here — **additions**, from the event stream — and the screen renders it as such with the approximation banner attached, rather than drawing a cumulative curve that §4 shows would be wrong (827 `integration.created` events against 496 live rows).
+**(2) "Counts over time" and "additions per day" are one series, and it is not this endpoint's.** Both bullets are served by `GET /api/admin/metrics/timeseries` with the `catalog.*` metric keys. `GET /api/admin/catalog/coverage` deliberately does not carry a second copy. P1.1 shipped that series on the event stream with `catalog_series_is_additions_only` attached; **AECI-686 moved the screen off it — see (5)** — but the one-implementation rule is unchanged and is why the fix landed in the timeseries endpoint rather than in coverage.
 
 **(3) The untagged-trade count is not a backlog.** This section lists "untagged per facet (`product_trades` is 0)" alongside missing logos and missing vendors. Those are not the same kind of number. `TRADES_VOCABULARY.md` §1.1 tags a product **only** where it has trade-*specific* value, so horizontal platforms (Procore, Autodesk Build, Bluebeam) correctly carry zero rows — the join is sparse by design and most of the catalog will never be tagged. The count is still worth surfacing (nothing at all is tagged today), but it ships with a `trade_facet_sparse_by_design` note. Presenting it as a to-do list without that caveat would make the screen actively misleading.
+
+**(4) "Additions per day" is now a Daily / Monthly tabbed panel, and Monthly is a rollup rather than a second series.** Thirty rows answers *"what happened this week"* and not *"how is the catalog trending"*, so the table sits in an Angular Aria tablist (ADR 0010; the first tabs under `/admin`) with **Daily** — the unchanged trailing 30 UTC days — as tab one and **Monthly** — the trailing 12 UTC calendar months — as tab two.
+
+Monthly adds nothing to the API. `GET /api/admin/metrics/timeseries` zero-fills every day in a window and `catalog.*` values are plain additive counts, so summing the daily points by `YYYY-MM` is **exact, not approximate**, and the rollup runs client-side. `interval` keeps its single wire value `day`; the `AdminTimeseriesQuerySchema` comment calling week/month roll-ups *"a later additive extension, not a reshape"* is still true and still unimplemented on the server. Nothing in the endpoint, the schema, `metrics_daily`, or the 00:15 snapshot cron changed.
+
+Three consequences a reader should not have to rediscover:
+
+- **The caveats are per tab, not per section.** The API derives every note from the window it actually served, so two windows can carry different caveats — one shared notes list would eventually either hide a caveat on Monthly or fabricate it on Daily. Each tab therefore renders its own window's notes, and the load-bearing provenance banner rides on **both**. (Under the pre-AECI-686 `additions` basis this difference was live: the 12-month window reached back past the earliest `audit_log` row and carried `catalog_series_starts_at` where the 30-day window did not. On the `net` basis the two currently agree; the per-tab wiring stays because the property that produced the difference has not gone away.)
+- **Monthly is lazy.** Its four requests fire the first time the tab is opened, never on arrival, because most operators come to this screen for the gap lists. Re-selecting the tab does not refetch; the retry button does.
+- **The window is month-aligned**, starting on the 1st of the earliest month rather than 365 days back, so the oldest row is a whole month rather than a partial one rendered as whole. Twelve consecutive calendar months is 365 or 366 days, inside `ADMIN_METRICS_MAX_DAYS` (400). Buckets render as their raw keys (`2026-08-13` / `2026-08`), and the current month is partial by construction — the monthly `<caption>` says so, which is a fact about the view rather than a claim about the data, so it does not displace the API's own `partial_day` note.
+
+This does not change the P2.1 retirement path. When `ADMIN_SNAPSHOT_STOCK_METRIC_KEYS` gives §5.5 true stocks, there are simply two views to fill instead of one.
+
+**(5) The panel now reads `basis=net`, so its columns reconcile with the Catalog totals cards above them (AECI-686, 2026-08-27).**
+
+Both tables sit directly beneath the five totals cards, and on the `additions` basis none of the four columns summed to the card above it. Production on 2026-08-27:
+
+| series | additions (event count) | live `COUNT(*)` |
+|---|---|---|
+| products | 204 | 247 |
+| integrations | 1,275 | 944 |
+| vendors | 133 | 165 |
+| claims | 11,827 | 1,691 |
+
+The gaps run in **both** directions and have two distinct causes, which is why no single note could explain them. Over-counting is §4's own finding, now larger than §4 recorded: an `*.created` event outlives the row it describes, the 2026-07-25 `catalog.integrations_reset` removed 309 integrations with no per-row audit, and promote **replaces** an integration's claims on every push (`routes/promote.ts` — delete, then re-insert with fresh ids), so 11,827 claim creations back 1,691 live claims. Under-counting is the mirror: 43 products and 32 vendors were created before the audit log's first row on 2026-06-26 and are invisible to it entirely.
+
+**A true created-minus-removed delta is not computable, and that is a data-model gap rather than a UI one.** There is no `*.deleted` action in the vocabulary — `select count(*) from audit_log where action like '%delete%'` returns 0 across all of production — and every path that removes catalog rows is raw SQL running outside the Worker, where `lib/audit.ts`'s batch builders cannot reach; `lib/retract-product.ts` documents this in its own header. Restoring per-row tombstones is the durable fix and is tracked separately.
+
+What **is** exactly computable is the surviving cohort: rows present now, bucketed by their own `created_at`. `AdminMetricBasisSchema` adds `basis=net` for it, and §5.5 requests it explicitly on all four series. It sums to the live catalog by construction:
+
+| month (UTC) | products | integrations | vendors | claims |
+|---|---|---|---|---|
+| 2026-08 | 125 | 561 | 82 | 1,691 |
+| 2026-07 | 61 | 383 | 40 | 0 |
+| 2026-06 | 61 | 0 | 43 | 0 |
+| **total** | **247** | **944** | **165** | **1,691** |
+
+Four things follow, all of them stated on the wire rather than left to inference:
+
+- **It restates.** A removal is subtracted from the bucket the row was *added* in, not the one it was removed in — the only attribution available without tombstones — so a past bucket falls as its rows die. That restatement is precisely what makes the series reconcile. `catalog_series_is_surviving_rows` says so on every `net` response.
+- **It is never snapshotted.** A retroactive value must not be frozen into `metrics_daily`, so `net` bypasses the snapshot read entirely and always reports `source: 'live'` with `reconstructed: false`. The 00:15 cron keeps writing the `additions` reading to `metrics_daily`; that storage path is untouched.
+- **Claims are a valid count and a poor history.** Because promote rewrites them, a claim's `created_at` is the last promote of its integration — every live claim dates from 2026-08-09 or later, which is why the table reads 1,691 in August and zero before. `catalog_claims_recreated_by_promote` carries this, on the claims series only. The real fix is to upsert claims by identity so `created_at` survives a re-promote (AECI-604's territory).
+- **`additions` is retained and remains the endpoint default.** It is not wrong, it answers a different question, and it is the only one of the two that can show churn: a month that created and destroyed 300 integrations reads 0 net and 300 additions. An omitted `basis` param therefore changes nothing for an existing caller. §5.5 passes it explicitly for exactly that reason — silently inheriting the default would restore the mismatch.
+
+This supersedes the note under (2) that called additions *"exactly one honest series here"*. Both are honest; they answer different questions, and §5.5's question is the one the totals cards ask.
 
 ### 5.6 System — SHIPPED (AECI-580, 2026-08-13; completed by AECI-583, 2026-08-13)
 
 - SSR + API `sha` / `deployedAt` / `environment` from the two existing endpoints (`/api/version` and the SSR Worker's own `/_version` — they differ precisely so a stale SSR deploy is detectable). The UI reads both and flags a mismatch as a `role="alert"` band; an unknown SHA (the `wrangler --var` injection missing) reads as *unknown*, not as a difference. The bundle carries the **API** Worker's half — nothing reachable from the API Worker knows the SSR Worker's SHA.
-- **Cron liveness** — last run, duration, outcome per job, for all eleven crons (§7.2).
+- **Cron liveness** — last run, duration, outcome per job, for all thirteen crons (§7.2).
 - **The ten data-quality checks** rendered with severity and sample rows — formerly visible only in an email. **Delivered as specified:** since AECI-583 the default view reads the last persisted `job_runs` result (labelled with the run's own `computed_at`) and `?recompute=1` is the refresh. Both are pure reads, so neither writes anything or needs an `audit_log` row (§13 **D8**).
 - Algolia sync watermark, index drift, orphan-sweep results.
 - D1 size and per-table row counts.
+- **ASN registry freshness *and* reach** (§7.6, AECI-624) — `fetched_at`, row count, and coverage. Two numbers rather than one, because "the refresh ran" and "the annotation is worth anything" are different questions: freshness measures the last write, while coverage measures the intersection with a `page_views` that keeps meeting new networks, so a registry refreshed this morning can still annotate almost nothing. Three states are kept apart: **never refreshed** is not stale (a fresh environment has nothing to be stale about, and flagging it would make the one state an operator can ignore look like the one they cannot), stale means two missed Mondays rather than one, and `coverage: null` means there is no traffic to cover at all — 0/0 is "not applicable", not 0%.
 - Link-outs to the observability dashboards — Datadog while it is live, PostHog alongside it (ADR 0024), plus the PostHog product-analytics project.
 
 Effectively the daily procedure in `POST_LAUNCH_MONITORING.md` turned into one screen.
@@ -298,7 +353,7 @@ Effectively the daily procedure in `POST_LAUNCH_MONITORING.md` turned into one s
 
 | Item | State after AECI-580 | State after AECI-583 |
 |---|---|---|
-| Cron **last run** | Derived for two of ten — `home-stats` from `MAX(stats_cache.computed_at)`, `algolia-sync` from the `algolia_sync_watermark` row's stamp — and `unknown` for the other eight. | Read from `job_runs` for every job that has run. `derived` survives only as the pre-first-run fallback (deleting it would blank all ten for 24h after each deploy), and still reports no outcome — a stamp proves the job *ran*, never that it *succeeded*. |
+| Cron **last run** | Derived for two of thirteen — `home-stats` from `MAX(stats_cache.computed_at)`, `algolia-sync` from the `algolia_sync_watermark` row's stamp — and `unknown` for the other eleven. | Read from `job_runs` for every job that has run. `derived` survives only as the pre-first-run fallback (deleting it would blank all thirteen for 24h after each deploy), and still reports no outcome — a stamp proves the job *ran*, never that it *succeeded*. |
 | Cron **outcome / duration** | `null` on every row. `'ok'` is unreachable in P1.6 by construction; the screen renders "Unknown". | Populated. `'ok'` is now reachable — but only from a row that says so: an **open** row (`finished_at IS NULL`) reports `run_state: 'in_flight'` with a null outcome *whatever is stored*, and an unrecognized stored value reads as null. An interrupted run cannot render as a pass. |
 | **Orphan sweep** | Permanently `null` + an `orphan_sweep_not_persisted` note. The sweep runs inside the 09:00 drift cron and reports only as an emitted metric — there is no D1 read that could fill it, and inventing a persistence layer here is AECI-583's job, not this one's. | Filled from the 09:00 run's `job_runs.detail`, including the `capped` count an operator needs for the `--force` decision. The note is no longer emitted (kept in the enum — removing a code is breaking). `null` now means "no completed run has stored one", never "clean". |
 | **D1 size** | From D1's own `meta.size_after`; `null` (rendered "unknown") where unavailable. Never approximated from the row counts. | Unchanged. |
@@ -491,7 +546,7 @@ All endpoints are admin-gated and register on the existing `authAdmin` sub-route
 |---|---|---|
 | `GET /api/admin/overview` | The §5.1 bundle | One round trip; **calls** `collectAnalyticsMetrics` (see the P1.1 note below). `?day=YYYY-MM-DD` picks a UTC day, default the digest's prior complete day; `?recompute=1` runs the two network-dependent status items (pure read; sends no email) |
 | `GET /api/admin/page-views` | §5.2 feed | Paginated + filtered; entity-hydrated `LinkRef` |
-| `GET /api/admin/metrics/timeseries` | `?metric=&from=&to=&interval=day` | Serves `metrics_daily` (§7.1); falls back to live aggregation pre-snapshot |
+| `GET /api/admin/metrics/timeseries` | `?metric=&from=&to=&interval=day&basis=additions\|net` | Serves `metrics_daily` (§7.1); falls back to live aggregation pre-snapshot. `basis=net` (AECI-686, `catalog.*` only) counts surviving rows by `created_at`, bypasses the snapshot, and is a 400 on any other metric |
 | `GET /api/admin/traffic/breakdown` | `?dimension=source\|country\|path\|product\|bot` | Grouped counts over a window |
 | `GET /api/admin/catalog/coverage` | §5.5 gap lists + funnel | Capped sample rows, exact counts. `?sample=` (0–50, default 10); `0` returns counts only. **No `window`** — see the P1.5 notes below |
 | `GET /api/admin/audience` | §5.4 aggregates — **SHIPPED (AECI-586)** | Subscribers, churn, UTM, geo. `?from=&to=` (both inclusive) + `?breakdown_limit=` (1–50, default 8). Derived **live** from `mailing_list`, not from `metrics_daily` — see §5.4 note (1) |
@@ -663,9 +718,9 @@ job_runs
   INDEX (job, started_at)
 ```
 
-Each of the eleven cron handlers in `scheduled.ts` writes one row (eight at the time this was written; AECI-581 added the 00:15 `snapshot` job, AECI-584 the 03:00 `retention` prune, and AECI-302 the 10:00 attestation detector sweep). The data-quality run stores its full result set in `detail`, which is what §5.6 renders. Retention: 90 days (§7.4), enforced by the 03:00 prune since AECI-584.
+Each of the thirteen cron handlers in `scheduled.ts` writes one row (eight at the time this was written; AECI-581 added the 00:15 `snapshot` job, AECI-584 the 03:00 `retention` prune, AECI-302 the 10:00 attestation detector sweep, AECI-613 the 11:00 entitlement term-expiry sweep, and AECI-624 the WEEKLY 02:00 Monday `asn-registry` refresh — cron `0 2 * * 2`, because Cloudflare's day-of-week is 1=Sunday, AECI-661 — which met this table at the AECI-750 reconcile). The data-quality run stores its full result set in `detail`, which is what §5.6 renders. Retention: 90 days (§7.4), enforced by the 03:00 prune since AECI-584.
 
-**SHIPPED (AECI-583, 2026-08-13.)** `job` uses the eleven `AdminCronJob` ids in `packages/shared/src/api/admin-panel.ts` (AECI-581 added the ninth, `metrics-snapshot`; AECI-584 the tenth, `retention-prune`; AECI-302 the eleventh, `attestation-notify` — no migration needed for any of them, `job` carries no CHECK for exactly this reason); the DDL above is the built shape and `DATABASE_SCHEMA.md` §9.4 is the implementation record. Four things settled during the build are worth carrying forward:
+**SHIPPED (AECI-583, 2026-08-13.)** `job` uses the thirteen `AdminCronJob` ids in `packages/shared/src/api/admin-panel.ts` (AECI-581 added the ninth, `metrics-snapshot`; AECI-584 the tenth, `retention-prune`; AECI-302 the eleventh, `attestation-notify`; AECI-613 the twelfth, `entitlement-expiry`; AECI-624 the thirteenth, `asn-registry` — no migration needed for any of them, `job` carries no CHECK for exactly this reason); the DDL above is the built shape and `DATABASE_SCHEMA.md` §9.4 is the implementation record. Four things settled during the build are worth carrying forward:
 
 - **Written on entry, completed on exit.** `withJobRun` (`apps/api/src/lib/job-runs.ts`) awaits the entry insert *before* invoking the job, so a run the isolate never returns from leaves `finished_at IS NULL` — the unfinished row is the signal. The finish write is awaited too, never `ctx.waitUntil`: on the queue path `ack()` fires the instant the job returns, and a deferred write would race it and manufacture false timeouts.
 - **All ten impls return a `JobRunReport` rather than `void`.** They swallow their own operational errors, so a wrapper that only watched for a throw would record `ok` for a failed run. A *thrown* handler is recorded `failed` **and rethrown**, preserving the reconcile job's deliberate queue retry; a *reported* failure does not throw, so instrumenting did not widen the retry surface to the other nine.
@@ -710,6 +765,9 @@ Each of the eleven cron handlers in `scheduled.ts` writes one row (eight at the 
 | ~~Capture `cf_as_organization` at ingest (§13 **D10**)~~ — **DONE 2026-08-13 (AECI-585)** | The ASN *number* alone cannot label itself. `mailing_list` already stores `as_organization` (`schema.ts`) from `LANDING_CF_HEADERS`, and `POST_LAUNCH_MONITORING.md` §3b already names holder-name matching as the durable fix — "not a longer list". Makes both the bot classifier's weekly audit and §5.2's internal-traffic filter self-labelling. Shipped on the header name `LANDING_CF_HEADERS` already uses, so the two enrichment paths cannot drift |
 | ~~**Drop** the dead columns — `user_id`, `session_id`, `profile_role` (§13 **D7**)~~ — **DONE 2026-08-13 (AECI-585)**, migration `0014` | Settled: drop, do not fill. Per-column cost below — the recreate came out as predicted |
 | **Add `products.promoted_at`** (§13 **D6**) — **SHIPPED 2026-08-13** (AECI-581) | Future-proofs the §4 catalog series against a future un-promote → re-promote cycle. **Set-once** — `COALESCE("promoted_at", ?)` in promote's update branch, else it degrades to "last promoted". Backfill `:= created_at` (exact — see §4's correction), run per environment via `scripts/ops/backfill-products-promoted-at.sql` |
+| ~~Flag views made by a verified admin session (§13 **D13**)~~ — **DONE 2026-08-19**, `is_operator`, migration `0016` | The §9.6 path rule stops at `/admin/*`; the operator browsing the **public** site was still counted as a visitor — **368 of 2,493 human public-page views (15%)** in production, across three ASNs in two countries. `ANALYTICS_INTERNAL_ASNS` cannot substitute: pinned to the current network it misses 183 of them and over-excludes 112 rows that are not the operator. Written at ingest because the session is only knowable there. Plain additive `ALTER … ADD` — none of §3.3a's recreate machinery applies |
+| ~~Guarantee one document load writes one row~~ — **DONE 2026-09-01 (AECI-743)**, `dedupe_key` + a UNIQUE index, migration `0020` | Nothing refused a second row, and the schema had no unique constraint of any kind. Production held two byte-identical rows 83 ms apart for one arrival — both `navigation = 'arrival'` with the resolver's route pattern, so two full SSR cache-MISS renders, **not** an SSR + client double-write. Those two rows were the entire "Google — 2 views" traffic-source table and the whole corroborated-referrer population of the 2026-08-29 digest: a 100% error on the AECI-683 floor, the one figure a proxy pool cannot inflate. The key is `sha256(concrete_path \| user_agent_hash \| cf_asn \| 10s bucket)` under a UNIQUE index — a **constraint**, not a read-then-write check, because the duplicate writes race from `waitUntil`. Null (and so unconstrained) for bot rows and rows with no UA hash. Three writer-side guards ship with it: speculative `Sec-Purpose` loads, non-GET requests, and query-only SPA re-navigations no longer write. **Not backfillable** — old rows cannot distinguish a double-fire from two arrivals; `scripts/ops/2026-09-page-view-duplicates/find-duplicates.sql` reports them read-only. Plain additive `ALTER … ADD` + `CREATE UNIQUE INDEX` — none of §3.3a's recreate machinery applies |
+| **Run `scripts/ops/2026-08-operator-page-view-backfill/run.sh` per environment** (§13 **D13**) — **PENDING**; run it AFTER D13 is deployed to that tier | The *flag* is not backfillable (nothing on an old row implies a session), but the **`(user_agent_hash, cf_asn)` visitor pair** is: `/admin*` rows prove which pairs are the operator. Six pairs, four proven directly → **679 rows, 458 of them human public**, taking all-time human views **2,494 → ~2,036 (18%)**. Writes only over NULL, so it never overrides the live flag and `--rollback` is a true inverse. **Then re-run `ops:backfill-metrics-daily`** for the range, or the panel keeps serving the stale stored series for completed days |
 
 **Dropping the dead columns is not symmetric, and the migration plan must say so** (AECI-585):
 
@@ -780,6 +838,146 @@ adds an index in place, so none of the table-recreate machinery
 `migrations.md` §3.3a documents applies. It is the epic's only schema change
 outside §7.1–§7.4, and one more entry to reconcile in the Drizzle journal at the
 `admin-panel → main` merge-up (§13 D1(a)).
+
+### 7.6 `asn_registry` — read-time network classification — SHIPPED (AECI-624, migration `0017`)
+
+#### The problem
+
+`page_views.is_bot` is decided **once, at ingest**, from the hand-curated
+`DATACENTER_ASNS` map in `apps/api/src/lib/bot-classification.ts`. That map is
+deliberately strict — its membership rule is "the ASN's registered holder must be
+a hosting / cloud / CDN / VPN / scanning business, so that NO residential
+subscriber can sit behind it" — because a false positive silently deletes a real
+human from every figure this panel reports. The raw User-Agent is discarded after
+hashing, so a row can only ever be re-classified by ASN alone, which is why
+changing that list costs a one-way SQL backfill (AECI-582 ran the last one on
+2026-08-13).
+
+The cost of that strictness is a known class of miss. On **2026-08-13T00:16:31–33Z**
+five requests hit `/products/octave-sequence-enterprise` inside 1.9 seconds from
+Amsterdam, Los Angeles and Singapore, with the referrer rotating
+Google → none → **YouTube** → none → ChatGPT. Three of the five were counted as
+human, because AS30058 (FDCservers.net, a dedicated-server host) is not on the
+list. It is the only YouTube-sourced row in the entire production table.
+
+#### Why not simply widen the list
+
+Measured against production on 2026-08-19, before this section existed:
+
+| source | ASNs | has AS30058? | notes |
+|---|---|---|---|
+| `DATACENTER_ASNS` (ours) | 109 | ✗ | censused from real prod traffic on 2026-08-04 |
+| [X4BNet/lists_vpn](https://github.com/X4BNet/lists_vpn) | 892 | ✗ | daily, but **no LICENSE** — unvendorable |
+| [brianhama/bad-asn-list](https://github.com/brianhama/bad-asn-list) | 723 | ✗ | MIT, last pushed 2026-04-12 |
+| [IPinfo Lite](https://ipinfo.io/lite) | — | — | free + daily, but carries **no type field** |
+| [PeeringDB](https://www.peeringdb.com/api/net) | 35,145 | ✓ (as `Content`) | free, has `info_type`. Anonymous reads work but are **throttled hard** — set `PEERINGDB_API_KEY` (AECI-661) |
+
+Three findings decided the design:
+
+1. **56 of our 109 ASNs appear in neither community list.** Ours is the more
+   targeted list, because it was built from traffic we actually received.
+2. **Neither community list contains AS30058** — adopting one would not have
+   caught the miss that prompted this.
+3. X4BNet contains **AS208323 (Applied Privacy / Tor exits)**, which
+   `bot-classification.ts` excludes on purpose ("anonymity ≠ automation").
+   Adopting it wholesale would flip 74 of 2,500 human rows and silently violate
+   our own membership doctrine.
+
+#### The decision: annotate, never re-verdict
+
+**Nothing in this section writes `page_views`.** The registry is joined at READ
+time to say what an ASN is *registered as*, beside an `is_bot` that stays exactly
+as ingest left it. A row reading `is_bot: false` **and** `network_class:
+'non_eyeball'` is the honest state, not a contradiction — it is precisely the
+shape the 2026-08-13 burst had.
+
+Two properties follow, and both are the reason for the choice:
+
+- Improving the feed improves every historical row for free. No backfill, no
+  rewritten verdicts, no Monday-morning edit of history.
+- The annotation can be *wrong* without corrupting anything, because it is
+  labelled as the registry's claim rather than absorbed into ours.
+
+This is the seam `page_views.cf_as_organization` already occupies (§7.3 / §13 D10):
+a read-side signal that deliberately never feeds `classifyTraffic`.
+
+```
+create table asn_registry (
+  asn        integer primary key,   -- the join key; page_views.cf_asn matches by VALUE, no FK
+  info_type  text,                  -- the upstream's word, VERBATIM. Null is a real state (~29% of PeeringDB)
+  as_name    text,
+  source     text not null,         -- 'peeringdb' today; per-row so a second feed can land beside it
+  fetched_at text not null
+);
+create index asn_registry_fetched_at_idx on asn_registry (fetched_at);
+```
+
+`info_type` is stored verbatim and carries **no CHECK**: the vocabulary belongs to
+the source, re-coding it at write time would bake today's reading of their
+taxonomy into stored data, and a SQLite CHECK change forces a full table rebuild
+the moment they add a value. The mapping onto our own buckets is a pure function
+on the read side (`networkClassOf`), revisable without a migration or a re-fetch.
+
+#### The four classes, and why there are four
+
+| `network_class` | from `info_type` | means |
+|---|---|---|
+| `eyeball` | `Cable/DSL/ISP`, `Enterprise`, `Educational/Research`, `Non-Profit`, `Government` | a network real people browse from. Corroborates `is_bot: false` |
+| `transit` | `NSP` | a tier-1 / wholesale carrier. Carries everyone, so it corroborates **nothing** — kept out of `eyeball` because "we can't tell" and "it's a person" are different answers |
+| `non_eyeball` | `Content`, `Network Services`, `Route Server`, `Route Collector` | registered as something no residential subscriber sits behind. **A suspicion, not a verdict** — Google and Netflix are `Content` too, so it means "not an eyeball network", never "hosting" |
+| `unclassified` | null, blank, or a value new upstream | the registry says nothing. Must not render as if it did |
+
+An **absent** annotation (`asn_registry: null`) is a fifth state and a distinct
+one: the registry has never heard of this ASN.
+
+#### Coverage — stated, because it is poor at the tail
+
+Against the 2,500 human-classified production rows (804 distinct ASNs):
+
+| `info_type` | ASNs | views |
+|---|---|---|
+| `Cable/DSL/ISP` | 354 | 1,068 |
+| `NSP` | 140 | 691 |
+| (blank in PeeringDB) | 106 | 328 |
+| no record at all | 152 | 301 |
+| **`Content`** | **31** | **54** |
+| `Network Services` | 9 | 28 |
+| `Enterprise` | 9 | 26 |
+| `Non-Profit` / `Educational/Research` | 3 | 4 |
+
+70% of human views land on an eyeball or transit network; **25% have no usable
+signal at all**. That 25% is why `unclassified` is an explicit member rather than
+a default into `eyeball`, and why §5.6 reports coverage as a first-class number.
+Typed ASN data with a true `hosting` flag exists (IPinfo's paid ASN database,
+ipapi.is at $49/mo) and is the upgrade path if the tail ever matters.
+
+#### The refresh (weekly, `0 2 * * 2` — Mondays; CF day-of-week is 1=Sunday)
+
+Cron → `enqueueOrRun` → inline. **Queue-less**, like `moderation`/`waf`/
+`analytics`/`snapshot`/`retention`: one read-only GET plus an idempotent
+upsert-by-ASN, so a failed week costs freshness and nothing else.
+
+- **Only the ASNs `page_views` has seen are stored.** PeeringDB carries ~35,000
+  networks; production has seen 878. The refresh intersects the feed with
+  `SELECT DISTINCT cf_asn FROM page_views` and keeps the join domain. A
+  first-sighting ASN is unannotated until the next Monday, which is the honest
+  state anyway.
+- **Nothing is ever deleted.** An outage, an empty response, or a schema change
+  upstream leaves the last good rows in place with their real `fetched_at`. The
+  failure mode of an annotation feed must be "old answer", never "no answer,
+  silently" — so an **empty** upstream response is recorded as `failed`, not as a
+  clean run that wrote zero rows.
+- **Chunked at 20 rows per statement.** D1 caps a query at 100 bound parameters
+  and the table has five columns. Sized off the documented limit rather than
+  measured locally, because better-sqlite3's ceiling is far higher and a
+  size-blind implementation passes every spec while failing in production — the
+  same trap `SQLITE_MAX_COMPOUND_SELECT` sets in §5.6's row-count query.
+- **Audit: exempt (ADR 0022).** Derived, log-class, cron-written bookkeeping, in
+  the same class as `metrics_daily` and `job_runs`. The run is recorded in
+  `job_runs`, not `audit_log`.
+
+`aeci.asn_registry.refresh{outcome}` is the liveness heartbeat and
+`aeci.asn_registry.coverage` the gauge; see `OBSERVABILITY.md`.
 
 ---
 
@@ -884,7 +1082,12 @@ unchanged.
 4. **i18n.** All strings `i18n` / `$localize`, admin-only or not — the CLAUDE.md rule is unconditional.
 5. **Timezone.** UTC is the default and matches the digest and every cron. The WIB toggle is presentational only; the underlying window is always UTC and is always labelled.
 6. **No self-pollution — SHIPPED (AECI-575, 2026-08-12).** The console does not record its own navigation into the table it reads. The prefix list is `UNTRACKED_ROUTE_PREFIXES` (`/admin`, `/account`) in `@aeci/shared`, with `isUntrackedRoute()` enforcing an exact prefix-boundary match, so nested admin routes are covered without enumeration and a look-alike public path (`/administrators`) keeps being tracked. It is enforced in **three** places, all off the one list so they cannot drift: (a) `PageViewTracker.fire()` — the browser tracker, the only writer that reaches these routes today; (b) the SSR Worker's `firePageView()` — currently unreachable for these prefixes (`/admin/*` and `/account` are non-cacheable, and that branch fires only on a resolver-attached `ctx.pageView`, which no admin/account resolver sets), guarded anyway so the invariant survives a future resolver; and (c) **on read** — see **§13 D12**. Every query this panel adds over `page_views` (§5.2, §5.3, §6) inherits (c): the exclusion is a floor applied before the user-facing filters, not one of them.
-7. **Privacy.** `page_views` deliberately stores a UA **hash** and a referrer **host** (never the full URL or query). The panel renders a truncated hash as a pseudonymous visitor id and must not attempt correlation beyond that.
+   **Paths were only half of it — SHIPPED 2026-08-19 (§13 D13).** A path rule catches the operator on `/admin/*` and nowhere else; it never saw them browsing the public site to check their own work, which measured **15% of human public-page views** in production. The second half is `page_views.is_operator`, written at ingest from a *verified* admin session (`lib/operator-session.ts`) rather than from a route, and read through the same `NOT_INTERNAL` predicate as (c) so no query can apply one half and miss the other. The write side is correspondingly two writers again: the browser tracker's POST already carries the session cookie through the `/api/*` passthrough, and `firePageView` now forwards the inbound `Cookie` so an SSR arrival resolves the same session an in-app hop does.
+
+**And the flag was only two thirds of it — SHIPPED 2026-08-27 (§13 D15).** `is_operator` is written once at ingest and fails open on an expired token, so an operator browsing across a token expiry leaves a contiguous run of unflagged rows that nothing on the row distinguishes from a visitor — 22 of them in one gap on 2026-08-26. `NOT_INTERNAL` therefore carries a **third** half: a correlated `NOT EXISTS` excluding any row that shares a `(user_agent_hash, cf_asn)` pair (§9.8's own definition of a visitor) with a verified operator row within `OPERATOR_PAIR_LOOKBACK_DAYS`. Unlike the first two it is an **inference**, not a fact about the request, so it is the one half the digest and the panel *report* rather than apply silently (`operator_leak_excluded` + the `operator_leak_is_an_inference` note). All three live in one predicate for the same reason they always have: a caller that remembered two and forgot the third would report a partly-corrected number, which is worse than any consistent alternative.
+7. **Privacy — and the honesty cost that comes with it.** `page_views` deliberately stores a UA **hash** and a referrer **host** (never the full URL or query). The panel renders a truncated hash as a pseudonymous visitor id and must not attempt correlation beyond that.
+
+   The referrer half of that rule has a consequence the UI must carry: **`referrer_source` is what a request CLAIMED, not a verified fact.** `Referer` is a client-supplied header, nothing authenticates it, and storing only the host removes the last thing that could have been sanity-checked. Production contains a confirmed forgery — 2026-08-13, `www.youtube.com`, one of five requests on one URL from three continents inside 1.9 seconds (§7.6) — and a genuine click from that site would have produced a byte-identical row. So the Activity column is headed **"Claimed source"**, and `referrer_source_is_unverified` is emitted with **every** source breakdown, unconditionally: a forged referrer is indistinguishable from a real one in this data, which makes "none detected" a claim the rows cannot support. This is §9.8's obligation — state the bias next to the number — applied to a label rather than a count.
 8. **"Visitor" is a defined term.** Absent sessions, a visitor is a distinct `(user_agent_hash, cf_asn)` pair within the selected window. This over-counts (UA changes on browser update) and under-counts (shared NAT). The definition appears in the UI next to the number, not only in this document.
 9. **Accessibility.** axe-clean on every surface; tables use proper header scope; filters are keyboard-operable; `impeccable detect` reports zero P0.
 10. **Anchor-site rule.** The console inherits the existing admin queues' visual language rather than picking a new Mobbin anchor — same publication, one voice (`DESIGN.md` §Named Rules).
@@ -1001,6 +1204,27 @@ until ~2026-11-11, so the `RUNBOOKS.md` dry-run procedure is a November task, no
 
 ---
 
+### 12b. AECI-624 addendum — the §7.6 ASN registry (2026-08-19)
+
+Shipped **after** the epic's closeout, on the `main` line, so it carries its own
+row rather than amending the table above:
+
+| Document | Change |
+|---|---|
+| `DATABASE_SCHEMA.md` | New **§9.5 `asn_registry`** (DDL, why no FK, why no CHECK on `info_type`, why the table is bounded by the join domain, why it has no retention window). §9.4's "ten crons" corrected to eleven |
+| `API_CONTRACTS.md` | `AdminAsnAnnotationSchema`, `AdminAsnRegistryStatusSchema`, `asn_registry` on `AdminPageViewRowSchema` + `AdminBreakdownRowSchema`, `dimension=asn`, the `referrer_source_is_unverified` note code, and the three-registry-states paragraph on `/api/admin/system` |
+| `OBSERVABILITY.md` | `aeci.asn_registry.refresh` + `aeci.asn_registry.coverage`, and an eleventh row in the cron ↔ heartbeat reconciliation table. **A no-data monitor on a WEEKLY series needs a ≥2-week window** — noted there because every other row is daily or hourly |
+| `POST_LAUNCH_MONITORING.md` | §1a gained the `0 2 * * 1` row (and became "the 11 scheduled crons"); §3b's weekly ASN audit now says what the annotation does and does **not** replace |
+| `ANALYTICS_BASELINE.md` | The "`is_bot = 0` means *not known to be a bot*" caveat now points at the screen that says so, plus the "Claimed source" rename |
+| `ADMIN_PANEL_SPEC.md` | §7.6 (this section), §5.2's annotation row and placement rule, §5.3's Networks breakdown, §5.6's registry status, §9.7's referrer-spoofability paragraph, and the cron counts throughout |
+
+Not updated, deliberately: `RUNBOOKS.md` has no entry, because a failed refresh is
+not an incident — nothing is deleted, the panel keeps annotating from the last good
+rows, and `/admin/system` marks the registry stale after two missed Mondays. If
+that judgement turns out to be wrong the entry is cheap to add.
+
+---
+
 ## 13. Decisions and open questions
 
 D1–D4 were settled when this document was drafted. **D5–D11 were settled by AECI-573 on 2026-08-12**, which promoted this document to v1.0. Each records the reasoning, not just the verdict, because the reasoning is what a future reader needs in order to reopen the decision responsibly.
@@ -1043,7 +1267,83 @@ D1–D4 were settled when this document was drafted. **D5–D11 were settled by 
 
   It landed in the **daily analytics digest** (`lib/analytics-digest.ts`, all four `page_views` reads), which is the entire live read surface today; `computeTrendingProducts` was already immune via `isNotNull(product_id)`, since an admin row carries no product. Every query P1.1+ adds inherits it as a floor beneath the user-facing filters.
 
+  **That immunity claim is exact and does not generalize — D13 is where it stops.** It holds because an `/admin/*` row has a null `product_id`, not because trending is structurally protected from operator traffic. An operator *session* lands on `/products/:slug` and carries the FK like any other view, so D13 had to add `NOT_INTERNAL` to `computeTrendingProducts` explicitly (`lib/home-stats.ts`). This one matters more than a panel number: trending renders on the **public home page**, and with `TRENDING_MIN_VIEWS` at 3 against ~2,100 all-time human views, a few operator visits could have put a product in front of every visitor.
+
   **It is deliberately silent** — no "N internal views excluded" line in the digest email, unlike the bot-exclusion line beside it. D10's constraint (2) ("show both numbers, never substitute") governs `ANALYTICS_INTERNAL_ASNS`, and does so because that filter is a *heuristic over real visitors* whose false positives must stay visible. A path exclusion is not a heuristic: `/admin/*` traffic is internal by construction, with no false-positive class to disclose. Reporting it as a subtracted quantity would frame operator clicks as visits that were removed, when they were never visits. The one honest-numbers obligation this does carry is recorded in `ANALYTICS_BASELINE.md`: digest counts for days before 2026-08-12 now read lower than the emails sent at the time, and the rows are still in D1 for any query that wants them.
+
+- **D13 — Exclude the operator's own SESSIONS, not just their paths; decide it at ingest** (settled 2026-08-19; §5.2, §5.3, §6, §7.3, §9.6). D12 stopped the operator polluting the table *while standing on `/admin/*`*. It never addressed the operator browsing the **public** site to check their own work, and nothing on such a row distinguishes it from a visitor's: same paths, same `Direct` referrer, same network as any other subscriber of that ISP.
+
+  **The gap was measured before it was fixed.** Against production on 2026-08-19: **368 of 2,493 human public-page views (15%)** came from the operator's own browser, spread across **AS23089/US** (Jun 23 → Jul 30), **AS23314/US**, and **AS23700/ID** (Aug 3 → Aug 18) as their network changed. That number is what closes the "just use D10" argument. `ANALYTICS_INTERNAL_ASNS` pinned to the current AS23700 would have **missed 183** of those views and **wrongly excluded 112** AS23700 rows that were *not* the operator — wrong in both directions at once, and structurally so: an ASN list describes a network, and the thing being excluded is a person who changes networks.
+
+  **So the signal is the session.** `page_views.is_operator` is written at ingest by `lib/operator-session.ts`, which runs the two checks `lib/authz.ts` already runs — JWKS signature verification, then a fresh `profiles.role` read. Three properties are binding: **(1) server-derived, never claimed** — no header, body field, or client assertion can set it, so nobody can hide their traffic from the operator's own analytics; **(2) free for anonymous traffic** — no token on the request returns `false` before any crypto or D1 work, which `page_views` (the hottest write path in the app) requires; **(3) never throws** — it runs inside the fire-and-forget `waitUntil`, so every failure resolves to `false`, costing the flag rather than the row, and failing in the direction that keeps a view counted.
+
+  **This is a D12-class exclusion, not a D10-class filter**, and inherits D12's treatment: unconditional, no toggle, no `excluding_internal` pairing, silent. A verified admin session is internal *by construction*, with no false-positive class to disclose — that is exactly the test D12 used to justify subtracting `/admin/*` from the figure itself rather than beside it. It also folds into the *same* predicate (`NOT_INTERNAL`, `lib/analytics-digest.ts`), because a reader who applied the path half and forgot the session half would report a number that is half-corrected — worse than either consistent alternative.
+
+  **It does NOT reopen D7.** D7 dropped `profile_role` and forbade reintroducing it. `is_operator` is a different object: one boolean whose only consumer is an exclusion predicate, carrying no id, no role string, and nothing that singles a visitor out — the consent-independent footing in §1 is untouched. D7's actual technical objection, that `user_id` is "right half the time" because it never reaches the SSR arrival path, is **closed at the source**: `firePageView` now forwards the inbound `Cookie`, so arrivals and in-app hops resolve the session identically. That header rides the fire-and-forget analytics subrequest only — it never reaches `renderer()`, which on the cacheable branch renders from the cookie-stripped request, so cache-neutrality is unaffected.
+
+  **The live flag is not retroactive, and that is stated rather than worked around.** Older rows are `is_operator = NULL` and read as visitors. Nothing stored on them implies a *session*, so the flag itself cannot be recovered — unlike D12, whose retroactive half was available because `path` was already recorded. Left there, days from 2026-08-19 forward would read **lower** than days before them, and the difference would be a correction rather than a decline.
+
+  **Most of that step is closed by an approximation, kept clearly separate from the flag** — `scripts/ops/2026-08-operator-page-view-backfill/`. The recoverable signal is not the session but the **`(user_agent_hash, cf_asn)` visitor pair** (§9.8's own definition of a visitor): `page_views` still holds `/admin*` and `/account` rows, which no visitor reaches, so a pair appearing on one is *proven* to be the operator. Six pairs, four proven directly, backfilling **679 rows — 458 of them in the human public population, taking all-time human page views 2,494 → ~2,036 (an 18% correction)**.
+
+  **The two rules that look simpler were measured and rejected**, and the measurement is the useful part. *"Everything from Indonesia"* flags 333 rows of which only 185 are the operator (**44% false positives** — ID traffic carries 25 distinct browsers) while missing the 183 views from the operator's US period entirely (**50% recall**): wrong in both directions, and a country is only a coarser network than the ASN D10 already rejected. *"The operator's UA hash"* happens to be safe for the primary hash but is unsafe as a method — the operator's second browser hash spans **6 ASNs across 5 countries**, because a UA hash is a browser *build* shared with strangers. The pair is precise in both directions.
+
+  **The backfill is an approximation and the flag is not, so they must not be conflated.** It writes `is_operator` only where it is NULL, never over a value the live ingest decided, which makes `--rollback` a true inverse rather than a best effort. Two candidate pairs on the operator's own ISP were deliberately left counted because neither can be distinguished from a visitor, so the human figure stays an **upper bound** — a much tighter one. Both the step and its correction are recorded in `ANALYTICS_BASELINE.md`.
+
+- **D14 — Record how browser-shaped each request was, as an annotation that never touches `is_bot`** (settled by AECI-658 on 2026-08-26; §5.2, §7.3, §9.6, and `POST_LAUNCH_MONITORING.md` §3b). D13 tightened the human figure by removing the operator. It did not touch the larger error underneath: on **2026-08-23** the digest reported **48 human views** that were substantially one automated client. Those 48 spanned **44 ASNs and 31 countries** but only **18 `user_agent_hash` values**, one hash read nine different pages from nine different countries on nine different networks without repeating one, and **all 48 produced zero PostHog events**.
+
+  Neither existing lever can see that. `cf_bot_score` is Enterprise-only, so it is null on every row we will ever write on the Pro plan. And the ASNs are **genuine consumer ISPs** — that is precisely what a residential proxy rents — so `DATACENTER_ASNS` must not be widened to reach them: that map drives the **live** classifier, and listing a real ISP converts every future visitor on it into a bot (the AS714/Applebot trap AECI-582 documented). Commercial IP-reputation APIs were evaluated and rejected on the same axis: published tests against live residential-proxy IPs report single-digit detection, and what they *do* catch is the datacenter ranges `DATACENTER_ASNS` already covers.
+
+  What a rotating proxy **cannot** launder is the shape of the request. `page_views` therefore gained six nullable columns (`sec_fetch_dest`, `has_accept_language`, `has_sec_ch_ua`, `tls_version`, `http_protocol`, `client_verdict`; migration `0018`), written at ingest by `lib/client-signals.ts` because headers are unrecoverable afterwards.
+
+  **Three constraints on that decision, each load-bearing.** *(a)* It is an **annotation**, exactly like `cf_as_organization` (D10): nothing feeds `classifyTraffic()` and no value changes a stored `is_bot`. `is_bot` is decided once and costs a one-way backfill to revise; an annotation can be re-read and improved for free. *(b)* It carries **no identity** — no cookie, no canvas, no durable id — so D7's prohibition is untouched and the write stays consent-independent. A fingerprinting library would classify better and cost exactly that property. *(c)* `sec-ch-ua` is **Chromium-only**, so it is read only against a UA that claims Chrome/Edge; a bare presence test would label every Safari and Firefox visitor a bot, which is the same false-positive failure D10 rejected the ASN list for. The TLS pair is deliberately low-entropy corroboration, **not** a JA3/JA4 substitute — that needs Enterprise.
+
+  The companion read is `lib/swarm-detection.ts`, which regroups a window's human views by `user_agent_hash`: `cf_asn` shatters a swarm into 44 apparent visitors, the UA hash reassembles it into seven. It reports; a human decides. Its known ceiling is honest and recorded — a UA hash is a browser *build* fingerprint (the same fact D13 used to reject "the operator's UA hash" as a method), so cardinality alone stops discriminating as traffic grows, and the signal that survives is its **combination** with `client_verdict`. *(D16 later added a third use of the verdict, deciding on its own — see below.)*
+
+  **Amended by AECI-742 (2026-09-01): the detector carries a prior.** The ratio test was evaluated per-day and independently each day, so a swarm that reused one network on a quiet day escaped and was counted as a person. A hash flagged at full strength on `SWARM_PRIOR_MIN_FLAGGED_DAYS` (2) of the previous `SWARM_PRIOR_LOOKBACK_DAYS` (14) days is now held to a lower bar on the day being reported, and `SwarmCandidate.priorFlaggedDays` records how much history justified it. The prior is never built from a relaxed flag and never from the reported day itself (or the memory ratchets with no way out), and the bar is lowered rather than removed (or the prior becomes a one-way list). **Report-only is unchanged** — nothing writes `is_bot` and no ASN joins `DATACENTER_ASNS` on this evidence. Measured against production, it closes 18 of the 37 residual views over 2026-08-29..30 and admits no hash outside the eight already known; see `POST_LAUNCH_MONITORING.md` §3b and `ANALYTICS_BASELINE.md`.
+
+- **D15 — Repair the operator flag on read, and report both what that removed and what a referrer corroborates** (settled by AECI-683 on 2026-08-27; §5.1, §9.6, §9.8, and `POST_LAUNCH_MONITORING.md` §3b). D14 shipped **measurement**, not correction — by design. Three days later the measurement produced its own verdict: on **2026-08-26** the digest emailed "up to 102 human views" beside a PostHog floor of "47 page views from 1 person", and *that one person was the operator*. Both bounds were measuring the same person. The real population was **8 views from 7 visitors**.
+
+  Decomposed against production, the 102 were three separate defects, and the decision treats them differently on purpose.
+
+  **(a) The operator flag fails open on token expiry, and that is not fixable at ingest.** `is_operator` is decided once, and `lib/operator-session.ts` resolves *every* failure to `false` — deliberately, per D13's own third property, so an auth hiccup costs a flag rather than the page-view row. An expired access token is one of those failures, so an operator browsing across an expiry writes flagged rows, then unflagged rows, then flagged rows again. On 2026-08-26 that was **22 views in one 105-minute gap**, ending on `/auth/login`. The fix is a **read-side** third half of `NOT_INTERNAL`: exclude a row sharing a `(user_agent_hash, cf_asn)` pair with a verified operator row within `OPERATOR_PAIR_LOOKBACK_DAYS` (30). That is D13's own backfill cohort — the pair, not either half — pointed at live traffic instead of at history, and for D13's measured reasons: the hash alone spans 6 ASNs across 5 countries, and the country alone was 44% false positives at 50% recall.
+
+  **It recovers 22 of the ~26, and stops there on purpose.** The other four sit on UA hashes that never carried an `is_operator = 1` row of their own, so no pair proves them. Reaching them would mean widening to the ASN — the rule D10 and D13 both already rejected. Under-reaching in a way we can name beats over-reaching in a way we cannot.
+
+  **(b) Unlike the first two halves of `NOT_INTERNAL`, this one is an inference — so it is REPORTED, not silent.** A path no visitor reaches and a signature that verified are facts about the request; a pair match is a judgement about identity. `ANALYTICS_BASELINE.md` already forbids reading the pair cohort as equivalent to the live flag. So `operatorLeakViews` is printed in the email, recorded in `job_runs`, and returned as `operator_leak_excluded` with an `operator_leak_is_an_inference` note. A number that quietly moved would be the same failure the headline had.
+
+  **(c) A grouping is blind to whatever it groups on.** D14's detector groups by `user_agent_hash`, so a client that rotates its user-agent *per request* is structurally invisible to it: AS47544 read five product pages under four distinct hashes, every group a singleton under `SWARM_MIN_VIEWS`. `detectAsnRotators` is the mirror image. **The request-shape verdict is a hard GATE there rather than corroboration**, which is the one place it must differ from D14: a high UA-hash ratio is the *normal* shape of any shared network — an office NAT, a campus, a café — so cardinality alone would flag real people constantly. Swept over production it fires exactly once in 30 days, on AS47544; but `client_verdict` only exists from 2026-08-26, and the gate reads NULL as no evidence, so that is **two days of evidence, not thirty**.
+
+  **(d) A third figure, and the only one automation does not control.** Views arriving with a NAMED external search or social referrer are reported beside the two bounds. A rotating-proxy pool sends no `Referer` at all — which is why 87 of that day's 102 were `Direct`. Two caveats travel with it unconditionally, because a number this small reads as precise: it is a **floor** (Referrer-Policy strips real referrals into `Direct`) and it rests on a **claim** (§9.7 — production holds one confirmed forgery). `Other` is excluded for that second reason exactly: it is an open bucket a forger controls.
+
+  **Report-only holds.** Nothing here writes `is_bot`, no ASN joins `DATACENTER_ASNS` on this evidence, and the headline stays an upper bound. Only (a) changes the counted population, and it does so as operator-identity exclusion — D13's business — never as a bot judgement.
+
+  **Scope note.** `NOT_INTERNAL` is deliberately kept a *static* predicate — the retro-join is a correlated subquery anchored on each row's own timestamp rather than a `notInternalFor(window)` function — so all five read surfaces (digest, swarm detectors, `/admin/overview`, `/admin/traffic` + the `metrics_daily` snapshot beneath it, and the public trending card) inherit it without any of them remembering to. It also binds a fixed two parameters regardless of pair count, which the naive JS-resolved pair list does not. **Consequence to hold in mind:** `metrics_daily` rows already written keep the old definition, and `/api/admin/metrics/timeseries` serves snapshot-first, so there is a discontinuity at the snapshot boundary until `ops:backfill-metrics-daily` is re-run. `lib/metrics-backfill.ts` is now correct for that re-run — it had carried **only** the §9.6 path clause and no `is_operator` at all since D13 shipped.
+
+- **D16 — `client_verdict` decides on its own, with no view floor** (settled by AECI-744 on 2026-09-01; `POST_LAUNCH_MONITORING.md` §3, `lib/swarm-detection.ts`). D14 shipped the verdict as *corroboration* and D15 made it a *hard gate*. Both of those are readings of a GROUP, and both groups are gated on a view-count floor (`SWARM_MIN_VIEWS` / `ASN_ROTATOR_MIN_VIEWS`, both 4) checked **before any evidence is weighed** — so a low-volume automated client never reached the code that reads its verdict at all.
+
+  Decomposed against production D1 on 2026-08-31, that was **~7 of the 37 residual views** for 2026-08-29/30 — led by `87012404…`: three views, three different US networks, one fingerprint, seventeen hours apart, ASN ratio 1.00, all three `inconsistent`, under the floor by exactly one view.
+
+  **The floors are not wrong; they are answering a different question.** A floor protects a *ratio*, because a ratio over a tiny sample is meaningless — one view is trivially "1 ASN for 1 view". `client_verdict` is not a ratio and not an inference over a sample: it is a direct observation about the headers of that one request. It needs no sample size to mean something. So `detectNonBrowserClients` flags **per row** — no grouping, no floor, no ratio — and the by-network list it returns is descriptive only, so capping it cannot remove a view from the count.
+
+  **Three uses of one column, and they are not interchangeable.** Hard gate (`detectAsnRotators`, without which a shared NAT flags as a rotator), corroboration (`detectUaHashSwarms`, reported beside the ratios and filtering nothing), sufficient (`detectNonBrowserClients`). The module header names which call site relies on which, because the failure mode is someone "unifying" them.
+
+  **NULL-safety carries through unchanged**, and it is the constraint that bounds this: `IN` against a NULL verdict is NULL, so every row written before 2026-08-26 counts as no evidence rather than as "not a browser". Both halves of the digest inherit that — the flagged count *and* `notFlagged()`'s complement, so a NULL-verdict row counting in the headline also survives the tables (the AECI-747 one-population rule).
+
+  **Report-only still holds, and was tested.** Nothing writes `is_bot`, and the commercial proxy/seedbox ASNs this surfaced (RapidSeedbox AS214483, Web2Objects AS62874, UAB code200/Oxylabs AS27411, Rockion AS199737) were explicitly NOT added to `DATACENTER_ASNS`: a human decides before an ASN joins that list, and the false-positive cost falls on real consumer ISPs (D10).
+
+  **Scope note (superseded by D17, 2026-09-01).** This was digest-only when it shipped, like D14 and D15, because `/admin/overview` passed no `AutomationExclusion` at all. AECI-745 closed that: the collector derives the exclusion itself, so D16's verdict axis now reaches the panel and `metrics_daily` on the same call.
+
+- **D17 — The collector runs the detector, and the panel's headline is the email's** (settled by AECI-745 on 2026-09-01; §5.1, §6.10, `docs/API_CONTRACTS.md`, `lib/page-view-predicates.ts`). D14 through D16 each shipped **digest-only**, and each time for the same structural reason rather than a scoping choice: `swarm-detection.ts` imported `analytics-digest.ts`'s `HUMAN` / `NOT_INTERNAL` predicates, so the collector could not call the detector, so the filtered figure was assembled in `scheduled.ts` above both and reached the email alone. After AECI-741 made it the *headline*, the panel and the 05:00 mail answered "how many humans?" with **14 and 70** for 2026-08-30.
+
+  **The predicates were the cycle, so they moved.** `HUMAN`, `BOT`, `OPERATOR_PAIR_MATCH`, `NOT_INTERNAL` and `notFlagged` now live in `lib/page-view-predicates.ts`, which imports neither module and is imported by both. The sharing that made "N of the M reported views" describe one population is unchanged — that was always the point of the import, and it survives; only its direction did not. Nothing in that file may import either consumer, and `page-view-predicates.spec.ts` pins the two forms that would fail silently if the move had not been verbatim: the NULL-safe `NOT EXISTS` and the `%Y-%m-%dT%H:%M:%fZ` format string.
+
+  **`page_views_human` and `delta_day` were REDEFINED, not supplemented.** The alternative — a second post-automation field beside the raw one — leaves two fields plausibly named "human page views" and lets a reader quote whichever they saw first, which is the divergence with extra steps. The raw count moved to `page_views_human_raw` and keeps its upper-bound label. The cost is that this is a silent semantic change no type expresses, so the schema, `API_CONTRACTS.md` §6.10 and this entry all say it outright.
+
+  **The filter fails SOFT.** `collectAnalyticsMetrics` catches a detector failure, warns, and returns `automation: null` — the state the formatter and the panel already render as "this is the raw count, and we are telling you it is raw". A throw would take down the digest and `/admin/overview` together, for a bug in one of the numbers they report. Zero is never substituted: `automation_flagged: null` is an outage and `0` is a clean day, and a failed detector must not be able to look like a clean day. The `job_runs` swarm fields are nullable for the same reason.
+
+  **What stays raw, and is labelled.** `delta_7d` and the 30-day chart span days the detector would have to be re-run over — fourteen and thirty, at ~7 D1 reads each. They remain server-side counts and the tile's caption says so. The filtered *series* is instead a stored metric, `traffic.page_views_human_after_automation`, which is **snapshot-only**: uncovered days are omitted rather than zero-filled, because a zero at the snapshot boundary reads as a traffic collapse rather than as the start of the record.
+
+  **And it is deliberately NOT backfillable.** `metrics-backfill.ts` reconstructs a series by emitting one SQL statement per series; the detector is a grouping, a cross-day recurrence lookback and a three-way union. Expressing that as generated SQL would put a second definition of "flagged" in the tree — the exact failure this entry closes — so the series fills forward from the day the cron first writes it, and the gap says "not measured" instead of a reconstructed number that would drift the first time a threshold moved.
 
 **Open**
 
@@ -1060,7 +1360,7 @@ D1–D4 were settled when this document was drafted. **D5–D11 were settled by 
 
 ### 14.1 Digest inventory
 
-`lib/analytics-digest.ts` (05:00 UTC): traffic (human page views + day-over-day delta) · top 5 products by human views · traffic sources by `referrer_source` · new and total sign-ins · reviews awaiting moderation · bot/crawler views grouped by `bot_name` · footnotes on classification and referrer bias.
+`lib/analytics-digest.ts` (05:00 UTC): traffic (human page views as an UPPER bound + day-over-day delta, the AECI-660 PostHog lower bound, the AECI-683 corroborated floor + `operatorLeakViews`, and an Automation-signal line from both swarm groupings) · top 5 products by human views · traffic sources by `referrer_source` · new and total sign-ins · reviews awaiting moderation · bot/crawler views grouped by `bot_name` · footnotes on classification and referrer bias.
 
 `lib/data-quality.ts` (04:00 UTC), ten checks: `products_without_vendor` · `ready_products_unpromoted` · `broken_integration_refs` · `vendors_without_products` · `reviews_missing_anonymized_at` · `stale_stats_cache` · `duplicate_vendors` · `duplicate_products` · `logo_404` · `algolia_index_drift`.
 

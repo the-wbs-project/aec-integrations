@@ -782,7 +782,7 @@ export const profiles = sqliteTable(
      * gets `false`, which is what stops an unbounded transitive invite chain from
      * one reviewed human.
      *
-     * The `0020` migration backfills every pre-existing `vendor_admin` to `true`
+     * The `0025` migration backfills every pre-existing `vendor_admin` to `true`
      * — they were all admin-granted, and a default-`false` rollout would ship the
      * invite feature dead (nobody could invite anyone).
      */
@@ -1338,6 +1338,86 @@ export const pageViews = sqliteTable(
     // never stored) — so those are excluded from the digest's Traffic-sources table.
     referrerSource: text('referrer_source'),
 
+    // Whether the request that produced this view carried a VERIFIED admin session
+    // (`ADMIN_PANEL_SPEC.md` §13 D13). Set at ingest by `lib/operator-session.ts`:
+    // the JWT is verified against Supabase's JWKS and `profiles.role` is re-read
+    // from D1, exactly as `lib/authz.ts` does — so this is a server-derived fact
+    // about the request, never a client-supplied claim.
+    //
+    // It exists because the §9.6 path exclusion only catches the operator while they
+    // are ON `/admin/*`. The operator ALSO browses the public site to check their own
+    // work, and those rows are indistinguishable from visitor traffic. On 2026-08-19
+    // that was 368 of 2,493 human public views (15%), spread across three ASNs in two
+    // countries as the operator's network changed — which is precisely why
+    // `ANALYTICS_INTERNAL_ASNS` cannot be the answer here (it would have missed 183 of
+    // them and wrongly excluded 112 rows that were not the operator's).
+    //
+    // This is NOT the `profile_role` column D7 dropped, and must not become it. That
+    // one stored a per-visitor ATTRIBUTE and was rejected because `user_id` is
+    // unreachable on the SSR arrival path — "right half the time". This stores one
+    // boolean whose only consumer is an exclusion predicate, it carries no identity
+    // (no id, no role string, nothing that singles a visitor out), and the arrival-path
+    // gap is closed at the source: `firePageView` now forwards the inbound `Cookie`.
+    //
+    // NULL = unknown, and reads as NOT operator. Every row written before this shipped
+    // is NULL and is not backfillable — nothing stored on those rows implies a session.
+    isOperator: integer('is_operator', { mode: 'boolean' }),
+
+    // ─── Request-shape signals (AECI-658, `lib/client-signals.ts`) ───────────
+    //
+    // How browser-shaped the request was. These exist because the two levers we
+    // already had cannot see a rotating residential-proxy swarm: `cf_bot_score`
+    // is Enterprise-only (always null on Pro) and the swarm's ASNs are genuine
+    // consumer ISPs, so `DATACENTER_ASNS` must not be widened to reach them (that
+    // map drives LIVE ingest — see the `bot-classification.ts` header). What a
+    // rotating proxy cannot launder is the shape of the request itself.
+    //
+    // ANNOTATION ONLY, exactly like `cf_as_organization`. Nothing here feeds
+    // `classifyTraffic()` and no value here changes `is_bot`. That separation is
+    // load bearing: `is_bot` is decided once and costs a one-way backfill to
+    // revise, while an annotation can be re-read and re-interpreted for free.
+    // Audit `client_verdict` against known-good traffic before anyone proposes
+    // promoting it into a verdict.
+    //
+    // Computed at ingest because headers are unrecoverable afterwards, so every
+    // row written before this shipped is NULL and is NOT backfillable — the same
+    // property `navigation` and `referrer_source` already have.
+    //
+    // Carries no identity: no cookie, no canvas, no durable id. `page_views`
+    // holds no user linkage at all (§13 D7) and that is what keeps the write
+    // consent-independent. A fingerprinting library would classify better and
+    // cost us exactly that; these headers do not.
+
+    // `Sec-Fetch-Dest` verbatim. THE browser-agnostic signal: Chrome, Edge,
+    // Firefox and Safari 16.4+ all send `document` on a top-level navigation.
+    // Stored raw (not as a boolean) because the value distinguishes an arrival
+    // (`document`) from the tracker's own fetch (`empty`) at a glance.
+    secFetchDest: text('sec_fetch_dest'),
+
+    // Presence-only, because the VALUE is personal-ish (a language list is a
+    // weak identifier) while the mere fact of the header is the whole signal.
+    hasAcceptLanguage: integer('has_accept_language', { mode: 'boolean' }),
+
+    // Presence of `sec-ch-ua`, which is CHROMIUM-ONLY. Firefox and Safari
+    // legitimately never send it, so this must only ever be read against a UA
+    // that claims Chrome/Edge — a bare presence test would label every Safari
+    // visitor a bot. `classifyClientSignals` encodes that conditional; do not
+    // re-derive it at a call site.
+    hasSecChUa: integer('has_sec_ch_ua', { mode: 'boolean' }),
+
+    // The two connection facts Pro exposes. DELIBERATELY LOW ENTROPY: the
+    // negotiated cipher is largely the server's choice and the version set is
+    // tiny, so this is nothing like JA3/JA4 (Enterprise). Corroboration only.
+    tlsVersion: text('tls_version'),
+    httpProtocol: text('http_protocol'),
+
+    // The derived label: 'browser' | 'inconsistent' | 'non-browser' | 'unknown'.
+    // No CHECK constraint, deliberately: this is a log table, a constraint
+    // violation would silently drop the row, and on D1 a CHECK edit triggers
+    // drizzle-kit's destructive table recreate. The value comes from a closed
+    // server-side union.
+    clientVerdict: text('client_verdict'),
+
     // NOTE: `user_id`, `session_id` and `profile_role` were dropped by AECI-585
     // (§13 D7). All three were declared at init and never written by any code path,
     // and the decision was to drop rather than fill: there is no client-side session
@@ -1346,7 +1426,29 @@ export const pageViews = sqliteTable(
     // consent-independent today. `user_id` is reachable on the browser POST but never
     // on the SSR arrival path, so it would have been right half the time. `page_views`
     // now holds no user linkage at all, which is also the strongest form of the GDPR
-    // erasure story (`AUTH_AND_RLS.md` §8). Do not reintroduce them.
+    // erasure story (`AUTH_AND_RLS.md` §8). Do not reintroduce them. `is_operator`
+    // (above) is deliberately none of the three: read its comment before concluding
+    // otherwise.
+
+    // AECI-743 — the one-arrival-one-row guard. A deterministic
+    // `sha256(concrete_path | user_agent_hash | cf_asn | 10s bucket)` computed at
+    // ingest, protected by the UNIQUE index below, so a second write for the same
+    // visitor + page inside the window is refused by SQLite rather than by a
+    // read-then-write check the duplicate can race past (production held two
+    // identical `arrival` rows 83 ms apart, both landing from `waitUntil`).
+    //
+    // NULLABLE and deliberately so: SQLite treats NULLs as DISTINCT under a UNIQUE
+    // index, which is what makes the column an opt-in guard rather than a
+    // constraint on the whole table. Ingest leaves it null for bot-classified rows
+    // (their volume series must stay a raw count) and for rows with no
+    // `user_agent_hash` (an unidentifiable visitor is not evidence of a duplicate,
+    // and an empty hash would collide two strangers into one row). Null on every
+    // row written before this shipped.
+    //
+    // `navigation` is NOT part of the key: an SSR `arrival` and the browser
+    // tracker's `spa` row for the same document are the same view seen twice, and
+    // collapsing them was half the point.
+    dedupeKey: text('dedupe_key'),
 
     createdAt: createdAt(),
   },
@@ -1358,6 +1460,31 @@ export const pageViews = sqliteTable(
       .where(sql`"product_id" IS NOT NULL`),
     // Serves the digest's human/bot split + crawler grouping over a day window.
     index('page_views_bot_idx').on(t.isBot, t.createdAt),
+    // Serves the operator-pair retro-join (AECI-683): `NOT_INTERNAL`'s correlated
+    // subquery seeks on `(user_agent_hash, cf_asn)` and then ranges on
+    // `created_at`, which is exactly this key order.
+    //
+    // PARTIAL on purpose. The rule below says to add an index only with the read
+    // that needs it, because `page_views` is the hottest write path and D1 bills
+    // indexes as rows written. `WHERE is_operator = 1` means SQLite stores an
+    // entry only for operator rows — a few hundred out of ~27k in production — so
+    // the write cost for the anonymous traffic that dominates this table is zero.
+    index('page_views_operator_pair_idx')
+      .on(t.userAgentHash, t.cfAsn, t.createdAt)
+      .where(sql`"is_operator" = 1`),
+    // AECI-743 — the constraint that makes the de-duplication atomic, plus the
+    // seek ingest uses to probe the current and previous bucket for its metric.
+    // UNIQUE is the load-bearing word: `ON CONFLICT DO NOTHING` against it settles
+    // the race between two concurrent `waitUntil` inserts, which no amount of
+    // read-before-write can. Not partial (unlike `page_views_operator_pair_idx`) —
+    // a partial index cannot back an upsert conflict target. That is a real write
+    // cost: a non-partial UNIQUE index stores a b-tree entry for every row, NULL
+    // keys included (SQLite treats NULLs as distinct for the uniqueness check, it
+    // does not omit them from the index), so the bot rows that dominate this table
+    // each pay for one extra index-entry write. The null-key rule only opts those
+    // rows out of the CONSTRAINT, not out of the storage; the cost is accepted
+    // because a partial index is not an option for an upsert conflict target.
+    uniqueIndex('page_views_dedupe_key_idx').on(t.dedupeKey),
     // No index on the AECI-585 columns: nothing groups or filters on them yet, and
     // `page_views` is the hottest write path in the app (D1 bills rows written,
     // indexes included). Add one with the read that needs it, not before.
@@ -1499,6 +1626,82 @@ export const jobRuns = sqliteTable(
     // table size — one per cron) and the §7.4 prune's cutoff scan.
     index('job_runs_job_started_at_idx').on(t.job, t.startedAt),
     check('job_runs_outcome_check', sql`"outcome" IN ('ok', 'failed', 'skipped')`),
+  ],
+);
+
+/**
+ * External classification of the ASNs we have actually seen (AECI-624).
+ *
+ * ─── What this is NOT ─────────────────────────────────────────────────────────
+ *
+ * It is **not** a second `DATACENTER_ASNS`, and nothing here ever writes
+ * `page_views.is_bot`. That column is decided once at ingest from a hand-curated
+ * list whose membership rule is deliberately strict (`lib/bot-classification.ts`),
+ * the raw User-Agent is discarded after hashing, and so every change to that list
+ * costs a one-way backfill. Feeding a weekly external refresh into it would mean
+ * rewriting history every Monday against an upstream we do not control.
+ *
+ * So this table is joined at READ time only, to *annotate* a row: "AS30058 is
+ * registered as `Content`, not an eyeball network." Improve the source and every
+ * historical row improves with it — no backfill, no rewritten verdicts. It is the
+ * same seam `page_views.cf_as_organization` already occupies (`routes/page-views.ts`).
+ *
+ * ─── Why only the ASNs we have seen ───────────────────────────────────────────
+ *
+ * PeeringDB carries ~35,000 networks; production `page_views` has seen 878 distinct
+ * ASNs. The join domain is the second set, so the refresh intersects the feed with
+ * `SELECT DISTINCT cf_asn FROM page_views` and stores only that. A first-sighting
+ * ASN is simply unannotated until the next Monday — which is the honest state
+ * anyway, and cheaper than carrying 34,000 rows nothing will ever join against.
+ *
+ * ─── Audit ────────────────────────────────────────────────────────────────────
+ *
+ * Derived, log-class, cron-written bookkeeping — **exempt from the §26.1
+ * audit-in-batch invariant under ADR 0022**, exactly like `metrics_daily` and
+ * `job_runs`. Its refresh is recorded in `job_runs`, not `audit_log`.
+ */
+export const asnRegistry = sqliteTable(
+  'asn_registry',
+  {
+    /** The AS number. PK because there is exactly one classification per ASN and
+     *  the only read is an equality seek from `page_views.cf_asn`. */
+    asn: integer('asn').primaryKey(),
+
+    /**
+     * The upstream's classification, stored **verbatim** — PeeringDB's `info_type`
+     * (`Cable/DSL/ISP`, `NSP`, `Content`, `Enterprise`, `Educational/Research`,
+     * `Non-Profit`, `Government`, `Network Services`, `Route Server`, …).
+     *
+     * Deliberately not normalized on the way in and deliberately CHECK-free. The
+     * vocabulary belongs to the source, not to us: re-coding it at write time would
+     * bake today's reading of their taxonomy into stored data, and a SQLite CHECK
+     * change forces a full table rebuild the moment they add a value. The mapping
+     * onto our own coarse buckets is a pure function on the read side
+     * (`networkClassOf` in `lib/asn-registry.ts`), so it can be revised without a
+     * migration.
+     *
+     * Null is a real, distinct state: ~29% of PeeringDB records carry a blank
+     * `info_type`. "Registered, but unclassified" is not "not registered", and the
+     * read side must not collapse them.
+     */
+    infoType: text('info_type'),
+
+    /** The registered network name, for display beside the number. */
+    asName: text('as_name'),
+
+    /** Which feed this row came from (`peeringdb` today). Present so a future
+     *  second source is distinguishable per row rather than per table. */
+    source: text('source').notNull(),
+
+    /** When the refresh that wrote this row ran. Drives the §5.6 staleness note —
+     *  an annotation from a registry that stopped refreshing must be readable as
+     *  stale rather than silently trusted. */
+    fetchedAt: text('fetched_at').notNull(),
+  },
+  (t) => [
+    // Serves the System screen's "how stale is the registry" probe (MAX) without
+    // scanning, and any future "what did the last refresh touch" read.
+    index('asn_registry_fetched_at_idx').on(t.fetchedAt),
   ],
 );
 

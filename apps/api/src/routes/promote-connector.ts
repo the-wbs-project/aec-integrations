@@ -221,8 +221,8 @@ export async function runConnectorCatalogIngest(
  *   - **No Algolia sync.** `syncPromoteTargets` iterates vendors/product/integrations,
  *     of which a connector page has none. The only signal it could move is
  *     `integration_count`, which §13.5 schedules into AECI-721 so the numbers move once.
- *   - **No IndexNow, no Google Indexing.** No public URL's content changes — AECI-715
- *     and AECI-716 are unbuilt. Pinging two search engines about 3,573 stubs' worth of
+ *   - **No IndexNow ping.** No public URL's content changes — AECI-715
+ *     and AECI-716 are unbuilt. Pinging a search engine about 3,573 stubs' worth of
  *     no-change is crawl-budget vandalism.
  *   - **No home-stats refresh.** Refuted by spec rather than by inference (§13.5), and
  *     it would repaint an unchanged home page on every page of a 30-page sync.
