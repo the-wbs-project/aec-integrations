@@ -1637,6 +1637,12 @@ export const adminVendorRequestConfig = {
     // AECI-521: the Phase-6 duplicate chain, surfaced only by the claims LIST
     // (`toAdminClaim`); harmless to the requests path, which never reads it.
     duplicateOfRequestId: true,
+    // AECI-739: the operator note. Same arrangement as `duplicateOfRequestId` —
+    // selected here, surfaced only by `toAdminClaim`, so `/admin/requests` is
+    // unchanged. Adding it here WITHOUT adding it to `RawAdminVendorRequestRow`
+    // below would make it invisible with no type error: callers reach these rows
+    // through an unchecked `as RawAdminVendorRequestRow` cast. The two move together.
+    adminNotes: true,
     createdAt: true,
     resolvedAt: true,
     resolvedById: true,
@@ -1658,6 +1664,9 @@ export interface RawAdminVendorRequestRow {
   linearIssueId: string | null;
   linearIssueUrl: string | null;
   duplicateOfRequestId: string | null;
+  /** AECI-739 operator note. Read for every vendor request but mapped into a
+   *  response only by `toAdminClaim` — the endpoint surface is claim-only. */
+  adminNotes: string | null;
   createdAt: string;
   resolvedAt: string | null;
   resolvedById: string | null;
@@ -1773,7 +1782,12 @@ export function toAdminVendorRequest(
  *  with the two arrays above: a vendor that owns NO products yields a zeroed
  *  breakdown and `false`, never `null`, because "no products on record" is a
  *  reviewable answer (unknown, not exempt) and must not read as "we could not
- *  look". */
+ *  look".
+ *
+ *  `admin_notes` (AECI-739 / §5.2 step 6) comes straight off the row — it is the
+ *  CURRENT note, not its history; the history is the `vendor_claim.note_updated`
+ *  audit rows. Surfaced on the LIST as well as the detail because a parked claim
+ *  has to be legible from the queue, which is where the operator looks. */
 export function toAdminClaim(
   raw: RawAdminVendorRequestRow,
   isDuplicate: boolean,
@@ -1789,6 +1803,7 @@ export function toAdminClaim(
   return {
     ...toAdminVendorRequest(raw, isDuplicate, target, authAccountByEmail),
     duplicate_of_request_id: raw.duplicateOfRequestId,
+    admin_notes: raw.adminNotes,
     existing_seats: existingSeats,
     related_requests: relatedRequests,
     entitlement_vendor: entitlementVendor,

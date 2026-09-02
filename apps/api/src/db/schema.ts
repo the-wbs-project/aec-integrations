@@ -899,6 +899,14 @@ export const vendorRequests = sqliteTable(
     body: text('body').notNull(),
     sourceUrl: text('source_url'),
 
+    // AECI-739: free-text operator note (STAGE_2_VENDOR_PORTAL_SPEC.md §5.2 step 6) —
+    // why a claim is parked, and what was said out of band. Admin-authored, never
+    // claimant-facing, never emailed, and not `AdminNote` (that is the closed-enum
+    // data-caveat envelope). Nullable; edited in place via
+    // PATCH /api/admin/claims/:id/notes, whose audit_log rows ARE its history.
+    // Physically available to corrections too; the API surface is claim-only.
+    adminNotes: text('admin_notes'),
+
     status: text('status').notNull().default('open'),
     linearIssueId: text('linear_issue_id'),
     // AECI-261: the linked Linear issue's web permalink (issue.url), persisted so

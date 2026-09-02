@@ -115,7 +115,18 @@
             </h3>
           </div>
 
-          <span class="shrink-0 text-xs text-(--text-secondary)">{{ age(r.created_at) }}</span>
+          <div class="flex shrink-0 items-center gap-3">
+            <span class="text-xs text-(--text-secondary)">{{ age(r.created_at) }}</span>
+            <!-- AECI-739: the detail route — where the operator note is written and
+                 the duplicate chip above is explained. -->
+            <a
+              [routerLink]="['/admin/claims', r.id]"
+              class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-3 py-1.5 text-xs font-bold text-(--text-primary) no-underline transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              i18n="@@admin.claims.openDetail"
+            >
+              Open claim
+            </a>
+          </div>
         </div>
 
         <!-- Submitter -->
@@ -380,6 +391,38 @@
             class="inline-flex items-center rounded-full border border-(--border-default) px-2.5 py-0.5 text-xs font-medium text-(--text-secondary) no-underline transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
             i18n="@@admin.claims.sourceUrl"
             >Source link</a
+          >
+        </div>
+        }
+
+        <!--
+          Operator note (AECI-739 / §5.2 step 6). Rendered on the CARD, not only on
+          the detail page: §5.2's prescribed handling for a pure-connector vendor is
+          to leave the claim `open` and route it out of band, and a queue of open
+          claims with no visible reason why any of them is parked is the exact
+          problem the note exists to solve. Read-only here — it is written on
+          `/admin/claims/:id`, so the field has one home.
+        -->
+        @if (r.admin_notes; as note) {
+        <div
+          class="mt-4 rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) p-4"
+        >
+          <h4
+            class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+            i18n="@@admin.claims.note.heading"
+          >
+            Operator note
+          </h4>
+          <p
+            class="mt-2 line-clamp-3 whitespace-pre-line text-sm leading-relaxed text-(--text-primary)"
+          >
+            {{ note }}
+          </p>
+          <a
+            [routerLink]="['/admin/claims', r.id]"
+            class="mt-2 inline-block text-xs font-medium text-(--text-secondary) underline decoration-(--border-strong) underline-offset-4 transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            i18n="@@admin.claims.note.openToEdit"
+            >Read or edit the full note</a
           >
         </div>
         }

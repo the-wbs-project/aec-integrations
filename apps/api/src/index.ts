@@ -23,7 +23,12 @@ import {
   createUpdateAccountHandler,
 } from './routes/account';
 import { createGetAccountReviewsHandler } from './routes/account-reviews';
-import { createAdminClaimsListHandler, createModerateClaimHandler } from './routes/admin-claims';
+import {
+  createAdminClaimDetailHandler,
+  createAdminClaimsListHandler,
+  createModerateClaimHandler,
+  createSaveClaimNotesHandler,
+} from './routes/admin-claims';
 import { createSetConnectorCatalogManagementHandler } from './routes/admin-connector-catalogs';
 import {
   createAdminConnectorAuditHandler,
@@ -483,6 +488,13 @@ authAdmin.patch(
 // Stage 2 / AECI-521: the claim-review LIST (reviewer-assist signals). Read-only,
 // clones the requests LIST; the reviewer decides on the assembled evidence.
 authAdmin.get('/api/admin/claims', requireAdmin(), createAdminClaimsListHandler());
+// Stage 2 / AECI-739: one claim, plus the explanation behind the queue's duplicate
+// chip (§5.2 step 5). Read-only, no audit row.
+authAdmin.get('/api/admin/claims/:id', requireAdmin(), createAdminClaimDetailHandler());
+// Stage 2 / AECI-739: the operator note (§5.2 step 6) — a sub-resource, not a third
+// `ModerateClaimSchema.action`, because a note changes no status and is writable at
+// all four of them. One `db.batch` carrying the UPDATE + its audit row.
+authAdmin.patch('/api/admin/claims/:id/notes', requireAdmin(), createSaveClaimNotesHandler());
 // Stage 2 / AECI-519: the claim → verified-account grant. `resolveClaimantIdentity`
 // reports `unavailable` (→503) wherever `SUPABASE_SERVICE_ROLE_KEY` is absent — local
 // dev and PR previews, since AECI-530 CI-pushes it on staging/demo/production.

@@ -405,3 +405,82 @@ export function revokeSeatStatements(db: Db, p: RevokeSeatParams): RevokeBatch {
 
   return { stmts, auditEntry };
 }
+
+/**
+ * The operator note write (AECI-739 / §5.2 step 6). One column, one audit row.
+ */
+export interface SaveClaimNotesParams {
+  requestId: string;
+  actorId: string;
+  actorType: AuditLogEntry['actorType'];
+  /** The note as it stands on the row — `null` for "no note yet". */
+  before: string | null;
+  /** The note to store; `null` clears it. */
+  after: string | null;
+  status: string;
+  targetType: string;
+  targetId: string;
+}
+
+/** The statements + audit entry a note write produces. No workflow transition —
+ *  see `saveClaimNotesStatements`. */
+export interface ClaimNotesBatch {
+  stmts: BatchStmt[];
+  auditEntry: AuditLogEntry;
+}
+
+/**
+ * The operator-note batch (AECI-739 / `STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2 step 6):
+ * write `vendor_requests.admin_notes`, audit. **TWO statements**, and the audit row
+ * is in the same batch because a note is domain state (§26.1) — the note IS the
+ * record of why a claim was parked, so losing it while keeping the write would be
+ * exactly the failure the invariant exists to prevent.
+ *
+ * **No `workflow_transitions` / `workflow_instances` row, deliberately.** The
+ * `vendor_claim` workflow tracks the claim's STATUS (`open → resolved|rejected`), and
+ * a note changes no status — it is writable at any of the four, including the two
+ * terminal ones. A note is not a transition, and `workflow_instances_type_check` is a
+ * closed CHECK whose widening is a full SQLite table rebuild besides
+ * (`routes/admin-entitlements.ts`).
+ *
+ * **The audit rows ARE the note's history.** The column holds only the current text;
+ * `before_state`/`after_state` carry the full old and new note on every write, so the
+ * conversation §5.2 step 6 used to keep in Linear comments is reconstructable from the
+ * trail — the same arrangement §2.1 uses for the entitlement ledger. That is also why
+ * the caller must skip this builder entirely on an unchanged note rather than writing
+ * a no-op row: a trail of identical states is not a history.
+ *
+ * The `WHERE` is unguarded on status (every status is writable) but scoped to the id,
+ * and the caller has already established that the row is a `kind='claim'`.
+ */
+export function saveClaimNotesStatements(db: Db, p: SaveClaimNotesParams): ClaimNotesBatch {
+  const auditEntry: AuditLogEntry = {
+    actorId: p.actorId,
+    actorType: p.actorType,
+    action: 'vendor_claim.note_updated',
+    entityType: 'vendor_request',
+    entityId: p.requestId,
+    beforeState: { admin_notes: p.before },
+    afterState: { admin_notes: p.after },
+    metadata: {
+      source: CLAIM_AUDIT_SOURCE,
+      kind: 'claim',
+      target_type: p.targetType,
+      target_id: p.targetId,
+      // The claim's status is UNCHANGED by this write; recorded so the trail shows
+      // at which point in the claim's life the note was taken.
+      status: p.status,
+      cleared: p.after === null,
+    },
+  };
+
+  const stmts: BatchStmt[] = [
+    db
+      .update(vendorRequests)
+      .set({ adminNotes: p.after })
+      .where(eq(vendorRequests.id, p.requestId)),
+    auditInsert(db, auditEntry),
+  ];
+
+  return { stmts, auditEntry };
+}

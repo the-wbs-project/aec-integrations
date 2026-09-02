@@ -11,7 +11,8 @@
  *
  * Extended by AECI-579 with `GET /api/admin/catalog/coverage`, by AECI-586 with
  * the Audience pair, by AECI-652 with the three `/api/admin/vendors` reads, and
- * by AECI-722 with the five `/api/admin/connector-catalogs` reads.
+ * by AECI-722 with the five `/api/admin/connector-catalogs` reads, and by
+ * AECI-739 with `GET /api/admin/claims/:id`.
  * Every read endpoint the epic adds belongs in {@link ROUTES} — that is the point
  * of the file.
  *
@@ -27,7 +28,7 @@
 import { Hono } from 'hono';
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { connectorCatalogs, products, profiles, vendors } from '../db/schema';
+import { connectorCatalogs, products, profiles, vendorRequests, vendors } from '../db/schema';
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
 import { requireAdmin, type AuthzVariables } from '../lib/authz';
@@ -36,6 +37,7 @@ import { makeTestDb, type TestDb } from '../test/d1';
 import { fakeExecutionContext } from '../test/helpers';
 import { createAdminAudienceHandler } from './admin-audience';
 import { createAdminCatalogCoverageHandler } from './admin-catalog';
+import { createAdminClaimDetailHandler } from './admin-claims';
 import { createAdminFeedbackHandler } from './admin-feedback';
 import { createAdminTimeseriesHandler } from './admin-metrics';
 import { createAdminOverviewHandler } from './admin-overview';
@@ -73,6 +75,9 @@ const VENDOR = u(950);
  *  FK, and the handlers inner-join `products`, so the product has to be real too. */
 const CONNECTOR_PRODUCT = u(960);
 const CATALOG = 'authz-matrix-catalog';
+// AECI-739. The claim detail 404s on an unknown id and this matrix asserts 200
+// for an admin, so it addresses a SEEDED claim.
+const CLAIM = u(970);
 
 const NOW = new Date('2026-08-11T05:00:00.000Z');
 
@@ -133,6 +138,11 @@ const ROUTES = [
     name: 'GET /api/admin/connector-catalogs/:id/audit',
     url: `/api/admin/connector-catalogs/${CATALOG}/audit`,
   },
+  // AECI-739 — the §5.2 claim detail. ONE read; `PATCH …/:id/notes` is not here
+  // at all, for the same reason the vendor DELETE and the AECI-720 PATCH are
+  // not: this file is `get()`-shaped, and a write belongs with the rest of its
+  // write semantics (`admin-claims.spec.ts`).
+  { name: 'GET /api/admin/claims/:id', url: `/api/admin/claims/${CLAIM}` },
 ] as const;
 
 let jwks: TestJwks;
@@ -155,6 +165,14 @@ beforeEach(async () => {
   await t.db
     .insert(connectorCatalogs)
     .values({ id: CATALOG, connectorProductId: CONNECTOR_PRODUCT });
+  await t.db.insert(vendorRequests).values({
+    id: CLAIM,
+    kind: 'claim',
+    targetType: 'vendor',
+    targetId: VENDOR,
+    submitterEmail: 'authz-matrix@vendor.test',
+    body: 'Authz matrix claim.',
+  });
   await t.db.insert(profiles).values([
     { id: REVIEWER, role: 'reviewer' },
     { id: ADMIN, role: 'admin' },
@@ -256,6 +274,15 @@ function makeApp() {
     '/api/admin/connector-catalogs/:id/audit',
     requireAdmin(guard),
     createAdminConnectorAuditHandler(t.factory, noEmails),
+  );
+  // AECI-739. The claim detail's second argument is the GoTrue `has_auth_account`
+  // seam, whose default would reach out; an empty map is the "seam up, no
+  // account" branch, which is the cheapest one that still 200s.
+  const noAuthAccounts = async () => new Map<string, boolean>();
+  app.get(
+    '/api/admin/claims/:id',
+    requireAdmin(guard),
+    createAdminClaimDetailHandler(t.factory, noAuthAccounts),
   );
   return app;
 }

@@ -6,6 +6,23 @@
  *
  *   PATCH /api/admin/claims/:id — approve (grant) / reject a claim.
  *
+ * It also owns the claim-review READ surface and the operator note:
+ *
+ *   GET   /api/admin/claims           — the review queue (AECI-521 / §5).
+ *   GET   /api/admin/claims/:id       — one claim (AECI-739 / §5.2 step 6).
+ *   PATCH /api/admin/claims/:id/notes — write/clear the operator note (AECI-739).
+ *
+ * ── THE OPERATOR NOTE (AECI-739 / §5.2 step 6) ────────────────────────────────
+ * §5.2 tells an operator to PARK a pure-connector vendor's claim as `open` and
+ * route it out of band, because Grant and Reject are both wrong for it. Until
+ * AECI-739 there was nowhere in the product to record that decision — step 6 sent
+ * the conversation to Linear comments "so nobody looks for an in-product home that
+ * does not exist" — so the console showed a growing queue of `open` claims with no
+ * visible reason why any of them was parked. The note is that home: one nullable
+ * column, admin-authored, NEVER claimant-facing and never emailed, writable at any
+ * status, and audited into the same `db.batch` as its write, which is what makes
+ * the audit trail the note's history rather than the column.
+ *
  * A sibling of `PATCH /api/admin/requests/:id` (`admin-requests.ts`), not a
  * replacement: corrections still moderate through the requests endpoint; a claim
  * moderates here so `approve` runs the §3 grant batch (link the `vendor_admin`
@@ -44,12 +61,16 @@
  */
 
 import {
+  AdminClaimDetailSchema,
   ApiErrorCode,
   ListVendorClaimsQuerySchema,
   ListVendorClaimsResponseSchema,
   ModerateClaimResponseSchema,
   ModerateClaimSchema,
+  SaveClaimNotesSchema,
+  type AdminClaimDetail,
   type AdminVendorSeat,
+  type ClaimDuplicateSibling,
   type ClaimGrantSummary,
   type LinkRef,
   type ListVendorClaimsResponse,
@@ -64,7 +85,7 @@ import {
   forwardWorkflowTransition,
   type WorkflowTransitionForwarder,
 } from '@aeci/shared/workflow-transition';
-import { and, asc, count, desc, eq, inArray, isNull } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, isNull, ne, or } from 'drizzle-orm';
 import type { Context } from 'hono';
 import type { ZodType } from 'zod';
 
@@ -111,6 +132,7 @@ import {
   CLAIM_AUDIT_SOURCE,
   grantSeatStatements,
   rejectClaimStatements,
+  saveClaimNotesStatements,
 } from '../lib/vendor-grant';
 
 type ClaimContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
@@ -205,10 +227,15 @@ async function parseJsonBody<T>(c: ClaimContext, schema: ZodType<T>): Promise<T>
 }
 
 /** `aeci.claim.moderation.action` — one per moderation attempt, tagged by action
- *  and outcome. Fire-and-forget; each vendor leg no-ops without its own key. */
+ *  and outcome. Fire-and-forget; each vendor leg no-ops without its own key.
+ *
+ *  `action:note` (AECI-739) rides the SAME series rather than opening a second
+ *  family: it is the third thing an admin does to a claim from the same console,
+ *  and the tag separates it. `outcome:noop` there means the submitted note was
+ *  byte-identical to the stored one, so nothing was written. */
 function emitClaimModeration(
   c: ClaimContext,
-  action: 'approve' | 'reject',
+  action: 'approve' | 'reject' | 'note',
   outcome: 'ok' | 'noop' | 'invalid_state' | 'conflict' | 'unavailable',
 ): void {
   submitCount(c.executionCtx, c.env, c.req.raw, 'aeci.claim.moderation.action', 1, [
@@ -1072,6 +1099,286 @@ export function createAdminClaimsListHandler(
 
     validateResponseInDev(c.env, () => {
       ListVendorClaimsResponseSchema.parse(body);
+    });
+
+    return json(body);
+  };
+}
+
+// ─── Claim DETAIL + operator note (AECI-739 / §5.2 step 6) ───────────────────
+
+/**
+ * Preload one claim by id, for both new handlers.
+ *
+ * `404` on an unknown id. A `kind='correction'` row gets the **same 422 and the
+ * same redirect message** `createModerateClaimHandler` already returns for it —
+ * deliberately, so the id and the path tell one story regardless of the verb. A
+ * 404 here would say "no such thing" about a row the PATCH sibling is willing to
+ * describe and redirect.
+ */
+async function loadClaimRow(db: Db, id: string): Promise<RawAdminVendorRequestRow> {
+  const row = (await db.query.vendorRequests.findFirst({
+    ...adminVendorRequestConfig,
+    where: eq(vendorRequests.id, id),
+  })) as RawAdminVendorRequestRow | undefined;
+  if (!row) throw notFoundError('vendor_request', { id });
+  if (row.kind !== 'claim') {
+    throw new ApiError(
+      422,
+      ApiErrorCode.INVALID_STATE_TRANSITION,
+      `Request ${id} is a ${row.kind}, not a claim; view it via /api/admin/requests.`,
+    );
+  }
+  return row;
+}
+
+/**
+ * The open claims that make this one read as a duplicate (AECI-739 / §5.2 step 5).
+ *
+ * ONE scan, expressing the LIST's rule directly rather than re-deriving it: the
+ * queue computes `is_duplicate` from two `groupBy` counts over OPEN claims — same
+ * `(target_type, target_id)`, or same `(submitter_email, target_type, target_id)` —
+ * and subtracts the row itself. Selecting those very siblings and excluding self by
+ * id is the same predicate without the arithmetic, so the detail page's
+ * `is_duplicate` (`siblings.length > 0`) cannot disagree with the queue's.
+ *
+ * The email rule is a strict subset of the target rule for claims (both are scoped
+ * to the same target), so a row matching both reports the broader `target` reason;
+ * `submitter` is reported only when the target predicate did not already cover it —
+ * which, given the scoping, means never in practice. It is computed rather than
+ * hardcoded so the label stays correct if either rule is ever widened.
+ *
+ * `has_notes` is what makes the section actionable: it separates a claim someone
+ * DELIBERATELY parked (§5.2 says park an `open` pure-connector claim and route it
+ * out of band) from one nobody has looked at.
+ */
+async function loadDuplicateSiblings(
+  db: Db,
+  row: RawAdminVendorRequestRow,
+): Promise<ClaimDuplicateSibling[]> {
+  const siblings = await db
+    .select({
+      id: vendorRequests.id,
+      submitterEmail: vendorRequests.submitterEmail,
+      submitterName: vendorRequests.submitterName,
+      status: vendorRequests.status,
+      createdAt: vendorRequests.createdAt,
+      targetType: vendorRequests.targetType,
+      targetId: vendorRequests.targetId,
+      adminNotes: vendorRequests.adminNotes,
+    })
+    .from(vendorRequests)
+    .where(
+      and(
+        eq(vendorRequests.kind, 'claim'),
+        eq(vendorRequests.status, 'open'),
+        ne(vendorRequests.id, row.id),
+        or(
+          and(
+            eq(vendorRequests.targetType, row.targetType),
+            eq(vendorRequests.targetId, row.targetId),
+          ),
+          and(
+            eq(vendorRequests.submitterEmail, row.submitterEmail),
+            eq(vendorRequests.targetType, row.targetType),
+            eq(vendorRequests.targetId, row.targetId),
+          ),
+        ),
+      ),
+    )
+    .orderBy(desc(vendorRequests.createdAt), asc(vendorRequests.id));
+
+  return siblings.map((s) => ({
+    id: s.id,
+    submitter_email: s.submitterEmail,
+    submitter_name: s.submitterName,
+    status: s.status as ClaimDuplicateSibling['status'],
+    created_at: s.createdAt,
+    match_reason:
+      s.targetType === row.targetType && s.targetId === row.targetId
+        ? ('target' as const)
+        : ('submitter' as const),
+    has_notes: Boolean(s.adminNotes?.trim()),
+  }));
+}
+
+/**
+ * Build the `AdminClaimDetail` body for one claim: every signal the queue card
+ * carries, computed through the SAME helpers the LIST uses (passed a one-row
+ * array), plus the duplicate explanation.
+ *
+ * The enrichment stays fail-soft here exactly as it is on the list — `null` means
+ * "we could not look", not "empty" — so a degraded signal never 500s a page the
+ * operator opened to make a decision. `duplicate_siblings` is the exception and is
+ * NOT caught: it is the arithmetic behind `is_duplicate`, and a detail page that
+ * silently claimed "no duplicates" because a query failed would be worse than an
+ * error.
+ */
+async function buildClaimDetail(
+  c: ClaimContext,
+  db: Db,
+  row: RawAdminVendorRequestRow,
+  fetchAuthAccounts: typeof fetchAuthAccountsByEmail,
+): Promise<AdminClaimDetail> {
+  const rows = [row];
+  const vendorByRow = await resolveClaimVendorIds(db, rows).catch(() => null);
+  const vendorIds = vendorByRow ? [...new Set(vendorByRow.values())] : [];
+
+  const [
+    targets,
+    authAccountByEmail,
+    seatsByRow,
+    relatedByRow,
+    entitlementByVendor,
+    productRolesByVendor,
+    duplicateSiblings,
+  ] = await Promise.all([
+    resolveRequestTargets(db, rows),
+    fetchAuthAccounts(c.env, [row.submitterEmail]),
+    vendorByRow ? loadExistingSeats(db, vendorByRow).catch(() => null) : null,
+    loadRelatedRequests(db, rows, [row.submitterEmail]).catch(() => null),
+    vendorByRow ? loadClaimEntitlements(db, vendorIds).catch(() => null) : null,
+    vendorByRow ? loadVendorProductRoles(db, vendorIds).catch(() => null) : null,
+    loadDuplicateSiblings(db, row),
+  ]);
+
+  const vendorId = vendorByRow?.get(row.id);
+  const entitlementHit = vendorId ? entitlementByVendor?.get(vendorId) : undefined;
+  // Same asymmetry the LIST documents: `[null, null]` ONLY when we could not look.
+  // A resolved vendor owning nothing is a ZEROED breakdown + `false` — unknown is
+  // not exempt (§5.2 step 1 / AECI-738).
+  const roles =
+    vendorId && productRolesByVendor
+      ? (productRolesByVendor.get(vendorId) ?? { ...EMPTY_PRODUCT_ROLES })
+      : null;
+
+  return {
+    ...toAdminClaim(
+      row,
+      // `is_duplicate` IS the sibling count — see `loadDuplicateSiblings`.
+      duplicateSiblings.length > 0,
+      targets.get(row.targetId) ?? null,
+      authAccountByEmail,
+      seatsByRow ? (seatsByRow.get(row.id) ?? []) : null,
+      relatedByRow ? (relatedByRow.get(row.id) ?? []) : null,
+      entitlementHit ? entitlementHit.vendor : null,
+      entitlementHit ? entitlementHit.entitlement : null,
+      roles,
+      roles ? isPureConnectorVendor(roles) : null,
+    ),
+    duplicate_siblings: duplicateSiblings,
+  };
+}
+
+/**
+ * `GET /api/admin/claims/:id` — one claim (AECI-739 / §5.2 step 6). The detail
+ * route the §5.2 procedure needed and did not have: a claim parked `open` for the
+ * partnership track has to have somewhere to say WHY, and somewhere the reviewer
+ * of the NEXT claim on that vendor can read it.
+ *
+ * Read-only, so **no `audit_log` row** (§9.3 / ADR 0022). Addressable at any of
+ * the four statuses, including `in_review` — which the LIST can now filter for
+ * too (AECI-739 widened its enum), so this page can never show a status the queue
+ * cannot find.
+ */
+export function createAdminClaimDetailHandler(
+  dbFor: DbFactory = getDb,
+  fetchAuthAccounts: typeof fetchAuthAccountsByEmail = fetchAuthAccountsByEmail,
+): (c: ClaimContext) => Promise<Response> {
+  return async (c) => {
+    const id = c.req.param('id');
+    if (!id) {
+      throw new ApiError(400, 'VALIDATION_FAILED', 'Missing claim id', { field: 'id' });
+    }
+
+    const { db } = dbFor(c.env);
+    const row = await loadClaimRow(db, id);
+    const body = await buildClaimDetail(c, db, row, fetchAuthAccounts);
+
+    validateResponseInDev(c.env, () => {
+      AdminClaimDetailSchema.parse(body);
+    });
+
+    return json(body);
+  };
+}
+
+/**
+ * `PATCH /api/admin/claims/:id/notes` — write or clear the operator note
+ * (AECI-739 / §5.2 step 6).
+ *
+ * A SUB-RESOURCE rather than a third `ModerateClaimSchema.action`, mirroring
+ * `PATCH /api/admin/vendors/:id/entitlement`: moderation is a one-way status
+ * transition that grants a paid account or declines one by email, and a note is
+ * neither. Keeping them apart is also what lets the note be writable at every
+ * status — a resolved or rejected claim is exactly where "why we parked it, and
+ * what happened next" is worth having.
+ *
+ * Follows the admin-write template (`routes/admin-entitlements.ts`), minus the
+ * moves a note does not need:
+ *   - preload gate (404 / 422-not-a-claim) — `loadClaimRow`
+ *   - NO status gate: every status is writable, deliberately
+ *   - 200 NO-OP when the note is unchanged: nothing written, no audit row. This
+ *     follows the claims resource's own idempotency rule (re-granting an
+ *     already-granted claim is a documented 200 no-op), not the entitlement
+ *     endpoint's 422 — that gate rejects invalid STATE TRANSITIONS, and text that
+ *     did not change is not one. A trail of identical audit states is not a
+ *     history, so writing one would degrade the very record this endpoint exists
+ *     to keep.
+ *   - ONE `db.batch`: the UPDATE + its `audit_log` row (§26.1)
+ *   - metric, then post-commit `waitUntil` forward
+ *   - NO cache purge: `/admin/*` is uncacheable and no public surface renders a
+ *     claim, let alone an admin-only note (contrast the grant, which flips
+ *     `vendors.verified` and does purge)
+ *   - NO workflow row: see `saveClaimNotesStatements`
+ */
+export function createSaveClaimNotesHandler(
+  dbFor: DbFactory = getDb,
+  fetchAuthAccounts: typeof fetchAuthAccountsByEmail = fetchAuthAccountsByEmail,
+): (c: ClaimContext) => Promise<Response> {
+  return async (c) => {
+    const session = c.get('auth');
+    const actorId = session.userId;
+    const actorType = auditActorType(session);
+
+    const id = c.req.param('id');
+    if (!id) {
+      throw new ApiError(400, 'VALIDATION_FAILED', 'Missing claim id', { field: 'id' });
+    }
+
+    const payload = await parseJsonBody(c, SaveClaimNotesSchema);
+    const { db } = writeDb(c, dbFor);
+    const row = await loadClaimRow(db, id);
+
+    // Whitespace-only is a cleared note, not a note made of spaces — so "clear the
+    // box and save" and "send null" are the same action, and neither can produce a
+    // row that renders as an empty operator note.
+    const next = payload.notes?.trim() ? payload.notes.trim() : null;
+    const unchanged = next === row.adminNotes;
+
+    if (!unchanged) {
+      const batch = saveClaimNotesStatements(db, {
+        requestId: row.id,
+        actorId,
+        actorType,
+        before: row.adminNotes,
+        after: next,
+        status: row.status,
+        targetType: row.targetType,
+        targetId: row.targetId,
+      });
+      await db.batch(batch.stmts as BatchTuple);
+      c.executionCtx.waitUntil(forwardAuditLog(batch.auditEntry, makeForwarder(c)));
+    }
+
+    emitClaimModeration(c, 'note', unchanged ? 'noop' : 'ok');
+
+    // Rebuild off the committed value rather than re-reading the row: the note is
+    // the only thing this endpoint changed, and every other signal is unaffected.
+    const body = await buildClaimDetail(c, db, { ...row, adminNotes: next }, fetchAuthAccounts);
+
+    validateResponseInDev(c.env, () => {
+      AdminClaimDetailSchema.parse(body);
     });
 
     return json(body);

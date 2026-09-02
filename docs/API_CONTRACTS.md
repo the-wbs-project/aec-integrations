@@ -1368,7 +1368,8 @@ audit). Behind `requireAdmin()`. Source of truth: `packages/shared/src/api/admin
 
 ```typescript
 export const ListVendorClaimsQuerySchema = PageQuerySchema.extend({
-  status: z.enum(['open', 'resolved', 'rejected']).default('open'), // no `kind` — claims only
+  // All FOUR statuses since AECI-739 — see "Every status is filterable" below.
+  status: z.enum(['open', 'in_review', 'resolved', 'rejected']).default('open'), // no `kind` — claims only
 });
 
 // Each item is an `AdminClaim` = `AdminVendorRequest` (§6.7 shape: id, kind, status,
@@ -1397,6 +1398,11 @@ export const AdminClaimSchema = AdminVendorRequestSchema.extend({
   // REQUIRED-nullable (R10); null = signal unavailable, and they move together.
   product_roles: VendorProductRolesSchema.nullable(),     // { application, connector, hybrid, total }
   is_pure_connector_vendor: z.boolean().nullable(),       // true ⇒ owns ≥1 product, ALL 'connector'
+
+  // The operator note (AECI-739 / §5.2 step 6). REQUIRED-nullable (R10); null =
+  // no note. On the LIST as well as the detail, deliberately — a parked claim has
+  // to be legible from the queue, which is where the operator looks.
+  admin_notes: z.string().nullable(),
 });
 
 export const ListVendorClaimsResponseSchema = paginatedResponseSchema(AdminClaimSchema);
@@ -1438,6 +1444,20 @@ for a product claim), so the queue's inline entitlement control always names the
 would actually touch. `null` when there is no vendor to act on (a product with no
 `product_vendors` row) or when the enrichment degraded. `entitlement` is the same readout the
 PATCH returns, so a successful action drops straight into the row with no refetch.
+
+**Every status is filterable since AECI-739.** The enum offered only
+`open | resolved | rejected` until then, so an `in_review` claim — the status the Linear
+webhook writes when its issue moves to a `started` state (`STATE_TYPE_TO_STATUS`,
+`routes/webhooks.ts`) — appeared in **no** queue tab while still existing, still being
+grantable, and (since AECI-739) still being addressable at `/admin/claims/:id`. The filter
+is still an EXACT match, not a set: there is no "all" value, deliberately, because the queue
+is a working list and not a report.
+
+**`admin_notes` is the operator note (AECI-739 / §5.2 step 6),** carried on the LIST as
+well as the detail because §5.2's prescribed handling for a pure-connector vendor is to
+leave the claim `open` and route it out of band — and a queue of open claims with no
+visible reason why any of them is parked is the problem the note exists to solve. It is
+read-only here; the writer is `PATCH /api/admin/claims/:id/notes`.
 
 #### `PATCH /api/admin/claims/:id` (Stage 2 — AECI-519)
 
@@ -1533,6 +1553,105 @@ Errors:
 - `INVALID_STATE_TRANSITION` (422) — the request is not a claim, is already terminal
   (and not an exact re-grant), or a claimed product has no vendor.
 - `NOT_FOUND` (404) — unknown request id, or the resolved vendor is missing.
+
+#### `GET /api/admin/claims/:id` (Stage 2 — AECI-739)
+
+**One claim.** Every signal the queue card carries, plus the explanation the list has
+no room for: which open claims are causing this one's duplicate chip. Behind
+`requireAdmin()`, read-only — **no `audit_log` row** (§9.3 / ADR 0022). Source of truth:
+`packages/shared/src/api/admin-claims.ts`, `apps/api/src/routes/admin-claims.ts`; model:
+`STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2 step 6.
+
+Why it exists: §5.2 tells an operator to **park** a pure-connector vendor's claim as
+`open` and route it to the partnership track out of band, because Grant and Reject are
+both wrong for it. Until this route the product had nowhere to record that decision —
+step 6 sent the conversation to Linear comments — so the console showed a lengthening
+queue of open claims with no visible reason why any of them was parked.
+
+```typescript
+export const ClaimDuplicateSiblingSchema = z.object({
+  id: z.string().uuid(),
+  submitter_email: z.string(),
+  submitter_name: z.string().nullable(),
+  status: z.enum(['open', 'in_review', 'resolved', 'rejected']),
+  created_at: z.string(),
+  match_reason: z.enum(['target', 'submitter']), // which of the LIST's two rules fired
+  has_notes: z.boolean(),                        // deliberately parked vs unattended
+});
+
+// The full AdminClaim (above) plus the duplicate explanation.
+export const AdminClaimDetailSchema = AdminClaimSchema.extend({
+  duplicate_siblings: ClaimDuplicateSiblingSchema.array(), // ARRAY, never null — see below
+});
+```
+
+**`duplicate_siblings` cannot disagree with `is_duplicate`.** The LIST computes
+`is_duplicate` from two `groupBy` counts over OPEN claims — same `(target_type, target_id)`,
+or same `(submitter_email, target_type, target_id)` — minus the row itself. This endpoint
+SELECTs those very siblings with the same predicate and reports
+`is_duplicate = duplicate_siblings.length > 0`, so the arithmetic and the explanation are
+one query rather than two derivations. `match_reason` names which rule fired; a row
+matching both reports the broader `target`.
+
+**It is an array, not a nullable signal.** The other enrichments (`existing_seats`,
+`related_requests`, `product_roles`) are fail-soft — `null` means "we could not look" —
+and this one is deliberately not: it backs `is_duplicate`, and a page that silently
+claimed "no duplicates" because a query failed would be worse than an error.
+
+**`has_notes`, not the note itself.** What an operator needs from a sibling row is
+whether it was parked ON PURPOSE (§5.2) or is simply unattended; the text lives on that
+sibling's own page.
+
+Errors:
+- `INVALID_STATE_TRANSITION` (422) — the id resolves to a **correction**, with the same
+  redirect message `PATCH /api/admin/claims/:id` returns for it. Not a 404, deliberately:
+  the row exists, it is just moderated through `/api/admin/requests`, and one id on one
+  path must not tell two different stories depending on the verb.
+- `NOT_FOUND` (404) — unknown request id.
+- Plus the shared `requireAdmin()` 401/403.
+
+#### `PATCH /api/admin/claims/:id/notes` (Stage 2 — AECI-739)
+
+Write or clear the **operator note** on a claim. Behind `requireAdmin()`. Audited into
+the same `db.batch` as its write (§26.1).
+
+```typescript
+export const SaveClaimNotesSchema = z.object({
+  notes: z.string().max(2000).nullable(), // null (or blank) CLEARS
+});
+// → AdminClaimDetail (the refreshed claim), 200.
+```
+
+**A sub-resource, not a third `ModerateClaimSchema.action`.** It mirrors
+`PATCH /api/admin/vendors/:id/entitlement`: moderation is a one-way status transition
+that grants a paid account or declines one by email, and a note is neither. Keeping them
+apart is also what lets the note be **writable at every status** — a `resolved` or
+`rejected` claim is exactly where "why we parked it, and what happened next" is worth
+having.
+
+**An unchanged note is a 200 no-op.** Nothing is written and no `audit_log` row is
+emitted — the same idempotency rule this resource already applies to re-granting an
+already-granted claim, and NOT the 422 `PATCH /api/admin/vendors/:id/entitlement` uses
+(that gate rejects invalid *state transitions*; text that did not change is not one). It
+matters because **the audit rows ARE the note's history**: each write records the full old
+and new note in `before_state` / `after_state`, so a trail of identical states would
+degrade the very record this endpoint exists to keep. Blank and `null` are the same
+action — the note trims to `null` — so "empty the box and save" cannot produce a note made
+of spaces.
+
+**No workflow row, no cache purge.** A note changes no status, so no
+`workflow_instances` / `workflow_transitions` row is written (and
+`workflow_instances_type_check` is a closed CHECK whose widening is a full SQLite table
+rebuild besides). `/admin/*` is uncacheable and no public surface renders a claim, let
+alone an admin-only note — contrast the grant, which flips `vendors.verified` and does
+purge.
+
+Metric: `aeci.claim.moderation.action` with `action:note`, `outcome:ok|noop` — the same
+series the approve/reject actions ride, since it is the third thing an admin does to a
+claim from the same console.
+
+Errors: `INVALID_STATE_TRANSITION` (422) and `NOT_FOUND` (404) exactly as the GET above,
+plus `VALIDATION_FAILED` (400) over the 2000-char cap, and the shared 401/403.
 
 #### `GET /api/admin/vendors` (Stage 2 — AECI-652)
 

@@ -855,6 +855,10 @@ create table vendor_requests (
   body       text not null,
   source_url text,
 
+  -- AECI-739: the free-text OPERATOR note (STAGE_2_VENDOR_PORTAL_SPEC.md §5.2
+  -- step 6) — why a claim is parked and what was said out of band. Nullable.
+  admin_notes text,
+
   -- Status
   status text not null default 'open'
     check (status in ('open', 'in_review', 'resolved', 'rejected')),
@@ -882,6 +886,28 @@ create index vendor_requests_status_idx     on vendor_requests(status);
 create index vendor_requests_target_idx     on vendor_requests(target_type, target_id);
 create index vendor_requests_created_at_idx on vendor_requests(created_at desc);
 ```
+
+**`admin_notes` is an ANNOTATION, not a decision (AECI-739).** Four things about
+it that the column alone does not say:
+
+- **It is admin-authored and admin-only.** It is never shown to the claimant and
+  never emailed — unlike `ModerateClaimSchema.reason`, which is also internal but
+  is tied to a status transition. And it is **not** `AdminNote` /
+  `aec-admin-notes`, which is a closed-enum, server-derived measurement caveat on
+  analytics responses, not an annotation surface. The two names are unrelated.
+- **The `audit_log` IS its history.** The column holds only the current text;
+  every write emits a `vendor_claim.note_updated` row carrying the full old and
+  new note in `before_state` / `after_state`, **in the same `db.batch` as the
+  UPDATE** (§26.1). That is the same arrangement `vendor_entitlements.notes` uses
+  (AECI-612), and it is why an unchanged re-save deliberately writes nothing: a
+  trail of identical states is not a history.
+- **Writable at every status.** A note is not a transition, so it is accepted on
+  `resolved` and `rejected` rows too — which is exactly where "why we parked it,
+  and what happened next" is worth having.
+- **The column is on `vendor_requests`, but the API surface is claim-only.**
+  `PATCH /api/admin/claims/:id/notes` is the sole writer and `toAdminClaim` the
+  sole reader; a correction physically has the column and no route touches it.
+  Extending it to corrections is a decision, not a migration.
 
 ### 8.2 `workflow_instances`
 
