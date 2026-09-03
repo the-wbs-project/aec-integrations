@@ -5,7 +5,7 @@
  *
  *   1. **Transactional templates** (AECI-240 / Phase 7.5, §11.1) — `sendTransactionalEmail`
  *      plus the per-template helpers (review submitted/approved/rejected, account
- *      deletion, the reconcile-sweep admin alert). These ride the Datadog triple
+ *      deletion, the reconcile-sweep admin alert). These ride the telemetry triple
  *      (`EmailContext`) and emit the `aeci.email.send` metric.
  *   2. **Low-level transport** (AECI-241 / Phase 7.6) — `sendEmail` + `parseRecipients`,
  *      a dependency-free `fetch` POST with an injectable fetch/logger, used by the
@@ -30,18 +30,19 @@
  *     `waitUntil` budget (transactional layer).
  *
  * Observability: every transactional attempt emits the `aeci.email.send` count tagged
- * `outcome:sent|failed|skipped` + `template:<id>`; failures also `warn` to Datadog
+ * `outcome:sent|failed|skipped` + `template:<id>`; failures also `warn` to the observability plane
  * (`source: 'email'`). Telemetry is wrapped so it can never turn a send into a throw.
  */
 
-import { orderedPairSlugs } from '@aeci/shared';
+import { orderedPairSlugs, type RequestTargetType } from '@aeci/shared';
+import { discardResponseBody } from '@aeci/shared/response-drain';
 
-import { logToDatadog, submitCount } from '../datadog';
+import { logToPosthog, submitCount } from '../posthog';
 import type { Env } from '../env';
 import type { StuckRequestSummary } from './admin-alert';
 
 /**
- * Minimal context a send needs: env (key + sender) plus the Datadog logging triple
+ * Minimal context a send needs: env (key + sender) plus the telemetry logging triple
  * (`executionCtx`, `env`, `req.raw`). Typed structurally rather than as Hono's
  * `Context` so both a route handler's `c` and the cron-synthesised `AlertContext`
  * (`lib/admin-alert.ts`) are assignable — Hono's `Context` is invariant on its
@@ -78,6 +79,17 @@ export type EmailTemplate =
   // reject → rejected).
   | 'claim-approved'
   | 'claim-rejected'
+  // Stage 2 vendor seat invite (AECI-664 / `STAGE_2_VENDOR_PORTAL_SPEC.md` §11a).
+  // Sent by `POST /api/vendor/seats/invites` on a VENDOR's command, not AECi's —
+  // the only customer-triggered send on the surface, which is why that endpoint
+  // is the only one carrying a rate limit. Carries the redeem link; see
+  // `sendVendorSeatInviteEmail` for why the token is safe in a URL.
+  | 'vendor-seat-invite'
+  // Operator alert on claim INTAKE (not decision): a vendor submitted "claim this
+  // listing" via `POST /api/requests/claim`. Recipient is `CLAIM_ALERT_EMAIL` (the
+  // support inbox), NOT `ADMIN_ALERT_EMAIL`. The claimant gets nothing at submit
+  // time by design — the only claimant-facing mail is the decision pair above.
+  | 'claim-submitted-alert'
   // Stage 2 attestation detector nudges (AECI-302 /
   // `STAGE_2_ATTESTATIONS_SPEC.md` §7.2). Sent by the daily detector sweep
   // (`lib/attestation-notify.ts`); recipients are the vendor's unbanned
@@ -154,6 +166,9 @@ export async function sendTransactionalEmail(
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
 
+    // Neither branch reads the body, and an unread body holds its connection —
+    // which deadlocks a cron that sends a run of emails (AECI-666).
+    discardResponseBody(res);
     if (!res.ok) {
       warn(c, `Resend ${input.template} returned ${res.status}`);
       emit(c, 'failed', input.template);
@@ -258,7 +273,7 @@ export function sendReviewRejectedEmail(
  * `invited` claimant the account was provisioned silently (no GoTrue invite email, see
  * `createAuthUser`), so this IS the onboarding touch and the sign-in copy explains a
  * first login; a `linked` claimant already has an account. Links to the `/vendor`
- * dashboard when `PUBLIC_SITE_URL` is set. Recipient is the claim's `submitter_email`;
+ * portal when `PUBLIC_SITE_URL` is set. Recipient is the claim's `submitter_email`;
  * absent → silent skip. Copy stays account-scoped: verification is a status, not a
  * product endorsement, and never touches ranking (no pay-for-placement).
  */
@@ -267,27 +282,27 @@ export function sendClaimApprovedEmail(
   opts: { to: string | undefined; vendorName: string; invited: boolean },
 ): Promise<EmailOutcome> {
   const name = opts.vendorName.trim() || 'this vendor';
-  const dashboard = portalUrl(c.env);
+  const portal = portalUrl(c.env);
 
   const signInText = opts.invited
-    ? dashboard
-      ? `We created an account for your email address. To sign in, request a one-time sign-in link at ${dashboard}.`
+    ? portal
+      ? `We created an account for your email address. To sign in, request a one-time sign-in link at ${portal}.`
       : 'We created an account for your email address. To sign in, request a one-time sign-in link from the AEC Integrations sign-in page.'
-    : dashboard
-      ? `Sign in with your existing account to get started: ${dashboard}.`
+    : portal
+      ? `Sign in with your existing account to get started: ${portal}.`
       : 'Sign in with your existing account to get started.';
   const signInHtml = opts.invited
-    ? dashboard
-      ? `We created an account for your email address. To sign in, request a one-time sign-in link at <a href="${escapeHtml(dashboard)}">your vendor dashboard</a>.`
+    ? portal
+      ? `We created an account for your email address. To sign in, request a one-time sign-in link at <a href="${escapeHtml(portal)}">your vendor portal</a>.`
       : 'We created an account for your email address. To sign in, request a one-time sign-in link from the AEC Integrations sign-in page.'
-    : dashboard
-      ? `<a href="${escapeHtml(dashboard)}">Sign in with your existing account</a> to get started.`
+    : portal
+      ? `<a href="${escapeHtml(portal)}">Sign in with your existing account</a> to get started.`
       : 'Sign in with your existing account to get started.';
 
   const verification =
     "Verification confirms your account represents this vendor. It's an account status, not an endorsement of the product, and it doesn't affect search ranking or placement.";
   const capabilities =
-    'You can now edit the vendor profile, submit data corrections, and add integration attestations from your vendor dashboard.';
+    'You can now edit the vendor profile, submit data corrections, and add integration attestations from your vendor portal.';
 
   const textParagraphs = [
     `Your claim for ${name} has been approved, and your account is now verified on AEC Integrations.`,
@@ -308,6 +323,99 @@ export function sendClaimApprovedEmail(
     text: toText(textParagraphs),
     html: toHtml(htmlParagraphs),
   });
+}
+
+/**
+ * §11a "You've been invited to manage <vendor> on AEC Integrations" (AECI-664).
+ *
+ * The one template on this surface sent on a CUSTOMER's command rather than
+ * AECi's, which shapes three things:
+ *
+ * 1. **It names who invited them and which company.** A cold "you have been
+ *    granted access" from a directory the recipient may not know is
+ *    indistinguishable from phishing; the colleague's name and their own employer
+ *    are what make it legible.
+ * 2. **It states the address the link is bound to.** Redeeming requires signing in
+ *    as exactly that address, so saying it up front turns the most likely failure
+ *    (they are signed in as something else) into a instruction rather than a dead
+ *    end.
+ * 3. **It says the link expires.** An invite is not a standing grant.
+ *
+ * The token rides in the URL, which is safe here and nowhere else on this
+ * surface: it identifies an invite, it does not authorize one. Redeeming demands
+ * a signed-in session whose verified email matches, so a forwarded link, a
+ * shared-inbox link, or a link a scanner prefetches grants nothing. See
+ * `lib/vendor-seat-invites.ts`.
+ *
+ * Fail-open like every other send: an absent key/sender/recipient, or no
+ * `PUBLIC_SITE_URL` to build the link from, is a silent `'skipped'`.
+ */
+export function sendVendorSeatInviteEmail(
+  c: EmailContext,
+  opts: {
+    to: string | undefined;
+    vendorName: string;
+    invitedByName: string | null;
+    token: string;
+    expiresAt: string;
+  },
+): Promise<EmailOutcome> {
+  const name = opts.vendorName.trim() || 'a vendor';
+  const link = seatInviteUrl(c.env, opts.token);
+  // No link, no email. Mailing "you have been invited" with no way to act on it
+  // is worse than silence — it strands the recipient with a claim they cannot
+  // verify and no next step.
+  if (!link) return Promise.resolve('skipped');
+
+  const inviter = opts.invitedByName?.trim();
+  const opening = inviter
+    ? `${inviter} invited you to help manage ${name} on AEC Integrations.`
+    : `You have been invited to help manage ${name} on AEC Integrations.`;
+  const openingHtml = inviter
+    ? `${escapeHtml(inviter)} invited you to help manage <strong>${escapeHtml(name)}</strong> on AEC Integrations.`
+    : `You have been invited to help manage <strong>${escapeHtml(name)}</strong> on AEC Integrations.`;
+
+  const capabilities =
+    'A seat lets you edit the company profile, keep product details current, and add integration attestations.';
+  const binding = `The invite is tied to ${opts.to ?? 'this address'} — sign in with that address to accept it.`;
+  const expiry = `This link expires on ${new Date(opts.expiresAt).toUTCString()}.`;
+
+  return sendTransactionalEmail(c, {
+    to: opts.to ?? '',
+    template: 'vendor-seat-invite',
+    subject: `You're invited to manage ${name} on AEC Integrations`,
+    text: toText([opening, capabilities, `Accept your invite: ${link}`, binding, expiry]),
+    html: toHtml([
+      openingHtml,
+      capabilities,
+      `<a href="${escapeHtml(link)}">Accept your invite</a>`,
+      escapeHtml(binding),
+      escapeHtml(expiry),
+    ]),
+  });
+}
+
+/**
+ * Adapter for the `POST /api/vendor/seats/invites` send seam (AECI-664) — the
+ * `sendClaimDecisionEmail` shape. Drops the `EmailOutcome`: the handler fires
+ * this through `waitUntil` after the batch has already committed and never reads
+ * the result, because a send failure must not un-create a committed invite (the
+ * owner can revoke and re-send, and the roster shows it pending either way).
+ *
+ * Typed structurally so this file doesn't import the route's seam type; the
+ * assignability is enforced where it is wired (`index.ts`).
+ */
+export async function sendSeatInvite(
+  c: EmailContext,
+  opts: {
+    to: string;
+    vendorName: string;
+    invitedByName: string | null;
+    token: string;
+    expiresAt: string;
+  },
+): Promise<void> {
+  await sendVendorSeatInviteEmail(c, opts);
 }
 
 /**
@@ -419,8 +527,8 @@ function attestationLinks(
     html.push(`<a href="${escapeHtml(pair)}">See how it currently reads</a>.`);
   }
   if (portal) {
-    text.push(`Update it from your vendor dashboard: ${portal}`);
-    html.push(`<a href="${escapeHtml(portal)}">Update it from your vendor dashboard</a>.`);
+    text.push(`Update it from your vendor portal: ${portal}`);
+    html.push(`<a href="${escapeHtml(portal)}">Update it from your vendor portal</a>.`);
   }
   return { text, html };
 }
@@ -618,7 +726,7 @@ export function sendEntitlementExpiringEmail(
   opts: EntitlementExpirySubject,
 ): Promise<EmailOutcome> {
   const name = opts.vendorName.trim() || 'your company';
-  const dashboard = portalUrl(c.env);
+  const portal = portalUrl(c.env);
   const phrase = expiryPhrase(opts.daysRemaining);
   const past = opts.daysRemaining < 0;
 
@@ -640,10 +748,10 @@ export function sendEntitlementExpiringEmail(
     noLapse,
     ask,
   ];
-  if (dashboard) {
-    textParagraphs.push(`Your current status is on your vendor dashboard: ${dashboard}`);
+  if (portal) {
+    textParagraphs.push(`Your current status is on your vendor portal: ${portal}`);
     htmlParagraphs.push(
-      `Your current status is on <a href="${escapeHtml(dashboard)}">your vendor dashboard</a>.`,
+      `Your current status is on <a href="${escapeHtml(portal)}">your vendor portal</a>.`,
     );
   }
   textParagraphs.push(stance);
@@ -897,6 +1005,65 @@ export function sendLandingSignupNotification(
   });
 }
 
+/**
+ * Operator alert: someone submitted a vendor claim (`POST /api/requests/claim`).
+ *
+ * Fired fire-and-forget via `ctx.waitUntil` AFTER the atomic commit, so a mail
+ * failure can never roll back an accepted claim or delay the `201` — same posture as
+ * every other send here. Recipient is `CLAIM_ALERT_EMAIL`; absent → `'skipped'`.
+ *
+ * Corrections (`POST /api/requests/correction`) deliberately do NOT alert: they share
+ * `createRequest`, but a correction is a low-stakes data fix while a claim asserts
+ * control of a listing and starts the verification path. Both still create a Linear
+ * issue, which remains the durable record.
+ *
+ * Carries the two §6.8 admin signals the reviewer would otherwise have to look up —
+ * `domain_match` (submitter email domain vs the target vendor's website) and whether
+ * this duplicates an open request. Operator format, en-US, never i18n'd.
+ */
+export function sendClaimSubmittedNotification(
+  c: EmailContext,
+  opts: {
+    requestId: string;
+    /** Display name of the claimed vendor/product. */
+    targetName: string;
+    /** `'product'` or `'vendor'` — decides the listing URL below. */
+    targetType: RequestTargetType;
+    slug: string;
+    submitterEmail: string;
+    submitterName: string | null;
+    submitterRole: string | null;
+    /** §6.8 signal: `match` | `no_match` | `pending`. */
+    domainMatch: string;
+    /** §7.2 signal: the id of an open request this appears to duplicate. */
+    duplicateOfRequestId: string | null;
+  },
+): Promise<EmailOutcome> {
+  const base = siteUrl(c.env);
+  const rows: Array<[string, string]> = [
+    ['Claimed', `${opts.targetName} (${opts.targetType})`],
+    ['Submitter', opts.submitterEmail],
+    ['Name', opts.submitterName ?? '—'],
+    ['Role', opts.submitterRole ?? '—'],
+    ['Domain match', opts.domainMatch],
+    ['Possible duplicate', opts.duplicateOfRequestId ?? 'no'],
+    ['Request id', opts.requestId],
+  ];
+  if (base) {
+    rows.push(['Review queue', `${base}/admin/claims`]);
+    const path = opts.targetType === 'vendor' ? 'vendors' : 'products';
+    rows.push(['Listing', `${base}/${path}/${opts.slug}`]);
+  }
+  const intro = `${opts.submitterEmail} submitted a claim for ${opts.targetName}.`;
+  return sendTransactionalEmail(c, {
+    to: c.env.CLAIM_ALERT_EMAIL ?? '',
+    template: 'claim-submitted-alert',
+    subject: `[AECi] New vendor claim: ${opts.targetName}`,
+    text: opsText(intro, rows),
+    html: opsTable(intro, rows),
+  });
+}
+
 /** Operator alert: a feedback submission (`POST /api/feedback`). */
 export function sendLandingFeedbackNotification(
   c: EmailContext,
@@ -990,6 +1157,11 @@ export async function sendEmail(
       );
       return 'failed';
     }
+    // Only the success path drains: the `!res.ok` branch above reads the body
+    // for the error detail, and cancelling first would throw that away. An
+    // unread body holds its connection, which is what deadlocks a cron sending
+    // a run of emails (AECI-666).
+    discardResponseBody(res);
     return 'sent';
   } catch (error) {
     logger.error(`email: send threw — ${error instanceof Error ? error.message : String(error)}`);
@@ -1020,11 +1192,26 @@ function productUrl(env: Env, slug: string): string | null {
   return base ? `${base}/products/${slug}` : null;
 }
 
-/** The vendor portal entry point (`/vendor` dashboard, AECI-522) or `null` when
+/** The vendor portal entry point (`/vendor`, AECI-522) or `null` when
  *  `PUBLIC_SITE_URL` is unset — the claim-approved email then omits the link. */
 function portalUrl(env: Env): string | null {
   const base = siteUrl(env);
   return base ? `${base}/vendor` : null;
+}
+
+/**
+ * The seat-invite redeem page (AECI-664). `null` when `PUBLIC_SITE_URL` is unset,
+ * which makes the whole send `'skipped'` rather than mailing a bare token with
+ * nowhere to put it.
+ *
+ * A PATH segment, not a query param: the portal moved to
+ * `/vendor/:vendorSlug/<section>` (§6.2), so `/vendor/invite/<token>` sits beside
+ * it as a sibling route registered ahead of `:vendorSlug`, and the anon
+ * login-bounce carries the whole deep path through in `?return=` unchanged.
+ */
+function seatInviteUrl(env: Env, token: string): string | null {
+  const base = siteUrl(env);
+  return base ? `${base}/vendor/invite/${encodeURIComponent(token)}` : null;
 }
 
 /**
@@ -1077,7 +1264,7 @@ function escapeHtml(value: string): string {
     .replace(/"/g, '&quot;');
 }
 
-/** Emit the `aeci.email.send` outcome count. Wrapped so a missing `DD_API_KEY` /
+/** Emit the `aeci.email.send` outcome count. Wrapped so a missing `POSTHOG_PROJECT_KEY` /
  *  ExecutionContext can never turn a send into a throw. */
 function emit(c: EmailContext, outcome: EmailOutcome, template: EmailTemplate): void {
   try {
@@ -1090,10 +1277,10 @@ function emit(c: EmailContext, outcome: EmailOutcome, template: EmailTemplate): 
   }
 }
 
-/** Best-effort `warn` to Datadog; wrapped like `emit`. */
+/** Best-effort `warn` to the observability plane; wrapped like `emit`. */
 function warn(c: EmailContext, message: string): void {
   try {
-    logToDatadog(c.executionCtx, c.env, c.req.raw, { level: 'warn', message, source: 'email' });
+    logToPosthog(c.executionCtx, c.env, c.req.raw, { level: 'warn', message, source: 'email' });
   } catch {
     console.warn(`email: ${message}`);
   }

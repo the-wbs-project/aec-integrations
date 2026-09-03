@@ -201,6 +201,57 @@ describe('the values agree with the live endpoint', () => {
     expect(valueOf('2026-08-08', 'traffic.page_views_human')).toBe(2);
     expect(valueOf('2026-08-08', 'traffic.page_views_bot')).toBe(1);
   });
+
+  it('excludes operator SESSIONS and lapsed-session pairs, like NOT_INTERNAL (AECI-683)', async () => {
+    // This is a REGRESSION test for a real divergence, not a hypothetical one.
+    // `notInternalSql()` restated only the §9.6 path exclusion and carried no
+    // `is_operator` clause at all, from the day §13 D13 shipped until AECI-683 —
+    // so any range re-backfilled in that period wrote operator traffic into
+    // `metrics_daily`, which is retained indefinitely and cannot recompute.
+    await seed();
+    await t.db.insert(pageViews).values([
+      // A verified operator session.
+      {
+        path: '/products/x',
+        isBot: false,
+        userAgentHash: 'op-ua',
+        cfAsn: 23700,
+        isOperator: true,
+        createdAt: '2026-08-09T01:00:00.000Z',
+      },
+      // The same browser and network after the token expired — unflagged, and
+      // reachable only through the pair.
+      {
+        path: '/products/x',
+        isBot: false,
+        userAgentHash: 'op-ua',
+        cfAsn: 23700,
+        isOperator: false,
+        createdAt: '2026-08-09T02:00:00.000Z',
+      },
+      // A real visitor the same day, who must survive both clauses.
+      {
+        path: '/',
+        isBot: false,
+        userAgentHash: 'visitor-ua',
+        cfAsn: 7922,
+        createdAt: '2026-08-09T03:00:00.000Z',
+      },
+    ]);
+    backfill();
+
+    expect(valueOf('2026-08-09', 'traffic.page_views_human')).toBe(1);
+    // And it agrees with the Drizzle predicate, which is the property that
+    // actually matters — a reconstructed day must be indistinguishable from a
+    // measured one.
+    const { perDay } = await metricSeries(
+      t.db,
+      'traffic.page_views_human',
+      utcDayWindow('2026-08-09'),
+      UNFILTERED,
+    );
+    expect(perDay.get('2026-08-09') ?? 0).toBe(1);
+  });
 });
 
 describe('provenance', () => {

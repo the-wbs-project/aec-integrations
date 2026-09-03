@@ -34,8 +34,13 @@ decision record; no separate ADR.
   - `POST https://api.resend.com/emails` (Bearer auth, `from/to/subject/text/html`,
     `AbortSignal.timeout`).
 - **Observability:** every attempt emits `aeci.email.send` (count) tagged
-  `outcome:sent|failed|skipped` + `template:<id>`; failures also `warn` to Datadog
-  (`source: 'email'`). Telemetry is wrapped so it can never turn a send into a throw.
+  `outcome:sent|failed|skipped` + `template:<id>`; failures also `warn` with
+  `source: 'email'`. Telemetry is wrapped so it can never turn a send into a throw.
+  **Every send is fail-open, so the telemetry is the only evidence a send was
+  attempted at all** — a `'skipped'` outcome leaves no other trace. That backstop is
+  **PostHog** (ADR 0024; the Datadog leg was removed at AECI-651). Whichever
+  console you are in, the query is the same shape: the `aeci.email.send` count broken
+  down by `outcome` and `template`.
 - **Recipient emails** for reviewers come from `fetchAuthUserEmails()`
   (`lib/supabase-admin.ts`, the GoTrue Admin API) — D1 has no `auth.users` (ADR
   0016). The submission email uses the verified `session.email` directly; the
@@ -57,9 +62,11 @@ decision record; no separate ADR.
 | `stuck-request-alert` | reconciliation sweep (`lib/admin-alert.ts` → `lib/reconciliation-sweep.ts`) | `ADMIN_ALERT_EMAIL` | §6.2 persistent-failure digest |
 | `landing-signup` | `POST /api/subscribe` on a fresh insert (`routes/landing-forms.ts`) | `ADMIN_ALERT_EMAIL` | Operator "new mailing-list signup" (AECI-247/277 — replaces the retired `apps/landing` Worker's own send). Not sent on the idempotent already-listed no-op. **Screen equivalent since AECI-586: `/admin/audience`.** |
 | `landing-feedback` | `POST /api/feedback` (`routes/landing-forms.ts`) | `ADMIN_ALERT_EMAIL` | Operator "new feedback submitted" (AECI-247/277). **Screen equivalent since AECI-586: `/admin/audience` → Feedback inbox, over `GET /api/admin/feedback`.** |
+| `claim-submitted-alert` | `POST /api/requests/claim` (`routes/requests.ts`) — post-commit, `ctx.waitUntil`, **claims only** | `CLAIM_ALERT_EMAIL` (the support inbox) | Operator alert that a claim landed, so intake does not depend on someone watching Linear. Operator format (`opsText`/`opsTable`) carrying the claimed target, the submitter's email/name/role, and the two §6.8 admin signals the reviewer would otherwise look up by hand — `domain_match` and the duplicate-probe id — plus links to `/admin/claims` and the listing when `PUBLIC_SITE_URL` is set. **The claimant still gets nothing at submit time** (by design); their only mail is the decision pair below. Corrections deliberately do not alert: they share `createRequest`, but a correction is a low-stakes data fix while a claim asserts control of a listing. |
 | `claim-approved` | `PATCH /api/admin/claims/:id` approve (`routes/admin-claims.ts`, AECI-528) | claimant (`submitter_email`) | Names the claimed vendor/product, lists what the account can now do, links to the `/vendor` dashboard when `PUBLIC_SITE_URL` set. Sign-in copy branches on the `invited` (just-provisioned) vs `linked` identity outcome. Verification framed as an account status, never ranking/placement. |
 | `claim-rejected` | `PATCH /api/admin/claims/:id` reject | claimant (`submitter_email`) | Neutral by design (§9 AC): names the vendor, states the claim wasn't approved, invites resubmission. The reviewer's decision `reason` is an **internal audit note** (recorded in `audit_log`, admin-visible) and is **never emailed** — so nothing a reviewer types can leak to the claimant. |
-| `attestation-silent-counterparty` | daily §7 detector sweep, 10:00 UTC (`lib/attestation-notify.ts` → `lib/attestation-detectors.ts`, AECI-302) | the **silent** slot's vendor seats (unbanned `vendor_admin`, addresses via `fetchAuthUserEmails`) | The counterparty affirmed a data flow and this vendor has not answered for >14d. Copy states outright that one-sided is rendered as one-sided (`STAGE_2_SPEC.md` §8.1(4)), so the nudge informs rather than pressures. Links to the canonical pair page + `/vendor`; both omitted when `PUBLIC_SITE_URL` is unset. |
+| `vendor-seat-invite` | `POST /api/vendor/seats/invites` (`routes/vendor-seat-invites.ts`, AECI-664) — post-commit, `ctx.waitUntil` | the invited colleague (the address the owner typed) | **The only template a CUSTOMER triggers**, which is why that endpoint is the only one on the surface carrying a rate limit (10/vendor/24h). Names the inviter and the company (a cold "you have been granted access" from a directory the recipient may not know is indistinguishable from phishing), states the address the link is bound to (redeeming requires signing in as exactly that address, so saying it up front turns the likeliest failure into an instruction), and says the link expires. Carries the redeem link — safe in a URL because the token identifies an invite and never authorizes one (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11a). No `PUBLIC_SITE_URL` → the whole send is `skipped` rather than mailing an invite with nowhere to act on it. |
+| `attestation-silent-counterparty` | daily §7 detector sweep, 10:00 UTC (`lib/attestation-notify.ts` → `lib/attestation-detectors.ts`, AECI-302). **Never fires on a connector-powered edge** (AECI-705 / `STAGE_2_ATTESTATIONS_SPEC.md` §14) — nor do the two rows below, since the sweep drops every *vendor-addressed* finding on those edges before delivery. The `attestation-ops-alert` row is unaffected: ops findings are AECi's own correction signal, not a nudge | the **silent** slot's vendor seats (unbanned `vendor_admin`, addresses via `fetchAuthUserEmails`) | The counterparty affirmed a data flow and this vendor has not answered for >14d. Copy states outright that one-sided is rendered as one-sided (`STAGE_2_SPEC.md` §8.1(4)), so the nudge informs rather than pressures. Links to the canonical pair page + `/vendor`; both omitted when `PUBLIC_SITE_URL` is unset. |
 | `attestation-open-conflict` | same sweep | **both** disputing vendors' seats | Two vendors recorded opposing positions and it has stood >7d. Non-accusatory, mirroring the pair page's "Vendors disagree" treatment — the disagreement is a difference in description, not a defect in either product. Recipients are the *attesting* vendors, not every slot co-owner. |
 | `attestation-stale-version` | same sweep | the attesting vendor's seats | An assertion has aged past 12 months with no version data, or still affirms a flow whose deprecated version has passed. The ask is explicitly three-way — re-confirm, add versions, or **withdraw** — because withdraw is a legitimate answer and a confirm-only ask biases the data. |
 | `attestation-ops-alert` | same sweep, one email **per finding** | `ADMIN_ALERT_EMAIL` | The AECi-facing half. Two detectors route here and the body names which: `aeci-denied` (a vendor denies a claim AECi seeded — the claim then computes `unverified`, so the correction is invisible on every surface without this) and the ops escalation of `open-conflict`. Operator format (`opsText`/`opsTable`) with the claim + integration ids and the pair-page URL. §7.2 named only the three vendor ids above; the id *is* the metric tag and the catalogue key, so ops mail needs its own. |
@@ -109,12 +116,37 @@ split is classified at ingest from the raw User-Agent + Cloudflare ASN
 (`lib/bot-classification.ts`), because the CF Pro plan yields no `cf_bot_score` and
 `user_id` is never captured; the traffic source is classified from the forwarded
 eyeball `Referer` (`lib/referrer-classification.ts`, best-effort — Referrer-Policy
-strips it, so external sources under-count) (AECI-526 follow-up). **Read the human count as an upper
-bound**: the ASN half of the classifier is a hand-maintained list, and pre-classifier rows (`is_bot IS
-NULL`) count as human until the one-time backfill runs — see
+strips it, so external sources under-count) (AECI-526 follow-up).
+
+**The headline number is qualified in the email itself, and that took four tickets.** The
+history is worth knowing, because the figure read as authoritative for weeks while being
+roughly an order of magnitude too high:
+
+- **AECI-575 / §13 D13** — every read excludes the operator-only routes (`/admin/*`,
+  `/account`) **and**, since 2026-08-19, any row carrying a verified admin session
+  (`is_operator`). The operator's own browsing was 15% of all human public-page views.
+- **AECI-582** — the one-time bot backfill **ran on all four tiers on 2026-08-13**. No row
+  on any tier is `is_bot IS NULL` any more; production's "reads as human" total fell
+  18,322 → 2,096. (The sentence that used to sit here, saying the backfill was still
+  pending, was stale from that date.)
+- **AECI-658 / AECI-660** — the subject line says **"up to N human views"**, the body labels
+  the count an UPPER bound, a PostHog **lower bound** is printed beside it
+  (`lib/posthog-query.ts`; absent credentials print an "unavailable" note, never a
+  fabricated `0`), and an **Automation signal** line appears when the swarm detectors flag
+  anything.
+- **AECI-683** — a **corroborated floor** (views arriving with a named external search or
+  social referrer, plus the §9.8 visitors behind them) is printed as a third figure, and
+  `operatorLeakViews` reports the rows a *lapsed* admin session left unflagged, which the
+  `is_operator` flag alone cannot see. The corroborated figure is the only one of the three
+  a rotating-proxy pool cannot inflate — a proxy sends no `Referer` at all.
+
+**Read the human count as an upper bound** regardless: the ASN half of the classifier is a
+hand-maintained list, so `is_bot = 0` means "not known to be a bot", not "human". See
 [`POST_LAUNCH_MONITORING.md`](./POST_LAUNCH_MONITORING.md#3b-traffic-classification--auditing-the-digests-humans-aeci-526-follow-up)
-§3b for the weekly audit and the widen/backfill procedure. Report-only reads; fail-open (absent
-key/recipient → `skipped`). The cron runs in **every** deploy env (staging/demo/production)
+§3b for the weekly audit, the detector thresholds, and the widen/backfill procedure.
+`/admin/overview` renders the same numbers from the same collector, so the screen and the
+05:00 email cannot disagree. Report-only reads; fail-open (absent key/recipient →
+`skipped`). The cron runs in **every** deploy env (staging/demo/production)
 for liveness, but `ANALYTICS_DIGEST_EMAIL_TO` is set on **production only** —
 staging/demo carry synthetic D1 data, so their sends intentionally `skip` (the var is
 left unset).
@@ -124,9 +156,24 @@ left unset).
 | Name | Kind | Where | Notes |
 |---|---|---|---|
 | `RESEND_API_KEY` | Wrangler **secret** | API Worker, staging + production | CI pushes it from a **single shared, un-suffixed** `RESEND_API_KEY` GH secret — one Resend account/key spans every env (like `SUPABASE_ANON_KEY`); `deploy.yml`, `promote-to-demo.yml`, and `promote-to-prod.yml` all push the same secret. Graceful warn-and-skip; absent → sends `'skipped'`. |
-| `EMAIL_FROM` | plain `var` | API Worker, per env (`wrangler.jsonc`) | Resend `from`; `Name <addr>` on a verified domain. |
+| `EMAIL_FROM` | plain `var` | API Worker, per env (`wrangler.jsonc`) | Resend `from`; `Name <addr>` on the verified sending domain. **One value on every tier: `AEC Integrations <notifications@aecintegrations.com>`.** |
+| `CLAIM_ALERT_EMAIL` | plain `var` | API Worker, per env (`wrangler.jsonc`) | `To:` for `claim-submitted-alert`. **`support@aecintegrations.com` on every tier.** A single address (not a parsed list). Kept separate from `ADMIN_ALERT_EMAIL` so claim intake reaches the shared support inbox while sweep alerts and lead capture keep going to the individual operator. Absent → the alert is a `skipped` no-op and the Linear issue remains the durable record. |
+| `DATA_QUALITY_EMAIL_FROM` | plain `var` | API Worker, staging / demo / production (+ the temp `stage2`) | `from` for the daily data-quality digest (AECI-241). **Same address as `EMAIL_FROM`** — see the note below. |
 | `PUBLIC_SITE_URL` | plain `var` | API Worker, per env | Builds absolute links in emails; absent → link omitted. |
 | `ADMIN_ALERT_EMAIL` | plain `var` | API Worker, staging + production | `To:` for the stuck-request alert, the landing signup/feedback operator notifications (AECI-247/277), the §7 attestation ops alerts (AECI-302 — one per finding; absent → those findings resolve `skipped` and are retried by the next daily sweep, since no ledger row is written), **and** the `entitlement-expiring-admin` term warnings (AECI-613 — absent → the operator half resolves `skipped`, which leaves `expiry_notice_sent_at` unstamped only if the vendor half also failed, so the term is re-warned tomorrow). |
+
+> **Every `_FROM` in the repo is `notifications@aecintegrations.com`, deliberately (2026-08-26).**
+> `aecintegrations.com` is the Resend-verified sending domain (§Deliverability below), and it is
+> the only domain a `_FROM` may use. Until 2026-08-26 `DATA_QUALITY_EMAIL_FROM` read
+> `AECi Data Quality <support@thewbsproject.com>` on **staging, demo and stage2** while production
+> already used the `aecintegrations.com` address, and two `wrangler.jsonc` comments asserted that
+> `thewbsproject.com` was the verified domain — directly contradicting §Deliverability. That
+> divergence is now removed: all four tiers carry the identical address for both vars.
+>
+> `thewbsproject.com` still appears throughout the repo, but **only as a recipient or a published
+> contact** — `ADMIN_ALERT_EMAIL` / `DATA_QUALITY_EMAIL_TO` / `ANALYTICS_DIGEST_EMAIL_TO`
+> (`chrisw@`), and the `founders@` / `reviews@` mailto links on the legal and contact pages, which
+> are Microsoft 365 mailboxes and never Resend senders. Nothing sends **from** it.
 
 **One-time ops step (not in CI):** provision the keys —
 
@@ -156,6 +203,39 @@ configured **once**, on that project (ref `ktuhnlypztujpsseujzx`):
   don't conflict with the apex's Microsoft 365 mail.
 - Keep Supabase's default rate limits sane; Resend handles delivery. (The built-in
   sender 429s `over_email_send_rate_limit` — that's why custom SMTP is required.)
+
+### The template itself lives in `docs/email-templates/magic-link.html`
+
+The dashboard is where it **runs**; that file is where it is **reviewed**. Edit both in the
+same PR, or the repo copy becomes a lie. Paste it into Authentication → Emails → Magic Link.
+
+What the template does beyond the GoTrue default, and why:
+
+| Element | Why it is there |
+|---|---|
+| "AEC Integrations" wordmark + brand in the `h1` | An auth email that never names its sender reads as phishing, especially to this audience, who sit behind aggressive corporate mail security. |
+| `{{ .Email }}` named in the body | Tells a recipient with several addresses which account the link opens, and is a quiet anti-phishing cue. |
+| **A specific expiry** ("60 minutes"), not "shortly" | Vagueness makes people hesitate and then act too late, and every "my link didn't work" is avoidable support load. **This number must match Authentication → Emails → Email OTP Expiration.** `supabase/config.toml`'s `otp_expiry = 3600` mirrors it locally only. |
+| Paste-able `{{ .ConfirmationURL }}` under the button | Corporate gateways rewrite or strip buttons routinely; this is the escape hatch. |
+| "If you did not request this…" | Anyone can type someone else's address into the sign-in form. That person needs to know it is safe to ignore. |
+| VML `roundrect` in an `[if mso]` block | Outlook for Windows does not render a padded `<a>` as a button. |
+| `color-scheme: light only` | The email counterpart of the Stage 1 light-only rule (AECI-226). A client hint, not a guarantee. |
+| Tables, inline styles, 600px | Email clients, not browsers. No flex, no grid, no classes. |
+
+**Subject line:** `Sign in to AEC Integrations`. It names the brand, which is what makes the
+message findable later by search.
+
+**Known gap, deliberately not solved here.** Corporate link scanners (Mimecast, Proofpoint,
+Defender) prefetch URLs to inspect them, and a magic link is single-use, so a scanner can
+consume the token before the human clicks. The symptom is users reporting "invalid or expired
+link" on a first click. The fix is offering the 6-digit `{{ .Token }}` as an alternative
+(`otp_length = 6`), which needs an OTP entry route in `apps/web` calling `verifyOtp` — a
+feature, not a template edit. Build it if that symptom appears.
+
+**Second known gap: magic links are the only uninstrumented email in the product.** Every send
+in `lib/email.ts` emits `aeci.email.send{outcome,template}`; GoTrue mail bypasses that path
+entirely, so a delivery failure on the single most important email AECi sends is invisible
+outside the Resend dashboard.
 
 `supabase/config.toml` is **local-only** (magic links land in Inbucket at
 `:54324` during `supabase start`); deployed SMTP lives in the dashboard.

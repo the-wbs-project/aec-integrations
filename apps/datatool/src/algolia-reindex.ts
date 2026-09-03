@@ -20,7 +20,13 @@
  * between clear and repopulate is acceptable for an internal tool (the
  * zero-downtime `replaceAllObjects` needs the Node SDK).
  */
-import { type AlgoliaEnv, indexNamesFor, mechanismRank } from '@aeci/shared/algolia';
+import {
+  CONNECTOR_EVIDENCED_MECHANISM_RANK,
+  indexNamesFor,
+  mechanismRank,
+  type AlgoliaEnv,
+} from '@aeci/shared/algolia';
+import { discardResponseBody } from '@aeci/shared/response-drain';
 import {
   ALGOLIA_BATCH_MAX,
   type AlgoliaBatchCredentials,
@@ -130,7 +136,12 @@ export async function buildVendorRecords(db: D1Database): Promise<Record<string,
          v.id AS objectID, v.company_name, v.slug, v.description, v.headquarters,
          v.founded_year, v.logo_url,
          (SELECT count(*) FROM product_vendors pv WHERE pv.vendor_id = v.id) AS product_count,
-         (SELECT count(*) FROM integrations i WHERE i.built_by_vendor_id = v.id) AS integration_count
+         -- AECI-721 / §13.5 item 6: datatool's independent copy of the VENDOR rule,
+         -- which counts what the vendor BUILT rather than reading the denormalized
+         -- product column. Both tables, or connector vendors' counts collapse.
+         ((SELECT count(*) FROM integrations i WHERE i.built_by_vendor_id = v.id)
+          + (SELECT count(*) FROM connector_evidenced_pairs cep WHERE cep.built_by_vendor_id = v.id))
+           AS integration_count
        FROM vendors v WHERE v.promotion_status = 'promoted'`,
     )
     .all<{
@@ -157,17 +168,51 @@ export async function buildVendorRecords(db: D1Database): Promise<Record<string,
   }));
 }
 
+/**
+ * The `integrations` index, from BOTH delivered-tier tables (AECI-721 / §13.1).
+ *
+ * datatool keeps its own copy of the rule the API applies in `algolia-sync.ts` —
+ * one `UNION ALL` here against two builder arms there, but the same membership
+ * (both endpoints promoted) and the same records. The evidenced arm re-orients
+ * the canonical pair and pins `mechanism_rank` to the connector-delivered weight;
+ * see `toAlgoliaEvidencedPair` for why that is not `mechanismRank(null)`.
+ *
+ * A bulk reindex that emitted only `integrations` would DELETE nothing but would
+ * leave the 19 migrated edges as orphan records the drift guard then reports
+ * forever — this is a full-index rebuild, so a missing arm is a missing record.
+ */
 export async function buildIntegrationRecords(db: D1Database): Promise<Record<string, unknown>[]> {
   const { results } = await db
     .prepare(
       `SELECT
          i.id AS objectID, i.mechanism_kind, i.mechanism_name, i.direction, i.description,
          sp.name AS source_product_name, sp.slug AS source_product_slug,
-         tp.name AS target_product_name, tp.slug AS target_product_slug
+         tp.name AS target_product_name, tp.slug AS target_product_slug,
+         0 AS is_evidenced
        FROM integrations i
        JOIN products sp ON sp.id = i.source_product_id
        JOIN products tp ON tp.id = i.target_product_id
-       WHERE sp.promotion_status = 'promoted' AND tp.promotion_status = 'promoted'`,
+       WHERE sp.promotion_status = 'promoted' AND tp.promotion_status = 'promoted'
+       UNION ALL
+       SELECT
+         cep.id AS objectID,
+         NULL AS mechanism_kind,
+         cep.mechanism_name,
+         CASE cep.direction
+           WHEN 'a_to_b' THEN 'one-way'
+           WHEN 'b_to_a' THEN 'one-way'
+           WHEN 'both' THEN 'bidirectional'
+         END AS direction,
+         cep.description,
+         CASE WHEN cep.direction = 'b_to_a' THEN pb.name ELSE pa.name END AS source_product_name,
+         CASE WHEN cep.direction = 'b_to_a' THEN pb.slug ELSE pa.slug END AS source_product_slug,
+         CASE WHEN cep.direction = 'b_to_a' THEN pa.name ELSE pb.name END AS target_product_name,
+         CASE WHEN cep.direction = 'b_to_a' THEN pa.slug ELSE pb.slug END AS target_product_slug,
+         1 AS is_evidenced
+       FROM connector_evidenced_pairs cep
+       JOIN products pa ON pa.id = cep.product_a_id
+       JOIN products pb ON pb.id = cep.product_b_id
+       WHERE pa.promotion_status = 'promoted' AND pb.promotion_status = 'promoted'`,
     )
     .all<{
       objectID: string;
@@ -179,6 +224,7 @@ export async function buildIntegrationRecords(db: D1Database): Promise<Record<st
       source_product_slug: string;
       target_product_name: string;
       target_product_slug: string;
+      is_evidenced: number;
     }>();
   return results.map((r) => ({
     objectID: r.objectID,
@@ -190,7 +236,9 @@ export async function buildIntegrationRecords(db: D1Database): Promise<Record<st
     mechanism_name: r.mechanism_name,
     direction: r.direction,
     description: r.description,
-    mechanism_rank: mechanismRank(r.mechanism_kind),
+    mechanism_rank: r.is_evidenced
+      ? CONNECTOR_EVIDENCED_MECHANISM_RANK
+      : mechanismRank(r.mechanism_kind),
   }));
 }
 
@@ -230,6 +278,11 @@ async function clearIndex(
         'content-type': 'application/json',
       },
     });
+    // NEITHER branch reads the body, and an unread body holds its connection
+    // open; a Worker invocation may hold only a bounded number, and past that
+    // the runtime cancels the stalled responses into `fetch` promises that never
+    // settle (AECI-666). A bulk reindex calls this once per entity.
+    discardResponseBody(res);
     return res.ok
       ? { ok: true, status: res.status }
       : { ok: false, status: res.status, message: res.statusText || 'algolia_clear_failed' };

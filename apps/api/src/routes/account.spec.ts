@@ -220,8 +220,9 @@ describe('DELETE /api/account', () => {
   });
 
   it('declares vendor_entitlements.granted_by ON DELETE SET NULL (AECI-609 / R6)', () => {
-    // This is what actually keeps erasure working. `granted_by` is the EIGHTH inbound
-    // FK to `profiles(id)`; the other six NO ACTION refs are each nulled by hand in the
+    // This is what actually keeps erasure working. `granted_by` is one of the eight
+    // inbound FKs to `profiles(id)` (`AUTH_AND_RLS.md` §8 is the live register); the
+    // five NO ACTION refs are each nulled by hand in the
     // batch, and if this one were left at the house default it would join them — except
     // nobody would notice until an admin who had granted an entitlement tried to delete
     // their account, at which point the whole batch FK-fails. Silent, delayed, and

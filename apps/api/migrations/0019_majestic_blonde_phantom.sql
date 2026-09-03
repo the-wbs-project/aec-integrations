@@ -1,0 +1,1 @@
+CREATE INDEX `page_views_operator_pair_idx` ON `page_views` (`user_agent_hash`,`cf_asn`,`created_at`) WHERE "is_operator" = 1;

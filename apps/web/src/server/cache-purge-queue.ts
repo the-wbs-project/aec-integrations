@@ -29,7 +29,7 @@
 import type { CachePurgeMessage } from '@aeci/shared';
 
 import type { WebEnv } from '../env';
-import { logToDatadog, submitCount } from '../server-datadog';
+import { logToPosthog, submitCount } from '../server-posthog';
 
 /**
  * The cached `Renderer` entrypoint reached over the `ctx.exports` loopback. WC-4 put
@@ -99,7 +99,7 @@ async function handleMessage(
       return;
     }
     submitCount(ctx, env, request, 'aeci.cache.purge', 1, [sourceTag, 'outcome:purge_failed']);
-    logToDatadog(ctx, env, request, {
+    logToPosthog(ctx, env, request, {
       level: 'warn',
       message: 'aeci.cache.purge.failed',
       source: 'cache-purge-queue',
@@ -110,7 +110,7 @@ async function handleMessage(
     message.retry();
   } catch (error) {
     submitCount(ctx, env, request, 'aeci.cache.purge', 1, [sourceTag, 'outcome:purge_failed']);
-    logToDatadog(ctx, env, request, {
+    logToPosthog(ctx, env, request, {
       level: 'error',
       message: 'aeci.cache.purge.crashed',
       source: 'cache-purge-queue',

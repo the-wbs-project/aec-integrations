@@ -22,12 +22,14 @@ import {
   auditLog,
   productAudiences,
   productCategories,
+  productTrades,
   productVendors,
   products,
   profiles,
   taxonomyAudiences,
   taxonomyCategories,
   taxonomyPhases,
+  taxonomyTrades,
   vendorRequests,
   vendors,
 } from '../db/schema';
@@ -55,6 +57,8 @@ const CAT_BIM = uuid(200);
 const CAT_COST = uuid(201);
 const AUD_ARCH = uuid(210);
 const PHASE_DESIGN = uuid(220);
+const TRADE_ELECTRICAL = uuid(230);
+const TRADE_ROOFING = uuid(231);
 const REQUEST = uuid(300);
 
 let t: TestDb;
@@ -95,6 +99,22 @@ beforeEach(async () => {
     .insert(taxonomyAudiences)
     .values([{ id: AUD_ARCH, slug: 'architects', name: 'Architects' }]);
   await t.db.insert(taxonomyPhases).values([{ id: PHASE_DESIGN, slug: 'design', name: 'Design' }]);
+  await t.db.insert(taxonomyTrades).values([
+    {
+      id: TRADE_ELECTRICAL,
+      slug: 'electrical',
+      name: 'Electrical',
+      description: 'Power, lighting, and electrical distribution.',
+      displayOrder: 1,
+    },
+    {
+      id: TRADE_ROOFING,
+      slug: 'roofing',
+      name: 'Roofing',
+      description: 'Low-slope and steep-slope roof systems.',
+      displayOrder: 2,
+    },
+  ]);
   await t.db.insert(productCategories).values([{ productId: PRODUCT, categoryId: CAT_BIM }]);
 });
 afterEach(() => t.dispose());
@@ -171,6 +191,7 @@ describe('GET /api/vendor/me', () => {
       category_slugs: ['bim'],
       audience_slugs: [],
       phase_slugs: [],
+      trade_slugs: [],
     });
     // Both seats on this vendor, banned included.
     expect(body.seat_count).toBe(2);
@@ -628,6 +649,96 @@ describe('PATCH /api/vendor/products/:id', () => {
       'index:products',
       'product:revit',
     ]);
+  });
+
+  it('assigns trades, the fourth facet, and echoes them back', async () => {
+    const { status, body } = await patchJson(`/api/vendor/products/${PRODUCT}`, {
+      trade_slugs: ['roofing', 'electrical'],
+    });
+    expect(status).toBe(200);
+    // Stored sorted, like every other facet, so the echo is stable.
+    expect(body.product.trade_slugs).toEqual(['electrical', 'roofing']);
+
+    const { body: reread } = await call('/api/vendor/me');
+    expect(reread.products[0].trade_slugs).toEqual(['electrical', 'roofing']);
+  });
+
+  it('rejects a trade slug outside the closed vocabulary', async () => {
+    // The `trade` vocabulary is governed and closed (TRADES_VOCABULARY.md §3):
+    // vendors ASSIGN trades, they never mint one. A typo minting
+    // `paving-contractors` alongside `paving-asphalt` would permanently split a
+    // trade page's products across two URLs, so it is a 400, never a silent drop.
+    const { status, body } = await patchJson(`/api/vendor/products/${PRODUCT}`, {
+      trade_slugs: ['electrical', 'paving-contractors'],
+    });
+    expect(status).toBe(400);
+    expect(body.error.code).toBe('VALIDATION_FAILED');
+    expect(body.error.field).toBe('trade_slugs');
+    // Nothing partially applied.
+    expect(await t.db.select().from(productTrades)).toHaveLength(0);
+  });
+
+  it('clears trades when sent an empty array', async () => {
+    await patchJson(`/api/vendor/products/${PRODUCT}`, { trade_slugs: ['electrical'] });
+    const { body } = await patchJson(`/api/vendor/products/${PRODUCT}`, { trade_slugs: [] });
+    expect(body.product.trade_slugs).toEqual([]);
+    expect(await t.db.select().from(productTrades)).toHaveLength(0);
+  });
+
+  it('purges the publication-gated trade surfaces when the trade set changes', async () => {
+    // Trades are NOT symmetric with category/audience/phase. The facet is
+    // publication-gated (TRADE_PUBLISH_MIN_PRODUCTS = 1), so tagging a trade
+    // that had no products flips /trades/electrical from noindex to indexable
+    // and adds it to the /trades grid, the taxonomy nav, and sitemap.xml — none
+    // of which carry `product:revit`. This must match `cacheTagsForPromote`.
+    const { send } = await patchJson(`/api/vendor/products/${PRODUCT}`, {
+      trade_slugs: ['electrical'],
+    });
+    const msg = send.mock.calls[0][0] as CachePurgeMessage;
+    expect(msg.tags?.sort()).toEqual([
+      'category:bim',
+      'index:products',
+      'index:trades',
+      'product:revit',
+      'sitemap',
+      'taxonomy',
+      'trade:electrical',
+    ]);
+  });
+
+  it('purges both the trade a product leaves and the one it joins', async () => {
+    await patchJson(`/api/vendor/products/${PRODUCT}`, { trade_slugs: ['electrical'] });
+    const { send } = await patchJson(`/api/vendor/products/${PRODUCT}`, {
+      trade_slugs: ['roofing'],
+    });
+    const msg = send.mock.calls[0][0] as CachePurgeMessage;
+    // A removal crosses the floor DOWNWARD, which changes the same three
+    // surfaces as a crossing upward.
+    expect(msg.tags).toContain('trade:electrical');
+    expect(msg.tags).toContain('trade:roofing');
+    expect(msg.tags).toContain('sitemap');
+  });
+
+  it('does not purge the trade surfaces when the trade set is unchanged', async () => {
+    await patchJson(`/api/vendor/products/${PRODUCT}`, { trade_slugs: ['electrical'] });
+    // Re-sending the SAME set changes no page, so it must not purge the sitemap
+    // or the trades index. Guarded on a real difference, not on "the key was
+    // sent" — otherwise every save of an unrelated field would purge globally.
+    const { send } = await patchJson(`/api/vendor/products/${PRODUCT}`, {
+      description: 'New blurb',
+      trade_slugs: ['electrical'],
+    });
+    const msg = send.mock.calls[0][0] as CachePurgeMessage;
+    expect(msg.tags).not.toContain('sitemap');
+    expect(msg.tags).not.toContain('index:trades');
+    expect(msg.tags).not.toContain('trade:electrical');
+  });
+
+  it('records the trade change in the audit row before/after state', async () => {
+    await patchJson(`/api/vendor/products/${PRODUCT}`, { trade_slugs: ['electrical'] });
+    const rows = await auditRows();
+    expect(rows[0]?.beforeState).toEqual({ trade_slugs: [] });
+    expect(rows[0]?.afterState).toEqual({ trade_slugs: ['electrical'] });
   });
 
   it('bumps updated_at even for a taxonomy-only edit (or it never reaches search)', async () => {

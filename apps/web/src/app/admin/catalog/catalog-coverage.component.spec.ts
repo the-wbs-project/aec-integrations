@@ -5,11 +5,13 @@
  * repo's component-level a11y convention — cf. `request-queue.component.spec.ts`).
  * Here we assert the rendering decisions that carry meaning:
  *
- *   1. **The approximation banner on counts-over-time.** Named in the AC as *"the
+ *   1. **The provenance banner on counts-over-time.** Named in the AC as *"the
  *      thing most likely to be quietly dropped in a later refactor"*. It is
- *      driven by the timeseries response's `catalog_series_is_additions_only`
- *      note, so the assertion is that the note reaches the screen — and that it
- *      is absent when the API stops sending it (which is what P2.1 will do).
+ *      driven by the timeseries response's own note — since AECI-686
+ *      `catalog_series_is_surviving_rows` — so the assertion is that the note
+ *      reaches the screen, and that it is absent when the API stops sending it.
+ *      The request that earns that note (`basis=net`) is asserted alongside it:
+ *      the note and the number have to come from the same reading.
  *   2. **The all-affected case is not an error state.** `logo_url IS NULL` at
  *      171 of 171 must render as an ordinary count with no `role="alert"`
  *      anywhere near it.
@@ -47,9 +49,12 @@ const GAP_KEYS: readonly AdminCoverageGapKey[] = [
   'products_without_trade',
 ];
 
-const ADDITIONS_NOTE: AdminNote = {
-  code: 'catalog_series_is_additions_only',
-  severity: 'warn',
+/** What the API attaches to a `basis=net` catalog series (AECI-686): these are
+ *  the rows still in the catalog, so the figures reconcile with the totals cards
+ *  and an earlier bucket can fall as rows are removed later. */
+const SURVIVING_ROWS_NOTE: AdminNote = {
+  code: 'catalog_series_is_surviving_rows',
+  severity: 'info',
   message: 'WIRE FALLBACK — untranslated operator message',
   params: { metric: 'catalog.products_created' },
 };
@@ -143,10 +148,11 @@ function makeCoverage(
   };
 }
 
-function makeSeries(notes: AdminNote[] = [ADDITIONS_NOTE]): AdminTimeseriesResponse {
+function makeSeries(notes: AdminNote[] = [SURVIVING_ROWS_NOTE]): AdminTimeseriesResponse {
   return {
     metric: 'catalog.products_created',
     interval: 'day',
+    basis: 'net',
     window: {
       from: '2026-07-15T00:00:00.000Z',
       to: '2026-08-14T00:00:00.000Z',
@@ -258,23 +264,55 @@ describe('CatalogCoverage', () => {
   // ─── The AC's named case ───────────────────────────────────────────────────
 
   describe('the approximation banner on counts-over-time', () => {
-    it('renders the additions-only caveat inside the counts-over-time section', async () => {
+    it('renders the surviving-rows caveat inside the counts-over-time section', async () => {
       const { el } = await setup(makeApiMock());
 
       const text = additionsSection(el).textContent ?? '';
-      expect(text).toContain('additions per day');
-      expect(text).toContain('not a net total');
+      expect(text).toContain('records in the catalog now');
+      // The restatement property is the whole cost of this basis. If the prose
+      // ever loses it, the table starts claiming a fixed past it does not have.
+      expect(text).toContain('can fall as records are removed later');
       // Localized prose, never the API's untranslated `message` or raw code.
-      expect(text).not.toContain('catalog_series_is_additions_only');
+      expect(text).not.toContain('catalog_series_is_surviving_rows');
       expect(text).not.toContain('WIRE FALLBACK');
     });
 
-    it('disappears when the API stops sending the note (what P2.1 will do)', async () => {
+    // The reconciliation with the Catalog totals cards above this table is
+    // entirely a property of WHICH basis is requested. `additions` is the
+    // endpoint's default, so a dropped param is a silent regression to the
+    // reading where 11,827 claim events sit under a card reading 1,691 — visible
+    // only by reading two numbers on a screen nobody diffs.
+    it('requests every series on the net basis, for all four metrics', async () => {
+      const calls: unknown[][] = [];
+      const timeseries = vi.fn(async (...args: unknown[]) => {
+        calls.push(args);
+        return makeSeries();
+      });
+      await setup(makeApiMock({ timeseries }));
+
+      expect(calls.map((c) => [c[0], c[3]])).toEqual([
+        ['catalog.products_created', 'net'],
+        ['catalog.integrations_created', 'net'],
+        ['catalog.vendors_created', 'net'],
+        ['catalog.claims_created', 'net'],
+      ]);
+    });
+
+    it('disappears when the API stops sending the note', async () => {
       const { el } = await setup(makeApiMock({ timeseries: vi.fn(async () => makeSeries([])) }));
 
-      expect(additionsSection(el).textContent).not.toContain('not a net total');
+      expect(additionsSection(el).textContent).not.toContain('records in the catalog now');
       // The table itself is still there — only the caveat went away.
       expect(additionsSection(el).querySelector('table')).not.toBeNull();
+    });
+
+    it('lists the newest day first, reversing the API ascending points', async () => {
+      const { el } = await setup(makeApiMock());
+
+      const days = Array.from(additionsSection(el).querySelectorAll('tbody tr th')).map((c) =>
+        (c.textContent ?? '').trim(),
+      );
+      expect(days).toEqual(['2026-08-12', '2026-08-11']);
     });
 
     it('shows each distinct caveat once, not once per series', async () => {
@@ -489,7 +527,7 @@ describe('CatalogCoverage', () => {
       expect(el.textContent).toContain('Catalog totals');
     });
 
-    it('says nothing was added rather than printing 30 rows of zeros', async () => {
+    it('says nothing in the catalog came from this window, not 30 rows of zeros', async () => {
       const { el } = await setup(
         makeApiMock({
           timeseries: vi.fn(async () => ({
@@ -502,10 +540,12 @@ describe('CatalogCoverage', () => {
         }),
       );
 
-      expect(additionsSection(el).textContent).toContain('Nothing was added');
+      expect(additionsSection(el).textContent).toContain(
+        'Nothing currently in the catalog was added in this window',
+      );
       expect(additionsSection(el).querySelector('table')).toBeNull();
       // The caveat still shows — it explains the number that is being reported.
-      expect(additionsSection(el).textContent).toContain('not a net total');
+      expect(additionsSection(el).textContent).toContain('records in the catalog now');
     });
   });
 
@@ -531,5 +571,188 @@ describe('CatalogCoverage', () => {
         expect(th.getAttribute('scope')).toMatch(/^(row|col)$/);
       }
     }
+  });
+
+  // ─── The Daily / Monthly panel ─────────────────────────────────────────────
+
+  /**
+   * Monthly is a client-side calendar-month rollup of the SAME daily series
+   * (`interval` has one wire value), reached over a 12-month window that the
+   * 30-day one never requests. Three things about that are worth pinning:
+   * the wide fetch is lazy, its rollup is exact, and its caveats are its own.
+   * The API derives every note from the window it served, so sharing one notes
+   * list across two windows would eventually either hide a caveat on Monthly or
+   * fabricate one on Daily.
+   */
+  describe('the Daily / Monthly tabs', () => {
+    /**
+     * A note attached to ONE of the two windows.
+     *
+     * The API derives every note from the window it actually served, so two
+     * windows can carry different caveats — which is why the panel holds notes
+     * per tab instead of sharing one list. On today's `basis=net` responses the
+     * two happen to agree, so the code here is a stand-in and its identity is
+     * immaterial: what is under test is that a note reaching one tab does not
+     * leak onto the other, and vice versa. (Under the old `additions` basis this
+     * was live: the 12-month window reached past the audit log's first row and
+     * the 30-day one did not.)
+     */
+    const WINDOW_ONLY_NOTE: AdminNote = {
+      code: 'catalog_series_starts_at',
+      severity: 'info',
+      message: 'WIRE FALLBACK — untranslated operator message',
+      params: { earliest_day: '2026-05-01' },
+    };
+
+    /** A response whose points are given, rather than the fixture's two days. */
+    function seriesOver(
+      points: Array<{ day: string; value: number }>,
+      notes: AdminNote[] = [SURVIVING_ROWS_NOTE],
+    ): AdminTimeseriesResponse {
+      return {
+        ...makeSeries(notes),
+        points: points.map((p) => ({
+          ...p,
+          value_excluding_internal: null,
+          reconstructed: false,
+        })),
+      };
+    }
+
+    function tabs(el: HTMLElement): HTMLElement[] {
+      return [...additionsSection(el).querySelectorAll('[role="tab"]')] as HTMLElement[];
+    }
+
+    /** Clicks a tab and drains the lazy fetch + the deferred panel render. */
+    async function openTab(
+      fixture: Awaited<ReturnType<typeof setup>>['fixture'],
+      el: HTMLElement,
+      label: string,
+    ): Promise<void> {
+      const tab = tabs(el).find((t) => (t.textContent ?? '').trim() === label);
+      if (!tab) throw new Error(`No tab "${label}"`);
+      tab.click();
+      fixture.detectChanges();
+      await fixture.whenStable();
+      await settle();
+      fixture.detectChanges();
+    }
+
+    it('does not fetch the 12-month window until Monthly is opened', async () => {
+      const { api } = await setup(makeApiMock());
+
+      // Four series, one window. The wide fetch is not paid for on arrival at a
+      // screen most operators open for the gap lists.
+      expect(api.timeseries).toHaveBeenCalledTimes(4);
+    });
+
+    it('fetches a month-aligned window under the 400-day cap when Monthly opens', async () => {
+      const { fixture, el, api } = await setup(makeApiMock());
+      await openTab(fixture, el, 'Monthly');
+
+      expect(api.timeseries).toHaveBeenCalledTimes(8);
+      const [, from, to] = api.timeseries.mock.calls[4];
+      // A month bucket has to start on a month boundary, or the earliest row is
+      // a partial month rendered as a whole one.
+      expect(from).toMatch(/^\d{4}-\d{2}-01$/);
+      const days = (Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000;
+      expect(days).toBeLessThan(400);
+      expect(days).toBeGreaterThan(300);
+    });
+
+    it('does not refetch when Monthly is re-selected', async () => {
+      const { fixture, el, api } = await setup(makeApiMock());
+      await openTab(fixture, el, 'Monthly');
+      await openTab(fixture, el, 'Daily');
+      await openTab(fixture, el, 'Monthly');
+
+      // `ngTabContent` destroys the inactive panel, so a load keyed off render
+      // would refetch on every switch back. It is keyed off selection instead.
+      expect(api.timeseries).toHaveBeenCalledTimes(8);
+    });
+
+    it('sums the daily points into calendar months, newest month first', async () => {
+      const timeseries = vi.fn(async () =>
+        seriesOver([
+          { day: '2026-07-30', value: 1 },
+          { day: '2026-07-31', value: 2 },
+          { day: '2026-08-01', value: 4 },
+          { day: '2026-08-02', value: 3 },
+        ]),
+      );
+      const { fixture, el } = await setup(makeApiMock({ timeseries }));
+      await openTab(fixture, el, 'Monthly');
+
+      const section = additionsSection(el);
+      const months = [...section.querySelectorAll('tbody tr th')].map((c) =>
+        (c.textContent ?? '').trim(),
+      );
+      expect(months).toEqual(['2026-08', '2026-07']);
+
+      // 4 + 3 in August, 1 + 2 in July, per series.
+      const august = [...(section.querySelectorAll('tbody tr')[0]?.querySelectorAll('td') ?? [])];
+      expect(august.map((c) => (c.textContent ?? '').trim())).toEqual(['7', '7', '7', '7']);
+    });
+
+    it("keeps each window's caveats on its own tab", async () => {
+      let call = 0;
+      const timeseries = vi.fn(async () => {
+        call += 1;
+        // Calls 1-4 are the 30-day window; 5-8 are the 12-month one, which here
+        // carries one extra caveat the narrow window does not.
+        return call <= 4
+          ? makeSeries([SURVIVING_ROWS_NOTE])
+          : makeSeries([SURVIVING_ROWS_NOTE, WINDOW_ONLY_NOTE]);
+      });
+      const { fixture, el } = await setup(makeApiMock({ timeseries }));
+
+      expect(additionsSection(el).textContent).not.toContain('The audit log begins');
+
+      await openTab(fixture, el, 'Monthly');
+      const monthly = additionsSection(el).textContent ?? '';
+      expect(monthly).toContain('The audit log begins 2026-05-01');
+      // The load-bearing banner rides on BOTH windows.
+      expect(monthly).toContain('records in the catalog now');
+
+      await openTab(fixture, el, 'Daily');
+      expect(additionsSection(el).textContent).not.toContain('The audit log begins');
+    });
+
+    it('fails Monthly without disturbing Daily or the gap lists', async () => {
+      let call = 0;
+      const timeseries = vi.fn(async () => {
+        call += 1;
+        if (call > 4) throw new Error('timeseries 503');
+        return makeSeries();
+      });
+      const { fixture, el } = await setup(makeApiMock({ timeseries }));
+      await openTab(fixture, el, 'Monthly');
+
+      expect(additionsSection(el).textContent).toContain("couldn't load the additions series");
+      // The actionable half of the screen is untouched.
+      expect(gapCard(el, 'No logo')).not.toBeNull();
+
+      await openTab(fixture, el, 'Daily');
+      const daily = additionsSection(el);
+      expect(daily.querySelector('table')).not.toBeNull();
+      expect(daily.textContent).not.toContain("couldn't load the additions series");
+    });
+
+    it('exposes two tabs and exactly one live panel', async () => {
+      const { fixture, el } = await setup(makeApiMock());
+
+      const labels = tabs(el).map((t) => (t.textContent ?? '').trim());
+      expect(labels).toEqual(['Daily', 'Monthly']);
+      expect(tabs(el).map((t) => t.getAttribute('aria-selected'))).toEqual(['true', 'false']);
+
+      await openTab(fixture, el, 'Monthly');
+      expect(tabs(el).map((t) => t.getAttribute('aria-selected'))).toEqual(['false', 'true']);
+
+      // Only the selected panel holds content; the other is torn down.
+      const rendered = [...additionsSection(el).querySelectorAll('[role="tabpanel"]')].filter(
+        (p) => (p.textContent ?? '').trim() !== '',
+      );
+      expect(rendered).toHaveLength(1);
+    });
   });
 });

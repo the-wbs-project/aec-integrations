@@ -1,0 +1,171 @@
+<div
+  class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) p-4"
+  [attr.aria-labelledby]="labelledBy()"
+>
+  <p class="text-sm text-(--text-primary)">
+    @if (frozen()) {
+    <span i18n="@@admin.connectors.managed.state.vendor">
+      This catalogue is vendor-managed. The review lane is frozen for it: the review app's sync is
+      refused for this catalogue and no other.
+    </span>
+    } @else {
+    <span i18n="@@admin.connectors.managed.state.review">
+      This catalogue is review-managed. The review app's sync writes to it normally.
+    </span>
+    }
+  </p>
+
+  @if (!formMode()) {
+  <button
+    type="button"
+    class="mt-3 cursor-pointer rounded-(--radius-sm) border border-(--border-default) px-3 py-2 text-sm font-medium text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+    (click)="openForm()"
+  >
+    @if (frozen()) {
+    <span i18n="@@admin.connectors.managed.action.reclaim">Take the lane back</span>
+    } @else {
+    <span i18n="@@admin.connectors.managed.action.handOver">Hand the lane to a vendor</span>
+    }
+  </button>
+  } @else {
+  <form
+    novalidate
+    class="mt-4 space-y-3 border-t border-(--border-default) pt-4"
+    (submit)="$event.preventDefault(); submit()"
+  >
+    <p class="text-sm text-(--text-secondary)">
+      @if (formMode() === 'vendor') {
+      <span i18n="@@admin.connectors.managed.confirm.freeze">
+        Handing this catalogue over freezes the review lane for it. From then on the review app's
+        sync is refused for this catalogue, and its listings only change when the vendor changes
+        them.
+      </span>
+      } @else {
+      <span i18n="@@admin.connectors.managed.confirm.reopen">
+        Taking the lane back re-opens the review app's sync for this catalogue from now on. It does
+        not reconcile anything the vendor already wrote.
+      </span>
+      }
+    </p>
+
+    @if (formMode() === 'vendor') {
+    <!-- The seat disclaimer is not decoration. Nothing else on this page says
+             it, and an operator who assumed a handover also provisions a login
+             would be wrong with no correction anywhere. -->
+    <p class="text-sm text-(--text-secondary)" i18n="@@admin.connectors.managed.confirm.noSeat">
+      This records who the catalogue was handed to. It does not create an account, grant a login, or
+      turn on the verified badge.
+    </p>
+
+    <div>
+      <label
+        class="block text-xs font-bold text-(--text-secondary)"
+        [attr.for]="'conn-vendor-' + idPrefix()"
+        i18n="@@admin.connectors.managed.vendor.label"
+      >
+        Vendor taking it over (optional)
+      </label>
+      @if (selectedVendor(); as v) {
+      <p class="mt-1 flex items-center gap-2 text-sm text-(--text-primary)">
+        <span>{{ v.company_name }}</span>
+        <button
+          type="button"
+          class="cursor-pointer text-xs text-(--text-secondary) underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          (click)="clearVendor()"
+          i18n="@@admin.connectors.managed.vendor.change"
+        >
+          Change
+        </button>
+      </p>
+      } @else {
+      <div class="mt-1 flex gap-2">
+        <input
+          [id]="'conn-vendor-' + idPrefix()"
+          type="search"
+          class="w-full rounded-(--radius-sm) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          i18n-placeholder="@@admin.connectors.managed.vendor.placeholder"
+          placeholder="Search by name or slug"
+          [value]="vendorQuery()"
+          (input)="onVendorQueryInput($event)"
+        />
+        <button
+          type="button"
+          class="shrink-0 cursor-pointer rounded-(--radius-sm) border border-(--border-default) px-3 py-2 text-sm font-medium text-(--text-primary) disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          [disabled]="vendorSearching()"
+          (click)="searchVendors()"
+          i18n="@@admin.connectors.managed.vendor.find"
+        >
+          Find
+        </button>
+      </div>
+      @if (vendorResults().length > 0) {
+      <ul
+        role="list"
+        class="mt-2 space-y-1"
+        i18n-aria-label="@@admin.connectors.managed.vendor.results"
+        aria-label="Matching vendors"
+      >
+        @for (v of vendorResults(); track v.id) {
+        <li>
+          <button
+            type="button"
+            class="w-full cursor-pointer rounded-(--radius-sm) px-2 py-1 text-start text-sm text-(--text-primary) hover:bg-(--surface-raised) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            (click)="chooseVendor(v)"
+          >
+            {{ v.company_name }}
+            <span class="block text-xs text-(--text-secondary)">{{ v.slug }}</span>
+          </button>
+        </li>
+        }
+      </ul>
+      } }
+    </div>
+    }
+
+    <div>
+      <label
+        class="block text-xs font-bold text-(--text-secondary)"
+        [attr.for]="'conn-reason-' + idPrefix()"
+        i18n="@@admin.connectors.managed.reason.label"
+      >
+        Reason (optional, recorded in the audit trail)
+      </label>
+      <textarea
+        [id]="'conn-reason-' + idPrefix()"
+        rows="2"
+        maxlength="500"
+        class="mt-1 w-full rounded-(--radius-sm) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        [value]="reason()"
+        (input)="onReasonInput($event)"
+      ></textarea>
+    </div>
+
+    <div class="flex gap-2">
+      <button
+        type="submit"
+        class="cursor-pointer rounded-(--radius-sm) border border-(--border-default) px-3 py-2 text-sm font-medium text-(--text-primary) disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        [disabled]="pending()"
+      >
+        @if (pending()) {
+        <span i18n="@@admin.connectors.managed.working">Working…</span>
+        } @else if (formMode() === 'vendor') {
+        <span i18n="@@admin.connectors.managed.confirmFreeze">Confirm handover</span>
+        } @else {
+        <span i18n="@@admin.connectors.managed.confirmReopen">Confirm reclaim</span>
+        }
+      </button>
+      <button
+        type="button"
+        class="cursor-pointer px-3 py-2 text-sm text-(--text-secondary) underline disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        [disabled]="pending()"
+        (click)="closeForm()"
+        i18n="@@admin.connectors.managed.cancel"
+      >
+        Cancel
+      </button>
+    </div>
+  </form>
+  } @if (failedMessage()) {
+  <p class="mt-3 text-sm font-medium text-(--text-primary)" role="alert">{{ failedMessage() }}</p>
+  }
+</div>

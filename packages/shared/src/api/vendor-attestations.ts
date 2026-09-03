@@ -223,14 +223,28 @@ export const VendorClaimSchema = z.object({
 export type VendorClaim = z.infer<typeof VendorClaimSchema>;
 
 /**
- * One integration the caller may attest on. `context_product` /
- * `other_product` borrow the pair page's vocabulary: the context is the caller's
- * own endpoint (endpoint **A** when it owns A, including the owns-both case),
- * and every `direction` on the claims below is framed against it.
+ * One integration the caller may attest on, **as filed under ONE of the caller's
+ * products**. `context_product` / `other_product` borrow the pair page's
+ * vocabulary: the context is the caller's own endpoint, and every `direction` on
+ * the claims below is framed against it.
  *
  * `slots` is the answer to "which slot is mine" — one entry normally, two when
  * the caller owns both endpoints. It is never empty: an integration only appears
  * here because the caller owns at least one endpoint.
+ *
+ * ── `id` IS NOT UNIQUE IN THIS LIST (AECI-666) ──────────────────────────────
+ * The portal files integrations under the product they touch, so an integration
+ * whose endpoints the caller owns BOTH appears **twice** — once framed against
+ * each — with `direction` mirrored between the two. **The key is
+ * `(id, context_product.id)`**; anything tracking or splicing by `id` alone will
+ * collapse or cross-wire the pair.
+ *
+ * The two entries are one *position* viewed from two sides, not two positions:
+ * `slots`, `mine`, `counterparty` and `agreement` are identical on both, because
+ * a write fills every slot the caller owns and §4 dedupes voters by vendor (one
+ * company is one voter however many endpoints it owns). A UI that lets a vendor
+ * act on one of them must say the change applies to the other — `slots.length === 2`
+ * is the test for "this is the shared case".
  */
 export const VendorIntegrationSchema = z.object({
   id: z.string().uuid(),
@@ -240,6 +254,41 @@ export const VendorIntegrationSchema = z.object({
   context_product: ProductLinkSchema,
   other_product: ProductLinkSchema,
   slots: z.array(VendorAttestationSlotSchema).min(1),
+  /**
+   * Whether this edge may be attested at all (AECI-705 / §14).
+   *
+   * `false` on a **connector-powered** edge — one carrying
+   * `powered_by_product_id`, or typed `mechanism_kind='iPaaS'` — where neither
+   * endpoint vendor built the plumbing. The row still ships: the vendor's own
+   * public pair page shows the edge, so omitting it from the portal would read as
+   * data loss, and filtering the list would change the scoping predicate the
+   * AECI-627 `integrations` cursor has to match (`STAGE_2_REALTIME_SPEC.md` §2.2).
+   * The client renders it read-only with an explanation instead.
+   *
+   * **The server computes this; the client never re-derives it.** The union
+   * predicate is deliberately non-obvious (see `apps/api/src/lib/connector-powered.ts`),
+   * and a browser-side copy would drift the way the direction helpers once did.
+   *
+   * `.default(true)` for the same reason `sync_headline.single_source` carries
+   * `.default(0)`: the SSR and API Workers deploy per-commit but not atomically,
+   * so this must still parse a response from an API Worker that predates the
+   * field. `true` is what such an API implies — the skew window degrades to
+   * pre-AECI-705 behaviour rather than blanking the tab, and the write is refused
+   * server-side with a 403 regardless.
+   */
+  attestable: z.boolean().default(true),
+  /**
+   * The connector product delivering this edge, when it is itself promoted.
+   *
+   * `null` on the 53-of-132 production edges whose connector is not a promoted
+   * product (Zapier, Workato, n8n, Make, Boomi …) — there the UI falls back to
+   * the free-text `mechanism_name` above. A `ProductLink` rather than a raw
+   * `powered_by_product_id`, per §4.5's "attribution is a display concern".
+   *
+   * Non-null implies `attestable: false`, but the converse does not hold, so read
+   * the flag and never this field for the decision.
+   */
+  powered_by: ProductLinkSchema.nullable().default(null),
   claims: z.array(VendorClaimSchema),
 });
 
@@ -276,6 +325,19 @@ export const CreateVendorClaimSchema = z.object({
   data_object: dataObjectRef,
   /** Caller-relative. Translated to `a_to_b`/`b_to_a`/`both` server-side. */
   direction: ContextDirectionSchema,
+  /**
+   * WHICH of the caller's endpoints `direction` is relative to (AECI-666).
+   *
+   * Load-bearing whenever the caller owns **both** endpoints: "outbound" means
+   * opposite things from the two sides, so without this the server has to guess,
+   * and its old guess (endpoint A, "arbitrary, but it has to be something") writes
+   * the *reverse* flow for a vendor authoring from its other product's tab.
+   *
+   * Optional for compatibility — omitted keeps the endpoint-A default, which is
+   * unambiguous for the common case of owning exactly one endpoint. A product the
+   * caller does not own on this integration is a `400`, not a silent re-frame.
+   */
+  context_product_id: z.string().uuid().nullable().optional(),
   note: attestationNote.nullable().optional(),
   introduced_version_id: versionId.nullable().optional(),
   deprecated_version_id: versionId.nullable().optional(),
@@ -296,6 +358,14 @@ export type CreateVendorClaimInput = z.infer<typeof CreateVendorClaimSchema>;
  */
 export const UpsertVendorAttestationSchema = z.object({
   asserted: z.boolean(),
+  /**
+   * The frame for the ECHO only (AECI-666) — this write carries no direction, so
+   * unlike `CreateVendorClaimSchema` nothing about what is stored depends on it.
+   * It exists so the echoed claim comes back framed against the tab the vendor
+   * acted from, and the client can splice it straight in instead of re-deriving a
+   * frame it already knows. Same 400 rule for a product the caller does not own.
+   */
+  context_product_id: z.string().uuid().nullable().optional(),
   note: attestationNote.nullable().optional(),
   introduced_version_id: versionId.nullable().optional(),
   deprecated_version_id: versionId.nullable().optional(),

@@ -13,24 +13,35 @@ import { SessionStatus } from './session-status';
  * truth *after* hydration (browser-only). Reconcile is two-step: a synchronous
  * cookie-presence hint flips the header immediately (so a just-signed-in visitor
  * sees the account menu on their OAuth landing page, not a beat later), then the
- * async `isSignedIn()` probe confirms or corrects it. These tests pin the neutral
- * default, both reconcile steps, and the graceful-degradation branches
- * (unconfigured env, probe throw with and without a cookie).
+ * async `sessionSnapshot()` probe confirms or corrects it — and supplies the
+ * session's email, which the claim/correction forms prefill from. These tests pin
+ * the neutral default, both reconcile steps, the email, and the
+ * graceful-degradation branches (unconfigured env, probe throw with and without a
+ * cookie).
  */
 
 interface AuthMock {
   isConfigured: ReturnType<typeof vi.fn>;
   hasSessionCookie: ReturnType<typeof vi.fn>;
-  isSignedIn: ReturnType<typeof vi.fn>;
+  sessionSnapshot: ReturnType<typeof vi.fn>;
 }
 
 function makeAuthMock(
-  opts: { configured?: boolean; hasCookie?: boolean; signedIn?: boolean } = {},
+  opts: {
+    configured?: boolean;
+    hasCookie?: boolean;
+    signedIn?: boolean;
+    email?: string | null;
+  } = {},
 ): AuthMock {
+  const signedIn = opts.signedIn ?? false;
   return {
     isConfigured: vi.fn(() => opts.configured ?? true),
     hasSessionCookie: vi.fn(() => opts.hasCookie ?? false),
-    isSignedIn: vi.fn(async () => opts.signedIn ?? false),
+    sessionSnapshot: vi.fn(async () => ({
+      signedIn,
+      email: signedIn ? (opts.email ?? 'dana@example.com') : null,
+    })),
   };
 }
 
@@ -87,7 +98,7 @@ describe('SessionStatus', () => {
 
   it('keeps the cookie hint signed-in when the probe throws but a cookie is present', async () => {
     const auth = makeAuthMock({ hasCookie: true, signedIn: true });
-    auth.isSignedIn.mockRejectedValue(new Error('SDK chunk failed to load'));
+    auth.sessionSnapshot.mockRejectedValue(new Error('SDK chunk failed to load'));
     const status = create(auth);
     await settle();
     expect(status.signedIn()).toBe(true);
@@ -104,14 +115,30 @@ describe('SessionStatus', () => {
     const status = create(auth);
     await settle();
     expect(status.signedIn()).toBe(false);
-    expect(auth.isSignedIn).not.toHaveBeenCalled();
+    expect(auth.sessionSnapshot).not.toHaveBeenCalled();
   });
 
   it('keeps the neutral default when the probe throws', async () => {
     const auth = makeAuthMock({ signedIn: true });
-    auth.isSignedIn.mockRejectedValue(new Error('probe failed'));
+    auth.sessionSnapshot.mockRejectedValue(new Error('probe failed'));
     const status = create(auth);
     await settle();
     expect(status.signedIn()).toBe(false);
+  });
+
+  it('exposes the session email once the probe resolves, and null before it', async () => {
+    const status = create(
+      makeAuthMock({ hasCookie: true, signedIn: true, email: 'dana@acme.dev' }),
+    );
+    // The synchronous cookie hint proves a session exists but carries no email.
+    expect(status.email()).toBeNull();
+    await settle();
+    expect(status.email()).toBe('dana@acme.dev');
+  });
+
+  it('keeps the email null for an anonymous visitor', async () => {
+    const status = create(makeAuthMock({ signedIn: false }));
+    await settle();
+    expect(status.email()).toBeNull();
   });
 });

@@ -13,9 +13,11 @@
   // binding via Drizzle (ADR 0016) — no external proxy, no Accelerate, and no
   // Node-compat polyfills for the DB path (intentionally not enabled here).
   //
+  // Observability (ADR 0024) needs no secret: the publishable `phc_`
+  // POSTHOG_PROJECT_KEY is a committed per-env var (AECI-640) and authenticates
+  // all three PostHog intakes. DD_API_KEY retired with AECI-651.
+  //
   // Secrets (set via `wrangler secret put`):
-  //   DD_API_KEY  — Datadog Logs HTTP intake key (AECI-31). `logToDatadog()`
-  //                 no-ops when this is unset, so non-DD envs are unaffected.
   //   CF_ZONE_ID  — Cloudflare zone id for aecintegrations.com. Public value;
   //                 provision per env. Consumed (as the GraphQL zoneTag) by the
   //                 AECI-262 WAF firewall-event poll, paired with CF_ANALYTICS_API_TOKEN.
@@ -151,7 +153,6 @@
   },
   "vars": {
     "ENV": "preview",
-    "DD_SITE": "us5.datadoghq.com",
     // AECI-74: overridden at dev/deploy time via `wrangler --var COMMIT_SHA:<sha> --var DEPLOYED_AT:<iso>`.
     "COMMIT_SHA": "unknown",
     "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
@@ -217,7 +218,6 @@
       // graceful-degradation path (Option B; see the top comment).
       "vars": {
         "ENV": "preview",
-        "DD_SITE": "us5.datadoghq.com",
         // AECI-74: overridden at dev/deploy time via `wrangler --var COMMIT_SHA:<sha> --var DEPLOYED_AT:<iso>`.
         "COMMIT_SHA": "unknown",
         "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
@@ -227,6 +227,27 @@
         // Worker; the service-role key is a Worker SECRET (not a var here), used
         // only by the ADR-0016 split-identity seams (AUTH_AND_RLS.md §4).
         "SUPABASE_URL": "https://ktuhnlypztujpsseujzx.supabase.co",
+        // AECI-640 / AECI-642: PostHog INGEST host + publishable project key.
+        // `us.i.posthog.com` is the INGEST host; `us.posthog.com` (no `.i`) is the
+        // MANAGEMENT API and 404s on an intake path. Easy to swap, confusing to
+        // diagnose. The OTLP intakes (`/i/v1/logs`, `/i/v1/metrics`) authenticate
+        // with an `Authorization: Bearer <token>` header; an `?api_key=` query param
+        // is rejected 401 there (verified 2026-08-24).
+        //
+        // POSTHOG_PROJECT_KEY is a `phc_` PUBLISHABLE key. The SSR Worker already
+        // renders it into the served HTML on every page (window.__AECI_POSTHOG__),
+        // so it is not a secret and committing it costs nothing. AECI-239 kept it as
+        // a CI-pushed secret for tidiness; that is exactly what produced the
+        // weeks-dark production analytics of AECI-326 (push step present, secret
+        // absent, warn-and-skip silent). A committed var has no provisioning step to
+        // forget, and it takes Worker telemetry secrets from 4 to 0.
+        //
+        // Project topology (POSTHOG_MIGRATION_SPEC.md §3.6 / D4): preview, staging,
+        // demo and stage2 all report to `aec-integrations-dev` (525793); ONLY
+        // production reports to `aec-integrations` (354071). Tiers inside the
+        // non-prod project are separated by `$host`/`env`.
+        "POSTHOG_HOST": "https://us.i.posthog.com",
+        "POSTHOG_PROJECT_KEY": "phc_pY8FDQ9FNAmFUJFFd85jNKAAUCMvndUsyGMMV8TR97MD",
       },
       "kv_namespaces": [
         {
@@ -276,7 +297,6 @@
       // CACHE_PURGE_QUEUE (aeci-cache-purge-{env}) — no WEB binding, no CF purge token.
       "vars": {
         "ENV": "staging",
-        "DD_SITE": "us5.datadoghq.com",
         // AECI-74: overridden at deploy time via `wrangler --var COMMIT_SHA:<sha> --var DEPLOYED_AT:<iso>`.
         "COMMIT_SHA": "unknown",
         "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
@@ -286,6 +306,10 @@
         // Worker; the service-role key is a Worker SECRET (not a var here), used
         // only by the ADR-0016 split-identity seams (AUTH_AND_RLS.md §4).
         "SUPABASE_URL": "https://ktuhnlypztujpsseujzx.supabase.co",
+        "POSTHOG_HOST": "https://us.i.posthog.com",
+        // See the preview env note (AECI-640): non-prod tiers report to
+        // `aec-integrations-dev` (525793).
+        "POSTHOG_PROJECT_KEY": "phc_pY8FDQ9FNAmFUJFFd85jNKAAUCMvndUsyGMMV8TR97MD",
         // AECI-240 / Phase 7.5: transactional email (Resend). EMAIL_FROM is the
         // verified sender; PUBLIC_SITE_URL builds absolute links in emails;
         // ADMIN_ALERT_EMAIL receives the §6.2 reconcile-sweep stuck-request alert.
@@ -293,11 +317,19 @@
         "EMAIL_FROM": "AEC Integrations <notifications@aecintegrations.com>",
         "PUBLIC_SITE_URL": "https://staging.aecintegrations.com",
         "ADMIN_ALERT_EMAIL": "chrisw@thewbsproject.com",
+        // Operator alert on claim INTAKE (`POST /api/requests/claim`) — the support
+        // inbox, deliberately NOT `ADMIN_ALERT_EMAIL` (which stays the individual
+        // operator address for sweep alerts + lead capture). Absent -> the alert is a
+        // fail-open `skipped` and the Linear issue is still the durable record.
+        "CLAIM_ALERT_EMAIL": "support@aecintegrations.com",
         // AECI-241: sender + recipient(s) for the daily data-quality digest. Plain
-        // vars (not secrets — only RESEND_API_KEY is). `_FROM` must be on a Resend-
-        // verified domain (thewbsproject.com). `_TO` is comma-separated (read by
+        // vars (not secrets — only RESEND_API_KEY is). `_FROM` must be on the
+        // Resend-verified sending domain, which is `aecintegrations.com` (see
+        // docs/email.md §Deliverability). It previously read `thewbsproject.com`
+        // here, which was wrong and diverged staging/demo/stage2 from production
+        // until 2026-08-26. `_TO` is comma-separated (read by
         // parseRecipients). Staging sends to Chris only.
-        "DATA_QUALITY_EMAIL_FROM": "AECi Data Quality <support@thewbsproject.com>",
+        "DATA_QUALITY_EMAIL_FROM": "AEC Integrations <notifications@aecintegrations.com>",
         "DATA_QUALITY_EMAIL_TO": "chrisw@thewbsproject.com",
         // AECI-526: the daily operator analytics digest is PRODUCTION-ONLY — the cron
         // still runs here (emits its liveness metric) but ANALYTICS_DIGEST_EMAIL_TO is
@@ -375,9 +407,23 @@
       // jobs. (§7.1 of the spec still says 05:00; that predates the AECI-526
       // analytics digest taking that slot.) Strings MUST match the constants in
       // `src/lib/cron-schedules.ts` (asserted by `src/lib/cron-schedules.spec.ts`).
+      // "0 2 * * 2" is the ONLY WEEKLY
+      // trigger — Mondays at 02:00 UTC, the asn_registry refresh (AECI-624 /
+      // ADMIN_PANEL_SPEC.md §7.6, queue-less): one PeeringDB read (authenticated
+      // when PEERINGDB_API_KEY is set, AECI-661)
+      // intersected with the ASNs page_views has seen, upserted for the admin panel's
+      // read-time ASN annotation. Weekly because the input barely moves (an info_type
+      // changes when a network re-registers), and it needs no ordering against
+      // anything — it neither reads nor writes state another job consumes, so a
+      // skipped week costs an annotation, never a number.
+      // ⚠️ Cloudflare's day-of-week is 1 = Sunday … 7 = Saturday, NOT Unix 0 = Sunday,
+      // so Monday is "2". "0 2 * * 1" (the value before AECI-661) meant SUNDAY, which
+      // is the day production actually ran it. See src/lib/cron-schedules.ts for why
+      // this stays numeric rather than "0 2 * * MON".
       "triggers": {
         "crons": [
           "15 0 * * *",
+          "0 2 * * 2",
           "0 3 * * *",
           "0 4 * * *",
           "0 5 * * *",
@@ -465,7 +511,6 @@
       // enqueueing onto the CACHE_PURGE_QUEUE (aeci-cache-purge-{env}) — no WEB binding, no CF token.
       "vars": {
         "ENV": "demo",
-        "DD_SITE": "us5.datadoghq.com",
         // AECI-74: overridden at deploy time via `wrangler --var COMMIT_SHA:<sha> --var DEPLOYED_AT:<iso>`.
         "COMMIT_SHA": "unknown",
         "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
@@ -473,11 +518,22 @@
         // Drives JWKS user-JWT verification only (lib/user-auth.ts) — public
         // material, no DB round-trip.
         "SUPABASE_URL": "https://ktuhnlypztujpsseujzx.supabase.co",
+        "POSTHOG_HOST": "https://us.i.posthog.com",
+        // AECI-640 REPOINT: demo previously received POSTHOG_KEY_PRODUCTION from
+        // promote-to-demo.yml, so synthetic demo traffic landed in the PROD project
+        // (354071) and skewed every production number. Demo is a non-prod tier and
+        // reports to `aec-integrations-dev` (525793). See the preview env note.
+        "POSTHOG_PROJECT_KEY": "phc_pY8FDQ9FNAmFUJFFd85jNKAAUCMvndUsyGMMV8TR97MD",
         // AECI-240 / Phase 7.5: transactional email (Resend). See the staging note.
         "EMAIL_FROM": "AEC Integrations <notifications@aecintegrations.com>",
         "PUBLIC_SITE_URL": "https://demo.aecintegrations.com",
         "ADMIN_ALERT_EMAIL": "chrisw@thewbsproject.com",
-        "DATA_QUALITY_EMAIL_FROM": "AECi Data Quality <support@thewbsproject.com>",
+        // Operator alert on claim INTAKE (`POST /api/requests/claim`) — the support
+        // inbox, deliberately NOT `ADMIN_ALERT_EMAIL` (which stays the individual
+        // operator address for sweep alerts + lead capture). Absent -> the alert is a
+        // fail-open `skipped` and the Linear issue is still the durable record.
+        "CLAIM_ALERT_EMAIL": "support@aecintegrations.com",
+        "DATA_QUALITY_EMAIL_FROM": "AEC Integrations <notifications@aecintegrations.com>",
         "DATA_QUALITY_EMAIL_TO": "chrisw@thewbsproject.com",
         // AECI-526: the daily operator analytics digest is PRODUCTION-ONLY — the cron
         // still runs here (emits its liveness metric) but ANALYTICS_DIGEST_EMAIL_TO is
@@ -513,7 +569,7 @@
           "migrations_dir": "migrations",
         },
       ],
-      // Same twelve crons as staging/production (see staging note — incl. the hourly
+      // Same thirteen crons as staging/production (see staging note — incl. the hourly
       // "0 * * * *" WAF firewall-event poll, AECI-262, the daily "0 5 * * *"
       // operator analytics digest, AECI-526, at 05:00 UTC = noon Jakarta, the
       // daily "15 0 * * *" metrics_daily snapshot, AECI-581, the daily
@@ -526,6 +582,7 @@
       "triggers": {
         "crons": [
           "15 0 * * *",
+          "0 2 * * 2",
           "0 3 * * *",
           "0 4 * * *",
           "0 5 * * *",
@@ -598,6 +655,104 @@
         },
       },
     },
+    // AECI-637 — TEMPORARY `stage2` tier. Delete this whole block at teardown.
+    //
+    // Why it exists: staging auto-tracks `main` (ADR 0019), so the completed Stage 2
+    // build on the `stage-2` branch has no deployed surface. This gives it one:
+    // `aeci-{api,web}-stage2` on `stage2.aecintegrations.com`, its own D1 / KV /
+    // Algolia (`stage2_*`), the single shared Supabase auth project (ADR 0017), and
+    // Cloudflare Access in front (unlike the public demo tier).
+    //
+    // Modelled on `env.demo` with three deliberate trims:
+    //   - NO `triggers.crons` — a temp env needs no scheduled jobs, and several of
+    //     them (data-quality digest, attestation notify, entitlement expiry) send
+    //     REAL Resend email. Every cron handler is env-gated by presence, so their
+    //     absence is not a degradation, it is the point.
+    //   - NO `queues` — with no crons there is no producer for the five scheduled-job
+    //     queues, and the SSR Worker is uncached so `CACHE_PURGE_QUEUE` has nothing to
+    //     invalidate. Both producer bindings are optional in `src/env.ts` and no-op
+    //     when unbound (the documented local/preview path), so nothing throws.
+    //   - `PROMOTE_WORKFLOW` is KEPT. Workflows are created by `wrangler deploy` (no
+    //     `queues create`-style provisioning step) and `POST /api/promote` returns 503
+    //     without the binding (routes/promote-kickoff.ts), which would kill the
+    //     re-promote seeding path. One Workflow per env so instance ids never collide.
+    //
+    // Deployed BY HAND from a `stage-2` SHA — there is no promote-to-stage2 workflow
+    // and stage-2 never reaches staging, so the usual "verify one tier up" gate has
+    // nothing to check. See docs/environments.md §10 for the bootstrap + teardown.
+    "stage2": {
+      "name": "aeci-api-stage2",
+      "workers_dev": false,
+      "vars": {
+        "ENV": "stage2",
+        // AECI-74: overridden at deploy time via `wrangler --var COMMIT_SHA:<sha> --var DEPLOYED_AT:<iso>`.
+        "COMMIT_SHA": "unknown",
+        "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
+        // ADR 0017: the single shared auth project (same value in every env).
+        "SUPABASE_URL": "https://ktuhnlypztujpsseujzx.supabase.co",
+        "POSTHOG_HOST": "https://us.i.posthog.com",
+        // See the preview env note (AECI-640). stage2 is a TEMPORARY test tier
+        // (AECI-637) and reports to `aec-integrations-dev` (525793).
+        "POSTHOG_PROJECT_KEY": "phc_pY8FDQ9FNAmFUJFFd85jNKAAUCMvndUsyGMMV8TR97MD",
+        // AECI-240: EMAIL_FROM + PUBLIC_SITE_URL shape any mail this tier composes.
+        // RESEND_API_KEY was PROVISIONED 2026-08-24 for claim-decision email testing
+        // (docs/environments.md §10.6) — this tier now sends REAL mail to real
+        // addresses, so these vars are load-bearing, not just placeholders. Remove
+        // the secret when that test is done and sends go back to a fail-open
+        // `'skipped'`.
+        "EMAIL_FROM": "AEC Integrations <notifications@aecintegrations.com>",
+        "PUBLIC_SITE_URL": "https://stage2.aecintegrations.com",
+        "ADMIN_ALERT_EMAIL": "chrisw@thewbsproject.com",
+        // Operator alert on claim INTAKE (`POST /api/requests/claim`) — the support
+        // inbox, deliberately NOT `ADMIN_ALERT_EMAIL` (which stays the individual
+        // operator address for sweep alerts + lead capture). Absent -> the alert is a
+        // fail-open `skipped` and the Linear issue is still the durable record.
+        "CLAIM_ALERT_EMAIL": "support@aecintegrations.com",
+        "DATA_QUALITY_EMAIL_FROM": "AEC Integrations <notifications@aecintegrations.com>",
+        "DATA_QUALITY_EMAIL_TO": "chrisw@thewbsproject.com",
+        // ANALYTICS_DIGEST_EMAIL_TO intentionally unset (production-only, AECI-526).
+      },
+      // Provisioned 2026-08-20 at bootstrap (docs/environments.md §10.2):
+      // `aeci-api-taxonomy-stage2` + `aeci-api-promote-stage2`. TAXONOMY_KV is
+      // optional (routes/taxonomy.ts falls back to a direct D1 read); PROMOTE_KV
+      // only matters for an oversize promote bundle + the 90-day result mirror.
+      // Delete BOTH namespaces at teardown — they are not shared with any tier.
+      "kv_namespaces": [
+        {
+          "binding": "TAXONOMY_KV",
+          "id": "d53b4b9e6dac406fa063524728698ef7",
+        },
+        {
+          "binding": "PROMOTE_KV",
+          "id": "831004125cd14da3898f21801e38306b",
+        },
+      ],
+      // AECI-563 / ADR 0021: the promote ingest Workflow (see the base-config note).
+      "workflows": [
+        {
+          "name": "aeci-promote-stage2",
+          "binding": "PROMOTE_WORKFLOW",
+          "class_name": "PromoteWorkflow",
+        },
+      ],
+      // Created by hand 2026-08-20 (`wrangler d1 create aeci-app-stage2`, region
+      // APAC). Migrations are applied by hand too (`scripts/d1-apply-migrations.sh
+      // aeci-app-stage2 stage2`) — no CI workflow targets this tier.
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "aeci-app-stage2",
+          "database_id": "d6960a3f-b44c-4a2b-899e-f21d5c05dbc2",
+          "migrations_dir": "migrations",
+        },
+      ],
+      "observability": {
+        "logs": {
+          "enabled": true,
+          "invocation_logs": true,
+        },
+      },
+    },
     "production": {
       "name": "aeci-api-production",
       "workers_dev": false,
@@ -605,7 +760,6 @@
       // CACHE_PURGE_QUEUE (aeci-cache-purge-{env}) — no WEB binding, no CF purge token.
       "vars": {
         "ENV": "production",
-        "DD_SITE": "us5.datadoghq.com",
         // AECI-74: overridden at deploy time via `wrangler --var COMMIT_SHA:<sha> --var DEPLOYED_AT:<iso>`.
         "COMMIT_SHA": "unknown",
         "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
@@ -615,14 +769,27 @@
         // Worker; the service-role key is a Worker SECRET (not a var here), used
         // only by the ADR-0016 split-identity seams (AUTH_AND_RLS.md §4).
         "SUPABASE_URL": "https://ktuhnlypztujpsseujzx.supabase.co",
+        "POSTHOG_HOST": "https://us.i.posthog.com",
+        // AECI-640: the ONLY tier that reports to the production PostHog project
+        // `aec-integrations` (354071). Every other tier uses the dev project — see
+        // the preview env note.
+        "POSTHOG_PROJECT_KEY": "phc_Ka6zXrunFnSKZS6jQTqG6GNQHKuya9RTMZzQvcY7reJ",
         // AECI-240 / Phase 7.5: transactional email (Resend). See the staging note.
         // The RESEND_API_KEY secret is pushed by CI from RESEND_API_KEY_PRODUCTION
         // — absent → sends skip.
         "EMAIL_FROM": "AEC Integrations <notifications@aecintegrations.com>",
         "ADMIN_ALERT_EMAIL": "chrisw@thewbsproject.com",
+        // Operator alert on claim INTAKE (`POST /api/requests/claim`) — the support
+        // inbox, deliberately NOT `ADMIN_ALERT_EMAIL` (which stays the individual
+        // operator address for sweep alerts + lead capture). Absent -> the alert is a
+        // fail-open `skipped` and the Linear issue is still the durable record.
+        "CLAIM_ALERT_EMAIL": "support@aecintegrations.com",
         // AECI-241: sender + recipient(s) for the daily data-quality digest. Plain
-        // vars (not secrets — only RESEND_API_KEY is). `_FROM` must be on a Resend-
-        // verified domain (thewbsproject.com). `_TO` is comma-separated (read by
+        // vars (not secrets — only RESEND_API_KEY is). `_FROM` must be on the
+        // Resend-verified sending domain, which is `aecintegrations.com` (see
+        // docs/email.md §Deliverability). It previously read `thewbsproject.com`
+        // here, which was wrong and diverged staging/demo/stage2 from production
+        // until 2026-08-26. `_TO` is comma-separated (read by
         // parseRecipients). TODO: append Bill's address alongside Chris?
         "DATA_QUALITY_EMAIL_FROM": "AEC Integrations <notifications@aecintegrations.com>",
         "DATA_QUALITY_EMAIL_TO": "chrisw@thewbsproject.com",
@@ -639,12 +806,13 @@
         // AECI-236 / §20.2; canonicals are self-referential to the serving origin,
         // ADR 0011). Public value. The canonical public host is `www.` (ADR 0011
         // amendment 2026-07-05 — the SSR Worker 301s the bare apex → `www.`), so this
-        // matches it: emails, IndexNow, and Google Indexing all emit `www.` URLs that
-        // need no redirect hop and agree with the self-referential sitemap `<loc>`s.
-        // The launch-only `INDEXNOW_KEY` + `GOOGLE_INDEXING_SA_EMAIL` /
-        // `GOOGLE_INDEXING_SA_PRIVATE_KEY` secrets (AECI-263) must be provisioned at
-        // the same time — both the IndexNow and best-effort Google Indexing pings stay
-        // no-ops until they are.
+        // matches it: emails and IndexNow emit `www.` URLs that need no redirect hop
+        // and agree with the self-referential sitemap `<loc>`s. The launch-only
+        // `INDEXNOW_KEY` secret must be provisioned at the same time — the IndexNow
+        // ping stays a no-op until it is. (AECI-747 removed the Google Indexing ping:
+        // that API accepts only `JobPosting`/`BroadcastEvent`, so it never did
+        // anything for our pages. The `GOOGLE_INDEXING_SA_*` secrets are dead and
+        // should be deleted from every env — see the AECI-747 notes.)
         "PUBLIC_SITE_URL": "https://www.aecintegrations.com",
       },
       "kv_namespaces": [
@@ -699,6 +867,7 @@
       "triggers": {
         "crons": [
           "15 0 * * *",
+          "0 2 * * 2",
           "0 3 * * *",
           "0 4 * * *",
           "0 5 * * *",

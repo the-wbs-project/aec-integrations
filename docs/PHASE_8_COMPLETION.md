@@ -97,9 +97,12 @@ the whole epic.
 1. **`page_views` has a read surface.** It was write-only-in-practice since launch; the daily digest
    was the only thing that read it. Eight admin endpoints now do, behind `requireAdmin()`.
 2. **Cron liveness split in two.** Since AECI-583 the panel owns the **record** (last run, outcome,
-   duration per job, from `job_runs`); **Datadog still owns absence** — a cron that never starts
-   writes no row either, so only a no-data monitor catches it. §1 row 6 of the monitoring runbook
-   states the split rather than replacing one with the other.
+   duration per job, from `job_runs`); **something outside the Worker still owns absence** — a cron that never starts
+   writes no row either, so only an external check catches it. §1 row 6 of the monitoring runbook
+   states the split rather than replacing one with the other. *(Update 2026-08-24, AECI-648: that
+   external check is Datadog's `notify_no_data` **today** and becomes the AECI-647 external CI
+   liveness sweep — PostHog has no `notify_no_data` equivalent at any tier. The panel's half is
+   unchanged.)*
 3. **The morning read needs no email.** The 04:00 data-quality digest is readable on demand at
    `/admin/system`, with the last stored run as the default view; D1 size and per-table row counts
    no longer need `wrangler d1 execute`. Per **D2 no cron was retired** — push and pull are
@@ -132,9 +135,13 @@ obligations).
 
 Set the GitHub secret **values** so the CI-wired push lights up prod: `DD_APPLICATION_ID`, `DD_CLIENT_TOKEN` (Datadog RUM), and `POSTHOG_KEY`. Then verify `curl -s https://www.aecintegrations.com/ | grep -oE '__AECI_(POSTHOG|DD)__'` prints both, and ~1 week later do the first field CWV read (Datadog RUM → Optimize Vitals, `aeci` app, `env:production`, p75 LCP/CLS/INP vs `STAGE_1_PHASE_2_SPEC.md` §12) — recording it in `POST_LAUNCH_HEALTH_REPORT.md`. This closes AC3. Ops-only, no code.
 
+> **Update (2026-08-24, AECI-648).** `POSTHOG_KEY` **is no longer a secret to set.** AECI-640 made the publishable `phc_` token a committed per-env `vars.POSTHOG_PROJECT_KEY` in both `wrangler.jsonc` files and deleted the four CI push steps; the `POSTHOG_KEY_STAGING` / `_PRODUCTION` GH secrets are unreferenced and are an operator delete. The `DD_APPLICATION_ID` / `DD_CLIENT_TOKEN` half stands until AECI-651 retires Datadog RUM (ADR 0024 dual-run). The CWV read is also gaining a second source: PostHog `$web_vitals` on the Tier 2 anonymous slice covers **every** visitor including DNT/GPC, which is a wider sample than RUM had — and it moots the blocker-share caveat below only partially, since a blocker still blocks both.
+
 > **Update (2026-08-14, AECI-587).** The provisioning half is **done** — both globals are injected in prod HTML (verified by the `curl` above on 2026-08-14; first confirmed 2026-08-12). **AC3 is no longer blocked, only unread**: field data has been accruing for ~2 days, so the first CWV read is now a task rather than an impossibility. That read is the remaining half of this punt. Note the RUM sample stays thin while the site is pre-marketing, and PostHog additionally under-counts by whatever share of visitors run a blocker (→ AECI-590).
 
 ### F2 — Apply the three AECI-279 monitors to Datadog
+
+> **Still do this (2026-08-24, AECI-648).** Datadog is **live and operating production** for the whole ADR 0024 dual-run and is deleted only by AECI-651 — so these three go on applying to Datadog. AECI-647 ports the failure/threshold set to PostHog alerts (hourly) and re-homes `monitor-waf-poll-no-data.json`'s liveness job to the external CI sweep; do not skip the Datadog apply on the strength of that.
 
 Monitors are committed JSON applied out-of-band (`OBSERVABILITY.md` → "Applying the dashboard + monitors"). Apply: `monitor-data-quality-check.json` (edited → `severity:error`), `monitor-data-quality-check-warn.json` (new), `monitor-waf-poll-no-data.json` (new). Substitute `@NOTIFICATION_CHANNEL_TBD` → `@chrisw@thewbsproject.com`; decide the warn monitor's `@NOTIFICATION_CHANNEL_LOW_TBD` routing (a low-urgency handle, or leave literal to keep it UI-only / non-paging).
 

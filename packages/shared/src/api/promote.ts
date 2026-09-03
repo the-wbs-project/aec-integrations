@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import type { PromoteConnectorPageResponse } from './promote-connector';
+
 /**
  * `POST /api/promote` — push-based Airtable → Supabase promotion (supersedes the
  * pull-based `scripts/airtable-to-supabase-bulk-migrate.ts`). The review
@@ -57,6 +59,25 @@ export const PRODUCT_ROLES = ['application', 'connector', 'hybrid'] as const;
 export const RESEARCH_STATUSES = ['pending', 'in_progress', 'done', 'blocked'] as const;
 export const PRIORITY_TIERS = ['tier_1', 'tier_2', 'tier_3', 'tier_4', 'tier_5'] as const;
 export const PUBLIC_PRIVATE = ['public', 'private'] as const;
+// This list must stay in lockstep with `IntegrationMechanismKindSchema`
+// (`./integrations`), `MECHANISM_RANK` (`../algolia`), `VALID_MECHANISM_KINDS`
+// (`apps/api/src/lib/drizzle-helpers.ts`), `MECHANISM_ORDER`
+// (`apps/web/.../powered-hub-grouping.ts`) and the D1 CHECK. Nothing derives one
+// from another, so `integrations.spec.ts` asserts the five agree (AECI-735).
+//
+// `integrator` (AECI-698) replaces `partner`: an SI or consultancy built and
+// maintains the edge, neither endpoint vendor did. `partner` stays on the wire
+// until the review app has re-keyed its 117 rows and re-promoted them (AECI-712,
+// not yet run) — dropping it here would make the very push that carries the re-key
+// fail validation. `iPaaS` stays PERMANENTLY, not pending anything: AECI-735
+// settled that it is the marker behind the attestation gate, the Via lane and the
+// powered hub, over a population AECI-700 parks indefinitely.
+//
+// One DEPLOYMENT caveat on `integrator`: it reaches
+// `integrations_mechanism_kind_check` in `0027_powerful_killraven.sql`, so a
+// payload carrying it passes Zod and then fails the CHECK in any environment that
+// migration has not been applied to — production, until `stage-2` merges. See
+// `docs/REVIEW_APP_PROMOTE_API.md` §3.4.
 export const MECHANISM_KINDS = [
   'native',
   'iPaaS',
@@ -64,6 +85,7 @@ export const MECHANISM_KINDS = [
   'api',
   'webhook',
   'partner',
+  'integrator',
 ] as const;
 export const INTEGRATION_DIRECTIONS = ['one-way', 'bidirectional'] as const;
 
@@ -489,7 +511,25 @@ export interface PromoteTaxonomyResult {
  */
 export interface PromoteSkipped {
   ref: string;
-  kind: 'integration' | 'extension' | 'usefulness' | 'claim' | 'trade' | 'vendor' | 'product';
+  kind:
+    | 'integration'
+    | 'extension'
+    | 'usefulness'
+    | 'claim'
+    | 'trade'
+    | 'vendor'
+    | 'product'
+    // ── Connector lane (AECI-714) ──────────────────────────────────────────
+    // All four mean "this could not be RESOLVED" — the majority meaning of this
+    // type — and never "policy said no". They exist because the connector sync is
+    // PAGED and pages are not atomic with each other, so a page can legitimately
+    // reference a row that a later page carries. Widened here rather than given
+    // their own array because `logPromoteSkips` is already generic over `kind` and
+    // the review app's §4 skip handling is one code path on both sides.
+    | 'connector-catalog'
+    | 'connector-stub'
+    | 'connector-mapping'
+    | 'connector-pair';
   reason: string;
 }
 
@@ -519,6 +559,50 @@ export interface PromotePreserved {
 }
 
 /**
+ * One optional FK an integration named that AECi could **not** resolve, so the
+ * column was left out of the write entirely (AECI-730).
+ *
+ * **This is not `skipped[]`, and the difference is the whole point.** A `skipped`
+ * entry means the row was never written. An entry here means the integration row
+ * DID land — it is simply missing this one link. Before AECI-730 an unresolvable
+ * `poweredByProduct` produced neither: the edge was written with a NULL FK and the
+ * only signal was the *absence* of `poweredBySlug` from the result.
+ *
+ * **Expect a steady, non-zero stream of these, and do not treat them as errors.**
+ * The commonest cause by far is a connector AECi has deliberately parked and will
+ * never promote (Zapier and Workato — AECI-700), so for those edges this is the
+ * permanent expected state, not a backlog that drains. Re-pushing will not change
+ * it. The actionable case is the other one: a connector that *is* meant to be in
+ * the directory but hasn't been promoted yet — promote it, then re-push this edge.
+ */
+export interface PromoteUnresolvedLink {
+  /** The enclosing integration's payload `ref`. */
+  ref: string;
+  /**
+   * Which link failed to resolve. `powered_by` ← the payload's `poweredByProduct`
+   * (DB column `integrations.powered_by_product_id`); `built_by` ← `builtByVendor`
+   * (`integrations.built_by_vendor_id`).
+   */
+  field: 'powered_by' | 'built_by';
+  /**
+   * The id the payload carried. `null` only for the `{ ref }` form, which resolves
+   * within the bundle and therefore effectively never lands here.
+   */
+  supabaseId: string | null;
+  /**
+   * What the stored column holds as a result.
+   *
+   * - `unset` — the integration was **created**, so the column is NULL.
+   * - `preserved` — the integration was **updated** and the column was left exactly
+   *   as it already was, which may itself be NULL. This is the AECI-730 clobber
+   *   guard: before it, an unresolvable link on an update actively *cleared* a
+   *   correct FK that an earlier promote had set.
+   */
+  outcome: 'unset' | 'preserved';
+  reason: string;
+}
+
+/**
  * The ID map the review app persists. `product` is `null` for a vendor-only or
  * integration-only push (no `product` was sent) — and, since AECI-520, also when
  * the product was BLOCKED because a claimed vendor owns it; the two are told
@@ -526,7 +610,7 @@ export interface PromotePreserved {
  * `ref` only ever appears when a product was actually sent. A blocked vendor is
  * likewise absent from `vendors[]`. Omission (rather than an `operation:
  * 'blocked'`) is deliberate: every post-commit deriver — cache-tag purge,
- * IndexNow, Google Indexing, Algolia — iterates these arrays unconditionally, so
+ * IndexNow, Algolia — iterates these arrays unconditionally, so
  * omitting the entity excludes it from all of them by default rather than by
  * remembering to guard six call sites.
  *
@@ -565,6 +649,19 @@ export interface PromoteResponse {
    * an unclaimed product, which is still the overwhelming majority.
    */
   preserved: PromotePreserved[];
+
+  /**
+   * Integrations that WERE written but whose `poweredByProduct` / `builtByVendor`
+   * link could not be resolved, so that column was left out of the write (AECI-730).
+   * Distinct from `skipped[]` — see {@link PromoteUnresolvedLink}.
+   *
+   * Always emitted (as `[]` when clean) by any AECi build carrying AECI-730. It is
+   * declared **optional** only for backward compatibility: a promote job whose
+   * `promote_jobs` ledger row or `promote:result:{jobId}` KV mirror was written by
+   * an older build has no such key, and that stored `PromoteResponse` is replayed
+   * verbatim. Consumers must tolerate its absence — read it as `?? []`.
+   */
+  unresolvedLinks?: PromoteUnresolvedLink[];
 }
 
 // ─── Async job protocol (AECI-563) ───────────────────────────────────────────
@@ -607,6 +704,12 @@ export type PromoteJobStatus = 'queued' | 'running' | 'complete' | 'errored';
 export interface PromoteJobResponse {
   jobId: string;
   status: PromoteJobStatus;
-  result?: PromoteResponse;
+  /**
+   * `PromoteResponse` for a product bundle; `PromoteConnectorPageResponse` for a
+   * connector-catalogue page (AECI-714). Told apart by `'kind' in result` —
+   * `PromoteResponse` deliberately carries no `kind`, so absence means product and
+   * no existing producer or consumer moved.
+   */
+  result?: PromoteResponse | PromoteConnectorPageResponse;
   error?: { code: string; message: string };
 }

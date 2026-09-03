@@ -22,8 +22,8 @@ import type { ApiError } from '@aeci/shared';
 
 import { injectAlgoliaBootstrap } from './algolia-bootstrap-inject';
 import { injectPostHogBootstrap } from './posthog-bootstrap-inject';
-import { injectDatadogBootstrap } from './server-bootstrap-inject';
-import { logToDatadog, shouldEmitRenderLog } from './server-datadog';
+import { logToPosthog } from './server-posthog';
+import { shouldEmitRenderLog } from './server-render-log';
 import { injectHtmlLangDir } from './server-html-dir-inject';
 import { createCachePurgeQueueHandler } from './server/cache-purge-queue';
 import { cacheGateway, createApp, type Bindings, type SsrRenderer } from './server-runtime';
@@ -68,9 +68,8 @@ const app = createApp({
   transformResponse: async (res, env, request, ctx) => {
     // Chain the bootstrap injections: each operates on the previous one's
     // output so all `<script>` tags land before `</head>`. Each is a no-op
-    // when its public config is absent (AECI-31 / AECI-134 / AECI-194 / AECI-239).
-    const ddInjected = await injectDatadogBootstrap(res, env);
-    const algoliaInjected = await injectAlgoliaBootstrap(ddInjected, env);
+    // when its public config is absent (AECI-134 / AECI-194 / AECI-239).
+    const algoliaInjected = await injectAlgoliaBootstrap(res, env);
     const supabaseInjected = await injectSupabaseBootstrap(algoliaInjected, env);
     const posthogInjected = await injectPostHogBootstrap(supabaseInjected, env);
     // Rewrite `<html lang/dir>` from the request's locale prefix (AECI-153).
@@ -84,7 +83,7 @@ const app = createApp({
     // renders, so prod 2xx traffic doesn't flood the logs intake (AECI-103).
     if (shouldEmitRenderLog(env, injected.status)) {
       const { pathname, search } = new URL(request.url);
-      logToDatadog(ctx, env, request, {
+      logToPosthog(ctx, env, request, {
         message: 'ssr.render',
         path: pathname,
         query: search || undefined,

@@ -16,6 +16,7 @@ function makeIntegration(n: number): IntegrationListItem {
     direction: 'one-way',
     source: { id: `s${n}`, slug: `source-${n}`, name: `Source ${n}`, logo_url: null },
     target: { id: `t${n}`, slug: `target-${n}`, name: `Target ${n}`, logo_url: null },
+    via: null,
     created_at: '2024-03-01T00:00:00.000Z',
     updated_at: '2024-06-15T00:00:00.000Z',
   };

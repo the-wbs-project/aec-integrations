@@ -1,7 +1,7 @@
 /**
- * Client for the admin vendor-CLAIM endpoints (AECI-521 LIST +
- * AECI-519 PATCH / `STAGE_2_VENDOR_PORTAL_SPEC.md` §5, §3), consumed by the
- * `/admin/claims` reviewer surface.
+ * Client for the admin vendor-CLAIM endpoints (AECI-521 LIST + AECI-519 PATCH +
+ * AECI-739 DETAIL/notes / `STAGE_2_VENDOR_PORTAL_SPEC.md` §5, §5.2, §3), consumed
+ * by the `/admin/claims` reviewer surface and the `/admin/claims/:id` detail page.
  *
  * Mirrors `AdminRequestsApi`: browser-side reads/mutations over the SSR Worker's
  * `/api/*` passthrough (service binding). The same-origin requests carry the
@@ -16,12 +16,11 @@ import { Injectable, inject } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 
 import type {
+  AdminClaimDetail,
   ListVendorClaimsQuery,
   ListVendorClaimsResponse,
   ModerateClaimInput,
   ModerateClaimResponse,
-  SetVendorEntitlementInput,
-  VendorEntitlementResponse,
 } from '@aeci/shared';
 
 @Injectable({ providedIn: 'root' })
@@ -46,25 +45,22 @@ export class AdminClaimsApi {
     );
   }
 
-  /**
-   * `PATCH /api/admin/vendors/:id/entitlement` — set / renew / clear the vendor's
-   * paid entitlement (AECI-532 / `STAGE_2_PAID_TIERS_SPEC.md` §5).
-   *
-   * Takes a VENDOR id, not a claim id: a product claim's entitlement belongs to that
-   * product's primary vendor, which is why the row carries a resolved
-   * `entitlement_vendor`. `verified` is never sent — it is a mirror of the entitlement
-   * row, written server-side in the same batch (§2.1), and comes back on the response
-   * as a read-only readout.
-   */
-  setEntitlement(
-    vendorId: string,
-    input: SetVendorEntitlementInput,
-  ): Promise<VendorEntitlementResponse> {
+  /** `GET /api/admin/claims/:id` — one claim, every queue signal plus the
+   *  siblings that explain its duplicate chip (AECI-739 / §5.2 step 5). */
+  getClaim(id: string): Promise<AdminClaimDetail> {
     return firstValueFrom(
-      this.http.patch<VendorEntitlementResponse>(
-        `/api/admin/vendors/${encodeURIComponent(vendorId)}/entitlement`,
-        input,
-      ),
+      this.http.get<AdminClaimDetail>(`/api/admin/claims/${encodeURIComponent(id)}`),
+    );
+  }
+
+  /** `PATCH /api/admin/claims/:id/notes` — write or clear the operator note
+   *  (AECI-739 / §5.2 step 6). `null` (or blank) clears it; an unchanged note is
+   *  a 200 no-op that writes nothing. Returns the refreshed detail either way. */
+  saveNotes(id: string, notes: string | null): Promise<AdminClaimDetail> {
+    return firstValueFrom(
+      this.http.patch<AdminClaimDetail>(`/api/admin/claims/${encodeURIComponent(id)}/notes`, {
+        notes,
+      }),
     );
   }
 }

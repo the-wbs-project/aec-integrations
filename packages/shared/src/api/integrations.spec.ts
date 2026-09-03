@@ -1,12 +1,15 @@
 import { describe, expect, it } from 'vitest';
 
+import { MECHANISM_RANK, mechanismRank } from '../algolia';
 import {
   IntegrationDetailSchema,
   IntegrationListItemSchema,
+  IntegrationMechanismKindSchema,
   IntegrationSortSchema,
   IntegrationsListQuerySchema,
   IntegrationsListResponseSchema,
 } from './integrations';
+import { MECHANISM_KINDS } from './promote';
 import { registerSchemaStructuralCases } from './schema-suite.harness';
 
 const uuid = (n: number) => `${String(n).padStart(8, '0')}-0000-4000-8000-000000000000`;
@@ -130,5 +133,64 @@ describe('IntegrationsListQuerySchema', () => {
   it('rejects an unknown mechanism_kind', () => {
     const result = IntegrationsListQuerySchema.safeParse({ mechanism_kind: 'rpa' });
     expect(result.success).toBe(false);
+  });
+});
+
+// ─── The mechanism-vocabulary lockstep (AECI-735) ────────────────────────────
+//
+// Five independent lists spell out the same vocabulary and NOTHING derives one
+// from another:
+//
+//   1. `IntegrationMechanismKindSchema` — here
+//   2. `MECHANISM_KINDS`                — `./promote` (the promote wire enum)
+//   3. `MECHANISM_RANK`                 — `../algolia` (Algolia ranking weights)
+//   4. `VALID_MECHANISM_KINDS`          — `apps/api/src/lib/drizzle-helpers.ts`
+//   5. `MECHANISM_ORDER`                — `apps/web/.../powered-hub-grouping.ts`
+//
+// plus the D1 `integrations_mechanism_kind_check`. This file pins the canonical
+// set and covers the three that live in this package; (4) and (5) assert against
+// `IntegrationMechanismKindSchema.options` in their own packages, and the CHECK is
+// covered in `apps/api/src/test/mechanism-vocabulary.spec.ts`.
+//
+// Drift is not uniformly loud. A value missing from (2) 400s a whole promote
+// payload (`PromotePayloadSchema` is parsed whole before the Workflow starts); one
+// missing from (4) throws on read (`toMechanismKind` is fail-loud). But (3) falls
+// through to rank `0` and (5) is used as a FILTER — both degrade SILENTLY, which is
+// what this suite exists to catch.
+describe('mechanism vocabulary lockstep', () => {
+  // The canonical set. Changing it means a hand-assembled D1 migration (a CHECK
+  // change is a destructive table recreate) plus every list above, in one commit.
+  //
+  // `iPaaS` and `partner` are BOTH still here on purpose, and for different
+  // reasons — AECI-735. `iPaaS` is permanent: it is the marker behind
+  // `isConnectorPoweredEdge` (AECI-705's attestation gate), `routeIntegrationLane`
+  // clause (c) (the Via lane) and `MECHANISM_ORDER`, over a population AECI-700
+  // parks indefinitely. `partner` is pending AECI-712's upstream re-key.
+  const MECHANISM_VOCABULARY = [
+    'native',
+    'iPaaS',
+    'marketplace-app',
+    'api',
+    'webhook',
+    'partner',
+    'integrator',
+  ] as const;
+
+  const sorted = (values: readonly string[]) => [...values].sort();
+
+  it('pins the vocabulary', () => {
+    expect(sorted(IntegrationMechanismKindSchema.options)).toEqual(sorted(MECHANISM_VOCABULARY));
+  });
+
+  it('matches the promote wire enum — a missing value 400s a whole payload', () => {
+    expect(sorted(MECHANISM_KINDS)).toEqual(sorted(MECHANISM_VOCABULARY));
+  });
+
+  it('matches MECHANISM_RANK — an absent key SILENTLY ranks 0', () => {
+    expect(sorted(Object.keys(MECHANISM_RANK))).toEqual(sorted(MECHANISM_VOCABULARY));
+    // …and every weight is a real one, not the unknown-kind sentinel.
+    for (const kind of MECHANISM_VOCABULARY) {
+      expect(mechanismRank(kind)).toBeGreaterThan(0);
+    }
   });
 });

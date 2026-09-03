@@ -73,17 +73,20 @@
 
 import {
   defaultIntegrationContext,
+  isSpeculativeRequest,
   isUntrackedRoute,
   LANDING_CF_HEADERS,
   PAGE_VIEW_CF_HEADERS,
+  PAGE_VIEW_CLIENT_SIGNAL_HEADERS,
 } from '@aeci/shared';
 import type { IntegrationDetail, PageViewPayload } from '@aeci/shared';
 import { isPublicSite } from '@aeci/shared/deploy-env';
+import { discardResponseBody } from '@aeci/shared/response-drain';
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 
 import type { WebEnv } from './env';
-import { submitCount, submitDistribution } from './server-datadog';
+import { submitCount, submitDistribution } from './server-posthog';
 import { createServerApiClient, isServerApiError } from './server-api-client';
 import { buildCacheTags, cacheTagInputsForPath, type CacheTagInputs } from './server/cache-tags';
 import { createRequestContext, type AeciRequestContext } from './server/request-context';
@@ -361,11 +364,11 @@ const RESILIENCE = { staleWhileRevalidate: 60, staleIfError: 86_400 } as const;
  * carries its own `{kind}_id` on the path, not the query, but listing it here
  * costs nothing), so the union is applied uniformly.
  *
- * AECI-190 — `/products` SSR-renders a different layout for `?view=table`
- * (the dense table) vs. the card-grid default, so `view` is content-affecting
+ * AECI-190 / AECI-657 — `/products` and (since AECI-657) the four taxonomy
+ * browse pages SSR-render a different layout for `?view=table` (the dense table)
+ * vs. the card-grid default, so `view` is content-affecting on all five routes
  * and MUST be in the key or the two renders collapse onto one entry and serve
- * wrong HTML. Only `/products` reads it; on the browse routes it's a harmless
- * over-include per the §4a rule above.
+ * wrong HTML.
  */
 const LISTING_CACHE_KEY_PARAMS: readonly string[] = [
   'page',
@@ -392,6 +395,13 @@ const MULTI_VALUE_CACHE_KEY_PARAMS: ReadonlySet<string> = new Set([
   'category_id',
   'audience_id',
   'phase_id',
+  // AECI-544 shipped `trade_id` as a fourth multi-select dimension (it is in
+  // `DIMENSIONS` in `facet-sidebar.ts`, and `onRefine` emits it sorted like the
+  // other three) but missed this set, so a hand-typed/bot `?trade_id=b,a` got
+  // its own cache entry instead of collapsing onto `a,b`. Content was always
+  // correct — the sidebar is the only producer and it already sorts — but the
+  // entry was a duplicate. Kept in step with `LISTING_CACHE_KEY_PARAMS` above.
+  'trade_id',
 ]);
 
 const ROUTE_CACHE_PATTERNS: readonly RoutePattern[] = [
@@ -402,7 +412,8 @@ const ROUTE_CACHE_PATTERNS: readonly RoutePattern[] = [
   // is dropped from the cache key; UTM still survives in the real browser URL for
   // `buildAttribution` at submit time (same as every other lead-capture surface).
   { match: (p) => p === '/updates', ttl: { edge: 86_400, browser: 3_600 } },
-  // /roadmap — coming-soon placeholder behind the header "More" menu. Static and
+  // /roadmap — coming-soon placeholder, linked from the footer's Company column
+  // (it sat behind the header "More" menu until that was retired). Static and
   // visitor-state-neutral like /about, so the same static-page TTL. It is
   // `robots: noindex` (component-set) and absent from sitemap.xml; neither
   // affects cacheability.
@@ -684,12 +695,13 @@ function withCacheHeaders(
 type WaitUntilContext = { waitUntil(promise: Promise<unknown>): void };
 
 /**
- * Optional post-SSR hook. `server.ts` uses this to (a) inject the Datadog RUM
+ * Optional post-SSR hook. `server.ts` uses this to (a) inject the analytics
  * bootstrap `<script>` into the rendered HTML before it reaches the edge
  * cache, so the cached payload already carries deployment-scoped public
- * tokens, and (b) emit a per-render Datadog log so any SSR hit produces
- * visible signal in Datadog Logs. Kept generic (no Datadog vocabulary in this
- * file) so `createApp` remains a pure cache/cookie/SSR pipeline.
+ * tokens, and (b) emit a per-render log so any SSR hit produces visible
+ * signal. During the dual-run both legs fan out to PostHog and Datadog
+ * (ADR 0024); this file stays vendor-neutral so `createApp` remains a pure
+ * cache/cookie/SSR pipeline.
  *
  * Receives the request and the waitUntil-capable ctx so transforms can fan
  * out async side-effects (logging, metrics) without blocking the response.
@@ -706,8 +718,8 @@ export type ResponseTransform = (
  * `page_views` (AECI-177). It is populated on the inbound eyeball request but
  * does NOT survive the `env.API` service binding, so we copy the needed fields
  * onto the trusted `PAGE_VIEW_CF_HEADERS` (`x-aeci-cf-*`) before forwarding.
- * Structural — we read only the five fields we forward, so no global CF typing
- * is required and a `.cf`-less request (Node tests, local dev) is a clean no-op.
+ * Structural — we read only the fields we forward, so no global CF typing is
+ * required and a `.cf`-less request (Node tests, local dev) is a clean no-op.
  */
 interface CfLike {
   country?: string | null;
@@ -716,6 +728,10 @@ interface CfLike {
   /** AS holder name (AECI-585) — the label the bare `asn` cannot supply. */
   asOrganization?: string | null;
   botManagement?: { score?: number | null } | null;
+  /** Negotiated TLS version / protocol (AECI-658). Available on Pro, unlike the
+   *  bot score; low-entropy corroboration only, never a fingerprint. */
+  tlsVersion?: string | null;
+  httpProtocol?: string | null;
 }
 
 /**
@@ -734,6 +750,11 @@ export function applyCfContextHeaders(headers: Headers, request: Request): void 
   }
   const score = cf.botManagement?.score;
   if (typeof score === 'number') headers.set(PAGE_VIEW_CF_HEADERS.botScore, String(score));
+  // AECI-658. Two low-entropy connection facts Pro does expose, forwarded for the
+  // same reason as everything above: `request.cf` does not survive the service
+  // binding, so the value has to be copied onto a header or it is lost.
+  if (cf.tlsVersion) headers.set(PAGE_VIEW_CF_HEADERS.tlsVersion, String(cf.tlsVersion));
+  if (cf.httpProtocol) headers.set(PAGE_VIEW_CF_HEADERS.httpProtocol, String(cf.httpProtocol));
 }
 
 /**
@@ -857,6 +878,22 @@ function firePageView(
   sourceRequest: Request,
 ): void {
   if (isUntrackedRoute(payload.route)) return;
+  // AECI-743 — a HEAD (or any non-GET) is not a page view. `handleSsr` sends every
+  // non-GET down the non-cacheable branch, which still runs the renderer and still
+  // lets a detail resolver attach `ctx.pageView`, so a HEAD-then-GET probe used to
+  // write two byte-identical `arrival` rows — identical down to the route PATTERN,
+  // because both carried the same resolver payload. Guarded HERE rather than at the
+  // one call site that can reach it, so the invariant survives a future branch.
+  if (sourceRequest.method !== 'GET') return;
+  // AECI-743 — a browser prefetch/prerender is speculative: the visitor may never
+  // see this page, and a prerender is otherwise indistinguishable from a real
+  // arrival (it sends `Sec-Fetch-Dest: document` like any navigation). Skipped
+  // rather than recorded under a new `navigation` value, so no read surface has to
+  // learn a new exclusion. Counted so the volume stays observable.
+  if (isSpeculativeRequest(sourceRequest.headers)) {
+    submitCount(execCtx, env, sourceRequest, 'aeci.pageviews.speculative', 1, []);
+    return;
+  }
   const headers = new Headers({ 'content-type': 'application/json' });
   applyCfContextHeaders(headers, sourceRequest);
   const userAgent = sourceRequest.headers.get('user-agent');
@@ -866,6 +903,37 @@ function firePageView(
   // exactly what fires this write. AECI-526.
   const referer = sourceRequest.headers.get('referer');
   if (referer) headers.set('referer', referer);
+  // Forward the eyeball's request-shape headers (`Sec-Fetch-*`, `Accept-Language`,
+  // `sec-ch-ua`, `Accept`) so the API can record how browser-shaped this arrival
+  // was (AECI-658, `lib/client-signals.ts`). This is the ONLY path that needs the
+  // copy: the browser tracker POSTs its own fetch, which carries them natively.
+  //
+  // Copied verbatim under their real names rather than renamed onto `x-aeci-*`,
+  // because nothing is trusted on the strength of them — they produce an
+  // annotation (`client_verdict`), never an `is_bot` verdict, so there is no
+  // spoofing boundary to defend. Cache-neutral for the same reason `cookie` below
+  // is: this header set exists only on the fire-and-forget analytics subrequest.
+  for (const name of PAGE_VIEW_CLIENT_SIGNAL_HEADERS) {
+    const value = sourceRequest.headers.get(name);
+    if (value) headers.set(name, value);
+  }
+  // Forward the eyeball's `Cookie` so the API can decide whether this arrival is
+  // the operator checking their own work (`is_operator`, ADMIN_PANEL_SPEC §13 D13).
+  // The API verifies the session token itself — this header is transport, and
+  // nothing in it is trusted before JWKS verification.
+  //
+  // This is the ONLY page-view path that needed it: the browser tracker POSTs
+  // same-origin, so its cookies already ride the `/api/*` passthrough untouched.
+  // Leaving this out is exactly why D7 judged a per-view role signal "right half
+  // the time" and dropped `profile_role`; forwarding it makes arrivals and in-app
+  // hops agree.
+  //
+  // Cache-neutral by construction: this header is set on the fire-and-forget
+  // analytics subrequest only. It never reaches `renderer()` (the cacheable branch
+  // renders from the cookie-stripped `sanitized` request) and can never reach a
+  // response written to the shared edge cache.
+  const cookie = sourceRequest.headers.get('cookie');
+  if (cookie) headers.set('cookie', cookie);
   // Pathname only — never the query or hash. `page_views` stores a referrer HOST
   // for the same reason (§9.7); a concrete path carrying `?token=…` would put the
   // full URL back into the table the privacy rule keeps it out of.
@@ -879,7 +947,15 @@ function firePageView(
         body: JSON.stringify(body),
       }),
     )
-      .then(() => undefined)
+      .then((res) => {
+        // Nothing here reads the body, and an unread body holds its stream open
+        // (AECI-666). This is a service binding rather than an outbound network
+        // `fetch`, so it is not the connection class that caused the promote
+        // incident — but this fires on EVERY full-document arrival, which makes
+        // it the highest-frequency unread response in the codebase, and
+        // releasing it costs nothing.
+        discardResponseBody(res);
+      })
       .catch(() => undefined),
   );
 }
@@ -964,22 +1040,29 @@ async function handleSsr(
 
   // AECI-66 / Phase 2 §14 — emit `aeci.page.render.duration_ms` for cacheable
   // routes, tagged by `route_class` (detail/index/browse) + `cache_status` +
-  // `status_code` so the dashboard's 4xx/5xx widget can split on it. Under WC-3
+  // `status_class` so the dashboard's 4xx/5xx widget can split on it. Under WC-3
   // the Worker only runs on a native-cache MISS (edge HITs skip it), so the sole
   // `cache_status` value here is `MISS`; HIT-rate visibility moves to
   // `Cf-Cache-Status` + the Workers observability dashboard (WC-8). Non-cacheable
   // paths (the 404 wildcard, non-GET) have no route_class and are intentionally
   // excluded from this histogram — they're covered by the `aeci.ssr.render` count
   // metric (AECI-103, emitted on every branch). Documented in docs/OBSERVABILITY.md.
+  //
+  // The raw `status_code` tag was DROPPED (AECI-642/AECI-645, POSTHOG_MIGRATION_SPEC.md
+  // §3.5) — the same defect fixed on the API side in `metrics-middleware.ts`. It
+  // multiplied this metric's series by every distinct status observed per route
+  // class, and the §AW4 arithmetic already puts the catalogue at ~85% of PostHog's
+  // 1,000-series-per-window guardrail before resource attributes apply. The exact
+  // code lives on the error log for the same render, which is where a drill-down
+  // belongs; no new tag goes on this metric without redoing that arithmetic.
   const routeClass = cacheTagInputsForPath(localePath)?.route;
   const emitRenderMetric = (statusCode: number): void => {
     if (!routeClass) return;
-    // `status_class` (2xx/4xx/5xx) is what the error-rate widget + monitor split
-    // on — Datadog tag filters can't do numeric `>= 400` on `status_code`.
+    // `status_class` (2xx/4xx/5xx) is what the error-rate widget + alert split
+    // on — tag filters can't do a numeric `>= 400` comparison on a status code.
     submitDistribution(execCtx, env, request, 'aeci.page.render.duration_ms', Date.now() - start, [
       `route_class:${routeClass}`,
       'cache_status:MISS',
-      `status_code:${statusCode}`,
       `status_class:${Math.floor(statusCode / 100)}xx`,
     ]);
   };
@@ -1371,12 +1454,15 @@ export function createApp(options: {
     // mapped to a 404 render (don't reveal the surface). GET-only so it can't
     // intercept the API Worker's earlier-registered `POST /admin/purge`.
     // AECI-520 extends the same gate to the Stage 2 vendor portal `/vendor*`.
-    // The gate ships ahead of the surface it guards: there is no `/vendor` route
-    // in `app.routes.ts` yet (AECI-522 adds it), so an authenticated visitor
-    // currently falls through to the Angular wildcard 404. When that route lands
-    // it MUST carry the `/admin` resolver pattern — call `GET /api/vendor/me`
-    // and map a 403 to a 404 render — because this gate only stops ANONYMOUS
-    // visitors; an authenticated non-vendor reaches SSR either way.
+    // The gate shipped ahead of the surface it guards; AECI-522 landed that
+    // surface, and it carries the `/admin` resolver pattern as required —
+    // `vendorMeResolver` calls `GET /api/vendor/me` and maps a 401/403/404 to a
+    // 404 render. That is not optional, because this gate only stops ANONYMOUS
+    // visitors: an authenticated non-vendor reaches SSR either way.
+    // `isVendorPath` matches the deep section paths too
+    // (`/vendor/:vendorSlug/products/:productSlug`,
+    // `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.2), so the bounce carries the whole
+    // path through in `?return=` and the visitor lands back where they aimed.
     if (c.req.method === 'GET') {
       const url = new URL(c.req.url);
       const { path } = stripLocalePrefix(url.pathname);

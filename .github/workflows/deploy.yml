@@ -131,13 +131,18 @@ on:
     # lint-and-types / unit-tests / build-web / e2e-and-integration and deploys
     # nothing.
     #
-    # Skip the full CI suite for docs-only changes (markdown + docs/). A PR that
-    # also touches code still runs — paths-ignore only skips when EVERY changed
-    # file matches. `main` has no required status checks, so a skipped run can't
-    # deadlock a merge.
-    paths-ignore:
-      - '**/*.md'
-      - 'docs/**'
+    # NO workflow-level `paths-ignore` on `pull_request` — DELIBERATELY REMOVED.
+    # Both `main` AND `stage-2` require the three status checks `Lint & typecheck`
+    # / `Unit tests` / `Build SSR Worker`. A workflow skipped by a path filter
+    # never CREATES those check runs, so on a docs-only PR they sit `Pending`
+    # forever and the required-check gate BLOCKS the merge with no way to clear it
+    # (a skipped *workflow* ≠ a skipped *job*; only the latter reports as passed).
+    # The earlier comment here claimed "`main` has no required status checks" —
+    # that was wrong, and it deadlocked the first docs-only PR into `stage-2`.
+    # The docs-skip optimization is preserved where it is safe: it now lives on
+    # the individual expensive, NON-required jobs (`e2e-and-integration`), gated
+    # by the `changes` job below, so the required checks always report while the
+    # heavy E2E lane still skips for markdown/docs-only changes.
   push:
     # `push` DOES keep a branch list: a post-merge run only makes sense for the
     # branches that accumulate merges (the production line + the long-lived
@@ -168,6 +173,44 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
 jobs:
+  # Detect whether the change touches anything other than markdown / docs. Used
+  # to skip the expensive, NON-required jobs (E2E) on docs-only changes WITHOUT
+  # starving the required checks: the three required jobs always run and report,
+  # while the heavy lanes gate on `needs.changes.outputs.code`. The job runs on
+  # BOTH events — `e2e-and-integration` reads its output unconditionally and
+  # `deploy-staging` needs THAT job, so a failure here skips the staging deploy.
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      # REQUIRED — do not drop. dorny/paths-filter reads the changed-file list
+      # from the GitHub API on `pull_request`, but shells out to git on `push`.
+      # With no working copy that is `git branch --show-current` →
+      # `fatal: not a git repository` → exit 128, which failed this job and,
+      # through `needs:`, skipped `e2e-and-integration` and (on main)
+      # `deploy-staging`. Every push run since #588 failed this way.
+      - uses: actions/checkout@v5
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          # On `push`, point `base` at the pushed branch so paths-filter diffs
+          # against `github.event.before` — the commits this push actually
+          # added. Its default base is the repo DEFAULT branch, which on a
+          # long-lived integration branch (`stage-2`, `admin-panel`) would diff
+          # the whole branch against `main` and report `code: true` forever.
+          # Empty on `pull_request`, where the action ignores `base` and uses
+          # the API.
+          base: ${{ github.event_name == 'push' && github.ref_name || '' }}
+          # `code` is true when at least one changed file is NOT markdown and
+          # NOT under docs/. A docs-only PR yields `code == 'false'`.
+          filters: |
+            code:
+              - '**'
+              - '!**/*.md'
+              - '!docs/**'
+
   lint-and-types:
     name: Lint & typecheck
     runs-on: ubuntu-latest
@@ -230,6 +273,15 @@ jobs:
           cache: 'pnpm'
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @aeci/web build
+      # AECI-646 note: since the production build emits HIDDEN source maps, this
+      # artifact now carries `.map` files. That is deliberate — the deploy job
+      # downloads this artifact and `scripts/ci/posthog-sourcemaps.sh` needs the
+      # maps to inject + upload before it deletes them. The exposure is bounded:
+      # a GitHub artifact is repo-private and expires in 7 days, whereas
+      # `dist/browser` is uploaded verbatim as Worker ASSETS (see the `assets`
+      # binding in apps/web/wrangler.jsonc) and would be world-readable. The maps
+      # never reach that path — every exit route of the sourcemaps script deletes
+      # them, including the warn-skip when POSTHOG_CLI_API_KEY is absent.
       - uses: actions/upload-artifact@v6
         with:
           name: web-dist
@@ -245,7 +297,19 @@ jobs:
     # downloads build-web's `web-dist` artifact and boots dev:bound ONCE, then
     # runs Playwright e2e + the edge-cache extras script against the same server.
     runs-on: ubuntu-latest
-    needs: [build-web]
+    # NON-required job — safe to skip on docs-only PRs. It is gated on the
+    # `changes` filter (not a workflow-level `paths-ignore`) so the REQUIRED
+    # checks above still always run and report. `build-web` is itself skipped on
+    # docs-only PRs' `push` runs via the retained push `paths-ignore`; on PRs it
+    # always runs, so this job only needs its own `code` guard.
+    #
+    # The guard FAILS OPEN (`!= 'false'`, not `== 'true'`) — deliberate. This job
+    # is the last `needs:` between a push to main and `deploy-staging`, so a
+    # `changes` job that errors rather than answering must NOT be able to skip
+    # the staging deploy. Only an explicit `code == 'false'` (a real docs-only
+    # verdict) skips; an empty output from a failed/skipped filter runs the lane.
+    needs: [changes, build-web]
+    if: ${{ !cancelled() && needs.build-web.result == 'success' && needs.changes.outputs.code != 'false' }}
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
@@ -436,7 +500,7 @@ jobs:
       # THE RULE (do not deploy to an environment if the variables it needs are
       # missing): fail BEFORE any deploy if a required staging secret is absent,
       # so staging is never half-provisioned. Recommended-but-optional secrets
-      # (Datadog / cache-purge) only warn. Required set must stay in sync with
+      # (cache-purge) only warn. Required set must stay in sync with
       # the runtime contracts in apps/api/src/env.ts + apps/web/src/env.ts and
       # the secrets pushed below. See docs/environments.md §Secrets.
       - name: Preflight — required secrets present (staging)
@@ -447,13 +511,10 @@ jobs:
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
           CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
           ADMIN_PURGE_TOKEN: ${{ secrets.ADMIN_PURGE_TOKEN }}
-          DATADOG_API_KEY: ${{ secrets.DATADOG_API_KEY }}
           # Un-suffixed RUM pair (one shared "aeci" app on us5), pushed to the web
           # Worker below. Must be MAPPED here, not just named in
           # RECOMMENDED_SECRETS — require-secrets.sh checks the VALUE, so an
           # unmapped name false-warns "not set" on every deploy.
-          DD_APPLICATION_ID: ${{ secrets.DD_APPLICATION_ID }}
-          DD_CLIENT_TOKEN: ${{ secrets.DD_CLIENT_TOKEN }}
           # Cache invalidation is queue + in-process since ADR 0020 (WC-5/WC-6),
           # and WC-10 (AECI-324) retired the zone HTTP purge transport — so there
           # is no CF_PURGE_API_TOKEN here. CF_ZONE_ID survives on its own merit:
@@ -476,6 +537,12 @@ jobs:
           # false-warns "not set".
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           CF_ANALYTICS_API_TOKEN: ${{ secrets.CF_ANALYTICS_API_TOKEN }}
+          # AECI-660/661 read-side cron creds. Must be MAPPED here (not just named
+          # in RECOMMENDED_SECRETS) or require-secrets.sh reads them empty and
+          # false-warns "not set" on every deploy.
+          POSTHOG_QUERY_API_KEY_NONPROD: ${{ secrets.POSTHOG_QUERY_API_KEY_NONPROD }}
+          POSTHOG_PROJECT_ID_NONPROD: ${{ secrets.POSTHOG_PROJECT_ID_NONPROD }}
+          PEERINGDB_API_KEY: ${{ secrets.PEERINGDB_API_KEY }}
           ENV_LABEL: staging
           REQUIRED_SECRETS: 'REVIEW_APP_TOKEN CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID CF_ACCESS_CLIENT_ID CF_ACCESS_CLIENT_SECRET'
           # AECI-193 / ADR 0017: SUPABASE_ANON_KEY is the SINGLE shared auth
@@ -501,7 +568,7 @@ jobs:
           # CF_PURGE_API_TOKEN is deliberately ABSENT: WC-10 (AECI-324) retired the
           # zone HTTP purge transport. CF_ZONE_ID stays — it is still the GraphQL
           # `zoneTag` for the AECI-262 WAF firewall-event poll (`env.ts`).
-          RECOMMENDED_SECRETS: 'ADMIN_PURGE_TOKEN DATADOG_API_KEY DD_APPLICATION_ID DD_CLIENT_TOKEN CF_ZONE_ID ALGOLIA_APP_ID ALGOLIA_ADMIN_KEY ALGOLIA_SEARCH_KEY SUPABASE_ANON_KEY SUPABASE_SERVICE_ROLE_KEY ANTHROPIC_API_KEY_STAGING RESEND_API_KEY CF_ANALYTICS_API_TOKEN'
+          RECOMMENDED_SECRETS: 'ADMIN_PURGE_TOKEN CF_ZONE_ID ALGOLIA_APP_ID ALGOLIA_ADMIN_KEY ALGOLIA_SEARCH_KEY SUPABASE_ANON_KEY SUPABASE_SERVICE_ROLE_KEY ANTHROPIC_API_KEY_STAGING RESEND_API_KEY CF_ANALYTICS_API_TOKEN POSTHOG_QUERY_API_KEY_NONPROD POSTHOG_PROJECT_ID_NONPROD PEERINGDB_API_KEY'
         run: bash scripts/require-secrets.sh
 
       - name: Install pnpm
@@ -728,11 +795,56 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "$CF_ANALYTICS_API_TOKEN_VALUE" ]; then
-            echo "::warning::CF_ANALYTICS_API_TOKEN not set — skipping push. The WAF→Datadog poll will no-op on staging (outcome:skipped_no_creds) until it is provisioned (AECI-262)."
+            echo "::warning::CF_ANALYTICS_API_TOKEN not set — skipping push. The WAF→PostHog poll will no-op on staging (outcome:skipped_no_creds) until it is provisioned (AECI-262)."
             exit 0
           fi
           printf '%s' "$CF_ANALYTICS_API_TOKEN_VALUE" \
             | pnpm exec wrangler secret put CF_ANALYTICS_API_TOKEN --env staging
+
+      # AECI-660 / AECI-661. Three read-side credentials the API Worker's cron jobs
+      # use, all OPTIONAL + FAIL-OPEN, so warn-and-skip and never in
+      # REQUIRED_WORKER_SECRETS. They had no CI step at all until now: the
+      # environments.md rows described them as "CI-pushed" from the day they shipped,
+      # but the wiring was never written, so a value set in GH secrets reached no
+      # Worker and prod ran with the features inert.
+      #
+      # POSTHOG_QUERY_API_KEY is a PostHog PERSONAL key (`phx_…`, scope `query:read`)
+      # and is NOT the publishable `POSTHOG_KEY` (`phc_…`) pushed to the web Worker —
+      # this one grants account-wide read and must never reach apps/web.
+      # POSTHOG_PROJECT_ID is suffixed like POSTHOG_KEY because PostHog splits on ONE
+      # axis — prod vs non-prod — and the two do NOT share a project. Staging, demo and
+      # PR previews all write to the non-prod project (`_NONPROD`); only production
+      # writes to the production project (`_PRODUCTION`). Within a project the tiers
+      # are separated by $host, which is what the digest filters on. An un-suffixed id
+      # would point this tier's digest at some other project filtered to this tier's
+      # host, and `count()` over an empty set returns a real row of zeros — so the
+      # digest would print a confident "0 PostHog pageviews", the fabricated zero the
+      # whole join exists to avoid.
+      # PEERINGDB_API_KEY is env-independent (the upstream is a public registry).
+      - name: Push analytics read credentials to API Worker (staging)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          POSTHOG_QUERY_API_KEY_VALUE: ${{ secrets.POSTHOG_QUERY_API_KEY_NONPROD }}
+          POSTHOG_PROJECT_ID_VALUE: ${{ secrets.POSTHOG_PROJECT_ID_NONPROD }}
+          PEERINGDB_API_KEY_VALUE: ${{ secrets.PEERINGDB_API_KEY }}
+        working-directory: apps/api
+        run: |
+          set -euo pipefail
+          if [ -n "$POSTHOG_QUERY_API_KEY_VALUE" ] && [ -n "$POSTHOG_PROJECT_ID_VALUE" ]; then
+            printf '%s' "$POSTHOG_QUERY_API_KEY_VALUE" \
+              | pnpm exec wrangler secret put POSTHOG_QUERY_API_KEY --env staging
+            printf '%s' "$POSTHOG_PROJECT_ID_VALUE" \
+              | pnpm exec wrangler secret put POSTHOG_PROJECT_ID --env staging
+          else
+            echo "::warning::POSTHOG_QUERY_API_KEY_NONPROD / POSTHOG_PROJECT_ID_NONPROD not both set — skipping push. The daily digest will report the D1 upper bound alone plus a 'PostHog lower bound unavailable' note (AECI-660). Both are required together; one alone is a no-op."
+          fi
+          if [ -n "$PEERINGDB_API_KEY_VALUE" ]; then
+            printf '%s' "$PEERINGDB_API_KEY_VALUE" \
+              | pnpm exec wrangler secret put PEERINGDB_API_KEY --env staging
+          else
+            echo "::warning::PEERINGDB_API_KEY not set — skipping push. The weekly asn_registry refresh stays anonymous; anonymous whole-list reads are throttled hard and production's first run returned 429 (AECI-661)."
+          fi
 
       # CF_ZONE_ID is the zone the AECI-262 WAF firewall-event poll queries. It
       # used to be pushed alongside CF_PURGE_API_TOKEN for the ADR 0010 zone
@@ -749,11 +861,39 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "$CF_ZONE_ID_VALUE" ]; then
-            echo "::warning::CF_ZONE_ID not set — skipping push. The WAF→Datadog poll no-ops on staging (outcome:skipped_no_creds, AECI-262)."
+            echo "::warning::CF_ZONE_ID not set — skipping push. The WAF→PostHog poll no-ops on staging (outcome:skipped_no_creds, AECI-262)."
             exit 0
           fi
           printf '%s' "$CF_ZONE_ID_VALUE" \
             | pnpm exec wrangler secret put CF_ZONE_ID --env staging
+      # ─────────────────────────────────────────────────────────────────────
+      # PostHog source maps (AECI-646 / POSTHOG_MIGRATION_SPEC.md §AW5).
+      #
+      # ORDER MATTERS: this runs AFTER the build and BEFORE the deploy, because
+      # `sourcemap inject` rewrites the built JS (it appends the `//# chunkId=…`
+      # comment PostHog matches a minified frame against). Deploying the
+      # pre-inject bundle would upload maps that can never be matched.
+      #
+      # Angular emits HIDDEN maps (apps/web/angular.json) — `.map` files with no
+      # `//# sourceMappingURL=` comment in the served JS. The script uploads them
+      # and then DELETES them, on every exit path including the warn-skip: Worker
+      # assets are served verbatim, so a stray `.map` would publish the whole app
+      # source at a guessable URL.
+      #
+      # POSTHOG_CLI_API_KEY is a PERSONAL key (scopes: `error tracking write` +
+      # `organization read`). CI-only — it must never become a Worker secret; the
+      # Workers authenticate with the publishable `phc_` project token instead.
+      # Absent ⇒ warn-skip (stack traces stay minified) and the maps are still
+      # deleted. Never blocks a deploy.
+      # ─────────────────────────────────────────────────────────────────────
+      - name: PostHog source maps — inject + upload (staging)
+        continue-on-error: true
+        env:
+          POSTHOG_CLI_API_KEY: ${{ secrets.POSTHOG_CLI_API_KEY }}
+          POSTHOG_CLI_PROJECT_ID: ${{ vars.POSTHOG_PROJECT_ID_NONPROD || '525793' }}
+          PH_SM_RELEASE_VERSION: ${{ github.sha }}
+          PH_SM_RELEASE_NAME: aeci-web
+        run: bash scripts/ci/posthog-sourcemaps.sh
 
       - name: Deploy SSR
         env:
@@ -811,65 +951,18 @@ jobs:
           printf '%s' "$ALGOLIA_SEARCH_KEY_VALUE" \
             | pnpm exec wrangler secret put ALGOLIA_SEARCH_KEY --env staging
 
-      # AECI-239/Phase 7.4: push the PUBLIC PostHog project key to the staging WEB
-      # Worker so the SSR `posthog-bootstrap-inject` can emit
-      # `window.__AECI_POSTHOG__` and the browser analytics layer can init (after
-      # consent). Web only; the project API key is publishable (client-exposed),
-      # same security class as ALGOLIA_SEARCH_KEY. POSTHOG_HOST is a plain `vars`
-      # entry (US Cloud), so only the key is pushed here. Recommended-but-optional:
-      # warn-and-skip when unset keeps staging green pre-provision (analytics
-      # no-ops, fail-open). Same idempotent deploy→secret order.
-      - name: Push PostHog key to web Worker (staging)
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          POSTHOG_KEY_VALUE: ${{ secrets.POSTHOG_KEY_STAGING }}
-        working-directory: apps/web
-        run: |
-          set -euo pipefail
-          if [ -z "$POSTHOG_KEY_VALUE" ]; then
-            echo "::warning::POSTHOG_KEY_STAGING not set — skipping push. PostHog analytics no-ops (no window.__AECI_POSTHOG__) until it is provisioned."
-            exit 0
-          fi
-          printf '%s' "$POSTHOG_KEY_VALUE" \
-            | pnpm exec wrangler secret put POSTHOG_KEY --env staging
-
-      # AECI-326: push the PUBLIC Datadog RUM credentials to the staging WEB
-      # Worker so SSR `server-bootstrap-inject` emits `window.__AECI_DD__` and the
-      # browser RUM layer can init and report Core Web Vitals. Web only; both are
-      # client-exposed (rendered into HTML), same security class as POSTHOG_KEY.
-      # `vars.DD_SITE` (us5) is inherited from wrangler.jsonc. A single "aeci" RUM
-      # app on us5 — the per-env `env` field separates staging from prod, so the
-      # same un-suffixed DD_APPLICATION_ID/DD_CLIENT_TOKEN are used everywhere
-      # (like DATADOG_API_KEY). Warn-and-skip keeps staging green pre-provision
-      # (RUM no-ops, fail-open). Same idempotent deploy→secret order.
-      - name: Push Datadog RUM credentials to web Worker (staging)
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          DD_APPLICATION_ID_VALUE: ${{ secrets.DD_APPLICATION_ID }}
-          DD_CLIENT_TOKEN_VALUE: ${{ secrets.DD_CLIENT_TOKEN }}
-        working-directory: apps/web
-        run: |
-          set -euo pipefail
-          if [ -z "$DD_APPLICATION_ID_VALUE" ] || [ -z "$DD_CLIENT_TOKEN_VALUE" ]; then
-            echo "::warning::DD_APPLICATION_ID / DD_CLIENT_TOKEN not set — skipping push. Datadog RUM no-ops (no window.__AECI_DD__, no Core Web Vitals) until they are provisioned."
-            exit 0
-          fi
-          printf '%s' "$DD_APPLICATION_ID_VALUE" \
-            | pnpm exec wrangler secret put DD_APPLICATION_ID --env staging
-          printf '%s' "$DD_CLIENT_TOKEN_VALUE" \
-            | pnpm exec wrangler secret put DD_CLIENT_TOKEN --env staging
-
-      # AECI-56 / docs/CACHE_STRATEGY.md §5: the ONE credential that makes
-      # `POST /admin/purge` work on the SSR Worker — the caller's bearer
-      # (ADMIN_PURGE_TOKEN). WC-6 (AECI-320) moved the handler onto in-process
-      # `ctx.cache.purge()` inside the Renderer entrypoint, so it no longer holds
-      # Cloudflare API creds at all (CF_PURGE_API_TOKEN retired in WC-10, and the
-      # SSR Worker never needed CF_ZONE_ID for anything else). Pushing from CI
-      # keeps the Worker's bearer identical to the GH secret that CI and the
-      # incident runbook present. Warn-and-skip (fail-open) — purge degrades to
-      # TTL self-heal, so NOT in REQUIRED_WORKER_SECRETS.
+      # AECI-640: the "push POSTHOG_KEY to the web Worker" step that stood here
+      # is GONE. The `phc_` project token is publishable — it is rendered into
+      # the served HTML on every page — so it is now a committed per-env
+      # `vars.POSTHOG_PROJECT_KEY` entry in `apps/web/wrangler.jsonc` (and
+      # `apps/api/wrangler.jsonc`), not a CI-pushed secret. AECI-239 kept it out
+      # of git for tidiness; that is precisely what produced the weeks-dark
+      # production analytics of AECI-326 — the push step ran, the secret was
+      # absent, and the warn-and-skip path said so only in a log nobody read. A
+      # committed var has no provisioning step to forget.
+      #
+      # The `POSTHOG_KEY_STAGING` / `POSTHOG_KEY_PRODUCTION` GitHub secrets are
+      # now unused and should be deleted (operator step, AECI-640).
       - name: Push cache-purge credentials to web Worker (staging)
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -946,7 +1039,7 @@ jobs:
       # that the staging Algolia indexes match the promoted D1 rows, right after the
       # settings apply above. NON-BLOCKING (`continue-on-error`) — drift is
       # report-only (§23.1; humans triage) and the script exits 0 on found drift; the
-      # alert is the Datadog monitor on `aeci.algolia.index_drift`. DRY-RUN (no
+      # alert is the PostHog liveness sweep on `aeci.algolia.index_drift`. DRY-RUN (no
       # `--apply`) — the daily 09:00 UTC API Worker cron (apps/api/src/scheduled.ts)
       # does the actual orphan removal; this is only the immediate post-deploy report.
       # Reads the deployed D1 via `wrangler d1 execute --remote` (no Prisma/DIRECT_URL
@@ -959,6 +1052,37 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           ALGOLIA_APP_ID: ${{ secrets.ALGOLIA_APP_ID }}
           ALGOLIA_ADMIN_KEY: ${{ secrets.ALGOLIA_ADMIN_KEY }}
-          DD_API_KEY: ${{ secrets.DATADOG_API_KEY }}
-          DD_ENV: staging
+          POSTHOG_PROJECT_KEY: phc_pY8FDQ9FNAmFUJFFd85jNKAAUCMvndUsyGMMV8TR97MD
+          TELEMETRY_ENV: staging
         run: pnpm --filter @aeci/api exec tsx scripts/reconcile-algolia-drift.ts --env staging
+
+      # ─────────────────────────────────────────────────────────────────────
+      # PostHog deploy marker (AECI-640 / POSTHOG_MIGRATION_SPEC.md §AW5).
+      #
+      # Two legs: a project ANNOTATION (the vertical line across every insight —
+      # needs the personal `phx_` key) and a queryable `deployment` EVENT (what a
+      # HogQL query joins against — needs only the publishable `phc_` token). The
+      # annotation leg warn-skips until the operator provisions POSTHOG_CLI_API_KEY;
+      # the event leg works today because the project key is a committed var.
+      #
+      # `continue-on-error: true` AND the script always exits 0 — belt and braces.
+      # A PostHog outage must never fail a deploy. Runs AFTER the smoke gate so a
+      # marker means "a healthy release went out", not "a deploy was attempted".
+      #
+      # The `phc_` token below is the same publishable value committed in
+      # wrangler.jsonc and rendered into every served page — it is not a secret
+      # (see the AECI-640 note there). Project ids fall back to the literals so
+      # this works with zero provisioning; set the repo variables to repoint
+      # without a code change.
+      # ─────────────────────────────────────────────────────────────────────
+      - name: PostHog deploy marker (staging)
+        continue-on-error: true
+        env:
+          PH_EVENT_ENV: staging
+          PH_SERVICE: both
+          PH_VERSION: ${{ github.sha }}
+          PH_DEPLOY_KIND: deploy
+          PH_PROJECT_KEY: phc_pY8FDQ9FNAmFUJFFd85jNKAAUCMvndUsyGMMV8TR97MD
+          PH_PROJECT_ID: ${{ vars.POSTHOG_PROJECT_ID_NONPROD || '525793' }}
+          POSTHOG_CLI_API_KEY: ${{ secrets.POSTHOG_CLI_API_KEY }}
+        run: bash scripts/ci/posthog-deploy-marker.sh

@@ -12,7 +12,7 @@ import type { Env } from './env';
 import { ApiError, errorHandler } from './errors';
 import { requireAdmin, requireAuth, requireVendor, type AuthzVariables } from './lib/authz';
 import { resolveClaimantIdentity } from './lib/claimant-identity';
-import { sendClaimDecisionEmail } from './lib/email';
+import { sendClaimDecisionEmail, sendSeatInvite } from './lib/email';
 import { pushRequestResolutionToLinear } from './lib/linear';
 import { requireReviewAppAuth } from './lib/review-auth';
 import { requireUserAuth } from './lib/user-auth';
@@ -23,8 +23,28 @@ import {
   createUpdateAccountHandler,
 } from './routes/account';
 import { createGetAccountReviewsHandler } from './routes/account-reviews';
-import { createAdminClaimsListHandler, createModerateClaimHandler } from './routes/admin-claims';
+import {
+  createAdminClaimDetailHandler,
+  createAdminClaimsListHandler,
+  createModerateClaimHandler,
+  createSaveClaimNotesHandler,
+} from './routes/admin-claims';
+import { createSetConnectorCatalogManagementHandler } from './routes/admin-connector-catalogs';
+import {
+  createAdminConnectorAuditHandler,
+  createAdminConnectorCatalogDetailHandler,
+  createAdminConnectorCatalogsListHandler,
+  createAdminConnectorPairsHandler,
+  createAdminConnectorStubsHandler,
+} from './routes/admin-connectors';
 import { createSetVendorEntitlementHandler } from './routes/admin-entitlements';
+import {
+  createAdminRevokeSeatHandler,
+  createAdminVendorAuditHandler,
+  createAdminVendorDetailHandler,
+  createAdminVendorsListHandler,
+} from './routes/admin-vendors';
+import { createAdminUserDetailHandler, createAdminUsersListHandler } from './routes/admin-users';
 import {
   createAdminRequestsListHandler,
   createModerateRequestHandler,
@@ -64,7 +84,10 @@ import { createAdminReviewsListHandler, createModerateReviewHandler } from './ro
 import { createProductReviewsListHandler } from './routes/product-reviews';
 import { createProductDetailHandler, createProductsListHandler } from './routes/products';
 import { createPromoteJobHandler } from './routes/promote-jobs';
-import { createPromoteKickoffHandler } from './routes/promote-kickoff';
+import {
+  createConnectorCatalogKickoffHandler,
+  createPromoteKickoffHandler,
+} from './routes/promote-kickoff';
 import { createClaimSubmitHandler, createCorrectionSubmitHandler } from './routes/requests';
 import { createSubmitReviewHandler } from './routes/reviews';
 import { createStatsHomeHandler } from './routes/stats';
@@ -92,6 +115,15 @@ import {
   createVendorClaimHandler,
 } from './routes/vendor-attestations';
 import { createListDataObjectsHandler } from './routes/vendor-data-objects';
+import {
+  createRemoveSeatHandler,
+  createRevokeSeatInviteHandler,
+  createSeatInviteHandler,
+} from './routes/vendor-seat-invites';
+import {
+  createAcceptSeatInviteHandler,
+  createSeatInvitePreviewHandler,
+} from './routes/seat-invites';
 import { createVendorUpdatesHandler } from './routes/vendor-updates';
 import { createVendorDetailHandler, createVendorsListHandler } from './routes/vendors';
 import { createVersionHandler } from './routes/version';
@@ -241,7 +273,9 @@ app.route('/', phase28);
 // they match; reached only over the service binding like every other route.
 //
 //   - POST /api/promote          — validate, start the promote Workflow, 202 { jobId }.
-//   - GET  /api/promote/jobs/:id — status + the committed ID map.
+//   - POST /api/promote/connector-catalog
+//                                — one PAGE of one connector catalogue (AECI-714).
+//   - GET  /api/promote/jobs/:id — status + the committed result, for BOTH kinds.
 //
 // The commit no longer happens on the request: a client that walks away can no
 // longer strand a committed promote's IDs (AECI-561). A failure inside the Workflow
@@ -250,6 +284,15 @@ app.route('/', phase28);
 const reviewPromote = new Hono<{ Bindings: Env }>();
 reviewPromote.onError(errorHandler({ logClientErrors: true, source: 'review-app-promote' }));
 reviewPromote.post('/api/promote', requireReviewAppAuth(), createPromoteKickoffHandler());
+// Same sub-router deliberately: it inherits `requireReviewAppAuth()` and the
+// `source: 'review-app-promote'` onError, so a rejected connector page is diagnosable
+// from the logs plane exactly like a rejected product push. Polled on the SAME job
+// route below — there is one job protocol, not two.
+reviewPromote.post(
+  '/api/promote/connector-catalog',
+  requireReviewAppAuth(),
+  createConnectorCatalogKickoffHandler(),
+);
 reviewPromote.get('/api/promote/jobs/:id', requireReviewAppAuth(), createPromoteJobHandler());
 app.route('/', reviewPromote);
 
@@ -327,7 +370,13 @@ app.route('/', authAccount);
 //     claim grants a `vendor_admin` seat + flips `vendors.verified` in one batch,
 //     rather than a plain resolve. The `/admin/claims` LIST is AECI-521.
 //   - GET   /api/admin/reviewers    (6.11) — paginated currently-banned reviewers.
-//   - PATCH /api/admin/reviewers/:id(6.11) — ban/unban a reviewer.
+//     SUPERSEDED AS A SCREEN by `GET /api/admin/users?banned=true` (AECI-692),
+//     which is the same `banned_at IS NOT NULL` predicate with filters, search
+//     and paging. Kept as an endpoint; `/admin/reviewers` now redirects.
+//   - PATCH /api/admin/reviewers/:id(6.11) — ban/unban a reviewer. Unchanged by
+//     AECI-692 and still the SOLE writer of `profiles.banned_at` anywhere —
+//     `/admin/users/:id` is now the surface that calls it, but it added no
+//     second writer (`banned-at-writers.spec.ts` asserts this at the source).
 //   - PATCH /api/admin/vendors/:id/entitlement (S2 §5, AECI-532) — set / renew /
 //     clear a vendor's paid entitlement. The ONLY writer that can take
 //     `vendors.verified` back down, and it does so through the entitlement row:
@@ -336,6 +385,50 @@ app.route('/', authAccount);
 //     no `workflow_instances` row, because that CHECK is closed (§1.2). Clearing
 //     is NOT a seat revoke and NOT a ban (§5.2): seats, logins and the dashboard
 //     survive, read-only.
+//   - PATCH /api/admin/connector-catalogs/:id (AECI-720) — the per-iPaaS management
+//     cutoff. Flips `connector_catalogs.managed_by`; `vendor` freezes the review
+//     lane for that catalogue and the promote arm then refuses its pages with
+//     `CATALOG_VENDOR_MANAGED`. Audit-only (no workflow row, closed CHECK) and no
+//     purge — nothing reads that table yet. Reversible: "one-way forever" governs
+//     the data direction, not the flag. Grants no seat (§8.9(2)/(3)).
+//   - GET    /api/admin/vendors                   (S2 §5.6, AECI-652) — paginated
+//     vendor list + name/slug search. The way in for a vendor that never filed a
+//     claim; before this the entitlement control could only be reached through a
+//     `/admin/claims` card, which made concierge onboarding unreachable.
+//   - GET    /api/admin/vendors/:id               (S2 §5.6, AECI-652) — basics,
+//     entitlement, the seat roster + pending invites, and product / integration /
+//     claim counts. Two D1 round trips: a 404 gate, then ONE `db.batch` of six
+//     reads (a batch for the round trip, not for atomicity — and deliberately not
+//     a `UNION`, which D1 caps at 5 compound terms).
+//   - GET    /api/admin/vendors/:id/audit         (S2 §5.6, AECI-652) — the FIRST
+//     read surface `audit_log` has ever had, and the first reader of
+//     `audit_log_entity_idx`. `?scope=all|entity|actor`. Entity scope is four
+//     OR'd disjuncts because `entity_id = <vendor>` misses more than it catches:
+//     a rejected claim's metadata carries no `vendor_id`, a revoked seat's row
+//     files under the seat's `profiles.id` — which no longer points at the vendor
+//     by the time anyone reads it — and a seat ban/unban files under the seat's
+//     `profiles.id` with no `vendor_id` either. See `auditScopeWhere`.
+//   - DELETE /api/admin/vendors/:id/seats/:userId (S2 §5.6, AECI-652) — revoke one
+//     seat, AECi-side. Composes `revokeSeatStatements` unchanged, so the
+//     `vendor_claim.seat_revoked` row rides the same `db.batch` and NO statement
+//     names `vendors`: revoking a seat is orthogonal to the entitlement and never
+//     moves the mirror (§5.2). Ban/unban stays on `/api/admin/reviewers/:id`.
+//   - GET    /api/admin/users                     (AP §5.8, AECI-692) — paginated
+//     PROFILES-first user list; filters `role` / `banned` / `has_seat`, search by
+//     display name and (only when the term contains `@`) by exact email.
+//     Profiles-first because ONE Supabase project backs every environment
+//     (ADR 0017), so GoTrue's own user list rendered on prod would include
+//     staging and preview signups. `perPage` caps at 50, not the shared 100:
+//     each row costs one GoTrue GET in waves of WORKER_CONNECTION_LIMIT.
+//   - GET    /api/admin/users/:id                 (AP §5.8, AECI-692) — profile,
+//     auth account, the ONE vendor seat, live pending invites, and counts
+//     (reviews by status, invites sent, entitlements granted, best-effort
+//     request matches). Three round trips in a forced order: D1, then the seam
+//     to learn the address, then the two reads keyed BY that address — invites
+//     and requests are addressed to an email, not a user id, so without the seam
+//     they are genuinely unknowable and report `null`, never `[]` or `0`.
+//     No page-view stats, ever: AECI-585 dropped the join column and
+//     `ADMIN_PANEL_SPEC.md` §9 item 7 forbids visitor↔account correlation.
 //
 // Phase 8.3 (AECI-574 P1.1, AECI-577 P1.3) adds the admin panel's READ endpoints
 // to the same router — no new gate, `requireAdmin()` stays the single enforcement
@@ -395,6 +488,13 @@ authAdmin.patch(
 // Stage 2 / AECI-521: the claim-review LIST (reviewer-assist signals). Read-only,
 // clones the requests LIST; the reviewer decides on the assembled evidence.
 authAdmin.get('/api/admin/claims', requireAdmin(), createAdminClaimsListHandler());
+// Stage 2 / AECI-739: one claim, plus the explanation behind the queue's duplicate
+// chip (§5.2 step 5). Read-only, no audit row.
+authAdmin.get('/api/admin/claims/:id', requireAdmin(), createAdminClaimDetailHandler());
+// Stage 2 / AECI-739: the operator note (§5.2 step 6) — a sub-resource, not a third
+// `ModerateClaimSchema.action`, because a note changes no status and is writable at
+// all four of them. One `db.batch` carrying the UPDATE + its audit row.
+authAdmin.patch('/api/admin/claims/:id/notes', requireAdmin(), createSaveClaimNotesHandler());
 // Stage 2 / AECI-519: the claim → verified-account grant. `resolveClaimantIdentity`
 // reports `unavailable` (→503) wherever `SUPABASE_SERVICE_ROLE_KEY` is absent — local
 // dev and PR previews, since AECI-530 CI-pushes it on staging/demo/production.
@@ -415,6 +515,79 @@ authAdmin.patch(
   '/api/admin/vendors/:id/entitlement',
   requireAdmin(),
   createSetVendorEntitlementHandler(),
+);
+// Stage 2 / AECI-652: the admin vendor surface (§5.6). Three reads plus one seat
+// revoke. Registered AFTER the entitlement PATCH so the literal `/entitlement`
+// and `/seats/:userId` segments are unambiguous against the bare `/:id`; Hono's
+// trie separates them by segment count anyway, but the order documents intent.
+// The GETs write nothing — reads emit no `audit_log` row (§9.3). The DELETE does
+// write, and reuses `revokeSeatStatements`, so its audit row rides the same
+// `db.batch` and NO statement names `vendors` — a seat revoke is orthogonal to
+// the entitlement and never moves the mirror (§5.2).
+authAdmin.get('/api/admin/vendors', requireAdmin(), createAdminVendorsListHandler());
+authAdmin.get('/api/admin/vendors/:id', requireAdmin(), createAdminVendorDetailHandler());
+authAdmin.get('/api/admin/vendors/:id/audit', requireAdmin(), createAdminVendorAuditHandler());
+authAdmin.delete(
+  '/api/admin/vendors/:id/seats/:userId',
+  requireAdmin(),
+  createAdminRevokeSeatHandler(),
+);
+// AECI-692: the admin user surface (§5.8). Two READS and nothing else — ban and
+// reinstate reuse `PATCH /api/admin/reviewers/:id` above completely unchanged, so
+// there is still exactly one writer of `profiles.banned_at` in the codebase, and
+// seat revoke stays on the vendor roster where the blast radius is visible.
+// Literal segment before the bare `/:id`, matching the vendors block.
+authAdmin.get('/api/admin/users', requireAdmin(), createAdminUsersListHandler());
+authAdmin.get('/api/admin/users/:id', requireAdmin(), createAdminUserDetailHandler());
+// AECI-720: the per-iPaaS management cutoff. Flips `connector_catalogs.managed_by`,
+// which freezes the review lane for that catalogue — `POST /api/promote/connector-catalog`
+// then refuses every page for it with `CATALOG_VENDOR_MANAGED`. Audit-only, no
+// `workflow_instances` row (that CHECK is closed, §1.2) and NO cache purge: nothing reads
+// `connector_catalogs` CACHEABLY - AECI-722 reads it, but only on the uncacheable /admin
+// surface, so there is still no tag to purge. The flag is reversible; what is
+// one-way is the DATA direction, which the promote refusal delivers. Grants no seat — see
+// `STAGE_2_SPEC.md` §8.9(2)/(3); the screen that calls this is AECI-722's.
+authAdmin.patch(
+  '/api/admin/connector-catalogs/:id',
+  requireAdmin(),
+  createSetConnectorCatalogManagementHandler(),
+);
+// AECI-722: the connector admin surface (§5.9) - the FIRST read layer over the six
+// AECI-714 tables. Five GETs, registered AFTER the PATCH above so the literal
+// `/stubs`, `/pairs` and `/audit` segments are unambiguous against the bare `/:id`;
+// Hono's trie separates them by segment count anyway, but the order documents intent
+// and matches the vendors and users blocks.
+//
+// Every one of them WRITES NOTHING - no `audit_log` row (§6's convention, ADR 0022's
+// scoping), no purge and no `Cache-Tag`. Mapping decisions are deliberately NOT
+// writable here: the sync upserts `connector_stub_mappings` wholesale, so an
+// AECi-authored decision is exactly the row it would clobber. That returns at
+// AECI-724 time gated on `managed_by = 'vendor'` - the argument is in
+// `packages/shared/src/api/admin-connectors.ts`.
+authAdmin.get(
+  '/api/admin/connector-catalogs',
+  requireAdmin(),
+  createAdminConnectorCatalogsListHandler(),
+);
+authAdmin.get(
+  '/api/admin/connector-catalogs/:id',
+  requireAdmin(),
+  createAdminConnectorCatalogDetailHandler(),
+);
+authAdmin.get(
+  '/api/admin/connector-catalogs/:id/stubs',
+  requireAdmin(),
+  createAdminConnectorStubsHandler(),
+);
+authAdmin.get(
+  '/api/admin/connector-catalogs/:id/pairs',
+  requireAdmin(),
+  createAdminConnectorPairsHandler(),
+);
+authAdmin.get(
+  '/api/admin/connector-catalogs/:id/audit',
+  requireAdmin(),
+  createAdminConnectorAuditHandler(),
 );
 // Admin panel reads (AECI-574, AECI-577, AECI-579, AECI-580, AECI-586).
 // Registered after the moderation routes; no path collides with
@@ -539,7 +712,58 @@ authVendor.delete(
 authVendor.get('/api/vendor/data-objects', requireVendor(), createListDataObjectsHandler());
 // AECI-627. No path overlap with anything above, so ordering is free.
 authVendor.get('/api/vendor/updates', requireVendor(), createVendorUpdatesHandler());
+//
+// Stage 2 / AECI-664 adds the OWNER half of seat management — the first writes on
+// this surface that change who can reach it. Three gates in order: `requireVendor()`
+// (which vendor), `requireSeatOwner()` inside each handler (`profiles.seat_owner`,
+// re-read from D1 every request so a demotion lands on the next call), then the
+// `vendor_id` filter that is the actual authorization. Deliberately NOT
+// capability-gated: seats are not a paid feature, and gating removal on a live
+// entitlement would stop a lapsed vendor revoking a departed employee's access
+// (§11a). `DELETE /seats/:userId` is the first HTTP surface `revokeSeatStatements`
+// has ever had — AECI-524 shipped the builder unwired.
+//   - POST   /api/vendor/seats/invites     — invite a colleague (201).
+//   - DELETE /api/vendor/seats/invites/:id — revoke a pending invite (204).
+//   - DELETE /api/vendor/seats/:userId     — remove a seat (204).
+//
+// The invites routes are registered BEFORE `/seats/:userId` so the literal
+// `invites` segment can never be parsed as a user id.
+authVendor.post(
+  '/api/vendor/seats/invites',
+  requireVendor(),
+  createSeatInviteHandler(getDb, sendSeatInvite),
+);
+authVendor.delete(
+  '/api/vendor/seats/invites/:id',
+  requireVendor(),
+  createRevokeSeatInviteHandler(),
+);
+authVendor.delete('/api/vendor/seats/:userId', requireVendor(), createRemoveSeatHandler());
 app.route('/', authVendor);
+
+// Stage 2 / AECI-664 — the INVITEE half, on its own prefix and its own router.
+// `requireAuth()`, NOT `requireVendor()`: the caller is signed in but is not a
+// vendor admin yet, which is the entire point. It is not under `/api/vendor/*`
+// precisely so that a future prefix-level vendor guard cannot silently lock the
+// one endpoint that has to be reachable by a non-vendor.
+//
+// The token in the URL identifies an invite; it never authorizes one. Redeeming
+// requires the session's VERIFIED email to equal the invited address, so a
+// forwarded or prefetched link grants nothing. GET describes, POST mutates — mail
+// scanners fetch what they are sent, and a GET that redeemed would be spent by the
+// invitee's own security appliance before they clicked (the `/unsubscribe`
+// confirm-then-POST discipline, AECI-537).
+//   - GET  /api/seat-invites/:token        — preview + redeemability verdict.
+//   - POST /api/seat-invites/:token/accept — attach the seat.
+const authSeatInvites = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
+authSeatInvites.onError(errorHandler());
+authSeatInvites.get('/api/seat-invites/:token', requireAuth(), createSeatInvitePreviewHandler());
+authSeatInvites.post(
+  '/api/seat-invites/:token/accept',
+  requireAuth(),
+  createAcceptSeatInviteHandler(),
+);
+app.route('/', authSeatInvites);
 
 // Catch-alls throw so the root `onError` renders the canonical §3.3 envelope
 // (AECI-101) — an unmatched `/api/*` route parses with `ApiErrorSchema` too.

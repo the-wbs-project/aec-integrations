@@ -12,6 +12,18 @@
  * (they now 301-redirect to `/products`). Their DETAIL pages stay reachable via
  * product → vendor / integration links, `sitemap.xml`, and direct URL / search.
  *
+ * **This is the overflow home.** The header's `More▾` menu was retired: the
+ * primary row is public-directory-only and closed, so a secondary destination
+ * comes here rather than into a header menu (DESIGN.md §Navigation → The
+ * Overflow Rule). The footer already carried ten of that menu's twelve links;
+ * Updates and Roadmap were the two it lacked and now sit in Company. Nothing was
+ * lost to crawlers in the move — the old panel was `[hidden]`, not unmounted, so
+ * those links were server-rendered there and are server-rendered here.
+ *
+ * Because the footer is now load-bearing for secondary navigation, its columns
+ * are pinned by `site-footer.component.spec.ts`: a link silently dropping out is
+ * a regression, not a tidy-up.
+ *
  * Layout: the brand area and the nav group are two flex regions. The nav group
  * is its own responsive grid (2 cols on mobile → 3 cols from `sm`) so the three
  * navs stay balanced instead of the brand eating a full quarter-column and
@@ -75,9 +87,10 @@ import { BrandLogo } from './brand-logo';
                   <!-- Tight i18n wrap so the source matches taxonomy-nav-copy.ts's
                        $localize (shared @@app.nav.* id): avoids a duplicate-id
                        collision in extraction (mirrors the AECI-67 fix). The
-                       Legal + Company links below carry the same wrap for the
-                       same reason: the header's "More" menu renders them from
-                       more-menu-links.ts under these same @@app.footer.* ids. -->
+                       Legal + Company links below keep the same wrap: several
+                       reuse @@app.nav.* / @@app.footer.* ids that other surfaces
+                       also emit, and an identical source string is one
+                       translation unit rather than a collision. -->
                   <ng-container i18n="@@app.nav.categories">Categories</ng-container>
                 </a>
               </li>
@@ -156,6 +169,19 @@ import { BrandLogo } from './brand-logo';
               <li>
                 <a routerLink="/contact" class="text-(--text-secondary) hover:text-(--text-primary)"
                   ><ng-container i18n="@@app.footer.contact">Contact</ng-container></a
+                >
+              </li>
+              <!-- The forward-looking pair, moved here when the header's "More"
+                   menu was retired. They keep their @@app.nav.* ids: the string
+                   is unchanged, so it stays one translation unit. -->
+              <li>
+                <a routerLink="/updates" class="text-(--text-secondary) hover:text-(--text-primary)"
+                  ><ng-container i18n="@@app.nav.updates">Updates</ng-container></a
+                >
+              </li>
+              <li>
+                <a routerLink="/roadmap" class="text-(--text-secondary) hover:text-(--text-primary)"
+                  ><ng-container i18n="@@app.nav.roadmap">Roadmap</ng-container></a
                 >
               </li>
             </ul>

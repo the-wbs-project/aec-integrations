@@ -8,17 +8,21 @@
  *
  * ── `pending_reviews` on the read shapes (AECI-617) ─────────────────────────────
  * `GET`/`PATCH` return the moderation-queue count for `role === 'admin'` (`null`
- * otherwise) so the header's admin probe (`apps/web/.../admin/admin-status.ts`)
+ * otherwise) so the header's role probe (`apps/web/.../auth/role-status.ts`)
  * gets role + badge count in one round trip rather than chaining
  * `GET /api/admin/summary`. That second hop repeated the JWKS verify and the
- * `profiles` read, and its latency was the visible lag before the "More" menu's
- * Admin section appeared. `routes/admin-summary.ts` is unchanged — it stays the
+ * `profiles` read, and its latency was the visible lag before the header's Admin
+ * affordance appeared. `routes/admin-summary.ts` is unchanged — it stays the
  * `/admin` SSR resolver's gate and the in-shell badge feed.
  *
+ * That one probe also answers the vendor portal's door (`role === 'vendor_admin'`),
+ * so a signed-in page load makes a single request here however many role-gated
+ * affordances the header carries.
+ *
  * ── Erasure (DELETE), split across the identity seam ────────────────────────────
- * `profiles(id)` has seven inbound FKs; five are NO ACTION, so they must be nulled
+ * `profiles(id)` has eight inbound FKs; five are NO ACTION, so they must be nulled
  * before the profile delete. Under D1 that erasure is ONE atomic `db.batch([...])`
- * (null the 7 refs + the PII-free `account.deleted` audit + delete the profile).
+ * (null the 8 refs + the PII-free `account.deleted` audit + delete the profile).
  * The `auth.users` row then goes via the GoTrue Admin API (seam #3,
  * `lib/supabase-admin.ts`) AFTER the batch commits — an HTTP call can't join the
  * D1 transaction. The D1 data erasure is the GDPR-load-bearing step; if the auth
@@ -47,10 +51,11 @@ import {
   reviews,
   vendorEntitlements,
   vendorRequests,
+  vendorSeatInvites,
   workflowInstances,
   workflowTransitions,
 } from '../db/schema';
-import { logToDatadog } from '../datadog';
+import { logToPosthog } from '../posthog';
 import type { Env } from '../env';
 import { ApiError } from '../errors';
 import { json } from '../http';
@@ -63,9 +68,9 @@ import { deleteAuthUser as deleteAuthUserDefault } from '../lib/supabase-admin';
 type AuthContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
 
 function makeForwarder(c: AuthContext): AuditLogForwarder | undefined {
-  if (!c.env.DD_API_KEY) return undefined;
+  if (!c.env.POSTHOG_PROJECT_KEY) return undefined;
   return (entry) => {
-    logToDatadog(c.executionCtx, c.env, c.req.raw, {
+    logToPosthog(c.executionCtx, c.env, c.req.raw, {
       level: 'info',
       message: `audit ${entry.action} ${entry.entityId ?? ''}`.trim(),
       action: entry.action,
@@ -200,15 +205,16 @@ export function createDeleteAccountHandler(
       metadata: { source: 'account', initiated_by_self: true },
     };
 
-    // One atomic unit: null every inbound reference (five NO ACTION + the two SET NULL
-    // refs — `reviews.reviewer_id` and `vendor_entitlements.granted_by` — made
-    // explicit) → PII-free audit → delete the profile.
+    // One atomic unit: null every inbound reference (five NO ACTION + the three SET NULL
+    // refs — `reviews.reviewer_id`, `vendor_entitlements.granted_by` and
+    // `vendor_seat_invites.invited_by_id` — made explicit) → PII-free audit → delete
+    // the profile.
     //
     // `page_views` is deliberately absent (AECI-585 / §13 D7). It used to be nulled
     // here, but `page_views.user_id` was never written by any code path and has now
     // been dropped along with `session_id` and `profile_role`. That strengthens this
     // handler rather than weakening it: the table can no longer hold user linkage at
-    // all, so there is nothing here to erase (`AUTH_AND_RLS.md` §12).
+    // all, so there is nothing here to erase (`AUTH_AND_RLS.md` §8).
     const stmts: BatchStmt[] = [
       db
         .update(reviews)
@@ -234,14 +240,23 @@ export function createDeleteAccountHandler(
         .set({ actorId: null })
         .where(eq(workflowTransitions.actorId, userId)),
       db.update(auditLog).set({ actorId: null }).where(eq(auditLog.actorId, userId)),
-      // AECI-609 / R6: the SEVENTH inbound FK. It is `ON DELETE SET NULL`, so SQLite
-      // would cover it, but it is nulled explicitly like `reviews.reviewer_id` so the
-      // erasure test asserts it directly rather than trusting the cascade. The
-      // entitlement ROW survives — only the granting admin's link is severed.
+      // AECI-609 / R6: one of the eight inbound FKs to `profiles.id`
+      // (`AUTH_AND_RLS.md` §8). It is `ON DELETE SET NULL`, so SQLite would cover it,
+      // but it is nulled explicitly like `reviews.reviewer_id` so the erasure test
+      // asserts it directly rather than trusting the cascade. The entitlement ROW
+      // survives — only the granting admin's link is severed.
       db
         .update(vendorEntitlements)
         .set({ grantedBy: null })
         .where(eq(vendorEntitlements.grantedBy, userId)),
+      // AECI-664: another of the eight (`AUTH_AND_RLS.md` §8), same treatment and same
+      // reason. The INVITE survives its sender's erasure — a pending invite is the
+      // invitee's to redeem, and deleting it would silently break a colleague's link
+      // because someone else closed their account. Only the sender's link is severed.
+      db
+        .update(vendorSeatInvites)
+        .set({ invitedById: null })
+        .where(eq(vendorSeatInvites.invitedById, userId)),
       auditInsert(db, auditEntry),
       db.delete(profiles).where(eq(profiles.id, userId)),
     ];
@@ -251,7 +266,7 @@ export function createDeleteAccountHandler(
     // already erased (GDPR-met); a failure here is logged, not fatal.
     const authResult = await deleteAuthUser(c.env, userId);
     if (!authResult.ok) {
-      logToDatadog(c.executionCtx, c.env, c.req.raw, {
+      logToPosthog(c.executionCtx, c.env, c.req.raw, {
         level: 'warn',
         message: 'account.deleted: auth.users delete failed (D1 data already erased)',
         source: 'account',

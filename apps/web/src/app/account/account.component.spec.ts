@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { AccountProfileResponse, AccountReview, AccountReviewsResponse } from '@aeci/shared';
 
+import { Analytics } from '../analytics/analytics';
 import { AuthService } from '../auth/auth.service';
 import { AccountApi } from './account-api';
 import { AccountPage } from './account';
@@ -66,6 +67,9 @@ interface AuthMock {
   signOut: ReturnType<typeof vi.fn>;
 }
 
+/** The identity reset both exit paths must perform (AECI-649 / ANALYTICS.md §8). */
+let resetIdentitySpy: ReturnType<typeof vi.fn>;
+
 function makeApiMock(): ApiMock {
   return {
     getProfile: vi.fn(async () => ({ ...PROFILE })),
@@ -90,6 +94,7 @@ async function setup(
       provideRouter([]),
       { provide: AccountApi, useValue: api },
       { provide: AuthService, useValue: auth },
+      { provide: Analytics, useValue: { resetIdentity: resetIdentitySpy } },
     ],
   });
   const fixture = TestBed.createComponent(AccountPage);
@@ -136,6 +141,7 @@ describe('AccountPage', () => {
       })) as unknown as typeof window.matchMedia;
     }
     assignSpy = vi.fn();
+    resetIdentitySpy = vi.fn(async () => undefined);
     try {
       vi.spyOn(globalThis.location, 'assign').mockImplementation(assignSpy as () => void);
     } catch {
@@ -200,6 +206,7 @@ describe('AccountPage', () => {
     await settle();
 
     expect(auth.signOut).toHaveBeenCalledTimes(1);
+    expect(resetIdentitySpy).toHaveBeenCalledTimes(1);
     expect(assignSpy).toHaveBeenCalledWith('/');
   });
 
@@ -212,6 +219,14 @@ describe('AccountPage', () => {
     expect(api.deleteAccount).toHaveBeenCalledTimes(1);
     expect(auth.signOut).toHaveBeenCalledTimes(1);
     expect(assignSpy).toHaveBeenCalledWith('/');
+    // The deleted account is the one case where a persisted PostHog distinct id
+    // would outlive the person it names (ANALYTICS.md §8), so the reset happens
+    // unconditionally — before the redirect, and even though `signOut()` here is
+    // best-effort.
+    expect(resetIdentitySpy).toHaveBeenCalledTimes(1);
+    expect(resetIdentitySpy.mock.invocationCallOrder[0]).toBeLessThan(
+      assignSpy.mock.invocationCallOrder[0],
+    );
   });
 
   it('surfaces a retryable error and does NOT redirect when the delete fails', async () => {

@@ -11,7 +11,7 @@ import { isPublicSite } from '@aeci/shared/deploy-env';
 import type { Context, Env as HonoEnv } from 'hono';
 
 import { getDb, type DbContext, type GetDbOptions } from '../db/client';
-import { logToDatadog, submitCount } from '../datadog';
+import { logToPosthog, submitCount } from '../posthog';
 import type { Env } from '../env';
 
 /**
@@ -76,7 +76,7 @@ type VendorBearingProduct = { id: string; slug: string; vendor: unknown };
  * operators. For every product whose `vendor` is `null` we emit a `warn` log
  * (naming the slug) and bump the `aeci.api.data_gap` count metric so the gap is
  * visible in Datadog. Best-effort: both helpers are fire-and-forget and no-op
- * without `DD_API_KEY` (see `datadog.ts`), so a curated, gap-free DB pays
+ * without `POSTHOG_PROJECT_KEY` (see `posthog.ts`), so a curated, gap-free DB pays
  * nothing. The emit is wrapped in try/catch — like `metricsMiddleware` — so a
  * missing `ExecutionContext` (non-Worker test harness) can never turn a
  * legitimately vendorless product into a 500; observability MUST NOT break the
@@ -91,7 +91,7 @@ export function reportMissingVendors(
 
   try {
     for (const p of missing) {
-      logToDatadog(c.executionCtx, c.env, c.req.raw, {
+      logToPosthog(c.executionCtx, c.env, c.req.raw, {
         level: 'warn',
         message: `Data gap: product ${p.slug} has no primary vendor`,
         data_gap: 'missing_vendor',

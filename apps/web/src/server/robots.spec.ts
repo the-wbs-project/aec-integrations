@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildRobotsTxt } from './robots';
+import { BLOCKED_SEO_CRAWLERS, buildRobotsTxt } from './robots';
 
 describe('buildRobotsTxt', () => {
   const robots = buildRobotsTxt('https://aecintegrations.com');
@@ -60,6 +60,43 @@ describe('buildRobotsTxt', () => {
 
     it('does not advertise the sitemap', () => {
       expect(blocked).not.toContain('Sitemap:');
+    });
+  });
+
+  describe('blocked SEO-tool crawlers (AECI-747)', () => {
+    it('gives each blocked crawler its own Disallow-all group', () => {
+      const txt = buildRobotsTxt('https://www.aecintegrations.com');
+      for (const agent of BLOCKED_SEO_CRAWLERS) {
+        // The group is `User-agent: X` immediately followed by `Disallow: /`.
+        // Asserting the PAIR, not just the name, is the point: a stray
+        // `User-agent:` line with no rule under it blocks nothing.
+        expect(txt).toContain(`User-agent: ${agent}\nDisallow: /\n`);
+      }
+    });
+
+    it('keeps the wildcard group permissive so search engines are unaffected', () => {
+      const txt = buildRobotsTxt('https://www.aecintegrations.com');
+      // A blanket block belongs to the named groups only. If this ever starts
+      // failing, every search engine has just been de-indexed.
+      expect(txt).toMatch(/User-agent: \*\nAllow: \//);
+      expect(txt).not.toMatch(/User-agent: \*\nDisallow: \/\n/);
+    });
+
+    it('does not block the crawlers that actually send traffic or feed answers', () => {
+      const txt = buildRobotsTxt('https://www.aecintegrations.com');
+      // AI answer surfaces are a distribution channel for a directory, not noise.
+      for (const agent of ['Googlebot', 'Bingbot', 'GPTBot', 'OAI-SearchBot', 'Applebot']) {
+        expect(txt).not.toContain(`User-agent: ${agent}`);
+      }
+    });
+
+    it('still advertises the sitemap after the blocked groups', () => {
+      // `Sitemap:` is a non-group directive, but emitting it INSIDE a
+      // `Disallow: /` group reads as if it belonged to that crawler. Pin it last.
+      const txt = buildRobotsTxt('https://www.aecintegrations.com');
+      expect(txt.trimEnd().endsWith('Sitemap: https://www.aecintegrations.com/sitemap.xml')).toBe(
+        true,
+      );
     });
   });
 });

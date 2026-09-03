@@ -5,7 +5,14 @@
 **Status:** **Build contract.** Scope, data inventory, build order, and timing are all settled. §13 **D1** places this in **Phase 8.3** — post-launch operate-and-tune, per `PHASE_8_COMPLETION.md` §F4 and Note D — on the **`main` line**, integrated via the **`admin-panel`** epic branch. Sections are numbered so a Linear issue can anchor to one via `**Spec section:** §X (docs/ADMIN_PANEL_SPEC.md)` per the `spec-anchor` skill.
 **Inherits from:** Stage 1 (`STAGE_1_SPEC.md`, §22 admin surfaces + §26 audit), Phase 5.12–5.14 (the `/admin` shell + gate), Phase 6.9–6.11 (the requests + reviewer queues)
 **Tracker:** epic **AECI-572**, sub-issues **AECI-573 … AECI-587** (mapped to the §10 build order). AECI-573 was the decision gate: it settled §13's seven open questions as **D5–D11**, chose the phase and base branch (**D1**), and promoted this document from draft to contract.
-**Companion docs:** `API_CONTRACTS.md` (endpoint shapes), `DATABASE_SCHEMA.md` (tables/indexes), `OBSERVABILITY.md` (Datadog metric catalog), `POST_LAUNCH_MONITORING.md` (the runbook this panel operationalizes), `ANALYTICS_BASELINE.md` (what PostHog does and does not see), `email.md` (the two cron digests), `AUTH_AND_RLS.md` (`requireAdmin()`), `adr/0022-cron-bookkeeping-exempt-from-audit-invariant.md` (the §26.1 carve-out this epic's crons rely on)
+**Companion docs:** `API_CONTRACTS.md` (endpoint shapes), `DATABASE_SCHEMA.md` (tables/indexes), `OBSERVABILITY.md` (the `aeci.*` metric catalog), `POST_LAUNCH_MONITORING.md` (the runbook this panel operationalizes), `ANALYTICS.md` + `ANALYTICS_BASELINE.md` (what the consented product-analytics slice does and does not see), `POSTHOG_MIGRATION_SPEC.md` + `adr/0024-observability-migrates-to-posthog.md` (the in-flight Datadog → PostHog dual-run — **nothing in this panel changes**, only who detects cron *absence*; see §7.2), `email.md` (the two cron digests), `AUTH_AND_RLS.md` (`requireAdmin()`), `adr/0022-cron-bookkeeping-exempt-from-audit-invariant.md` (the §26.1 carve-out this epic's crons rely on)
+
+> **Branch note (AECI-648).** This document's PostHog/dual-run corrections were made on
+> **`stage-2`**, where the AECI-639 observability migration lives. The **`admin-panel`** epic
+> branch carries its own copy and is not descended from current `main`, so it still has the
+> pre-migration wording — including the old "Datadog owns absence" line in §7.2. **Re-apply
+> this sweep to `admin-panel` when it merges;** a conflict-free merge will not flag prose that
+> is merely stale.
 
 > **Data-layer note (ADR 0016).** The application database is **Cloudflare D1 + Drizzle**; Supabase is auth-only. Every read in this document goes through `getDb(env)`. The panel's HTTP surface is **read-only** — every endpoint is a `GET`, and none of them writes, emails, purges, or calls an external API (§6, §13 D8). The only writes in the epic are the two cron-written bookkeeping tables (§7.1, §7.2) and the retention prune (§7.4); §13 **D11** and **ADR 0022** govern their audit obligations — bookkeeping inserts are exempt from the §26.1 audit-in-batch invariant, scheduled deletes are not.
 
@@ -17,7 +24,7 @@ AECi has three operator-facing information channels today, and none of them is a
 
 1. **The daily analytics digest** (`lib/analytics-digest.ts`, 05:00 UTC cron → `ANALYTICS_DIGEST_EMAIL_TO`) — yesterday's traffic, top products, sources, sign-ins, moderation depth, crawler activity.
 2. **The daily data-quality digest** (`lib/data-quality.ts` + `lib/data-quality-email.ts`, 04:00 UTC cron → `ADMIN_ALERT_EMAIL`) — ten catalog-integrity checks.
-3. **Datadog + PostHog** — infrastructure metrics, and consented product analytics.
+3. **The observability plane** — infrastructure metrics and alerts, plus consented product analytics. Two vendors today: **Datadog** is what alerts on production, **PostHog** is what the migration is moving to (ADR 0024 dual-run; Datadog is deleted at AECI-651). Either way it is a separate console, which is the point below.
 
 Each has a structural limit. The emails are **push-only and yesterday-shaped**: you cannot ask a follow-up question, drill into a number, or look at a range. The data-quality checks are computed daily and then **discarded into an inbox** — nothing persists them. And PostHog, by design, sees only the slice of traffic that clicks **Accept** on the consent banner (`app/analytics/consent.ts` is strict opt-in; `posthog-js` is not even imported until `state() === 'granted'`).
 
@@ -39,7 +46,7 @@ That last point is the immediate trigger for this work. On 2026-08-10 the digest
 **In scope**
 
 - A `/admin` console covering traffic, audience, catalog, moderation, and system health (§5).
-- Read-only API endpoints behind `requireAdmin()` (§6).
+- API endpoints behind `requireAdmin()` (§6), **read-only with four named exceptions**: §5.7's seat revoke (`DELETE /api/admin/vendors/:id/seats/:userId`, AECI-652), §5.8's ban/reinstate, which reuses the pre-existing `PATCH /api/admin/reviewers/:id` (AECI-218) rather than adding a writer, §5.9's `managed_by` flip (`PATCH /api/admin/connector-catalogs/:id`, AECI-720), and §5.10's operator note (`PATCH /api/admin/claims/:id/notes`, AECI-739). The first two are *account* writes, the third is a **governance** write — it decides which system may author a catalogue and changes no catalogue content — and the fourth is an **annotation**: it changes no claim status and grants nothing. See the catalog-editing bullet below. *(This bullet read "two named exceptions" until AECI-722: AECI-720 added its endpoint to §6's table without amending the count here. Kept at "three" through AECI-722 and raised to "four" by AECI-739 — the drift is this line's known failure mode, so amend it in the same PR as the endpoint.)*
 - A daily metrics-snapshot table so counts-over-time become answerable (§7.1).
 - Persisting cron and data-quality results so "current status" is inspectable (§7.2) — **shipped, AECI-583**.
 - Hand-rolled SVG charts, no new client dependency (§8).
@@ -47,8 +54,8 @@ That last point is the immediate trigger for this work. On 2026-08-10 the digest
 **Out of scope**
 
 - Any public or vendor-facing analytics. Vendor-visible stats are Stage 2 (`STAGE_2_SPEC.md`).
-- Replacing Datadog or PostHog. The panel **links out**; it does not re-implement APM, RUM, or funnels.
-- Editing catalog data. Promotion remains the review-app → `POST /api/promote` path (`REVIEW_APP_PROMOTE_API.md`).
+- Replacing the observability plane (PostHog). The panel **links out**; it does not re-implement metrics dashboards, error tracking, or funnels.
+- Editing catalog data. Promotion remains the review-app → `POST /api/promote` path (`REVIEW_APP_PROMOTE_API.md`). **Neither the §5.7 vendor page nor the §5.8 user page breaches this**: an entitlement change, a seat revoke and a ban are *account* writes, not catalog writes — they touch `vendor_entitlements` and `profiles`, never a catalog column. The §5.8 ban additionally introduces **no new writer at all**: it calls the AECI-218 endpoint that has always owned `profiles.banned_at`, which stays that column's only writer anywhere (asserted at the source level by `apps/api/src/routes/banned-at-writers.spec.ts`). There is still no admin vendor-edit endpoint, which is also why §5.7 does not close the `STAGE_2_PAID_TIERS_SPEC.md` §5.4 lockout. **§5.9 does not breach it either**, and the line it walks is worth stating because the temptation is real: the `managed_by` flip decides *who may author* a connector catalogue; it writes no catalogue row. The five connector reads beside it are reads. The screen deliberately does **not** let an operator approve or adjust a stub mapping — that would be the console's first catalog-*content* write, and the sync would overwrite it on the next page besides (§5.9).
 - Real-time / streaming updates. **Still out of scope after Stage 2 answered the question for the vendor portal** (AECI-516 / ADR 0023, 2026-08-19): that answer is *polling a per-vendor freshness cursor*, and `STAGE_2_REALTIME_SPEC.md` §8 explicitly excludes `/admin` from it. This console's manual **Recompute** button (§7) is a deliberate design decision, not a placeholder for a live feed.
 - De-anonymizing visitors (§9.7).
 
@@ -66,7 +73,7 @@ Census taken against **production D1 on 2026-08-12**. These numbers decide what 
 | `integrations` | 496 | same caveat |
 | `vendors` | 126 | same caveat |
 | `claims` / `attestations` | 915 / 915 | `created_at` present |
-| `taxonomy_*` | 33 categories · 30 audiences · 5 phases · 34 trades · 20 data objects | static vocabularies |
+| `taxonomy_*` | 33 categories · 30 audiences · 5 phases · 34 trades · 20 data objects | static vocabularies [^tax] |
 | `product_categories` | 373 | — |
 | `product_trades` | **0** — the fourth facet (AECI-538) is live but untagged | — |
 | `profiles` | 2 | `created_at` |
@@ -75,6 +82,8 @@ Census taken against **production D1 on 2026-08-12**. These numbers decide what 
 | `feedback` | **0** | `created_at` |
 | `vendor_requests` / `workflow_instances` | **0** / **0** | `created_at` + transitions |
 | `stats_cache` | 12 keys, recomputed 07:00 UTC daily | **No** — snapshot, overwritten |
+
+[^tax]: Census figures, correct on 2026-08-12 and left as recorded. The audience vocabulary has since grown to **36** terms (six discipline-coverage additions — `STAGE_1_SPEC.md` §5.5); the six new terms start at zero tagged products, so treat a zero-count audience as expected rather than as a finding until the review app tags them.
 
 Other observations from the census that the panel should surface as findings, not hide:
 
@@ -95,7 +104,7 @@ The four questions that motivated this document, answered against §3.
 |---|---|---|---|
 | **Visitors over time** | `page_views.created_at` | **Yes**, from 2026-06-23 | No sessions — "visitor" must be defined as distinct `(user_agent_hash, cf_asn)` per day (§9.8). Bot split unreliable pre-August until the backfill runs. Sources unavailable pre-August. |
 | **Mailing list over time** | `mailing_list.created_at` + `unsubscribed_at` | **Structurally yes; 0 rows today** | Nothing to chart until signups start. Schema is well-suited: cumulative, net-new, churn, plus `utm_source/medium/campaign`, `country/city/region`, `asn`, `as_organization`. |
-| **Current status** | `/api/version`, `/_version`, `stats_cache.computed_at`, Algolia watermark, the 10 DQ checks, queue depths | **Yes** — highest value per unit of work | Cron last-run/outcome lives only in Datadog, not D1 (§7.2). |
+| **Current status** | `/api/version`, `/_version`, `stats_cache.computed_at`, Algolia watermark, the 10 DQ checks, queue depths | **Yes** — highest value per unit of work | *(Pre-AECI-583 state.)* Cron last-run/outcome lived only in the metrics plane, not D1 — which is what §7.2 fixed. |
 | **Product + integration counts over time** | `stats_cache` (snapshot), `audit_log` (events), `products.created_at` | **Only partially** | See below. |
 
 **Why catalog counts-over-time is the hard one.** Three sources, each insufficient alone:
@@ -103,6 +112,8 @@ The four questions that motivated this document, answered against §3.
 - `stats_cache` is overwritten by the 07:00 cron. **No history exists.**
 - `products` has **no `promoted_at`** column. §13 **D6** adds one — but not for the reason a first reading suggests, and the difference decides how it is implemented (see the correction below).
 - `audit_log` *is* a genuine event stream (`product.created` 131, `integration.created` 827, `vendor.created` 94, since 2026-06-26), so **additions** are chartable. But **net totals are not**: 827 `integration.created` events against 496 live rows, because the 2026-07-25 `catalog.integrations_reset` removed rows without per-row audit; ~40 products predate the log entirely; and 5,375 `claim.created` events back 915 live claims because promote re-created the claim spine on every push. **That last cause ended with AECI-604** (`STAGE_2_ATTESTATIONS_SPEC.md` §3): promote now matches claims by their identity triple and re-uses the row, so a re-promote of an unchanged claim emits no `claim.created` at all. Events accumulated *before* 2026-08-18 are still inflated and the historical series cannot be repaired; from that date forward `claim.created` approximates real additions, and the new `claim.deleted` / `claim.converted` actions make net movement reconstructable for the first time.
+
+> **Sharpened (AECI-686, 2026-08-27).** "Net totals are not chartable" remains true of a **past total** — how many integrations existed on 2026-07-01 is unrecoverable and always will be, because nothing records when a row was removed. It is **not** true of the question §5.5 actually asks. "How many of the rows in the catalog today were added in month M" has an exact answer in `created_at`, it sums to the live total by construction, and `basis=net` serves it. What that trades away is a fixed past: the answer restates as rows are removed. See §5.5 (5) for the full derivation, the production figures, and why per-row deletion tombstones are the durable fix.
 
 > **Correction (AECI-573).** An earlier draft of this section claimed that "a row sits at `promotion_status='ready'` before going live, so `created_at` is not a go-live date." **That describes the review app's lifecycle, not AECi's D1.** In D1: `POST /api/promote` is the only INSERT path into `products` and it sets `promotion_status='promoted'` on both its insert and update branches; nothing in the repo ever writes `'ready'`, `'pending'`, `'retracted'`, or `'rejected'` to D1 (`'ready'` is an Airtable-side status that never crosses the promote boundary); and retraction is a **hard delete** (`lib/retract-product.ts`), not a status transition. So **`products.created_at` is already the first-promote timestamp, exactly** — Drizzle stamps it at insert and a re-promote never touches it. The census agrees: all 171 products read `promoted`.
 >
@@ -116,7 +127,7 @@ The four questions that motivated this document, answered against §3.
 
 ## 5. Information architecture
 
-Nine routes under the existing `AdminShell` (`app/admin/admin-shell.ts`). The shell's `h1` changes from "Moderation" to "Admin" and its flat nav becomes three groups.
+Eighteen routes under the existing `AdminShell` (`app/admin/admin-shell.ts`): **twelve nav-able screens** (the exact length of `ADMIN_NAV_GROUPS`, and `admin-shell.component.spec.ts` asserts the ordered list), **four parameterised detail routes** that no nav entry can address, and **two redirects** (`/admin` → Overview, `/admin/reviewers` → the banned filter). *(Fifteen / eleven / two until AECI-722 added the §5.9 connector pair; seventeen with three detail routes until AECI-739 added `/admin/claims/:id` — the nav-able count is unchanged by a parameterised route, by construction.)* The shell's `h1` changes from "Moderation" to "Admin" and its flat nav becomes three groups.
 
 ```
 /admin                     → redirect to /admin/overview
@@ -127,35 +138,64 @@ Nine routes under the existing `AdminShell` (`app/admin/admin-shell.ts`). The sh
     /admin/audience        §5.4
   Catalog
     /admin/catalog         §5.5
+    /admin/connectors      §5.9  (list)
+    /admin/connectors/:id  §5.9  (detail — nav links the list only)
   Operations
     /admin/reviews         existing (Phase 5.13)
     /admin/requests        existing (Phase 6.10)
-    /admin/reviewers       existing (Phase 6.11)
+    /admin/claims          existing (Stage 2, AECI-521 — see the connector note below)
+    /admin/claims/:id      §5.10 (detail — nav links the list only)
+    /admin/vendors         §5.7  (list)
+    /admin/vendors/:id     §5.7  (detail — nav links the list only)
+    /admin/users           §5.8  (list)
+    /admin/users/:id       §5.8  (detail — nav links the list only)
+    /admin/reviewers       → redirect to /admin/users?banned=true  (§5.8, AECI-692)
     /admin/system          §5.6
 ```
 
-**Shell restructure — SHIPPED (AECI-576, P1.2); the nav has been COMPLETE since AECI-586 (P5.1).** The `h1` reads "Admin", `/admin` redirects to `/admin/overview`, and the nav is grouped. Every route listed above now exists and is linked, so the "omitted until built" mechanic below has no remaining subjects — it is recorded because it governed how the epic shipped, not because anything is still held back. Two mechanics were settled while building it:
+**Shell restructure — SHIPPED (AECI-576, P1.2); the nav was COMPLETE for this epic's own routes at AECI-586 (P5.1).** The `h1` reads "Admin", `/admin` redirects to `/admin/overview`, and the nav is grouped. Every screen listed above exists and is linked, so the "omitted until built" mechanic below has no *pending* subjects — it is recorded because it governed how the epic shipped, not because anything is held back. It does still govern later additions: **AECI-652 added Vendors and AECI-692 added Users through exactly that mechanic**, one `ADMIN_NAV_GROUPS` entry each. AECI-692 also demonstrated the inverse — a nav entry can be *replaced*: "Reviewer bans" was swapped for "Users" in the same slot, because `/admin/users?banned=true` is a strict superset of what that screen could show (§5.8). Two mechanics were settled while building it:
 
-- **An unbuilt route is omitted, not disabled.** P1.2 shipped **Insights → Overview** and **Operations → Review queue · Requests · Reviewer bans**; the other five entries appeared as their screens did, `Audience` last (AECI-586). A group with no items renders no heading either, so `Catalog` was absent until AECI-579. This is the "do not link to a 404" requirement resolved in favour of a nav that only ever shows working destinations — a disabled entry advertises a capability the operator cannot use, and at the time there was no second surface where these routes were discoverable, so nothing was lost by adding them one at a time. (There is one now — the header "More" menu below — and because it renders the same array, the omit-until-built mechanic covers it automatically.) The nav is a `readonly AdminNavGroup[]` (`ADMIN_NAV_GROUPS`, `apps/web/src/app/admin/admin-nav.ts`), so a later unit adds one array entry rather than editing markup.
+- **An unbuilt route is omitted, not disabled.** P1.2 shipped **Insights → Overview** and **Operations → Review queue · Requests · Reviewer bans**; the other five entries appeared as their screens did, `Audience` last (AECI-586). A group with no items renders no heading either, so `Catalog` was absent until AECI-579. This is the "do not link to a 404" requirement resolved in favour of a nav that only ever shows working destinations — a disabled entry advertises a capability the operator cannot use, and there is no second surface where these routes are discoverable, so nothing is lost by adding them one at a time. (For a period the header's "More" menu rendered the same array as a second surface; that menu was retired and `ADMIN_NAV_GROUPS` is back to one consumer — this shell.) The nav is a `readonly AdminNavGroup[]` (`ADMIN_NAV_GROUPS`, `apps/web/src/app/admin/admin-nav.ts`), so a later unit adds one array entry rather than editing markup.
 - **Group labels are `<p>` + `aria-labelledby`, not headings.** The shell owns the only `h1` and each screen owns the only `h2` (asserted by every queue's component spec). A heading in the nav would sit between them and break axe's heading-order rule for no navigational gain — the `<ul>` gets its accessible name from the label either way.
 
 The three Operations queues moved under a heading and are otherwise untouched.
 
-**Site-header entry point.** The header's "More" overflow menu (`layout/nav-more-trigger.ts` on desktop, the `More` disclosure inside `layout/nav-menu.ts` below `lg`) renders an **Admin** section carrying **all nine** screens above, in the same three groups — it imports the same `ADMIN_NAV_GROUPS` array this shell renders, so the two navs cannot drift, and adding a screen still means one array entry. That replaced the account menu's two hand-picked links (`/admin/reviews` + `/admin/reviewers`): admin navigation belongs with site navigation, and the account menu is now the person's own (Account, Sign out). The pending-review badge moved with them onto the "More" trigger, and the exact count still renders beside the Review-queue entry.
+### 5.0a The nav is a horizontal row of category dropdowns — SHIPPED (AECI-694)
 
-The section is gated on `AdminStatus.isAdmin()`, which is `false` during SSR / pre-hydration — so no `/admin` path appears in the URL-keyed cached header HTML for any visitor (§9.2's uncacheable-`/admin` posture is about the panel's own responses; this is the complementary guarantee for the links that point at it).
+The three groups were a **14rem left sidebar** from AECI-576 until AECI-694. They are now a **horizontal row under the `h1`**, and the content column is full width.
 
-**How `AdminStatus` resolves (AECI-617).** The gate cannot move to the server: the header renders on every route, most of them edge-cached and keyed by URL, so any server-rendered admin state would poison the cache for the next visitor. It is therefore a post-hydration client probe — but a probe with three properties the original single-shot version lacked, each fixing an observed symptom of the Admin section appearing late or not at all:
+The reason is §5.7 and §5.8. Both screens render cards until AECI-694 and tables after it, and a table of vendors with seven columns or of people with seven columns wants every pixel of a `max-w-7xl` shell. A rail that permanently spent a fifth of that width on eleven links the operator visits a few times a session was the thing standing between them and the data.
 
-1. **Self-healing.** The probe latches on **success**, not on dispatch. The original set its `probed` flag before awaiting and swallowed every error, so one 401 / cold-isolate JWKS blip / timeout suppressed the Admin section for the entire life of the page — SPA navigation never re-ran it, and nothing else in the app set the flag. Not even landing on `/admin`, whose resolver has already proven the caller is an admin server-side. A failed probe now retries once on a short delay, and the nav calls `ensureProbed()` on every menu open, so the retry lands exactly when the visitor asks for the menu.
+Four mechanics, all pinned by `admin-shell.component.spec.ts`:
+
+- **A category is a disclosure, not a `role="menu"`.** `AdminNavDropdown` (`app/admin/admin-nav-dropdown.ts`) extends the shared `layout/nav-disclosure.ts` base, so it opens on hover, toggles from the button for keyboard, closes on Escape returning focus to the trigger, and closes when focus leaves. That is the same contract the four public-nav flyouts carry, which `DESIGN.md` §Navigation requires. It is deliberately **not** `@angular/aria/menu`, despite ADR 0010 routing new menu patterns there: this is a navigation row of router links, and the ADR's "Menu / Menubar" row means application menus. The ADR and `ANGULAR_STYLE_GUIDE.md` §19 both carry the clarification.
+- **A single-screen group collapses to a plain link.** Catalog had one child, and a dropdown that reveals one destination is a click that buys nothing. The rule is **structural** — it keys off `items.length`, not a flag — so the day Catalog gains a second screen it becomes a dropdown with no code change. The collapsed link is labelled with the **group heading** ("Catalog"), not the item's ("Coverage"): at the top level of a nav the category is what is self-describing.
+
+  > **That day arrived with AECI-722.** Catalog now holds Coverage **and** Connectors, so it renders as the third dropdown and the collapsed-link branch has no subject today. The branch stays — it is the rule, not a special case — and the change cost exactly one `ADMIN_NAV_GROUPS` entry, as designed. It did move three assertions in `admin-shell.component.spec.ts` (the trigger list, the ordered hrefs, and the closed-panel count), and it exposed a fragility worth recording: two tests addressed the Operations trigger **positionally**, so a new group silently re-pointed them at Catalog. They now address it by heading.
+- **Group labels are disclosure BUTTONS, not headings** — the same conclusion as the sidebar's `<p>` + `aria-labelledby`, reached for the same reason. The shell owns the only `h1` and each screen owns the only `h2`; a heading in the nav would sit between them and break axe's heading-order rule. Each panel's `<ul>` names itself with `aria-label`, so a screen reader entering one knows which category it opened.
+- **The row does not scroll horizontally**, which departs from the vendor portal's section row and from `DESIGN.md`'s default for tab rows. Both reasons follow from collapsing eleven items into three: the row fits a 320px viewport outright, and `overflow-x-auto` computes `overflow-y` to `auto` as well, which would clip the in-flow dropdown panels. A scrolling row would force every panel into a CDK overlay to escape the clip — complexity bought to solve a problem this row does not have. The last category's panel hangs from the **end** edge for the same viewport reason.
+
+The pending-review badge stays on Review queue inside the Operations panel **and is mirrored on the closed Operations trigger**. A collapsed panel would otherwise hide the console's only live signal, which is the one thing the nav exists to nag about. Both numbers are `aria-hidden`; a single visually-hidden sentence carries the count.
+
+**Site-header entry point — one door, not a duplicated IA.** The header offers a single role-gated **"Admin portal"** link to `/admin` in the signed-in account menu (`layout/user-menu.ts` at `lg+`, the account block inside `layout/nav-menu.ts` below `lg`), beside the vendor portal's equivalent door. The pending-review badge sits on that menu's trigger; the exact count is announced via a visually-hidden description.
+
+> **This supersedes the "More" menu arrangement (AECI-572).** That menu rendered **all** of the screens above inside a header dropdown, from this same `ADMIN_NAV_GROUPS` array, on the reasoning that *admin navigation belongs with site navigation and the account menu is for the person*. Two problems. The console **already** renders that array as its own sidebar, so the header was restating an eleven-screen IA — which is why the panel had to grow to a two-column `34rem` grid for an admin. And the row it hung from is public, cached, indexable chrome whose width is budgeted and closed, so a viewer-dependent item in it made the row's width depend on who was looking. The rule that replaced it: **the row is the site; the avatar is you and what you can operate** (`DESIGN.md` §Navigation → The Overflow Rule). A portal owns its own navigation; the header offers one door. `ADMIN_NAV_GROUPS` is consequently back to a single consumer, `admin-shell.ts`.
+
+The door is gated on `AdminStatus.isAdmin()`, which is `false` during SSR / pre-hydration — so no `/admin` path appears in the URL-keyed cached header HTML for any visitor (§9.2's uncacheable-`/admin` posture is about the panel's own responses; this is the complementary guarantee for the links that point at it).
+
+**How `AdminStatus` resolves (AECI-617).** The gate cannot move to the server: the header renders on every route, most of them edge-cached and keyed by URL, so any server-rendered admin state would poison the cache for the next visitor. It is therefore a post-hydration client probe. The probe itself now lives in a shared `RoleStatus` service (`apps/web/src/app/auth/role-status.ts`) rather than in `AdminStatus`: the vendor portal's door asks the same endpoint the same question, so one `GET /api/account` answers both and one `ensureProbed()` re-arms both doors. `AdminStatus` is the admin-shaped view of that signal (`role() === 'admin'`) plus the one admin-only side effect, seeding the badge. It keeps three properties the original single-shot version lacked, each fixing an observed symptom of the Admin affordance appearing late or not at all:
+
+1. **Self-healing.** The probe latches on **success**, not on dispatch. The original set its `probed` flag before awaiting and swallowed every error, so one 401 / cold-isolate JWKS blip / timeout suppressed the Admin section for the entire life of the page — SPA navigation never re-ran it, and nothing else in the app set the flag. Not even landing on `/admin`, whose resolver has already proven the caller is an admin server-side. A failed probe now retries once on a short delay, and the account menu calls `ensureProbed()` when it opens, so the retry lands exactly when the visitor asks for the menu. (`VendorStatus` had the original bug until it moved onto `RoleStatus`; it inherits the fix.)
 2. **One round trip.** `GET /api/account` returns `role` **and** `pending_reviews` (API_CONTRACTS §6.8). The old `/api/account` → `/api/admin/summary` chain paid two JWKS verifies and two `profiles` reads; the second hop's latency was the lag between the menu becoming usable and the badge appearing. `GET /api/admin/summary` is unchanged — it remains this shell's badge feed and the `/admin` resolver's gate — and both paths seed the same `AdminSummaryStore`, so the count cannot disagree.
-3. **Instant on repeat visits.** The resolved role is cached in `sessionStorage` and re-applied the moment `SessionStatus.signedIn()` flips, so an admin's second page load in a tab paints the Admin section with **zero** network. Deliberately not a cookie and not a server-side decision — `sessionStorage` never reaches the SSR Worker, so it cannot influence cached HTML (the same reasoning behind `analytics/consent.ts`). It is applied from inside the `signedIn()` effect, never at construction, so it lands strictly after hydration and cannot desync the hydrated DOM. It is dropped on sign-out.
+3. **Instant on repeat visits.** The resolved role is cached in `sessionStorage` and re-applied the moment `SessionStatus.signedIn()` flips, so an admin's second page load in a tab paints the Admin door with **zero** network. Deliberately not a cookie and not a server-side decision — `sessionStorage` never reaches the SSR Worker, so it cannot influence cached HTML (the same reasoning behind `analytics/consent.ts`). It is applied from inside the `signedIn()` effect, never at construction, so it lands strictly after hydration and cannot desync the hydrated DOM. It is dropped on sign-out.
 
 The cached role is a **UI hint, never an authorization input** — see `AUTH_AND_RLS.md` §4.5 for why the server-side role read must not be cached in KV, and why a forged or stale client-side role buys nothing.
 
 ### 5.1 Overview
 
-The analytics digest as a live page. Stat tiles with sparklines — human page views, unique visitors, new sign-ins, active subscribers, catalog totals — each with a day-over-day and 7-day delta matching the email's `deltaText` semantics. Below: a 30-day traffic chart (human vs bot), top traffic sources, top viewed products, and a status strip (prod SHA · stats freshness · failing DQ checks · Algolia drift · moderation depth). A **"recompute today's digest"** action so the operator is not waiting for 05:00 UTC — implemented as `GET /api/admin/overview?recompute=1`, which re-runs the digest's metric collection (already a pure read) and returns it. It does **not** send the email and writes nothing; §13 **D8** draws that line.
+The analytics digest as a live page. Stat tiles with sparklines — human page views, unique visitors, new sign-ins, active subscribers, catalog totals — each with a day-over-day and 7-day delta matching the email's `deltaText` semantics. Below: a 30-day traffic chart (human vs bot), top traffic sources, top viewed products, and a status strip (prod SHA · stats freshness · failing DQ checks · Algolia drift · moderation depth). A **"recompute today's digest"** action so the operator is not waiting for 05:00 UTC — implemented as `GET /api/admin/overview?recompute=1`, which re-runs the digest's metric collection (already a pure read) and returns it. It does **not** send the email and writes nothing; §13 **D8** draws that line. The human page-views tile carries its own **measurement envelope** in the caption (§13 **D15**): the raw server-side count it was subtracted from and how many views the automation filter removed (AECI-745), that the raw figure is an upper bound, the AECI-683 corroborated floor (`corroborated_views` / `corroborated_visitors`), and `operator_leak_excluded` when it is non-zero — on the tile rather than in a tile of its own, because the email prints the same three beside the same number and a caveat one card away from its figure is a caveat nobody reads.
+
+> **Closed by AECI-745 (2026-09-01).** This tile leads with **human page views after automation** — the same number the 05:00 email leads with, from the same `humanViewsAfterAutomation()` call, and `admin-overview.spec.ts` asserts it against a fixture seeded with a client the real detector flags (raw 8, filtered 4). The raw server-side count moved to `page_views_human_raw` and stays in the caption, where the subtraction is legible. What made this hard was an import cycle: `swarm-detection` imported the collector's own `HUMAN` / `NOT_INTERNAL` predicates, deliberately, so that "N of the M reported views" describes the same population. Those predicates now live in `apps/api/src/lib/page-view-predicates.ts`, which both modules import and neither is imported by, so `collectAnalyticsMetrics` runs the detector itself and `AnalyticsMetrics.automation` carries the result. **`page_views_human` and `delta_day` were REDEFINED rather than supplemented** — one headline, not two — which is a silent semantic change for any other reader and is flagged as such in `packages/shared/src/api/admin-panel.ts`. `delta_7d` and the 30-day chart stay RAW, because filtering them means running the detector over every day they span; the caption says so rather than letting a filtered day sit unlabelled beside a raw week.
 
 **SHIPPED (AECI-576, P1.2), with one paragraph above corrected by what P1.1 actually returns.**
 
@@ -177,11 +217,14 @@ The consent-independent equivalent of PostHog's Activity explorer — a reverse-
 | CITY NAME | Location — country + Cloudflare colo (the colo *is* the nearest city) | `cf_country`, `cf_colo` |
 | URL / SCREEN | Page — concrete path, or route pattern hydrated to the real entity name | `path` + `product_id`/`vendor_id` join |
 | TIME | Relative, absolute UTC on hover | `created_at` |
-| REFERRER URL | Source — `Google` / `Direct` + host | `referrer_source`, `referrer` |
+| REFERRER URL | **Claimed source** — `Google` / `Direct` + host. Headed as a claim, not a fact: the value is a client-supplied header nothing verifies (§9.7) | `referrer_source`, `referrer` |
+| *(no PostHog equivalent)* | Network annotation, under the visitor id — "FDCServers.Net, registered Content. Not a network people browse from" | `asn_registry` joined on `cf_asn` (§7.6) |
 
-Operator-only paths (`/admin/*`, `/account`) never appear in this feed — §9.6 / §13 D12 excludes them **beneath** the filters below, historical rows included, so no filter setting can surface them.
+**The network annotation sits with the visitor, not with the bot chip, and that placement is the point (AECI-624).** It is a fact about the network, never a revision of `is_bot`: a row showing **no** bot chip *and* "not a network people browse from" is the honest state, and it is exactly the shape the 2026-08-13 forged-referrer burst had (§7.6). `eyeball` networks get the name and type with no editorial — confirming the common case is worth a line, not emphasis — and only `non_eyeball` is tinted, to the strength of the secondary text colour. Colour never carries it alone; the prose says "not a network people browse from" on its own. An ASN the registry has never heard of renders **nothing at all** rather than an empty annotation.
 
-Filters: date range · traffic type (humans / bots / all, default humans) · source · country · path contains · **"filter out internal traffic"**, mirroring PostHog's toggle, backed by an `ANALYTICS_INTERNAL_ASNS` var. That last one is not cosmetic: on 2026-08-10, **67 of 92 "human" views came from the operator's own ISP** (AS23700, Jakarta). It is bound by the three constraints in §13 **D10** — query-time only (it never touches `is_bot` and never runs at ingest), both numbers always shown, and the var ships unset.
+Operator-only paths (`/admin/*`, `/account`) never appear in this feed — §9.6 / §13 D12 excludes them **beneath** the filters below, historical rows included, so no filter setting can surface them. Since §13 **D13** the same is true of views made by a **verified admin session on any path**: the operator checking a public product page is excluded beneath the filters too, on the same by-construction footing and with the same no-toggle treatment.
+
+Filters: date range · traffic type (humans / bots / all, default humans) · source · country · path contains · **"filter out internal traffic"**, mirroring PostHog's toggle, backed by an `ANALYTICS_INTERNAL_ASNS` var. That last one is not cosmetic: on 2026-08-10, **67 of 92 "human" views came from the operator's own ISP** (AS23700, Jakarta). It is bound by the three constraints in §13 **D10** — query-time only (it never touches `is_bot` and never runs at ingest), both numbers always shown, and the var ships unset. **D13 shrinks what that toggle is for**: session-identified operator views are now removed unconditionally, so the ASN filter is left holding only what it was always meant to hold — the operator's *other* devices on a known network, and nothing else.
 
 Entity hydration follows the `target` `LinkRef` pattern already used by `GET /api/admin/requests`, so `/products/:slug` renders as a linked product name.
 
@@ -189,7 +232,7 @@ Entity hydration follows the `target` `LinkRef` pattern already used by `GET /ap
 
 ### 5.3 Traffic
 
-Time series over `page_views`: views/day split human vs bot · unique visitors/day (§9.8) · sources over time · top pages · top products · geography (country + colo) · crawler activity per bot over time. A UTC ↔ WIB toggle (§9.5), since the digest and every cron are UTC-only and the operator is at UTC+7. "Top pages" is public routes only — the §13 D12 exclusion applies here too, so the console's own routes can never rank in it.
+Time series over `page_views`: views/day split human vs bot · unique visitors/day (§9.8) · sources over time · top pages · top products · geography (country + colo) · **networks** (`dimension=asn`, added by AECI-624) · crawler activity per bot over time. The Networks breakdown is the aggregate counterpart to §5.2's per-row annotation and answers what Geography only approximates: a country says where an address is, a network says what kind of place it is. Each group carries its `asn_registry` reading, so a network with real view counts and a "not a browsing network" suffix is traffic the human/bot split is calling human on thin evidence. A UTC ↔ WIB toggle (§9.5), since the digest and every cron are UTC-only and the operator is at UTC+7. "Top pages" is public routes only — the §13 D12 exclusion applies here too, so the console's own routes can never rank in it.
 
 **Shipped in AECI-578, with three items deferred by decision.** Three of the list
 above are not reachable from the P1.1 contract, which was found while building the
@@ -234,7 +277,7 @@ Two smaller notes. The breakdowns group **signups inside the window**, matching 
 **SHIPPED 2026-08-13 (AECI-579 / P1.5)** — `/admin/catalog`, the console's first screen.
 
 - **Counts over time** — products / integrations / vendors / claims (§7.1), with the pre-snapshot segment visually marked as an audit-log approximation.
-- **Additions per day** from `audit_log` `*.created` events.
+- **Additions per day** from `audit_log` `*.created` events, in a **Daily / Monthly tabbed panel** (see note (4)).
 - **Promotion funnel** — `pending → ready → promoted → retracted / rejected` from `products.promotion_status`.
 - **Coverage gaps as actionable lists** — products without a vendor, without a logo (171 today), without a description, untagged per facet (`product_trades` is 0), missing API docs, `research_status` distribution.
 - **Taxonomy usage** per facet, plus the trades publication gate (`TRADES_VOCABULARY.md`).
@@ -242,22 +285,68 @@ Two smaller notes. The breakdowns group **signups inside the window**, matching 
 
 This is the section that steers daily catalog work, and the one whose underlying data is richest today.
 
-**Three things this section says that the build had to correct or sharpen (AECI-579):**
+**Five things this section says that the build had to correct or sharpen (AECI-579, then (4) and (5) after it):**
 
 **(1) The gap lists cannot link out to the review app, and do not.** An earlier draft of this section, and the "Read-only, emphatically" framing below it, both required every gap row to be *"a link out to the review app, not an edit surface"*. The read-only half stands and is absolute. The link half is **not constructible**: **ADR 0021 deliberately kept the curation key out of D1** — `REVIEW_APP_PROMOTE_API.md` states plainly that *"AECi does **not** store your Airtable/record IDs"*, and that ADR vetoed `airtable_record_id` on `products` as "no curation-tool key in the public schema". There is therefore no identifier in D1 from which a per-row review-app URL could be built, and adding one would reopen a settled decision for a convenience link. **Sample rows link to the AECi product page** (`/products/:slug`) instead, which is the honest available target and is also the more useful one for verifying a gap: it shows the operator exactly what a visitor sees. Nothing about the read-only rule changes — there is no edit affordance anywhere on the screen.
 
-**(2) "Counts over time" and "additions per day" are one series, and it is not this endpoint's.** Both bullets are served by `GET /api/admin/metrics/timeseries` with the `catalog.*` metric keys, which P1.1 already shipped complete with `catalog_series_is_additions_only`. `GET /api/admin/catalog/coverage` deliberately does not carry a second copy. Until §7.1's snapshot exists there is exactly one honest series here — **additions**, from the event stream — and the screen renders it as such with the approximation banner attached, rather than drawing a cumulative curve that §4 shows would be wrong (827 `integration.created` events against 496 live rows).
+**(2) "Counts over time" and "additions per day" are one series, and it is not this endpoint's.** Both bullets are served by `GET /api/admin/metrics/timeseries` with the `catalog.*` metric keys. `GET /api/admin/catalog/coverage` deliberately does not carry a second copy. P1.1 shipped that series on the event stream with `catalog_series_is_additions_only` attached; **AECI-686 moved the screen off it — see (5)** — but the one-implementation rule is unchanged and is why the fix landed in the timeseries endpoint rather than in coverage.
 
 **(3) The untagged-trade count is not a backlog.** This section lists "untagged per facet (`product_trades` is 0)" alongside missing logos and missing vendors. Those are not the same kind of number. `TRADES_VOCABULARY.md` §1.1 tags a product **only** where it has trade-*specific* value, so horizontal platforms (Procore, Autodesk Build, Bluebeam) correctly carry zero rows — the join is sparse by design and most of the catalog will never be tagged. The count is still worth surfacing (nothing at all is tagged today), but it ships with a `trade_facet_sparse_by_design` note. Presenting it as a to-do list without that caveat would make the screen actively misleading.
+
+**(4) "Additions per day" is now a Daily / Monthly tabbed panel, and Monthly is a rollup rather than a second series.** Thirty rows answers *"what happened this week"* and not *"how is the catalog trending"*, so the table sits in an Angular Aria tablist (ADR 0010; the first tabs under `/admin`) with **Daily** — the unchanged trailing 30 UTC days — as tab one and **Monthly** — the trailing 12 UTC calendar months — as tab two.
+
+Monthly adds nothing to the API. `GET /api/admin/metrics/timeseries` zero-fills every day in a window and `catalog.*` values are plain additive counts, so summing the daily points by `YYYY-MM` is **exact, not approximate**, and the rollup runs client-side. `interval` keeps its single wire value `day`; the `AdminTimeseriesQuerySchema` comment calling week/month roll-ups *"a later additive extension, not a reshape"* is still true and still unimplemented on the server. Nothing in the endpoint, the schema, `metrics_daily`, or the 00:15 snapshot cron changed.
+
+Three consequences a reader should not have to rediscover:
+
+- **The caveats are per tab, not per section.** The API derives every note from the window it actually served, so two windows can carry different caveats — one shared notes list would eventually either hide a caveat on Monthly or fabricate it on Daily. Each tab therefore renders its own window's notes, and the load-bearing provenance banner rides on **both**. (Under the pre-AECI-686 `additions` basis this difference was live: the 12-month window reached back past the earliest `audit_log` row and carried `catalog_series_starts_at` where the 30-day window did not. On the `net` basis the two currently agree; the per-tab wiring stays because the property that produced the difference has not gone away.)
+- **Monthly is lazy.** Its four requests fire the first time the tab is opened, never on arrival, because most operators come to this screen for the gap lists. Re-selecting the tab does not refetch; the retry button does.
+- **The window is month-aligned**, starting on the 1st of the earliest month rather than 365 days back, so the oldest row is a whole month rather than a partial one rendered as whole. Twelve consecutive calendar months is 365 or 366 days, inside `ADMIN_METRICS_MAX_DAYS` (400). Buckets render as their raw keys (`2026-08-13` / `2026-08`), and the current month is partial by construction — the monthly `<caption>` says so, which is a fact about the view rather than a claim about the data, so it does not displace the API's own `partial_day` note.
+
+This does not change the P2.1 retirement path. When `ADMIN_SNAPSHOT_STOCK_METRIC_KEYS` gives §5.5 true stocks, there are simply two views to fill instead of one.
+
+**(5) The panel now reads `basis=net`, so its columns reconcile with the Catalog totals cards above them (AECI-686, 2026-08-27).**
+
+Both tables sit directly beneath the five totals cards, and on the `additions` basis none of the four columns summed to the card above it. Production on 2026-08-27:
+
+| series | additions (event count) | live `COUNT(*)` |
+|---|---|---|
+| products | 204 | 247 |
+| integrations | 1,275 | 944 |
+| vendors | 133 | 165 |
+| claims | 11,827 | 1,691 |
+
+The gaps run in **both** directions and have two distinct causes, which is why no single note could explain them. Over-counting is §4's own finding, now larger than §4 recorded: an `*.created` event outlives the row it describes, the 2026-07-25 `catalog.integrations_reset` removed 309 integrations with no per-row audit, and promote **replaces** an integration's claims on every push (`routes/promote.ts` — delete, then re-insert with fresh ids), so 11,827 claim creations back 1,691 live claims. Under-counting is the mirror: 43 products and 32 vendors were created before the audit log's first row on 2026-06-26 and are invisible to it entirely.
+
+**A true created-minus-removed delta is not computable, and that is a data-model gap rather than a UI one.** There is no `*.deleted` action in the vocabulary — `select count(*) from audit_log where action like '%delete%'` returns 0 across all of production — and every path that removes catalog rows is raw SQL running outside the Worker, where `lib/audit.ts`'s batch builders cannot reach; `lib/retract-product.ts` documents this in its own header. Restoring per-row tombstones is the durable fix and is tracked separately.
+
+What **is** exactly computable is the surviving cohort: rows present now, bucketed by their own `created_at`. `AdminMetricBasisSchema` adds `basis=net` for it, and §5.5 requests it explicitly on all four series. It sums to the live catalog by construction:
+
+| month (UTC) | products | integrations | vendors | claims |
+|---|---|---|---|---|
+| 2026-08 | 125 | 561 | 82 | 1,691 |
+| 2026-07 | 61 | 383 | 40 | 0 |
+| 2026-06 | 61 | 0 | 43 | 0 |
+| **total** | **247** | **944** | **165** | **1,691** |
+
+Four things follow, all of them stated on the wire rather than left to inference:
+
+- **It restates.** A removal is subtracted from the bucket the row was *added* in, not the one it was removed in — the only attribution available without tombstones — so a past bucket falls as its rows die. That restatement is precisely what makes the series reconcile. `catalog_series_is_surviving_rows` says so on every `net` response.
+- **It is never snapshotted.** A retroactive value must not be frozen into `metrics_daily`, so `net` bypasses the snapshot read entirely and always reports `source: 'live'` with `reconstructed: false`. The 00:15 cron keeps writing the `additions` reading to `metrics_daily`; that storage path is untouched.
+- **Claims are a valid count and a poor history.** Because promote rewrites them, a claim's `created_at` is the last promote of its integration — every live claim dates from 2026-08-09 or later, which is why the table reads 1,691 in August and zero before. `catalog_claims_recreated_by_promote` carries this, on the claims series only. The real fix is to upsert claims by identity so `created_at` survives a re-promote (AECI-604's territory).
+- **`additions` is retained and remains the endpoint default.** It is not wrong, it answers a different question, and it is the only one of the two that can show churn: a month that created and destroyed 300 integrations reads 0 net and 300 additions. An omitted `basis` param therefore changes nothing for an existing caller. §5.5 passes it explicitly for exactly that reason — silently inheriting the default would restore the mismatch.
+
+This supersedes the note under (2) that called additions *"exactly one honest series here"*. Both are honest; they answer different questions, and §5.5's question is the one the totals cards ask.
 
 ### 5.6 System — SHIPPED (AECI-580, 2026-08-13; completed by AECI-583, 2026-08-13)
 
 - SSR + API `sha` / `deployedAt` / `environment` from the two existing endpoints (`/api/version` and the SSR Worker's own `/_version` — they differ precisely so a stale SSR deploy is detectable). The UI reads both and flags a mismatch as a `role="alert"` band; an unknown SHA (the `wrangler --var` injection missing) reads as *unknown*, not as a difference. The bundle carries the **API** Worker's half — nothing reachable from the API Worker knows the SSR Worker's SHA.
-- **Cron liveness** — last run, duration, outcome per job, for all eleven crons (§7.2).
+- **Cron liveness** — last run, duration, outcome per job, for all thirteen crons (§7.2).
 - **The ten data-quality checks** rendered with severity and sample rows — formerly visible only in an email. **Delivered as specified:** since AECI-583 the default view reads the last persisted `job_runs` result (labelled with the run's own `computed_at`) and `?recompute=1` is the refresh. Both are pure reads, so neither writes anything or needs an `audit_log` row (§13 **D8**).
 - Algolia sync watermark, index drift, orphan-sweep results.
 - D1 size and per-table row counts.
-- Link-outs to the Datadog dashboards and PostHog.
+- **ASN registry freshness *and* reach** (§7.6, AECI-624) — `fetched_at`, row count, and coverage. Two numbers rather than one, because "the refresh ran" and "the annotation is worth anything" are different questions: freshness measures the last write, while coverage measures the intersection with a `page_views` that keeps meeting new networks, so a registry refreshed this morning can still annotate almost nothing. Three states are kept apart: **never refreshed** is not stale (a fresh environment has nothing to be stale about, and flagging it would make the one state an operator can ignore look like the one they cannot), stale means two missed Mondays rather than one, and `coverage: null` means there is no traffic to cover at all — 0/0 is "not applicable", not 0%.
+- Link-outs to the observability dashboards — Datadog while it is live, PostHog alongside it (ADR 0024), plus the PostHog product-analytics project.
 
 Effectively the daily procedure in `POST_LAUNCH_MONITORING.md` turned into one screen.
 
@@ -265,32 +354,276 @@ Effectively the daily procedure in `POST_LAUNCH_MONITORING.md` turned into one s
 
 | Item | State after AECI-580 | State after AECI-583 |
 |---|---|---|
-| Cron **last run** | Derived for two of ten — `home-stats` from `MAX(stats_cache.computed_at)`, `algolia-sync` from the `algolia_sync_watermark` row's stamp — and `unknown` for the other eight. | Read from `job_runs` for every job that has run. `derived` survives only as the pre-first-run fallback (deleting it would blank all ten for 24h after each deploy), and still reports no outcome — a stamp proves the job *ran*, never that it *succeeded*. |
+| Cron **last run** | Derived for two of thirteen — `home-stats` from `MAX(stats_cache.computed_at)`, `algolia-sync` from the `algolia_sync_watermark` row's stamp — and `unknown` for the other eleven. | Read from `job_runs` for every job that has run. `derived` survives only as the pre-first-run fallback (deleting it would blank all thirteen for 24h after each deploy), and still reports no outcome — a stamp proves the job *ran*, never that it *succeeded*. |
 | Cron **outcome / duration** | `null` on every row. `'ok'` is unreachable in P1.6 by construction; the screen renders "Unknown". | Populated. `'ok'` is now reachable — but only from a row that says so: an **open** row (`finished_at IS NULL`) reports `run_state: 'in_flight'` with a null outcome *whatever is stored*, and an unrecognized stored value reads as null. An interrupted run cannot render as a pass. |
-| **Orphan sweep** | Permanently `null` + an `orphan_sweep_not_persisted` note. The sweep runs inside the 09:00 drift cron and reports only to Datadog — there is no D1 read that could fill it, and inventing a persistence layer here is AECI-583's job, not this one's. | Filled from the 09:00 run's `job_runs.detail`, including the `capped` count an operator needs for the `--force` decision. The note is no longer emitted (kept in the enum — removing a code is breaking). `null` now means "no completed run has stored one", never "clean". |
+| **Orphan sweep** | Permanently `null` + an `orphan_sweep_not_persisted` note. The sweep runs inside the 09:00 drift cron and reports only as an emitted metric — there is no D1 read that could fill it, and inventing a persistence layer here is AECI-583's job, not this one's. | Filled from the 09:00 run's `job_runs.detail`, including the `capped` count an operator needs for the `--force` decision. The note is no longer emitted (kept in the enum — removing a code is breaking). `null` now means "no completed run has stored one", never "clean". |
 | **D1 size** | From D1's own `meta.size_after`; `null` (rendered "unknown") where unavailable. Never approximated from the row counts. | Unchanged. |
 | Everything else | Live: version, the ten checks on demand, drift on demand, the watermark, per-table row counts, `stats_cache` freshness. | The ten checks now **default to the last stored 04:00 result** (`source` + `computed_at` say so); drift stays recompute-only. The rest unchanged. |
 
 Two decisions worth carrying forward. **The recompute is opt-in, matching §6's "Overview and System keep the same convention"** — the checks HTTP-probe logo URLs and query three Algolia indexes, and a screen an operator refreshes should not do that on load; the button is the affordance. And **the nav gained a flat "System status" item** rather than pulling P1.2's three-group restructure forward; AECI-576 still owns that and the `h1` rename.
 
+### 5.7 Vendors — SHIPPED (AECI-652, 2026-08-27)
+
+The one section of this console that is not read-only, and the reason is that it is not really *this* epic's section: it is `STAGE_2_PAID_TIERS_SPEC.md` **§5.6**, which owns the contract in full. Recorded here because the route, the nav entry and the IA are this doc's business, and `ADMIN_NAV_GROUPS` must agree with the tree above.
+
+- **`/admin/vendors`** — every vendor in the catalog, paginated, searchable by name or slug, filterable by verified state. This is the screen whose absence was the problem: until it existed the only route to a vendor's entitlement ran through an `/admin/claims` card, so a vendor that never filed a claim was unreachable and concierge onboarding could not be done at all.
+- **`/admin/vendors/:id`** — four sections in one screen: basics + counts, the entitlement control (**moved here** from the claim card, so the §5.2/§5.3/§5.4 copy invariants live in one file), the seat roster with an admin revoke, and the first `audit_log` viewer the platform has ever had.
+
+Three IA notes:
+
+- **Operations, not Catalog.** A vendor is a catalog entity, but what this screen *does* is account administration — entitlement, seats, audit — which is the Operations group's business. It sits between `/admin/claims` and `/admin/reviewers` because claims → vendors → reviewers is the escalation order an operator actually walks.
+- **The detail route is not in the nav.** Only reachable destinations belong there (§5's "an unbuilt route is omitted, not disabled" has a sibling rule: a parameterised route has no nav-able URL).
+- **No live updates**, per §2 — the audit trail and the roster refresh on action or on reload, deliberately.
+
+Per §9.3 the three GETs emit no `audit_log` row; the revoke does, in the same `db.batch` as its write, via the shared `revokeSeatStatements` builder.
+
+> **Operator note — a connector vendor's claim is neither granted nor rejected (AECI-704).** A vendor **all** of whose products are `product_role = 'connector'` is not sold verification (`STAGE_2_SPEC.md` §8.8 / §8.9): on `/admin/claims`, Grant would open a `verified` entitlement and light the badge, and Reject sends a real decline email. The claim is parked `open` and routed to the partnership track out of band, and this screen never opens an entitlement for such a vendor. Since **AECI-738 (2026-09-02) both screens surface `product_role`**: this one carries a "Products by role" row in its Basics list, and `/admin/claims` carries the same breakdown as a verification signal plus a warning banner above Grant/Reject on a pure-connector vendor. **AECI-739 (2026-09-02) closed the last gap the procedure depended on**: a parked claim now has an in-product home for its reasoning — `/admin/claims/:id` with a free-text operator note (§5.10), rendered read-only on the queue card so a parked claim is legible from the list, plus a named explanation of the duplicate chip §5.2 step 5 warns about and an **In review** filter tab the API could not express before. Full procedure — and why `RoleBadge` is deliberately not reused for the aggregate, why zero products reads as *unknown* rather than exempt, and why the actions stay enabled — is `STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2.
+
+> **Rendering revision — SHIPPED (AECI-694).** All four sections are now tables rather than card lists, and the audit trail moved into a shared `<aec-audit-trail>` (`app/admin/audit/`) so the next trail the console wants is a drop-in rather than a second divergent renderer. The contract in `STAGE_2_PAID_TIERS_SPEC.md` §5.6 is unchanged; no endpoint, query or response shape moved. Four notes:
+>
+> - **Two sortable headers on the list, and only two.** `AdminVendorsListQuerySchema.sort` is `created | name | updated`, there is no `order` parameter, and `created_at` is not on `AdminVendorRowSchema` — so Vendor (`name`, ascending) and Updated (`updated`, descending) get a control and the other five headers stay plain text with no hover state. **Clicking selects a sort; it does not toggle a direction**, because direction is fixed per key server-side (`resolveVendorOrderBy`, per `STAGE_1_PHASE_2_SPEC.md` §7.4), and `aria-sort` reports that fixed direction. A header that looked clickable and reordered the 25 rows on the current page would present a page as a ranking; making more columns sortable is an API change, not a UI one.
+> - **The audit trail's action column reads as English.** `describeAuditAction()` (`app/admin/audit/audit-action-labels.ts`) maps the ~40 action strings the API actually writes, with the two templated families expanded (`{category,audience,phase}.created`, `{reviewer,vendor_admin}.{banned,unbanned}`). An unmapped action humanises its token instead of rendering blank — mandatory, because `action` is a plain `z.string()` by contract precisely so a new writer elsewhere cannot 500 this screen, and `audit_log` is excluded from the retention prune (§13), so this reader meets rows written by code that no longer exists. The raw token stays on screen beneath the description, because a row still has to be greppable against a log line. `metadata` is **not** on the wire, so descriptions are derivable from `action` alone; surfacing `source` / `fields` / `reason` would be a handler and schema change.
+> - **Audit timestamps are relative** ("4h", "2d") via `<aec-relative-time>` (`app/shared/relative-time/`), with an info control whose **accessible name is the full `medium`/UTC instant** and a `cdkConnectedOverlay` panel on hover, focus or click. The overlay rather than the repo's CSS tooltip because the table lives in an `overflow-x-auto` box that would clip an in-flow panel. `now` is read once at construction, which matches the no-live-updates rule above: the stamp is as fresh as the fetch that produced the row. Every other timestamp on this screen is absolute `medium`/UTC — several were raw ISO strings before AECI-694.
+> - **"View public page" is now "View Page" and opens in a new tab** (`target="_blank" rel="noopener"`, with a visually-hidden "opens in a new tab"). An operator opens it to check something against the admin record, so navigating away from that record was the wrong outcome; that is also why it is an `href` rather than a `routerLink`.
+> - **The entitlement term is formatted through one shared helper**, because `period_end` is legally a bare `YYYY-MM-DD` and formatting a date-only value as a UTC instant shifts it by the local offset. `/admin/claims` renders the same readout and shares the helper so the two cannot drift. See `STAGE_2_PAID_TIERS_SPEC.md` §5.8.
+
+### 5.8 Users — SHIPPED (AECI-692, 2026-08-28)
+
+Unlike §5.7 this section **owns its contract in full**. AECI-692 has no governing spec elsewhere — no paid-tiers section, no vendor-portal section, no Stage 1 section defines a per-user admin surface — so the contract is here, and `API_CONTRACTS.md` §6.10 carries the endpoint shapes.
+
+**Why it exists.** There was no admin surface that listed users. `GET /api/admin/reviewers` selects `WHERE banned_at IS NOT NULL`, so the console's only person-shaped list showed *only banned people*; everyone else appeared incidentally — as a review's author, a claim's submitter, or a seat row on a claim card. Three consequences: an arbitrary account could not be looked up at all; ban was split across two screens with no user anchor (initiated only from the review queue's repeat-offender prompt, reversed only on `/admin/reviewers`); and nothing in the repo read `last_sign_in_at`, which GoTrue has always returned on the per-id lookup we already pay for.
+
+- **`/admin/users`** — everyone with a `profiles` row, paginated, filterable by `role` / `banned` / `has_seat`, searchable by display name and by full email address.
+- **`/admin/users/:id`** — profile, auth account, the one vendor seat, live pending invites, contribution counts, and ban/reinstate.
+
+**The write-action carve-out.** This section is *not* read-only, and §2 names it as one of the two exceptions. Ban and reinstate call `PATCH /api/admin/reviewers/:id` (AECI-218, ban-gate policy AECI-524) **completely unchanged** — same guardrails (403 on banning an admin or yourself, 422 on a repeat), same role-aware audit actions (`reviewer.banned` / `vendor_admin.banned` / `.unbanned`), same reversible `reviewer_ban` workflow row, all in one `db.batch`. That handler remains the **sole writer of `profiles.banned_at` anywhere in the codebase**; `apps/api/src/routes/banned-at-writers.spec.ts` asserts it at the source level, because behaviour cannot test for the absence of a writer that does not exist yet. §6's read-only convention therefore holds for everything this section *adds*: both new endpoints are `GET`s that write nothing.
+
+**Profiles-first, and that is a decision.** GoTrue's own `GET /admin/users` would answer "every account with an auth row" — but one Supabase project backs **every** environment (ADR 0017), so an auth-first list rendered on production would include staging and preview signups, and its "no profile" rows would be ambiguous across tiers. `profiles` is the per-environment truth; the GoTrue seam enriches the page D1 already chose.
+
+**Tri-state discipline is the acceptance criterion, not a nicety.** `SUPABASE_SERVICE_ROLE_KEY` is legitimately absent on local dev and on every PR preview (`pr-preview.yml` withholds it deliberately), so the degraded path is the **default** path on this surface. Every auth-derived field carries three distinguishable states, and collapsing any two is what let a misconfigured key read as ordinary missing data for a day on 2026-08-24:
+
+| State | Wire | Rendered |
+|---|---|---|
+| Seam unreachable | `auth_available: false`, every `auth` `null` | "Unavailable", plus a banner naming the account service |
+| No `auth.users` row | `auth_available: true`, that `auth` `null` | "No account" — an orphaned profile, a real data defect |
+| Account exists, field empty | `auth` present, field `null` | "No email on file" / "Never signed in" / "Not confirmed" |
+
+The same rule governs the two address-keyed reads: `pending_invites` and `counts.requests_by_email` are `null` when the seam is down, never `[]` or `0`, because an empty answer asserts a fact nobody has. And a seam-down **email search** reports `email_search: 'unavailable'` rather than returning an empty page — an empty page reads as "no such user", which is precisely the false negative this surface exists to eliminate.
+
+**Page size is bounded by the seam, not by taste.** Every row costs one GoTrue round trip, run in waves of `WORKER_CONNECTION_LIMIT` (6) with a 5s timeout each, and nothing caches in front of it. `perPage` defaults to **24** (exactly four waves; 25 would be five) and caps at **50** (≈9 waves) rather than the shared 100 (≈17, which at the timeout is minutes). A KV cache of auth *metadata* is a legitimate future step; caching `role` or `banned_at` is not, ever (`AUTH_AND_RLS.md` §4.5).
+
+**Email search is exact, never partial.** GoTrue's `?filter=` is a case-**sensitive** substring over email *or* display name, and `findAuthUserByEmail` narrows it to an exact lowercased equality client-side — without which `jane@acme.com` would match `jane@acme.com.evil.io`. So `?search=@acme.com` finds nothing by email, the leg only runs when the term contains `@`, and the UI says so. **Last sign-in is not sortable**, and will not become so: it is fetched per-id *after* the ORDER BY has chosen the page, so a sort control would reorder 24 arbitrary rows and call it a ranking.
+
+Three IA notes, in §5.7's voice:
+
+- **Operations, not Insights.** What this screen does is account administration. It takes the slot "Reviewer bans" held, between `/admin/vendors` and `/admin/system` — claims → vendors → people is the escalation order an operator walks.
+- **The detail route is not in the nav** — a parameterised route has no nav-able URL (§5).
+- **No live updates**, per §2. The page refreshes on action or on reload.
+
+**`/admin/reviewers` is folded, not deleted.** `/admin/users?banned=true` is the same predicate with filters, search and paging; the old screen loaded `perPage=100` once with no paginator and its only control was Unban. The route survives as a redirect because runbooks and `AUTH_AND_RLS.md` §7 name it, and the endpoint `GET /api/admin/reviewers` is untouched. One consequence worth recording: `/admin/vendors/:id`'s per-seat link read "Ban this person" and pointed at that banned-only list, so for an unbanned seat it landed on a page that neither contained them nor could ban anyone. It now points at the person.
+
+**What this screen deliberately cannot do.**
+
+- **Revoke a vendor seat.** That stays on `/admin/vendors/:id`. The revoke ≠ ban ≠ entitlement-clear copy invariants (`AUTH_AND_RLS.md` §3.2) must live in one place, and only the vendor roster shows the blast radius — the other seats, the entitlement state — that makes a revoke decision safe. The two screens assert the boundary in both directions in their component specs.
+- **Edit the role or the trust tier.** No writer exists for either; granting `admin` remains the per-environment SQL runbook in `environments.md` §10.7.
+- **Trigger GDPR erasure.** Deferred behind AECI-531's silent-skip telemetry — an admin-triggered erasure whose `auth.users` half can fail silently is worse than no button.
+- **Show what this person browsed.** Structurally impossible and permanently so: AECI-585 dropped `page_views.user_id` / `session_id` / `profile_role` (§13 D7) and §9 item 7 forbids visitor↔account correlation. There is no join column to reconstruct, by decision.
+
+Per §9.3 both GETs emit no `audit_log` row; the ban does, in the same `db.batch` as its write, through the AECI-218 handler.
+
+> **Rendering revision — SHIPPED (AECI-694).** The list is a table rather than a card list, following §5.7. No endpoint or contract moved.
+>
+> - **Two sortable headers: Profile created (`created`) and Updated (`updated`)**, both descending, matching `AdminUsersSortSchema` and `resolveAdminUserOrderBy`. The list gained an **Updated column** so the second supported key is reachable at all — `updated_at` was already on `AdminUserRowSchema` and simply had nowhere to go. As with §5.7, clicking selects a sort rather than toggling a direction, because the endpoint takes no `order`.
+> - **Last sign-in has no control**, which is the "not sortable, and will not become so" rule above turned into a test rather than a sentence. Email is unsortable for the same reason. Both are asserted in `user-list.component.spec.ts`.
+> - Timestamps stay **absolute** `medium`/UTC here. The relative stamp introduced by AECI-694 is scoped to the audit trail, where "how long ago" is the question actually being asked; "Profile created" is not.
+
+---
+
+### 5.9 Connectors — SHIPPED (AECI-722, 2026-08-31)
+
+`/admin/connectors` and `/admin/connectors/:id`, the **first read layer** over the six
+connector-lane tables AECI-714 landed (`DATABASE_SCHEMA.md` §9a). Before this the lane had no
+reader anywhere: `apps/web/src` contained zero references to it, and `schema.ts` carried no
+`relations()` block on purpose, deferred to whichever issue built the first read.
+
+The screen answers three operator questions that had no surface:
+
+- **What still needs deciding?** The review app's unmatched listings — ~3,342 of MindCloud's 3,573
+  in the real feed — are the triage backlog, and nobody could see it.
+- **Is this vendor's feed still arriving?** `STAGE_2_SPEC.md` §8.9(4) moved the connector seat's
+  re-confirmation duty onto catalogue freshness precisely because the seat carries no
+  `vendor_entitlements` row and therefore no expiry cron to sweep it. It named "the connector
+  admin screen" as where that gets reviewed. `connector_catalog_surfaces.last_ingested_at` is
+  that signal, and it sits in the second section rather than at the bottom for that reason.
+- **Who holds this lane?** AECI-720 shipped the `managed_by` flip with no control.
+
+**Two sections in Catalog, not Operations.** §5.7 put Vendors under Operations because what that
+screen *does* is account administration. What this one does is inspect catalogue data, which
+makes it Coverage's sibling. It is also what turned Catalog into a dropdown (§5.0a).
+
+#### What the screen deliberately does not do
+
+**It cannot approve or adjust a mapping**, though the originating issue asked for exactly that.
+`planConnectorCatalogPage` upserts `connector_stub_mappings` with `set: { ...values }` over
+`status`, `confidence`, `evidence_url`, `decided_by` and `notes`, and drops from the batch only
+rows it computes as *unchanged* — so an AECi-authored decision is precisely the row that
+registers as changed and is overwritten by the next page. Three things follow, and the third is
+why guarding the sync was rejected rather than merely deferred:
+
+1. §2 makes this console's HTTP surface read-only but for account and governance writes; a mapping
+   PATCH would be its first catalog-**content** write.
+2. §9a says it outright — *"Rows arrive only through `POST /api/promote/connector-catalog`.
+   Nothing else writes them."*
+3. A `decided_by <> 'auto-name-match'` skip guard in the sync would make **AECI-731's own
+   acceptance criterion** — *"re-running it end to end reports every row `unchanged` and writes no
+   `audit_log` row"* — unachievable for any catalogue an operator had touched.
+
+The question is answered rather than deferred: authoring lands as
+`PATCH /api/admin/connector-stub-mappings/:id` **gated on `managed_by = 'vendor'`** at AECI-724
+time. That is the only state in which the sync is frozen out of a catalogue and cannot clobber the
+row, and `STAGE_2_SPEC.md` §8.9(2) already pins its authz model (`profiles.role = 'vendor_admin'`
++ `vendor_id`, ownership-checked, never through `requireCapability`).
+
+**It does not decide publication.** The pairs view renders §13.7's *inputs* — both sides in our
+catalogue, and whether a person rather than the auto pass made the mapping — and carries a
+`publication_gate_inputs_only` advisory saying so. Clause (b) (the pair being undelivered) and
+clause (c) (Addendum A §11.4's "meaningful no" scoring) are AECI-716's and are not evaluated here.
+
+#### Five things the build settled
+
+**(1) The handover is derived, and disappears when the lane is reclaimed.** AECI-720 records
+`vendorId` and `reason` **only** in the audit row's metadata — nothing lands on
+`connector_catalogs` — so the trail is the sole record. Rather than widen `AdminAuditRow` with
+`metadata` (it is rendered by the shared `<aec-audit-trail>` for vendors too, and that schema's
+docblock argues against pushing free-form JSON from ~34 writers into a shared render path), the
+detail endpoint derives a fixed `handover` block. It returns `null` whenever `managed_by` is back
+to `'review'`: the `managed_by_vendor` row survives forever, and rendering it beside a
+review-managed lane would tell the operator a vendor still holds a lane they do not.
+
+**(2) "Not yet reviewed" is the absence of a row, not a status.** §9a.4 has no `pending` — a row
+per unreviewed stub would be ~3,300 rows of nothing. So the count is an anti-join and the filter
+is a `NOT EXISTS`. Every other mapping filter is an `EXISTS` too rather than a join, because a
+stub carries several mappings and a join would return it once per match, corrupting both the page
+and its `total`.
+
+**(3) The action inventory ships as a boolean, and the blob never crosses the wire.**
+`connector_stubs.actions` is NULL for most stubs indefinitely — the inventory runs to ~73k actions
+across MindCloud alone and is fetched lazily. §9a.3: *"a reader treating null as 'none' would
+publish 'this connector does nothing' about most of the catalogue."* The row carries
+`actions_fetched` plus `action_count`, the screen renders **"Not fetched"**, and a
+`stub_actions_never_fetched` advisory counts them per page.
+
+**(4) The delivered lane renders an empty state, never a zero.** `connector_evidenced_pairs` is
+created empty and nothing writes it until AECI-721. Showing `0` would claim a measurement nobody
+took — §5.1's rule — so the lane carries a `connector_evidenced_pairs_empty` advisory instead. The
+two lanes are two `<table>`s, per §13.3: a group-header row inside one `<tbody>` has no accessible
+name relationship to the rows beneath it. Each lane distinguishes a **failed** fetch from an empty
+one — an alert with a retry, not the empty state — for the same reason §5.1 keeps a failed section
+from blanking the page: rendering a load error as "nothing delivered" would be the exact
+zero-as-measurement misread this advisory exists to prevent.
+
+**(5) No cache tag, and that is now settled twice over.** `/admin/*` is deliberately uncacheable
+(`CACHE_STRATEGY.md` §4), so an admin-only reader renders nothing cacheable and the connector
+tables still have no tag vocabulary. AECI-720's handler comment anticipated "whoever builds the
+first read surface owns the tag set" — this is that surface, and the answer is that the obligation
+stays parked with AECI-715 / 716, the first *public* reader. What AECI-722 does own, and
+discharges, is the `relations()` block.
+
+**Local data.** The sender is AECI-731 and it is unbuilt, so `connector_*` is empty in every
+environment. `apps/api/seed/connector-fixtures.sql` (in the `db:seed:local` chain and in
+`db:seed:stage2`) seeds two catalogues and ~35 listings covering every state the screen draws —
+including a high-confidence machine proposal that must **not** read as confirmed, and a
+low-confidence human decision that must.
+
+### 5.10 Claim detail — SHIPPED (AECI-739, 2026-09-02)
+
+Unlike §5.8 and like §5.7, this section does **not** own its contract. It is
+`STAGE_2_VENDOR_PORTAL_SPEC.md` §5 and §5.2, which own the claim-review surface in full;
+`API_CONTRACTS.md` §6.10 carries the endpoint shapes. Recorded here because the route,
+the IA and the read-only carve-out are this doc's business.
+
+**Why it exists.** §5.2 is the operator procedure for a **pure-connector vendor's claim**:
+Grant is wrong (it opens an unconditional `verified` entitlement and lights the badge) and
+Reject is wrong (it sends a real decline email to exactly the party we want a relationship
+with), so the claim is **parked `open`** and routed to the partnership track out of band.
+AECI-738 made that vendor identifiable from the queue card. What was still missing was the
+*record*: §5.2 step 6 had to send the conversation to Linear comments "so nobody looks for
+an in-product home that does not exist", which meant the console showed a lengthening queue
+of open claims with no visible reason why any of them was parked.
+
+- **`/admin/claims`** — unchanged as a queue, with three additions: the operator note renders
+  read-only on each card, each card links to its detail route, and the status filter gained
+  **In review**.
+- **`/admin/claims/:id`** — five sections in one screen: the claim itself, the verification
+  signals (through the same shared `productRolesLabel` §5.7 uses, so the two screens cannot
+  describe one vendor differently), the operator note, the duplicate explanation, and an
+  `in_review` explainer shown only at that status.
+
+Three IA notes, in §5.7's voice:
+
+- **Operations, not a new group.** It is a child of `/admin/claims`, which already sits
+  between `/admin/requests` and `/admin/vendors` because requests → claims → vendors is the
+  escalation order an operator walks.
+- **The detail route is not in the nav.** A parameterised route has no nav-able URL (§5), so
+  `ADMIN_NAV_GROUPS` and `admin-shell.component.spec.ts`'s ordered-list assertion are
+  untouched.
+- **No live updates**, per §2 — the note and the duplicate list refresh on action or reload.
+
+**This section is *not* read-only, and §2 names it as one of the four exceptions.** The note
+is an *annotation* write: it changes no claim status, grants nothing, and sends nothing. Per
+§9.3 the GET emits no `audit_log` row; the note write does, in the same `db.batch` as its
+UPDATE, via the shared `saveClaimNotesStatements` builder — and those rows carry the full old
+and new note, which is what makes the **audit trail the note's history** rather than the
+column. An unchanged re-save is a 200 no-op that writes nothing, deliberately: a trail of
+identical states is not a history.
+
+**What this screen deliberately cannot do:**
+
+- **Grant or reject.** Both stay on the queue, where §5.2's pure-connector warning sits
+  beside the buttons that would do the damage. Splitting them would mean two copies of that
+  warning, and those are the sentences whose drift is an incident rather than a typo.
+- **Manage the entitlement.** That moved to `/admin/vendors/:id` (§5.7 / AECI-652) for the
+  same reason; this page shows a readout and links there.
+- **Change `is_duplicate`.** §5.2 step 5's trap — a parked-open claim keeps flagging every
+  later claim on that vendor — is made *legible* here, not fixed. The chip's semantics are
+  unchanged.
+- **Annotate a correction.** The column lives on `vendor_requests`, so it is physically
+  available, but the API surface is claim-only. Extending it is a decision, not a migration.
+
 ---
 
 ## 6. API surface
 
-All endpoints are `GET`, admin-gated, read-only. They register on the existing `authAdmin` sub-router in `apps/api/src/index.ts` behind `requireAdmin()`, which stays the single enforcement point (`AUTH_AND_RLS.md`). Contracts live in `packages/shared/src/api/admin-panel.ts` and reuse `PageQuerySchema` (`page` / `perPage`, capped at 100) and `paginatedResponseSchema` so list shapes match `/api/admin/requests`.
+All endpoints are admin-gated and register on the existing `authAdmin` sub-router in `apps/api/src/index.ts` behind `requireAdmin()`, which stays the single enforcement point (`AUTH_AND_RLS.md`). Contracts live in `packages/shared/src/api/admin-panel.ts` and reuse `PageQuerySchema` (`page` / `perPage`, capped at 100) and `paginatedResponseSchema` so list shapes match `/api/admin/requests`.
+
+**All the §5.1–§5.6 endpoints are `GET` and read-only.** The later sections added by other epics are the exceptions, and they are narrow: §5.7 added one `DELETE` (seat revoke), §5.8 added none at all — its ban reuses the pre-existing `PATCH /api/admin/reviewers/:id` — §5.9 added one `PATCH` (the `managed_by` flip), and §5.10 added one `PATCH` (the operator note). Their contracts live in `packages/shared/src/api/admin-vendors.ts` and `admin-users.ts` respectively, using the **bare** `paginatedResponseSchema` rather than this section's `.extend({ generated_at, source, notes })` console shape.
 
 | Endpoint | Purpose | Notes |
 |---|---|---|
 | `GET /api/admin/overview` | The §5.1 bundle | One round trip; **calls** `collectAnalyticsMetrics` (see the P1.1 note below). `?day=YYYY-MM-DD` picks a UTC day, default the digest's prior complete day; `?recompute=1` runs the two network-dependent status items (pure read; sends no email) |
 | `GET /api/admin/page-views` | §5.2 feed | Paginated + filtered; entity-hydrated `LinkRef` |
-| `GET /api/admin/metrics/timeseries` | `?metric=&from=&to=&interval=day` | Serves `metrics_daily` (§7.1); falls back to live aggregation pre-snapshot |
+| `GET /api/admin/metrics/timeseries` | `?metric=&from=&to=&interval=day&basis=additions\|net` | Serves `metrics_daily` (§7.1); falls back to live aggregation pre-snapshot. `basis=net` (AECI-686, `catalog.*` only) counts surviving rows by `created_at`, bypasses the snapshot, and is a 400 on any other metric |
 | `GET /api/admin/traffic/breakdown` | `?dimension=source\|country\|path\|product\|bot` | Grouped counts over a window |
 | `GET /api/admin/catalog/coverage` | §5.5 gap lists + funnel | Capped sample rows, exact counts. `?sample=` (0–50, default 10); `0` returns counts only. **No `window`** — see the P1.5 notes below |
 | `GET /api/admin/audience` | §5.4 aggregates — **SHIPPED (AECI-586)** | Subscribers, churn, UTM, geo. `?from=&to=` (both inclusive) + `?breakdown_limit=` (1–50, default 8). Derived **live** from `mailing_list`, not from `metrics_daily` — see §5.4 note (1) |
 | `GET /api/admin/feedback` | Paginated feedback list — **SHIPPED (AECI-586)** | First read surface for the table. `PageQuerySchema` only; no window (the windowed count rides on `/audience`) |
 | `GET /api/admin/system` | §5.6 bundle — **SHIPPED (AECI-580, completed AECI-583)** | Version, cron runs (from `job_runs`), the last stored DQ result, Algolia incl. the orphan sweep, table counts. `?recompute=1` re-runs the ten DQ checks + drift live (pure read — writes nothing, not even a `job_runs` row) |
+| `GET /api/admin/vendors` | §5.7 list — **SHIPPED (AECI-652)** | Paginated, `?search=` over name/slug, `?verified=true\|false` as an **enum-plus-transform**, never `z.coerce.boolean()` (AECI-691) |
+| `GET /api/admin/vendors/:id` | §5.7 detail — **SHIPPED (AECI-652)** | Basics, entitlement, seat roster + pending invites, product/integration/claim counts. `seats: null` ⇒ the GoTrue seam was unavailable, **not** an empty roster |
+| `GET /api/admin/vendors/:id/audit` | §5.7 audit — **SHIPPED (AECI-652)** | The first read surface `audit_log` has ever had. `?scope=all\|entity\|actor`; entity scope is four OR'd disjuncts because `entity_id = <vendor>` misses more than it catches |
+| `DELETE /api/admin/vendors/:id/seats/:userId` | §5.7 revoke — **SHIPPED (AECI-652)** | **A write, not a read.** Composes `revokeSeatStatements`, so its `audit_log` row rides the same `db.batch` and no statement names `vendors` |
+| `PATCH /api/admin/connector-catalogs/:id` | The per-iPaaS management cutoff — **SHIPPED (AECI-720)** | **The second write in this table.** Flips `connector_catalogs.managed_by`; `vendor` freezes the review lane so promote refuses that catalogue's pages with `CATALOG_VENDOR_MANAGED`. Audit row in the same `db.batch` as a guarded `UPDATE`; no `workflow_instances` row (closed CHECK) and no purge (nothing reads the table yet). Reversible — "one-way forever" governs the data direction, not the flag. Contract in `packages/shared/src/api/admin-connector-catalogs.ts`; the screen that will call it is AECI-722's |
+| `GET /api/admin/users` | §5.8 list — **SHIPPED (AECI-692)** | Profiles-first (ADR 0017 — one auth project backs every env). Filters `role` / `banned` / `has_seat`, all enum-plus-transform. `perPage` defaults 24, caps **50** not 100 — every row is a GoTrue round trip. `auth_available` + `email_search` report what the seam did |
+| `GET /api/admin/users/:id` | §5.8 detail — **SHIPPED (AECI-692)** | Profile, auth account, the one seat, live pending invites, counts. `pending_invites: null` and `requests_by_email: null` mean *unknowable without the seam* — never `[]` or `0` |
+| `GET /api/admin/connector-catalogs` | §5.9 list — **SHIPPED (AECI-722)** | Paginated, `?managed_by=` + `?search=` over the connector product. Per-row tallies come from six GROUP-BY passes in one `db.batch`, not fourteen correlated subqueries per row |
+| `GET /api/admin/connector-catalogs/:id` | §5.9 detail — **SHIPPED (AECI-722)** | Basics, surfaces, counts, `handover`, `advisories`. `handover` is derived from `audit_log` and is `null` whenever the lane has been reclaimed |
+| `GET /api/admin/connector-catalogs/:id/stubs` | §5.9 triage — **SHIPPED (AECI-722)** | Filters are `EXISTS` subqueries, never joins: a stub carries several mappings, and a join would duplicate the row and corrupt `total`. The `actions` blob never crosses the wire |
+| `GET /api/admin/connector-catalogs/:id/pairs` | §5.9 pairs — **SHIPPED (AECI-722)** | `?lane=reachable\|evidenced`, one lane per call because §13.3 requires one `<table>` per lane. Renders the publication gate's inputs, never its verdict |
+| `GET /api/admin/connector-catalogs/:id/audit` | §5.9 audit — **SHIPPED (AECI-722)** | **One** disjunct, not §5.7's four: the flip and the sync both file under `entity_type='connector_catalog'` with the catalogue id |
+| `GET /api/admin/claims/:id` | §5.10 detail — **SHIPPED (AECI-739)** | One claim, every queue signal plus `duplicate_siblings` — the rows behind the queue's duplicate chip. `is_duplicate` here IS `duplicate_siblings.length > 0`, so the two surfaces cannot disagree. **422**, not 404, on a `kind='correction'` id: the row exists and moderates elsewhere |
+| `PATCH /api/admin/claims/:id/notes` | §5.10 operator note — **SHIPPED (AECI-739)** | **The third write in this table**, and an *annotation* — no status change, no grant, no email, no purge, no `workflow_instances` row. Audit row in the same `db.batch` as the guarded `UPDATE`, carrying the full old and new note, which is what makes the trail the note's history. Unchanged text is a 200 no-op that writes nothing |
 
-**Conventions.** No `audit_log` rows (reads only — §26.1 governs writes). No `Cache-Tag`, no edge caching; `/admin/*` is absent from `ROUTE_CACHE_PATTERNS` in `server-runtime.ts` and therefore takes the non-cacheable branch with `private, no-store`. That must stay true (§9.2). Response validation in dev via `validateResponseInDev`, as with the other admin routes.
+**Conventions.** No `audit_log` rows **from the reads** — every `GET` in the table above writes nothing, including the `?recompute=1` ones, all five §5.9 connector reads and §5.10's claim detail (§26.1 governs writes; ADR 0022 scopes it). The write paths do audit, in the same `db.batch` as their write: §5.7's revoke via `revokeSeatStatements`, §5.8's ban via the AECI-218 handler, AECI-720's `managed_by` flip via `auditInsert` alongside its guarded `UPDATE`, and AECI-739's operator note via `saveClaimNotesStatements`. **None of them breaches §2's "no editing catalog data" boundary**: a seat revoke and a ban are account writes, a `managed_by` flip is a *governance* write — it decides which system may author a catalogue, and changes no catalogue content — and an operator note is an *annotation* on a request row, which was never catalog data. Promotion remains the review-app → `POST /api/promote` path, and there is still no admin vendor-edit or product-edit endpoint. No `Cache-Tag`, no edge caching; `/admin/*` is absent from `ROUTE_CACHE_PATTERNS` in `server-runtime.ts` and therefore takes the non-cacheable branch with `private, no-store`. That must stay true (§9.2). Response validation in dev via `validateResponseInDev`, as with the other admin routes.
 
 **Manual job triggers — the line is side effects, not manual-ness (§13 D8).** *Recomputation* is in scope and is a `GET`: both `runDataQualityJob` and the digest's metric collection are already pure reads, so `?recompute=1` on the two endpoints above writes nothing, sends nothing, and carries no `audit_log` obligation. *Running a job for real* — sending the digest, `algolia-sync`, the retention prune, the reconcile sweep, anything that writes, emails, purges, or calls an external API — stays **deferred**, and `POST /api/admin/jobs/:job/run` is not built. Owner: **@chrisw**. Revisit when an operator first needs to force a job outside its window during an incident; at that point it is a state-changing write and needs its `audit_log` row in the same batch.
 
@@ -385,7 +718,7 @@ through the API** — no screen consumes them until §5.4/§5.5 — because a st
 unrecoverable retroactively: a day not sampled is gone, so waiting for the reader
 would cost history that cannot be bought back.
 
-**No `audit_log` row** — this is derived bookkeeping and is exempt from the §26.1 audit-in-batch invariant under the carve-out settled in §13 **D11** / **ADR 0022**. Follow `stats_cache`'s precedent exactly (`lib/home-stats.ts`): write **per key, outside any batch**, each inside its own try/catch, so partial failure of one metric never aborts the others. Observability is Datadog (`aeci.metrics_snapshot.*`, `OBSERVABILITY.md`) plus the `job_runs` row from §7.2, not the audit log.
+**No `audit_log` row** — this is derived bookkeeping and is exempt from the §26.1 audit-in-batch invariant under the carve-out settled in §13 **D11** / **ADR 0022**. Follow `stats_cache`'s precedent exactly (`lib/home-stats.ts`): write **per key, outside any batch**, each inside its own try/catch, so partial failure of one metric never aborts the others. Observability is the emitted `aeci.metrics_snapshot.*` metrics (`OBSERVABILITY.md`) plus the `job_runs` row from §7.2, not the audit log.
 
 **Backfill** (`apps/api/scripts/backfill-metrics-daily.ts`, core in
 `src/lib/metrics-backfill.ts`): derive the historical series from `audit_log`
@@ -430,7 +763,7 @@ stored row.
 
 ### 7.2 `job_runs` — cron liveness and DQ persistence
 
-Today a cron's outcome exists only as a Datadog metric, and the ten data-quality findings exist only in an email:
+Before this table, a cron's outcome existed only as an emitted metric, and the ten data-quality findings existed only in an email:
 
 ```
 job_runs
@@ -443,16 +776,37 @@ job_runs
   INDEX (job, started_at)
 ```
 
-Each of the eleven cron handlers in `scheduled.ts` writes one row (eight at the time this was written; AECI-581 added the 00:15 `snapshot` job, AECI-584 the 03:00 `retention` prune, and AECI-302 the 10:00 attestation detector sweep). The data-quality run stores its full result set in `detail`, which is what §5.6 renders. Retention: 90 days (§7.4), enforced by the 03:00 prune since AECI-584.
+Each of the thirteen cron handlers in `scheduled.ts` writes one row (eight at the time this was written; AECI-581 added the 00:15 `snapshot` job, AECI-584 the 03:00 `retention` prune, AECI-302 the 10:00 attestation detector sweep, AECI-613 the 11:00 entitlement term-expiry sweep, and AECI-624 the WEEKLY 02:00 Monday `asn-registry` refresh — cron `0 2 * * 2`, because Cloudflare's day-of-week is 1=Sunday, AECI-661 — which met this table at the AECI-750 reconcile). The data-quality run stores its full result set in `detail`, which is what §5.6 renders. Retention: 90 days (§7.4), enforced by the 03:00 prune since AECI-584.
 
-**SHIPPED (AECI-583, 2026-08-13.)** `job` uses the eleven `AdminCronJob` ids in `packages/shared/src/api/admin-panel.ts` (AECI-581 added the ninth, `metrics-snapshot`; AECI-584 the tenth, `retention-prune`; AECI-302 the eleventh, `attestation-notify` — no migration needed for any of them, `job` carries no CHECK for exactly this reason); the DDL above is the built shape and `DATABASE_SCHEMA.md` §9.4 is the implementation record. Four things settled during the build are worth carrying forward:
+**SHIPPED (AECI-583, 2026-08-13.)** `job` uses the thirteen `AdminCronJob` ids in `packages/shared/src/api/admin-panel.ts` (AECI-581 added the ninth, `metrics-snapshot`; AECI-584 the tenth, `retention-prune`; AECI-302 the eleventh, `attestation-notify`; AECI-613 the twelfth, `entitlement-expiry`; AECI-624 the thirteenth, `asn-registry` — no migration needed for any of them, `job` carries no CHECK for exactly this reason); the DDL above is the built shape and `DATABASE_SCHEMA.md` §9.4 is the implementation record. Four things settled during the build are worth carrying forward:
 
 - **Written on entry, completed on exit.** `withJobRun` (`apps/api/src/lib/job-runs.ts`) awaits the entry insert *before* invoking the job, so a run the isolate never returns from leaves `finished_at IS NULL` — the unfinished row is the signal. The finish write is awaited too, never `ctx.waitUntil`: on the queue path `ack()` fires the instant the job returns, and a deferred write would race it and manufacture false timeouts.
 - **All ten impls return a `JobRunReport` rather than `void`.** They swallow their own operational errors, so a wrapper that only watched for a throw would record `ok` for a failed run. A *thrown* handler is recorded `failed` **and rethrown**, preserving the reconcile job's deliberate queue retry; a *reported* failure does not throw, so instrumenting did not widen the retry surface to the other nine.
-- **No `partial`.** `home-stats` and `algolia-sync` are natively partial and Datadog tags them so; §7.2's vocabulary has three values, so a partial run records `failed`, derived from the same `jobOutcome()` the metric uses. The panel never claims more success than Datadog for the same run.
+- **No `partial`.** `home-stats` and `algolia-sync` are natively partial and the emitted metric tags them so; §7.2's vocabulary has three values, so a partial run records `failed`, derived from the same `jobOutcome()` the metric uses. The panel never claims more success than the metric does for the same run.
 - **Read as bounded seeks, never a scan.** `(job, started_at)` + `LIMIT 1` per job (eight at the time, ten now); the `GROUP BY` and window-function alternatives both scan the whole index, which mattered a great deal while retention was unenforced — and still means the read cost does not track table size.
 
 **No `audit_log` row**, for the same reason as §7.1 — cron-internal bookkeeping, exempt under §13 **D11** / **ADR 0022**. `job_runs` *is* the observability record; auditing it would be auditing the audit. Asserted per cron in `scheduled.spec.ts`, not merely commented.
+
+> **The record / absence split, restated for the PostHog migration (ADR 0024).** The division
+> of labour is unchanged and **nothing in this panel changes**: `job_runs` + `/admin/system` +
+> the two cron digest emails remain the in-product record of *what a run did*. What changes is
+> only **who detects that a run never happened at all**. A cron that never starts writes no
+> `job_runs` row either, so absence can only be caught from outside the Worker.
+>
+> | | Detects absence | Status |
+> |---|---|---|
+> | Datadog `notify_no_data` monitors (8 of them) | yes | **live today** — still the operating backstop; deleted at AECI-651 |
+> | External CI **liveness sweep** (AECI-647) | yes | replaces all 8 with one scheduled GitHub Actions job that queries per-cron heartbeats and fails red + emails |
+> | PostHog alerts | **no** | PostHog has **no `notify_no_data` equivalent at any tier**. This is the one Datadog capability with no direct successor |
+>
+> The sweep keeps the property that made the Datadog monitors work — it **runs outside the
+> Worker**, so it can report on a Worker that never started. It adds a dependency the monitors
+> did not have: **GitHub Actions availability**. Both facts are stated in ADR 0024, and the
+> second is a named re-open trigger.
+>
+> Being an independent record is also the panel's role in the migration risk story: PostHog
+> Metrics is **alpha** and the whole cron-health model rides custom metrics, so `job_runs`
+> being a second, self-contained surface is a mitigation, not a duplication.
 
 **Retention is enforced as of AECI-584.** §7.4's 90-day window is applied by the 03:00 prune. The prediction that made it urgent held: this table accrues ~44k rows/year, ~80% of them from the `*/15` reconcile, so it is the half of §7.4 that bites **first** — around 2026-11-11, versus ~2027-07 for `page_views`. Shipping P3.2 early rather than "when convenient" is what keeps that first run a single day's worth of rows.
 
@@ -469,6 +823,9 @@ Each of the eleven cron handlers in `scheduled.ts` writes one row (eight at the 
 | ~~Capture `cf_as_organization` at ingest (§13 **D10**)~~ — **DONE 2026-08-13 (AECI-585)** | The ASN *number* alone cannot label itself. `mailing_list` already stores `as_organization` (`schema.ts`) from `LANDING_CF_HEADERS`, and `POST_LAUNCH_MONITORING.md` §3b already names holder-name matching as the durable fix — "not a longer list". Makes both the bot classifier's weekly audit and §5.2's internal-traffic filter self-labelling. Shipped on the header name `LANDING_CF_HEADERS` already uses, so the two enrichment paths cannot drift |
 | ~~**Drop** the dead columns — `user_id`, `session_id`, `profile_role` (§13 **D7**)~~ — **DONE 2026-08-13 (AECI-585)**, migration `0014` | Settled: drop, do not fill. Per-column cost below — the recreate came out as predicted |
 | **Add `products.promoted_at`** (§13 **D6**) — **SHIPPED 2026-08-13** (AECI-581) | Future-proofs the §4 catalog series against a future un-promote → re-promote cycle. **Set-once** — `COALESCE("promoted_at", ?)` in promote's update branch, else it degrades to "last promoted". Backfill `:= created_at` (exact — see §4's correction), run per environment via `scripts/ops/backfill-products-promoted-at.sql` |
+| ~~Flag views made by a verified admin session (§13 **D13**)~~ — **DONE 2026-08-19**, `is_operator`, migration `0016` | The §9.6 path rule stops at `/admin/*`; the operator browsing the **public** site was still counted as a visitor — **368 of 2,493 human public-page views (15%)** in production, across three ASNs in two countries. `ANALYTICS_INTERNAL_ASNS` cannot substitute: pinned to the current network it misses 183 of them and over-excludes 112 rows that are not the operator. Written at ingest because the session is only knowable there. Plain additive `ALTER … ADD` — none of §3.3a's recreate machinery applies |
+| ~~Guarantee one document load writes one row~~ — **DONE 2026-09-01 (AECI-743)**, `dedupe_key` + a UNIQUE index, migration `0020` | Nothing refused a second row, and the schema had no unique constraint of any kind. Production held two byte-identical rows 83 ms apart for one arrival — both `navigation = 'arrival'` with the resolver's route pattern, so two full SSR cache-MISS renders, **not** an SSR + client double-write. Those two rows were the entire "Google — 2 views" traffic-source table and the whole corroborated-referrer population of the 2026-08-29 digest: a 100% error on the AECI-683 floor, the one figure a proxy pool cannot inflate. The key is `sha256(concrete_path \| user_agent_hash \| cf_asn \| 10s bucket)` under a UNIQUE index — a **constraint**, not a read-then-write check, because the duplicate writes race from `waitUntil`. Null (and so unconstrained) for bot rows and rows with no UA hash. Three writer-side guards ship with it: speculative `Sec-Purpose` loads, non-GET requests, and query-only SPA re-navigations no longer write. **Not backfillable** — old rows cannot distinguish a double-fire from two arrivals; `scripts/ops/2026-09-page-view-duplicates/find-duplicates.sql` reports them read-only. Plain additive `ALTER … ADD` + `CREATE UNIQUE INDEX` — none of §3.3a's recreate machinery applies |
+| **Run `scripts/ops/2026-08-operator-page-view-backfill/run.sh` per environment** (§13 **D13**) — **PENDING**; run it AFTER D13 is deployed to that tier | The *flag* is not backfillable (nothing on an old row implies a session), but the **`(user_agent_hash, cf_asn)` visitor pair** is: `/admin*` rows prove which pairs are the operator. Six pairs, four proven directly → **679 rows, 458 of them human public**, taking all-time human views **2,494 → ~2,036 (18%)**. Writes only over NULL, so it never overrides the live flag and `--rollback` is a true inverse. **Then re-run `ops:backfill-metrics-daily`** for the range, or the panel keeps serving the stale stored series for completed days |
 
 **Dropping the dead columns is not symmetric, and the migration plan must say so** (AECI-585):
 
@@ -507,7 +864,7 @@ The window lives in a **config constant**, not a literal, so it can be shortened
 
 1. **A snapshot gap aborts the WHOLE run**, `job_runs` included, and records `outcome='skipped'` with the missing days in `job_runs.detail`. Rule 2 is scoped to `page_views`, and `job_runs` has no snapshot dependency of its own — but a gap means the §7.1 pipeline is unhealthy, and the right posture for a destructive job whose precondition failed is to do nothing and alert. Deferring a day of `job_runs` pruning costs ~120 rows.
 2. **One audit row per run, carrying a `tables[]` array.** Rule 4 says "exactly one summary row per run" but names a singular `metadata={table, cutoff, rowsDeleted}`. Both are honoured: one row, whose metadata is `{rowsDeleted: <total>, tables: [{table, cutoff, rowsDeleted}, …]}` — the rule's triple, per table, inside the run's single row. `entity_type='retention'`, `entity_id` null.
-3. **A run that deletes nothing writes no audit row at all.** The ADR 0022 exception exists because a deletion's fact cannot be recovered from the data afterwards; a non-deletion has no such fact, `job_runs` + Datadog already record that the run happened, and 365 no-op rows a year in an indefinite-retention table is a real cost. It also keeps "in the same batch as the delete" literally true — no delete, no batch.
+3. **A run that deletes nothing writes no audit row at all.** The ADR 0022 exception exists because a deletion's fact cannot be recovered from the data afterwards; a non-deletion has no such fact, `job_runs` + the emitted metrics already record that the run happened, and 365 no-op rows a year in an indefinite-retention table is a real cost. It also keeps "in the same batch as the delete" literally true — no delete, no batch.
 4. **The cutoff is always a UTC midnight.** Whole-day boundaries make the cut window a set of *complete* days, which is what lets rule 2's per-day check be exact and keeps the row counts aligned with the day series §7.1 stores.
 5. **Chunking pages the `id` column, not `created_at`.** `page_views` has no leading-`created_at` index (all five are `(dimension, created_at)`), so a bare `DELETE … WHERE created_at < ?` is a full scan. `id` is `AUTOINCREMENT` and co-monotonic with `created_at`, so each chunk reads ≤500 ids in PK order and emits a `DELETE` bounded by that id range — with `created_at < cutoff` repeated in every statement, so the predicate stays authoritative and a monotonicity violation can only under-delete. The cursor is also the only source of `rowsDeleted`: D1 does not report `meta.changes` usefully for batched writes, and the test harness's `db.batch` shim returns `[]`, so a `DELETE … LIMIT n` chunk could not produce the number rule 4 requires. `DELETE … LIMIT` and long `id IN (…)` lists are avoided for portability rather than because D1 rejects them — local D1 accepts both — and the module header says so explicitly rather than leaving a false claim behind.
 
@@ -539,6 +896,146 @@ adds an index in place, so none of the table-recreate machinery
 `migrations.md` §3.3a documents applies. It is the epic's only schema change
 outside §7.1–§7.4, and one more entry to reconcile in the Drizzle journal at the
 `admin-panel → main` merge-up (§13 D1(a)).
+
+### 7.6 `asn_registry` — read-time network classification — SHIPPED (AECI-624, migration `0017`)
+
+#### The problem
+
+`page_views.is_bot` is decided **once, at ingest**, from the hand-curated
+`DATACENTER_ASNS` map in `apps/api/src/lib/bot-classification.ts`. That map is
+deliberately strict — its membership rule is "the ASN's registered holder must be
+a hosting / cloud / CDN / VPN / scanning business, so that NO residential
+subscriber can sit behind it" — because a false positive silently deletes a real
+human from every figure this panel reports. The raw User-Agent is discarded after
+hashing, so a row can only ever be re-classified by ASN alone, which is why
+changing that list costs a one-way SQL backfill (AECI-582 ran the last one on
+2026-08-13).
+
+The cost of that strictness is a known class of miss. On **2026-08-13T00:16:31–33Z**
+five requests hit `/products/octave-sequence-enterprise` inside 1.9 seconds from
+Amsterdam, Los Angeles and Singapore, with the referrer rotating
+Google → none → **YouTube** → none → ChatGPT. Three of the five were counted as
+human, because AS30058 (FDCservers.net, a dedicated-server host) is not on the
+list. It is the only YouTube-sourced row in the entire production table.
+
+#### Why not simply widen the list
+
+Measured against production on 2026-08-19, before this section existed:
+
+| source | ASNs | has AS30058? | notes |
+|---|---|---|---|
+| `DATACENTER_ASNS` (ours) | 109 | ✗ | censused from real prod traffic on 2026-08-04 |
+| [X4BNet/lists_vpn](https://github.com/X4BNet/lists_vpn) | 892 | ✗ | daily, but **no LICENSE** — unvendorable |
+| [brianhama/bad-asn-list](https://github.com/brianhama/bad-asn-list) | 723 | ✗ | MIT, last pushed 2026-04-12 |
+| [IPinfo Lite](https://ipinfo.io/lite) | — | — | free + daily, but carries **no type field** |
+| [PeeringDB](https://www.peeringdb.com/api/net) | 35,145 | ✓ (as `Content`) | free, has `info_type`. Anonymous reads work but are **throttled hard** — set `PEERINGDB_API_KEY` (AECI-661) |
+
+Three findings decided the design:
+
+1. **56 of our 109 ASNs appear in neither community list.** Ours is the more
+   targeted list, because it was built from traffic we actually received.
+2. **Neither community list contains AS30058** — adopting one would not have
+   caught the miss that prompted this.
+3. X4BNet contains **AS208323 (Applied Privacy / Tor exits)**, which
+   `bot-classification.ts` excludes on purpose ("anonymity ≠ automation").
+   Adopting it wholesale would flip 74 of 2,500 human rows and silently violate
+   our own membership doctrine.
+
+#### The decision: annotate, never re-verdict
+
+**Nothing in this section writes `page_views`.** The registry is joined at READ
+time to say what an ASN is *registered as*, beside an `is_bot` that stays exactly
+as ingest left it. A row reading `is_bot: false` **and** `network_class:
+'non_eyeball'` is the honest state, not a contradiction — it is precisely the
+shape the 2026-08-13 burst had.
+
+Two properties follow, and both are the reason for the choice:
+
+- Improving the feed improves every historical row for free. No backfill, no
+  rewritten verdicts, no Monday-morning edit of history.
+- The annotation can be *wrong* without corrupting anything, because it is
+  labelled as the registry's claim rather than absorbed into ours.
+
+This is the seam `page_views.cf_as_organization` already occupies (§7.3 / §13 D10):
+a read-side signal that deliberately never feeds `classifyTraffic`.
+
+```
+create table asn_registry (
+  asn        integer primary key,   -- the join key; page_views.cf_asn matches by VALUE, no FK
+  info_type  text,                  -- the upstream's word, VERBATIM. Null is a real state (~29% of PeeringDB)
+  as_name    text,
+  source     text not null,         -- 'peeringdb' today; per-row so a second feed can land beside it
+  fetched_at text not null
+);
+create index asn_registry_fetched_at_idx on asn_registry (fetched_at);
+```
+
+`info_type` is stored verbatim and carries **no CHECK**: the vocabulary belongs to
+the source, re-coding it at write time would bake today's reading of their
+taxonomy into stored data, and a SQLite CHECK change forces a full table rebuild
+the moment they add a value. The mapping onto our own buckets is a pure function
+on the read side (`networkClassOf`), revisable without a migration or a re-fetch.
+
+#### The four classes, and why there are four
+
+| `network_class` | from `info_type` | means |
+|---|---|---|
+| `eyeball` | `Cable/DSL/ISP`, `Enterprise`, `Educational/Research`, `Non-Profit`, `Government` | a network real people browse from. Corroborates `is_bot: false` |
+| `transit` | `NSP` | a tier-1 / wholesale carrier. Carries everyone, so it corroborates **nothing** — kept out of `eyeball` because "we can't tell" and "it's a person" are different answers |
+| `non_eyeball` | `Content`, `Network Services`, `Route Server`, `Route Collector` | registered as something no residential subscriber sits behind. **A suspicion, not a verdict** — Google and Netflix are `Content` too, so it means "not an eyeball network", never "hosting" |
+| `unclassified` | null, blank, or a value new upstream | the registry says nothing. Must not render as if it did |
+
+An **absent** annotation (`asn_registry: null`) is a fifth state and a distinct
+one: the registry has never heard of this ASN.
+
+#### Coverage — stated, because it is poor at the tail
+
+Against the 2,500 human-classified production rows (804 distinct ASNs):
+
+| `info_type` | ASNs | views |
+|---|---|---|
+| `Cable/DSL/ISP` | 354 | 1,068 |
+| `NSP` | 140 | 691 |
+| (blank in PeeringDB) | 106 | 328 |
+| no record at all | 152 | 301 |
+| **`Content`** | **31** | **54** |
+| `Network Services` | 9 | 28 |
+| `Enterprise` | 9 | 26 |
+| `Non-Profit` / `Educational/Research` | 3 | 4 |
+
+70% of human views land on an eyeball or transit network; **25% have no usable
+signal at all**. That 25% is why `unclassified` is an explicit member rather than
+a default into `eyeball`, and why §5.6 reports coverage as a first-class number.
+Typed ASN data with a true `hosting` flag exists (IPinfo's paid ASN database,
+ipapi.is at $49/mo) and is the upgrade path if the tail ever matters.
+
+#### The refresh (weekly, `0 2 * * 2` — Mondays; CF day-of-week is 1=Sunday)
+
+Cron → `enqueueOrRun` → inline. **Queue-less**, like `moderation`/`waf`/
+`analytics`/`snapshot`/`retention`: one read-only GET plus an idempotent
+upsert-by-ASN, so a failed week costs freshness and nothing else.
+
+- **Only the ASNs `page_views` has seen are stored.** PeeringDB carries ~35,000
+  networks; production has seen 878. The refresh intersects the feed with
+  `SELECT DISTINCT cf_asn FROM page_views` and keeps the join domain. A
+  first-sighting ASN is unannotated until the next Monday, which is the honest
+  state anyway.
+- **Nothing is ever deleted.** An outage, an empty response, or a schema change
+  upstream leaves the last good rows in place with their real `fetched_at`. The
+  failure mode of an annotation feed must be "old answer", never "no answer,
+  silently" — so an **empty** upstream response is recorded as `failed`, not as a
+  clean run that wrote zero rows.
+- **Chunked at 20 rows per statement.** D1 caps a query at 100 bound parameters
+  and the table has five columns. Sized off the documented limit rather than
+  measured locally, because better-sqlite3's ceiling is far higher and a
+  size-blind implementation passes every spec while failing in production — the
+  same trap `SQLITE_MAX_COMPOUND_SELECT` sets in §5.6's row-count query.
+- **Audit: exempt (ADR 0022).** Derived, log-class, cron-written bookkeeping, in
+  the same class as `metrics_daily` and `job_runs`. The run is recorded in
+  `job_runs`, not `audit_log`.
+
+`aeci.asn_registry.refresh{outcome}` is the liveness heartbeat and
+`aeci.asn_registry.coverage` the gauge; see `OBSERVABILITY.md`.
 
 ---
 
@@ -643,7 +1140,12 @@ unchanged.
 4. **i18n.** All strings `i18n` / `$localize`, admin-only or not — the CLAUDE.md rule is unconditional.
 5. **Timezone.** UTC is the default and matches the digest and every cron. The WIB toggle is presentational only; the underlying window is always UTC and is always labelled.
 6. **No self-pollution — SHIPPED (AECI-575, 2026-08-12).** The console does not record its own navigation into the table it reads. The prefix list is `UNTRACKED_ROUTE_PREFIXES` (`/admin`, `/account`) in `@aeci/shared`, with `isUntrackedRoute()` enforcing an exact prefix-boundary match, so nested admin routes are covered without enumeration and a look-alike public path (`/administrators`) keeps being tracked. It is enforced in **three** places, all off the one list so they cannot drift: (a) `PageViewTracker.fire()` — the browser tracker, the only writer that reaches these routes today; (b) the SSR Worker's `firePageView()` — currently unreachable for these prefixes (`/admin/*` and `/account` are non-cacheable, and that branch fires only on a resolver-attached `ctx.pageView`, which no admin/account resolver sets), guarded anyway so the invariant survives a future resolver; and (c) **on read** — see **§13 D12**. Every query this panel adds over `page_views` (§5.2, §5.3, §6) inherits (c): the exclusion is a floor applied before the user-facing filters, not one of them.
-7. **Privacy.** `page_views` deliberately stores a UA **hash** and a referrer **host** (never the full URL or query). The panel renders a truncated hash as a pseudonymous visitor id and must not attempt correlation beyond that.
+   **Paths were only half of it — SHIPPED 2026-08-19 (§13 D13).** A path rule catches the operator on `/admin/*` and nowhere else; it never saw them browsing the public site to check their own work, which measured **15% of human public-page views** in production. The second half is `page_views.is_operator`, written at ingest from a *verified* admin session (`lib/operator-session.ts`) rather than from a route, and read through the same `NOT_INTERNAL` predicate as (c) so no query can apply one half and miss the other. The write side is correspondingly two writers again: the browser tracker's POST already carries the session cookie through the `/api/*` passthrough, and `firePageView` now forwards the inbound `Cookie` so an SSR arrival resolves the same session an in-app hop does.
+
+**And the flag was only two thirds of it — SHIPPED 2026-08-27 (§13 D15).** `is_operator` is written once at ingest and fails open on an expired token, so an operator browsing across a token expiry leaves a contiguous run of unflagged rows that nothing on the row distinguishes from a visitor — 22 of them in one gap on 2026-08-26. `NOT_INTERNAL` therefore carries a **third** half: a correlated `NOT EXISTS` excluding any row that shares a `(user_agent_hash, cf_asn)` pair (§9.8's own definition of a visitor) with a verified operator row within `OPERATOR_PAIR_LOOKBACK_DAYS`. Unlike the first two it is an **inference**, not a fact about the request, so it is the one half the digest and the panel *report* rather than apply silently (`operator_leak_excluded` + the `operator_leak_is_an_inference` note). All three live in one predicate for the same reason they always have: a caller that remembered two and forgot the third would report a partly-corrected number, which is worse than any consistent alternative.
+7. **Privacy — and the honesty cost that comes with it.** `page_views` deliberately stores a UA **hash** and a referrer **host** (never the full URL or query). The panel renders a truncated hash as a pseudonymous visitor id and must not attempt correlation beyond that.
+
+   The referrer half of that rule has a consequence the UI must carry: **`referrer_source` is what a request CLAIMED, not a verified fact.** `Referer` is a client-supplied header, nothing authenticates it, and storing only the host removes the last thing that could have been sanity-checked. Production contains a confirmed forgery — 2026-08-13, `www.youtube.com`, one of five requests on one URL from three continents inside 1.9 seconds (§7.6) — and a genuine click from that site would have produced a byte-identical row. So the Activity column is headed **"Claimed source"**, and `referrer_source_is_unverified` is emitted with **every** source breakdown, unconditionally: a forged referrer is indistinguishable from a real one in this data, which makes "none detected" a claim the rows cannot support. This is §9.8's obligation — state the bias next to the number — applied to a label rather than a count.
 8. **"Visitor" is a defined term.** Absent sessions, a visitor is a distinct `(user_agent_hash, cf_asn)` pair within the selected window. This over-counts (UA changes on browser update) and under-counts (shared NAT). The definition appears in the UI next to the number, not only in this document.
 9. **Accessibility.** axe-clean on every surface; tables use proper header scope; filters are keyboard-operable; `impeccable detect` reports zero P0.
 10. **Anchor-site rule.** The console inherits the existing admin queues' visual language rather than picking a new Mobbin anchor — same publication, one voice (`DESIGN.md` §Named Rules).
@@ -718,12 +1220,12 @@ Staleness is the recurring review finding, so this list is part of the contract:
 | `adr/0022-cron-bookkeeping-exempt-from-audit-invariant.md` + `adr/README.md` | The ADR behind the §26.1 carve-out, plus its index row. **Landed with AECI-573** |
 | `CODE_REVIEW_EXEMPTIONS.md` | The carve-out as a standing, non-expiring exemption pointing at ADR 0022 — so a reviewer meeting an unaudited cron write finds the reasoning. **Landed with AECI-573** — but EX-002's `scope.paths` was written before this epic's writers existed and never listed them, so a reviewer meeting `metrics-snapshot.ts` or `job-runs.ts` writing unaudited would **not** have matched the exemption that exists for exactly that. **Fixed at closeout (AECI-587)**: the four new paths added, `retention-prune.ts` among them for the opposite reason — it must satisfy the scheduled-`DELETE` exception, and a reviewer should land on both halves |
 | `CICD_PLAN.md` §10 | The `admin-panel` epic integration branch as a second time-boxed exception under ADR 0019's precedent (§13 D1). **Landed with AECI-573** |
-| `AUTH_AND_RLS.md` | The new `/api/admin/*` endpoints under `requireAdmin()`, and the GDPR-erasure simplification once `page_views.user_id` is dropped (§7.3). `/api/admin/system` **landed with AECI-580**, `/api/admin/{audience,feedback}` **with AECI-586**; the erasure simplification **landed with AECI-585** — §8's FK trap is now six inbound FKs, not seven, and the note explains why removing one *strengthens* erasure |
+| `AUTH_AND_RLS.md` | The new `/api/admin/*` endpoints under `requireAdmin()`, and the GDPR-erasure simplification once `page_views.user_id` is dropped (§7.3). `/api/admin/system` **landed with AECI-580**, `/api/admin/{audience,feedback}` **with AECI-586**; the erasure simplification **landed with AECI-585** — dropping `page_views.user_id` took §8's FK trap from seven to six at the time, and the note explains why removing one *strengthens* erasure. **That count has since moved again and this row is a log entry, not the register**: AECI-609 and AECI-664 each added one, so `AUTH_AND_RLS.md` §8 — which is the live register — now lists **eight** (five `NO ACTION`, three `SET NULL`). AECI-692 corrected the count there and deleted the drifting per-site ordinals |
 | `email.md` | Record which cron digests have a screen equivalent. **AECI-580** added the row for the 04:00 data-quality digest (`/admin/system?recompute=1`); the 05:00 analytics digest's screen is P1.2 (AECI-576) — its *API* shipped with P1.1 and, when this row was written, its screen had not. **AECI-576 shipped 2026-08-13, so the caveat is now itself the stale part**: AECI-587 pointed that cell at `/admin/overview` with its `?day=` and `?recompute=1` semantics. **AECI-586** extended the same column to the two *transactional* operator alerts: `landing-feedback` and `landing-signup` now have `/admin/audience` behind them, which matters more than for a digest — those emails were the ONLY record of a submission, so a filtered alert was a lost one |
 | `ANALYTICS_BASELINE.md` | Drop "write-only today (no reporting endpoint)"; record the panel as the consent-independent read path; record that no session identifier was introduced (§13 D7) and why. The `/admin` + `/account` exclusion and its retroactive effect on pre-2026-08-12 counts **landed with AECI-575**. **AECI-585 added the trustworthy-from table** for the four new ingest fields — its dates are written as "the AECI-585 production deploy" and must be replaced with the real date at the `admin-panel → main` merge. **AECI-586** replaced the weekly "Signups" step's manual `wrangler d1 execute … count(*) from mailing_list` with the screen, and recorded that UTM attribution now has a **consent-independent** read path beside the consent-gated PostHog one |
-| `POST_LAUNCH_MONITORING.md` | The §1a cron table gained the 00:15 snapshot job (AECI-581), the 03:00 retention prune (AECI-584) and the 10:00 attestation detector sweep (AECI-302) — eleven crons. Replace §1 rows 6 and 8 (cron liveness, moderation queue) with the panel, and the **weekly** §2 item 4 → §3b manual `wrangler d1 execute` ASN audit with §5.3's geography view. *(The manual D1 query is in the weekly procedure, not the daily — an earlier draft of this row said "daily".)* The ASN-census query gained the §9.6 path exclusion so it matches the digest — **landed with AECI-575**. **Row 6 is now retired in the sense that matters, and the doc states the split**: since AECI-583 the panel owns the *record* (last run, outcome, duration per job) and **Datadog owns *absence*** — a cron that never starts writes no `job_runs` row either, so only a no-data monitor can catch it. What AECI-580 retired outright: the DQ digest is readable on demand (row 5a) — and AECI-583 went further, making the last stored run the default view so the morning read needs no click and no email. D1 size / per-table row counts no longer need `wrangler d1 execute`. Row 8 waits on P1.2's Overview |
+| `POST_LAUNCH_MONITORING.md` | The §1a cron table gained the 00:15 snapshot job (AECI-581), the 03:00 retention prune (AECI-584) and the 10:00 attestation detector sweep (AECI-302) — eleven crons. Replace §1 rows 6 and 8 (cron liveness, moderation queue) with the panel, and the **weekly** §2 item 4 → §3b manual `wrangler d1 execute` ASN audit with §5.3's geography view. *(The manual D1 query is in the weekly procedure, not the daily — an earlier draft of this row said "daily".)* The ASN-census query gained the §9.6 path exclusion so it matches the digest — **landed with AECI-575**. **Row 6 is now retired in the sense that matters, and the doc states the split**: since AECI-583 the panel owns the *record* (last run, outcome, duration per job) and **something outside the Worker owns *absence*** — a cron that never starts writes no `job_runs` row either, so only an external check can catch it. That external check is Datadog's `notify_no_data` **today**, and becomes the AECI-647 CI liveness sweep (PostHog has no `notify_no_data` equivalent — see §7.2). What AECI-580 retired outright: the DQ digest is readable on demand (row 5a) — and AECI-583 went further, making the last stored run the default view so the morning read needs no click and no email. D1 size / per-table row counts no longer need `wrangler d1 execute`. Row 8 waits on P1.2's Overview |
 | `POST_LAUNCH_HEALTH_REPORT.md` | New dated entry (see §14.3). **AECI-585** amended the 2026-08-13 entry's follow-up: `cf_as_organization` is captured, but only forward, so that snapshot's ASNs still need manual lookup. **DONE at closeout (AECI-587)** — a new **2026-08-14** entry, inserted above the 2026-08-13 one with no historical entry touched. Its rolling "as of the latest entry" header *was* edited, which is correct: that matrix is a live summary, not a record, and it carried the last surviving "`page_views` … write-only; query directly" claim in the tree (plus "7 scheduled crons" and both analytics rows still marked `❌ dark`) |
-| `OBSERVABILITY.md` | Any new metric emitted by the snapshot / retention crons. **AECI-583 added** `aeci.job_runs.write` plus a "second recording surface, not a replacement" section reconciling `job_runs` against the existing per-cron heartbeats (panel owns the record, Datadog owns absence). **AECI-584 added** the four `aeci.retention.*` metrics, a tenth row to that reconciliation table, and four monitors (skipped / runaway / failed / no-data), taking the committed set to 27 |
+| `OBSERVABILITY.md` | Any new metric emitted by the snapshot / retention crons. **AECI-583 added** `aeci.job_runs.write` plus a "second recording surface, not a replacement" section reconciling `job_runs` against the existing per-cron heartbeats (panel owns the record, the external absence check owns absence — Datadog's no-data monitors today, the AECI-647 liveness sweep after). **AECI-584 added** the four `aeci.retention.*` metrics, a tenth row to that reconciliation table, and four monitors (skipped / runaway / failed / no-data), taking the committed set to 27 |
 | `RUNBOOKS.md` | Runbook entries for the snapshot and retention crons, matching every other cron's. **AECI-583 added** "Cron runs missing or stuck in flight on `/admin/system`" (the Unknown / Inferred / In-flight triage) and amended the data-quality + Algolia-drift entries, whose first checks now start at the panel. **AECI-584 added** "Retention prune skipped, failed, or not running" — including the first-production-run dry-run procedure — and corrected that entry's claim that the stale-open-row prune was "not yet built". **The snapshot cron's entry landed at closeout (AECI-587)**: "Metrics snapshot missing or incomplete", placed between the two entries that referred to it — the prune runbook had been pointing at a runbook that did not exist, and at an `AECi — metrics snapshot` monitor that does not exist either. It records the flows-recoverable / **stocks-permanently-lost** split, the per-key isolation that makes `partial` the expected failure shape, and why a snapshot gap surfaces as a *retention* alert. Also fixed a `job_runs` cite pointing at `DATABASE_SCHEMA.md` §9.3 (that is `metrics_daily`; `job_runs` is §9.4) |
 | `TESTING_STRATEGY.md` | The §11 approach — chart-geometry pure-function tests are a new category for this repo. **Landed with AECI-576** (§3.2 "Always"). **AECI-580 added §6.3's "the harness is better-sqlite3, and its limits are not D1's"**: the System screen's row-count query passed every unit test and 500'd on the first real request (`SQLITE_MAX_COMPOUND_SELECT` is 5 on D1, 500 in the harness) |
 | `CACHE_STRATEGY.md` | Record `/admin/*` as deliberately uncacheable (`private, no-store`, absent from `ROUTE_CACHE_PATTERNS`) so §9.2 is enforced from the caching doc too. **Landed with AECI-574** (§4, "`/admin/*` is deliberately uncacheable"); AECI-576 added `/admin/overview` to the `server.spec.ts` assertion that backs it |
@@ -757,6 +1259,27 @@ Two things worth knowing at the same moment, neither of them blocking: **staging
 exercised the panel** (it auto-tracks `main`, so per-PR preview Workers were the only verification
 surface — §13 D1 obligation (b)); and the retention prune's **first production run** deletes nothing
 until ~2026-11-11, so the `RUNBOOKS.md` dry-run procedure is a November task, not a merge-day one.
+
+---
+
+### 12b. AECI-624 addendum — the §7.6 ASN registry (2026-08-19)
+
+Shipped **after** the epic's closeout, on the `main` line, so it carries its own
+row rather than amending the table above:
+
+| Document | Change |
+|---|---|
+| `DATABASE_SCHEMA.md` | New **§9.5 `asn_registry`** (DDL, why no FK, why no CHECK on `info_type`, why the table is bounded by the join domain, why it has no retention window). §9.4's "ten crons" corrected to eleven |
+| `API_CONTRACTS.md` | `AdminAsnAnnotationSchema`, `AdminAsnRegistryStatusSchema`, `asn_registry` on `AdminPageViewRowSchema` + `AdminBreakdownRowSchema`, `dimension=asn`, the `referrer_source_is_unverified` note code, and the three-registry-states paragraph on `/api/admin/system` |
+| `OBSERVABILITY.md` | `aeci.asn_registry.refresh` + `aeci.asn_registry.coverage`, and an eleventh row in the cron ↔ heartbeat reconciliation table. **A no-data monitor on a WEEKLY series needs a ≥2-week window** — noted there because every other row is daily or hourly |
+| `POST_LAUNCH_MONITORING.md` | §1a gained the `0 2 * * 1` row (and became "the 11 scheduled crons"); §3b's weekly ASN audit now says what the annotation does and does **not** replace |
+| `ANALYTICS_BASELINE.md` | The "`is_bot = 0` means *not known to be a bot*" caveat now points at the screen that says so, plus the "Claimed source" rename |
+| `ADMIN_PANEL_SPEC.md` | §7.6 (this section), §5.2's annotation row and placement rule, §5.3's Networks breakdown, §5.6's registry status, §9.7's referrer-spoofability paragraph, and the cron counts throughout |
+
+Not updated, deliberately: `RUNBOOKS.md` has no entry, because a failed refresh is
+not an incident — nothing is deleted, the panel keeps annotating from the last good
+rows, and `/admin/system` marks the registry stale after two missed Mondays. If
+that judgement turns out to be wrong the entry is cheap to add.
 
 ---
 
@@ -802,7 +1325,83 @@ D1–D4 were settled when this document was drafted. **D5–D11 were settled by 
 
   It landed in the **daily analytics digest** (`lib/analytics-digest.ts`, all four `page_views` reads), which is the entire live read surface today; `computeTrendingProducts` was already immune via `isNotNull(product_id)`, since an admin row carries no product. Every query P1.1+ adds inherits it as a floor beneath the user-facing filters.
 
+  **That immunity claim is exact and does not generalize — D13 is where it stops.** It holds because an `/admin/*` row has a null `product_id`, not because trending is structurally protected from operator traffic. An operator *session* lands on `/products/:slug` and carries the FK like any other view, so D13 had to add `NOT_INTERNAL` to `computeTrendingProducts` explicitly (`lib/home-stats.ts`). This one matters more than a panel number: trending renders on the **public home page**, and with `TRENDING_MIN_VIEWS` at 3 against ~2,100 all-time human views, a few operator visits could have put a product in front of every visitor.
+
   **It is deliberately silent** — no "N internal views excluded" line in the digest email, unlike the bot-exclusion line beside it. D10's constraint (2) ("show both numbers, never substitute") governs `ANALYTICS_INTERNAL_ASNS`, and does so because that filter is a *heuristic over real visitors* whose false positives must stay visible. A path exclusion is not a heuristic: `/admin/*` traffic is internal by construction, with no false-positive class to disclose. Reporting it as a subtracted quantity would frame operator clicks as visits that were removed, when they were never visits. The one honest-numbers obligation this does carry is recorded in `ANALYTICS_BASELINE.md`: digest counts for days before 2026-08-12 now read lower than the emails sent at the time, and the rows are still in D1 for any query that wants them.
+
+- **D13 — Exclude the operator's own SESSIONS, not just their paths; decide it at ingest** (settled 2026-08-19; §5.2, §5.3, §6, §7.3, §9.6). D12 stopped the operator polluting the table *while standing on `/admin/*`*. It never addressed the operator browsing the **public** site to check their own work, and nothing on such a row distinguishes it from a visitor's: same paths, same `Direct` referrer, same network as any other subscriber of that ISP.
+
+  **The gap was measured before it was fixed.** Against production on 2026-08-19: **368 of 2,493 human public-page views (15%)** came from the operator's own browser, spread across **AS23089/US** (Jun 23 → Jul 30), **AS23314/US**, and **AS23700/ID** (Aug 3 → Aug 18) as their network changed. That number is what closes the "just use D10" argument. `ANALYTICS_INTERNAL_ASNS` pinned to the current AS23700 would have **missed 183** of those views and **wrongly excluded 112** AS23700 rows that were *not* the operator — wrong in both directions at once, and structurally so: an ASN list describes a network, and the thing being excluded is a person who changes networks.
+
+  **So the signal is the session.** `page_views.is_operator` is written at ingest by `lib/operator-session.ts`, which runs the two checks `lib/authz.ts` already runs — JWKS signature verification, then a fresh `profiles.role` read. Three properties are binding: **(1) server-derived, never claimed** — no header, body field, or client assertion can set it, so nobody can hide their traffic from the operator's own analytics; **(2) free for anonymous traffic** — no token on the request returns `false` before any crypto or D1 work, which `page_views` (the hottest write path in the app) requires; **(3) never throws** — it runs inside the fire-and-forget `waitUntil`, so every failure resolves to `false`, costing the flag rather than the row, and failing in the direction that keeps a view counted.
+
+  **This is a D12-class exclusion, not a D10-class filter**, and inherits D12's treatment: unconditional, no toggle, no `excluding_internal` pairing, silent. A verified admin session is internal *by construction*, with no false-positive class to disclose — that is exactly the test D12 used to justify subtracting `/admin/*` from the figure itself rather than beside it. It also folds into the *same* predicate (`NOT_INTERNAL`, `lib/analytics-digest.ts`), because a reader who applied the path half and forgot the session half would report a number that is half-corrected — worse than either consistent alternative.
+
+  **It does NOT reopen D7.** D7 dropped `profile_role` and forbade reintroducing it. `is_operator` is a different object: one boolean whose only consumer is an exclusion predicate, carrying no id, no role string, and nothing that singles a visitor out — the consent-independent footing in §1 is untouched. D7's actual technical objection, that `user_id` is "right half the time" because it never reaches the SSR arrival path, is **closed at the source**: `firePageView` now forwards the inbound `Cookie`, so arrivals and in-app hops resolve the session identically. That header rides the fire-and-forget analytics subrequest only — it never reaches `renderer()`, which on the cacheable branch renders from the cookie-stripped request, so cache-neutrality is unaffected.
+
+  **The live flag is not retroactive, and that is stated rather than worked around.** Older rows are `is_operator = NULL` and read as visitors. Nothing stored on them implies a *session*, so the flag itself cannot be recovered — unlike D12, whose retroactive half was available because `path` was already recorded. Left there, days from 2026-08-19 forward would read **lower** than days before them, and the difference would be a correction rather than a decline.
+
+  **Most of that step is closed by an approximation, kept clearly separate from the flag** — `scripts/ops/2026-08-operator-page-view-backfill/`. The recoverable signal is not the session but the **`(user_agent_hash, cf_asn)` visitor pair** (§9.8's own definition of a visitor): `page_views` still holds `/admin*` and `/account` rows, which no visitor reaches, so a pair appearing on one is *proven* to be the operator. Six pairs, four proven directly, backfilling **679 rows — 458 of them in the human public population, taking all-time human page views 2,494 → ~2,036 (an 18% correction)**.
+
+  **The two rules that look simpler were measured and rejected**, and the measurement is the useful part. *"Everything from Indonesia"* flags 333 rows of which only 185 are the operator (**44% false positives** — ID traffic carries 25 distinct browsers) while missing the 183 views from the operator's US period entirely (**50% recall**): wrong in both directions, and a country is only a coarser network than the ASN D10 already rejected. *"The operator's UA hash"* happens to be safe for the primary hash but is unsafe as a method — the operator's second browser hash spans **6 ASNs across 5 countries**, because a UA hash is a browser *build* shared with strangers. The pair is precise in both directions.
+
+  **The backfill is an approximation and the flag is not, so they must not be conflated.** It writes `is_operator` only where it is NULL, never over a value the live ingest decided, which makes `--rollback` a true inverse rather than a best effort. Two candidate pairs on the operator's own ISP were deliberately left counted because neither can be distinguished from a visitor, so the human figure stays an **upper bound** — a much tighter one. Both the step and its correction are recorded in `ANALYTICS_BASELINE.md`.
+
+- **D14 — Record how browser-shaped each request was, as an annotation that never touches `is_bot`** (settled by AECI-658 on 2026-08-26; §5.2, §7.3, §9.6, and `POST_LAUNCH_MONITORING.md` §3b). D13 tightened the human figure by removing the operator. It did not touch the larger error underneath: on **2026-08-23** the digest reported **48 human views** that were substantially one automated client. Those 48 spanned **44 ASNs and 31 countries** but only **18 `user_agent_hash` values**, one hash read nine different pages from nine different countries on nine different networks without repeating one, and **all 48 produced zero PostHog events**.
+
+  Neither existing lever can see that. `cf_bot_score` is Enterprise-only, so it is null on every row we will ever write on the Pro plan. And the ASNs are **genuine consumer ISPs** — that is precisely what a residential proxy rents — so `DATACENTER_ASNS` must not be widened to reach them: that map drives the **live** classifier, and listing a real ISP converts every future visitor on it into a bot (the AS714/Applebot trap AECI-582 documented). Commercial IP-reputation APIs were evaluated and rejected on the same axis: published tests against live residential-proxy IPs report single-digit detection, and what they *do* catch is the datacenter ranges `DATACENTER_ASNS` already covers.
+
+  What a rotating proxy **cannot** launder is the shape of the request. `page_views` therefore gained six nullable columns (`sec_fetch_dest`, `has_accept_language`, `has_sec_ch_ua`, `tls_version`, `http_protocol`, `client_verdict`; migration `0018`), written at ingest by `lib/client-signals.ts` because headers are unrecoverable afterwards.
+
+  **Three constraints on that decision, each load-bearing.** *(a)* It is an **annotation**, exactly like `cf_as_organization` (D10): nothing feeds `classifyTraffic()` and no value changes a stored `is_bot`. `is_bot` is decided once and costs a one-way backfill to revise; an annotation can be re-read and improved for free. *(b)* It carries **no identity** — no cookie, no canvas, no durable id — so D7's prohibition is untouched and the write stays consent-independent. A fingerprinting library would classify better and cost exactly that property. *(c)* `sec-ch-ua` is **Chromium-only**, so it is read only against a UA that claims Chrome/Edge; a bare presence test would label every Safari and Firefox visitor a bot, which is the same false-positive failure D10 rejected the ASN list for. The TLS pair is deliberately low-entropy corroboration, **not** a JA3/JA4 substitute — that needs Enterprise.
+
+  The companion read is `lib/swarm-detection.ts`, which regroups a window's human views by `user_agent_hash`: `cf_asn` shatters a swarm into 44 apparent visitors, the UA hash reassembles it into seven. It reports; a human decides. Its known ceiling is honest and recorded — a UA hash is a browser *build* fingerprint (the same fact D13 used to reject "the operator's UA hash" as a method), so cardinality alone stops discriminating as traffic grows, and the signal that survives is its **combination** with `client_verdict`. *(D16 later added a third use of the verdict, deciding on its own — see below.)*
+
+  **Amended by AECI-742 (2026-09-01): the detector carries a prior.** The ratio test was evaluated per-day and independently each day, so a swarm that reused one network on a quiet day escaped and was counted as a person. A hash flagged at full strength on `SWARM_PRIOR_MIN_FLAGGED_DAYS` (2) of the previous `SWARM_PRIOR_LOOKBACK_DAYS` (14) days is now held to a lower bar on the day being reported, and `SwarmCandidate.priorFlaggedDays` records how much history justified it. The prior is never built from a relaxed flag and never from the reported day itself (or the memory ratchets with no way out), and the bar is lowered rather than removed (or the prior becomes a one-way list). **Report-only is unchanged** — nothing writes `is_bot` and no ASN joins `DATACENTER_ASNS` on this evidence. Measured against production, it closes 18 of the 37 residual views over 2026-08-29..30 and admits no hash outside the eight already known; see `POST_LAUNCH_MONITORING.md` §3b and `ANALYTICS_BASELINE.md`.
+
+- **D15 — Repair the operator flag on read, and report both what that removed and what a referrer corroborates** (settled by AECI-683 on 2026-08-27; §5.1, §9.6, §9.8, and `POST_LAUNCH_MONITORING.md` §3b). D14 shipped **measurement**, not correction — by design. Three days later the measurement produced its own verdict: on **2026-08-26** the digest emailed "up to 102 human views" beside a PostHog floor of "47 page views from 1 person", and *that one person was the operator*. Both bounds were measuring the same person. The real population was **8 views from 7 visitors**.
+
+  Decomposed against production, the 102 were three separate defects, and the decision treats them differently on purpose.
+
+  **(a) The operator flag fails open on token expiry, and that is not fixable at ingest.** `is_operator` is decided once, and `lib/operator-session.ts` resolves *every* failure to `false` — deliberately, per D13's own third property, so an auth hiccup costs a flag rather than the page-view row. An expired access token is one of those failures, so an operator browsing across an expiry writes flagged rows, then unflagged rows, then flagged rows again. On 2026-08-26 that was **22 views in one 105-minute gap**, ending on `/auth/login`. The fix is a **read-side** third half of `NOT_INTERNAL`: exclude a row sharing a `(user_agent_hash, cf_asn)` pair with a verified operator row within `OPERATOR_PAIR_LOOKBACK_DAYS` (30). That is D13's own backfill cohort — the pair, not either half — pointed at live traffic instead of at history, and for D13's measured reasons: the hash alone spans 6 ASNs across 5 countries, and the country alone was 44% false positives at 50% recall.
+
+  **It recovers 22 of the ~26, and stops there on purpose.** The other four sit on UA hashes that never carried an `is_operator = 1` row of their own, so no pair proves them. Reaching them would mean widening to the ASN — the rule D10 and D13 both already rejected. Under-reaching in a way we can name beats over-reaching in a way we cannot.
+
+  **(b) Unlike the first two halves of `NOT_INTERNAL`, this one is an inference — so it is REPORTED, not silent.** A path no visitor reaches and a signature that verified are facts about the request; a pair match is a judgement about identity. `ANALYTICS_BASELINE.md` already forbids reading the pair cohort as equivalent to the live flag. So `operatorLeakViews` is printed in the email, recorded in `job_runs`, and returned as `operator_leak_excluded` with an `operator_leak_is_an_inference` note. A number that quietly moved would be the same failure the headline had.
+
+  **(c) A grouping is blind to whatever it groups on.** D14's detector groups by `user_agent_hash`, so a client that rotates its user-agent *per request* is structurally invisible to it: AS47544 read five product pages under four distinct hashes, every group a singleton under `SWARM_MIN_VIEWS`. `detectAsnRotators` is the mirror image. **The request-shape verdict is a hard GATE there rather than corroboration**, which is the one place it must differ from D14: a high UA-hash ratio is the *normal* shape of any shared network — an office NAT, a campus, a café — so cardinality alone would flag real people constantly. Swept over production it fires exactly once in 30 days, on AS47544; but `client_verdict` only exists from 2026-08-26, and the gate reads NULL as no evidence, so that is **two days of evidence, not thirty**.
+
+  **(d) A third figure, and the only one automation does not control.** Views arriving with a NAMED external search or social referrer are reported beside the two bounds. A rotating-proxy pool sends no `Referer` at all — which is why 87 of that day's 102 were `Direct`. Two caveats travel with it unconditionally, because a number this small reads as precise: it is a **floor** (Referrer-Policy strips real referrals into `Direct`) and it rests on a **claim** (§9.7 — production holds one confirmed forgery). `Other` is excluded for that second reason exactly: it is an open bucket a forger controls.
+
+  **Report-only holds.** Nothing here writes `is_bot`, no ASN joins `DATACENTER_ASNS` on this evidence, and the headline stays an upper bound. Only (a) changes the counted population, and it does so as operator-identity exclusion — D13's business — never as a bot judgement.
+
+  **Scope note.** `NOT_INTERNAL` is deliberately kept a *static* predicate — the retro-join is a correlated subquery anchored on each row's own timestamp rather than a `notInternalFor(window)` function — so all five read surfaces (digest, swarm detectors, `/admin/overview`, `/admin/traffic` + the `metrics_daily` snapshot beneath it, and the public trending card) inherit it without any of them remembering to. It also binds a fixed two parameters regardless of pair count, which the naive JS-resolved pair list does not. **Consequence to hold in mind:** `metrics_daily` rows already written keep the old definition, and `/api/admin/metrics/timeseries` serves snapshot-first, so there is a discontinuity at the snapshot boundary until `ops:backfill-metrics-daily` is re-run. `lib/metrics-backfill.ts` is now correct for that re-run — it had carried **only** the §9.6 path clause and no `is_operator` at all since D13 shipped.
+
+- **D16 — `client_verdict` decides on its own, with no view floor** (settled by AECI-744 on 2026-09-01; `POST_LAUNCH_MONITORING.md` §3, `lib/swarm-detection.ts`). D14 shipped the verdict as *corroboration* and D15 made it a *hard gate*. Both of those are readings of a GROUP, and both groups are gated on a view-count floor (`SWARM_MIN_VIEWS` / `ASN_ROTATOR_MIN_VIEWS`, both 4) checked **before any evidence is weighed** — so a low-volume automated client never reached the code that reads its verdict at all.
+
+  Decomposed against production D1 on 2026-08-31, that was **~7 of the 37 residual views** for 2026-08-29/30 — led by `87012404…`: three views, three different US networks, one fingerprint, seventeen hours apart, ASN ratio 1.00, all three `inconsistent`, under the floor by exactly one view.
+
+  **The floors are not wrong; they are answering a different question.** A floor protects a *ratio*, because a ratio over a tiny sample is meaningless — one view is trivially "1 ASN for 1 view". `client_verdict` is not a ratio and not an inference over a sample: it is a direct observation about the headers of that one request. It needs no sample size to mean something. So `detectNonBrowserClients` flags **per row** — no grouping, no floor, no ratio — and the by-network list it returns is descriptive only, so capping it cannot remove a view from the count.
+
+  **Three uses of one column, and they are not interchangeable.** Hard gate (`detectAsnRotators`, without which a shared NAT flags as a rotator), corroboration (`detectUaHashSwarms`, reported beside the ratios and filtering nothing), sufficient (`detectNonBrowserClients`). The module header names which call site relies on which, because the failure mode is someone "unifying" them.
+
+  **NULL-safety carries through unchanged**, and it is the constraint that bounds this: `IN` against a NULL verdict is NULL, so every row written before 2026-08-26 counts as no evidence rather than as "not a browser". Both halves of the digest inherit that — the flagged count *and* `notFlagged()`'s complement, so a NULL-verdict row counting in the headline also survives the tables (the AECI-747 one-population rule).
+
+  **Report-only still holds, and was tested.** Nothing writes `is_bot`, and the commercial proxy/seedbox ASNs this surfaced (RapidSeedbox AS214483, Web2Objects AS62874, UAB code200/Oxylabs AS27411, Rockion AS199737) were explicitly NOT added to `DATACENTER_ASNS`: a human decides before an ASN joins that list, and the false-positive cost falls on real consumer ISPs (D10).
+
+  **Scope note (superseded by D17, 2026-09-01).** This was digest-only when it shipped, like D14 and D15, because `/admin/overview` passed no `AutomationExclusion` at all. AECI-745 closed that: the collector derives the exclusion itself, so D16's verdict axis now reaches the panel and `metrics_daily` on the same call.
+
+- **D17 — The collector runs the detector, and the panel's headline is the email's** (settled by AECI-745 on 2026-09-01; §5.1, §6.10, `docs/API_CONTRACTS.md`, `lib/page-view-predicates.ts`). D14 through D16 each shipped **digest-only**, and each time for the same structural reason rather than a scoping choice: `swarm-detection.ts` imported `analytics-digest.ts`'s `HUMAN` / `NOT_INTERNAL` predicates, so the collector could not call the detector, so the filtered figure was assembled in `scheduled.ts` above both and reached the email alone. After AECI-741 made it the *headline*, the panel and the 05:00 mail answered "how many humans?" with **14 and 70** for 2026-08-30.
+
+  **The predicates were the cycle, so they moved.** `HUMAN`, `BOT`, `OPERATOR_PAIR_MATCH`, `NOT_INTERNAL` and `notFlagged` now live in `lib/page-view-predicates.ts`, which imports neither module and is imported by both. The sharing that made "N of the M reported views" describe one population is unchanged — that was always the point of the import, and it survives; only its direction did not. Nothing in that file may import either consumer, and `page-view-predicates.spec.ts` pins the two forms that would fail silently if the move had not been verbatim: the NULL-safe `NOT EXISTS` and the `%Y-%m-%dT%H:%M:%fZ` format string.
+
+  **`page_views_human` and `delta_day` were REDEFINED, not supplemented.** The alternative — a second post-automation field beside the raw one — leaves two fields plausibly named "human page views" and lets a reader quote whichever they saw first, which is the divergence with extra steps. The raw count moved to `page_views_human_raw` and keeps its upper-bound label. The cost is that this is a silent semantic change no type expresses, so the schema, `API_CONTRACTS.md` §6.10 and this entry all say it outright.
+
+  **The filter fails SOFT.** `collectAnalyticsMetrics` catches a detector failure, warns, and returns `automation: null` — the state the formatter and the panel already render as "this is the raw count, and we are telling you it is raw". A throw would take down the digest and `/admin/overview` together, for a bug in one of the numbers they report. Zero is never substituted: `automation_flagged: null` is an outage and `0` is a clean day, and a failed detector must not be able to look like a clean day. The `job_runs` swarm fields are nullable for the same reason.
+
+  **What stays raw, and is labelled.** `delta_7d` and the 30-day chart span days the detector would have to be re-run over — fourteen and thirty, at ~7 D1 reads each. They remain server-side counts and the tile's caption says so. The filtered *series* is instead a stored metric, `traffic.page_views_human_after_automation`, which is **snapshot-only**: uncovered days are omitted rather than zero-filled, because a zero at the snapshot boundary reads as a traffic collapse rather than as the start of the record.
+
+  **And it is deliberately NOT backfillable.** `metrics-backfill.ts` reconstructs a series by emitting one SQL statement per series; the detector is a grouping, a cross-day recurrence lookback and a three-way union. Expressing that as generated SQL would put a second definition of "flagged" in the tree — the exact failure this entry closes — so the series fills forward from the day the cron first writes it, and the gap says "not measured" instead of a reconstructed number that would drift the first time a threshold moved.
 
 **Open**
 
@@ -819,7 +1418,7 @@ D1–D4 were settled when this document was drafted. **D5–D11 were settled by 
 
 ### 14.1 Digest inventory
 
-`lib/analytics-digest.ts` (05:00 UTC): traffic (human page views + day-over-day delta) · top 5 products by human views · traffic sources by `referrer_source` · new and total sign-ins · reviews awaiting moderation · bot/crawler views grouped by `bot_name` · footnotes on classification and referrer bias.
+`lib/analytics-digest.ts` (05:00 UTC): traffic (human page views as an UPPER bound + day-over-day delta, the AECI-660 PostHog lower bound, the AECI-683 corroborated floor + `operatorLeakViews`, and an Automation-signal line from both swarm groupings) · top 5 products by human views · traffic sources by `referrer_source` · new and total sign-ins · reviews awaiting moderation · bot/crawler views grouped by `bot_name` · footnotes on classification and referrer bias.
 
 `lib/data-quality.ts` (04:00 UTC), ten checks: `products_without_vendor` · `ready_products_unpromoted` · `broken_integration_refs` · `vendors_without_products` · `reviews_missing_anonymized_at` · `stale_stats_cache` · `duplicate_vendors` · `duplicate_products` · `logo_404` · `algolia_index_drift`.
 

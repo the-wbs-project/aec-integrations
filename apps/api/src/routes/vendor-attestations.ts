@@ -14,7 +14,7 @@
  * self-assertion would render as "Vendor-confirmed" — the §8.1(4) failure.
  *
  * `routes/vendor.ts` holds the narrative of this surface's invariants; read that
- * header first. This module adds four rules of its own.
+ * header first. This module adds five rules of its own.
  *
  * ── 1. AUTHORITY IS DERIVED, NEVER SENT ─────────────────────────────────────
  * Which slot the caller may fill comes from product ownership in
@@ -33,7 +33,10 @@
  *      existence-independent and leaks nothing about the integration.
  *   2. Authority, alone in its wave (only the caller's own `vendors` row rides
  *      along, exactly as `requireOwnedProduct` does) — checked in order:
- *      authority → 404, then `assertVerifiedVendor` → 403.
+ *      authority → 404, then `assertAttestableEdge` → 403, then
+ *      `assertVerifiedVendor` → 403. The edge gate sits BETWEEN the two on
+ *      purpose: an unverified vendor on a connector-powered edge must not be
+ *      told that verification would unlock it (AECI-705 / §14).
  *   3. Everything else — vocabulary resolution, the duplicate-identity check,
  *      version-stamp authority. All of it resolves BEFORE the batch opens, so
  *      nothing is ever half-applied.
@@ -70,6 +73,16 @@
  * that last-write-wins, so the incoming write must clear whatever holds the slot
  * or the insert fails.
  *
+ * ── 5. CONNECTOR-POWERED EDGES ARE NOT ATTESTABLE (AECI-705) ────────────────
+ * `vendor_a` / `vendor_b` presume two accountable ENDPOINT vendors. On an edge
+ * delivered by a connector — `powered_by_product_id` set, or
+ * `mechanism_kind='iPaaS'` — neither endpoint built the plumbing, so `POST` and
+ * `PUT` answer **403** (`assertAttestableEdge`). `DELETE` stays open, because an
+ * edge can become powered after a vendor has already attested. The list endpoint
+ * still returns these rows, flagged `attestable: false` with the connector on
+ * `powered_by`, so the portal can explain rather than hide — filtering them out
+ * would change the scoping predicate the AECI-627 cursor must match.
+ *
  * ── WRITE MECHANICS ─────────────────────────────────────────────────────────
  * One `db.batch([...])` per write carrying every mutation and its `audit_log`
  * rows (the §26.1 invariant — D1 has no interactive transactions). Ids are
@@ -102,6 +115,8 @@ import {
 } from '@aeci/shared';
 import { type AuditLogEntry } from '@aeci/shared/audit-log';
 import { and, eq, inArray, isNull, notInArray, or } from 'drizzle-orm';
+
+import { isConnectorPoweredEdge } from '../lib/connector-powered';
 
 import { getDb, type Db } from '../db/client';
 import {
@@ -156,12 +171,53 @@ function endpointProductFor(authority: AttestationAuthority, slot: AttestationSl
  * Whether the caller's frame is endpoint A. Every direction on this surface is
  * relative to it, and so is `context_product`.
  *
- * A caller owning BOTH endpoints frames from A. Arbitrary, but it has to be
- * something, and A-first matches `slotsForOwnership`'s stable ordering and the
- * pair page's own A/B convention.
+ * ── THE FRAME IS A PARAMETER NOW (AECI-666) ─────────────────────────────────
+ * It used to be derived: "a caller owning BOTH endpoints frames from A —
+ * arbitrary, but it has to be something". That was true while the portal had ONE
+ * vendor-wide Integrations tab, where a single arbitrary frame is all a flat list
+ * can show. The tab is now per-product, so an owns-both integration is listed
+ * under both of the caller's products and each listing has to be framed against
+ * the product it is filed under — otherwise inbound/outbound read backwards on
+ * one of them.
+ *
+ * So `contextProductId` decides when supplied, and the old A-first rule remains
+ * the fallback for callers with no product in hand. Passing a product the caller
+ * does not own, or that is not an endpoint of this integration, is a programming
+ * error rather than bad input — see {@link assertContextProduct}, which the write
+ * paths run because there the id arrives from the client.
  */
-function contextIsSourceFor(authority: AttestationAuthority): boolean {
+function contextIsSourceFor(
+  authority: AttestationAuthority,
+  contextProductId?: string | null,
+): boolean {
+  if (contextProductId) return contextProductId === authority.sourceProductId;
   return authority.slots.includes('vendor_a');
+}
+
+/**
+ * Guard the client-supplied frame on the §5 write paths.
+ *
+ * A vendor may only frame a write against an endpoint it actually owns: framing
+ * against the *counterparty's* product would silently invert `inbound`/`outbound`
+ * on the way into `claims.direction` and write the opposite flow to the one the
+ * vendor chose. Ownership is already resolved (`authority.slots`), so this is a
+ * lookup, not a second query.
+ *
+ * A 400 rather than a 404: by the time this runs the caller has passed the
+ * ownership gate on the integration, so the existence of the integration is
+ * already disclosed and there is nothing left to protect. The failing field is
+ * named, per the §5.2 interactive-caller rule.
+ */
+function assertContextProduct(authority: AttestationAuthority, contextProductId: string): void {
+  const owned = authority.slots.map((slot) => endpointProductFor(authority, slot));
+  if (!owned.includes(contextProductId)) {
+    throw new ApiError(
+      400,
+      'VALIDATION_FAILED',
+      'context_product_id must be one of your own products on this integration',
+      { field: 'context_product_id' },
+    );
+  }
 }
 
 // ─── Attestation → wire ──────────────────────────────────────────────────────
@@ -247,28 +303,34 @@ function toAgreementVote(row: RawAttestation): AgreementAttestation {
 
 interface ClaimShape {
   id: string;
-  integrationId: string;
   direction: string;
   origin: string;
   dataObject: { slug: string; name: string };
 }
 
+/**
+ * `contextIsSource` is passed rather than re-derived from `slots` (AECI-666).
+ * The two are NOT the same question: `slots` answers "which positions are mine to
+ * write", which stays the full owned set even when the caller owns both endpoints,
+ * while the frame answers "which product is this listing filed under", which is one
+ * endpoint at a time. Deriving the frame from `slots` is what pinned an owns-both
+ * integration to endpoint A and made it unrenderable under its other product.
+ */
 function toVendorClaim(
   claim: ClaimShape,
+  integrationId: string,
   live: readonly RawAttestation[],
   vendorId: string,
   authority: Pick<AttestationAuthority, 'slots'>,
+  contextIsSource: boolean,
 ): VendorClaim {
   const slots = authority.slots;
   return {
     id: claim.id,
-    integration_id: claim.integrationId,
+    integration_id: integrationId,
     data_object_slug: claim.dataObject.slug,
     data_object_name: claim.dataObject.name,
-    direction: claimDirectionForContext(
-      claim.direction as ClaimDirection,
-      slots.includes('vendor_a'),
-    ),
+    direction: claimDirectionForContext(claim.direction as ClaimDirection, contextIsSource),
     agreement: computeAgreement(live.map(toAgreementVote)),
     origin: claim.origin === 'vendor' ? 'vendor' : 'aeci',
     mine: live
@@ -328,6 +390,39 @@ async function authorityAndVendor<T>(
   // answers 404 for the same state; do the same rather than 500.
   if (!vendor) throw notFoundError('vendor', { id: vendorId });
   return { resolved, vendor };
+}
+
+/**
+ * The AECI-705 edge gate: refuse authoring on a **connector-powered** edge.
+ *
+ * Neither endpoint vendor built the plumbing on these — Zapier, Workato or Agave
+ * did, and the connector has no attestation seat (`STAGE_2_SPEC.md` §8.8(5)).
+ * Prompting either endpoint asks about work it did not do, and a denial on true
+ * curation renders as a correction signal against AECi. The predicate is the
+ * union in `lib/connector-powered.ts`; the argument for the union is on that
+ * module.
+ *
+ * **403, not the 404 the ownership check above returns.** The §2.1 non-disclosure
+ * rule exists so a vendor cannot probe for another vendor's integration — but by
+ * the time this runs the caller has already proven it owns an endpoint, and
+ * powered-ness is public on the pair page. There is nothing left to conceal, and
+ * a 404 here would be a lie the caller can disprove by loading its own page.
+ *
+ * **It runs BEFORE `assertVerifiedVendor`, and that order is load-bearing.**
+ * Reversed, an unverified vendor on a powered edge is told to get verified in
+ * order to author — a promise verification will never keep, because verification
+ * does not and will not unlock this edge. The copy therefore points at the
+ * connector, never at verification, ranking or placement (§5.2).
+ *
+ * `DELETE` is deliberately NOT gated — see its handler.
+ */
+function assertAttestableEdge(authority: AttestationAuthority): void {
+  if (!isConnectorPoweredEdge(authority)) return;
+  throw new ApiError(
+    403,
+    'FORBIDDEN',
+    'This integration is delivered through a connector, so neither product vendor can attest to it. AEC Integrations maintains what it moves.',
+  );
 }
 
 /** The two endpoint slugs, for the purge tags. */
@@ -642,17 +737,29 @@ function attestationState(row: AttestationRow | RawAttestation): Record<string, 
 /** The list read's hydration. Column lists are deliberately narrow: this is
  *  roughly integrations × claims × attestations rows for one vendor. */
 const vendorIntegrationConfig = {
-  columns: { id: true, name: true, mechanismKind: true, mechanismName: true },
+  columns: {
+    id: true,
+    name: true,
+    mechanismKind: true,
+    mechanismName: true,
+    poweredByProductId: true,
+  },
   with: {
     sourceProduct: { columns: productLinkColumns },
     targetProduct: { columns: productLinkColumns },
     claims: {
-      columns: { id: true, integrationId: true, direction: true, origin: true },
+      columns: { id: true, direction: true, origin: true },
       with: {
         dataObject: { columns: { slug: true, name: true, displayOrder: true } },
         attestations: { columns: attestationColumns, where: liveAttestationsWhere },
       },
     },
+    // AECI-705: the connector delivering this edge, for the read-only
+    // explanation. `poweredByProductId` rides in the column list too — the
+    // predicate is the union, so the relation being null does NOT mean the edge
+    // is attestable (53 of 132 powered edges in production have no promoted
+    // connector product to link to).
+    poweredByProduct: { columns: productLinkColumns },
   },
 } as const;
 
@@ -699,30 +806,73 @@ export function createListVendorIntegrationsHandler(
       const authority = authorities.get(row.id);
       if (!authority) continue;
 
-      const contextIsSource = contextIsSourceFor(authority);
-      surface.push({
-        id: row.id,
-        name: row.name,
-        // Fails loud on an unknown value rather than shipping it — the same
-        // data-integrity posture the public reads take (AECI-115).
-        mechanism_kind: toMechanismKind(row.mechanismKind, row.id),
-        mechanism_name: row.mechanismName,
-        context_product: toProductLink(contextIsSource ? row.sourceProduct : row.targetProduct),
-        other_product: toProductLink(contextIsSource ? row.targetProduct : row.sourceProduct),
-        slots: [...authority.slots],
-        claims: [...row.claims]
-          // Vocabulary order, then slug — the same ordering the pair page's claim
-          // lanes use, so a vendor sees its flows listed as readers do.
-          .sort(
-            (a, b) =>
-              (a.dataObject.displayOrder ?? Number.MAX_SAFE_INTEGER) -
-                (b.dataObject.displayOrder ?? Number.MAX_SAFE_INTEGER) ||
-              a.dataObject.slug.localeCompare(b.dataObject.slug),
-          )
-          .map((claim) => toVendorClaim(claim, claim.attestations, vendorId, authority)),
-      });
+      // ── ONE ENTRY PER OWNED ENDPOINT, NOT PER INTEGRATION (AECI-666) ───────
+      // The portal files integrations under the product they touch, so an
+      // integration whose endpoints the caller owns BOTH is listed twice — once
+      // under each — with the directions mirrored between them. `slots` is
+      // already exactly "the endpoints this caller owns", so it is the loop.
+      //
+      // The two entries share `id`: it is no longer unique across this list, and
+      // `(id, context_product.id)` is the key. That is deliberate and is what the
+      // client tracks by; see `VendorIntegrationSchema`.
+      //
+      // They also share ONE position — `slots`, `mine`, `counterparty` and
+      // `agreement` are identical on both, because a write fills every slot the
+      // caller owns (§2.1, and the retract argument on this module's header) and
+      // §4 dedupes voters by vendor, so one company is one voter however many
+      // endpoints it owns. Rendering it twice is a view of one fact, not two.
+      for (const slot of authority.slots) {
+        const contextIsSource = slot === 'vendor_a';
+        surface.push({
+          id: row.id,
+          name: row.name,
+          // Fails loud on an unknown value rather than shipping it — the same
+          // data-integrity posture the public reads take (AECI-115).
+          mechanism_kind: toMechanismKind(row.mechanismKind, row.id),
+          mechanism_name: row.mechanismName,
+          // AECI-705 — computed server-side and never re-derived in the browser:
+          // the union predicate is non-obvious and a client copy would drift.
+          attestable: !isConnectorPoweredEdge(row),
+          powered_by: row.poweredByProduct ? toProductLink(row.poweredByProduct) : null,
+          context_product: toProductLink(contextIsSource ? row.sourceProduct : row.targetProduct),
+          other_product: toProductLink(contextIsSource ? row.targetProduct : row.sourceProduct),
+          slots: [...authority.slots],
+          claims: [...row.claims]
+            // Vocabulary order, then slug — the same ordering the pair page's claim
+            // lanes use, so a vendor sees its flows listed as readers do.
+            .sort(
+              (a, b) =>
+                (a.dataObject.displayOrder ?? Number.MAX_SAFE_INTEGER) -
+                  (b.dataObject.displayOrder ?? Number.MAX_SAFE_INTEGER) ||
+                a.dataObject.slug.localeCompare(b.dataObject.slug),
+            )
+            .map((claim) =>
+              // The parent row's id, not `claim.integrationId`. AECI-721 made the
+              // claim anchor polymorphic and therefore nullable, but this claim
+              // arrived THROUGH `integrations.claims`, whose join is
+              // `claims.integration_id = integrations.id` — so the parent id is
+              // both non-null and provably the same value. Taking it from the row
+              // states that instead of asserting past the type.
+              toVendorClaim(
+                claim,
+                row.id,
+                claim.attestations,
+                vendorId,
+                authority,
+                contextIsSource,
+              ),
+            ),
+        });
+      }
     }
-    surface.sort((a, b) => a.other_product.name.localeCompare(b.other_product.name));
+    // Context product first, so the per-product tab's slice is contiguous, then the
+    // counterpart name — which is the order within a tab, and the order the flat
+    // list used before it was filed by product.
+    surface.sort(
+      (a, b) =>
+        a.context_product.name.localeCompare(b.context_product.name) ||
+        a.other_product.name.localeCompare(b.other_product.name),
+    );
 
     return json(surfaceBody(c, surface));
   };
@@ -755,10 +905,15 @@ export function createVendorClaimHandler(
     const { resolved: authority, vendor } = await authorityAndVendor(db, vendorId, () =>
       resolveAttestationSlots(db, vendorId, payload.integration_id),
     );
+    assertAttestableEdge(authority);
     assertVerifiedVendor(vendor);
 
     // Step 3 — everything that can fail, resolved before the batch opens.
-    const contextIsSource = contextIsSourceFor(authority);
+    // The frame is validated before it is used: a `context_product_id` naming an
+    // endpoint the caller does not own would invert `direction` on the way in and
+    // silently store the opposite flow (AECI-666).
+    if (payload.context_product_id) assertContextProduct(authority, payload.context_product_id);
+    const contextIsSource = contextIsSourceFor(authority, payload.context_product_id);
     const direction = claimDirectionFromContext(payload.direction, contextIsSource);
 
     const [resolveDataObject, stampsFor, endpoints] = await Promise.all([
@@ -892,9 +1047,16 @@ export function createVendorClaimHandler(
     const body: VendorClaimResponse = {
       claim: toVendorClaim(
         { ...claimRow, dataObject: { slug: dataObject.slug, name: dataObject.name } },
+        // `AttestationAuthority` resolves only integration-anchored claims (its read
+        // joins `integrations` and now says so explicitly), so this is the same id
+        // the claim carries.
+        authority.integrationId,
         live,
         vendorId,
         authority,
+        // The SAME frame the write was interpreted under, so the echo the client
+        // splices in reads the way the tab it was authored from does.
+        contextIsSource,
       ),
     };
     validateResponseInDev(c.env, () => VendorClaimResponseSchema.parse(body));
@@ -916,9 +1078,15 @@ export function createUpsertVendorAttestationHandler(
       resolveClaimAuthority(db, vendorId, claimId),
     );
     const { claim, authority } = resolved;
+    assertAttestableEdge(authority);
     assertVerifiedVendor(vendor);
 
     const payload = await parseJsonBody(c, UpsertVendorAttestationSchema);
+    // Echo framing only — nothing stored by this write depends on it (AECI-666).
+    // Still validated, so a bad id is a named 400 rather than a silently ignored
+    // field that makes the echoed `direction` disagree with the tab that sent it.
+    if (payload.context_product_id) assertContextProduct(authority, payload.context_product_id);
+    const contextIsSource = contextIsSourceFor(authority, payload.context_product_id);
 
     const [stampsFor, endpoints, dataObject, liveBefore] = await Promise.all([
       resolveVersionStamps(db, authority, payload),
@@ -1015,7 +1183,14 @@ export function createUpsertVendorAttestationHandler(
     ];
 
     const body: VendorClaimResponse = {
-      claim: toVendorClaim({ ...claim, dataObject }, live, vendorId, authority),
+      claim: toVendorClaim(
+        { ...claim, dataObject },
+        authority.integrationId,
+        live,
+        vendorId,
+        authority,
+        contextIsSource,
+      ),
     };
     validateResponseInDev(c.env, () => VendorClaimResponseSchema.parse(body));
     return json(body);
@@ -1036,6 +1211,12 @@ export function createRetractVendorAttestationHandler(
       resolveClaimAuthority(db, vendorId, claimId),
     );
     const { authority } = resolved;
+    // NO `assertAttestableEdge` here, deliberately (AECI-705 / §14). An edge can
+    // BECOME connector-powered after a vendor has attested — promote sets
+    // `powered_by_product_id` late, and AECI-706's backfill writes it onto rows
+    // that already exist. Gating retract would trap a vendor holding a position
+    // it can no longer withdraw, which is a worse failure than the one the gate
+    // prevents. Withdrawing is always allowed; only taking a new position is not.
     assertVerifiedVendor(vendor);
 
     const [endpoints, liveBefore] = await Promise.all([

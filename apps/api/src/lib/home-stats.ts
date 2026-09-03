@@ -61,13 +61,24 @@ import {
 } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
-import { integrations, pageViews, products, reviews, statsCache, vendors } from '../db/schema';
-import { HUMAN } from './analytics-digest';
+import {
+  connectorEvidencedPairs,
+  integrations,
+  pageViews,
+  products,
+  reviews,
+  statsCache,
+  vendors,
+} from '../db/schema';
+// AECI-745 lifted these predicates out of `analytics-digest` into their own module.
+import { HUMAN, NOT_INTERNAL } from './page-view-predicates';
 import { COUNTED_REVIEW_STATUS } from './recompute-counts';
 import {
+  connectorEvidencedPairListConfig,
   integrationListConfig,
   productListConfig,
   toIntegrationListItem,
+  toIntegrationListItemFromEvidencedPair,
   toProductListItem,
   type RawProductListRow,
 } from './drizzle-helpers';
@@ -113,17 +124,37 @@ const TRENDING_MIN_VIEWS = 3;
 // unambiguous. Scalar/array keys always return a value (a number / `[]`).
 // ---------------------------------------------------------------------------
 
+/**
+ * The home page's headline integrations number — and, since AECI-721, a count over
+ * TWO tables (`STAGE_1_5_SPEC.md` §13.5, sites 8a–8d).
+ *
+ * The delivered tier spans `integrations` and `connector_evidenced_pairs`, so a
+ * bare `count(integrations)` would drop 19 production edges on migration day and
+ * announce a smaller catalogue than the one we had the day before — a headline
+ * number falling for a reason no reader could discover and no press release could
+ * explain. Both tables, always.
+ */
 export async function computeTotalIntegrations(db: Db): Promise<number> {
   const [row] = await db.select({ value: count() }).from(integrations);
-  return row?.value ?? 0;
+  const [evidenced] = await db.select({ value: count() }).from(connectorEvidencedPairs);
+  return (row?.value ?? 0) + (evidenced?.value ?? 0);
 }
 
 export async function computeIntegrationsAdded30d(db: Db, now: Date): Promise<number> {
+  const since = sinceIso(now, 30);
   const [row] = await db
     .select({ value: count() })
     .from(integrations)
-    .where(gte(integrations.createdAt, sinceIso(now, 30)));
-  return row?.value ?? 0;
+    .where(gte(integrations.createdAt, since));
+  // `created_at` on a migrated row is the ORIGINAL edge's timestamp, carried over
+  // by the migration rather than stamped at move time — so this window keeps
+  // measuring when the integration was catalogued, never when we reorganised our
+  // own storage. A migration must not read as a burst of new integrations.
+  const [evidenced] = await db
+    .select({ value: count() })
+    .from(connectorEvidencedPairs)
+    .where(gte(connectorEvidencedPairs.createdAt, since));
+  return (row?.value ?? 0) + (evidenced?.value ?? 0);
 }
 
 /** Coverage counts for the home credibility strip (AECI-271). Products and
@@ -190,19 +221,47 @@ type CategoryRefRow = { id: string; name: string; slug: string };
 export async function computeMostActiveCategory(db: Db): Promise<MostActiveCategory | null> {
   // Both endpoints' category-id edges per integration (the source + target
   // products' category joins), hydrated via the relational query builder.
-  const edges = await db.query.integrations.findMany({
-    columns: { id: true },
-    with: {
-      sourceProduct: {
-        columns: {},
-        with: { productCategories: { columns: { categoryId: true } } },
+  //
+  // TWO tables (AECI-721 / §13.5): a delivered edge counts toward its endpoints'
+  // categories whichever table holds it. The evidenced arm reads `productA`/
+  // `productB` — the canonical slots — because the CATEGORY union below is
+  // orientation-independent, so re-orienting the pair first would buy nothing.
+  // The connector's own categories are deliberately NOT folded in: this metric
+  // asks "which category has the most integration activity", and attributing an
+  // ERP↔PM edge to the connector's category as well would let one iPaaS's
+  // classification dominate the answer.
+  const [directEdges, evidencedEdges] = await Promise.all([
+    db.query.integrations.findMany({
+      columns: { id: true },
+      with: {
+        sourceProduct: {
+          columns: {},
+          with: { productCategories: { columns: { categoryId: true } } },
+        },
+        targetProduct: {
+          columns: {},
+          with: { productCategories: { columns: { categoryId: true } } },
+        },
       },
-      targetProduct: {
-        columns: {},
-        with: { productCategories: { columns: { categoryId: true } } },
+    }),
+    db.query.connectorEvidencedPairs.findMany({
+      columns: { id: true },
+      with: {
+        productA: { columns: {}, with: { productCategories: { columns: { categoryId: true } } } },
+        productB: { columns: {}, with: { productCategories: { columns: { categoryId: true } } } },
       },
-    },
-  });
+    }),
+  ]);
+  const edges = [
+    ...directEdges.map((e) => ({
+      a: e.sourceProduct.productCategories,
+      b: e.targetProduct.productCategories,
+    })),
+    ...evidencedEdges.map((e) => ({
+      a: e.productA.productCategories,
+      b: e.productB.productCategories,
+    })),
+  ];
   if (edges.length === 0) return null;
 
   // "Integrations in this category" = count of distinct integrations whose
@@ -212,8 +271,8 @@ export async function computeMostActiveCategory(db: Db): Promise<MostActiveCateg
   const counts = new Map<string, number>();
   for (const edge of edges) {
     const ids = new Set<string>();
-    for (const pc of edge.sourceProduct.productCategories) ids.add(pc.categoryId);
-    for (const pc of edge.targetProduct.productCategories) ids.add(pc.categoryId);
+    for (const pc of edge.a) ids.add(pc.categoryId);
+    for (const pc of edge.b) ids.add(pc.categoryId);
     for (const id of ids) counts.set(id, (counts.get(id) ?? 0) + 1);
   }
   if (counts.size === 0) return null;
@@ -243,13 +302,35 @@ export async function computeMostActiveCategory(db: Db): Promise<MostActiveCateg
   };
 }
 
+/**
+ * The home page's "recently added" rail — ten newest DELIVERED edges across both
+ * tables (AECI-721 / §13.5 site 8d).
+ *
+ * Over-fetches ten from each side, merges, then takes ten. Ten-plus-ten is the
+ * only bound that is correct for every distribution: the newest ten of the union
+ * could all come from one table, so limiting each side to five (or skipping the
+ * evidenced side because it is small) would silently bias the rail toward
+ * whichever table happened to be bigger.
+ */
 export async function computeRecentIntegrations(db: Db): Promise<IntegrationListItem[]> {
-  const rows = await db.query.integrations.findMany({
-    ...integrationListConfig,
-    orderBy: [desc(integrations.createdAt)],
-    limit: 10,
-  });
-  return rows.map(toIntegrationListItem);
+  const [rows, evidencedRows] = await Promise.all([
+    db.query.integrations.findMany({
+      ...integrationListConfig,
+      orderBy: [desc(integrations.createdAt)],
+      limit: 10,
+    }),
+    db.query.connectorEvidencedPairs.findMany({
+      ...connectorEvidencedPairListConfig,
+      orderBy: [desc(connectorEvidencedPairs.createdAt)],
+      limit: 10,
+    }),
+  ]);
+  return [
+    ...rows.map(toIntegrationListItem),
+    ...evidencedRows.map(toIntegrationListItemFromEvidencedPair),
+  ]
+    .sort((a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0))
+    .slice(0, 10);
 }
 
 export async function computeTrendingProducts(db: Db, now: Date): Promise<ProductListItem[]> {
@@ -265,6 +346,15 @@ export async function computeTrendingProducts(db: Db, now: Date): Promise<Produc
   // volume — on the day this filter landed, 1,121 product views in the trailing
   // 7 days were only 74 human — so counting them ranked products by how hard they
   // were being scraped rather than by what people read.
+  //
+  // `NOT_INTERNAL` is imported for the same reason, and specifically for its
+  // `is_operator` half (§13 D13). `ADMIN_PANEL_SPEC.md` D12 recorded this query as
+  // immune to the `/admin/*` exclusion, correctly: an admin-path row carries no
+  // `product_id`, so `isNotNull` already dropped it. That reasoning does NOT extend
+  // to an operator SESSION, which lands on `/products/:slug` and carries the FK like
+  // any other view. Without this the operator re-checking one product a few times
+  // would rank it on the PUBLIC home page — `TRENDING_MIN_VIEWS` is 3, against a
+  // human population of roughly 2,100 all-time views, so the floor is no protection.
   const groups = await db
     .select({ productId: pageViews.productId, value: count() })
     .from(pageViews)
@@ -273,6 +363,7 @@ export async function computeTrendingProducts(db: Db, now: Date): Promise<Produc
         gte(pageViews.createdAt, sinceIso(now, TRENDING_WINDOW_DAYS)),
         isNotNull(pageViews.productId),
         HUMAN,
+        NOT_INTERNAL,
       ),
     )
     .groupBy(pageViews.productId)

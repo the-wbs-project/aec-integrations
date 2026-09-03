@@ -10,20 +10,19 @@ import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
 import { IntegrationStat } from './integration-stat';
 
 /**
- * Row representation of a `ProductListItem`, slotted into `IndexLayout`'s
- * `table-body` slot. Uses an attribute selector on `<tr>` so the rendered
- * markup is a valid `<tr>` child of `<tbody>` (per HTML parsing rules a
- * custom element directly inside `<tbody>` would be moved out by the
+ * Row representation of a `ProductListItem` — the **table view** of the
+ * catalog, projected into the `<tbody>` of the `/products` table and of the
+ * taxonomy browse-page tables. Uses an attribute selector on `<tr>` so the
+ * rendered markup is a valid `<tr>` child of `<tbody>` (per HTML parsing rules
+ * a custom element directly inside `<tbody>` would be moved out by the
  * browser's tree builder).
  *
- * Phase 2 Spec §11.2 calls this primitive `ProductCard` — the "card"
- * vocabulary is shared with the eventual card-grid variant that browse
- * pages (AECI-59+) will need; for now the only consumer is `/products`
- * (a table). When the first card-grid consumer lands, either add a
- * `variant: 'row' | 'card'` input or split into `ProductRow` +
- * `ProductCardTile`. Keeping it local to `apps/web/src/app/products/`
- * until then per CLAUDE.md "Three similar lines is better than a
- * premature abstraction."
+ * Phase 2 Spec §11.2 calls this primitive `ProductCard`. The card-grid variant
+ * the name anticipated shipped separately as `ProductCardGrid` (AECI-190)
+ * rather than as a `variant` input here, so the two views stay independently
+ * styleable; this component is the row half of that split. Its two sibling
+ * primitives, `VendorCard` and `IntegrationCard`, were deleted once AECI-165
+ * removed the `/vendors` and `/integrations` index pages that consumed them.
  *
  * Renders five cells: product (monogram via `LogoOrInitial` + name link),
  * vendor (linked when present, otherwise an en-dash empty state — `vendor` is

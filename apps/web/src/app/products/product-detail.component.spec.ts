@@ -21,9 +21,14 @@ import { provideZonelessChangeDetection } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { ActivatedRoute, provideRouter } from '@angular/router';
 import { of } from 'rxjs';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { IntegrationListItem, ProductDetail, ProductLink } from '@aeci/shared';
+import type {
+  IntegrationListItem,
+  ProductDetail,
+  ProductIntegrationItem,
+  ProductLink,
+} from '@aeci/shared';
 
 import { AccountApi } from '../account/account-api';
 import { Analytics } from '../analytics/analytics';
@@ -158,6 +163,45 @@ describe('ProductDetailPage hero rating', () => {
   });
 });
 
+const link = (slug: string, name: string): ProductLink => ({
+  id: `id-${slug}`,
+  slug,
+  name,
+  logo_url: null,
+});
+
+let seq = 0;
+const edge = (
+  source: ProductLink,
+  target: ProductLink,
+  direction: IntegrationListItem['direction'] = null,
+): IntegrationListItem => ({
+  id: `00000000-0000-4000-8000-${String(++seq).padStart(12, '0')}`,
+  name: `${source.name} ↔ ${target.name}`,
+  mechanism_kind: 'iPaaS',
+  mechanism_name: 'via Agave ERP Sync',
+  direction,
+  source,
+  target,
+  via: null,
+  created_at: '2024-06-01T00:00:00.000Z',
+  updated_at: '2024-06-01T00:00:00.000Z',
+});
+
+const procore = link('procore', 'Procore');
+const acumatica = link('acumatica', 'Acumatica');
+const sage = link('sage-intacct', 'Sage Intacct');
+const vista = link('viewpoint-vista', 'Viewpoint Vista');
+const bluebeam = link('bluebeam-revu', 'Bluebeam Revu');
+
+const connector = (overrides: Partial<ProductDetail> = {}) =>
+  buildProduct({
+    slug: 'agave-erp-sync',
+    name: 'Agave ERP Sync',
+    product_role: 'connector',
+    ...overrides,
+  });
+
 /**
  * Stage 1.5 Addendum B — the "Integrations it powers" hub section that makes
  * a connector product's page intelligible (its endpoint table is legitimately
@@ -165,43 +209,6 @@ describe('ProductDetailPage hero rating', () => {
  */
 describe('ProductDetailPage powered-integrations hub', () => {
   beforeEach(() => TestBed.resetTestingModule());
-
-  const link = (slug: string, name: string): ProductLink => ({
-    id: `id-${slug}`,
-    slug,
-    name,
-    logo_url: null,
-  });
-
-  let seq = 0;
-  const edge = (
-    source: ProductLink,
-    target: ProductLink,
-    direction: IntegrationListItem['direction'] = null,
-  ): IntegrationListItem => ({
-    id: `00000000-0000-4000-8000-${String(++seq).padStart(12, '0')}`,
-    name: `${source.name} ↔ ${target.name}`,
-    mechanism_kind: 'iPaaS',
-    mechanism_name: 'via Agave ERP Sync',
-    direction,
-    source,
-    target,
-    created_at: '2024-06-01T00:00:00.000Z',
-    updated_at: '2024-06-01T00:00:00.000Z',
-  });
-
-  const procore = link('procore', 'Procore');
-  const acumatica = link('acumatica', 'Acumatica');
-  const sage = link('sage-intacct', 'Sage Intacct');
-  const vista = link('viewpoint-vista', 'Viewpoint Vista');
-
-  const connector = (overrides: Partial<ProductDetail> = {}) =>
-    buildProduct({
-      slug: 'agave-erp-sync',
-      name: 'Agave ERP Sync',
-      product_role: 'connector',
-      ...overrides,
-    });
 
   it('renders a hub card whose heading is the hub name, with pair-page partner rows', () => {
     const { el } = setup(
@@ -318,7 +325,10 @@ describe('ProductDetailPage powered-integrations hub', () => {
   });
 
   it('still renders the section for an application that powers edges (data-driven safety net)', () => {
-    const { el } = setup(buildProduct({ integrations_as_connector: [edge(procore, acumatica)] }));
+    // A THIRD-PARTY pair: `buildProduct` is Procore, and an edge naming Procore
+    // as an endpoint would be a Convention-A self-reference that §13.4(2)
+    // excludes (covered in its own describe below), not a powered edge.
+    const { el } = setup(buildProduct({ integrations_as_connector: [edge(sage, acumatica)] }));
 
     expect(el.querySelector('#powered-integrations')).toBeTruthy();
     expect(el.querySelector('aec-section-nav')!.textContent).toContain('Integrations it powers');
@@ -335,7 +345,9 @@ describe('ProductDetailPage powered-integrations hub', () => {
   it('notes the catalog boundary under both populated integration lists', () => {
     const { el } = setup(
       connector({
-        integrations_as_source: [{ ...edge(procore, acumatica), context_direction: null }],
+        integrations_as_source: [
+          { ...edge(procore, acumatica), context_direction: null, powered_by_product: null },
+        ],
         integrations_as_connector: [edge(procore, acumatica), edge(sage, procore)],
       }),
     );
@@ -383,6 +395,312 @@ describe('ProductDetailPage powered-integrations hub', () => {
   });
 });
 
+/**
+ * The endpoint integrations table (`#integrations`) — the edges this product
+ * TERMINATES, as opposed to the powered-hub section above. Covers the row
+ * ORDER only; `ProductIntegrationRow`'s own spec covers what a row renders.
+ */
+describe('ProductDetailPage integrations table order', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  // `edge()` above is a POWERED edge (`iPaaS`, for the connector-hub specs). An
+  // endpoint edge in these order tests is an ordinary accountable-party one, so
+  // it overrides the kind — otherwise §13.2(c) routes every row into the unnamed
+  // "Via a connector" group and the direct lane under test is empty.
+  const endpointEdge = (source: ProductLink, target: ProductLink): ProductIntegrationItem => ({
+    ...edge(source, target),
+    mechanism_kind: 'native',
+    context_direction: null,
+    powered_by_product: null,
+  });
+
+  /**
+   * The partner name from each rendered row, in DOM order. A row carries two
+   * sibling links — the stretched pair-page overlay and the partner-product
+   * link (see `ProductIntegrationRow`) — and only the partner one points at a
+   * bare product page.
+   */
+  const partnerOrder = (el: HTMLElement) =>
+    [
+      ...el.querySelectorAll<HTMLTableRowElement>(
+        // Attribute-selected component, so the `@defer` placeholder row (a bare
+        // `<tr aria-hidden>` skeleton, no links) can't be mistaken for a result.
+        '#integrations tbody tr[aec-product-integration-row]',
+      ),
+    ].map((row) => {
+      const partner = [...row.querySelectorAll('a')].find(
+        (a) => !a.getAttribute('href')!.includes('/integrations/'),
+      );
+      return partner!.textContent!.trim();
+    });
+
+  it('orders rows alphabetically by partner, interleaving the source and target buckets', () => {
+    // Both buckets are supplied out of alphabetical order, and the expected
+    // result alternates between them (source, target, target, source) — so
+    // this fails both if the sort is dropped AND if the buckets are merely
+    // concatenated with each half sorted independently.
+    const { el } = setup(
+      buildProduct({
+        integrations_as_source: [endpointEdge(procore, vista), endpointEdge(procore, acumatica)],
+        integrations_as_target: [endpointEdge(sage, procore), endpointEdge(bluebeam, procore)],
+      }),
+    );
+
+    expect(partnerOrder(el)).toEqual([
+      'Acumatica',
+      'Bluebeam Revu',
+      'Sage Intacct',
+      'Viewpoint Vista',
+    ]);
+  });
+
+  it('breaks a repeated-partner tie on the integration name, not on DB order', () => {
+    // One partner reachable by two mechanisms. Without the tail comparison
+    // these two rows tie and `Array#sort` stability pins them to the arbitrary
+    // order the API happened to return.
+    const viaB = {
+      ...endpointEdge(procore, acumatica),
+      name: 'B — REST API',
+      mechanism_name: 'REST bridge',
+    };
+    const viaA = {
+      ...endpointEdge(procore, acumatica),
+      name: 'A — native',
+      mechanism_name: 'Native link',
+    };
+
+    const { el } = setup(
+      buildProduct({
+        integrations_as_source: [viaB, viaA],
+        integrations_as_target: [endpointEdge(sage, procore)],
+      }),
+    );
+
+    expect(partnerOrder(el)).toEqual(['Acumatica', 'Acumatica', 'Sage Intacct']);
+    // Partner name and pair link are identical on both Acumatica rows, so the
+    // mechanism is the only visible discriminator: `A — native` must lead.
+    const rows = el.querySelectorAll('#integrations tbody tr[aec-product-integration-row]');
+    expect(rows[0]!.textContent).toContain('Native link');
+    expect(rows[1]!.textContent).toContain('REST bridge');
+  });
+
+  // The 21-row case below instantiates the `@defer (on viewport)` block, whose
+  // trigger news up an `IntersectionObserver` unguarded (unlike our own
+  // browser-only code, which checks `typeof`). jsdom has none.
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('sorts before the 20-row @defer cut, so the visible rows are the alphabetical head', () => {
+    vi.stubGlobal(
+      'IntersectionObserver',
+      class {
+        observe = vi.fn();
+        unobserve = vi.fn();
+        disconnect = vi.fn();
+      },
+    );
+
+    // 21 partners authored in REVERSE alphabetical order. If the slice ran
+    // before the sort, "Partner 01" would land in the deferred tail.
+    const partners = Array.from({ length: 21 }, (_, i) =>
+      link(
+        `partner-${String(21 - i).padStart(2, '0')}`,
+        `Partner ${String(21 - i).padStart(2, '0')}`,
+      ),
+    );
+
+    const { el } = setup(
+      buildProduct({
+        integrations_as_source: partners.map((partner) => endpointEdge(procore, partner)),
+      }),
+    );
+
+    // Only the undeferred head renders here — `@defer (on viewport)` never
+    // triggers in this harness — which is exactly the boundary under test.
+    const rendered = partnerOrder(el);
+    expect(rendered).toHaveLength(20);
+    expect(rendered[0]).toBe('Partner 01');
+    expect(rendered.at(-1)).toBe('Partner 20');
+  });
+});
+
+/**
+ * The endpoint Integrations section SPLIT into lanes — Stage 1.5 Addendum C
+ * §13.3. `connector-lane-grouping.spec.ts` covers the routing and collapse
+ * rules as pure functions; this covers what the split RENDERS: one table per
+ * lane, the linked group heading, the sub-counts, and the single scope note.
+ */
+describe('ProductDetailPage integrations lanes (§13.3)', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  const agave = link('agave-erp-sync', 'Agave ERP Sync');
+
+  const endpointEdge = (
+    source: ProductLink,
+    target: ProductLink,
+    overrides: Partial<ProductIntegrationItem> = {},
+  ): ProductIntegrationItem => ({
+    ...edge(source, target),
+    mechanism_kind: 'native',
+    context_direction: null,
+    powered_by_product: null,
+    ...overrides,
+  });
+
+  const tables = (el: HTMLElement) => [
+    ...el.querySelectorAll<HTMLTableElement>('#integrations table'),
+  ];
+
+  it('renders ONE unheaded table when nothing is connector-delivered', () => {
+    // The overwhelmingly common page: zero visual churn from the split.
+    const { el } = setup(
+      buildProduct({
+        integrations_as_source: [endpointEdge(procore, acumatica)],
+      }),
+    );
+
+    const rendered = tables(el);
+    expect(rendered).toHaveLength(1);
+    expect(rendered[0]!.getAttribute('aria-label')).toBe('Integrations');
+    expect(el.querySelectorAll('#integrations h3')).toHaveLength(0);
+  });
+
+  it('renders one table PER LANE, direct first, each with an accessible name', () => {
+    // One <table> per lane is the accessibility requirement (§13.3): a group
+    // header row inside a shared <tbody> has no name relationship to the rows
+    // under it, so the grouping would exist visually and not at all otherwise.
+    const { el } = setup(
+      buildProduct({
+        integrations_as_source: [
+          endpointEdge(procore, acumatica),
+          endpointEdge(procore, sage, { via: agave }),
+        ],
+      }),
+    );
+
+    const rendered = tables(el);
+    expect(rendered).toHaveLength(2);
+    // Every lane table is named, and by its own heading rather than a duplicated
+    // string — so heading and table can never drift apart.
+    for (const table of rendered) {
+      const id = table.getAttribute('aria-labelledby');
+      expect(id).toBeTruthy();
+      expect(el.querySelector(`#${id}`)).toBeTruthy();
+    }
+    expect(rendered[0]!.getAttribute('aria-labelledby')).toBe('integrations-direct');
+    expect(rendered[1]!.getAttribute('aria-labelledby')).toBe('integrations-via-agave-erp-sync');
+  });
+
+  it('links the connector name in the "Via {connector}" heading', () => {
+    // The return path into the Addendum B hub — §12.3's linked hub heading
+    // pointing the other way.
+    const { el } = setup(
+      buildProduct({
+        integrations_as_source: [endpointEdge(procore, sage, { via: agave })],
+      }),
+    );
+
+    const heading = el.querySelector('#integrations-via-agave-erp-sync')!;
+    expect(heading.textContent).toContain('Via');
+    const linkEl = heading.querySelector('a')!;
+    expect(linkEl.getAttribute('href')).toBe('/products/agave-erp-sync');
+    expect(linkEl.textContent!.trim()).toBe('Agave ERP Sync');
+  });
+
+  it('heads the unnamed group without inventing a connector name (§13.2(c))', () => {
+    // 53 production rows, permanently: `iPaaS` with no `powered_by`, because
+    // AECI-700 parks Zapier and Workato and their platforms have no product row.
+    const { el } = setup(
+      buildProduct({
+        integrations_as_source: [endpointEdge(procore, sage, { mechanism_kind: 'iPaaS' })],
+      }),
+    );
+
+    const heading = el.querySelector('#integrations-via-')!;
+    expect(heading.textContent).toContain('Via a connector');
+    expect(heading.querySelector('a')).toBeNull();
+  });
+
+  it('keeps a Convention-A self-reference in the direct lane (§13.2(a))', () => {
+    // Without clause (a) this renders a group whose only partner IS the
+    // connector: "Via Aquifer → Aquifer".
+    const { el } = setup(
+      buildProduct({
+        integrations_as_target: [
+          endpointEdge(procore, agave, { mechanism_kind: 'iPaaS', powered_by_product: agave }),
+        ],
+      }),
+    );
+
+    expect(tables(el)).toHaveLength(1);
+    expect(el.querySelectorAll('#integrations h3')).toHaveLength(0);
+  });
+
+  it('sums the sub-counts to the section heading count', () => {
+    const { el } = setup(
+      buildProduct({
+        integrations_as_source: [
+          endpointEdge(procore, acumatica),
+          endpointEdge(procore, vista),
+          endpointEdge(procore, sage, { via: agave }),
+        ],
+      }),
+    );
+
+    expect(el.querySelector('#integrations-title')!.textContent).toContain('Integrations (3)');
+    expect(el.querySelector('#integrations-direct')!.textContent).toContain('(2)');
+    expect(el.querySelector('#integrations-via-agave-erp-sync')!.textContent).toContain('(1)');
+  });
+
+  it('counts COLLAPSED Via rows, so the heading matches what a reader can count', () => {
+    // Two edges, one (connector, partner) — one row. A heading of 2 over one
+    // visible row is the failure §13.3's rule exists to prevent.
+    const { el } = setup(
+      buildProduct({
+        integrations_as_source: [
+          endpointEdge(procore, sage, { via: agave, name: 'A' }),
+          endpointEdge(procore, sage, { via: agave, name: 'B' }),
+        ],
+      }),
+    );
+
+    expect(el.querySelector('#integrations-title')!.textContent).toContain('Integrations (1)');
+    expect(el.querySelectorAll('#integrations tbody tr[aec-product-integration-row]')).toHaveLength(
+      1,
+    );
+  });
+
+  it('renders the §12.7 catalog-scope note ONCE, not once per lane', () => {
+    const { el } = setup(
+      buildProduct({
+        integrations_as_source: [
+          endpointEdge(procore, acumatica),
+          endpointEdge(procore, sage, { via: agave }),
+          endpointEdge(procore, vista, { mechanism_kind: 'iPaaS' }),
+        ],
+      }),
+    );
+
+    const section = el.querySelector('#integrations')!;
+    expect(section.textContent!.match(/Only partners listed on AECi appear here/g)).toHaveLength(1);
+  });
+
+  it('keeps ONE anchor and one section-nav entry across the split', () => {
+    // "One section, two lanes, one anchor, so no link, sitemap or cache-tag
+    // churn" (§13.3).
+    const { el } = setup(
+      buildProduct({
+        integrations_as_source: [
+          endpointEdge(procore, acumatica),
+          endpointEdge(procore, sage, { via: agave }),
+        ],
+      }),
+    );
+
+    expect(el.querySelectorAll('#integrations')).toHaveLength(1);
+    expect(navIds(el).filter((id) => id === 'integrations')).toEqual(['integrations']);
+  });
+});
+
 describe('ProductDetailPage taxonomy chips (AECI-544)', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
@@ -415,5 +733,277 @@ describe('ProductDetailPage taxonomy chips (AECI-544)', () => {
 
     expect(el.querySelector('section[aria-labelledby="trades-label"]')).toBeNull();
     expect(el.querySelector('a[href^="/trades/"]')).toBeNull();
+  });
+});
+
+/**
+ * The Actions-sidebar claim CTA. `vendors.verified` is the only public signal
+ * that a listing is claimed, so it drives the copy: an unverified vendor gets
+ * "Claim this listing", a verified one gets "Request access to this listing"
+ * plus a note. Both open the same `kind:'claim'` request — seats are
+ * admin-granted and multi-seat (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11), so the
+ * claim form stays the only route in for a second person at the vendor.
+ */
+describe('ProductDetailPage claim CTA', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  const actions = (el: HTMLElement) =>
+    el.querySelector('section[aria-labelledby="actions-label"]') as HTMLElement;
+
+  it('offers to claim the listing when the built-by vendor is unverified', () => {
+    const { el } = setup(buildProduct());
+    const section = actions(el);
+
+    expect(section.textContent).toContain('Claim this listing');
+    expect(section.textContent).not.toContain('Request access to this listing');
+    expect(section.textContent).not.toContain('Already managed by a verified vendor');
+  });
+
+  it('offers to request access when the built-by vendor is verified', () => {
+    const { el } = setup(
+      buildProduct({
+        vendor: {
+          id: '00000000-0000-4000-8000-000000010001',
+          slug: 'procore',
+          name: 'Procore Technologies',
+          logo_url: null,
+          verified: true,
+        },
+      }),
+    );
+    const section = actions(el);
+
+    expect(section.textContent).toContain('Request access to this listing');
+    expect(section.textContent).not.toContain('Claim this listing');
+    expect(section.textContent).toContain('Already managed by a verified vendor');
+
+    // Copy only: the CTA still targets the same claim route/kind.
+    const cta = section.querySelector<HTMLAnchorElement>('a[href="/products/procore/claim"]');
+    expect(cta).toBeTruthy();
+  });
+
+  it('falls back to the claim copy when the product has no vendor at all', () => {
+    // `ProductDetail.vendor` is nullable (no DB constraint forces one), so the
+    // verified read must not assume a vendor is present.
+    const { el } = setup(buildProduct({ vendor: null }));
+    const section = actions(el);
+
+    expect(section.textContent).toContain('Claim this listing');
+    expect(section.textContent).not.toContain('Already managed by a verified vendor');
+  });
+});
+
+/**
+ * Stage 1.5 Addendum C §13.6 (AECI-707) — the role-varied template: section
+ * order, the hero reach line, and the §13.4(2) self-exclusion that decides
+ * whether the powered section renders at all.
+ */
+const bodySectionIds = (el: HTMLElement): string[] =>
+  [...el.querySelectorAll('[slot="body"] > [id]')].map((n) => n.id);
+
+const navIds = (el: HTMLElement): string[] => {
+  const nav = el.querySelector('aec-section-nav');
+  if (!nav) return [];
+  return [...nav.querySelectorAll<HTMLAnchorElement>('a')].map(
+    (a) => a.getAttribute('href')!.split('#')[1]!,
+  );
+};
+
+/** A Convention-A edge (§13.2a): the page product is itself an endpoint. */
+const selfEdge = (partner: ProductLink, self: ProductLink) => edge(partner, self);
+
+describe('ProductDetailPage role-varied section order (§13.6)', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  it('leads with the powered section on a connector that has one', () => {
+    const { el } = setup(
+      connector({
+        integrations_as_connector: [edge(procore, acumatica), edge(sage, procore)],
+      }),
+    );
+
+    // Real DOM order, not CSS order: this is what screen readers and crawlers
+    // read, and it is why the section is placed by an ngTemplateOutlet.
+    expect(bodySectionIds(el)).toEqual([
+      'about',
+      'powered-integrations',
+      'integrations',
+      'reviews',
+    ]);
+    // §13.6: "section-nav follows render order".
+    expect(navIds(el)).toEqual(['about', 'powered-integrations', 'integrations', 'reviews']);
+    // Anchor ids are unchanged, so no link / sitemap / cache-tag churn.
+    expect(el.querySelector('#powered-integrations')).toBeTruthy();
+    expect(el.querySelector('#integrations')).toBeTruthy();
+  });
+
+  it('keeps today order for a hybrid, even with powered edges', () => {
+    // There are exactly two hybrids catalog-wide, and AnyWare Apps is half
+    // first-party native apps; swapping would demote its own product surface.
+    const { el } = setup(
+      connector({
+        product_role: 'hybrid',
+        integrations_as_connector: [edge(procore, acumatica), edge(sage, procore)],
+      }),
+    );
+
+    expect(bodySectionIds(el)).toEqual([
+      'about',
+      'integrations',
+      'powered-integrations',
+      'reviews',
+    ]);
+    expect(navIds(el)).toEqual(['about', 'integrations', 'powered-integrations', 'reviews']);
+  });
+
+  it('keeps today order for an application that powers edges', () => {
+    // Third-party pair, for the same reason as the safety-net case above.
+    const { el } = setup(buildProduct({ integrations_as_connector: [edge(sage, acumatica)] }));
+
+    expect(bodySectionIds(el)).toEqual([
+      'about',
+      'integrations',
+      'powered-integrations',
+      'reviews',
+    ]);
+  });
+
+  it('does not swap a connector whose powered section is empty', () => {
+    // Nothing to lead with, so leading with it would put an empty state at the
+    // top of the page.
+    const { el } = setup(connector());
+
+    expect(bodySectionIds(el)).toEqual([
+      'about',
+      'integrations',
+      'powered-integrations',
+      'reviews',
+    ]);
+  });
+});
+
+describe('ProductDetailPage self-exclusion (§13.4(2))', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  const agave = link('agave-erp-sync', 'Agave ERP Sync');
+
+  it('drops a Convention-A edge from the powered section, count included', () => {
+    const { el } = setup(
+      connector({
+        integrations_as_connector: [
+          selfEdge(procore, agave),
+          edge(sage, acumatica),
+          edge(sage, vista),
+        ],
+      }),
+    );
+
+    const section = el.querySelector('#powered-integrations')!;
+    // Two third-party pairs render; the self-referencing edge does not, so it
+    // cannot appear here AND in #integrations for the same fact.
+    expect(section.querySelector('h2')!.textContent).toContain('Integrations it powers (2)');
+    expect(section.textContent).not.toContain('Agave ERP Sync');
+  });
+
+  it('suppresses the section and its nav entry when self-exclusion empties it', () => {
+    // The live Aquifer / Kroo shape: every powered edge is Convention A, so the
+    // same edges are already rendered by the endpoint table. An empty state here
+    // would contradict the hero line directly above it.
+    const { el } = setup(
+      connector({
+        integrations_as_connector: [
+          selfEdge(procore, agave),
+          selfEdge(acumatica, agave),
+          selfEdge(sage, agave),
+        ],
+        // A Convention-A edge carries its own endpoint as `powered_by`, which is
+        // what §13.2(a) reads to keep it in the DIRECT lane — so these render
+        // here once, and never as a "Via Agave ERP Sync → Agave ERP Sync" group.
+        integrations_as_target: [
+          { ...selfEdge(procore, agave), context_direction: null, powered_by_product: agave },
+          { ...selfEdge(acumatica, agave), context_direction: null, powered_by_product: agave },
+          { ...selfEdge(sage, agave), context_direction: null, powered_by_product: agave },
+        ],
+      }),
+    );
+
+    expect(el.querySelector('#powered-integrations')).toBeNull();
+    expect(navIds(el)).not.toContain('powered-integrations');
+    expect(el.querySelector('aec-section-nav')!.textContent).not.toContain(
+      'Integrations it powers',
+    );
+    // The endpoint table carries every one of those edges, so the page still
+    // answers "what does this connect".
+    expect(el.querySelector('#integrations')!.querySelector('h2')!.textContent).toContain(
+      'Integrations (3)',
+    );
+  });
+
+  it('keeps the empty state for a connector that genuinely powers nothing', () => {
+    // Extractus / MYOB 0link: nothing was excluded, so "no record of it powering
+    // anything" is a true claim worth inviting a correction for.
+    const { el } = setup(connector());
+
+    const section = el.querySelector('#powered-integrations')!;
+    expect(section.textContent).toContain('No integrations are recorded as running');
+    expect(navIds(el)).toContain('powered-integrations');
+  });
+});
+
+describe('ProductDetailPage hero reach line (§13.6)', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  const agave = link('agave-erp-sync', 'Agave ERP Sync');
+
+  it('counts distinct endpoint products, not pairs', () => {
+    const { el } = setup(
+      connector({
+        integrations_as_connector: [
+          edge(procore, acumatica),
+          edge(procore, sage),
+          edge(procore, vista),
+        ],
+      }),
+    );
+
+    // Four distinct products across three pairs.
+    expect(el.querySelector('[slot="hero"]')!.textContent).toContain(
+      'Connects 4 products in the AECi catalog',
+    );
+  });
+
+  it('reports reach for a Convention-A connector whose powered section is suppressed', () => {
+    // The number the grouped view cannot give: the hero reads the RAW edge list
+    // minus the page product, so 4 distinct endpoints become 3 rather than 0.
+    const { el } = setup(
+      connector({
+        integrations_as_connector: [
+          selfEdge(procore, agave),
+          selfEdge(acumatica, agave),
+          selfEdge(sage, agave),
+        ],
+      }),
+    );
+
+    expect(el.querySelector('[slot="hero"]')!.textContent).toContain(
+      'Connects 3 products in the AECi catalog',
+    );
+    expect(el.querySelector('#powered-integrations')).toBeNull();
+  });
+
+  it('singularizes at one product', () => {
+    const { el } = setup(connector({ integrations_as_connector: [selfEdge(procore, agave)] }));
+
+    expect(el.querySelector('[slot="hero"]')!.textContent).toContain(
+      'Connects 1 product in the AECi catalog',
+    );
+  });
+
+  it('renders nothing at zero, on a connector or an application', () => {
+    for (const product of [connector(), buildProduct()]) {
+      const { el } = setup(product);
+      expect(el.querySelector('[slot="hero"]')!.textContent).not.toContain('Connects');
+      TestBed.resetTestingModule();
+    }
   });
 });

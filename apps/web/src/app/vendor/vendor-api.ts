@@ -26,6 +26,7 @@ import type {
   ListProductVersionsResponse,
   ListVendorIntegrationsResponse,
   ListVendorNotificationsResponse,
+  CreateSeatInviteResponse,
   ListVendorSeatsResponse,
   TaxonomyResponse,
   UpdateVendorProductInput,
@@ -90,6 +91,26 @@ export class VendorApi {
     return firstValueFrom(this.http.get<ListVendorSeatsResponse>('/api/vendor/seats'));
   }
 
+  /** `POST /api/vendor/seats/invites` — invite a colleague (AECI-664 / §11a).
+   *  Owner-only server-side; any address is accepted (§11a.3 dropped the domain
+   *  gate). A refusal is an `ApiError` the caller renders, never something this
+   *  client pre-empts. */
+  inviteSeat(email: string): Promise<CreateSeatInviteResponse> {
+    return firstValueFrom(
+      this.http.post<CreateSeatInviteResponse>('/api/vendor/seats/invites', { email }),
+    );
+  }
+
+  /** `DELETE /api/vendor/seats/invites/:id` — revoke a pending invite (204). */
+  revokeInvite(inviteId: string): Promise<void> {
+    return firstValueFrom(this.http.delete<void>(`/api/vendor/seats/invites/${inviteId}`));
+  }
+
+  /** `DELETE /api/vendor/seats/:userId` — remove a colleague's seat (204). */
+  removeSeat(userId: string): Promise<void> {
+    return firstValueFrom(this.http.delete<void>(`/api/vendor/seats/${userId}`));
+  }
+
   /** `PATCH /api/vendor/profile` — edit own vendor content within guard-rails.
    *  Send only changed fields (the endpoint requires ≥1). Echoes post-edit
    *  state. */
@@ -132,8 +153,10 @@ export class VendorApi {
   }
 
   /** `GET /api/vendor/data-objects` — the closed `data_object` vocabulary, in
-   *  the order the claim lanes use. `data_object` is find-only server-side, so
-   *  the picker offers this list rather than a text input (AECI-606 / §5.2). */
+   *  the vocabulary (`display_order`) order the claim lanes use. `data_object`
+   *  is find-only server-side, so the picker offers this list rather than a text
+   *  input (AECI-606 / §5.2). The picker itself re-sorts alphabetically by label
+   *  — see `dataObjectOptions` in `components/vendor-add-claim-form.ts`. */
   getDataObjects(): Promise<ListDataObjectsResponse> {
     return firstValueFrom(this.http.get<ListDataObjectsResponse>('/api/vendor/data-objects'));
   }
@@ -167,8 +190,15 @@ export class VendorApi {
   upsertAttestation(
     claimId: string,
     position: VendorAttestationPosition,
+    contextProductId?: string | null,
   ): Promise<VendorClaimResponse> {
-    const body = position satisfies UpsertVendorAttestationInput;
+    // `context_product_id` frames the echoed claim only (AECI-666); it is not part
+    // of the stored position, so it rides the wire body without joining
+    // `VendorAttestationPosition`.
+    const body = {
+      ...position,
+      context_product_id: contextProductId ?? null,
+    } satisfies UpsertVendorAttestationInput;
     return firstValueFrom(
       this.http.put<VendorClaimResponse>(
         `/api/vendor/claims/${encodeURIComponent(claimId)}/attestation`,

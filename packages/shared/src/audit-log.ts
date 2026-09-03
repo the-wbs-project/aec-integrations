@@ -8,12 +8,15 @@
  * corresponding audit row" invariant is preserved by the batch — the row commits
  * or rolls back with the entity write.
  *
- * Per §26.5 the event is ALSO forwarded to Datadog, but the database is the
- * source of truth: a forwarding failure is logged and swallowed, never failing
- * the write. Forwarding is injected (`forward`) rather than hard-wired so this
- * module stays transport-agnostic and edge-safe — no `fetch`/`Request` coupling.
- * The API Worker wires `forward` to its `logToDatadog()` (which uses
- * `ctx.waitUntil`); call {@link forwardAuditLog} AFTER the batch commits.
+ * Per §26.5 the event is ALSO forwarded to the observability plane, but the
+ * database is the source of truth: a forwarding failure is logged and swallowed,
+ * never failing the write. Forwarding is injected (`forward`) rather than
+ * hard-wired so this module stays transport-agnostic and edge-safe — no
+ * `fetch`/`Request` coupling. That seam is exactly what let the vendor change
+ * without touching this file: the API Worker wires `forward` to its
+ * `logToPosthog()` (which uses `ctx.waitUntil`, and during the dual-run window
+ * fans out to Datadog as well — AECI-642 / POSTHOG_MIGRATION_SPEC.md §3.7).
+ * Call {@link forwardAuditLog} AFTER the batch commits.
  *
  * Naming convention (§26.1): dot-separated `entity.action`
  * (e.g. `product.created`, `vendor.updated`, `review.approved`).
@@ -40,20 +43,21 @@ export interface AuditLogEntry {
 }
 
 /**
- * Forwards an audit event to an external sink (Datadog). Implementations must
+ * Forwards an audit event to an external sink (PostHog). Implementations must
  * not throw to the caller — but {@link forwardAuditLog} defends against it anyway.
  * May be sync (fire-and-forget via `ctx.waitUntil`) or async (awaited).
  */
 export type AuditLogForwarder = (entry: AuditLogEntry) => void | Promise<void>;
 
 /**
- * Best-effort forward of an audit event to Datadog (§26.5), decoupled from the
+ * Best-effort forward of an audit event to PostHog (§26.5), decoupled from the
  * DB write. The audit row itself is inserted inside the caller's atomic
  * `db.batch([...])` (see `apps/api/src/lib/audit.ts` `auditInsert`), so the §26.1
  * "no state change without an audit row" invariant is preserved by the batch, not
- * by this helper. Call AFTER the batch commits (typically via `ctx.waitUntil`). A
- * forward failure is logged and swallowed — Datadog availability never blocks a
- * write.
+ * by this helper — and is untouched by the vendor swap, because forwarding is
+ * post-commit only. Call AFTER the batch commits (typically via `ctx.waitUntil`).
+ * A forward failure is logged and swallowed — observability availability never
+ * blocks a write.
  */
 export async function forwardAuditLog(
   entry: AuditLogEntry,
@@ -63,6 +67,6 @@ export async function forwardAuditLog(
   try {
     await forward(entry);
   } catch (error) {
-    console.warn('forwardAuditLog: Datadog forward failed', error);
+    console.warn('forwardAuditLog: observability forward failed', error);
   }
 }

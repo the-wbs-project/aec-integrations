@@ -16,6 +16,15 @@
 4. **Login** (`/auth/login`)
 5. **Account** (`/account`)
 6. **Admin moderation queue** (`/admin/reviews`, and `/admin/requests`)
+7. **Vendor portal** (`/vendor/:vendorSlug/products` and `/integrations`) — added
+   after Stage 2; the list above predates it. Two things here are only evaluable by
+   a human: the portal's **one polite live region** in the shell (a background poll
+   lands announcements into it from sections the reader is not looking at,
+   `STAGE_2_REALTIME_SPEC.md` §6.3), and the **Products nav dropdown**, a disclosure
+   whose panel contains a combobox (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.4) — a nested
+   pattern no automated tool fully evaluates. Needs a session; on a deployed
+   environment, check the WAF note in `docs/waf-rate-limits.md` first. The ungated
+   `/preview/vendor-dashboard` renders the same shell if a session is not available.
 
 ## 2. Per-surface checks
 
@@ -41,6 +50,7 @@ Run each surface with **(a) keyboard only**, then **(b) VoiceOver**, then **(c) 
 - [ ] **Login** — magic-link / Google buttons have accessible names; error + "check your email" states are announced.
 - [ ] **Account** — the delete-account confirmation is a proper dialog (focus moved in, `Esc`/close returns focus, action announced).
 - [ ] **Admin queue** — filter toggles expose pressed state (`aria-pressed`); the moderation/ban dialog traps focus correctly and announces outcome; empty/loading/error states announce.
+- [ ] **Vendor portal** — the section row announces as a navigation landmark and the current section as current; the Products item announces as a collapsed disclosure, opens onto a labelled search box that takes focus, and its filtered results announce a count that updates as you type; a zero-match query announces the plain "no products match" line and exposes **no** empty listbox; `Esc` and `Tab` both close it and return focus to the trigger; it is **not** announced as a menu. Then, with a section open, confirm a write elsewhere is announced **once** (never twice, never as an interruption) and that nothing under the pointer moves when a background refresh lands.
 
 ## 3. Recording findings
 

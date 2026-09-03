@@ -20,7 +20,7 @@
  * before upload).
  */
 
-import { mechanismRank } from '@aeci/shared/algolia';
+import { CONNECTOR_EVIDENCED_MECHANISM_RANK, mechanismRank } from '@aeci/shared/algolia';
 import {
   type AlgoliaIntegrationRecord,
   type AlgoliaProductRecord,
@@ -69,8 +69,10 @@ const tradeRecordColumns = { name: true, aliases: true } as const;
  * window read.
  *
  * Freshness note for trades: the nightly window is keyed on `products.updated_at`,
- * and `product_trades` rows are written only by the promote flow (AECI-542),
- * which touches the product row — so a re-promote carries its trade tags into the
+ * and both writers of `product_trades` bump that column in the same batch — the
+ * promote flow (AECI-542), and `PATCH /api/vendor/products/:id` (AECI-665), which
+ * stamps `updated_at` even for a taxonomy-only edit precisely so this sync can
+ * see it. So a re-promote or a vendor's own trade edit carries its tags into the
  * index on the next sync. A bulk backfill that writes the join table WITHOUT
  * bumping `products.updated_at` would be invisible to the incremental sync and
  * needs a forced full reindex (`apps/datatool/src/algolia-reindex.ts`).
@@ -127,7 +129,16 @@ export const algoliaVendorConfig = {
         'product_count',
       ),
     integrationCount:
-      sql<number>`(SELECT count(*) FROM integrations bi WHERE bi.built_by_vendor_id = "vendors"."id")`.as(
+      // AECI-721 / §13.5 item 6: a DIFFERENT rule from the product count — a
+      // correlated subquery on `built_by_vendor_id`, not a read of the
+      // denormalized `products.integration_count` column. It is therefore NOT
+      // downstream of `recompute-counts.ts` and drops every migrated edge on its
+      // own unless the evidenced table is summed here too. The ~20-row accountable
+      // residue §13.2 records is exactly this population: Agave built 11 of the 19
+      // edges that move, so without the second subquery Agave's vendor record
+      // reports 0 integrations the day the migration lands.
+      sql<number>`((SELECT count(*) FROM integrations bi WHERE bi.built_by_vendor_id = "vendors"."id")
+        + (SELECT count(*) FROM connector_evidenced_pairs cep WHERE cep.built_by_vendor_id = "vendors"."id"))`.as(
         'integration_count',
       ),
   },
@@ -250,6 +261,74 @@ export function toAlgoliaVendor(row: RawAlgoliaVendorRow): AlgoliaVendorRecord {
     product_count: row.productCount,
     integration_count: row.integrationCount,
     logo_url: row.logoUrl,
+  };
+}
+
+/**
+ * Hydration for a connector-evidenced pair's `integrations`-index record
+ * (AECI-721). The canonical slots are read raw and oriented by
+ * `toAlgoliaEvidencedPair`, mirroring `orientEvidencedPair`.
+ */
+export const algoliaEvidencedPairConfig = {
+  columns: {
+    id: true,
+    mechanismName: true,
+    direction: true,
+    description: true,
+    updatedAt: true,
+  },
+  with: {
+    productA: { columns: { name: true, slug: true } },
+    productB: { columns: { name: true, slug: true } },
+  },
+} as const;
+
+export interface RawAlgoliaEvidencedPairRow {
+  id: string;
+  mechanismName: string | null;
+  direction: string | null;
+  description: string | null;
+  updatedAt: string;
+  productA: { name: string; slug: string };
+  productB: { name: string; slug: string };
+}
+
+/**
+ * A connector-evidenced pair as an `integrations`-index record.
+ *
+ * These rows stay INDEXED after the migration, deliberately: an edge dropping out
+ * of public search because of an internal storage move is a user-visible
+ * regression with no product justification, and the same reasoning keeps them in
+ * `GET /api/integrations` (which `sitemap.ts` paginates).
+ *
+ * `mechanism_kind` is `null` — the table has no such column — but the rank is
+ * `CONNECTOR_EVIDENCED_MECHANISM_RANK`, NOT `mechanismRank(null)`. Falling through
+ * to the unknown-kind `0` would bury every connector-delivered edge at the bottom
+ * of the index as an artifact of where we chose to store it. See the constant's
+ * own comment for the bounded prod effect.
+ */
+export function toAlgoliaEvidencedPair(row: RawAlgoliaEvidencedPairRow): AlgoliaIntegrationRecord {
+  // Same inverse CASE as `orientEvidencedPair`: `b_to_a` is the only value that
+  // swaps the endpoints, which is exactly what canonicalisation would otherwise lose.
+  const swapped = row.direction === 'b_to_a';
+  const source = swapped ? row.productB : row.productA;
+  const target = swapped ? row.productA : row.productB;
+  return {
+    objectID: row.id,
+    source_product_name: source.name,
+    source_product_slug: source.slug,
+    target_product_name: target.name,
+    target_product_slug: target.slug,
+    mechanism_kind: null,
+    mechanism_name: row.mechanismName,
+    direction:
+      row.direction === 'both'
+        ? 'bidirectional'
+        : row.direction === 'a_to_b' || row.direction === 'b_to_a'
+          ? 'one-way'
+          : null,
+    description: row.description,
+    mechanism_rank: CONNECTOR_EVIDENCED_MECHANISM_RANK,
   };
 }
 

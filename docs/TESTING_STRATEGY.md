@@ -17,6 +17,30 @@ Priorities in order:
 
 ---
 
+## Crawler-visibility checks (AECI-746)
+
+Some defects are invisible to every browser-driven test by construction. AECI-746
+was one: `/products` and the taxonomy browse pages rendered correctly once
+JavaScript ran, and shipped an error document to anything that did not — which is
+every crawler on its first pass. A `page.goto()` test passed throughout.
+
+Two guards, and they are different in kind:
+
+| Guard | What it is | When it runs |
+|---|---|---|
+| `apps/web/e2e/ssr-listing-crawlability.spec.ts` | Playwright, using the **`request`** fixture (raw HTTP, no JavaScript) to assert product links exist in the server HTML | every e2e run |
+| `scripts/check-ssr-listings.sh <base-url>` | One-command `curl` check over five listing pages; exits non-zero on any dead end | manually, against a deployed env |
+
+**The e2e spec must keep using `request`, never `page`.** Rewriting it onto the
+`page` fixture would make it pass unconditionally and test nothing.
+
+**Neither guard is meaningful against local `wrangler dev`** for this particular
+failure: the relative `/api/...` URL resolves to `localhost` there and works, so
+local passes with and without the bug. Run the script against preview, staging, or
+production. This is a rare case where the local environment is not a faithful
+reproduction, and it is why the defect survived for months.
+
+
 ## 2. Test layer overview
 
 | Layer | Tool | Runs against | Speed | When |
@@ -439,7 +463,7 @@ test('user can search and find a product', async ({ page }) => {
 
 - The local/preview environment uses a fixed seed data set in D1
 - Tests assume seed data exists (Procore, Autodesk, etc.)
-- Seed data lives in `apps/api/seed/*.sql` and is applied to the local D1 via `pnpm db:seed:local` (`db:setup:local` migrates + seeds)
+- Seed data lives in `apps/api/seed/*.sql` and is applied to the local D1 via `pnpm db:seed:local` (`db:setup:local` migrates + seeds). The chain's **last step is not SQL**: `db:grant-admin:local` runs `apps/api/scripts/grant-local-admin.mjs`, which upserts a `role='admin'` profile for `LOCAL_ADMIN_USER_ID` from `apps/api/.dev.vars` so `/admin/*` is reachable in a local browser (AECI-765). Unset → it no-ops; it always exits 0 so it can never fail a seed run
 
 ### 7.6 Auth in tests
 
@@ -521,34 +545,68 @@ Run axe on:
   authorized `afterNextRender` reads resolve, so an axe run on the unauthenticated
   route would only ever audit the loading state. That spec is the one place with a
   real minted session; it waits for the stat tiles before analyzing.
-- `/vendor` — the **Integrations tab**, in `vendor-dashboard.spec.ts` (AECI-606), for the
-  same reason and with the same shape: the tab authorizes server-side via
+- `/admin/vendors` — the **admin vendor list**, in `authed-console.spec.ts`
+  (AECI-652), for the same reason as `/admin/traffic`: the rows do not exist until
+  the authorized `GET /api/admin/vendors` resolves, so the spec waits for a real
+  row before analyzing. The list rather than the detail page, deliberately — the
+  list is where the new layout primitives are (a search field, an Aria combobox
+  filter, a card list and the paginator), while the detail page's most complex
+  sub-tree is `EntitlementControl`, whose heading and live-region contract is
+  asserted structurally in its own component spec.
+- `/vendor/:vendorSlug/integrations` — the **Integrations section**, in
+  `vendor-dashboard.spec.ts` (AECI-606), for the
+  same reason and with the same shape: it authorizes server-side via
   `vendorMeResolver`, and its cards, claim lanes and Aria pickers do not exist
   until `GET /api/vendor/integrations` lands. That spec mints the
   `vendor_admin` persona and waits for the first integration card (or the empty
   state) before analyzing. It is the most interactive vendor-facing surface, so
   this is the run that covers the combobox/listbox wiring end to end — the unit
-  specs deliberately never open a CDK overlay (§4.3a).
+  specs deliberately never open a CDK overlay (§4.3a), **with one carve-out, below.**
+- `/preview/vendor-dashboard` — the **portal nav and its Products dropdown**, in
+  the new `preview-vendor-portal-nav.spec.ts`
+  (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.4). Two runs, **closed and open**, because a
+  new always-present nav dropdown is exactly the kind of change that invalidates a
+  prior pass, and an empty `role="listbox"` (`aria-required-children`) only exists
+  in the open state. It runs on the PREVIEW route deliberately: that surface mounts
+  the same shell and section routes with fixture data and **no session**, so unlike
+  `vendor-dashboard.spec.ts` it does not skip-green in CI — and its path contains no
+  `/vendor/` segment, so the zone WAF cannot 403 it. Open the panel with the
+  **keyboard**, not a click: a click moves the pointer over the host first, which on
+  a hover-opening neighbour toggles it back shut (`phase2-a11y.spec.ts` records the
+  same workaround).
+  - **The carve-out to "unit specs never open a CDK overlay":**
+    `vendor-products-menu.component.spec.ts` does, and can. Opening `AecSelect`
+    means going through Aria's own combobox toggle and its activedescendant commit,
+    which is jsdom-hostile; opening this one is a plain `<button>` click writing a
+    plain signal into `cdkConnectedOverlayOpen`, and under jsdom there is no Popover
+    API so CDK downgrades `usePopover` to the body-level `.cdk-overlay-container`
+    (query `document`, not the host, and sweep the container in `afterEach`). What
+    stays e2e-only is unchanged: Aria's ArrowDown → `aria-activedescendant` → Enter
+    commit, a real outside click, and real focus order out of the top layer.
   - **The live region is no longer part of that subtree** (AECI-631 /
     `STAGE_2_REALTIME_SPEC.md` §6.3). The portal has exactly ONE **persistent**
     polite live region, and it now lives in the dashboard SHELL — an `sr-only`
     `<p role="status">` fed by `VendorPortalAnnouncer`
     (`apps/web/src/app/vendor/vendor-announcer.ts`) — so it is present from first
-    paint on every tab, not just after the integrations read. It is declared
+    paint on every section, not just after the integrations read. It is declared
     **once per dashboard concept**:
-    `apps/web/src/app/vendor/vendor-dashboard-tabbed.ts:246` (Concept A, what
-    `/vendor` renders) and `apps/web/src/app/vendor/vendor-dashboard-single.ts:144`
+    `apps/web/src/app/vendor/vendor-dashboard-tabbed.ts` (Concept A, what the
+    portal renders) and `apps/web/src/app/vendor/vendor-dashboard-single.ts`
     (Concept B, preview-only — it composes the same integrations section, which
     announces through the channel and declares no region of its own, so without
     it every attestation write on Concept B is silent). Only one concept ever
     renders at a time, so they cannot race. Two consequences for this run: the
     axe pass must be **re-run after the hoist** (a region moving is exactly the
     kind of change that invalidates a prior pass), and any assertion about it
-    should be made on the shell rather than on the tab body.
+    should be made on the shell rather than on the section body. Since the
+    sections became child routes (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.2) the shell
+    is the layout route's component, so the region is the **same DOM node** across
+    a section navigation — `vendor-dashboard-tabbed.component.spec.ts` asserts
+    node identity, which is a stronger claim than "there is still exactly one".
     The section's loading/failure paragraphs and the integration card's pivot
     notice are deliberately **not** live regions — two regions on one page make
     announcements race — so a second **persistent** `[role="status"]` appearing
-    under `/vendor` is a regression, not an addition. `aria-busy` covers the
+    under the portal is a regression, not an addition. `aria-busy` covers the
     loading state.
   - **Assert on `[role="status"].sr-only`, not on `[role="status"]`.** The
     announcement channel is the only `sr-only` one; three *conditional*
@@ -724,7 +782,7 @@ Verify the site handles expected launch traffic:
 Verify:
 - p95 latency stays under SLO (2 seconds)
 - Error rate stays under 1%
-- Algolia, Supabase, Datadog all stay healthy
+- Algolia, Supabase, and the telemetry intake all stay healthy
 - Cache hit rate above 60% on cacheable pages
 
 ### 12.3 Run target
@@ -844,7 +902,7 @@ Defined in `vitest.config.ts` `coverage.exclude`.
 ### 17.3 When traffic scales
 
 - Continuous load testing in staging
-- Performance regression alerts in Datadog
+- Performance regression alerts (build them on PostHog — ADR 0024)
 - Real User Monitoring SLO breach alerts
 
 Not pursued in Stage 1.

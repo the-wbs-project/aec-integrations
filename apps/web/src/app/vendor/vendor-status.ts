@@ -1,64 +1,42 @@
-import { Injectable, effect, inject, signal } from '@angular/core';
-
-import { AccountApi } from '../account/account-api';
-import { SessionStatus } from '../auth/session-status';
-
 /**
  * App-wide "is the signed-in visitor a vendor admin?" hint, driving the header
- * user menu's "Vendor dashboard" link (AECI-522).
+ * account menu's "Vendor portal" link (AECI-522).
  *
- * Like `AdminStatus` / `SessionStatus`, this MUST stay neutral during SSR and
- * pre-hydration so the header's URL-keyed cached HTML is visitor-state-neutral:
- * `isVendor()` defaults to `false` and the vendor link only appears client-side
- * after the probe resolves. The probe is gated on `SessionStatus.signedIn()` —
- * itself the cache-neutral, browser-only auth flag — so it can never fire during
- * SSR and anonymous visitors never hit any account endpoint.
+ * The probe itself lives in `auth/role-status.ts`, not here — see `AdminStatus`
+ * for why. Before that extraction this class ran its own `GET /api/account` and,
+ * unlike the admin one, latched `probed = true` BEFORE awaiting while swallowing
+ * every error: a single 401 / JWKS blip hid "Vendor portal" for the entire life
+ * of the page, with no retry and no re-arm. Deriving from `RoleStatus` inherits
+ * the AECI-617 self-healing probe, the `ensureProbed()` menu-open retry, and the
+ * `sessionStorage` hint, and drops one redundant round trip per page load.
  *
- * Vendor detection rides the cheap "me" endpoint, not the vendor-gated one: a
- * single `GET /api/account` (open to any signed-in user) returns `role`, and
- * `role === 'vendor_admin'` is the whole signal — so a non-vendor never reaches
- * (and never 403s on) `/api/vendor/*`. The real gate is always server-side (the
- * `/vendor` SSR redirect + resolver, `requireVendor()` on `/api/vendor/*`).
+ * `isVendor()` is `false` during SSR / pre-hydration (see `RoleStatus`), so the
+ * vendor link never reaches the header's URL-keyed cached HTML. It is a UI hint
+ * only: the real gate is always server-side (the `/vendor` SSR redirect +
+ * resolver, `requireVendor()` on `/api/vendor/*`).
  *
  * `providedIn: 'root'` so the desktop header (`user-menu.ts`) and the mobile
  * overlay (`nav-menu.ts`) share one reconciled value.
  */
+import { Injectable, computed, inject } from '@angular/core';
+
+import { RoleStatus } from '../auth/role-status';
+
 @Injectable({ providedIn: 'root' })
 export class VendorStatus {
-  private readonly session = inject(SessionStatus);
-  private readonly accountApi = inject(AccountApi);
-
-  private readonly _isVendor = signal(false);
+  private readonly roleStatus = inject(RoleStatus);
 
   /**
    * Whether the signed-in visitor is a vendor admin. `false` during SSR / before
-   * the post-hydration probe resolves — a UI hint only; every real gate is
-   * server-side.
+   * the post-hydration probe resolves — a UI hint only.
    */
-  readonly isVendor = this._isVendor.asReadonly();
+  readonly isVendor = computed(() => this.roleStatus.role() === 'vendor_admin');
 
-  /** Probe at most once per client session. */
-  private probed = false;
-
-  constructor() {
-    // Browser-only by construction: the sole trigger is `signedIn()` flipping to
-    // true, which never happens during SSR (SessionStatus stays false there), so
-    // this effect fires no network and bakes no visitor state into cached HTML.
-    effect(() => {
-      if (this.session.signedIn() && !this.probed) {
-        this.probed = true;
-        void this.reconcile();
-      }
-    });
-  }
-
-  private async reconcile(): Promise<void> {
-    try {
-      const me = await this.accountApi.getProfile();
-      if (me.role === 'vendor_admin') this._isVendor.set(true);
-    } catch {
-      // Any probe failure → stay non-vendor; the menu still works, the link
-      // simply doesn't show.
-    }
+  /**
+   * Re-arm the shared account probe. Delegates to `RoleStatus`; see
+   * `AdminStatus.ensureProbed()`.
+   */
+  ensureProbed(): Promise<void> {
+    return this.roleStatus.ensureProbed();
   }
 }

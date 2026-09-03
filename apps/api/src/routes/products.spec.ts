@@ -15,6 +15,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   attestations,
   claims,
+  connectorEvidencedPairs,
   integrations,
   productAudiences,
   productCategories,
@@ -137,6 +138,35 @@ describe('GET /api/products', () => {
       await (await get(listApp(), '/api/products?sort=reviews')).json(),
     );
     expect(parsed.data.map((p) => p.slug)).toEqual(['many', 'few', 'none']);
+  });
+
+  // AECI-657 — STAGE_1_SPEC.md §4.5 asked for "most integrations" alongside
+  // alphabetical and most-reviewed; this was the one that had no implementation.
+  // Unlike `rating` there is no visibility gate: the count renders on every card
+  // (zero included), so the order always matches what the reader sees.
+  it('sorts by integration count desc (Most integrations), zero-count products last', async () => {
+    await seedProduct(u(1), 'few', 'Few', { integrationCount: 3 });
+    await seedProduct(u(2), 'many', 'Many', { integrationCount: 21 });
+    await seedProduct(u(3), 'none', 'None', { integrationCount: 0 });
+
+    const parsed = ProductsListResponseSchema.parse(
+      await (await get(listApp(), '/api/products?sort=integrations')).json(),
+    );
+    expect(parsed.data.map((p) => p.slug)).toEqual(['many', 'few', 'none']);
+  });
+
+  it('breaks integration-count ties on id, so paging cannot drop or duplicate a row', async () => {
+    // Three-way tie: without the AECI-99 `id ASC` tiebreaker the two pages below
+    // could overlap or skip a row, since D1 gives no stable order for equal keys.
+    for (const i of [1, 2, 3]) {
+      await seedProduct(u(i), `tied-${i}`, `Tied ${i}`, { integrationCount: 7 });
+    }
+    const page = async (n: number) =>
+      ProductsListResponseSchema.parse(
+        await (await get(listApp(), `/api/products?sort=integrations&perPage=2&page=${n}`)).json(),
+      ).data.map((p) => p.slug);
+
+    expect([...(await page(1)), ...(await page(2))]).toEqual(['tied-1', 'tied-2', 'tied-3']);
   });
 
   it('sorts by rating desc and ranks sub-5-review products last (Highest rated, §5.5 gate)', async () => {
@@ -398,6 +428,185 @@ describe('GET /api/products/:slug', () => {
     );
     expect(endpoint.integrations_as_source.map((i) => i.id)).toEqual([u(51)]);
     expect(endpoint.integrations_as_connector).toEqual([]);
+  });
+
+  it('unions connector-evidenced pairs into integrations_as_connector (AECI-721)', async () => {
+    await seedProduct(u(1), 'agave-erp-sync', 'Agave ERP Sync', { productRole: 'connector' });
+    await seedProduct(u(2), 'procore', 'Procore');
+    await seedProduct(u(3), 'sage-intacct', 'Sage Intacct');
+    // Still-in-`integrations` powered edge (the pre-migration shape)…
+    await t.db.insert(integrations).values({
+      id: u(51),
+      sourceProductId: u(2),
+      targetProductId: u(3),
+      mechanismKind: 'marketplace-app',
+      poweredByProductId: u(1),
+    });
+    // …and one that has already MOVED to the delivered tier's other table. Both
+    // must render in the same bucket: which table an edge lives in is a storage
+    // question the connector's hub has no stake in.
+    const [a, b] = [u(2), u(3)].sort();
+    await t.db.insert(connectorEvidencedPairs).values({
+      id: u(52),
+      connectorProductId: u(1),
+      productAId: a!,
+      productBId: b!,
+      direction: 'b_to_a',
+      mechanismName: 'Agave ERP Sync',
+    });
+
+    const connector = ProductDetailSchema.parse(
+      await (await get(detailApp(), '/api/products/agave-erp-sync')).json(),
+    );
+    expect(connector.integrations_as_connector.map((i) => i.id).sort()).toEqual(
+      [u(51), u(52)].sort(),
+    );
+
+    const evidenced = connector.integrations_as_connector.find((i) => i.id === u(52));
+    // `via` is the discriminant, and `mechanism_kind` is null BY CONSTRUCTION —
+    // `connector_evidenced_pairs` has no such column, so a synthesised kind here
+    // would be an invention.
+    expect(evidenced?.via?.slug).toBe('agave-erp-sync');
+    expect(evidenced?.mechanism_kind).toBeNull();
+    // `b_to_a` is the one direction that swaps the canonical endpoints back —
+    // exactly the information canonicalisation would otherwise discard.
+    expect(evidenced?.source.id).toBe(b);
+    expect(evidenced?.target.id).toBe(a);
+    expect(evidenced?.direction).toBe('one-way');
+
+    // The still-direct edge keeps `via: null`, so the two are distinguishable.
+    expect(connector.integrations_as_connector.find((i) => i.id === u(51))?.via).toBeNull();
+  });
+
+  it('unions connector-evidenced pairs into the ENDPOINT buckets, oriented (AECI-713)', async () => {
+    // The counterpart AECI-721 left out: it unioned the delivered tier into the
+    // CONNECTOR's bucket but not into either endpoint's, so every migrated edge
+    // vanished from both endpoints' Integrations tables while `integration_count`
+    // kept counting it. §13.5's invariant is "regardless of which table holds them".
+    await seedProduct(u(1), 'agave-erp-sync', 'Agave ERP Sync', { productRole: 'connector' });
+    await seedProduct(u(2), 'procore', 'Procore');
+    await seedProduct(u(3), 'sage-intacct', 'Sage Intacct');
+    const [a, b] = [u(2), u(3)].sort();
+    await t.db.insert(connectorEvidencedPairs).values({
+      id: u(52),
+      connectorProductId: u(1),
+      productAId: a!,
+      productBId: b!,
+      // `b_to_a`: the oriented source is B, so the row files into the SOURCE bucket
+      // of whichever product B is — not of A, which is what bucketing on the
+      // matched relation rather than on the orientation would have done.
+      direction: 'b_to_a',
+      mechanismName: 'Agave ERP Sync',
+    });
+
+    const bSlug = b === u(2) ? 'procore' : 'sage-intacct';
+    const aSlug = bSlug === 'procore' ? 'sage-intacct' : 'procore';
+
+    const fromB = ProductDetailSchema.parse(
+      await (await get(detailApp(), `/api/products/${bSlug}`)).json(),
+    );
+    expect(fromB.integrations_as_source.map((i) => i.id)).toEqual([u(52)]);
+    expect(fromB.integrations_as_target).toEqual([]);
+    const rowB = fromB.integrations_as_source[0];
+    expect(rowB?.via?.slug).toBe('agave-erp-sync');
+    expect(rowB?.mechanism_kind).toBeNull();
+    expect(rowB?.powered_by_product).toBeNull();
+    expect(rowB?.context_direction).toBe('outbound');
+
+    const fromA = ProductDetailSchema.parse(
+      await (await get(detailApp(), `/api/products/${aSlug}`)).json(),
+    );
+    expect(fromA.integrations_as_target.map((i) => i.id)).toEqual([u(52)]);
+    expect(fromA.integrations_as_source).toEqual([]);
+    expect(fromA.integrations_as_target[0]?.context_direction).toBe('inbound');
+  });
+
+  it('frames an evidenced pair’s CLAIM direction in the canonical A/B frame, not the oriented one (AECI-713)', async () => {
+    // The trap: `direction` and `claims.direction` are both A/B-relative, but the
+    // rendered row is oriented, and on `b_to_a` those two frames are mirrored. Read
+    // naively, a claim that flows A→B renders as outbound from A's page and
+    // outbound from B's — the same arrow twice, pointing opposite ways in fact.
+    await seedProduct(u(1), 'agave-erp-sync', 'Agave ERP Sync', { productRole: 'connector' });
+    await seedProduct(u(2), 'procore', 'Procore');
+    await seedProduct(u(3), 'sage-intacct', 'Sage Intacct');
+    const [a, b] = [u(2), u(3)].sort();
+    await t.db.insert(connectorEvidencedPairs).values({
+      id: u(52),
+      connectorProductId: u(1),
+      productAId: a!,
+      productBId: b!,
+      // Stored direction NULL, so the claim is the only signal — the §3.2 shape.
+      direction: 'b_to_a',
+    });
+    await t.db
+      .insert(taxonomyDataObjects)
+      .values({ id: u(71), slug: 'drawings', name: 'Drawings' });
+    await t.db.insert(claims).values({
+      id: u(81),
+      connectorEvidencedPairId: u(52),
+      dataObjectId: u(71),
+      direction: 'a_to_b', // flows A → B
+    });
+
+    const bSlug = b === u(2) ? 'procore' : 'sage-intacct';
+    const aSlug = bSlug === 'procore' ? 'sage-intacct' : 'procore';
+
+    // A is the origin of the flow, whichever way the row happens to be oriented.
+    const fromA = ProductDetailSchema.parse(
+      await (await get(detailApp(), `/api/products/${aSlug}`)).json(),
+    );
+    expect(fromA.integrations_as_target[0]?.context_direction).toBe('outbound');
+    const fromB = ProductDetailSchema.parse(
+      await (await get(detailApp(), `/api/products/${bSlug}`)).json(),
+    );
+    expect(fromB.integrations_as_source[0]?.context_direction).toBe('inbound');
+  });
+
+  it('hydrates powered_by_product on the endpoint embed (§13.4(1))', async () => {
+    // The split key for a row that has NOT moved. Convention A is the population
+    // that survives the migration: `powered_by` equal to one of the row's own
+    // endpoints, which §13.2(a) keeps in the DIRECT lane.
+    await seedProduct(u(1), 'aquifer', 'Aquifer', { productRole: 'connector' });
+    await seedProduct(u(2), 'adp-workforce-now', 'ADP Workforce Now');
+    await t.db.insert(integrations).values({
+      id: u(51),
+      sourceProductId: u(2),
+      targetProductId: u(1),
+      mechanismKind: 'iPaaS',
+      poweredByProductId: u(1),
+    });
+
+    const endpoint = ProductDetailSchema.parse(
+      await (await get(detailApp(), '/api/products/adp-workforce-now')).json(),
+    );
+    const row = endpoint.integrations_as_source[0];
+    expect(row?.powered_by_product?.slug).toBe('aquifer');
+    // Never both — `via` belongs to the other table (§13.4(1)).
+    expect(row?.via).toBeNull();
+  });
+
+  it('excludes a Convention-A self-referential edge from the powered bucket (§13.4(2))', async () => {
+    // Review-side Convention A stores "product X ships a connector on platform C"
+    // as ONE edge whose `powered_by` IS one of its own endpoints — 60 production
+    // rows (Aquifer 31, Kroo 29). Without this exclusion the edge hydrates into
+    // BOTH `integrations_as_target` and `integrations_as_connector` on C's own
+    // page and renders twice. AECI-706's backfill is what switched that on.
+    await seedProduct(u(1), 'aquifer', 'Aquifer', { productRole: 'connector' });
+    await seedProduct(u(2), 'adp-workforce-now', 'ADP Workforce Now');
+    await t.db.insert(integrations).values({
+      id: u(51),
+      sourceProductId: u(2),
+      targetProductId: u(1),
+      mechanismKind: 'iPaaS',
+      poweredByProductId: u(1), // the connector is also the TARGET
+    });
+
+    const connector = ProductDetailSchema.parse(
+      await (await get(detailApp(), '/api/products/aquifer')).json(),
+    );
+    // Rendered exactly once, in the endpoint lane where §13.2(a) keeps it.
+    expect(connector.integrations_as_target.map((i) => i.id)).toEqual([u(51)]);
+    expect(connector.integrations_as_connector).toEqual([]);
   });
 
   it('derives the table Direction from claims when the row direction is null (§3.2 — regression: table matched "–" while the pair page said "Syncs both ways")', async () => {

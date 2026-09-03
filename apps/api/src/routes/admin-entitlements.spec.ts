@@ -34,7 +34,7 @@ import {
   vendors,
   workflowInstances,
 } from '../db/schema';
-import { submitCount } from '../datadog';
+import { submitCount } from '../posthog';
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
 import { requireAdmin, type AuthzVariables } from '../lib/authz';
@@ -43,8 +43,9 @@ import { makeTestDb, type TestDb } from '../test/d1';
 import { fakeExecutionContext, TEST_ENV } from '../test/helpers';
 import { createSetVendorEntitlementHandler } from './admin-entitlements';
 
-vi.mock('../datadog', () => ({
-  logToDatadog: vi.fn(),
+vi.mock('../posthog', () => ({
+  logToPosthog: vi.fn(),
+  logBatchToPosthog: vi.fn(),
   submitCount: vi.fn(),
   submitDistribution: vi.fn(),
   submitGauge: vi.fn(),

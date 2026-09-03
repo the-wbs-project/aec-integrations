@@ -259,6 +259,15 @@ export class VendorAddClaimForm {
   private readonly store = inject(VendorPortalStore);
 
   readonly integrationId = input.required<string>();
+  /**
+   * WHICH of the caller's endpoints this form's `direction` is relative to
+   * (AECI-666) — the `context_product.id` of the listing this card renders. Sent
+   * as `context_product_id` so the server frames the write against the endpoint
+   * the vendor is authoring from, not its endpoint-A fallback. Load-bearing for a
+   * vendor that owns BOTH endpoints and authors from the endpoint-B product's tab:
+   * without it "outbound" is stored as the reverse flow.
+   */
+  readonly contextProductId = input.required<string>();
   readonly otherProductName = input.required<string>();
   readonly dataObjects = input.required<readonly DataObjectOption[]>();
   readonly versions = input.required<readonly ProductVersion[]>();
@@ -283,8 +292,31 @@ export class VendorAddClaimForm {
   protected readonly introducedVersionId = signal<string | null>(null);
   protected readonly deprecatedVersionId = signal<string | null>(null);
 
+  /**
+   * The picker is **alphabetical by label**, and it is the one place in the
+   * portal that re-sorts the vocabulary.
+   *
+   * `GET /api/vendor/data-objects` serves `display_order` — a project-lifecycle
+   * sequence (Models → Drawings → … → Directory & Contacts) chosen so the claim
+   * *lanes* on this tab read the way the public pair page's lanes do
+   * (`lib/data-object-vocabulary.ts`, `routes/vendor-attestations.ts`). That
+   * order stays exactly as it is on the wire and in the lanes; only this control
+   * diverges, because the two lists do different jobs. A lane list is read — the
+   * lifecycle grouping is the point. A picker is *searched*: the vendor already
+   * knows they want "Submittals", and `AecSelect` is a non-editable combobox
+   * with no type-to-filter, so an unfamiliar semantic order makes finding a
+   * known label a 20-item linear scan with no anchor.
+   *
+   * Sorted here rather than in SQL on purpose. The key is the **display name in
+   * the active locale**, so it must follow the rendered label through
+   * `localeCompare`; SQLite would order by ASCII bytes against the en-US names.
+   * The in-place `sort` is safe — it runs on the array `map` just produced, not
+   * on the `dataObjects()` input.
+   */
   protected readonly dataObjectOptions = computed<readonly AecSelectOption[]>(() =>
-    this.dataObjects().map((term) => ({ value: term.slug, label: term.name })),
+    this.dataObjects()
+      .map((term) => ({ value: term.slug, label: term.name }))
+      .sort((a, b) => a.label.localeCompare(b.label)),
   );
 
   protected readonly directionOptions = computed(() =>
@@ -376,6 +408,7 @@ export class VendorAddClaimForm {
   private draft(): unknown {
     return {
       integration_id: this.integrationId(),
+      context_product_id: this.contextProductId(),
       data_object: this.dataObjectSlug() ?? '',
       direction: this.direction() ?? '',
       note: this.note().trim() || null,

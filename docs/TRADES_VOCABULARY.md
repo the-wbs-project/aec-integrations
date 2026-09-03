@@ -121,6 +121,19 @@ one the original three facets carry:
   model instead (`docs/DATA_OBJECT_VOCABULARY.md` §2), because a curator minting
   `paving-contractors` alongside `paving-asphalt` would silently split a trade page's products
   across two permanent URLs and quietly destroy the SEO asset the facet exists to build.
+- **Vendors assign trades; they never mint one (AECI-665).** The vendor portal's product editor
+  (`PATCH /api/vendor/products/:id`) offers the full closed list as toggle chips, so a claimed
+  vendor tags their own product's trades directly — uniformly with the other three facets, with
+  no stricter cap. Resolution stays find-only: an unknown slug is a `VALIDATION_FAILED` keyed to
+  `trade_slugs`, not a silent drop and not a new term. The **closed-vocabulary** guarantee above
+  is therefore untouched by self-serve; what changes is only *who decides which existing terms
+  apply*, and that decision now sits with the vendor. This is intentional — the §1.1 rule is a
+  judgement about the product, and its owner is better placed to make it than a researcher. The
+  matching risk is that a vendor over-answers it; the accepted mitigation is the audit trail plus
+  a **deferred** "challenge recently-changed trades" review workflow, not a cap
+  (`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.3). Note the asymmetry this creates with §6: a vendor tag
+  can push a term across the publication floor, so a vendor edit purges `index:trades`,
+  `taxonomy`, and `sitemap` exactly as a promote does.
 - **Adding, removing, or renaming a term is a deliberate vocabulary change.** The change process is
   **manual and four-step**, and all four must land together or the two apps drift:
   1. Edit the §5 table in this file (the human-canonical source).
@@ -318,7 +331,7 @@ floor.
 | `/trades` index — *the page itself* | Always in the sitemap, always indexable — the floor gates terms, not the navigational page that lists them (AECI-546); see below |
 | `/trades/:slug` page | 200, indexable | 200, `noindex` |
 | XML sitemap | Included | **Excluded** |
-| IndexNow / Google Indexing ping on `POST /api/promote` | Submitted | **Not submitted** (AECI-546) |
+| IndexNow ping on `POST /api/promote` | Submitted | **Not submitted** (AECI-546) |
 | Primary-nav flyout (`TaxonomyNavStore.tradesTop10`) | Offered | **Hidden** |
 | Facet sidebar (`aec-facet-sidebar`) | Offered as a filter | **Also offered** — the floor does NOT apply; see below |
 | Product-detail trade chips | Rendered + linked | Rendered + linked (the tag is true; the *page* is just not promoted) |
@@ -341,7 +354,7 @@ depend on the catalog rather than on the page. It is therefore listed unconditio
 and never `noindex`, exactly like `/categories`, `/audiences`, and `/phases`.
 
 **Why the indexing pings follow the floor.** `POST /api/promote` submits affected URLs to IndexNow
-and the Google Indexing API (§20.2). Pinging an indexing service for a page that serves `noindex` is
+(§20.2; the Google Indexing ping was removed in AECI-747). Pinging an indexing service for a page that serves `noindex` is
 the same correctness bug the "provision `INDEXNOW_KEY` only at launch" rule exists to prevent, so
 only published terms are submitted. The `/trades` **index** is submitted whenever any trade is
 touched at all — published or not — because it renders live per-term counts and gains or loses a
@@ -385,7 +398,7 @@ consumers, and where each applies the floor:
 | Primary-nav flyout | `apps/web/src/app/core/taxonomy/taxonomy-nav.store.ts` (AECI-544) |
 | XML sitemap | `apps/web/src/server/sitemap.ts` (AECI-546) |
 | `<meta name="robots">` on a term page | `apps/web/src/app/taxonomy/taxonomy-browse.resolver.ts` → `applyBrowseMeta` (AECI-546) |
-| IndexNow / Google Indexing submit set | `apps/api/src/routes/promote-trade-publication.ts` → `apps/api/src/routes/promote-indexnow-urls.ts` (AECI-546) |
+| IndexNow submit set | `apps/api/src/routes/promote-trade-publication.ts` → `apps/api/src/routes/promote-indexnow-urls.ts` (AECI-546) |
 | Admin panel — catalog coverage | `apps/api/src/lib/admin-catalog.ts` → `taxonomyUsage()` (AECI-579). Reports **published vs thin per term** so an operator can see which trade pages currently clear the floor. It is the one consumer that neither hides nor filters a sub-floor term — the whole point is to show what is still thin. It also surfaces the untagged-product count with a `trade_facet_sparse_by_design` caveat, because §1.1 makes "untagged" the correct state for most of the catalog rather than a backlog. |
 
 The API-side consumer is the only one that must *read* the floor rather than filter data it already
@@ -454,7 +467,7 @@ does not belong in this vocabulary (§5.2).
 - **`display_order`** carried through verbatim (10, 20, … 340).
 - **`description` is seeded non-null** for every term (§5) — the column is `not null`.
 - The seed writes **`taxonomy_trades` only**, never `product_trades` (those links come from the
-  promote flow — AECI-542).
+  promote flow — AECI-542 — or from a vendor's own edit in the portal — AECI-665, §3).
 - **Application** is uniform across environments (ADR 0008): locally via
   `pnpm --filter @aeci/api db:seed:trades:local` (folded into `db:seed:local` / `db:setup:local`),
   and per-env via the `--remote` step in `scripts/d1-apply-migrations.sh`, which every deploy lane

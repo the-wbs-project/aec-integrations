@@ -74,12 +74,11 @@ describe('SiteHeader auth affordance', () => {
   });
 
   /**
-   * The row is width-budgeted (DESIGN.md §Navigation): four taxonomy flyouts
-   * plus the overflow menu is what fits at `lg`. Pin the item set and its order
-   * so a new top-level entry can't slip in without the re-measure that rule
-   * requires — and so Updates stays where it moved to, inside "More".
+   * The row is width-budgeted (DESIGN.md §Navigation): two links plus four
+   * taxonomy flyouts is what fits at `lg`. Pin the item set and its order so a
+   * new top-level entry can't slip in without the re-measure that rule requires.
    */
-  it('renders exactly the six primary destinations plus the More overflow menu', () => {
+  it('renders exactly the six primary destinations and nothing else', () => {
     const el = render().nativeElement as HTMLElement;
     const nav = el.querySelector('nav[aria-label="Primary"]')!;
 
@@ -88,20 +87,57 @@ describe('SiteHeader auth affordance', () => {
         ? child.textContent?.trim()
         : (child.querySelector('a, button')?.textContent?.trim() ?? child.tagName.toLowerCase()),
     );
-    expect(topLevel).toEqual([
-      'Home',
-      'Products',
-      'Categories',
-      'Trades',
-      'Audiences',
-      'Phases',
-      'More',
-    ]);
+    expect(topLevel).toEqual(['Home', 'Products', 'Categories', 'Trades', 'Audiences', 'Phases']);
+  });
 
-    expect(nav.querySelector('aec-nav-more-trigger')).not.toBeNull();
-    // Updates is no longer a top-level link — it lives inside the More panel,
-    // which renders server-side (hidden, not unmounted) so it stays crawlable.
-    expect(nav.querySelector(':scope > a[href="/updates"]')).toBeNull();
-    expect(nav.querySelector('aec-nav-more-trigger a[href="/updates"]')).not.toBeNull();
+  /**
+   * The row is public-only: secondary destinations live in the footer and the
+   * portal doors live in the account menu. Nothing role-gated may render here,
+   * because the header is server-rendered into URL-keyed cached HTML — an
+   * `/admin` href in the row would leak to the next visitor of that URL.
+   */
+  it('keeps secondary and role-gated destinations out of the row', () => {
+    const el = render().nativeElement as HTMLElement;
+    const nav = el.querySelector('nav[aria-label="Primary"]')!;
+
+    for (const href of ['/updates', '/roadmap', '/about', '/contact']) {
+      expect(nav.querySelector(`a[href="${href}"]`), href).toBeNull();
+    }
+    expect(el.querySelectorAll('a[href^="/admin"]').length).toBe(0);
+    expect(el.querySelectorAll('a[href^="/vendor"]').length).toBe(0);
+  });
+
+  /**
+   * Search mounts three times at three widths (hamburger / icon / inline box).
+   * The header owns two of them, and their visibility classes are complementary
+   * by construction: the icon is `lg:block xl:hidden`, the box is `xl:block`.
+   * If either drifts, one width band renders two search inputs or none — the
+   * second being the bug this trigger was added to fix (1024–1279 was bare).
+   */
+  it('mounts both the compact search trigger and the inline box, on complementary bands', () => {
+    const el = render().nativeElement as HTMLElement;
+
+    const compact = el.querySelector('aec-search-trigger')!;
+    expect(compact).not.toBeNull();
+    const compactClasses = compact.className.split(/\s+/);
+    expect(compactClasses).toContain('lg:block');
+    expect(compactClasses).toContain('xl:hidden');
+
+    const inline = el.querySelector('aec-search-autocomplete')!;
+    const inlineClasses = inline.className.split(/\s+/);
+    expect(inlineClasses).toContain('hidden');
+    expect(inlineClasses).toContain('xl:block');
+  });
+
+  /**
+   * The `<label for>` in each `aec-search-autocomplete` is only correct while the
+   * ids are unique. The inline box is the header's own; `header-search-compact`
+   * lives in the trigger's overlay and `mobile-search` in the hamburger's, both
+   * unmounted until opened — so the only id in the SSR'd header must be this one.
+   */
+  it('renders exactly one search input server-side, with the inline id', () => {
+    const el = render().nativeElement as HTMLElement;
+    const inputs = Array.from(el.querySelectorAll('input[type="search"]'));
+    expect(inputs.map((i) => i.id)).toEqual(['header-search']);
   });
 });

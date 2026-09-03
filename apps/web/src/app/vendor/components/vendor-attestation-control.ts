@@ -250,6 +250,12 @@ export class VendorAttestationControl {
   private readonly store = inject(VendorPortalStore);
 
   readonly claim = input.required<VendorClaim>();
+  /** The `context_product.id` of the listing this control belongs to (AECI-666).
+   *  Sent as `context_product_id` so the echoed claim comes back framed against
+   *  the endpoint the vendor acted from, matching the tab it was authored in
+   *  rather than the server's endpoint-A fallback. Frames the echo only — a PUT
+   *  stores no direction. */
+  readonly contextProductId = input.required<string>();
   /** Release labels for the caller's OWN endpoint product. Never the
    *  counterpart's — a foreign version id is a 400 by design (§8.2). */
   readonly versions = input.required<readonly ProductVersion[]>();
@@ -445,7 +451,11 @@ export class VendorAttestationControl {
     const position = this.position(asserted);
     const mutation = this.patchOwnRows(this.ownRows(position));
     try {
-      const res = await this.api.upsertAttestation(this.claim().id, position);
+      const res = await this.api.upsertAttestation(
+        this.claim().id,
+        position,
+        this.contextProductId(),
+      );
       // The echo carries the recomputed `agreement`, so it is the truth for the
       // whole claim, not just for our rows.
       mutation.reconcile((list) => withClaim(list, res.claim));

@@ -1,5 +1,4 @@
 import { Component, computed, inject } from '@angular/core';
-import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 
 import type { ProductsListResponse } from '@aeci/shared';
@@ -7,14 +6,17 @@ import type { ProductsListResponse } from '@aeci/shared';
 import { canonicalUrl } from '../core/canonical';
 import { BrowseLayout } from '../layouts/browse-layout';
 import { FacetSidebar } from '../shared/facets/facet-sidebar';
+import { ListingToolbar } from '../shared/listing-toolbar/listing-toolbar';
+import { createListingView } from '../shared/listing-toolbar/listing-view';
+import { productSortOptions } from '../shared/listing-toolbar/product-sort-options';
 import { MailingListSignup } from '../shared/mailing-list-signup/mailing-list-signup';
 import { createPaginatedIndex } from '../shared/paginated-index/paginated-index-controller';
+
+import { PRODUCTS_INDEX_REQUEST } from './products-index.config';
 import { PaginationFooter } from '../shared/pagination/pagination-footer';
 
 import { ProductCard } from './product-card';
 import { ProductCardGrid } from './product-card-grid';
-
-type ViewKey = 'cards' | 'table';
 
 /**
  * Phase 2.12 (AECI-58) product index. Composes two features:
@@ -28,11 +30,17 @@ type ViewKey = 'cards' | 'table';
  * - AECI-190 — inside the `grid` slot, the catalog renders in one of two views,
  *   a buyer-facing card grid (default) or a dense table, switched by a toolbar
  *   toggle, with sort moved from clickable column headers to a `<select>`.
+ *   AECI-657 lifted that toolbar out to `aec-listing-toolbar` + the shared
+ *   `createListingView` / `productSortOptions` pair, because the taxonomy browse
+ *   pages needed the same control and had shipped without one (STAGE_1_SPEC.md
+ *   §4.5). This page's behaviour is unchanged by the move; the sort list gained
+ *   "Most integrations", the third option §4.5 named.
  *
  * The fetch/sort/pagination/error pipeline lives in the shared
  * `createPaginatedIndex` controller (AECI-107), here in **append mode**: the
  * catalog is an infinite-scroll list (`aec-pagination-footer`) that accumulates
- * pages as the reader nears the end. Page 1 still SSRs + edge-caches; later pages
+ * pages as the reader nears the end. Page 1 SSRs (via `productsIndexResolver`)
+ * and edge-caches; later pages
  * append client-side and the page number is driven internally, so it never
  * enters the URL. `?sort=` and the facet params stay URL-owned (cache-safe,
  * shareable, SSR-correct); `?view=` is owned here. Every navigation merges, so
@@ -43,9 +51,10 @@ type ViewKey = 'cards' | 'table';
  * hard-clamped at 100 server-side.
  *
  * SSR: cached 5 min at the edge with `Cache-Tag: route:index, index:products`
- * (set by the SSR Worker via `cacheTagInputsForPath`); `withHttpTransferCache`
- * serializes the `/api/products` + `/api/products/facets` responses so the
- * client doesn't re-fetch on hydration. `<link rel="canonical">` stays on the
+ * (set by the SSR Worker via `cacheTagInputsForPath`). Page 1 is prefetched by
+ * `productsIndexResolver` through the service binding and handed to the grid via
+ * `TransferState` (AECI-746) — until that shipped, this route server-rendered its
+ * "Couldn't load products" branch to every crawler. `<link rel="canonical">` stays on the
  * unfiltered `/products` (filters/view are query params, stripped by the meta
  * layer — §20.6). The card grid's "broken-grid" featured lead is gated to page 1
  * at the newest sort (`showFeatured`) so its "Recently added" claim stays
@@ -57,6 +66,7 @@ type ViewKey = 'cards' | 'table';
     RouterLink,
     BrowseLayout,
     FacetSidebar,
+    ListingToolbar,
     ProductCard,
     ProductCardGrid,
     PaginationFooter,
@@ -105,100 +115,13 @@ type ViewKey = 'cards' | 'table';
       <aec-facet-sidebar slot="filters" [resetsPage]="false" />
 
       <div slot="grid" class="space-y-6">
-        <div class="flex flex-wrap items-center justify-between gap-3">
-          <div class="inline-flex items-center gap-2">
-            <label
-              for="aec-products-sort"
-              class="text-sm text-(--text-secondary)"
-              i18n="@@products.index.sort.label"
-              >Sort</label
-            >
-            <div class="relative">
-              <select
-                id="aec-products-sort"
-                class="appearance-none rounded-(--radius-md) border border-(--border-default)
-                  bg-(--surface-base) py-1.5 pe-9 ps-3 text-sm text-(--text-primary)
-                  focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-                (change)="onSortChange($event)"
-              >
-                @for (o of sortOptions; track o.value) {
-                  <option [value]="o.value" [selected]="o.value === idx.sort()">
-                    {{ o.label }}
-                  </option>
-                }
-              </select>
-              <svg
-                class="pointer-events-none absolute end-3 top-1/2 h-4 w-4 -translate-y-1/2 text-(--text-secondary)"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                aria-hidden="true"
-              >
-                <path d="m6 9 6 6 6-6" />
-              </svg>
-            </div>
-          </div>
-
-          <div
-            role="group"
-            class="inline-flex gap-1 rounded-(--radius-md) border border-(--border-default)
-              bg-(--surface-raised) p-1"
-            i18n-aria-label="@@products.index.view.aria"
-            aria-label="Choose a view"
-          >
-            <button
-              type="button"
-              [class]="viewBtnClass('cards')"
-              [attr.aria-pressed]="view() === 'cards'"
-              (click)="setView('cards')"
-            >
-              <svg
-                class="h-4 w-4"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                aria-hidden="true"
-              >
-                <rect width="7" height="7" x="3" y="3" rx="1" />
-                <rect width="7" height="7" x="14" y="3" rx="1" />
-                <rect width="7" height="7" x="14" y="14" rx="1" />
-                <rect width="7" height="7" x="3" y="14" rx="1" />
-              </svg>
-              <span i18n="@@products.index.view.cards">Cards</span>
-            </button>
-            <button
-              type="button"
-              [class]="viewBtnClass('table')"
-              [attr.aria-pressed]="view() === 'table'"
-              (click)="setView('table')"
-            >
-              <svg
-                class="h-4 w-4"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                aria-hidden="true"
-              >
-                <line x1="8" x2="21" y1="6" y2="6" />
-                <line x1="8" x2="21" y1="12" y2="12" />
-                <line x1="8" x2="21" y1="18" y2="18" />
-                <line x1="3" x2="3.01" y1="6" y2="6" />
-                <line x1="3" x2="3.01" y1="12" y2="12" />
-                <line x1="3" x2="3.01" y1="18" y2="18" />
-              </svg>
-              <span i18n="@@products.index.view.table">Table</span>
-            </button>
-          </div>
-        </div>
+        <aec-listing-toolbar
+          [sortOptions]="sortOptions"
+          [sort]="idx.sort()"
+          [view]="listingView.view()"
+          (sortChange)="idx.onSortChange($event)"
+          (viewChange)="listingView.set($event)"
+        />
 
         <!-- Append mode: dim only while a filter/sort RESET refetches (page 1),
              keeping the current results on screen (no blank flash). Loading MORE
@@ -211,7 +134,7 @@ type ViewKey = 'cards' | 'table';
           [attr.aria-busy]="idx.reloading() ? 'true' : null"
         >
           @if (idx.items().length > 0) {
-            @switch (view()) {
+            @switch (listingView.view()) {
               @case ('table') {
                 <div class="overflow-x-auto">
                   <table
@@ -312,19 +235,14 @@ export class ProductsIndex {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
 
-  private readonly queryParamMap = toSignal(this.route.queryParamMap, { requireSync: true });
+  /** `?view=` ownership — shared with the taxonomy browse pages (AECI-657). */
+  protected readonly listingView = createListingView();
 
   protected readonly idx = createPaginatedIndex<ProductsListResponse>({
-    apiPath: '/api/products',
-    validSorts: new Set(['created', 'name', 'updated', 'rating', 'reviews']),
-    defaultSort: 'created',
-    // Accumulate pages for the scroll-based listing UX (page 1 still SSRs +
-    // edge-caches; pages 2..N append client-side). See createPaginatedIndex.
+    ...PRODUCTS_INDEX_REQUEST,
+    // Accumulate pages for the scroll-based listing UX (page 1 SSRs via
+    // `productsIndexResolver` + edge-caches; pages 2..N append client-side).
     mode: 'append',
-    // AECI-143 / AECI-544 — taxonomy cross-filters set by the facet sidebar
-    // ride the URL. Must stay in step with `DIMENSIONS` in `facet-sidebar.ts`
-    // and `LISTING_CACHE_KEY_PARAMS` in `server-runtime.ts`.
-    passthroughParams: ['category_id', 'audience_id', 'phase_id', 'trade_id'],
     meta: {
       entity: 'index',
       name: $localize`:@@products.index.metaName:Products`,
@@ -333,17 +251,7 @@ export class ProductsIndex {
     },
   });
 
-  protected readonly sortOptions = [
-    { value: 'created', label: $localize`:@@products.index.sort.newest:Newest` },
-    { value: 'name', label: $localize`:@@products.index.sort.name:Name (A–Z)` },
-    { value: 'updated', label: $localize`:@@products.index.sort.updated:Recently updated` },
-    { value: 'rating', label: $localize`:@@products.index.sort.rating:Highest rated` },
-    { value: 'reviews', label: $localize`:@@products.index.sort.reviews:Most reviewed` },
-  ];
-
-  protected readonly view = computed<ViewKey>(() =>
-    this.queryParamMap().get('view') === 'table' ? 'table' : 'cards',
-  );
+  protected readonly sortOptions = productSortOptions();
 
   /** Featured lead only when truthful: the buffer starts at page 1 at the newest sort. */
   protected readonly showFeatured = computed(
@@ -360,24 +268,4 @@ export class ProductsIndex {
     });
     return this.router.serializeUrl(tree);
   });
-
-  protected setView(value: ViewKey): void {
-    void this.router.navigate([], {
-      relativeTo: this.route,
-      queryParams: { view: value },
-      queryParamsHandling: 'merge',
-    });
-  }
-
-  protected onSortChange(event: Event): void {
-    this.idx.onSortChange((event.target as HTMLSelectElement).value);
-  }
-
-  protected viewBtnClass(value: ViewKey): string {
-    const base =
-      'inline-flex items-center gap-1.5 rounded-(--radius-sm) px-3 py-1.5 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
-    return this.view() === value
-      ? `${base} bg-(--accent-primary) text-(--surface-base)`
-      : `${base} text-(--text-secondary) hover:text-(--text-primary)`;
-  }
 }

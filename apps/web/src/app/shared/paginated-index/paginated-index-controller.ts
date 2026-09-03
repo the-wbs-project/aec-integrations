@@ -7,6 +7,13 @@ import type { PaginatedResponse } from '@aeci/shared';
 
 import { MetaService, type SetEntityMetaInput } from '../../core/meta.service';
 
+import {
+  DEFAULT_PER_PAGE,
+  type PaginatedIndexRequestConfig,
+  buildIndexParams,
+  parseIndexPage,
+} from './paginated-index-request';
+
 /**
  * Shared mechanism behind the product / vendor / integration index pages
  * (AECI-107). Before this, the three index components each carried a byte-
@@ -37,41 +44,19 @@ import { MetaService, type SetEntityMetaInput } from '../../core/meta.service';
  * `pending` signal reflects the in-flight state. `data()` falls back to `null`
  * only on the first load (nothing retained yet) or when the fetch errors.
  *
- * SSR transfer cache: `httpResource()` issues a plain GET via `HttpClient`, so
- * the response is captured in the SSR→client HTTP transfer cache
- * (`withHttpTransferCacheOptions` in `app.config.ts`), keyed by URL + params.
- * Emitting the params in a stable order keeps that key byte-identical between
- * server and client so the client doesn't re-fetch on hydration. (Note: the
- * `id` SSR-cache option is a `resource()` / `rxResource()` feature, not a
- * `httpResource()` one — `httpResource()` relies on the HTTP transfer cache
- * above, which is the mechanism the index pages already used.)
+ * SSR (AECI-746 — this paragraph used to describe something that never happened).
+ * A relative `/api/...` URL does not fetch during SSR on the edge, so for months
+ * these pages server-rendered their ERROR branch to every crawler. The data now
+ * arrives by prefetch instead: `createPaginatedIndexResolver` fetches page 1
+ * through the service binding during route resolution and parks it in
+ * `TransferState`, and `serverApiInterceptor` answers the `httpResource` request
+ * from there — on the server, and again on the client so hydration does not
+ * refetch. `buildIndexParams()` / `indexRequestLine()` in
+ * `paginated-index-request.ts` are the single definition of the request line the
+ * two sides agree on; the stable param order is load-bearing for that match.
+ * Angular's own HTTP transfer cache is NOT the mechanism here.
  */
-export interface PaginatedIndexConfig {
-  /** Service-binding-proxied list endpoint, e.g. `/api/products`. */
-  apiPath: string;
-  /** Sort keys this page accepts; an unknown `?sort=` falls back to `defaultSort`. */
-  validSorts: ReadonlySet<string>;
-  /** Default sort key (products/vendors: `created`; integrations: `name`). */
-  defaultSort: string;
-  /** Page size sent to the API. Defaults to 24 (Phase 2 Spec section 7.1). */
-  perPage?: number;
-  /**
-   * Extra query-param keys forwarded from the URL to the API request when
-   * present (e.g. integrations' `sourceProductId` / `targetProductId`). Also
-   * surfaced via `params()` for the page to drive filter UI state.
-   */
-  passthroughParams?: readonly string[];
-  /**
-   * Fixed, non-URL filter params merged into every request ahead of the URL
-   * passthroughs (AECI-143). Read inside the `httpResource` computation so the
-   * fetch re-runs if the returned values change. Powers the taxonomy browse
-   * grid: the page locks its own dimension (`{kind}_id=<term.id>`) here while
-   * cross-filters ride the URL via `passthroughParams`. `/products` passes none.
-   * Keys with an `undefined` value are skipped. The function MUST return a
-   * stable key order so the SSR transfer-cache key stays byte-identical across
-   * server and client.
-   */
-  baseParams?: () => Record<string, string | undefined>;
+export interface PaginatedIndexConfig extends PaginatedIndexRequestConfig {
   /**
    * Gate for the fetch (AECI-143). When provided and it returns `false`, the
    * `httpResource` request function returns `undefined` so no request fires and
@@ -169,11 +154,10 @@ export interface PaginatedIndex<TResponse extends PaginatedResponse<unknown>> {
   setError(err: unknown): void;
 }
 
-const DEFAULT_PER_PAGE = 24;
+export type { PaginatedIndexRequestConfig } from './paginated-index-request';
 
 function parsePage(raw: string | null): number {
-  const parsed = raw === null ? 1 : Number.parseInt(raw, 10);
-  return Number.isFinite(parsed) && parsed >= 1 ? parsed : 1;
+  return parseIndexPage(raw);
 }
 
 export function createPaginatedIndex<TResponse extends PaginatedResponse<unknown>>(
@@ -236,29 +220,14 @@ export function createPaginatedIndex<TResponse extends PaginatedResponse<unknown
   // transfer-cache key stays byte-identical across server and client.
   const resource = httpResource<TResponse>(() => {
     if (config.enabled && !config.enabled()) return undefined;
-    const qp = queryParamMap();
-    const params: Record<string, string | number> = {
-      // Append mode advances via the internal `targetPage` signal (URL stays
-      // clean); replace mode reads the page straight from `?page=`.
-      page: mode === 'append' ? targetPage() : parsePage(qp.get('page')),
-      perPage,
-      sort: parseSort(qp.get('sort')),
+    return {
+      url: config.apiPath,
+      params: buildIndexParams(config, queryParamMap(), {
+        // Append mode advances via the internal `targetPage` signal (URL stays
+        // clean); replace mode reads the page straight from `?page=`.
+        page: mode === 'append' ? targetPage() : parsePage(queryParamMap().get('page')),
+      }),
     };
-    // Fixed (non-URL) base params first — e.g. the browse page's locked
-    // `{kind}_id` — then the URL passthrough cross-filters. Stable key order
-    // keeps the SSR transfer-cache key byte-identical across server + client.
-    const base = config.baseParams?.();
-    if (base) {
-      for (const key of Object.keys(base)) {
-        const value = base[key];
-        if (value !== undefined) params[key] = value;
-      }
-    }
-    for (const key of passthroughParams) {
-      const value = qp.get(key);
-      if (value) params[key] = value;
-    }
-    return { url: config.apiPath, params };
   });
 
   // Out-of-band error pushed by `setError()`. A `linkedSignal` keyed on the

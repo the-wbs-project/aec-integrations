@@ -15,7 +15,7 @@ import { PromotePayloadSchema, type PromotePayload, type PromoteResponse } from 
 import { NonRetryableError } from 'cloudflare:workflows';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { auditLog, products, promoteJobs, vendors } from '../db/schema';
+import { auditLog, connectorCatalogs, products, promoteJobs, vendors } from '../db/schema';
 import type { Env } from '../env';
 import { ApiError } from '../errors';
 import { promotePayloadKey, promoteResultKey } from '../lib/promote-jobs';
@@ -122,7 +122,6 @@ function deps(overrides: PromoteWorkflowDeps = {}): PromoteWorkflowDeps {
     dbFor: t.factory,
     syncAlgolia: async () => {},
     notifyIndexNow: async () => {},
-    notifyGoogleIndexing: async () => {},
     refreshHomeStats: async () => {},
     ...overrides,
   };
@@ -143,7 +142,15 @@ function run(
     } as PromoteWorkflowParams,
     instanceId: JOB_ID,
   };
-  return { promise: runPromoteWorkflow(env, ctx, event, step.step, deps(overrides)), ctx, step };
+  // AECI-714 widened the run's return to the two-arm union. Every case in this
+  // file drives the PRODUCT arm, so narrow once here rather than at each assertion —
+  // and throw rather than cast, so a case that accidentally routes to the connector
+  // arm fails loudly instead of reading `undefined` off the wrong shape.
+  const promise = runPromoteWorkflow(env, ctx, event, step.step, deps(overrides)).then((result) => {
+    if ('kind' in result) throw new Error('expected a product-arm result');
+    return result;
+  });
+  return { promise, ctx, step };
 }
 
 describe('runPromoteWorkflow', () => {
@@ -205,7 +212,7 @@ describe('runPromoteWorkflow', () => {
     // The bookmark is only knowable after the commit, so the run fills the ctx holder in
     // before dispatching — otherwise the hooks' re-reads could hit a lagging replica.
     expect(rc.bookmark()).toBe(result.bookmark);
-    // Datadog `hostname` continuity: the synthetic request carries the kick-off's origin.
+    // Log `host` continuity: the synthetic request carries the kick-off's origin.
     expect(rc.request.url).toBe(SOURCE_URL);
   });
 
@@ -299,7 +306,7 @@ describe('runPromoteWorkflow', () => {
     // staged-load failure is the only thing that runs before the throw on this path, so a
     // waitUntil dispatch proves the `errored` outcome telemetry fired rather than the error
     // escaping the run silently — the gap the emit-then-rethrow guard closes.
-    env.DD_API_KEY = 'dd-test-key';
+    env.POSTHOG_PROJECT_KEY = 'phc_test_token';
     kv.store.set(promotePayloadKey(JOB_ID), '{ not json');
     const { promise, ctx } = run({ payload: undefined, payloadRef: 'kv' });
 
@@ -350,5 +357,207 @@ describe('runPromoteWorkflow', () => {
     // Both metrics dispatch fire-and-forget, so the only observable at this level is that
     // the transport was handed work (the tag payloads are asserted by the datadog spec).
     expect(ctx.waitUntil).toHaveBeenCalled();
+  });
+});
+
+/**
+ * The connector arm (AECI-714). One Workflow class, two params shapes.
+ *
+ * The case that matters most is the LAST one: `kind` is optional and its absence must
+ * keep meaning "product", because instances created before this issue and still inside
+ * their 30-day retention window carry no `kind` at all. Making that field required
+ * would silently mis-route every one of them on replay.
+ */
+describe('runPromoteWorkflow — connector arm (AECI-714)', () => {
+  const CONNECTOR_ID = '11111111-1111-4111-8111-111111111111';
+  const STAMPS = {
+    firstSeenAt: '2026-08-27T06:10:37.867Z',
+    lastSeenAt: '2026-08-27T06:11:54.977Z',
+  };
+
+  function connectorPage() {
+    return {
+      catalog: { id: 'rec76C362381D6CDF', connectorProductId: CONNECTOR_ID },
+      page: { index: 0, of: 1 },
+      surfaces: [],
+      stubs: [{ id: 'recStubProcore01', slug: 'procore', ...STAMPS }],
+      mappings: [],
+      pairs: [],
+    };
+  }
+
+  function runConnector(
+    overrides: PromoteWorkflowDeps = {},
+    step = fakeStep(),
+    params: Partial<PromoteWorkflowParams> = {},
+  ) {
+    const ctx = fakeExecutionContext();
+    const event = {
+      payload: {
+        kind: 'connector',
+        jobId: JOB_ID,
+        sourceUrl: SOURCE_URL,
+        payload: connectorPage(),
+        ...params,
+      } as PromoteWorkflowParams,
+      instanceId: JOB_ID,
+    };
+    return {
+      promise: runPromoteWorkflow(env, ctx, event, step.step, deps(overrides)),
+      ctx,
+      step,
+    };
+  }
+
+  /** A no-op connector ingest whose response is shaped like the real one. */
+  function stubConnectorIngest() {
+    const zero = { created: 0, updated: 0, unchanged: 0, deleted: 0, skipped: 0 };
+    return vi.fn(async (..._args: unknown[]) => ({
+      response: {
+        kind: 'connector' as const,
+        catalogId: 'rec76C362381D6CDF',
+        page: { index: 0, of: 1 },
+        counts: {
+          catalogs: { ...zero, created: 1 },
+          surfaces: { ...zero },
+          stubs: { ...zero, created: 1 },
+          mappings: { ...zero },
+          pairs: { ...zero },
+        },
+        skipped: [],
+      },
+      wrote: true,
+      bookmark: null,
+      auditEntries: [],
+    }));
+  }
+
+  it('routes a connector page to the connector ingest, in the same non-retried step', async () => {
+    const connectorIngest = vi.fn(async () => ({
+      response: {
+        kind: 'connector' as const,
+        catalogId: 'rec76C362381D6CDF',
+        page: { index: 0, of: 1 },
+        counts: {
+          catalogs: { created: 1, updated: 0, unchanged: 0, deleted: 0, skipped: 0 },
+          surfaces: { created: 0, updated: 0, unchanged: 0, deleted: 0, skipped: 0 },
+          stubs: { created: 1, updated: 0, unchanged: 0, deleted: 0, skipped: 0 },
+          mappings: { created: 0, updated: 0, unchanged: 0, deleted: 0, skipped: 0 },
+          pairs: { created: 0, updated: 0, unchanged: 0, deleted: 0, skipped: 0 },
+        },
+        skipped: [],
+      },
+      wrote: true,
+      bookmark: null,
+      auditEntries: [],
+    }));
+    const { promise, step } = runConnector({ connectorIngest });
+    const result = await promise;
+
+    expect(connectorIngest).toHaveBeenCalledTimes(1);
+    expect('kind' in result && result.kind).toBe('connector');
+    // Same step name and same non-retried config as the product arm: an operator
+    // querying the job telemetry should not need to know which kind a job was.
+    expect(step.calls.map((c) => c.name)).toContain('commit-promote');
+  });
+
+  it('mirrors the connector result to KV so a lost response stays recoverable', async () => {
+    await t.db
+      .insert(products)
+      .values({ id: CONNECTOR_ID, slug: 'mindcloud', name: 'MindCloud', productRole: 'connector' });
+    await runConnector().promise;
+    const mirrored = kv.store.get(`promote:result:${JOB_ID}`);
+    expect(mirrored).toBeDefined();
+    expect(JSON.parse(mirrored!).kind).toBe('connector');
+  });
+
+  it('surfaces the AECI-720 refusal on the job with its OWN code, not INTERNAL_ERROR', async () => {
+    // The whole point of adding CATALOG_VENDOR_MANAGED to `ApiErrorCode`:
+    // `promoteJobErrorCode` whitelists the error `name` against
+    // `Object.values(ApiErrorCode)`, so a code missing from that object degrades to
+    // INTERNAL_ERROR on the poll — the AC would fail without anything failing. This
+    // runs the REAL ingest end to end rather than a mock, so it covers the whole chain:
+    // planner throw -> toNonRetryable -> NonRetryableError.name.
+    await t.db
+      .insert(products)
+      .values({ id: CONNECTOR_ID, slug: 'mindcloud', name: 'MindCloud', productRole: 'connector' });
+    await t.db.insert(connectorCatalogs).values({
+      id: 'rec76C362381D6CDF',
+      connectorProductId: CONNECTOR_ID,
+      managedBy: 'vendor',
+    });
+
+    const { promise } = runConnector();
+    await expect(promise).rejects.toBeInstanceOf(NonRetryableError);
+    await expect(promise).rejects.toMatchObject({ name: 'CATALOG_VENDOR_MANAGED' });
+
+    // Nothing committed — including no ledger row, because the throw precedes the batch.
+    expect((await t.db.select().from(promoteJobs)).length).toBe(0);
+    expect((await t.db.select().from(auditLog)).length).toBe(0);
+  });
+
+  /**
+   * The KV-spill path on the connector arm (AECI-733).
+   *
+   * `loadStagedPayload` runs BEFORE the `kind === 'connector'` branch and used to
+   * hard-code `PromotePayloadSchema`, so a connector page big enough to spill came back
+   * out through the product schema and died on its `superRefine` as an opaque
+   * `INTERNAL_ERROR`. Latent only because the review-side sender (AECI-731) is unbuilt;
+   * a page carrying fetched `actions` blobs is what trips the 512 KiB threshold.
+   */
+  it('reads a STAGED connector page back through the connector schema, not the product one', async () => {
+    kv.store.set(promotePayloadKey(JOB_ID), JSON.stringify(connectorPage()));
+    const connectorIngest = stubConnectorIngest();
+
+    const { promise, step } = runConnector({ connectorIngest }, fakeStep(), {
+      payload: undefined,
+      payloadRef: 'kv',
+    });
+    const result = await promise;
+
+    expect(step.calls.map((c) => c.name)).toEqual(['load-staged-payload', 'commit-promote']);
+    expect('kind' in result && result.kind).toBe('connector');
+    // The page round-trips intact — not merely "did not throw".
+    expect(connectorIngest).toHaveBeenCalledTimes(1);
+    expect(connectorIngest.mock.calls[0]![1]).toMatchObject({
+      catalog: { id: 'rec76C362381D6CDF', connectorProductId: CONNECTOR_ID },
+      page: { index: 0, of: 1 },
+      stubs: [expect.objectContaining({ id: 'recStubProcore01', slug: 'procore' })],
+    });
+  });
+
+  it('still refuses an unusable staged connector page, naming the arm that rejected it', async () => {
+    kv.store.set(promotePayloadKey(JOB_ID), '{ not json');
+    const { promise } = runConnector({}, fakeStep(), { payload: undefined, payloadRef: 'kv' });
+
+    await expect(promise).rejects.toBeInstanceOf(NonRetryableError);
+    await expect(promise).rejects.toMatchObject({ name: 'INTERNAL_ERROR' });
+    await expect(promise).rejects.toThrow(/unusable as a connector page/);
+  });
+
+  it('keeps treating params with NO kind as a product promote', async () => {
+    // Back-compat, and the reason `kind` must never become required: an instance created
+    // before AECI-714 carries no `kind`, and mis-routing it on replay would run a
+    // product bundle through the connector ingest.
+    const ingest = vi.fn(async () => ({
+      response: {
+        vendors: [],
+        product: null,
+        integrations: [],
+        taxonomy: { categories: [], audiences: [], phases: [], trades: [] },
+        skipped: [],
+        preserved: [],
+      },
+      removedTradeSlugs: [],
+      wrote: false,
+      bookmark: null,
+      auditEntries: [],
+      staleSupabaseIds: [],
+    }));
+    const connectorIngest = vi.fn();
+    await run({}, { ingest: ingest as never, connectorIngest: connectorIngest as never }).promise;
+
+    expect(ingest).toHaveBeenCalledTimes(1);
+    expect(connectorIngest).not.toHaveBeenCalled();
   });
 });

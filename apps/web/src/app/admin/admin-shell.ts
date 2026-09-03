@@ -7,8 +7,34 @@ import { map } from 'rxjs';
 import type { AdminSummaryResponse } from '@aeci/shared';
 
 import { NotFound } from '../not-found/not-found';
-import { ADMIN_NAV_GROUPS } from './admin-nav';
+import { AdminNavDropdown } from './admin-nav-dropdown';
+import {
+  ADMIN_NAV_GROUPS,
+  ADMIN_NAV_ITEM_ACTIVE_CLASS,
+  ADMIN_NAV_ITEM_CLASS,
+  type AdminNavGroup,
+  type AdminNavItem,
+} from './admin-nav';
 import { AdminSummaryStore } from './admin-summary.store';
+
+/** One category as the row renders it. Derived once, at module scope: the IA is
+ *  a static array, so recomputing per instance would buy nothing. */
+interface AdminNavEntry {
+  readonly group: AdminNavGroup;
+  /** Set only when the group has exactly ONE screen, in which case the category
+   *  renders as a plain link to it rather than as a dropdown. See `admin-nav.ts`
+   *  for why that rule is structural rather than a flag. */
+  readonly sole: AdminNavItem | null;
+  /** The last category's panel hangs from the end edge, or a 14rem panel opening
+   *  two thirds of the way across a phone viewport runs off the screen. */
+  readonly align: 'start' | 'end';
+}
+
+const NAV_ENTRIES: readonly AdminNavEntry[] = ADMIN_NAV_GROUPS.map((group, index) => ({
+  group,
+  sole: group.items.length === 1 ? (group.items[0] ?? null) : null,
+  align: index === ADMIN_NAV_GROUPS.length - 1 ? 'end' : 'start',
+}));
 
 /**
  * AECI-203 / Phase 5.12 — the admin surface gate + shell at `/admin`. Refactored
@@ -41,10 +67,25 @@ import { AdminSummaryStore } from './admin-summary.store';
  * That array moved out of this file when the site header's "More" overflow menu
  * gained the same nine-screen Admin section — both surfaces render one list, so
  * they cannot drift.
+ *
+ * ── THE NAV IS A HORIZONTAL ROW, NOT A SIDEBAR (AECI-694) ────────────────────
+ * It was a 14rem left rail until `/admin/vendors` and `/admin/users` became wide
+ * sortable tables, at which point the rail was the thing standing between an
+ * operator and the data. Three categories under the `h1`, two of which drop
+ * down; the content column is now full width.
+ *
+ * The row deliberately does NOT scroll horizontally, which is a departure from
+ * the vendor portal's section row (`vendor-portal-nav.ts`) and from DESIGN.md's
+ * default for tab rows. Two reasons, and both are consequences of collapsing
+ * eleven items into three: the row is short enough to fit a 320px viewport
+ * outright, and `overflow-x-auto` computes `overflow-y` to `auto` as well, which
+ * would clip the in-flow dropdown panels. A scrolling row would force every
+ * panel into a CDK overlay to escape the clip, which is complexity bought to
+ * solve a problem this row does not have.
  */
 @Component({
   selector: 'aec-admin-shell',
-  imports: [NotFound, RouterOutlet, RouterLink, RouterLinkActive],
+  imports: [NotFound, RouterOutlet, RouterLink, RouterLinkActive, AdminNavDropdown],
   template: `
     @let s = summary();
     @if (s === null) {
@@ -52,59 +93,41 @@ import { AdminSummaryStore } from './admin-summary.store';
     } @else {
       @let count = pendingCount();
       <section class="mx-auto w-full max-w-7xl px-6 py-10 md:px-8">
-        <header class="mb-8 border-b border-(--border-default) pb-6">
+        <header class="mb-8">
           <h1 class="text-2xl font-bold text-(--text-primary)" i18n="@@admin.shell.title">Admin</h1>
+
+          <nav
+            i18n-aria-label="@@admin.shell.nav.aria"
+            aria-label="Admin sections"
+            class="mt-4 border-b border-(--border-default)"
+          >
+            <ul class="m-0 flex list-none flex-wrap items-stretch gap-x-6 p-0">
+              @for (entry of navEntries; track entry.group.id) {
+                <li class="shrink-0">
+                  @if (entry.sole; as sole) {
+                    <a
+                      [routerLink]="sole.path"
+                      [routerLinkActive]="itemActiveClass"
+                      ariaCurrentWhenActive="page"
+                      [class]="itemClass"
+                    >
+                      {{ entry.group.heading }}
+                    </a>
+                  } @else {
+                    <aec-admin-nav-dropdown
+                      [group]="entry.group"
+                      [pendingCount]="count"
+                      [align]="entry.align"
+                    />
+                  }
+                </li>
+              }
+            </ul>
+          </nav>
         </header>
 
-        <div class="grid gap-8 md:grid-cols-[minmax(0,14rem)_minmax(0,1fr)]">
-          <nav i18n-aria-label="@@admin.shell.nav.aria" aria-label="Admin sections">
-            <div class="space-y-6">
-              @for (group of navGroups; track group.id) {
-                <div>
-                  <!-- A <p>, not a heading: the shell owns the only h1 and each
-                       screen owns the only h2, so nav-group headings would break
-                       heading order for no navigational gain (the <ul> is named
-                       via aria-labelledby instead). -->
-                  <p [id]="group.id" class="aec-overline px-3 pb-1 text-(--text-secondary)">
-                    {{ group.heading }}
-                  </p>
-                  <ul class="space-y-1" [attr.aria-labelledby]="group.id">
-                    @for (item of group.items; track item.path) {
-                      <li>
-                        <a
-                          [routerLink]="item.path"
-                          routerLinkActive="bg-(--surface-raised) text-(--text-primary)"
-                          ariaCurrentWhenActive="page"
-                          class="flex items-center justify-between gap-3 rounded-(--radius-md) px-3
-                            py-2 text-sm font-bold text-(--text-secondary) no-underline
-                            transition-colors hover:text-(--text-primary) focus-visible:outline-2
-                            focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-                        >
-                          <span>{{ item.label }}</span>
-                          @if (item.badge) {
-                            <span
-                              class="inline-flex min-w-6 items-center justify-center rounded-full
-                                bg-(--accent-primary) px-2 py-0.5 text-xs font-bold
-                                text-(--surface-base)"
-                              aria-hidden="true"
-                              >{{ count }}</span
-                            >
-                            <span class="sr-only" i18n="@@admin.shell.nav.pendingCount"
-                              >{{ count }} reviews pending moderation</span
-                            >
-                          }
-                        </a>
-                      </li>
-                    }
-                  </ul>
-                </div>
-              }
-            </div>
-          </nav>
-
-          <div class="min-w-0">
-            <router-outlet />
-          </div>
+        <div class="min-w-0">
+          <router-outlet />
         </div>
       </section>
     }
@@ -117,8 +140,12 @@ export class AdminShell {
   private readonly metaSvc = inject(Meta);
   private readonly summaryStore = inject(AdminSummaryStore);
 
-  /** The §5 IA, shared with the header's "More" menu — see `./admin-nav.ts`. */
-  protected readonly navGroups = ADMIN_NAV_GROUPS;
+  /** The §5 IA, arranged for the row — see `./admin-nav.ts`. This shell is its
+   *  only consumer: the header offers one "Admin portal" door and never
+   *  restates these screens. */
+  protected readonly navEntries = NAV_ENTRIES;
+  protected readonly itemClass = ADMIN_NAV_ITEM_CLASS;
+  protected readonly itemActiveClass = ADMIN_NAV_ITEM_ACTIVE_CLASS;
 
   /** Resolved data. `adminSummaryResolver` runs server-side and on hydration
    *  reads from `TransferState`; the snapshot value is the SSR-resolved summary

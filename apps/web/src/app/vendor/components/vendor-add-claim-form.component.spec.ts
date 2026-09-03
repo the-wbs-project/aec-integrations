@@ -70,6 +70,7 @@ function create(
 ): ComponentFixture<VendorAddClaimForm> {
   const fixture = TestBed.createComponent(VendorAddClaimForm);
   fixture.componentRef.setInput('integrationId', INTEGRATION.id);
+  fixture.componentRef.setInput('contextProductId', INTEGRATION.context_product.id);
   fixture.componentRef.setInput('otherProductName', INTEGRATION.other_product.name);
   fixture.componentRef.setInput('dataObjects', dataObjects);
   fixture.componentRef.setInput('versions', []);
@@ -133,6 +134,39 @@ describe('VendorAddClaimForm — the closed vocabulary', () => {
     expect(el.textContent).not.toMatch(/a_to_b|b_to_a/);
   });
 
+  it('offers the terms ALPHABETICALLY, not in the wire’s `display_order`', () => {
+    // The endpoint serves lifecycle order (Models → Drawings → … ) so the claim
+    // *lanes* read as the public pair page's do. A picker is a different job:
+    // the vendor already knows the term they want, and `AecSelect` has no
+    // type-to-filter, so an unfamiliar semantic order is a linear scan. Pinning
+    // both halves — sorted here, unsorted on the input — is what stops someone
+    // "restoring" the wire order and quietly undoing the divergence.
+    const fixture = create();
+    const options = (
+      fixture.componentInstance as unknown as {
+        dataObjectOptions(): readonly { value: string | null; label: string }[];
+      }
+    ).dataObjectOptions();
+
+    expect(options.map((o) => o.label)).toEqual([
+      'Documents',
+      'Drawings',
+      'Models',
+      'Punch Lists',
+      'RFIs',
+      'Submittals',
+    ]);
+    // The input itself is untouched — the sort runs on the mapped copy.
+    expect(VENDOR_DATA_OBJECTS_FIXTURE.map((t) => t.slug)).toEqual([
+      'models',
+      'drawings',
+      'rfis',
+      'submittals',
+      'punch-lists',
+      'documents',
+    ]);
+  });
+
   it('disables adding entirely when the vocabulary could not be loaded', () => {
     const fixture = create([]);
     expect(text(fixture)).toContain('cannot be added right now');
@@ -158,6 +192,9 @@ describe('VendorAddClaimForm — the closed vocabulary', () => {
     expect(createClaim).toHaveBeenCalledWith(
       expect.objectContaining({
         integration_id: INTEGRATION.id,
+        // The frame the direction is relative to (AECI-666) — the listing's own
+        // endpoint, so an owns-both caller does not fall back to endpoint A.
+        context_product_id: INTEGRATION.context_product.id,
         data_object: 'documents',
         // Never `a_to_b` / `b_to_a`: the wire speaks the caller's frame.
         direction: 'inbound',

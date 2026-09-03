@@ -1,0 +1,57 @@
+<time [attr.datetime]="value()" class="tabular-nums text-(--text-primary)">{{ short() }}</time>
+
+<!--
+  The accessible name of this control IS the exact instant, so screen-reader and
+  keyboard users never depend on the overlay below being mounted. Hover, focus
+  and click all reveal the same string visually.
+-->
+<button
+  #trigger="cdkOverlayOrigin"
+  cdkOverlayOrigin
+  type="button"
+  [attr.aria-label]="full()"
+  [attr.aria-expanded]="open()"
+  (click)="toggle()"
+  (mouseenter)="show()"
+  (mouseleave)="scheduleClose()"
+  (focus)="show()"
+  (blur)="close()"
+  (keydown.escape)="close()"
+  class="inline-flex h-4 w-4 shrink-0 cursor-pointer items-center justify-center rounded-full text-(--text-tertiary) transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+>
+  <svg
+    aria-hidden="true"
+    class="h-3.5 w-3.5"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="2"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  >
+    <circle cx="12" cy="12" r="10" />
+    <path d="M12 16v-4" />
+    <path d="M12 8h.01" />
+  </svg>
+</button>
+
+<!--
+  Portaled out of the table's `overflow-x-auto` box, which would clip an in-flow
+  panel. `aria-hidden` because its text is already the trigger's accessible name;
+  exposing it again would double the announcement.
+-->
+<ng-template
+  cdkConnectedOverlay
+  [cdkConnectedOverlayOrigin]="trigger"
+  [cdkConnectedOverlayOpen]="open()"
+  [cdkConnectedOverlayPositions]="positions"
+>
+  <div
+    aria-hidden="true"
+    (mouseenter)="show()"
+    (mouseleave)="scheduleClose()"
+    class="rounded-md border border-(--border-default) bg-(--surface-raised) px-3 py-2 text-xs whitespace-nowrap text-(--text-primary) shadow-lg"
+  >
+    {{ full() }}
+  </div>
+</ng-template>

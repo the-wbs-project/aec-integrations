@@ -44,13 +44,14 @@ import {
   type AttestationDetector,
   type NotificationProductRef,
 } from '@aeci/shared';
-import { and, inArray, isNull, ne } from 'drizzle-orm';
+import { and, inArray, isNotNull, isNull, ne } from 'drizzle-orm';
 
 import {
   vendorsForIntegrationSlots,
   type AttestationSlot,
   type IntegrationSlotVendors,
 } from './attestation-authority';
+import { isConnectorPoweredEdge } from './connector-powered';
 import { liveAttestationsWhere } from './drizzle-helpers';
 import type { Db } from '../db/client';
 import { attestations, claims } from '../db/schema';
@@ -133,19 +134,41 @@ export interface DetectorResult {
  * `liveAttestationsWhere` (not a fresh `isNull(...)`) is the §2.5/§4 predicate:
  * retracted rows neither vote nor render, and there is one definition of that.
  */
-export function loadDetectorClaims(db: Db) {
+export async function loadDetectorClaims(db: Db) {
   const vendorAttestedClaimIds = db
     .select({ claimId: attestations.claimId })
     .from(attestations)
     .where(and(isNull(attestations.retractedAt), ne(attestations.source, 'aeci')));
 
-  return db.query.claims.findMany({
+  const rows = await db.query.claims.findMany({
     columns: { id: true, integrationId: true, direction: true, origin: true },
-    where: inArray(claims.id, vendorAttestedClaimIds),
+    // `integration_id IS NOT NULL` scopes this to claims anchored on `integrations`
+    // (AECI-721 made the anchor polymorphic — `STAGE_1_5_SPEC.md` §13.1). It excludes
+    // nothing reachable: every detector keys off a live NON-`aeci` attestation, and a
+    // vendor cannot attest to a claim on a connector-evidenced pair — the §14 gate
+    // answers 403 on connector-delivered edges, and an evidenced pair is
+    // connector-delivered by construction. So the intersection is empty by
+    // definition, not by filtering.
+    //
+    // Written explicitly rather than left to the inner join it would otherwise
+    // become, so the exclusion is a stated decision a reader can check, and so the
+    // narrowing below is honest rather than a cast.
+    where: and(inArray(claims.id, vendorAttestedClaimIds), isNotNull(claims.integrationId)),
     with: {
       dataObject: { columns: { slug: true, name: true } },
       integration: {
-        columns: { id: true, mechanismName: true, sourceProductId: true, targetProductId: true },
+        columns: {
+          id: true,
+          mechanismName: true,
+          sourceProductId: true,
+          targetProductId: true,
+          // AECI-705 — the two columns `isConnectorPoweredEdge` reads. Hydrated
+          // rather than filtered in the `where` above on purpose: the ops-routed
+          // findings on a powered edge still fire, so the ROWS must survive the
+          // read and only the vendor-addressed FINDINGS are dropped.
+          mechanismKind: true,
+          poweredByProductId: true,
+        },
         with: {
           sourceProduct: { columns: { id: true, slug: true, name: true } },
           targetProduct: { columns: { id: true, slug: true, name: true } },
@@ -169,6 +192,17 @@ export function loadDetectorClaims(db: Db) {
       },
     },
   });
+
+  // The `where` above makes this total; the relational query builder cannot express
+  // that in the type, so narrow once here rather than at fourteen use sites.
+  return rows.filter(
+    (
+      row,
+    ): row is typeof row & {
+      integrationId: string;
+      integration: NonNullable<(typeof row)['integration']>;
+    } => row.integration !== null,
+  );
 }
 
 export type DetectorClaim = Awaited<ReturnType<typeof loadDetectorClaims>>[number];
@@ -454,6 +488,49 @@ export function detectAeciDenied(claimRows: readonly DetectorClaim[]): DetectorF
   return out;
 }
 
+// ─── The AECI-705 connector gate ─────────────────────────────────────────────
+
+/**
+ * Which of the swept claims sit on a **connector-powered** edge (§14).
+ *
+ * Built from the rows the shared read already hydrated, so the gate costs no
+ * extra query — and it uses `isConnectorPoweredEdge`, the one definition of the
+ * union, rather than restating either half here.
+ */
+function connectorPoweredIntegrationIds(claimRows: readonly DetectorClaim[]): ReadonlySet<string> {
+  const out = new Set<string>();
+  for (const claim of claimRows) {
+    if (isConnectorPoweredEdge(claim.integration)) out.add(claim.integrationId);
+  }
+  return out;
+}
+
+/**
+ * Drop every **vendor-addressed** finding on a connector-powered edge, and keep
+ * every ops-routed one.
+ *
+ * This is a literal transcription of the acceptance criterion — "no vendor is
+ * ever prompted to confirm/deny plumbing they didn't build" — which is why it
+ * lives here, once, at the registry, instead of as four edits inside four
+ * detectors. Any detector added later inherits it without anyone remembering to,
+ * and the property is checkable by reading one function.
+ *
+ * **`vendorId === null` means AECi ops, and those findings survive on purpose.**
+ * `aeci-denied` is ops-routed by definition (§7.1) and `open-conflict` raises an
+ * ops finding alongside its two vendor nudges. Those are AECi's correction signal
+ * on its *own* curation, not a nudge to someone who built nothing — suppressing
+ * them would hide exactly the case an operator needs to see, which is a vendor
+ * disputing a powered edge it attested before the edge became powered.
+ */
+function dropPromptsOnPoweredEdges(
+  findings: readonly DetectorFinding[],
+  poweredEdges: ReadonlySet<string>,
+): DetectorFinding[] {
+  return findings.filter(
+    (finding) => finding.vendorId === null || !poweredEdges.has(finding.integrationId),
+  );
+}
+
 // ─── The registry ────────────────────────────────────────────────────────────
 
 export interface DetectorDeps {
@@ -478,6 +555,7 @@ export async function runAttestationDetectors(deps: DetectorDeps): Promise<Detec
     deps.db,
     claimRows.map((c) => c.integrationId),
   );
+  const poweredEdges = connectorPoweredIntegrationIds(claimRows);
 
   const registry: ReadonlyArray<[AttestationDetector, () => DetectorFinding[]]> = [
     ['silent-counterparty', () => detectSilentCounterparty(claimRows, slotVendors, now)],
@@ -488,7 +566,10 @@ export async function runAttestationDetectors(deps: DetectorDeps): Promise<Detec
 
   return registry.map(([detector, run]) => {
     try {
-      return { detector, findings: run() };
+      // Inside the `try`, so the per-detector gauge (`aeci.attestation.detector`,
+      // `OBSERVABILITY.md`) counts what is actually SENT rather than what was
+      // found — a number nobody can act on is worse than no number.
+      return { detector, findings: dropPromptsOnPoweredEdges(run(), poweredEdges) };
     } catch (error) {
       return {
         detector,

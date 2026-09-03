@@ -16,7 +16,6 @@
 import { computed, signal } from '@angular/core';
 
 import type { AutocompleteSearchFn, AutocompleteSuggestion } from './autocomplete-mapping';
-import { emitSearchQuery, resultsBucket, type SearchQueryEmitter } from './search-rum';
 
 /** Search-as-you-type debounce, ms — a touch snappier than `/search`'s 200ms. */
 const AUTOCOMPLETE_DEBOUNCE_MS = 180;
@@ -52,11 +51,7 @@ export class AutocompleteController {
   /** Monotonic request id; a resolved search is ignored unless it is still the latest. */
   private seq = 0;
 
-  constructor(
-    private readonly searchFn: AutocompleteSearchFn,
-    /** RUM emit seam (AECI-174); injectable so tests assert without the SDK. */
-    private readonly emit: SearchQueryEmitter = emitSearchQuery,
-  ) {}
+  constructor(private readonly searchFn: AutocompleteSearchFn) {}
 
   /** Mirror the query to the signal now, run the (debounced) search. */
   setQuery(value: string): void {
@@ -79,22 +74,19 @@ export class AutocompleteController {
     this.debounceTimer = setTimeout(() => this.runSearch(trimmed), AUTOCOMPLETE_DEBOUNCE_MS);
   }
 
+  /**
+   * NOTE — this controller currently emits NO telemetry (AECI-717).
+   *
+   * Its only signal was the Datadog RUM `aeci.search.query` action, deleted with
+   * the rest of the Datadog leg in AECI-651. `/search`'s PostHog
+   * `search_performed` does NOT cover this surface — that event fires from
+   * `search-controller.ts`. `AutocompleteResult.nbHits` is kept deliberately so
+   * re-homing the signal onto PostHog does not have to re-derive it.
+   */
   private runSearch(query: string): void {
     const mine = ++this.seq;
-    // AECI-174 — time the federated (products+vendors) round-trip. The emit fires
-    // BEFORE the stale-guard below: a superseded response still completed a real
-    // Algolia query that incurred latency, so it counts toward the RUM signal.
-    const start = performance.now();
     this.searchFn(query)
       .then((result) => {
-        this.emit({
-          index: 'federated',
-          status: 'ok',
-          duration_ms: Math.round(performance.now() - start),
-          results_bucket: resultsBucket(
-            result.nbHits ?? result.products.length + result.vendors.length,
-          ),
-        });
         if (mine !== this.seq) return; // a newer query superseded this one
         this._products.set(result.products);
         this._vendors.set(result.vendors);
@@ -102,7 +94,6 @@ export class AutocompleteController {
         this._loading.set(false);
       })
       .catch(() => {
-        this.emit({ index: 'federated', status: 'error', duration_ms: 0, results_bucket: 'none' });
         if (mine !== this.seq) return;
         // Degrade quietly: clear results but still mark settled so the user gets
         // the "press Enter to search" affordance instead of a stuck spinner.

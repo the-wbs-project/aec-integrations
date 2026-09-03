@@ -123,6 +123,15 @@ Tables grouped by domain:
 - `audit_log` — every state-changing event
 - `promote_jobs` — exactly-once ledger for the async promote ingest (AECI-571)
 - `vendor_entitlements` — the vendor's paid tier, status and term; `vendors.verified` is its denormalized mirror — Stage 2 (AECI-609)
+- `vendor_seat_invites` — pending self-serve seat invites; an INTENT, never an account — Stage 2 (AECI-664)
+
+**Connector lane** (Stage 1.5 Addendum C §13 — AECI-714; a projection of the review app's model):
+- `connector_catalogs` — one row per iPaaS; holds the per-catalogue `managed_by` flag AECI-720 enforces
+- `connector_catalog_surfaces` — one row per index URL the review-side ingest crawls, with its `last_ingested_at` "as of" stamp
+- `connector_stubs` — every listing in a catalogue, mapped or not (the misses are the point)
+- `connector_stub_mappings` — many-to-many stub ↔ product assertions, with confidence, evidence and provenance
+- `connector_pairs` — the pairs a vendor publishes a page for, classified `curated` / `generated` / `unknown`
+- `connector_evidenced_pairs` — the **delivered** tier; created empty here, filled by AECI-721
 
 **Analytics and caching**:
 - `page_views` — server-side page view log with CF enrichment
@@ -315,7 +324,12 @@ create table integrations (
   constraint source_target_differ check (source_product_id <> target_product_id),
 
   -- Mechanism
-  mechanism_kind text check (mechanism_kind in ('native', 'iPaaS', 'marketplace-app', 'api', 'webhook', 'partner')),
+  -- Closed set, and settled (AECI-735). `iPaaS` is retained PERMANENTLY -- three shipped
+  -- predicates key off it (isConnectorPoweredEdge, routeIntegrationLane clause (c),
+  -- MECHANISM_ORDER) over a population that structurally cannot drain. `partner` is the one
+  -- pending retirement, gated on AECI-712's upstream re-key. Changing this list is a
+  -- DESTRUCTIVE table recreate on D1 -- see docs/migrations.md 3.3a.
+  mechanism_kind text check (mechanism_kind in ('native', 'iPaaS', 'marketplace-app', 'api', 'webhook', 'partner', 'integrator')),
   mechanism_name text,
   direction text check (direction in ('one-way', 'bidirectional')),
 
@@ -476,26 +490,36 @@ The integration **claim spine** (AECI-293; `STAGE_1_5_SPEC.md` §3/§6.1). A *cl
 ```sql
 create table claims (
   id uuid primary key default gen_random_uuid(),
-  integration_id uuid not null references integrations(id) on delete cascade,
+  -- The anchor is POLYMORPHIC since AECI-721: exactly one of these two is set.
+  integration_id uuid references integrations(id) on delete cascade,
+  connector_evidenced_pair_id uuid references connector_evidenced_pairs(id) on delete cascade,
   data_object_id uuid not null references taxonomy_data_objects(id) on delete restrict,
   direction text not null check (direction in ('a_to_b', 'b_to_a', 'both')),
   origin text not null default 'aeci' check (origin in ('aeci', 'vendor')),
   created_by_vendor_id uuid references vendors(id) on delete set null,
+  anchor_id uuid generated always as
+    (coalesce(integration_id, connector_evidenced_pair_id)) stored,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  constraint claims_anchor_check
+    check ((integration_id is not null) <> (connector_evidenced_pair_id is not null))
 );
 
 -- Claim identity (§3.1) AND the promote-ingest upsert target (§6.2). Integration-id
 -- lookups ride the leftmost prefix of this unique index, so no separate index is needed.
-create unique index claims_identity_key on claims(integration_id, data_object_id, direction);
+create unique index claims_identity_key on claims(anchor_id, data_object_id, direction);
 create index claims_data_object_idx on claims(data_object_id);
 ```
 
 - **`direction`** is stored relative to the integration row's own endpoints (**A = `source_product_id`**, **B = `target_product_id`**; §3.2). This canonical value is never rewritten; the API translates it to a context-relative `inbound`/`outbound` view per pair page — outward for every read, and inward on `POST /api/vendor/claims`, which is the one path where a *caller* speaks the context frame. `claimDirectionForContext` / `claimDirectionFromContext` (`packages/shared/src/integration-context.ts`) are the two halves, and they are round-trip tested against each other.
 - **`direction` is part of claim identity**, so one integration can carry `rfis a_to_b`, `rfis b_to_a` and `rfis both` as three separate claims. Claims also anchor to the **mechanism row**, not the product pair (§3.1, ADR 0018) — two mechanisms moving the same `data_object` between the same two products are two independent claims, by design.
+- **The anchor is polymorphic (AECI-721), and `anchor_id` is why the identity still works.** "The mechanism row" now means a row of *either* delivered-tier table: `integrations` for an accountable-party edge, `connector_evidenced_pairs` for one an iPaaS delivers (`STAGE_1_5_SPEC.md` §13.1). Three properties make that safe:
+  - **A STORED generated column carries the identity index, not a nullable FK.** Put a nullable `integration_id` straight into `claims_identity_key` and it stops working for the moved rows: SQLite treats NULLs as **distinct**, so two claims differing only in a NULL anchor would both be accepted and an identity ADR 0018 calls immutable would silently stop being unique. Coalescing into one non-null column before indexing preserves it. It also means `claims` can only ever be **recreated** into this shape — SQLite refuses to `ALTER TABLE ADD COLUMN` a STORED generated column.
+  - **`claims_anchor_check` is a real DB CHECK**, unlike the `origin` / `created_by_vendor_id` biconditional next door and unlike `connector_stub_mappings`' two-column rule. Those are application-enforced because an `ON DELETE SET NULL` would re-evaluate them and make deleting an unrelated row fail. Here **both** anchors cascade, so a claim disappears with its anchor rather than being re-evaluated against it — nothing can make this CHECK fail a delete.
+  - **The migration preserved ids**, so re-homing changed no stored value. `0022` inserts each moved edge into `connector_evidenced_pairs` with its `integrations.id` verbatim, so all 85 production claims kept the same `anchor_id` — no unique violations, and every existing `audit_log` row, PostHog log line and attestation still resolves.
 - **`origin` is write arbitration, not a trust badge.** It exists so promote can replace AECi curation without touching vendor-created rows (`STAGE_2_ATTESTATIONS_SPEC.md` §3) and so AECi ops can see where a claim came from. A vendor-created claim renders through exactly the same computed agreement states as an AECi-seeded one — nothing reader-facing keys off `origin`. Every row that predates migration 1 backfilled to `'aeci'` via the column default, which is correct: they all came from promote.
 - **`origin = 'vendor'` ⟺ `created_by_vendor_id is not null`** is a two-column invariant enforced in **application code**, not by a DB CHECK — deliberately, so the rule lives in one place: `claimProvenance()` / `assertClaimProvenance()` in `apps/api/src/lib/attestation-authority.ts` (§2.2).
-- **Cascade/restrict/set-null.** Deleting an integration removes its claims; a `data_object` referenced by any claim cannot be deleted; deleting a **vendor** nulls `created_by_vendor_id` and leaves the claim standing for AECi to re-curate.
+- **Cascade/restrict/set-null.** Deleting an integration **or a connector-evidenced pair** removes its claims; a `data_object` referenced by any claim cannot be deleted; deleting a **vendor** nulls `created_by_vendor_id` and leaves the claim standing for AECi to re-curate.
 
 ### 5a.2 `attestations`
 
@@ -532,6 +556,7 @@ create index attestations_active_idx on attestations(claim_id) where retracted_a
 - **Two reads, and they differ by exactly this predicate** (AECI-303 shipped the second). `integrationPairConfig` applies `liveAttestationsWhere` and feeds the pair page's agreement + presence; `integrationTimelineConfig` **omits it** and feeds `GET …/integrations/:otherSlug/timeline`, where the retracted rows *are* the history. Both live in `apps/api/src/lib/drizzle-helpers.ts`. Never call `computeAgreement` on the timeline config's output — routing history through the vote engine is how a withdrawn assertion finds its way back into a tally.
 - **The only writers.** `POST /api/promote` writes `source = 'aeci'` rows; `apps/api/src/routes/vendor-attestations.ts` (AECI-301) is the sole writer of `vendor_a` / `vendor_b`, `attested_by_vendor_id` and `retracted_at`. A write fills **every slot the caller owns**, so a vendor holding both endpoints of one integration writes two rows — which still tallies as one voter (next bullet).
 - **`vendor_a` / `vendor_b` are no longer dormant** (Stage 2, AECI-514). Which slot a caller may write derives from product ownership in `product_vendors` — `vendor_a` = the `source_product_id` owner, `vendor_b` = the `target_product_id` owner — and never from the request. `apps/api/src/lib/attestation-authority.ts` is the single implementation; a vendor owning neither endpoint gets a **404, not a 403**.
+- **Ownership is not the whole gate: the EDGE must also be attestable** (AECI-705, `STAGE_2_ATTESTATIONS_SPEC.md` §14). A **connector-powered** integration — `integrations.powered_by_product_id IS NOT NULL` **or** `integrations.mechanism_kind = 'iPaaS'` — refuses `POST`/`PUT` with a **403**, because neither endpoint vendor built the plumbing and the connector holds no attestation seat. **No schema change**: the predicate reads two columns that have existed since `0000_init`, and nothing queries on it (every caller already has the row), so `integrations_powered_by_idx` and `integrations_mechanism_kind_idx` are untouched. `DELETE` is deliberately exempt, since promote can set `powered_by_product_id` *after* a vendor has attested. Note the two columns sit on different axes and nothing cross-validates them — `mechanism_kind` describes the edge, `products.product_role` the product — which is why the predicate is a union rather than either column alone.
 - **`attested_by_vendor_id` records which identity filled the slot**, because `confirmed` requires **two distinct** identities: one company owning both endpoints of an integration can affirm both slots and must still render as one-sided (`STAGE_2_ATTESTATIONS_SPEC.md` §4). Deleting the vendor nulls the column and keeps the historical assertion — and because that leaves a **live row with no identity**, `computeAgreement` folds every null-identity vote into a single voter bucket so orphans can never add up to `confirmed`.
 - **Who reads `retracted_at`.** Both claim-loading read configs — `integrationPairConfig` (the pair page) and `productDetailIntegrationConfig` (the product-detail direction column) — filter `retracted_at is null` via the shared `liveAttestationsWhere` in `apps/api/src/lib/drizzle-helpers.ts` (AECI-605). `computeAgreement` re-checks the column itself, so the shared engine stays safe for callers that assemble attestations another way. Nothing reads `deprecated_at` as a gate.
 - **Agreement is computed, never stored** (§3.4, ADR 0018; `packages/shared/src/agreement.ts`) — four states, `unverified | single_source | confirmed | conflict`.
@@ -690,7 +715,19 @@ create table profiles (
   display_name text,
   role text not null default 'reviewer' check (role in ('reviewer', 'admin', 'vendor_admin')),
   vendor_id uuid references vendors(id), -- null for Stage 1, used in Stage 2 vendor portal
+  -- Set true by the AECI-664 invite redeem when the redeemed address is on the
+  -- vendor's own registrable domain (computeDomainMatch, evaluated at REDEEM time
+  -- since the invite-time domain gate was removed — STAGE_2_VENDOR_PORTAL_SPEC
+  -- §11a.3). An off-domain redeem leaves it alone; it is never cleared. Read by a
+  -- human on the admin claim queue as "does this person really work there?", so it
+  -- must track the address, not the mere fact of a redeem. Nothing else writes it.
   work_email_verified boolean not null default false,
+  -- The owner/admin distinction (AECI-664 / STAGE_2_VENDOR_PORTAL_SPEC §11a).
+  -- Meaningful ONLY on a vendor_admin row. true = may invite colleagues and
+  -- remove seats. Set by the admin claim grant, cleared by revoke; a seat created
+  -- by ACCEPTING an invite gets false, which is what bounds the invite chain.
+  -- Migration 0020 backfills every pre-existing vendor_admin to true.
+  seat_owner boolean not null default false,
   -- REVIEWER trust, unrelated to paid entitlements — see the disambiguation note below.
   trust_tier text not null default 'standard' check (trust_tier in ('standard', 'verified', 'trusted')),
 
@@ -823,6 +860,10 @@ create table vendor_requests (
   body       text not null,
   source_url text,
 
+  -- AECI-739: the free-text OPERATOR note (STAGE_2_VENDOR_PORTAL_SPEC.md §5.2
+  -- step 6) — why a claim is parked and what was said out of band. Nullable.
+  admin_notes text,
+
   -- Status
   status text not null default 'open'
     check (status in ('open', 'in_review', 'resolved', 'rejected')),
@@ -850,6 +891,28 @@ create index vendor_requests_status_idx     on vendor_requests(status);
 create index vendor_requests_target_idx     on vendor_requests(target_type, target_id);
 create index vendor_requests_created_at_idx on vendor_requests(created_at desc);
 ```
+
+**`admin_notes` is an ANNOTATION, not a decision (AECI-739).** Four things about
+it that the column alone does not say:
+
+- **It is admin-authored and admin-only.** It is never shown to the claimant and
+  never emailed — unlike `ModerateClaimSchema.reason`, which is also internal but
+  is tied to a status transition. And it is **not** `AdminNote` /
+  `aec-admin-notes`, which is a closed-enum, server-derived measurement caveat on
+  analytics responses, not an annotation surface. The two names are unrelated.
+- **The `audit_log` IS its history.** The column holds only the current text;
+  every write emits a `vendor_claim.note_updated` row carrying the full old and
+  new note in `before_state` / `after_state`, **in the same `db.batch` as the
+  UPDATE** (§26.1). That is the same arrangement `vendor_entitlements.notes` uses
+  (AECI-612), and it is why an unchanged re-save deliberately writes nothing: a
+  trail of identical states is not a history.
+- **Writable at every status.** A note is not a transition, so it is accepted on
+  `resolved` and `rejected` rows too — which is exactly where "why we parked it,
+  and what happened next" is worth having.
+- **The column is on `vendor_requests`, but the API surface is claim-only.**
+  `PATCH /api/admin/claims/:id/notes` is the sole writer and `toAdminClaim` the
+  sole reader; a correction physically has the column and no route touches it.
+  Extending it to corrections is a decision, not a migration.
 
 ### 8.2 `workflow_instances`
 
@@ -1000,7 +1063,7 @@ Notes:
 ### 8.6 `vendor_entitlements`
 
 The vendor's paid arrangement — tier, status, term, and the offline PO/invoice record
-(AECI-609, migration `0019_easy_sandman`; `STAGE_2_PAID_TIERS_SPEC.md` §2). **`vendors.verified`
+(AECI-609, migration `0024_easy_sandman`; `STAGE_2_PAID_TIERS_SPEC.md` §2). **`vendors.verified`
 (§4.1) is this table's denormalized mirror**, and the two are written together or not at all.
 
 ```sql
@@ -1032,7 +1095,7 @@ create table vendor_entitlements (
   invoice_ref text,
   notes text,
 
-  granted_by uuid references profiles(id) on delete set null, -- the SEVENTH inbound FK to profiles
+  granted_by uuid references profiles(id) on delete set null, -- one of the 8 inbound FKs to profiles (AUTH_AND_RLS.md §8)
   granted_at timestamptz not null default now(),
   ended_at timestamptz,             -- stamped when status leaves 'active'
   expiry_notice_sent_at timestamptz, -- the expiry cron's idempotency fence
@@ -1051,6 +1114,53 @@ create index vendor_entitlements_status_idx on vendor_entitlements(status);
 -- non-active row are invisible to it.
 create index vendor_entitlements_expiry_idx on vendor_entitlements(period_end)
   where period_end is not null and status = 'active';
+```
+
+### `vendor_seat_invites` (Stage 2 — AECI-664)
+
+A pending self-serve seat invite. A row is an **INTENT, never an account**: this
+table is why the vendor portal can add a colleague without the vendor ever
+triggering a Supabase account create, and therefore why the whole invite path
+needs no `SUPABASE_SERVICE_ROLE_KEY` and works in local dev and on PR previews.
+
+**The row grants nothing.** Redeeming requires the caller's verified JWT email to
+equal `email`, so a forwarded or prefetched `token` is inert. The token is an
+opaque lookup handle, not a bearer credential — which is what makes it safe in a
+URL. Shape and discipline are `mailing_list.unsubscribe_token`'s: opaque
+`crypto.randomUUID()`, a unique index for the direct lookup, and SOFT delete
+(`revoked_at`) rather than a row delete, so a revoked invite stays auditable.
+
+**No FK on the invitee.** `email` is deliberately not a `profiles` reference: at
+insert time the invitee usually has no account at all. Who actually redeemed it
+is on the `audit_log` row (`vendor_seat.invite_accepted`, `actor_id` = redeemer).
+`invited_by_id` is the **ninth** inbound FK to `profiles.id` — `ON DELETE SET
+NULL` **and** nulled explicitly in the `DELETE /api/account` erasure batch
+(`AUTH_AND_RLS.md` §8); miss either and account deletion FK-fails for anyone who
+ever sent an invite. The invite itself survives its sender's erasure, on purpose:
+it belongs to the invitee.
+
+```sql
+create table vendor_seat_invites (
+  id uuid primary key,
+  vendor_id uuid not null references vendors(id) on delete cascade,
+  email text not null,                 -- normalized lowercase at the handler
+  token text not null,                 -- opaque crypto.randomUUID()
+  invited_by_id uuid references profiles(id) on delete set null,
+  expires_at timestamptz not null,     -- 14 days; TS policy, not a CHECK (a CHECK
+                                       -- change on SQLite is a full table rebuild)
+  accepted_at timestamptz,             -- both null = pending; either set = spent
+  revoked_at timestamptz,
+
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create unique index vendor_seat_invites_token_key on vendor_seat_invites(token);
+-- The roster read AND the per-vendor daily rate-limit count.
+create index vendor_seat_invites_vendor_idx on vendor_seat_invites(vendor_id, created_at);
+-- The duplicate probe. PARTIAL, so spent rows never widen it.
+create index vendor_seat_invites_pending_idx on vendor_seat_invites(vendor_id, email)
+  where accepted_at is null and revoked_at is null;
 ```
 
 **Why one row per vendor and not a period-history table.** The mirror invariant has to be
@@ -1108,6 +1218,27 @@ Server-side page view log with Cloudflare header enrichment. Privacy-respecting 
 **Retention: 400 days** (`ADMIN_PANEL_SPEC.md` §7.4 / §13 **D5**), enforced since AECI-584 by the daily 03:00 UTC pruning cron (`apps/api/src/lib/retention-prune.ts`). Note what the number is protecting: storage was never the binding constraint (400 d ≈ 280 MB against D1's 10 GB limit), **irreversibility** is — D1 Time Travel recovers only ~30 days, so a prune past that is permanent, and 400 days is the first window that keeps year-over-year comparison possible. The cron cuts on **whole UTC days** (the cutoff is always a midnight), deletes in bounded chunks paged by `id`, and **refuses to run at all** if any day inside its cut window has no `metrics_daily` row — that aggregate is the only thing that survives the prune. Given the 2026-06-23 data start it deletes nothing until ~2027-07. The window is a config constant (`PAGE_VIEWS_RETENTION_DAYS` in `@aeci/shared`) with an unset `PAGE_VIEWS_RETENTION_DAYS` env override, so it can be shortened without a migration; values below 30 days are ignored.
 
 **`path` holds public routes only** (AECI-575 / `ADMIN_PANEL_SPEC.md` §9.6). Neither writer records the operator-only prefixes in `@aeci/shared` `UNTRACKED_ROUTE_PREFIXES` (`/admin`, `/account`) — the admin console must not write into the table it reads. Rows captured before that shipped are still present, and every read applies the same exclusion, so query this table with `path not in ('/admin','/account') and path not like '/admin/%' and path not like '/account/%'` if you want numbers that match the daily digest. (The match is on an exact prefix boundary — a bare `path not like '/admin%'` would wrongly drop look-alike public routes like `/administrators`, which the digest still counts.)
+
+**That path rule is only a third of "not the operator"** (§13 **D13** + **D15**). It catches the operator while they are standing on `/admin/*`; it cannot catch them browsing `/products/procore` to check their own work, which is indistinguishable from a visitor doing the same. `is_operator` is the second part — and it is written once at ingest and **fails open on an expired token**, so it misses a contiguous run of the operator's rows every time their session lapses mid-browse (22 of them in one gap on 2026-08-26). The third part is a retro-join on the `(user_agent_hash, cf_asn)` visitor pair. A hand-written query that wants digest-matching numbers needs **all three** clauses:
+
+```sql
+  and path not in ('/admin','/account') and path not like '/admin/%' and path not like '/account/%'
+  and (is_operator is null or is_operator = 0)
+  and not exists (select 1 from page_views op
+                   where op.is_operator = 1
+                     and op.user_agent_hash = page_views.user_agent_hash
+                     and op.cf_asn = page_views.cf_asn
+                     and op.created_at >= strftime('%Y-%m-%dT%H:%M:%fZ', page_views.created_at, '-30 days')
+                     and op.created_at <= strftime('%Y-%m-%dT%H:%M:%fZ', page_views.created_at, '+30 days'))
+```
+
+All three live together in one predicate in code (`NOT_INTERNAL`, `apps/api/src/lib/analytics-digest.ts`) precisely so no reader applies some and forgets the rest — a hand-written query is now the only place they can come apart. Two details of the third clause are load-bearing. The `strftime` format string reproduces the stored ISO shape exactly; bare `datetime()` returns `'YYYY-MM-DD HH:MM:SS'`, and a space sorts before `T`, so the comparison would be silently wrong at the boundary. And `not exists` — rather than the tempting `not (hash = ? and asn = ?)` — is what keeps it NULL-safe: with a NULL `user_agent_hash` the latter evaluates to NULL and the `where` clause *drops the row*, which is the opposite of the correct reading (an unidentifiable row is not evidence of anything).
+
+**One document load, one row (AECI-743).** This was an assumption, not an invariant, until 2026-09. Nothing in the writers or the schema refused a second row: production held two byte-identical rows 83 ms apart for one arrival on `/products/leap-crm` — both `navigation = 'arrival'` with the resolver's route *pattern*, i.e. two full cacheable-branch cache-MISS renders. `handleSsr` fires `firePageView` at most once per invocation and runs once per request, so the browser simply sent the document request twice. Those two rows were the entire "Google — 2 views" traffic-source table and the whole corroborated-referrer population of that day's digest: a 100% error on the AECI-683 floor, the one figure chosen precisely because a rotating-proxy pool cannot inflate it.
+
+The guard is `dedupe_key` + its UNIQUE index (see the DDL below) at ingest, plus three writer-side refusals — speculative (`Sec-Purpose: prefetch`/`prerender`) loads, non-GET requests, and query-only SPA re-navigations. Full mechanism and the reasoning behind each: `API_CONTRACTS.md` §6.9, "One document load, one row".
+
+**Two consequences for anyone querying this table.** Rows written before 2026-09 carry a null `dedupe_key` and are still double-counted; `scripts/ops/2026-09-page-view-duplicates/find-duplicates.sql` reports them read-only (the corroborated floor is wrong on exactly two days, 2026-08-18 and 2026-08-29, corrected in `POST_LAUNCH_HEALTH_REPORT.md`). And the guard is a **floor on precision, not a claim of exactness**: bot rows and rows with no `user_agent_hash` are deliberately left unconstrained, so a crawler's repeat fetches still count once each.
 
 **`path` vs `concrete_path` (AECI-585).** `path` is the route the *writer* named: the pattern (`/products/:slug`) when it knows one — an SSR resolver attached `ctx.pageView` — and the concrete path otherwise (the browser tracker, an SSR cache HIT). It has always been that mix; nothing changed about it. `concrete_path` is new and is *always* the real URL path, locale-stripped and without query or hash. Both are stored because they answer different questions: grouping "top pages" wants the pattern, naming an individual row wants the concrete path. Product and vendor rows could always recover a name through their FK; taxonomy rows could not, which is what made this column necessary.
 
@@ -1186,12 +1317,90 @@ create table page_views (
   -- rows captured before this shipped (the Referer was never stored → not backfillable).
   referrer_source text,
 
+  -- Whether the request carried a VERIFIED admin session (ADMIN_PANEL_SPEC.md §13 D13,
+  -- migration 0016). Written at ingest by apps/api/src/lib/operator-session.ts, which
+  -- runs the same two checks lib/authz.ts does — JWKS signature verification, then a
+  -- fresh profiles.role read — so this is a server-derived fact, never a client claim.
+  -- It closes the half the §9.6 path exclusion cannot see: the operator browsing the
+  -- PUBLIC site to check their own work. On 2026-08-19 that was 368 of 2,493 human
+  -- public-page views (15%), across AS23089/US, AS23314/US and AS23700/ID as the
+  -- operator's network changed — which is why ANALYTICS_INTERNAL_ASNS could not be the
+  -- answer (pinned to any one of those it misses the rest and over-excludes strangers).
+  -- Null = unknown and reads as NOT operator, so history is unchanged; not backfillable,
+  -- since nothing stored on an older row implies a session.
+  --
+  -- IT ALSO FAILS OPEN, AND THAT IS THE POINT OF §13 D15. isOperatorRequest resolves
+  -- every failure to false — including an EXPIRED access token — deliberately, so an
+  -- auth hiccup costs a flag rather than the page-view row. The consequence is that an
+  -- operator browsing across a token expiry writes flagged rows, then unflagged rows,
+  -- then flagged rows again, and a 0 here is indistinguishable from a visitor.
+  -- Do not read `is_operator = 0` as "not the operator": read NOT_INTERNAL, whose third
+  -- half recovers those rows by (user_agent_hash, cf_asn) pair (AECI-683).
+  is_operator integer,  -- 1 = verified admin session, 0 = not-or-unverifiable, null = pre-D13 (treated as visitor)
+
+  -- ─── Request-shape signals (AECI-658, migration 0018) ──────────────────────────
+  -- How browser-shaped the request was, written at ingest by
+  -- apps/api/src/lib/client-signals.ts. These exist because neither lever we already
+  -- had can see a rotating residential-proxy swarm: cf_bot_score is Enterprise-only
+  -- (always null on Pro) and the swarm's ASNs are genuine consumer ISPs, so
+  -- DATACENTER_ASNS must not be widened to reach them. What a rotating proxy cannot
+  -- launder is the shape of the request itself.
+  --
+  -- ANNOTATION ONLY, exactly like cf_as_organization. Nothing here feeds
+  -- classifyTraffic() and no value here changes is_bot. That separation is load
+  -- bearing: is_bot is decided once and costs a one-way backfill to revise, while an
+  -- annotation can be re-read and re-interpreted for free. READ-side, client_verdict has
+  -- three distinct uses in swarm-detection.ts (hard gate / corroboration / sufficient-on-
+  -- its-own, AECI-744) -- see that module's header before changing any of them.
+  -- Audit client_verdict
+  -- against known-good traffic before anyone proposes promoting it into a verdict.
+  --
+  -- All six are null on every row written before 2026-08-26 and are NOT backfillable:
+  -- the headers are unrecoverable after the request, the same property navigation and
+  -- referrer_source already have.
+  --
+  -- They carry no identity — no cookie, no canvas, no durable id — so D7's rule below
+  -- is untouched. A fingerprinting library would classify better and cost us exactly
+  -- the consent-independence that makes this table's write defensible.
+  sec_fetch_dest text,          -- verbatim: 'document' on a real navigation, 'empty' on the tracker's fetch.
+                                -- THE browser-agnostic signal: Chrome, Edge, Firefox and Safari 16.4+ all send it.
+  has_accept_language integer,  -- presence only. The VALUE is a weak identifier; the fact of the header is the signal.
+  has_sec_ch_ua integer,        -- presence only, and CHROMIUM-ONLY. Firefox and Safari legitimately never send it,
+                                -- so this must ONLY be read against a UA that claims Chrome/Edge. A bare presence
+                                -- test would label every Safari visitor a bot. classifyClientSignals() encodes that
+                                -- conditional; do not re-derive it at a call site.
+  tls_version text,             -- e.g. 'TLSv1.3'. DELIBERATELY LOW ENTROPY: the negotiated cipher is largely the
+  http_protocol text,           -- e.g. 'HTTP/2'.  server's choice, so this is nothing like JA3/JA4 (Enterprise).
+                                -- Corroboration for client_verdict, never a fingerprint on its own.
+  client_verdict text,          -- 'browser' | 'inconsistent' | 'non-browser' | 'unknown'. No CHECK constraint,
+                                -- deliberately: this is a log table where a constraint violation would silently
+                                -- drop the row, and on D1 a CHECK edit triggers drizzle-kit's destructive table
+                                -- recreate. The value comes from a closed server-side union.
+
   -- user_id / session_id / profile_role were DROPPED by AECI-585 (§13 D7, migration 0014).
   -- All three were declared at init and never written by any code path. Do not reintroduce
   -- them: there is no client-side session id anywhere in apps/web, and minting one would
   -- create a durable first-party identifier — precisely what makes this table's write
   -- defensible as consent-independent today. user_id was reachable on the browser POST but
   -- never on the SSR arrival path, so it would have been right half the time.
+  -- is_operator (above) is none of the three and does not reopen this: it stores one
+  -- boolean whose only consumer is an exclusion predicate — no id, no role string,
+  -- nothing that singles a visitor out — and D7's arrival-path objection is closed at
+  -- the source, because firePageView now forwards the inbound Cookie.
+  -- AECI-743 — the one-arrival-one-row guard. sha256(concrete_path | user_agent_hash |
+  -- cf_asn | floor(now / PAGE_VIEW_DEDUPE_WINDOW_MS)), computed at ingest and protected
+  -- by the UNIQUE index below. Hashed rather than stored as a readable tuple for the
+  -- same reason the raw UA never lands here: it is a constraint handle, not a lookup
+  -- key, and nothing reads it back to identify anyone.
+  -- NULLABLE ON PURPOSE, and that is the whole design: SQLite indexes NULLs as DISTINCT,
+  -- so a null key opts a row OUT of the constraint. Ingest writes null for bot-classified
+  -- rows (crawler volume must stay a raw count) and for rows with no user_agent_hash
+  -- (the key would degenerate to path + ASN and collide two strangers behind one
+  -- network). Null on every row written before 2026-09; those cannot be backfilled,
+  -- because the stored row cannot distinguish a double-fire from two genuine arrivals.
+  -- navigation is deliberately NOT in the key, so an SSR 'arrival' and the tracker's
+  -- 'spa' row for the same document collapse too.
+  dedupe_key text,
   created_at timestamptz not null default now()
 );
 
@@ -1203,6 +1412,52 @@ create index page_views_bot_idx on page_views(is_bot, created_at); -- digest hum
 -- five AECI-585 columns: nothing groups or filters on them yet, and this is the hottest
 -- write path in the app (D1 bills rows written, index rows included). Add one with the
 -- read that needs it.
+-- The six AECI-658 request-shape columns are unindexed for the same reason: the swarm
+-- detector groups on user_agent_hash (already covered by the window predicate) and reads
+-- client_verdict as a conditional SUM inside that group and -- since AECI-744 -- as a
+-- WHERE term (client_verdict IN ('inconsistent','non-browser'), flagging a row on its own
+-- with no view floor). Still no index, and deliberately: that filter never appears without
+-- the created_at window beside it, so the plan is the same window scan either way, and an
+-- index would cost an extra index row on every insert on the hottest write path to save
+-- nothing. Revisit only if the window itself stops bounding the scan.
+-- AECI-742 added a SECOND grouped read on the same shape -- (user_agent_hash, UTC day) over
+-- the trailing 14 days, for the detector's cross-day prior -- and deliberately added no
+-- index for it either. page_views_operator_pair_idx cannot serve it (it is PARTIAL on
+-- is_operator = 1), so the alternative would be a full non-partial index on
+-- (user_agent_hash, created_at): an index row per write on the hottest write path, to
+-- speed one daily cron read over a fortnight of rows. Revisit only if that read is
+-- measured slow, not on principle.
+-- What that read IS load-bearing on is page_views_operator_pair_idx below, because
+-- NOT_INTERNAL's retro-join is a correlated EXISTS: with the index the planner does
+-- SEARCH op USING COVERING INDEX, without it SCAN op once per candidate row. Measured
+-- over 41k rows that is 8 ms against 4.3 s; against prod-shaped data a 14-day window
+-- costs 14 s and 42.7M rows read when the index is absent. So the index is not
+-- optional maintenance -- if the swarm prior ever looks slow, check for it first.
+-- A plain index on is_operator is still pointless for the same reason it always was:
+-- it is a near-constant column (almost every row is 0 or null), so an index on it
+-- selects nearly the whole table and no planner would use it. The PARTIAL index below
+-- is the opposite case and is exactly the "add one with the read that needs it" the
+-- rule reserves.
+create index page_views_operator_pair_idx
+  on page_views(user_agent_hash, cf_asn, created_at)
+  where is_operator = 1; -- AECI-683: serves NOT_INTERNAL's operator-pair retro-join
+create unique index page_views_dedupe_key_idx on page_views(dedupe_key); -- AECI-743
+-- UNIQUE is the load-bearing word. The ingest-side probe (routes/page-views.ts) exists
+-- for the `outcome:deduped` metric; it is this constraint, via ON CONFLICT DO NOTHING,
+-- that actually settles the case the issue is named for — two writes 83 ms apart, both
+-- in flight from waitUntil, where the second SELECT can run before the first INSERT
+-- commits. NOT partial, unlike the index above: a partial index cannot back an upsert
+-- conflict target. This IS a non-trivial write cost — a non-partial UNIQUE index stores
+-- a b-tree entry for every row, NULL keys included (SQLite treats NULLs as distinct for
+-- the uniqueness check, it does not omit them from the index), so the bot rows that
+-- dominate this hot write path each pay for one extra index-entry write. The null-key
+-- rule only opts those rows out of the CONSTRAINT, not out of the storage; the cost is
+-- accepted because a partial index is not an option for an upsert conflict target.
+-- Partial, so SQLite stores an entry only for operator rows — a few hundred out of
+-- ~27k in production — and the write cost on the anonymous traffic that dominates this
+-- table is zero. The key order matches the correlated subquery: seek on
+-- (user_agent_hash, cf_asn), then range-scan created_at. Verify with EXPLAIN QUERY PLAN;
+-- it should read `SEARCH op USING COVERING INDEX page_views_operator_pair_idx`.
 ```
 
 **Migration `0014` is the repo's first table recreate** — every `ALTER` before it is an `ADD`. SQLite refuses `DROP COLUMN` on a column carrying an index **or** a `FOREIGN KEY` clause, and `user_id` had both (`page_views_user_idx` + the FK to `profiles`), so the drop is a `__new_page_views` copy-and-rename; `session_id` and `profile_role` ride along in it for free. Two things about that file are load-bearing: the copy lists `id` explicitly, so the autoincrement PK survives (the Activity feed paginates on `(created_at DESC, id DESC)` and would repeat or skip rows otherwise), and drizzle-kit's emitted `PRAGMA foreign_keys=OFF` was **hand-replaced with `PRAGMA defer_foreign_keys = true`**, which is the lever D1 supports. Regenerating that migration reintroduces the wrong pragma. See `docs/migrations.md`.
@@ -1229,7 +1484,7 @@ Keys used (see `STAGE_1_SPEC.md` §10):
 - `home.most_integrated_product`
 - `home.most_active_category`
 - `home.recent_integrations`
-- `home.trending_products` — top 5 by page_views (last 7 days), each clearing the `TRENDING_MIN_VIEWS` floor (currently 3; AECI-280)
+- `home.trending_products` — top 5 by page_views (last 7 days), each clearing the `TRENDING_MIN_VIEWS` floor (currently 3; AECI-280). Counts **human, non-internal** views only: bots (AECI-582) and the operator's own sessions (§13 D13) rank nothing and clear no floor — this card is public, so an unfiltered count would let scraping or self-checking decide what every visitor sees
 - `home.recently_added_products`
 - `category_counts`
 - `audience_counts`
@@ -1291,7 +1546,7 @@ readable through the timeseries endpoint today (the stocks await §5.4/§5.5):
 
 | Metric | Kind | Source | Backfill provenance |
 |---|---|---|---|
-| `traffic.page_views_human` | flow | `page_views`, `is_bot IS NOT 1`, `/admin`+`/account` excluded | measured |
+| `traffic.page_views_human` | flow | `page_views`, `is_bot IS NOT 1`, `/admin`+`/account` and operator sessions excluded | measured |
 | `traffic.page_views_bot` | flow | `page_views`, `is_bot = 1` | measured |
 | `traffic.unique_visitors` | flow | `count(distinct (user_agent_hash, cf_asn))`, humans only (§9.8) | measured |
 | `catalog.products_created` | flow | `audit_log` `product.created` live; **`products.created_at`** when backfilled | measured (§4's exception / D6 — exact, and better than the audit log) |
@@ -1301,7 +1556,7 @@ readable through the timeseries endpoint today (the stocks await §5.4/§5.5):
 | `accounts.sign_ins_new` | flow | `profiles.created_at` | measured |
 | `catalog.products_promoted` | stock | `products` where `promotion_status='promoted'` | not backfilled |
 | `catalog.vendors_promoted` | stock | `vendors` where `promotion_status='promoted'` | not backfilled |
-| `catalog.integrations_total` | stock | `integrations` | not backfilled |
+| `catalog.integrations_total` | stock | `integrations` **+ `connector_evidenced_pairs`** (AECI-721 — see below) | not backfilled, and **no backfill needed** |
 | `catalog.claims_total` | stock | `claims` | not backfilled |
 | `catalog.reviews_approved` | stock | `reviews` where `status='approved'` | not backfilled |
 | `accounts.profiles_total` | stock | `profiles` | not backfilled |
@@ -1310,6 +1565,19 @@ readable through the timeseries endpoint today (the stocks await §5.4/§5.5):
 | `audience.feedback_total` | stock | `feedback` | not backfilled |
 | `queue.reviews_pending` | stock | `reviews` where `status='pending'` | not backfilled |
 | `queue.requests_open` | stock | `vendor_requests` where `status='open'` | not backfilled |
+
+**`catalog.integrations_total` spans both delivered-tier tables, and that is what makes the
+AECI-721 migration invisible to this series.** `STAGE_1_5_SPEC.md` §13.5 flagged this producer as
+the one lockstep site whose damage "cannot be repaired after the fact": it is written once a day
+by cron, so an unadjusted migration would stamp a permanent, unexplained step-change into recorded
+history.
+
+It was resolved by making the expression `count(integrations) + count(connector_evidenced_pairs)`
+rather than by editing the series. The migration **moves** rows between two tables that are already
+summed and creates none, so the series is continuous across it — there is no step to annotate and
+no history to rewrite. That is the honest half of §13.5's "backfill or annotate deliberately": a
+retroactive edit to `metrics_daily` would have made the numbers look right by changing what we
+recorded, which is the opposite of what this table is for.
 
 Stocks are captured from day one but never reconstructed: a past *total* is
 unrecoverable (§4), so a cumulative sum of `*.created` events would be wrong
@@ -1331,12 +1599,12 @@ for a stock: an uncaptured day would report zero subscribers rather than unknown
 
 ### 9.4 `job_runs`
 
-One row per execution of one of the eleven `scheduled.ts` cron jobs (AECI-583; `ADMIN_PANEL_SPEC.md` §7.2 — the eleventh is the 10:00 attestation detector sweep, AECI-302). Before it existed a cron's outcome lived **only** as a Datadog metric, so nothing in D1 could answer "did the 08:00 Algolia sync run today", and the ten data-quality findings lived **only** in the 04:00 email — computed, sent, discarded.
+One row per execution of one of the thirteen `scheduled.ts` cron jobs (AECI-583; `ADMIN_PANEL_SPEC.md` §7.2 — the twelfth is the 11:00 entitlement term-expiry sweep, AECI-613, and the thirteenth is the WEEKLY 02:00 Monday `asn-registry` refresh, AECI-624, which met this table at the AECI-750 reconcile). Before it existed a cron's outcome lived **only** as an emitted metric, so nothing in D1 could answer "did the 08:00 Algolia sync run today", and the ten data-quality findings lived **only** in the 04:00 email — computed, sent, discarded.
 
 ```sql
 create table job_runs (
   id bigserial primary key,
-  job text not null,                -- one of the eleven AdminCronJob ids (packages/shared/src/api/admin-panel.ts)
+  job text not null,                -- one of the thirteen AdminCronJob ids (packages/shared/src/api/admin-panel.ts)
   started_at timestamptz not null,  -- written on ENTRY: the row exists before the job finishes
   finished_at timestamptz,          -- null = in flight, or the isolate never came back
   outcome text,                     -- 'ok' | 'failed' | 'skipped'; null while finished_at is null
@@ -1351,15 +1619,411 @@ create index job_runs_job_started_at_idx on job_runs(job, started_at); -- per-jo
 
 **`outcome` has no `'running'` member.** In flight is already `finished_at IS NULL AND outcome IS NULL`; a second encoding would let the two disagree. NULL passes the CHECK because SQLite satisfies a CHECK when the expression is true *or* NULL. The read side additionally refuses an outcome on an open row whatever is stored, so an unfinished run structurally cannot render as a success.
 
-**`job` carries no CHECK**, following `audit_log.action`: the vocabulary grows with every new cron and SQLite cannot ALTER a CHECK, so a tenth cron would need a table-recreate migration. `Record<ScheduledJob, AdminCronJob>` in `apps/api/src/lib/cron-schedules.ts` plus the Zod enum are the enforcement.
+**`job` carries no CHECK**, following `audit_log.action`: the vocabulary grows with every new cron and SQLite cannot ALTER a CHECK, so a tenth cron would have needed a table-recreate migration (a thirteenth, `asn-registry`, landed with AECI-624 and reached this line at the AECI-750 reconcile — at no migration cost, which is the payoff). `Record<ScheduledJob, AdminCronJob>` in `apps/api/src/lib/cron-schedules.ts` plus the Zod enum are the enforcement.
 
-**Why the index is `(job, started_at)` in that order.** Every read is "the newest run of one job": an equality seek on `job`, then one row off the descending `started_at` edge (`LIMIT 1`, ten of them per request). `id` is the rowid and therefore the index's implicit trailing column, which makes `ORDER BY started_at DESC, id DESC` a free deterministic tie-break with no temp b-tree. Verified by `EXPLAIN QUERY PLAN` against a 9,000-row fixture: `SEARCH job_runs USING INDEX job_runs_job_started_at_idx (job=?)`. The `GROUP BY job` and `ROW_NUMBER() OVER (PARTITION BY job)` alternatives both SCAN the whole index, and D1 bills rows read.
+**Why the index is `(job, started_at)` in that order.** Every read is "the newest run of one job": an equality seek on `job`, then one row off the descending `started_at` edge (`LIMIT 1`, eleven of them per request). `id` is the rowid and therefore the index's implicit trailing column, which makes `ORDER BY started_at DESC, id DESC` a free deterministic tie-break with no temp b-tree. Verified by `EXPLAIN QUERY PLAN` against a 9,000-row fixture: `SEARCH job_runs USING INDEX job_runs_job_started_at_idx (job=?)`. The `GROUP BY job` and `ROW_NUMBER() OVER (PARTITION BY job)` alternatives both SCAN the whole index, and D1 bills rows read.
 
 **No `audit_log` row.** Derived, log-class, cron-internal bookkeeping, exempt under ADR 0022 / `ADMIN_PANEL_SPEC.md` §13 D11 — and self-evidently the wrong thing to audit, since `job_runs` *is* the observability record. Written the way `stats_cache` is (`lib/home-stats.ts` `upsertStat`): plain single statements, outside any `db.batch`, each inside its own try/catch, so a bookkeeping failure can never abort the job it records. Note the boundary this does **not** cross: the exemption keys on entity class, not actor class, so a cron writing *domain* state still audits.
 
 **Read by** `GET /api/admin/system` (cron liveness + the orphan sweep) and `GET /api/admin/overview`'s status strip (the stored data-quality result) — `API_CONTRACTS.md` §6.10, `ADMIN_PANEL_SPEC.md` §5.1/§5.6. Both treat every field as untrusted and parse rather than assume.
 
-**Retention: 90 days — enforced** since AECI-584 by the daily 03:00 UTC pruning cron (`apps/api/src/lib/retention-prune.ts`), on the same whole-UTC-day, chunked-by-`id` mechanism as `page_views` §9.1. This is the half of §7.4 that bites first: the table accrues roughly 44k rows/year, ~80% of them from the `*/15` reconcile sweep, so the window first removes rows around **2026-11-11** (90 days past the 2026-08-13 start) versus ~2027-07 for `page_views`. Unlike `page_views` it carries no `metrics_daily` gate of its own — but a snapshot gap still stops it, because the prune aborts the whole run rather than half of it. Window: `JOB_RUNS_RETENTION_DAYS` in `@aeci/shared`, overridable per tier by the like-named env var. The read path was always immune by construction (ten bounded seeks), which is why the query shape above matters more than it looks.
+**Retention: 90 days — enforced** since AECI-584 by the daily 03:00 UTC pruning cron (`apps/api/src/lib/retention-prune.ts`), on the same whole-UTC-day, chunked-by-`id` mechanism as `page_views` §9.1. This is the half of §7.4 that bites first: the table accrues roughly 44k rows/year, ~80% of them from the `*/15` reconcile sweep, so the window first removes rows around **2026-11-11** (90 days past the 2026-08-13 start) versus ~2027-07 for `page_views`. Unlike `page_views` it carries no `metrics_daily` gate of its own — but a snapshot gap still stops it, because the prune aborts the whole run rather than half of it. Window: `JOB_RUNS_RETENTION_DAYS` in `@aeci/shared`, overridable per tier by the like-named env var. The read path was always immune by construction (eleven bounded seeks), which is why the query shape above matters more than it looks.
+
+### 9.5 `asn_registry`
+
+External classification of the ASNs `page_views` has actually seen (AECI-624; `ADMIN_PANEL_SPEC.md` §7.6). Joined at **read time** to annotate an Activity row or a `dimension=asn` breakdown group — it is **not** a second `DATACENTER_ASNS`, and nothing that writes it ever touches `page_views.is_bot`.
+
+```sql
+create table asn_registry (
+  asn integer primary key,      -- the join key; page_views.cf_asn matches by VALUE (no FK)
+  info_type text,               -- the upstream's word, VERBATIM ('Content', 'Cable/DSL/ISP', 'NSP', …).
+                                -- Null is a real, distinct state: ~29% of PeeringDB records carry a blank one
+  as_name text,
+  source text not null,         -- 'peeringdb' today; per-row so a second feed can land beside it
+  fetched_at text not null      -- drives the §5.6 staleness note
+);
+
+create index asn_registry_fetched_at_idx on asn_registry(fetched_at);
+```
+
+**Why it exists.** `is_bot` is written once at ingest from a hand-curated list whose membership rule is deliberately strict, and the raw User-Agent is discarded after hashing — so improving that list costs a one-way backfill. The cost of the strictness is a known miss: on 2026-08-13 three of five requests in a 1.9-second, three-continent burst on one product page counted as human because AS30058 (FDCservers.net) is not on the list. Rather than widen it — measured, the free external lists are *narrower* than ours and would have missed that ASN too — the panel annotates. Improve the feed and every historical row improves with it, no backfill and no rewritten verdicts.
+
+**No foreign key, deliberately.** `page_views` rows are pruned at 400 days (§9.1) and ASNs are not ours to own, so the join is by value and an absent row is an ordinary state that the read path renders as "no annotation" rather than as an error.
+
+**`info_type` carries no CHECK**, for the same reason `job_runs.job` does not and one more: the vocabulary belongs to the upstream, so re-coding it on the way in would bake today's reading of their taxonomy into stored data. The mapping onto our four coarse buckets (`eyeball` / `transit` / `non_eyeball` / `unclassified`) is a pure function on the read side (`networkClassOf` in `apps/api/src/lib/asn-registry.ts`), revisable with no migration and no re-fetch.
+
+**Bounded by the join domain, not by the feed.** PeeringDB carries ~35,000 networks; production `page_views` has seen 878 distinct ASNs. The weekly refresh intersects the two and stores only the second set, so the table stays under ~1k rows and carries nothing that will never be joined against. A first-sighting ASN is unannotated until the next Monday.
+
+**Never deleted, and an empty upstream is a failure.** A refresh only ever upserts. An outage, a schema change, or an empty response leaves the last good rows in place with their real `fetched_at` — the failure mode of an annotation feed must be "old answer", never "no answer, silently". Chunked at 20 rows per statement against D1's 100-bound-parameter cap (five columns × 20).
+
+**No `audit_log` row.** Derived, log-class, cron-written bookkeeping, exempt under ADR 0022 — the same class as `metrics_daily` §9.3 and `job_runs` §9.4. The run is recorded in `job_runs` (`job = 'asn-registry'`).
+
+**Written by** the weekly `0 2 * * 2` cron (Mondays; Cloudflare's day-of-week is 1=Sunday, AECI-661) (`apps/api/src/scheduled.ts` → `refreshAsnRegistry`). **Read by** `GET /api/admin/page-views`, `GET /api/admin/traffic/breakdown?dimension=asn`, and `GET /api/admin/system` (freshness + coverage).
+
+**Retention: none.** The table is bounded by the distinct-ASN count and a classification stays true after the `page_views` rows that prompted it are pruned, so §7.4's prune deliberately does not touch it.
+
+---
+
+## 9a. Connector lane (Stage 1.5 Addendum C — AECI-714)
+
+Six tables added by migration `apps/api/migrations/0026_overconfident_selene.sql`. Five are a
+**projection** of the review app's connector-lane model (`aec-integrations-review`, AECI-719):
+same column names, same semantics, so review → AECi is a copy rather than a transformation. The
+sixth, `connector_evidenced_pairs`, has no upstream counterpart and is created empty.
+
+Rows arrive only through `POST /api/promote/connector-catalog`
+(`docs/REVIEW_APP_PROMOTE_API.md` §3a). Nothing else writes them — with one deliberate exception
+that writes no catalogue *content*: `PATCH /api/admin/connector-catalogs/:id` (AECI-720) moves
+`connector_catalogs.managed_by`, and nothing else.
+
+**The first reader is `/admin/connectors` (AECI-722**, `ADMIN_PANEL_SPEC.md` §5.9). It also added
+the six tables' `relations()` entries plus the inverses on `productsRelations`, discharging the
+deferral recorded in `apps/api/src/db/schema.ts`. Note what its existence does *not* change: these
+tables still have no `Cache-Tag` vocabulary, because `/admin/*` is deliberately uncacheable
+(`CACHE_STRATEGY.md` §4). The tag set belongs to the first **public** reader, AECI-715 / 716.
+
+**Mapping decisions are not writable from AECi, and the reason is in this table's own upsert.**
+The sync's `ON CONFLICT (id) DO UPDATE` sets `status`, `confidence`, `evidence_url`, `decided_by`,
+`decided_at`, `checked_at` and `notes` from the page, and skips only rows it computes as
+*unchanged* — so an AECi-authored decision is exactly the row the next page overwrites. Authoring
+therefore waits for AECI-724 and is gated on `managed_by = 'vendor'`, the one state in which the
+sync is frozen out of a catalogue.
+
+**Two tiers, and conflating them is the failure this lane exists to prevent** (`STAGE_1_5_SPEC.md`
+§13.1):
+
+- **Delivered** — `connector_evidenced_pairs`. A working integration exists today.
+- **Reachable** — *not a table*. Derived at read time from `connector_stubs` +
+  `connector_stub_mappings`, and gated for publication by `connector_pairs.surface`. Never stored
+  as delivered, and **never counted** — not in a heading, not in `integration_count`, not in a
+  facet, not in the home stats (§13.5).
+
+**Primary keys are the review app's own record ids**, not `uuid ... default gen_random_uuid()`,
+on all five projected tables. The decisive reason is `connector_stub_mappings`: its natural key
+`(stub_id, product_id)` has a nullable `product_id`, and SQLite treats NULLs as distinct, so
+`ON CONFLICT (stub_id, product_id)` can never match a stub-level decision row — a re-sent page
+would insert a second one and the partial index would roll the whole page back. Keying on the
+review id makes every statement in the sync `ON CONFLICT (id) DO UPDATE`. `promote_jobs.job_id`
+is the standing precedent for a caller-supplied text key in this schema.
+
+**CHECK discipline.** A CHECK change on D1 is a destructive table recreate (`docs/migrations.md`
+§0), so the rule is: *every column the DB CHECKs, the Zod contract enums; every column the Zod
+contract leaves a loose string, the DB leaves unconstrained.* `surface_role`, `index_kind` and
+`direction_role` are therefore unconstrained on both sides — that vocabulary has already moved
+once (the review app added `all` only after the 2026-08-27 Aquifer/Kroo survey).
+
+### 9a.1 `connector_catalogs`
+
+One row per iPaaS — the catalogue as a whole, never one of its index pages. That is what gives
+`managed_by` somewhere to live: a vendor takes over a **catalogue**, not an index URL (AECI-720).
+
+```sql
+create table connector_catalogs (
+  id text primary key,                       -- the review app's record id
+  connector_product_id uuid not null references products(id) on delete cascade,
+  connector_authorship text check (connector_authorship in ('platform', 'partner', 'mixed')),
+  managed_by text not null default 'review' check (managed_by in ('review', 'vendor')),
+  notes text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create unique index connector_catalogs_product_idx on connector_catalogs(connector_product_id);
+```
+
+- `connector_product_id` is **NOT NULL**. A catalogue whose connector platform is not promoted is
+  reported in the sync's `skipped[]` rather than stored half-formed — the live case, since Zapier
+  and Workato are `promotion_status: on_hold` review-side (AECI-700). **AECI-721 answered the
+  open question as NO** — an evidenced pair may not name an unpromoted connector either (§9a.6
+  "As built"), so those edges stay in `integrations` and keep `mechanism_kind = 'iPaaS'`.
+- `connector_authorship` matters because Zapier inverts what the rest of the lane assumes: its app
+  vendors write the connectors, not Zapier. A reader defaulting to `platform` would attribute nine
+  thousand connectors to the wrong party.
+- `managed_by` is **held and enforced on this side** deliberately — the review app is the component
+  being decommissioned, so the surviving system owns who-controls-what. AECI-714 landed the column;
+  **AECI-720 landed the enforcement.** It has exactly **two writers**, and no third is permitted:
+  the column `DEFAULT 'review'` on create, and `PATCH /api/admin/connector-catalogs/:id`
+  (`API_CONTRACTS.md` §6.10, behind `requireAdmin()`). It is correspondingly **not on the promote
+  wire** — accepting it there is what let any re-sync silently flip a vendor-managed catalogue back
+  to `review`, which is the exact inversion of the sentence above.
+- **What enforcement means.** While `managed_by = 'vendor'`, `planConnectorCatalogPage` refuses
+  every `POST /api/promote/connector-catalog` page for that catalogue with
+  `CATALOG_VENDOR_MANAGED`, thrown before a single statement is built — so a refused page writes
+  nothing at all, including no `audit_log` row. The check runs *before* the unpromoted-connector
+  skip, so a policy refusal never disguises itself as a re-sendable "could not resolve yet".
+  Refusing the page is complete cover: every child row binds the page's own catalogue id.
+- **The flag is reversible; the data direction is not.** "One-way forever" governs the data — the
+  review app never writes over AECi's copy — and the refusal delivers that unconditionally. The
+  flag itself moves both ways, because `STAGE_2_SPEC.md` §8.9(4) makes this cutoff the mechanism
+  that answers *"is the feed still arriving?"* for a connector seat carrying no
+  `vendor_entitlements` row and therefore no expiry cron, which is only actionable if a lane can be
+  reclaimed. Both directions audit per row in the same batch as the flip
+  (`connector_catalog.managed_by_vendor` / `.managed_by_review`) — ADR 0022 and
+  `STAGE_1_SPEC.md` §26.1 name this write explicitly, distinguishing it from the run-granularity
+  carve-out that governs the sync on these same tables.
+- **The flip grants no seat.** The endpoint's optional `vendorId` is validated against `vendors`
+  and recorded in the audit metadata; that record is the *only* one, because `STAGE_2_SPEC.md`
+  §8.9(2) keeps the connector seat out of `vendor_entitlements` entirely and §8.9(3) leaves
+  provisioning to AECI-722 / AECI-724. Nothing here writes `profiles.role = 'vendor_admin'`.
+
+### 9a.2 `connector_catalog_surfaces`
+
+One row per index URL the review-side ingest crawls. Vendors publish more than one — Aquifer and
+Kroo facet by industry, MindCloud and Agave publish an app index and a pair index — so
+`surface_role` is part of the row identity.
+
+```sql
+create table connector_catalog_surfaces (
+  id text primary key,
+  catalog_id text not null references connector_catalogs(id) on delete cascade,
+  surface_role text not null,                -- apps | pairs | sources | destinations | all
+  index_kind text,                           -- sitemap | toc | json_api | html
+  index_url text,
+  last_ingested_at timestamptz,
+  notes text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create unique index connector_catalog_surfaces_role_idx
+  on connector_catalog_surfaces(catalog_id, surface_role);
+```
+
+- **No count columns, deliberately.** A count here is maintained state that goes stale on the first
+  truncated fetch and that nobody can date.
+- `last_ingested_at` is the "as of" date §13.1 requires every reachable-tier claim to render with,
+  and the catalogue-freshness signal `STAGE_2_SPEC.md` §8.9(4) makes the connector-vendor seat
+  answerable for. It is per surface — one row — so the coverage surfaces should source provenance
+  from here rather than from thousands of per-stub `last_seen_at` values.
+
+### 9a.3 `connector_stubs`
+
+Every listing in a catalogue, **not only the ones that match a product**. The question this lane
+answers is *"is this new listing one of ours?"*, and that needs the misses present: ~3,342 of
+today's 3,573 stubs map to nothing. Holding the full mirror is also what makes AECI-720's cutoff a
+lane freeze rather than a data migration, and what gives AECI-722's triage queue its rows.
+
+```sql
+create table connector_stubs (
+  id text primary key,
+  catalog_id text not null references connector_catalogs(id) on delete cascade,
+  slug text not null,
+  label text,
+  url text,
+  direction_role text,                       -- source | destination | both, or null
+  action_count integer,
+  actions jsonb,                             -- NULL = never fetched, NOT "no actions"
+  actions_hash text,
+  actions_fetched_at timestamptz,
+  previous_labels jsonb,                     -- string array
+  meta jsonb,
+  first_seen_at timestamptz not null,
+  last_seen_at timestamptz not null,
+  removed_at timestamptz,                    -- tombstone
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create unique index connector_stubs_catalog_slug_idx on connector_stubs(catalog_id, slug);
+create index connector_stubs_label_idx on connector_stubs(label);
+```
+
+- The stub is a **fact** — the iPaaS publishes this listing — which is why it carries no decision
+  columns at all. Everything anybody *concludes* about it lives in `connector_stub_mappings`.
+- `actions` **NULL means never fetched, not "no actions"**. The per-listing inventory is ~73k
+  actions across MindCloud alone and is fetched lazily, so most stubs carry null indefinitely. A
+  reader treating null as "none" would publish *"this connector does nothing"* about most of the
+  catalogue.
+- `first_seen_at` / `last_seen_at` are **NOT NULL with no default**, unlike the review side, which
+  defaults them because rows are born there from a crawl. Here every row arrives from a sync that
+  already knows both, so a default would only mask a sender bug as a plausible timestamp.
+- `removed_at` is computed review-side off a `complete` ingest run — a truncated sitemap fetch is
+  indistinguishable from a vendor deleting half their catalogue. AECi copies the outcome and never
+  re-derives it, which is why the review app's ingest-run log is deliberately **not** mirrored.
+
+### 9a.4 `connector_stub_mappings`
+
+What somebody concluded about a stub — **many-to-many**. One listing may be several of our products
+(MindCloud's single `adp` listing is ADP Workforce Now and any edition built within it) and one
+product may appear as several listings in one catalogue.
+
+```sql
+create table connector_stub_mappings (
+  id text primary key,
+  stub_id text not null references connector_stubs(id) on delete cascade,
+  catalog_id text not null references connector_catalogs(id) on delete cascade,
+  product_id uuid references products(id) on delete set null,
+  status text not null
+    check (status in ('mapped', 'ruled_out', 'out_of_scope', 'no_record', 'ambiguous_parked')),
+  confidence text check (confidence in ('low', 'medium', 'high')),
+  evidence_url text,
+  decided_by text,
+  decided_at timestamptz,
+  checked_at timestamptz,
+  notes text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create unique index connector_stub_mappings_pair_idx on connector_stub_mappings(stub_id, product_id);
+create unique index connector_stub_mappings_decision_idx on connector_stub_mappings(stub_id)
+  where status in ('out_of_scope', 'no_record', 'ambiguous_parked');
+create index connector_stub_mappings_product_idx on connector_stub_mappings(product_id);
+create index connector_stub_mappings_status_idx on connector_stub_mappings(catalog_id, status);
+```
+
+- **There is no `pending` status — the absence of a row is pending.** A row per unreviewed stub
+  would be ~3,300 rows of nothing before anybody had decided anything.
+- Five statuses in **two families**: `mapped` / `ruled_out` name a product and several may sit on
+  one stub; `out_of_scope` / `no_record` / `ambiguous_parked` assert there is none to name, and at
+  most one may sit on a stub. `ruled_out` exists so the review app's auto pass does not re-propose
+  the same wrong product every run.
+- **The two-column invariant is enforced in application code and in the wire schema, never as a DB
+  CHECK** — the same shape as `claims`' `origin` / `created_by_vendor_id` biconditional, and for a
+  sharper reason: `product_id` goes NULL under `on delete set null`, so a CHECK would be
+  re-evaluated by that update and would make **deleting a mapped product fail**.
+- The partial unique index is keyed on **status**, not on `product_id is null`, for the same
+  reason. A stub whose two mapped products were both deleted would otherwise collide on a
+  null-keyed index. A `mapped` row left holding NULL is meant to be visible, not tidied away.
+- `catalog_id` is a denormalised copy of the stub's, derived server-side and never accepted on the
+  wire. It exists for `connector_stub_mappings_status_idx`: the triage counts are "how many of this
+  catalogue's stubs sit in each state", and without it that GROUP BY joins every mapping back to
+  its stub.
+- **The publication gate is provenance, not confidence**: `status = 'mapped' AND product_id IS NOT
+  NULL AND decided_by IS NOT NULL AND decided_by <> 'auto-name-match'`. Gating on `confidence`
+  would publish hundreds of machine guesses at `medium`.
+
+### 9a.5 `connector_pairs`
+
+The pairs a vendor publishes a page for, filtered review-side to pairs where both stubs map to one
+of our products — the difference between ~2,000 rows and MindCloud's 104,186.
+
+```sql
+create table connector_pairs (
+  id text primary key,
+  catalog_id text not null references connector_catalogs(id) on delete cascade,
+  stub_a_id text not null references connector_stubs(id) on delete cascade,
+  stub_b_id text not null references connector_stubs(id) on delete cascade,
+  url_a_to_b text,
+  url_b_to_a text,
+  surface text not null default 'unknown' check (surface in ('curated', 'generated', 'unknown')),
+  classified_at timestamptz,
+  first_seen_at timestamptz not null,
+  last_seen_at timestamptz not null,
+  removed_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint connector_pairs_canonical_order check (stub_a_id < stub_b_id)
+);
+
+create unique index connector_pairs_pair_idx on connector_pairs(catalog_id, stub_a_id, stub_b_id);
+create index connector_pairs_stub_b_idx on connector_pairs(stub_b_id);
+```
+
+- **This is not the reachable tier and asserts no delivery.** It exists for one thing the mapping
+  graph cannot supply: `surface`. Reachability is derivable from stubs + mappings alone (§13.1),
+  but *publication* is not — §13.7 publishes the **curated** set, and curated-vs-generated is a
+  classification on the vendor's own published pair row. Without this table the only derivable
+  thing is the auto-generated cross-product that §13.7 and AECI-716 explicitly refuse.
+- The canonical ordering is a CHECK rather than a convention because vendors publish both
+  directions as separate pages: without it every pair arrives twice and the unique index cannot see
+  the collision. Keeping both URLs means the ordering costs no information.
+- `surface` defaults to `unknown` on purpose — appearing in an index says a page exists, not that
+  anyone read it.
+
+### 9a.6 `connector_evidenced_pairs`
+
+The **delivered** tier for connector-delivered edges (§13.1). The one table here with no
+review-side counterpart, and the destination AECI-721 migrates the connector-powered
+`integrations.powered_by_product_id` edges into. AECI-714 created it empty; **AECI-721 filled it**
+(migration `0027_powerful_killraven.sql`) and made `POST /api/promote` route new
+connector-powered edges here instead of into `integrations`. The connector-catalogue sync still
+never emits a statement against it — reachability and delivery stay separate lanes.
+
+**Read surfaces (AECI-713, 2026-09-02).** The ENDPOINT product-detail read
+(`productDetailConfig`) loads `evidencedPairsAsA` / `evidencedPairsAsB` and unions them into
+`ProductDetail.integrations_as_source` / `_as_target`, filing each row by its **oriented** source
+rather than by which column matched — the canonical order is a storage detail and carries no
+orientation meaning. AECI-721 had unioned this table into every read surface except that one, so
+between the two issues the migrated edges counted toward `integration_count` while rendering on
+neither endpoint's page. `claimsRelations.connectorEvidencedPair` was added at the same time: the
+`many(claims)` side here had no inverse, so Drizzle could not resolve a claims join on this table
+until something asked for one.
+
+**As built (AECI-721, 2026-08-31).** 19 production edges moved, not the ~326 this section
+originally anticipated: that figure is review-catalogue-side, and the prod gap is promotion
+coverage (AECI-730 reconciles it as 79 promoted + 62 connector-unpromoted + 184 never promoted).
+Three rules decided which rows moved:
+
+- **The routing key is the FK, not the kind**: `powered_by_product_id IS NOT NULL AND <> source
+  AND <> target`, regardless of `mechanism_kind`. §13.2 left the ~20-row `marketplace-app`-with-
+  `powered_by` residue open and AECI-721 settled it *into* this table — which is what
+  `built_by_vendor_id` was put here on day one to allow. 17 of the 19 are that residue.
+- **Convention-A self-references stayed** in `integrations` (60 prod rows — Aquifer 31, Kroo 29),
+  as `connector_evidenced_pairs_distinct_connector` requires.
+- **An edge whose connector is unpromoted stayed too** — `connector_product_id` is NOT NULL, and
+  AECI-700 parks Zapier and Workato permanently. 53 prod `iPaaS` rows are in that state. This is
+  the answer to the open question §9a.1 records: **no, an evidenced pair may not name an
+  unpromoted connector**, and the consequence is that those edges keep `mechanism_kind = 'iPaaS'`
+  — which is why `iPaaS` did NOT leave the `integrations` CHECK.
+
+```sql
+create table connector_evidenced_pairs (
+  id uuid primary key default gen_random_uuid(),
+  connector_product_id uuid not null references products(id) on delete cascade,
+  product_a_id uuid not null references products(id) on delete cascade,
+  product_b_id uuid not null references products(id) on delete cascade,
+  name text,
+  built_by_vendor_id uuid references vendors(id),
+  mechanism_name text,
+  direction text check (direction in ('a_to_b', 'b_to_a', 'both')),
+  description text,
+  website text,
+  listing_url text,
+  docs_url text,
+  mechanism_url text,
+  pricing_model text,
+  maturity text,
+  notes text,
+  last_reviewed_at timestamptz,
+  maintained_by text not null default 'aeci' check (maintained_by in ('aeci', 'vendor')),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint connector_evidenced_pairs_canonical_order check (product_a_id < product_b_id),
+  constraint connector_evidenced_pairs_distinct_connector
+    check (connector_product_id <> product_a_id and connector_product_id <> product_b_id)
+);
+
+create unique index connector_evidenced_pairs_pair_idx
+  on connector_evidenced_pairs(connector_product_id, product_a_id, product_b_id);
+create index connector_evidenced_pairs_product_a_idx on connector_evidenced_pairs(product_a_id);
+create index connector_evidenced_pairs_product_b_idx on connector_evidenced_pairs(product_b_id);
+create index connector_evidenced_pairs_connector_idx on connector_evidenced_pairs(connector_product_id);
+create index connector_evidenced_pairs_built_by_idx on connector_evidenced_pairs(built_by_vendor_id)
+  where built_by_vendor_id is not null;
+```
+
+- **The shape exists to not foreclose the claims re-home.** A production check on 2026-08-31 found
+  **94 of 1,697 claims anchored on powered edges**, and `claims.integration_id` is a single-column
+  NOT NULL FK inside `claims_identity_key` — so re-homing them recreates `claims`. Two properties
+  keep that to *one* recreate rather than two: a **single-column** surrogate key (a composite PK
+  would force a three-column FK from `claims`), and a default that an explicit value overrides — so
+  AECI-721 can supply the migrated `integrations.id` verbatim as the new row's `id`, leaving the 94
+  claims' stored anchor **value** unchanged and only moving which table it points at.
+- `built_by_vendor_id` is here on day one because §13.2 records an open residue: ~326 edges carry
+  `powered_by` against 308 marked `iPaaS`, and the ~20-row difference is accountable (AnyWare Apps'
+  two Ramp↔Sage edges are `marketplace-app` **with** a `powered_by`, built by Cherry Bekaert). A
+  table that could not hold a builder would silently pre-decide that residue, and an FK added later
+  loses its `ON DELETE` clause under `ADD COLUMN`.
+- `connector_evidenced_pairs_distinct_connector` enforces §13.2(a) structurally. Review-side
+  Convention A stores *"product X ships a connector on platform C"* as one edge whose `powered_by`
+  **is** one of its own endpoints — ~152 of the 308 `iPaaS` rows. Those stay in the direct list;
+  letting one in here would render "Via Aquifer → Aquifer".
+- `direction` uses `claims`' `a_to_b | b_to_a | both` vocabulary rather than `integrations`'
+  `one-way | bidirectional`, because once the pair is canonicalised `one-way` no longer says which
+  way. AECI-721's migration is therefore a lossless CASE, not a straight copy:
+  `one-way` with source = A → `a_to_b`; `one-way` with source = B → `b_to_a`; `bidirectional` →
+  `both`; NULL → NULL.
 
 ---
 
@@ -1413,7 +2077,7 @@ create trigger products_updated_at before update on products
 
 `products.integration_count`, `products.review_count`, `products.rating_overall_avg`, and `products.rating_onboarding_avg` are denormalized for read performance. In Stage 1 they are maintained by **application code in the API Worker**: every write path that mutates `integrations` or `reviews` calls the shared `recomputeProductCounts()` helper (`apps/api/src/lib/recompute-counts.ts`) right after the mutating `db.batch` commits. Because D1 has no interactive transactions the recompute is a **separate, non-atomic write** that may lag briefly (ADR 0016). `review_count` and the rating averages count only reviews with `status = 'approved'` (the only publicly visible state — see §4.7, §12); the averages are NULL when a product has no approved reviews.
 
-**Drift protection.** The drift rule lives once in `apps/api/src/lib/recompute-counts.ts` — `diffProductCounts()` (the pure comparison) and `findProductCountDrift()` (over a live Db). `scripts/reconcile-product-counts.ts` is the CLI/CI caller: it recomputes the expected values from the source rows against the **deployed D1** via `wrangler d1 execute --remote` and flags any product whose stored columns disagree (run via `RECONCILE_ENV=<staging|production> CLOUDFLARE_API_TOKEN=… pnpm --filter @aeci/api db:reconcile-counts`; `--fix` repairs in place; `--local` targets the seeded local D1). A scheduled CI job (`.github/workflows/reconcile-counts.yml`) runs the check report-only against staging/prod daily and alerts on drift via the Datadog gauge `aeci.product_counts.drift`. A unit test (`src/lib/recompute-counts.spec.ts`) covers the comparison rule.
+**Drift protection.** The drift rule lives once in `apps/api/src/lib/recompute-counts.ts` — `diffProductCounts()` (the pure comparison) and `findProductCountDrift()` (over a live Db). `scripts/reconcile-product-counts.ts` is the CLI/CI caller: it recomputes the expected values from the source rows against the **deployed D1** via `wrangler d1 execute --remote` and flags any product whose stored columns disagree (run via `RECONCILE_ENV=<staging|production> CLOUDFLARE_API_TOKEN=… pnpm --filter @aeci/api db:reconcile-counts`; `--fix` repairs in place; `--local` targets the seeded local D1). A scheduled CI job (`.github/workflows/reconcile-counts.yml`) runs the check report-only against staging/prod daily and alerts on drift via the `aeci.product_counts.drift` gauge. A unit test (`src/lib/recompute-counts.spec.ts`) covers the comparison rule.
 
 Database triggers on the source tables are **reserved for Phase 2** if write performance becomes an issue; Stage 1 deliberately keeps this at the application layer. (The `invalidateForEntity()` helper referenced by earlier drafts was never built and is superseded — cache invalidation now goes through the Cache-Tag strategy, a separate concern from count maintenance; see CLAUDE.md "Cache invalidation".)
 
@@ -1518,6 +2182,15 @@ The local seed (`apps/api/seed/*.sql`, applied to the local D1 via `pnpm db:seed
 
 This seed data is fixed and known — E2E tests assume it exists.
 
+The chain's **final step is not SQL**: `db:grant-admin:local` runs
+`apps/api/scripts/grant-local-admin.mjs`, which upserts a `role='admin'`
+`profiles` row for the `LOCAL_ADMIN_USER_ID` set in `apps/api/.dev.vars` — your
+own Supabase user id, so `/admin/*` renders in a local browser instead of 404
+(AECI-765). It is deliberately outside the committed `seed/*.sql` because the id
+is per-human; the two ids in `seed/auth-fixtures.sql` are the shared e2e personas
+and are load-bearing in CI. Unset → the step no-ops, and it always exits 0 so it
+can never fail a seed run. See `docs/AUTH_AND_RLS.md` §3.3.
+
 ### 14.2 Staging
 
 Staging gets a larger subset of real production data, refreshed weekly via a curator-approved snapshot. Personal data (emails, real names) is anonymized.
@@ -1572,7 +2245,7 @@ Migrations are generated by **drizzle-kit** from the Drizzle schema and applied 
 
 ## 18. Transactional writes with audit log
 
-Every write that changes **domain state** must emit its `audit_log` (+ `workflow_transitions` where applicable) row (`STAGE_1_SPEC.md` §26.1, `CLAUDE.md` §"Datadog and audit logging"). Failure to log is a transactional failure — the mutation must not commit without its audit entry.
+Every write that changes **domain state** must emit its `audit_log` (+ `workflow_transitions` where applicable) row (`STAGE_1_SPEC.md` §26.1, `CLAUDE.md` §"Audit logging and the observability forward"). Failure to log is a transactional failure — the mutation must not commit without its audit entry.
 
 **Scope (ADR 0022).** "Domain state" is the catalog, users and profiles, reviews and moderation, claims and attestations, requests and workflows. **Derived and log-class writes are exempt**: `page_views`, `mailing_list`, `feedback` (`API_CONTRACTS.md` §6.9/§6.13), `stats_cache`, the Algolia watermark, the denormalized product counters (§14.2), and the cron-written `metrics_daily` (§9.3 — **shipped**, AECI-581) and `job_runs` (§9.4 — **shipped**, AECI-583) tables (`ADMIN_PANEL_SPEC.md` §7.1/§7.2). The test is **entity class, not actor class** — a `system`/cron actor writing domain state still audits — and **scheduled `DELETE`s are never exempt**: they emit one summary row per run (`action='retention.pruned'`). That exception is live as of AECI-584 (§9.1/§9.4): the 03:00 retention prune is the only cron that writes an `audit_log` row, and it writes exactly one per run — `actor_type='system'`, `entity_type='retention'`, `metadata={rowsDeleted, tables:[{table, cutoff, rowsDeleted}]}` — inside the same atomic `db.batch` as every chunked `DELETE`. A run that deletes nothing writes none: the exception exists because a deletion's fact is unrecoverable afterwards, and a non-deletion has no such fact.
 
@@ -1588,7 +2261,7 @@ await db.batch([
 ]);
 ```
 
-Each helper returns a Drizzle insert *statement* the caller pushes into its batch array; `db.batch()` commits them as a single unit. The best-effort Datadog forward (§26.5) is decoupled — call `forwardAuditLog` from `@aeci/shared` **after** the batch commits, via `ctx.waitUntil`.
+Each helper returns a Drizzle insert *statement* the caller pushes into its batch array; `db.batch()` commits them as a single unit. The best-effort observability forward (§26.5) is decoupled — call `forwardAuditLog` from `@aeci/shared` **after** the batch commits, via `ctx.waitUntil`. Its *target* moved Datadog → PostHog through the injected-forwarder seam (ADR 0024, completed at AECI-651); the in-batch rule above was unaffected.
 
 **Cache invalidation runs after commit.** A state-changing write that affects cached SSR pages purges by **`Cache-Tag`** *after* `db.batch()` resolves, never inside it. On the API Worker (and datatool) that means **enqueuing** a typed `CachePurgeMessage` onto the `aeci-cache-purge-{env}` Cloudflare Queue; the SSR consumer issues the native `ctx.cache.purge()` (the SSR Worker's own `/admin/purge` purges in-process instead). Wrap the enqueue in `ctx.waitUntil()` so the response is not blocked on it:
 

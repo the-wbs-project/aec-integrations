@@ -6,7 +6,7 @@
  *     an `EmailOutcome`. Absent `RESEND_API_KEY`/`EMAIL_FROM` or empty recipient →
  *     silent `'skipped'` (no fetch); 2xx → `'sent'`; non-2xx/network/timeout →
  *     `'failed'` (logged, never thrown). Each template helper POSTs the right
- *     `to`/subject/body. Global `fetch` is stubbed; `DD_API_KEY` is unset so the
+ *     `to`/subject/body. Global `fetch` is stubbed; `POSTHOG_PROJECT_KEY` is unset so the
  *     `warn`/metric paths are no-ops. Mirrors `toxicity.spec.ts`.
  *   - Low-level transport (AECI-241): `sendEmail` + `parseRecipients` with a faked
  *     `fetch` — skip/sent/failed outcomes and the never-throw guarantee.
@@ -15,7 +15,7 @@
 import type { Context } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 
-import { submitCount } from '../datadog';
+import { submitCount } from '../posthog';
 import type { Env } from '../env';
 import {
   parseRecipients,
@@ -26,6 +26,7 @@ import {
   sendAttestationStaleVersionEmail,
   sendClaimApprovedEmail,
   sendClaimRejectedEmail,
+  sendClaimSubmittedNotification,
   sendEmail,
   sendEntitlementExpiringAdminEmail,
   sendEntitlementExpiringEmail,
@@ -40,8 +41,9 @@ import {
 
 // The `aeci.email.send` count + the `warn` log ride the shared transport; mock it
 // so we can assert per-branch outcome tags without a real Datadog intake.
-vi.mock('../datadog', () => ({
-  logToDatadog: vi.fn(),
+vi.mock('../posthog', () => ({
+  logToPosthog: vi.fn(),
+  logBatchToPosthog: vi.fn(),
   submitCount: vi.fn(),
   submitDistribution: vi.fn(),
   submitGauge: vi.fn(),
@@ -66,12 +68,12 @@ function lastBody(fetchSpy: MockInstance): Record<string, unknown> {
   >;
 }
 
-/** Minimal context the client reads: env (key/sender/site) + the Datadog triple.
+/** Minimal context the client reads: env (key/sender/site) + the telemetry triple.
  *  `RESEND_API_KEY` + `EMAIL_FROM` are set by default so sends go out. */
 function fakeContext(env: Partial<Env> = {}): EmailContext {
   return {
     env: {
-      DD_API_KEY: undefined,
+      POSTHOG_PROJECT_KEY: undefined,
       RESEND_API_KEY: 'rk_test',
       EMAIL_FROM: 'AEC Integrations <notifications@aecintegrations.com>',
       ...env,
@@ -468,6 +470,104 @@ describe('sendStuckRequestAdminAlert', () => {
   });
 });
 
+describe('sendClaimSubmittedNotification', () => {
+  const CLAIM = {
+    requestId: 'req-9',
+    targetName: 'Globex Inc',
+    targetType: 'vendor' as const,
+    slug: 'globex',
+    submitterEmail: 'ops@globex.com',
+    submitterName: 'Dana Ops',
+    submitterRole: 'VP Product',
+    domainMatch: 'match',
+    duplicateOfRequestId: null,
+  };
+
+  it('sends to CLAIM_ALERT_EMAIL with the target in the subject and both signals in the body', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    const outcome = await sendClaimSubmittedNotification(
+      fakeContext({
+        CLAIM_ALERT_EMAIL: 'support@aecintegrations.com',
+        PUBLIC_SITE_URL: 'https://www.aecintegrations.com',
+      }),
+      CLAIM,
+    );
+
+    expect(outcome).toBe('sent');
+    const body = lastBody(fetchSpy);
+    expect(body.to).toBe('support@aecintegrations.com');
+    expect(body.subject).toBe('[AECi] New vendor claim: Globex Inc');
+    const text = String(body.text);
+    expect(text).toContain('ops@globex.com');
+    expect(text).toContain('Domain match: match');
+    expect(text).toContain('Possible duplicate: no');
+    expect(text).toContain('req-9');
+    expect(sendTags()).toContainEqual(['outcome:sent', 'template:claim-submitted-alert']);
+  });
+
+  it('links a vendor target at /vendors and a product target at /products', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    const ctx = fakeContext({
+      CLAIM_ALERT_EMAIL: 'support@aecintegrations.com',
+      PUBLIC_SITE_URL: 'https://www.aecintegrations.com',
+    });
+
+    await sendClaimSubmittedNotification(ctx, CLAIM);
+    expect(String(lastBody(fetchSpy).text)).toContain(
+      'https://www.aecintegrations.com/vendors/globex',
+    );
+
+    await sendClaimSubmittedNotification(ctx, {
+      ...CLAIM,
+      targetType: 'product',
+      slug: 'acme-cad',
+    });
+    expect(String(lastBody(fetchSpy).text)).toContain(
+      'https://www.aecintegrations.com/products/acme-cad',
+    );
+  });
+
+  it('surfaces the duplicate id when the probe matched', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendClaimSubmittedNotification(
+      fakeContext({ CLAIM_ALERT_EMAIL: 'support@aecintegrations.com' }),
+      { ...CLAIM, duplicateOfRequestId: 'req-1' },
+    );
+    expect(String(lastBody(fetchSpy).text)).toContain('Possible duplicate: req-1');
+  });
+
+  it('omits the links when PUBLIC_SITE_URL is unset rather than emitting a dead host', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendClaimSubmittedNotification(
+      fakeContext({ CLAIM_ALERT_EMAIL: 'support@aecintegrations.com' }),
+      CLAIM,
+    );
+    const text = String(lastBody(fetchSpy).text);
+    expect(text).not.toContain('Review queue');
+    expect(text).not.toContain('Listing');
+  });
+
+  it('skips (no fetch) when CLAIM_ALERT_EMAIL is unset — fail-open, never throws', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    const outcome = await sendClaimSubmittedNotification(fakeContext(), CLAIM);
+
+    expect(outcome).toBe('skipped');
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(sendTags()).toContainEqual(['outcome:skipped', 'template:claim-submitted-alert']);
+  });
+
+  it('escapes HTML in the submitter-supplied fields', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendClaimSubmittedNotification(
+      fakeContext({ CLAIM_ALERT_EMAIL: 'support@aecintegrations.com' }),
+      { ...CLAIM, submitterName: '<script>alert(1)</script>' },
+    );
+    const html = String(lastBody(fetchSpy).html);
+    expect(html).toContain('&lt;script&gt;');
+    expect(html).not.toContain('<script>');
+  });
+});
+
 // ─── Low-level transport (AECI-241) ─────────────────────────────────────────────
 
 const MSG = {
@@ -545,6 +645,96 @@ describe('sendEmail', () => {
     expect(
       await sendEmail({ RESEND_API_KEY: 'k' }, MSG, fetchImpl as unknown as typeof fetch, silent),
     ).toBe('failed');
+  });
+});
+
+// ─── AECI-666: both Resend senders release their response body ───────────────
+//
+// An unread body holds its connection, and a Worker invocation may hold only a
+// bounded number. Past that the runtime cancels the stalled responses into
+// `fetch` promises that never settle — which is exactly the shape a digest cron
+// sending a run of emails hits.
+
+function trackedResponse(status: number, body = '{}'): { res: Response; drained: () => boolean } {
+  let cancelled = false;
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode(body));
+    },
+    cancel() {
+      cancelled = true;
+    },
+  });
+  return { res: new Response(stream, { status }), drained: () => cancelled };
+}
+
+const settled = () => new Promise((r) => setTimeout(r, 0));
+
+describe('Resend transports release the response body', () => {
+  it('sendTransactionalEmail drains on 2xx', async () => {
+    const { res, drained } = trackedResponse(200);
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(res);
+
+    await sendTransactionalEmail(fakeContext(), {
+      to: 'r@example.com',
+      subject: 'Hi',
+      text: 'Body',
+      template: 'review-submitted',
+    });
+    await settled();
+
+    expect(drained()).toBe(true);
+  });
+
+  it('sendTransactionalEmail drains on a non-2xx too (neither branch reads it)', async () => {
+    const { res, drained } = trackedResponse(422, 'rejected');
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(res);
+
+    await sendTransactionalEmail(fakeContext(), {
+      to: 'r@example.com',
+      subject: 'Hi',
+      text: 'Body',
+      template: 'review-submitted',
+    });
+    await settled();
+
+    expect(drained()).toBe(true);
+  });
+
+  it('sendEmail drains on 2xx', async () => {
+    const { res, drained } = trackedResponse(200);
+    const fetchImpl = vi.fn(async () => res);
+
+    const out = await sendEmail(
+      { RESEND_API_KEY: 'k' },
+      MSG,
+      fetchImpl as unknown as typeof fetch,
+      silent,
+    );
+    await settled();
+
+    expect(out).toBe('sent');
+    expect(drained()).toBe(true);
+  });
+
+  it('sendEmail still reads the error body on a non-2xx (drain must not steal it)', async () => {
+    // The failure branch logs the upstream detail, so this sender drains on the
+    // SUCCESS path only — an unconditional cancel would throw that detail away.
+    const error = vi.fn();
+    const fetchImpl = vi.fn(async () => new Response('domain not verified', { status: 403 }));
+
+    const out = await sendEmail(
+      { RESEND_API_KEY: 'k' },
+      MSG,
+      fetchImpl as unknown as typeof fetch,
+      {
+        warn: vi.fn(),
+        error,
+      },
+    );
+
+    expect(out).toBe('failed');
+    expect(error).toHaveBeenCalledWith(expect.stringContaining('domain not verified'));
   });
 });
 

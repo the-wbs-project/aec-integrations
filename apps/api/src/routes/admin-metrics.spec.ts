@@ -10,12 +10,27 @@
  * specs deliberately seed a snapshot value that DISAGREES with the live rows, so
  * a passing assertion proves the storage actually switched rather than the two
  * happening to agree.
+ *
+ * AECI-686 adds `basis`. The `net` specs use the same disagree-on-purpose trick
+ * in a second place: they seed audit events that do NOT match the surviving rows
+ * (the production shape — 11,827 claim creations behind 1,691 live claims), so a
+ * `net` assertion can only pass by actually reading the table.
  */
 
 import { AdminTimeseriesResponseSchema, type AdminTimeseriesResponse } from '@aeci/shared';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { auditLog, metricsDaily, pageViews, profiles } from '../db/schema';
+import {
+  auditLog,
+  claims,
+  integrations,
+  metricsDaily,
+  pageViews,
+  products,
+  profiles,
+  taxonomyDataObjects,
+  vendors,
+} from '../db/schema';
 import type { Env } from '../env';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { buildAppWithHandler, fakeExecutionContext, TEST_ENV } from '../test/helpers';
@@ -380,5 +395,171 @@ describe('GET /api/admin/metrics/timeseries — conventions', () => {
     expect(res.headers.get('Cache-Control')).toBe('private, no-store');
     expect(res.headers.get('Cache-Tag')).toBeNull();
     expect(await t.db.select().from(auditLog)).toHaveLength(0);
+  });
+});
+
+describe('GET /api/admin/metrics/timeseries — basis=net (AECI-686)', () => {
+  const P1 = u(1001);
+  const P2 = u(1002);
+  const V1 = u(2001);
+  const I1 = u(3001);
+  const D1 = u(4001);
+  const C1 = u(5001);
+
+  beforeEach(async () => {
+    // Two products that still exist, on two different days.
+    await t.db.insert(products).values([
+      { id: P1, slug: 'alpha', name: 'Alpha', createdAt: '2026-08-09T01:00:00.000Z' },
+      { id: P2, slug: 'beta', name: 'Beta', createdAt: '2026-08-10T01:00:00.000Z' },
+    ]);
+    await t.db
+      .insert(vendors)
+      .values([
+        { id: V1, slug: 'acme', companyName: 'Acme', createdAt: '2026-08-09T02:00:00.000Z' },
+      ]);
+    await t.db.insert(integrations).values([
+      {
+        id: I1,
+        sourceProductId: P1,
+        targetProductId: P2,
+        name: 'Alpha to Beta',
+        createdAt: '2026-08-10T02:00:00.000Z',
+      },
+    ]);
+    await t.db.insert(taxonomyDataObjects).values({ id: D1, slug: 'rfi', name: 'RFI' });
+    await t.db.insert(claims).values([
+      {
+        id: C1,
+        integrationId: I1,
+        dataObjectId: D1,
+        direction: 'a_to_b',
+        createdAt: '2026-08-10T03:00:00.000Z',
+      },
+    ]);
+
+    // The audit log tells a DIFFERENT story on purpose: five product creations
+    // for two surviving products, mirroring production, where a deleted row keeps
+    // its immortal `*.created` event. Any `net` assertion that reads 5 has fallen
+    // through to the additions path.
+    await t.db.insert(auditLog).values([
+      { actorType: 'system', action: 'product.created', createdAt: '2026-08-09T01:00:00.000Z' },
+      { actorType: 'system', action: 'product.created', createdAt: '2026-08-09T04:00:00.000Z' },
+      { actorType: 'system', action: 'product.created', createdAt: '2026-08-09T05:00:00.000Z' },
+      { actorType: 'system', action: 'product.created', createdAt: '2026-08-10T01:00:00.000Z' },
+      { actorType: 'system', action: 'product.created', createdAt: '2026-08-10T06:00:00.000Z' },
+    ]);
+  });
+
+  it('counts surviving rows by created_at, not creation events', async () => {
+    const net = await series(
+      'metric=catalog.products_created&from=2026-08-09&to=2026-08-10&basis=net',
+    );
+    expect(net.points.map((p) => p.value)).toEqual([1, 1]);
+    expect(net.total.total).toBe(2);
+
+    // The same window on the default basis reads the audit log, and disagrees.
+    const additions = await series('metric=catalog.products_created&from=2026-08-09&to=2026-08-10');
+    expect(additions.total.total).toBe(5);
+  });
+
+  it('reconciles with a live COUNT(*) over a window covering all history', async () => {
+    // The property the whole change exists for: each column sums to its table.
+    const expected: Array<[string, number]> = [
+      ['catalog.products_created', 2],
+      ['catalog.vendors_created', 1],
+      ['catalog.integrations_created', 1],
+      ['catalog.claims_created', 1],
+    ];
+    for (const [metric, live] of expected) {
+      const body = await series(`metric=${metric}&from=2026-08-01&to=2026-08-11&basis=net`);
+      expect(body.total.total, metric).toBe(live);
+    }
+  });
+
+  it('echoes the basis it served, and defaults to additions when unasked', async () => {
+    const net = await series(
+      'metric=catalog.products_created&from=2026-08-09&to=2026-08-10&basis=net',
+    );
+    expect(net.basis).toBe('net');
+    const fallback = await series('metric=catalog.products_created&from=2026-08-09&to=2026-08-10');
+    expect(fallback.basis).toBe('additions');
+  });
+
+  it('swaps the audit-log notes for the surviving-rows caveat', async () => {
+    const body = await series(
+      'metric=catalog.products_created&from=2026-08-01&to=2026-08-10&basis=net',
+    );
+    const codes = body.notes.map((n) => n.code);
+    expect(codes).toContain('catalog_series_is_surviving_rows');
+    // Both audit-log notes describe a source `net` never reads. `starts_at` in
+    // particular would be actively wrong: this window DOES reach back before the
+    // audit log, and on the net basis that is not a data gap.
+    expect(codes).not.toContain('catalog_series_is_additions_only');
+    expect(codes).not.toContain('catalog_series_starts_at');
+  });
+
+  it('warns that promote rewrites claims — on claims only', async () => {
+    const claimsBody = await series(
+      'metric=catalog.claims_created&from=2026-08-09&to=2026-08-10&basis=net',
+    );
+    expect(claimsBody.notes.map((n) => n.code)).toContain('catalog_claims_recreated_by_promote');
+
+    const productsBody = await series(
+      'metric=catalog.products_created&from=2026-08-09&to=2026-08-10&basis=net',
+    );
+    expect(productsBody.notes.map((n) => n.code)).not.toContain(
+      'catalog_claims_recreated_by_promote',
+    );
+  });
+
+  it('bypasses the snapshot entirely, because a net value is retroactive', async () => {
+    // A stored row for a day in the window, deliberately disagreeing with the
+    // table. `additions` must honour it; `net` must ignore it — freezing a
+    // retroactive number into `metrics_daily` is exactly what must not happen.
+    await t.db.insert(metricsDaily).values({
+      day: '2026-08-09',
+      metric: 'catalog.products_created',
+      value: 99,
+      source: 'measured',
+      computedAt: '2026-08-10T00:15:00.000Z',
+    });
+
+    const additions = await series('metric=catalog.products_created&from=2026-08-09&to=2026-08-09');
+    expect(additions.points[0]?.value).toBe(99);
+    expect(additions.source).toBe('snapshot');
+
+    const net = await series(
+      'metric=catalog.products_created&from=2026-08-09&to=2026-08-09&basis=net',
+    );
+    expect(net.points[0]?.value).toBe(1);
+    expect(net.source).toBe('live');
+    // Nothing is being approximated: the rows are right there.
+    expect(net.points.every((p) => !p.reconstructed)).toBe(true);
+  });
+
+  it('rejects basis=net on a metric with no removable rows', async () => {
+    // Silently downgrading to `additions` would hand back a different reading
+    // than the caller asked for, unremarked — the §1.1 failure mode.
+    const res = await call(
+      'metric=traffic.page_views_human&from=2026-08-09&to=2026-08-10&basis=net',
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: { code: string; field?: string } };
+    expect(body.error.code).toBe('VALIDATION_FAILED');
+    expect(body.error.field).toBe('basis');
+  });
+
+  it('rejects an unknown basis rather than falling back', async () => {
+    const res = await call(
+      'metric=catalog.products_created&from=2026-08-09&to=2026-08-10&basis=gross',
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it('zero-fills days no surviving row landed on', async () => {
+    const body = await series(
+      'metric=catalog.vendors_created&from=2026-08-08&to=2026-08-10&basis=net',
+    );
+    expect(body.points.map((p) => p.value)).toEqual([0, 1, 0]);
   });
 });

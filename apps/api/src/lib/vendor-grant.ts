@@ -4,7 +4,8 @@
  *
  * D1 has no interactive transactions — only atomic `db.batch([...])`. Like
  * `lib/audit.ts`, each function RETURNS the Drizzle statements (plus the audit /
- * workflow entries the caller forwards to Datadog post-commit) rather than
+ * workflow entries the caller forwards post-commit — §26.5, PostHog beside
+ * Datadog for the AECI-639 dual-run) rather than
  * executing them, so the seat write, the request resolution, and the `audit_log`
  * row all commit or roll back as one unit (§26.1 — no state change without an
  * audit row). The route handler (`routes/admin-claims.ts`) owns HTTP, identity
@@ -139,6 +140,14 @@ export interface RevokeSeatParams {
   now: string;
   profileBefore: SeatProfileBefore | null;
   reason?: string | null;
+  /**
+   * `metadata.source` on the audit row. Defaults to the admin-moderation tag this
+   * module was written for; AECI-664's vendor-side revoke passes `'vendor-portal'`
+   * so the trail distinguishes "AECi un-granted a seat" from "the vendor removed
+   * a colleague" — the actor_type is `'user'` for both a reviewer and a vendor
+   * admin, so the tag is the only thing that separates them.
+   */
+  source?: string;
 }
 
 /** The statements + audit entry a seat revoke produces (no workflow transition —
@@ -224,12 +233,22 @@ export function grantSeatStatements(db: Db, p: GrantSeatParams): ClaimBatch {
   };
 
   const stmts: BatchStmt[] = [
+    // `seatOwner: true` (AECI-664 / §11a) — a seat granted through the §5 admin
+    // claim review IS the owner event: a human reviewer confirmed this person
+    // represents this vendor, which is exactly the authority an invite delegates.
+    // A seat created by ACCEPTING an invite gets `false` instead
+    // (`lib/vendor-seat-invites.ts`), which is what bounds the invite chain.
     db
       .insert(profiles)
-      .values({ id: p.userId, role: VENDOR_ADMIN_ROLE, vendorId: p.vendorId })
+      .values({ id: p.userId, role: VENDOR_ADMIN_ROLE, vendorId: p.vendorId, seatOwner: true })
       .onConflictDoUpdate({
         target: profiles.id,
-        set: { role: VENDOR_ADMIN_ROLE, vendorId: p.vendorId, updatedAt: p.resolvedAt },
+        set: {
+          role: VENDOR_ADMIN_ROLE,
+          vendorId: p.vendorId,
+          seatOwner: true,
+          updatedAt: p.resolvedAt,
+        },
       }),
     db
       .update(vendorRequests)
@@ -345,7 +364,7 @@ export function rejectClaimStatements(db: Db, p: RejectClaimParams): ClaimBatch 
  */
 export function revokeSeatStatements(db: Db, p: RevokeSeatParams): RevokeBatch {
   const metadata = {
-    source: CLAIM_AUDIT_SOURCE,
+    source: p.source ?? CLAIM_AUDIT_SOURCE,
     vendor_id: p.vendorId,
     seat_user_id: p.userId,
     // Explicit in the trail: a seat revoke deliberately leaves the vendor verified.
@@ -363,14 +382,17 @@ export function revokeSeatStatements(db: Db, p: RevokeSeatParams): RevokeBatch {
       role: p.profileBefore?.role ?? null,
       vendor_id: p.profileBefore?.vendorId ?? null,
     },
-    afterState: { role: REVIEWER_ROLE, vendor_id: null },
+    afterState: { role: REVIEWER_ROLE, vendor_id: null, seat_owner: false },
     metadata,
   };
 
   const stmts: BatchStmt[] = [
+    // `seatOwner: false` rides along (AECI-664): the column is meaningless off a
+    // `vendor_admin` row, and leaving a stale `true` behind would silently make
+    // the account an owner again the moment any future grant re-links it.
     db
       .update(profiles)
-      .set({ role: REVIEWER_ROLE, vendorId: null, updatedAt: p.now })
+      .set({ role: REVIEWER_ROLE, vendorId: null, seatOwner: false, updatedAt: p.now })
       .where(
         and(
           eq(profiles.id, p.userId),
@@ -378,6 +400,85 @@ export function revokeSeatStatements(db: Db, p: RevokeSeatParams): RevokeBatch {
           eq(profiles.role, VENDOR_ADMIN_ROLE),
         ),
       ),
+    auditInsert(db, auditEntry),
+  ];
+
+  return { stmts, auditEntry };
+}
+
+/**
+ * The operator note write (AECI-739 / §5.2 step 6). One column, one audit row.
+ */
+export interface SaveClaimNotesParams {
+  requestId: string;
+  actorId: string;
+  actorType: AuditLogEntry['actorType'];
+  /** The note as it stands on the row — `null` for "no note yet". */
+  before: string | null;
+  /** The note to store; `null` clears it. */
+  after: string | null;
+  status: string;
+  targetType: string;
+  targetId: string;
+}
+
+/** The statements + audit entry a note write produces. No workflow transition —
+ *  see `saveClaimNotesStatements`. */
+export interface ClaimNotesBatch {
+  stmts: BatchStmt[];
+  auditEntry: AuditLogEntry;
+}
+
+/**
+ * The operator-note batch (AECI-739 / `STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2 step 6):
+ * write `vendor_requests.admin_notes`, audit. **TWO statements**, and the audit row
+ * is in the same batch because a note is domain state (§26.1) — the note IS the
+ * record of why a claim was parked, so losing it while keeping the write would be
+ * exactly the failure the invariant exists to prevent.
+ *
+ * **No `workflow_transitions` / `workflow_instances` row, deliberately.** The
+ * `vendor_claim` workflow tracks the claim's STATUS (`open → resolved|rejected`), and
+ * a note changes no status — it is writable at any of the four, including the two
+ * terminal ones. A note is not a transition, and `workflow_instances_type_check` is a
+ * closed CHECK whose widening is a full SQLite table rebuild besides
+ * (`routes/admin-entitlements.ts`).
+ *
+ * **The audit rows ARE the note's history.** The column holds only the current text;
+ * `before_state`/`after_state` carry the full old and new note on every write, so the
+ * conversation §5.2 step 6 used to keep in Linear comments is reconstructable from the
+ * trail — the same arrangement §2.1 uses for the entitlement ledger. That is also why
+ * the caller must skip this builder entirely on an unchanged note rather than writing
+ * a no-op row: a trail of identical states is not a history.
+ *
+ * The `WHERE` is unguarded on status (every status is writable) but scoped to the id,
+ * and the caller has already established that the row is a `kind='claim'`.
+ */
+export function saveClaimNotesStatements(db: Db, p: SaveClaimNotesParams): ClaimNotesBatch {
+  const auditEntry: AuditLogEntry = {
+    actorId: p.actorId,
+    actorType: p.actorType,
+    action: 'vendor_claim.note_updated',
+    entityType: 'vendor_request',
+    entityId: p.requestId,
+    beforeState: { admin_notes: p.before },
+    afterState: { admin_notes: p.after },
+    metadata: {
+      source: CLAIM_AUDIT_SOURCE,
+      kind: 'claim',
+      target_type: p.targetType,
+      target_id: p.targetId,
+      // The claim's status is UNCHANGED by this write; recorded so the trail shows
+      // at which point in the claim's life the note was taken.
+      status: p.status,
+      cleared: p.after === null,
+    },
+  };
+
+  const stmts: BatchStmt[] = [
+    db
+      .update(vendorRequests)
+      .set({ adminNotes: p.after })
+      .where(eq(vendorRequests.id, p.requestId)),
     auditInsert(db, auditEntry),
   ];
 

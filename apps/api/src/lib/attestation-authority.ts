@@ -37,6 +37,15 @@
  *   - The `attestations_slot_key` partial unique index makes two accounts on the same
  *     vendor last-write-wins on a slot instead of stacking duplicate votes.
  *
+ * **Ownership is not the whole gate.** Since AECI-705 a §5 write also asks whether
+ * the EDGE may be attested at all — a connector-powered edge is refused with a 403
+ * because neither endpoint built the plumbing (`lib/connector-powered.ts`, §14).
+ * That is deliberately a second question asked after this one, not a narrowing of
+ * the join: `ownedEndpointJoin` is the scoping predicate the AECI-627 freshness
+ * cursor must match exactly, and narrowing it here would silently change what a
+ * vendor's portal considers fresh. The two columns it reads ride along on
+ * `AttestationAuthority` so the caller pays no extra D1 hop.
+ *
  * Every §5 write path and every §7 detector resolves through this module; nothing
  * re-derives the rule inline. That includes the *inverse* lookup §7 needs (slot → which
  * vendors occupy it, for notification recipients): `vendorsForIntegrationSlots`
@@ -60,7 +69,7 @@
  */
 
 import { VENDOR_ATTESTATION_SLOTS, type VendorAttestationSlot } from '@aeci/shared';
-import { and, eq, inArray, or } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, or } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import { claims, integrations, productVendors } from '../db/schema';
@@ -92,6 +101,19 @@ export interface AttestationAuthority {
    * whether the flip is a no-op.
    */
   maintainedBy: string;
+  /**
+   * The two columns `isConnectorPoweredEdge` reads (AECI-705 / §14). Carried for
+   * exactly the reason the endpoint ids above are: every §5 write path has to ask
+   * "may this edge be attested at all?" immediately after resolving authority,
+   * and re-reading the integration row would be a second D1 hop on the Worker.
+   *
+   * They are NOT part of the authority *rule* — ownership decides the slots, and
+   * attestability is a separate question asked one step later. Folding the two
+   * together would change `ownedEndpointJoin`, which the AECI-627 cursor must
+   * match exactly (`STAGE_2_REALTIME_SPEC.md` §2.2).
+   */
+  poweredByProductId: string | null;
+  mechanismKind: string | null;
   /** Never empty: an entry only exists when the vendor owns at least one endpoint. */
   slots: readonly AttestationSlot[];
 }
@@ -160,6 +182,8 @@ async function loadAuthorities(
       sourceProductId: integrations.sourceProductId,
       targetProductId: integrations.targetProductId,
       maintainedBy: integrations.maintainedBy,
+      poweredByProductId: integrations.poweredByProductId,
+      mechanismKind: integrations.mechanismKind,
       ownedProductId: productVendors.productId,
     })
     .from(integrations)
@@ -184,6 +208,8 @@ async function loadAuthorities(
       sourceProductId: row.sourceProductId,
       targetProductId: row.targetProductId,
       maintainedBy: row.maintainedBy,
+      poweredByProductId: row.poweredByProductId,
+      mechanismKind: row.mechanismKind,
       slots: slotsForOwnership(
         productIds.has(row.sourceProductId),
         productIds.has(row.targetProductId),
@@ -354,6 +380,8 @@ export async function resolveClaimAuthority(
       sourceProductId: integrations.sourceProductId,
       targetProductId: integrations.targetProductId,
       maintainedBy: integrations.maintainedBy,
+      poweredByProductId: integrations.poweredByProductId,
+      mechanismKind: integrations.mechanismKind,
       ownedProductId: productVendors.productId,
     })
     .from(claims)
@@ -361,10 +389,19 @@ export async function resolveClaimAuthority(
     // Same INNER JOIN + in-predicate vendor filter as `loadAuthorities`: a claim
     // on an integration the caller does not touch produces no rows at all.
     .innerJoin(productVendors, ownedEndpointJoin(vendorId))
-    .where(eq(claims.id, claimId));
+    // AECI-721 made the claim anchor polymorphic. A claim anchored on a
+    // connector-evidenced pair drops out of the INNER JOIN above anyway; stating it
+    // makes the exclusion checkable and lets the narrowing below be a fact rather
+    // than a cast. Nothing attestable is lost: an evidenced pair is
+    // connector-delivered by construction, and §14 forbids attestation on those —
+    // so this read could only ever have produced a 403.
+    .where(and(eq(claims.id, claimId), isNotNull(claims.integrationId)));
 
   const first = rows[0];
   if (!first) throw notFoundError('claim', { id: claimId });
+  // Guaranteed by the `isNotNull` + INNER JOIN above; Drizzle types the column, not
+  // the query.
+  const integrationId = first.integrationId!;
 
   // Owning BOTH endpoints yields two rows for the one claim — fold them, as
   // `loadAuthorities` does.
@@ -372,17 +409,19 @@ export async function resolveClaimAuthority(
   return {
     claim: {
       id: first.id,
-      integrationId: first.integrationId,
+      integrationId,
       dataObjectId: first.dataObjectId,
       direction: first.direction,
       origin: first.origin,
       createdByVendorId: first.createdByVendorId,
     },
     authority: {
-      integrationId: first.integrationId,
+      integrationId,
       sourceProductId: first.sourceProductId,
       targetProductId: first.targetProductId,
       maintainedBy: first.maintainedBy,
+      poweredByProductId: first.poweredByProductId,
+      mechanismKind: first.mechanismKind,
       slots: slotsForOwnership(
         ownedProductIds.has(first.sourceProductId),
         ownedProductIds.has(first.targetProductId),

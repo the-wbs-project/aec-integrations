@@ -6,6 +6,7 @@ import {
   EntitlementTierSchema,
   VendorEntitlementResponseSchema,
 } from './admin-entitlements';
+import { VendorProductRolesSchema } from './admin-vendors';
 import { LinkRefSchema, PageQuerySchema, paginatedResponseSchema } from './common';
 
 /**
@@ -199,17 +200,129 @@ export const AdminClaimSchema = AdminVendorRequestSchema.extend({
    * `validateResponseInDev`, not ship as `undefined`.
    */
   entitlement: VendorEntitlementResponseSchema.nullable(),
+  /**
+   * The §5.2 **payer test**, answerable from the card (AECI-738) — the resolved
+   * vendor's owned products split by `products.product_role`, scoped to the same
+   * `entitlement_vendor` a grant would touch.
+   *
+   * `null` = the signal was UNAVAILABLE (the vendor resolution or this query
+   * degraded), consistent with `existing_seats` / `related_requests`. A vendor
+   * that genuinely owns nothing is NOT null — it is a zeroed breakdown, because
+   * "no products on record" is a real, reviewable answer and "we could not look"
+   * is a different one.
+   */
+  product_roles: VendorProductRolesSchema.nullable(),
+  /**
+   * `true` ⇒ every product this vendor owns is `'connector'` (and it owns at
+   * least one). Per `STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2, **Grant and Reject are
+   * both wrong** on such a claim: it is parked `open` and routed to the
+   * partnership track out of band.
+   *
+   * `false` covers two different situations and the UI must not conflate them —
+   * the vendor owns an `application`/`hybrid` product (an ordinary paying
+   * vendor), or it owns no products at all (**unknown, never exempt**).
+   * `product_roles.total` separates them. `null` = signal unavailable, and moves
+   * with `product_roles`.
+   */
+  is_pure_connector_vendor: z.boolean().nullable(),
+  /**
+   * The free-text operator note (AECI-739 / `STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2
+   * step 6) — why a claim is parked, and what was said out of band. `null` when
+   * no note has been written; **never `undefined`** (R10).
+   *
+   * On the queue as well as the detail page, deliberately: a parked claim has to
+   * be legible from the LIST, which is where the operator actually looks.
+   *
+   * It is admin-authored, admin-only and **never** claimant-facing — it is not
+   * emailed, and it is not an `AdminNote` (that is the closed-enum data-caveat
+   * envelope). Written through `PATCH /api/admin/claims/:id/notes`; the audit_log
+   * rows that write emits ARE the note's history, so this field is only ever the
+   * current text.
+   */
+  admin_notes: z.string().nullable(),
 });
 export type AdminClaim = z.infer<typeof AdminClaimSchema>;
 
 /** Claim-review queue filter. Mirrors `ListVendorRequestsQuerySchema` but has no
  *  `kind` — the endpoint is claims-only. `status` defaults to `open` (the working
- *  queue); the `open|resolved|rejected` enum matches the requests contract. */
+ *  queue).
+ *
+ *  The enum carries all FOUR statuses (AECI-739). It offered only
+ *  `open|resolved|rejected` until then, which meant an `in_review` claim — the
+ *  status the Linear webhook writes when its issue moves to a `started` state
+ *  (`STATE_TYPE_TO_STATUS`, `routes/webhooks.ts`) — was invisible in every queue
+ *  tab while still being addressable at `/admin/claims/:id`. A detail route must
+ *  not imply a status the list cannot then find. */
 export const ListVendorClaimsQuerySchema = PageQuerySchema.extend({
-  status: z.enum(['open', 'resolved', 'rejected']).default('open'),
+  status: z.enum(['open', 'in_review', 'resolved', 'rejected']).default('open'),
 });
 export type ListVendorClaimsQuery = z.infer<typeof ListVendorClaimsQuerySchema>;
 
 /** Paginated envelope for `GET /api/admin/claims`. */
 export const ListVendorClaimsResponseSchema = paginatedResponseSchema(AdminClaimSchema);
 export type ListVendorClaimsResponse = z.infer<typeof ListVendorClaimsResponseSchema>;
+
+// ---------------------------------------------------------------------------
+// Claim detail + operator note (AECI-739 / §5.2 step 6)
+// ---------------------------------------------------------------------------
+
+/**
+ * One open claim that makes THIS claim read as a duplicate — the explanation
+ * behind the queue's `is_duplicate` chip (AECI-739).
+ *
+ * §5.2 step 5 records the trap: a claim parked `open` (the prescribed handling
+ * for a pure-connector vendor) stays inside the `openClaims` group-by that
+ * computes `is_duplicate`, so **every later claim on that vendor renders the
+ * chip** — including a legitimate one from a real endpoint contact. This makes
+ * the cause nameable rather than leaving the reviewer to guess. The chip's
+ * SEMANTICS are deliberately unchanged; only its legibility.
+ *
+ * `match_reason` says which of the list's two rules fired:
+ *  - `target`    — another open claim on the same `(target_type, target_id)`.
+ *  - `submitter` — another open claim from the same submitter on that target.
+ * A row matching both reports `target`, the broader signal.
+ */
+export const ClaimDuplicateSiblingSchema = z.object({
+  id: z.string().uuid(),
+  submitter_email: z.string(),
+  submitter_name: z.string().nullable(),
+  status: z.enum(['open', 'in_review', 'resolved', 'rejected']),
+  created_at: z.string(),
+  match_reason: z.enum(['target', 'submitter']),
+  /** Whether that sibling carries an operator note — i.e. whether it is a
+   *  DELIBERATELY parked claim rather than an unattended one. */
+  has_notes: z.boolean(),
+});
+export type ClaimDuplicateSibling = z.infer<typeof ClaimDuplicateSiblingSchema>;
+
+/**
+ * `GET /api/admin/claims/:id` — one claim, every signal the queue card carries,
+ * plus the duplicate explanation the list has no room for.
+ *
+ * `duplicate_siblings` is an array, never `null`: unlike the queue's fail-soft
+ * enrichment signals it is computed in the same round trip as `is_duplicate`
+ * itself, and `is_duplicate` on this response IS `duplicate_siblings.length > 0`
+ * — so the two can never disagree with each other or with the list.
+ */
+export const AdminClaimDetailSchema = AdminClaimSchema.extend({
+  duplicate_siblings: ClaimDuplicateSiblingSchema.array(),
+});
+export type AdminClaimDetail = z.infer<typeof AdminClaimDetailSchema>;
+
+/**
+ * `PATCH /api/admin/claims/:id/notes` — write or clear the operator note.
+ *
+ * A sub-resource rather than a third `ModerateClaimSchema.action`, mirroring
+ * `PATCH /api/admin/vendors/:id/entitlement`: moderation is a one-way status
+ * transition that grants or declines, and a note is neither. It is writable at
+ * ANY status — a resolved or rejected claim is exactly where "why we parked it,
+ * and what happened next" matters most.
+ *
+ * `null` (or a string that trims to empty) CLEARS the note. 2000 chars, not
+ * `ModerateClaimSchema.reason`'s 500: this is a running record of an out-of-band
+ * conversation, not a transition reason.
+ */
+export const SaveClaimNotesSchema = z.object({
+  notes: z.string().max(2000).nullable(),
+});
+export type SaveClaimNotesInput = z.infer<typeof SaveClaimNotesSchema>;

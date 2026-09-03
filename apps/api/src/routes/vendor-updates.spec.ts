@@ -68,9 +68,20 @@ const CLAIM_AB = uuid(40);
 const CLAIM_BC = uuid(41);
 
 /** Well before anything a test writes, so any movement is unambiguous. */
-const SEEDED = '2026-01-01T00:00:00.000Z';
-const MOVED = '2026-06-01T12:00:00.000Z';
-const MOVED_LATER = '2026-06-02T12:00:00.000Z';
+// Fixture instants are anchored RELATIVE to now, never to fixed literals. The
+// `notifications` scope filters on a rolling 90-day window
+// (`NOTIFICATION_HISTORY_DAYS` in `vendor-notifications.ts`), so a hard-coded
+// past date silently ages OUT of that window and the notifications-cursor
+// assertions begin failing ~90 days after the literal — which is exactly what
+// happened (the former `MOVED` of 2026-06-01 fell out of the window once the
+// wall clock passed 2026-08-30, and `MOVED_LATER` was a day from doing the
+// same). These offsets keep every fixture comfortably inside the 90-day window
+// while staying far older than the 60s `VENDOR_UPDATES_CHANGE_WINDOW_MS`, so the
+// baseline still reads `changed:none`. Order is preserved: SEEDED < MOVED < MOVED_LATER.
+const DAY_MS = 86_400_000;
+const SEEDED = new Date(Date.now() - 30 * DAY_MS).toISOString();
+const MOVED = new Date(Date.now() - 20 * DAY_MS).toISOString();
+const MOVED_LATER = new Date(Date.now() - 19 * DAY_MS).toISOString();
 
 let t: TestDb;
 
@@ -517,23 +528,34 @@ describe('GET /api/vendor/updates — cross-vendor isolation', () => {
 });
 
 describe('GET /api/vendor/updates — aeci.api.vendor.updates', () => {
-  function stubDatadog() {
+  function stubTelemetry() {
     const fetchSpy = vi.fn().mockResolvedValue(new Response('{}', { status: 202 }));
     vi.stubGlobal('fetch', fetchSpy);
     return fetchSpy;
   }
 
+  /**
+   * The metric's data-point attributes, flattened back to `key:value` strings.
+   * The intake is PostHog OTLP (`/i/v1/metrics`) — the Datadog v2-series leg was
+   * deleted in AECI-651.
+   */
   function tagsFrom(fetchSpy: ReturnType<typeof vi.fn>): string[] {
-    const call = fetchSpy.mock.calls.find((c) => String(c[0]).includes('/api/v2/series'));
-    const payload = JSON.parse(String((call?.[1] as RequestInit | undefined)?.body ?? '{}'));
-    return payload.series?.[0]?.tags ?? [];
+    type Attr = { key: string; value: { stringValue?: string; doubleValue?: number } };
+    const call = fetchSpy.mock.calls.find((c) => String(c[0]).endsWith('/i/v1/metrics'));
+    if (!call) return [];
+    const payload = JSON.parse(String((call[1] as RequestInit | undefined)?.body ?? '{}'));
+    const metric = payload.resourceMetrics?.[0]?.scopeMetrics?.[0]?.metrics?.[0];
+    const points = metric?.sum?.dataPoints ?? metric?.gauge?.dataPoints ?? [];
+    return (points[0]?.attributes ?? []).map(
+      (a: Attr) => `${a.key}:${a.value.doubleValue ?? a.value.stringValue}`,
+    );
   }
 
-  const DD_ENV: Env = { ...TEST_ENV, DD_API_KEY: 'secret', DD_SITE: 'us5.datadoghq.com' };
+  const TELEMETRY_ENV: Env = { ...TEST_ENV, POSTHOG_PROJECT_KEY: 'phc_test_token' };
 
   it('tags `changed:none` when nothing moved inside the poll window', async () => {
-    const fetchSpy = stubDatadog();
-    await get(AUTH, DD_ENV);
+    const fetchSpy = stubTelemetry();
+    await get(AUTH, TELEMETRY_ENV);
 
     const tags = tagsFrom(fetchSpy);
     expect(tags).toContain('changed:none');
@@ -542,13 +564,13 @@ describe('GET /api/vendor/updates — aeci.api.vendor.updates', () => {
   it('tags `changed:some` when a cursor moved inside the poll window', async () => {
     // "Changed" is stateless — the endpoint has no idea what the caller last saw,
     // so it means "something moved within one poll interval of this response".
-    const fetchSpy = stubDatadog();
+    const fetchSpy = stubTelemetry();
     await t.db
       .update(vendors)
       .set({ description: 'just now', updatedAt: new Date().toISOString() })
       .where(eq(vendors.id, VENDOR_A));
 
-    await get(AUTH, DD_ENV);
+    await get(AUTH, TELEMETRY_ENV);
     expect(tagsFrom(fetchSpy)).toContain('changed:some');
   });
 });

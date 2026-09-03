@@ -4,22 +4,12 @@
 
 ENV=preview
 
-# ─── Datadog (AECI-31) ─────────────────────────────────────────────────────
-# DD_APPLICATION_ID + DD_CLIENT_TOKEN are explicitly client-exposed (rendered
-# into the SSR HTML so @datadog/browser-rum can pick them up). Stored as
-# secrets here only to keep values out of git — the SSR Worker inlines them
-# into HTML so they reach the browser at hydration time.
-# DD_API_KEY is server-only (Datadog Logs HTTP intake).
-# All three no-op when empty, so dev boots cleanly without a Datadog account.
-# In deployed envs the two RUM creds (DD_APPLICATION_ID + DD_CLIENT_TOKEN) are
-# CI-pushed per env from the shared un-suffixed GH secrets of the same name
-# (AECI-326) — single "aeci" RUM app on us5, separated by the per-env ENV field.
-DD_APPLICATION_ID=
-DD_CLIENT_TOKEN=
-DD_API_KEY=
-# Optional. Defaults to datadoghq.com. Use datadoghq.eu / us3.datadoghq.com /
-# us5.datadoghq.com / ap1.datadoghq.com as appropriate for the DD region.
-DD_SITE=datadoghq.com
+# ─── Observability (ADR 0024) ──────────────────────────────────────────────
+# Nothing to set. The browser and Worker planes both run on PostHog, which
+# authenticates with the publishable `phc_` POSTHOG_PROJECT_KEY — a committed
+# per-env `vars` entry in wrangler.jsonc, not a secret (AECI-640). The four
+# DD_* Datadog credentials were deleted in AECI-651; if you have them in a
+# local `.dev.vars`, drop them.
 
 # ─── Cache-tag purge (AECI-56) ─────────────────────────────────────────────
 # ADMIN_PURGE_TOKEN: bearer the caller of POST /admin/purge must present.
@@ -48,12 +38,29 @@ ALGOLIA_SEARCH_KEY=
 # feed `createSupabaseServerClient` (src/server/auth/supabase-server-client.ts),
 # the cookie-session factory behind /auth/*. The anon (publishable) key is not
 # truly secret — it's stored as a secret only to keep values out of git (same
-# convention as ALGOLIA_SEARCH_KEY). Both empty → auth surfaces return 503
-# `auth_not_configured` and everything else works. For local dev use the single
-# shared auth project (ADR 0017 — https://ktuhnlypztujpsseujzx.supabase.co);
-# fetch the key with `supabase projects api-keys --project-ref ktuhnlypztujpsseujzx`.
+# convention as ALGOLIA_SEARCH_KEY).
+#
+# SUPABASE_ANON_KEY is the one value you MUST set. SUPABASE_URL is already a
+# committed wrangler `var` in every env block of wrangler.jsonc and dev:preview
+# runs `--env preview`, so it binds without this file; the anon key is a secret
+# with NO vars fallback. Missing → no `window.__AECI_SUPABASE__` is injected,
+# `/auth/login` renders "Sign-in is temporarily unavailable" with both buttons
+# disabled, and `/auth/whoami` returns 503 `auth_not_configured` (AECI-765).
+#
+# WHERE TO GET IT: copy the SUPABASE_ANON_KEY already in apps/api/.dev.vars — it
+# is the legacy eyJ… JWT form and decodes to
+# {"ref":"ktuhnlypztujpsseujzx","role":"anon"}, the live shared auth project
+# (ADR 0017), valid to 2036. NOTHING in the repo inspects key format
+# (supabase-bootstrap-inject.ts passes it opaquely to @supabase/ssr), so the newer
+# sb_publishable_… form works equally well — fetching one needs an interactive
+# `supabase login` first, then
+# `supabase projects api-keys --project-ref ktuhnlypztujpsseujzx`.
+#
+# Whichever you use, the key MUST belong to ktuhnlypztujpsseujzx: the static CSP
+# connect-src (src/server/seo-headers.ts) is pinned to that exact host, and a key
+# from another project surfaces as `Invalid API key` at sign-in.
 # The service-role key is NEVER set on any Worker (AUTH_AND_RLS.md §3).
-SUPABASE_URL=
+SUPABASE_URL=https://ktuhnlypztujpsseujzx.supabase.co
 SUPABASE_ANON_KEY=
 
 # Test-user credentials. NEVER a Worker binding; the Worker does not read these.
@@ -71,18 +78,25 @@ SUPABASE_ANON_KEY=
 SUPABASE_TEST_USER_EMAIL=
 SUPABASE_TEST_USER_PASSWORD=
 
-# ─── PostHog product analytics (AECI-239 / Phase 7.4) ────────────────────────
-# POSTHOG_KEY is the project API key (publishable; client-exposed). The SSR
-# Worker inlines it into the HTML (window.__AECI_POSTHOG__) so the browser
-# Analytics layer can init PostHog — but only AFTER the visitor accepts the
-# consent banner (opt-in; DNT is honored as a hard decline). Stored as a secret
-# only to keep values out of git (same convention as ALGOLIA_SEARCH_KEY).
-# POSTHOG_HOST is the ingestion host; defaults to https://us.i.posthog.com (US
-# Cloud) when empty. The static CSP connect-src is pinned to the US hosts, so a
-# non-US host needs a matching CSP change (src/server/seo-headers.ts).
-# POSTHOG_KEY empty → no script injected and analytics no-ops (fail-open), so
-# dev boots cleanly without a PostHog account.
-POSTHOG_KEY=
+# ─── PostHog (AECI-239 / Phase 7.4; renamed + demoted AECI-640) ──────────────
+# POSTHOG_PROJECT_KEY is the `phc_` project API key. It is PUBLISHABLE — the SSR
+# Worker inlines it into the HTML (window.__AECI_POSTHOG__) on every page, so it
+# is not a secret and cannot be one. On deployed tiers it is a committed per-env
+# `vars` entry in wrangler.jsonc, NOT a pushed secret; it appears here only
+# because local dev has no wrangler env block to inherit from.
+#
+# POSTHOG_HOST is the INGEST host and defaults to https://us.i.posthog.com when
+# empty. Note `us.posthog.com` (no `.i`) is the MANAGEMENT API — swapping them
+# produces a confusing 404. The static CSP connect-src is pinned to the US ingest
+# + assets hosts, so a non-US host needs a matching CSP change
+# (src/server/seo-headers.ts).
+#
+# Leaving POSTHOG_PROJECT_KEY empty is the recommended local default: no script
+# is injected, the browser layer no-ops, and the Worker's own telemetry no-ops
+# too, so dev boots cleanly and your local traffic never lands in a shared
+# project. Fill it with the non-prod key (project `aec-integrations-dev`, 525793)
+# only when you are deliberately verifying the pipes.
+POSTHOG_PROJECT_KEY=
 POSTHOG_HOST=https://us.i.posthog.com
 
 # ─── IndexNow verification key (AECI-236 / §20.2) ─────────────────────────────

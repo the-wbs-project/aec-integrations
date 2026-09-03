@@ -172,7 +172,9 @@ beforeEach(() => {
     getMe: vi.fn().mockResolvedValue(VENDOR_ME_FIXTURE),
     getIntegrations: vi.fn().mockResolvedValue({ integrations: [] }),
     getNotifications: vi.fn().mockResolvedValue({ notifications: [] }),
-    getSeats: vi.fn().mockResolvedValue({ seats: [] }),
+    getSeats: vi
+      .fn()
+      .mockResolvedValue({ seats: [], pending_invites: [], can_manage_seats: false }),
   };
   failed = { me: false, integrations: false, notifications: false, seats: false };
   store = {

@@ -1,0 +1,560 @@
+<section aria-labelledby="admin-vendor-heading">
+  <a
+    routerLink="/admin/vendors"
+    class="text-xs font-medium text-(--text-secondary) underline decoration-(--border-strong) underline-offset-4 transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+    i18n="@@admin.vendors.detail.back"
+  >
+    Back to all vendors
+  </a>
+
+  <h2
+    id="admin-vendor-heading"
+    class="mt-2 text-lg font-bold text-(--text-primary)"
+    i18n="@@admin.vendors.detail.heading"
+  >
+    Vendor
+  </h2>
+
+  <!--
+    The page's ONE polite live region. `EntitlementControl` and the seat revoke
+    both feed it rather than rendering their own — see the component docblock.
+  -->
+  <p class="sr-only" role="status" aria-live="polite">{{ liveMessage() }}</p>
+
+  @if (loading()) {
+  <p class="mt-8 text-sm text-(--text-secondary)" i18n="@@admin.vendors.detail.loading">
+    Loading the vendor…
+  </p>
+  } @else if (notFound()) {
+  <p class="mt-8 text-sm text-(--text-secondary)" i18n="@@admin.vendors.detail.notFound">
+    No vendor with that id. It may have been removed from the catalog.
+  </p>
+  } @else if (loadFailed()) {
+  <div
+    role="alert"
+    class="mt-8 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-4"
+  >
+    <p class="text-sm font-medium text-(--text-primary)" i18n="@@admin.vendors.detail.error">
+      We couldn't load this vendor. Your session may have expired.
+    </p>
+    <button
+      type="button"
+      (click)="retry()"
+      class="mt-3 inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-2 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      i18n="@@admin.vendors.detail.retry"
+    >
+      Try again
+    </button>
+  </div>
+  } @else if (vendor(); as v) {
+
+  <!-- ── Basics ───────────────────────────────────────────────────────────── -->
+  <section class="mt-6" aria-labelledby="admin-vendor-basics">
+    <h3
+      id="admin-vendor-basics"
+      class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+      i18n="@@admin.vendors.detail.basics"
+    >
+      Basics
+    </h3>
+    <div
+      class="mt-2 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-4"
+    >
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <div class="min-w-0">
+          <p class="text-base font-bold text-(--text-primary)">{{ v.company_name }}</p>
+          <p class="mt-1 text-xs text-(--text-secondary)">{{ v.slug }}</p>
+        </div>
+        <div class="flex shrink-0 flex-wrap items-center gap-2">
+          @if (v.verified) {
+          <span
+            class="inline-flex items-center rounded-full border border-(--accent-secondary) bg-(--accent-warm) px-2.5 py-0.5 text-xs font-medium text-(--text-primary)"
+            i18n="@@admin.vendors.detail.badge.verified"
+          >
+            Verified
+          </span>
+          }
+          <!--
+            A plain href with `target="_blank"`, not a `routerLink`: an operator
+            opens the public page to CHECK something against the admin record, so
+            navigating away from the record is the wrong outcome. `rel="noopener"`
+            because a new browsing context otherwise gets a handle on this one.
+            The new tab is announced rather than discovered.
+          -->
+          <a
+            [href]="'/vendors/' + v.slug"
+            target="_blank"
+            rel="noopener"
+            class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-1.5 text-xs font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            i18n="@@admin.vendors.detail.viewPage"
+          >
+            View Page
+          </a>
+          <span class="sr-only" i18n="@@admin.vendors.detail.viewPage.newTab">
+            (opens in a new tab)
+          </span>
+        </div>
+      </div>
+
+      <dl class="mt-4 grid gap-x-6 gap-y-2 text-xs sm:grid-cols-2">
+        <div class="flex gap-2">
+          <dt class="text-(--text-secondary)" i18n="@@admin.vendors.detail.products">Products</dt>
+          <dd class="font-medium text-(--text-primary)">{{ v.product_count }}</dd>
+        </div>
+        <!-- The §5.2 payer test (AECI-738). `application` is named, not implied by
+             an absent chip — that inference is exactly what this row replaces. -->
+        <div class="flex gap-2">
+          <dt class="text-(--text-secondary)" i18n="@@admin.vendors.detail.roles">
+            Products by role
+          </dt>
+          <dd class="font-medium text-(--text-primary)">
+            @if (v.product_roles.total === 0) {
+            <span class="text-(--text-secondary)" i18n="@@admin.vendors.detail.roles.none"
+              >No products on record</span
+            >
+            } @else {
+            <span>{{ roleBreakdownLabel(v.product_roles) }}</span>
+            @if (v.is_pure_connector_vendor) {
+            <span
+              class="ms-1.5 inline-flex items-center rounded-full border border-(--accent-secondary) bg-(--accent-warm) px-2 py-0.5 text-[0.65rem] font-medium text-(--text-primary)"
+              i18n="@@admin.vendors.detail.roles.pureConnector"
+              >pure connector — not sold verification</span
+            >
+            } }
+          </dd>
+        </div>
+        <div class="flex gap-2">
+          <dt class="text-(--text-secondary)" i18n="@@admin.vendors.detail.integrations">
+            Integrations built
+          </dt>
+          <dd class="font-medium text-(--text-primary)">{{ v.integration_count }}</dd>
+        </div>
+        <div class="flex gap-2">
+          <dt class="text-(--text-secondary)" i18n="@@admin.vendors.detail.promotionStatus">
+            Promotion status
+          </dt>
+          <dd class="font-medium text-(--text-primary)">{{ v.promotion_status }}</dd>
+        </div>
+        <div class="flex gap-2">
+          <dt class="text-(--text-secondary)" i18n="@@admin.vendors.detail.maintainedBy">
+            Maintained by
+          </dt>
+          <dd class="font-medium text-(--text-primary)">{{ v.maintained_by }}</dd>
+        </div>
+        @if (v.website) {
+        <div class="flex gap-2">
+          <dt class="text-(--text-secondary)" i18n="@@admin.vendors.detail.website">Website</dt>
+          <dd class="min-w-0 truncate font-medium text-(--text-primary)">{{ v.website }}</dd>
+        </div>
+        } @if (v.headquarters) {
+        <div class="flex gap-2">
+          <dt class="text-(--text-secondary)" i18n="@@admin.vendors.detail.headquarters">
+            Headquarters
+          </dt>
+          <dd class="font-medium text-(--text-primary)">{{ v.headquarters }}</dd>
+        </div>
+        }
+        <div class="flex gap-2">
+          <dt class="text-(--text-secondary)" i18n="@@admin.vendors.detail.updatedAt">
+            Record updated
+          </dt>
+          <dd class="font-medium text-(--text-primary)">
+            {{ v.updated_at | date: 'medium' : 'UTC' }}
+          </dd>
+        </div>
+      </dl>
+
+      <!--
+        Claim counts cover all four `vendor_requests` statuses, including
+        `in_review` — three would give numbers that quietly fail to sum.
+      -->
+      <dl
+        class="mt-4 flex flex-wrap gap-x-6 gap-y-1 border-t border-(--border-default) pt-3 text-xs"
+      >
+        <div class="flex gap-2">
+          <dt class="text-(--text-secondary)" i18n="@@admin.vendors.detail.claims.open">
+            Claims open
+          </dt>
+          <dd class="font-medium text-(--text-primary)">{{ v.claim_counts.open }}</dd>
+        </div>
+        <div class="flex gap-2">
+          <dt class="text-(--text-secondary)" i18n="@@admin.vendors.detail.claims.inReview">
+            In review
+          </dt>
+          <dd class="font-medium text-(--text-primary)">{{ v.claim_counts.in_review }}</dd>
+        </div>
+        <div class="flex gap-2">
+          <dt class="text-(--text-secondary)" i18n="@@admin.vendors.detail.claims.resolved">
+            Approved
+          </dt>
+          <dd class="font-medium text-(--text-primary)">{{ v.claim_counts.resolved }}</dd>
+        </div>
+        <div class="flex gap-2">
+          <dt class="text-(--text-secondary)" i18n="@@admin.vendors.detail.claims.rejected">
+            Rejected
+          </dt>
+          <dd class="font-medium text-(--text-primary)">{{ v.claim_counts.rejected }}</dd>
+        </div>
+      </dl>
+    </div>
+  </section>
+
+  <!-- ── Entitlement ──────────────────────────────────────────────────────── -->
+  <section class="mt-6" aria-labelledby="admin-vendor-entitlement">
+    <h3
+      id="admin-vendor-entitlement"
+      class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+      i18n="@@admin.vendors.detail.entitlement"
+    >
+      Entitlement
+    </h3>
+    <div class="mt-2">
+      <aec-entitlement-control
+        [vendor]="{ id: v.id, name: v.company_name, slug: v.slug }"
+        [entitlement]="v.entitlement"
+        [idPrefix]="'vendor-' + v.id"
+        labelledBy="admin-vendor-entitlement"
+        (changed)="onEntitlementChanged($event)"
+        (announce)="onAnnounce($event)"
+      />
+    </div>
+  </section>
+
+  <!-- ── Seats ────────────────────────────────────────────────────────────── -->
+  <section class="mt-6" aria-labelledby="admin-vendor-seats">
+    <h3
+      id="admin-vendor-seats"
+      class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+      i18n="@@admin.vendors.detail.seats"
+    >
+      Seats
+    </h3>
+
+    <!--
+      Removing a seat is not banning its holder, and the two are deliberately not
+      peer buttons here: a revoke un-grants one vendor's access, a ban locks the
+      human out everywhere. Ban lives on the person's own page (AECI-692), which
+      is also where the rest of their account is legible.
+    -->
+    <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@admin.vendors.detail.seats.intro">
+      People with portal access to this vendor. Removing a seat does not change the entitlement, the
+      Verified badge, or anything the vendor's other colleagues can do. To lock one person out of
+      AECi entirely, open their user page and ban them there instead.
+    </p>
+
+    @if (seatsUnavailable()) {
+    <p class="mt-3 text-sm text-(--text-secondary)" i18n="@@admin.vendors.detail.seats.unavailable">
+      The seat roster is unavailable right now.
+    </p>
+    } @else if (seats().length === 0) {
+    <p class="mt-3 text-sm text-(--text-secondary)" i18n="@@admin.vendors.detail.seats.empty">
+      No one has portal access to this vendor yet.
+    </p>
+    } @else { @if (v.seat_emails_available === false) {
+    <p class="mt-3 text-xs text-(--text-secondary)" i18n="@@admin.vendors.detail.seats.emailsDown">
+      Email addresses are unavailable — the account service could not be reached. The seats below
+      are complete; only their addresses are missing.
+    </p>
+    }
+    <div class="mt-3 overflow-x-auto">
+      <table class="w-full min-w-[48rem] border-collapse text-sm">
+        <caption class="sr-only" i18n="@@admin.vendors.detail.seats.caption">
+          People with portal access to this vendor
+        </caption>
+        <thead>
+          <tr class="border-b border-(--border-strong)">
+            <th
+              scope="col"
+              class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+              i18n="@@admin.vendors.detail.seats.col.person"
+            >
+              Person
+            </th>
+            <th
+              scope="col"
+              class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+              i18n="@@admin.vendors.detail.seats.col.role"
+            >
+              Role
+            </th>
+            <th
+              scope="col"
+              class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+              i18n="@@admin.vendors.detail.seats.col.flags"
+            >
+              Flags
+            </th>
+            <!--
+              `profiles.created_at` is when the ACCOUNT was created, not when the
+              seat was granted; `updated_at` is no better, it moves on any profile
+              edit. The grant itself is a `vendor_claim.granted` row in the audit
+              trail below, so the header says what the value is.
+            -->
+            <th
+              scope="col"
+              class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+              i18n="@@admin.vendors.detail.seats.col.created"
+            >
+              Account created
+            </th>
+            <th
+              scope="col"
+              class="py-2 text-end font-bold text-(--text-secondary)"
+              i18n="@@admin.vendors.detail.seats.col.actions"
+            >
+              Actions
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (seat of seats(); track seat.user_id) {
+          <tr class="border-b border-(--border-default) align-top">
+            <th scope="row" class="py-2.5 pe-4 text-start font-bold text-(--text-primary)">
+              {{ seatName(seat) }}
+              <span class="block text-xs font-normal text-(--text-tertiary)">
+                {{ seatEmail(seat) }}
+              </span>
+            </th>
+
+            <td class="py-2.5 pe-4 text-(--text-secondary)">{{ seat.role }}</td>
+
+            <td class="py-2.5 pe-4">
+              <div class="flex flex-wrap gap-1.5">
+                @if (seat.owner) {
+                <span
+                  class="inline-flex items-center rounded-full border border-(--border-default) px-2.5 py-0.5 text-xs font-medium text-(--text-secondary)"
+                  i18n="@@admin.vendors.detail.seats.owner"
+                >
+                  Can manage seats
+                </span>
+                } @if (seat.work_email_verified) {
+                <span
+                  class="inline-flex items-center rounded-full border border-(--border-default) px-2.5 py-0.5 text-xs font-medium text-(--text-secondary)"
+                  i18n="@@admin.vendors.detail.seats.workEmail"
+                >
+                  Work email verified
+                </span>
+                } @if (seat.banned) {
+                <span
+                  class="inline-flex items-center rounded-full border border-(--accent-secondary) bg-(--accent-warm) px-2.5 py-0.5 text-xs font-medium text-(--text-primary)"
+                  i18n="@@admin.vendors.detail.seats.banned"
+                >
+                  Banned
+                </span>
+                } @if (!seat.owner && !seat.work_email_verified && !seat.banned) {
+                <span
+                  class="text-(--text-tertiary)"
+                  i18n-aria-label="@@admin.vendors.detail.seats.noFlags"
+                  aria-label="No flags on this seat"
+                  >&ndash;</span
+                >
+                }
+              </div>
+            </td>
+
+            <td class="py-2.5 pe-4 text-(--text-secondary)">
+              {{ seat.created_at | date: 'mediumDate' : 'UTC' }}
+            </td>
+
+            <td class="py-2.5 text-end">
+              <div class="flex flex-wrap justify-end gap-2">
+                <!--
+                  Was `routerLink="/admin/reviewers"` and labelled "Ban this
+                  person", which was a broken promise in both halves: that page
+                  listed only already-banned people and its single control was
+                  Unban, so for an unbanned seat it landed on a screen that
+                  neither contained them nor could ban anyone. AECI-692 points it
+                  at the person instead.
+                -->
+                <a
+                  [routerLink]="['/admin/users', seat.user_id]"
+                  class="inline-flex items-center rounded-(--radius-md) px-3 py-1.5 text-xs font-medium text-(--text-secondary) underline decoration-(--border-strong) underline-offset-4 transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                  i18n="@@admin.vendors.detail.seats.userLink"
+                >
+                  Open user page
+                </a>
+                <button
+                  type="button"
+                  (click)="askRevoke(seat.user_id)"
+                  [disabled]="revokePendingId() === seat.user_id"
+                  class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-1.5 text-xs font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+                  i18n="@@admin.vendors.detail.seats.remove"
+                >
+                  Remove seat
+                </button>
+              </div>
+            </td>
+          </tr>
+
+          <!--
+            The two-step confirm is a full-width row directly under its seat, so
+            it stays adjacent to the row it acts on in both the visual and the
+            accessibility tree.
+          -->
+          @if (revokeConfirmId() === seat.user_id) {
+          <tr class="border-b border-(--border-default)">
+            <td colspan="5" class="bg-(--surface-sunken) px-3 py-3">
+              <p
+                class="text-sm text-(--text-primary)"
+                i18n="@@admin.vendors.detail.seats.confirmCopy"
+              >
+                Remove this seat? They lose portal access immediately and keep their AECi account.
+                Only a fresh grant restores it — there is no undo on this screen.
+              </p>
+              <div class="mt-3 flex flex-wrap gap-3">
+                <button
+                  type="button"
+                  (click)="confirmRevoke(seat)"
+                  [disabled]="revokePendingId() === seat.user_id"
+                  class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--text-primary) bg-(--text-primary) px-5 py-2 text-sm font-bold text-(--surface-base) transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  @if (revokePendingId() === seat.user_id) {
+                  <span i18n="@@admin.vendors.detail.seats.working">Working…</span>
+                  } @else {
+                  <span i18n="@@admin.vendors.detail.seats.confirm">Confirm removal</span>
+                  }
+                </button>
+                <button
+                  type="button"
+                  (click)="cancelRevoke()"
+                  [disabled]="revokePendingId() === seat.user_id"
+                  class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-5 py-2 text-sm font-medium text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+                  i18n="@@admin.vendors.detail.seats.cancel"
+                >
+                  Cancel
+                </button>
+              </div>
+              @if (revokeFailedMessage()) {
+              <p class="mt-3 text-sm font-medium text-(--text-primary)" role="alert">
+                {{ revokeFailedMessage() }}
+              </p>
+              }
+            </td>
+          </tr>
+          } }
+        </tbody>
+      </table>
+    </div>
+    } @if (v.pending_invites && v.pending_invites.length > 0) {
+    <div class="mt-4">
+      <p
+        class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+        i18n="@@admin.vendors.detail.invites"
+      >
+        Pending invites
+      </p>
+      <div class="mt-2 overflow-x-auto">
+        <table class="w-full min-w-[32rem] border-collapse text-sm">
+          <caption class="sr-only" i18n="@@admin.vendors.detail.invites.caption">
+            Seat invitations that have not been accepted, revoked, or expired
+          </caption>
+          <thead>
+            <tr class="border-b border-(--border-strong)">
+              <th
+                scope="col"
+                class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+                i18n="@@admin.vendors.detail.invites.col.email"
+              >
+                Email
+              </th>
+              <th
+                scope="col"
+                class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+                i18n="@@admin.vendors.detail.invites.col.invitedBy"
+              >
+                Invited by
+              </th>
+              <th
+                scope="col"
+                class="py-2 text-start font-bold text-(--text-secondary)"
+                i18n="@@admin.vendors.detail.invites.col.expires"
+              >
+                Expires
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (invite of v.pending_invites; track invite.id) {
+            <tr class="border-b border-(--border-default)">
+              <th scope="row" class="py-2 pe-4 text-start font-medium text-(--text-primary)">
+                {{ invite.email }}
+              </th>
+              <td class="py-2 pe-4 text-(--text-secondary)">
+                @if (invite.invited_by) { {{ invite.invited_by }} } @else {
+                <!-- The sender FK is ON DELETE SET NULL, so an invite outlives
+                     the account that sent it. -->
+                <span
+                  class="text-(--text-tertiary)"
+                  i18n-aria-label="@@admin.vendors.detail.invites.senderGone"
+                  aria-label="The sending account no longer exists"
+                  >&ndash;</span
+                >
+                }
+              </td>
+              <td class="py-2 text-(--text-secondary)">
+                {{ invite.expires_at | date: 'medium' : 'UTC' }}
+              </td>
+            </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    </div>
+    }
+  </section>
+
+  <!-- ── Audit trail ──────────────────────────────────────────────────────── -->
+  <section class="mt-6" aria-labelledby="admin-vendor-audit">
+    <div class="flex flex-wrap items-end justify-between gap-3">
+      <h3
+        id="admin-vendor-audit"
+        class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+        i18n="@@admin.vendors.detail.audit"
+      >
+        Audit trail
+      </h3>
+
+      <div class="flex flex-wrap items-center gap-2">
+        <span
+          id="admin-vendor-audit-scope-label"
+          class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+          i18n="@@admin.vendors.audit.scope.label"
+          >Scope</span
+        >
+        <div
+          role="group"
+          aria-labelledby="admin-vendor-audit-scope-label"
+          class="inline-flex flex-wrap gap-1 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-1"
+        >
+          @for (opt of scopeOptions; track opt.key) {
+          <button
+            type="button"
+            (click)="setScope(opt.key)"
+            [attr.aria-pressed]="auditScope() === opt.key"
+            class="rounded-(--radius-sm) px-3 py-1 text-xs font-bold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) aria-pressed:bg-(--accent-primary) aria-pressed:text-(--surface-base) text-(--text-secondary) hover:text-(--text-primary)"
+          >
+            {{ opt.label }}
+          </button>
+          }
+        </div>
+      </div>
+    </div>
+
+    <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@admin.vendors.audit.intro">
+      Every recorded change, newest first. This is a read: opening it records nothing.
+    </p>
+
+    <aec-audit-trail
+      [rows]="auditRows()"
+      [page]="auditPage()"
+      [perPage]="auditPerPage"
+      [total]="auditTotal()"
+      [loading]="auditLoading()"
+      [failed]="auditFailed()"
+      [emailsAvailable]="auditEmailsAvailable()"
+      (pageChange)="goToAuditPage($event)"
+      (retry)="retryAudit()"
+    />
+  </section>
+  }
+</section>

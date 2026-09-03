@@ -23,7 +23,7 @@ describe('forwardAuditLog', () => {
     await expect(forwardAuditLog(SYSTEM_CREATE)).resolves.toBeUndefined();
   });
 
-  it('swallows a forwarder rejection — Datadog availability never blocks a write', async () => {
+  it('swallows a forwarder rejection — observability availability never blocks a write', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const forward = vi.fn().mockRejectedValue(new Error('datadog down'));
 

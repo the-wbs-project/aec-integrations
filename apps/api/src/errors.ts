@@ -21,7 +21,7 @@ import { ApiErrorCode } from '@aeci/shared';
 import type { Context, ErrorHandler } from 'hono';
 import { ZodError } from 'zod';
 
-import { logToDatadog } from './datadog';
+import { logToPosthog } from './posthog';
 import type { Env } from './env';
 import { json } from './http';
 
@@ -36,12 +36,22 @@ type ResourceKind =
   // indistinguishable from a claim that does not exist.
   | 'claim'
   | 'attestation'
+  // The connector catalogue a `managed_by` flip addresses (AECI-720). Unlike the
+  // vendor-scoped 404s above there is nothing to hide here — a catalogue id is the
+  // review app's own record id and the caller is an authenticated admin.
+  | 'connector_catalog'
   | 'category'
   | 'audience'
   | 'phase'
   | 'trade'
   | 'review'
   | 'vendor_request'
+  // A vendor seat and the pending invite to one (AECI-664). Both are the SAME
+  // 404 a cross-vendor id gets: an owner probing `/api/vendor/seats/invites/:id`
+  // must not be able to tell "no such invite" from "that invite belongs to
+  // another vendor", and a spent token must look exactly like an unknown one.
+  | 'seat'
+  | 'seat_invite'
   | 'profile';
 
 export type ApiErrorOptions = {
@@ -157,7 +167,8 @@ export type ErrorHandlerOptions = {
  *      full issues array so the SSR client can render multi-field validation
  *      feedback later.
  *   3. Everything else → status 500, code `INTERNAL_ERROR`, log full stack to
- *      Datadog (best-effort; helper is a no-op without `DD_API_KEY`). The
+ *      the observability plane (best-effort; each vendor leg no-ops without
+ *      its own key). The
  *      message returned to the caller is deliberately generic — never leak
  *      internal error strings to the wire.
  *
@@ -173,8 +184,15 @@ export type ErrorHandlerOptions = {
  * propagating back through middleware `try/catch`). Each sub-router that
  * wants the canonical envelope registers this via `app.onError(errorHandler())`.
  *
- * `trace_id` is `crypto.randomUUID()` for now. When Datadog APM lands, this
- * will be the active span ID so logs and the response are pivot-able together.
+ * `trace_id` is `crypto.randomUUID()`, and that is now the permanent answer
+ * rather than a placeholder. The original note here promised it would become a
+ * Datadog APM span id — no APM was ever provisioned, and PostHog has no
+ * distributed-tracing product, so there is no span id to inherit (ADR 0024 /
+ * POSTHOG_MIGRATION_SPEC.md §3.8 lists this as a knowingly-accepted gap, not a
+ * regression). What makes the id useful is unchanged: the same value goes on
+ * the error log and in the response envelope, so a user-reported id pivots
+ * straight to its log line. Local `wrangler dev` OTel tracing
+ * (`docs/local-tracing.md`) still gives real spans in development.
  *
  * Generic over the router's env so `Variables`-extended sub-routers (e.g. the
  * AECI-193 auth-spike router, whose middleware sets `c.get('user')`) can reuse
@@ -215,7 +233,7 @@ export function errorHandler<E extends { Bindings: Env }>(
     // console line and the Datadog log so the actual failure is visible.
     const cause = causeChain(unknownError);
     console.error(`Unhandled error in ${c.req.path}:`, unknownError, cause ? { cause } : '');
-    logToDatadog(c.executionCtx, c.env, c.req.raw, {
+    logToPosthog(c.executionCtx, c.env, c.req.raw, {
       level: 'error',
       message: `Unhandled error: ${message}`,
       ...(source ? { source } : {}),
@@ -237,7 +255,7 @@ export function errorHandler<E extends { Bindings: Env }>(
  * queryable in Datadog under the SAME `trace_id` the caller receives in the
  * response envelope. Level scales with status: 5xx → `error`, everything else →
  * `warn` (a client-fixable 4xx isn't a server fault, but must still be findable).
- * No-op without `DD_API_KEY` (the transport self-gates). Only reached when the
+ * No-op without `POSTHOG_PROJECT_KEY` (the transport self-gates). Only reached when the
  * router opts in via `errorHandler({ logClientErrors: true })`.
  */
 function logRequestError<E extends { Bindings: Env }>(
@@ -246,7 +264,7 @@ function logRequestError<E extends { Bindings: Env }>(
   traceId: string,
   source: string | undefined,
 ): void {
-  logToDatadog(c.executionCtx, c.env, c.req.raw, {
+  logToPosthog(c.executionCtx, c.env, c.req.raw, {
     level: error.status >= 500 ? 'error' : 'warn',
     message: `Request error ${error.status} ${error.code}: ${error.message}`,
     ...(source ? { source } : {}),

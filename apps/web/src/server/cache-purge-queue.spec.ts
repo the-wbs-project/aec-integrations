@@ -5,12 +5,13 @@ import type { WebEnv } from '../env';
 
 // The Datadog transport is mocked so we can assert the `aeci.cache.purge` emission
 // (the metric moved to this consumer in WC-5) without a real network dispatch.
-vi.mock('../server-datadog', () => ({
+vi.mock('../server-posthog', () => ({
   submitCount: vi.fn(),
-  logToDatadog: vi.fn(),
+  logToPosthog: vi.fn(),
+  logBatchToPosthog: vi.fn(),
 }));
 
-import { logToDatadog, submitCount } from '../server-datadog';
+import { logToPosthog, submitCount } from '../server-posthog';
 import { createCachePurgeQueueHandler } from './cache-purge-queue';
 
 const env = { ENV: 'staging' } as unknown as WebEnv;
@@ -52,7 +53,7 @@ function makeCtx(purgeCache: ReturnType<typeof vi.fn>): ExecutionContext {
 
 beforeEach(() => {
   vi.mocked(submitCount).mockClear();
-  vi.mocked(logToDatadog).mockClear();
+  vi.mocked(logToPosthog).mockClear();
 });
 
 describe('createCachePurgeQueueHandler (WC-5 / AECI-319)', () => {
@@ -103,7 +104,7 @@ describe('createCachePurgeQueueHandler (WC-5 / AECI-319)', () => {
       'source:promote',
       'outcome:purge_failed',
     ]);
-    expect(logToDatadog).toHaveBeenCalledWith(
+    expect(logToPosthog).toHaveBeenCalledWith(
       ctx,
       env,
       expect.any(Request),
@@ -123,7 +124,7 @@ describe('createCachePurgeQueueHandler (WC-5 / AECI-319)', () => {
       'source:promote',
       'outcome:purge_failed',
     ]);
-    expect(logToDatadog).toHaveBeenCalledWith(
+    expect(logToPosthog).toHaveBeenCalledWith(
       ctx,
       env,
       expect.any(Request),

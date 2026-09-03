@@ -56,7 +56,7 @@ Guarded FSM with enforced transitions; n8n; Slack; auto-approval; auto-applied c
 
 - **`workflow_instances`** — create one per `vendor_request` (`workflow_type` `vendor_claim` | `correction_request`) and per `review` (`review_moderation`). Store `current_state` (mirrors the entity's `status`) + `linear_issue_id` (vendor requests only — `review_moderation` has no Linear issue).
 - **`workflow_transitions`** — append-only history (`from_state`, `to_state`, `actor_id`, `reason`, `metadata`), written on **every** status change and by the inbound Linear webhook (`actor_type: 'workflow'`).
-- **`appendWorkflowTransition()`** helper, mirroring `appendAuditLog()`. **No guarded state machine** — transitions are *recorded*, not *enforced* (Stage-1 relaxation of §26.3). Both tables forward to Datadog (§26.5).
+- **`appendWorkflowTransition()`** helper, mirroring `appendAuditLog()`. **No guarded state machine** — transitions are *recorded*, not *enforced* (Stage-1 relaxation of §26.3). Both tables forward to the log plane (§26.5 — Datadog today, PostHog under ADR 0024; the injected-forwarder seam makes it a wiring change).
 
 ---
 
@@ -68,7 +68,7 @@ Extend the AECI-128 request handler: after the `vendor_requests` insert, create 
 
 ### 6.2 Failure handling
 
-If the Linear API call fails: the row stays `open` with `linear_issue_id=null`, a Datadog error is logged, the reconciliation sweep (§6.4) retries, and on **persistent** failure an **admin email** fires so the request is never silently lost. (Email mechanism: **Resend** — wired in AECI-240 / Phase 7.5, `docs/email.md`; fail-open, so the stuck-row visibility in `/admin/requests` + the Datadog alert remain the guaranteed backstop.)
+If the Linear API call fails: the row stays `open` with `linear_issue_id=null`, an error is logged, the reconciliation sweep (§6.4) retries, and on **persistent** failure an **admin email** fires so the request is never silently lost. (Email mechanism: **Resend** — wired in AECI-240 / Phase 7.5, `docs/email.md`; fail-open, so the stuck-row visibility in `/admin/requests` + the pipeline-failure alert remain the guaranteed backstop — that alert is the Datadog monitor today and ports to a PostHog alert at **hourly** cadence under ADR 0024.)
 
 ### 6.3 `POST /api/webhooks/linear` (Linear → Site)
 
@@ -121,7 +121,7 @@ Per §22.3. The admin UI gains an action to set `profiles.banned_at` + `ban_reas
 ## 10. Notifications (no Slack)
 
 - **Happy path:** a new claim/correction creates a Linear issue (§6.1) → **Linear's native email notifications** alert the assignee (Chris/Bill). New review submissions surface via the Phase 5 admin **pending badge** + queue. No custom email, no Slack.
-- **Failure path:** an **admin email** on a persistent Linear-pipeline failure (§6.2), plus a Datadog alert and the stuck-row in `/admin/requests`.
+- **Failure path:** an **admin email** on a persistent Linear-pipeline failure (§6.2), plus the pipeline-failure alert (Datadog today, PostHog hourly after — ADR 0024) and the stuck-row in `/admin/requests`.
 
 ---
 

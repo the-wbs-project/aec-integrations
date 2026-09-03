@@ -63,6 +63,11 @@ import {
   type EntitlementStatus,
   type EntitlementTier,
 } from '@aeci/shared/entitlements';
+// NOT via `../posthog` (the Worker's telemetry call-site surface): this is
+// identity registration, not emission, and a dozen route specs `vi.mock` that
+// surface to silence telemetry. Behind the mock, registration would silently
+// stop happening — the exact silent under-coverage AECI-644 exists to avoid.
+import { rememberPosthogDistinctId } from '@aeci/shared/posthog';
 import { eq } from 'drizzle-orm';
 import type { Context, MiddlewareHandler } from 'hono';
 import { getCookie } from 'hono/cookie';
@@ -315,6 +320,14 @@ function createAuthzMiddleware(
     if (!supabaseUrl || !token) throw unauthenticated();
 
     const user = await verifySupabaseJwt(token, supabaseUrl, options.getKey);
+
+    // The person is now cryptographically established, so every log this
+    // request emits can carry `posthogDistinctId` (AECI-644 / §AW3). Registered
+    // HERE — before the profile read — deliberately: a ban 403 or a
+    // missing-profile 401 is exactly the log an operator wants pivoted to the
+    // person, and the `sub` is no less verified for having failed authorization.
+    // Authorization outcome and identity are different questions.
+    rememberPosthogDistinctId(c.req.raw, user.userId);
 
     // Re-fetch role + ban state on every request (§4.5 — never trust client
     // claims). The D1 binding is privileged (no RLS), so this read is the

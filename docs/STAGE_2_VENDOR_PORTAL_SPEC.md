@@ -15,7 +15,7 @@
 
 **Stage 2 is where the vendors log in.** The vendor portal is the anchor capability of Stage 2: a vendor authenticates, proves association with a `vendors` record, and gains `vendor_id`-**scoped** write access to their own product/vendor data — with every write audited and the verified badge activated on approval. The dividing line inherited from `STAGE_1_5_SPEC.md` §1.1 is exact: *anything that requires a vendor to authenticate and assert something about their own product is Stage 2.*
 
-**The launch model is concierge / manual (`STAGE_2_SPEC.md` §8.1).** AECi grants every `vendor_admin` **by hand** — **no auto-grant**. Verification is a **paid gate** arranged by **offline invoice/PO**. Seats are **multi-seat, flat** (several admins per vendor — e.g. Autodesk, Deltek). It deliberately does not scale; vendor volume at launch is low, and staffing help comes in if it grows.
+**The launch model is concierge / manual (`STAGE_2_SPEC.md` §8.1).** AECi grants every `vendor_admin` **by hand** — **no auto-grant**. Verification is a **paid gate** arranged by **offline invoice/PO** — for **endpoint** vendors; `STAGE_2_SPEC.md` §8.8 (AECI-702) does not invoice the connector surface, and **§8.9 (AECI-704) settles what a pure connector vendor receives instead**: a catalogue-maintenance seat on its own catalogue(s), carried by **no `vendor_entitlements` row**, so the Verified badge never lights. A connector-vendor claim is therefore **routed to the partnership track, never granted and never declined** — procedure in §5.2. Seats are **multi-seat, flat** (several admins per vendor — e.g. Autodesk, Deltek). It deliberately does not scale; vendor volume at launch is low, and staffing help comes in if it grows.
 
 **The trust invariant is unchanged and non-negotiable: no pay-for-placement.** Verified is a **capability + profile-richness** gate, never a ranking, placement, or badge-trust gate. Search stays purely algorithmic (`STAGE_1_SPEC.md` §1 principles; `CLAUDE.md` constraints). The reader-facing model is unaffected by what a vendor pays to participate.
 
@@ -29,7 +29,7 @@ This doc is the contract for the AECI-513 sub-issues. Each opens with `**Spec se
 | §3 | AECI-519 | Claim → verified-account grant flow |
 | §4 | AECI-520 | `/api/vendor/*` endpoint surface + vendor authz seam |
 | §5 | AECI-521 | Admin claim-review surface + reviewer-assist verification signals |
-| §6 | AECI-522 | Vendor dashboard UI (edit content, status, multi-seat) |
+| §6 | AECI-522 | Vendor portal UI (edit content, status, multi-seat) |
 | §7 | AECI-524 | Moderation escalation — gate vendor writes on ban state |
 | §8 | AECI-523 / AECI-529 | Verified-badge activation — SSR trust surface (523) + search surfaces (529) |
 | §9 | AECI-528 | Claim-decision emails (claim-approved / claim-rejected over Resend) |
@@ -142,7 +142,7 @@ The approval action that turns an `open` vendor claim into a live verified vendo
 
 **Entitlement launch shape.** `vendors.verified` **is** the launch entitlement bit. The offline PO/invoice arrangement lives in `audit_log` metadata (payer, amount/terms, arranged-by). A formal entitlement model is deferred to the Paid Tiers epic (AECI-515); this epic adds **no new schema**.
 
-> **Superseded (AECI-515, 2026-08-19).** That was the AECI-513 launch shape, and the Paid Tiers epic is the successor it named. `vendors.verified` is now a **denormalized mirror** of a `vendor_entitlements` row — `true` **iff** an `active` row exists — maintained in the same `db.batch`; the arrangement lives in the row **as well as** the audit trail, which stays the renewal ledger. The "no new schema" clause held for this epic and was spent by that one: `0019_easy_sandman` is the single migration.
+> **Superseded (AECI-515, 2026-08-19).** That was the AECI-513 launch shape, and the Paid Tiers epic is the successor it named. `vendors.verified` is now a **denormalized mirror** of a `vendor_entitlements` row — `true` **iff** an `active` row exists — maintained in the same `db.batch`; the arrangement lives in the row **as well as** the audit trail, which stays the renewal ledger. The "no new schema" clause held for this epic and was spent by that one: `0024_easy_sandman` is the single migration.
 >
 > **Nothing AECI-513 shipped against this bullet changed in behaviour** — the grant still writes the seat, still flips the bit, still records the arrangement in audit metadata; every reader still reads `verified`, and no public or read path may query the entitlement table. The one structural change is that after AECI-612 the flip is **emitted by `lib/vendor-entitlement.ts`, not by `grantSeatStatements`**, so the mirror has exactly one writer. See `docs/STAGE_2_PAID_TIERS_SPEC.md` §2 and `STAGE_2_SPEC.md` §8.5.
 
@@ -199,11 +199,11 @@ Guard-rails, exact field allow-lists, and the taxonomy-edit constraints are defi
 
 All four endpoints shipped with pinned Zod, **no migration**. Contracts live in `packages/shared/src/api/vendor.ts`, handlers in `apps/api/src/routes/vendor.ts`, full documentation in `API_CONTRACTS.md` §6.14. Decisions taken at build that this section did not pre-specify:
 
-- **Editable allow-list = content + links + taxonomy.** Product: `description`, `website`, `tool_integrations_url`, `api_docs_url`, `logo_url`, plus category/audience/phase assignment. Vendor: `description`, `website`, `headquarters`, `founded_year`, `public_private`, `parent_company`, `contact_email`, `phone_number`, `logo_url`, profile URLs. **Vendors assign existing taxonomy terms only** — minting a term stays an AECi curation act, so an unknown slug is a `400`, not a silent drop. `name`/`slug` are not vendor-editable (a rename breaks the URL, the Algolia record, and every inbound link — it stays a correction request).
+- **Editable allow-list = content + links + taxonomy.** Product: `description`, `website`, `tool_integrations_url`, `api_docs_url`, `logo_url`, plus category/audience/phase/**trade** assignment (trade added by AECI-665 — see §4.3). Vendor: `description`, `website`, `headquarters`, `founded_year`, `public_private`, `parent_company`, `contact_email`, `phone_number`, `logo_url`, profile URLs. **Vendors assign existing taxonomy terms only** — minting a term stays an AECi curation act, so an unknown slug is a `400`, not a silent drop. `name`/`slug` are not vendor-editable (a rename breaks the URL, the Algolia record, and every inbound link — it stays a correction request).
 - **Cross-vendor access returns `404`, not `403`.** A non-owner must not learn that another vendor's product exists. Ownership is proven against `product_vendors` in its own read wave, before anything else runs.
 - **A site `admin` is rejected with `403`.** No impersonation at launch; admins act through `/api/admin/*` so the audit trail names the real actor. A `vendor_admin` with a null `vendor_id` is likewise rejected.
 - **Audit rows use `actor_type: 'user'`** — the `audit_log_actor_type_check` CHECK has no `vendor` value and this epic ships no migration — and are distinguished by `metadata.source = 'vendor-portal'`.
-- **Purge tags.** Profile edit → `vendor:{slug}`. Product edit → `product:{slug}` + `index:products` + the taxonomy tags for the **union** of facet membership before and after (the browse page a product *joins* never carried its `product:` tag, so the union is what stops it going stale). Every vendor write stamps `products.updated_at`, including a taxonomy-only edit, or the nightly Algolia watermark would never see it.
+- **Purge tags.** Profile edit → `vendor:{slug}`. Product edit → `product:{slug}` + `index:products` + the taxonomy tags for the **union** of facet membership before and after (the browse page a product *joins* never carried its `product:` tag, so the union is what stops it going stale). A **trade** change purges more than its own browse page — see §4.3. Every vendor write stamps `products.updated_at`, including a taxonomy-only edit, or the nightly Algolia watermark would never see it.
 
 ### 4.2 Review-app counterpart: claimed vendors are not promote-writable
 
@@ -212,6 +212,60 @@ A conflict §4 did not anticipate: `POST /api/promote` writes an overlapping col
 **"Claimed" means at least one ACTIVE seat** — a `profiles` row with `role = 'vendor_admin'`, a matching `vendor_id`, and `banned_at IS NULL`. Seat existence is the signal rather than `vendors.verified` precisely because it cannot be set from Airtable. The ban exclusion is what keeps §7 moderation from locking a record: banning a vendor's only admin fails their portal calls **and**, without it, would leave promote refused too — so the content AECi banned them over would be the one thing nobody could correct. Ban stays per-seat (§7), so a vendor with another active seat is unaffected.
 
 `verified` was also **dropped from promote's vendor update** — it is the paid entitlement bit, set by the §3 grant and cleared only by a deliberate entitlement action, so a routine push must not move it (it previously could silently un-verify a paying vendor). It stays accepted-and-ignored in `PromoteVendorSchema`, so no lockstep review-app deploy was needed. **Consequence: until §3 (AECI-519) lands there is no writer for `vendors.verified` at all** — see §3.
+
+### 4.3 Trades are vendor-assignable (AECI-665 — 2026-08-26)
+
+The vendor product editor shipped (AECI-522) with three taxonomy facets. `trade` — the
+fourth facet — was **absent at every layer of the vendor-edit path**: `VendorProductSchema`,
+`UpdateVendorProductSchema`, the handler's `FACETS` table, and the form's chip groups. Not a
+deliberate carve-out: the trades epic (AECI-538) shipped to `main` before the vendor portal
+existed on `stage-2`, none of its ten sub-issues touched a surface that wasn't built yet, and
+the AECI-619 reconcile brought the schema and the public surfaces across without widening the
+vendor-editable allow-list. Everything downstream already supported trades — D1
+(`taxonomy_trades` / `product_trades`), `GET /api/taxonomy → trades`, promote, Algolia, the
+public detail chips, `/trades` browse, the sitemap — so this was a widening, not a build. The
+form was already *fetching* the trade vocabulary into its `taxonomy` input and discarding it.
+
+**Decision: vendors self-assign trades, uniformly with the other three facets.** Same
+`termSlugList` cap, same find-only resolution, same set-replacement, same
+`product.taxonomy.edit` gate. Deliberately **not** given a stricter cap. The rationale is the
+portal's premise: the vendor knows what their product does for a trade better than our
+researcher does, and the direction of travel is AECi getting *out* of the business of curating
+data vendors own.
+
+**The accepted risk, stated plainly.** Trades are the highest-leverage discovery facet — the
+publication floor is 1, so a single tag can publish a whole browse page and a sitemap entry —
+and the §1.1 tagging rule ("only where the product has trade-*specific* value; horizontal
+platforms carry none") is a judgement call with an obvious incentive to over-answer. That risk
+is accepted, not mitigated by a cap: the write is audited (`metadata.source = 'vendor-portal'`,
+with before/after trade sets) and reversible. **A "challenge recently-changed trades" review
+workflow — surfacing trade edits for an operator to question and the vendor to defend — is a
+known, deliberately deferred follow-up.** It is not a gap in this section; it is the mitigation
+we chose not to build yet.
+
+**Cache invalidation is the one place trades are NOT uniform.** `productEditTags` handles them
+in their own branch, mirroring `cacheTagsForPromote`: any change to the trade set also purges
+`index:trades`, `taxonomy`, and `sitemap`, because the facet is publication-gated
+(`CACHE_STRATEGY.md` §2). Tagging a trade that had no products flips `/trades/{slug}` from
+`noindex` to indexable and adds it to the index grid, the nav flyout, and `sitemap.xml` — none
+of which carry that product's tag. A removal crosses the same floor downward. The purge is
+keyed on the **symmetric difference** of the before/after sets, not on "the caller sent the
+key", so re-saving an unchanged trade set does not purge the sitemap for nothing. That trigger is
+deliberately *tighter* than promote's, which cannot cheaply diff (its response echoes only the
+trades that were set) and so purges every trade on the product. Both purge a superset of what is
+stale; the rule is shared, the trigger is not. A trade the product already carried needs no
+explicit tag, because `/trades/{slug}` embeds a `product:{slug}` tag for every product it lists.
+
+**Not carried over from promote, deliberately:** the IndexNow / Google submission that
+`POST /api/promote` fires for newly-published trade URLs. A vendor edit repaints the edge but
+does not ask a crawler to re-fetch; the next promote touching that trade does. Cheap to add if
+vendor-published trade pages prove slow to index.
+
+**The picker shows the full closed vocabulary**, unfiltered by the publication floor. That floor
+gates the SEO surfaces, not tagging — hiding a sub-floor trade would make it permanently
+unreachable, since a vendor tagging it is exactly how it reaches the floor. The form states the
+§1.1 rule inline, because "most products have none" reads as broken next to three facets where
+more tags is simply more accurate.
 
 ---
 
@@ -248,9 +302,56 @@ Shipped with **no migration**. The AECI-519 `PATCH /api/admin/claims/:id` alread
 - **Design anchor.** Internal surface → the binding anchor is the existing `/admin/requests` queue (Anchor-Site Rule — it must read as a sibling); externally validated against the Reddit mod-queue pattern (card-per-item list + status badge + inline approve/reject). `impeccable detect` clean; structural a11y covered by `claim-queue.component.spec.ts`.
 - **Claim-decision email is AECI-528's.** The AC "the claimant is notified" is satisfied by the AECI-519 PATCH's already-wired `SendClaimDecisionEmail` no-op seam; AECI-528 injects the real Resend sender. This issue adds no email code.
 
+**AECI-739 additions (2026-09-02) — the claim detail route + the operator note.** Same shape, three endpoints' worth of surface, one migration:
+
+- **`GET /api/admin/claims/:id` + `PATCH /api/admin/claims/:id/notes`**, both behind `requireAdmin()`, both in `routes/admin-claims.ts`. The detail reuses the LIST's own enrichment helpers by passing a one-row array, so a signal cannot be computed two ways; it keeps the `null` = unavailable convention, and it emits **no `audit_log` row** (it is a read). The note write is the third thing an admin does to a claim and rides the same `aeci.claim.moderation.action` metric with `action:note`.
+- **`AdminClaim` gained `admin_notes`; the status enum gained `in_review`.** The note is on the LIST as well as the detail on purpose — §5.2's handling of a pure-connector claim is to leave it `open`, and a queue of open claims with no visible reason why any is parked is the cost that motivated the issue. The enum widened because an `in_review` claim (what the webhook writes for a `started` Linear issue) appeared in no tab while being addressable by id; a detail route must not imply a status the list cannot find. `admin_notes` was added to **both** `adminVendorRequestConfig` and `RawAdminVendorRequestRow` — the rows are cast unchecked, so one without the other is invisible with no type error (the same two-part edit `duplicate_of_request_id` needed).
+- **`duplicate_siblings` is an ARRAY, not a nullable signal.** It is the one enrichment that is deliberately not fail-soft: it backs `is_duplicate` (which the detail computes as `duplicate_siblings.length > 0`, the LIST's group-by rule stated directly), and a page silently reporting "no duplicates" because a query failed would be worse than an error.
+- **Design anchor.** Same rule as the queue, one level down: the binding anchor is `/admin/vendors/:id` (AECI-652 / AECI-694) — the detail page must read as its sibling, flat child of the `/admin` layout with no per-route resolver, `notFound` split from `loadFailed` through the shared structural `isStatus`, and one page-owned polite live region. No nav entry: a parameterised route has no nav-able URL.
+
+### 5.2 Operator note — connector-vendor claims route to the partnership track (AECI-704)
+
+**`STAGE_2_SPEC.md` §8.8 / §8.9.** A pure **connector** vendor is not invoiced for verification and is never sold it; what it gets instead is a catalogue-maintenance seat on the connector admin surface (AECI-722's screen, AECI-724's seat). Neither exists yet, so this is a **manual operator step** — and because §5's console offers only Grant and Reject, both of which are wrong here, the procedure has to be written down rather than inferred.
+
+**1. Identify — the payer test, not a vendor flag.** Per §8.8(1): does the vendor own **any** product with `product_role IN ('application','hybrid')`? If yes it is an ordinary paying vendor and takes the ordinary §5 flow — `hybrid` counts as an endpoint, and Autodesk, Trimble, Deltek and Sage Group all own connector-role products. Only a vendor **all** of whose products are `'connector'` is in scope here.
+
+> **Console gap CLOSED — AECI-738, 2026-09-02.** Step 1 is now answerable without leaving the console. `AdminClaim` carries `product_roles` (`{ application, connector, hybrid, total }`) and `is_pure_connector_vendor`, and `GET /api/admin/vendors/:id` carries the same two (`API_CONTRACTS.md` §6.10). The claim card renders the breakdown as a verification signal **and**, on a pure-connector vendor, repeats it as a warning banner immediately above the actions — because the signals list sits well above the buttons and the mistake made at those buttons is the one-way one this section exists to prevent. `/admin/vendors/:id` renders the breakdown in its Basics list. Both derive from `product_vendors ⋈ products` in one grouped read, shared through `apps/api/src/lib/vendor-product-roles.ts` so the two screens cannot describe one vendor differently, and the label through `apps/web/src/app/admin/product-roles/product-roles-label.ts`. Three decisions worth knowing:
+>
+> - **`RoleBadge` is deliberately NOT reused**, despite being a drop-in. It self-hides for `application`, which is right for a per-product chip on a public page (no chip = endpoint, read one row at a time) and wrong for an aggregate: *"all 3 of this vendor's products are `application`"* is the **affirmative** answer to the payer test, and a control that renders nothing for it cannot state it. Reading the answer off an absence is precisely the defect this issue removed, so the console spells every role out. A capped per-product list with `RoleBadge` on `/admin/vendors/:id` is a reasonable follow-up, not a substitute.
+> - **Zero products is UNKNOWN, not exempt.** A vendor owning nothing renders "No products on record — role unknown", never the carve-out. `is_pure_connector_vendor` is `false` in that case and `product_roles.total === 0` separates it from an ordinary vendor; `null` is reserved for "the enrichment degraded" (claims only — the vendor-detail copy rides the request's own `db.batch` and cannot degrade).
+> - **Grant and Reject stay ENABLED.** The banner warns; it does not gate. `product_role` is curated upstream in the review app, so a mis-roled record would hard-block a legitimate endpoint vendor's claim, and steps 2–4 below are an operator procedure rather than an API rule. Turning the procedure into a gate is a separate decision, not a consequence of surfacing the signal.
+>
+> **AECI-722 deliberately did not close this** — the gap was on `/admin/claims` and `/admin/vendors/:id`, not on the connector screen, and folding it in would have coupled an unrelated payload change to the connector lane's merge. AECI-738 needed nothing from that lane. The *other* gap named in step 6 — no claim detail route, no operator-note field — is still open as **AECI-739**.
+
+**2. Do not press Grant.** Approve is **unconditional**: `approveClaim` composes `grantSeatStatements` with `activateEntitlementStatements` in one batch at `GRANT_TIER = 'verified'` (`apps/api/src/routes/admin-claims.ts`), which opens a `vendor_entitlements` row, flips the `vendors.verified` mirror, and hands the seat **every** capability in `TIER_CAPABILITIES.verified`. There is no partial grant, and approve-then-clear is not a workaround — it lights the badge, bumps `vendors.updated_at` in both directions so the nightly Algolia push can carry a verified vendor record in between, and leaves an audit trail that reads as a customer granted and then revoked.
+
+**3. Do not press Reject either.** `sendClaimRejectedEmail` (`apps/api/src/lib/email.ts`) sends subject *"Your claim for {name} was not approved"* over body *"After review, we weren't able to approve it."* That is an explicit decline, not merely a neutral one, and the reviewer's `reason` is an **internal audit note that is never emailed** (§9), so nothing in-product softens it. A decline is the one-way door §8.8(2) refused for the badge — the reasoning applies harder to an email aimed at exactly the party we want a relationship with.
+
+**4. Park the claim as `open`, and route out of band.** Leave the request in `open`, reply to the claimant directly naming the partnership track, and **prefer to keep the linked Linear issue in an unstarted-category state**. `STATE_TYPE_TO_STATUS` (`apps/api/src/routes/webhooks.ts`) maps `triage` / `backlog` / `unstarted` → `open`, so the issue may sit in any of them indefinitely. Only `started` → `in_review`, and **`GET /api/admin/claims` cannot show an `in_review` claim at all** — it filters on an *exact* status and its query enum offers only `open | resolved | rejected` — so moving the issue to In Progress used to make the claim vanish from every queue view. **AECI-739 widened the query enum to all four statuses and gave the queue an In review tab**, so that is now a preference rather than a trap — an `in_review` claim is findable, and the detail page explains the state. Unstarted is still the better default: `open` is the working queue's landing tab, which is where a parked claim wants to be seen. `completed` → `resolved` is worse still: the claim then reads as approved in the Resolved tab with no seat and no grant behind it.
+
+**5. Expect the duplicate chip to fire on later claims.** A parked-open claim stays inside the `openClaims` group-by that computes `is_duplicate` (`apps/api/src/routes/admin-claims.ts`), so **every subsequent claim on that vendor renders with the duplicate signal** — including a legitimate one from a real endpoint contact. Never dismiss a new claim on the chip alone while a parked one is open. **AECI-739 made the cause visible**: `/admin/claims/:id` carries a "Duplicate signal" section naming the open claims behind the chip, with each one's match reason and whether it carries an operator note — i.e. whether it was parked on purpose. The chip's SEMANTICS are deliberately unchanged; a claim with a note still counts. Fixing the arithmetic would mean changing a shipped signal, and the problem was never that the flag was wrong — it was that nothing said why.
+
+**6. The record lives on the claim — `/admin/claims/:id` (AECI-739).** Write down, in the operator note, why this claim is parked and what was said out of band. It is admin-only: never shown to the claimant, never emailed, and not `aec-admin-notes` (that is the closed-enum data-caveat envelope on analytics responses, not an annotation surface). The note renders read-only on the queue card too, so a parked claim is legible from the list without opening anything — which was the whole cost of not having it. Claims still auto-create a Linear issue in the Vendor Requests project carrying the `claim` label (`apps/api/src/lib/linear.ts`), and that is still the right home for a threaded exchange with a colleague; what belongs in the note is the *decision and its reason*, where the next reviewer of the next claim on this vendor will actually look.
+
+> **Gap CLOSED — AECI-739, 2026-09-02.** This step read *"the conversation record lives in Linear, because there is nowhere else"*, and said so explicitly "so nobody looks for an in-product home that does not exist". There is now such a home. What shipped:
+>
+> - **`vendor_requests.admin_notes`** (migration `0028_hard_the_call`, a plain additive `ALTER TABLE … ADD COLUMN` — the table is the parent of a self-FK and is referenced by `workflow_instances`, so a recreate would have been destructive). One nullable column, matching the `vendors.admin_notes` / `products.admin_notes` precedent.
+> - **The audit trail is the note's HISTORY, not the column.** Every write emits `vendor_claim.note_updated` carrying the full old and new note in `before_state`/`after_state`, **in the same `db.batch` as the UPDATE** (§26.1) — the arrangement §2.1 already uses for the entitlement ledger. That is also why an unchanged re-save is a **200 no-op that writes nothing**: a trail of identical states is not a history. It follows this resource's own idempotency rule (re-granting an already-granted claim is a documented 200 no-op), NOT `PATCH /api/admin/vendors/:id/entitlement`'s 422, which gates invalid *state transitions* — text that did not change is not one.
+> - **`PATCH /api/admin/claims/:id/notes` is a sub-resource, not a third `ModerateClaimSchema.action`.** Moderation is a one-way transition that grants a paid account or declines one by email; a note is neither. Keeping them apart is what lets the note be writable at **every** status, including `resolved` and `rejected` — which is where "why we parked it, and what happened next" matters most. No workflow row, no cache purge, no email.
+> - **`GET /api/admin/claims/:id` 422s on a `kind='correction'` id**, with the same redirect message the PATCH sibling already returns — not a 404. The row exists; it just moderates through `/admin/requests`, and one id on one path must not tell two different stories depending on the verb.
+> - **The detail page does not moderate and does not manage the entitlement.** Grant/Reject stay on the queue, beside step 2 and step 3's warning; the entitlement control stays on `/admin/vendors/:id` (AECI-652 §5.6). Both for the same reason: the sentences whose drift is an incident rather than a typo live in exactly one file.
+>
+> What is still open is **AECI-740** — nothing here provisions the catalogue-maintenance seat §8.9(2) describes, so step 4 still parks rather than grants. `ADMIN_PANEL_SPEC.md` §5.10 has the IA; `API_CONTRACTS.md` §6.10 has the shapes.
+
+**7. Fallback — recorded, not prescribed.** The webhook path sends **no email at all**, so *cancelling* the linked Linear issue writes `rejected` and clears the queue without any claimant-facing decline. It is not the default: it stamps a false terminal status and attributes the decision to the webhook rather than to the operator. Reach for it only if the parked queue outgrows a handful before AECI-722 / AECI-724 ship.
+
+**8. Volume — why parking is cheap.** §8.8(4) counted **8 `promoted` + 2 `on_hold`** connector-role products in the pipeline. A queue carrying two to five parked rows is not an operational cost; a wrongly-declined partner is.
+
+**9. When the surface exists — half of it now does.** **AECI-722 SHIPPED 2026-08-31** (`ADMIN_PANEL_SPEC.md` §5.9): `/admin/connectors` renders every catalogue, its triage backlog and its feed freshness, and carries the control for AECI-720's `managed_by` flip — so flipping a catalogue to vendor-managed, which freezes the review lane for that iPaaS and no other, is now a button rather than a curl. **What that does NOT do is provision anything.** The flip records who a catalogue was handed to in its audit metadata and grants nothing (`seat_not_granted: true`, in the row itself); the seat remains `profiles.role = 'vendor_admin'` + `profiles.vendor_id` with **no entitlement row** (§8.9(2)), and **no route writes that role**. So this procedure still parks rather than grants, and it will until the provisioning action ships — now tracked as **AECI-740** rather than as part of AECI-724, because 724 lands after Stage 2 launch and this procedure is blocked before it (§8.9(3)).
+
 ---
 
-## 6. Vendor dashboard UI (AECI-522)
+## 6. Vendor portal UI (AECI-522)
 
 The signed-in vendor's home, backed by `/api/vendor/*` (§4). **Multi-seat, flat (§8.1(2))** — several `vendor_admin` seats share one `vendor_id`; each was individually granted through §5. **Self-serve invite/revoke and an owner/admin distinction are deferred** (need a small schema add — §11).
 
@@ -265,12 +366,408 @@ Design work runs the `apps/web` UI checklist (`CLAUDE.md` §"Design checklist"):
 
 Shipped as the Angular `/vendor` surface (singular — the public `/vendors/:slug` detail is a different, cacheable route). Files under `apps/web/src/app/vendor/`. Decisions taken at build:
 
-- **IA — tabbed.** Both a tabbed and a single-page concept were built as live-toggleable previews (`/preview/vendor-dashboard`, the AECI-270 precedent); the PO chose **tabbed** (`vendor-dashboard-tabbed.ts`: a side-nav — Overview / Profile / Products / Seats — over one in-page panel, no child routes). The single-page concept (`vendor-dashboard-single.ts`) stays in the tree behind the preview. The presentational pieces (`components/vendor-{verified-status,request-status,seat-roster,profile-form,product-form,products-section}.ts`) are shared by both. **AECI-606** (`STAGE_2_ATTESTATIONS_SPEC.md` §6) adds an Integrations tab and its components (`components/vendor-{integrations-section,integration-card,claim-lane,attestation-control,add-claim-form,notifications-list,attestation-labels}.ts`) to **both** concepts, so the single-page concept does not silently lose a section the tabbed one has.
-- **Gate = the `/admin` pattern.** `vendorMeResolver` (`vendor-me.resolver.ts`) calls `GET /api/vendor/me`; a **401/403/404 → 404 render** (`<aec-not-found/>` + `RESPONSE_INIT.status = 404` + noindex), a 200 → the dashboard, a 5xx rethrows. `requireVendor()` rejects anon, reviewers, banned seats, null-`vendor_id` seats, **and site admins** — all surface as the same 404. Non-cacheable + `Cache-Tag`-free by the fail-closed classifier (no `server-runtime.ts` change; the worker login-bounce for anon `/vendor` already shipped with AECI-520). The page sets `robots: noindex`.
+- **IA — tabbed.** Both a tabbed and a single-page concept were built as live-toggleable previews (`/preview/vendor-dashboard`, the AECI-270 precedent); the PO chose **tabbed** (`vendor-dashboard-tabbed.ts`: a side-nav — Overview / Profile / Products / Seats — over one content panel). It was originally an in-page `@switch` with **no child routes**, so the concept could render identically in the preview and on the real page; **§6.2 replaced that with real child routes** and the same relative-link trick keeps the preview working. **§6.4 replaced the side-nav with a horizontal tab row** and turned Products into a filterable dropdown; the nav lives in `vendor-portal-nav.ts` now, not in the shell. **§6.5 then moved Integrations down a level, under the selected product** (alongside a new Taxonomy tab), gave a product its own nav row (`vendor-product-nav.ts`), and put **Messages** in the slot Integrations vacated. The single-page concept (`vendor-dashboard-single.ts`) stays in the tree behind the preview. The presentational pieces (`components/vendor-{verified-status,request-status,seat-roster,profile-form,product-form,products-section}.ts`) are shared by both. **AECI-606** (`STAGE_2_ATTESTATIONS_SPEC.md` §6) adds an Integrations tab and its components (`components/vendor-{integrations-section,integration-card,claim-lane,attestation-control,add-claim-form,notifications-list,attestation-labels}.ts`) to **both** concepts, so the single-page concept does not silently lose a section the tabbed one has.
+- **Gate = the `/admin` pattern.** `vendorMeResolver` (`vendor-me.resolver.ts`) calls `GET /api/vendor/me`; a **401/403/404 → 404 render** (`<aec-not-found/>` + `RESPONSE_INIT.status = 404` + noindex), a 200 → the portal, a 5xx rethrows. `requireVendor()` rejects anon, reviewers, banned seats, null-`vendor_id` seats, **and site admins** — all surface as the same 404. Non-cacheable + `Cache-Tag`-free by the fail-closed classifier (no `server-runtime.ts` change; the worker login-bounce for anon `/vendor` already shipped with AECI-520). The page sets `robots: noindex`.
 - **Edits.** `vendor-profile-form.ts` / `vendor-product-form.ts` are dirty-diff editors validated **live against the shared `UpdateVendorProfile*`/`UpdateVendorProduct*` schemas** (single source of truth; a single-key parse per field). Only changed fields are PATCHed (the endpoint requires ≥1; Save is disabled until a real change); the echo re-seeds the baseline so the form settles clean. **Optimistic + on-demand revalidation, no socket.** Save-confirmation copy never promises instant search — it says the listing updates now and search refreshes within a day (§8.3(5) / AECI-529). Product taxonomy is assigned via `aria-pressed` toggle chips fed by `GET /api/taxonomy` (existing terms only); `name`/`slug` are read-only with a "rename = correction request" hint. `public_private` uses the Angular Aria single-select listbox stand-in (ADR 0010).
-- **Header entry point.** A role-gated "Vendor dashboard" link in the signed-in user menu (`layout/user-menu.ts` + `layout/nav-menu.ts`), driven by `VendorStatus` (`vendor/vendor-status.ts`) — the cache-neutral clone of `AdminStatus`: it probes the cheap `GET /api/account` `role` (never `/api/vendor/*`) and stays `false` during SSR.
+- **Header entry point.** A role-gated "Vendor portal" link in the signed-in user menu (`layout/user-menu.ts` + `layout/nav-menu.ts`), driven by `VendorStatus` (`vendor/vendor-status.ts`): it reads the cheap `GET /api/account` `role` (never `/api/vendor/*`) and stays `false` during SSR, so the door never reaches cached header HTML.
+
+  > **Updated — the two portal doors are now a matched pair.** The admin console's entry point moved out of the header's "More" overflow menu (which duplicated its whole eleven-screen IA) into this same menu as an **"Admin portal"** link, and the `More▾` menu was retired. Both doors are one link each, because each portal owns its own navigation once you are inside it. `DESIGN.md` §Navigation → The Overflow Rule carries the reasoning; `ADMIN_PANEL_SPEC.md` §5 carries the admin side.
+  >
+  > `VendorStatus` is no longer a *clone* of `AdminStatus` — both are now thin views over one shared probe, `RoleStatus` (`apps/web/src/app/auth/role-status.ts`), so a signed-in page load makes **one** `GET /api/account` rather than two and one `ensureProbed()` re-arms both doors. That also fixed a real defect this clone carried: it latched `probed` *before* awaiting and swallowed every error, so a single 401 or JWKS blip hid "Vendor portal" for the life of the page. The AECI-617 self-heal (latch on success, one bounded retry, retry on menu open) had only ever been applied to the admin copy; it now covers both.
 - **Verified state.** Originally rendered read-only (`vendor-verified-status.ts`) as the launch-minimum entitlement display, with the richer paid-tier display deferred to AECI-515. **That hand-off is now resolved: AECI-614 shipped** (`docs/STAGE_2_PAID_TIERS_SPEC.md` §8/§8.1) and **`vendor-verified-status.ts` is deleted**. Its successor is `vendor/components/vendor-plan-panel.ts` — tier, status, term and resolved capabilities off the `entitlement` block on `GET /api/vendor/me`, across five states (`active` / `expiring` / `pending` / `lapsed` / `none`), with the forms read-only rather than disabled when the entitlement is not active.
 - **e2e.** The AECI-235 real-session mint (`apps/web/e2e/auth-session.ts`) was parameterized with a `vendor` persona; `vendor-dashboard.spec.ts` drives `/vendor` + a profile-edit round-trip. Seeded by a `vendor_admin` D1 profile in `apps/api/seed/auth-fixtures.sql` (id = the real vendor test account's Supabase `sub`, anchored to the `...061` fixture vendor). Skips-green until the `SUPABASE_VENDOR_TEST_USER_*` GH secrets are set (see `environments.md`).
+
+
+### 6.2 As built — the portal gets real URLs (2026-08-26)
+
+The §6.1 dashboard had one URL. Every section was the same address, so nothing on
+the portal was linkable, bookmarkable or shareable, Back left the portal entirely
+instead of returning to the previous section, and a reload always landed on
+Overview. This change gives the surface the browser's navigation model.
+
+**URL shape — `/vendor/:vendorSlug/<section>`.** The vendor slug comes first, the
+section after it: `/vendor/acme/overview`, `/vendor/acme/profile`,
+`/vendor/acme/products`, `/vendor/acme/products/:productSlug`,
+`/vendor/acme/integrations`, `/vendor/acme/seats`.
+**Superseded in part by §6.5 (2026-08-27):** `/vendor/acme/integrations` is gone —
+Integrations is now `/vendor/acme/products/:productSlug/integrations`, joined by
+`…/profile` and `…/taxonomy` under the same product, and `/vendor/acme/messages`
+takes the vacated top-level slot. Naming the vendor is not
+decoration — today one seat maps to exactly one `vendor_id`, so the slug is
+derivable, but §11's deferred multi-vendor seat is precisely the case where the
+address has to say which company is being edited, and putting it in now means that
+change is a resolver branch rather than a URL migration.
+
+**The route table moved into `apps/web/src/app/vendor/vendor.routes.ts`** and
+`app.routes.ts` reaches it through `loadChildren`. Two consequences worth knowing:
+the resolver, the guard and the section table are no longer in the initial bundle
+(the portal is a private surface used by a handful of accounts, and the initial
+bundle sits close enough to its 1 MB budget that eagerly importing the guard alone
+broke the build); and `VENDOR_SECTION_ROUTES` is exported separately because three
+surfaces mount it — the real portal, the dev preview, and the shell's own spec.
+
+- **`VendorPage` is now the layout route** (`/vendor/:vendorSlug`): the gate, the
+  head, `VendorPortalStore` and `VendorLiveSync`, plus the shell. The sections are
+  lazy children rendered through `<router-outlet/>`, so a section still only
+  fetches when a vendor opens it — the property the `@switch` used to provide.
+  The parent resolver runs once per entry into the portal, so moving between
+  sections costs no round-trip and never re-seeds the store.
+- **The nav links are relative.** `routerLink="overview"` resolves against the
+  `ActivatedRoute` of whichever route created the shell's ancestor, so one
+  template serves both `/vendor/:vendorSlug` and `/preview/vendor-dashboard`
+  (which mounts the same `VENDOR_SECTION_ROUTES` as children). No "am I
+  previewing" branch anywhere, and the preview keeps reviewing the component that
+  actually ships.
+- **The slug is checked, not decorative.** `vendorMeResolver` takes the same
+  not-found path for a 200 whose `vendor.slug` is not the one in the URL as it
+  does for a 401/403 — and does not put the payload in `TransferState`, so the
+  client branch cannot hydrate the dashboard the server refused to render.
+  Rendering the session's dashboard under a URL naming a different vendor is how
+  someone edits (or cites) the wrong listing.
+- **Bare `/vendor` still works, via a guard.** Both header menus link to it and
+  neither has a vendor payload to build a slugged link from.
+  `vendorHomeRedirectGuard` resolves `GET /api/vendor/me` and returns a `UrlTree`
+  to `/vendor/:vendorSlug/overview`; under SSR that becomes a **real 302**
+  (`@angular/ssr` emits one whenever the router's final URL differs from the
+  requested one), so a cold hit costs one redirect and lands on an address that
+  names the vendor. `redirectTo` — including its function form — cannot do this:
+  resolvers do not run for a redirect route, so the target is unknowable there.
+  The rejection branch returns `true` instead, leaving the URL intact and
+  rendering the global `NotFound` with the 404 status + noindex head the guard
+  sets (the AECI-62 "no pinned-404 trap" rule). A 5xx rethrows.
+  The cost is one extra `GET /api/vendor/me` on that one hop — a 302 carries no
+  `TransferState`, so the redirect target's resolver fetches again. Deep links,
+  bookmarks and every in-portal navigation skip the guard.
+- **"Vendor Overview", not "Overview"** (`vendor-nav.ts`, the `admin-nav.ts`
+  shape). The portal's overview is one of several overview-ish surfaces a
+  signed-in operator meets, and the nav sits inside a page whose `h1` is the
+  company name — naming the scope is what makes the link self-describing in a
+  screen-reader's link list and in a browser-history entry.
+- **The products section is one product at a time, with a picker.** It used to
+  render every owned product as a collapsed `<details>`; that reads fine for the
+  three-product fixture vendor and falls apart for a real one with a hundred, where
+  the product you came to edit is somewhere in the middle and cannot be named.
+  `sections/vendor-products-page.ts` puts the shared `AecSelect` (the ADR 0010
+  non-editable Aria combobox, whose listbox brings typeahead — the thing that makes
+  a hundred options navigable) beside the "Your products" heading, and the choice
+  is the `:productSlug` segment. The bare path shows the primary product (the nav
+  has no product in hand), the picker is hidden for a single-product vendor, and a
+  slug naming a product the vendor does not own is **called out** rather than
+  silently substituted. `VendorProductsSection` keeps its stacked-list rendering
+  for a `null` `selectedSlug`, which is what the single-page concept still uses.
+  **Superseded in part by §6.4:** the one-product-at-a-time rule and the
+  unknown-slug callout stand, but the picker itself moved out of the section and
+  into the nav, where it gained a search box.
+- **Ownership is still enforced server-side.** Nothing here is the gate:
+  `PATCH /api/vendor/products/:id` proves ownership against the session, and
+  `requireVendor()` still scopes every read. The slug check and the unknown-product
+  notice are clarity guards on top of that.
+- **No worker change was needed.** `isVendorPath` already matched `/vendor/…`, so
+  the anon login-bounce carries the deep path through in `?return=`, and the
+  fail-closed cache classifier still gives every portal path `private, no-store`
+  with no `Cache-Tag`.
+
+> ⚠️ **Deployed-environment blocker — the zone WAF 403s any path containing
+> `/vendor/`.** Verified 2026-08-26 by curl on `www`, `staging`, `demo` and
+> `stage2`: `/vendor` is fine, `/vendor/acme/overview` is a Cloudflare block page.
+> Almost certainly a Cloudflare **Managed Ruleset** rule (the Composer/PHPUnit
+> `vendor/` RCE family), not one of ours. This already broke every browser-side
+> `/api/vendor/*` call (SSR reaches the API over a service binding, so the page
+> looked alive while its XHRs 403'd); after this change it blocks the **page loads**
+> too, so the portal is unreachable on the zone until a skip rule lands. Local dev,
+> `workers.dev` preview URLs and CI are outside the zone and unaffected — which is
+> why no test catches it. Fix: a WAF skip for that managed rule scoped to
+> `starts_with(http.request.uri.path, "/api/vendor/") or
+> starts_with(http.request.uri.path, "/vendor/")`. Dashboard access required; see
+> `docs/waf-rate-limits.md` §"Managed-rule collision".
+
+**Tests.** `vendor-dashboard-tabbed.component.spec.ts` drives the sections with
+`RouterTestingHarness` (the shell's nav is anchors now, not buttons) and re-pins
+every AECI-606/614/631 property against the routed shape, plus the picker's own
+cases. `vendor-me.resolver.component.spec.ts` gains a `:vendorSlug` block covering
+both branches on both platforms. `apps/web/e2e/vendor-dashboard.spec.ts` asserts
+the bare-`/vendor` redirect and navigates by link.
+
+### 6.3 As built — the surface is named "Vendor portal" (2026-08-26)
+
+**Every user-facing string that named this surface a "dashboard" now says
+"portal".** The label was inherited from §6's working title and never matched the
+thing that shipped: a dashboard implies a read-first overview of the vendor's
+state, and this surface is a set of editors (Profile, Products, Integrations,
+Seats) with one summary section among them. "Portal" is also what the rest of the
+system already called it — this doc's own title, `VendorPortalStore`,
+`portalUrl()` in `apps/api/src/lib/email.ts`, and the §6.2 routing work all say
+portal — so this closes a drift, it does not open a new name.
+
+What changed (copy only — no route, no payload, no behaviour):
+
+- **Header entry point.** "Vendor dashboard" → **"Vendor portal"** in
+  `layout/user-menu.ts` + `layout/nav-menu.ts`. The i18n id moved with it,
+  `@@app.header.vendorDashboard` → `@@app.header.vendorPortal`, so id and source
+  text cannot disagree (English-only at launch; `messages.xlf` is deliberately
+  stale per `CLAUDE.md`).
+- **Page title.** `@@vendor.metaTitle` → "Vendor portal · AEC Integrations".
+- **The shell's nav landmark.** `aria-label` "Dashboard sections" → **"Portal
+  sections"** (`vendor-dashboard-tabbed.ts`). `apps/web/e2e/vendor-dashboard.spec.ts`
+  addresses the nav by that accessible name and moved with it.
+- **In-surface copy.** The two read-only notices (`vendor-profile-form.ts`,
+  `vendor-product-form.ts`) now point at **"Vendor Overview"** — the nav item that
+  actually holds the verification panel — rather than at "your dashboard"; the
+  attestations read-only notice and the lapsed-plan copy say "this portal" / "the
+  portal".
+- **Admin copy.** The claim queue's clear-entitlement warning says the vendor's
+  team keeps "their logins and their portal, read-only".
+- **Transactional email.** `claim-approved`, the attestation nudges' shared
+  closing lines, and `entitlement-expiring` all say "your vendor portal".
+
+**Not renamed: internal identifiers.** `vendor-dashboard-tabbed.ts`,
+`vendor-dashboard-single.ts`, `VendorDashboardTabbed` / `VendorDashboardSingle`,
+the `aec-vendor-dashboard-*` selectors, the `/preview/vendor-dashboard` concept
+route and `apps/web/e2e/vendor-dashboard.spec.ts` keep their names, and the
+in-file comments still say "dashboard" in places. That is a mechanical rename with
+no user-visible effect, deliberately kept out of a copy change so the diff stays
+reviewable; do it as its own pass. **The rule going forward: user-facing copy says
+"portal", never "dashboard".**
+
+### 6.4 As built — the nav goes horizontal, and Products gains a filterable menu (2026-08-26)
+
+The §6.1 nav was a 14rem side rail in a `md:grid-cols-[14rem_1fr]` grid. Five short
+links do not earn a seventh of a wide page, and the content they front (a profile
+form, a product form, an integration list) is what wants the width. This change
+makes the nav a horizontal tab row under the company name, and moves the product
+choice into it as a dropdown with a search box.
+
+**The row** (`vendor/vendor-portal-nav.ts`, extracted from the shell). One `<ul>`
+at every width, `overflow-x-auto whitespace-nowrap` so narrow viewports scroll it
+sideways rather than wrapping it (a wrapped tab row breaks its own underline
+across two lines). Deliberately **not sticky**: `shared/section-nav/section-nav.ts`
+is sticky because it is an in-page jump nav on a long editorial scroll, where the
+target moves under the reader; a router nav has no such coupling and the sections
+are short. Deliberately **no `md:hidden` mobile duplicate**, which would put every
+item in the DOM — and in a screen reader's link list — twice. The header loses its
+own `border-b`, so the row carries the single rule and reads as attached to the
+panel it switches.
+
+- **The active treatment is `-mb-px` + `border-b-2` on the item itself**, pulling
+  its border over the row's hairline: the `/search` entity-tab treatment and
+  DESIGN.md's "2px `accent-primary` bottom border on the element".
+  **The underline COLOUR is a class in `styles.css` (`.aec-nav-tab[aria-current]`),
+  not a Tailwind utility** — `styles.css` sets `border-color` on `*` **outside any
+  cascade layer**, and an unlayered rule beats every layered rule regardless of
+  specificity, so `border-transparent` and `border-(--accent-primary)` silently
+  never reach the tab and the underline comes out `--border-default` grey in both
+  states. This is not local: it defeats **every** border-color utility in
+  `apps/web` (~165 usages, the `/search` tabs included). Fixing it properly means
+  moving that `*` rule into `@layer base` — the same fix the file already applied
+  to anchor colours, with the reasoning written two lines below it — which is an
+  app-wide visual change and wants its own issue.
+- **Products is a `<button>`, not a link.** It opens the menu; there is no direct
+  link to `…/products` in the nav. Two costs, both accepted: `routerLinkActive`
+  cannot drive its state (a button has no `routerLink`), so the item computes
+  active from the router and carries **`aria-current="true"`** — the correct value
+  for a current item that is not a page link — and the Products section has no
+  JS-off entry point. The portal already requires JS (the store, the live sync and
+  every editor), is `noindex` and non-cacheable, so the second costs nothing real.
+  `aria-current` is still never hand-maintained per navigation: the four links get
+  it from `routerLinkActive`, and the button derives it from `router.isActive`
+  with `paths: 'subset'`, which is what keeps it current on
+  `…/products/:productSlug` too.
+- **A vendor with one product (or none) gets a plain link instead.** A dropdown
+  over a single option is noise, and the link keeps the section reachable in the
+  degenerate case. Same rule the in-page picker carried, relocated.
+
+**The menu** (`vendor/vendor-products-menu.ts`): a disclosure button over a
+`cdkConnectedOverlay` panel whose first control is a search box, filtering this
+vendor's catalog by name, alphabetical, with the current product check-marked.
+Choosing one navigates to `…/products/:productSlug`.
+
+- **It is a combobox, not a `role="menu"`.** A `menu` may not own a `textbox` (an
+  `aria-required-children` violation), and the menu pattern claims printable
+  characters for first-letter typeahead, so it would eat every keystroke aimed at
+  the search box. `user-menu.ts` and `nav-menu.ts` reached the same conclusion for
+  their own panels.
+- **`alwaysExpanded` on the `ngCombobox` is what makes it compose.** It makes
+  Aria's own `expanded` model, its Escape handler and its close-on-blur effect
+  inert, leaving exactly one open state — ours. Without it two open states fight
+  and the listbox collapses inside the panel.
+- **The panel must be an overlay.** The row is `overflow-x-auto`, i.e. a clip
+  container, so an `absolute top-full` panel would be clipped by the row it hangs
+  from. `usePopover: 'inline'` puts it in the browser's top layer.
+- **Escape and Tab are handled on the INPUT, not on the overlay.** Aria's
+  `KeyboardEventManager` defaults to `stopPropagation: true` and binds Escape, so
+  the event never reaches CDK's document-level keydown dispatcher and
+  `(overlayKeydown)` silently never fires for it. A listener on the same element
+  still runs (`stopPropagation` is not `stopImmediatePropagation`). CDK's own
+  Escape is disabled (`disableClose`) because it detaches the overlay behind the
+  back of the `open` signal, leaving the trigger claiming to be expanded.
+- **Focus moves into the search box on open**, which is a context change the
+  vendor asked for by activating the trigger — not a WCAG 3.2.1 problem — and
+  without it a keyboard user never learns a text field appeared. Escape and Tab
+  both return focus to the trigger. **No focus trap**: this is a disclosure, not a
+  modal.
+- **The listbox renders only when something matches.** Aria expands on every
+  keystroke, so gating the expansion cannot keep an empty `role="listbox"` out of
+  the DOM; gating the widget does. Zero matches renders a plain sentence, never an
+  unselectable "No matches" option.
+- **The option list is frozen while the panel is open.** `VendorLiveSync` refetches
+  `me` every 20 s and products is one of its six scopes; a poll that adds or drops
+  a row under a pointer already travelling toward one is exactly what
+  `STAGE_2_REALTIME_SPEC.md` §6.3 forbids. The list re-syncs on close.
+- **The menu declares no live region.** A "20 products match" `role="status"` here
+  would be the forbidden second region.
+- **Navigation is relative to the PORTAL route, with no `.parent`.**
+  `sections/vendor-products-page.ts` uses `relativeTo: route.parent` because it is
+  the child; this menu is rendered by the shell, whose `ActivatedRoute` already is
+  the layout route. `.parent` here would produce `/vendor/products/<slug>`, making
+  `:vendorSlug` the literal "products". Relative either way is what keeps
+  `/preview/vendor-dashboard` from navigating into the live portal.
+
+**The in-page `<aec-select>` picker is gone** (§6.2's "one product at a time, with
+a picker" — the *picker* moved, the one-at-a-time rule did not). A vendor had to be
+ON the products page to change which product they were editing, and a non-editable
+listbox gives a hundred-product catalog nothing but first-letter typeahead.
+`sections/vendor-products-page.ts` keeps everything that decides which product a
+URL resolves to: the bare path still shows the primary product, an unowned slug is
+still called out rather than substituted, and ownership is still enforced
+server-side. The unknown-product notice now points at the Products menu.
+
+**Tests.** `vendor-dashboard-tabbed.component.spec.ts` keeps every AECI-606/614/631
+property; its nav helper matches `a, button` and its href assertion covers the four
+links, and it gains the Products `aria-current` case. Two new specs:
+`vendor-portal-nav.component.spec.ts` (the row's own rules, no store, no DI) and
+`vendor-products-menu.component.spec.ts`, which **does** assert the open state —
+unlike `aec-select.component.spec.ts`, because opening here is a plain button click
+writing a plain signal, and CDK downgrades `usePopover` to the body-level overlay
+container under jsdom. `apps/web/e2e/preview-vendor-portal-nav.spec.ts` is new and
+**ungated**: it runs on `/preview/vendor-dashboard` (no session, and no `/vendor/`
+segment for the WAF to block), and covers Aria's real ArrowDown → Enter commit, a
+real outside click, and an axe pass with the panel **open** — the only automated
+check that would catch an empty `role="listbox"`. The preview's fixture switcher
+gains a 20-product entry, because a search box over two options tells you nothing.
+
+---
+
+### 6.5 As built — Integrations moves under the product, Messages takes its slot (2026-08-27)
+
+§6.4 made Products a menu that routes to `…/products/:productSlug`. This change makes
+a product a **place** rather than a parameter, and moves the Integrations tab into it.
+
+**The portal row is now:** Vendor Overview · Profile · Products ▾ · **Messages** · Seats.
+**A product gains its own row:** Profile · Taxonomy · Integrations.
+
+Both rows come from `vendor/vendor-nav.ts` (`VENDOR_NAV_ITEMS` and the new
+`VENDOR_PRODUCT_NAV_ITEMS`) and share `VENDOR_NAV_ITEM_CLASS`, so they cannot drift
+into looking like a nav and an imitation of one. The second row is rendered by
+`vendor/vendor-product-nav.ts` and is a **second nav landmark**, named for its product
+("Summit Field Issues sections") — two landmarks both called "Portal sections" would
+make the landmark list useless. Its `aria-label` is built with `$localize` at the call
+site, not as an `i18n-aria-label` attribute, because an *interpolated* `i18n-*`
+attribute emits no attribute at all in this toolchain.
+
+#### Why Integrations moved
+
+An integration is a thing that happens *to a product*, and a vendor with a dozen
+products was reading one flat list to answer a per-product question.
+
+The blocker was that `GET /api/vendor/integrations` framed each integration against
+**one** endpoint — `context_product` pinned to endpoint A *including when the caller
+owns both* ("arbitrary, but it has to be something"). Under a product tab that is not
+arbitrary at all: an owns-both integration filed under its endpoint-B product would
+render every direction backwards.
+
+**Resolution — the list unfolds.** The handler now emits **one entry per owned
+endpoint** rather than one per integration, each framed against the endpoint it is
+filed under. Consequences, all deliberate:
+
+- **`id` is no longer unique in the response.** The key is `(id, context_product.id)`.
+  `vendor-integrations-section.ts` tracks by exactly that; anything tracking or
+  splicing by `id` alone collapses or cross-wires the pair.
+- **An owns-both integration is listed under BOTH products**, directions mirrored.
+- **It is still ONE position.** `slots`, `mine`, `counterparty` and `agreement` are
+  identical on both entries, because a write fills every slot the caller owns (§2.1,
+  and filling one only was rejected: it cannot retract the sibling row and leaves
+  `DELETE` unable to clear) and §4 dedupes voters by vendor. Rendering it twice is a
+  view of one fact, not two.
+- **The write paths take an optional `context_product_id`.** On `POST /api/vendor/claims`
+  it is load-bearing: "outbound" means opposite things from the two sides, so the old
+  endpoint-A guess stored the *reverse* flow for a vendor authoring from its other
+  product's tab. On `PUT …/attestation` it only frames the echo. A product the caller
+  does not own on that integration is a `400` naming the field, never a silent
+  re-frame. Omitted keeps the endpoint-A default, which is unambiguous for the common
+  single-endpoint case. **The portal always sends it:** both write components source it
+  from the listing they render (`vendor-integration-card.ts` passes
+  `integration.context_product.id` into `vendor-add-claim-form.ts` and, via
+  `vendor-claim-lane.ts`, into `vendor-attestation-control.ts`), so the server frames the
+  write against the endpoint the vendor is authoring from rather than the fallback — the
+  fallback is API robustness for a caller that omits it, not the portal's path.
+- **The client mirrors on splice.** Because the write carries `context_product_id`, its
+  echo comes back framed against the tab it was authored from; splicing it verbatim into
+  the same integration's *other* entry
+  would render that flow backwards. `mirrorContextDirection` (`packages/shared/src/
+  integration-context.ts`, beside its two siblings — direction framing has one home)
+  re-frames it.
+
+**The READ stays vendor-wide.** One `GET /api/vendor/integrations`, one `integrations`
+cursor scope, one `VendorPortalStore` resource; only the *view* narrows, via the
+section's new `contextProductId` input. Fetching per product would break
+`STAGE_2_REALTIME_SPEC.md` §2.2's invariant ("every cursor query reuses the scoping
+predicate of the handler it is a cursor for") and turn one call into one per product,
+for a payload already bounded by the vendor's own catalog.
+
+#### Messages (the vendor-level slot)
+
+Nothing new is collected. It **consolidates two surfaces that already shipped in
+unrelated places**: claim/correction status (`vendor-request-status.ts`, previously on
+Vendor Overview) and the notification archive (`vendor-notifications-list.ts`,
+previously *inside* the Integrations tab, which is where you would look for it last).
+
+**This does not reverse §6.2 of `STAGE_2_REALTIME_SPEC.md`.** That rule — "new
+notifications are a count, never a banner" — is about not promoting *historical* rows
+to *live assertions*, because a three-week-old "Vendors disagree" row sitting above a
+lane now reading `confirmed` makes the surface contradict itself. All of that holds:
+no banner, no unread badge, no auto-expand, no "mark as read", and the "N new" count
+stays session-scoped inside the disclosure's summary line
+(`vendor-notification-baseline.ts` is unchanged). Giving the archive a findable home
+is not the same as asserting it is current state.
+
+Requests are shown above the archive because they are different in kind: `vendor_requests`
+rows **are** current state, ride `GET /api/vendor/me`, and carry a status the vendor acts on.
+
+#### Taxonomy is a projection, not a second form
+
+`vendor-product-form.ts` gains a `section: 'all' | 'profile' | 'taxonomy'` input and is
+rendered twice rather than split. `PATCH /api/vendor/products/:id` requires ≥1 changed
+field and re-asserts `product.taxonomy.edit` when facet arrays ride along, so two form
+components would mean two dirty-diff implementations racing on one endpoint — two
+chances to send an empty PATCH and two places for the field-level gate to drift. A
+field with no control on screen is never edited, so it never enters `patch()`; that is
+what makes each tab's PATCH carry only its own section. `'all'` remains the default and
+is what `vendor-dashboard-single.ts` keeps using.
+
+The Taxonomy tab is **not** route-gated on `product.taxonomy.edit`: a vendor without it
+sees its own facets read-only with the copy explaining what verification unlocks, per
+the ownership-reads / capability-writes split. Routing it away would hide owned data.
+
+#### Consequences elsewhere
+
+- **`…/products` (bare) redirects** to the default product's Profile. It cannot be an
+  Angular `redirectTo` — the target depends on the vendor's catalog, known only after
+  `GET /api/vendor/me` resolves — and it cannot be a guard either, because a child
+  `canActivate` runs *before* the parent route's resolver. So it is an `effect` in
+  `vendor-products-page.ts` with `replaceUrl`.
+- **`/vendor/:vendorSlug/integrations` no longer exists.** The portal is private,
+  noindex and non-cacheable, used by a handful of accounts, so a stale bookmark landing
+  on a 404 was accepted rather than adding a resolve-and-redirect hop.
+- **`vendor-dashboard-single.ts`** (the single-page concept, which has no product
+  selection) renders `aec-vendor-notifications-list` explicitly and leaves
+  `contextProductId` unset, keeping the vendor-wide list. Without that it would have
+  silently lost a surface the tabbed concept has — the thing AECI-606 added it to both
+  concepts to prevent.
+- **`vendor-product-context.ts`** is the one implementation of "which product is this
+  page about", shared by the shell and all three sections so they cannot disagree. It
+  combines every level's `paramMap` **observable** (not snapshots): picking a product is
+  a same-route navigation, so a snapshot read would pin each section to whichever
+  product was selected when it first rendered.
 
 ---
 
@@ -305,6 +802,22 @@ Render the verified badge on the SSR detail surfaces (vendor detail, and product
 **As built (AECI-523).** A shared, presentational `aec-verified-badge` (`apps/web/src/app/shared/verified-badge/verified-badge.ts`) — a quiet editorial **pill** (Forest-soft wash + Forest text + 0.5px Forest border + a shield-check glyph, `rounded-full` per the DESIGN.md pill reservation for vendor-verified badges) with `full` and `compact` (icon-only) variants. It renders **only when `verified === true`** — the public "Unverified" baseline is the *absence* of the badge (the explicit not-verified copy stays a dashboard-only readout, now `vendor/components/vendor-plan-panel.ts` since AECI-614); it is not conflated with the `AgreementBadge` "Unverified · AECi" claim state, nor the rating anatomy. Wired on three surfaces: the vendor detail hero (`vendors/vendor-detail.ts`), the product detail "Vendor" card (`products/product-detail.ts`, compact), and the product-pair rail (`products/products-pair.ts`, compact). Copy: `@@verified.badge.label` ("Verified vendor") + a non-overclaiming `@@verified.badge.tooltip`. AECI-529 reuses this component + copy for the search surfaces.
 
 Data plumbing: `VendorDetail.verified` already existed, so the vendor page needed none; the product surfaces embed the lean `VendorLink`, so `verified: z.boolean()` was added to `VendorLinkSchema` (`packages/shared/src/api/common.ts`) and hydrated in the single `toVendorLink` constructor (`apps/api/src/lib/drizzle-helpers.ts`, via `vendorLinkColumns`) — covering product detail, integration detail, product-pairs, and `ProductListItem.vendor`. No cache work: the §3 `vendor:<slug>` purge already invalidates the vendor page and every embedding product/pair page.
+
+### 8.1a Claim-CTA copy on an already-claimed listing
+
+The badge landing on the detail pages exposed a copy contradiction: the Actions-sidebar claim CTA (AECI-128) was **unconditional**, so a verified vendor rendered the "Verified vendor" badge and "Claim this listing" on the same page.
+
+**The CTA is not removed, only reworded.** Hiding it would close the only route in for cases the rest of this epic assumes exist:
+
+1. Seats are **multi-seat and admin-granted**, and self-serve invite/revoke is deferred (§11), so the public claim form is the only way a *second* person at a vendor asks for one. §5's `AdminVendorSeat` signal exists precisely so a reviewer can tell a second-seat request from a first claim.
+2. A wrongly-granted listing needs a public correction path for its rightful owner.
+3. `vendors.verified` is a **mirror of `vendor_entitlements`** since AECI-609, not an ownership bit, so hard-gating on it would tie the CTA to billing state: a cleared or expired entitlement would make it reappear on a vendor that still has live seats. There is no claim/ownership field on the public payload; `verified` is the closest available proxy and is used for **copy only**.
+
+**As built.** `verified === true` swaps the CTA label to "Request access to this listing" (`@@vendors.detail.metadata.requestAccess` / `@@products.detail.metadata.requestAccess`) and appends a one-line note under the action pair (`@@…metadata.claimedNote`: "Already managed by a verified vendor. Request access if you work there too."). The vendor page reads `v.verified`; the product page reads `p.vendor?.verified` (a nullable vendor falls back to the neutral claim copy). A copy-only `claimed` input on `RequestTrigger` rides into `RequestDrawerTarget`, so the drawer opens with matching eyebrow/title/subtitle (`@@requests.access.*`). **No contract change** — both states POST the same `kind:'claim'` request to the same route, and `verified` was already on `VendorDetail` and `VendorLink` from §8.1. Covered by `vendor-detail.component.spec.ts` (new), `product-detail.component.spec.ts`, and `request-trigger.component.spec.ts`.
+
+**Deliberately unchanged:** the routed fallback form at `/{products,vendors}/:slug/claim` keeps the neutral "Claim this listing" wording — `RequestForm` resolves no entity data (route `data` + `slug` only), so it cannot read `verified` without new plumbing, and the no-JS/deep-link path is honest either way. Server-side nothing gates either: `detectDuplicate` (`apps/api/src/routes/requests.ts`) only matches requests still `status='open'`, so a claim against an already-granted vendor is not even flagged as a duplicate. Surfacing "vendor already verified" as an **admin intake signal** is the open follow-up.
+
+---
 
 ### 8.2 Search surfaces (AECI-529)
 
@@ -361,13 +874,111 @@ Complete `AUTH_AND_RLS.md` for `vendor_admin`. The **kickoff** already seeds the
 
 Explicitly **not** in this epic (tracked elsewhere or later):
 
-- **Self-serve seat invite/revoke + owner/admin distinction** — needs a small schema add; deferred (`STAGE_2_SPEC.md` §8.1(2)). Launch is admin-granted seats only.
+- ~~**Self-serve seat invite/revoke + owner/admin distinction**~~ — **SHIPPED 2026-08-26 (AECI-664); see §11a below.** The "small schema add" this bullet anticipated turned out to be exactly that: one table (`vendor_seat_invites`) and one column (`profiles.seat_owner`), migration `0020`. Launch is no longer admin-granted-seats-only — an owner seat can invite a colleague **at any email address** (the original same-domain restriction was removed on 2026-08-26; see §11a.3), and someone with no owner to ask still falls through to the §5 claim queue.
 - **Paid-tier ladder above the entry Verified fee, automated billing, self-serve card, offline-invoicing mechanics** (renewal/expiry/dunning) — the Paid Tiers epic (AECI-515). **Decomposed 2026-08-14** in `docs/STAGE_2_PAID_TIERS_SPEC.md`; the decisions landed in `STAGE_2_SPEC.md` **§8.5** (§8.4 is the AECI-514 attestations block, taken at its own review the same day). **Built out 2026-08-14…19**: the entitlement model, the capability registry, the gate, the admin set/renew/clear action, the expiry warnings and the vendor plan panel all shipped. Automated billing and self-serve card stay deferred there; dunning is deliberately out (expiry **warns**, never auto-lapses); the tier *ladder* is now a data-only edit but its **pricing** stays open.
 - **Real-time / live vendor edits** — the Real-Time epic (AECI-516). **Transport resolved 2026-08-19** (ADR 0023 / `STAGE_2_SPEC.md` §8.6): **scoped client revalidation** over a per-vendor freshness cursor — **not** Durable-Object WebSockets, not SSE — decomposed into AECI-626…632 in **`docs/STAGE_2_REALTIME_SPEC.md`** and **built out 2026-08-19**. "The portal ships without persistent sockets" stayed true and is now the decision rather than the interim posture. It builds directly on this doc's §4 authz seam (a new `GET /api/vendor/updates` behind `requireVendor()`, scoped by `c.get('auth').vendorId`) and makes this doc's §6 dashboard live; nothing this epic shipped changes.
 - **Integration attestation authoring / conflict UI / version-diff** *(the version-diff half is now **shipped** — AECI-303, `STAGE_2_ATTESTATIONS_SPEC.md` §9 + §9.4)* — the Integration Attestations epic (AECI-514; activates the dormant `vendor_a`/`vendor_b` sources). Decomposed at its 2026-08-14 kickoff: **`docs/STAGE_2_ATTESTATIONS_SPEC.md`** is the build contract (`STAGE_2_SPEC.md` §2.4 is now just the scope outline). It builds directly on the §4 authz seam and the §6 dashboard shipped here — the two-slot attestation authority rule is the extension of this doc's `vendor_id`-scoping invariant, and the attestations surface is a new tab on this doc's dashboard.
+- **The connector-vendor catalogue-maintenance seat** — the return side of the `STAGE_2_SPEC.md` §8.8 payer carve-out, settled as policy in **§8.9** (AECI-704). **The admin half SHIPPED 2026-08-31** (AECI-722 — `/admin/connectors`, `ADMIN_PANEL_SPEC.md` §5.9); the vendor seat is still **AECI-724**, and *provisioning* the `vendor_admin` role is now **AECI-740** rather than either of them (§8.9(3)). Deliberately **not** an entitlement row and **not** a capability id: it authorizes on this doc's existing `vendor_admin` + `vendor_id` primitive, which `findVendorProfile`'s `leftJoin` already supports for a vendor with no entitlement. Until those ship, §5.2 is the manual operator procedure — and §8.9(3) notes the open sub-question, that **no route writes `role = 'vendor_admin'`** today.
 - **Person-lookup enrichment providers** — deferred DPA/GDPR decision (§5 surfaces a link only).
 - **Dark theme** — dropped; not roadmapped (light-only remains the direction). `STAGE_2_SPEC.md` §9.
 - **A public/partner write API** — the "no public API surface" boundary is unchanged (`STAGE_2_SPEC.md` §9).
+
+---
+
+## 11a. Self-serve seat invites (AECI-664) — activating the first §11 deferral
+
+**Shipped 2026-08-26.** One migration (`0020`), five endpoints, two web surfaces. This section is the build contract; the code is `apps/api/src/lib/vendor-seat-invites.ts`, `apps/api/src/routes/{vendor-seat-invites,seat-invites}.ts`, and `apps/web/src/app/vendor/{vendor-invite-page.ts,components/vendor-seat-{roster,invite-dialog,invite-form}.ts}`.
+
+### 11a.1 Why this was safe to open up
+
+§8.1(1) put a human in the loop for every seat, and that stays true for the cases that need it. What changed is the finding that the **second** seat's review was protecting nothing:
+
+- **Not revenue.** `activateEntitlementStatements` already returns the frozen no-op when an `active` row exists (§3.1), so a second-seat grant never re-flipped `verified`, never re-charged, never even bumped `updated_at`. There is no seat cap and no seat capability: `CAPABILITIES` (`packages/shared/src/entitlements.ts`) holds seven ids and none is about seats.
+- **Not attestation integrity.** `computeAgreement` (`packages/shared/src/agreement.ts`) dedupes by `attestedByVendorId`, so N seats at one vendor cast **one** vote and `confirmed` still needs two *distinct* vendor identities. Seat count cannot manufacture agreement. The residual risk is vendor-internal quality, which is the vendor's to manage.
+
+What the review WAS protecting is the identity question — "does this person really work there?" That question is answered by the **owner**, who is themselves AECi-reviewed and is the only party who knows the answer. §11a.3 records why the same-domain gate was a poor mechanical proxy for it, and why the domain signal is now recorded (`work_email_verified`) rather than enforced.
+
+### 11a.2 The model
+
+**Supabase does the sign-in; the invite is ours.** GoTrue's `POST /auth/v1/invite` was evaluated and rejected — the rationale is in `apps/api/src/lib/supabase-admin.ts` (the `WHY NOT` block on `createAuthUser`) and is unchanged by this issue: its link lands on `/auth/v1/verify?type=invite` and returns the session in a **URL fragment**, which `/auth/callback` (PKCE `?code=`) dead-ends; and enabling it needs two dashboard edits on the ONE shared auth project that backs production (ADR 0017).
+
+**The vendor never provisions an account.** No `createAuthUser` call exists on this path. An invite row is an INTENT; the invitee signs in through the ordinary self-service flow and the seat attaches on acceptance. Two consequences worth stating: it removes the spam / enumeration / third-party-consent problem a vendor-triggered account create would introduce, and — because nothing here reads `SUPABASE_SERVICE_ROLE_KEY` — the whole flow works in local `wrangler dev` and on PR previews, unlike the §3 admin grant which 503s wherever that key is absent.
+
+**The token is not a credential.** It identifies an invite; it never authorizes one. `inviteRedeemState` (the single shared verdict, used by both the preview read and the accept write) requires the redeemer's **verified JWT email** to equal the invited address, and an ABSENT session email fails closed. A forwarded link, a shared-inbox link, or a link a scanner prefetches grants nothing.
+
+**GET describes, POST mutates.** Mail scanners, link-preview bots and corporate URL rewriters fetch what they are sent, so a GET that redeemed would be spent by the invitee's own security appliance before they clicked. Same confirm-then-POST discipline as `/unsubscribe` (AECI-537).
+
+### 11a.3 No domain gate (amended 2026-08-26)
+
+**As shipped**, an invite had to pass `computeDomainMatch(email, vendors.website) === 'match'`; `no_match` and `manual_review` (freemail, or a vendor with no `website` on file) both returned **422 `INVITE_DOMAIN_MISMATCH`** and directed the owner to the §5 claim queue.
+
+**That gate has been removed, and the error code with it.** It was gatekeeping the wrong party. Whoever holds an owner seat has already been through AECi review, and they are the only person who knows which addresses actually maintain their listing — routinely an agency, a subsidiary, a parent company, or a contractor, none of whom have a corporate address on the vendor's domain. The gate did not make the flow safer; it converted the ordinary case into a refusal the owner could not act on themselves, and pushed a concierge review back onto AECi for a decision the owner had already made.
+
+**What bounds the endpoint is unchanged, and none of it was ever the domain:**
+
+- only a `seat_owner` may invite (§11a.4), and that bit still originates from an AECi-reviewed claim grant;
+- a **new** invited seat is never itself an owner, so the chain does not extend past one hop;
+- the redeem still requires the redeemer's verified JWT email to equal the invited address, so the owner can only hand a seat to a mailbox they can already reach — they are vouching, not minting;
+- `INVITE_DAILY_LIMIT` (10 per vendor per rolling 24 h) still caps the mail;
+- and §11a.1's two findings hold regardless of domain: a second seat moves no money (`activateEntitlementStatements` no-ops on an `active` row) and cannot manufacture agreement (`computeAgreement` dedupes by `attestedByVendorId`).
+
+**`computeDomainMatch` did not go away — it moved.** It now runs on the **accept** path (`routes/seat-invites.ts`) and decides one thing: whether the redeem sets `profiles.work_email_verified`. Recording that an address is on-domain and refusing every address that isn't are different features, and only the first was earning its keep. Keeping the computation at redeem time (against the address actually redeemed) is what preserves the column's meaning for the §5 reviewer, who reads it as "this account proved control of an address on the vendor's own domain" while deciding whether a claimant really works there. Setting it unconditionally on every redeem would have quietly degraded it to "someone accepted an invite". Like `seat_owner` it is never cleared — an off-domain redeem by a profile that already earned the bit keeps it.
+
+The §5 claim queue is unaffected and remains the path for someone who has **no** owner to ask.
+
+### 11a.4 Owner vs member
+
+`profiles.seat_owner` is the owner/admin distinction §11 deferred, and it gates **seat management only** — data capabilities stay identical across seats, so this is not the start of a permission matrix.
+
+- `true` on a seat created by the §3 admin claim grant (`grantSeatStatements`) — an AECi-reviewed human IS the owner event.
+- `false` on a **new** seat created by redeeming an invite (`acceptInviteStatements`). **This is the bound**: without it, one reviewed human seeds an unbounded chain of seats no reviewer ever saw. Redeeming never **demotes**, though — an existing owner who happens to redeem (re-invited, or self-invited; the invite path cannot cheaply tell they already hold a seat) keeps their bit, so the accept upsert's conflict path preserves the prior `seat_owner` rather than forcing it false. Forcing it false there could strip the only owner and leave the vendor unadministrable — the state the removal path's last-owner guard exists to prevent.
+- Cleared by `revokeSeatStatements`, so a stale `true` cannot make a re-linked account an owner by accident.
+- **Migration `0025` (shipped as `0020`) backfills every pre-existing `vendor_admin` to `true`.** A default-`false` rollout would have shipped the feature dead — no existing vendor could invite anyone.
+
+### 11a.5 Endpoints
+
+Owner side, behind `requireVendor()` **plus** an in-handler `requireSeatOwner()` that re-reads `seat_owner` from D1 every request (a demotion lands on the caller's next call, the same discipline as the `banned_at` re-read in `createAuthzMiddleware`):
+
+- `POST /api/vendor/seats/invites` — 201. Duplicate probe, **rate limit** (`INVITE_DAILY_LIMIT` = 10 per vendor per rolling 24 h, counted over `vendor_seat_invites` — no KV, no new binding). Mail is post-commit `waitUntil`; a send failure never un-creates a committed invite.
+- `DELETE /api/vendor/seats/invites/:id` — 204, soft delete (`revoked_at`).
+- `DELETE /api/vendor/seats/:userId` — 204. **The first HTTP surface `revokeSeatStatements` has ever had** (AECI-524 shipped the builder unwired). Refuses self-removal; also carries an explicit last-owner guard which is *currently unreachable* and kept deliberately — see the handler docblock.
+
+Invitee side, on its **own prefix** and behind `requireAuth()`, because the caller is by definition not a `vendor_admin` yet:
+
+- `GET /api/seat-invites/:token` — the preview + the redeemability verdict.
+- `POST /api/seat-invites/:token/accept` — attaches the seat.
+
+`GET /api/vendor/seats` gains `pending_invites` and `can_manage_seats`. It stays **un-gated** by capability (`STAGE_2_PAID_TIERS_SPEC.md` §4.3). **The `token` is never on this payload** — the roster is readable by every seat, and a token there would let any seat redeem an invite addressed to someone else's mailbox. It appears in exactly one place: the invite email.
+
+### 11a.5a The owner's surface: roster, with invite behind a trigger
+
+The Seats section is a **reading** surface first — who has access, who has a pending invite — so the create-an-invite form does not sit permanently under it. The section heading carries the action:
+
+- **`Invite`**, right-aligned opposite the "Seats (N)" heading (`components/vendor-seat-invite-dialog.ts`), opens the form in a Spartan `BrnDialog` modal. Owner-only: the component renders **nothing at all** for a member seat, so the heading row simply collapses to the heading.
+- **`components/vendor-seat-invite-form.ts`** is the dialog's body only — field, submit, outcome. The heading and the "any email address works" hint are the dialog's `brnDialogTitle` / `brnDialogDescription`.
+- **`components/vendor-seat-roster.ts`** keeps the roster, the pending-invite list, and the two destructive actions over them (remove seat, revoke invite). It no longer carries a form of any kind.
+
+Both surfaces gate on the same `can_manage_seats` from `GET /api/vendor/seats` — the SERVER's verdict on `profiles.seat_owner`, never re-derived from the roster, because hiding a control the API would 403 and showing one it would accept have to come from one source. That read is also why the trigger appears **with** the roster rather than with the first paint.
+
+Two deliberate behaviours:
+
+- **The dialog stays open after a successful send.** Seats are onboarded in batches; the form clears its field and keeps the "Invite sent to …" line, so "send another" costs nothing. The durable confirmation is the roster's "Pending invites" list, which the form has already re-read from the server. (Contrast `home-feedback-dialog.ts`, a one-shot, which auto-closes.)
+- **The overlay opens imperatively from the click handler**, never from an `effect()` — the latter throws NG0602 (CDK attaches a provider that itself creates an effect; hit on AECI-218). Nothing but a click opens this, and the imperative form is what keeps the component renderable under TestBed, which the `effect()` form is not.
+
+### 11a.6 Seat management is NOT entitlement-gated
+
+No `requireCapability` call exists in `routes/vendor-seat-invites.ts`, and that is a position rather than an omission. There is no seat capability in the frozen registry; §3 already establishes that clearing an entitlement does not revoke seats; and gating **removal** on a live entitlement would mean a lapsed vendor cannot revoke a departed employee's access — a security regression wearing a billing lever's clothes. A lapsed vendor's seats still cannot write anything: every data write is separately capability-gated.
+
+### 11a.7 Routing
+
+The portal is `/vendor/:vendorSlug/<section>` since §6.2, so the redeem page is `/vendor/invite/:token`, registered **ahead of `:vendorSlug`** in `vendor.routes.ts` (or the literal `invite` segment is captured as a slug and `vendorMeResolver` 404s the one page a non-vendor must reach). It is deliberately OUTSIDE that layout route — everything under it is behind the resolver — but stays under `/vendor/` so the worker-level anon gate (`isVendorPath`) bounces a signed-out visitor to `/auth/login?return=<path>` with the token intact (`safeReturnPath` preserves query strings and path segments alike). **That bounce is the flow, not a side-effect.**
+
+### 11a.8 Deliberately deferred
+
+- **An `invites` scope on `GET /api/vendor/updates`.** There are exactly six cursor scopes, and both `STAGE_2_REALTIME_SPEC.md` and `CLAUDE.md` state "six SELECTs in one `db.batch`". A seventh is its own change. Cross-tab invite freshness degrades to on-demand `store.reload('seats')`, which the surface already does after every write.
+- ~~**Cross-domain invites.**~~ **Shipped 2026-08-26** — the domain gate was removed outright; see §11a.3. The §5 claim queue remains the path for someone with no owner to ask.
+- **Bulk/CSV invite, and role tiers beyond owner/member.**
+- **A seat-count capability or per-seat billing** — a Paid Tiers (AECI-515) decision, not this one's.
 
 ---
 
@@ -383,6 +994,7 @@ Explicitly **not** in this epic (tracked elsewhere or later):
 | Cache-Tag purge (queue producer + tag map) | `CACHE_STRATEGY.md` (§3/§8) |
 | Algolia index settings + `verified` facet | `SEARCH_RANKING.md` (§8) |
 | Stage 2 scope, decisions, epic map | `STAGE_2_SPEC.md` (§2.1 scope, §8.3 decisions) |
+| Connector lane — who pays, and what a connector vendor gets instead | `STAGE_2_SPEC.md` §8.8 (payer) + §8.9 (return side); the operator procedure is §5.2 here. Tracked catalogues/stubs and `docs/connector-vendors.md` live in the **`aec-integrations-review`** repo |
 | Paid tiers & entitlements — the successor epic (AECI-515) | `STAGE_2_PAID_TIERS_SPEC.md` (§3's un-verify owner, §6.1's paid-tier display, §9's billing notices, §11's deferrals) |
 
 ---

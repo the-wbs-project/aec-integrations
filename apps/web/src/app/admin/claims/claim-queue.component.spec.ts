@@ -10,6 +10,15 @@
  * race paths) and the structural invariants axe relies on (heading order, the
  * status group's accessible name, the polite live region).
  *
+ * AECI-739 added the operator-note READOUT, the per-card detail link and the
+ * `in_review` filter tab; the note is written on `/admin/claims/:id`, so what is
+ * asserted here is that a parked claim is legible from the LIST.
+ *
+ * The entitlement set/renew/clear form is NOT tested here any more — AECI-652
+ * moved it to `admin/entitlement/entitlement-control`, which has its own spec.
+ * What stayed is the readout and the link out, plus the single-live-region
+ * assertion that the extraction could have silently broken.
+ *
  * Harness mirrors `request-queue.component.spec.ts`: browser platform + a macrotask
  * `settle()` drains `afterNextRender`'s async load.
  */
@@ -24,7 +33,6 @@ import type {
   ListVendorClaimsResponse,
   ModerateClaimInput,
   ModerateClaimResponse,
-  SetVendorEntitlementInput,
   VendorEntitlementResponse,
 } from '@aeci/shared';
 
@@ -63,6 +71,15 @@ function makeClaim(over: Partial<AdminClaim> & { id: string }): AdminClaim {
         ? over.entitlement_vendor!
         : { id: VENDOR_ID, name: 'Autodesk, Inc.', slug: 'autodesk' },
     entitlement: 'entitlement' in over ? over.entitlement! : null,
+    // AECI-738: the §5.2 payer test. Default is an ordinary endpoint vendor.
+    product_roles:
+      'product_roles' in over
+        ? over.product_roles!
+        : { application: 1, connector: 0, hybrid: 0, total: 1 },
+    is_pure_connector_vendor:
+      'is_pure_connector_vendor' in over ? over.is_pure_connector_vendor! : false,
+    // AECI-739: the operator note. Default is "no note".
+    admin_notes: 'admin_notes' in over ? over.admin_notes! : null,
   };
 }
 
@@ -94,7 +111,6 @@ function activeEntitlement(
 interface ApiMock {
   listClaims: ReturnType<typeof vi.fn>;
   moderate: ReturnType<typeof vi.fn>;
-  setEntitlement: ReturnType<typeof vi.fn>;
 }
 
 function makeApiMock(rows: AdminClaim[], total = rows.length): ApiMock {
@@ -119,18 +135,6 @@ function makeApiMock(rows: AdminClaim[], total = rows.length): ApiMock {
               }
             : null,
       }),
-    ),
-    setEntitlement: vi.fn(
-      async (
-        vendorId: string,
-        input: SetVendorEntitlementInput,
-      ): Promise<VendorEntitlementResponse> =>
-        activeEntitlement({
-          vendor_id: vendorId,
-          status: input.action === 'clear' ? 'revoked' : 'active',
-          verified: input.action !== 'clear',
-          period_end: input.period_end ?? '2027-09-01',
-        }),
     ),
   };
 }
@@ -263,6 +267,66 @@ describe('ClaimQueue', () => {
 
     const degraded = await setup(makeApiMock([makeClaim({ id: 'c3', existing_seats: null })]));
     expect(degraded.el.textContent).toContain('Unavailable');
+  });
+
+  it('renders the product-role breakdown, the no-products state, and the unavailable state', async () => {
+    const ordinary = await setup(
+      makeApiMock([
+        makeClaim({
+          id: 'c1',
+          product_roles: { application: 2, connector: 1, hybrid: 0, total: 3 },
+        }),
+      ]),
+    );
+    // `application` is SPELLED OUT. `RoleBadge` hides it, which is right for a
+    // per-product chip and wrong here: "2 are application" is the affirmative
+    // answer to the payer test, and inferring it from an absent chip is the
+    // defect AECI-738 exists to remove.
+    expect(ordinary.el.textContent).toContain('2 application');
+    expect(ordinary.el.textContent).toContain('1 connector');
+
+    const noProducts = await setup(
+      makeApiMock([
+        makeClaim({
+          id: 'c2',
+          product_roles: { application: 0, connector: 0, hybrid: 0, total: 0 },
+        }),
+      ]),
+    );
+    // Unknown, NOT exempt — and visibly distinct from "unavailable".
+    expect(noProducts.el.textContent).toContain('No products on record');
+
+    const degraded = await setup(
+      makeApiMock([makeClaim({ id: 'c3', product_roles: null, is_pure_connector_vendor: null })]),
+    );
+    expect(degraded.el.textContent).toContain('Unavailable');
+  });
+
+  it('warns against Grant and Reject on a pure-connector claim, without disabling them', async () => {
+    const { el } = await setup(
+      makeApiMock([
+        makeClaim({
+          id: 'c1',
+          product_roles: { application: 0, connector: 2, hybrid: 0, total: 2 },
+          is_pure_connector_vendor: true,
+        }),
+      ]),
+    );
+    const card = cardFor(el, 'Procore');
+    expect(card.textContent).toContain('Pure connector vendor');
+    expect(card.textContent).toContain('do not Grant or Reject');
+    // §5.2 is an operator procedure, not an API rule: `product_role` is curated
+    // upstream, so a mis-roled record must not hard-block a legitimate claim.
+    const buttons = [...card.querySelectorAll('button')].filter((b) =>
+      /Grant vendor account|Reject/.test(b.textContent ?? ''),
+    );
+    expect(buttons.length).toBeGreaterThan(0);
+    expect(buttons.every((b) => !b.disabled)).toBe(true);
+  });
+
+  it('shows no connector warning on an ordinary vendor claim', async () => {
+    const { el } = await setup(makeApiMock([makeClaim({ id: 'c1' })]));
+    expect(el.textContent).not.toContain('do not Grant or Reject');
   });
 
   it('renders prior requests + the duplicate-chain note', async () => {
@@ -428,153 +492,62 @@ describe('ClaimQueue', () => {
 
   // ── Entitlement control (AECI-532 / STAGE_2_PAID_TIERS_SPEC.md §5) ─────────
 
-  describe('entitlement control', () => {
-    it('offers Grant when the vendor has no active entitlement', async () => {
+  describe('entitlement readout + link (the CONTROL moved out in AECI-652)', () => {
+    it('renders the status readout without any form control', async () => {
       const { el } = await setup(makeApiMock([makeClaim({ id: 'c1' })]));
       const card = cardFor(el, 'Procore');
       expect(card.textContent).toContain('No entitlement on record');
-      expect(buttonByText(card, 'Grant entitlement')).toBeTruthy();
+      // The set/renew/clear form lives on /admin/vendors/:id now. A second copy
+      // here would mean a second copy of the §5.2/§5.3/§5.4 copy invariants, and
+      // those are the sentences whose drift causes an incident.
+      expect(() => buttonByText(card, 'Grant entitlement')).toThrow();
       expect(() => buttonByText(card, 'Clear entitlement')).toThrow();
+      expect(card.querySelector('aec-entitlement-control')).toBeNull();
     });
 
-    it('offers Renew + Clear when it is active, and shows the term', async () => {
+    it('shows the active term and paperwork', async () => {
       const { el } = await setup(
         makeApiMock([makeClaim({ id: 'c1', entitlement: activeEntitlement() })]),
       );
       const card = cardFor(el, 'Procore');
       expect(card.textContent).toContain('Verified: entitlement active');
-      expect(card.textContent).toContain('2027-09-01');
+      // Formatted, and formatted the SAME way as `/admin/vendors/:id` — both
+      // readouts share `entitlementTermLabel` so they cannot drift (AECI-694).
+      expect(card.textContent).toContain('Sep 1, 2027');
       expect(card.textContent).toContain('PO-4471'); // the arrangement is admin-side
-      expect(buttonByText(card, 'Renew term')).toBeTruthy();
-      expect(buttonByText(card, 'Clear entitlement')).toBeTruthy();
-      expect(() => buttonByText(card, 'Grant entitlement')).toThrow();
     });
 
-    it('sends set with the term + paperwork, and never names `verified`', async () => {
-      const api = makeApiMock([makeClaim({ id: 'c1' })]);
-      const { el, fixture } = await setup(api);
+    it('links out to the vendor page by VENDOR id, not by claim or target id', async () => {
+      // A product claim's entitlement belongs to that product's PRIMARY vendor, so
+      // `target_id` cannot address it — which is why the row carries a resolved
+      // `entitlement_vendor` at all.
+      const { el } = await setup(makeApiMock([makeClaim({ id: 'c1' })]));
       const card = cardFor(el, 'Procore');
-
-      buttonByText(card, 'Grant entitlement').click();
-      fixture.detectChanges();
-      const date = card.querySelector('input[type="date"]') as HTMLInputElement;
-      date.value = '2027-09-01';
-      date.dispatchEvent(new Event('input'));
-      const invoice = card.querySelector('input[type="text"]') as HTMLInputElement;
-      invoice.value = 'PO-99';
-      invoice.dispatchEvent(new Event('input'));
-      fixture.detectChanges();
-
-      buttonByText(card, 'Confirm grant').click();
-      await settle();
-      fixture.detectChanges();
-
-      expect(api.setEntitlement).toHaveBeenCalledWith(VENDOR_ID, {
-        action: 'set',
-        period_end: '2027-09-01',
-        invoice_ref: 'PO-99',
-      });
-      // `vendors.verified` is a server-side mirror; a payload that named it would be a
-      // second direct writer (§2.1).
-      expect(Object.keys(api.setEntitlement.mock.calls[0]![1])).not.toContain('verified');
-    });
-
-    it('pre-fills the renew form from the current term rather than blanking it', async () => {
-      const api = makeApiMock([makeClaim({ id: 'c1', entitlement: activeEntitlement() })]);
-      const { el, fixture } = await setup(api);
-      const card = cardFor(el, 'Procore');
-
-      buttonByText(card, 'Renew term').click();
-      fixture.detectChanges();
-      expect((card.querySelector('input[type="date"]') as HTMLInputElement).value).toBe(
-        '2027-09-01',
+      const link = [...card.querySelectorAll('a')].find(
+        (a) => a.textContent?.trim() === 'Manage entitlement',
       );
-      expect((card.querySelector('input[type="text"]') as HTMLInputElement).value).toBe('PO-4471');
+      expect(link?.getAttribute('href')).toBe(`/admin/vendors/${VENDOR_ID}`);
     });
 
-    it('clears, patches the row in place, and announces that portal access continues', async () => {
-      const api = makeApiMock([makeClaim({ id: 'c1', entitlement: activeEntitlement() })]);
-      const { el, fixture } = await setup(api);
-      const card = cardFor(el, 'Procore');
-
-      buttonByText(card, 'Clear entitlement').click();
-      fixture.detectChanges();
-      // The §5.2 + §5.4 copy is the whole point of this form.
-      expect(card.textContent).toContain('does not remove');
-      expect(card.textContent).toContain('read-only');
-      expect(card.textContent).toContain('grant the entitlement again, edit, then clear it');
-
-      buttonByText(card, 'Confirm clear').click();
-      await settle();
-      fixture.detectChanges();
-
-      expect(api.setEntitlement).toHaveBeenCalledWith(VENDOR_ID, { action: 'clear' });
-      // The row is NOT dropped — an entitlement is not a queue item — it re-renders.
-      expect(el.querySelectorAll('article')).toHaveLength(1);
-      expect(cardFor(el, 'Procore').textContent).toContain('Entitlement cleared');
-      const live = el.querySelector('[role="status"]');
-      expect(live?.textContent).toContain('read-only');
-      // Never promise instant search: the Algolia sync is nightly in both directions.
-      expect(live?.textContent).toContain('within a day');
-    });
-
-    it('patches EVERY row for that vendor, not just the one acted on', async () => {
-      const api = makeApiMock([
-        makeClaim({ id: 'c1', entitlement: activeEntitlement() }),
-        makeClaim({
-          id: 'c2',
-          target: { id: 't2', name: 'Bluebeam', slug: 'bluebeam' },
-          entitlement: activeEntitlement(),
-        }),
-      ]);
-      const { el, fixture } = await setup(api);
-
-      buttonByText(cardFor(el, 'Procore'), 'Clear entitlement').click();
-      fixture.detectChanges();
-      buttonByText(cardFor(el, 'Procore'), 'Confirm clear').click();
-      await settle();
-      fixture.detectChanges();
-
-      // Two claims on one vendor is the common case on this queue; leaving the sibling
-      // showing "active" would be a stale badge state on screen.
-      expect(cardFor(el, 'Bluebeam').textContent).toContain('Entitlement cleared');
-    });
-
-    it('surfaces a 422 without dropping the row', async () => {
-      const api = makeApiMock([makeClaim({ id: 'c1' })]);
-      api.setEntitlement.mockRejectedValueOnce(
-        new HttpErrorResponse({ status: 422, statusText: 'Unprocessable' }),
-      );
-      const { el, fixture } = await setup(api);
-      const card = cardFor(el, 'Procore');
-
-      buttonByText(card, 'Grant entitlement').click();
-      fixture.detectChanges();
-      buttonByText(card, 'Confirm grant').click();
-      await settle();
-      fixture.detectChanges();
-
-      expect(cardFor(el, 'Procore').textContent).toContain('already in the state you asked for');
-      expect(el.querySelectorAll('article')).toHaveLength(1);
-    });
-
-    it('renders no control when the claim has no vendor to act on', async () => {
+    it('renders no link when the claim has no vendor to act on', async () => {
       const { el } = await setup(makeApiMock([makeClaim({ id: 'c1', entitlement_vendor: null })]));
       const card = cardFor(el, 'Procore');
       expect(card.textContent).toContain('Unavailable');
-      expect(() => buttonByText(card, 'Grant entitlement')).toThrow();
+      expect(
+        [...card.querySelectorAll('a')].some((a) => a.textContent?.trim() === 'Manage entitlement'),
+      ).toBe(false);
     });
 
-    it('stays available on a resolved claim — renewing a months-old grant is ordinary', async () => {
+    it('stays visible on a resolved claim — renewing a months-old grant is ordinary', async () => {
       const { el } = await setup(
         makeApiMock([
           makeClaim({ id: 'c1', status: 'resolved', entitlement: activeEntitlement() }),
         ]),
       );
       const card = cardFor(el, 'Procore');
-      // The moderation buttons are gone (terminal row) but the entitlement ones are not.
+      // The moderation buttons are gone (terminal row) but the readout is not.
       expect(() => buttonByText(card, 'Grant vendor account')).toThrow();
-      expect(buttonByText(card, 'Clear entitlement')).toBeTruthy();
+      expect(card.textContent).toContain('Verified: entitlement active');
     });
   });
 
@@ -602,10 +575,63 @@ describe('ClaimQueue', () => {
       expect(el.querySelector(`#${labelId}`)?.textContent?.trim()).toBeTruthy();
     });
 
-    it('exposes a polite live region for action outcomes', async () => {
+    it('exposes EXACTLY ONE polite live region, however many rows are on screen', async () => {
+      // The count is the point. The entitlement control used to be inline, once
+      // per row; a version of it that rendered its own `role="status"` would give
+      // this page N live regions, and a `querySelector` assertion would keep
+      // passing on the first one. That is why the extracted control announces
+      // through an output instead.
+      const { el } = await setup(
+        makeApiMock([
+          makeClaim({ id: 'c1' }),
+          makeClaim({ id: 'c2', target: { id: 't2', name: 'Bluebeam', slug: 'bluebeam' } }),
+        ]),
+      );
+      const regions = el.querySelectorAll('[role="status"]');
+      expect(regions).toHaveLength(1);
+      expect(regions[0].getAttribute('aria-live')).toBe('polite');
+    });
+  });
+
+  // ── AECI-739: the parked claim, legible from the list ──────────────────────
+
+  describe('operator note + detail route (AECI-739)', () => {
+    it('renders the note on the CARD — a parked claim must be legible from the queue', async () => {
+      const { el } = await setup(
+        makeApiMock([
+          makeClaim({ id: 'c1', admin_notes: 'Connector vendor — partnership track, 2026-09-01.' }),
+        ]),
+      );
+      const card = cardFor(el, 'Procore');
+      expect(card.textContent).toContain('Connector vendor — partnership track, 2026-09-01.');
+    });
+
+    it('shows no note block when there is no note', async () => {
       const { el } = await setup(makeApiMock([makeClaim({ id: 'c1' })]));
-      const live = el.querySelector('[role="status"]');
-      expect(live?.getAttribute('aria-live')).toBe('polite');
+      expect(cardFor(el, 'Procore').textContent).not.toContain('Operator note');
+    });
+
+    it('links each card to its detail route', async () => {
+      const { el } = await setup(makeApiMock([makeClaim({ id: 'c1' })]));
+      const links = [...cardFor(el, 'Procore').querySelectorAll('a')].map((a) =>
+        a.getAttribute('href'),
+      );
+      expect(links).toContain('/admin/claims/c1');
+    });
+
+    it('offers an In review filter and re-fetches with that status', async () => {
+      // The status the API could not express at all until AECI-739 widened its
+      // query enum — so a claim addressable at /admin/claims/:id was findable in
+      // no queue tab.
+      const api = makeApiMock([makeClaim({ id: 'c1' })]);
+      const { el, fixture } = await setup(api);
+      const tab = buttonByText(el, 'In review');
+      tab.click();
+      fixture.detectChanges();
+      await settle();
+      expect(api.listClaims).toHaveBeenLastCalledWith(
+        expect.objectContaining({ status: 'in_review' }),
+      );
     });
   });
 });

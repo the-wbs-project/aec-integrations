@@ -198,7 +198,7 @@ Changes to the SSR consumer or `/admin/purge` must also assert the native bounda
 
 ## Mocking rules
 
-**Mock at the boundary.** External services (Algolia, Resend, Datadog, Linear), the network layer, the database connection. Not internal helpers.
+**Mock at the boundary.** External services (Algolia, Resend, the telemetry transport — PostHog, Linear), the network layer, the database connection. Not internal helpers.
 
 **Never mock:**
 

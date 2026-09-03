@@ -29,6 +29,9 @@ export class RequestTrigger {
   readonly entity = input.required<RequestTargetType>();
   readonly kind = input.required<RequestKind>();
   readonly slug = input.required<string>();
+  /** The target's built-by vendor is already AECi-verified, i.e. the listing is
+   *  claimed. Copy-only — see `RequestDrawerTarget.claimed`. */
+  readonly claimed = input(false);
 
   protected onClick(event: MouseEvent): void {
     if (!this.isBrowser) return;
@@ -38,6 +41,11 @@ export class RequestTrigger {
       return;
     }
     event.preventDefault();
-    this.drawer.open({ entity: this.entity(), kind: this.kind(), slug: this.slug() });
+    this.drawer.open({
+      entity: this.entity(),
+      kind: this.kind(),
+      slug: this.slug(),
+      claimed: this.claimed(),
+    });
   }
 }

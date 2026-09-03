@@ -61,6 +61,14 @@
       "types": "./src/cache-purge.ts",
       "default": "./src/cache-purge.ts"
     },
+    "./concurrency": {
+      "types": "./src/concurrency.ts",
+      "default": "./src/concurrency.ts"
+    },
+    "./response-drain": {
+      "types": "./src/response-drain.ts",
+      "default": "./src/response-drain.ts"
+    },
     "./cloudflare-analytics": {
       "types": "./src/cloudflare-analytics.ts",
       "default": "./src/cloudflare-analytics.ts"
@@ -69,9 +77,9 @@
       "types": "./src/algolia-batch.ts",
       "default": "./src/algolia-batch.ts"
     },
-    "./datadog": {
-      "types": "./src/datadog.ts",
-      "default": "./src/datadog.ts"
+    "./posthog": {
+      "types": "./src/posthog.ts",
+      "default": "./src/posthog.ts"
     },
     "./timing-safe-equal": {
       "types": "./src/timing-safe-equal.ts",
@@ -103,6 +111,7 @@
     "lint:fix": "eslint . --fix"
   },
   "dependencies": {
+    "posthog-node": "^5.50.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {

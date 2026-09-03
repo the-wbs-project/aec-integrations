@@ -6,7 +6,7 @@
  * of awaiting a write inside a `$transaction` (the retired Prisma path), each
  * helper RETURNS a Drizzle insert *statement* the caller pushes into its batch
  * array. The state-change write and its audit/transition row then commit or roll
- * back as a single unit. The best-effort Datadog forward (§26.5) is decoupled —
+ * back as a single unit. The best-effort §26.5 forward is decoupled —
  * call `forwardAuditLog` / `forwardWorkflowTransition` from `@aeci/shared` AFTER
  * the batch commits (via `ctx.waitUntil`).
  *

@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   attestations,
   claims,
+  connectorEvidencedPairs,
   integrations,
   products,
   productVendors,
@@ -223,6 +224,105 @@ describe('GET /api/products/:slug/integrations/:otherSlug', () => {
   it('404s when the two slugs are equal', async () => {
     await seedProducts();
     expect((await get('/api/products/procore/integrations/procore')).status).toBe(404);
+  });
+});
+
+describe('GET /api/products/:slug/integrations/:otherSlug — connector-evidenced pairs (AECI-721)', () => {
+  it('renders a pair that exists ONLY in connector_evidenced_pairs', async () => {
+    await seedProducts();
+    await t.db.insert(products).values({
+      id: u(3),
+      slug: 'agave-erp-sync',
+      name: 'Agave ERP Sync',
+      productRole: 'connector',
+      promotionStatus: 'promoted',
+    });
+    // No `integrations` row at all — the post-migration shape for 19 production
+    // pairs. A pair read that queried `integrations` alone would answer "no
+    // integrations" for a pair with a working, evidence-backed one.
+    const [a, b] = [u(1), u(2)].sort();
+    await t.db.insert(connectorEvidencedPairs).values({
+      id: u(60),
+      connectorProductId: u(3),
+      productAId: a!,
+      productBId: b!,
+      direction: 'a_to_b',
+      mechanismName: 'Agave ERP Sync',
+      listingUrl: 'https://useagave.com/integrations/procore',
+    });
+
+    const parsed = ProductPairResponseSchema.parse(
+      await (await get('/api/products/procore/integrations/revit')).json(),
+    );
+    expect(parsed.mechanisms.map((m) => m.id)).toEqual([u(60)]);
+    const [m] = parsed.mechanisms;
+    // `via` carries the connector; `powered_by_product` stays null so a renderer
+    // cannot print the connector twice.
+    expect(m?.via?.slug).toBe('agave-erp-sync');
+    expect(m?.powered_by_product).toBeNull();
+    // Null by construction — the table has no `mechanism_kind` column.
+    expect(m?.mechanism_kind).toBeNull();
+    expect(m?.listing_url).toBe('https://useagave.com/integrations/procore');
+  });
+
+  it('composes both tables into one mechanism list, in either page orientation', async () => {
+    await seedProducts();
+    await t.db.insert(products).values({
+      id: u(3),
+      slug: 'agave-erp-sync',
+      name: 'Agave ERP Sync',
+      productRole: 'connector',
+      promotionStatus: 'promoted',
+    });
+    await integration(u(11), u(1), u(2));
+    const [a, b] = [u(1), u(2)].sort();
+    await t.db.insert(connectorEvidencedPairs).values({
+      id: u(60),
+      connectorProductId: u(3),
+      productAId: a!,
+      productBId: b!,
+      direction: 'both',
+    });
+
+    for (const url of [
+      '/api/products/procore/integrations/revit',
+      '/api/products/revit/integrations/procore',
+    ]) {
+      const parsed = ProductPairResponseSchema.parse(await (await get(url)).json());
+      // The evidenced arm's `where` needs no orientation `or` — the table stores
+      // the pair canonically — so the SAME row must surface from either side.
+      expect(parsed.mechanisms.map((m) => m.id).sort()).toEqual([u(11), u(60)].sort());
+      // `both` is orientation-free, so it reads the same whichever product is context.
+      expect(parsed.mechanisms.find((m) => m.id === u(60))?.direction).toBe('both');
+    }
+  });
+
+  it('lets an evidenced pair speak for the pair maintenance marker (AECI-616)', async () => {
+    await seedProducts();
+    await t.db.insert(products).values({
+      id: u(3),
+      slug: 'agave-erp-sync',
+      name: 'Agave ERP Sync',
+      productRole: 'connector',
+      promotionStatus: 'promoted',
+    });
+    const [a, b] = [u(1), u(2)].sort();
+    await t.db.insert(connectorEvidencedPairs).values({
+      id: u(60),
+      connectorProductId: u(3),
+      productAId: a!,
+      productBId: b!,
+      maintainedBy: 'vendor',
+      lastReviewedAt: '2026-08-30T00:00:00.000Z',
+    });
+
+    const parsed = ProductPairResponseSchema.parse(
+      await (await get('/api/products/procore/integrations/revit')).json(),
+    );
+    // The header shows ONE value for the pair, so a vendor-maintained evidenced
+    // pair must be able to set it exactly as an `integrations` row can.
+    expect(parsed.maintenance.maintained_by).toBe('vendor');
+    expect(parsed.maintenance.last_reviewed_at).toBe('2026-08-30T00:00:00.000Z');
   });
 });
 

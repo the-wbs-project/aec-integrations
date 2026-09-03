@@ -63,6 +63,7 @@ import type {
   VendorMeResponse,
   VendorNotification,
   VendorSeat,
+  VendorSeatInvite,
 } from '@aeci/shared';
 
 import { VendorApi } from './vendor-api';
@@ -230,6 +231,25 @@ export class VendorPortalStore {
   readonly notifications: Signal<readonly VendorNotification[]> =
     this.state.notifications.asReadonly();
   readonly seats: Signal<readonly VendorSeat[]> = this.state.seats.asReadonly();
+
+  /**
+   * The two other halves of `GET /api/vendor/seats` (AECI-664 / §11a).
+   *
+   * Plain signals rather than entries in `state`, deliberately: they arrive on
+   * the SAME fetch as the roster, so they already share its status, its version
+   * counter and its dirty-section deferral. Giving them their own resource keys
+   * would add three kinds of bookkeeping to express one thing that cannot load
+   * separately.
+   *
+   * `canManageSeats` is the SERVER's verdict on the caller's `profiles.seat_owner`
+   * — never re-derived here from the roster. The UI's enabled state and the 403
+   * its write would get have to come from one source, the same rule
+   * `vendor-capabilities.ts` follows for entitlement capabilities.
+   */
+  private readonly invites = signal<readonly VendorSeatInvite[]>([]);
+  private readonly manageSeats = signal(false);
+  readonly seatInvites: Signal<readonly VendorSeatInvite[]> = this.invites.asReadonly();
+  readonly canManageSeats: Signal<boolean> = this.manageSeats.asReadonly();
 
   readonly meStatus: Signal<VendorPortalStatus> = this.statuses.me.asReadonly();
   readonly integrationsStatus: Signal<VendorPortalStatus> = this.statuses.integrations.asReadonly();
@@ -459,9 +479,19 @@ export class VendorPortalStore {
         case 'notifications':
           this.receive('notifications', (await this.api.getNotifications()).notifications);
           break;
-        case 'seats':
-          this.receive('seats', (await this.api.getSeats()).seats);
+        case 'seats': {
+          const payload = await this.api.getSeats();
+          this.receive('seats', payload.seats);
+          // Defaulted, not assumed. The SSR Worker and the API Worker deploy
+          // separately, so during a rollout a new bundle can briefly talk to an
+          // API that predates AECI-664 and answers without these two fields.
+          // Defaulting degrades the section to "roster only, no controls" — the
+          // pre-664 surface — instead of throwing inside the template and taking
+          // the whole Seats section down. Fail closed on the capability bit.
+          this.invites.set(payload.pending_invites ?? []);
+          this.manageSeats.set(payload.can_manage_seats ?? false);
           break;
+        }
       }
       this.loadedOnce.add(resource);
       status.set('loaded');

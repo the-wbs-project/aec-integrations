@@ -37,6 +37,7 @@ import {
   type AdminBreakdownRow,
   type AdminCount,
   type AdminInternalFilter,
+  type AdminMetricBasis,
   type AdminMetricKey,
   type AdminNote,
   type AdminNoteCode,
@@ -59,14 +60,38 @@ import {
   sql,
   type SQL,
 } from 'drizzle-orm';
+import type { AnySQLiteColumn } from 'drizzle-orm/sqlite-core';
 
 import type { Db } from '../db/client';
-import { auditLog, metricsDaily, pageViews, products, profiles } from '../db/schema';
+import {
+  auditLog,
+  claims,
+  integrations,
+  metricsDaily,
+  pageViews,
+  products,
+  profiles,
+  vendors,
+} from '../db/schema';
 import type { Env } from '../env';
 import { ApiError } from '../errors';
-import { BOT, HUMAN, NOT_INTERNAL as EXCLUDE_UNTRACKED_ROUTES } from './analytics-digest';
+import type { AutomationFilter } from './analytics-digest';
+import {
+  type AutomationExclusion,
+  BOT,
+  HUMAN,
+  NOT_INTERNAL as EXCLUDE_OPERATOR_TRAFFIC,
+  notFlagged,
+} from './page-view-predicates';
+// Type-only above, VALUE here — and that is safe in this direction:
+// `analytics-digest` does not import this module, so there is no cycle to close.
+// The threshold text is imported rather than restated so the note cannot advertise
+// a bar the detector stopped applying.
+import { SWARM_THRESHOLD_NOTE } from './swarm-detection';
+import { loadAsnAnnotations } from './asn-registry';
 import { resolveRequestTargets } from './drizzle-helpers';
 import { excludeInternalAsns, parseInternalAsns } from './internal-asns';
+import { likeContains } from './sql-like';
 
 const DAY_MS = 86_400_000;
 
@@ -204,14 +229,15 @@ function populationPredicate(traffic: AdminTrafficPopulation): SQL | undefined {
   return undefined;
 }
 
-/** `created_at` inside `[start, end)`, with the operator-only routes excluded.
+/** `created_at` inside `[start, end)`, with the operator's own traffic excluded.
  *  ISO 8601 text sorts lexicographically the same as chronologically, so the
- *  string range is exact. `EXCLUDE_UNTRACKED_ROUTES` (AECI-575) is folded in here
- *  because every `page_views` read in this module derives its base predicate from
+ *  string range is exact. `EXCLUDE_OPERATOR_TRAFFIC` is folded in here because
+ *  every `page_views` read in this module derives its base predicate from
  *  `inWindow`, so this is the single choke point that keeps the panel counting the
- *  same population the digest does — `/admin/*` and `/account` out of both. */
+ *  same population the digest does — `/admin/*` and `/account` (AECI-575 / D12) out
+ *  of both, and since §13 **D13** verified admin sessions on any path with them. */
 function inWindow(column: typeof pageViews.createdAt, w: UtcWindow): SQL {
-  return and(gte(column, w.startIso), lt(column, w.endIso), EXCLUDE_UNTRACKED_ROUTES) as SQL;
+  return and(gte(column, w.startIso), lt(column, w.endIso), EXCLUDE_OPERATOR_TRAFFIC) as SQL;
 }
 
 /** Resolved state of the `ANALYTICS_INTERNAL_ASNS` read-time filter. */
@@ -296,17 +322,28 @@ export async function countViewsBoth(
  * straight out of `collectAnalyticsMetrics`. Recounting it here would put a
  * second implementation of the same query behind the acceptance criterion that
  * says the two must agree.
+ *
+ * `exclusion` (AECI-745) applies the automation filter, and the overview passes
+ * it for the post-automation figure and omits it for the raw one — the two must
+ * match their totals or the tile shows an ASN-excluded SUBSET larger than the
+ * number it is a subset of.
  */
 export async function countViewsExcludingInternal(
   db: Db,
   w: UtcWindow,
   traffic: AdminTrafficPopulation,
   filter: InternalFilterState,
+  exclusion?: AutomationExclusion,
 ): Promise<number | null> {
   if (!filter.applied) return null;
   return countPageViewRows(
     db,
-    and(inWindow(pageViews.createdAt, w), populationPredicate(traffic), filter.predicate),
+    and(
+      inWindow(pageViews.createdAt, w),
+      populationPredicate(traffic),
+      filter.predicate,
+      notFlagged(exclusion),
+    ),
   );
 }
 
@@ -378,6 +415,47 @@ async function auditEventsPerDay(
   return new Map(rows.map((r) => [r.day, r.value]));
 }
 
+/**
+ * The `basis=net` counterpart of {@link auditEventsPerDay} (AECI-686): rows that
+ * are in the table RIGHT NOW, bucketed by their own `created_at`.
+ *
+ * The difference from the audit path is the whole point. An `*.created` event is
+ * immortal, so the additions series counts rows that were deleted years ago; this
+ * counts the survivors, which is why it reconciles with a live `COUNT(*)` and the
+ * additions series cannot. What it buys with that is a **retroactive** number: a
+ * row removed tomorrow leaves today's bucket smaller than it reads today.
+ *
+ * That attribution — subtracting a removal from the bucket the row was ADDED in
+ * rather than the one it was removed in — is not a modelling preference, it is
+ * the only option available. Nothing records deletions: there is no `*.deleted`
+ * action in the vocabulary, and every path that removes catalog rows is raw SQL
+ * running outside the Worker where the `lib/audit.ts` batch builders cannot reach
+ * (`lib/retract-product.ts` says so in its header). Restore per-row tombstones
+ * and a true removed-on-day-D series becomes computable; until then this is the
+ * closest honest thing, and the response says so via
+ * `catalog_series_is_surviving_rows`.
+ *
+ * `created_at` is untouched by promote's upsert path (`routes/promote.ts` never
+ * writes `createdAt`), so a re-promoted product keeps its original arrival date.
+ * The one exception is `claims`, which promote deletes and re-inserts wholesale —
+ * hence the separate `catalog_claims_recreated_by_promote` caveat.
+ */
+async function catalogRowsPerDay(
+  db: Db,
+  w: UtcWindow,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- same shape as `countAll` above: one bucketer over four unrelated tables, each call site fixed by CATALOG_NET_SOURCE.
+  table: any,
+  createdAt: AnySQLiteColumn,
+): Promise<Map<string, number>> {
+  const day = sql<string>`substr(${createdAt}, 1, 10)`;
+  const rows = await db
+    .select({ day, value: count() })
+    .from(table)
+    .where(and(gte(createdAt, w.startIso), lt(createdAt, w.endIso)))
+    .groupBy(day);
+  return new Map(rows.map((r) => [r.day, r.value]));
+}
+
 async function profilesPerDay(db: Db, w: UtcWindow): Promise<Map<string, number>> {
   const rows = await db
     .select({ day: profileDay, value: count() })
@@ -412,12 +490,50 @@ const CATALOG_ACTION: Partial<Record<AdminMetricKey, string>> = {
   'catalog.claims_created': 'claim.created',
 };
 
+/**
+ * The `basis=net` counterpart of {@link CATALOG_ACTION} (AECI-686): the live table
+ * behind each `catalog.*` series, and the timestamp a surviving row is bucketed by.
+ *
+ * Deliberately a mirror of the map above rather than a field on it — the two are
+ * different readings of the same key, and a reader comparing them side by side is
+ * exactly how the additions/net distinction stays legible.
+ */
+const CATALOG_NET_SOURCE: Partial<
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the table half is passed to `catalogRowsPerDay`, which is `any`-typed for the same reason `countAll` is.
+  Record<AdminMetricKey, { table: any; createdAt: AnySQLiteColumn }>
+> = {
+  'catalog.products_created': { table: products, createdAt: products.createdAt },
+  'catalog.integrations_created': { table: integrations, createdAt: integrations.createdAt },
+  'catalog.vendors_created': { table: vendors, createdAt: vendors.createdAt },
+  'catalog.claims_created': { table: claims, createdAt: claims.createdAt },
+};
+
+/**
+ * Metrics served from `metrics_daily` and NOTHING else (AECI-745).
+ *
+ * There is exactly one, and it is not an optimization: computing
+ * `traffic.page_views_human_after_automation` live means running the swarm
+ * detector once per day in the window — about seven D1 reads a day, so ~210 for
+ * the 30-day chart every other metric answers in one query. The stored row is the
+ * only affordable path, so a day with no stored row is reported as ABSENT rather
+ * than zero-filled. A zero would read as "nobody visited", which is the opposite
+ * of "we have not measured this day yet".
+ */
+export function metricIsSnapshotOnly(metric: AdminMetricKey): boolean {
+  return metric === 'traffic.page_views_human_after_automation';
+}
+
 /** Metrics that read `page_views` and can therefore be ASN-filtered. Everything
  *  else returns a null `excluding_internal` — there is no ASN on a catalog row to
  *  filter against, and pretending otherwise would be the "silently substituted
- *  figure" §1.1 forbids. */
+ *  figure" §1.1 forbids.
+ *
+ *  A snapshot-only metric is excluded despite being `traffic.*`: the internal
+ *  filter deliberately bypasses the snapshot (a stored row cannot carry a
+ *  config-dependent figure), and with no live path to fall back to there would be
+ *  nothing left to serve. */
 export function metricSupportsInternalFilter(metric: AdminMetricKey): boolean {
-  return metric.startsWith('traffic.');
+  return metric.startsWith('traffic.') && !metricIsSnapshotOnly(metric);
 }
 
 /** One day-bucketed series for `metric`, zero-filled, plus the window total.
@@ -427,8 +543,27 @@ export async function metricSeries(
   metric: AdminMetricKey,
   w: UtcWindow,
   filter: InternalFilterState,
+  basis: AdminMetricBasis = 'additions',
 ): Promise<{ perDay: Map<string, number>; perDayFiltered: Map<string, number> | null }> {
   const filterable = metricSupportsInternalFilter(metric) && filter.applied;
+
+  // `net` is resolved BEFORE the per-metric branches below, so it can never fall
+  // through to the audit-log path and quietly serve additions under a `net` label.
+  // The route rejects `net` on a non-catalog metric, so an unmapped key here is a
+  // programming error rather than a caller's.
+  if (basis === 'net') {
+    const source = CATALOG_NET_SOURCE[metric];
+    /* c8 ignore next 5 -- unreachable: the route rejects `net` outside `catalog.*`. */
+    if (!source) {
+      throw new ApiError(400, 'VALIDATION_FAILED', `basis=net is not available for ${metric}`, {
+        field: 'basis',
+      });
+    }
+    return {
+      perDay: await catalogRowsPerDay(db, w, source.table, source.createdAt),
+      perDayFiltered: null,
+    };
+  }
 
   if (metric === 'traffic.unique_visitors') {
     // Distinct-visitor counts do not sum across days, so each bucket is its own
@@ -449,6 +584,19 @@ export async function metricSeries(
       perDay: await run(),
       perDayFiltered: filterable ? await run(filter.predicate) : null,
     };
+  }
+
+  if (metricIsSnapshotOnly(metric)) {
+    // Unreachable through `GET /api/admin/metrics/timeseries`, which never calls
+    // the live path for a snapshot-only metric. Thrown rather than silently
+    // returning an empty map so a NEW caller that reaches here finds out, instead
+    // of rendering a flat zero line that looks like a measured quiet month.
+    throw new ApiError(
+      400,
+      'VALIDATION_FAILED',
+      `${metric} has no live series; it is served from metrics_daily only`,
+      { field: 'metric' },
+    );
   }
 
   if (metric === 'traffic.page_views_human' || metric === 'traffic.page_views_bot') {
@@ -526,6 +674,7 @@ const DIMENSION_COLUMN = {
   country: pageViews.cfCountry,
   path: pageViews.path,
   bot: pageViews.botName,
+  asn: pageViews.cfAsn,
 } as const;
 
 /**
@@ -540,6 +689,7 @@ const NULL_LABEL: Record<AdminBreakdownDimension, string> = {
   path: 'Unknown',
   product: 'Unknown',
   bot: 'Other bot',
+  asn: 'Unknown',
 };
 
 export interface BreakdownPage {
@@ -614,6 +764,10 @@ export async function breakdown(
         ref: { id: r.id, name: r.name, slug: r.slug },
         views: r.views,
         views_excluding_internal: filtered ? (filtered.get(r.id) ?? 0) : null,
+        // Products have no ASN. Explicit rather than omitted so the field is
+        // present on every row of every dimension and a reader never has to know
+        // which dimensions populate it.
+        asn_registry: null,
       })),
     };
   }
@@ -649,14 +803,32 @@ export async function breakdown(
     .select({ value: count() })
     .from(db.select({ key: column }).from(pageViews).where(base).groupBy(column).as('g'));
 
+  // `dimension=asn` groups a numeric column, so the key is stringified for the
+  // contract (`AdminBreakdownRowSchema.key` is `string | null` across every
+  // dimension) and each group is annotated from the registry. One extra query for
+  // the whole page, not one per row, and only on this dimension.
+  const annotations =
+    dimension === 'asn'
+      ? await loadAsnAnnotations(
+          db,
+          rows.map((r) => r.key).filter((k): k is number => typeof k === 'number'),
+        )
+      : null;
+
   return {
     groups: groupRow?.value ?? 0,
     rows: rows.map((r) => ({
-      key: r.key,
-      label: r.key ?? NULL_LABEL[dimension],
+      key: r.key === null ? null : String(r.key),
+      // An ASN reads as `AS20001`, not a bare number — the same rendering the
+      // Activity feed's visitor column uses, so the two screens name a network
+      // the same way.
+      label:
+        r.key === null ? NULL_LABEL[dimension] : dimension === 'asn' ? `AS${r.key}` : String(r.key),
       ref: null,
       views: r.views,
       views_excluding_internal: filtered ? (filtered.get(r.key) ?? 0) : null,
+      asn_registry:
+        annotations && typeof r.key === 'number' ? (annotations.get(r.key) ?? null) : null,
     })),
   };
 }
@@ -672,18 +844,6 @@ export async function breakdown(
  * query rather than a habit of the UI.
  */
 const VISITOR_HASH_CHARS = 8;
-
-/**
- * Escape the SQL `LIKE` metacharacters so operator input matches literally.
- *
- * Without this, a `path_contains` of `%` matches every row and `_` matches any
- * character — the filter would silently behave as a pattern language nobody
- * documented. Paired with an explicit `ESCAPE '\'` clause at the call site, since
- * Drizzle's `like()` helper emits no `ESCAPE`.
- */
-function escapeLike(value: string): string {
-  return value.replace(/[\\%_]/g, (ch) => `\\${ch}`);
-}
 
 /** The feed's user-facing column filters, straight off the parsed query. */
 export interface PageViewFilterInput {
@@ -720,9 +880,7 @@ export function pageViewFilterPredicate(f: PageViewFilterInput): SQL | undefined
         : eq(pageViews.cfCountry, f.country);
 
   const path =
-    f.path_contains === undefined
-      ? undefined
-      : sql`${pageViews.path} like ${`%${escapeLike(f.path_contains)}%`} escape '\\'`;
+    f.path_contains === undefined ? undefined : likeContains(pageViews.path, f.path_contains);
 
   return and(source, country, path);
 }
@@ -739,7 +897,7 @@ export interface PageViewPage {
  * Three things here are load-bearing:
  *
  * **The base predicate comes from {@link inWindow}.** That is the single choke
- * point that folds in `EXCLUDE_UNTRACKED_ROUTES` — §13 D12's retroactive
+ * point that folds in `EXCLUDE_OPERATOR_TRAFFIC` — §13 D12's retroactive
  * `/admin/*` + `/account` exclusion, applied *beneath* the caller's filters so no
  * combination of query parameters can surface an operator row. Hand-rolling the
  * range here would silently lose it.
@@ -804,16 +962,25 @@ export async function listPageViews(
     countPageViewRows(db, where),
   ]);
 
-  const entities = await resolveRequestTargets(
-    db,
-    raw.flatMap((r) =>
-      r.productId
-        ? [{ targetType: 'product', targetId: r.productId }]
-        : r.vendorId
-          ? [{ targetType: 'vendor', targetId: r.vendorId }]
-          : [],
+  // Both hydrations are per-PAGE, not per-row: one `IN (…)` for the entities and
+  // one for the registry, issued together. A 50-row page therefore costs two extra
+  // round trips regardless of how many distinct ASNs it contains.
+  const [entities, annotations] = await Promise.all([
+    resolveRequestTargets(
+      db,
+      raw.flatMap((r) =>
+        r.productId
+          ? [{ targetType: 'product', targetId: r.productId }]
+          : r.vendorId
+            ? [{ targetType: 'vendor', targetId: r.vendorId }]
+            : [],
+      ),
     ),
-  );
+    loadAsnAnnotations(
+      db,
+      raw.map((r) => r.cfAsn).filter((a): a is number => typeof a === 'number'),
+    ),
+  ]);
 
   return {
     total,
@@ -833,6 +1000,9 @@ export async function listPageViews(
         entity: entityId ? (entities.get(entityId) ?? null) : null,
         referrer_source: r.referrerSource,
         referrer: r.referrer,
+        // Read-time only. `is_bot` above is untouched by this — see
+        // `lib/asn-registry.ts` for why the two must not be merged.
+        asn_registry: r.cfAsn === null ? null : (annotations.get(r.cfAsn) ?? null),
       };
     }),
   };
@@ -844,10 +1014,32 @@ const SEVERITY: Record<AdminNoteCode, 'info' | 'warn'> = {
   partial_day: 'info',
   bot_classification_incomplete: 'warn',
   referrer_source_incomplete: 'warn',
+  // `info`, not `warn`: it is a permanent property of the `Referer` header, true
+  // of every source breakdown that will ever render, and not a condition anyone
+  // can act on or clear. A standing caveat styled as a warning trains the
+  // operator to skip the warnings that are actionable.
+  referrer_source_is_unverified: 'info',
   direct_is_mixed_bucket: 'info',
   visitor_definition_approximate: 'info',
+  corroborated_is_a_referrer_floor: 'info',
+  operator_leak_is_an_inference: 'info',
+  // AECI-745. `info` on the standard test: the filter WORKING is the normal case,
+  // and the note only explains how the headline was reached.
+  automation_filter_applied: 'info',
+  // And `warn` on the same test, for the opposite reason: the headline is
+  // unfiltered and a reader who misses this reads a raw count as a filtered one —
+  // the exact confusion the whole issue was opened to end. Unlike the standing
+  // caveats around it, this one is a real condition that clears on its own.
+  automation_filter_did_not_run: 'warn',
   catalog_series_is_additions_only: 'warn',
   catalog_series_starts_at: 'info',
+  // AECI-686. `info`: under `basis=net` the figures ARE the live catalog, so a
+  // reader who misses the note still reads them correctly — it only explains why
+  // last month's number may be smaller next week. The claims caveat is a `warn`
+  // on the standard test: a reader who misses it concludes no claims existed
+  // before August, which is false. Promote rewrites the rows, not the history.
+  catalog_series_is_surviving_rows: 'info',
+  catalog_claims_recreated_by_promote: 'warn',
   internal_filter_unavailable: 'info',
   internal_filter_applied: 'info',
   requires_recompute: 'info',
@@ -880,6 +1072,24 @@ const SEVERITY: Record<AdminNoteCode, 'info' | 'warn'> = {
   // figures correctly, which is the `warn` test.
   utm_attribution_incomplete: 'info',
   audience_history_is_current_state: 'info',
+  // AECI-722 — the connector admin surface. Three `warn` and one `info`, on the
+  // same test the rest of this map uses: does a reader who MISSES the note draw a
+  // wrong conclusion?
+  //
+  // `connector_evidenced_pairs_empty` — yes. An empty delivered lane looks like
+  // "this connector delivers nothing", when it actually means AECI-721 has not run.
+  // `reachable_never_counted` — yes, and this is the lane's founding distinction
+  // (§13.1): reading a pair-page count as delivered integrations is exactly the
+  // capability-sold-as-delivery conflation the whole connector lane exists to
+  // refuse.
+  // `publication_gate_inputs_only` — yes. A row rendered here is NOT thereby
+  // publishable; two of §13.7's four clauses are not evaluated on this screen.
+  // `stub_actions_never_fetched` — no. It narrows what a null `action_count`
+  // means without making any figure on the page wrong, which is the `info` case.
+  connector_evidenced_pairs_empty: 'warn',
+  reachable_never_counted: 'warn',
+  publication_gate_inputs_only: 'warn',
+  stub_actions_never_fetched: 'info',
 };
 
 /** Build a note. `message` is the untranslated operator fallback; the UI renders
@@ -924,7 +1134,24 @@ export async function earliestAuditDay(db: Db): Promise<string | null> {
 export async function trafficNotes(
   db: Db,
   w: UtcWindow,
-  opts: { unique?: boolean; sources?: boolean } = {},
+  opts: {
+    unique?: boolean;
+    sources?: boolean;
+    /** Emit the caveats for the AECI-683 corroborated-human figure. */
+    corroborated?: boolean;
+    /** Emit the caveat for the AECI-683 operator-pair retro-join. */
+    operatorLeak?: boolean;
+    /**
+     * The window's automation filter (AECI-745). Pass it — as `null` when the
+     * detector did not run — on any response whose headline is post-automation.
+     *
+     * `undefined` means "this response does not report the filtered figure at
+     * all" and emits nothing; `null` means "it does, and the filter FAILED",
+     * which is the case that must be loud. Distinguishing the two here is why
+     * this is not a boolean.
+     */
+    automation?: AutomationFilter | null;
+  } = {},
 ): Promise<AdminNote[]> {
   const out: AdminNote[] = [];
 
@@ -950,6 +1177,18 @@ export async function trafficNotes(
         ),
       );
     }
+    // Unconditional, and deliberately not gated on finding a forgery: the point
+    // is that a forged source is INDISTINGUISHABLE from a real one in this data,
+    // so "we didn't detect any" would itself be a claim the rows cannot support.
+    // Production carries a confirmed example (2026-08-13, www.youtube.com — one
+    // of five requests on one URL from three continents inside 1.9 seconds, the
+    // referrer rotating Google → none → YouTube → none → ChatGPT).
+    out.push(
+      note(
+        'referrer_source_is_unverified',
+        'Source is derived from the client-supplied Referer header and is not verified — it is what the request claimed, not where it came from. A forged referrer is indistinguishable from a real one here, because §9.7 stores only the host.',
+      ),
+    );
     out.push(
       note(
         'direct_is_mixed_bucket',
@@ -960,6 +1199,50 @@ export async function trafficNotes(
         // before <date>" would claim a split the response does not perform.
         'Direct mixes true direct arrivals with in-app SPA navigation (the same-origin Referer classifies as Direct). Rows captured since AECI-585 store a navigation flag that separates them; this breakdown does not use it yet, and earlier rows cannot be separated at all.',
       ),
+    );
+  }
+
+  if (opts.corroborated) {
+    // Unconditional whenever the corroborated figure is rendered, and for the
+    // same reason `referrer_source_is_unverified` is: the number is small enough
+    // to read as precise, and it is built on the one column §9.7 says is a claim
+    // rather than a fact. Both halves of the caveat matter — it under-counts
+    // (stripped headers land in Direct) AND it is forgeable upward.
+    out.push(
+      note(
+        'corroborated_is_a_referrer_floor',
+        'Corroborated views are those that arrived with a named external search or social referrer. It is a floor, not a count of people: privacy tools strip the header, so real referrals land in Direct. It is also built on an unverified claim — see referrer_source_is_unverified.',
+      ),
+    );
+  }
+
+  if (opts.operatorLeak) {
+    out.push(
+      note(
+        'operator_leak_is_an_inference',
+        'Views excluded as operator self-traffic on a lapsed session are matched by (user_agent_hash, cf_asn) against a verified operator session nearby in time. That is an inference about identity, not a verified session like is_operator itself.',
+      ),
+    );
+  }
+
+  if (opts.automation !== undefined) {
+    out.push(
+      opts.automation
+        ? note(
+            'automation_filter_applied',
+            // The published thresholds first, then the day's own reading. The
+            // thresholds come from `SWARM_THRESHOLD_NOTE` rather than being
+            // restated here, so the text cannot claim a bar the detector no
+            // longer applies — it interpolates the same constants the detector
+            // compares against.
+            `The headline is human page views less those attributed to automated clients. ${SWARM_THRESHOLD_NOTE}` +
+              (opts.automation.note ? ` This day: ${opts.automation.note}` : ''),
+            { flagged: opts.automation.flagged.day },
+          )
+        : note(
+            'automation_filter_did_not_run',
+            'The automation detector failed for this window, so the human page-view figure is UNFILTERED and is not comparable with a day the filter ran on. It is an upper bound only.',
+          ),
     );
   }
 

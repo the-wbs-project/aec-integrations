@@ -80,6 +80,8 @@ const DO_SUBMITTALS = uuid(31);
 const C_MAIN = uuid(40); // an AECi-seeded claim on I_MAIN
 const C_INTRA = uuid(41); // an AECi-seeded claim on I_INTRA
 
+const P_CONNECTOR = uuid(16); // a connector-role product, for the AECI-705 gate
+
 const V_SOURCE = uuid(50); // a product_versions row on P_SOURCE
 const V_TARGET = uuid(51); // …and one on P_TARGET
 
@@ -120,6 +122,7 @@ beforeEach(async () => {
     { id: P_OWN_B, slug: 'procore-field', name: 'Procore Field' },
     { id: P_UNVERIFIED, slug: 'tekla', name: 'Tekla' },
     { id: P_FOREIGN, slug: 'archicad', name: 'ArchiCAD' },
+    { id: P_CONNECTOR, slug: 'agave-erp-sync', name: 'Agave ERP Sync', productRole: 'connector' },
   ]);
   await t.db.insert(productVendors).values([
     { productId: P_SOURCE, vendorId: VENDOR_A, isPrimary: true },
@@ -198,7 +201,7 @@ async function call(
   };
   const execCtx = fakeExecutionContext();
   const res = await app(auth).request(path, init, env, execCtx);
-  // Drain waitUntil so the post-commit purge + Datadog forward have run.
+  // Drain waitUntil so the post-commit purge + §26.5 forward have run.
   await Promise.all(vi.mocked(execCtx.waitUntil).mock.calls.map((c) => c[0]));
   const body = res.status === 204 ? {} : await res.json();
   return { status: res.status, body: body as JsonBody, send };
@@ -217,6 +220,24 @@ const sendJson = (
   );
 
 const attestationUrl = (claimId: string) => `/api/vendor/claims/${claimId}/attestation`;
+
+/**
+ * Turn the main integration into a connector-powered edge (AECI-705 / §14), by
+ * whichever of the two independent signals.
+ *
+ * `fk` also sets a NON-iPaaS mechanism on purpose: those 18 production rows are
+ * exactly what an `iPaaS`-only predicate would miss, so a test that set both
+ * signals together would pass against either half of the union and prove nothing.
+ */
+const makePowered = (signal: 'fk' | 'ipaas') =>
+  t.db
+    .update(integrations)
+    .set(
+      signal === 'fk'
+        ? { poweredByProductId: P_CONNECTOR, mechanismKind: 'marketplace-app' }
+        : { poweredByProductId: null, mechanismKind: 'iPaaS' },
+    )
+    .where(eq(integrations.id, I_MAIN));
 const auditRows = () => t.db.select().from(auditLog);
 const claimRows = () => t.db.select().from(claims);
 const attestationRows = () => t.db.select().from(attestations);
@@ -225,6 +246,100 @@ const liveAttestations = (claimId: string) =>
     .select()
     .from(attestations)
     .where(and(eq(attestations.claimId, claimId), isNull(attestations.retractedAt)));
+
+// ─── The AECI-705 connector gate ─────────────────────────────────────────────
+
+describe('connector-powered edges are not attestable (AECI-705)', () => {
+  const CONNECTOR_403 = /delivered through a connector/i;
+
+  it.each([['fk'], ['ipaas']] as const)(
+    'refuses POST /api/vendor/claims with 403 on a %s-powered edge',
+    async (signal) => {
+      await makePowered(signal);
+      const { status, body } = await sendJson('POST', '/api/vendor/claims', {
+        integration_id: I_MAIN,
+        data_object: 'submittals',
+        direction: 'outbound',
+      });
+      expect(status).toBe(403);
+      expect(body.error.message).toMatch(CONNECTOR_403);
+      // Refused before anything was written: no claim, and therefore no audit row.
+      expect(await claimRows()).toHaveLength(2);
+      expect(await auditRows()).toHaveLength(0);
+    },
+  );
+
+  it.each([['fk'], ['ipaas']] as const)(
+    'refuses PUT …/attestation with 403 on a %s-powered edge',
+    async (signal) => {
+      await makePowered(signal);
+      const { status, body } = await sendJson('PUT', attestationUrl(C_MAIN), { asserted: true });
+      expect(status).toBe(403);
+      expect(body.error.message).toMatch(CONNECTOR_403);
+      // The claim keeps the AECi-curated state: the seed only, still `unverified`.
+      expect(await liveAttestations(C_MAIN)).toHaveLength(1);
+    },
+  );
+
+  it('still allows DELETE …/attestation on an edge that BECAME powered', async () => {
+    // The reason `DELETE` is deliberately ungated. Promote sets
+    // `powered_by_product_id` late (AECI-706's backfill writes it onto existing
+    // rows), so a vendor can hold a position on an edge that is powered by the
+    // time it wants to withdraw. Gating retract would trap it there.
+    const attested = await sendJson('PUT', attestationUrl(C_MAIN), { asserted: true });
+    expect(attested.status).toBe(200);
+
+    await makePowered('fk');
+
+    const { status } = await call(attestationUrl(C_MAIN), { method: 'DELETE' });
+    expect(status).toBe(204);
+    expect(await liveAttestations(C_MAIN)).toHaveLength(1); // the AECi seed only
+  });
+
+  it('answers the CONNECTOR 403 to an unverified vendor, not the verified one', async () => {
+    // The gate order is load-bearing (§14). Reversed, this vendor is told to get
+    // verified in order to author, which verification will never deliver: a
+    // powered edge stays closed to it afterwards.
+    await t.db
+      .update(integrations)
+      .set({ poweredByProductId: P_CONNECTOR })
+      .where(eq(integrations.id, I_UNVERIFIED));
+    const claimId = uuid(42);
+    await t.db.insert(claims).values({
+      id: claimId,
+      integrationId: I_UNVERIFIED,
+      dataObjectId: DO_RFIS,
+      direction: 'a_to_b',
+    });
+
+    const { status, body } = await sendJson(
+      'PUT',
+      attestationUrl(claimId),
+      { asserted: true },
+      AUTH_UNVERIFIED,
+    );
+    expect(status).toBe(403);
+    expect(body.error.message).toMatch(CONNECTOR_403);
+    expect(body.error.message).not.toMatch(/verified vendor account/i);
+  });
+
+  it('still answers 404, never 403, to a vendor owning neither endpoint', async () => {
+    // Ownership runs first and keeps the §2.1 non-disclosure property. The edge
+    // gate only ever downgrades a caller that has ALREADY proven it owns an
+    // endpoint, so it can never become an existence oracle.
+    await t.db
+      .update(integrations)
+      .set({ mechanismKind: 'iPaaS' })
+      .where(eq(integrations.id, I_FOREIGN));
+    const { status, body } = await sendJson('POST', '/api/vendor/claims', {
+      integration_id: I_FOREIGN,
+      data_object: 'rfis',
+      direction: 'outbound',
+    });
+    expect(status).toBe(404);
+    expect(body.error.details.resource).toBe('integration');
+  });
+});
 
 // ─── GET /api/vendor/integrations ────────────────────────────────────────────
 
@@ -239,6 +354,37 @@ describe('GET /api/vendor/integrations', () => {
     expect(integration.context_product.slug).toBe('revit');
     expect(integration.other_product.slug).toBe('microstation');
     expect(integration.mechanism_kind).toBe('native');
+    expect(integration.attestable).toBe(true);
+    expect(integration.powered_by).toBeNull();
+  });
+
+  it('lists a connector-powered edge, flagged and attributed (AECI-705)', async () => {
+    // Listed rather than filtered out, deliberately: the vendor's own public pair
+    // page shows this edge, so a hole in the portal would read as data loss, and
+    // narrowing the list's predicate would force a matching change to the
+    // AECI-627 cursor that scopes itself identically.
+    await makePowered('fk');
+    const { body } = await call('/api/vendor/integrations');
+    expect(body.integrations).toHaveLength(1);
+    const [integration] = body.integrations;
+    expect(integration.attestable).toBe(false);
+    expect(integration.powered_by).toMatchObject({
+      slug: 'agave-erp-sync',
+      name: 'Agave ERP Sync',
+    });
+    // The claims are still there, in full: read-only is not hidden.
+    expect(integration.claims).toHaveLength(1);
+  });
+
+  it('flags an iPaaS edge whose connector is not a promoted product', async () => {
+    // 53 of production's 132 powered edges, so this is the common shape rather
+    // than an edge case: `powered_by` is null and the UI falls back to the
+    // free-text mechanism name.
+    await makePowered('ipaas');
+    const { body } = await call('/api/vendor/integrations');
+    const [integration] = body.integrations;
+    expect(integration.attestable).toBe(false);
+    expect(integration.powered_by).toBeNull();
   });
 
   it('frames the counterparty’s view as the mirror image', async () => {
@@ -266,8 +412,69 @@ describe('GET /api/vendor/integrations', () => {
 
   it('gives a both-endpoints owner both slots', async () => {
     const { body } = await call('/api/vendor/integrations', {}, AUTH_BOTH);
-    expect(body.integrations).toHaveLength(1);
-    expect(body.integrations[0].slots).toEqual(['vendor_a', 'vendor_b']);
+    for (const integration of body.integrations) {
+      // `slots` is "what may I write", not "which side am I looking from" — it
+      // stays the full owned set on every entry, because a write fills all of them.
+      expect(integration.slots).toEqual(['vendor_a', 'vendor_b']);
+    }
+  });
+
+  // ── AECI-666: one entry per owned endpoint ─────────────────────────────────
+  // The portal files integrations under the product they touch, so an integration
+  // whose endpoints the caller owns BOTH is listed once under each — the old
+  // behaviour pinned it to endpoint A, which left it unrenderable (directions
+  // reversed) under the other product's tab.
+  it('lists an owns-both integration ONCE PER ENDPOINT, framed each way', async () => {
+    const { body } = await call('/api/vendor/integrations', {}, AUTH_BOTH);
+    const owned = body.integrations.filter((i: JsonBody) => i.id === I_INTRA);
+    expect(owned).toHaveLength(2);
+
+    const contexts = owned.map((i: JsonBody) => i.context_product.slug).sort();
+    const others = owned.map((i: JsonBody) => i.other_product.slug).sort();
+    // The two entries are mirror images: each one's context is the other's counterpart.
+    expect(contexts).toEqual(others);
+    // ...and they are genuinely the two DIFFERENT endpoints, not the same one twice.
+    expect(new Set(contexts).size).toBe(2);
+  });
+
+  it('mirrors claim direction between the two entries of an owns-both integration', async () => {
+    // `C_INTRA` is `both`, which reads `both` from either side and so cannot show
+    // a mirror. Add a DIRECTIONAL claim — that is the case the old A-pinned frame
+    // rendered backwards under one of the two products.
+    await t.db.insert(claims).values({
+      id: uuid(42),
+      integrationId: I_INTRA,
+      dataObjectId: DO_SUBMITTALS,
+      direction: 'a_to_b',
+    });
+
+    const { body } = await call('/api/vendor/integrations', {}, AUTH_BOTH);
+    const owned = body.integrations.filter((i: JsonBody) => i.id === I_INTRA);
+    expect(owned).toHaveLength(2);
+
+    const directionFor = (entry: JsonBody) =>
+      entry.claims.find((cl: JsonBody) => cl.data_object_slug === 'submittals').direction;
+    // One stored `a_to_b`, read from both ends: outbound from A, inbound from B.
+    expect(owned.map(directionFor).sort()).toEqual(['inbound', 'outbound']);
+    // The `both` claim stays `both` from either side — mirroring is not negation.
+    const bothFor = (entry: JsonBody) =>
+      entry.claims.find((cl: JsonBody) => cl.data_object_slug === 'rfis').direction;
+    expect(owned.map(bothFor)).toEqual(['both', 'both']);
+  });
+
+  it('shares ONE position across both entries — same agreement, mine, counterparty', async () => {
+    const { body } = await call('/api/vendor/integrations', {}, AUTH_BOTH);
+    const owned = body.integrations.filter((i: JsonBody) => i.id === I_INTRA);
+    expect(owned).toHaveLength(2);
+
+    const [a, b] = owned;
+    // §4 dedupes voters by vendor, and a write fills every owned slot, so one
+    // company is one voter however many endpoints it owns. Rendering it twice is
+    // a view of one fact — the two entries must never disagree about that fact.
+    expect(a.claims[0].agreement).toBe(b.claims[0].agreement);
+    expect(a.claims[0].mine).toEqual(b.claims[0].mine);
+    expect(a.claims[0].counterparty).toEqual(b.claims[0].counterparty);
+    expect(a.slots).toEqual(b.slots);
   });
 
   it('omits integrations the caller touches neither endpoint of', async () => {
@@ -461,6 +668,91 @@ describe('POST /api/vendor/claims', () => {
     const rows = await liveAttestations(res.claim.id);
     expect(rows.map((r) => r.source).sort()).toEqual(['vendor_a', 'vendor_b']);
     expect(rows.every((r) => r.attestedByVendorId === VENDOR_BOTH)).toBe(true);
+  });
+
+  // ── AECI-666: context_product_id decides the frame on the write path ───────
+  // Only load-bearing for an owns-both caller: "outbound" means opposite things
+  // from the two sides, and the old A-pinned guess stored the REVERSE flow for a
+  // vendor authoring from its other product's tab.
+  it('stores the direction relative to context_product_id, not always endpoint A', async () => {
+    const fromA = await sendJson(
+      'POST',
+      '/api/vendor/claims',
+      {
+        integration_id: I_INTRA,
+        data_object: 'submittals',
+        direction: 'outbound',
+        context_product_id: P_OWN_A,
+      },
+      AUTH_BOTH,
+    );
+    const fromB = await sendJson(
+      'POST',
+      '/api/vendor/claims',
+      {
+        integration_id: I_INTRA,
+        data_object: 'rfis',
+        direction: 'outbound',
+        context_product_id: P_OWN_B,
+      },
+      AUTH_BOTH,
+    );
+    expect(fromA.status).toBe(201);
+    expect(fromB.status).toBe(201);
+
+    const stored = async (id: string) =>
+      (await t.db.select().from(claims).where(eq(claims.id, id)))[0].direction;
+    // Same word from the caller, opposite stored flows — which is the whole point.
+    expect(await stored(fromA.body.claim.id)).toBe('a_to_b');
+    expect(await stored(fromB.body.claim.id)).toBe('b_to_a');
+  });
+
+  it('echoes the claim framed against the context product it was authored from', async () => {
+    const { body: res } = await sendJson(
+      'POST',
+      '/api/vendor/claims',
+      {
+        integration_id: I_INTRA,
+        data_object: 'submittals',
+        direction: 'outbound',
+        context_product_id: P_OWN_B,
+      },
+      AUTH_BOTH,
+    );
+    // The client splices this echo into the tab it wrote from, so it has to read
+    // the way that tab does — outbound in, outbound back.
+    expect(res.claim.direction).toBe('outbound');
+  });
+
+  it('defaults to endpoint A when context_product_id is omitted', async () => {
+    const { body: res } = await sendJson(
+      'POST',
+      '/api/vendor/claims',
+      { integration_id: I_INTRA, data_object: 'submittals', direction: 'outbound' },
+      AUTH_BOTH,
+    );
+    const [row] = await t.db.select().from(claims).where(eq(claims.id, res.claim.id));
+    expect(row.direction).toBe('a_to_b');
+  });
+
+  it('400s a context_product_id the caller does not own on this integration', async () => {
+    const { status, body: res } = await sendJson(
+      'POST',
+      '/api/vendor/claims',
+      {
+        integration_id: I_INTRA,
+        data_object: 'submittals',
+        direction: 'outbound',
+        // A real product, but not an endpoint of I_INTRA — framing against it
+        // would invert the stored flow against the vendor's intent.
+        context_product_id: P_SOURCE,
+      },
+      AUTH_BOTH,
+    );
+    expect(status).toBe(400);
+    expect(res.error.code).toBe('VALIDATION_FAILED');
+    expect(res.error.field).toBe('context_product_id');
+    expect(await auditRows()).toHaveLength(0);
   });
 
   it('404s — not 403 — for an integration the caller touches neither endpoint of', async () => {

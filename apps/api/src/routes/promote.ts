@@ -66,10 +66,12 @@ import {
   type EntityRef,
   type PromoteEntityResult,
   type PromoteIntegrationResult,
+  type PromoteOperation,
   type PromotePreserved,
   type PromoteResponse,
   type PromoteSkipped,
   type PromoteTaxonomyResult,
+  type PromoteUnresolvedLink,
   type PromoteVendor,
   type PromoteProduct,
   type PromoteIntegration,
@@ -77,17 +79,15 @@ import {
   type UsefulnessGroup,
 } from '@aeci/shared';
 import { type AlgoliaEnv } from '@aeci/shared/algolia';
-import {
-  forwardAuditLog,
-  type AuditLogEntry,
-  type AuditLogForwarder,
-} from '@aeci/shared/audit-log';
+import { type AuditLogEntry } from '@aeci/shared/audit-log';
 import { disambiguateSlug, SlugReservedError, slugify } from '@aeci/shared/slug';
 import { eq, inArray, sql, type Table } from 'drizzle-orm';
 import { type SQLiteColumn } from 'drizzle-orm/sqlite-core';
 
 import { getDb, type Db, type DbContext } from '../db/client';
 import {
+  claims,
+  connectorEvidencedPairs,
   integrations,
   productAudiences,
   productCategories,
@@ -103,7 +103,13 @@ import {
   taxonomyTrades,
   vendors,
 } from '../db/schema';
-import { logToDatadog, submitCount, submitDistribution } from '../datadog';
+import {
+  logBatchToPosthog,
+  logToPosthog,
+  submitCount,
+  submitDistribution,
+  type PosthogLogEvent,
+} from '../posthog';
 import type { Env } from '../env';
 import { ApiError } from '../errors';
 import { syncPromoteTargets } from '../lib/algolia-sync';
@@ -115,7 +121,6 @@ import {
   safeSlugify,
   type DataObjectResolver,
 } from '../lib/data-object-vocabulary';
-import { callGoogleIndexing } from '../lib/google-indexing';
 import { planClaimIngest, type ClaimIngestItem } from '../lib/promote-claims';
 import { type DbFactory } from '../lib/handler-utils';
 import { runHomeStats, type HomeStatsResult } from '../lib/home-stats';
@@ -190,7 +195,7 @@ function isSlugUniqueViolation(err: unknown): boolean {
  * The message carries no `slug`, and a slug violation carries no `promote_jobs`, so this
  * predicate and {@link isSlugUniqueViolation} are disjoint by construction.
  */
-function isPromoteJobDuplicate(err: unknown): boolean {
+export function isPromoteJobDuplicate(err: unknown): boolean {
   if (!err || typeof err !== 'object') return false;
   const e = err as { message?: unknown; code?: unknown };
   const msg =
@@ -291,21 +296,250 @@ function integrationEditableData(intg: PromoteIntegration): Record<string, unkno
   });
 }
 
-function makeForwarder(rc: PromoteRunCtx): AuditLogForwarder | undefined {
-  if (!rc.env.DD_API_KEY) return undefined;
-  return (entry) => {
-    logToDatadog(rc, rc.env, rc.request, {
-      level: 'info',
-      message: `audit ${entry.action} ${entry.entityId ?? ''}`.trim(),
-      action: entry.action,
-      entity_type: entry.entityType ?? undefined,
-      entity_id: entry.entityId ?? undefined,
-      source: 'review-app-promote',
-    });
+/**
+ * Plan the write for a **connector-evidenced pair** — the delivered tier's other
+ * table (AECI-721 / `STAGE_1_5_SPEC.md` §13.1).
+ *
+ * Mirrors the `integrations` branch it replaces, with three shape differences the
+ * destination forces (`DATABASE_SCHEMA.md` §9a.6):
+ *
+ *   1. **The pair is canonicalised** (`product_a_id < product_b_id`, a CHECK), so
+ *      orientation moves out of the endpoint columns and into `direction`.
+ *   2. **`direction` uses the CLAIM vocabulary** — once the pair is ordered,
+ *      `one-way` no longer says which way. The mapping is the same lossless CASE
+ *      the migration uses, and it must stay identical to it: promote and migration
+ *      writing different encodings for the same edge is the drift that would make
+ *      a re-promote silently flip an arrow.
+ *   3. **There is no `mechanism_kind` column.** The lane answers "which mechanism",
+ *      so the payload's `mechanismKind` is deliberately DROPPED rather than stored
+ *      somewhere else. `mechanism_name` still carries the vendor's own label.
+ *
+ * The id is reused verbatim so a re-promote is an UPDATE rather than a duplicate —
+ * the unique index is `(connector, a, b)`, so a second insert for the same triple
+ * would fail the batch, and failing the batch is how a routine re-promote would
+ * become an outage. Which requires knowing WHERE the id already lives, because the
+ * migration preserves it across tables (`DATABASE_SCHEMA.md` §9a.6):
+ *
+ *   - `evidenced` — the id is already a `connector_evidenced_pairs` row (the common
+ *     re-promote of a migrated edge). Plain UPDATE.
+ *   - `integrations` — the id is still an `integrations` row that this promote is
+ *     moving into the delivered tier (a curator added a third-party connector to an
+ *     edge that used to be accountable-party). INSERT here with the id preserved,
+ *     RE-HOME its claims off `integration_id` onto `connector_evidenced_pair_id`,
+ *     then drop the source row — the same ordered dance migration 0027 performs, so
+ *     the `ON DELETE CASCADE` never reaches a live claim or its attestations.
+ *   - `null` — brand new (or a stale id, AECI-568). Mint a fresh id and INSERT.
+ *
+ * Reading only `integrations` (as the endpoint-move pre-read does) would send every
+ * migrated edge down the `null` branch on its next promote and collide on the unique
+ * index; sending it down a naive UPDATE branch would write nothing while deleting the
+ * source row. Both are why `existing` names the table, not just the id.
+ */
+function planEvidencedPairWrite(args: {
+  db: Db;
+  intg: PromoteIntegration;
+  sourceId: string;
+  targetId: string;
+  connectorProductId: string;
+  /** Tri-state like the `integrations` branch (AECI-730): `undefined` = the payload's
+   *  vendor did not resolve, so the column is LEFT UNTOUCHED rather than cleared. */
+  builtByVendorId: string | null | undefined;
+  existing: { id: string; table: 'evidenced' | 'integrations' } | null;
+}): { id: string; operation: 'created' | 'updated'; statements: BatchStmt[] } {
+  const { db, intg, sourceId, targetId, connectorProductId, builtByVendorId, existing } = args;
+
+  const sourceIsA = sourceId < targetId;
+  const productAId = sourceIsA ? sourceId : targetId;
+  const productBId = sourceIsA ? targetId : sourceId;
+  const direction =
+    intg.direction === 'bidirectional'
+      ? 'both'
+      : intg.direction === 'one-way'
+        ? sourceIsA
+          ? 'a_to_b'
+          : 'b_to_a'
+        : null;
+
+  // `compact()` keeps the promote contract's absent-means-untouched rule (§3.6):
+  // an omitted key is not written, so a re-push that carries only some fields does
+  // not blank the rest. `mechanismKind` is absent by design — see the header.
+  const editable = compact({
+    name: intg.name,
+    mechanismName: intg.mechanismName,
+    description: intg.description,
+    listingUrl: intg.listingUrl,
+    docsUrl: intg.docsUrl,
+    website: intg.website,
+    mechanismUrl: intg.mechanismUrl,
+    pricingModel: intg.pricingModel,
+    maturity: intg.maturity,
+    notes: intg.notes,
+    lastReviewedAt: intg.lastReviewedAt,
+  });
+  // `builtByVendorId` rides `compact()` for the same reason the `integrations`
+  // branch does (AECI-730): an unresolvable vendor must leave the stored value
+  // alone, not blank it. The other three are NOT NULL / explicitly nullable and
+  // are always written.
+  const links = {
+    connectorProductId,
+    productAId,
+    productBId,
+    direction,
+    ...compact({ builtByVendorId }),
+  };
+
+  if (existing?.table === 'evidenced') {
+    return {
+      id: existing.id,
+      operation: 'updated',
+      statements: [
+        db
+          .update(connectorEvidencedPairs)
+          .set({ ...editable, ...links })
+          .where(eq(connectorEvidencedPairs.id, existing.id)),
+        // Belt-and-braces on the single-table invariant: an id must never live in
+        // both tables. A clean evidenced row is not in `integrations`, so this is a
+        // no-op then; it only bites if a prior partial state left a stale twin.
+        db.delete(integrations).where(eq(integrations.id, existing.id)),
+      ],
+    };
+  }
+
+  if (existing?.table === 'integrations') {
+    // Moving an accountable-party edge into the delivered tier, id preserved. Order
+    // matters exactly as in migration 0027 step 8→9→11: INSERT the destination first
+    // (so the re-home FK resolves), re-home the claims in ONE UPDATE (both anchor
+    // columns at once keeps `claims_anchor_check`'s XOR satisfied), THEN drop the
+    // source. Re-homing before the delete is what stops the `ON DELETE CASCADE` from
+    // taking the claims and their attestations with it. `planClaimIngest` runs after
+    // and reconciles the payload against these same rows (its pre-read saw them under
+    // the identical `anchor_id`), so ids — and therefore vendor attestations — hold.
+    return {
+      id: existing.id,
+      operation: 'updated',
+      statements: [
+        db.insert(connectorEvidencedPairs).values({ id: existing.id, ...editable, ...links }),
+        db
+          .update(claims)
+          .set({ connectorEvidencedPairId: existing.id, integrationId: null })
+          .where(eq(claims.integrationId, existing.id)),
+        db.delete(integrations).where(eq(integrations.id, existing.id)),
+      ],
+    };
+  }
+
+  const id = crypto.randomUUID();
+  return {
+    id,
+    operation: 'created',
+    statements: [db.insert(connectorEvidencedPairs).values({ id, ...editable, ...links })],
   };
 }
 
-const AUDIT_META = { source: 'review-app-promote' } as const;
+/**
+ * Build one AECI-730 report entry for an optional integration link that didn't
+ * resolve, so the column was left out of the write.
+ *
+ * `operation` is the enclosing integration's own outcome, and it decides what the
+ * stored column now holds: a **create** leaves it NULL (`unset`), an **update**
+ * leaves whatever was already there (`preserved`) — which is the clobber guard.
+ */
+function unresolvedLinkEntry(
+  intgRef: string,
+  field: PromoteUnresolvedLink['field'],
+  ref: EntityRef | null | undefined,
+  operation: PromoteOperation,
+): PromoteUnresolvedLink {
+  const outcome = operation === 'updated' ? 'preserved' : 'unset';
+  const { payloadKey, column } =
+    field === 'powered_by'
+      ? { payloadKey: 'poweredByProduct', column: 'powered_by_product_id' }
+      : { payloadKey: 'builtByVendor', column: 'built_by_vendor_id' };
+  return {
+    ref: intgRef,
+    field,
+    supabaseId: ref?.supabaseId ?? null,
+    outcome,
+    reason:
+      `${payloadKey} ${ref?.supabaseId ?? ref?.ref ?? '(unspecified)'} is not promoted in AECi; ` +
+      `${column} ${outcome === 'preserved' ? 'left unchanged' : 'left unset'}`,
+  };
+}
+
+/**
+ * The §26.5 log envelope for one `audit_log` row. Split out from the old
+ * `AuditLogForwarder` closure so the whole set can be posted in ONE request per
+ * vendor — see the `logBatchToPosthog` call in {@link dispatchPromoteHooks}.
+ */
+export function auditLogEvent(entry: Omit<AuditLogEntry, 'metadata'>): PosthogLogEvent {
+  return {
+    level: 'info',
+    message: `audit ${entry.action} ${entry.entityId ?? ''}`.trim(),
+    action: entry.action,
+    entity_type: entry.entityType ?? undefined,
+    entity_id: entry.entityId ?? undefined,
+    source: 'review-app-promote',
+  };
+}
+
+/**
+ * Ceiling on how long a post-commit hook may stay unsettled before this gives up
+ * on it (AECI-666).
+ *
+ * Not a request timeout — the hooks are already fire-and-forget and nothing is
+ * waiting on them. It exists because a `fetch` the runtime cancels for holding a
+ * connection too long returns a promise that **never settles at all**: no
+ * resolve, no reject, so the transport's own `catch` cannot see it. Left
+ * unguarded, that promise sits in `waitUntil` until the runtime kills the whole
+ * invocation as hung, taking every *other* in-flight hook with it. Losing one
+ * hook is survivable; losing the invocation is what turned this into a silent
+ * outage across ~8% of production promotes.
+ *
+ * 20s, not 30s: `waitUntil` is documented to extend execution for *up to* 30s
+ * after the response, so a 30s watchdog races the platform tearing the
+ * invocation down and the warning — the whole point — might never be emitted.
+ * 20s is ~20x the slowest healthy hook (a few D1 reads plus 1-3 Algolia batch
+ * calls) and comfortably inside the budget.
+ *
+ * Note the watchdog also suppresses the hang *detector* for its whole duration:
+ * a pending timer means the event loop is not empty, which is the condition the
+ * runtime kills on. So the invocation ends cleanly on the timeout path rather
+ * than being cancelled part-way through the other hooks.
+ */
+const HOOK_SETTLE_TIMEOUT_MS = 20_000;
+
+/**
+ * Hand `task` to `waitUntil` behind a watchdog: whichever way it ends, the
+ * promise `waitUntil` sees always settles.
+ *
+ * The timeout branch is the whole point — it converts a wedged transport from an
+ * invocation-killing hang into one `console.warn` line in Workers Observability,
+ * which is the signal that was missing while this failure mode ran undetected.
+ */
+function dispatchHook(rc: PromoteRunCtx, name: string, task: Promise<unknown>): void {
+  rc.waitUntil(
+    new Promise<void>((resolve) => {
+      const timer = setTimeout(() => {
+        console.warn(
+          `promote hook "${name}" did not settle within ${HOOK_SETTLE_TIMEOUT_MS}ms — abandoning it`,
+        );
+        resolve();
+      }, HOOK_SETTLE_TIMEOUT_MS);
+      task
+        .catch((error: unknown) => {
+          // The transports swallow their own failures, so reaching here means an
+          // unexpected throw. Never let it become an unhandled rejection.
+          console.warn(`promote hook "${name}" threw`, error);
+        })
+        .finally(() => {
+          clearTimeout(timer);
+          resolve();
+        });
+    }),
+  );
+}
+
+export const AUDIT_META = { source: 'review-app-promote' } as const;
 
 // ─── Claimed-vendor block reasons (AECI-520) ─────────────────────────────────
 // Constants, not interpolated strings: the review app surfaces `skipped[].reason`
@@ -333,8 +567,15 @@ const BLOCKED_INTEGRATION_REASON =
  * issues the purge itself. The HTTP transport (`callCloudflarePurge` +
  * `CF_PURGE_API_TOKEN`) was retired in WC-10 (AECI-324).
  *
- * Batches are fired concurrently; a failed `queue.send` is logged (Datadog
- * `warn`) and swallowed so it never affects the committed promote.
+ * Every batch goes in ONE `sendBatch()` rather than a concurrent `send()` per
+ * batch (AECI-666): a Queue producer call counts against the same per-invocation
+ * connection budget as `fetch`, and the promote's post-commit tail is already
+ * close to it. Latent rather than active today — `CACHE_PURGE_QUEUE_MAX_TAGS` is
+ * 1000, so a promote's tag set is essentially always one batch — but the shape
+ * is the rule, and it stops being latent the moment that cap moves. `sendBatch`
+ * itself caps at 100 messages / 256 KB; chunk here if the tag cap ever drops far
+ * enough for that to bite. A failed enqueue is logged (a `warn`) and swallowed so
+ * it never affects the committed promote.
  *
  * `removedTradeSlugs` carries the trades this promote *dropped* from the product
  * (AECI-542). The response echoes only what was SET, so a re-promote that clears a
@@ -358,19 +599,17 @@ async function purgeAfterPromote(
     batches.push(tags.slice(i, i + CACHE_PURGE_QUEUE_MAX_TAGS));
   }
 
-  await Promise.allSettled(
-    batches.map(async (batch) => {
-      try {
-        await queue.send({ tags: batch, source: 'promote' });
-      } catch (error) {
-        logPurgeEnqueueFailure(rc, batch, error instanceof Error ? error.message : String(error));
-      }
-    }),
-  );
+  try {
+    await queue.sendBatch(batches.map((batch) => ({ body: { tags: batch, source: 'promote' } })));
+  } catch (error) {
+    // `sendBatch` is all-or-nothing, so report the whole tag set rather than a
+    // single batch — every one of these tags is now unpurged.
+    logPurgeEnqueueFailure(rc, tags, error instanceof Error ? error.message : String(error));
+  }
 }
 
 function logPurgeEnqueueFailure(rc: PromoteRunCtx, batch: string[], reason: string): void {
-  logToDatadog(rc, rc.env, rc.request, {
+  logToPosthog(rc, rc.env, rc.request, {
     level: 'warn',
     message: 'aeci.api.promote.cache_purge_enqueue_failed',
     source: 'review-app-promote',
@@ -427,7 +666,7 @@ async function syncAlgoliaAfterPromote(
 }
 
 function logAlgoliaSyncFailure(rc: PromoteRunCtx, entity: string, reason: string): void {
-  logToDatadog(rc, rc.env, rc.request, {
+  logToPosthog(rc, rc.env, rc.request, {
     level: 'warn',
     message: 'aeci.api.promote.algolia_sync_failed',
     source: 'review-app-promote',
@@ -443,7 +682,7 @@ function logAlgoliaSyncFailure(rc: PromoteRunCtx, entity: string, reason: string
  * from the promote response (`affectedUrlsForPromote`) and submits them to
  * IndexNow (Bing/Yandex/…) via `callIndexNow`, gated on `INDEXNOW_KEY` +
  * `PUBLIC_SITE_URL`. Records `aeci.indexnow.submit{source:promote,outcome:ok|failed}`
- * and warn-logs a failure (Datadog) — never throws, never blocks the committed
+ * and warn-logs a failure — never throws, never blocks the committed
  * promote (§20.2 / §20.5). Injected for tests (mirrors the Algolia seam).
  *
  * `tradeUrls` carries the trade inputs the response can't supply (AECI-546): the
@@ -494,7 +733,7 @@ async function notifyIndexNowAfterPromote(
 }
 
 function logIndexNowFailure(rc: PromoteRunCtx, urlsCount: number, reason: string): void {
-  logToDatadog(rc, rc.env, rc.request, {
+  logToPosthog(rc, rc.env, rc.request, {
     level: 'warn',
     message: 'aeci.api.promote.indexnow_failed',
     source: 'review-app-promote',
@@ -526,87 +765,16 @@ function resolveTradeUrlOptions(
   removedTradeSlugs: string[],
 ): Promise<AffectedUrlOptions> {
   const siteUrl = rc.env.PUBLIC_SITE_URL;
-  const pingConfigured =
-    Boolean(siteUrl) &&
-    Boolean(
-      rc.env.INDEXNOW_KEY ||
-      (rc.env.GOOGLE_INDEXING_SA_EMAIL && rc.env.GOOGLE_INDEXING_SA_PRIVATE_KEY),
-    );
+  // IndexNow is the only ping left (AECI-747 removed the Google Indexing API
+  // submission — Google supports it for `JobPosting`/`BroadcastEvent` only, which
+  // is nothing we publish).
+  const pingConfigured = Boolean(siteUrl) && Boolean(rc.env.INDEXNOW_KEY);
   const touched = touchedTradeSlugs(response, removedTradeSlugs);
   if (!pingConfigured || touched.length === 0) return Promise.resolve({});
 
   return resolvePublishedTradeSlugs(db, touched)
     .then((publishedTradeSlugs) => ({ publishedTradeSlugs, removedTradeSlugs }))
     .catch(() => ({}));
-}
-
-// ─── Google Indexing API ping (AECI-263) ─────────────────────────────────────
-
-/**
- * Post-commit Google Indexing API submission seam. Default builds the SAME
- * affected public URLs as IndexNow (`affectedUrlsForPromote` — no second deriver,
- * §20.2 acceptance criterion) and pings Google's Indexing API via
- * `callGoogleIndexing`, gated on the service-account creds + `PUBLIC_SITE_URL`.
- * Records `aeci.google_indexing.submit{source:promote,outcome:ok|failed}` and
- * warn-logs a token failure or a partial publish (Datadog) — never throws, never
- * blocks the committed promote (§20.2 / §20.5). Best-effort: Google officially
- * supports only `JobPosting`/`BroadcastEvent`, so this is an additive signal on
- * top of the sitemap `<lastmod>` (§20.5 step 5). Injected for tests.
- */
-export type PromoteGoogleIndexingNotify = (
-  rc: PromoteRunCtx,
-  response: PromoteResponse,
-  tradeUrls: Promise<AffectedUrlOptions>,
-) => Promise<void>;
-
-const defaultGoogleIndexingNotify: PromoteGoogleIndexingNotify = (rc, response, tradeUrls) =>
-  notifyGoogleIndexingAfterPromote(rc, response, tradeUrls);
-
-async function notifyGoogleIndexingAfterPromote(
-  rc: PromoteRunCtx,
-  response: PromoteResponse,
-  tradeUrls: Promise<AffectedUrlOptions>,
-): Promise<void> {
-  const clientEmail = rc.env.GOOGLE_INDEXING_SA_EMAIL;
-  const privateKey = rc.env.GOOGLE_INDEXING_SA_PRIVATE_KEY;
-  const siteUrl = rc.env.PUBLIC_SITE_URL;
-  if (!clientEmail || !privateKey || !siteUrl) return;
-
-  const urlList = affectedUrlsForPromote(response, siteUrl, await tradeUrls);
-  if (urlList.length === 0) return;
-
-  const outcome = await callGoogleIndexing(fetch, {
-    serviceAccount: { clientEmail, privateKey },
-    urlList,
-  });
-  const failed = !outcome.ok || outcome.failed > 0;
-  submitCount(rc, rc.env, rc.request, 'aeci.google_indexing.submit', 1, [
-    'source:promote',
-    `outcome:${failed ? 'failed' : 'ok'}`,
-  ]);
-  if (!outcome.ok) {
-    logGoogleIndexingFailure(
-      rc,
-      urlList.length,
-      `google_indexing_${outcome.status}: ${outcome.message}`,
-    );
-  } else if (outcome.failed > 0) {
-    logGoogleIndexingFailure(
-      rc,
-      urlList.length,
-      `google_indexing_partial: ${outcome.failed} of ${urlList.length} failed`,
-    );
-  }
-}
-
-function logGoogleIndexingFailure(rc: PromoteRunCtx, urlsCount: number, reason: string): void {
-  logToDatadog(rc, rc.env, rc.request, {
-    level: 'warn',
-    message: 'aeci.api.promote.google_indexing_failed',
-    source: 'review-app-promote',
-    reason,
-    urls_count: urlsCount,
-  });
 }
 
 // ─── Home-stats refresh (AECI-305) ───────────────────────────────────────────
@@ -658,7 +826,7 @@ export async function refreshHomeStatsAfterPromote(rc: PromoteRunCtx, db: Db): P
       'trigger:promote',
       'outcome:failed',
     ]);
-    logToDatadog(rc, rc.env, rc.request, {
+    logToPosthog(rc, rc.env, rc.request, {
       level: 'error',
       message: 'aeci.stats.compute.crashed',
       source: 'review-app-promote',
@@ -675,7 +843,7 @@ export async function refreshHomeStatsAfterPromote(rc: PromoteRunCtx, db: Db): P
   emitHomeStatsMetrics(sink, 'promote', result, Date.now() - started);
   for (const k of result.keys) {
     if (k.status !== 'failed') continue;
-    logToDatadog(rc, rc.env, rc.request, {
+    logToPosthog(rc, rc.env, rc.request, {
       level: 'warn',
       message: `aeci.stats.compute ${k.key} status=failed`,
       source: 'review-app-promote',
@@ -718,10 +886,10 @@ export async function refreshHomeStatsAfterPromote(rc: PromoteRunCtx, db: Db): P
  * counts, and an `aeci.api.promote.skipped` count (value = per-kind skip count,
  * so query with `sum:`; `kind` tag ∈ integration/extension/usefulness/claim/trade)
  * as the alertable signal. Best-effort + fire-and-forget: the transport self-gates
- * on `DD_API_KEY` and dispatches via `ctx.waitUntil`, so this never affects the
+ * on `POSTHOG_PROJECT_KEY` and dispatches via `ctx.waitUntil`, so this never affects the
  * committed promote. No-op when nothing was skipped.
  */
-function logPromoteSkips(rc: PromoteRunCtx, skipped: PromoteSkipped[]): void {
+export function logPromoteSkips(rc: PromoteRunCtx, skipped: PromoteSkipped[]): void {
   if (skipped.length === 0) return;
 
   const countByKind = skipped.reduce<Record<string, number>>((acc, s) => {
@@ -729,7 +897,7 @@ function logPromoteSkips(rc: PromoteRunCtx, skipped: PromoteSkipped[]): void {
     return acc;
   }, {});
 
-  logToDatadog(rc, rc.env, rc.request, {
+  logToPosthog(rc, rc.env, rc.request, {
     level: 'warn',
     message: 'aeci.api.promote.partial_skipped',
     source: 'review-app-promote',
@@ -770,7 +938,7 @@ function logPromoteStaleIds(rc: PromoteRunCtx, staleSupabaseIds: PromoteStaleId[
     return acc;
   }, {});
 
-  logToDatadog(rc, rc.env, rc.request, {
+  logToPosthog(rc, rc.env, rc.request, {
     level: 'warn',
     message: 'aeci.api.promote.stale_supabase_id',
     source: 'review-app-promote',
@@ -784,6 +952,58 @@ function logPromoteStaleIds(rc: PromoteRunCtx, staleSupabaseIds: PromoteStaleId[
     submitCount(rc, rc.env, rc.request, 'aeci.api.promote.stale_id', n, [
       'source:promote',
       `kind:${kind}`,
+    ]);
+  }
+}
+
+/**
+ * Surface a promote's unresolved optional links (AECI-730) in the observability
+ * plane. The ingest
+ * writes an integration whose `poweredByProduct` / `builtByVendor` doesn't resolve
+ * *without* that column, which used to be invisible everywhere: no `skipped[]` entry
+ * (the row DID land), no `staleSupabaseIds` entry, no metric, no log. The only trace
+ * was the absence of `poweredBySlug` from the result, which nobody was told to check
+ * — so the NULL-FK population re-accrued silently on every promote and could only be
+ * found by an offline sweep (`scripts/ops/2026-08-powered-by-backfill/`).
+ *
+ * **Deliberately `info`, and deliberately NOT folded into {@link logPromoteSkips}.**
+ * Zapier and Workato are parked permanently (AECI-700), so every promote of an
+ * endpoint carrying one of their edges fires this — forever, by design. A `warn` on
+ * the expected steady state, or a bump to `aeci.api.promote.skipped` (which means
+ * "something wasn't written"), would turn a real signal into noise an operator learns
+ * to ignore, which is the exact failure mode this exists to fix. The actionable read
+ * is a *rise* in `field:powered_by`, not its non-zero-ness.
+ *
+ * Shape mirrors {@link logPromoteStaleIds}: one log with every
+ * `{ ref, field, supabaseId, outcome }` plus per-field counts, and an
+ * `aeci.api.promote.unresolved_link` count (value = per-field count, so query with
+ * `sum:`). Fire-and-forget over the same self-gating transport. No-op when clean.
+ */
+function logPromoteUnresolvedLinks(
+  rc: PromoteRunCtx,
+  unresolvedLinks: PromoteUnresolvedLink[],
+): void {
+  if (unresolvedLinks.length === 0) return;
+
+  const countByField = unresolvedLinks.reduce<Record<string, number>>((acc, l) => {
+    acc[l.field] = (acc[l.field] ?? 0) + 1;
+    return acc;
+  }, {});
+
+  logToPosthog(rc, rc.env, rc.request, {
+    level: 'info',
+    message: 'aeci.api.promote.unresolved_link',
+    source: 'review-app-promote',
+    outcome: 'unlinked',
+    unresolved_link_count: unresolvedLinks.length,
+    ...Object.fromEntries(Object.entries(countByField).map(([k, n]) => [`unresolved_${k}`, n])),
+    unresolved_links: unresolvedLinks,
+  });
+
+  for (const [field, n] of Object.entries(countByField)) {
+    submitCount(rc, rc.env, rc.request, 'aeci.api.promote.unresolved_link', n, [
+      'source:promote',
+      `field:${field}`,
     ]);
   }
 }
@@ -809,7 +1029,7 @@ function logPromoteReplay(
   via: PromoteReplayPath,
   ledger: PromoteJobLedger,
 ): void {
-  logToDatadog(rc, rc.env, rc.request, {
+  logToPosthog(rc, rc.env, rc.request, {
     level: 'warn',
     message: 'aeci.api.promote.replay_detected',
     source: 'review-app-promote',
@@ -836,7 +1056,7 @@ function logPromoteReplay(
  *
  *   - `env` — the Worker bindings (`DB`, CF/Algolia/IndexNow/Google creds, `DD_*`).
  *   - `waitUntil` — dispatch for the best-effort post-commit tasks AND for the
- *     Datadog transport, which is fire-and-forget by design (`@aeci/shared/datadog`).
+ *     telemetry transport, which is fire-and-forget by design (`@aeci/shared/posthog`).
  *     `PromoteRunCtx` satisfies that transport's `{ waitUntil }` shape directly, so
  *     it is passed as the ctx argument.
  *   - `request` — used ONLY to derive the Datadog `hostname` dimension. The Workflow
@@ -857,12 +1077,11 @@ export type PromoteRunCtx = {
 };
 
 /** Injectable seams, all defaulted. Tests pass no-op/spy implementations so the real
- *  transports (D1 binding, Cloudflare purge, Algolia, IndexNow, Google) are never hit. */
+ *  transports (D1 binding, Cloudflare purge, Algolia, IndexNow) are never hit. */
 export type PromoteIngestDeps = {
   dbFor?: DbFactory;
   syncAlgolia?: PromoteAlgoliaSync;
   notifyIndexNow?: PromoteIndexNowNotify;
-  notifyGoogleIndexing?: PromoteGoogleIndexingNotify;
   refreshHomeStats?: PromoteHomeStatsRefresh;
 };
 
@@ -880,7 +1099,7 @@ export type PromoteIngestResult = {
   wrote: boolean;
   /** D1 session bookmark of the commit, for the post-commit re-reads (AECI-250). */
   bookmark: string | null;
-  /** Audit rows committed inside the batch, forwarded to Datadog post-commit (§26.5). */
+  /** Audit rows committed inside the batch, forwarded to the logs plane post-commit (§26.5). */
   auditEntries: AuditLogEntry[];
   /** Entities the caller addressed by a `supabaseId` whose row no longer exists, and
    *  which were therefore **created** instead of updated (AECI-568). Deliberately NOT
@@ -1020,6 +1239,13 @@ function buildPromoteJobLedger(input: {
  * outside Drizzle still reads back.
  */
 function parsePromoteJobLedger(stored: unknown): PromoteJobLedger | null {
+  // AECI-714: `promote_jobs` now holds two envelope shapes. The connector one carries
+  // `kind: 'connector'`; this one carries no `kind` at all, and that ABSENCE is the
+  // discriminant (pre-AECI-714 rows have none either, so absence must stay valid).
+  // Without this guard a connector ledger would parse far enough to be returned as a
+  // `PromoteResponse`, and `replayPromoteJob`'s "the commit HAPPENED" 500 — the one
+  // honest answer when a ledger is unreadable — would never fire.
+  if (stored !== null && typeof stored === 'object' && 'kind' in stored) return null;
   let value = stored;
   if (typeof value === 'string') {
     try {
@@ -1178,6 +1404,10 @@ export async function runPromoteIngest(
   // Ids the caller supplied that resolve to nothing — each one falls back to a create
   // below, and is reported post-commit so the dead pointer is visible (AECI-568).
   const staleSupabaseIds: PromoteStaleId[] = [];
+  // Optional integration links (`poweredByProduct` / `builtByVendor`) that didn't
+  // resolve. The integration itself is still written — just without that column —
+  // and the drop is reported on the response and in the observability plane (AECI-730).
+  const unresolvedLinks: PromoteUnresolvedLink[] = [];
 
   // Preload existing slugs for collision-free generation (outside the batch).
   const loadSlugs = async (col: SQLiteColumn) =>
@@ -1579,6 +1809,30 @@ export async function runPromoteIngest(
     return null;
   };
 
+  /**
+   * Resolve one OPTIONAL integration link (`builtByVendor` / `poweredByProduct`) into
+   * a value for the upsert, keeping three payload states apart (AECI-730):
+   *
+   *   - **key absent** → `undefined` → dropped by `compact()`, column left untouched.
+   *   - **explicit `null`** → `null` → written, column cleared. That is how a curator
+   *     removes a link, so it has to keep working.
+   *   - **present but unresolvable** → `undefined` + `unresolved: true`. This is the
+   *     defect: it used to collapse to `null`, so the write not only failed to link,
+   *     it *cleared* a correct FK an earlier promote had set — with no report anywhere.
+   *
+   * Contrast the two ENDPOINTS, which are mandatory: an unresolvable one refuses the
+   * whole row into `skipped[]`. These two are optional, so the row still lands.
+   */
+  const resolveLink = async (
+    ref: EntityRef | null | undefined,
+    resolve: (r: EntityRef) => Promise<string | null>,
+  ): Promise<{ value: string | null | undefined; unresolved: boolean }> => {
+    if (ref === undefined) return { value: undefined, unresolved: false };
+    if (ref === null) return { value: null, unresolved: false };
+    const id = await resolve(ref);
+    return id ? { value: id, unresolved: false } : { value: undefined, unresolved: true };
+  };
+
   // ── Product (+ join rows + extensions) ────────────────────────────────────
   if (writesProduct && p) {
     // The existence read the update branch already needed doubles as the guard: a
@@ -1768,8 +2022,15 @@ export async function runPromoteIngest(
   // Endpoint product ids per integration result (parallel to `integrationResults`),
   // used to backfill `sourceSlug`/`targetSlug` after the loop (§6.2 → pair derivers).
   // `poweredById` rides along so the connector product's own page can be purged
-  // too (Stage 1.5 Addendum B) — it is NOT added to `affectedProducts`, because
-  // `integration_count` stays endpoint-only (count semantics is an open decision).
+  // too (Stage 1.5 Addendum B).
+  //
+  // §12.5's count decision is CLOSED — resolved as option B by §13.5 and shipped by
+  // AECI-721: a connector counts the edges it powers. That count lives on the
+  // EVIDENCED table, so the connector joins `affectedProducts` on the
+  // routes-to-evidenced-pair branch above, where the row it counts is actually
+  // written. It is still not added here: an edge that stays in `integrations`
+  // carrying a `powered_by` is a Convention-A self-reference, whose connector is
+  // already one of the two endpoints and so is already in the set.
   const integrationEndpoints: Array<{
     result: PromoteIntegrationResult;
     sourceId: string;
@@ -1832,17 +2093,43 @@ export async function runPromoteIngest(
       });
       continue;
     }
-    const builtByVendorId = intg.builtByVendor ? await resolveVendor(intg.builtByVendor) : null;
-    const poweredByProductId = intg.poweredByProduct
-      ? await resolveProduct(intg.poweredByProduct)
-      : null;
+    // The two OPTIONAL links. `compact()` is what makes the AECI-730 guard work:
+    // an unresolvable link resolves to `undefined` and is dropped from the write,
+    // so the column is left untouched instead of being cleared to NULL. The two
+    // endpoints above are already non-null, so `compact()` never drops them.
+    const builtBy = await resolveLink(intg.builtByVendor, resolveVendor);
+    const poweredBy = await resolveLink(intg.poweredByProduct, resolveProduct);
 
     const linkData = {
       sourceProductId: sourceId,
       targetProductId: targetId,
-      builtByVendorId,
-      poweredByProductId,
+      ...compact({ builtByVendorId: builtBy.value, poweredByProductId: poweredBy.value }),
     };
+
+    // ── AECI-721: does this edge belong in `integrations` at all? ───────────
+    // The delivered tier spans two tables (`STAGE_1_5_SPEC.md` §13.1). An edge whose
+    // connector is a real third product — neither of its own endpoints — is
+    // connector-delivered and belongs in `connector_evidenced_pairs`.
+    //
+    // WITHOUT THIS, THE MIGRATION UNDOES ITSELF. The next Procore promote would
+    // re-insert all 12 Agave edges into `integrations`, and every count site would
+    // then see them twice — once per table — because both tables are summed.
+    //
+    // The self-reference exclusion is §13.2(a) Convention A: ~60 production edges
+    // name one of their own endpoints as the connector, deliberately, and the
+    // destination's `connector_evidenced_pairs_distinct_connector` CHECK would refuse
+    // them. An edge whose connector did not resolve (Zapier, Workato — parked by
+    // AECI-700) also stays, because `connector_product_id` is NOT NULL; that is the
+    // population AECI-730 exists to make observable.
+    //
+    // AECI-750: `resolveLink` is tri-state, so narrow to a RESOLVED id first. Both
+    // `null` (explicit clear) and `undefined` (unresolvable) fall through to
+    // `integrations` — `connector_product_id` is NOT NULL, and "an edge whose
+    // connector did not resolve also stays" is this branch's own rule above. That
+    // reproduces the pre-merge routing exactly; only the WRITE gains the guard.
+    const connectorId = typeof poweredBy.value === 'string' ? poweredBy.value : null;
+    const routesToEvidencedPair =
+      connectorId !== null && connectorId !== sourceId && connectorId !== targetId;
 
     let integrationId: string;
     let result: PromoteIntegrationResult;
@@ -1850,12 +2137,112 @@ export async function runPromoteIngest(
     // products are recomputed too (the AECI-86 drift fix); the new endpoints are added
     // below. Read pre-batch. A miss also means the id is dead, so create instead of
     // no-op-updating (AECI-568).
+    // `poweredByProductId` rides along for the AECI-730 `preserved` branch: when the
+    // payload's connector didn't resolve we leave the column alone, so the STORED
+    // value — not the payload's — is the one whose product page still needs purging.
     const existing = intg.supabaseId
       ? await db.query.integrations.findFirst({
-          columns: { sourceProductId: true, targetProductId: true },
+          columns: { sourceProductId: true, targetProductId: true, poweredByProductId: true },
           where: eq(integrations.id, intg.supabaseId),
         })
       : undefined;
+
+    if (routesToEvidencedPair) {
+      // WHERE the preserved id already lives decides the write (see
+      // `planEvidencedPairWrite`). The migration keeps the id verbatim across the
+      // move, so a re-promote of a migrated edge finds it HERE, not in `integrations`
+      // — reading only `existing` (integrations) would route it to a fresh-id INSERT
+      // and collide on `connector_evidenced_pairs_pair_idx`.
+      const existingEvidenced = intg.supabaseId
+        ? await db.query.connectorEvidencedPairs.findFirst({
+            columns: { productAId: true, productBId: true, connectorProductId: true },
+            where: eq(connectorEvidencedPairs.id, intg.supabaseId),
+          })
+        : undefined;
+      const located: { id: string; table: 'evidenced' | 'integrations' } | null =
+        intg.supabaseId && existingEvidenced
+          ? { id: intg.supabaseId, table: 'evidenced' }
+          : intg.supabaseId && existing
+            ? { id: intg.supabaseId, table: 'integrations' }
+            : null;
+      // A supplied id that resolves in neither table is dead — the create branch
+      // mints a new one, and we report the stale pointer the same way the
+      // `integrations` branch does (AECI-568).
+      if (intg.supabaseId && !located) {
+        staleSupabaseIds.push({ kind: 'integration', ref: intg.ref, supabaseId: intg.supabaseId });
+      }
+
+      const evidenced = planEvidencedPairWrite({
+        db,
+        intg,
+        sourceId,
+        targetId,
+        connectorProductId: connectorId,
+        builtByVendorId: builtBy.value,
+        existing: located,
+      });
+      stmts.push(...evidenced.statements);
+      result = { ref: intg.ref, id: evidenced.id, operation: evidenced.operation };
+      audit({
+        actorType: 'system',
+        action:
+          evidenced.operation === 'updated'
+            ? 'connector_evidenced_pair.updated'
+            : 'connector_evidenced_pair.created',
+        entityType: 'connector_evidenced_pair',
+        entityId: evidenced.id,
+      });
+      // Recompute the OLD endpoints too when this edge already existed — its
+      // endpoints (or the connector it counted for) may have moved. The integrations
+      // pre-read carries the old source/target; the evidenced pre-read carries the
+      // old canonical pair plus the old connector.
+      if (existing) {
+        affectedProducts.add(existing.sourceProductId);
+        affectedProducts.add(existing.targetProductId);
+      }
+      if (existingEvidenced) {
+        affectedProducts.add(existingEvidenced.productAId);
+        affectedProducts.add(existingEvidenced.productBId);
+        affectedProducts.add(existingEvidenced.connectorProductId);
+      }
+      // Report each link this write had to leave out (AECI-730). The evidenced
+      // branch `continue`s past the shared reporter below, so without this the
+      // connector-delivered tier is invisible to
+      // `aeci.api.promote.unresolved_link` — `field:built_by` under-counts by
+      // exactly this tier, which is the defect AECI-730 exists to close, silently
+      // reintroduced on the new table (AECI-750).
+      //
+      // `powered_by` cannot be unresolved here by construction: an unresolved
+      // connector never routes to this branch. Asserting that with a push anyway
+      // would be reporting an impossible state, so only `built_by` is reported.
+      if (builtBy.unresolved) {
+        unresolvedLinks.push(
+          unresolvedLinkEntry(intg.ref, 'built_by', intg.builtByVendor, result.operation),
+        );
+      }
+      integrationResults.push(result);
+      // Endpoints AND the connector: §12.5 option B counts the edge for the
+      // connector's own `integration_count` too, so it has to be recomputed.
+      integrationEndpoints.push({
+        result,
+        sourceId,
+        targetId,
+        poweredById: connectorId,
+      });
+      affectedProducts.add(sourceId);
+      affectedProducts.add(targetId);
+      affectedProducts.add(connectorId);
+      if (result.operation === 'updated' || intg.claims.length) {
+        claimIngestItems.push({
+          anchorId: evidenced.id,
+          anchorKind: 'evidenced_pair',
+          ref: intg.ref,
+          claims: intg.claims,
+          isNewAnchor: result.operation !== 'updated',
+        });
+      }
+      continue;
+    }
     if (intg.supabaseId && !existing) {
       staleSupabaseIds.push({ kind: 'integration', ref: intg.ref, supabaseId: intg.supabaseId });
     }
@@ -1890,8 +2277,27 @@ export async function runPromoteIngest(
         entityId: id,
       });
     }
+    // Report each link the write had to leave out (AECI-730). Pushed HERE, after the
+    // branch, because `outcome` is decided by whether the row was created (column is
+    // NULL) or updated (column left exactly as it was — the clobber guard).
+    if (poweredBy.unresolved) {
+      unresolvedLinks.push(
+        unresolvedLinkEntry(intg.ref, 'powered_by', intg.poweredByProduct, result.operation),
+      );
+    }
+    if (builtBy.unresolved) {
+      unresolvedLinks.push(
+        unresolvedLinkEntry(intg.ref, 'built_by', intg.builtByVendor, result.operation),
+      );
+    }
+
     integrationResults.push(result);
-    integrationEndpoints.push({ result, sourceId, targetId, poweredById: poweredByProductId });
+    // `undefined` means the column was left untouched, so what still applies is the
+    // value already stored — the update branch's pre-read carries it. Anything else
+    // (a resolved id, or an explicit `null` clear) is what was actually written.
+    const poweredById =
+      poweredBy.value === undefined ? (existing?.poweredByProductId ?? null) : poweredBy.value;
+    integrationEndpoints.push({ result, sourceId, targetId, poweredById });
 
     // ── Claims (replace-by-ORIGIN — §6.2, reworked by AECI-604) ─────────────
     // Deferred to a single `planClaimIngest` call after this loop so the whole
@@ -1903,10 +2309,11 @@ export async function runPromoteIngest(
     // is brand new and nothing can pre-exist on it (AECI-568).
     if (result.operation === 'updated' || intg.claims.length) {
       claimIngestItems.push({
-        integrationId,
+        anchorId: integrationId,
+        anchorKind: 'integration',
         ref: intg.ref,
         claims: intg.claims,
-        isNewIntegration: result.operation !== 'updated',
+        isNewAnchor: result.operation !== 'updated',
       });
     }
 
@@ -1978,6 +2385,7 @@ export async function runPromoteIngest(
     },
     skipped,
     preserved,
+    unresolvedLinks,
   };
 
   // `wrote` means "this promote changed CATALOG state". Two things must stay out of
@@ -2061,8 +2469,8 @@ export async function runPromoteIngest(
 
 /**
  * The best-effort, post-commit tail of a promote: §26.5 audit forwards, edge-cache
- * purge, home-stats refresh, Algolia upsert, and the IndexNow / Google Indexing
- * pings. Every one of them is fire-and-forget through `rc.waitUntil` and self-gates
+ * purge, home-stats refresh, Algolia upsert, and the IndexNow ping. Every one of
+ * them is fire-and-forget through `rc.waitUntil` and self-gates
  * on its own credentials, exactly as it did when this ran off the request — the
  * promote is already committed, so nothing here may throw or delay the result.
  *
@@ -2079,22 +2487,22 @@ export function dispatchPromoteHooks(
   const dbFor = deps.dbFor ?? getDb;
   const syncAlgolia = deps.syncAlgolia ?? defaultAlgoliaSync;
   const notifyIndexNow = deps.notifyIndexNow ?? defaultIndexNowNotify;
-  const notifyGoogleIndexing = deps.notifyGoogleIndexing ?? defaultGoogleIndexingNotify;
   const refreshHomeStats = deps.refreshHomeStats ?? defaultHomeStatsRefresh;
   const { response, removedTradeSlugs, auditEntries, staleSupabaseIds } = result;
 
-  // Best-effort §26.5 audit forwards AFTER the commit. Only scheduled when
-  // Datadog is configured — the forwarder is a no-op otherwise, so there is
-  // nothing to await.
-  const forward = makeForwarder(rc);
-  if (forward && auditEntries.length) {
-    rc.waitUntil(Promise.all(auditEntries.map((entry) => forwardAuditLog(entry, forward))));
-  }
+  // Best-effort §26.5 audit forwards AFTER the commit, as ONE request per vendor
+  // carrying every entry (AECI-666). This used to loop `logToPosthog` per entry,
+  // and because the §3.1 dual-run fires the Datadog twin from the same call site
+  // a fat bundle opened TWO dozen-plus simultaneous connections from a single
+  // invocation — on its own enough to exhaust the connection budget and start
+  // losing the other hooks below. `logBatchToPosthog` no-ops per leg without
+  // that leg's key, so the old combined gate is gone.
+  logBatchToPosthog(rc, rc.env, rc.request, auditEntries.map(auditLogEvent));
 
   // AECI-105 → WC-5: enqueue the edge-cache tags this promote invalidated.
   // Best-effort, post-commit; no-ops without the queue producer.
   if (rc.env.CACHE_PURGE_QUEUE) {
-    rc.waitUntil(purgeAfterPromote(rc, response, removedTradeSlugs));
+    dispatchHook(rc, 'cache-purge', purgeAfterPromote(rc, response, removedTradeSlugs));
   }
 
   // AECI-305: refresh the `home.*` `stats_cache` keys the home page reads, then
@@ -2104,13 +2512,13 @@ export function dispatchPromoteHooks(
   // all-skipped promote changed nothing); best-effort, post-commit — the seam
   // never throws and self-gates the purge on the queue producer.
   if (result.wrote) {
-    rc.waitUntil(refreshHomeStats(rc));
+    dispatchHook(rc, 'home-stats', refreshHomeStats(rc));
   }
 
   // AECI-139: push the promoted records to Algolia immediately (independent
   // best-effort task). No-ops without the Algolia secrets.
   if (rc.env.ALGOLIA_APP_ID && rc.env.ALGOLIA_ADMIN_KEY) {
-    rc.waitUntil(syncAlgolia(rc, response));
+    dispatchHook(rc, 'algolia-sync', syncAlgolia(rc, response));
   }
 
   // AECI-546: resolve the publication floor for any touched trade ONCE, shared
@@ -2131,23 +2539,11 @@ export function dispatchPromoteHooks(
   // (alongside `ALLOW_INDEXING=true`): pinging IndexNow for a noindex'd site is
   // a correctness bug, so the secret's absence is the gate.
   if (rc.env.INDEXNOW_KEY && rc.env.PUBLIC_SITE_URL) {
-    rc.waitUntil(notifyIndexNow(rc, response, tradeUrls));
+    dispatchHook(rc, 'indexnow', notifyIndexNow(rc, response, tradeUrls));
   }
 
-  // AECI-263: best-effort Google Indexing API ping for the SAME affected URLs
-  // (§20.2). Additive to IndexNow; no-ops without the service-account creds +
-  // PUBLIC_SITE_URL, which are provisioned ONLY at launch (alongside
-  // `ALLOW_INDEXING=true`) — pinging Google for a noindex'd site is the same
-  // correctness bug the secret's absence guards against. Never blocks the write.
-  if (
-    rc.env.GOOGLE_INDEXING_SA_EMAIL &&
-    rc.env.GOOGLE_INDEXING_SA_PRIVATE_KEY &&
-    rc.env.PUBLIC_SITE_URL
-  ) {
-    rc.waitUntil(notifyGoogleIndexing(rc, response, tradeUrls));
-  }
-
-  // Surface any `skipped[]` entries (§4) in Datadog: a completed job with skips is
+  // Surface any `skipped[]` entries (§4) in the observability plane: a completed job
+  // with skips is
   // a partial promote — entities the push couldn't link — that neither the metrics
   // layer nor a `status: 'complete'` poll response can otherwise reveal.
   logPromoteSkips(rc, response.skipped);
@@ -2157,4 +2553,10 @@ export function dispatchPromoteHooks(
   // response says `created`, but only this says *why* — that the review app was
   // holding a dead pointer.
   logPromoteStaleIds(rc, staleSupabaseIds);
+
+  // Surface any optional integration link the write had to leave out (AECI-730).
+  // Read off `response`, so an AECI-571 replay reports it too — the ledger stores the
+  // response wholesale. `?? []` because a ledger row written before AECI-730 has no
+  // such key, and this runs post-commit where a throw has nothing to roll back.
+  logPromoteUnresolvedLinks(rc, response.unresolvedLinks ?? []);
 }

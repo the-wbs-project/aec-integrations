@@ -137,7 +137,8 @@ This does not break the drift gate: drizzle-kit diffs `schema.ts` against
 `meta/NNNN_snapshot.json`, never the database, so leaving the generated snapshot untouched keeps
 `db:generate` a no-op. **Verify by re-running it and confirming `git status --porcelain` is clean**,
 and leave a header comment in the migration saying it is hand-authored and why
-(`0016_lyrical_leper_queen.sql` and `0017_slim_iron_lad.sql` are the references).
+(`0021_lyrical_leper_queen.sql` and `0022_slim_iron_lad.sql` are the references — those were
+`0016`/`0017` until the AECI-750 renumber below).
 `0003_gray_eternity.sql` is the lighter precedent — a hand-appended backfill after the generated
 statement.
 
@@ -175,7 +176,7 @@ real git conflict rather than a clean rename.
 
 **What to do instead — regenerate the snapshot, keep the body.** This is the §0 hand-authored-body
 workflow above, run once per migration being renumbered. AECI-619 did exactly this for
-`0006`→`0016` and `0008`→`0017`:
+`0006`→`0016` and `0008`→`0017` (both moved again at AECI-750 — they are now `0021` and `0022`):
 
 1. Resolve `schema.ts` to the merged union, and stash a copy.
 2. Delete the epic's `NNNN_*.sql` + `meta/NNNN_snapshot.json`; take the other branch's `meta/`
@@ -221,15 +222,87 @@ AECI-619, `main`'s `0010`–`0015` touched `promote_jobs` / `metrics_daily` / `j
 `page_views` / `products.promoted_at` / `feedback` / `mailing_list` and never `claims` or
 `attestations`, so the inversion was inert.
 
+##### AECI-750 — the second, larger renumber (`0016`–`0022` → `0021`–`0027`)
+
+The `main → stage-2` reconcile hit the same collision at **seven** migrations instead of two.
+`main` had independently taken `0016`–`0020` and **those are applied in production**, so `main`
+keeps its numbers and `stage-2`'s seven move up:
+
+| was (`stage-2`) | now | | was (`stage-2`) | now |
+|---|---|---|---|---|
+| `0016_lyrical_leper_queen` | `0021` | | `0020_sad_the_professor` | `0025` |
+| `0017_slim_iron_lad` | `0022` | | `0021_overconfident_selene` | `0026` |
+| `0018_chilly_joseph` | `0023` | | `0022_powerful_killraven` | `0027` |
+| `0019_easy_sandman` | `0024` | | | |
+
+**The step-3 reverse-apply loop was not needed, and here is the test for when you can skip it.**
+That loop exists to reconstruct each intermediate schema state. It is only skippable when the two
+migration sets touch **disjoint objects**, which was checkable directly: `main`'s `0016`–`0020` add
+seven columns and two indexes to `page_views` and create `asn_registry`, and **nothing else**;
+`stage-2`'s seven touch `claims` / `attestations` / `integrations` / `connector_*` / `vendor_*` /
+`profiles` / `products` and — verified against every snapshot — never touched `page_views` after
+`0015`. So each `stage-2` snapshot could be recomposed by grafting `main`'s `page_views` and
+`asn_registry` table definitions onto it and re-chaining `id`/`prevId`, with no schema-state
+replay. Confirm the graft the same way as always: `db:generate` must report *"No schema changes"*.
+
+Two things this also fixed for free: `meta/0006_snapshot.json` (dropped by `8ea629ce`, leaving
+`0007_snapshot.json` pointing at a `prevId` with no file) came back with `main`'s `meta/`, and the
+journal's seven re-stamped `when` values restored monotonicity — the originals interleave, because
+four of `stage-2`'s seven predate `main`'s `0016`.
+
+**Verify the bodies, not just the gate.** All seven SQL bodies are byte-identical to their
+originals apart from an appended renumber note; the check that matters is that the *executable*
+statements hash identically with comments stripped:
+
+```bash
+git show origin/stage-2:apps/api/migrations/0022_powerful_killraven.sql \
+  | grep -v '^--' | shasum -a256
+grep -v '^--' apps/api/migrations/0027_powerful_killraven.sql | shasum -a256
+```
+
+**PENDING — the two hand-applied tiers still record the old names.** `aeci-app-stage2` and remote
+`aeci-app-preview` are not CI-migrated, so nothing has corrected them. **No data is at risk**: the
+next `d1-apply-migrations.sh` simply fails, loudly, on the first renamed file rather than doing
+anything destructive. Census first, then rewrite — **descending**, so no intermediate name collides
+with one still in use (`0021`/`0022` are both an old name *and* a new name in this set):
+
+```bash
+cd apps/api
+npx wrangler d1 execute aeci-app-stage2 --env stage2 --remote --command \
+  "SELECT name FROM d1_migrations ORDER BY id"
+
+for pair in \
+  0022_powerful_killraven:0027_powerful_killraven \
+  0021_overconfident_selene:0026_overconfident_selene \
+  0020_sad_the_professor:0025_sad_the_professor \
+  0019_easy_sandman:0024_easy_sandman \
+  0018_chilly_joseph:0023_chilly_joseph \
+  0017_slim_iron_lad:0022_slim_iron_lad \
+  0016_lyrical_leper_queen:0021_lyrical_leper_queen ; do
+  npx wrangler d1 execute aeci-app-stage2 --env stage2 --remote --command \
+    "UPDATE d1_migrations SET name='${pair##*:}.sql' WHERE name='${pair%%:*}.sql'"
+done
+
+npx wrangler d1 migrations apply aeci-app-stage2 --env stage2 --remote
+npx wrangler d1 execute aeci-app-stage2 --env stage2 --remote --command \
+  "SELECT name FROM d1_migrations ORDER BY id"
+```
+
+Repeat for remote `aeci-app-preview` (`--env preview`), whose census may differ — it already
+carries the AECI-619 rename. **staging / demo / production need nothing**: they only ever recorded
+`main`'s `0016`–`0020`, whose numbers are unchanged. The out-of-order apply that follows (stage-2's
+seven were applied before `main`'s back-fill) is inert by the same disjoint-objects check above.
+
 ##### Reserved numbers
 
 **Settled — nothing is reserved.** `aeci-515` (Paid Tiers) generated `vendor_entitlements`
 (AECI-609) as `0006_easy_sandman.sql`, colliding with `main`'s `0006_crazy_lockheed.sql`. AECI-622
 first renumbered it to `0018`, which **also** collided once the AECI-514 epic landed (`0016`/`0017`
-plus `0018_chilly_joseph`). It is now **`0019_easy_sandman.sql`**, renumbered at the
-`stage-2 → aeci-515` merge by the regenerate-the-snapshot procedure above.
+plus `0018_chilly_joseph`). It was then **`0019_easy_sandman.sql`**, renumbered at the
+`stage-2 → aeci-515` merge by the regenerate-the-snapshot procedure above — and is now
+**`0024_easy_sandman.sql`**, renumbered a third time by AECI-750.
 
-That is twice this line went stale while being read as authoritative, which is the point worth
+That is three times this line went stale while being read as authoritative, which is the point worth
 keeping: **check `apps/api/migrations/` rather than trusting a number written in prose.** The
 regenerated body was verified byte-identical to the hand-authored original and emitted no
 destructive statements — the check that matters, given the generator has previously re-emitted
@@ -277,7 +350,7 @@ Write a migration when any of these change in Postgres:
 
 **Don't** write a migration for:
 
-- Local test fixtures or seed data — those are the D1 seed SQL under `apps/api/seed/` (applied locally via `pnpm db:seed:local`). Cross-environment reference data (e.g. the taxonomy vocabulary) is `apps/api/seed/taxonomy.sql`, which *is* applied to every environment via `wrangler d1 execute` (ADR 0008).
+- Local test fixtures or seed data — those are the D1 seed SQL under `apps/api/seed/` (applied locally via `pnpm db:seed:local`, whose final step is the non-SQL `grant-local-admin.mjs` — AECI-765). Cross-environment reference data (e.g. the taxonomy vocabulary) is `apps/api/seed/taxonomy.sql`, which *is* applied to every environment via `wrangler d1 execute` (ADR 0008).
 - One-off data backfills — use a script under `apps/api/scripts/` and run it explicitly per environment.
 - Anything Airtable owns (curator-managed content; vendors, products, integrations, reviews — see `docs/DATABASE_SCHEMA.md` §13). *(Taxonomy is no longer in this set — it's code-managed reference data per ADR 0008.)*
 
@@ -408,7 +481,7 @@ PR review verifies these are all aligned. CI applies the migration to staging at
 
 ## 7. What does not belong in a migration
 
-- **Seed data**: for the app DB, the local D1 seed SQL under `apps/api/seed/` (applied via `pnpm db:seed:local`). (`supabase/seed.sql` is now Supabase-Auth-project-local only.)
+- **Seed data**: for the app DB, the local D1 seed SQL under `apps/api/seed/` (applied via `pnpm db:seed:local`, which also runs the non-SQL `grant-local-admin.mjs` step — AECI-765). (`supabase/seed.sql` is now Supabase-Auth-project-local only.)
 - **Reference data** (applied to *all* environments): the taxonomy vocabulary lives in `apps/api/seed/taxonomy.sql`, the Stage 1.5 `data_object` vocabulary in `apps/api/seed/data-objects.sql`, and the `trade` vocabulary in `apps/api/seed/trades.sql` (all idempotent upserts), applied to D1 via `wrangler d1 execute` — locally via `pnpm db:seed:taxonomy:local` / `pnpm db:seed:data-objects:local` / `pnpm db:seed:trades:local`, in deploy/promote via the matching `wrangler d1 execute … --file=seed/<name>.sql` steps in `scripts/d1-apply-migrations.sh`. See ADR 0008.
 - **Curator-managed data**: vendors, products, integrations, reviews come in via `POST /api/promote` (`docs/DATABASE_SCHEMA.md` §13).
 - **One-off backfills**: write a script (`apps/api/scripts/<name>.ts`), run it explicitly per environment. Keep migrations declarative.

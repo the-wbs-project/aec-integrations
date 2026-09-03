@@ -22,6 +22,7 @@ import type {
   VendorNotification,
   VendorProduct,
   VendorSeat,
+  VendorSeatInvite,
 } from '@aeci/shared';
 // Subpath import, deliberately: the capability registry is zod-free and kept off
 // the root barrel so it cannot drag the schema set into a lazy route's graph
@@ -38,7 +39,7 @@ function term(
   return { id: `tax-${slug}`, slug, name, description: null, display_order, product_count };
 }
 
-/** The category/audience/phase vocabulary the product editor picks from. */
+/** The category/audience/phase/trade vocabulary the product editor picks from. */
 export const VENDOR_TAXONOMY_FIXTURE: TaxonomyResponse = {
   categories: [
     term('project-management', 'Project management', 1, 18),
@@ -88,6 +89,9 @@ const PRIMARY_PRODUCT: VendorProduct = {
   category_slugs: ['bim-authoring', 'document-control'],
   audience_slugs: ['architects', 'structural-engineers'],
   phase_slugs: ['design', 'construction'],
+  // Sparse by design: a multidiscipline coordination tool is horizontal, so it
+  // carries no trades. This is the COMMON case, and the fixture models it.
+  trade_slugs: [],
   product_role: 'application',
   integration_count: 14,
   review_count: 6,
@@ -107,6 +111,8 @@ const SECONDARY_PRODUCT: VendorProduct = {
   category_slugs: ['field-reporting'],
   audience_slugs: ['general-contractors', 'project-managers'],
   phase_slugs: ['construction'],
+  // The uncommon case, so the chips render in at least one fixture path.
+  trade_slugs: ['hvac-mechanical', 'electrical'],
   product_role: 'application',
   integration_count: 3,
   review_count: 0,
@@ -253,8 +259,56 @@ export const VENDOR_ME_DOWNGRADED_FIXTURE: VendorMeResponse = {
   },
 };
 
-/** The seat roster for the verified vendor — three flat admins, one banned, one
- *  with an unresolved email (the local/preview degrade-to-null case). */
+/**
+ * A vendor whose catalog is big enough to need the search box.
+ *
+ * The two-product fixture above is the honest shape of the seeded vendor and is
+ * right for every OTHER case, but it tells you nothing about the control the
+ * Products nav menu exists for: a picker over two options is a picker over two
+ * options whether or not it can filter. Reviewing "can I find the one I came
+ * for" needs a list you cannot take in at a glance, which is the case the real
+ * vendors are in and the fixtures never were.
+ *
+ * Deliberately unsorted here, so the menu's alphabetical ordering is visible
+ * rather than accidental.
+ */
+const LARGE_CATALOG_NAMES: readonly string[] = [
+  'Summit Model Coordination',
+  'Summit Field Issues',
+  'Summit Cost Control',
+  'Summit Punch',
+  'Summit Handover',
+  'Summit Reality Capture',
+  'Summit Schedule Link',
+  'Summit RFI Desk',
+  'Summit Submittal Desk',
+  'Summit Drawing Register',
+  'Summit Asset Register',
+  'Summit Commissioning',
+  'Summit Quantity Takeoff',
+  'Summit Site Diary',
+  'Summit Safety Observations',
+  'Summit Change Orders',
+  'Summit Daily Reports',
+  'Summit Equipment Log',
+  'Summit Warranty Tracker',
+  'Summit Closeout',
+];
+
+export const VENDOR_ME_LARGE_CATALOG_FIXTURE: VendorMeResponse = {
+  ...VENDOR_ME_FIXTURE,
+  products: LARGE_CATALOG_NAMES.map((name, i) => ({
+    ...(i === 0 ? PRIMARY_PRODUCT : SECONDARY_PRODUCT),
+    id: `00000000-0000-4000-8000-0000000053${String(i).padStart(2, '0')}`,
+    slug: name.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+    name,
+    is_primary: i === 0,
+  })),
+};
+
+/** The seat roster for the verified vendor: the viewer (an OWNER, so the preview
+ *  exercises the invite/remove controls), a member, and a banned seat with an
+ *  unresolved email (the local/preview degrade-to-null case). */
 export const VENDOR_SEATS_FIXTURE: readonly VendorSeat[] = [
   {
     user_id: '00000000-0000-4000-8000-0000000052b1',
@@ -262,6 +316,8 @@ export const VENDOR_SEATS_FIXTURE: readonly VendorSeat[] = [
     email: 'dana@summitbim.example.com',
     banned: false,
     created_at: '2026-06-04T14:00:00.000Z',
+    is_self: true,
+    owner: true,
   },
   {
     user_id: '00000000-0000-4000-8000-0000000052b2',
@@ -269,6 +325,8 @@ export const VENDOR_SEATS_FIXTURE: readonly VendorSeat[] = [
     email: 'priya@summitbim.example.com',
     banned: false,
     created_at: '2026-06-12T09:00:00.000Z',
+    is_self: false,
+    owner: false,
   },
   {
     user_id: '00000000-0000-4000-8000-0000000052b3',
@@ -276,6 +334,19 @@ export const VENDOR_SEATS_FIXTURE: readonly VendorSeat[] = [
     email: null,
     banned: true,
     created_at: '2026-06-20T16:30:00.000Z',
+    is_self: false,
+    owner: false,
+  },
+];
+
+/** One pending invite, so the preview renders the §11a pending list + revoke. */
+export const VENDOR_SEAT_INVITES_FIXTURE: readonly VendorSeatInvite[] = [
+  {
+    id: '00000000-0000-4000-8000-0000000052c1',
+    email: 'jordan@summitbim.example.com',
+    invited_by: 'Dana Ruiz',
+    expires_at: '2099-01-01T00:00:00.000Z',
+    created_at: '2026-08-20T10:00:00.000Z',
   },
 ];
 
@@ -315,7 +386,7 @@ export const VENDOR_DATA_OBJECTS_FIXTURE: readonly DataObjectOption[] = [
   },
   {
     slug: 'punch-lists',
-    name: 'Punch lists',
+    name: 'Punch Lists',
     description: 'Closeout items tracked to completion in the field.',
   },
   {
@@ -329,6 +400,15 @@ const OTHER_PROCORE = {
   id: '00000000-0000-4000-8000-000000005301',
   slug: 'procore',
   name: 'Procore',
+  logo_url: null,
+};
+
+/** The counterpart on the connector-powered edge (AECI-705). Distinct from
+ *  OTHER_PROCORE so a test can identify that card by its heading. */
+const OTHER_ACUMATICA = {
+  id: '00000000-0000-4000-8000-000000005303',
+  slug: 'acumatica',
+  name: 'Acumatica',
   logo_url: null,
 };
 
@@ -401,13 +481,16 @@ export const VENDOR_PRODUCT_VERSIONS_FIXTURE: Readonly<Record<string, readonly P
  *  - an integration where the caller owns `vendor_b` only, so the direction
  *    framing is reviewable in the preview and not only in a unit test;
  *  - an integration with no claims at all, for the per-card empty state;
- *  - a null `name` and a null `mechanism_kind`, for the nullable paths.
+ *  - a null `name` and a null `mechanism_kind`, for the nullable paths;
+ *  - a connector-powered edge (AECI-705), which is listed but not attestable.
  */
 const INTEGRATION_PROCORE: VendorIntegration = {
   id: '00000000-0000-4000-8000-000000005310',
   name: 'Summit Model Coordination ↔ Procore',
   mechanism_kind: 'native',
   mechanism_name: 'Native connector',
+  attestable: true,
+  powered_by: null,
   context_product: CONTEXT_PRIMARY,
   other_product: OTHER_PROCORE,
   slots: ['vendor_a'],
@@ -493,6 +576,8 @@ const INTEGRATION_BOTH_ENDPOINTS: VendorIntegration = {
   name: null,
   mechanism_kind: 'api',
   mechanism_name: null,
+  attestable: true,
+  powered_by: null,
   context_product: CONTEXT_PRIMARY,
   other_product: CONTEXT_SECONDARY,
   slots: ['vendor_a', 'vendor_b'],
@@ -501,7 +586,7 @@ const INTEGRATION_BOTH_ENDPOINTS: VendorIntegration = {
       id: '00000000-0000-4000-8000-000000005331',
       integration_id: '00000000-0000-4000-8000-000000005311',
       data_object_slug: 'punch-lists',
-      data_object_name: 'Punch lists',
+      data_object_name: 'Punch Lists',
       direction: 'both',
       // TWO attestations, ONE voter: the agreement engine dedupes by attesting
       // vendor, so owning both endpoints cannot manufacture `confirmed`.
@@ -535,6 +620,8 @@ const INTEGRATION_VENDOR_B: VendorIntegration = {
   name: 'Autodesk Build ↔ Summit Field Issues',
   mechanism_kind: 'marketplace-app',
   mechanism_name: 'Autodesk App Store listing',
+  attestable: true,
+  powered_by: null,
   // The caller holds endpoint B here, so `context_product` is still ITS product
   // and `direction` is still framed outward from it. Nothing in the UI may reach
   // for `source`/`target`.
@@ -561,10 +648,53 @@ const INTEGRATION_NO_CLAIMS: VendorIntegration = {
   name: null,
   mechanism_kind: null,
   mechanism_name: null,
+  attestable: true,
+  powered_by: null,
   context_product: CONTEXT_SECONDARY,
   other_product: OTHER_PROCORE,
   slots: ['vendor_a'],
   claims: [],
+};
+
+/**
+ * A connector-powered edge (AECI-705 / §14): the vendor owns an endpoint, so the
+ * row is listed, but `attestable: false` makes the whole card read-only.
+ *
+ * `powered_by` is populated because the named branch of the copy is the one worth
+ * reviewing in the preview. The unnamed branch, which falls back to
+ * `mechanism_name`, is the majority in production (53 of 132 powered edges have
+ * no promoted connector product to link to) and is covered by the component spec.
+ */
+const INTEGRATION_CONNECTOR_POWERED: VendorIntegration = {
+  id: '00000000-0000-4000-8000-000000005314',
+  name: 'Summit Model Coordination ↔ Acumatica',
+  mechanism_kind: 'iPaaS',
+  mechanism_name: 'Agave ERP Sync',
+  attestable: false,
+  powered_by: {
+    id: '00000000-0000-4000-8000-0000000053a0',
+    slug: 'agave-erp-sync',
+    name: 'Agave ERP Sync',
+    logo_url: null,
+  },
+  context_product: CONTEXT_PRIMARY,
+  other_product: OTHER_ACUMATICA,
+  slots: ['vendor_a'],
+  claims: [
+    {
+      id: '00000000-0000-4000-8000-000000005351',
+      integration_id: '00000000-0000-4000-8000-000000005314',
+      data_object_slug: 'invoices',
+      data_object_name: 'Invoices',
+      direction: 'outbound',
+      // Stays the AECi-curated state, and structurally cannot leave it: no
+      // vendor attestation can be created on a powered edge.
+      agreement: 'unverified',
+      origin: 'aeci',
+      mine: [],
+      counterparty: null,
+    },
+  ],
 };
 
 export const VENDOR_INTEGRATIONS_FIXTURE: ListVendorIntegrationsResponse = {
@@ -573,6 +703,7 @@ export const VENDOR_INTEGRATIONS_FIXTURE: ListVendorIntegrationsResponse = {
     INTEGRATION_BOTH_ENDPOINTS,
     INTEGRATION_VENDOR_B,
     INTEGRATION_NO_CLAIMS,
+    INTEGRATION_CONNECTOR_POWERED,
   ],
 };
 

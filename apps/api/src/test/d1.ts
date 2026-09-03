@@ -37,17 +37,30 @@ import type { DbFactory } from '../lib/handler-utils';
 // Drizzle's `--> statement-breakpoint` marker. cwd is the `apps/api` package
 // when vitest runs.
 const MIGRATIONS_DIR = join(process.cwd(), 'migrations');
-function migrationStatements(): string[] {
-  const files = readdirSync(MIGRATIONS_DIR)
+
+/** Committed migration filenames, in apply order. */
+export function migrationFiles(): string[] {
+  return readdirSync(MIGRATIONS_DIR)
     .filter((f) => f.endsWith('.sql'))
     .sort();
+}
+
+/** One migration's statements, split on Drizzle's marker. Exported so a spec can
+ *  apply a single migration to an ALREADY-SEEDED database — the only way to test a
+ *  destructive migration honestly, since one that applies cleanly to an empty table
+ *  proves nothing (`docs/migrations.md` §3.3a rule 3). */
+export function statementsForMigration(file: string): string[] {
+  return readFileSync(join(MIGRATIONS_DIR, file), 'utf8')
+    .split('--> statement-breakpoint')
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function migrationStatements(upToExclusive?: string): string[] {
   const out: string[] = [];
-  for (const file of files) {
-    const sql = readFileSync(join(MIGRATIONS_DIR, file), 'utf8');
-    for (const part of sql.split('--> statement-breakpoint')) {
-      const s = part.trim();
-      if (s) out.push(s);
-    }
+  for (const file of migrationFiles()) {
+    if (upToExclusive && file >= upToExclusive) break;
+    out.push(...statementsForMigration(file));
   }
   return out;
 }
@@ -74,14 +87,22 @@ export interface TestDb {
   factory: DbFactory;
   /** Underlying better-sqlite3 handle (for raw seeding / teardown). */
   raw: Database.Database;
+  /** Apply one migration file by name, against whatever is already in the DB. */
+  applyMigration(file: string): void;
   dispose(): void;
 }
 
-/** Build a fresh, migrated, empty in-memory D1. Call per test (cheap, sync init). */
-export async function makeTestDb(): Promise<TestDb> {
+/**
+ * Build a fresh, migrated, empty in-memory D1. Call per test (cheap, sync init).
+ *
+ * `opts.upToExclusive` stops BEFORE the named migration file, so a spec can seed
+ * the pre-migration shape and then apply that one migration itself. Used to test
+ * destructive migrations against non-empty data.
+ */
+export async function makeTestDb(opts: { upToExclusive?: string } = {}): Promise<TestDb> {
   const raw = new Database(':memory:');
   raw.pragma('foreign_keys = ON');
-  for (const stmt of migrationStatements()) raw.prepare(stmt).run();
+  for (const stmt of migrationStatements(opts.upToExclusive)) raw.prepare(stmt).run();
 
   const sqlDb = drizzle(raw, { schema });
 
@@ -100,7 +121,20 @@ export async function makeTestDb(): Promise<TestDb> {
 
   const db = sqlDb as unknown as Db;
   const dbCtx: DbContext = { db, getBookmark: () => null };
-  return { db, dbCtx, factory: () => dbCtx, raw, dispose: () => raw.close() };
+  return {
+    db,
+    dbCtx,
+    factory: () => dbCtx,
+    raw,
+    applyMigration: (file: string) => {
+      // `defer_foreign_keys` is the pragma D1 supports and the migration sets, but
+      // better-sqlite3 resets it at each transaction boundary, so set it here too —
+      // the harness runs statements outside an explicit transaction.
+      raw.pragma('defer_foreign_keys = true');
+      for (const stmt of statementsForMigration(file)) raw.prepare(stmt).run();
+    },
+    dispose: () => raw.close(),
+  };
 }
 
 /**

@@ -9,6 +9,7 @@ import { VendorPortalStore } from '../../vendor/vendor-portal-store';
 import {
   VENDOR_ME_DOWNGRADED_FIXTURE,
   VENDOR_ME_EXPIRING_FIXTURE,
+  VENDOR_ME_LARGE_CATALOG_FIXTURE,
   VENDOR_ME_FIXTURE,
   VENDOR_ME_UNVERIFIED_FIXTURE,
   VENDOR_SEATS_FIXTURE,
@@ -16,7 +17,7 @@ import {
 import { PreviewVendorApi } from './preview-vendor-api';
 
 type Concept = 'a' | 'b';
-type FixtureKey = 'verified' | 'expiring' | 'downgraded' | 'unverified';
+type FixtureKey = 'verified' | 'expiring' | 'downgraded' | 'unverified' | 'large-catalog';
 
 /** A single-seat roster for the unverified/new-vendor fixture. */
 const SINGLE_SEAT_FIXTURE: readonly VendorSeat[] = [
@@ -26,6 +27,8 @@ const SINGLE_SEAT_FIXTURE: readonly VendorSeat[] = [
     email: 'sam@northwind.example.com',
     banned: false,
     created_at: '2026-07-10T12:00:00.000Z',
+    is_self: true,
+    owner: true,
   },
 ];
 
@@ -137,6 +140,9 @@ export class VendorDashboardPreview {
     { key: 'expiring', label: 'Active · expiring soon' },
     { key: 'downgraded', label: 'Downgraded · revoked' },
     { key: 'unverified', label: 'Never verified · new' },
+    // Not an entitlement state: the catalog size the Products nav menu exists
+    // for. Two products cannot show whether the search box earns its place.
+    { key: 'large-catalog', label: 'Active · 20 products' },
   ];
 
   protected readonly activeMe = computed(() => {
@@ -145,6 +151,8 @@ export class VendorDashboardPreview {
         return VENDOR_ME_EXPIRING_FIXTURE;
       case 'downgraded':
         return VENDOR_ME_DOWNGRADED_FIXTURE;
+      case 'large-catalog':
+        return VENDOR_ME_LARGE_CATALOG_FIXTURE;
       case 'unverified':
         return VENDOR_ME_UNVERIFIED_FIXTURE;
       default:

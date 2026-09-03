@@ -142,7 +142,7 @@ import { VerifiedBadge } from '../../shared/verified-badge/verified-badge';
           <p class="mt-3 max-w-prose text-sm leading-relaxed text-(--text-primary)">
             <span i18n="@@vendor.plan.lapsed.body"
               >Your verification is no longer active. You are still signed in, and you and your
-              colleagues keep the dashboard.</span
+              colleagues keep the portal.</span
             >
           </p>
           <!--

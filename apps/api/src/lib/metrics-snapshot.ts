@@ -59,6 +59,7 @@ import { eq, isNotNull, isNull } from 'drizzle-orm';
 import type { Db } from '../db/client';
 import {
   claims,
+  connectorEvidencedPairs,
   feedback,
   integrations,
   mailingList,
@@ -70,6 +71,11 @@ import {
   vendors,
 } from '../db/schema';
 import { countAll, metricSeries, utcDayWindow, type InternalFilterState } from './admin-analytics';
+import {
+  collectAnalyticsMetrics,
+  humanViewsAfterAutomation,
+  windowsForDay,
+} from './analytics-digest';
 import { COUNTED_REVIEW_STATUS } from './recompute-counts';
 
 /** `promotion_status` value marking a row live — what `POST /api/promote` writes. */
@@ -107,6 +113,31 @@ export async function computeFlowMetric(
   return perDay.get(day) ?? 0;
 }
 
+/**
+ * The post-automation human count for `day` (AECI-745) — the same subtraction the
+ * digest's headline and `/admin/overview`'s tile perform, stored so the chart can
+ * plot the filtered series.
+ *
+ * Written through `collectAnalyticsMetrics` + `humanViewsAfterAutomation` rather
+ * than as its own `humanViews − detectSwarms(...)` expression, because an
+ * open-coded subtraction here would be a third definition of the headline and the
+ * whole point of AECI-745 was to get to one.
+ *
+ * **Throws when the detector did not run**, which `snapshotOneMetric` catches per
+ * key: the row is skipped and the day stays uncovered. Storing the raw count
+ * under this key would silently freeze an unfiltered figure into the long memory
+ * as if it had been filtered, and unlike a live read a stored row is never
+ * re-derived — that is exactly the corruption `--force` exists to prevent in the
+ * backfill.
+ */
+export async function computeHumanViewsAfterAutomation(db: Db, day: string): Promise<number> {
+  const metrics = await collectAnalyticsMetrics(db, windowsForDay(day));
+  if (!metrics.automation) {
+    throw new Error(`automation detector did not run for ${day}; refusing to store a raw count`);
+  }
+  return humanViewsAfterAutomation(metrics).day;
+}
+
 /** Reviews the public surfaces count — `approved` only, matching the review APIs
  *  and the denormalized `products.review_count`. */
 const APPROVED_REVIEWS = eq(reviews.status, COUNTED_REVIEW_STATUS);
@@ -130,6 +161,7 @@ type Producer = (db: Db, day: string) => Promise<number>;
 const PRODUCERS: Record<AdminSnapshotMetricKey, Producer> = {
   // ── Flows ────────────────────────────────────────────────────────────────
   'traffic.page_views_human': (db, day) => computeFlowMetric(db, 'traffic.page_views_human', day),
+  'traffic.page_views_human_after_automation': computeHumanViewsAfterAutomation,
   'traffic.page_views_bot': (db, day) => computeFlowMetric(db, 'traffic.page_views_bot', day),
   'traffic.unique_visitors': (db, day) => computeFlowMetric(db, 'traffic.unique_visitors', day),
   'catalog.products_created': (db, day) => computeFlowMetric(db, 'catalog.products_created', day),
@@ -147,7 +179,19 @@ const PRODUCERS: Record<AdminSnapshotMetricKey, Producer> = {
   'catalog.products_promoted': (db) =>
     countAll(db, products, eq(products.promotionStatus, PROMOTED)),
   'catalog.vendors_promoted': (db) => countAll(db, vendors, eq(vendors.promotionStatus, PROMOTED)),
-  'catalog.integrations_total': (db) => countAll(db, integrations),
+  // BOTH delivered-tier tables (AECI-721 / §13.5 site 10). This is the one
+  // lockstep site that writes a TIME SERIES — `metrics_daily`, once a day, by cron
+  // (AECI-581) — and therefore the only one where getting it wrong cannot be
+  // repaired after the fact: a bare `count(integrations)` would write a permanent,
+  // unexplained step down of 19 into recorded history on the day the migration ran.
+  //
+  // Summing both tables is also what makes a BACKFILL unnecessary. The migration
+  // moves rows between the two tables and creates none, so under this expression
+  // the series is continuous across it — there is no step to annotate and no
+  // history to rewrite, which is the honest way to satisfy §13.5's "backfill or
+  // annotate the series deliberately".
+  'catalog.integrations_total': async (db) =>
+    (await countAll(db, integrations)) + (await countAll(db, connectorEvidencedPairs)),
   'catalog.claims_total': (db) => countAll(db, claims),
   'catalog.reviews_approved': (db) => countAll(db, reviews, APPROVED_REVIEWS),
   'accounts.profiles_total': (db) => countAll(db, profiles),
@@ -257,7 +301,7 @@ export async function runMetricsSnapshot(
 // Observability (docs/OBSERVABILITY.md)
 // ---------------------------------------------------------------------------
 
-/** Datadog transport, narrowed to what this module emits. The caller binds
+/** Telemetry transport, narrowed to what this module emits. The caller binds
  *  `(ctx, env, request)` — same shape as `StatsMetricSink`. */
 export type SnapshotMetricSink = {
   count(metric: string, value: number, tags: string[]): void;

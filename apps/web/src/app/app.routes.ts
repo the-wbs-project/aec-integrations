@@ -1,4 +1,5 @@
-import { Routes } from '@angular/router';
+import { inject } from '@angular/core';
+import { Router, Routes } from '@angular/router';
 
 import { CONTEXT_VERSION_PARAM, OTHER_VERSION_PARAM } from '@aeci/shared/version-diff';
 
@@ -7,6 +8,7 @@ import { homeBrowseResolver } from './home/home-browse.resolver';
 import { homeStatsResolver } from './home/home-stats.resolver';
 import { notFoundResolver } from './not-found/not-found.resolver';
 import { productDetailResolver } from './products/product-detail.resolver';
+import { productsIndexResolver } from './products/products-index.resolver';
 import { productsPairResolver } from './products/products-pair.resolver';
 import { reviewProductResolver } from './reviews/review-product.resolver';
 import {
@@ -21,8 +23,12 @@ import {
   phasesIndexResolver,
   tradesIndexResolver,
 } from './taxonomy/taxonomy-index.resolver';
-import { vendorMeResolver } from './vendor/vendor-me.resolver';
 import { vendorDetailResolver } from './vendors/vendor-detail.resolver';
+
+/** Build-time dev flag (see the `_dev/error-bench` entry below). No runtime
+ *  binding is emitted, which is what lets the build's `define` substitution
+ *  reach the bare identifier. */
+declare const ngDevMode: unknown;
 
 export const routes: Routes = [
   // AECI-186 — Phase 4.11 home assembly. Two parallel SSR resolvers feed the
@@ -51,6 +57,10 @@ export const routes: Routes = [
     path: 'products',
     pathMatch: 'full',
     loadComponent: () => import('./products/products-index').then((m) => m.ProductsIndex),
+    // AECI-746 — prefetch page 1 through the service binding during resolution so
+    // the grid is in the server-rendered HTML. Without it this route SSR'd its
+    // "Couldn't load products" branch to every crawler.
+    resolve: { prefetch: productsIndexResolver },
   },
   // AECI-57 — Phase 2.11 product detail page. The detail route resolves data
   // SSR-side via the service binding (see `productDetailResolver`).
@@ -295,9 +305,72 @@ export const routes: Routes = [
         path: 'claims',
         loadComponent: () => import('./admin/claims/claim-queue').then((m) => m.ClaimQueue),
       },
+      // AECI-739 — the claim detail page (`STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2
+      // step 6): where the operator note is written and the queue's duplicate chip
+      // is explained. Same flat-child shape and the same reasoning as the vendor
+      // and user pairs below — its sections are read together, so a route per
+      // section would buy nothing but resolvers, and `adminSummaryResolver` on the
+      // parent is the gate. NOT in `ADMIN_NAV_GROUPS`: a parameterised route has no
+      // nav-able URL.
+      {
+        path: 'claims/:id',
+        loadComponent: () => import('./admin/claims/claim-detail').then((m) => m.ClaimDetail),
+      },
+      // AECI-652 — the §5.6 vendor surface. The list is the way into a vendor that
+      // never filed a claim (which the claim queue structurally cannot reach), and
+      // the detail page is where the entitlement control now lives. Two flat
+      // children rather than a nested layout: the detail page's four sections are
+      // read together, so a route per tab would buy nothing but resolvers.
+      // AECI-722 — the connector admin surface (`ADMIN_PANEL_SPEC.md` §5.9), the
+      // first read layer over the AECI-714 connector lane. Two flat children, the
+      // same arrangement and the same reason as the vendor pair below: the detail
+      // page's five sections are read together, so a route per section would buy
+      // nothing but resolvers. `adminSummaryResolver` on the parent is the gate.
+      {
+        path: 'connectors',
+        loadComponent: () =>
+          import('./admin/connectors/connector-list').then((m) => m.ConnectorList),
+      },
+      {
+        path: 'connectors/:id',
+        loadComponent: () =>
+          import('./admin/connectors/connector-detail').then((m) => m.ConnectorDetail),
+      },
+      {
+        path: 'vendors',
+        loadComponent: () => import('./admin/vendors/vendor-list').then((m) => m.VendorList),
+      },
+      {
+        path: 'vendors/:id',
+        loadComponent: () => import('./admin/vendors/vendor-detail').then((m) => m.VendorDetail),
+      },
+      // AECI-692 — the §5.8 user surface. Same two-flat-children shape as vendors
+      // and the same reasoning: the detail page's sections are read together, so
+      // a route per tab would buy nothing but resolvers.
+      {
+        path: 'users',
+        loadComponent: () => import('./admin/users/user-list').then((m) => m.UserList),
+      },
+      {
+        path: 'users/:id',
+        loadComponent: () => import('./admin/users/user-detail').then((m) => m.UserDetail),
+      },
+      // `/admin/reviewers` folded into `/admin/users?banned=true` (AECI-692): it
+      // listed exactly `banned_at IS NOT NULL`, loaded `perPage=100` once with no
+      // paginator, and could only ever un-ban. Kept as a REDIRECT rather than
+      // deleted because runbooks and `AUTH_AND_RLS.md` §7 name the old path, and
+      // a 404 on a documented URL is worse than a hop. The endpoint it used
+      // (`GET /api/admin/reviewers`) is untouched.
+      //
+      // A FUNCTIONAL `redirectTo` returning a `UrlTree`, not the string form: a
+      // string `redirectTo` is parsed as path segments, so `'users?banned=true'`
+      // would redirect to a literal path containing a `?` rather than applying
+      // the filter — and landing on an unfiltered user list is precisely the
+      // regression this redirect exists to avoid.
       {
         path: 'reviewers',
-        loadComponent: () => import('./admin/reviewers/reviewer-bans').then((m) => m.ReviewerBans),
+        pathMatch: 'full',
+        redirectTo: () => inject(Router).parseUrl('/admin/users?banned=true'),
       },
       // AECI-578 — Phase 8.3 P1.4, the §5.3 Traffic section. Renders the two
       // AECI-574 read endpoints; inherits the parent's gate and non-cacheable
@@ -332,18 +405,16 @@ export const routes: Routes = [
       },
     ],
   },
-  // AECI-522 — Phase 2 (Stage 2) vendor portal. The signed-in vendor's dashboard
-  // over `/api/vendor/*` (AECI-520). `vendorMeResolver` calls `GET /api/vendor/me`
-  // (gated by `requireVendor()`): a 401/403/404 → 404 render (don't reveal the
-  // surface); a 200 → the tabbed dashboard. A logged-out visitor is bounced to
-  // login by the worker-level `isVendorPath` gate before SSR. Non-cacheable +
-  // Cache-Tag-free by the fail-closed classifier (no change needed). Registered
-  // before the `**` wildcard so it matches. NOTE the singular `/vendor` — the
-  // public `/vendors/:slug` detail is a different, cacheable route.
+  // AECI-522 — Phase 2 (Stage 2) vendor portal, at the singular `/vendor` (the
+  // public `/vendors/:slug` detail is a different, cacheable route). The whole
+  // sub-tree — the bare-`/vendor` redirect guard, the gated `:vendorSlug` layout
+  // route and its section children — lives in `vendor/vendor.routes.ts` and is
+  // loaded lazily, so a private surface used by a handful of vendor accounts
+  // costs the initial bundle nothing. Registered before the `**` wildcard so it
+  // matches. See that file for the gate, the slug check and the URL shape.
   {
     path: 'vendor',
-    loadComponent: () => import('./vendor/vendor-page').then((m) => m.VendorPage),
-    resolve: { me: vendorMeResolver },
+    loadChildren: () => import('./vendor/vendor.routes').then((m) => m.VENDOR_ROUTES),
   },
   // AECI-238 — Phase 7.3 static content pages (About + Contact). No resolver:
   // the copy is static, so meta (title/description/canonical/OG) is set in each
@@ -368,8 +439,9 @@ export const routes: Routes = [
     path: 'updates',
     loadComponent: () => import('./updates/updates').then((m) => m.UpdatesPage),
   },
-  // The header "More" menu's roadmap entry — a coming-soon placeholder. Static +
-  // CACHEABLE on the same static-page TTL as /about and /updates, but NOINDEX
+  // /roadmap — a coming-soon placeholder, reached from the footer's Company
+  // column (it was behind the header "More" menu until that was retired). Static
+  // + CACHEABLE on the same static-page TTL as /about and /updates, but NOINDEX
   // (thin placeholder content) and deliberately absent from `sitemap.xml`.
   {
     path: 'roadmap',
@@ -419,6 +491,21 @@ export const routes: Routes = [
     loadComponent: () => import('./legal/legal-page').then((m) => m.LegalPage),
     data: { slug: 'listing-accuracy' },
   },
+  // AECI-643 — dev-only error bench (POSTHOG_MIGRATION_SPEC §6.5). Spread in
+  // behind `ngDevMode` so the optimized build folds this to `[]` and never
+  // references the chunk: `@angular/build` substitutes the literal `false` when
+  // script optimization is on, so esbuild removes the branch (and, with it, the
+  // greppable marker string in `error-bench.ts`). The `typeof` prefix keeps dev
+  // working, where the global may not be installed yet at module-eval time. See
+  // `dev/error-bench.ts` for the verification grep.
+  ...(typeof ngDevMode === 'undefined' || ngDevMode
+    ? [
+        {
+          path: '_dev/error-bench',
+          loadComponent: () => import('./dev/error-bench').then((m) => m.ErrorBench),
+        },
+      ]
+    : []),
   // AECI-62 — Phase 2.16 global 404. Must be the last entry so every other
   // route gets a chance to match first. The resolver sets RESPONSE_INIT.status
   // to 404 and the noindex meta tags; the SSR runtime then emits NOT_FOUND_TTL

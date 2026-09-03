@@ -48,7 +48,7 @@ import type { Context } from 'hono';
 
 import { getDb } from '../db/client';
 import { vendorRequests, workflowInstances } from '../db/schema';
-import { logToDatadog, submitCount } from '../datadog';
+import { logToPosthog, submitCount } from '../posthog';
 import type { Env } from '../env';
 import { ApiError } from '../errors';
 import { json } from '../http';
@@ -89,12 +89,12 @@ const TERMINAL_OUTCOME: Partial<Record<VendorRequestStatus, string>> = {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-/** Datadog forwarder for the audit write; no-op without `DD_API_KEY`. Mirrors
+/** Telemetry forwarder (PostHog + the dual-run Datadog leg) for the audit write; each vendor leg no-ops without its own key. Mirrors
  *  `routes/requests.ts`, tagged `source: linear-webhook`. */
 function makeAuditForwarder(c: Context<{ Bindings: Env }>): AuditLogForwarder | undefined {
-  if (!c.env.DD_API_KEY) return undefined;
+  if (!c.env.POSTHOG_PROJECT_KEY) return undefined;
   return (entry) => {
-    logToDatadog(c.executionCtx, c.env, c.req.raw, {
+    logToPosthog(c.executionCtx, c.env, c.req.raw, {
       level: 'info',
       message: `audit ${entry.action} ${entry.entityId ?? ''}`.trim(),
       action: entry.action,
@@ -105,13 +105,13 @@ function makeAuditForwarder(c: Context<{ Bindings: Env }>): AuditLogForwarder | 
   };
 }
 
-/** Datadog forwarder for the transition write; no-op without `DD_API_KEY`. */
+/** Telemetry forwarder (PostHog + the dual-run Datadog leg) for the transition write; each vendor leg no-ops without its own key. */
 function makeWorkflowForwarder(
   c: Context<{ Bindings: Env }>,
 ): WorkflowTransitionForwarder | undefined {
-  if (!c.env.DD_API_KEY) return undefined;
+  if (!c.env.POSTHOG_PROJECT_KEY) return undefined;
   return (entry) => {
-    logToDatadog(c.executionCtx, c.env, c.req.raw, {
+    logToPosthog(c.executionCtx, c.env, c.req.raw, {
       level: 'info',
       message: `workflow ${entry.fromState ?? '∅'}→${entry.toState} ${entry.workflowId}`.trim(),
       from_state: entry.fromState ?? undefined,

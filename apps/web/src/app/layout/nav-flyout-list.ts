@@ -20,10 +20,11 @@ import type { TaxonomyKind } from '../shared/taxonomy-badge/taxonomy-badge';
  * the single source of truth for facet pluralization (shared with the resolver
  * and route table). AECI-156.
  *
- * Values pin `font-normal` for the same reason `nav-more-list.ts` does: the
- * desktop primary `<nav>` sets `font-medium` on the row, so an unpinned value
- * renders at 500 in the flyout and 400 in the mobile overlay. "View all" keeps
- * its `font-medium` — it is the one deliberate emphasis in the panel.
+ * Values pin `font-normal` rather than inheriting: the desktop primary `<nav>`
+ * sets `font-medium` on the row, so an unpinned value renders at 500 in the
+ * flyout and 400 in the mobile overlay — the same component at two weights, and
+ * at 500 it sits too close to the label above it to read as a destination.
+ * "View all" keeps its `font-medium` — the one deliberate emphasis in the panel.
  */
 @Component({
   selector: 'aec-nav-flyout-list',

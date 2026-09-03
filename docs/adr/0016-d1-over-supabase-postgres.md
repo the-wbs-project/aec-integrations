@@ -156,7 +156,7 @@ a corresponding audit row") is preserved by including the audit insert **in the
 same batch** as the state-change write. `appendAuditLog()`
 (`packages/shared/src/audit-log.ts`) is refactored from "await `auditLog.create`
 inside a tx" to a builder that **returns a Drizzle insert statement** for the
-caller's batch array; the best-effort Datadog forward (§26.5) runs *after* the
+caller's batch array; the best-effort observability forward (§26.5 — Datadog today, PostHog under ADR 0024) runs *after* the
 batch commits via `ctx.waitUntil`.
 
 ### 3. The split-identity seam (auth stays Supabase)

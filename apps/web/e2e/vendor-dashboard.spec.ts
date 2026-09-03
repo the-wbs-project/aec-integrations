@@ -1,12 +1,14 @@
 /**
- * AECI-522 — authed e2e for the Stage 2 vendor dashboard at `/vendor`, extending
+ * AECI-522 — authed e2e for the Stage 2 vendor dashboard at
+ * `/vendor/:vendorSlug/...`, extending
  * the AECI-235 real-session mint with a `vendor_admin` persona (the only way to
  * e2e the authed portal — the `/vendor` gate authorizes server-side inside the
  * SSR Worker via `vendorMeResolver` -> `GET /api/vendor/me` -> `requireVendor()`,
  * which `page.route()` can't stub).
  *
- * Covers: (1) a hydrated `/vendor` render with zero console errors (the AECI-235
- * console-health gate), (2) a profile-edit round-trip through the real
+ * Covers: (1) bare `/vendor` redirecting to the slugged dashboard and hydrating
+ * with zero console errors (the AECI-235 console-health gate), (2) a profile-edit
+ * round-trip through the real
  * `PATCH /api/vendor/profile` — proving the write path + the optimistic-save UX
  * against a live vendor session — (3) AECI-606's Integrations tab: its live
  * axe pass and an attestation round-trip through `PUT`/`DELETE
@@ -38,7 +40,7 @@
  * `dev:bound` -> `db:seed:local`).
  */
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import {
   attachConsoleCapture,
   expectConsoleClean,
@@ -61,6 +63,48 @@ const BASE_URL = process.env['PLAYWRIGHT_BASE_URL'] ?? 'http://localhost:8788';
  * something the shipped tree cannot honour, and counting the `sr-only` one
  * asserts exactly the invariant §6.3 states.
  */
+/**
+ * A portal nav entry.
+ *
+ * Four of the five are `routerLink` anchors (the portal has moved onto child
+ * routes, `/vendor/:vendorSlug/<section>`). Products is a disclosure BUTTON when
+ * the vendor owns more than one product, because it opens the filterable
+ * products menu — so a bare `role: 'link'` lookup silently matches nothing for
+ * that one, and a bare `role: 'button'` matches nothing for the other four.
+ * Hence the `.or()`, and hence this helper rather than an inline `getByRole`.
+ *
+ * `exact` on both halves: without it Playwright substring-matches, and a nav
+ * that ever gains "Products settings" would start resolving two elements.
+ */
+function section(page: Page, name: string) {
+  const nav = page.getByRole('navigation', { name: 'Portal sections' });
+  return nav
+    .getByRole('link', { name, exact: true })
+    .or(nav.getByRole('button', { name, exact: true }))
+    .first();
+}
+
+/**
+ * Navigate to a product's Integrations section (AECI-666). Integrations is no
+ * longer a vendor-level tab — it lives under `…/products/:productSlug/integrations`,
+ * in the product's own nav row. Bare `…/products` redirects into the default
+ * product's shell (which carries the product nav), and `Integrations` is a link
+ * that now exists ONLY in that row, so a bare `getByRole('link', 'Integrations')`
+ * is unambiguous.
+ */
+async function gotoIntegrations(page: Page) {
+  await page.goto('/vendor');
+  await expect(page).toHaveURL(/\/vendor\/[a-z0-9-]+\/overview$/);
+  await page.goto(`${page.url().replace(/\/overview.*$/, '')}/products`);
+  // Bare `…/products` redirects into the default product's shell (`…/:slug/profile`).
+  // Wait for the SLUGGED url before clicking: the product nav's relative links only
+  // resolve to `…/:slug/integrations` from the slugged route, not the bare one.
+  await expect(page).toHaveURL(/\/products\/[a-z0-9-]+\/profile$/);
+  await page.getByRole('link', { name: 'Integrations', exact: true }).click();
+  await expect(page).toHaveURL(/\/products\/[a-z0-9-]+\/integrations$/);
+  await expect(page.locator('aec-vendor-integrations-section')).toBeAttached();
+}
+
 const ANNOUNCER = '[role="status"].sr-only';
 
 let sessionCookies: Awaited<ReturnType<typeof mintSessionCookies>> = null;
@@ -78,10 +122,17 @@ test.describe('vendor dashboard — authed /vendor (AECI-522)', () => {
     await context.addCookies(sessionCookies!);
   });
 
-  test('/vendor hydrates the dashboard with no console errors', async ({ page }) => {
+  test('/vendor redirects to the slugged dashboard and hydrates with no console errors', async ({
+    page,
+  }) => {
     const capture = attachConsoleCapture(page);
     const res = await page.goto('/vendor');
     expect(res?.status()).toBe(200);
+    // Bare `/vendor` resolves the caller's own vendor and redirects, so the
+    // address that ends up in the bar names the vendor and the section. Under
+    // SSR that is a real 302 (Angular emits one when the router's final URL
+    // differs from the requested one), which `page.goto` follows.
+    await expect(page).toHaveURL(/\/vendor\/[a-z0-9-]+\/overview$/);
     // `aec-vendor-dashboard-tabbed` renders only for an authorized vendor admin;
     // a non-vendor (401/403) 404s to the not-found shell, failing loudly if the
     // D1 vendor_admin profile is missing or its vendor_id is null.
@@ -97,7 +148,7 @@ test.describe('vendor dashboard — authed /vendor (AECI-522)', () => {
 
     // Switch to the Profile tab and edit the description with a value that differs
     // from the current one every run (so Save is enabled and the PATCH fires).
-    await page.getByRole('button', { name: 'Profile' }).click();
+    await section(page, 'Profile').click();
     const description = page.locator('#vendor-profile-description');
     await expect(description).toBeVisible();
     await description.fill(`E2E vendor edit ${Date.now()}`);
@@ -122,11 +173,7 @@ test.describe('vendor dashboard — authed /vendor (AECI-522)', () => {
     page,
   }) => {
     const capture = attachConsoleCapture(page);
-    await page.goto('/vendor');
-    await expect(page.locator('aec-vendor-dashboard-tabbed')).toBeAttached();
-
-    await page.getByRole('button', { name: 'Integrations' }).click();
-    await expect(page.locator('aec-vendor-integrations-section')).toBeAttached();
+    await gotoIntegrations(page);
     // Wait for the list itself, not just the section: the a11y contract under
     // test (the cards' labelled regions, the lanes' controls, the live region)
     // does not exist until `GET /api/vendor/integrations` lands.
@@ -152,15 +199,13 @@ test.describe('vendor dashboard — authed /vendor (AECI-522)', () => {
         .join('\n'),
     ).toEqual([]);
 
-    expectConsoleClean(capture, 'GET /vendor (Integrations tab)');
+    expectConsoleClean(capture, 'GET /vendor (Integrations section)');
   });
 
   test('affirming and clearing a claim round-trips through /api/vendor/claims', async ({
     page,
   }) => {
-    await page.goto('/vendor');
-    await page.getByRole('button', { name: 'Integrations' }).click();
-    await expect(page.locator('aec-vendor-integrations-section')).toBeAttached();
+    await gotoIntegrations(page);
 
     const lane = page.locator('[aec-vendor-claim-lane]').first();
     // Fixture-gated, like `phase2-a11y.spec.ts`: skip rather than fail when the
@@ -194,7 +239,7 @@ test.describe('vendor dashboard — authed /vendor (AECI-522)', () => {
     await page.goto('/vendor');
     await expect(page.locator('aec-vendor-dashboard-tabbed')).toBeAttached();
 
-    // Present from FIRST PAINT, on the default Overview tab — before any
+    // Present from FIRST PAINT, on the default Vendor Overview section — before any
     // section fetch has landed. That is what the hoist bought: the region used
     // to live inside the Integrations tab and only existed once
     // `GET /api/vendor/integrations` had resolved, so a message fired before
@@ -218,17 +263,20 @@ test.describe('vendor dashboard — authed /vendor (AECI-522)', () => {
     expect(box?.width ?? 0).toBeLessThanOrEqual(1);
     expect(box?.height ?? 0).toBeLessThanOrEqual(1);
 
-    // At rest on Overview, the channel is the ONLY live region on the page:
+    // At rest on Vendor Overview, the channel is the ONLY live region on the page:
     // none of the four conditional `role="status"` paragraphs (§6.5) render
     // until a save succeeds or a form finds a conflict. A second one here means
     // someone added a region rather than announcing through the channel.
     await expect(page.locator('[role="status"]')).toHaveCount(1);
 
-    // The region is in the shell, so it survives every tab switch. A region
-    // that lived in a section would be destroyed mid-announcement by the
-    // @switch — and a duplicate would appear if a tab declared its own.
-    for (const tab of ['Profile', 'Products', 'Integrations', 'Seats', 'Overview']) {
-      await page.getByRole('button', { name: tab }).click();
+    // The region is in the shell, so it survives every section navigation. A
+    // region that lived in a section would be destroyed mid-announcement when
+    // the outlet swapped — and a duplicate would appear if a section declared
+    // its own. Integrations moved under a product (AECI-666), so it is no longer a
+    // portal section; Messages took its slot. The shell-level invariant this test
+    // guards is unchanged by that move.
+    for (const name of ['Profile', 'Products', 'Messages', 'Seats', 'Vendor Overview']) {
+      await section(page, name).click();
       await expect(page.locator(ANNOUNCER)).toHaveCount(1);
     }
   });

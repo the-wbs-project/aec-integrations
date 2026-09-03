@@ -2,22 +2,29 @@
  * Primary navigation menu — the small-screen hamburger (below `lg`).
  *
  * A labelled hamburger trigger (to the left of the wordmark in `site-header.ts`)
- * opens a CDK-overlay dropdown that is the home for all site chrome on small
+ * opens a CDK-overlay dropdown that is the home for site navigation on small
  * screens: Home + Products links, the four taxonomy facets as tap-to-expand
- * disclosure sections (Categories / Trades / Audiences / Phases), a "More"
- * disclosure holding the same overflow menu as the desktop `aec-nav-more-trigger`
- * (Updates · Roadmap · About · Contact, Legal, and the `/admin` section for an
- * admin), search, and the Sign-in CTA. The component is hidden at `lg+` via
- * its `lg:hidden` host class — at those widths the same affordances render as the
- * inline desktop nav in `site-header.ts` (with hover flyouts). Both surfaces
- * share `NavFlyoutList` + `NavMoreList` and the copy modules
- * (`taxonomy-nav-copy.ts`, `more-menu-links.ts`, `admin/admin-nav.ts`), so the
- * link sets cannot drift. AECI-158/159 re-pointed the nav at the taxonomy;
- * Vendors / Integrations were removed from the nav AND the footer (AECI-160, PO
- * decision) — reachable via `sitemap.xml`, detail-page breadcrumbs, and search.
+ * disclosure sections (Categories / Trades / Audiences / Phases), search, and the
+ * account block (Account, the role-gated portal doors, Sign out) or the Sign-in
+ * CTA. The component is hidden at `lg+` via its `lg:hidden` host class — at those
+ * widths the same affordances render as the inline desktop nav in
+ * `site-header.ts` (with hover flyouts). Both surfaces share `NavFlyoutList` and
+ * `taxonomy-nav-copy.ts`, so the link sets cannot drift. AECI-158/159 re-pointed
+ * the nav at the taxonomy; Vendors / Integrations were removed from the nav AND
+ * the footer (AECI-160, PO decision) — reachable via `sitemap.xml`, detail-page
+ * breadcrumbs, and search.
  *
- * The hamburger keeps the pending-review badge: below `lg` it IS the More
- * trigger, so it plays the role the desktop `aec-nav-more-trigger` plays above.
+ * **The "More" disclosure is gone.** It used to hold the secondary destinations
+ * (Updates · Roadmap · About · Contact), Legal, and — for an admin — the whole
+ * eleven-screen `/admin` IA. The secondary and Legal destinations now live in the
+ * footer, which is on every page and was already carrying ten of the twelve; and
+ * `/admin` is reached by a single "Admin portal" door in the account block below,
+ * because the admin console owns its own navigation once you are inside it. The
+ * deliberate trade: on a phone those secondary links are a scroll to the footer
+ * rather than two taps here.
+ *
+ * The hamburger keeps the pending-review badge: below `lg` it is the only menu
+ * control, and the Admin portal door lives inside it.
  *
  * The overlay is `BrnPopover` (extends `BrnDialog`), which supplies the CDK
  * overlay, focus trap, Escape / outside-click close, and focus-return-to-trigger
@@ -41,9 +48,9 @@ import { Component, computed, inject, signal } from '@angular/core';
 import { Router, RouterLink, RouterLinkActive } from '@angular/router';
 import { BrnPopover, BrnPopoverContent, BrnPopoverTrigger } from '@spartan-ng/brain/popover';
 
-import { ADMIN_NAV_GROUPS } from '../admin/admin-nav';
 import { AdminStatus } from '../admin/admin-status';
 import { AdminSummaryStore } from '../admin/admin-summary.store';
+import { Analytics } from '../analytics/analytics';
 import { AuthService } from '../auth/auth.service';
 import { SessionStatus } from '../auth/session-status';
 import { signOutAndGoHome } from '../auth/sign-out';
@@ -53,9 +60,7 @@ import { SearchAutocomplete } from '../search/search-autocomplete';
 import type { AutocompleteSuggestion } from '../search/autocomplete-mapping';
 import type { TaxonomyKind } from '../shared/taxonomy-badge/taxonomy-badge';
 
-import { moreSiteGroups, moreTriggerLabel } from './more-menu-links';
 import { NavFlyoutList } from './nav-flyout-list';
-import { NavMoreList } from './nav-more-list';
 import { navigateToSearchQuery, navigateToSuggestion } from './search-submit';
 import { facetNavLabel, facetViewAllLabel } from './taxonomy-nav-copy';
 
@@ -66,6 +71,9 @@ import { facetNavLabel, facetViewAllLabel } from './taxonomy-nav-copy';
   // removed from the layout above `lg`. The handover moved up from `md` in
   // AECI-544: four taxonomy flyouts no longer fit in the 768px header, so the
   // hamburger now carries navigation through the md range too.
+  // Changing this breakpoint moves the search handover too — `aec-search-trigger`
+  // starts exactly where this stops. Keep the two in lockstep or a width band
+  // ends up with two search boxes, or none.
   host: { class: 'lg:hidden' },
   imports: [
     RouterLink,
@@ -74,7 +82,6 @@ import { facetNavLabel, facetViewAllLabel } from './taxonomy-nav-copy';
     BrnPopoverContent,
     BrnPopoverTrigger,
     NavFlyoutList,
-    NavMoreList,
     SearchAutocomplete,
   ],
   template: `
@@ -86,6 +93,7 @@ import { facetNavLabel, facetViewAllLabel } from './taxonomy-nav-copy';
       i18n-aria-label="@@app.nav.menu.toggle.aria"
       aria-label="Open menu"
       [attr.aria-describedby]="showBadge() ? 'aec-nav-menu-pending' : null"
+      (click)="adminStatus.ensureProbed()"
     >
       <svg
         aria-hidden="true"
@@ -178,54 +186,6 @@ import { facetNavLabel, facetViewAllLabel } from './taxonomy-nav-copy';
             </div>
           }
 
-          <!-- The overflow menu, mirroring the desktop "More" flyout: the
-               secondary destinations, Legal, and (for an admin) the whole
-               /admin section. Same tap-to-expand disclosure as a facet. -->
-          <div>
-            <button
-              type="button"
-              (click)="toggleSection(MORE)"
-              [attr.aria-expanded]="isOpen(MORE)"
-              [attr.aria-controls]="panelId(MORE)"
-              class="flex w-full cursor-pointer items-center justify-between rounded-md px-3 py-2 text-sm font-medium text-(--text-primary) transition-colors hover:bg-(--surface-sunken) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-            >
-              <span>{{ moreLabel }}</span>
-              <svg
-                aria-hidden="true"
-                class="h-4 w-4 transition-transform"
-                [class.rotate-180]="isOpen(MORE)"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              >
-                <path d="m6 9 6 6 6-6" />
-              </svg>
-            </button>
-            @if (isOpen(MORE)) {
-              <div [id]="panelId(MORE)" class="ps-2 pb-1">
-                <aec-nav-more-list [groups]="siteGroups" (navigate)="menu.close()" />
-                @if (adminStatus.isAdmin()) {
-                  <!-- Section title, not an overline: the groups beneath it are
-                       overlines (see nav-more-trigger.ts). -->
-                  <p
-                    class="mt-4 border-t border-(--border-default) px-3 pt-4 pb-2.5 text-sm font-semibold text-(--text-primary)"
-                    i18n="@@admin.shell.eyebrow"
-                  >
-                    Admin
-                  </p>
-                  <aec-nav-more-list
-                    [groups]="adminGroups"
-                    [pendingCount]="pending()"
-                    (navigate)="menu.close()"
-                  />
-                }
-              </div>
-            }
-          </div>
-
           <aec-search-autocomplete
             class="mt-1 block px-1 pb-1"
             inputId="mobile-search"
@@ -235,8 +195,8 @@ import { facetNavLabel, facetViewAllLabel } from './taxonomy-nav-copy';
           />
           <div class="mt-1 flex flex-col gap-2 border-t border-(--border-default) px-1 pt-2">
             <!-- Neutral "Sign in" is the cache-safe SSR default; SessionStatus
-                 swaps to the account block after hydration (Phase 5 §4.4), and
-                 AdminStatus reveals the admin section/badge for admins (AECI-259). -->
+                 swaps to the account block after hydration (Phase 5 §4.4), and the
+                 shared role probe reveals the portal doors + badge (AECI-259). -->
             @if (session.signedIn()) {
               <a
                 routerLink="/account"
@@ -260,18 +220,29 @@ import { facetNavLabel, facetViewAllLabel } from './taxonomy-nav-copy';
                 Account
               </a>
 
-              <!-- The admin section is NOT repeated here: the "More" disclosure
-                   above renders it from ADMIN_NAV_GROUPS (AECI-572). The vendor
-                   dashboard is not an admin screen, so it stays in the account
-                   block, revealed after hydration by VendorStatus (AECI-522). -->
+              <!-- The portal doors, mirroring the desktop account menu in
+                   user-menu.ts, which carries the rationale. One link each: each
+                   portal owns its own nav once you are inside it, so the header
+                   never restates either IA. Revealed after hydration by the
+                   shared role probe, so neither reaches cached HTML. -->
+              @if (adminStatus.isAdmin()) {
+                <a
+                  routerLink="/admin"
+                  (click)="menu.close()"
+                  class="block rounded-md px-3 py-2 text-sm font-medium text-(--text-primary) hover:bg-(--surface-sunken) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                  i18n="@@app.header.adminPortal"
+                >
+                  Admin portal
+                </a>
+              }
               @if (vendorStatus.isVendor()) {
                 <a
                   routerLink="/vendor"
                   (click)="menu.close()"
                   class="block rounded-md px-3 py-2 text-sm font-medium text-(--text-primary) hover:bg-(--surface-sunken) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-                  i18n="@@app.header.vendorDashboard"
+                  i18n="@@app.header.vendorPortal"
                 >
-                  Vendor dashboard
+                  Vendor portal
                 </a>
               }
 
@@ -314,6 +285,7 @@ export class NavMenu {
   protected readonly vendorStatus = inject(VendorStatus);
   private readonly summaryStore = inject(AdminSummaryStore);
   private readonly auth = inject(AuthService);
+  private readonly analytics = inject(Analytics);
   private readonly router = inject(Router);
 
   /** Live pending-review count (0 until the admin probe seeds the store). */
@@ -331,7 +303,7 @@ export class NavMenu {
 
   protected async onSignOut(): Promise<void> {
     this.signOutFailed.set(false);
-    const ok = await signOutAndGoHome(this.auth);
+    const ok = await signOutAndGoHome(this.auth, this.analytics);
     if (!ok) this.signOutFailed.set(true);
   }
 
@@ -371,14 +343,9 @@ export class NavMenu {
     },
   ]);
 
-  /** Disclosure key for the overflow section — a sibling of the facet kinds. */
-  protected readonly MORE = 'more';
-  protected readonly moreLabel = moreTriggerLabel();
-  protected readonly siteGroups = moreSiteGroups();
-  protected readonly adminGroups = ADMIN_NAV_GROUPS;
-
-  // Keyed by string, not TaxonomyKind, so "more" is a valid section alongside
-  // the four facets.
+  // The four taxonomy facets are the only disclosures left; the overflow one was
+  // removed with the "More" menu. Still keyed by string rather than TaxonomyKind
+  // so a future non-facet section can join without changing the signature.
   private readonly openSections = signal<ReadonlySet<string>>(new Set());
 
   protected panelId(kind: TaxonomyKind | string): string {
@@ -390,10 +357,6 @@ export class NavMenu {
   }
 
   protected toggleSection(kind: TaxonomyKind | string): void {
-    // Opening "More" re-arms the admin probe (AECI-617): if the post-hydration
-    // probe failed, the retry lands at the moment the visitor asks for the menu
-    // rather than never. A no-op once resolved, and for anyone not signed in.
-    if (kind === this.MORE) void this.adminStatus.ensureProbed();
     const next = new Set(this.openSections());
     if (next.has(kind)) next.delete(kind);
     else next.add(kind);

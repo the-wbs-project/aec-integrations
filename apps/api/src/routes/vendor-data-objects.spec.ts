@@ -14,7 +14,10 @@
  *  - **NULL `display_order` sorts LAST.** SQLite sorts NULLs first; the claim
  *    ordering in `vendor-attestations.ts` coerces null to `MAX_SAFE_INTEGER` and
  *    therefore sorts them last. All 20 seeded terms carry an order, so a
- *    divergence would be invisible until someone hand-inserted a row.
+ *    divergence would be invisible until someone hand-inserted a row. This pins
+ *    the *wire* order, which the dashboard picker no longer renders directly —
+ *    it alphabetizes by label client-side (`vendor-add-claim-form.ts`) — so this
+ *    assertion is what keeps the endpoint's own contract defined.
  *  - **Two vendors get identical bodies.** The one `/api/vendor/*` route with no
  *    `vendor_id` filter, deliberately. Pinning the sameness means a later
  *    "restore the missing scope filter" edit fails loudly instead of reading as

@@ -43,9 +43,15 @@ describe.skipIf(!enabled)('requireUserAuth — live JWKS verify', () => {
     const env = { SUPABASE_URL: supabaseUrl } as Env;
     let resolved: { userId: string; email?: string } | undefined;
     const middleware = requireUserAuth();
+    // A real Request so `c.req.raw` is a valid WeakMap key — the middleware
+    // registers the verified id via `rememberPosthogDistinctId(c.req.raw, …)`
+    // (AECI-644), which throws on a non-object key.
+    const raw = new Request('http://localhost/api/auth/whoami', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
     const c = {
       env,
-      req: { header: (name: string) => (name === 'Authorization' ? `Bearer ${token}` : undefined) },
+      req: { raw, header: (name: string) => raw.headers.get(name) ?? undefined },
       set: (key: string, value: unknown) => {
         if (key === 'user') resolved = value as { userId: string; email?: string };
       },

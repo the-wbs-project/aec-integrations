@@ -58,7 +58,7 @@
 #   SUPABASE_ANON_KEY          Shared publishable/anon key — the SINGLE shared
 #                              auth project, un-suffixed, identical for every env
 #                              (ADR 0017).
-#   ANTHROPIC_API_KEY_PRODUCTION / RESEND_API_KEY / POSTHOG_KEY_PRODUCTION
+#   ANTHROPIC_API_KEY_PRODUCTION / RESEND_API_KEY
 #                              Shared fail-open keys (reused on demo). RESEND_API_KEY
 #                              is a single shared (un-suffixed) key — one Resend
 #                              account/key spans every env (like SUPABASE_ANON_KEY).
@@ -72,12 +72,6 @@
 #                              null, the account-erasure auth.users delete is
 #                              silently skipped, and vendor-claim resolution
 #                              reports 'unavailable'.
-#   DATADOG_API_KEY            Deploy marker.
-#   DD_APPLICATION_ID / DD_CLIENT_TOKEN
-#                              Public Datadog RUM app id + client token (shared,
-#                              un-suffixed — single "aeci" app on us5). Pushed to
-#                              the demo web Worker so RUM reports Core Web Vitals
-#                              (AECI-326). Fail-open — absent → RUM no-ops.
 #
 # Required GH Actions repo variables: none (demo touches no Supabase Postgres).
 
@@ -155,23 +149,29 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           ANTHROPIC_API_KEY_PRODUCTION: ${{ secrets.ANTHROPIC_API_KEY_PRODUCTION }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
-          POSTHOG_KEY_PRODUCTION: ${{ secrets.POSTHOG_KEY_PRODUCTION }}
-          DATADOG_API_KEY: ${{ secrets.DATADOG_API_KEY }}
+          # AECI-640: POSTHOG_KEY_PRODUCTION is no longer mapped or checked — the
+          # publishable `phc_` token is a committed `vars.POSTHOG_PROJECT_KEY`
+          # entry in wrangler.jsonc, and demo now points at the NON-prod PostHog
+          # project rather than pushing the production key here.
           # Un-suffixed RUM pair (one shared "aeci" app on us5), pushed to the web
           # Worker below. Must be MAPPED here, not just named in
           # RECOMMENDED_SECRETS — require-secrets.sh checks the VALUE, so an
           # unmapped name false-warns "not set" on every promote.
-          DD_APPLICATION_ID: ${{ secrets.DD_APPLICATION_ID }}
-          DD_CLIENT_TOKEN: ${{ secrets.DD_CLIENT_TOKEN }}
           # `POST /admin/purge` bearer for the SSR Worker (AECI-56). No
           # CF_PURGE_API_TOKEN — WC-10 (AECI-324) retired the zone HTTP purge.
           ADMIN_PURGE_TOKEN: ${{ secrets.ADMIN_PURGE_TOKEN }}
           # Zone id for the AECI-262 WAF firewall-event poll (NOT for purging).
           CF_ZONE_ID: ${{ secrets.CF_ZONE_ID }}
-          # WAF→Datadog poll token (AECI-262). Mapped here so the VALUE check is
+          # WAF→PostHog poll token (AECI-262). Mapped here so the VALUE check is
           # real — listed in RECOMMENDED_SECRETS below, so an unmapped name would
           # false-warn "not set" on every promote.
           CF_ANALYTICS_API_TOKEN: ${{ secrets.CF_ANALYTICS_API_TOKEN }}
+          # AECI-660/661 read-side cron creds (demo is non-prod → _NONPROD). Must be
+          # MAPPED here, not just named in RECOMMENDED_SECRETS — require-secrets.sh
+          # checks the VALUE, so an unmapped name false-warns "not set" on every promote.
+          POSTHOG_QUERY_API_KEY_NONPROD: ${{ secrets.POSTHOG_QUERY_API_KEY_NONPROD }}
+          POSTHOG_PROJECT_ID_NONPROD: ${{ secrets.POSTHOG_PROJECT_ID_NONPROD }}
+          PEERINGDB_API_KEY: ${{ secrets.PEERINGDB_API_KEY }}
           ENV_LABEL: demo
           REQUIRED_SECRETS: 'CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID'
           # AECI-262: CF_ANALYTICS_API_TOKEN (single shared, un-suffixed) backs the
@@ -181,7 +181,7 @@ jobs:
           # seams on the API Worker — recommended, never REQUIRED, because every seam
           # degrades rather than failing closed. CF_PURGE_API_TOKEN is absent by
           # design (WC-10 / AECI-324 retired the zone HTTP purge transport).
-          RECOMMENDED_SECRETS: 'CF_ACCESS_CLIENT_ID CF_ACCESS_CLIENT_SECRET REVIEW_APP_TOKEN ALGOLIA_APP_ID ALGOLIA_ADMIN_KEY ALGOLIA_SEARCH_KEY SUPABASE_ANON_KEY SUPABASE_SERVICE_ROLE_KEY ANTHROPIC_API_KEY_PRODUCTION RESEND_API_KEY POSTHOG_KEY_PRODUCTION DATADOG_API_KEY DD_APPLICATION_ID DD_CLIENT_TOKEN ADMIN_PURGE_TOKEN CF_ZONE_ID CF_ANALYTICS_API_TOKEN'
+          RECOMMENDED_SECRETS: 'CF_ACCESS_CLIENT_ID CF_ACCESS_CLIENT_SECRET REVIEW_APP_TOKEN ALGOLIA_APP_ID ALGOLIA_ADMIN_KEY ALGOLIA_SEARCH_KEY SUPABASE_ANON_KEY SUPABASE_SERVICE_ROLE_KEY ANTHROPIC_API_KEY_PRODUCTION RESEND_API_KEY ADMIN_PURGE_TOKEN CF_ZONE_ID CF_ANALYTICS_API_TOKEN POSTHOG_QUERY_API_KEY_NONPROD POSTHOG_PROJECT_ID_NONPROD PEERINGDB_API_KEY'
         run: bash scripts/require-secrets.sh
 
       # Assert STAGING (the immediate upstream tier) is at the SHA on BOTH the API
@@ -409,11 +409,59 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "$CF_ANALYTICS_API_TOKEN_VALUE" ]; then
-            echo "::warning::CF_ANALYTICS_API_TOKEN not set — skipping. WAF→Datadog poll no-ops on demo (outcome:skipped_no_creds)."
+            echo "::warning::CF_ANALYTICS_API_TOKEN not set — skipping. WAF→PostHog poll no-ops on demo (outcome:skipped_no_creds)."
             exit 0
           fi
           printf '%s' "$CF_ANALYTICS_API_TOKEN_VALUE" \
             | pnpm exec wrangler secret put CF_ANALYTICS_API_TOKEN --env demo
+
+      # AECI-660 / AECI-661. Three read-side credentials the API Worker's cron jobs
+      # use, all OPTIONAL + FAIL-OPEN, so warn-and-skip and never in
+      # REQUIRED_WORKER_SECRETS. They had no CI step at all until now: the
+      # environments.md rows described them as "CI-pushed" from the day they shipped,
+      # but the wiring was never written, so a value set in GH secrets reached no
+      # Worker and prod ran with the features inert.
+      #
+      # POSTHOG_QUERY_API_KEY is a PostHog PERSONAL key (`phx_…`, scope `query:read`)
+      # and is NOT the publishable `POSTHOG_KEY` (`phc_…`) pushed to the web Worker —
+      # this one grants account-wide read and must never reach apps/web.
+      # POSTHOG_PROJECT_ID must name the project POSTHOG_KEY writes to, so it carries
+      # the SAME suffix as POSTHOG_KEY on every tier — here `_NONPROD`, because PostHog
+      # splits prod from non-prod and demo is non-prod: its browser events go to the
+      # non-prod project (see the POSTHOG_KEY_NONPROD push below), shared with staging
+      # and PR previews and separated from them only by $host, which is exactly what
+      # the digest's query filters on. Demo carries `_PRODUCTION` for Anthropic and
+      # Algolia but NOT for PostHog — do not "fix" this back to `_PRODUCTION`, that
+      # pollutes the production analytics project with demo traffic. Pairing the demo
+      # key with any other project id would query a project demo never writes to, and
+      # `count()` over an empty set returns a real row of zeros — so the digest would
+      # print a confident "0 PostHog pageviews", the fabricated zero the join exists
+      # to avoid.
+      # PEERINGDB_API_KEY is env-independent (the upstream is a public registry).
+      - name: Push analytics read credentials to API Worker (demo)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          POSTHOG_QUERY_API_KEY_VALUE: ${{ secrets.POSTHOG_QUERY_API_KEY_NONPROD }}
+          POSTHOG_PROJECT_ID_VALUE: ${{ secrets.POSTHOG_PROJECT_ID_NONPROD }}
+          PEERINGDB_API_KEY_VALUE: ${{ secrets.PEERINGDB_API_KEY }}
+        working-directory: apps/api
+        run: |
+          set -euo pipefail
+          if [ -n "$POSTHOG_QUERY_API_KEY_VALUE" ] && [ -n "$POSTHOG_PROJECT_ID_VALUE" ]; then
+            printf '%s' "$POSTHOG_QUERY_API_KEY_VALUE" \
+              | pnpm exec wrangler secret put POSTHOG_QUERY_API_KEY --env demo
+            printf '%s' "$POSTHOG_PROJECT_ID_VALUE" \
+              | pnpm exec wrangler secret put POSTHOG_PROJECT_ID --env demo
+          else
+            echo "::warning::POSTHOG_QUERY_API_KEY_NONPROD / POSTHOG_PROJECT_ID_NONPROD not both set — skipping push. The daily digest will report the D1 upper bound alone plus a 'PostHog lower bound unavailable' note (AECI-660). Both are required together; one alone is a no-op."
+          fi
+          if [ -n "$PEERINGDB_API_KEY_VALUE" ]; then
+            printf '%s' "$PEERINGDB_API_KEY_VALUE" \
+              | pnpm exec wrangler secret put PEERINGDB_API_KEY --env demo
+          else
+            echo "::warning::PEERINGDB_API_KEY not set — skipping push. The weekly asn_registry refresh stays anonymous; anonymous whole-list reads are throttled hard and production's first run returned 429 (AECI-661)."
+          fi
 
       # CF_ZONE_ID is the zone the AECI-262 WAF firewall-event poll queries. It
       # used to ride along with CF_PURGE_API_TOKEN for the ADR 0010 zone purge;
@@ -429,11 +477,39 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "$CF_ZONE_ID_VALUE" ]; then
-            echo "::warning::CF_ZONE_ID not set — skipping. The WAF→Datadog poll no-ops on demo (outcome:skipped_no_creds, AECI-262)."
+            echo "::warning::CF_ZONE_ID not set — skipping. The WAF→PostHog poll no-ops on demo (outcome:skipped_no_creds, AECI-262)."
             exit 0
           fi
           printf '%s' "$CF_ZONE_ID_VALUE" \
             | pnpm exec wrangler secret put CF_ZONE_ID --env demo
+      # ─────────────────────────────────────────────────────────────────────
+      # PostHog source maps (AECI-646 / POSTHOG_MIGRATION_SPEC.md §AW5).
+      #
+      # ORDER MATTERS: this runs AFTER the build and BEFORE the deploy, because
+      # `sourcemap inject` rewrites the built JS (it appends the `//# chunkId=…`
+      # comment PostHog matches a minified frame against). Deploying the
+      # pre-inject bundle would upload maps that can never be matched.
+      #
+      # Angular emits HIDDEN maps (apps/web/angular.json) — `.map` files with no
+      # `//# sourceMappingURL=` comment in the served JS. The script uploads them
+      # and then DELETES them, on every exit path including the warn-skip: Worker
+      # assets are served verbatim, so a stray `.map` would publish the whole app
+      # source at a guessable URL.
+      #
+      # POSTHOG_CLI_API_KEY is a PERSONAL key (scopes: `error tracking write` +
+      # `organization read`). CI-only — it must never become a Worker secret; the
+      # Workers authenticate with the publishable `phc_` project token instead.
+      # Absent ⇒ warn-skip (stack traces stay minified) and the maps are still
+      # deleted. Never blocks a deploy.
+      # ─────────────────────────────────────────────────────────────────────
+      - name: PostHog source maps — inject + upload (demo)
+        continue-on-error: true
+        env:
+          POSTHOG_CLI_API_KEY: ${{ secrets.POSTHOG_CLI_API_KEY }}
+          POSTHOG_CLI_PROJECT_ID: ${{ vars.POSTHOG_PROJECT_ID_NONPROD || '525793' }}
+          PH_SM_RELEASE_VERSION: ${{ inputs.commit_sha }}
+          PH_SM_RELEASE_NAME: aeci-web
+        run: bash scripts/ci/posthog-sourcemaps.sh
 
       - name: Deploy SSR (demo)
         id: deploy_ssr
@@ -481,48 +557,28 @@ jobs:
           printf '%s' "$ALGOLIA_SEARCH_KEY_VALUE" \
             | pnpm exec wrangler secret put ALGOLIA_SEARCH_KEY --env demo
 
-      # Push the PUBLIC PostHog key (shared, fail-open) to the demo WEB Worker.
-      - name: Push PostHog key to web Worker (demo)
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          POSTHOG_KEY_VALUE: ${{ secrets.POSTHOG_KEY_PRODUCTION }}
-        working-directory: apps/web
-        run: |
-          set -euo pipefail
-          if [ -z "$POSTHOG_KEY_VALUE" ]; then
-            echo "::warning::POSTHOG_KEY_PRODUCTION not set — skipping. PostHog analytics no-ops on demo."
-            exit 0
-          fi
-          printf '%s' "$POSTHOG_KEY_VALUE" \
-            | pnpm exec wrangler secret put POSTHOG_KEY --env demo
-
-      # Push the PUBLIC Datadog RUM credentials (shared un-suffixed, fail-open) to
-      # the demo WEB Worker so SSR emits `window.__AECI_DD__` and RUM reports Core
-      # Web Vitals (AECI-326). Single "aeci" app on us5, separated by the per-env
-      # `env` field; `vars.DD_SITE` inherited from wrangler.jsonc.
-      - name: Push Datadog RUM credentials to web Worker (demo)
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          DD_APPLICATION_ID_VALUE: ${{ secrets.DD_APPLICATION_ID }}
-          DD_CLIENT_TOKEN_VALUE: ${{ secrets.DD_CLIENT_TOKEN }}
-        working-directory: apps/web
-        run: |
-          set -euo pipefail
-          if [ -z "$DD_APPLICATION_ID_VALUE" ] || [ -z "$DD_CLIENT_TOKEN_VALUE" ]; then
-            echo "::warning::DD_APPLICATION_ID / DD_CLIENT_TOKEN not set — skipping. Datadog RUM no-ops on demo."
-            exit 0
-          fi
-          printf '%s' "$DD_APPLICATION_ID_VALUE" \
-            | pnpm exec wrangler secret put DD_APPLICATION_ID --env demo
-          printf '%s' "$DD_CLIENT_TOKEN_VALUE" \
-            | pnpm exec wrangler secret put DD_CLIENT_TOKEN --env demo
-
-      # AECI-56 / docs/CACHE_STRATEGY.md §5: the ONE credential `POST /admin/purge`
-      # needs on the SSR Worker — the caller's bearer. WC-6 (AECI-320) moved the
-      # handler onto in-process `ctx.cache.purge()` inside the Renderer, so it
-      # holds no Cloudflare API creds (CF_PURGE_API_TOKEN retired in WC-10).
+      # AECI-640: the "push POSTHOG_KEY to the web Worker" step that stood here
+      # is GONE. The `phc_` project token is publishable — it is rendered into
+      # the served HTML on every page — so it is now a committed per-env
+      # `vars.POSTHOG_PROJECT_KEY` entry in `apps/web/wrangler.jsonc` (and
+      # `apps/api/wrangler.jsonc`), not a CI-pushed secret. AECI-239 kept it out
+      # of git for tidiness; that is precisely what produced the weeks-dark
+      # production analytics of AECI-326 — the push step ran, the secret was
+      # absent, and the warn-and-skip path said so only in a log nobody read. A
+      # committed var has no provisioning step to forget.
+      #
+      # The `POSTHOG_KEY_STAGING` / `POSTHOG_KEY_PRODUCTION` GitHub secrets are
+      # now unused and should be deleted (operator step, AECI-640).
+      #
+      # This step was also the demo→prod-project pollution bug: it pushed
+      # POSTHOG_KEY_PRODUCTION to demo, so synthetic demo traffic landed in the
+      # PRODUCTION PostHog project (354071). Demo now reports to
+      # `aec-integrations-dev` (525793) via its committed var
+      # (POSTHOG_MIGRATION_SPEC.md §3.6 / D4).
+      # AECI-56 / docs/CACHE_STRATEGY.md §5: the three credentials `POST
+      # /admin/purge` needs on the SSR Worker — the caller's bearer plus the
+      # Cloudflare creds the handler uses. Manual-only until now and never
+      # actually placed on any tier, so the endpoint 401'd everywhere.
       # Warn-and-skip (fail-open; purge degrades to TTL self-heal).
       - name: Push cache-purge credentials to web Worker (demo)
         env:
@@ -543,42 +599,6 @@ jobs:
       # reached via the `DB` binding — not a secret — and DATABASE_URL is retired
       # (ADR 0016 / AECI-253). The /api/health smoke gate below still proves the
       # DB is reachable. Algolia/REVIEW_APP_TOKEN are recommended, not required.)
-
-      # Warn-and-skip when DATADOG_API_KEY is absent (demo is a showcase, the
-      # marker is non-critical). The presence check lives in the step body, not a
-      # step-level `if:` — the `secrets` context is NOT available in `if:`
-      # (GitHub rejects the whole workflow at parse time → a startup failure that
-      # surfaces as a failed run on every push). Mirrors the other optional-secret
-      # steps in this workflow (REVIEW_APP_TOKEN, ALGOLIA, …).
-      - name: Datadog deployment marker
-        env:
-          DATADOG_API_KEY: ${{ secrets.DATADOG_API_KEY }}
-          INPUT_SHA: ${{ inputs.commit_sha }}
-          ACTOR: ${{ github.actor }}
-        run: |
-          set -euo pipefail
-          if [ -z "${DATADOG_API_KEY:-}" ]; then
-            echo "::warning::DATADOG_API_KEY not set — skipping the demo deployment marker."
-            exit 0
-          fi
-          curl -fsS -X POST "https://api.datadoghq.com/api/v1/events" \
-            -H "DD-API-KEY: ${DATADOG_API_KEY}" \
-            -H "Content-Type: application/json" \
-            -d "$(jq -nc \
-                  --arg sha "$INPUT_SHA" \
-                  --arg actor "$ACTOR" \
-                  '{
-                    title: "Demo deployment",
-                    text: ("Deployed commit " + $sha + " by " + $actor),
-                    tags: [
-                      "env:demo",
-                      "service:aeci-ssr",
-                      ("commit:" + $sha)
-                    ]
-                  }')"
-
-      # Smoke test: poll demo until BOTH Workers report the SHA AND /api/health is
-      # db:ok, or fail after the 60s budget. Demo is public — no Access headers.
       - name: Smoke test demo (API + SSR at SHA, DB healthy)
         id: smoke
         env:
@@ -654,6 +674,36 @@ jobs:
             echo
             echo "Demo shares the production Supabase project (untouched by this workflow), so there is NO DB restore step — see docs/environments.md."
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # ─────────────────────────────────────────────────────────────────────
+      # PostHog deploy marker (AECI-640 / POSTHOG_MIGRATION_SPEC.md §AW5).
+      #
+      # Two legs: a project ANNOTATION (the vertical line across every insight —
+      # needs the personal `phx_` key) and a queryable `deployment` EVENT (what a
+      # HogQL query joins against — needs only the publishable `phc_` token). The
+      # annotation leg warn-skips until the operator provisions POSTHOG_CLI_API_KEY;
+      # the event leg works today because the project key is a committed var.
+      #
+      # `continue-on-error: true` AND the script always exits 0 — belt and braces.
+      # A PostHog outage must never fail or block a deploy.
+      #
+      # The `phc_` token below is the same publishable value committed in
+      # wrangler.jsonc and rendered into every served page — it is not a secret
+      # (see the AECI-640 note there). Project ids fall back to the literals so
+      # this works with zero provisioning; set the repo variables to repoint
+      # without a code change.
+      # ─────────────────────────────────────────────────────────────────────
+      - name: PostHog promote marker (demo)
+        continue-on-error: true
+        env:
+          PH_EVENT_ENV: demo
+          PH_SERVICE: both
+          PH_VERSION: ${{ inputs.commit_sha }}
+          PH_DEPLOY_KIND: promote
+          PH_PROJECT_KEY: phc_pY8FDQ9FNAmFUJFFd85jNKAAUCMvndUsyGMMV8TR97MD
+          PH_PROJECT_ID: ${{ vars.POSTHOG_PROJECT_ID_NONPROD || '525793' }}
+          POSTHOG_CLI_API_KEY: ${{ secrets.POSTHOG_CLI_API_KEY }}
+        run: bash scripts/ci/posthog-deploy-marker.sh
 
       - name: Summary
         if: always()

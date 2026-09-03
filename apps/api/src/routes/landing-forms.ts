@@ -39,7 +39,7 @@ import type { Context } from 'hono';
 import type { ZodType } from 'zod';
 
 import { getDb } from '../db/client';
-import { submitCount } from '../datadog';
+import { submitCount } from '../posthog';
 import { feedback, mailingList } from '../db/schema';
 import type { Env } from '../env';
 import { ApiError } from '../errors';

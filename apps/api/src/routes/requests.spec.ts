@@ -377,6 +377,129 @@ describe('POST /api/requests/* → Phase 6.8 signals', () => {
   });
 });
 
+// ─── Operator claim-intake alert via ctx.waitUntil ─────────────────────────────
+describe('POST /api/requests/* → claim-intake operator alert (background)', () => {
+  // `LINEAR_API_KEY` stays unset so the Linear task is a silent no-op and the ONLY
+  // outbound fetch under test is the Resend send.
+  const ENV_WITH_ALERT = {
+    ...TEST_ENV,
+    RESEND_API_KEY: 'rk_test',
+    EMAIL_FROM: 'AEC Integrations <notifications@aecintegrations.com>',
+    CLAIM_ALERT_EMAIL: 'support@aecintegrations.com',
+  };
+  const claimBody = {
+    target_type: 'vendor',
+    slug: 'acme-co',
+    submitter_name: 'Dana Reyes',
+    submitter_email: 'dana@acme.com',
+    submitter_role: 'Head of Partnerships',
+    body: 'I lead partnerships at Acme and would like to manage this listing going forward.',
+  };
+  const correctionBody = {
+    target_type: 'product',
+    slug: 'acme-build',
+    body: 'The founding year on this listing is wrong; it should read 2009 not 2019.',
+    source_url: '',
+    submitter_email: 'reporter@example.com',
+  };
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  const drain = (execCtx: ExecutionContext) =>
+    Promise.all(vi.mocked(execCtx.waitUntil).mock.calls.map((c) => c[0]));
+
+  function resendOkFetch() {
+    const fetchMock = vi.fn(
+      async (_url: string | URL | Request, _init?: RequestInit) =>
+        new Response('{"id":"re_1"}', { status: 200 }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    return fetchMock;
+  }
+
+  it('emails CLAIM_ALERT_EMAIL after a claim commits', async () => {
+    const fetchMock = resendOkFetch();
+    await seedVendor({ slug: 'acme-co' });
+    const execCtx = fakeExecutionContext();
+
+    const res = await claimApp().request(
+      '/api/requests/claim',
+      postInit(claimBody),
+      ENV_WITH_ALERT,
+      execCtx,
+    );
+    expect(res.status).toBe(201);
+    await drain(execCtx);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const sent = JSON.parse(String(vi.mocked(fetchMock).mock.calls[0]![1]!.body)) as {
+      to: string;
+      subject: string;
+      text: string;
+    };
+    expect(sent.to).toBe('support@aecintegrations.com');
+    expect(sent.subject).toContain('New vendor claim');
+    expect(sent.text).toContain('dana@acme.com');
+  });
+
+  it('does NOT alert on a correction — claims only', async () => {
+    const fetchMock = resendOkFetch();
+    await seedProduct({ slug: 'acme-build' });
+    const execCtx = fakeExecutionContext();
+
+    const res = await correctionApp().request(
+      '/api/requests/correction',
+      postInit(correctionBody),
+      ENV_WITH_ALERT,
+      execCtx,
+    );
+    expect(res.status).toBe(201);
+    await drain(execCtx);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('still returns 201 when the alert send fails — fail-open', async () => {
+    const fetchMock = vi.fn(
+      async (_url: string | URL | Request, _init?: RequestInit) =>
+        new Response('forbidden', { status: 403 }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    await seedVendor({ slug: 'acme-co' });
+    const execCtx = fakeExecutionContext();
+
+    const res = await claimApp().request(
+      '/api/requests/claim',
+      postInit(claimBody),
+      ENV_WITH_ALERT,
+      execCtx,
+    );
+    expect(res.status).toBe(201);
+    await expect(drain(execCtx)).resolves.toBeDefined();
+
+    // The claim row is committed regardless of the mail outcome.
+    const { row } = await createdRow(res);
+    expect(row).toMatchObject({ kind: 'claim', status: 'open' });
+  });
+
+  it('skips the send (no fetch) when CLAIM_ALERT_EMAIL is unset', async () => {
+    const fetchMock = resendOkFetch();
+    await seedVendor({ slug: 'acme-co' });
+    const execCtx = fakeExecutionContext();
+
+    const res = await claimApp().request(
+      '/api/requests/claim',
+      postInit(claimBody),
+      { ...ENV_WITH_ALERT, CLAIM_ALERT_EMAIL: undefined },
+      execCtx,
+    );
+    expect(res.status).toBe(201);
+    await drain(execCtx);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
 // ─── Phase 6.4 (AECI-211): Linear issue creation via ctx.waitUntil ──────────────
 describe('POST /api/requests/* → Linear issue (background)', () => {
   const ENV_WITH_LINEAR = { ...TEST_ENV, LINEAR_API_KEY: 'lin_test' };

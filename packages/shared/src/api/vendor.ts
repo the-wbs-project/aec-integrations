@@ -136,6 +136,11 @@ export const VendorProductSchema = z.object({
   category_slugs: z.array(z.string()),
   audience_slugs: z.array(z.string()),
   phase_slugs: z.array(z.string()),
+  // SPARSE BY DESIGN, and the only facet that usually reads empty: a trade tag
+  // means the product has trade-SPECIFIC value, so horizontal platforms carry
+  // none (`TRADES_VOCABULARY.md` §1.1). An empty array is the intended answer
+  // for most products, never missing data.
+  trade_slugs: z.array(z.string()),
 
   product_role: z.string(),
   integration_count: z.number().int().min(0),
@@ -163,10 +168,12 @@ export const VendorRequestSummarySchema = z.object({
 export type VendorRequestSummary = z.infer<typeof VendorRequestSummarySchema>;
 
 /**
- * One seat on this vendor. Multi-seat is flat at launch
- * (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6 / `STAGE_2_SPEC.md` §8.1(2)): every seat
- * is equal, each was individually granted by AECi, and there is no owner/admin
- * distinction and no self-serve invite or revoke — so this list is read-only.
+ * One seat on this vendor. Multi-seat is flat in ONE sense and no longer flat in
+ * another (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6 + §11a): every seat has identical
+ * DATA capabilities, but AECI-664 split out an `owner` bit that gates seat
+ * management alone. A seat arrives either from an AECi claim grant (owner) or by
+ * redeeming an owner's invite (not an owner) — the bound that stops one reviewed
+ * human seeding an unbounded chain of unreviewed ones.
  *
  * `email` lives in Supabase `auth.users`, not D1, and is resolved through the
  * privileged admin seam. It degrades to `null` when the service-role key is
@@ -182,6 +189,16 @@ export const VendorSeatSchema = z.object({
   email: z.string().nullable(),
   banned: z.boolean(),
   created_at: z.string().datetime(),
+  /** This seat is the CALLER's own (AECI-664). Server-computed: the roster has no
+   *  other way to know, and the surface needs it twice — to label the row "you",
+   *  and to hide a Remove button the API would 422 anyway (nobody removes
+   *  themselves; leaving is a support conversation, not a button that can strand
+   *  a vendor). */
+  is_self: z.boolean(),
+  /** This seat may invite and remove — `profiles.seat_owner` (§11a). On the
+   *  roster so a member can see WHO to ask, which is the whole reason the
+   *  non-owner copy can name a person instead of saying "contact support". */
+  owner: z.boolean(),
 });
 export type VendorSeat = z.infer<typeof VendorSeatSchema>;
 
@@ -274,6 +291,16 @@ export const UpdateVendorProductSchema = z
     category_slugs: termSlugList.optional(),
     audience_slugs: termSlugList.optional(),
     phase_slugs: termSlugList.optional(),
+    // The fourth facet (AECI-538). Same shape and same cap as its siblings —
+    // deliberately NOT stricter. The `trade` vocabulary is closed and governed,
+    // so resolution stays find-only (an unknown slug is a `VALIDATION_FAILED`
+    // exactly as for the other three), but WHICH of the 34 terms describe a
+    // product is the vendor's call to make and defend, not ours to ration. The
+    // over-tagging risk is real — trades are the highest-leverage discovery
+    // facet — and it is accepted deliberately: the write is audited and
+    // reversible, and challenging a suspicious change is a review workflow we
+    // have chosen not to build yet.
+    trade_slugs: termSlugList.optional(),
   })
   .superRefine((value, ctx) => {
     if (Object.keys(value).length === 0) {
@@ -292,7 +319,93 @@ export type UpdateVendorProductResponse = z.infer<typeof UpdateVendorProductResp
 
 // ─── GET /api/vendor/seats ───────────────────────────────────────────────────
 
-/** The vendor's seat roster. A bare object — the list is bounded by how many
- *  seats AECi granted by hand, so it is never paginated at launch. */
-export const ListVendorSeatsResponseSchema = z.object({ seats: z.array(VendorSeatSchema) });
+/**
+ * A pending seat invite (AECI-664 / `STAGE_2_VENDOR_PORTAL_SPEC.md` §11a).
+ *
+ * **The `token` is never in this payload.** The roster is readable by every seat
+ * on the vendor, and a token is the redeem handle — putting it here would let any
+ * seat redeem an invite addressed to somebody else's mailbox. The only place a
+ * token appears is the invite email itself; revoking uses the row `id`.
+ *
+ * `email` IS here, unlike on `VendorSeat`: an invite has no account behind it
+ * yet, so the address is the only thing that identifies it, and the person who
+ * typed it already knows it.
+ */
+export const VendorSeatInviteSchema = z.object({
+  id: z.string().uuid(),
+  email: z.string(),
+  /** `display_name` of the seat that sent it; `null` once that account is erased
+   *  (the FK is `ON DELETE SET NULL` — the invite outlives its sender). */
+  invited_by: z.string().nullable(),
+  expires_at: z.string().datetime(),
+  created_at: z.string().datetime(),
+});
+export type VendorSeatInvite = z.infer<typeof VendorSeatInviteSchema>;
+
+/**
+ * The vendor's seat roster. A bare object — the list is bounded by how many seats
+ * a vendor has, so it is never paginated at launch.
+ *
+ * **Never capability-gated** (`STAGE_2_PAID_TIERS_SPEC.md` §4.3 — an acceptance
+ * criterion with its own test): a vendor whose entitlement lapsed must still be
+ * able to see and manage who has access.
+ */
+export const ListVendorSeatsResponseSchema = z.object({
+  seats: z.array(VendorSeatSchema),
+  /** Live invites (neither accepted nor revoked, not past `expires_at`). */
+  pending_invites: z.array(VendorSeatInviteSchema),
+  /**
+   * Whether the CALLER may invite and remove — `profiles.seat_owner` (§11a).
+   * Server-computed and shipped so the UI's enabled state and the 403 its write
+   * would get cannot disagree; the surface never re-derives it from the roster.
+   */
+  can_manage_seats: z.boolean(),
+});
 export type ListVendorSeatsResponse = z.infer<typeof ListVendorSeatsResponseSchema>;
+
+// ─── POST /api/vendor/seats/invites ──────────────────────────────────────────
+
+/**
+ * Invite a colleague. The ONLY field is the address: the vendor is the session's
+ * (`requireVendor()`), the sender is the session's, and expiry is server policy.
+ * Anything else here would be a client-supplied value on an authorization path.
+ */
+export const CreateSeatInviteSchema = z.object({
+  email: z.string().trim().min(3).max(320).email(),
+});
+export type CreateSeatInviteInput = z.infer<typeof CreateSeatInviteSchema>;
+
+/** `201` — echoes the created invite so the roster can append without refetching. */
+export const CreateSeatInviteResponseSchema = z.object({ invite: VendorSeatInviteSchema });
+export type CreateSeatInviteResponse = z.infer<typeof CreateSeatInviteResponseSchema>;
+
+// ─── GET/POST /api/seat-invites/:token ───────────────────────────────────────
+
+/**
+ * What the invitee sees BEFORE accepting — deliberately thin.
+ *
+ * The token is in a URL, so treat everything behind it as semi-public: this
+ * names the company and nothing else. No inviter identity, no seat roster, no
+ * product list. `email` is echoed because the page has to be able to say *which*
+ * address must be signed in, which is exactly the mismatch the redeemer needs
+ * explained; it is the address they were already sent the link at.
+ *
+ * `redeemable` is the server's verdict, not a state machine the client
+ * re-implements: `false` covers expired, revoked, already-accepted and
+ * signed-in-as-the-wrong-address, with `reason` naming which.
+ */
+export const SeatInvitePreviewSchema = z.object({
+  vendor_name: z.string(),
+  email: z.string(),
+  expires_at: z.string().datetime(),
+  redeemable: z.boolean(),
+  reason: z.enum(['ok', 'expired', 'revoked', 'accepted', 'email_mismatch']),
+});
+export type SeatInvitePreview = z.infer<typeof SeatInvitePreviewSchema>;
+
+/** `POST /api/seat-invites/:token/accept` — where to send the redeemer next. */
+export const AcceptSeatInviteResponseSchema = z.object({
+  vendor_slug: z.string(),
+  vendor_name: z.string(),
+});
+export type AcceptSeatInviteResponse = z.infer<typeof AcceptSeatInviteResponseSchema>;

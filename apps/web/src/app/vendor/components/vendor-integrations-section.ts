@@ -9,6 +9,7 @@ import {
   viewChildren,
 } from '@angular/core';
 
+import { mirrorContextDirection } from '@aeci/shared';
 import type {
   DataObjectOption,
   ProductVersion,
@@ -21,7 +22,6 @@ import { VendorApi } from '../vendor-api';
 import { VendorPortalStore } from '../vendor-portal-store';
 
 import { VendorIntegrationCard } from './vendor-integration-card';
-import { VendorNotificationsList } from './vendor-notifications-list';
 
 /**
  * The Integrations tab's body (AECI-606 / `STAGE_2_ATTESTATIONS_SPEC.md` §6):
@@ -104,7 +104,7 @@ import { VendorNotificationsList } from './vendor-notifications-list';
  */
 @Component({
   selector: 'aec-vendor-integrations-section',
-  imports: [VendorIntegrationCard, VendorNotificationsList],
+  imports: [VendorIntegrationCard],
   styles: [':host { display: block; }'],
   template: `
     <div class="space-y-6" [attr.aria-busy]="loading() ? 'true' : null">
@@ -127,12 +127,10 @@ import { VendorNotificationsList } from './vendor-notifications-list';
           <p class="text-sm text-(--text-secondary)" i18n="@@vendor.attest.readOnly">
             You can review everything on record here. Confirming data flows and adding new ones
             opens up once your account is verified. Verification is an account status arranged with
-            AEC Integrations, not something you switch on from the dashboard.
+            AEC Integrations, not something you switch on from this portal.
           </p>
         </div>
       }
-
-      <aec-vendor-notifications-list />
 
       @if (loading()) {
         <!--
@@ -170,7 +168,10 @@ import { VendorNotificationsList } from './vendor-notifications-list';
           </p>
         }
         <div class="space-y-6">
-          @for (integration of integrations(); track integration.id) {
+          @for (
+            integration of integrations();
+            track integration.id + ':' + integration.context_product.id
+          ) {
             <aec-vendor-integration-card
               [integration]="integration"
               [vendorName]="vendorName()"
@@ -195,9 +196,33 @@ export class VendorIntegrationsSection {
   readonly verified = input.required<boolean>();
   readonly vendorName = input.required<string>();
 
+  /**
+   * Show only the integrations filed under THIS product (AECI-666). `null` keeps
+   * the whole attestable surface, which is what the single-page concept
+   * (`vendor-dashboard-single.ts`) still renders — it has no product selection to
+   * filter by.
+   *
+   * Filtering happens here rather than in the request on purpose: the store holds
+   * ONE vendor-wide `GET /api/vendor/integrations`, and the AECI-627 freshness
+   * cursor scopes its `integrations` scope with the same vendor-wide predicate.
+   * Fetching per product would break that invariant ("every cursor query reuses
+   * the scoping predicate of the handler it is a cursor for") and turn one call
+   * into one per product, for a payload already bounded by the vendor's catalog.
+   */
+  readonly contextProductId = input<string | null>(null);
+
   private readonly cards = viewChildren(VendorIntegrationCard);
 
-  protected readonly integrations = this.store.integrations;
+  private readonly allIntegrations = this.store.integrations;
+
+  /** The surface as this tab shows it. The server emits one entry per owned
+   *  endpoint, so filtering by `context_product.id` is what files an integration
+   *  under a product — including listing an owns-both integration under both. */
+  protected readonly integrations = computed(() => {
+    const scope = this.contextProductId();
+    const all = this.allIntegrations();
+    return scope === null ? all : all.filter((i) => i.context_product.id === scope);
+  });
   protected readonly loading = this.store.integrationsLoading;
   protected readonly failed = this.store.integrationsFailed;
   protected readonly dataObjects = signal<readonly DataObjectOption[]>([]);
@@ -212,9 +237,25 @@ export class VendorIntegrationsSection {
   protected readonly canWrite = computed(() => this.verified());
   protected readonly loaded = computed(() => !this.loading() && !this.failed());
 
+  /**
+   * The two counts, and why only one of them is gated (AECI-705 / §14).
+   *
+   * `total` stays every claim on record: the vendor can read all of them, and
+   * under-reporting the surface would contradict its own public pair pages.
+   *
+   * `awaiting` counts only claims on an **attestable** edge. This phrase is the
+   * in-portal half of the prompt the acceptance criterion forbids: on a
+   * connector-powered edge it would tell a vendor that plumbing it never built is
+   * waiting on its confirmation, which is exactly the sentence the detector
+   * suppression exists to stop sending by email.
+   */
   protected readonly summaryLine = computed(() => {
-    const claims = this.integrations().flatMap((i) => i.claims);
-    const awaiting = claims.filter((c) => c.mine.length === 0).length;
+    const integrations = this.integrations();
+    const claims = integrations.flatMap((i) => i.claims);
+    const awaiting = integrations
+      .filter((i) => i.attestable)
+      .flatMap((i) => i.claims)
+      .filter((c) => c.mine.length === 0).length;
     return $localize`:@@vendor.attest.summary:${claims.length}:total: data flows on record · ${awaiting}:awaiting: waiting on your confirmation`;
   });
 
@@ -304,16 +345,35 @@ export class VendorIntegrationsSection {
    *  `@for`'s `track claim.id` only rebuilds the lane that actually changed.
    *
    *  `commit()` because the patch IS the server's answer: these all come from a
-   *  write echo or a targeted re-read, so there is nothing left to reconcile. */
+   *  write echo or a targeted re-read, so there is nothing left to reconcile.
+   *
+   *  ── IT SPLICES INTO EVERY ENTRY OF THE INTEGRATION (AECI-666) ─────────────
+   *  The store holds one entry per OWNED ENDPOINT, so an integration whose two
+   *  endpoints this vendor owns is in the list twice. Matching on
+   *  `integration_id` therefore hits both — which is correct, not a bug: a write
+   *  fills every slot the caller owns and §4 dedupes voters by vendor, so the two
+   *  entries are one position seen from two sides and must never disagree.
+   *
+   *  What DOES differ between them is `direction`, which is context-relative. The
+   *  echo comes back framed against the tab the vendor acted from, so splicing it
+   *  verbatim into the other entry would render that flow backwards. `mirrored`
+   *  re-frames it for the entries on the far side. */
   private applyClaim(claim: VendorClaim, mode: 'replace' | 'append'): void {
+    const authoredFrom = this.contextProductId();
+    const framedFor = (integration: VendorIntegration): VendorClaim =>
+      authoredFrom === null || integration.context_product.id === authoredFrom
+        ? claim
+        : { ...claim, direction: mirrorContextDirection(claim.direction) };
+
     this.store
       .apply('integrations', (list) =>
         list.map((integration) => {
           if (integration.id !== claim.integration_id) return integration;
+          const framed = framedFor(integration);
           const claims =
             mode === 'append'
-              ? [...integration.claims, claim]
-              : integration.claims.map((c) => (c.id === claim.id ? claim : c));
+              ? [...integration.claims, framed]
+              : integration.claims.map((c) => (c.id === framed.id ? framed : c));
           return { ...integration, claims };
         }),
       )

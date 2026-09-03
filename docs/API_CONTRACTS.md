@@ -100,7 +100,7 @@ Each Phase 2 list endpoint exposes a **combined sort key** — a single enum tha
 // Per-entity sort enums live alongside their endpoint schemas
 // (`packages/shared/src/api/products.ts` etc.).
 export const ProductSortSchema = z
-  .enum(['created', 'name', 'updated', 'rating', 'reviews'])
+  .enum(['created', 'name', 'updated', 'rating', 'reviews', 'integrations'])
   .default('created');
 
 export const VendorSortSchema = z
@@ -121,13 +121,14 @@ export const IntegrationSortSchema = z
 | `name` | ASC |
 | `rating` | DESC |
 | `reviews` | DESC |
+| `integrations` | DESC |
 
 Per-entity defaults (Phase 2 Spec §7.4):
 
 - `/api/products`, `/api/vendors` → `created` (i.e. created DESC, "newest first")
 - `/api/integrations` → `name` (alphabetical; groups by source product since names render as `"Source → Target"`)
 
-`rating` ("Highest rated") and `reviews` ("Most reviewed") are **products-only** sorts (the `/products` index dropdown). For `rating`, products whose rating is withheld by the §5.5 gate (`review_count < 5`) sort **last** — the orderBy nulls the sort key below the threshold so a single 5★ review can't outrank a well-reviewed 4.8★ product. The §5.5 gate that nulls `rating_overall_avg` / `rating_onboarding_avg` is applied on **both** the list and detail mappers (`toProductListItem` / `toProductDetail`), so a sub-5 product never emits a misleading average and the card / table / detail surfaces stay consistent. The shared threshold constant is `RATING_VISIBILITY_MIN_REVIEWS` (`@aeci/shared`); the `rating` sort reuses it in its `CASE` guard.
+`rating` ("Highest rated"), `reviews` ("Most reviewed"), and `integrations` ("Most integrations") are **products-only** sorts — products are the only entity with a rating, a review count, or an integration count. They are offered on **every** product listing: the `/products` index **and** the four taxonomy browse pages, which share one option set (`productSortOptions()`, `apps/web/src/app/shared/listing-toolbar/`) so the two surfaces cannot drift. (Until AECI-657 the browse pages accepted only `created`/`name`/`updated` and rendered no control at all.) `integrations` sorts on the denormalized `products.integration_count` — no join, no visibility gate, since the count renders on every card including zero. For `rating`, products whose rating is withheld by the §5.5 gate (`review_count < 5`) sort **last** — the orderBy nulls the sort key below the threshold so a single 5★ review can't outrank a well-reviewed 4.8★ product. The §5.5 gate that nulls `rating_overall_avg` / `rating_onboarding_avg` is applied on **both** the list and detail mappers (`toProductListItem` / `toProductDetail`), so a sub-5 product never emits a misleading average and the card / table / detail surfaces stay consistent. The shared threshold constant is `RATING_VISIBILITY_MIN_REVIEWS` (`@aeci/shared`); the `rating` sort reuses it in its `CASE` guard.
 
 `SortOrderSchema = z.enum(['asc', 'desc'])` is retained in `common.ts` for server-side helpers, but does not appear in any Phase 2 public query.
 
@@ -143,7 +144,7 @@ export const ApiErrorSchema = z.object({
     field: z.string().optional(),    // for validation errors
     details: z.unknown().optional(), // structured context
   }),
-  trace_id: z.string(),              // Datadog trace ID
+  trace_id: z.string(),              // `crypto.randomUUID()` per request — NOT a vendor trace id
 });
 
 export type ApiError = z.infer<typeof ApiErrorSchema>;
@@ -180,13 +181,13 @@ Per-detail hydration rules:
 |---|---|---|
 | `ProductDetail` | `vendor` | `VendorLink` |
 | `ProductDetail` | `categories` / `audiences` / `phases` / `trades` | `LinkRef[]` — `trades` (AECI-541) is **sparse by design**: most products carry zero trade tags, so `[]` is the common, correct value, not missing data (`STAGE_1_SPEC.md` §5.5a). |
-| `ProductDetail` | `integrations_as_source` / `integrations_as_target` | `ProductIntegrationItem[]` (= `IntegrationListItem` + `context_direction`) |
+| `ProductDetail` | `integrations_as_source` / `integrations_as_target` | `ProductIntegrationItem[]` (= `IntegrationListItem` + `context_direction` + `powered_by_product`). **Each array spans BOTH delivered-tier tables** (AECI-713 / `STAGE_1_5_SPEC.md` §13.1) — an edge in `integrations`, or a `connector_evidenced_pairs` row on which this product is an endpoint, discriminated by `via`. An evidenced pair is filed by its **oriented** source/target, never by which of `product_a` / `product_b` matched: the canonical order is a storage detail and carries no orientation meaning. **Both arrays are unordered** — deliberately. The rendered table interleaves them into one list sorted alphabetically by partner name (`STAGE_1_5_SPEC.md` §7.1), which SQL cannot express here: the relations can only `ORDER BY` columns of `integrations`, while the partner name lives on the joined product. Do not add an `orderBy` and assume the client inherits it. |
 | `ProductDetail` | `integrations_as_connector` | `IntegrationListItem[]` — edges this product **powers** as the mechanism (`powered_by_product_id`), not as an endpoint (Stage 1.5 Addendum B). Bare list item **by design**: the page product is neither endpoint, so `context_direction` has no frame to be relative to. |
 | `ProductDetail` | `related_products` | `ProductListItem[]` |
 | `VendorDetail` | `products` | `ProductListItem[]` |
 | `IntegrationDetail` | `source` / `target` | `ProductLink` |
 | `IntegrationDetail` | `built_by_vendor` | `VendorLink \| null` |
-| `IntegrationDetail` | `powered_by_product` | `ProductLink \| null` |
+| `IntegrationDetail` / `ProductIntegrationItem` | `powered_by_product` | `ProductLink \| null` |
 | `CategoryDetail` / `AudienceDetail` / `PhaseDetail` / `TradeDetail` | `products` | `ProductListItem[]` |
 
 Each list endpoint returns the lean `*ListItem` shape; the corresponding `*Detail` shape (returned only by the `:slug` / `:id` endpoint) extends it with the heavier hydration.
@@ -211,7 +212,8 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `REVIEW_BANNED` | 403 | User is banned and cannot submit reviews |
 | `ENTITLEMENT_REQUIRED` | 403 | The vendor's entitlement tier does not hold the capability this write requires (code minted AECI-610, thrown since AECI-611; `details: { capability, tier, fields? }` — `fields` is present only on the field-level rejection in `splitPatch`). **403, not 402** — 402 Payment Required would leak a billing model into a contract that must stay payer-model-agnostic, and this table has no 402 row. **Reads are never gated**, and the gate never fires before ownership settles on a product write (a 403 there would confirm a foreign product exists). Raised only from `entitlementRequired()` in `apps/api/src/lib/authz.ts`, so the status, copy and `details` shape cannot diverge between the two call sites |
 | `SLUG_CONFLICT` | 409 | Slug collision detected on entity creation |
-| `GRANT_CONFLICT` | 409 | Vendor-claim grant would violate role/vendor exclusivity — the claimant account is a site `admin`, or is already linked to a different vendor (AECI-519; `details.reason` ∈ `already_admin` \| `other_vendor`) |
+| `GRANT_CONFLICT` | 409 | Vendor-claim grant would violate role/vendor exclusivity — the claimant account is a site `admin`, or is already linked to a different vendor (AECI-519; `details.reason` ∈ `already_admin` \| `other_vendor`). Also returned by `POST /api/vendor/seats/invites` when the address already holds a live invite, and by the invite accept when the redeemer is a site admin or belongs to another vendor (AECI-664) |
+| `CATALOG_VENDOR_MANAGED` | 409 | The connector catalogue a promote page addresses is **vendor-managed** on AECi, so the review lane is frozen for it and the page was not written (AECI-720). Raised from `planConnectorCatalogPage` before any statement is built, so nothing at all is committed — no rows, no `promote_jobs` ledger row, no `audit_log` row — and it reaches the caller on the job poll, not the kick-off. **Not re-sendable**, which is precisely why it is an error and not a `skipped[]` entry: every connector skip kind means "this could not be resolved *yet*". A catalogue returns to review authorship only through `PATCH /api/admin/connector-catalogs/:id` |
 | `INVALID_STATE_TRANSITION` | 422 | Attempted workflow transition is not allowed from current state |
 | `RATE_LIMITED` | 429 | Rate limit exceeded |
 | `DEPENDENCY_FAILURE` | 503 | Upstream dependency (Supabase, Algolia, Linear) failed |
@@ -223,11 +225,11 @@ Machine-readable codes are stable identifiers. Messages are localized.
 - `401` — not authenticated
 - `403` — authenticated but not authorized, banned, or lacking the entitlement a write requires
 - `404` — resource doesn't exist or is not visible to caller
-- `409` — conflict (duplicate, slug collision, vendor-claim grant exclusivity)
+- `409` — conflict (duplicate, slug collision, vendor-claim grant exclusivity, a write to a vendor-managed connector catalogue)
 - `413` — request body over the endpoint's hard ceiling
 - `422` — semantically valid but business rule violation
 - `429` — rate limited (with `Retry-After` header)
-- `500` — unexpected server error (auto-alerts Datadog)
+- `500` — unexpected server error (emits an error log the alert threshold watches)
 - `503` — dependency failure (distinguishes from generic 500s)
 
 ### 4.2 Error throwing pattern
@@ -250,8 +252,10 @@ throw new ApiError(409, 'REVIEW_DUPLICATE', 'You already reviewed this product')
 Centralized error middleware:
 - Catches `ApiError` instances and returns the structured response
 - Catches `ZodError` and converts to `VALIDATION_FAILED` with field info
-- Catches all other errors as `INTERNAL_ERROR` (logs full stack to Datadog)
-- Adds `trace_id` to every response from the active Datadog span
+- Catches all other errors as `INTERNAL_ERROR` (logs the full stack to the observability plane)
+- Adds `trace_id` to every response and emits it on the matching log line, so a caller-reported `trace_id` pivots straight to the log
+
+> **`trace_id` is not an APM trace id.** It is `crypto.randomUUID()`, minted per request in `apps/api/src/errors.ts` — there has never been distributed tracing here. The pre-launch note that it would become a Datadog APM trace id is void: **no APM was ever in use and PostHog has no equivalent**, so nothing changed at the ADR 0024 cutover. Correlate on `trace_id`, not on a span.
 
 ### 4.3 Localization
 
@@ -320,7 +324,11 @@ export const ProductDetailSchema = ProductListItemSchema.extend({
   // facet LinkRef[] above. `null` when the source has nothing for either facet;
   // otherwise either facet array may be empty.
   usefulness: ProductUsefulnessSchema.nullable(),
-  // ProductIntegrationItem = IntegrationListItem + `context_direction` (see §5.3).
+  // ProductIntegrationItem = IntegrationListItem + `context_direction` +
+  // `powered_by_product` (see §5.3). BOTH delivered-tier tables (AECI-713): rows
+  // of `integrations` and rows of `connector_evidenced_pairs` where this product
+  // is an endpoint, discriminated on the wire by `via`. The bucket says which
+  // endpoint this product is, NOT which table the row came from.
   integrations_as_source: z.array(ProductIntegrationItemSchema),
   integrations_as_target: z.array(ProductIntegrationItemSchema),
   // Edges this product POWERS as the connector/mechanism, not as an endpoint
@@ -373,15 +381,23 @@ export const IntegrationListItemSchema = z.object({
   id: z.string().uuid(),
   name: z.string().min(1),
   mechanism_kind: z
-    .enum(['native', 'iPaaS', 'marketplace-app', 'api', 'webhook', 'partner'])
+    .enum(['native', 'iPaaS', 'marketplace-app', 'api', 'webhook', 'partner', 'integrator'])
     .nullable(), // null when the column is unset (AECI-115); an out-of-enum non-null value is rejected (500) server-side
+                 // ALSO null, structurally, on every row where `via` is set — see below.
   mechanism_name: z.string().nullable(),
   direction: z.enum(['one-way', 'bidirectional']).nullable(), // the stored connector-level direction, verbatim
   source: ProductLinkSchema,
   target: ProductLinkSchema,
+  via: ProductLinkSchema.nullable().default(null), // the connector, on a connector-evidenced pair only (AECI-721)
   created_at: z.string().datetime(),
   updated_at: z.string().datetime(),
 });
+
+**`via` — one shape, two storage tables (AECI-721).** Since the connector-lane migration a list item is either a row of `integrations` (an accountable-party edge) or a row of `connector_evidenced_pairs` (an edge an iPaaS delivers, `STAGE_1_5_SPEC.md` §13.1's delivered tier). `via` is the discriminant and names the connector; it is non-null **only** on the second kind. Three consequences worth reading before consuming the field:
+
+- **`mechanism_kind` is `null` whenever `via` is set, structurally.** `connector_evidenced_pairs` has no such column — once an edge is filed under the connector that delivers it, "which mechanism" is answered by the lane. Do not synthesise a kind to fill the gap, and do not read a null kind as "unknown" on these rows.
+- **`via` is not the same field as `powered_by_product`.** They are the same *fact* about rows in different tables, and are never both set: a self-referential Convention-A edge (`powered_by` equal to one of its own endpoints, ~152 catalog-wide) stays in `integrations` and keeps `powered_by_product` with `via: null`. `ProductPairMechanismSchema` carries both for exactly this reason, and the pair page's byline renders the union. `IntegrationDetail` has carried `powered_by_product` since Stage 1.5; `ProductIntegrationItem` gained it in AECI-713 (§13.4(1)), because the endpoint page's lane split reads BOTH fields — `via` routes the migrated rows, `powered_by_product` routes the two populations that stayed behind (Convention A to the direct lane, anything else to the Via lane).
+- **`source`/`target` are the ORIENTED frame, always.** An evidenced pair is stored canonically (`product_a_id < product_b_id`, a CHECK) with orientation on `direction`; the API re-orients before serialising, so the browser never sees a canonical slot and never re-derives one.
 
 // Product-detail embed (`ProductDetail.integrations_as_*`). Adds the effective,
 // claims-aware direction relative to the page's product (Stage 1.5 §3.2 / §7.1):
@@ -397,6 +413,11 @@ export const IntegrationListItemSchema = z.object({
 // single context product. `ContextDirectionSchema` = `['outbound','inbound','both']`.
 export const ProductIntegrationItemSchema = IntegrationListItemSchema.extend({
   context_direction: ContextDirectionSchema.nullable(),
+  // The connector named by `integrations.powered_by_product_id`, for a row still
+  // in `integrations` (Stage 1.5 §13.4(1), AECI-713). Product-detail embed ONLY —
+  // `/api/integrations` and the home rail have no lane to route and do not pay
+  // for the join. Never set together with `via`; see the note below.
+  powered_by_product: ProductLinkSchema.nullable().default(null),
 });
 
 export const IntegrationDetailSchema = IntegrationListItemSchema.extend({
@@ -481,6 +502,9 @@ export type ProductFacetsQuery = z.infer<typeof ProductFacetsQuerySchema>;
 // One `TaxonomyTermWithCount[]` per dimension; here `product_count` is the
 // SCOPED count (reflecting the other active filters), ordered by `display_order`
 // then name — same per-term shape the flat taxonomy list endpoints return.
+// `integration_count` is deliberately ABSENT on this endpoint: it would be
+// unscoped, and sitting beside a scoped product count it would read as
+// comparable. See the note under §6.4.
 export const ProductFacetsResponseSchema = z.object({
   categories: z.array(TaxonomyTermWithCountSchema),
   audiences: z.array(TaxonomyTermWithCountSchema),
@@ -551,7 +575,9 @@ export const IntegrationsListQuerySchema = PageQuerySchema.extend({
   search: z.string().optional(),
   sourceProductId: z.string().uuid().optional(),
   targetProductId: z.string().uuid().optional(),
-  mechanism_kind: z.enum(['native', 'iPaaS', 'marketplace-app', 'api', 'webhook', 'partner']).optional(),
+  mechanism_kind: z.enum(['native', 'iPaaS', 'marketplace-app', 'api', 'webhook', 'partner', 'integrator']).optional(),
+                                                   // narrows to `integrations` by definition: an evidenced pair carries no kind,
+                                                   // so it matches no value of this filter and is excluded rather than returned with null (AECI-721)
   direction: z.enum(['one-way', 'bidirectional']).optional(),
 });
 
@@ -640,6 +666,10 @@ export const ProductPairMechanismSchema = z.object({
   docs_url: z.string().url().nullable(),
   built_by_vendor: VendorLinkSchema.nullable(),
   powered_by_product: ProductLinkSchema.nullable(),
+  via: ProductLinkSchema.nullable().default(null),   // the connector, when this mechanism is a
+                                        // `connector_evidenced_pairs` row (AECI-721). Never set
+                                        // together with `powered_by_product`; the byline renders
+                                        // the union of the two.
   claims: z.array(ProductPairClaimSchema).default([]),   // Layer B: [] for an unseeded mechanism
 });
 
@@ -767,6 +797,7 @@ export const TaxonomyTermWithCountSchema = LinkRefSchema.extend({
   description: z.string().nullable(),
   display_order: z.number().int(),
   product_count: z.number().int().min(0),
+  integration_count: z.number().int().min(0).optional(),
 });
 
 // Each detail extends the term with the products carrying that term.
@@ -776,6 +807,26 @@ export const CategoryDetailSchema = TaxonomyTermWithCountSchema.extend({
 });
 // `AudienceDetailSchema` / `PhaseDetailSchema` / `TradeDetailSchema` follow the same shape.
 ```
+
+**`integration_count`** is the number of **distinct** integrations reachable through the products
+carrying the term — an integration counts once if **either** endpoint is tagged, and once only when
+**both** are. It is therefore *not* the sum of the tagged products' own `integration_count`, which
+double-counts every integration internal to the term. It is unscoped (a property of the term, not of
+any active filter). The four taxonomy index pages **display** it on each term card and use it as the
+tiebreaker in their "Products" ordering, but it is deliberately not a primary sort key — it is a
+downstream consequence of the catalog rather than a measure of the term (`STAGE_1_SPEC.md` §5.5).
+
+The field is **optional**, for two distinct reasons that both have to hold:
+
+1. The `*_counts` keys in `stats_cache` store `TaxonomyTermWithCount[]` and are validated on read
+   against this schema (§9.2), so rows written before the field shipped must still parse.
+2. `GET /api/products/facets` deliberately **omits** it. Its `product_count` is the scoped
+   disjunctive count under the active filters; an unscoped integration count printed beside a scoped
+   product count would invite a comparison it cannot support.
+
+Consumers read it through `taxonomyIntegrationCount(term)` from `@aeci/shared`, which resolves an
+absent value to `0`. Note the asymmetry with the trades publication floor: that gate is read off
+`product_count` only (`TRADES_VOCABULARY.md` §6), and swapping its basis would silently retune it.
 
 #### `GET /api/taxonomy`
 
@@ -960,7 +1011,7 @@ web client reads it to decide whether to surface admin affordances.
 `pending_reviews` (AECI-617) is the moderation-queue count — the same aggregate
 `GET /api/admin/summary` serves — and is non-null **only** for `role === 'admin'`;
 a non-admin gets `null` and the `reviews` table is never counted. It rides along
-here so the header's "More" menu resolves "am I an admin, and how many reviews are
+here so the header's account menu resolves "am I an admin, and how many reviews are
 waiting?" in ONE round trip. The former `/api/account` → `/api/admin/summary`
 chain paid two JWKS verifies and two `profiles` reads, and the second hop's
 latency was the visible lag before the Admin section appeared. `GET
@@ -1085,7 +1136,7 @@ export const PageViewPayloadSchema = z.object({
 export type PageViewPayload = z.infer<typeof PageViewPayloadSchema>;
 ```
 
-**Phase 4 (AECI-177) wires the write.** The handler validates the body synchronously (so a malformed body still surfaces `400`), returns `204` immediately, and inserts one `page_views` row via `ctx.waitUntil()` — the write never blocks the response (§14.2). A capture failure is logged to Datadog (`warn`) and swallowed; the endpoint still returns `204`. User-blocking errors are never raised.
+**Phase 4 (AECI-177) wires the write.** The handler validates the body synchronously (so a malformed body still surfaces `400`), returns `204` immediately, and inserts one `page_views` row via `ctx.waitUntil()` — the write never blocks the response (§14.2). A capture failure is logged at `warn` and swallowed; the endpoint still returns `204`. User-blocking errors are never raised.
 
 **Enrichment** (DATABASE_SCHEMA §9.1 columns): `cf_country`, `cf_colo`, `cf_asn`, `cf_as_organization`, `cf_bot_score` from Cloudflare request context; `user_agent_hash` = SHA-256 of the `User-Agent` (the raw UA is **never** stored); `locale` = the served locale (`en-US` today); and the entity columns resolved from `(entity_type, entity_id)` — `entity_id` is the entity's own UUID (the SSR resolvers attach `entity.id`), existence-checked before storing so a stale/spoofed id becomes null rather than an FK error. **No raw IP is ever persisted** (§14.2 privacy).
 
@@ -1096,6 +1147,16 @@ export type PageViewPayload = z.infer<typeof PageViewPayloadSchema>;
 - **`navigation`** distinguishes a full-document `'arrival'` from an in-app `'spa'` hop. Never inferred: an omitted flag stores as null. It exists because the same-origin `Referer` on an SPA hop classifies as `Direct`, making `Direct` — the largest bucket in every digest — a mix of true arrivals and in-app clicks. A value outside the enum is a `400`, like any other schema violation.
 - **`user_id` / `session_id` / `profile_role` were dropped** (§13 D7). They were never written; see `DATABASE_SCHEMA.md` §9.1 for why they were dropped rather than filled.
 
+**AECI-585's successor: `is_operator` (§13 D13, 2026-08-19).** One more write-time-only column, and the one part of enrichment that is **not** derived from the payload or a forwarded header. The handler resolves it itself via `lib/operator-session.ts`: extract the token (`Authorization: Bearer`, else the `sb-<ref>-auth-token` cookie — the same two sources `lib/authz.ts` uses), verify it against Supabase's JWKS, then re-read `profiles.role`. `true` only for a verified `admin`.
+
+It is deliberately **not** a payload field and **not** a header. A client-settable flag would let any caller hide their own traffic from the operator's analytics, and this column's entire purpose is to be trustworthy. Three behaviours are contractual:
+
+- **Anonymous requests short-circuit.** No token → `false` with no crypto and no D1 read. This endpoint is the hottest write path in the app and must not grow a per-view auth round trip for visitors who have no session.
+- **A signed-in non-admin is `false`.** Ordinary authenticated users are real traffic; only the operator is excluded.
+- **Every failure is `false`, never a rejection.** Expired token, bad signature, JWKS unreachable, missing profile, D1 error — the row is still written, unflagged. The check runs inside the same `waitUntil` as the insert, so an auth hiccup must cost the flag rather than the page view.
+
+**Cookie forwarding contract.** The browser POST already carries the session cookie: the SSR Worker's `/api/*` passthrough forwards cookies untouched, and `withForwardedCfContext` rebuilds only the `x-aeci-cf-*` set. The SSR Worker's own `firePageView` did not, so arrivals were anonymous to this check — the concrete form of D7's "right half the time" objection. It now copies the inbound `Cookie` onto that subrequest. The header is transport only (nothing in it is trusted before JWKS verification) and it rides the fire-and-forget analytics call exclusively — never `renderer()`, which on the cacheable branch works from a cookie-stripped request, so edge-cache neutrality is untouched.
+
 **CF context forwarding contract.** The browser POST reaches the SSR Worker first, and `request.cf` does **not** survive the SSR→API service binding, so the SSR Worker forwards the CF fields on trusted headers (`@aeci/shared` `PAGE_VIEW_CF_HEADERS`):
 
 | Header | Source (`request.cf`) | `page_views` column |
@@ -1105,16 +1166,41 @@ export type PageViewPayload = z.infer<typeof PageViewPayloadSchema>;
 | `x-aeci-cf-asn` | `cf.asn` | `cf_asn` |
 | `x-aeci-cf-as-organization` | `cf.asOrganization` | `cf_as_organization` |
 | `x-aeci-cf-bot-score` | `cf.botManagement.score` | `cf_bot_score` |
+| `x-aeci-cf-tls-version` | `cf.tlsVersion` | `tls_version` |
+| `x-aeci-cf-http-protocol` | `cf.httpProtocol` | `http_protocol` |
+
+`x-aeci-cf-tls-version` / `x-aeci-cf-http-protocol` (AECI-658) are the two connection facts `request.cf` exposes on **Pro**, unlike the bot score above (Enterprise, hence always null). They are deliberately **low-entropy corroboration, not a fingerprint** — the negotiated cipher is largely the server's choice — and are nothing like JA3/JA4.
+
+**Request-shape headers (AECI-658).** Alongside the `x-aeci-*` set, the SSR Worker's `firePageView` copies the eyeball's own `Sec-Fetch-Dest` / `-Mode` / `-Site`, `Accept-Language`, `sec-ch-ua` and `Accept` verbatim onto its subrequest (`PAGE_VIEW_CLIENT_SIGNAL_HEADERS`), so the API can record how browser-shaped the arrival was (`lib/client-signals.ts` → `client_verdict`). Three deliberate differences from the set above: they keep their **real names** (they are the browser's headers, not our renaming of a `request.cf` field), they are **not stripped** on the proxy path (the browser's own POST carries them natively and they mean the same thing either way), and there is **no anti-spoof boundary** to defend — nothing is trusted on their strength, they produce an annotation that never writes `is_bot`, and a scraper willing to forge the whole set has only raised its own cost. Only `firePageView` needs the copy; the tracker's fetch already has them.
 
 `x-aeci-cf-as-organization` (AECI-585 / §13 D10) reuses the header name `LANDING_CF_HEADERS` already carries it under, deliberately: both proxies read the same `request.cf` field onto the same wire name, so the two enrichment paths cannot drift apart on it. It is a **read-side label only** — it never feeds `is_bot` at ingest.
 
 The SSR Worker is the **sole writer** of these headers: on the `/api/page-views` proxy path it strips any client-supplied copies (anti-spoof) before setting them from `request.cf`. The API Worker treats them as trusted because it has no public ingress (service-binding only); it falls back to a directly-present `request.cf` for local/test runs.
 
-**Two writers, de-duped.** The browser `PageViewTracker` (AECI-151) is the canonical per-view counter; the SSR Worker's `firePageView` is a supplementary write that adds CF/bot context on full-document renders. They don't double-count — the client tracker skips the initial navigation (the SSR Worker already counted the landing arrival) and only counts subsequent in-app navigations. The SSR path undercounts because true edge-cache hits bypass the SSR Worker (§14.2, accepted). Both writers carry the same `PAGE_VIEW_CF_HEADERS` enrichment.
+**Two writers, de-duped.** The browser `PageViewTracker` (AECI-151) is the canonical per-view counter; the SSR Worker's `firePageView` is a supplementary write that adds CF/bot context on full-document renders. The client tracker skips the initial navigation (the SSR Worker already counted the landing arrival) and only counts subsequent in-app navigations. The SSR path undercounts because true edge-cache hits bypass the SSR Worker (§14.2, accepted). Both writers carry the same `PAGE_VIEW_CF_HEADERS` enrichment.
+
+**One document load, one row — and the writer convention was never enough to guarantee it (AECI-743).** Until 2026-09 the paragraph above went on to claim the two writers "don't double-count". They don't double-count *each other*, which is a different and much weaker statement: production held two byte-identical rows 83 ms apart for one arrival, both `navigation: 'arrival'` with the resolver's route *pattern*, i.e. two full cacheable-branch cache-MISS renders. `handleSsr` fires `firePageView` at most once per invocation and runs once per request, so the visitor's browser simply sent the document request twice — and nothing anywhere refused the second row. Those two rows were the whole "Google — 2 views" traffic-source table and the entire corroborated-referrer population of that day's digest, i.e. a 100% error on the one figure (AECI-683's floor) chosen because a proxy pool cannot inflate it.
+
+Four guards now hold the invariant, three at the writers and one at this endpoint:
+
+| Guard | Where | What it refuses |
+|---|---|---|
+| **Speculative loads** | `firePageView`, `isSpeculativeRequest()` in `@aeci/shared` | `Sec-Purpose: prefetch` / `prefetch;prerender`, and the legacy `Purpose` / `X-Moz` / `X-Purpose` spellings. A prerender sends `Sec-Fetch-Dest: document` like any navigation, so without this header it is indistinguishable from a real arrival — for a page the visitor may never see. Counted as `aeci.pageviews.speculative`. |
+| **Non-GET** | `firePageView` | `handleSsr` sends every non-GET down the non-cacheable branch, which still renders and still lets a resolver attach `ctx.pageView` — so a HEAD-then-GET probe wrote two rows identical down to the route pattern. |
+| **Query-only SPA hops** | `PageViewTracker`, last-fired-route memo | The tracker strips `?`/`#`, so a `router.navigate([], { queryParams })` produced a row identical to the previous one; the debounced URL syncs in search, pagination and facets fire several per interaction. Only **consecutive** repeats collapse, so A → B → A still counts both visits to A. Not keyed on `Navigation.extras.replaceUrl`, which looks precise and is a trap — Angular issues Back/Forward (popstate) navigations with `replaceUrl: true` too, so that test would stop counting every history navigation. |
+| **Duplicate ingest** | this endpoint, `dedupe_key` + a UNIQUE index (migration `0020`) | A second row for the same `(concrete_path, user_agent_hash, cf_asn)` inside `PAGE_VIEW_DEDUPE_WINDOW_MS` (`@aeci/shared`, 10 s). Counted as `aeci.pageviews.write{outcome:deduped}`. |
+
+The ingest guard is a **time-bucketed key under a UNIQUE index**, not a "rows in the last N seconds" lookup, because the duplicate writes RACE: both arrive from `waitUntil` with unpredictable delay, and the second `SELECT` can run before the first `INSERT` commits. Only the constraint settles that, via `ON CONFLICT DO NOTHING`. Ingest also probes the **previous** bucket, so a pair straddling a boundary still collapses and the effective window is 10–20 s — comfortably under any genuine second view of the same path in one session, which the fix must not suppress.
+
+Two rows are deliberately left **unconstrained**, by writing a null `dedupe_key` (SQLite indexes NULLs as distinct, which is what makes the column an opt-in guard rather than a table-wide constraint): bot-classified rows, whose volume the crawler tables read as a raw count, and rows with no `user_agent_hash`, where the key would degenerate to path + ASN and collide two strangers behind one network. `navigation` is deliberately **not** part of the key, so an SSR `arrival` and the tracker's `spa` row for the same document also collapse.
+
+Rows written before this shipped carry a null key and cannot be repaired — the stored row cannot distinguish a double-fire from two genuine arrivals. `scripts/ops/2026-09-page-view-duplicates/find-duplicates.sql` reports them read-only; two days' corroborated floors are corrected in `POST_LAUNCH_HEALTH_REPORT.md`.
 
 That split is exactly what `navigation` records, and each writer states its own half as a fact rather than a guess: the tracker sends `'spa'` because it fires only on in-app navigation, and `firePageView` stamps `'arrival'` because every write through it is a full-document load. `firePageView` also stamps `path` from the request URL, so a resolver-attached payload carrying a route *pattern* gains the concrete path without any resolver changing — both fields are set at that one choke point and override whatever the caller passed, since the request URL is the authority on where the visitor is.
 
 **Public routes only (AECI-575).** Both writers skip the operator-only prefixes in `@aeci/shared` `UNTRACKED_ROUTE_PREFIXES` — `/admin` and `/account`, matched on an exact prefix boundary via `isUntrackedRoute()`, so nested admin routes are covered without enumeration and `/administrators` is not. Recording them would mean the admin console writes a row into the table it reads, from the operator's own ISP (`ADMIN_PANEL_SPEC.md` §9.6; on 2026-08-10 that was 67 of 92 "human" views). The exclusion is enforced at the **writers**, not at this endpoint — a `route` of `/admin/reviews` posted directly is still accepted and inserted — because the rule belongs where nothing is sent at all; the read side (the daily digest) applies the same prefix list, which is also what neutralizes rows written before this shipped and anything a stale client emits. This is an exclusion list, not a consent concept: `page_views` ingest stays consent-independent by design.
+
+`is_operator` is the complement and works the opposite way round: it is resolved **at this endpoint** (only the API Worker can verify a session) and the row is written either way, with the read side excluding it. Between them the two rules cover the operator on every path — the prefix list while they are in the console, the session flag while they are on the public site.
 
 **Bot-score sampling** is a deferred §14.2 policy: the `PAGE_VIEWS_MIN_BOT_SCORE` env knob (unset everywhere today → capture all) drops views below the floor when set. Nothing is hardcoded to drop.
 
@@ -1137,7 +1223,9 @@ export type AdminSummaryResponse = z.infer<typeof AdminSummaryResponseSchema>;
 
 Source of truth: `packages/shared/src/api/admin.ts`. Implemented in `apps/api/src/routes/admin-summary.ts` (a Drizzle/D1 count of `reviews` where `status = 'pending'`). Read-only — no audit log.
 
-**Callers (AECI-617).** This endpoint serves the `/admin` SSR resolver (its 200/403 IS the gate) and the in-shell badge. It is **no longer** the header's badge feed: `AdminStatus` used to chain `GET /api/account` → here, paying a second JWKS verify and a second `profiles` read whose latency showed as lag before the "More" menu's Admin section appeared. The same count now rides on `GET /api/account` as `pending_reviews` (§6.8), so the header needs one round trip. Both surfaces seed the same client-side `AdminSummaryStore`, so the number stays consistent.
+**Callers (AECI-617).** This endpoint serves the `/admin` SSR resolver (its 200/403 IS the gate) and the in-shell badge. It is **no longer** the header's badge feed: the header's role probe used to chain `GET /api/account` → here, paying a second JWKS verify and a second `profiles` read whose latency showed as lag before the Admin affordance appeared. The same count now rides on `GET /api/account` as `pending_reviews` (§6.8), so the header needs one round trip. Both surfaces seed the same client-side `AdminSummaryStore`, so the number stays consistent.
+
+The header's caller is the shared `RoleStatus` probe (`apps/web/src/app/auth/role-status.ts`), which is also what resolves the vendor portal's door — one `GET /api/account` answers both role questions, so a signed-in page load makes one account request, not two.
 
 #### `GET /api/admin/reviews`
 
@@ -1289,7 +1377,8 @@ audit). Behind `requireAdmin()`. Source of truth: `packages/shared/src/api/admin
 
 ```typescript
 export const ListVendorClaimsQuerySchema = PageQuerySchema.extend({
-  status: z.enum(['open', 'resolved', 'rejected']).default('open'), // no `kind` — claims only
+  // All FOUR statuses since AECI-739 — see "Every status is filterable" below.
+  status: z.enum(['open', 'in_review', 'resolved', 'rejected']).default('open'), // no `kind` — claims only
 });
 
 // Each item is an `AdminClaim` = `AdminVendorRequest` (§6.7 shape: id, kind, status,
@@ -1313,6 +1402,16 @@ export const AdminClaimSchema = AdminVendorRequestSchema.extend({
   // Stage 2 paid tiers (AECI-532). Both REQUIRED-nullable, not optional (R10).
   entitlement_vendor: LinkRefSchema.nullable(),           // the RESOLVED vendor the entitlement applies to
   entitlement: VendorEntitlementResponseSchema.nullable(), // that vendor's current entitlement; null = none on record
+
+  // The §5.2 PAYER TEST (AECI-738), about the same resolved vendor. Both
+  // REQUIRED-nullable (R10); null = signal unavailable, and they move together.
+  product_roles: VendorProductRolesSchema.nullable(),     // { application, connector, hybrid, total }
+  is_pure_connector_vendor: z.boolean().nullable(),       // true ⇒ owns ≥1 product, ALL 'connector'
+
+  // The operator note (AECI-739 / §5.2 step 6). REQUIRED-nullable (R10); null =
+  // no note. On the LIST as well as the detail, deliberately — a parked claim has
+  // to be legible from the queue, which is where the operator looks.
+  admin_notes: z.string().nullable(),
 });
 
 export const ListVendorClaimsResponseSchema = paginatedResponseSchema(AdminClaimSchema);
@@ -1329,6 +1428,23 @@ client-side** (a link only — no claimant data leaves AECi; real enrichment is 
 `null` ("unavailable") while the row and the rest of the signals still return. No errors beyond
 the shared `requireAdmin()` 401/403.
 
+**The role signal answers §5.2 step 1 in the console (AECI-738).** `STAGE_2_SPEC.md`
+§8.8(1)'s payer test is *"does this vendor own any product with
+`product_role IN ('application','hybrid')`?"* — `hybrid` counts as an endpoint, and only
+a vendor **all** of whose products are `'connector'` routes to the partnership track,
+where **Grant and Reject are both wrong**. Derived from `product_vendors ⋈ products`
+in one grouped scan over the page's resolved vendors (the same `entitlement_vendor` a
+grant would touch), **never from a per-vendor marker** — `vendors` carries none, and
+Autodesk, Trimble, Deltek and Sage Group each own connector-role products while being
+among the largest endpoint accounts, so a per-vendor flag would catch the exact inverse
+of the intent. Ownership counts every `product_vendors` row, not just `is_primary`.
+
+**Three states, not two.** `is_pure_connector_vendor: false` covers both "owns an
+endpoint product" (an ordinary vendor) and "owns no products at all" — the second is
+**unknown, never exempt**, and `product_roles.total === 0` is how a surface tells them
+apart. A vendor that owns nothing is a ZEROED breakdown, not `null`: `null` means the
+enrichment degraded and is reserved for that, exactly like `existing_seats`.
+
 **`entitlement_vendor` is pre-resolved, and that is the point.** `target_id` alone cannot
 address `PATCH /api/admin/vendors/:id/entitlement`, because on a `target_type='product'` claim
 it is a *product* id. This field carries the same resolution the grant path runs
@@ -1337,6 +1453,20 @@ for a product claim), so the queue's inline entitlement control always names the
 would actually touch. `null` when there is no vendor to act on (a product with no
 `product_vendors` row) or when the enrichment degraded. `entitlement` is the same readout the
 PATCH returns, so a successful action drops straight into the row with no refetch.
+
+**Every status is filterable since AECI-739.** The enum offered only
+`open | resolved | rejected` until then, so an `in_review` claim — the status the Linear
+webhook writes when its issue moves to a `started` state (`STATE_TYPE_TO_STATUS`,
+`routes/webhooks.ts`) — appeared in **no** queue tab while still existing, still being
+grantable, and (since AECI-739) still being addressable at `/admin/claims/:id`. The filter
+is still an EXACT match, not a set: there is no "all" value, deliberately, because the queue
+is a working list and not a report.
+
+**`admin_notes` is the operator note (AECI-739 / §5.2 step 6),** carried on the LIST as
+well as the detail because §5.2's prescribed handling for a pure-connector vendor is to
+leave the claim `open` and route it out of band — and a queue of open claims with no
+visible reason why any of them is parked is the problem the note exists to solve. It is
+read-only here; the writer is `PATCH /api/admin/claims/:id/notes`.
 
 #### `PATCH /api/admin/claims/:id` (Stage 2 — AECI-519)
 
@@ -1433,6 +1563,309 @@ Errors:
   (and not an exact re-grant), or a claimed product has no vendor.
 - `NOT_FOUND` (404) — unknown request id, or the resolved vendor is missing.
 
+#### `GET /api/admin/claims/:id` (Stage 2 — AECI-739)
+
+**One claim.** Every signal the queue card carries, plus the explanation the list has
+no room for: which open claims are causing this one's duplicate chip. Behind
+`requireAdmin()`, read-only — **no `audit_log` row** (§9.3 / ADR 0022). Source of truth:
+`packages/shared/src/api/admin-claims.ts`, `apps/api/src/routes/admin-claims.ts`; model:
+`STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2 step 6.
+
+Why it exists: §5.2 tells an operator to **park** a pure-connector vendor's claim as
+`open` and route it to the partnership track out of band, because Grant and Reject are
+both wrong for it. Until this route the product had nowhere to record that decision —
+step 6 sent the conversation to Linear comments — so the console showed a lengthening
+queue of open claims with no visible reason why any of them was parked.
+
+```typescript
+export const ClaimDuplicateSiblingSchema = z.object({
+  id: z.string().uuid(),
+  submitter_email: z.string(),
+  submitter_name: z.string().nullable(),
+  status: z.enum(['open', 'in_review', 'resolved', 'rejected']),
+  created_at: z.string(),
+  match_reason: z.enum(['target', 'submitter']), // which of the LIST's two rules fired
+  has_notes: z.boolean(),                        // deliberately parked vs unattended
+});
+
+// The full AdminClaim (above) plus the duplicate explanation.
+export const AdminClaimDetailSchema = AdminClaimSchema.extend({
+  duplicate_siblings: ClaimDuplicateSiblingSchema.array(), // ARRAY, never null — see below
+});
+```
+
+**`duplicate_siblings` cannot disagree with `is_duplicate`.** The LIST computes
+`is_duplicate` from two `groupBy` counts over OPEN claims — same `(target_type, target_id)`,
+or same `(submitter_email, target_type, target_id)` — minus the row itself. This endpoint
+SELECTs those very siblings with the same predicate and reports
+`is_duplicate = duplicate_siblings.length > 0`, so the arithmetic and the explanation are
+one query rather than two derivations. `match_reason` names which rule fired; a row
+matching both reports the broader `target`.
+
+**It is an array, not a nullable signal.** The other enrichments (`existing_seats`,
+`related_requests`, `product_roles`) are fail-soft — `null` means "we could not look" —
+and this one is deliberately not: it backs `is_duplicate`, and a page that silently
+claimed "no duplicates" because a query failed would be worse than an error.
+
+**`has_notes`, not the note itself.** What an operator needs from a sibling row is
+whether it was parked ON PURPOSE (§5.2) or is simply unattended; the text lives on that
+sibling's own page.
+
+Errors:
+- `INVALID_STATE_TRANSITION` (422) — the id resolves to a **correction**, with the same
+  redirect message `PATCH /api/admin/claims/:id` returns for it. Not a 404, deliberately:
+  the row exists, it is just moderated through `/api/admin/requests`, and one id on one
+  path must not tell two different stories depending on the verb.
+- `NOT_FOUND` (404) — unknown request id.
+- Plus the shared `requireAdmin()` 401/403.
+
+#### `PATCH /api/admin/claims/:id/notes` (Stage 2 — AECI-739)
+
+Write or clear the **operator note** on a claim. Behind `requireAdmin()`. Audited into
+the same `db.batch` as its write (§26.1).
+
+```typescript
+export const SaveClaimNotesSchema = z.object({
+  notes: z.string().max(2000).nullable(), // null (or blank) CLEARS
+});
+// → AdminClaimDetail (the refreshed claim), 200.
+```
+
+**A sub-resource, not a third `ModerateClaimSchema.action`.** It mirrors
+`PATCH /api/admin/vendors/:id/entitlement`: moderation is a one-way status transition
+that grants a paid account or declines one by email, and a note is neither. Keeping them
+apart is also what lets the note be **writable at every status** — a `resolved` or
+`rejected` claim is exactly where "why we parked it, and what happened next" is worth
+having.
+
+**An unchanged note is a 200 no-op.** Nothing is written and no `audit_log` row is
+emitted — the same idempotency rule this resource already applies to re-granting an
+already-granted claim, and NOT the 422 `PATCH /api/admin/vendors/:id/entitlement` uses
+(that gate rejects invalid *state transitions*; text that did not change is not one). It
+matters because **the audit rows ARE the note's history**: each write records the full old
+and new note in `before_state` / `after_state`, so a trail of identical states would
+degrade the very record this endpoint exists to keep. Blank and `null` are the same
+action — the note trims to `null` — so "empty the box and save" cannot produce a note made
+of spaces.
+
+**No workflow row, no cache purge.** A note changes no status, so no
+`workflow_instances` / `workflow_transitions` row is written (and
+`workflow_instances_type_check` is a closed CHECK whose widening is a full SQLite table
+rebuild besides). `/admin/*` is uncacheable and no public surface renders a claim, let
+alone an admin-only note — contrast the grant, which flips `vendors.verified` and does
+purge.
+
+Metric: `aeci.claim.moderation.action` with `action:note`, `outcome:ok|noop` — the same
+series the approve/reject actions ride, since it is the third thing an admin does to a
+claim from the same console.
+
+Errors: `INVALID_STATE_TRANSITION` (422) and `NOT_FOUND` (404) exactly as the GET above,
+plus `VALIDATION_FAILED` (400) over the 2000-char cap, and the shared 401/403.
+
+#### `GET /api/admin/vendors` (Stage 2 — AECI-652)
+
+The operator's **vendor list** — paginated, with name/slug search and a tri-state
+verified filter. Behind `requireAdmin()`. This is the way in to a vendor that never
+filed a claim; before it, the only route to a vendor's entitlement ran through an
+`/admin/claims` card, which made concierge onboarding structurally unreachable.
+Source of truth: `packages/shared/src/api/admin-vendors.ts`,
+`apps/api/src/routes/admin-vendors.ts`; model: `STAGE_2_PAID_TIERS_SPEC.md` §5.6.
+
+```typescript
+export const AdminVendorsListQuerySchema = PageQuerySchema.extend({
+  sort: VendorSortSchema,
+  search: z.string().optional(),          // matches company_name OR slug, substring
+  // NOT `z.coerce.boolean()` — `Boolean("false") === true`, so the public
+  // `VendorsListQuerySchema` shape would filter for VERIFIED here (AECI-691).
+  verified: z.enum(['true', 'false']).transform((v) => v === 'true').optional(),
+});
+
+export const AdminVendorRowSchema = z.object({
+  id: z.string().uuid(),
+  slug: z.string().min(1),
+  company_name: z.string().min(1),
+  verified: z.boolean(),                          // the `vendors.verified` mirror, as-is
+  tier: EntitlementTierSchema.nullable(),         // null = NO entitlement row at all
+  status: EntitlementStatusSchema.nullable(),     // …not the same as a cleared one
+  period_end: z.string().nullable(),
+  product_count: z.number().int().min(0),
+  integration_count: z.number().int().min(0),
+  updated_at: z.string(),
+});
+
+export const AdminVendorsListResponseSchema = paginatedResponseSchema(AdminVendorRowSchema);
+// { data: AdminVendorRow[], page, perPage, total }
+```
+
+**`verified` and the entitlement are both reported, and neither is derived from the
+other.** `verified` is a denormalized mirror of "an active entitlement row exists"
+(§2.1); rendering only one of them would hide drift, which is the failure mode
+`entitlement_mirror_drift` exists to catch.
+
+**Search escapes `LIKE` metacharacters.** A literal `%` or `_` in the operator's box
+matches literally — `likeContains` (`apps/api/src/lib/sql-like.ts`) escapes and emits an
+explicit `ESCAPE '\'`, because Drizzle's `like()` emits none. The leading `%` means this
+cannot use `vendors_company_name_idx`; at AECi's cardinality that is the right trade.
+
+Errors: the shared `requireAdmin()` 401/403, plus `400 VALIDATION_FAILED` for a
+`verified` value other than `true`/`false` or a `perPage` above 100.
+
+#### `GET /api/admin/vendors/:id` (Stage 2 — AECI-652)
+
+One vendor: basics, entitlement, the seat roster with pending invites, and the
+product / integration / claim counts. Behind `requireAdmin()`.
+
+**Not to be confused with the *rejected* `PATCH /api/admin/vendors/:id`** documented
+under the entitlement endpoint below — AECI-532's original shape, refused because it
+would have made a second direct writer of `vendors.verified`. This is a GET. **AECI-652
+adds no vendor-edit endpoint**, which is why it does not close the §5.4 lockout.
+
+```typescript
+export const AdminVendorSeatRowSchema = VendorSeatSchema.omit({ is_self: true }).extend({
+  role: z.string(),                 // plain string: `profiles_role_check` can gain a value
+  work_email_verified: z.boolean(),
+});
+// NOTE `created_at` is ACCOUNT creation, not seat grant. The grant is a
+// `vendor_claim.granted` audit row; `updated_at` moves on any profile edit. The UI
+// labels this "Account created" — do not relabel it.
+
+export const AdminVendorDetailSchema = z.object({
+  id, slug, company_name, description, website, headquarters, logo_url,
+  verified: z.boolean(),
+  promotion_status: z.string(), maintained_by: z.string(),
+  last_reviewed_at: z.string().nullable(),
+  created_at: z.string(), updated_at: z.string(),
+
+  entitlement: VendorEntitlementResponseSchema.nullable(),   // null = none on record
+
+  seats: AdminVendorSeatRowSchema.array().nullable(),        // null = UNAVAILABLE, [] = none
+  seat_emails_available: z.boolean(),
+  pending_invites: VendorSeatInviteSchema.array().nullable(),
+
+  product_count: z.number().int().min(0),
+  // The §5.2 payer test (AECI-738). NON-nullable here, unlike the /admin/claims
+  // copy: this comes out of the request's own `db.batch`, so it cannot degrade.
+  product_roles: VendorProductRolesSchema,                   // { application, connector, hybrid, total }
+  is_pure_connector_vendor: z.boolean(),
+  integration_count: z.number().int().min(0),
+  claim_counts: z.object({                                   // ALL FOUR statuses
+    open: z.number().int().min(0),
+    in_review: z.number().int().min(0),
+    resolved: z.number().int().min(0),
+    rejected: z.number().int().min(0),
+  }),
+});
+```
+
+**`seat_emails_available` is not decoration.** `false` means the GoTrue seam was
+unreachable, so every blank `email` is the seam's fault; `true` with a blank means the
+account genuinely has none. Without the flag a surface can only say "unknown" for
+everything — which is exactly how an absent `SUPABASE_SERVICE_ROLE_KEY` hid in plain
+sight for a day on 2026-08-24. **Absent creds render "unavailable", never an empty
+roster.** The `seats: null` case is the separate "the roster query itself degraded"
+state; `[]` means the vendor genuinely has no seats.
+
+**`product_count` is the SUM of `product_roles`, by construction (AECI-738).** Both come
+out of ONE `GROUP BY products.product_role` inside the existing batch, not a `count()`
+beside a `GROUP BY` — two statements answering one question is how `STAGE_1_5_SPEC.md`
+§13.5 items 11/12 ended up with two drifting copies of the same operator number. The
+inner join cannot undercount the former bare count, because `product_vendors.product_id`
+is `ON DELETE CASCADE` against `products`. Semantics of the two role fields, including
+the zero-products case, are identical to `GET /api/admin/claims` above.
+
+**Four claim buckets, not three.** `vendor_requests_status_check` allows
+`open | in_review | resolved | rejected`; reporting three gives numbers that fail to
+sum. Counts are scoped to the vendor **and the products it owns** — a product claim's
+`target_id` is a product id, so a naive `target_type='vendor'` test misses it.
+
+Errors: `404 NOT_FOUND` on an unknown vendor id, plus the shared 401/403.
+
+#### `GET /api/admin/vendors/:id/audit` (Stage 2 — AECI-652)
+
+**The first read surface `audit_log` has ever had**, and the first reader of
+`audit_log_entity_idx`. Paginated, newest first, read-only — **no `audit_log` row of its
+own** (see the read-only conventions below). Behind `requireAdmin()`.
+
+```typescript
+export const AdminVendorAuditQuerySchema = PageQuerySchema.extend({
+  scope: z.enum(['all', 'entity', 'actor']).default('all'),
+});
+
+export const AdminAuditRowSchema = z.object({
+  id: z.string().uuid(),
+  action: z.string(),                                  // plain string, never an enum
+  actor: z.object({ id, display_name: nullable, email: nullable }).nullable(),
+  actor_type: z.string(),
+  entity_type: z.string().nullable(),
+  entity_id: z.string().nullable(),
+  created_at: z.string(),
+  before_state: z.unknown().nullable(),                // see below
+  after_state: z.unknown().nullable(),
+});
+
+export const AdminVendorAuditResponseSchema =
+  paginatedResponseSchema(AdminAuditRowSchema).extend({ actor_emails_available: z.boolean() });
+```
+
+**Two scopes, plus their union.** `entity` = what was done *to* this vendor; `actor` =
+what its people did, including edits to their products. `all` is the default, because
+that is the operator's actual question. **Entity scope is four OR'd disjuncts, not
+one** — `entity_id = <vendor>` misses a rejected claim (whose audit metadata carries no
+`vendor_id` at all), a revoked seat (whose `profiles.vendor_id` is null by the time
+anyone reads it, so the actor scope misses it too), and a seat ban/unban (which files
+under the seat's `profiles.id` with no `vendor_id`, matched instead through the current
+seat roster). `STAGE_2_PAID_TIERS_SPEC.md` §5.6.2 has the full query and why each leg is
+load-bearing.
+
+**`before_state` / `after_state` are `z.unknown().nullable()` deliberately.** They are
+free-form JSON snapshots written by ~34 call sites across the life of the schema, with
+no shared contract, in a table nothing prunes — so a reader today is parsing rows
+written by code that no longer exists. `z.unknown()` is non-optional in Zod 4, so a
+*missing* key is still rejected (R10) while any present value is accepted; a
+`z.record(...)` would make `validateResponseInDev` throw on a historical scalar
+snapshot. `action` and `entity_type` are plain strings for the same reason —
+`entity_type` carries no CHECK by design, and an enum here would turn a new writer
+elsewhere into a 500 on this screen.
+
+**A null `actor` means "not a person"** (a cron, the promote Workflow), not "person
+unknown" — `actor_type` says which. `actor_emails_available` carries the same GoTrue
+tri-state as the detail endpoint.
+
+Errors: `404 NOT_FOUND` on an unknown vendor id (an empty 200 would read as "this
+vendor has no history"), plus the shared 401/403.
+
+#### `DELETE /api/admin/vendors/:id/seats/:userId` (Stage 2 — AECI-652)
+
+Revoke one seat, AECi-side. `204 No Content`. Behind `requireAdmin()`. The admin-side
+sibling of the portal's owner-only `DELETE /api/vendor/seats/:userId` (AECI-664), which
+cannot help here: it is scoped to the caller's own session vendor.
+
+Composes `revokeSeatStatements` (`apps/api/src/lib/vendor-grant.ts`) **unchanged**, so:
+the `vendor_claim.seat_revoked` row lands in the SAME `db.batch` as the profile write
+(§26.1), its metadata carries `vendor_id` (which is what makes the row reachable from
+the audit viewer after `profiles.vendor_id` is nulled), and **no statement names
+`vendors`** — enforced by an ESLint rule and a generated-SQL assertion. **A seat revoke
+is orthogonal to the entitlement** (`STAGE_2_PAID_TIERS_SPEC.md` §5.2): the badge, the
+entitlement row and `vendors.verified` are all untouched. No cache purge — nothing a
+revoke changes is rendered on a cached page.
+
+**Three deliberate differences from the portal endpoint:** `vendorId` comes from the
+path and scopes the target read (so a stray seat cannot be un-granted by naming the
+wrong vendor); there is no self-removal guard (an admin holds no seat); and **the
+last-owner guard is not carried over** — its rationale is that only an AECi grant can
+rescue an unadministrable account, and the admin *is* that rescue.
+
+**Banning a person is a different endpoint.** `PATCH /api/admin/reviewers/:id` owns that
+(AECI-524); the admin vendor page deep-links to it rather than offering it as a peer
+button.
+
+Errors:
+
+| Status | Code | When |
+|---|---|---|
+| 404 | `NOT_FOUND` | Unknown vendor id, or `:userId` is not a `vendor_admin` seat **on that vendor** — a cross-vendor id is indistinguishable from a nonexistent one |
+| 400 | `VALIDATION_FAILED` | Missing path parameter |
+
 #### `PATCH /api/admin/vendors/:id/entitlement` (Stage 2 — AECI-532)
 
 Set, renew or clear a vendor's paid entitlement. Behind `requireAdmin()`. **This is the
@@ -1514,7 +1947,7 @@ One atomic `db.batch` carries the entitlement row, the guarded `vendors.verified
 `.cleared`, `entity_type: 'vendor_entitlement'`, `entity_id` = the **vendor** id,
 `actor_type: 'admin'`, `metadata.source: 'admin-entitlement'`). **No `workflow_instances`
 row** — that CHECK is closed and `audit_log` is the ledger. Post-commit, best-effort: metric
-`aeci.entitlement.action`, the Datadog audit forward, and — on `set`/`clear` only — a
+`aeci.entitlement.action`, the §26.5 post-commit audit forward, and — on `set`/`clear` only — a
 Cache-Tag purge of the full grant tag set (`vendor:{slug}` + every owned `product:{slug}` +
 `index:products`) via the shared `lib/vendor-cache-tags.ts`. The purge is **not** gated on
 whether the mirror actually flipped: a redundant purge costs one cache miss, a missed one
@@ -1541,14 +1974,251 @@ force while the portal's writes now 403 — **nobody can edit that vendor.** Un-
 deliberate, so the accepted launch mitigation is: re-activate → edit → clear again, or use
 `apps/datatool`. Closing it properly is deferred (`STAGE_2_PAID_TIERS_SPEC.md` §11).
 
+#### `PATCH /api/admin/connector-catalogs/:id` (AECI-720)
+
+The per-iPaaS management cutoff. Flips `connector_catalogs.managed_by` between `review` and
+`vendor`. Behind `requireAdmin()`. Source of truth:
+`packages/shared/src/api/admin-connector-catalogs.ts`,
+`apps/api/src/routes/admin-connector-catalogs.ts`; model: `DATABASE_SCHEMA.md` §9a.1.
+
+```typescript
+export const ConnectorManagedBySchema = z.enum(CONNECTOR_MANAGED_BY);  // 'review' | 'vendor'
+
+export const SetConnectorCatalogManagementSchema = z.object({
+  managedBy: ConnectorManagedBySchema,        // the state to move TO
+  vendorId: z.string().uuid().optional(),     // who took it over; recorded, grants nothing
+  reason: z.string().max(500).optional(),     // INTERNAL audit note; never emailed
+});
+
+export const ConnectorCatalogManagementResponseSchema = z.object({
+  id: z.string(),
+  connector_product_id: z.string().uuid(),
+  managed_by: ConnectorManagedBySchema,
+  managed_by_vendor_id: z.string().uuid().nullable(),  // echoed; NOT persisted on the row
+  updated_at: z.string(),
+});
+```
+
+**Moving a catalogue to `vendor` freezes the review lane for that iPaaS and no other.** From
+then on every `POST /api/promote/connector-catalog` page addressing it fails with
+`CATALOG_VENDOR_MANAGED` (§6.12). That is the whole enforcement: the flag is held **and**
+enforced on this side because the review app is the component being decommissioned, so
+`managedBy` is deliberately absent from the promote wire and this endpoint is the only writer
+besides the column's `DEFAULT 'review'`.
+
+**The flag is reversible; the data direction is not.** "One-way forever" governs the data — the
+review app never writes over AECi's copy, which the refusal delivers unconditionally while the
+flag reads `vendor`. The flag itself moves both ways because `STAGE_2_SPEC.md` §8.9(4) makes
+this cutoff the mechanism that answers *"is the feed still arriving?"* for a connector seat that
+carries no `vendor_entitlements` row and therefore has no expiry cron to sweep it — a duty only
+actionable if a lane can be reclaimed. Reversing re-opens the promote lane going forward and
+does nothing else; it reconciles nothing the vendor wrote, and pages committed before a
+mid-sync flip stay committed.
+
+**It grants no seat.** `vendorId` is validated against `vendors` (404 on a miss, so a typo
+cannot park a dangling id) and recorded in the audit row — nothing more. `STAGE_2_SPEC.md`
+§8.9(2) fences the connector seat off from `vendor_entitlements` entirely, and §8.9(3) leaves
+provisioning to AECI-722 / AECI-724; no `vendor_admin` role is written here.
+
+Errors: `404` unknown catalogue **or** unknown `vendorId`; `422 INVALID_STATE_TRANSITION` when
+the catalogue is already in the requested state (a no-op would hide an operator whose mental
+model of who controls the lane is wrong); `400` on a bad body or an unknown `managedBy`.
+
+**Audit is per row, in the same `db.batch` as the guarded `UPDATE`** — ADR 0022 and
+`STAGE_1_SPEC.md` §26.1 both name this flip explicitly as the decision-bearing write that audits
+per row, distinguishing it from the run-granularity carve-out governing the connector sync on
+the same tables. Actions are `connector_catalog.managed_by_vendor` / `.managed_by_review`,
+`entity_type='connector_catalog'`. **No `workflow_instances` row** (that CHECK is closed) and
+**no cache purge** — AECI-722 reads `connector_catalogs`, but only on the deliberately
+uncacheable `/admin` surface, so there is still no tag to purge. That obligation stays with
+AECI-715 / 716, the first *public* reader (`CACHE_STRATEGY.md` §4).
+
+#### Connector admin reads (AECI-722 / `ADMIN_PANEL_SPEC.md` §5.9)
+
+Five `GET`s behind `requireAdmin()`, the **first read layer** over the six AECI-714 connector
+tables (`DATABASE_SCHEMA.md` §9a). Contracts in `packages/shared/src/api/admin-connectors.ts`;
+handlers in `apps/api/src/routes/admin-connectors.ts` over `apps/api/src/lib/admin-connectors.ts`.
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/admin/connector-catalogs` | Paginated catalogue list. `?managed_by=review\|vendor`, `?search=` over the connector product's name/slug |
+| `GET /api/admin/connector-catalogs/:id` | Basics, surfaces, counts, the derived `handover`, `advisories` |
+| `GET /api/admin/connector-catalogs/:id/stubs` | The triage queue. `?state=`, `?proposals_only=`, `?confidence=`, `?search=`, `?include_removed=` |
+| `GET /api/admin/connector-catalogs/:id/pairs` | `?lane=reachable\|evidenced` (default `reachable`), `?surface=` on the reachable lane |
+| `GET /api/admin/connector-catalogs/:id/audit` | `entity_type='connector_catalog' AND entity_id=:id`, off `audit_log_entity_idx` |
+
+**All five write nothing** — no `audit_log` row (§6's convention as scoped by ADR 0022), no purge,
+no `Cache-Tag`. The envelope is the **bare** `paginatedResponseSchema` (the Operations lineage),
+except that the detail and stubs responses carry an `advisories: AdminNote[]` honesty envelope.
+
+**Mapping decisions are deliberately NOT writable.** The originating issue asked for
+approve/adjust on the triage queue; `planConnectorCatalogPage` upserts `connector_stub_mappings`
+with `set: { ...values }` across `status` / `confidence` / `evidence_url` / `decided_by` /
+`notes` and skips only rows it computes as *unchanged*, so an AECi-authored decision is exactly
+the row the next sync page overwrites. Guarding the sync instead would make AECI-731's
+"re-running it end to end reports every row `unchanged`" acceptance criterion unachievable for
+any catalogue an operator had touched. Authoring returns at **AECI-724** time as
+`PATCH /api/admin/connector-stub-mappings/:id` **gated on `managed_by = 'vendor'`** — the one
+state in which the sync is frozen out and cannot clobber the row.
+
+Three response shapes are worth knowing before extending them:
+
+1. **`handover` is derived, and suppressed once the lane is reclaimed.** AECI-720 records
+   `vendorId` / `reason` only in the audit row's `metadata`, and `AdminAuditRow` carries no
+   `metadata` (it is rendered by the shared `<aec-audit-trail>` for vendors too, and pushing
+   free-form JSON from ~34 writers into a shared render path is what that schema's docblock
+   argues against). So the detail endpoint derives a fixed `handover` block from the latest
+   `connector_catalog.managed_by_vendor` row — and returns **`null` whenever `managed_by` is back
+   to `'review'`**, because a reclaimed lane must not render a live-looking handover. The history
+   stays in the trail.
+2. **`stubs_undecided` is an anti-join, and `publishable` is provenance.** §9a.4: *"there is no
+   `pending` status — the absence of a row is pending"*, so undecided counts stubs with **no**
+   mapping. `publishable` is the gate verbatim — `status='mapped' AND product_id IS NOT NULL AND
+   decided_by IS NOT NULL AND decided_by <> 'auto-name-match'` — evaluated once server-side so the
+   per-row flag and the `mappings_publishable` tally cannot drift.
+3. **The pairs lanes render the publication gate's INPUTS, never its verdict.** §13.7's
+   four-clause rule is AECI-716's, and its clause (c) reuses Addendum A §11.4's scoring, which
+   does not exist here; clause (b) is not computed either. The `publication_gate_inputs_only`
+   advisory says so on the wire. One lane per call because §13.3 requires one `<table>` per lane.
+
+The `actions` blob never crosses this wire — the row ships `actions_fetched` plus `action_count`,
+so a never-fetched inventory cannot render as an empty one (§9a.3).
+
+Errors: the shared `requireAdmin()` 401/403, plus `404 NOT_FOUND` with
+`details.resource = 'connector_catalog'` on an unknown id, and `400 VALIDATION_FAILED` on a bad
+query.
+
+#### `GET /api/admin/users` (AECI-692)
+
+The operator's user list — **profiles-first**, behind `requireAdmin()`, emitting no
+`audit_log` row (`ADMIN_PANEL_SPEC.md` §5.8, which owns this contract in full).
+
+Profiles-first is a decision, not a convenience: GoTrue's own `GET /admin/users`
+would answer "every account with an auth row", but one Supabase project backs
+**every** environment (ADR 0017), so an auth-first list on production would include
+staging and preview signups and its "no profile" rows would be ambiguous across
+tiers. `profiles` is the per-environment truth; the seam (`AUTH_AND_RLS.md` §3.1
+seam #2, `fetchAuthUserRecords`) enriches the page D1 already chose.
+
+```typescript
+// packages/shared/src/api/admin-users.ts
+AdminUsersListQuerySchema = PageQuerySchema.extend({
+  perPage: …default 24, max 50,           // NOT the shared 100 — see below
+  sort:    z.enum(['created', 'updated']), // D1 columns ONLY
+  search:  z.string().optional(),
+  role:    z.enum(['reviewer', 'admin', 'vendor_admin']).optional(),
+  banned:  z.enum(['true', 'false']).transform((v) => v === 'true').optional(),
+  has_seat: z.enum(['true', 'false']).transform((v) => v === 'true').optional(),
+});
+
+AdminUsersListResponse = PaginatedResponse<AdminUserRow> & {
+  auth_available: boolean;                                    // did the seam run at all
+  email_search: 'matched' | 'no_match' | 'unavailable' | null; // what the @-leg did
+};
+```
+
+- **Every boolean filter is an enum-plus-transform, never `z.coerce.boolean()`.**
+  `Boolean("false") === true` — the live AECI-691 defect on the public vendors
+  endpoint. Here it would mean `?banned=false` returning the *banned* users, on a
+  moderation surface. An omitted filter is a genuine third state and stays
+  `undefined`.
+- **`role` is an enum on the request and a plain string on the response.** The two
+  directions want opposite failure modes: a typo'd filter should `400` rather than
+  return a confidently empty page, while a list that `500`s on a role the DB CHECK
+  gained without this file would be worse than one that shows it.
+- **`perPage` caps at 50, not 100.** Each row costs one GoTrue round trip, run in
+  waves of `WORKER_CONNECTION_LIMIT` (6) with a 5s timeout, and nothing caches in
+  front of the seam. 24 is exactly four waves; 100 would be ~17.
+- **`sort` takes D1 columns only.** `last_sign_in_at` lives in GoTrue and is fetched
+  *after* the `ORDER BY` has chosen the page, so sorting by it would reorder the
+  current page and call it a ranking. It is not sortable and will not become so.
+- **`search` matches `display_name` as an escaped substring** (`likeContains` —
+  operator-typed `%`/`_` are escaped, not honoured) and, **only when the term
+  contains `@`**, also resolves it as an **exact** email through seam #4a.
+  GoTrue's `?filter=` is a case-*sensitive* substring over email or display name
+  and `findAuthUserByEmail` narrows it to an exact lowercased equality
+  client-side, so `?search=@acme.com` finds nothing by email — `email_search`
+  reports which of the three things happened. **`'unavailable'` is the important
+  one**: an empty page from a seam-down email search reads as "no such user",
+  which is the false negative this surface exists to eliminate.
+
+#### `GET /api/admin/users/:id` (AECI-692)
+
+One person. `404` on an unknown id — never a successful page of zeroes.
+
+Three round trips in a forced order: D1 first (profile, seat, and the counts that
+need no address), then the seam to learn the address, then the two reads *keyed by*
+that address. Pending invites and request matches are addressed to an email, not a
+user id — `vendor_seat_invites.email` deliberately has no `profiles` FK (an invitee
+usually has no account yet) and `vendor_requests` has no submitter FK at all
+(submission is anonymous) — so with the seam down they are genuinely unknowable.
+
+```typescript
+AdminUserDetail = {
+  …profile fields (role, trust_tier, work_email_verified, seat_owner,
+                   banned_at, ban_reason, created_at, updated_at),
+  auth: AdminUserAuthAccount | null,   // email, last_sign_in_at, created_at,
+  auth_available: boolean,             //   email_confirmed_at — all nullable
+  seat: AdminUserSeat | null,          // at most ONE, by construction
+  pending_invites: AdminUserPendingInvite[] | null,
+  counts: {
+    reviews: { pending, approved, rejected, archived },   // all four, so they sum
+    seat_invites_sent: number,
+    entitlements_granted: number,
+    requests_by_email: number | null,                     // best effort — see below
+  },
+  repeat_offender: boolean,
+};
+```
+
+- **The tri-state, spelled out.** `auth_available: false` ⇒ the seam was
+  unreachable and every `auth` says nothing about the accounts. `true` with
+  `auth: null` ⇒ there is no `auth.users` row: an **orphaned profile**, a real data
+  defect. `auth` present with a `null` field ⇒ the account exists and genuinely has
+  no such timestamp. `auth.created_at` is the **auth user's** creation and is not
+  `created_at` on the enclosing object, which is the profile's; both ship.
+- **`null` is not `[]` and not `0`.** `pending_invites: null` means the address
+  could not be resolved, so the set is unknown; `[]` means resolved and empty.
+  `requests_by_email: null` means the match could not be attempted; `0` would
+  assert "this person filed none".
+- **`seat` is single-valued by construction.** There is no `vendor_users` table — a
+  seat *is* `role = 'vendor_admin' AND vendor_id IS NOT NULL` on the `profiles` row
+  (`AUTH_AND_RLS.md` §3.2 exclusivity), and a `reviewer` row carrying a stale
+  `vendor_id` is **not** a seat. This agrees with `seatsOf()`, which is what
+  `GET /api/vendor/seats` uses; the two surfaces must not disagree about who has
+  access.
+- **`requests_by_email` is best-effort and the UI labels it so.**
+  `vendor_requests` records only `submitter_email`, compared case-insensitively
+  (the column is `.trim()`-ed but *not* lowercased on write, so a bare `=` would
+  miss `Jane@Acme.com`). A shared mailbox attributes to the wrong person; a request
+  filed from a second address is missed.
+- **`repeat_offender`** is `counts.reviews.rejected >= REPEAT_OFFENDER_THRESHOLD`,
+  computed server-side from the same shared constant the moderation queue uses, so
+  the two surfaces cannot label the same person differently.
+- **No per-user page views, ever.** AECI-585 dropped `page_views.user_id` /
+  `session_id` / `profile_role` and `ADMIN_PANEL_SPEC.md` §9 item 7 forbids
+  visitor↔account correlation. There is no join column to reconstruct.
+
+**Ban and reinstate are not here.** They are `PATCH /api/admin/reviewers/:id`
+(below), reused unchanged — still the sole writer of `profiles.banned_at` anywhere.
+Seat revoke is likewise not here; it stays
+`DELETE /api/admin/vendors/:id/seats/:userId`.
+
 #### `GET /api/admin/reviewers`
 
 Lists the currently-banned reviewers (newest ban first). Implemented in AECI-218
 (Phase 6.11). The ban *action* is triggered from the review-queue's 3rd-rejection
-prompt; this list is the home for **unbanning**. `reviewer_email` is admin-only
-(read from `auth.users.email` via the same privileged `$queryRaw` the moderation
-queue uses) and degrades to `null` on a lookup failure. Source of truth:
+prompt. `reviewer_email` is admin-only — `profiles` has no email column, so it is
+read through the **GoTrue Admin API seam** (`fetchAuthUserEmails` over
+`GET /auth/v1/admin/users/:id`, `AUTH_AND_RLS.md` §3.1 seam #2), and degrades to
+`null` on a lookup failure, never a 500. Source of truth:
 `packages/shared/src/api/admin-reviewers.ts`, `apps/api/src/routes/admin-reviewers.ts`.
+
+**Superseded as a screen (AECI-692).** `GET /api/admin/users?banned=true` returns the
+same set with filtering, search and paging, and `/admin/users/:id` is now the
+ban/reinstate home. This endpoint is **kept** and still serves that filtered view's
+predicate; `PATCH /api/admin/reviewers/:id` remains the **sole writer** of
+`profiles.banned_at` for both surfaces.
 
 ```typescript
 export const ListBannedReviewersQuerySchema = PageQuerySchema; // page/perPage
@@ -1652,10 +2322,13 @@ export const AdminNoteCodeSchema = z.enum([
   'partial_day',                       // window overlaps the current UTC day
   'bot_classification_incomplete',     // N rows have is_bot IS NULL → counted HUMAN
   'referrer_source_incomplete',        // N human rows have no referrer_source
+  'referrer_source_is_unverified',     // Referer is client-supplied; a source is a CLAIM (AECI-624)
   'direct_is_mixed_bucket',            // Direct mixes SPA hops with real arrivals
   'visitor_definition_approximate',    // §9.8 (user_agent_hash, cf_asn)
-  'catalog_series_is_additions_only',  // catalog.* are events, never net totals (§4)
-  'catalog_series_starts_at',          // window predates the audit log
+  'catalog_series_is_additions_only',  // basis=additions: catalog.* are events, not net totals (§4)
+  'catalog_series_starts_at',          // basis=additions: window predates the audit log
+  'catalog_series_is_surviving_rows',  // basis=net: rows present NOW; past buckets restate
+  'catalog_claims_recreated_by_promote', // basis=net on claims: created_at is a last-promote date
   'internal_filter_unavailable',
   'internal_filter_applied',
   'requires_recompute',                // an expensive status item was omitted
@@ -1729,14 +2402,23 @@ export const AdminOverviewResponseSchema = z.object({
   notes: z.array(AdminNoteSchema),
   internal_filter: AdminInternalFilterSchema,
   traffic: z.object({
+    // AECI-745: the HEADLINE, human views AFTER the automation filter — the same
+    // number the 05:00 email leads with. This field was REDEFINED; it carried the
+    // raw count through AECI-744.
     page_views_human: AdminCountSchema,
+    page_views_human_raw: AdminCountSchema,  // the server-side upper bound
+    automation_flagged: z.number().int().nonnegative().nullable(), // null = detector did not run
     page_views_bot: AdminCountSchema,
     unique_visitors: AdminCountSchema,      // DISTINCT (user_agent_hash, cf_asn)
-    delta_day: AdminDeltaSchema,            // human views, day over day
-    delta_7d: AdminDeltaSchema,             // 7 days ending here vs the 7 before
-    series_30d: z.array(AdminTrafficPointSchema),   // zero-filled { day, human, bot }
+    delta_day: AdminDeltaSchema,            // post-automation, FILTERED on both sides
+    delta_7d: AdminDeltaSchema,             // 7 days ending here vs the 7 before — RAW
+    series_30d: z.array(AdminTrafficPointSchema),   // zero-filled { day, human, bot } — RAW
     top_sources: z.array(AdminSourceCountSchema),
     top_products: z.array(AdminProductViewsSchema), // { name, slug, views }
+    // AECI-683. All three come straight off `collectAnalyticsMetrics`.
+    corroborated_views: z.number().int().nonnegative(),
+    corroborated_visitors: z.number().int().nonnegative(),
+    operator_leak_excluded: z.number().int().nonnegative(),
   }),
   audience: z.object({
     new_sign_ins: AdminDeltaSchema,
@@ -1762,6 +2444,58 @@ the exported `computeDelta` that `deltaText` itself uses. The default window is
 the digest's own (`windowsForDay(dailyWindows(now).dayLabel)`), so
 `GET /api/admin/overview` with no params reports exactly what the 05:00 email
 reported. `admin-overview.spec.ts` asserts this against a seeded fixture.
+
+That parity extends to AECI-683's three additions — `corroborated_views`,
+`corroborated_visitors` and `operator_leak_excluded` all come straight off the same
+collector, so neither surface can grow its own definition of "corroborated" or of the
+operator-pair leak. The corollary is the trap: a figure computed in `scheduled.ts`
+beside the digest (as the AECI-741 `automation` filter is) reaches the **email only** — it is not
+in `AnalyticsMetrics`, so no panel screen and no `metrics_daily` key can see it. Put a
+number in `AnalyticsMetrics` when both surfaces should report it, and in `scheduled.ts`
+only when it is genuinely email-shaped prose.
+
+**That trap is now CLOSED (AECI-745).** `collectAnalyticsMetrics` runs the swarm
+detector itself and returns `automation` on `AnalyticsMetrics`, so the filtered
+figure is a property of collecting the metrics rather than something a caller
+remembers to pass — and `/admin/overview` forgot to pass it for the entire life of
+the field, which is precisely the failure mode an optional parameter invites.
+
+What blocked it was an import cycle, and the fix was to remove the cycle rather
+than the sharing: `HUMAN`, `BOT`, `OPERATOR_PAIR_MATCH`, `NOT_INTERNAL` and
+`notFlagged` moved to `apps/api/src/lib/page-view-predicates.ts`, which both
+`analytics-digest` and `swarm-detection` import and neither is imported by.
+Nothing in that module may import either consumer; `page-view-predicates.spec.ts`
+pins the NULL-safe `NOT EXISTS` form and the `%Y-%m-%dT%H:%M:%fZ` format string
+that a non-verbatim move would have broken silently.
+
+⚠️ **`page_views_human` and `delta_day` changed MEANING, not just value.** Both are
+now post-automation; the raw server-side count is `page_views_human_raw`. Nothing
+in the type expresses that, so a client that upgrades without reading this will
+silently start reporting a different (better) number. `delta_day` is filtered on
+BOTH sides — a filtered day against an unfiltered prior day manufactures a large
+fake drop (AECI-741) — while `delta_7d` and `series_30d` stay RAW, because
+filtering them means re-running the detector over fourteen and thirty further days
+per request. The panel labels that difference rather than hiding it.
+
+`automation_flagged` is `null`, never `0`, when the detector failed. Zero is a
+clean day; null is an outage in which the headline is unfiltered, and the response
+carries an `automation_filter_did_not_run` warning to say so. The failure is
+caught in the collector and degrades both surfaces rather than 500-ing either.
+
+`AutomationExclusion` still carries **plain primitives only** — `uaHashes`, `asns`,
+and (since AECI-744) `verdicts` — and is still derived from a `SwarmSummary` by
+`automationExclusionFor()` rather than being a `SwarmSummary`. The cycle argument
+for that is gone; the real reason it always had remains. `analytics-digest.ts` owns
+only the exact COMPLEMENT of "flagged" and `swarm-detection.ts` owns what flagged
+MEANS. Handing the complement a summary object would invite it to re-derive the
+decision from the candidate fields, and then there would be two definitions again.
+
+**One cost, recorded because the call site does not show it.** The detector adds
+roughly 14 D1 reads to this handler — about seven per window, over the reported day
+and the prior one — on every request, `?day=` and `?recompute=1` included. It is
+bounded (`SWARM_MAX_CANDIDATES` caps the bound-parameter count; the 14-day
+recurrence lookback rides `page_views_operator_pair_idx`) and it is the price of
+the panel and the email leading with one number.
 
 **Status strip and `?recompute=1` (§13 D8).** The first three items are cheap
 D1/env reads and are always present. The last two need the network — the
@@ -1797,17 +2531,48 @@ back to live aggregation for any day it does not cover (P2.1 / AECI-581) — a
 storage swap behind an unchanged shape, which is why the metric keys are §7.1's
 `namespace.metric` strings verbatim.
 
+**One key has no live fallback (AECI-745).**
+`traffic.page_views_human_after_automation` is served from `metrics_daily` alone,
+because computing it live means running the swarm detector once per day in the
+window — roughly seven D1 reads a day, so ~210 for a 30-day chart every other
+metric answers in one query. Three consequences, all deliberate:
+
+- **Uncovered days are OMITTED from `points`, not zero-filled.** Zero is a
+  measurement here ("no humans that day"), and a zero at the snapshot boundary
+  reads as a traffic collapse rather than as the start of the record. A
+  `catalog_series_starts_at` note reports how many days were dropped.
+- **`source` is always `'snapshot'`**, never `'mixed'` — there is no live half.
+- **`exclude_internal=1` is a `400`.** The internal filter bypasses the snapshot
+  by design (a stored row cannot carry a config-dependent figure), and with no
+  live path there is nothing left to serve. Rejected rather than silently
+  downgraded, for the same reason `basis=net` is rejected outside `catalog.*`.
+
+It is also **not backfillable**, and that is a correctness decision rather than an
+omission: `metrics-backfill.ts` reconstructs a series with one generated SQL
+statement, and the detector is a grouping plus a cross-day recurrence lookback
+plus a three-way union. Reproducing that in SQL would be a second definition of
+"flagged" — the exact drift AECI-745 removed. The series fills forward from the
+day the 00:15 cron first writes it.
+
 ```typescript
 export const AdminMetricKeySchema = z.enum([
-  'traffic.page_views_human',      // page_views, is_bot IS NOT 1 (the digest predicate)
+  'traffic.page_views_human',      // page_views, is_bot IS NOT 1 AND NOT_INTERNAL (the digest predicate — since AECI-683 that includes the operator-pair retro-join, so rows snapshotted before 2026-08-27 read slightly high)
+  // AECI-745. SNAPSHOT-ONLY: no live fallback, uncovered days are OMITTED (not
+  // zero), `source` is always 'snapshot', and `exclude_internal=1` is a 400.
+  'traffic.page_views_human_after_automation',
   'traffic.page_views_bot',        // page_views, is_bot = 1
   'traffic.unique_visitors',       // DISTINCT (user_agent_hash, cf_asn) per day, HUMANS only
-  'catalog.products_created',      // audit_log action='product.created'
+  // basis=additions (default): audit_log action='<entity>.created'
+  // basis=net:                  live rows, bucketed by their own created_at
+  'catalog.products_created',
   'catalog.integrations_created',
   'catalog.vendors_created',
   'catalog.claims_created',
   'accounts.sign_ins_new',         // profiles.created_at
 ]);
+
+/** Which reading of a `catalog.*` series to serve (AECI-686). `catalog.*` only. */
+export const AdminMetricBasisSchema = z.enum(['additions', 'net']);
 
 export const ADMIN_METRICS_MAX_DAYS = 400;   // = §7.4 page_views retention
 
@@ -1816,12 +2581,14 @@ export const AdminTimeseriesQuerySchema = z.object({
   from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),   // INCLUSIVE UTC date
   to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),     // INCLUSIVE UTC date (from === to is legal)
   interval: z.enum(['day']).default('day'),
+  basis: AdminMetricBasisSchema.default('additions'),   // 400 if 'net' on a non-catalog metric
   exclude_internal: z.enum(['0', '1']).default('0').transform((v) => v === '1'),
 });
 
 export const AdminTimeseriesResponseSchema = z.object({
   metric: AdminMetricKeySchema,
   interval: z.enum(['day']),
+  basis: AdminMetricBasisSchema,   // echoed: the two differ by ~7x on claims
   window: AdminWindowSchema,
   generated_at: z.string().datetime(),
   source: z.enum(['live', 'snapshot', 'mixed']),
@@ -1866,13 +2633,41 @@ One consequence worth stating, because it looks like a bug otherwise:
 that agrees with the chart the caller is drawing; the window-distinct figure is
 `/api/admin/overview`'s `unique_visitors`, which is explicitly scoped to one day.
 
-`catalog.*` count **additions**, never net totals: §4 shows totals are
-unrecoverable (827 `integration.created` events back 496 live rows after the
-2026-07-25 reset), so every `catalog.*` response carries
-`catalog_series_is_additions_only`. `exclude_internal` applies only to `traffic.*`
-— there is no ASN on a catalog or profile row — and a request that asks anyway
-gets `value_excluding_internal: null` plus an `internal_filter_unavailable` note
-naming the metric.
+**`basis` picks which reading of a `catalog.*` series you get (AECI-686).** It is
+rejected with a 400 (`field: 'basis'`) on any non-`catalog.*` metric rather than
+silently downgraded — neither `page_views` nor `profiles` has the delete problem
+this dimension exists to answer, and returning a different reading than the caller
+asked for, unremarked, is the failure mode this endpoint's envelope is shaped
+against.
+
+| | `additions` (default) | `net` |
+|---|---|---|
+| source | `audit_log` `*.created` events | live rows, bucketed by `created_at` |
+| answers | how much work happened | how many records are still here |
+| reconciles with `COUNT(*)` | no | yes, by construction |
+| shows churn | yes | no (300 created + 300 destroyed reads 0) |
+| past values | fixed | **restate** as rows are removed |
+| `metrics_daily` | read and written | bypassed; always `source: 'live'` |
+| `reconstructed` | possible | always `false` |
+| note | `catalog_series_is_additions_only` (+ `catalog_series_starts_at`) | `catalog_series_is_surviving_rows` |
+
+`additions` over-reports whatever has since been deleted — 11,827 `claim.created`
+events back 1,691 live claims in production, because promote **replaces** an
+integration's claims on every push — and under-reports anything created before the
+audit log's first row. `net` has neither problem, and pays for it by attributing a
+removal to the bucket the row was *added* in: nothing records **when** a row was
+removed (there is no `*.deleted` action, and every delete path is raw SQL outside
+the Worker), so that is the only attribution available. `catalog_series_is_surviving_rows`
+states it on every `net` response.
+
+`basis=net` on `catalog.claims_created` additionally carries
+`catalog_claims_recreated_by_promote`: because promote rewrites claim rows, their
+`created_at` is a last-promote date, so the column is a valid count of live claims
+and a poor history of when they arrived.
+
+`exclude_internal` applies only to `traffic.*` — there is no ASN on a catalog or
+profile row — and a request that asks anyway gets `value_excluding_internal: null`
+plus an `internal_filter_unavailable` note naming the metric.
 
 Errors: `VALIDATION_FAILED` (400) for an unknown `metric`, a non-existent date, a
 reversed range (`to < from`), or a window longer than `ADMIN_METRICS_MAX_DAYS`.
@@ -1885,7 +2680,7 @@ Grouped `page_views` counts over a window. Pagination is over **groups** and use
 
 ```typescript
 export const AdminTrafficBreakdownQuerySchema = PageQuerySchema.extend({
-  dimension: z.enum(['source', 'country', 'path', 'product', 'bot']),
+  dimension: z.enum(['source', 'country', 'path', 'product', 'bot', 'asn']),
   from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   traffic: z.enum(['human', 'bot', 'all']).default('human'),
@@ -1898,6 +2693,7 @@ export const AdminBreakdownRowSchema = z.object({
   ref: LinkRefSchema.nullable(),      // hydrated only for dimension=product
   views: z.number().int().nonnegative(),
   views_excluding_internal: z.number().int().nonnegative().nullable(),
+  asn_registry: AdminAsnAnnotationSchema.nullable().default(null),  // dimension=asn only
 });
 
 export const AdminTrafficBreakdownResponseSchema =
@@ -1928,6 +2724,15 @@ Ordering is views desc, then **named groups before the NULL bucket**, then the k
 to `human` (matching §5.2); `dimension=bot` forces the bot population regardless,
 since grouping human rows by `bot_name` returns one empty bucket.
 
+**`dimension=asn`** (AECI-624) groups by `cf_asn` and is the only dimension that
+populates `asn_registry`. `key` is the ASN **stringified**, because
+`AdminBreakdownRowSchema.key` is `string | null` across every dimension; `label`
+is `AS<n>`, the same rendering the Activity feed's visitor column uses, so the two
+screens name a network identically. Annotations are hydrated once per page, not
+per row. A group whose ASN the registry has no record for carries
+`asn_registry: null` — indistinguishable here from the other dimensions' null,
+which is fine because the dimension already tells the reader which case applies.
+
 Errors: `VALIDATION_FAILED` (400) for an unknown `dimension`, a bad/reversed date
 range, an over-long window, or `perPage > 100`.
 
@@ -1950,7 +2755,7 @@ export const AdminSystemResponseSchema = z.object({
   recomputed: z.boolean(),
   notes: z.array(AdminNoteSchema),
   version: AdminVersionStatusSchema,            // the API Worker's — see below
-  crons: z.array(AdminCronRunSchema),           // ALWAYS all eleven
+  crons: z.array(AdminCronRunSchema),           // ALWAYS all thirteen
   data_quality: AdminDataQualityStatusSchema.nullable(),   // null unless ?recompute=1
   algolia: z.object({
     watermark: AdminAlgoliaWatermarkSchema.nullable(),     // null = the sync never ran
@@ -1962,8 +2767,30 @@ export const AdminSystemResponseSchema = z.object({
     tables: z.array(z.object({ table: z.string(), rows: z.number().int().nonnegative() })),
   }),
   stats_freshness: AdminStatsFreshnessSchema,
+  asn_registry: AdminAsnRegistryStatusSchema,   // §7.6 freshness AND reach — see below
+});
+
+/** How fresh, how large, and how far-reaching the §7.6 ASN registry is (AECI-624).
+ *  Two numbers rather than one: freshness measures the last write, coverage
+ *  measures the intersection with a `page_views` that keeps meeting new networks,
+ *  so a registry refreshed this morning can still annotate almost nothing. */
+export const AdminAsnRegistryStatusSchema = z.object({
+  entries: z.number().int().nonnegative(),
+  fetched_at: z.string().datetime().nullable(),  // null = NEVER refreshed (≠ stale)
+  age_hours: z.number().nullable(),
+  stale: z.boolean(),                            // older than TWO refresh intervals (14d)
+  coverage: z.number().min(0).max(1).nullable(), // null when there are no ASNs to cover (0/0 ≠ 0%)
 });
 ```
+
+**Three registry states, and they must not render alike.** `fetched_at: null` is
+**never refreshed**, and it is deliberately **not** `stale: true` — a fresh
+environment has nothing to be stale about, and flagging it would make the one
+state an operator can ignore look like the one they cannot. `stale` means two
+missed Mondays, not one: a single miss is a blip the next run repairs. And
+`coverage: null` means the intersection is undefined rather than empty, because
+0/0 is "not applicable" and rounding it to 0% shows a healthy new environment a
+gauge that reads broken.
 
 *(`window` is listed as absent deliberately: unlike the other three endpoints this
 is a point-in-time system read, not a windowed aggregation, so it carries no
@@ -2028,7 +2855,7 @@ run — an isolate reclaimed mid-flight — renders as *In flight*, never as a p
 mirrors the stored column, and inventing a wire value with no storage counterpart
 would have the API assert an outcome for a run that has none. It is null on
 `derived` and `unknown` rows, where the question does not apply. There is no
-`'stalled'` member: that needs a per-job threshold, and Datadog's no-data monitors
+`'stalled'` member: that needs a per-job threshold, and the external absence check (the AECI-647 CI liveness sweep, which replaced Datadog's no-data monitors)
 remain the alerting authority for a job that stops finishing.
 
 Everything crossing the `job_runs` boundary is treated as untrusted — another
@@ -2090,7 +2917,7 @@ Note codes specific to this endpoint:
 ##### `algolia.orphan_sweep`
 
 Read from the last 09:00 drift run's `job_runs.detail` (AECI-583); it was
-permanently `null` in P1.6 because the sweep reported only to Datadog.
+permanently `null` in P1.6 because the sweep reported only as an emitted metric.
 
 ```typescript
 export const AdminOrphanSweepStatusSchema = z.object({
@@ -2107,7 +2934,7 @@ export const AdminOrphanSweepStatusSchema = z.object({
 completed with one index erroring still produced counts worth showing. `null` means
 **no completed run has stored one** — a fresh environment, or a tier where the drift
 cron skips for want of Algolia credentials. Null is never "clean". The per-index
-`orphan_ids` are deliberately not carried: unbounded, and already in the Datadog log.
+`orphan_ids` are deliberately not carried: unbounded, and already in the forwarded log.
 
 ##### The D1 footprint
 
@@ -2156,9 +2983,14 @@ one would be the false precision §1.1 forbids. The rest of the envelope
 
 **The catalog time series lives elsewhere.** §5.5's "counts over time" and
 "additions per day" are served by `GET /api/admin/metrics/timeseries` with the
-`catalog.*` metric keys — which already carry `catalog_series_is_additions_only`
-and `catalog_series_starts_at`. This endpoint deliberately does **not** duplicate
-that series; the UI calls both.
+`catalog.*` metric keys, which carry their own provenance notes. This endpoint
+deliberately does **not** duplicate that series; the UI calls both.
+
+The screen requests those four series at **`basis=net`** (AECI-686), so each
+column of the table sums to the matching `totals` figure above it for records
+added in the window. The `basis` param is passed explicitly rather than inherited:
+the endpoint defaults to `additions`, which counts audit events and does not
+reconcile.
 
 ##### Gaps — exact counts, capped samples
 
@@ -2282,8 +3114,21 @@ export const AdminPageViewRowSchema = z.object({
   path: z.string().min(1),                 // the stored `path` — see the note below
   entity_type: z.enum(['product', 'vendor']).nullable(),
   entity: LinkRefSchema.nullable(),
-  referrer_source: z.string().nullable(),  // null = UNKNOWN, not Direct
+  referrer_source: z.string().nullable(),  // null = UNKNOWN, not Direct. A CLAIM, never verified
   referrer: z.string().nullable(),         // external HOST only
+  asn_registry: AdminAsnAnnotationSchema.nullable(),  // read-time only; never alters is_bot
+});
+
+/** What the §7.6 ASN registry says about one network (AECI-624). `info_type` is
+ *  the upstream's verbatim word; `network_class` is our coarse reading of it, and
+ *  both travel so a reader can see the claim and the reading separately. */
+export const AdminAsnAnnotationSchema = z.object({
+  asn: z.number().int().positive(),
+  info_type: z.string().nullable(),        // null = listed, but with no type (~29% of PeeringDB)
+  as_name: z.string().nullable(),
+  network_class: z.enum(['eyeball', 'transit', 'non_eyeball', 'unclassified']),
+  source: z.string().min(1),               // 'peeringdb'
+  fetched_at: z.string().datetime(),
 });
 
 export const AdminPageViewsResponseSchema =
@@ -2670,6 +3515,18 @@ export interface PromoteResponse {
   // entries are aggregated per (ref, kind, reason). Always present, `[]` for the
   // ordinary promote of an unclaimed product. Never an error condition.
   preserved: { ref: string; kind: 'claim' | 'attestation'; reason: string; count: number }[];
+  // AECI-730. NOT `skipped[]`: the integration WAS written, only this one optional
+  // link was left out of the write. `outcome: 'unset'` = created, so the column is
+  // NULL; `'preserved'` = updated and the column was left exactly as it was (the
+  // clobber guard). Always emitted (`[]` when clean); optional only so a result
+  // stored by a pre-AECI-730 build still narrows — read it as `?? []`.
+  unresolvedLinks?: {
+    ref: string;
+    field: 'powered_by' | 'built_by';
+    supabaseId: string | null;
+    outcome: 'unset' | 'preserved';
+    reason: string;
+  }[];
 }
 ```
 
@@ -2678,6 +3535,17 @@ only when both endpoints resolve — one is the product in this bundle (`ref`), 
 other must already be promoted (`supabaseId`). Integrations whose other endpoint
 isn't promoted yet land in `skipped[]` rather than failing the promote. Every
 create/update writes an `audit_log` row in the same transaction (§26).
+
+**Optional links are the asymmetric case (AECI-730).** `poweredByProduct` and
+`builtByVendor` are *not* endpoints: an unresolvable one does not refuse the row, so
+the integration lands without that column. Three payload states, matching how
+`compact()` treats every other field: key **absent** → column untouched; explicit
+**`null`** → column cleared; present but **unresolvable** → column untouched **and**
+reported in `unresolvedLinks[]`. That last branch is the fix — it used to write NULL,
+so a re-push whose connector had stopped resolving silently cleared a correct FK.
+Reported post-commit as `aeci.api.promote.unresolved_link{field}` at `info`, not
+`warn`: Zapier and Workato are parked permanently (AECI-700), so the series is
+non-zero by design.
 
 **Claimed-vendor block (Stage 2, AECI-520).** A vendor is **claimed** once AECi
 has granted it a vendor-portal seat — at least one `profiles` row with
@@ -2780,6 +3648,93 @@ with trade-*specific* value carry them.
 Errors: `MALFORMED_REQUEST` (bad JSON), `VALIDATION_FAILED` (schema / duplicate
 `ref` / bad enum), `UNAUTHENTICATED` (token). Full integration guide for the
 review app: `docs/REVIEW_APP_PROMOTE_API.md`.
+
+#### `POST /api/promote/connector-catalog` → `202` + `GET /api/promote/jobs/:id` (Stage 1.5 · AECI-714)
+
+The second arm of the promote family: one **page** of one connector catalogue, mirroring the
+review app's connector-lane model into the six `connector_*` tables (`DATABASE_SCHEMA.md` §9a,
+governed by `STAGE_1_5_SPEC.md` §13). Schemas live in `@aeci/shared`
+(`api/promote-connector.ts`); handler `apps/api/src/routes/promote-kickoff.ts` on the same
+`reviewPromote` sub-router, behind the same `requireReviewAppAuth()`; ingest
+`apps/api/src/routes/promote-connector.ts` over the planner in
+`apps/api/src/lib/promote-connector-catalog.ts`.
+
+**Same job protocol, no new endpoint to poll.** Kick-off returns the identical
+`202 { jobId, status: 'queued' }` with a `Location` header, and the result is served by the
+**existing** `GET /api/promote/jobs/:id`. `PromoteJobResponse['result']` is therefore a union:
+`PromoteResponse` for a product bundle, `PromoteConnectorPageResponse` for a connector page.
+They are told apart by **`'kind' in result`** — `PromoteResponse` deliberately carries no
+`kind`, so absence means product and no existing consumer had to move.
+
+**One page = one complete ADR 0021 job, and atomicity stops there.** Single non-retried
+`step.do`, single `db.batch`, `promote_jobs` ledger row first. Across pages there is
+deliberately none: one ledger row protects one commit. What makes that safe is that the review
+app's record id **is** the app-DB primary key, so every statement is an idempotent upsert and a
+page re-sent with nothing changed writes nothing at all — including no `audit_log` row.
+
+```typescript
+// packages/shared/src/api/promote-connector.ts
+export const PromoteConnectorPagePayloadSchema = z
+  .object({
+    jobId: PromoteJobIdSchema.optional(),
+    catalog: PromoteConnectorCatalogSchema,        // rides EVERY page, not just the first
+    page: z.object({ index: z.number().int().min(0), of: z.number().int().min(1) }),
+    surfaces: z.array(PromoteConnectorSurfaceSchema).default([]),
+    stubs: z.array(PromoteConnectorStubSchema).default([]),
+    mappings: z.array(PromoteConnectorMappingSchema).default([]),
+    pairs: z.array(PromoteConnectorPairSchema).default([]),
+    // Explicit hard deletes. Necessary because in a PAGED mirror absence cannot mean
+    // deletion — a row missing from this page is a row on another page.
+    deleted: z.object({
+      surfaces: z.array(RecordIdSchema).default([]),
+      mappings: z.array(RecordIdSchema).default([]),
+    }).optional(),
+  })
+  .superRefine(/* row ceiling, duplicate ids, canonical pair order, status families */);
+
+export const CONNECTOR_PAGE_MAX_ROWS = 500;   // across every array incl. `deleted`
+
+export interface PromoteConnectorPageResponse {
+  kind: 'connector';                           // the discriminant on the poll result
+  catalogId: string;
+  page: { index: number; of: number };
+  counts: Record<
+    'catalogs' | 'surfaces' | 'stubs' | 'mappings' | 'pairs',
+    { created: number; updated: number; unchanged: number; deleted: number; skipped: number }
+  >;
+  skipped: PromoteSkipped[];                   // always inspect it — see below
+}
+```
+
+**`PromoteSkipped['kind']` gained four values** — `connector-catalog`, `connector-stub`,
+`connector-mapping`, `connector-pair`. All four mean *"this could not be resolved yet"*, never
+*"policy said no"*, and all four are re-sendable. They exist because pages are not atomic with
+each other, so a page can legitimately reference a stub a later page carries, or a product AECi
+has not promoted (Zapier and Workato are `on_hold` review-side). **A caller must inspect
+`skipped[]` even on a clean `complete`**: a full-mirror sync that dropped 200 mappings looks
+identical to one that dropped none.
+
+**Validation that fails fast rather than at commit**, so the caller gets an actionable `400`
+instead of a rolled-back page: the 500-row ceiling, duplicate ids within a page, non-canonical
+pair ordering (`stubAId < stubBId`), a stub-level decision status carrying a `productId`, and
+more than one stub-level decision on the same stub.
+
+**One error code beyond the shared set (AECI-720).** `MALFORMED_REQUEST`,
+`VALIDATION_FAILED`, `PAYLOAD_TOO_LARGE`, `UNAUTHENTICATED` and `DEPENDENCY_FAILURE` cover the
+kick-off. On the job, a page addressing a **vendor-managed** catalogue fails with
+`CATALOG_VENDOR_MANAGED` (§4). The refusal is raised from the planner *before* the
+unpromoted-connector skip — ordering that matters, because a vendor-managed catalogue whose
+platform is unpromoted (the live Zapier/Workato case) would otherwise return a re-sendable skip
+saying "try again later" when the answer is permanently no. `managedBy` is correspondingly **not
+on the wire**: the flag is held and enforced on this side, so a catalogue starts `review` by
+column default and only `PATCH /api/admin/connector-catalogs/:id` moves it.
+
+**No read endpoint shipped with AECI-714.** The coverage checker (AECI-715) and the
+reachable-lane publication (AECI-716) still own their own reads, and §13.7's four-clause
+publication rule only makes sense inside them. **The connector admin screen's five reads have
+since landed** (AECI-722) and are documented in §6.10 above — they render the gate's inputs and
+deliberately do not evaluate it. Full integration guide:
+`docs/REVIEW_APP_PROMOTE_API.md` §3a.
 
 ### 6.13 Landing capture (mailing list + feedback)
 
@@ -2915,7 +3870,13 @@ Errors: `NOT_FOUND` if the granted seat's vendor row has since been deleted.
 
 #### `GET /api/vendor/seats`
 
-The vendor's seat roster. A bare object, never paginated — seats are granted by hand, so the list is bounded. Multi-seat is **flat**: every seat is equal, there is no owner/admin distinction, and self-serve invite/revoke is deferred (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11), so this is read-only.
+The vendor's seat roster plus the caller's own management rights. A bare object, never paginated — a vendor's seat list is bounded.
+
+Multi-seat is **flat in data capability** — every seat edits the same things — but since AECI-664 it is not flat in seat MANAGEMENT: `profiles.seat_owner` gates invite/remove alone (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11a). A seat is an owner if it came from an admin claim grant, and is not if it came from redeeming an invite.
+
+**This read is never capability-gated** (R13, with `GET /api/vendor/me`): a vendor whose entitlement lapsed must still be able to see and manage who has access.
+
+**`token` is deliberately absent from `pending_invites`.** Every seat can read this payload, and a token is the redeem handle — putting it here would let any seat redeem an invite addressed to somebody else's mailbox. Revoking uses the row `id`; the token appears only in the invite email.
 
 ```typescript
 export const VendorSeatSchema = z.object({
@@ -2926,8 +3887,87 @@ export const VendorSeatSchema = z.object({
   banned: z.boolean(),            // per-seat ban never touches vendors.verified
   created_at: z.string().datetime(),
 });
-export const ListVendorSeatsResponseSchema = z.object({ seats: z.array(VendorSeatSchema) });
+  is_self: z.boolean(),           // the caller's own row: labelled "(you)", and
+                                  // never offered a Remove button (a self-remove
+                                  // is a 422 server-side regardless)
+  owner: z.boolean(),             // profiles.seat_owner — shown so a member can
+                                  // see WHO to ask
+});
+
+export const VendorSeatInviteSchema = z.object({
+  id: z.string().uuid(),
+  email: z.string(),
+  invited_by: z.string().nullable(),   // sender's display_name; null once that
+                                       // account is erased (FK is ON DELETE SET
+                                       // NULL — the invite outlives its sender)
+  expires_at: z.string().datetime(),
+  created_at: z.string().datetime(),
+});
+
+export const ListVendorSeatsResponseSchema = z.object({
+  seats: z.array(VendorSeatSchema),
+  pending_invites: z.array(VendorSeatInviteSchema),  // live only: not accepted,
+                                                    // not revoked, not expired
+  can_manage_seats: z.boolean(),                    // the caller's seat_owner
+});
 ```
+
+#### `POST /api/vendor/seats/invites`
+
+Invite a colleague (AECI-664 / §11a). **Owner-only** — `requireVendor()` establishes the vendor, then an in-handler `requireSeatOwner()` re-reads `profiles.seat_owner` from D1 **this request** (a demotion lands on the caller's next call, the same discipline as the `banned_at` re-read).
+
+```typescript
+export const CreateSeatInviteSchema = z.object({
+  email: z.string().trim().min(3).max(320).email(),
+});
+// 201 → { invite: VendorSeatInvite }
+```
+
+The only field is the address: the vendor is the session's, the sender is the session's, and expiry is server policy (14 days). Anything else here would be a client-supplied value on an authorization path.
+
+**Any address is accepted — there is no domain gate.** The endpoint shipped restricted to the vendor's own `website` domain (a 422 `INVITE_DOMAIN_MISMATCH`, since retired along with the code); that restriction was removed, because the people who maintain a listing are routinely off-domain — an agency, a subsidiary, a parent company, a contractor — and only the owner knows which. What bounds the endpoint is unchanged and was never the domain: **owner-only**, an invited seat is never itself an owner, the redeem requires control of the invited mailbox, and the daily cap limits the mail. `computeDomainMatch` still runs, but on the **accept** path and only to set `profiles.work_email_verified` — a signal for the §5 claim reviewer, not a gate.
+
+**Rate-limited**: 10 invites per vendor per rolling 24 h, counted over `vendor_seat_invites` (no KV, no new binding) → **429 `RATE_LIMITED`**. This is the only endpoint on the surface that sends mail on a customer's command.
+
+Errors: `FORBIDDEN` (403, not an owner) · `GRANT_CONFLICT` (409, a live invite for that address already exists) · `RATE_LIMITED` (429) · `VALIDATION_FAILED` (400).
+
+#### `DELETE /api/vendor/seats/invites/:id`
+
+Revoke a pending invite. Owner-only, **204**, and a SOFT delete (`revoked_at`) so "who invited this address and who took it back" stays answerable. A spent or cross-vendor id is a **404**, indistinguishable from one that never existed.
+
+#### `DELETE /api/vendor/seats/:userId`
+
+Remove a colleague's seat — the vendor-side counterpart to AECi's ban action, and the first HTTP surface `revokeSeatStatements` has had. Owner-only, **204**. Drops the row to `reviewer`, unlinks `vendor_id`, clears `seat_owner`, and **never touches `vendors.verified` or the entitlement row** (§8.3(2)).
+
+Refuses self-removal (**422**) — someone leaving hands over first, and self-removal is a support conversation rather than a button that can orphan a vendor. A seat on another vendor is a **404**.
+
+#### `GET /api/seat-invites/:token`
+
+The invitee's preview. Behind **`requireAuth()`, not `requireVendor()`** — the caller is by definition not a `vendor_admin` yet, which is why this lives on its own prefix rather than under `/api/vendor/*` (a non-vendor route under the vendor prefix is a trap for whoever next adds a prefix-level guard).
+
+```typescript
+export const SeatInvitePreviewSchema = z.object({
+  vendor_name: z.string(),
+  email: z.string(),
+  expires_at: z.string().datetime(),
+  redeemable: z.boolean(),
+  reason: z.enum(['ok', 'expired', 'revoked', 'accepted', 'email_mismatch']),
+});
+```
+
+Deliberately thin: the token is in a URL, so treat everything behind it as semi-public. It names the company and nothing else — no inviter identity, no roster, no product list. `email` is echoed because the page has to say *which* address must be signed in, and it is the address the link was already sent to.
+
+**This is a READ.** Mail scanners, link-preview bots and corporate URL rewriters fetch what they are sent; a GET that redeemed would be spent before the human clicked.
+
+#### `POST /api/seat-invites/:token/accept`
+
+Redeem it. `requireAuth()`. Returns `{ vendor_slug, vendor_name }` so the client can land the new seat on `/vendor/:slug/overview`.
+
+**The security control is the email binding, not the token.** The session's verified email must equal the invited address; an ABSENT session email fails closed. Possession of a link therefore grants nothing without control of that mailbox. Single-use, and the spend is guarded on still-pending so two concurrent redeems produce one seat and one audit row.
+
+**`profiles.work_email_verified` is decided here, not at invite time.** `computeDomainMatch(invite.email, vendors.website) === 'match'` sets it; an off-domain redeem leaves it as it was. This moved onto the accept path when the invite-time domain gate was removed: an invited address may now legitimately be off-domain, so "a redeem happened" is not a claim about employment, and the bit means what the §5 reviewer reads it to mean. Like `seat_owner`, it is never cleared — a profile that already earned it keeps it.
+
+Errors: `FORBIDDEN` (422, wrong signed-in address) · `INVALID_STATE_TRANSITION` (422, expired/revoked/already used) · `GRANT_CONFLICT` (409, redeemer is a site admin or already belongs to another vendor) · `NOT_FOUND` (404, unknown token — **with no identifier echoed back**, since the token is the identifier).
 
 #### `GET /api/vendor/notifications`
 
@@ -3045,6 +4085,7 @@ export const UpdateVendorProductSchema = z
     category_slugs: termSlugList.optional(),   // max 10, [a-z0-9-]+
     audience_slugs: termSlugList.optional(),
     phase_slugs: termSlugList.optional(),
+    trade_slugs: termSlugList.optional(),      // AECI-665, the fourth facet
   })
   .superRefine(/* at least one field must be present */);
 
@@ -3052,6 +4093,13 @@ export const UpdateVendorProductResponseSchema = z.object({ product: VendorProdu
 ```
 
 **Taxonomy guard-rail:** a vendor may only **assign terms that already exist**. Minting a term is an AECi curation act, so an unknown slug is a `VALIDATION_FAILED` keyed to the field rather than a silent drop — and nothing is partially applied, because terms are resolved before the batch opens.
+
+**`trade_slugs` (AECI-665)** is the fourth facet (`TRADES_VOCABULARY.md`) and is deliberately **uniform with its three siblings on the wire**: same `termSlugList` cap, same find-only resolution, same set-replacement semantics, same `product.taxonomy.edit` gate. It is **not** given a stricter cap. The `trade` vocabulary is closed and governed — a vendor can never mint `paving-contractors` alongside `paving-asphalt` — but *which* of the 34 seeded terms describe their product is the vendor's call to make and defend. The over-tagging incentive is real (trades are the highest-leverage discovery facet) and is accepted deliberately: the write is audited and reversible, and a "challenge recently-changed trades" review workflow is a **known, deferred** follow-up, not a gap.
+
+Two consequences that do **not** follow the sibling pattern:
+
+- **Cache purge is asymmetric.** A trade change also purges `index:trades`, `taxonomy`, and `sitemap`, because the trade facet is publication-gated — see `CACHE_STRATEGY.md` §2 (`trade:{slug}`) and `STAGE_2_VENDOR_PORTAL_SPEC.md` §4. The three sibling facets purge only their own browse pages.
+- **The picker is unfiltered by the publication floor.** `GET /api/taxonomy → trades` returns every seeded term; the floor gates the SEO surfaces, not tagging. Hiding a sub-floor trade from the picker would make it permanently unreachable, since a vendor tagging it is precisely how it reaches the floor.
 
 Errors: `NOT_FOUND` (unknown id **or** a product owned by another vendor — deliberately indistinguishable), `VALIDATION_FAILED` (empty body, unknown taxonomy slug, malformed URL/slug), `MALFORMED_REQUEST`, `ENTITLEMENT_REQUIRED` (403 — the tier lacks `product.edit`, or lacks `product.taxonomy.edit` when the body carries any facet array, or lacks a specific field's capability via `details.fields`). **Raised only after ownership settles**, so a non-owner still gets the flat 404.
 
@@ -3128,10 +4176,16 @@ Stage 2 (AECI-301, `STAGE_2_ATTESTATIONS_SPEC.md` §5). The surface a Verified v
 | Method | Path | Gate | Success |
 |---|---|---|---|
 | `GET` | `/api/vendor/integrations` | authority | `200 { integrations }` |
-| `POST` | `/api/vendor/claims` | authority **+ verified** | `201 { claim }` |
-| `PUT` | `/api/vendor/claims/:claimId/attestation` | authority **+ verified** | `200 { claim }` |
-| `DELETE` | `/api/vendor/claims/:claimId/attestation` | authority **+ verified** | `204` (no body) |
+| `POST` | `/api/vendor/claims` | authority **+ attestable edge + verified** | `201 { claim }` |
+| `PUT` | `/api/vendor/claims/:claimId/attestation` | authority **+ attestable edge + verified** | `200 { claim }` |
+| `DELETE` | `/api/vendor/claims/:claimId/attestation` | authority **+ verified** — **no edge gate**, deliberately | `204` (no body) |
 | `GET` | `/api/vendor/data-objects` | guard only — **no authority, no verified** | `200 { data_objects }` |
+
+**The edge gate: a connector-powered integration is not attestable (AECI-705 / `STAGE_2_ATTESTATIONS_SPEC.md` §14).** An edge carrying `powered_by_product_id`, or typed `mechanism_kind` `'iPaaS'` **or `'integrator'`** (AECI-721 — an SI or consultancy built it, which is the same "neither endpoint vendor did"), was built by someone other than either endpoint vendor, and that party holds no attestation seat — so `POST` and `PUT` answer **`403 FORBIDDEN`** on it whatever the caller's tier. Three things about that:
+
+- **403, not 404.** The §6.14 non-disclosure rule has already been satisfied by the time this runs — the caller proved it owns an endpoint — and powered-ness is public on the pair page, so there is nothing left to conceal. It reuses `FORBIDDEN` rather than minting a code: the portal already knows from `attestable: false`, so the 403 is a backstop for direct API callers and a new code would need a §4 row no reader would consume.
+- **The order is authority → `404`, edge → `403`, verified → `403`.** Reversed, an unverified vendor on a powered edge is told to get verified in order to author, which verification will never deliver. The connector 403's copy names the connector and never mentions verification, ranking or placement.
+- **`DELETE` is exempt on purpose.** An edge can *become* powered after a vendor has attested (promote sets `powered_by_product_id` late). Gating retract would trap a vendor with a position it can no longer withdraw. Withdrawing is always allowed; only taking a new position is not.
 
 **Authority is the §6.14 ownership rule, one grain up.** `PATCH /api/vendor/products/:id` asks "do you own this product"; these ask "do you own an *endpoint* of this integration", because an integration has **two** vendor-writable slots — `vendor_a` for endpoint A (`integrations.source_product_id`), `vendor_b` for endpoint B. `resolveAttestationSlots` / `resolveClaimAuthority` (`apps/api/src/lib/attestation-authority.ts`) are the single implementation; no handler re-derives the table. A caller owning neither endpoint gets **`404`**, and it is indistinguishable from a resource that does not exist — collapsed into one join result rather than two branches that must be kept identical, so the endpoint cannot be walked as an existence oracle. See `AUTH_AND_RLS.md` §4.2a.
 
@@ -3139,9 +4193,17 @@ Stage 2 (AECI-301, `STAGE_2_ATTESTATIONS_SPEC.md` §5). The surface a Verified v
 
 **A vendor owning both endpoints writes both slots.** `product_vendors` is many-to-many, so one company can hold both. Every write fills every slot the caller owns, so its position cannot self-contradict and `DELETE` genuinely clears. It makes no difference to a reader: `confirmed` requires two **distinct** `attested_by_vendor_id` values, so one company is one voter and still renders `single_source`.
 
-**Direction is caller-relative on the wire, canonical in the DB.** The vendor sends `inbound` / `outbound` / `both` relative to its own product; `claims.direction` stores `a_to_b` / `b_to_a` / `both` relative to the integration row's own endpoints (`STAGE_1_5_SPEC.md` §3.2). `claimDirectionForContext` / `claimDirectionFromContext` (`@aeci/shared`) are the two halves. A caller owning both endpoints is framed from endpoint A.
+**Direction is caller-relative on the wire, canonical in the DB.** The vendor sends `inbound` / `outbound` / `both` relative to its own product; `claims.direction` stores `a_to_b` / `b_to_a` / `both` relative to the integration row's own endpoints (`STAGE_1_5_SPEC.md` §3.2). `claimDirectionForContext` / `claimDirectionFromContext` (`@aeci/shared`) are the two halves.
+
+**Which endpoint the caller is framed from is a parameter (AECI-666).** It used to be pinned to endpoint A, including for a caller owning both. That became wrong when the portal filed Integrations under a product (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.5): an owns-both integration listed under its endpoint-B product would read every direction backwards.
+
+- **On the READ**, `GET /api/vendor/integrations` emits **one entry per owned endpoint**, each framed against the endpoint it is filed under. So **`id` is not unique in the response** — the key is `(id, context_product.id)` — and an owns-both integration appears twice with mirrored `direction`. The two entries are one *position*: `slots`, `mine`, `counterparty` and `agreement` are identical on both.
+- **On the WRITE**, `POST /api/vendor/claims` and `PUT /api/vendor/claims/:claimId/attestation` accept an optional `context_product_id`. On `POST` it decides what is **stored** — "outbound" means opposite things from the two sides — so omitting it for an owns-both caller silently keeps the old endpoint-A default. On `PUT` it only frames the echoed claim. A product the caller does not own **on that integration** is a `400 VALIDATION_FAILED` with `field: "context_product_id"`, never a silent re-frame. Omitted keeps the endpoint-A default, which is unambiguous whenever the caller owns exactly one endpoint.
+- **`mirrorContextDirection`** (`@aeci/shared`) re-frames an already-caller-relative direction against the other endpoint. It exists for the client, which holds only the framed value and has to splice a write echo into the same integration's *other* listing.
 
 **`GET` is not verified-gated**, matching the product-version list: authoring is the Verified capability, reading your own surface is not, so the dashboard renders a read-only tab and explains what verification unlocks.
+
+**`GET` is not edge-gated either — powered edges are flagged, never filtered.** They ship with `attestable: false` and `powered_by` (the connector as a `ProductLink`, `null` on the ~40% whose connector is not a promoted product, where the client falls back to `mechanism_name`). Filtering them would change this endpoint's scoping predicate, and `GET /api/vendor/updates`'s `integrations` cursor must reuse that predicate exactly — with no RLS behind `/api/vendor/*`, that `WHERE` clause *is* the authorization. It would also contradict the vendor's own public pair page, which still shows the edge.
 
 ```typescript
 export const VendorClaimSchema = z.object({
@@ -3161,9 +4223,15 @@ export const VendorIntegrationSchema = z.object({
   name: z.string().nullable(),
   mechanism_kind: IntegrationMechanismKindSchema.nullable(),
   mechanism_name: z.string().nullable(),
-  context_product: ProductLinkSchema,   // the caller's endpoint (A when it owns A)
+  context_product: ProductLinkSchema,   // the endpoint THIS entry is filed under
   other_product: ProductLinkSchema,
   slots: z.array(VendorAttestationSlotSchema).min(1),   // 'vendor_a' | 'vendor_b'
+  // AECI-705. Server-computed; the client never re-derives the predicate.
+  // `.default()` because SSR and API deploy per-commit but not atomically, so
+  // this must still parse a response from an API Worker that predates the field.
+  attestable: z.boolean().default(true),
+  powered_by: ProductLinkSchema.nullable().default(null),  // null when the
+                                        // connector is not a promoted product
   claims: z.array(VendorClaimSchema),
 });
 
@@ -3175,6 +4243,9 @@ export const CreateVendorClaimSchema = z.object({
   integration_id: z.string().uuid(),
   data_object: dataObjectRef,                 // trim, 1..100 — slug OR alias
   direction: ContextDirectionSchema,
+  // Which of the caller's endpoints `direction` is relative to. Omitted =
+  // endpoint A. Load-bearing only when the caller owns BOTH endpoints.
+  context_product_id: z.string().uuid().nullable().optional(),
   note: attestationNote.nullable().optional(), // trim, max 2000
   introduced_version_id: versionId.nullable().optional(),
   deprecated_version_id: versionId.nullable().optional(),
@@ -3182,6 +4253,7 @@ export const CreateVendorClaimSchema = z.object({
 
 export const UpsertVendorAttestationSchema = z.object({
   asserted: z.boolean(),                       // required — a PUT states a position
+  context_product_id: z.string().uuid().nullable().optional(),  // frames the ECHO only
   note: attestationNote.nullable().optional(),
   introduced_version_id: versionId.nullable().optional(),
   deprecated_version_id: versionId.nullable().optional(),
@@ -3216,7 +4288,7 @@ It is the **one `/api/vendor/*` route with no `vendor_id` filter**, and that is 
 
 **`aliases` is deliberately absent from the wire.** The picker submits a canonical slug, which always resolves, so alias matching buys nothing here; shipping them would invite a client-side match that reimplements `safeSlugify`, and a second matcher is the drift `lib/data-object-vocabulary.ts` was extracted to eliminate. They are resolver metadata ("ITB", "P6", "AP"), not translatable copy. `id` is absent because nothing on the surface takes one, and `display_order` because the array arrives ordered. An unseeded vocabulary is `200 { data_objects: [] }`, never a 500 — the dashboard degrades the add affordance rather than losing the tab. *Errors: none beyond the guard's.*
 
-**A duplicate claim identity is a `400` carrying `details.claim_id`.** `claims_identity_key` is `(integration_id, data_object_id, direction)`, so the collision is narrow — claims anchor to the *mechanism row*, and two mechanisms moving the same data object between the same products are two independent claims. The existing id is returned so the UI can pivot to `PUT` rather than dead-ending.
+**A duplicate claim identity is a `400` carrying `details.claim_id`.** `claims_identity_key` is `(anchor_id, data_object_id, direction)` — where `anchor_id` is the claim's mechanism row in whichever delivered-tier table holds it (AECI-721) — so the collision is narrow — claims anchor to the *mechanism row*, and two mechanisms moving the same data object between the same products are two independent claims. The existing id is returned so the UI can pivot to `PUT` rather than dead-ending.
 
 **`PUT` replaces; it does not patch.** Supersession is **retract-then-insert** (§2.1), never an `UPDATE` — the old row keeps its `id` and gains `retracted_at`, because AECI-303's version-diff timeline reads the append-only history. There is therefore no prior row to leave a field alone on: an omitted `note` or version stamp lands as `null`. The retract clears whatever holds a slot the caller owns (the partial unique index makes that last-write-wins); `DELETE` retracts only the caller's **own** rows, so withdrawing your position never withdraws someone else's.
 

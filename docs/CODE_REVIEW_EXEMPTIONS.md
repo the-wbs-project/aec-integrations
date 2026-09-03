@@ -137,11 +137,45 @@ added: 2026-08-12
 added_by: claude (AECI-573)
 ```
 
-**Justification.** `STAGE_1_SPEC.md` §26.1 formerly read as an absolute — "every write path … no state change without a corresponding audit entry" — and reviewers were correctly flagging every unaudited write against it. **ADR 0022 scopes that invariant to *domain state*.** Derived and log-class writes are exempt when they are all three of: computed entirely from data already in the database (or an append-only event / lead-capture log), invisible on every public surface, and reproducible by re-running the job. That covers `stats_cache` (the 07:00 home-stats job and the Algolia sync watermark), the denormalized product counters, `page_views`, `mailing_list` / `feedback` (already documented in `API_CONTRACTS.md` §6.9/§6.13), and `metrics_daily` / `job_runs` (`ADMIN_PANEL_SPEC.md` §7.1/§7.2, **shipped 2026-08-13** with AECI-581 and AECI-583). Observability for these is `job_runs` plus Datadog.
+**Justification.** `STAGE_1_SPEC.md` §26.1 formerly read as an absolute — "every write path … no state change without a corresponding audit entry" — and reviewers were correctly flagging every unaudited write against it. **ADR 0022 scopes that invariant to *domain state*.** Derived and log-class writes are exempt when they are all three of: computed entirely from data already in the database (or an append-only event / lead-capture log), invisible on every public surface, and reproducible by re-running the job. That covers `stats_cache` (the 07:00 home-stats job and the Algolia sync watermark), the denormalized product counters, `page_views`, `mailing_list` / `feedback` (already documented in `API_CONTRACTS.md` §6.9/§6.13), and `metrics_daily` / `job_runs` (`ADMIN_PANEL_SPEC.md` §7.1/§7.2, **shipped 2026-08-13** with AECI-581 and AECI-583). Observability for these is `job_runs` plus the emitted metrics (PostHog — ADR 0024).
 
 **This exemption is narrow, and two things fall outside it — keep flagging them.** (1) **Domain-state writes always audit, regardless of actor.** A cron or `actorType: 'system'` write that touches the catalog, users, reviews, claims, requests, or workflows is *not* exempt — the test is entity class, not actor class. The `*/15` reconciliation sweep mutating `vendor_requests` / `workflow_instances` in `apps/api/src/lib/linear.ts` is a real violation and has its own issue; do not treat this entry as covering it. (2) **Scheduled `DELETE`s always audit** — exactly one summary row per run (`action='retention.pruned'`, `metadata={table, cutoff, rowsDeleted}`) in the same batch as the delete. A retention cron that deletes without one is a finding.
 
 `permanent` because it records where a spec boundary sits, not a deferral. It expires only if ADR 0022 is superseded.
+
+**The connector-catalogue sync is deliberately *not* in this entry.** `promote-connector-catalog.ts` / `promote-connector.ts` audit — they are domain state — just at run granularity, which is a different question with a different answer. They are **EX-003**, whose matchers name that carve-out rather than the audit vocabulary, precisely so a *missing* audit row in those files still surfaces (AECI-734).
+
+---
+
+### EX-003 — Connector-catalogue sync audits once per run, not per row (ADR 0022 amendment)
+
+```yaml
+id: EX-003
+scope:
+  paths:
+    - apps/api/src/lib/promote-connector-catalog.ts
+    - apps/api/src/routes/promote-connector.ts
+  categories:
+    - Audit logging
+  finding_matches:
+    - "per-row audit"
+    - "audit per row"
+    - "one audit row per page"
+    - "run granularity"
+    - "once per run"
+    - "connector_catalog.synced"
+severity: any
+expiry: permanent
+status: active
+added: 2026-09-02
+added_by: claude (AECI-734)
+```
+
+**Justification.** This is a **signpost, not an exemption** — the connector-catalogue sync mirrors domain state and it *does* audit, inside the same `db.batch` as the mutation, exactly as §26.1 requires. The only question it settles is *granularity*, and ADR 0022's **2026-08-31 amendment** plus `STAGE_1_SPEC.md` §26.1 already answered it: **one `connector_catalog.synced` summary row per page**, carrying the per-table counts and the page cursor, and **no row at all when the page changes nothing** (`apps/api/src/lib/promote-connector-catalog.ts` "Rule 4"; the row is pushed into the batch at `apps/api/src/routes/promote-connector.ts:181`). Per-row auditing would deposit tens of thousands of near-identical entries per sync into a table nothing prunes (§26.6) while answering no question the summary does not. So the finding this entry suppresses is exactly one: *"this bulk sync should emit an `audit_log` row per mirrored row."* A reviewer who lands here should read the ADR amendment rather than re-litigate it.
+
+**What it does NOT suppress — keep flagging all three.** (1) A connector-sync write path that emits **no** audit row at all, or emits one **outside** the `db.batch` — that is an ordinary §26.1 violation and this entry's matchers are written so it does not match. (2) A **decision-bearing** write on the same tables — flipping `connector_catalogs.managed_by` (AECI-720, `routes/admin-connector-catalogs.ts`) audits **per row** like every other domain-state write; ADR 0022:97 names it as the bound. (3) The AECI-571 replay-guard ordering: the `promote_jobs` ledger row stays **first** in the batch, never with `ON CONFLICT DO NOTHING`.
+
+`permanent` because it records where a spec boundary sits, not a deferral. It expires only if the ADR 0022 amendment is superseded.
 
 ---
 

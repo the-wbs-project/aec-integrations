@@ -4,7 +4,8 @@
  *
  * D1 has no interactive transactions — only atomic `db.batch([...])`. Like
  * `lib/audit.ts` and `lib/vendor-grant.ts`, each builder RETURNS the Drizzle
- * statements (plus the audit entry the caller forwards to Datadog post-commit)
+ * statements (plus the audit entry the caller forwards post-commit — §26.5, PostHog
+ * beside Datadog for the AECI-639 dual-run)
  * rather than executing them, so the entitlement row, the mirror flip, and the
  * `audit_log` row all commit or roll back as one unit (§26.1 — no state change
  * without an audit row).
@@ -138,9 +139,10 @@ export interface ActivateEntitlementParams {
   /** The vendor's `verified` BEFORE the write. Drives `verified_flipped`, and lets a
    *  drifted `verified = 1`-with-no-row vendor self-heal without churning `updated_at`. */
   vendorWasVerified: boolean;
-  /** `profiles.id` of the granting admin — the SEVENTH inbound FK to `profiles`
-   *  (R6). The spec said "eighth" because it counted against a table that still
-   *  listed `page_views.user_id`; AECI-585 had already dropped that one. */
+  /** `profiles.id` of the granting admin — one of the eight inbound FKs to
+   *  `profiles` (R6). `AUTH_AND_RLS.md` §8 is the live register; count it there
+   *  rather than here, because an ordinal in a comment goes stale every time a
+   *  table is added (this one has already been renumbered twice). */
   grantedBy?: string | null;
   /** The claim this came from, when it came from one (§6). */
   sourceRequestId?: string | null;

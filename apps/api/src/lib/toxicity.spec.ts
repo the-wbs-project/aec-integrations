@@ -5,21 +5,22 @@
  * The contract under test: the call NEVER throws and fails open to `null` for
  * every failure mode (absent key, non-2xx, network error, timeout, malformed /
  * unparseable payload), and maps the model's reply to a clamped 0–100 integer.
- * Global `fetch` is stubbed; `DD_API_KEY` is unset so the `warn` path is a no-op.
+ * Global `fetch` is stubbed; `POSTHOG_PROJECT_KEY` is unset so the `warn` path is a no-op.
  */
 
 import type { Context } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { submitCount, submitDistribution } from '../datadog';
+import { submitCount, submitDistribution } from '../posthog';
 import type { Env } from '../env';
 import { scoreToxicity } from './toxicity';
 
 // AECI-206 / AECI-258: the `aeci.toxicity.api*` observability pair rides the
 // shared transport; mock it so we can assert the per-branch outcome/latency. The
-// file also imports `logToDatadog` (the `warn` path).
-vi.mock('../datadog', () => ({
-  logToDatadog: vi.fn(),
+// file also imports `logToPosthog` (the `warn` path).
+vi.mock('../posthog', () => ({
+  logToPosthog: vi.fn(),
+  logBatchToPosthog: vi.fn(),
   submitCount: vi.fn(),
   submitDistribution: vi.fn(),
   submitGauge: vi.fn(),
@@ -48,10 +49,10 @@ beforeEach(() => {
   vi.mocked(submitDistribution).mockClear();
 });
 
-/** Minimal context the function reads: env + the Datadog logging triple. */
+/** Minimal context the function reads: env + the telemetry logging triple. */
 function fakeContext(env: Partial<Env> = {}): ScoreContext {
   return {
-    env: { DD_API_KEY: undefined, ...env } as Env,
+    env: { POSTHOG_PROJECT_KEY: undefined, ...env } as Env,
     executionCtx: { waitUntil: () => {}, passThroughOnException: () => {} },
     req: { raw: new Request('https://api.test/api/reviews', { method: 'POST' }) },
   } as unknown as ScoreContext;

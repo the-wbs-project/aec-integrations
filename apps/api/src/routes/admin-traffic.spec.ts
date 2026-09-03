@@ -108,9 +108,30 @@ describe('GET /api/admin/traffic/breakdown — every dimension', () => {
     expect(body.dimension).toBe('source');
     expect(body.traffic).toBe('human');
     expect(body.data).toEqual([
-      { key: 'Direct', label: 'Direct', ref: null, views: 2, views_excluding_internal: null },
-      { key: 'Google', label: 'Google', ref: null, views: 1, views_excluding_internal: null },
-      { key: null, label: 'Unattributed', ref: null, views: 1, views_excluding_internal: null },
+      {
+        key: 'Direct',
+        label: 'Direct',
+        ref: null,
+        views: 2,
+        views_excluding_internal: null,
+        asn_registry: null,
+      },
+      {
+        key: 'Google',
+        label: 'Google',
+        ref: null,
+        views: 1,
+        views_excluding_internal: null,
+        asn_registry: null,
+      },
+      {
+        key: null,
+        label: 'Unattributed',
+        ref: null,
+        views: 1,
+        views_excluding_internal: null,
+        asn_registry: null,
+      },
     ]);
     // Dropping the null bucket is how a source breakdown starts claiming
     // attribution it does not have: the groups must reconcile to window_total.
@@ -122,9 +143,30 @@ describe('GET /api/admin/traffic/breakdown — every dimension', () => {
   it('country: groups by cf_country with an Unknown bucket', async () => {
     const body = await breakdown(`dimension=country&${RANGE}`);
     expect(body.data).toEqual([
-      { key: 'ID', label: 'ID', ref: null, views: 2, views_excluding_internal: null },
-      { key: 'US', label: 'US', ref: null, views: 1, views_excluding_internal: null },
-      { key: null, label: 'Unknown', ref: null, views: 1, views_excluding_internal: null },
+      {
+        key: 'ID',
+        label: 'ID',
+        ref: null,
+        views: 2,
+        views_excluding_internal: null,
+        asn_registry: null,
+      },
+      {
+        key: 'US',
+        label: 'US',
+        ref: null,
+        views: 1,
+        views_excluding_internal: null,
+        asn_registry: null,
+      },
+      {
+        key: null,
+        label: 'Unknown',
+        ref: null,
+        views: 1,
+        views_excluding_internal: null,
+        asn_registry: null,
+      },
     ]);
   });
 
@@ -145,6 +187,7 @@ describe('GET /api/admin/traffic/breakdown — every dimension', () => {
         ref: { id: u(1), name: 'Procore', slug: 'procore' },
         views: 2,
         views_excluding_internal: null,
+        asn_registry: null,
       },
       {
         key: u(2),
@@ -152,6 +195,7 @@ describe('GET /api/admin/traffic/breakdown — every dimension', () => {
         ref: { id: u(2), name: 'Revit', slug: 'revit' },
         views: 1,
         views_excluding_internal: null,
+        asn_registry: null,
       },
     ]);
     // Non-product views are not a product, so the groups sum to LESS than
@@ -163,8 +207,22 @@ describe('GET /api/admin/traffic/breakdown — every dimension', () => {
     const body = await breakdown(`dimension=bot&${RANGE}&traffic=human`);
     expect(body.traffic).toBe('bot');
     expect(body.data).toEqual([
-      { key: 'Googlebot', label: 'Googlebot', ref: null, views: 1, views_excluding_internal: null },
-      { key: null, label: 'Other bot', ref: null, views: 1, views_excluding_internal: null },
+      {
+        key: 'Googlebot',
+        label: 'Googlebot',
+        ref: null,
+        views: 1,
+        views_excluding_internal: null,
+        asn_registry: null,
+      },
+      {
+        key: null,
+        label: 'Other bot',
+        ref: null,
+        views: 1,
+        views_excluding_internal: null,
+        asn_registry: null,
+      },
     ]);
     expect(body.window_total.total).toBe(2);
   });
@@ -240,10 +298,91 @@ describe('GET /api/admin/traffic/breakdown — validation and conventions', () =
     });
     expect(body.window_total).toEqual({ total: 4, excluding_internal: 2 });
     expect(body.data).toEqual([
-      { key: 'ID', label: 'ID', ref: null, views: 2, views_excluding_internal: 0 },
-      { key: 'US', label: 'US', ref: null, views: 1, views_excluding_internal: 1 },
+      {
+        key: 'ID',
+        label: 'ID',
+        ref: null,
+        views: 2,
+        views_excluding_internal: 0,
+        asn_registry: null,
+      },
+      {
+        key: 'US',
+        label: 'US',
+        ref: null,
+        views: 1,
+        views_excluding_internal: 1,
+        asn_registry: null,
+      },
       // NULL cf_asn survives the filter.
-      { key: null, label: 'Unknown', ref: null, views: 1, views_excluding_internal: 1 },
+      {
+        key: null,
+        label: 'Unknown',
+        ref: null,
+        views: 1,
+        views_excluding_internal: 1,
+        asn_registry: null,
+      },
+    ]);
+  });
+
+  it('drops operator-session views from the breakdown and from window_total', async () => {
+    // §13 D13 — unconditional, with no toggle and no `excluding_internal` pairing:
+    // an operator session is internal BY CONSTRUCTION (like the §9.6 path rule),
+    // not a heuristic over real visitors the way `ANALYTICS_INTERNAL_ASNS` is. It
+    // is therefore subtracted from `total` itself rather than reported beside it.
+    await seed();
+    await t.db.insert(pageViews).values([
+      {
+        path: '/products/:slug',
+        productId: u(2),
+        isBot: false,
+        referrerSource: 'Google',
+        cfCountry: 'US',
+        cfAsn: 7922,
+        isOperator: true,
+        createdAt: '2026-08-10T04:00:00.000Z',
+      },
+      {
+        path: '/',
+        isBot: false,
+        referrerSource: 'Direct',
+        cfCountry: 'ID',
+        cfAsn: 23700,
+        isOperator: true,
+        createdAt: '2026-08-10T05:00:00.000Z',
+      },
+    ]);
+
+    const body = await breakdown(`dimension=country&${RANGE}`);
+    // The four seeded rows only — the two operator rows are absent, so US stays
+    // at 1 and ID at 2 rather than inheriting the operator's browsing.
+    expect(body.window_total).toEqual({ total: 4, excluding_internal: null });
+    expect(body.data).toEqual([
+      {
+        key: 'ID',
+        label: 'ID',
+        ref: null,
+        views: 2,
+        views_excluding_internal: null,
+        asn_registry: null,
+      },
+      {
+        key: 'US',
+        label: 'US',
+        ref: null,
+        views: 1,
+        views_excluding_internal: null,
+        asn_registry: null,
+      },
+      {
+        key: null,
+        label: 'Unknown',
+        ref: null,
+        views: 1,
+        views_excluding_internal: null,
+        asn_registry: null,
+      },
     ]);
   });
 

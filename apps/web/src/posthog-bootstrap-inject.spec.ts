@@ -11,7 +11,7 @@ function makeEnv(overrides: Partial<WebEnv> = {}): WebEnv {
   return {
     ASSETS: {} as Fetcher,
     API: {} as Fetcher,
-    POSTHOG_KEY: 'phc_abc',
+    POSTHOG_PROJECT_KEY: 'phc_abc',
     POSTHOG_HOST: 'https://us.i.posthog.com',
     ENV: 'preview',
     ...overrides,
@@ -19,12 +19,12 @@ function makeEnv(overrides: Partial<WebEnv> = {}): WebEnv {
 }
 
 describe('buildPostHogPublicConfig', () => {
-  it('returns null when POSTHOG_KEY is missing', () => {
-    expect(buildPostHogPublicConfig(makeEnv({ POSTHOG_KEY: undefined }))).toBeNull();
+  it('returns null when POSTHOG_PROJECT_KEY is missing', () => {
+    expect(buildPostHogPublicConfig(makeEnv({ POSTHOG_PROJECT_KEY: undefined }))).toBeNull();
   });
 
-  it('returns null when POSTHOG_KEY is an empty string', () => {
-    expect(buildPostHogPublicConfig(makeEnv({ POSTHOG_KEY: '' }))).toBeNull();
+  it('returns null when POSTHOG_PROJECT_KEY is an empty string', () => {
+    expect(buildPostHogPublicConfig(makeEnv({ POSTHOG_PROJECT_KEY: '' }))).toBeNull();
   });
 
   it('defaults host to US Cloud when POSTHOG_HOST is absent', () => {
@@ -49,11 +49,11 @@ describe('buildPostHogBootstrapScript', () => {
   });
 
   it('returns null when the key is missing', () => {
-    expect(buildPostHogBootstrapScript(makeEnv({ POSTHOG_KEY: '' }))).toBeNull();
+    expect(buildPostHogBootstrapScript(makeEnv({ POSTHOG_PROJECT_KEY: '' }))).toBeNull();
   });
 
   it('escapes "<" so a stray key value cannot break out of the script', () => {
-    const script = buildPostHogBootstrapScript(makeEnv({ POSTHOG_KEY: 'a</script>b' }));
+    const script = buildPostHogBootstrapScript(makeEnv({ POSTHOG_PROJECT_KEY: 'a</script>b' }));
     expect(script).not.toBeNull();
     expect(script).not.toContain('</script>b');
     expect(script).toContain('\\u003c/script>b');
@@ -78,7 +78,7 @@ describe('injectPostHogBootstrap', () => {
 
   it('returns the original response when config is missing', async () => {
     const res = htmlResponse('<html><head></head><body/></html>');
-    const out = await injectPostHogBootstrap(res, makeEnv({ POSTHOG_KEY: '' }));
+    const out = await injectPostHogBootstrap(res, makeEnv({ POSTHOG_PROJECT_KEY: '' }));
     expect(out).toBe(res);
   });
 
